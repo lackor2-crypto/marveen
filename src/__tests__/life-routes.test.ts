@@ -507,3 +507,50 @@ describe('POST /api/life/config -- a szemelyek kozos mappaja (Csalad)', () => {
     expect(r.body.message).toContain('Archív')
   })
 })
+
+// #376: az Athelyezes bekotott mappan a MOGOTTE LEVO valodi tarolot vitte el
+// (a resolveLifePath a bekotes celjara fordit), es a bekotes a semmibe
+// mutatott tovabb. Az Atnevezes es a Kuka mar orizte ezt -- az Athelyezes nem.
+describe('POST /api/life/move -- bekotest nem szakit el', () => {
+  const setup = async () => {
+    mkdirSync(join(depot, 'MvTarolo', 'belso'), { recursive: true })
+    writeFileSync(join(depot, 'MvTarolo', 'belso', 'irat.txt'), 'x')
+    mkdirSync(join(depot, 'MvFa'), { recursive: true })
+    mkdirSync(join(depot, 'MvMasik'), { recursive: true })
+    const add = ctxFor('/api/life/mounts', 'POST', { rel: 'MvFa/Kotes', target: 'MvTarolo' })
+    await tryHandleLife(add.ctx)
+    expect(add.out.body.ok).toBe(true)
+  }
+
+  it('a bekotott mappat nem mozgatja, a valodi tarolo a helyen marad', async () => {
+    await setup()
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa/Kotes', to: 'MvMasik' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('mounted')
+    expect(existsSync(join(depot, 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
+    expect(existsSync(join(depot, 'MvMasik', 'MvTarolo'))).toBe(false)
+  })
+
+  it('bekotest tartalmazo mappat sem mozgat', async () => {
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa', to: 'MvMasik' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('has_mounts')
+    expect(existsSync(join(depot, 'MvFa'))).toBe(true)
+  })
+
+  it('bekotes celjat sem mozgatja el', async () => {
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvTarolo', to: 'MvMasik' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('is_target')
+    expect(existsSync(join(depot, 'MvTarolo'))).toBe(true)
+  })
+
+  it('angol feluleten angol mondatot ad', async () => {
+    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvFa/Kotes', to: 'MvMasik' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.body.message).toMatch(/linked|link/i)
+  })
+})

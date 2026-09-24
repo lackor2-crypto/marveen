@@ -18,7 +18,7 @@
 // mert ket helyen ketfele igazsag lenne belole (27. pont szelleme).
 import { existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { json, readBody } from '../http-helpers.js'
+import { json, readBody, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotRoot } from '../../depot.js'
 import {
@@ -109,6 +109,7 @@ function parseKind(v: unknown): StorageKind | null {
 
 export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
+  const lang = reqLang(req, ctx.url)
   if (!path.startsWith('/api/storages')) return false
 
   if (path === '/api/storages' && method === 'GET') {
@@ -128,7 +129,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
     const b = await readJson(req)
     const kind = parseKind(b?.kind)
     const account = String(b?.account || '').trim()
-    if (!kind || !account) { json(res, { error: 'Hiányzik a tároló azonosítója.' }, 400); return true }
+    if (!kind || !account) { json(res, { error: L(lang, 'Hiányzik a tároló azonosítója.', 'The storage ID is missing.') }, 400); return true }
     const reg = renameStorage(readStorageRegistry(), kind, account, String(b?.name || ''))
     writeStorageRegistry(reg)
     json(res, { ok: true, rows: currentRows() })
@@ -139,7 +140,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
     const b = await readJson(req)
     const kind = parseKind(b?.kind)
     const account = String(b?.account || '').trim()
-    if (!kind || !account) { json(res, { error: 'Hiányzik a tároló azonosítója.' }, 400); return true }
+    if (!kind || !account) { json(res, { error: L(lang, 'Hiányzik a tároló azonosítója.', 'The storage ID is missing.') }, 400); return true }
     const reg = setStorageActive(readStorageRegistry(), kind, account, b?.active !== false)
     writeStorageRegistry(reg)
     json(res, {
@@ -172,7 +173,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
         if (!existsSync(abs)) { mkdirSync(abs, { recursive: true }); created = abs }
       } catch (e) {
         logger.warn({ err: String(e), abs }, '[storages] a git-fiok mappaja nem jott letre')
-        json(res, { error: 'A fiók felkerült, de a mappáját nem sikerült létrehozni. Nézd meg, írható-e a raktár.' }, 500)
+        json(res, { error: L(lang, 'A fiók felkerült, de a mappáját nem sikerült létrehozni. Nézd meg, írható-e a raktár.', 'The account was added, but its folder could not be created. Check that the depot is writable.') }, 500)
         return true
       }
     }
@@ -189,7 +190,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/storages/git-token' && method === 'POST') {
     const b = await readJson(req)
     const account = String(b?.account || '').trim()
-    if (!account) { json(res, { error: 'Hiányzik a fiók neve.' }, 400); return true }
+    if (!account) { json(res, { error: L(lang, 'Hiányzik a fiók neve.', 'The account name is missing.') }, 400); return true }
     if (b?.remove === true) {
       removeGitToken(account)
       json(res, { ok: true, message: 'A kulcs törölve. A már lehúzott repók a helyükön maradnak, csak frissülni nem fognak.', rows: currentRows() })
@@ -300,7 +301,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
     const kind = parseKind(b?.kind)
     const account = String(b?.account || '').trim()
     const row = currentRows().find((r) => r.kind === kind && r.account === account)
-    if (!row) { json(res, { error: 'Nincs ilyen tároló.' }, 404); return true }
+    if (!row) { json(res, { error: L(lang, 'Nincs ilyen tároló.', 'No such storage.') }, 404); return true }
     // EMBERI mondat, nem allapotkod: ez a sor arra valaszol, hogy "mukodik-e".
     const parts: string[] = []
     parts.push(row.present

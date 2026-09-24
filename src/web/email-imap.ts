@@ -215,9 +215,16 @@ export function checkImapAccountConfig(accountId: string): ImapFastPathStatus {
 
 type ImapClientState = { client: ImapFlow; idleTimer: NodeJS.Timeout | null }
 const clients = new Map<string, ImapClientState>()
-// Gmail a tetlen IMAP-kapcsolatot ~30 perc utan zarja; 4 percenkent egy NOOP
-// bosegesen belul van, es a halott socketet is idejeben kideriti.
-const KEEPALIVE_MS = 4 * 60_000
+// Gmail a tetlen IMAP-kapcsolatot ~30 perc utan zarja -- de a SAJAT
+// socketTimeout-unk sokkal hamarabb: ImapFlow a nem-IDLE kapcsolaton (itt
+// disableAutoIdle) a socketTimeout-nyi csend utan 'Socket timeout' hibaval
+// ELDOBJA a kapcsolatot. A NOOP-nak tehat a socketTimeout ELOTT kell mennie,
+// kulonben soha nem fut le: 2026-09-24-en merve (#376) minden dashboard-
+// indulas utan mind a 10 fiok ~60 mp-cel a bejelentkezes utan "Socket
+// timeout"-tal esett ki, a 4 perces NOOP egyszer sem ert oda, es minden
+// levelnyitas ujra kifizette a ~10 mp-es Gmail-bejelentkezest.
+export const IMAP_SOCKET_TIMEOUT_MS = 60_000
+export const KEEPALIVE_MS = 45_000
 
 function scheduleKeepalive(accountId: string): void {
   const state = clients.get(accountId)
@@ -268,7 +275,7 @@ async function connectClient(accountId: string): Promise<ImapFlow | null> {
     disableAutoIdle: true, // reused on-demand, not a live-updating mailbox watcher
     connectionTimeout: 15_000,
     greetingTimeout: 10_000,
-    socketTimeout: 60_000,
+    socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
     clientInfo: { name: 'Marveen' },
   })
   client.on('error', (err: Error) => {

@@ -248,6 +248,11 @@ function mainAgentId() {
         headers.set('Authorization', 'Bearer ' + token)
         init.headers = headers
       }
+      // The UI language, so server messages come back in it (#376).
+      init = init || {}
+      const lh = new Headers(init.headers || (input instanceof Request ? input.headers : undefined))
+      if (!lh.has('X-Ui-Lang')) lh.set('X-Ui-Lang', window._lang === 'en' ? 'en' : 'hu')
+      init.headers = lh
     }
     const res = await originalFetch(input, init)
     if (res.status === 401 && isSameOriginApi) {

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
-import { readBody, json } from '../http-helpers.js'
+import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { cacheGet, cacheGetStale, cacheSet, refreshInBackground, singleFlight } from '../email-list-cache.js'
 import { readAttachmentFlags, saveAttachmentFlags } from '../email-attachment-flag-store.js'
 import type { CacheEntry } from '../email-list-cache.js'
@@ -928,6 +928,7 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
 
 export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
+  const lang = reqLang(req, ctx.url)
 
   if (path === '/api/email/accounts' && method === 'GET') {
     json(res, getAccounts())
@@ -1108,7 +1109,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       if (!r.ok) logger.warn(`[email] mailbox delete failed (${name}): ${himalayaErrorText(r)}`)
       return { name, ok: r.ok }
     }))
-    if (results.some(r => !r.ok)) { json(res, { error: 'Néhány címke törlése nem sikerült', results }, 502); return true }
+    if (results.some(r => !r.ok)) { json(res, { error: L(lang, 'Néhány címke törlése nem sikerült', 'Some labels could not be deleted'), results }, 502); return true }
     mailboxListCache.delete(data.account as string)
     json(res, { ok: true })
     return true
@@ -1216,7 +1217,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const id = url.searchParams.get('id')
     if (!isKnownAccount(account) || !id) { json(res, { error: 'account and id required' }, 400); return true }
     const body = await readMessageBody(account as string, mailbox, id)
-    if ('error' in body) { json(res, { error: body.error, notFound: body.notFound }, 502); return true }
+    if ('error' in body) { json(res, { error: body.notFound ? L(lang, body.error, 'The message is no longer available.') : body.error, notFound: body.notFound }, 502); return true }
     json(res, body)
     return true
   }
@@ -1620,7 +1621,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     let msgHtml = html || ''
     if (!msgText && !msgHtml) {
       const msg = await readMessageBody(account as string, mb, id)
-      if ('error' in msg) { json(res, { error: msg.error, notFound: msg.notFound }, 502); return true }
+      if ('error' in msg) { json(res, { error: msg.notFound ? L(lang, msg.error, 'The message is no longer available.') : msg.error, notFound: msg.notFound }, 502); return true }
       msgText = msg.text
       msgHtml = msg.html
     }

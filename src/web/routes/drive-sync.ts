@@ -39,7 +39,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { execFile } from 'node:child_process'
 import { PROJECT_ROOT } from '../../config.js'
-import { readBody, json } from '../http-helpers.js'
+import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotAccountDir, depotHealth, depotRoot, DEPOT_DRIVE, DEPOT_SYSTEM_ROOT } from '../../depot.js'
 import { driveDownloadPlan, driveUploadMime, isSafeFolderId } from './drive-browser.js'
@@ -1773,6 +1773,7 @@ function reuploadItems(items: Array<{ id: string; pairId: string; driveId: strin
 
 export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
+  const lang = reqLang(req, ctx.url)
 
   if (path === '/api/drive/sync' && method === 'GET') {
     const cfg = loadSyncConfig()
@@ -1827,9 +1828,9 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     // legyen. hiszen ez total szinkronnak kellene lennie" -- a Drive gyokerenel
     // (`root`) ezert NEM kerunk mappanevet: nev nelkul a tartalom a fiok sajat
     // mappajaba kerul, extra szint nelkul, vagyis a szerkezet AZONOS a Drive-eval.
-    if (!account) { json(res, { error: 'hiányzik a fiók' }, 400); return true }
-    if (!name && folderId !== 'root') { json(res, { error: 'hiányzik a mappa neve' }, 400); return true }
-    if (!isSafeFolderId(folderId)) { json(res, { error: 'érvénytelen mappa-azonosító' }, 400); return true }
+    if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }
+    if (!name && folderId !== 'root') { json(res, { error: L(lang, 'hiányzik a mappa neve', 'the folder name is missing') }, 400); return true }
+    if (!isSafeFolderId(folderId)) { json(res, { error: L(lang, 'érvénytelen mappa-azonosító', 'invalid folder ID') }, 400); return true }
     const health = depotHealth()
     if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
     const cfg = loadSyncConfig()
@@ -1849,7 +1850,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     // futasban ujra letoltene az egeszet. Ezert inkabb kimondjuk.
     if (folderId !== 'root' && cfg.pairs.some((p) => p.account === account && p.folderId === 'root')) {
       json(res, {
-        error: `A(z) ${account} TELJES Drive-ja már szinkronizálva van – ezen belül minden mappa magától jön.`,
+        error: L(lang, `A(z) ${account} TELJES Drive-ja már szinkronizálva van – ezen belül minden mappa magától jön.`, `The WHOLE Drive of ${account} is already synced, so every folder inside it comes along automatically.`),
         code: 'whole_drive_exists',
       }, 409)
       return true
@@ -1913,14 +1914,14 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     const rel = String(ctx.url.searchParams.get('path') || '')
     const account = String(ctx.url.searchParams.get('account') || '')
     if (!depotRoot()) {
-      json(res, { error: 'Nincs raktár beállítva – a Beállításokban add meg, hova kerüljenek a fájljaid.', code: 'no_depot' }, 409)
+      json(res, { error: L(lang, 'Nincs raktár beállítva – a Beállításokban add meg, hova kerüljenek a fájljaid.', 'No depot is set up. In Settings, choose where your files should go.'), code: 'no_depot' }, 409)
       return true
     }
     const abs = resolveLifePath(rel)
     let mappa = false
     try { mappa = !!abs && statSync(abs).isDirectory() } catch { mappa = false }
     if (!abs || !mappa) {
-      json(res, { error: `Ez a mappa nincs meg a raktárban: ${rel || 'a raktár gyökere'}`, code: 'no_dir' }, 404)
+      json(res, { error: L(lang, `Ez a mappa nincs meg a raktárban: ${rel || 'a raktár gyökere'}`, `This folder is not in the depot: ${rel || 'the depot root'}`), code: 'no_dir' }, 404)
       return true
     }
     const kizart = mentesAgHiba(rel)
@@ -1976,14 +1977,14 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
     const account = String(data.account || '')
     const rel = String(data.path || '')
-    if (!account) { json(res, { error: 'hiányzik a fiók' }, 400); return true }
+    if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }
     const health = depotHealth()
     if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
     const abs = resolveLifePath(rel)
     let mappa = false
     try { mappa = !!abs && statSync(abs).isDirectory() } catch { mappa = false }
     if (!abs || !mappa) {
-      json(res, { error: `Ez a mappa nincs meg a raktárban: ${rel || 'a raktár gyökere'}`, code: 'no_dir' }, 404)
+      json(res, { error: L(lang, `Ez a mappa nincs meg a raktárban: ${rel || 'a raktár gyökere'}`, `This folder is not in the depot: ${rel || 'the depot root'}`), code: 'no_dir' }, 404)
       return true
     }
     const kizart = mentesAgHiba(rel)
@@ -2008,7 +2009,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
       folderId = await ensureDriveFolderByName(mentesMappaNev(rel), mentesGyoker, token)
     } catch (err: any) {
       json(res, {
-        error: `A Drive-on nem tudtam létrehozni a mentés-mappát: ${String(err?.message || err).slice(0, 200)}`,
+        error: L(lang, `A Drive-on nem tudtam létrehozni a mentés-mappát: ${String(err?.message || err).slice(0, 200)}`, `Could not create the backup folder on Drive: ${String(err?.message || err).slice(0, 200)}`),
         code: 'drive_error',
       }, 502)
       return true
@@ -2046,14 +2047,14 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/drive/sync/run' && method === 'POST') {
-    if (job?.running) { json(res, { error: 'A szinkronizálás már fut.', code: 'already_running', job }, 409); return true }
+    if (job?.running) { json(res, { error: L(lang, 'A szinkronizálás már fut.', 'The sync is already running.'), code: 'already_running', job }, 409); return true }
     const health = depotHealth()
     if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
     const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
     const only = String(data.id || '')
     const cfg = loadSyncConfig()
     const pairs = only ? cfg.pairs.filter((p) => p.id === only) : cfg.pairs
-    if (!pairs.length) { json(res, { error: 'nincs szinkronizálandó mappa', code: 'no_pairs' }, 400); return true }
+    if (!pairs.length) { json(res, { error: L(lang, 'nincs szinkronizálandó mappa', 'there is no folder to sync'), code: 'no_pairs' }, 400); return true }
     job = {
       running: true,
       runId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -2147,7 +2148,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     // kattintassal frissiti az egesz kepet.
     const fiokok = kert ? [kert] : [...new Set(loadSyncConfig().pairs.map((p) => String(p.account || '')).filter(Boolean))]
     if (!fiokok.length) {
-      json(res, { error: 'Nincs bekötött Drive-mappa, ezért nincs mit megmérni.', code: 'no_pairs' }, 400)
+      json(res, { error: L(lang, 'Nincs bekötött Drive-mappa, ezért nincs mit megmérni.', 'No Drive folder is connected, so there is nothing to measure.'), code: 'no_pairs' }, 400)
       return true
     }
     const merve: string[] = []
@@ -2221,7 +2222,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
       return true
     }
     if (typeof data.enabled !== 'boolean') {
-      json(res, { error: 'Hiányzik, hogy be- vagy kikapcsoljam a védelmet.', code: 'bad_request' }, 400)
+      json(res, { error: L(lang, 'Hiányzik, hogy be- vagy kikapcsoljam a védelmet.', 'It is missing whether to turn the protection on or off.'), code: 'bad_request' }, 400)
       return true
     }
     setExternalGuardEnabled(data.enabled)

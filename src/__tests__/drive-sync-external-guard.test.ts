@@ -116,7 +116,7 @@ describe('a REST vegpont a modult szolgaltatja ki, nem talal ki semmit', () => {
 
   it('POST: hianyos test eseten emberi hibauzenet + gepi kod, nem csendes 200', () => {
     expect(route).toContain("if (typeof data.enabled !== 'boolean')")
-    expect(route).toContain("json(res, { error: 'Hiányzik, hogy be- vagy kikapcsoljam a védelmet.', code: 'bad_request' }, 400)")
+    expect(route).toContain("json(res, { error: L(lang, 'Hiányzik, hogy be- vagy kikapcsoljam a védelmet.', 'It is missing whether to turn the protection on or off.'), code: 'bad_request' }, 400)")
   })
 })
 

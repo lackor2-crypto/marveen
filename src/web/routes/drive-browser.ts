@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { PROJECT_ROOT } from '../../config.js'
-import { readBody, json } from '../http-helpers.js'
+import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { parseMultipart } from '../multipart.js'
 import { logger } from '../../logger.js'
 import { googleAccountNames } from './accounts.js'
@@ -208,6 +208,7 @@ export function isSafeFolderId(id: string): boolean {
 
 export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
+  const lang = reqLang(req, ctx.url)
 
   if (path === '/api/drive/accounts' && method === 'GET') {
     json(res, googleAccountNames())
@@ -454,7 +455,7 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
     const plan = driveDownloadPlan(fileId, url.searchParams.get('mimeType'), name)
     if (plan.unsupported) {
       // Gepi kod is megy vissza, hogy a dashboard a sajat nyelven tudjon szolni.
-      json(res, { error: `Ez a Google-fajltipus nem tolthetó le: ${plan.unsupported}`, code: 'unsupported_google_type' }, 400)
+      json(res, { error: L(lang, `Ez a Google-fajltipus nem tolthetó le: ${plan.unsupported}`, `This Google file type cannot be downloaded: ${plan.unsupported}`), code: 'unsupported_google_type' }, 400)
       return true
     }
     try {

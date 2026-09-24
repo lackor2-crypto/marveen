@@ -82,3 +82,15 @@ describe('parseImapServer', () => {
     expect(parseImapServer('garbage')).toBeNull()
   })
 })
+
+// #376: ImapFlow drops a non-IDLE connection after socketTimeout of silence,
+// so the keepalive NOOP must fire BEFORE that -- otherwise it never runs and
+// every mail open pays the full Gmail login again (measured 2026-09-24: all
+// accounts fell out with "Socket timeout" ~60 s after login).
+import { KEEPALIVE_MS, IMAP_SOCKET_TIMEOUT_MS } from '../web/email-imap.js'
+describe('IMAP keepalive vs socket timeout', () => {
+  it('sends the NOOP well before the socket times out', () => {
+    expect(KEEPALIVE_MS).toBeGreaterThan(0)
+    expect(KEEPALIVE_MS).toBeLessThanOrEqual(IMAP_SOCKET_TIMEOUT_MS * 0.8)
+  })
+})

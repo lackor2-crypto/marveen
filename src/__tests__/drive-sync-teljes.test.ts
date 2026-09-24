@@ -33,7 +33,7 @@ describe('a gyokerhez nem kell mappanev', () => {
   it('a hianyzo nev csak NEM-gyokernel hiba', () => {
     expect(route).toContain("if (!name && folderId !== 'root')")
     // A fiok viszont tovabbra is kotelezo: enelkul nem tudjuk, kihez tartozik.
-    expect(route).toContain("if (!account) { json(res, { error: 'hiányzik a fiók' }, 400); return true }")
+    expect(route).toContain("if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }")
   })
 
   it('a mappa-azonosito kapuja valtozatlanul ott van (a `root` atmegy rajta)', () => {
