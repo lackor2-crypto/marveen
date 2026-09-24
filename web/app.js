@@ -36275,6 +36275,131 @@ function _intezoSetBadgeMode(mode) {
   _intezoRender()
 }
 
+/**
+ * NEZET (kartya #373): 'details' = a reszletes lista (tablazat), 'small' /
+ * 'medium' = ikonracs belyegkeppel, mint a Raktar -> Fotok. Boss, 2026-09-24:
+ * a kepek eddig csak .jpg nevekkent latszottak. A valasztas NEZET, nem adat:
+ * a bongeszoben marad.
+ */
+const _INTEZO_VIEW_MODES = ['details', 'small', 'medium']
+function _intezoViewMode() {
+  let m = ''
+  try { m = localStorage.getItem('intezoViewMode') || '' } catch (e) { /* privat mod */ }
+  return _INTEZO_VIEW_MODES.indexOf(m) >= 0 ? m : (window._intezoViewModeMem || 'details')
+}
+function _intezoSetViewMode(mode) {
+  if (_INTEZO_VIEW_MODES.indexOf(mode) < 0) mode = 'details'
+  window._intezoViewModeMem = mode
+  try { localStorage.setItem('intezoViewMode', mode) } catch (e) { /* privat mod: marad a memoriaban */ }
+  _intezoRender()
+}
+
+/**
+ * BELYEGKEPEK. A szerver (`/api/life/thumb`) keszit egy kicsinyitett JPEG-et;
+ * a bongeszo a Bearer-es fetch-csel kerheti le, ezert blob URL lesz belole (egy
+ * sima <img src=/api/...> 401-et kapna).
+ *
+ * Gyorsitotar ut + modositasi ido szerint: a lista ujrarajzolasa (kijeloles,
+ * tartalom-frissites) ne toltse le ujra ugyanazt, es ne villogjon. Ha a fajl
+ * valtozik, uj mtime = uj kulcs. A regi blobokat egy felso korlat folott
+ * felszabaditjuk.
+ */
+const _intezoThumbCache = new Map()
+const _INTEZO_THUMB_CACHE_MAX = 600
+let _intezoThumbObserver = null
+let _intezoThumbActive = 0
+const _intezoThumbQueue = []
+
+function _intezoThumbKey(rel, mtime) { return rel + '\u0000' + (mtime || '') }
+
+function _intezoThumbRemember(key, val) {
+  _intezoThumbCache.delete(key)
+  _intezoThumbCache.set(key, val)
+  while (_intezoThumbCache.size > _INTEZO_THUMB_CACHE_MAX) {
+    const oldest = _intezoThumbCache.keys().next().value
+    const v = _intezoThumbCache.get(oldest)
+    _intezoThumbCache.delete(oldest)
+    if (v && v.url) { try { URL.revokeObjectURL(v.url) } catch (e) { /* mar nincs */ } }
+  }
+}
+
+function _intezoThumbApply(box, val) {
+  const tile = box.closest('.intezo-tile')
+  if (val && val.url) {
+    let img = box.querySelector('img')
+    if (!img) { img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; box.appendChild(img) }
+    img.src = val.url
+    box.classList.add('has-thumb')
+  } else if (val && val.fail) {
+    box.classList.add('no-thumb')
+    // A "nincs elonezet" OKA a buborekba kerul (pl. nincs FFmpeg telepitve) --
+    // egy nema ikon nem mondja meg, hogy hiba-e vagy csak ilyen a fajl.
+    if (tile) tile.title = val.fail + '\n\n' + (tile.title || '')
+  }
+}
+
+async function _intezoThumbFetch(box) {
+  const rel = box.getAttribute('data-thumb')
+  const key = _intezoThumbKey(rel, box.getAttribute('data-mtime'))
+  if (_intezoThumbCache.has(key)) { _intezoThumbApply(box, _intezoThumbCache.get(key)); return }
+  let val
+  try {
+    const res = await fetch('/api/life/thumb?lang=' + (window._lang || 'hu') + '&rel=' + encodeURIComponent(rel))
+    if (res.ok) {
+      val = { url: URL.createObjectURL(await res.blob()) }
+    } else {
+      const d = await res.json().catch(() => ({}))
+      val = { fail: d.message || t('intezo.thumb_none') }
+    }
+  } catch (e) {
+    // Halozati hiba: NEM jegyezzuk meg, a kovetkezo rajzolas ujra probalja.
+    return
+  }
+  _intezoThumbRemember(key, val)
+  // Kozben ujrarajzolodhatott a lista: a friss dobozokra is rakerul.
+  document.querySelectorAll('#intezoList [data-thumb]').forEach((b) => {
+    if (b.getAttribute('data-thumb') === rel && _intezoThumbKey(rel, b.getAttribute('data-mtime')) === key) _intezoThumbApply(b, val)
+  })
+}
+
+function _intezoThumbPump() {
+  // Egyszerre legfeljebb negy keres: a bongeszo kapcsolat-korlatja mogott a
+  // tobbi API-hivas (lista, kereses) ne alljon sorba a kepek miatt.
+  while (_intezoThumbActive < 4 && _intezoThumbQueue.length) {
+    const box = _intezoThumbQueue.shift()
+    if (!box.isConnected) continue
+    _intezoThumbActive++
+    _intezoThumbFetch(box).finally(() => { _intezoThumbActive--; _intezoThumbPump() })
+  }
+}
+
+function _intezoObserveThumbs(list) {
+  if (_intezoThumbObserver) { _intezoThumbObserver.disconnect(); _intezoThumbObserver = null }
+  _intezoThumbQueue.length = 0
+  const boxes = Array.from(list.querySelectorAll('[data-thumb]'))
+  const pending = []
+  for (const b of boxes) {
+    const v = _intezoThumbCache.get(_intezoThumbKey(b.getAttribute('data-thumb'), b.getAttribute('data-mtime')))
+    if (v) _intezoThumbApply(b, v)
+    else pending.push(b)
+  }
+  if (!pending.length) return
+  if (typeof IntersectionObserver === 'undefined') {
+    pending.forEach((b) => _intezoThumbQueue.push(b)); _intezoThumbPump(); return
+  }
+  // Csak ami a kepernyo koze er (Fotok, Boss 2026-08-15: a lap aljan levo
+  // kepek kulonben a sor vegen alltak).
+  _intezoThumbObserver = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue
+      _intezoThumbObserver.unobserve(en.target)
+      _intezoThumbQueue.push(en.target)
+    }
+    _intezoThumbPump()
+  }, { rootMargin: '300px' })
+  pending.forEach((b) => _intezoThumbObserver.observe(b))
+}
+
 async function _intezoGet(url) {
   if (url.indexOf('/api/life/') === 0 && url.indexOf('lang=') < 0) {
     url += (url.indexOf('?') < 0 ? '?' : '&') + 'lang=' + (window._lang || 'hu')
@@ -36332,6 +36457,14 @@ async function loadIntezoPage() {
   const mode = _intezoBadgeMode()
   const active = document.querySelector('input[name="intezoBadge"][value="' + mode + '"]')
   if (active) active.checked = true
+  const viewSel = document.getElementById('intezoViewMode')
+  if (viewSel) {
+    viewSel.value = _intezoViewMode()
+    if (!viewSel._intezoBound) {
+      viewSel._intezoBound = 1
+      viewSel.addEventListener('change', () => _intezoSetViewMode(viewSel.value))
+    }
+  }
 
   // BEERKEZO-LANC (specifikacio 22-23.).
   bind('inboxRefreshBtn', 'click', () => _inboxRefresh())
@@ -37309,12 +37442,24 @@ function _intezoPlaceInfoCard() {
   if (card.hidden) return
   const list = document.getElementById('intezoList')
   if (!list) return
-  const rows = list.querySelectorAll('tr[data-rel]')
+  const rows = list.querySelectorAll('tr[data-rel], .intezo-tile[data-rel]')
   let host = null
   for (const r of rows) { if (r.getAttribute('data-rel') === _intezoSelected.rel) { host = r; break } }
   // Ha a kijelolt tetel nincs a mostani listaban (mas mappaba leptunk),
   // marad az allando helyen -- nem tuntetjuk el, csak nem tolakszik.
   if (!host) return
+  if (host.classList.contains('intezo-tile')) {
+    // IKONRACS (#373): a panel a kijelolt csempe SORA ala kerul, teljes
+    // szelessegben -- nem a csempe utan, mert az kettevagna a sort.
+    let after = host
+    for (let n = host.nextElementSibling; n && n.offsetTop === host.offsetTop; n = n.nextElementSibling) after = n
+    const box = document.createElement('div')
+    box.id = 'intezoInlineRow'
+    box.style.cssText = 'grid-column:1/-1;padding:0 0 10px'
+    after.parentNode.insertBefore(box, after.nextSibling)
+    box.appendChild(card)
+    return
+  }
   const tr = document.createElement('tr')
   tr.id = 'intezoInlineRow'
   const td = document.createElement('td')
@@ -37362,6 +37507,49 @@ function _faBeerkezo(entry) {
   return nev === 'Beérkező' || nev === 'Inbox'
 }
 
+/**
+ * IKONRACS (kartya #373) -- kis vagy kozepes csempek, mint a Windows Intezo
+ * ikon-nezete es a Raktar -> Fotok. Kepnel/videonal belyegkep (lustan
+ * toltve, `_intezoObserveThumbs`), minden masnal a mappa/fajl ikon. A csempe
+ * ugyanazokat a data-* jeloloket viseli, mint a tablazat sora, igy a kezelok
+ * kozosek.
+ */
+function _intezoGridHtml(rows, view) {
+  return '<div class="intezo-grid intezo-grid-' + (view === 'small' ? 'small' : 'medium') + '">'
+    + rows.map((e) => {
+      const name = e.displayName || e.name
+      const tip = [name, _faSugo(e), e.caution, e.isDir ? '' : e.sizeHuman, _intezoDateText(e)]
+        .filter(Boolean).join('\n')
+      const media = !e.isDir && (e.media === 'image' || e.media === 'video') ? e.media : ''
+      const bg = _intezoSelected && _intezoSelected.rel === e.rel ? ' intezo-tile-selected'
+        : (_faBeerkezo(e) ? ' intezo-tile-inbox' : '')
+      return '<div class="intezo-tile ' + (e.isDir ? 'intezo-dir' : 'intezo-file')
+        + (e.archived ? ' intezo-archived' : '') + bg + '"'
+        + ' data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '" data-pick="1"'
+        + ' title="' + escapeHtml(tip) + '">'
+        + '<div class="intezo-tile-thumb"'
+        + (media ? ' data-thumb="' + escapeHtml(e.rel) + '" data-mtime="' + escapeHtml(e.mtime || '') + '"' : '') + '>'
+        + '<span class="intezo-tile-icon" aria-hidden="true">'
+        + (e.isDir ? '📁' : media === 'image' ? '🖼️' : media === 'video' ? '🎞️' : '📄') + '</span>'
+        + (media === 'video' ? '<span class="intezo-tile-play" role="img" aria-label="'
+            + escapeHtml(t('intezo.thumb_video')) + '">▶</span>' : '')
+        + (e.physical ? '<span class="intezo-tile-corner" title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')
+        + '</div>'
+        + '<div class="intezo-tile-name">' + _intezoBadge(e) + ' '
+        + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
+        + (e.caution ? ' style="color:var(--danger,#d33)"' : '') + '>' + escapeHtml(name) + '</a></div>'
+        + '<div class="intezo-tile-btns">'
+        + '<button class="btn-secondary intezo-archive-toggle" data-archive="' + escapeHtml(e.rel) + '"'
+        + ' aria-pressed="' + (e.archived ? 'true' : 'false') + '"'
+        + ' title="' + escapeHtml(t(e.archived ? 'intezo.unarchive_title' : 'intezo.archive_title')) + '"'
+        + ' aria-label="' + escapeHtml(t(e.archived ? 'intezo.unarchive_title' : 'intezo.archive_title')) + '">'
+        + (e.archived ? '↩' : '📦') + '</button>'
+        + '<button class="btn-secondary" data-info="' + escapeHtml(e.rel) + '">Info</button>'
+        + '</div></div>'
+    }).join('')
+    + '</div>'
+}
+
 function _intezoRender() {
   // A panelt MINDIG le kell valasztani, mielott a lista ujraepul.
   _intezoDetachInfoCard()
@@ -37401,7 +37589,12 @@ function _intezoRender() {
   // Méret" -- like the Windows Explorer). The badge column and the button
   // column stay, without a caption. The date and type columns drop on a
   // narrow (phone) screen via CSS, the name and the size stay.
-  list.innerHTML = '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse">'
+  // NEZET (kartya #373): kis / kozepes ikonoknal racs belyegkeppel. A
+  // kezelok (kijeloles, belepes, jobb klikk, archival, Info) mindket nezetben
+  // ugyanazok -- a [data-rel]/[data-pick] elemekre ulnek, nem a <tr>-re.
+  const view = _intezoViewMode()
+  list.innerHTML = view !== 'details' ? _intezoGridHtml(rows, view)
+    : '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse">'
     + '<thead><tr class="intezo-head">'
     + '<th></th>'
     + '<th>' + escapeHtml(t('intezo.col_name')) + '</th>'
@@ -37478,7 +37671,7 @@ function _intezoRender() {
     a.addEventListener('click', (e) => {
       e.preventDefault()
       const rel = a.getAttribute('data-open')
-      const row = a.closest('tr')
+      const row = a.closest('[data-rel]')
       // Ha eppen celt valasztunk (athelyezes / papir helye), a kattintas
       // BELEP a mappaba -- a kivalasztas kulon gombbal tortenik, hogy egy
       // fel-kattintas ne helyezzen at semmit.
@@ -37490,7 +37683,7 @@ function _intezoRender() {
   // BAL KLIKK A SOR BARMELY PONTJARA = kijeloles/kijeloles-levetel.
   // A neven levo link es az Info gomb sajat kezelot kap, azok elol kiterunk:
   // a nev BELEP, ez pedig KIJELOL -- ket kulon szandek, ket kulon hely.
-  list.querySelectorAll('tr[data-pick]').forEach((tr) => {
+  list.querySelectorAll('[data-pick]').forEach((tr) => {
     tr.style.cursor = 'pointer'
     tr.addEventListener('click', (ev) => {
       if (ev.target && ev.target.closest && ev.target.closest('a[data-open],button')) return
@@ -37500,9 +37693,18 @@ function _intezoRender() {
     })
   })
 
+  // IKONRACS (#373): dupla kattintas a mappa-csempen = belepes, mint a
+  // Windows Intezoben. (A nev linkje tovabbra is egy kattintasra belep.)
+  list.querySelectorAll('.intezo-tile[data-dir="1"]').forEach((tile) => {
+    tile.addEventListener('dblclick', (ev) => {
+      if (ev.target && ev.target.closest && ev.target.closest('button')) return
+      _intezoOpen(tile.getAttribute('data-rel'))
+    })
+  })
+
   // JOBB EGERGOMB a sorokon. A sor teljes szelessegen mukodik, nem csak a
   // neven -- aki jobbra, az ures reszre kattint, ugyanugy a sort erti alatta.
-  list.querySelectorAll('tr[data-rel]').forEach((tr) => {
+  list.querySelectorAll('[data-rel]').forEach((tr) => {
     tr.addEventListener('contextmenu', (ev) => {
       const rel = tr.getAttribute('data-rel')
       const e = rows.find((x) => x.rel === rel)
@@ -37533,6 +37735,7 @@ function _intezoRender() {
 
   _intezoScheduleContentRefresh(rows)
   _intezoPlaceInfoCard()
+  _intezoObserveThumbs(list)
   void _intezoTreeSync()
 }
 
@@ -38763,7 +38966,7 @@ if (!window._intezoMenuBound) {
     // A sorok sajat menut kapnak (a sor tetelere vonatkozot), a beviteli
     // mezokon es gombokon pedig a bongeszo sajat menuje a hasznos (masolas,
     // beillesztes, link megnyitasa uj lapon).
-    if (t.closest('tr[data-rel]')) return
+    if (t.closest('tr[data-rel], .intezo-tile[data-rel]')) return
     if (t.closest('input,textarea,select,a,button,.intezo-ctxmenu')) return
     void _intezoOpenMenu(e, null)
   })

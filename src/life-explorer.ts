@@ -37,6 +37,7 @@ import { displayLabelFor, moveDisplayLabels } from './life-labels.js'
 import { isArchived, moveArchivedPrefix, dropArchivedPrefix } from './life-archived.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
+import { thumbMediaKind } from './life-thumbs.js'
 import { lifeHint, personHint, personsGroupHint, companyHint, samplePersonHint, sampleCompanyHint,
   devKnowledgeHint, devMoreHint, projectHint } from './life-hints.js'
 
@@ -105,6 +106,8 @@ export interface LifeEntry {
   sizeHuman: string
   /** Modositas ideje ISO-ban, vagy ures, ha nem tudtuk megallapitani. */
   mtime: string
+  /** Kep vagy video (belyegkep kerheto hozza), kulonben `null`. */
+  media?: 'image' | 'video' | null
   source: {
     kind: string; label: string; short: string; icon: string
     /** `DRIVE_01` -- vagy `null`, ha nem allapithato meg (20. pont). */
@@ -548,6 +551,8 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     size: isDir ? 0 : st.size,
     sizeHuman: isDir ? '' : humanSize(st.size),
     mtime: (() => { try { return st.mtime.toISOString() } catch { return '' } })(),
+    // Kep/video -> a felulet belyegkepet kerhet hozza (#373, GET /api/life/thumb).
+    media: isDir ? null : thumbMediaKind(name),
     // A `storageId` MAR A LISTABAN ott van, nem csak az informacios panelen:
     // a jelveny buborekja igy meg tudja mondani, MELYIK Drive-rol jott a sor
     // (20. pont). `null`, ha nem tudjuk -- kitalalni tilos.
