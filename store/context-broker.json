@@ -1,0 +1,11 @@
+{
+  "designated": null,
+  "updatedAt": 1788717707893,
+  "cleanStart": false,
+  "handBackAfterSeconds": 0,
+  "roles": {
+    "planner": null,
+    "implementer": "vscode:tozsde",
+    "checker": null
+  }
+}

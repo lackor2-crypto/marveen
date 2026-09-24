@@ -1,0 +1,3 @@
+{"ts": "2026-09-06T20:01:29", "agent": "unknown", "tool": "Edit", "op": "edit", "target": "SENTINEL-1788717688823-3udaqgo9bzw", "cwd": "/home/boss/marveen/.worktrees/fejlesztes-83321629"}
+{"ts": "2026-09-06T20:01:29", "agent": "unknown", "tool": "Bash", "op": "delete", "target": "rm -rf /tmp/SENTINEL-1788717688823-3udaqgo9bzw-del", "cwd": "/home/boss/marveen/.worktrees/fejlesztes-83321629"}
+{"ts": "2026-09-06T20:01:29", "agent": "unknown", "tool": "Bash", "op": "move", "target": "mv /tmp/SENTINEL-1788717688823-3udaqgo9bzw-a /tmp/SENTINEL-1788717688823-3udaqgo9bzw-b", "cwd": "/home/boss/marveen/.worktrees/fejlesztes-83321629"}

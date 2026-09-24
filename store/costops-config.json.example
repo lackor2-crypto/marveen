@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "currency": "HUF",
+  "_doc": "CostOps local config. Copy to store/costops-config.json and fill in real values. Amounts are per month. No secrets/API keys here -- put those in the Vault.",
+  "fixed_costs": [
+    {
+      "source_id": "anthropic-max",
+      "name": "Claude Max",
+      "provider": "anthropic",
+      "source_type": "subscription",
+      "amount": 0,
+      "period": "monthly",
+      "charge_category": "subscription",
+      "confidence": "manual"
+    },
+    {
+      "source_id": "openai-chatgpt",
+      "name": "ChatGPT",
+      "provider": "openai",
+      "source_type": "subscription",
+      "amount": 0,
+      "period": "monthly",
+      "confidence": "manual"
+    },
+    {
+      "source_id": "github",
+      "name": "GitHub",
+      "provider": "github",
+      "source_type": "saas",
+      "amount": 0,
+      "period": "monthly",
+      "confidence": "manual"
+    },
+    {
+      "source_id": "hosting",
+      "name": "Hosting",
+      "provider": "other",
+      "source_type": "hosting",
+      "amount": 0,
+      "period": "monthly",
+      "confidence": "manual"
+    },
+    {
+      "source_id": "domain",
+      "name": "Domain",
+      "provider": "other",
+      "source_type": "domain",
+      "amount": 0,
+      "period": "monthly",
+      "confidence": "manual"
+    }
+  ],
+  "budgets": [
+    {
+      "id": "global-monthly",
+      "name": "Global monthly",
+      "scope": "global",
+      "amount": 0,
+      "warning_threshold": 0.8,
+      "hard_threshold": 1
+    }
+  ]
+}
