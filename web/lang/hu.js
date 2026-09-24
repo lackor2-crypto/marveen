@@ -4242,6 +4242,9 @@ window._i18n.hu = {
   // --- Kod-hid: chat fulek (2026-08-23) ---
   'cb.card.account_badge_tip': 'A gépeden futó VS Code Claude Code végrehajtó (a saját előfizetéseddel).',
   'cb.card.external_badge': 'külső programozó',
+  'cb.card.where_wsl': '{folder} · WSL',
+  'cb.card.where_windows': '{folder} · Windows',
+  'cb.card.where_linux': '{folder} · Linux',
   'cb.card.external_note': 'Külső program: a gépeden futó VS Code Claude Code, a saját előfizetéseddel. Nem Marveen-ügynök — a Marveen csak eléri és utasítja. Bármit programoz, magát a Marveent is.',
   'cb.card.ctx_value':      'kontextus: {n}k token',
   'cb.card.ctx_short':      '{n}k',

@@ -5897,6 +5897,35 @@ function cbRoleHolder(project) {
   return project ? 'vscode:' + project : ''
 }
 
+// Kanban #372: every code-bridge card carries the same title (the code bot's
+// name), so two projects looked like two identical "Marvin VS Code" cards. The
+// line under the name says WHICH folder it is and WHERE it lives. Both are read
+// from the project's own workspacePath -- nothing host-specific is baked in:
+//   \\wsl.localhost\<distro>\...  or  \\wsl$\<distro>\...  -> WSL
+//   C:\...  (any drive letter)                            -> Windows
+//   /...                                                    -> Linux
+// Anything else names only the folder: we do not guess a platform.
+function cbWorkspaceKind(path) {
+  const p = String(path || '').trim()
+  if (/^[\\/]{2}wsl(\.localhost|\$)[\\/]/i.test(p)) return 'wsl'
+  if (/^[a-z]:[\\/]/i.test(p)) return 'windows'
+  if (p.startsWith('/')) return 'linux'
+  return ''
+}
+
+function cbProjectLine(e) {
+  const path = String((e && e.workspacePath) || '').replace(/[\\/]+$/, '')
+  const folder = path.split(/[\\/]/).filter(Boolean).pop() || (e && e.project) || ''
+  if (!folder) return ''
+  // Literal keys, so the lang-parity check sees every one of them.
+  switch (cbWorkspaceKind(path)) {
+    case 'wsl': return t('cb.card.where_wsl', { folder })
+    case 'windows': return t('cb.card.where_windows', { folder })
+    case 'linux': return t('cb.card.where_linux', { folder })
+    default: return folder
+  }
+}
+
 function cbCardBotNote() {
   const bot = codeBridgeCards.bot
   if (!bot || bot.reason === 'ok') return ''
@@ -6482,6 +6511,8 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     const subFull = [e.title, e.desc].filter(Boolean).join(' · ')
     // A leiras-sor MAR CSAK akkor all ki, ha van mondanivaloja (bot-hiba).
     const sub = shortDesc(botNote)
+    // #372: the folder + WSL/Windows line, so two cards of the same bot differ.
+    const where = rows.length ? cbProjectLine(e) : ''
     card.innerHTML = `
       <div class="agent-card-badges">
         <span class="agent-account-badge" title="${escapeAttr(t('cb.card.account_badge_tip'))}">VS Code</span>${costBadgeHtml(codeBridgeCards.releaseCostPerMInput)}
@@ -6492,6 +6523,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
           : `<div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>`}
         <div class="agent-card-info">
           <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)}</div>
+          ${where ? `<div class="agent-desc cb-project-line" title="${escapeAttr(subFull)}">${escapeHtml(where)}</div>` : ''}
           <div class="cb-external-badge" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(t('cb.card.external_badge'))}</div>
           ${sub ? `<div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>` : ''}
         </div>
