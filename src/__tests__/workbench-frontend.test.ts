@@ -1719,3 +1719,66 @@ describe('huzogatos szerkesztes a vasznon (kartya d4b05d82)', () => {
     }
   })
 })
+
+// #359 (Boss 1249): "hol van az a munkadarab felsorolas ... ha raklikkel a
+// 6-os munkadarabra, akkor az aktualis munka a 6-os lesz, es bejon kozepen".
+describe('munkadarabok kozti valtas (#359)', () => {
+  const ITEMS = [1, 2, 3].map((n) => ({ id: 'w' + n, title: 'Darab ' + n, type: 'note', status: 'draft' }))
+
+  beforeEach(async () => {
+    h.respond((url) => {
+      const m = url.match(/\/api\/workbench\/items\/(w\d)/)
+      if (m) {
+        const it = ITEMS.find((x) => x.id === m[1])
+        return { status: 200, body: { item: it, versions: [], project: PROJECT } }
+      }
+      return { status: 200, body: itemsBody(ITEMS) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w3"'))
+  })
+
+  it('a lista szamozott, a fejlec mutatja a darabszamot, es van magyarazo sor', () => {
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('1. Darab 1')
+    expect(html).toContain('3. Darab 3')
+    expect(html).toContain('⟦workbench.panel.items⟧ (3)')
+    expect(html).toContain('⟦workbench.items.switch_hint⟧')
+  })
+
+  it('a listaban kattintott darab lesz az aktualis, es kozepen az nyilik meg', async () => {
+    h.click({ 'data-wb-item': 'w2' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<h3>Darab 2</h3>'))
+    expect(h.rootEl.innerHTML).toMatch(/wb-item wb-item-active" data-wb-item="w2" aria-current="true"/)
+    expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2'))).toBe(true)
+  })
+
+  it('a szerkeszto tetejen van valto: a legordulobol is lehet valtani', async () => {
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<h3>Darab 1</h3>'))
+    expect(h.rootEl.innerHTML).toContain('id="wbSwitch"')
+    h.change('wbSwitch', [], 'w3')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<h3>Darab 3</h3>'))
+  })
+
+  it('elozo/kovetkezo gomb a szomszedos darabra visz, a szelen letiltva', async () => {
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<h3>Darab 1</h3>'))
+    const sw = h.rootEl.innerHTML.slice(h.rootEl.innerHTML.indexOf('wb-switch'))
+    // az elso darabnal nincs elozo, a kovetkezo a masodik
+    expect(sw).toMatch(/data-wb-item="" disabled/)
+    expect(sw).toContain('data-wb-item="w2"')
+  })
+
+  it('egyetlen darabnal nincs valto (nincs mire valtani)', async () => {
+    h = harness()
+    h.respond((url) => url.includes('/items/w1')
+      ? { status: 200, body: { item: ITEMS[0], versions: [], project: PROJECT } }
+      : { status: 200, body: itemsBody([ITEMS[0]]) })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<h3>Darab 1</h3>'))
+    expect(h.rootEl.innerHTML).not.toContain('id="wbSwitch"')
+  })
+})

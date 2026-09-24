@@ -422,3 +422,8 @@
   .wb-pdf-pages { height: 60vh; padding: 8px; }
   .wb-pdf-pos, .wb-pdf-zoom { min-width: 52px; }
 }
+
+/* Munkadarab-valto a szerkeszto tetejen (#359). */
+.wb-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wb-switch-label { font-size: 0.85rem; opacity: 0.8; }
+.wb-switch-select { flex: 1 1 160px; min-width: 0; max-width: 100%; }
