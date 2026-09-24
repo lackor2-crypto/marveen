@@ -108,27 +108,69 @@ export function parseWorktreeList(porcelain: string, mainRoot: string): Worktree
 
 const FILE_OPS = new Set(['edit', 'write', 'delete', 'move'])
 
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
- * Owner of each worktree from the audit log: the LAST line, by a known agent,
- * that changed a file inside it (or ran with its cwd inside it). The log is
- * append-only, so "last" is the latest. Read-only commands that merely mention
- * a path (grep, ls) do not count: only file operations and the cwd do.
+ * Owner of each worktree from the audit log. Two strengths of evidence, and a
+ * strong one always beats a weak one (within the same strength the LATER line
+ * wins -- the log is append-only):
+ *   strong: a file operation (edit/write/delete/move) inside the worktree, or
+ *           the command that CREATED it (`agent-worktree.sh <name>`);
+ *   weak:   the session's cwd inside it, or a Bash command that `cd`s into it
+ *           (heredoc/sed edits are Bash commands, not file operations).
+ * So an agent that only looked into someone else's worktree (a weak signal)
+ * never takes it over from the one who created or edited it.
+ *
+ * WHO is the session's own agent (`session_agent`, from the directory the
+ * session was started in), not `agent`: the audit hook derives `agent` from
+ * the cwd, so inside `.worktrees/<name>` it says `<name>` -- the worktree, not
+ * the agent (#366, measured: 9 of 17 lackor3-* worktrees came out unowned).
+ * Old lines without `session_agent` fall back to `agent`. Unknown agents
+ * (code-bridge sessions, worktree names) never own anything.
  */
 export function attributeOwners(auditText: string, paths: string[], knownAgents: string[]): Map<string, string | null> {
   const known = new Set(knownAgents)
-  const owners = new Map<string, string | null>(paths.map((p) => [p, null]))
-  const prefixes = paths.map((p) => [p, p.replace(/\/+$/, '') + '/'] as const)
+  const strong = new Map<string, string | null>(paths.map((p) => [p, null]))
+  const weak = new Map<string, string | null>(paths.map((p) => [p, null]))
+  // A worktree is named after its folder; a creation command names only that.
+  const baseCount = new Map<string, number>()
+  for (const p of paths) {
+    const b = p.replace(/\/+$/, '').split('/').pop() ?? ''
+    baseCount.set(b, (baseCount.get(b) ?? 0) + 1)
+  }
+  const probes = paths.map((p) => {
+    const clean = p.replace(/\/+$/, '')
+    const base = clean.split('/').pop() ?? ''
+    const unique = baseCount.get(base) === 1
+    const end = `(?=$|[\\s/"';&|)])`
+    return {
+      p,
+      pre: clean + '/',
+      created: unique ? new RegExp(`agent-worktree\\.sh\\s+["']?${escapeRe(base)}["']?(?=$|[\\s;&|)])`) : null,
+      cdInto: new RegExp(`\\bcd\\s+["']?(?:${escapeRe(clean)}|(?:\\S*/)?\\.worktrees/${escapeRe(base)})${end}`),
+    }
+  })
   for (const line of auditText.split('\n')) {
-    if (!line.includes('/')) continue
-    let rec: { agent?: string; op?: string; target?: string; cwd?: string }
+    if (!line.includes('/') && !line.includes('agent-worktree')) continue
+    let rec: { agent?: string; session_agent?: string; op?: string; target?: string; cwd?: string }
     try { rec = JSON.parse(line) } catch { continue }
-    if (!rec.agent || !known.has(rec.agent)) continue
-    for (const [p, pre] of prefixes) {
-      const hitFile = FILE_OPS.has(rec.op ?? '') && typeof rec.target === 'string' && rec.target.startsWith(pre)
-      const hitCwd = typeof rec.cwd === 'string' && (rec.cwd === p || rec.cwd.startsWith(pre))
-      if (hitFile || hitCwd) owners.set(p, rec.agent)
+    const who = typeof rec.session_agent === 'string' ? rec.session_agent : rec.agent
+    if (!who || !known.has(who)) continue
+    const target = typeof rec.target === 'string' ? rec.target : ''
+    const isBash = rec.op === 'bash'
+    for (const pr of probes) {
+      const hitFile = FILE_OPS.has(rec.op ?? '') && target.startsWith(pr.pre)
+      const hitCreate = isBash && pr.created != null && pr.created.test(target)
+      if (hitFile || hitCreate) { strong.set(pr.p, who); continue }
+      const hitCwd = typeof rec.cwd === 'string' && (rec.cwd === pr.p || rec.cwd.startsWith(pr.pre))
+      const hitCd = isBash && pr.cdInto.test(target)
+      if (hitCwd || hitCd) weak.set(pr.p, who)
     }
   }
+  const owners = new Map<string, string | null>()
+  for (const p of paths) owners.set(p, strong.get(p) ?? weak.get(p) ?? null)
   return owners
 }
 

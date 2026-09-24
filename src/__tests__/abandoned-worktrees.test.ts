@@ -66,6 +66,35 @@ describe('attributeOwners', () => {
     ].join('\n')
     expect(attributeOwners(log, [W], ['alpha']).get(W)).toBe('alpha')
   })
+  it('an agent that cd-s into its own worktree and edits there is the owner (#366)', () => {
+    // The audit hook names `agent` after the cwd: inside .worktrees/w it says "w".
+    // session_agent carries who the session really is.
+    const log = [
+      line({ agent: 'alpha', session_agent: 'alpha', op: 'bash', target: 'scripts/agent-worktree.sh w', cwd: '/r/agents/alpha' }),
+      line({ agent: 'w', session_agent: 'alpha', op: 'bash', target: 'cd /r/.worktrees/w', cwd: '/r/agents/alpha' }),
+      line({ agent: 'w', session_agent: 'alpha', op: 'edit', target: `${W}/src/a.ts`, cwd: W }),
+    ].join('\n')
+    expect(attributeOwners(log, [W], ['alpha']).get(W)).toBe('alpha')
+    // Only the edit, without the creation: still alpha.
+    expect(attributeOwners(log.split('\n')[2], [W], ['alpha']).get(W)).toBe('alpha')
+  })
+  it('the creation command owns it, and a heredoc edit after `cd` counts', () => {
+    expect(attributeOwners(line({ agent: 'alpha', op: 'bash', target: 'cd /r && scripts/agent-worktree.sh w >/dev/null', cwd: '/r/agents/alpha' }), [W], ['alpha']).get(W)).toBe('alpha')
+    expect(attributeOwners(line({ agent: 'alpha', op: 'bash', target: "cd .worktrees/w && python3 - <<'EOF'\nx\nEOF", cwd: '/r' }), [W], ['alpha']).get(W)).toBe('alpha')
+    // --remove / --list name nobody.
+    expect(attributeOwners(line({ agent: 'alpha', op: 'bash', target: 'scripts/agent-worktree.sh --remove w', cwd: '/r' }), [W], ['alpha']).get(W)).toBeNull()
+  })
+  it('someone who only cd-s in to look never takes it over from its creator or editor', () => {
+    const log = [
+      line({ agent: 'alpha', op: 'bash', target: 'scripts/agent-worktree.sh w', cwd: '/r/agents/alpha' }),
+      line({ agent: 'w', session_agent: 'boss-main', op: 'bash', target: 'cd /r/.worktrees/w && git status', cwd: W }),
+    ].join('\n')
+    expect(attributeOwners(log, [W], ['alpha', 'boss-main']).get(W)).toBe('alpha')
+  })
+  it('a session_agent that is not a known agent (code bridge) owns nothing, even if `agent` looks known', () => {
+    const log = line({ agent: 'alpha', session_agent: 'code-1234', op: 'edit', target: `${W}/x.ts`, cwd: '/r' })
+    expect(attributeOwners(log, [W], ['alpha']).get(W)).toBeNull()
+  })
   it('a sibling with a common prefix is not the same worktree', () => {
     const log = line({ agent: 'alpha', op: 'edit', target: `${W}2/x.ts` })
     expect(attributeOwners(log, [W], ['alpha']).get(W)).toBeNull()

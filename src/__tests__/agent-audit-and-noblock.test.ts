@@ -76,6 +76,24 @@ describe('agent-audit-log hook records every change and never blocks', () => {
     expect(e!.op).toBe('move')
   })
 
+  it('records the session agent from CLAUDE_PROJECT_DIR, even when the cwd is a worktree (#366)', () => {
+    const marker = `${sentinel}-sess`
+    const wt = join(ROOT, '.worktrees', 'some-wt')
+    const r = run(AUDIT, { tool_name: 'Edit', cwd: wt, tool_input: { file_path: `${wt}/${marker}` } },
+      { CLAUDE_PROJECT_DIR: join(ROOT, 'agents', 'alpha') })
+    expect(r.status).toBe(0)
+    const e = lastAuditLine(marker)
+    expect(e!.agent).toBe('some-wt')
+    expect(e!.session_agent).toBe('alpha')
+  })
+
+  it('a session started outside the install gets no session_agent', () => {
+    const marker = `${sentinel}-ext`
+    const r = run(AUDIT, { tool_name: 'Edit', cwd: ROOT, tool_input: { file_path: marker } }, { CLAUDE_PROJECT_DIR: '/nonexistent-elsewhere' })
+    expect(r.status).toBe(0)
+    expect(lastAuditLine(marker)!.session_agent).toBeUndefined()
+  })
+
   it('ignores read-only tools (no Read spam)', () => {
     const r = run(AUDIT, { tool_name: 'Read', cwd: ROOT, tool_input: { file_path: `${sentinel}-read` } })
     expect(r.status).toBe(0)

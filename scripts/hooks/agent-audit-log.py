@@ -115,6 +115,23 @@ def main():
         "target": target,
         "cwd": cwd,
     }
+    # WHO the session is, independent of where it has cd-ed to. `agent` comes
+    # from the cwd, so an agent working inside its own worktree
+    # (.worktrees/<name>) is logged under the worktree's NAME, and the
+    # abandoned-worktree scan (src/web/abandoned-worktrees.ts) could not tell
+    # whose that work was (kanban #366). Claude Code gives every hook the
+    # directory the session was started in (CLAUDE_PROJECT_DIR): an agent's own
+    # folder, the install root (main agent), or a code-bridge worktree.
+    # A session started outside the install root is not one of ours: no field,
+    # the reader falls back to `agent` as before.
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+    if project_dir:
+        try:
+            abs_pd = os.path.realpath(project_dir)
+        except Exception:
+            abs_pd = project_dir
+        if abs_pd == install_dir or abs_pd.startswith(install_dir + os.sep):
+            entry["session_agent"] = resolve_agent(install_dir, abs_pd)
 
     try:
         store = os.path.join(install_dir, "store")
