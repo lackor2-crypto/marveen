@@ -26244,6 +26244,10 @@ async function loadWizardSystemDeps(force) {
         ${i.manual ? `<br>${escapeHtml(i.manual[lang])}` : ''}
         ${i.packages.length ? `<br>${escapeHtml(t('sysdeps.packages'))}: <code>${escapeHtml(i.packages.join(' '))}</code>` : ''}
         <br><a href="${escapeAttr(i.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('sysdeps.download_page'))} &#8599;</a>
+        ${i.self_install === 'vision' ? `<div style="margin-top:6px">
+          <button class="btn-primary btn-compact" id="wizVisionInstallBtn">${escapeHtml(t('sysdeps.vision_install'))}</button>
+          <div id="wizVisionInstallMsg" style="margin-top:6px"></div>
+        </div>` : ''}
       </div>`
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
@@ -26285,6 +26289,69 @@ async function loadWizardSystemDeps(force) {
     catch { showToast(t('sysdeps.copy_failed')) }
   })
   document.getElementById('wizSysDepsRecheck').addEventListener('click', () => loadWizardSystemDeps(true))
+  const vBtn = document.getElementById('wizVisionInstallBtn')
+  if (vBtn) {
+    vBtn.addEventListener('click', () => startVisionInstallFromWizard(vBtn))
+    // A telepites a hatterben fut tovabb, ha kozben elnavigaltak: ujranyitaskor folytatjuk a figyelest.
+    fetch('/api/vision/status').then(r => r.ok ? r.json() : null).then(s => {
+      if (s && s.running) watchVisionInstall(vBtn)
+      else if (s && s.exit_code !== null && s.exit_code !== 0) showVisionInstallFailure(s)
+    }).catch(() => {})
+  }
+}
+
+// A helyi arcfelismero telepitese (src/vision-install.ts). A forditoeszkozokhoz
+// rendszergazda kell -- azt a sort megmutatjuk bemasolasra; a tobbit a Marveen
+// maga csinalja a hatterben, 10-20 percig.
+async function startVisionInstallFromWizard(btn) {
+  const msg = document.getElementById('wizVisionInstallMsg')
+  btn.disabled = true
+  let data
+  try {
+    const r = await fetch('/api/vision/install', { method: 'POST' })
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    data = await r.json()
+  } catch (e) {
+    btn.disabled = false
+    if (msg) msg.innerHTML = `<p class="c-danger" style="margin:0">${escapeHtml(t('sysdeps.vision_start_failed', { err: String(e && e.message || e) }))}</p>`
+    return
+  }
+  if (data.alreadyInstalled) { loadWizardSystemDeps(true); return }
+  if (data.needsSudo) {
+    btn.disabled = false
+    if (msg) msg.innerHTML = `<p style="margin:0 0 4px">${escapeHtml(t('sysdeps.vision_needs_tools', { tools: data.missing.join(', ') }))}</p>` +
+      (data.command
+        ? `<code style="display:block;white-space:pre-wrap;word-break:break-all;padding:8px;background:var(--bg-secondary,rgba(127,127,127,.12));border-radius:6px">${escapeHtml(data.command)}</code>
+           <p style="margin:4px 0 0">${escapeHtml(t('sysdeps.vision_then_again'))}</p>`
+        : `<p style="margin:0">${escapeHtml(t('sysdeps.no_pkg_manager'))}</p>`)
+    return
+  }
+  watchVisionInstall(btn)
+}
+
+let _visionPollTimer = null
+function watchVisionInstall(btn) {
+  const msg = document.getElementById('wizVisionInstallMsg')
+  btn.disabled = true
+  if (msg) msg.innerHTML = `<p style="margin:0">${escapeHtml(t('sysdeps.vision_running'))}</p>`
+  clearInterval(_visionPollTimer)
+  _visionPollTimer = setInterval(async () => {
+    if (!document.getElementById('wizVisionInstallBtn')) { clearInterval(_visionPollTimer); return }
+    let s
+    try { s = await (await fetch('/api/vision/status')).json() } catch { return }
+    if (s.running) return
+    clearInterval(_visionPollTimer)
+    if (s.installed) { showToast(t('sysdeps.vision_done')); loadWizardSystemDeps(true); return }
+    btn.disabled = false
+    showVisionInstallFailure(s)
+  }, 10000)
+}
+
+function showVisionInstallFailure(s) {
+  const msg = document.getElementById('wizVisionInstallMsg')
+  if (!msg) return
+  msg.innerHTML = `<p class="c-danger" style="margin:0 0 4px">${escapeHtml(t('sysdeps.vision_failed', { code: String(s.exit_code) }))}</p>` +
+    (s.log_tail ? `<pre style="white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;font-size:11px;margin:0">${escapeHtml(s.log_tail)}</pre>` : '')
 }
 
 // One capability per screen: what it is, why you might want it, what to click,
