@@ -33,7 +33,7 @@ Hasznalat:
   python3 scripts/google-auth.py list                      # bekotott fiokok listaja
 Fiok nelkul = az aktualis "_default" fiok (elso bekotott fiok, altalaban lackor2).
 """
-import json, os, re, sys, time, urllib.parse, urllib.request, http.server, secrets
+import json, os, re, sys, time, urllib.error, urllib.parse, urllib.request, http.server, secrets
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENT       = os.path.join(ROOT, "store", "google-oauth-client.json")
@@ -450,13 +450,68 @@ def cmd_test(account):
         "refresh_token": t["refresh_token"], "client_id": c["client_id"],
         "client_secret": c["client_secret"], "grant_type": "refresh_token",
     })["access_token"]
-    prof = _get("https://gmail.googleapis.com/gmail/v1/users/me/profile", at)
-    print(f"[{account}] Gmail:", prof.get("emailAddress"), "-", prof.get("messagesTotal"), "uzenet")
-    cals = _get("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=3", at)
-    print("Calendar naptarak:", len(cals.get("items", [])))
-    files = _get("https://www.googleapis.com/drive/v3/files?pageSize=3", at)
-    print("Drive fajlok (minta):", len(files.get("files", [])))
+    # Szolgaltatasonkent KULON, es egy hiba nem allitja meg a tobbit (kanban
+    # #358, friss-telepitesi audit). Friss telepitesen a leggyakoribb hiba az,
+    # hogy a Google-projektben egy API (Gmail / Naptar / Drive) nincs
+    # bekapcsolva: a Google ilyenkor 403 SERVICE_DISABLED-et ad. Eddig ez egy
+    # nyers "HTTP Error 403: Forbidden" traceback lett -- a torzs (amiben a
+    # SERVICE_DISABLED all) elveszett --, a felulet pedig "a Google elutasitja
+    # a fiokot, csatlakoztasd ujra"-t mondott, ami semmit nem old meg.
+    hibas = False
+    prof = _probe_api(at, "gmail", "https://gmail.googleapis.com/gmail/v1/users/me/profile")
+    if prof is not None:
+        print(f"[{account}] Gmail:", prof.get("emailAddress"), "-", prof.get("messagesTotal"), "uzenet")
+    else:
+        hibas = True
+    cals = _probe_api(at, "calendar", "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=3")
+    if cals is not None:
+        print("Calendar naptarak:", len(cals.get("items", [])))
+    else:
+        hibas = True
+    files = _probe_api(at, "drive", "https://www.googleapis.com/drive/v3/files?pageSize=3")
+    if files is not None:
+        print("Drive fajlok (minta):", len(files.get("files", [])))
+    else:
+        hibas = True
+    if hibas:
+        sys.exit(1)
     print("OK: mindharom API elerheto.")
+
+
+# A Google "ez az API ebben a projektben nincs bekapcsolva" valaszanak jelei.
+_API_KIKAPCSOLVA_RE = re.compile(r"SERVICE_DISABLED|accessNotConfigured|has not been used in project|it is disabled", re.I)
+
+
+def _probe_api(at, svc, url):
+    """Egy API elerese a `test` szamara: a valasz JSON-ja, vagy None.
+
+    Hibanal EGY gepi sort ir a stdoutra, amit a dashboard olvas
+    (src/web/google-accounts.ts parseProbeOutput):
+      API-KIKAPCSOLVA: <svc> project=<szam>   -- a Google-projektben ki van kapcsolva
+      HIBA (<svc>): <kod> <uzenet>            -- minden mas
+    A projekt-szam csak szamjegy lehet: a hibauzenet kulso adat, abbol mast
+    nem veszunk at."""
+    try:
+        return _get(url, at)
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        if e.code == 403 and _API_KIKAPCSOLVA_RE.search(body):
+            m = re.search(r"project[=/\s\"']*(\d{4,})", body, re.I)
+            print(f"API-KIKAPCSOLVA: {svc} project={m.group(1) if m else ''}")
+            return None
+        msg = ""
+        try:
+            msg = json.loads(body).get("error", {}).get("message", "")
+        except Exception:
+            msg = body
+        print(f"HIBA ({svc}): {e.code} {' '.join(str(msg).split())[:200]}")
+        return None
+    except Exception as e:
+        print(f"HIBA ({svc}): {' '.join(str(e).split())[:200]}")
+        return None
 
 
 def cmd_calendars(account):

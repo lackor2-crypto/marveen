@@ -20,7 +20,7 @@ Tobb-fiokos hasznalat (kanban b0c697ce): barmelyik parancshoz hozzafuzheto
 Fiok nelkul a google-auth.py sajat "_default" fiokja szamit (lasd `python3
 scripts/google-auth.py list`).
 """
-import json, os, sys, subprocess, urllib.parse, urllib.request
+import json, os, re, sys, subprocess, urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
 try:
     from zoneinfo import ZoneInfo
@@ -76,13 +76,31 @@ def _token():
     return out.stdout.strip()
 
 
+def _api_name(url):
+    """A hivott vegpont API-ja, ahogy a Google Console konyvtara nevezi."""
+    if "gmail.googleapis.com" in url: return "gmail.googleapis.com"
+    if "/calendar/v3/" in url: return "calendar-json.googleapis.com"
+    if "/drive/v3/" in url: return "drive.googleapis.com"
+    return ""
+
+
 def _get(url, at):
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {at}"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Google API {e.code}: {e.read().decode('utf-8','replace')[:120]}")
+        body = e.read().decode('utf-8', 'replace')
+        # Kikapcsolt API a Google-projektben (kanban #358): a torzs 120
+        # karakterre vagva pont a lenyeget (SERVICE_DISABLED, projekt-szam)
+        # vesztette el. Ilyenkor a teendot mondjuk ki, a bekapcsolo linkkel.
+        if e.code == 403 and re.search(r"SERVICE_DISABLED|accessNotConfigured|has not been used in project|it is disabled", body, re.I):
+            api = _api_name(url)
+            m = re.search(r"project[=/\s\"']*(\d{4,})", body, re.I)
+            link = f"https://console.cloud.google.com/apis/library/{api}" + (f"?project={m.group(1)}" if m else "")
+            raise RuntimeError(f"Google API 403: a Google-projektben nincs bekapcsolva ez az API ({api or 'ismeretlen'}). "
+                               f"Kapcsold be itt, majd probald ujra: {link}")
+        raise RuntimeError(f"Google API {e.code}: {' '.join(body.split())[:300]}")
 
 
 def _fmt_dt(s):

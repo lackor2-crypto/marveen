@@ -38,7 +38,7 @@ import {
   invalidateGoogleProbe,
 } from '../google-auth-runner.js'
 import { suggestAccountId } from '../google-accounts.js'
-import { runGoogleLiveCheckOnce, markGoogleLiveOk } from '../google-live-check.js'
+import { runGoogleLiveCheckOnce, markGoogleLiveOk, recordGoogleLiveProbe } from '../google-live-check.js'
 import { credentialExpiries, worstExpiryStatus } from '../credential-expiry.js'
 import { systemHealth, worstHealthStatus } from '../system-health.js'
 import {
@@ -95,7 +95,12 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
     const b = await body(req)
     const id = str(b.id).trim()
     if (!id) { json(res, { ok: false, error: 'id required' }, 400); return true }
-    json(res, { ok: true, result: await probeGoogleAccount(id, b.force !== false) })
+    const force = b.force !== false
+    const result = await probeGoogleAccount(id, force)
+    // A kenyszeritett probe friss meres: az Attekintes sora is ebbol eljen,
+    // ne a legutobbi oras korbol (kanban #358 -- bekapcsolt API utan).
+    if (force && listGoogleAccounts().some(a => a.id === id)) recordGoogleLiveProbe(id, result)
+    json(res, { ok: true, result })
     return true
   }
 

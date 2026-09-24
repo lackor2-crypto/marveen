@@ -43,6 +43,10 @@ export interface GoogleAccountRow {
   /** Recognised failure kind, so the row can offer the fix instead of just the
    *  message. Null when it worked, or when the failure is not one we know. */
   kind: GoogleFailureKind
+  /** Which APIs the Google project has switched off (kind 'api-disabled'). */
+  disabledApis?: GoogleApiName[]
+  /** Console link that turns the first of them on. */
+  apiEnableUrl?: string | null
 }
 
 export interface GoogleServiceState {
@@ -107,6 +111,51 @@ export interface GoogleProbeResult {
   /** What KIND of failure, when the message is one we can act on. See
    *  classifyGoogleFailure below. */
   kind: GoogleFailureKind
+  /** APIs the Google project refused with SERVICE_DISABLED. Empty otherwise. */
+  disabledApis: GoogleApiName[]
+  /** Console link that turns the first disabled API on, built by us (never
+   *  copied out of Google's message). Null when nothing is disabled. */
+  apiEnableUrl: string | null
+}
+
+// --- an API switched off in the Google project (kanban #358) -----------------
+//
+// Friss telepitesen a leggyakoribb elakadas: a varazslo "kapcsold be a negy
+// API-t" lepese kimarad, a fiok belep, de a Google a Gmail/Naptar/Drive minden
+// keresere 403 SERVICE_DISABLED-et ad. Ez NEM bejelentkezesi hiba -- ujra
+// csatlakoztatas nem segit, egy kapcsolo kell a Google Console-ban. A `test`
+// probe ilyenkor gepi sort ir: `API-KIKAPCSOLVA: <svc> project=<szam>`.
+
+export type GoogleApiName = 'gmail' | 'calendar' | 'drive'
+
+const API_LIBRARY_ID: Record<GoogleApiName, string> = {
+  gmail: 'gmail.googleapis.com',
+  calendar: 'calendar-json.googleapis.com',
+  drive: 'drive.googleapis.com',
+}
+
+/** A Console-ban lathato nev -- mindket nyelven ugyanaz, ezert nem forditjuk. */
+export const GOOGLE_API_LABEL: Record<GoogleApiName, string> = {
+  gmail: 'Gmail API',
+  calendar: 'Google Calendar API',
+  drive: 'Google Drive API',
+}
+
+/** The enable page for one API. The project number is digits only, or left off. */
+export function googleApiEnableUrl(api: GoogleApiName, project: string | null): string {
+  const base = `https://console.cloud.google.com/apis/library/${API_LIBRARY_ID[api]}`
+  return project && /^\d{4,20}$/.test(project) ? `${base}?project=${project}` : base
+}
+
+export function parseDisabledApis(text: string): { apis: GoogleApiName[]; project: string | null } {
+  const apis: GoogleApiName[] = []
+  let project: string | null = null
+  for (const m of (text || '').matchAll(/^\s*API-KIKAPCSOLVA:\s*(gmail|calendar|drive)\b[^\n]*?(?:project=(\d{4,20}))?\s*$/gm)) {
+    const api = m[1] as GoogleApiName
+    if (!apis.includes(api)) apis.push(api)
+    if (!project && m[2]) project = m[2]
+  }
+  return { apis, project }
 }
 
 /**
@@ -129,16 +178,25 @@ export function parseProbeOutput(stdout: string, stderr: string, exitCode: numbe
   if (/Drive fajlok[^:]*:\s*\d+/.test(text)) services.drive = true
 
   const ok = exitCode === 0 && services.gmail
+  const off = parseDisabledApis(text)
   let error: string | null = null
   if (!ok) {
     // The script's own message is the best one available; take its first line
     // and cap it, because an HTTP body can arrive here in full.
     const hiba = text.split('\n').map(l => l.trim()).find(l => l.startsWith('HIBA'))
-    error = (hiba || text.split('\n').map(l => l.trim()).filter(Boolean).pop() || 'ismeretlen hiba').slice(0, 300)
+    error = off.apis.length && !hiba
+      ? `API kikapcsolva a Google-projektben: ${off.apis.map(a => GOOGLE_API_LABEL[a]).join(', ')}`
+      : (hiba || text.split('\n').map(l => l.trim()).filter(Boolean).pop() || 'ismeretlen hiba').slice(0, 300)
   }
   // Classified on the FULL text, not on the capped message: the marker
-  // ("invalid_grant") is often further down than 300 characters.
-  return { ok, email: gmail ? gmail[1] : null, services, error, kind: ok ? null : classifyGoogleFailure(text) }
+  // ("invalid_grant") is often further down than 300 characters. A known
+  // sign-in refusal wins over a switched-off API: it has to be fixed first.
+  const kind: GoogleFailureKind = ok ? null : (classifyGoogleFailure(text) ?? (off.apis.length ? 'api-disabled' : null))
+  return {
+    ok, email: gmail ? gmail[1] : null, services, error, kind,
+    disabledApis: off.apis,
+    apiEnableUrl: off.apis.length ? googleApiEnableUrl(off.apis[0], off.project) : null,
+  }
 }
 
 /**
@@ -231,7 +289,7 @@ export const PASTE_HELP =
 // page to visit (publish the app, or sign in again) -- so it is classified here
 // too, rather than surfacing as a bare python error the operator cannot read.
 
-export type GoogleFailureKind = 'test-user' | 'expired' | null
+export type GoogleFailureKind = 'test-user' | 'expired' | 'api-disabled' | null
 
 /** Accent- and case-insensitive, because the very same refusal arrives in
  *  Hungarian with accents, in Hungarian without them (the console strips them)
