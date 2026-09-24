@@ -1684,8 +1684,8 @@ function renderKanbanColumnChips() {
 // a sajat kartyajanal megmarad valaszthatonak, hogy mentesnel ne vesszen el.
 const NO_PROJECT_VALUE = '__none__'
 
-function populateProjectSuggestions(current) {
-  const sel = document.getElementById('cardProject')
+function populateProjectSuggestions(current, selectId = 'cardProject') {
+  const sel = document.getElementById(selectId)
   if (!sel || sel.tagName !== 'SELECT') return
   const keep = current !== undefined ? (current || '') : sel.value
   const names = window._projectNames || {}
@@ -3456,13 +3456,19 @@ document.getElementById('breakdownAcceptBtn').addEventListener('click', async ()
     if (breakdownMode === 'idea') {
       const successCriteria = document.getElementById('breakdownSuccessCriteria')?.value.trim() || undefined
       if (kanbanAllLabels.length && !breakdownLabels.length) { showToast(t('kanban.toast.label_required')); return }
+      const breakdownBody = { subtasks: accepted, success_criteria: successCriteria, labels: breakdownLabels }
+      if (!applyIdeaProjectChoice('breakdownProject', breakdownBody)) return
       const res = await fetch(`/api/ideas/${encodeURIComponent(breakdownIdeaId)}/promote-breakdown`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subtasks: accepted, success_criteria: successCriteria, labels: breakdownLabels }),
+        body: JSON.stringify(breakdownBody),
       })
       const data = await res.json()
-      if (!res.ok) { showToast(data.error || 'Hiba'); return }
+      if (!res.ok) {
+        showToast(data.error || t('common.error_save'))
+        if (data.code === 'project_required') await fillIdeaProjectPicker('breakdownProject', breakdownIdeaId)
+        return
+      }
       closeModal(breakdownOverlay)
       showToast(t('kanban.breakdown.promoted', { count: data.child_count }))
       loadIdeasPage()
@@ -7902,7 +7908,7 @@ document.getElementById('analyzeAllModelsBtn').addEventListener('click', async (
         let created = 0
         for (const r of changes) {
           try {
-            await fetch('/api/kanban', {
+            const cardRes = await fetch('/api/kanban', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -7921,7 +7927,8 @@ document.getElementById('analyzeAllModelsBtn').addEventListener('click', async (
                 no_project_reason: t('agents.model.card_no_project_reason'),
               }),
             })
-            created++
+            // A rejected card (400/409) is not a created one.
+            if (cardRes.ok) created++
           } catch { /* skip failed card */ }
         }
         showToast(t('agents.model.cards_created', { n: created }))
@@ -31330,19 +31337,51 @@ document.getElementById('ideaDetailEditBtn')?.addEventListener('click', () => {
 })
 
 const ideaPromoteLabels = []
+// PROJEKT KOTELEZO (#374): an idea reaching the board goes through the same
+// project gate as any card. The picker is prefilled with the idea's own
+// project; "no project" is an explicit choice that sends a reason.
+async function fillIdeaProjectPicker(selectId, ideaId) {
+  await refreshProjectNames()
+  const idea = ideas.find(i => i.id === ideaId)
+  populateProjectSuggestions(idea?.project || '', selectId)
+}
+
+/** Reads an idea-promote project picker into the request body; false = stop. */
+function applyIdeaProjectChoice(selectId, body) {
+  const sel = document.getElementById(selectId)
+  const choice = sel ? sel.value : ''
+  const hasLiveProjects = Object.values(window._projectNames || {}).some((p) => !p.archived)
+  if (hasLiveProjects && !choice) {
+    showToast(t('kanban.toast.project_required'))
+    sel?.focus()
+    return false
+  }
+  if (choice === NO_PROJECT_VALUE) body.no_project_reason = t('kanban.modal.no_project_reason')
+  else if (choice) body.project = choice
+  return true
+}
+
 async function openIdeaPromote(id) {
   ideasPromoteId = id
   await ensureKanbanLabelsLoaded()
   renderLabelPicker('ideaPromoteLabelPick', ideaPromoteLabels)
+  await fillIdeaProjectPicker('ideaPromoteProject', id)
   openModal(document.getElementById('ideaPromoteOverlay'))
 }
 
 async function promoteIdea(phase) {
   if (!ideasPromoteId) return
   if (kanbanAllLabels.length && !ideaPromoteLabels.length) { showToast(t('kanban.toast.label_required')); return }
-  const res = await fetch(`/api/ideas/${ideasPromoteId}/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phase, labels: ideaPromoteLabels }) })
+  const promoteBody = { phase, labels: ideaPromoteLabels }
+  if (!applyIdeaProjectChoice('ideaPromoteProject', promoteBody)) return
+  const res = await fetch(`/api/ideas/${ideasPromoteId}/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(promoteBody) })
   const data = await res.json()
-  if (!data.ok) { showToast(data.error || t('kanban.toast.save_error_msg', { msg: res.status })); return }
+  if (!data.ok) {
+    showToast(data.error || t('kanban.toast.save_error_msg', { msg: res.status }))
+    // The project list may have changed since the picker was filled.
+    if (data.code === 'project_required') await fillIdeaProjectPicker('ideaPromoteProject', ideasPromoteId)
+    return
+  }
   ideasPromoteId = null
   closeModal(document.getElementById('ideaPromoteOverlay'))
   if (data.ok) showToast(t('kanban.toast.card_created') + ': ' + data.kanban_id)
@@ -31384,6 +31423,7 @@ async function openIdeaBreakdown(id) {
     // Idea mode creates a card, so it needs the mandatory label picker.
     await ensureKanbanLabelsLoaded()
     renderLabelPicker('breakdownLabelPick', breakdownLabels)
+    await fillIdeaProjectPicker('breakdownProject', id)
   } catch {
     showToast('Breakdown hiba')
   }

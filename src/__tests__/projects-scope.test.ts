@@ -128,16 +128,55 @@ describe('Otletlada projektre szurve', () => {
     expect(bad.status).toBe(400)
   })
 
-  it('a kanbanra vitt otlet kartyaja a projektben marad; projekt nelkuli otlet a regi helyre megy', async () => {
+  it('a kanbanra vitt otlet kartyaja a projektben marad; projekt nelkuli otlet a projekt-kapuba utkozik (#374)', async () => {
     const p = mustProject({ name: 'Kert' })
     const a = await call('POST', '/api/ideas', { title: 'Szokokut', project: p.id }, tryHandleIdeas)
     const pa = await call('POST', `/api/ideas/${a.body.id}/promote`, { phase: 'plan' }, tryHandleIdeas)
     expect(cardsOf(p.id).map((c) => c.id)).toContain(pa.body.kanban_id)
 
+    // Nincs kitalalt gyujtohely ('Fejlesztesi otletek'): a kartya nem jon letre,
+    // es a valaszban ott a valaszthato projektek listaja.
     const b = await call('POST', '/api/ideas', { title: 'Mashova' }, tryHandleIdeas)
+    const before = (getDb().prepare('SELECT COUNT(*) AS n FROM kanban_cards').get() as { n: number }).n
     const pb = await call('POST', `/api/ideas/${b.body.id}/promote`, { phase: 'plan' }, tryHandleIdeas)
-    const row = getDb().prepare('SELECT project FROM kanban_cards WHERE id = ?').get(pb.body.kanban_id) as { project: string }
-    expect(row.project).toBe('Fejlesztési ötletek')
+    expect(pb.status).toBe(400)
+    expect(pb.body.code).toBe('project_required')
+    expect(pb.body.projects.map((x: { id: string }) => x.id)).toEqual([p.id])
+    expect((getDb().prepare('SELECT COUNT(*) AS n FROM kanban_cards').get() as { n: number }).n).toBe(before)
+
+    // A felulet valasztasa nyer (id vagy nev).
+    const pc = await call('POST', `/api/ideas/${b.body.id}/promote`, { phase: 'plan', project: 'Kert' }, tryHandleIdeas)
+    expect(pc.body.ok).toBe(true)
+    expect(cardsOf(p.id).map((c) => c.id)).toContain(pc.body.kanban_id)
+  })
+
+  it('otlet kanbanra kimondott indokkal projekt nelkul: a project null, az indok a leirasban (#374)', async () => {
+    mustProject({ name: 'Kert' })
+    const b = await call('POST', '/api/ideas', { title: 'Magan' }, tryHandleIdeas)
+    const reason = 'A felhasznalo kifejezetten igy dontott.'
+    const pb = await call('POST', `/api/ideas/${b.body.id}/promote`, { phase: 'plan', no_project_reason: reason }, tryHandleIdeas)
+    expect(pb.body.ok).toBe(true)
+    const row = getDb().prepare('SELECT project, description FROM kanban_cards WHERE id = ?').get(pb.body.kanban_id) as { project: string | null; description: string }
+    expect(row.project).toBeNull()
+    expect(row.description).toContain(reason)
+  })
+
+  it('otlet AI-bontasa is a projekt-kapun megy at; a gyerekek a valasztott projektet kapjak (#374)', async () => {
+    const p = mustProject({ name: 'Kert' })
+    const b = await call('POST', '/api/ideas', { title: 'Bontando' }, tryHandleIdeas)
+    const subtasks = [{ title: 'Egy' }, { title: 'Ketto' }]
+    const bad = await call('POST', `/api/ideas/${b.body.id}/promote-breakdown`, { subtasks }, tryHandleIdeas)
+    expect(bad.status).toBe(400)
+    expect(bad.body.code).toBe('project_required')
+    const ok = await call('POST', `/api/ideas/${b.body.id}/promote-breakdown`, { subtasks, project: p.id }, tryHandleIdeas)
+    expect(ok.body.ok).toBe(true)
+    expect(cardsOf(p.id)).toHaveLength(3)
+    // Ismeretlen ertek + indok: null, nem a nyers szoveg.
+    const c = await call('POST', '/api/ideas', { title: 'Masik' }, tryHandleIdeas)
+    const odd = await call('POST', `/api/ideas/${c.body.id}/promote-breakdown`, { subtasks, project: 'nincs-ilyen', no_project_reason: 'A felhasznalo kifejezetten igy dontott.' }, tryHandleIdeas)
+    expect(odd.body.ok).toBe(true)
+    const rows = getDb().prepare("SELECT project FROM kanban_cards WHERE project = 'nincs-ilyen'").all()
+    expect(rows).toHaveLength(0)
   })
 
   it('a kifejezett kotes nyer a kartyan at levezetett felett', () => {

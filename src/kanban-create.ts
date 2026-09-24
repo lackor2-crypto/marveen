@@ -99,6 +99,33 @@ export function projectRequiredMessage(projects: ProjectCandidate[]): string {
     + `Projekt nelkul csak akkor, ha a user kifejezetten igy dontott: "no_project_reason": "<miert, legalabb ${NO_PROJECT_MIN_CHARS} karakter>".`
 }
 
+export type ProjectCheck =
+  | { ok: true; project: string | null; noProjectReason: string | null }
+  | { ok: false; code: 'project_required'; error: string; projects: ProjectCandidate[] }
+
+/**
+ * PROJEKT KOTELEZO -- a felso szintu kartya projekt-kapuja EGY helyen, hogy
+ * minden kartya-letrehozo ut (kanban POST, Otletlada "Kanbanra", ...) ugyanazt
+ * kenyszeritse ki. Eredmeny: valodi projekt-id, vagy null -- ismeretlen ertek
+ * (elirt nev, masik telepites slugja) soha nem jut at a kartyara.
+ * Projekt nelkul csak kimondott indokkal, vagy ha meg nincs egyetlen aktiv
+ * projekt sem (friss telepites, ahol nincs mibol valasztani).
+ */
+export function checkCardProject(projectRef: unknown, noProjectReasonRaw: unknown): ProjectCheck {
+  const resolved = resolveProjectRef(projectRef)
+  const projectId = resolved && getProject(resolved) ? resolved : null
+  if (projectId) return { ok: true, project: projectId, noProjectReason: null }
+  const reason = String(noProjectReasonRaw ?? '').trim()
+  if (reason.length >= NO_PROJECT_MIN_CHARS) return { ok: true, project: null, noProjectReason: reason }
+  const active = listActiveProjectIds()
+  if (active.length > 0) {
+    const names = projectNameMap()
+    const projects = active.map((id) => ({ id, name: names[id]?.name ?? id }))
+    return { ok: false, code: 'project_required', error: projectRequiredMessage(projects), projects }
+  }
+  return { ok: true, project: null, noProjectReason: null }
+}
+
 export function sameProjectMessage(cards: CardCandidate[]): string {
   const list = cards.map((c) => (c.seq != null ? `#${c.seq}` : c.id) + ` (${c.id}) ${c.title}`).join('; ')
   return 'EGY PROJEKT = EGY KARTYA: ez az uj kartya egy MEG NYITOTT kartyahoz kapcsolodik, tehat ugyanaz a munka -- '
@@ -166,23 +193,21 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
     const parent = getKanbanCard(parentId)
     if (parent?.project) cardFields.project = parent.project
   }
-  const noProjectReason = String(data.no_project_reason ?? '').trim()
-  const projectId = cardFields.project ? String(cardFields.project) : ''
-  const knownProject = projectId ? !!getProject(projectId) : false
-  if (!parentId && !knownProject && noProjectReason.length < NO_PROJECT_MIN_CHARS) {
-    const active = listActiveProjectIds()
-    if (active.length > 0) {
-      const names = projectNameMap()
-      const projects = active.map((id) => ({ id, name: names[id]?.name ?? id }))
-      return { ok: false, code: 'project_required', error: projectRequiredMessage(projects), projects }
-    }
+  let noProjectReason = ''
+  if (!parentId) {
+    const check = checkCardProject(cardFields.project, data.no_project_reason)
+    if (!check.ok) return check
+    // Ismeretlen ertek (pl. egy ezen a telepitesen nem letezo slug) SOHA nem
+    // marad a kartyan: vagy valodi projekt-id, vagy null.
+    cardFields.project = check.project
+    noProjectReason = check.noProjectReason ?? ''
   }
 
   let description = String(cardFields.description ?? '')
   if (openRelated.length > 0) {
     description = `${description}${description.trim() ? '\n\n' : ''}Onallo projekt, mert: ${separateReason}`
   }
-  if (!parentId && !knownProject && noProjectReason.length >= NO_PROJECT_MIN_CHARS) {
+  if (noProjectReason) {
     description = `${description}${description.trim() ? '\n\n' : ''}Projekt nelkul, mert: ${noProjectReason}`
   }
   cardFields.description = withCrossLink(description, relatedCards)

@@ -3439,6 +3439,7 @@ window._i18n.hu = {
   'ideas.modal.cancel_btn':      'Mégse',
   'ideas.promote.title':         'Kanbanba küldés',
   'ideas.promote.question':      'Melyik fázisban?',
+  'ideas.promote.project_label': 'Projekt',
   'ideas.promote.detail':        'Részlet kidolgozás (Várakozik)',
   'ideas.promote.plan':          'Terv (Tervezett)',
   'ideas.toast.save_error':      'Hiba a mentés során',

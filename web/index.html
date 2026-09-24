@@ -1671,6 +1671,12 @@
               <label data-i18n="kanban.modal.label_required">Címke</label>
               <div id="ideaPromoteLabelPick" class="card-label-pick"></div>
             </div>
+            <!-- PROJEKT KOTELEZO (#374): the server rejects a promote without a
+                 project, so it is chosen here, prefilled with the idea's own. -->
+            <div class="form-group">
+              <label for="ideaPromoteProject" data-i18n="ideas.promote.project_label">Projekt</label>
+              <select id="ideaPromoteProject" class="input"></select>
+            </div>
             <p style="margin-bottom:16px;font-size:14px" data-i18n="ideas.promote.question">Melyik fázisban?</p>
             <div style="display:flex;flex-direction:column;gap:8px">
               <button class="btn-secondary" id="ideaPromoteDetail" style="text-align:left;padding:12px 16px"><strong data-i18n="ideas.promote.detail">Részlet kidolgozás (Várakozik)</strong></button>
@@ -4102,6 +4108,8 @@
                chosen here; the generated subtasks inherit it. -->
           <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin:12px 0 4px" data-i18n="kanban.modal.label_required">Címke</label>
           <div id="breakdownLabelPick" class="card-label-pick"></div>
+          <label for="breakdownProject" style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin:12px 0 4px" data-i18n="ideas.promote.project_label">Projekt</label>
+          <select id="breakdownProject" class="input"></select>
         </div>
         <div class="detail-actions" style="gap:8px; margin-top:16px">
           <button class="btn-primary" id="breakdownAcceptBtn" data-i18n="kanban.breakdown.accept_btn">Subtask-ok létrehozása</button>
