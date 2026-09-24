@@ -39049,9 +39049,16 @@ async function _bkOpenMap() {
       + '</th><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_target')) + '</th><th></th></tr></thead><tbody>'
       + rules.map((r) => '<tr><td style="padding:3px 6px;word-break:break-word">' + escapeHtml(_bkFromText(r.path))
         + '</td><td style="padding:3px 6px;white-space:nowrap">' + escapeHtml(r.target ? '☁ ' + _bkTargetText(r.target) : '⊘ ' + t('backup.none'))
-        + '</td><td style="padding:3px 6px;text-align:right"><a href="#" data-bk-go="' + escapeHtml(r.path) + '">'
+        + '</td><td style="padding:3px 6px;text-align:right;white-space:nowrap">'
+        + (r.target && r.target.kind === 'mega' ? '<a href="#" data-bk-mega="' + escapeHtml(r.path) + '">' + escapeHtml(t('backup.mega_upload_link')) + '</a> · ' : '')
+        + '<a href="#" data-bk-go="' + escapeHtml(r.path) + '">'
         + escapeHtml(t('backup.map_open')) + '</a></td></tr>').join('') + '</tbody>'
     box.appendChild(tbl)
+    tbl.querySelectorAll('a[data-bk-mega]').forEach((a) => a.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      const rule = rules.find((x) => x.path === (a.getAttribute('data-bk-mega') || ''))
+      if (rule) _bkOpenMegaUpload(rule)
+    }))
     tbl.querySelectorAll('a[data-bk-go]').forEach((a) => a.addEventListener('click', (ev) => {
       ev.preventDefault()
       back.remove()
@@ -39076,6 +39083,147 @@ async function _bkOpenMap() {
     box.appendChild(sum)
   }
   box.appendChild(_bkButton(t('backup.close'), '', () => back.remove()))
+}
+
+/** POST helper for the backup API: returns the JSON, throws with the server's sentence. */
+async function _bkPost(url, body) {
+  const res = await fetch(url + '?lang=' + (window._lang || 'hu'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+  })
+  let d = {}
+  try { d = await res.json() } catch (e) { d = {} }
+  if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status))
+  return d
+}
+
+function _bkEl(tag, css, text) {
+  const el = document.createElement(tag)
+  if (css) el.style.cssText = css
+  if (text !== undefined) el.textContent = text
+  return el
+}
+
+/**
+ * MEGA upload of one rule (card #350). Nothing uploads when this opens: it
+ * shows a PREVIEW (files, size, free space), and only the button uploads --
+ * exactly the previewed list. Files gone from the machine are listed for a
+ * yes/no each; nothing is deleted on MEGA without that "yes".
+ */
+async function _bkOpenMegaUpload(rule) {
+  const { back, box } = _bkPanel(t('backup.mega_title', { name: _bkFromText(rule.path), target: _bkTargetText(rule.target) }))
+  box.appendChild(_bkEl('p', 'margin:0 0 10px;font-size:12px;opacity:.75', t('backup.mega_intro')))
+  const status = _bkEl('div', 'font-size:13px;margin:6px 0')
+  const actions = _bkEl('div', 'margin:8px 0')
+  const delBox = _bkEl('div', 'margin-top:10px')
+  // What this backup leaves out -- editable here, applied at the next preview.
+  const exLabel = _bkEl('div', 'font-size:12px;font-weight:600;margin:8px 0 2px', t('backup.mega_exclude_label'))
+  const exHelp = _bkEl('div', 'font-size:12px;opacity:.7;margin-bottom:4px', t('backup.mega_exclude_help'))
+  const exArea = document.createElement('textarea')
+  exArea.rows = 3
+  exArea.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px'
+  exArea.placeholder = t('backup.mega_exclude_placeholder')
+  exArea.value = (rule.exclude || []).join('\n')
+  const exSave = _bkButton(t('backup.mega_exclude_save'), '', async () => {
+    try {
+      const d = await _bkPost('/api/backup-rules/exclude', { path: rule.path, exclude: exArea.value })
+      _bkRules = Array.isArray(d.rules) ? d.rules : _bkRules
+      await preview()
+    } catch (e) { showToast((e && e.message) || '') }
+  })
+  box.appendChild(exLabel); box.appendChild(exHelp); box.appendChild(exArea); box.appendChild(exSave)
+  box.appendChild(status); box.appendChild(actions); box.appendChild(delBox)
+  box.appendChild(_bkButton(t('backup.close'), '', () => back.remove()))
+
+  // Stops by itself once the panel is gone (checked on every tick).
+  let poll = null
+
+  async function showDeletes() {
+    delBox.innerHTML = ''
+    let d
+    try {
+      const res = await fetch('/api/backup-rules/mega/deletes?lang=' + (window._lang || 'hu'))
+      d = await res.json()
+    } catch (e) { return }
+    if (d.error) delBox.appendChild(_bkEl('p', 'color:var(--danger);font-size:12px', d.error))
+    const mine = (d.items || []).filter((i) => i.account === rule.target.account && i.path === rule.path)
+    if (!mine.length) return
+    delBox.appendChild(_bkEl('div', 'font-size:13px;font-weight:600;margin-bottom:4px', t('backup.mega_deletes_title', { n: mine.length })))
+    delBox.appendChild(_bkEl('div', 'font-size:12px;opacity:.75;margin-bottom:6px', t('backup.mega_deletes_help')))
+    for (const it of mine) {
+      const row = _bkEl('div', 'display:flex;gap:6px;align-items:center;font-size:12px;margin:3px 0')
+      row.appendChild(_bkEl('span', 'flex:1;word-break:break-all', it.rel))
+      const decide = (yes) => async () => {
+        try { await _bkPost('/api/backup-rules/mega/deletes/decide', { id: it.id, yes: yes }); showDeletes() }
+        catch (e) { showToast((e && e.message) || '') }
+      }
+      const y = _bkEl('button', 'font-size:12px;padding:2px 8px', t('backup.mega_delete_yes'))
+      y.className = 'btn-danger btn-compact'; y.type = 'button'; y.addEventListener('click', decide(true))
+      const n = _bkEl('button', 'font-size:12px;padding:2px 8px', t('backup.mega_delete_no'))
+      n.className = 'btn-secondary btn-compact'; n.type = 'button'; n.addEventListener('click', decide(false))
+      row.appendChild(y); row.appendChild(n)
+      delBox.appendChild(row)
+    }
+  }
+
+  function showJob(job) {
+    actions.innerHTML = ''
+    if (!job) return false
+    if (job.running) {
+      status.textContent = t('backup.mega_running', { n: job.total })
+      return true
+    }
+    status.textContent = job.error
+      ? t('backup.mega_done_err', { ok: job.uploaded, bad: job.failed, msg: job.error })
+      : t('backup.mega_done_ok', { ok: job.uploaded })
+    return false
+  }
+
+  async function watchJob() {
+    clearInterval(poll)
+    poll = setInterval(async () => {
+      if (!document.body.contains(box)) { clearInterval(poll); return }
+      try {
+        const d = await (await fetch('/api/backup-rules/mega/status')).json()
+        if (d.job && d.job.path === rule.path && !showJob(d.job)) { clearInterval(poll); showDeletes() }
+      } catch (e) { /* keep polling */ }
+    }, 3000)
+  }
+
+  async function preview() {
+    actions.innerHTML = ''
+    status.textContent = t('backup.mega_measuring')
+    let p
+    try { p = await _bkPost('/api/backup-rules/mega/preview', { path: rule.path }) }
+    catch (e) { status.textContent = (e && e.message) || t('backup.load_failed'); return }
+    const lines = []
+    lines.push(p.files ? t('backup.mega_preview_files', { n: p.files, gb: _bkGb(p.bytes) }) : t('backup.mega_preview_nothing'))
+    if (p.remoteDeleted) lines.push(t('backup.mega_preview_remote_deleted', { n: p.remoteDeleted }))
+    if (p.children && p.children.length) lines.push(t('backup.mega_preview_children', { list: p.children.join(', ') }))
+    if (p.truncated) lines.push(t('backup.mega_preview_truncated'))
+    if (p.brake) lines.push(t('backup.mega_preview_brake', { n: p.wouldDelete, of: p.tracked }))
+    lines.push(p.free === null
+      ? t('backup.mega_preview_free_unknown', { msg: p.quotaError || '' })
+      : (p.fits ? t('backup.mega_preview_fits', { gb: _bkGb(p.free) }) : t('backup.mega_preview_no_fit', { gb: _bkGb(p.free) })))
+    status.innerHTML = lines.map((l) => '<div>' + escapeHtml(l) + '</div>').join('')
+    if (p.files && p.fits !== false) {
+      const go = _bkEl('button', 'margin-top:6px', t('backup.mega_start', { n: p.files }))
+      go.type = 'button'; go.className = 'btn-primary'
+      go.addEventListener('click', async () => {
+        go.disabled = true
+        try { const d = await _bkPost('/api/backup-rules/mega/run', { path: rule.path }); showJob(d.job); watchJob() }
+        catch (e) { go.disabled = false; showToast((e && e.message) || '') }
+      })
+      actions.appendChild(go)
+    }
+    showDeletes()
+  }
+
+  // A running upload of this rule is shown instead of a new preview.
+  try {
+    const d = await (await fetch('/api/backup-rules/mega/status')).json()
+    if (d.job && d.job.path === rule.path && d.job.running) { showJob(d.job); watchJob(); showDeletes(); return }
+  } catch (e) { /* fall through to the preview */ }
+  preview()
 }
 
 let _intezoMenuEl = null
