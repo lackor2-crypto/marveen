@@ -60,3 +60,12 @@ describe('Intezo folder tree', () => {
     }
   })
 })
+
+describe('Intezo content list zebra rows', () => {
+  it('the right-pane table carries the class the alternating background hangs on', () => {
+    expect(app).toContain('<table class="intezo-list"')
+    expect(css).toMatch(/table\.intezo-list > tbody > tr:nth-child\(even\) \{ background:/)
+    // hover must stay visible over a striped row
+    expect(css).toMatch(/table\.intezo-list > tbody > tr:hover \{ background:/)
+  })
+})

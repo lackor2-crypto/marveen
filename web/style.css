@@ -12223,6 +12223,11 @@ details.upstream-box > summary > h4 {
 
 /* ARCHIVED IN PLACE (card 4f3471f1): the row stays, greyed; the toggle stays
    fully visible so it can be switched back. */
+/* Zebra rows in the right pane: light / darker alternately, so the eye can
+   follow one row across the columns. Neutral grey works in light and dark
+   theme; hover is stronger than the stripe, the selected row (inline) wins. */
+table.intezo-list > tbody > tr:nth-child(even) { background: rgba(127, 127, 127, .09); }
+table.intezo-list > tbody > tr:hover { background: rgba(127, 127, 127, .18); }
 tr.intezo-archived > td { opacity: .45; }
 tr.intezo-archived > td:last-child { opacity: 1; }
 tr.intezo-archived a[data-open] { text-decoration: line-through; text-decoration-color: rgba(127,127,127,.5); }
