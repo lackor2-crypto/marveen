@@ -56,6 +56,9 @@ export interface SystemDep {
   commands: string[]
   versionArgs: string[]
   probe?: (force: boolean) => Promise<CommandProbe>
+  /** A Marveen maga telepiti egy gombbal (nem rendszercsomag), pl. 'vision'
+   *  = a helyi arcfelismero (`/api/vision/install`, vision-install.ts). */
+  selfInstall?: 'vision'
 }
 
 const localBin = (name: string): string => join(homedir(), '.local', 'bin', name)
@@ -193,6 +196,30 @@ export const SYSTEM_DEPS: SystemDep[] = [
     commands: [localBin('rclone'), 'rclone'], versionArgs: ['version'],
   },
   {
+    id: 'face-recognizer', name: 'face_recognition', tier: 'extra',
+    what_for: { hu: 'A Beérkező mappában a fotóról felismeri, kié a kép, és a személy mappáját ajánlja. Mindez a gépeden fut, internet nélkül.', en: 'In the Inbox it recognises whose photo it is and suggests that person’s folder. It all runs on your machine, without the internet.' },
+    affects: { hu: 'A fotók mappáját kézzel választod ki. Minden más működik.', en: 'You pick the folder of photos by hand. Everything else works.' },
+    apt: [], dnf: [], brew: [],
+    manual: {
+      hu: 'Nincs hozzá rendszercsomag: a Telepítés gombbal a Marveen maga telepíti (10–20 perc, közben a felület használható).',
+      en: 'There is no system package for it: the Install button makes Marveen install it by itself (10–20 minutes, the dashboard stays usable meanwhile).',
+    },
+    url: 'https://github.com/ageitgey/face_recognition#installation',
+    commands: [], versionArgs: [],
+    selfInstall: 'vision',
+    probe: async (force) => {
+      const { VISION_PYTHON, FACE_SCRIPT } = await import('./life-vision-adapter.js')
+      if (!existsSync(FACE_SCRIPT)) {
+        return { available: false, path: null, version: null, reason: 'not_installed', detail: null, checked_at: Date.now() }
+      }
+      return probeCommand({
+        id: 'sysdep:face-recognizer', configured: null, candidates: [VISION_PYTHON],
+        versionArgs: ['-c', 'import face_recognition as f; print("face_recognition " + f.__version__)'],
+        timeoutMs: 20_000,
+      }, { force })
+    },
+  },
+  {
     id: 'tailscale', name: 'Tailscale', tier: 'extra',
     what_for: { hu: 'A Marveen felülete elérhető a telefonodról is, otthonon kívülről.', en: 'Reaching the Marveen dashboard from your phone, away from home.' },
     affects: { hu: 'Csak erről a gépről (és a helyi hálózatról) érhető el a felület.', en: 'The dashboard is reachable only from this machine (and the local network).' },
@@ -217,6 +244,8 @@ export interface DepResult {
   packages: string[]
   manual: Text | null
   url: string
+  /** A felulet Telepites gombot mutat, ha hianyzik. */
+  self_install: 'vision' | null
 }
 
 export interface DepsSnapshot {
@@ -272,6 +301,7 @@ function toResult(dep: SystemDep, p: CommandProbe, pm: PkgManager): DepResult {
     packages: packagesFor(dep, pm),
     manual: dep.manual ?? null,
     url: dep.url,
+    self_install: dep.selfInstall ?? null,
   }
 }
 

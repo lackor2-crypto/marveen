@@ -27,6 +27,7 @@ import { claudeAuthPresent, channelConfigured, paired } from './onboarding.js'
 import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
 import { measureSystemDeps, systemDepsSnapshot, installCommand, type DepsSnapshot } from '../../system-deps.js'
+import { startVisionInstall, visionInstallStatus } from '../../vision-install.js'
 import type { RouteContext } from './types.js'
 
 const ENV_FILE = join(PROJECT_ROOT, '.env')
@@ -97,6 +98,19 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     const cached = systemDepsSnapshot()
     const snap = force || !cached ? await measureSystemDeps(force) : cached
     json(res, { ...snap, install_cmd: installCommand(snap.items, snap.pkg_manager) })
+    return true
+  }
+
+  // A helyi arcfelismero telepitese a feluletrol (kanban f97acc32, audit C).
+  // GET: all-e, fut-e, es hiba eseten a VALODI napló vege.
+  if (path === '/api/vision/status' && method === 'GET') {
+    json(res, visionInstallStatus())
+    return true
+  }
+  // POST: hianyzo forditoeszkoz -> a bemasolando sor (root innen soha);
+  // kulonben a telepito a hatterben indul, a felulet a statuszt kerdezi.
+  if (path === '/api/vision/install' && method === 'POST') {
+    json(res, startVisionInstall())
     return true
   }
 

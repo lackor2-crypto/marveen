@@ -1004,8 +1004,8 @@ function guessOwnerFromFace(sniff: TypeSniff, abs: string, config: LifeConfig, l
   const face = getFaceAdapter()
   if (!face.available()) {
     notes.push(T(lang,
-      'A helyi arcfelismerő nincs telepítve (jóváhagyásra vár), ezért a tulajdonost nem tudom a fotóról kitalálni.',
-      'The local face recognizer is not installed (pending approval), so I cannot guess the owner from the photo.'))
+      'A helyi arcfelismerő nincs telepítve, ezért a tulajdonost nem tudom a fotóról kitalálni. Telepíteni a Beállítások / Beállítás varázsló / Külső programok alatt lehet, egy gombbal.',
+      'The local face recognizer is not installed, so I cannot guess the owner from the photo. It installs with one button under Settings / Setup wizard / External programs.'))
     return null
   }
   const matches = face.recognize(abs)

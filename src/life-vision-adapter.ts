@@ -20,10 +20,11 @@ import {
 } from './life-inbox-analyze.js'
 import { ocrFile, ocrFileAsync, tesseractAvailable } from './life-inbox-systools.js'
 
-const VISION_DIR = process.env.MARVEEN_VISION_DIR || join(homedir(), '.local', 'share', 'marveen-vision')
-const PYTHON = join(VISION_DIR, 'venv', 'bin', 'python')
+export const VISION_DIR = process.env.MARVEEN_VISION_DIR || join(homedir(), '.local', 'share', 'marveen-vision')
+export const VISION_PYTHON = join(VISION_DIR, 'venv', 'bin', 'python')
+const PYTHON = VISION_PYTHON
 const OCR_SCRIPT = join(VISION_DIR, 'ocr_extract.py')
-const FACE_SCRIPT = join(VISION_DIR, 'face_recognize.py')
+export const FACE_SCRIPT = join(VISION_DIR, 'face_recognize.py')
 const FACE_ENROLL_SCRIPT = join(VISION_DIR, 'face_enroll.py')
 
 /** `store/face-gallery/<personId>/*.jpg` -- referenciafotok szemelyenkent. */
@@ -35,7 +36,7 @@ function ocrInstalled(): boolean {
   return existsSync(PYTHON) && existsSync(OCR_SCRIPT)
 }
 
-function faceInstalled(): boolean {
+export function faceInstalled(): boolean {
   return existsSync(PYTHON) && existsSync(FACE_SCRIPT)
 }
 
@@ -153,9 +154,11 @@ let wired = false
  * telepitve (friss telepites vagy meg nem jovahagyott csomag), csendben
  * semmit nem csinal -- az alapertelmezett "nincs telepitve" adapterek
  * maradnak ervenyben (`unavailableOcrAdapter`/`unavailableFaceAdapter`).
+ * `force`: a feluletrol inditott telepites vegen ujra bekot, hogy az
+ * arcfelismero a dashboard ujrainditasa nelkul is induljon (vision-install.ts).
  */
-export function initVisionAdapters(): void {
-  if (wired) return
+export function initVisionAdapters(force = false): void {
+  if (wired && !force) return
   wired = true
   // The system tesseract first: it needs nothing but the tesseract-ocr
   // package, reads more languages and pages. The venv script stays the

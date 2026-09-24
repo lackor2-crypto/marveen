@@ -22,7 +22,7 @@ const installer = readFileSync(join(ROOT, 'install-linux.sh'), 'utf8')
 function item(over: Partial<DepResult>): DepResult {
   return {
     id: 'x', name: 'X', tier: 'recommended', state: 'ok', version: null, path: null, detail: null,
-    what_for: { hu: '', en: '' }, affects: { hu: '', en: '' }, packages: ['x'], manual: null, url: 'https://example.org',
+    what_for: { hu: '', en: '' }, affects: { hu: '', en: '' }, packages: ['x'], manual: null, url: 'https://example.org', self_install: null,
     ...over,
   }
 }
@@ -53,7 +53,10 @@ describe('a lista es a friss telepito egyutt jar', () => {
     expect(new Set(ids).size).toBe(ids.length)
     for (const d of SYSTEM_DEPS) {
       expect(d.url, d.id).toMatch(/^https:\/\//)
-      expect(d.commands.length, d.id).toBeGreaterThan(0)
+      // A self-installed entry (face recognizer) has a button instead of a
+      // command line; everything else must give the user a line to paste.
+      if (d.selfInstall) expect(d.commands.length, d.id).toBe(0)
+      else expect(d.commands.length, d.id).toBeGreaterThan(0)
       expect(d.affects.hu && d.affects.en, d.id).toBeTruthy()
       expect(d.what_for.hu && d.what_for.en, d.id).toBeTruthy()
     }
