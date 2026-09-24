@@ -138,3 +138,48 @@ export function readUpstreamSyncStatus(now: number = Date.now()): UpstreamSyncSt
     return null
   }
 }
+
+// #379: the file lists behind absorbedCount / skippedCount. Kept OUT of
+// UpstreamSyncStatus on purpose: that object rides on every Overview load and
+// every measure poll, while these lists (hundreds of paths) are only needed
+// when the details dialog is opened -- they go out with /api/upstream/changes.
+export interface UpstreamSkippedFile {
+  path: string
+  // deferred = postponed, will be looked at again; decided = final.
+  kind: 'deferred' | 'decided'
+  reason: string | null
+}
+
+export interface UpstreamSplitFiles {
+  // null = not measured (no snapshot, a snapshot older than #379, or an
+  // unreadable skip list) -- NOT "nothing there". [] = measured and empty.
+  absorbed: string[] | null
+  skipped: UpstreamSkippedFile[] | null
+}
+
+export function readUpstreamSplitFiles(): UpstreamSplitFiles {
+  const none: UpstreamSplitFiles = { absorbed: null, skipped: null }
+  if (!existsSync(STATUS_PATH)) return none
+  try {
+    const o = JSON.parse(readFileSync(STATUS_PATH, 'utf-8')) as Record<string, unknown>
+    if (!o || typeof o !== 'object') return none
+    const absorbed = Array.isArray(o.absorbedFiles)
+      ? o.absorbedFiles.filter((f): f is string => typeof f === 'string')
+      : null
+    const skipped = Array.isArray(o.skippedFiles)
+      ? o.skippedFiles.flatMap((e): UpstreamSkippedFile[] => {
+          if (!e || typeof e !== 'object') return []
+          const r = e as Record<string, unknown>
+          if (typeof r.path !== 'string' || !r.path) return []
+          return [{
+            path: r.path,
+            kind: r.kind === 'deferred' ? 'deferred' : 'decided',
+            reason: typeof r.reason === 'string' && r.reason ? r.reason : null,
+          }]
+        })
+      : null
+    return { absorbed, skipped }
+  } catch {
+    return none
+  }
+}

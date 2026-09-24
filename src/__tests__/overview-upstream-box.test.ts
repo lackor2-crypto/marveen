@@ -85,10 +85,16 @@ describe('Attekinto: upstream-szinkron doboz', () => {
   it('a cimkek kiirjak a mertekegyseget (commit vs fajl)', () => {
     // Enelkul harom egyforma szamnak latszik, es a Boss maga vonna ki oket
     // egymasbol -- ugyanabba a hibaba futva, amit a kod most mar nem kovet el.
-    expect(hu).toMatch(/'overview\.upstream\.conflicts':\s*'[^']*fájl/)
-    expect(hu).toMatch(/'overview\.upstream\.clean':\s*'[^']*fájl/)
-    expect(en).toMatch(/'overview\.upstream\.conflicts':\s*'[^']*files/)
-    expect(en).toMatch(/'overview\.upstream\.clean':\s*'[^']*files/)
+    // #379 ota a ket kulso szam cimkeje a Boss sajat szava ("utkozes nelkul
+    // athuzhato: N", "utkozo: N"); a mertekegyseget a kozvetlenul alattuk allo
+    // commit-sor mondja ki, a fajl-szavval.
+    for (const lang of [hu, en]) {
+      expect(lang).toContain("'overview.upstream.out_clean'")
+      expect(lang).toContain("'overview.upstream.out_conflicts'")
+    }
+    expect(hu).toMatch(/'overview\.upstream\.commits':\s*'[^']*fájl/)
+    expect(en).toMatch(/'overview\.upstream\.commits':\s*'[^']*file/)
+    expect(code).toContain("t('overview.upstream.commits', { c: behind })")
   })
 
   it('nincs doboz, ha egyaltalan nincs meres', () => {
@@ -228,5 +234,58 @@ describe('az upstream gombok egy magassagban', () => {
   it('a gombok kozos szabalyt kapnak, gombonkenti felso margo nelkul', () => {
     expect(css).toMatch(/\.upstream-changes-btn,\s*\.upstream-measure-btn \{[^}]*margin: 0/)
     expect(css).not.toMatch(/\.upstream-(?:changes|gate|measure)-btn \{[^}]*margin-top/)
+  })
+})
+
+// #379 (Boss): a "osszes erintett", a "mar behuzva" es a "szandekosan kihagyva"
+// a Reszletek ablak KET UJ FULERE kerult; a kihagyottnal fajlonkent az ok.
+describe('Reszletek ablak: Mar behuzva / Szandekosan kihagyva ful (#379)', () => {
+  const html = readFileSync(join(WEB, 'index.html'), 'utf8')
+  const fnBody = (name: string): string => {
+    const start = app.indexOf(`function ${name}(`)
+    expect(start, `${name} nincs a web/app.js-ben`).toBeGreaterThan(-1)
+    return app.slice(start, app.indexOf('\nfunction ', start + 1))
+  }
+
+  it('a ket ful ott van az ablakban, es kattinthato', () => {
+    expect(html).toContain('id="upstreamViewAbsorbed"')
+    expect(html).toContain('id="upstreamViewSkipped"')
+    expect(app).toContain("setUpstreamChangesView('behuzva')")
+    expect(app).toContain("setUpstreamChangesView('kihagyva')")
+  })
+
+  it('kint mar nincs osszeg, behuzott es kihagyott szam', () => {
+    const row = app.slice(app.indexOf('<div class="upstream-sync-row">'))
+    const eleje = row.slice(0, row.indexOf('</div>'))
+    for (const gone of ['${total}', 'absorbedNum', 'skippedNum']) expect(eleje).not.toContain(gone)
+  })
+
+  it('a kihagyott fajlnal latszik az ok es a fajta (halasztott / vegleges)', () => {
+    const v = fnBody('renderUpstreamSkipped')
+    expect(v).toContain("'deferred'")
+    expect(v).toContain("'decided'")
+    expect(v).toContain('f.reason')
+  })
+
+  it('friss telepites: ures lista nyugodt mondat; nem mert lista kulon mondat', () => {
+    for (const name of ['renderUpstreamSkipped', 'renderUpstreamAbsorbed']) {
+      expect(fnBody(name)).toContain('upstream.split.unmeasured')
+    }
+    expect(fnBody('renderUpstreamSkipped')).toContain('upstream.skipped.none')
+    expect(fnBody('renderUpstreamAbsorbed')).toContain('upstream.absorbed.none')
+    expect(hu).toMatch(/'upstream\.skipped\.none':\s*'Nincs szándékosan kihagyott fájl/)
+    for (const k of ['upstream.view.absorbed', 'upstream.view.skipped', 'upstream.view.absorbed_unknown',
+      'upstream.view.skipped_unknown', 'upstream.split.unmeasured', 'upstream.absorbed.intro', 'upstream.absorbed.none',
+      'upstream.skipped.intro', 'upstream.skipped.none', 'upstream.skipped.no_reason',
+      'upstream.skipped.group_deferred', 'upstream.skipped.group_decided']) {
+      for (const lang of [hu, en]) expect(lang).toContain(`'${k}'`)
+    }
+  })
+
+  it('a ket ful a teteles lista nelkul is megnyilik (a meresbol el, nem a listabol)', () => {
+    const r = fnBody('renderUpstreamChanges')
+    expect(r.indexOf("'kihagyva'")).toBeLessThan(r.indexOf('!data.available'))
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'overview.ts'), 'utf8')
+    expect(route).toContain('{ available: false, split }')
   })
 })

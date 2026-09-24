@@ -20821,6 +20821,10 @@ let upstreamChangesCache = null
 // 'fajl'     = melyik fajl valtozott (191 tetel: 22 utkozo + 169 tiszta)
 // 'kapu'     = az elv-kapu kizart es dontesre varo tetelei, indokkal
 let upstreamChangesView = 'valtozas'
+// #379: az Attekintes utolso upstream-meresenek magyarazo mondata (osszes
+// erintett / mar behuzva / kihagyva). A doboz kint mar csak a ket teendo-szamot
+// mutatja, a Reszletek ablak ket uj fule innen veszi a teljes kepet.
+let lastUpstreamSyncExplain = null
 
 function upstreamChangeRow(c) {
   const meta = [
@@ -20955,10 +20959,84 @@ function renderUpstreamFiles(data, filter, body, intro) {
   }
 }
 
+// #379: a Reszletek ablak ket uj fulenek bevezetoje: a teljes kep (osszes
+// erintett fajl es a bontasa), ami korabban kint allt az Attekintes dobozan.
+function upstreamSplitIntro(own) {
+  const ex = lastUpstreamSyncExplain
+  const tmp = document.createElement('div')
+  tmp.innerHTML = ex ? (ex.html || '') : ''
+  const whole = tmp.textContent.trim()
+  return [whole, own].filter(Boolean).join(' ')
+}
+
+function upstreamSplitPathRow(path, extra) {
+  return `<div class="upstream-file"><div class="upstream-file-path">${escapeHtml(path)}</div>${extra || ''}</div>`
+}
+
+function renderUpstreamAbsorbed(data, filter, body, intro) {
+  const list = data && data.split ? data.split.absorbed : null
+  // null = a meres nem bontotta fajlokra (regi pillanatkep, olvashatatlan
+  // kihagyas-lista) -- ez NEM ugyanaz, mint az ures lista.
+  if (!Array.isArray(list)) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.unmeasured'))}</p>`
+    if (intro) intro.textContent = upstreamSplitIntro('')
+    return
+  }
+  if (intro) intro.textContent = upstreamSplitIntro(t('upstream.absorbed.intro', { n: list.length }))
+  if (!list.length) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.absorbed.none'))}</p>`
+    return
+  }
+  const q = (filter || '').trim().toLowerCase()
+  const rows = list.filter(f => !q || f.toLowerCase().includes(q))
+  body.innerHTML = rows.length
+    ? `<section class="upstream-box upstream-box-clean">${rows.map(f => upstreamSplitPathRow(f)).join('')}</section>`
+    : `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
+}
+
+function renderUpstreamSkipped(data, filter, body, intro) {
+  const list = data && data.split ? data.split.skipped : null
+  if (!Array.isArray(list)) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.unmeasured'))}</p>`
+    if (intro) intro.textContent = upstreamSplitIntro('')
+    return
+  }
+  const deferredAll = list.filter(f => f.kind === 'deferred').length
+  if (intro) intro.textContent = upstreamSplitIntro(t('upstream.skipped.intro', { n: list.length, d: deferredAll }))
+  // Friss telepites: nincs kihagyas-lista, tehat nincs kihagyott fajl. Ez
+  // nyugodt mondat, nem hiba.
+  if (!list.length) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.skipped.none'))}</p>`
+    return
+  }
+  const q = (filter || '').trim().toLowerCase()
+  const match = f => !q || f.path.toLowerCase().includes(q) || (f.reason || '').toLowerCase().includes(q)
+  const row = f => upstreamSplitPathRow(f.path,
+    `<div class="upstream-gate-why">${escapeHtml(f.reason || t('upstream.skipped.no_reason'))}</div>`)
+  let html = ''
+  for (const [kind, labelKey, cls] of [
+    ['deferred', 'upstream.skipped.group_deferred', 'upstream-box-gate-discuss'],
+    ['decided', 'upstream.skipped.group_decided', 'upstream-box-gate-exclude'],
+  ]) {
+    const items = list.filter(f => f.kind === kind && match(f))
+    if (!items.length) continue
+    html += `
+      <section class="upstream-box ${cls}">
+        <h4>${escapeHtml(t(labelKey, { n: items.length }))}</h4>
+        ${items.map(row).join('')}
+      </section>`
+  }
+  body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
+}
+
 function renderUpstreamChanges(data, filter) {
   const body = document.getElementById('upstreamChangesBody')
   const intro = document.getElementById('upstreamChangesIntro')
   if (!body) return
+  // #379: a ket uj ful a divergencia-meresbol el, nem a teteles listabol --
+  // lista nelkul is megmutathato.
+  if (upstreamChangesView === 'behuzva') { renderUpstreamAbsorbed(data, filter, body, intro); return }
+  if (upstreamChangesView === 'kihagyva') { renderUpstreamSkipped(data, filter, body, intro); return }
   if (!data || !data.available) {
     body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.none'))}</p>`
     if (intro) intro.textContent = ''
@@ -21081,6 +21159,10 @@ function setUpstreamChangesView(view) {
   if (tabFiles) tabFiles.classList.toggle('active', view === 'fajl')
   const tabGate = document.getElementById('upstreamViewGate')
   if (tabGate) tabGate.classList.toggle('active', view === 'kapu')
+  const tabAbsorbed = document.getElementById('upstreamViewAbsorbed')
+  if (tabAbsorbed) tabAbsorbed.classList.toggle('active', view === 'behuzva')
+  const tabSkipped = document.getElementById('upstreamViewSkipped')
+  if (tabSkipped) tabSkipped.classList.toggle('active', view === 'kihagyva')
   const filterEl = document.getElementById('upstreamChangesFilter')
   renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
 }
@@ -21099,6 +21181,21 @@ function labelUpstreamViewTabs(data) {
     tabGate.textContent = run && run.ok
       ? t('upstream.view.gate', { x: run.exclude, d: run.discuss })
       : t('upstream.view.gate_unknown')
+  }
+  // #379: a szam csak akkor all a fulon, ha a meres tenyleg fajlokra bontott;
+  // a "nem mertuk" nem nulla.
+  const split = (data && data.split) || {}
+  const tabAbsorbed = document.getElementById('upstreamViewAbsorbed')
+  if (tabAbsorbed) {
+    tabAbsorbed.textContent = Array.isArray(split.absorbed)
+      ? t('upstream.view.absorbed', { n: split.absorbed.length })
+      : t('upstream.view.absorbed_unknown')
+  }
+  const tabSkipped = document.getElementById('upstreamViewSkipped')
+  if (tabSkipped) {
+    tabSkipped.textContent = Array.isArray(split.skipped)
+      ? t('upstream.view.skipped', { n: split.skipped.length })
+      : t('upstream.view.skipped_unknown')
   }
 }
 
@@ -21130,6 +21227,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (tabFiles) tabFiles.addEventListener('click', () => setUpstreamChangesView('fajl'))
   const tabGate = document.getElementById('upstreamViewGate')
   if (tabGate) tabGate.addEventListener('click', () => setUpstreamChangesView('kapu'))
+  const tabAbsorbed = document.getElementById('upstreamViewAbsorbed')
+  if (tabAbsorbed) tabAbsorbed.addEventListener('click', () => setUpstreamChangesView('behuzva'))
+  const tabSkipped = document.getElementById('upstreamViewSkipped')
+  if (tabSkipped) tabSkipped.addEventListener('click', () => setUpstreamChangesView('kihagyva'))
 })
 
 // === Onellenorzes -> vegigvezeto ===========================================
@@ -21946,6 +22047,7 @@ function fetchErrorHtml(u) {
 }
 
 function renderOverviewUpstreamSync(upstreamSync) {
+  lastUpstreamSyncExplain = null
   const box = document.getElementById('overviewUpstreamSync')
   const body = document.getElementById('overviewUpstreamBody')
   const meta = document.getElementById('overviewUpstreamMeta')
@@ -22146,26 +22248,18 @@ function renderOverviewUpstreamSync(upstreamSync) {
   const skipErr = (typeof upstreamSync.skipListError === 'string' && upstreamSync.skipListError)
     ? `<div class="upstream-sync-offline">${escapeHtml(t('overview.upstream.skiplist_error', { why: upstreamSync.skipListError }))}</div>`
     : ''
-  const splitStats = split
-    ? `<span class="upstream-stat" title="${escapeAttr(t('overview.upstream.skipped_tip'))}"><strong>${skippedNum}</strong> ${escapeHtml(t('overview.upstream.skipped'))}</span>
-      <span class="upstream-stat" title="${escapeAttr(t('overview.upstream.absorbed_tip'))}"><strong>${absorbedNum}</strong> ${escapeHtml(t('overview.upstream.absorbed'))}</span>`
-    : ''
-  const deferredNum = Number(upstreamSync.skippedDeferredCount)
-  const deferredNote = (split && Number.isFinite(deferredNum) && deferredNum > 0)
-    ? `<div class="upstream-sync-explain">${escapeHtml(t('overview.upstream.skipped_deferred', { n: deferredNum }))}</div>`
-    : ''
-  const cleanLabel = split ? t('overview.upstream.clean_left') : t('overview.upstream.clean')
   const commitLine = `<div class="upstream-sync-commits">${escapeHtml(t('overview.upstream.commits', { c: behind }))}</div>`
+  // #379 (Boss): KINT csak a ket teendo-szam marad -- "utkozes nelkul
+  // athuzhato" es "utkozo". Az osszes erintett, a mar behuzott es a
+  // szandekosan kihagyott szam (a magyarazo mondattal egyutt) a Reszletek
+  // ablak ket uj fulere kerult. A dialogus a magyarazatot innen veszi.
+  lastUpstreamSyncExplain = { html: explainHtml, total }
   body.innerHTML = `
     <div class="upstream-sync-row">
-      <span class="upstream-stat"${cleanTitle}><strong>${total}</strong> ${escapeHtml(t('overview.upstream.total'))}</span>
-      <span class="upstream-stat ${badgeClass}"${conflictTitle}><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
-      <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(cleanLabel)}</span>
-      ${splitStats}
+      <span class="upstream-stat"${cleanTitle}>${escapeHtml(t('overview.upstream.out_clean'))}: <strong>${clean}</strong></span>
+      <span class="upstream-stat ${badgeClass}"${conflictTitle}>${escapeHtml(t('overview.upstream.out_conflicts'))}: <strong>${conflicts}</strong></span>
     </div>
     ${commitLine}
-    ${explainHtml}
-    ${deferredNote}
     ${skipErr}
     ${revertedNote}
     ${upstreamRepoHtml(upstreamSync)}
