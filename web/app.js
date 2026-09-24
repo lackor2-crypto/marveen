@@ -37080,6 +37080,8 @@ function _intezoRender() {
           // A BEERKEZO sajat hattere: ez a munka kezdopontja, ne kelljen
           // keresni a listaban.
           : (_faBeerkezo(e) ? ' style="background:rgba(255,179,0,.14)"' : ''))
+      // ARCHIVED IN PLACE: grey, and the server already put it at the end.
+      + (e.archived ? ' class="intezo-archived"' : '')
       + '>'
       + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
       + '<td style="padding:2px 8px">' + _intezoContentMark(e) + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
@@ -37107,7 +37109,17 @@ function _intezoRender() {
       + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap"'
       + (e.isDir && e.content && e.content.reason ? ' title="' + escapeHtml(e.content.reason) + '"' : '')
       + '>' + escapeHtml(e.isDir ? _intezoCountText(e) : e.sizeHuman) + '</td>'
-      + '<td style="padding:0 8px;white-space:nowrap"><button class="btn-secondary" '
+      + '<td style="padding:0 8px;white-space:nowrap">'
+      // THE ARCHIVE TOGGLE (card 4f3471f1): one press = archived (grey, to the
+      // end), a second press = back in its place. Nothing moves on disk.
+      + '<button class="btn-secondary intezo-archive-toggle" '
+      + 'style="padding:1px 6px;font-size:11px;line-height:1.5;min-height:0;height:auto;margin-right:4px'
+      + (e.archived ? '' : ';opacity:.55') + '" '
+      + 'data-archive="' + escapeHtml(e.rel) + '" aria-pressed="' + (e.archived ? 'true' : 'false') + '" '
+      + 'title="' + escapeHtml(t(e.archived ? 'intezo.unarchive_title' : 'intezo.archive_title')) + '" '
+      + 'aria-label="' + escapeHtml(t(e.archived ? 'intezo.unarchive_title' : 'intezo.archive_title')) + '">'
+      + (e.archived ? '↩' : '📦') + '</button>'
+      + '<button class="btn-secondary" '
       + 'style="padding:1px 7px;font-size:11px;line-height:1.5;min-height:0;height:auto" '
       + 'data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
       + '</tr>').join('')
@@ -37152,6 +37164,14 @@ function _intezoRender() {
   //  EGESZ Intezo lapon -- lasd `_intezoMenuBound`. A lista magassaga ugyanis
   //  a sorok szama: egy ket-elemu mappaban a tablazat par pixel, alatta meg
   //  fel kepernyonyi ures hely, ahol a bongeszo sajat menuje jott elo.)
+
+  list.querySelectorAll('button[data-archive]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const rel = b.getAttribute('data-archive')
+      const e = rows.find((x) => x.rel === rel)
+      if (e) void _intezoToggleArchived(e)
+    })
+  })
 
   list.querySelectorAll('button[data-info]').forEach((b) => {
     b.addEventListener('click', () => {
@@ -37976,6 +37996,30 @@ async function _intezoRemoveMount() {
     await _intezoInfo(_intezoSelected.rel)
   } catch (e) {
     showToast((e && e.message) ? e.message : t('intezo.unmount_failed'))
+  }
+}
+
+/**
+ * Archive in place / back again. The item stays where it is on disk; the list
+ * is fetched again so the server's order (archived last) is what shows --
+ * switching it off puts it straight back in its usual place.
+ */
+async function _intezoToggleArchived(entry) {
+  const want = !entry.archived
+  try {
+    const r = await _depoPost('/api/life/archived', { rel: entry.rel, archived: want })
+    if (r && r.message) showToast(r.message)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.archive_failed'))
+    return
+  }
+  const search = document.getElementById('intezoSearch')
+  if (search && search.value.trim()) {
+    // A search result list has its own order: only the mark changes there.
+    entry.archived = want
+    _intezoRender()
+  } else {
+    await _intezoOpen(_intezoPath)
   }
 }
 

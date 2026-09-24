@@ -723,13 +723,12 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
   add(lifeName('inbox', lang), 'top', 'inbox')
   add(lifeName('shared', lang), 'top', 'shared')
 
-  // ARCHIV: a lezart anyagoke, ugyanazzal a felosztassal (specifikacio 25.).
-  const archiveDir = lifeName('archive', lang)
-  add(archiveDir, 'top', 'archive')
-  // The archive mirrors the live layout: with a group, `Archív/Család/<name>`.
-  if (groupDir) add(`${archiveDir}/${groupDir}`, 'top', 'personsGroup')
-  for (const p of cfg.persons) add(`${archiveDir}/${personRel(cfg, p.name)}`, 'person', null, p.id)
-  if (cfg.companies.length) add(`${archiveDir}/${companiesDir}`, 'top', 'companies')
+  // NO SEPARATE ARCHIVE BRANCH (the owner, 2026-09-24: "nem az a legjobb,
+  // hogyha minden a helyén marad? ... Hol keresem, ha keresek valamit?").
+  // A closed item stays in its place and is only MARKED archived (grey, at the
+  // end of the list) -- see life-archived.ts. An `Archív` folder an older
+  // install already has keeps working (name, hint, order), it is just not
+  // created any more.
 
   // 5. RENDSZER: a technikai reteg (specifikacio 4. pont). A felhasznalo NEM
   //    ide jar -- a tarolokat a Beallitasok > Tarolok oldal kezeli. Azert van

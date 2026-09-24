@@ -248,7 +248,7 @@ describe('a felhasznalo torlese vegleges (elhagyott mappak)', () => {
   // felhasznalo a toastbol csak ezt az egy mondatot latja.
   it('az ensure uzenete kimondja, hogy mit hagyott bekenhagyva', () => {
     rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
-    rmSync(join(depot, 'Archív'), { recursive: true, force: true })
+    rmSync(join(depot, 'Megosztott'), { recursive: true, force: true })
     const r = ensureLifeTree(cfg, 'hu')
     expect(r.created).toEqual([])
     expect(r.abandoned.length).toBeGreaterThanOrEqual(2)

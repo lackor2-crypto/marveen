@@ -47,6 +47,7 @@ import { enrollFace } from '../../life-vision-adapter.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
 import { setDisplayLabel } from '../../life-labels.js'
+import { setArchived } from '../../life-archived.js'
 import { checkNameForPath, MACHINE_ZONE_DIR } from '../../naming-conventions.js'
 import {
   lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly, setReadOnlyException,
@@ -532,6 +533,35 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const result = setDisplayLabel(rel, String(body?.name ?? ''))
     send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  // ARCHIVED MARK (in place): the toggle next to every row in the explorer.
+  // Nothing moves on disk; the list shows the item grey and last.
+  if (path === '/api/life/archived' && method === 'POST') {
+    const lang = uiLang(url)
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    const abs = resolveLifePath(rel)
+    if (!abs || !rel.replace(/^\/+|\/+$/g, '')) {
+      send(res, 400, { ok: false, code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül.', 'This place is not inside the Marveen folder.') })
+      return true
+    }
+    if (!existsSync(abs)) {
+      send(res, 404, { ok: false, code: 'missing', message: T(lang, 'Ez már nincs itt. Frissítsd a listát.', 'This is not here any more. Refresh the list.') })
+      return true
+    }
+    const on = body?.archived === true
+    const r = setArchived(rel, on)
+    if (!r.ok) {
+      send(res, 500, { ok: false, code: r.code, message: T(lang,
+        'Nem tudtam elmenteni a jelölést: a Marveen archív-nyilvántartása (store/life-archived.json) megsérült. Szólj Marvinnak.',
+        'Could not save the mark: the Marveen archive register (store/life-archived.json) is damaged. Tell Marvin.') })
+      return true
+    }
+    send(res, 200, { ok: true, archived: r.archived, message: on
+      ? T(lang, 'Archiválva: a helyén marad, szürkén, a lista végén.', 'Archived: it stays in its place, grey, at the end of the list.')
+      : T(lang, 'Visszakerült a helyére.', 'Back in its usual place.') })
     return true
   }
 
