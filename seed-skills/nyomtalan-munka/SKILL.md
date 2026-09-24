@@ -69,6 +69,16 @@ risk"). Két réteg volt nyitva egyszerre: semmi nem állította meg a keletkez�
   commitolatlan / **szemét (nem-követett)** / **pusholatlan commit**.
 - **`src/__tests__/nyomtalan-munka.test.ts`** — megbuktatja a munkát, ha szemét
   áll a repó gyökerében.
+- **Ébredéskor: „FELBEHAGYOTT WORKTREE-K” blokk** (`src/web/abandoned-worktrees.ts`,
+  a SessionStart függő-munka válaszában). 2026-09-24-én 85 worktree-ből 8-ban
+  napok óta állt commitolatlan munka, és semmi nem szólt: a figyelő csak az élő
+  fát nézte, a függő-munka blokk csak kártyát és emléket mutatott. Most minden
+  ágens ébredéskor (újraindulás, tömörítés, keret-visszaállás) megkapja a SAJÁT
+  commitolatlan/landolatlan worktree-jeit — a gazdát az audit-napló fájlműveletei
+  döntik el, nem a mappanév —, a gazdátlanokat pedig a fő ágens. A „landolt-e”
+  kérdést a tartalom dönti el (a hozzáadott sorok hány %-a van már a mainen),
+  mert a `land-pr` squash-mergel, és az ősök alapján minden landolt ág
+  „előrébb járónak” látszana. Ha a blokk megjelenik: **előbb azt fejezd be.**
 
 ## Törlés előtt: a visszakérdezés-szabály is áll
 

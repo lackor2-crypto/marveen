@@ -140,6 +140,7 @@ import { sanitizeAgentName, safeJoin } from '../sanitize.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, jsonMaybeGzip, serveFile } from '../http-helpers.js'
 import { getPendingWork } from '../pending-work.js'
+import { buildAbandonedWorktreeContext, getAbandonedWorktrees, liveAbandonedDeps } from '../abandoned-worktrees.js'
 import { getWakeGreetingDecision } from '../wake-greeting-signal.js'
 import { buildWakeGreetingContext, composeSessionStartContext } from '../../wake-greeting.js'
 import {
@@ -1568,10 +1569,27 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const pending = getPendingWork(name)
     const wakeGreeting = getWakeGreetingDecision(name)
     const greetingContext = buildWakeGreetingContext(wakeGreeting)
+    // #366 (722896e9): the agent's own half-finished worktrees come right after
+    // the greeting, and ALSO when a taskstate replay already covered the rest
+    // (alreadyReplayed): a replay restores the conversation, not the edits
+    // sitting uncommitted in a worktree.
+    const abandoned = await getAbandonedWorktrees(
+      name, MAIN_AGENT_ID,
+      liveAbandonedDeps(PROJECT_ROOT, STORE_DIR, () => [MAIN_AGENT_ID, ...listAgentNames()]),
+    )
+    const abandonedContext = buildAbandonedWorktreeContext(abandoned)
     json(res, {
       ...pending,
-      additionalContext: composeSessionStartContext(greetingContext, pending.additionalContext),
+      additionalContext: composeSessionStartContext(
+        composeSessionStartContext(greetingContext, abandonedContext),
+        pending.additionalContext,
+      ),
       wakeGreeting,
+      abandonedWorktrees: {
+        items: abandoned.items.length,
+        unowned: abandoned.unowned.length,
+        olvashatatlan: abandoned.olvashatatlan,
+      },
     })
     return true
   }
