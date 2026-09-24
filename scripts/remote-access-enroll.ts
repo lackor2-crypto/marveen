@@ -23,17 +23,18 @@
 // Pass --no-dashboard-token to emit a token-free bundle (the device user must
 // then obtain the dashboard access URL out of band).
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { homedir, hostname, userInfo, networkInterfaces } from 'node:os'
+import { hostname, userInfo, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isIP } from 'node:net'
 import {
   validatePublicKeyLine,
   buildRestrictedLine,
   buildBundle,
   checkEnrollHost,
+  dashboardTokenDecision,
   encodeBundle,
   resolveHostKey,
   HOST_KEY_PUB_CANDIDATES,
@@ -42,6 +43,7 @@ import {
   type ConnectionBundleInput,
 } from '../src/remote-enroll-core.js'
 import { enrollAuthorizedKey } from '../src/remote-enroll-fs.js'
+import { resolveSshDir } from '../src/ssh-dir.js'
 import { WEB_PORT as ENV_WEB_PORT } from '../src/config.js'
 
 interface Args {
@@ -57,7 +59,7 @@ interface Args {
  * manual `remote-enroll` with no --web-port still targets the real port instead
  * of the 3420 default. Explicit --web-port overrides. Falls back to REMOTE_PORT
  * only when .env carries no WEB_PORT (config already applies that default). */
-function defaultWebPort(): number {
+export function defaultWebPort(): number {
   const n = ENV_WEB_PORT
   return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : REMOTE_PORT
 }
@@ -181,7 +183,15 @@ async function main(): Promise<void> {
   }
 
   const restrictedLine = buildRestrictedLine(parsed, args.webPort)
-  const sshDir = join(homedir(), '.ssh')
+  // ENROLL813: this CLI used to hardcode homedir()/.ssh and did not know the
+  // MARVEEN_SSH_DIR seam at all (grep -c MARVEEN_SSH_DIR on this file was 0).
+  // Nothing automated calls it today -- but any future automated caller would
+  // have written the operator's real authorized_keys with no way to redirect it,
+  // which is the same shape as the leak this change closes. One resolver for
+  // every writer, or the next copy drifts again.
+  const sshDir = resolveSshDir((dir) => {
+    process.stderr.write(`warning: MARVEEN_SSH_DIR override active -- writing to ${dir}, not the real ~/.ssh\n`)
+  })
 
   const result = await enrollAuthorizedKey({
     sshDir,
@@ -227,21 +237,22 @@ async function main(): Promise<void> {
     webPort: args.webPort,
   }
 
-  if (args.includeDashboardToken) {
-    const dashboardToken = readDashboardToken()
-    if (dashboardToken === null) {
-      process.stderr.write(
-        'warning: no dashboard token found (DASHBOARD_TOKEN env or store/.dashboard-token); ' +
-          'emitting a token-free bundle. The device will need the dashboard access URL out of band.\n',
-      )
-    } else {
-      bundleInput.dashboardToken = dashboardToken
-      process.stderr.write(
-        'NOTE: this bundle contains the dashboard access token. Treat it as a secret: ' +
-          'hand it over on a private channel, never by email or shared chat. ' +
-          'Use --no-dashboard-token to emit a token-free bundle.\n',
-      )
-    }
+  // Token-bundle decision (INSTNODE806): a token was requested by default, so a
+  // MISSING token is a hard failure (the dashboard has not written one -- it is
+  // not running), not a silent degrade to an unusable token-free bundle. This is
+  // the same "unusable -- fail hard instead of emitting it silently" rule the
+  // host-key check above already applies. `--no-dashboard-token` still emits a
+  // deliberate token-free bundle.
+  const tokenDecision = dashboardTokenDecision(args.includeDashboardToken, readDashboardToken())
+  if ('ok' in tokenDecision) {
+    fail(tokenDecision.reason)
+  } else if (tokenDecision.include) {
+    bundleInput.dashboardToken = tokenDecision.token
+    process.stderr.write(
+      'NOTE: this bundle contains the dashboard access token. Treat it as a secret: ' +
+        'hand it over on a private channel, never by email or shared chat. ' +
+        'Use --no-dashboard-token to emit a token-free bundle.\n',
+    )
   }
 
   const encoded = encodeBundle(buildBundle(bundleInput))
@@ -251,7 +262,31 @@ async function main(): Promise<void> {
   process.stdout.write('----- END CONNECTION BUNDLE -----\n')
 }
 
-main().catch((err) => {
-  process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
-  process.exit(1)
-})
+// Import-guard (channel-coordinator idiom): run the CLI only when this file
+// IS the invoked script. The INSTUX1 regression test imports defaultWebPort
+// above, and an unguarded main() would execute the whole enrollment
+// (host-key scan, authorized_keys write) at import time.
+//
+// Realpath on BOTH sides (Marveen review, msg 23506, measured): a bare URL
+// comparison silently no-ops when the script is invoked through a SYMLINKED
+// ABSOLUTE path -- exit 0, zero output, and the installer reads that as
+// "no bundle", which is exactly the silent-failure family this card exists
+// for. On a realpath failure fall back to the URL comparison rather than
+// going silent: an exotic fs must degrade to the old behaviour, not to a
+// CLI that never runs.
+function isInvokedDirectly(): boolean {
+  const argv1 = process.argv[1]
+  if (!argv1) return false
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return import.meta.url === pathToFileURL(argv1).href
+  }
+}
+
+if (isInvokedDirectly()) {
+  main().catch((err) => {
+    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  })
+}

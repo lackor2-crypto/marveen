@@ -191,8 +191,22 @@ EOF
     # Kilepokod 0 = tiszta, 1 = van utkozes, barmi mas = a git nem tudta
     # elvegezni (pl. regi git, nincs --write-tree). Az utolso esetben inkabb
     # "nem tudjuk" (null) all a fajlban, mint egy talalgatas.
-    MT="$(git merge-tree --write-tree --name-only "${COMPARE_FROM}" "${UPSTREAM_REF}" 2>/dev/null)"
+    #
+    # A proba a MOSTANI agunkat (LOCAL_REF) fesuli ossze az upstreammel, a
+    # kozos ossel (BASE) mint kifejezett alappal. Korabban a COMPARE_FROM-ot
+    # (a visszavont behuzas ELOTTI regi commitot) fesulte ossze: az a regi
+    # pont nem tartalmazza a sajat, azota keszult valtozasainkat, ezert egy
+    # azota altalunk is modositott fajl "tisztan athuzhatonak" latszott.
+    # Merve 2026-09-24-en: a doboz 76 utkozest mutatott, a mostani agunkhoz
+    # merve 100 volt (kanban #375).
+    MT="$(git merge-tree --write-tree --name-only --merge-base="${BASE}" "${LOCAL_REF}" "${UPSTREAM_REF}" 2>/dev/null)"
     MT_RC=$?
+    if [ "${MT_RC}" -gt 1 ] && [ -z "${REVERTED_MERGE}" ]; then
+      # Regi git (--merge-base < 2.40): visszavont behuzas nelkul a sima
+      # ketpontos proba ugyanazt az alapot talalja meg.
+      MT="$(git merge-tree --write-tree --name-only "${LOCAL_REF}" "${UPSTREAM_REF}" 2>/dev/null)"
+      MT_RC=$?
+    fi
     if [ "${MT_RC}" -eq 0 ]; then
       : > /tmp/uds-conflicts.$$
       CONFLICTS=0

@@ -40,8 +40,8 @@ _t() {
     hu:prompt_login) echo "  Szeretnéd most bejelentkezni? (i/n) " ;;
     en:prompt_your_name) echo "  Your name? " ;;
     hu:prompt_your_name) echo "  Mi a neved? " ;;
-    en:prompt_channel_select_macos) echo "  Choose (1/2) [1]: " ;;
-    hu:prompt_channel_select_macos) echo "  Válassz (1/2) [1]: " ;;
+    en:prompt_channel_select_macos) echo "  Choose (1/2/3) [1]: " ;;
+    hu:prompt_channel_select_macos) echo "  Válassz (1/2/3) [1]: " ;;
     en:prompt_channel_select_linux) echo "  Choose (1/2/3) [1]: " ;;
     hu:prompt_channel_select_linux) echo "  Válassz (1/2/3) [1]: " ;;
     en:prompt_telegram_token) echo "  Telegram bot token (or leave empty, set later): " ;;
@@ -178,6 +178,8 @@ _t() {
     hu:macos.tg_channel_configured) echo "  Telegram csatorna konfigurálva" ;;
     en:macos.slack_channel_configured) echo "  Slack channel configured" ;;
     hu:macos.slack_channel_configured) echo "  Slack csatorna konfigurálva" ;;
+    en:macos.discord_channel_configured) echo "  Discord channel configured" ;;
+    hu:macos.discord_channel_configured) echo "  Discord csatorna konfigurálva" ;;
     # ── Plugin ────────────────────────────────────────────────────────
     en:macos.plugin_retry) echo "  First attempt failed, retrying..." ;;
     hu:macos.plugin_retry) echo "  Elso probalkozas sikertelen, ujraprobalok..." ;;
@@ -210,6 +212,10 @@ _t() {
     hu:macos.mlx_whisper_installed) echo "  mlx-whisper már telepítve (Apple Silicon optimalizált)" ;;
     en:macos.whisper_installed) echo "  whisper already installed" ;;
     hu:macos.whisper_installed) echo "  whisper már telepítve" ;;
+    en:macos.whisper_skipped) echo "whisper could not be installed -- video transcription is skipped, everything else works." ;;
+    hu:macos.whisper_skipped) echo "whisper nem telepíthető -- a videó-átirat kimarad, minden más működik." ;;
+    en:macos.whisper_skipped_hint) echo "Later, by hand: pipx install openai-whisper   (or: brew install openai-whisper)" ;;
+    hu:macos.whisper_skipped_hint) echo "Később kézzel: pipx install openai-whisper   (vagy: brew install openai-whisper)" ;;
     en:macos.ffmpeg_installing) echo "  Installing ffmpeg..." ;;
     hu:macos.ffmpeg_installing) echo "  ffmpeg telepítés..." ;;
     en:macos.ffmpeg_done) echo "  ffmpeg ready" ;;
