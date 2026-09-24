@@ -4847,6 +4847,7 @@ window._i18n.en = {
   "projects.form.desc_ph": "A sentence or two: what is this work about?",
   "projects.form.client": "Who is it for?",
   "projects.form.optional": "(optional)",
+  "projects.form.label_required_starter": "(required because a starter card is created -- untick it below if you want no label)",
   "projects.form.client_ph": "e.g. myself, Smith Ltd., a friend",
   "projects.form.client_hint": "Free text — a company, a person or yourself. Nothing depends on it.",
   "projects.form.status": "Status",

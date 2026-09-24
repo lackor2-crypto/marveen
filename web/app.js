@@ -43422,7 +43422,7 @@ function _prjFormHtml() {
         <select id="prjStatus" class="input">${['active', 'paused', 'closed'].map((s) => `<option value="${s}"${p.status === s ? ' selected' : ''}>${escapeHtml(t('projects.status.' + s))}</option>`).join('')}</select>
       </div>` : ''}
       <div class="form-group">
-        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint">${escapeHtml(t('projects.form.optional'))}</span></label>
+        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint" id="prjLabelReq">${escapeHtml(t(edit ? 'projects.form.optional' : 'projects.form.label_required_starter'))}</span></label>
         <select id="prjLabel" class="input">${labelOpts}</select>
         <p class="prj-field-hint">${escapeHtml(t('projects.form.label_hint'))}</p>
       </div>
@@ -43490,6 +43490,13 @@ function _prjWireForm(ov) {
   q('#prjFolderSubs')?.addEventListener('change', _prjFolderPreview)
   q('#prjExParent')?.addEventListener('change', _prjLoadExisting)
   q('#prjExFolder')?.addEventListener('change', _prjFolderPreview)
+  // #382: the default label is optional -- unless a starter card is created,
+  // which needs one. The hint next to the label follows the checkbox, so the
+  // form never says "optional" and then refuses to save for the lack of it.
+  q('#prjStarter')?.addEventListener('change', () => {
+    const req = q('#prjLabelReq')
+    if (req) req.textContent = t(q('#prjStarter').checked ? 'projects.form.label_required_starter' : 'projects.form.optional')
+  })
   q('#prjFormSave')?.addEventListener('click', _prjSubmitForm)
   ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
   q('#prjName')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); _prjSubmitForm() } })
