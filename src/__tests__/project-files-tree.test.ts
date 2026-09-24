@@ -15,7 +15,7 @@ import { join } from 'node:path'
 vi.mock('../config.js', async (orig) => ({ ...(await orig<typeof import('../config.js')>()), APP_LANG: 'hu' }))
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
-import { listProjectDir, findProjectFiles } from '../project-files.js'
+import { listProjectDir, findProjectFiles, _resetProjectNameIndexes, writeProjectNote } from '../project-files.js'
 import { tryHandleProjects } from '../web/routes/projects.js'
 import type { RouteContext } from '../web/routes/types.js'
 
@@ -24,6 +24,7 @@ describe('projekt Fajlok ful: mapparendszer + kereso', () => {
   let saved: string | undefined
   beforeEach(() => {
     initDatabase(':memory:')
+    _resetProjectNameIndexes()
     saved = process.env.MARVEEN_DEPOT
     depot = mkdtempSync(join(tmpdir(), 'marveen-prjtree-'))
     process.env.MARVEEN_DEPOT = depot
@@ -83,19 +84,40 @@ describe('projekt Fajlok ful: mapparendszer + kereso', () => {
     expect(r.ok).toBe(false)
   })
 
-  it('a kereso csak a projektben, ekezet- es kisbetu-fuggetlenul, mappat is talal', () => {
+  it('a kereso csak a projektben, ekezet- es kisbetu-fuggetlenul, mappat is talal', async () => {
     const { p, w } = project()
     put(w, 'mt4/tester/EURUSD.set')
     put(w, 'Háttér/Árfolyam-elemzés.pdf')
     put(join(depot, 'Masik'), 'eurusd-idegen.set')
-    const r = findProjectFiles(p, 'eurusd')
+    const r = await findProjectFiles(p, 'eurusd')
     expect(r.ok && r.hits.map((h) => h.sub)).toEqual(['mt4/tester/EURUSD.set'])
-    const acc = findProjectFiles(p, 'arfolyam')
+    const acc = await findProjectFiles(p, 'arfolyam')
     expect(acc.ok && acc.hits.map((h) => h.sub)).toEqual(['Háttér/Árfolyam-elemzés.pdf'])
-    const dir = findProjectFiles(p, 'TESTER')
+    const dir = await findProjectFiles(p, 'TESTER')
     expect(dir.ok && dir.hits).toEqual([expect.objectContaining({ kind: 'dir', sub: 'mt4/tester' })])
-    expect(findProjectFiles(p, 'nincs-ilyen')).toMatchObject({ ok: true, hits: [], truncated: false })
-    expect(findProjectFiles(p, 'e')).toEqual({ ok: false, code: 'query_short' })
+    expect(await findProjectFiles(p, 'nincs-ilyen')).toMatchObject({ ok: true, hits: [], truncated: false })
+    expect(await findProjectFiles(p, 'e')).toEqual({ ok: false, code: 'query_short' })
+  })
+
+  it('az idokorlat utan truncated jelzessel all meg (a 0 nem "nincs")', async () => {
+    const { p, w } = project()
+    for (let i = 0; i < 30; i++) put(w, `d${i}/x${i}.txt`)
+    const r = await findProjectFiles(p, 'nincs-ilyen', -1)
+    expect(r).toMatchObject({ ok: true, hits: [], truncated: true, indexing: true, more: false })
+    // Az index a hatterben kesz lesz; a kovetkezo kereses mar a teljes mappabol.
+    const again = await findProjectFiles(p, 'nincs-ilyen')
+    expect(again).toMatchObject({ ok: true, hits: [], truncated: false, indexing: false, capped: false })
+    expect(await findProjectFiles(p, 'x29')).toMatchObject({ hits: [expect.objectContaining({ sub: 'd29/x29.txt' })], truncated: false })
+  })
+
+  it('uj jegyzet utan a kereso azonnal latja (a gyorsitotar urul)', async () => {
+    const { p } = project()
+    expect(await findProjectFiles(p, 'friss')).toMatchObject({ hits: [] })
+    expect(writeProjectNote(p, '', 'friss-jegyzet', 'x', 'md')).toMatchObject({ ok: true })
+    // Kozvetlen hivas: a gyorsitotar meg a regi -- ezert uriti a route.
+    const { forgetProjectNameIndex } = await import('../project-files.js')
+    forgetProjectNameIndex(p)
+    expect((await findProjectFiles(p, 'friss')).ok && (await findProjectFiles(p, 'friss') as any).hits.map((h: any) => h.name)).toEqual(['friss-jegyzet.md'])
   })
 
   it('HTTP: /tree es /find, emberi hibauzenettel', async () => {

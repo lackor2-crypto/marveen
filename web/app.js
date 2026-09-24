@@ -42169,7 +42169,7 @@ async function _prjRunFind(query) {
   const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(f.pid) + '/find?q=' + encodeURIComponent(query))
   if (_prj.files !== f || !_prj.fileFind || _prj.fileFind.q !== query) return
   _prj.fileFind = r.ok
-    ? { q: query, loading: false, hits: r.data.hits || [], truncated: !!r.data.truncated, err: null }
+    ? { q: query, loading: false, hits: r.data.hits || [], truncated: !!r.data.truncated, indexing: !!r.data.indexing, more: !!r.data.more, capped: !!r.data.capped, err: null }
     : { q: query, loading: false, hits: [], truncated: false, err: r.message }
   _prjRenderFind()
 }
@@ -42185,8 +42185,12 @@ function _prjRenderFind() {
   if (ff.err) { out.innerHTML = `<div class="info-box depo-bad">${escapeHtml(ff.err)}</div>`; return }
   const head = ff.hits.length
     ? t('projects.files.find_count', { n: ff.hits.length, q: ff.q })
-    : t('projects.files.find_none', { q: ff.q })
-  const more = ff.truncated ? `<p class="prj-muted">${escapeHtml(t('projects.files.find_truncated'))}</p>` : ''
+    : t(ff.indexing ? 'projects.files.find_none_yet' : 'projects.files.find_none', { q: ff.q })
+  const notes = []
+  if (ff.indexing) notes.push(t('projects.files.find_indexing'))
+  else if (ff.capped) notes.push(t('projects.files.find_truncated'))
+  if (ff.more) notes.push(t('projects.files.find_more', { n: ff.hits.length }))
+  const more = notes.map((n) => `<p class="prj-muted">${escapeHtml(n)}</p>`).join('')
   out.innerHTML = `<p class="prj-muted">${escapeHtml(head)}</p><div class="prj-tree">${ff.hits.map((e) => _prjFileRowHtml(e, 0, true)).join('')}</div>${more}`
 }
 

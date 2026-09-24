@@ -15,6 +15,7 @@
  *     es a felulet megmondja, milyen neven mentettuk.
  */
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { extname, join, sep } from 'node:path'
 import { resolveLifePath, toLifeRel, explorerRoot } from './life-explorer.js'
 import { safeLifeName } from './life-tree.js'
@@ -174,8 +175,8 @@ export function writeProjectNote(p: ProjectRow, sub: unknown, name: unknown, tex
 
 export const TREE_DIR_MAX = 1000
 export const FIND_MAX_HITS = 200
-export const FIND_MAX_VISIT = 20000
-export const FIND_MAX_DEPTH = 12
+export const FIND_MAX_VISIT = 100000
+export const FIND_MAX_DEPTH = 32
 
 export type TreeEntry = { name: string; sub: string; kind: 'dir' | 'file'; at: number; size?: number; children?: number }
 export type DirListing = { ok: true; sub: string; entries: TreeEntry[]; truncated: boolean } | { ok: false; code: FileErrorCode }
@@ -218,48 +219,116 @@ export function foldName(s: string): string {
 }
 
 export type FindResult =
-  | { ok: true; q: string; hits: TreeEntry[]; truncated: boolean }
+  | {
+    ok: true; q: string; hits: TreeEntry[]
+    /** Nem az egesz mappabol jott a valasz, VAGY tobb a talalat, mint amennyi latszik. */
+    truncated: boolean
+    /** Az index meg keszul: a valasz a mar beolvasott reszbol jott. */
+    indexing: boolean
+    /** Tobb a talalat, mint FIND_MAX_HITS. */
+    more: boolean
+    /** A mappa tul nagy / tul mely: az index soha nem lesz teljes. */
+    capped: boolean
+  }
   | { ok: false; code: FileErrorCode | 'query_short' }
 
+/** Mennyit var egy kereses a nev-indexre. A Raktar gyakran egy Windows-
+ *  meghajto (/mnt/f), ahol egy 27 000 elemes MetaTrader-mappa bejarasa 3-15 mp
+ *  volt (mert: 2026-09-24). A korlat utan a MAR beolvasott reszbol jon a
+ *  talalat, `truncated` + `indexing` jelzessel, es az index a hatterben keszul
+ *  tovabb -- a kovetkezo gepelesre mar a teljes. */
+export const FIND_TIME_BUDGET_MS = 6000
+export const FIND_INDEX_TTL_MS = 2 * 60 * 1000
+const FIND_CONCURRENCY = 16
+
+type NameIndex = {
+  entries: { rel: string; name: string; folded: string; dir: boolean }[]
+  done: boolean
+  /** A bejaras korlatba utkozott (darab / melyseg): a lista nem teljes. */
+  capped: boolean
+  /** A darab-korlat: itt a bejaras leall (a melyseg-korlat csak jelol). */
+  full: boolean
+  builtAt: number
+  ready: Promise<void>
+}
+const nameIndexes = new Map<string, NameIndex>()
+
+/** A projekt mappajanak nev-indexe (csak nev + mappa-e, stat nelkul, mert a
+ *  stat a lassu resz). Aszinkron: a dashboardot nem allitja meg. */
+function projectNameIndex(abs: string): NameIndex {
+  const cur = nameIndexes.get(abs)
+  if (cur && (!cur.done || Date.now() - cur.builtAt < FIND_INDEX_TTL_MS)) return cur
+  const idx: NameIndex = { entries: [], done: false, capped: false, full: false, builtAt: Date.now(), ready: Promise.resolve() }
+  const queue: { abs: string; rel: string; depth: number }[] = [{ abs, rel: '', depth: 1 }]
+  const visit = async (dir: { abs: string; rel: string; depth: number }): Promise<void> => {
+    let list: import('node:fs').Dirent[]
+    try { list = await readdir(dir.abs, { withFileTypes: true }) } catch { return }
+    for (const e of list) {
+      if (hiddenEntry(e.name)) continue
+      if (idx.entries.length >= FIND_MAX_VISIT) { idx.capped = true; idx.full = true; return }
+      const rel = dir.rel ? `${dir.rel}/${e.name}` : e.name
+      const isDir = e.isDirectory()
+      idx.entries.push({ rel, name: e.name, folded: foldName(e.name), dir: isDir })
+      if (!isDir) continue
+      if (dir.depth + 1 > FIND_MAX_DEPTH) idx.capped = true
+      else queue.push({ abs: join(dir.abs, e.name), rel, depth: dir.depth + 1 })
+    }
+  }
+  const worker = async (): Promise<void> => { while (queue.length && !idx.full) await visit(queue.shift()!) }
+  idx.ready = (async () => {
+    // A sor menet kozben no: amig van mit bejarni, a munkasok ujraindulnak.
+    while (queue.length && !idx.full) await Promise.all(Array.from({ length: FIND_CONCURRENCY }, worker))
+    idx.done = true
+    idx.builtAt = Date.now()
+  })().catch(() => { idx.done = true; idx.capped = true })
+  nameIndexes.set(abs, idx)
+  return idx
+}
+
+/** A Fajlok ful megnyitasakor: az index mar a hatterben keszul, mire a
+ *  felhasznalo gepelni kezd. Semmit nem var meg, semmit nem ir. */
+export function warmProjectNameIndex(p: ProjectRow): void {
+  const t = projectFileTarget(p, '')
+  if (t.ok) projectNameIndex(t.dirAbs)
+}
+
+/** Uj fajl / mappa a projektben (Marveenen at): a kereso azonnal lassa. */
+export function forgetProjectNameIndex(p: ProjectRow): void {
+  const t = projectFileTarget(p, '')
+  if (t.ok) nameIndexes.delete(t.dirAbs)
+}
+
+/** Csak teszthez: a gyorsitotar urites. */
+export function _resetProjectNameIndexes(): void { nameIndexes.clear() }
+
 /** Fajl- es mappanev-kereses CSAK a projekt mappajaban (a Raktar tobbi resze
- *  nem jon elo). A `truncated` kulon mondja ki, ha a bejaras a korlatba
- *  utkozott -- igy a "0 talalat" nem keverheto ossze azzal, hogy "nem neztem
- *  vegig mindent". */
-export function findProjectFiles(p: ProjectRow, q: unknown): FindResult {
+ *  nem jon elo), ekezet- es kisbetu-fuggetlenul. A `truncated` kulon mondja
+ *  ki, ha nem az egesz mappabol jott a valasz -- igy a "0 talalat" nem
+ *  keverheto ossze azzal, hogy "nem neztem vegig mindent". */
+export async function findProjectFiles(p: ProjectRow, q: unknown, budgetMs: number = FIND_TIME_BUDGET_MS): Promise<FindResult> {
   const query = String(q ?? '').trim()
   if (query.length < 2) return { ok: false, code: 'query_short' }
   const t = projectFileTarget(p, '')
   if (!t.ok) return { ok: false, code: t.code }
   const needle = foldName(query)
-  const hits: TreeEntry[] = []
-  let visited = 0
-  let truncated = false // korlatba utkoztunk: a bejaras leallt
-  let tooDeep = false // egy agat a melyseg-korlat miatt nem neztunk vegig
-  const walk = (abs: string, rel: string, depth: number): void => {
-    if (truncated) return
-    if (depth > FIND_MAX_DEPTH) { tooDeep = true; return }
-    let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
-    entries.sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
-    for (const e of entries) {
-      if (hiddenEntry(e.name)) continue
-      if (++visited > FIND_MAX_VISIT) { truncated = true; return }
-      const full = join(abs, e.name)
-      const childRel = rel ? `${rel}/${e.name}` : e.name
-      const isDir = e.isDirectory()
-      if (foldName(e.name).includes(needle)) {
-        if (hits.length >= FIND_MAX_HITS) { truncated = true; return }
-        try {
-          const st = statSync(full)
-          hits.push(isDir
-            ? { name: e.name, sub: childRel, kind: 'dir', at: st.mtimeMs }
-            : { name: e.name, sub: childRel, kind: 'file', at: st.mtimeMs, size: st.size })
-        } catch { /* eltunt kozben */ }
-      }
-      if (isDir) walk(full, childRel, depth + 1)
-      if (truncated) return
-    }
+  const idx = projectNameIndex(t.dirAbs)
+  if (!idx.done) {
+    let timer: NodeJS.Timeout | undefined
+    await Promise.race([idx.ready, new Promise<void>((r) => { timer = setTimeout(r, Math.max(0, budgetMs)) })])
+    clearTimeout(timer)
   }
-  walk(t.dirAbs, '', 1)
-  return { ok: true, q: query, hits, truncated: truncated || tooDeep }
+  const matched = idx.entries.filter((e) => e.folded.includes(needle))
+  const found = await Promise.all(matched.slice(0, FIND_MAX_HITS).map(async (e): Promise<TreeEntry | null> => {
+    try {
+      const st = await stat(join(t.dirAbs, ...e.rel.split('/')))
+      return e.dir
+        ? { name: e.name, sub: e.rel, kind: 'dir', at: st.mtimeMs }
+        : { name: e.name, sub: e.rel, kind: 'file', at: st.mtimeMs, size: st.size }
+    } catch { return null /* azota eltunt */ }
+  }))
+  const hits = found.filter((h): h is TreeEntry => h !== null)
+  hits.sort((a, b) => a.sub.localeCompare(b.sub, 'hu', { numeric: true }))
+  const indexing = !idx.done
+  const more = matched.length > FIND_MAX_HITS
+  return { ok: true, q: query, hits, truncated: indexing || idx.capped || more, indexing, more, capped: idx.capped }
 }
