@@ -283,6 +283,9 @@ def lines(path):
 # Hianyzo lista = friss telepites, nincs kihagyas: 0, nem hiba. Olvashatatlan
 # lista viszont NEM ures: a mezok null-ok maradnak, es a hiba kiirodik.
 absorbed = skipped = deferred = None
+# #379: the same split, file by file, for the details dialog. None = not
+# measured (old snapshot or unreadable list), [] = measured and empty.
+absorbed_files = skipped_files = None
 skip_error = None
 if split_files and clean:
     clean_path, differ_path, uptree_path = split_files.split(':')
@@ -308,14 +311,22 @@ if split_files and clean:
                 skip_error = ('governance/upstream-skipped-files.json: %s' % e)[:300]
         if skip_error is None:
             absorbed = skipped = deferred = 0
+            absorbed_files, skipped_files = [], []
             remaining = 0
             for path in clean_set:
                 if path not in differ:
                     absorbed += 1
+                    absorbed_files.append(path)
                     continue
                 d = decided.get(path)
                 if isinstance(d, dict) and d.get('blob', '') == uptree.get(path):
                     skipped += 1
+                    reason = d.get('reason')
+                    skipped_files.append({
+                        'path': path,
+                        'kind': 'deferred' if d.get('kind') == 'deferred' else 'decided',
+                        'reason': reason if isinstance(reason, str) else None,
+                    })
                     # "deferred" = kihagyva, de NEM vegleg (pl. kevert fajl,
                     # kesobb kezi valogatas) -- kulon szamoljuk, hogy a
                     # doboz ne mutassa lezart dontesnek.
@@ -347,6 +358,12 @@ data = {
     'skippedCount': skipped,
     # Ebbol halasztott (kind=deferred): kesobb meg elovesszuk.
     'skippedDeferredCount': deferred,
+    # #379: the two lists behind absorbedCount / skippedCount, for the
+    # 'Already pulled' and 'Left out on purpose' tabs of the details dialog.
+    # A half-built list after an error is not a list: null, like the counts'
+    # meaning under skipListError.
+    'absorbedFiles': absorbed_files if skip_error is None else None,
+    'skippedFiles': skipped_files if skip_error is None else None,
     # A kihagyas-lista TENYLEGES olvasasi hibaja. Ilyenkor a fenti ket szam
     # null, es a cleanFileCount a szetbontas nelkuli, regi ertelmu szam.
     'skipListError': skip_error,
