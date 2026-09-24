@@ -1025,6 +1025,22 @@ if ! command -v ffmpeg &>/dev/null; then
 fi
 echo -e "$(_t macos.ffmpeg_done)"
 
+# Speech-to-text + voice (STT/TTS): the stack the fleet ACTUALLY calls
+# (src/web/routes/voice.ts -> transcribeVoiceFile: faster-whisper + piper venv
+# under ~/.local/share/marveen-voice). Audit f97acc32 D: the Linux installer has
+# run scripts/install-voice.sh since 2026-09-21, this one never did -- a fresh
+# Mac got mlx/openai-whisper above, which the pipeline never calls, and no
+# working transcriber. A failure here only warns; the main install goes on.
+if python3 -m venv --help &>/dev/null && command -v ffmpeg &>/dev/null; then
+  if SKIP_SYSTEM_DEPS=1 bash "$INSTALL_DIR/scripts/install-voice.sh"; then
+    echo -e "  ${GREEN}✓${NC} STT/TTS (~/.local/share/marveen-voice)"
+  else
+    echo -e "  ${ORANGE}!${NC} STT/TTS: bash \"$INSTALL_DIR/scripts/install-voice.sh\""
+  fi
+else
+  echo -e "  ${ORANGE}!${NC} python3 venv / ffmpeg -- STT/TTS: bash \"$INSTALL_DIR/scripts/install-voice.sh\""
+fi
+
 INSTALL_STEP="bumblebee"
 # Go + bumblebee (supply-chain scanner)
 echo ""
