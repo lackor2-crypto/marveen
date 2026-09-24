@@ -12228,6 +12228,12 @@ details.upstream-box > summary > h4 {
    theme; hover is stronger than the stripe, the selected row (inline) wins. */
 table.intezo-list > tbody > tr:nth-child(even) { background: rgba(127, 127, 127, .09); }
 table.intezo-list > tbody > tr:hover { background: rgba(127, 127, 127, .18); }
+/* Column header (card #371): Name / Date modified / Type / Size. */
+table.intezo-list > thead th { text-align: left; font-weight: 600; font-size: 12px; opacity: .75; padding: 4px 8px; border-bottom: 1px solid var(--border, rgba(127,127,127,.35)); white-space: nowrap; }
+/* Phone width: date and type drop, name and size stay readable. */
+@media (max-width: 640px) {
+  table.intezo-list .intezo-col-date, table.intezo-list .intezo-col-type { display: none; }
+}
 /* Folder vs file (card adf4d1c5): folders get a bold name, files a normal
    one, and a divider line stands between the last folder and the first file. */
 .intezo-kind { margin-right: 6px; font-size: 15px; }
