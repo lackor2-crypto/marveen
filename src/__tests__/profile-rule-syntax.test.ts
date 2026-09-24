@@ -64,7 +64,9 @@ describe('web-reading profile posture (TMPLPERM908)', () => {
       expect(p.permissionMode).toBe('permissive')
       expect(p.filesystem.allow).toContain('Read(${HOME}/.claude/skills/**)')
       expect(p.filesystem.allow).toContain('Bash(${PROJECT_ROOT}/scripts/notify.sh:*)')
-      expect(p.filesystem.allow).toContain('Bash(${PROJECT_ROOT}/scripts/agent-post.sh:*)')
+      // Fork: upstream's agent-post.sh does not exist here; the real inter-agent
+      // helper is scripts/agent-msg.sh (#358 pointed the profiles at it).
+      expect(p.filesystem.allow).toContain('Bash(${PROJECT_ROOT}/scripts/agent-msg.sh:*)')
       expect(p.filesystem.deny).toContain('Read(${HOME}/.ssh/**)')
     })
   }
