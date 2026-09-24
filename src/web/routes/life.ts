@@ -450,20 +450,6 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  if (path === '/api/life/move' && method === 'POST') {
-    const body = await readJson(req)
-    // MINDKET veget nezzuk: a repobol kimozgatni ugyanugy elrontja a
-    // verziokovetest, mint belerakni egy oda nem tartozo fajlt.
-    const blocked = writeBlockReason(String(body?.from ?? '')) || writeBlockReason(String(body?.to ?? ''))
-    if (blocked) {
-      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
-      return true
-    }
-    const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''), uiLang(url))
-    send(res, result.ok ? 200 : 400, result)
-    return true
-  }
-
   // Ket dolog, ami egy mappa ALATT vagy egy mappa MIATT romlik el, ha
   // elmozditjuk. Mert lattuk elromlani (2026-08-22-i hatasvizsgalat):
   //
@@ -473,29 +459,75 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   //     bekotesek a semmibe mutattak -- a repo eltunt a fabol, pedig megvolt.
   //
   // Nem tiltas: megmondjuk, mit kell elotte elintezni.
-  const bekotesOrzo = (rel: string): { code: string; message: string } | null => {
+  const bekotesOrzo = (rel: string, lang: string): { code: string; message: string } | null => {
+    // A gyoker (ures rel) mindenre "alatta" lenne -- azt a moveLife/trashLife
+    // sajat hatarellenorzese intezi, nem ez.
+    if (!rel) return null
     const alatta = listMounts().filter((m) => m.rel === rel || m.rel.startsWith(rel + '/'))
     if (alatta.length) {
+      const n = alatta.length
       return {
         code: 'has_mounts',
-        message: `Ebben a mappában ${alatta.length === 1 ? 'egy bekötés van' : alatta.length + ' bekötés van'}`
-          + ` (pl. ${alatta[0].rel}). Előbb szüntesd meg őket a „Mit mutasson ez a mappa?" résznél — `
-          + 'különben a bekötés egy nem létező helyre mutatna tovább.',
+        message: T(lang,
+          `Ebben a mappában ${n === 1 ? 'egy bekötés van' : n + ' bekötés van'}`
+            + ` (pl. ${alatta[0].rel}). Előbb szüntesd meg őket a „Mit mutasson ez a mappa?" résznél — `
+            + 'különben a bekötés egy nem létező helyre mutatna tovább.',
+          `This folder has ${n === 1 ? 'a link' : n + ' links'} inside it`
+            + ` (e.g. ${alatta[0].rel}). Remove ${n === 1 ? 'it' : 'them'} first under "What should this folder show?" — `
+            + 'otherwise the link would keep pointing to a place that no longer exists.'),
       }
     }
     const celok = listMounts().filter((m) => m.target === rel || m.target.startsWith(rel + '/'))
     if (celok.length) {
+      const n = celok.length
       return {
         code: 'is_target',
-        message: `Erre a mappára ${celok.length === 1 ? 'egy bekötés mutat' : celok.length + ' bekötés mutat'}`
-          + ` (innen látszik: ${celok[0].rel}). Ha elmozdítom, ott üres hely maradna. `
-          + 'Előbb szüntesd meg a bekötést, aztán mozdítsd el.',
+        message: T(lang,
+          `Erre a mappára ${n === 1 ? 'egy bekötés mutat' : n + ' bekötés mutat'}`
+            + ` (innen látszik: ${celok[0].rel}). Ha elmozdítom, ott üres hely maradna. `
+            + 'Előbb szüntesd meg a bekötést, aztán mozdítsd el.',
+          `${n === 1 ? 'A link points' : n + ' links point'} to this folder`
+            + ` (it shows up at: ${celok[0].rel}). If I move it, that place would be left empty. `
+            + 'Remove the link first, then move it.'),
       }
     }
     return null
   }
+  const mountedMsg = (lang: string): string => T(lang,
+    'Ez a mappa be van kötve máshova, csak MUTAT egy másik helyre. Előbb szüntesd meg a bekötést a „Mit mutasson ez a mappa?" résznél, '
+      + 'aztán mozgasd vagy nevezd át — a bekötés az útvonalra szól, új helyen nem találna rá.',
+    'This folder is a link: it only POINTS to another place. Remove the link first under "What should this folder show?", '
+      + 'then move or rename it — the link belongs to the path and would not find it in a new place.')
+
+  // Az ATHELYEZES ugyanazt orzi, mint az Atnevezes es a Kuka (#376): a
+  // resolveLifePath egy bekotott utvonalat a bekotes CELJARA fordit, igy egy
+  // bekotott mappa "athelyezese" a mogotte allo valodi tarolot (pl. a teljes
+  // Drive- vagy Git-mappat) vitte el, a bekotes pedig a semmibe mutatott.
+  if (path === '/api/life/move' && method === 'POST') {
+    const lang = uiLang(url)
+    const body = await readJson(req)
+    const from = String(body?.from ?? '')
+    // MINDKET veget nezzuk: a repobol kimozgatni ugyanugy elrontja a
+    // verziokovetest, mint belerakni egy oda nem tartozo fajlt.
+    const blocked = writeBlockReason(from) || writeBlockReason(String(body?.to ?? ''))
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
+    const fromKey = from.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    if (listMounts().some((m) => m.rel === fromKey)) {
+      send(res, 400, { ok: false, rel: '', code: 'mounted', message: mountedMsg(lang) })
+      return true
+    }
+    const baj = bekotesOrzo(fromKey, lang)
+    if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
+    const result = moveLife(from, String(body?.to ?? ''), lang)
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
 
   if (path === '/api/life/rename' && method === 'POST') {
+    const lang = uiLang(url)
     const body = await readJson(req)
     const rel = String(body?.rel ?? '')
     const blocked = writeBlockReason(rel)
@@ -506,16 +538,12 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // Egy BEKOTOTT mappa atnevezese elszakitana a bekotestol: a bekotes az
     // UTVONALRA szol, az uj neven mar nem talalna meg. Inkabb megmondjuk.
     if (listMounts().some((m) => m.rel === rel)) {
-      send(res, 400, {
-        ok: false, rel: '', code: 'mounted',
-        message: 'Ez a mappa be van kötve máshova. Előbb szüntesd meg a bekötést, nevezd át, aztán kösd be újra — '
-          + 'a bekötés az útvonalra szól, új néven nem találna rá.',
-      })
+      send(res, 400, { ok: false, rel: '', code: 'mounted', message: mountedMsg(lang) })
       return true
     }
-    const baj = bekotesOrzo(rel)
+    const baj = bekotesOrzo(rel, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    send(res, 200, renameLife(rel, String(body?.name ?? ''), uiLang(url)))
+    send(res, 200, renameLife(rel, String(body?.name ?? ''), lang))
     return true
   }
 
@@ -566,6 +594,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/trash' && method === 'POST') {
+    const lang = uiLang(url)
     const body = await readJson(req)
     const rel = String(body?.rel ?? '')
     const blocked = writeBlockReason(rel)
@@ -579,8 +608,11 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     if (listMounts().some((m) => m.rel === rel)) {
       send(res, 400, {
         ok: false, rel: '', code: 'mounted',
-        message: 'Ez a mappa csak MUTAT egy másik helyre, saját tartalma nincs. Ha nem kell itt, '
-          + 'a „Mit mutasson ez a mappa?" résznél szüntesd meg a bekötést — a fájlok a helyükön maradnak.',
+        message: T(lang,
+          'Ez a mappa csak MUTAT egy másik helyre, saját tartalma nincs. Ha nem kell itt, '
+            + 'a „Mit mutasson ez a mappa?" résznél szüntesd meg a bekötést — a fájlok a helyükön maradnak.',
+          'This folder only POINTS to another place, it has no content of its own. If you do not need it here, '
+            + 'remove the link under "What should this folder show?" — the files stay where they are.'),
       })
       return true
     }
@@ -590,12 +622,15 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     if (at && at.isRoot) {
       send(res, 400, {
         ok: false, rel: '', code: 'repo',
-        message: 'Ez egy git-repó. A törléséhez a repó saját gombját használd — az előbb megnézi, '
-          + 'van-e benne fel nem töltött munka.',
+        message: T(lang,
+          'Ez egy git-repó. A törléséhez a repó saját gombját használd — az előbb megnézi, '
+            + 'van-e benne fel nem töltött munka.',
+          'This is a git repository. Use the repository\'s own delete button — it first checks '
+            + 'whether it holds work that has not been uploaded.'),
       })
       return true
     }
-    const baj = bekotesOrzo(rel)
+    const baj = bekotesOrzo(rel, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
     // Egy mappa a BENNE levo repokat is magaval vinne. A repoknak sajat, MERO
     // torlesuk van (megnezi a fel nem toltott munkat) -- oda kuldjuk.
@@ -603,18 +638,23 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     if (benne.length) {
       send(res, 400, {
         ok: false, rel: '', code: 'has_repos',
-        message: `Ebben a mappában ${benne.length === 1 ? 'egy git-repó van' : benne.length + ' git-repó van'}`
-          + ` (pl. ${benne[0]}). Ezeket a saját törlő gombjukkal szüntesd meg — az előbb megnézi, `
-          + 'van-e bennük fel nem töltött munka. Utána ez a mappa is mehet a Kukába.',
+        message: T(lang,
+          `Ebben a mappában ${benne.length === 1 ? 'egy git-repó van' : benne.length + ' git-repó van'}`
+            + ` (pl. ${benne[0]}). Ezeket a saját törlő gombjukkal szüntesd meg — az előbb megnézi, `
+            + 'van-e bennük fel nem töltött munka. Utána ez a mappa is mehet a Kukába.',
+          `This folder has ${benne.length === 1 ? 'a git repository' : benne.length + ' git repositories'} inside it`
+            + ` (e.g. ${benne[0]}). Remove ${benne.length === 1 ? 'it' : 'them'} with ${benne.length === 1 ? 'its' : 'their'} own delete button — it first checks `
+            + 'for work that has not been uploaded. After that this folder can go to the Bin too.'),
       })
       return true
     }
-    send(res, 200, trashLife(rel, uiLang(url)))
+    send(res, 200, trashLife(rel, lang))
     return true
   }
 
   // VEGLEGES TORLES -- csak a Kukabol. A hatart a `purgeLife` orzi.
   if (path === '/api/life/purge' && method === 'POST') {
+    const lang = uiLang(url)
     const body = await readJson(req)
     const rel = String(body?.rel ?? '')
     // A HATART NEZZUK ELOSZOR. Elesben derult ki: egy ures/rossz utvonalra a
@@ -634,8 +674,11 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     if (benne.length && body?.force !== true) {
       send(res, 400, {
         ok: false, rel: '', code: 'has_repos',
-        message: `Ebben ${benne.length === 1 ? 'egy git-repó van' : benne.length + ' git-repó van'}`
-          + ` (pl. ${benne[0]}). A végleges törlés a bennük levő, fel nem töltött munkát is elviszi.`,
+        message: T(lang,
+          `Ebben ${benne.length === 1 ? 'egy git-repó van' : benne.length + ' git-repó van'}`
+            + ` (pl. ${benne[0]}). A végleges törlés a bennük levő, fel nem töltött munkát is elviszi.`,
+          `This holds ${benne.length === 1 ? 'a git repository' : benne.length + ' git repositories'}`
+            + ` (e.g. ${benne[0]}). Deleting for good also takes the work in ${benne.length === 1 ? 'it' : 'them'} that has not been uploaded.`),
         repos: benne,
       })
       return true
