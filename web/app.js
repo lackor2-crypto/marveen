@@ -37106,11 +37106,24 @@ function _intezoContentMark(e) {
     sym = '…'
     color = 'var(--muted,#9ca3af)'
     tip = c.reason || t('intezo.count_measuring')
-  } else if (c.state === 'has') {
+  } else if (c.state === 'has' && c.deep === 'has') {
+    // Kartya #370: a pont CSAK akkor jar, ha az agban (barmilyen melyen) van
+    // legalabb egy VALODI fajl. A "csak ures mappak" ag (Media > Audio /
+    // Fotok / ...) ures kort kap -- a felhasznalonak az a kerdes, van-e ott
+    // tartalom, nem az, hogy van-e ott mappa.
     sym = '●'
     color = 'var(--accent,#2563eb)'
     const cnt = _intezoCountText(e)
     tip = t('intezo.content_has') + (cnt ? ' ' + cnt : '')
+  } else if (c.state === 'has' && c.deep === 'empty') {
+    sym = '○'
+    color = 'var(--muted,#9ca3af)'
+    const cnt = _intezoCountText(e)
+    tip = t('intezo.content_only_empty_folders') + (cnt ? ' ' + cnt : '')
+  } else if (c.state === 'has') {
+    // A melysegi meres nem ert vegig (hiba vagy tul mely ag): NEM mondjuk
+    // se azt, hogy van fajl, se azt, hogy nincs -- a buborekban a valodi ok.
+    tip = c.reason || t('intezo.content_unmeasured')
   } else if (c.state === 'empty') {
     sym = '○'
     color = 'var(--muted,#9ca3af)'
