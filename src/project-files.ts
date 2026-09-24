@@ -163,3 +163,103 @@ export function writeProjectNote(p: ProjectRow, sub: unknown, name: unknown, tex
   const body = String(text ?? '').slice(0, NOTE_MAX_CHARS)
   return writeProjectFile(p, sub, fileName, Buffer.from(body, 'utf-8'))
 }
+
+// ---- Fajlok ful: mapparendszer + kereso (kanban #359) ----------------------
+//
+// A Fajlok ful eddig a legutobb modositott fajlokat ONTOTTE egy lapos listaba
+// -- egy MetaTrader-mappanal (mt4/tester/*.set, history/*.hst) ez
+// atlathatatlan. Most a projekt mappaja szintenkent jon (a felulet
+// lenyitaskor kerdezi le a kovetkezo szintet), es van egy kereso, ami CSAK a
+// projekt mappajaban keres. Csak OLVAS: se irni, se torolni nem tud.
+
+export const TREE_DIR_MAX = 1000
+export const FIND_MAX_HITS = 200
+export const FIND_MAX_VISIT = 20000
+export const FIND_MAX_DEPTH = 12
+
+export type TreeEntry = { name: string; sub: string; kind: 'dir' | 'file'; at: number; size?: number; children?: number }
+export type DirListing = { ok: true; sub: string; entries: TreeEntry[]; truncated: boolean } | { ok: false; code: FileErrorCode }
+
+const hiddenEntry = (name: string): boolean => name.startsWith('.') || name === 'node_modules'
+  // A Windows mappa-segedfajljai nem a felhasznalo fajljai (lasd #370).
+  || /^(desktop\.ini|thumbs\.db)$/i.test(name)
+
+/** A projekt mappajanak (vagy egy almappajanak) EGY szintje: elol a mappak,
+ *  utana a fajlok, mindketto nev szerint. A mappanal a kozvetlen tartalom
+ *  darabszama is jon, hogy a felulet ki tudja irni ("12 elem"). */
+export function listProjectDir(p: ProjectRow, sub: unknown): DirListing {
+  const t = projectFileTarget(p, sub)
+  if (!t.ok) return { ok: false, code: t.code }
+  const subRel = sub === undefined || sub === null || String(sub).trim() === '' ? '' : (cleanFolderRel(sub) ?? '')
+  let entries: import('node:fs').Dirent[]
+  try { entries = readdirSync(t.dirAbs, { withFileTypes: true }) } catch { return { ok: false, code: 'unreachable' } }
+  const out: TreeEntry[] = []
+  for (const e of entries) {
+    if (hiddenEntry(e.name)) continue
+    const full = join(t.dirAbs, e.name)
+    const childSub = subRel ? `${subRel}/${e.name}` : e.name
+    let st: import('node:fs').Stats
+    try { st = statSync(full) } catch { continue /* eltunt kozben, vagy torott link */ }
+    if (st.isDirectory()) {
+      let children = 0
+      try { children = readdirSync(full).filter((n) => !hiddenEntry(n)).length } catch { /* nem olvashato: 0 marad */ }
+      out.push({ name: e.name, sub: childSub, kind: 'dir', at: st.mtimeMs, children })
+    } else if (st.isFile()) {
+      out.push({ name: e.name, sub: childSub, kind: 'file', at: st.mtimeMs, size: st.size })
+    }
+  }
+  out.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, 'hu', { numeric: true }) : a.kind === 'dir' ? -1 : 1))
+  return { ok: true, sub: subRel, entries: out.slice(0, TREE_DIR_MAX), truncated: out.length > TREE_DIR_MAX }
+}
+
+/** Ekezet- es kisbetu-fuggetlen osszehasonlitashoz. */
+export function foldName(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+export type FindResult =
+  | { ok: true; q: string; hits: TreeEntry[]; truncated: boolean }
+  | { ok: false; code: FileErrorCode | 'query_short' }
+
+/** Fajl- es mappanev-kereses CSAK a projekt mappajaban (a Raktar tobbi resze
+ *  nem jon elo). A `truncated` kulon mondja ki, ha a bejaras a korlatba
+ *  utkozott -- igy a "0 talalat" nem keverheto ossze azzal, hogy "nem neztem
+ *  vegig mindent". */
+export function findProjectFiles(p: ProjectRow, q: unknown): FindResult {
+  const query = String(q ?? '').trim()
+  if (query.length < 2) return { ok: false, code: 'query_short' }
+  const t = projectFileTarget(p, '')
+  if (!t.ok) return { ok: false, code: t.code }
+  const needle = foldName(query)
+  const hits: TreeEntry[] = []
+  let visited = 0
+  let truncated = false // korlatba utkoztunk: a bejaras leallt
+  let tooDeep = false // egy agat a melyseg-korlat miatt nem neztunk vegig
+  const walk = (abs: string, rel: string, depth: number): void => {
+    if (truncated) return
+    if (depth > FIND_MAX_DEPTH) { tooDeep = true; return }
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    entries.sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
+    for (const e of entries) {
+      if (hiddenEntry(e.name)) continue
+      if (++visited > FIND_MAX_VISIT) { truncated = true; return }
+      const full = join(abs, e.name)
+      const childRel = rel ? `${rel}/${e.name}` : e.name
+      const isDir = e.isDirectory()
+      if (foldName(e.name).includes(needle)) {
+        if (hits.length >= FIND_MAX_HITS) { truncated = true; return }
+        try {
+          const st = statSync(full)
+          hits.push(isDir
+            ? { name: e.name, sub: childRel, kind: 'dir', at: st.mtimeMs }
+            : { name: e.name, sub: childRel, kind: 'file', at: st.mtimeMs, size: st.size })
+        } catch { /* eltunt kozben */ }
+      }
+      if (isDir) walk(full, childRel, depth + 1)
+      if (truncated) return
+    }
+  }
+  walk(t.dirAbs, '', 1)
+  return { ok: true, q: query, hits, truncated: truncated || tooDeep }
+}
