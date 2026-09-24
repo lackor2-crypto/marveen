@@ -546,6 +546,73 @@ export function ensureAgentHooks(name: string): boolean {
   return true
 }
 
+/**
+ * Idempotent migration: carry the template's `permissions.defaultMode` into the
+ * OWNER'S OWN Claude Code settings (~/.claude/settings.json) when nobody ever set
+ * it. That file is what an interactive session -- VS Code, a terminal `claude` --
+ * reads, and those sessions are the ones that prompt.
+ *
+ * WHY. install-linux.sh writes defaultMode=bypassPermissions at install time,
+ * but an install that only UPGRADES (git pull) never ran that step, and
+ * install-macos.sh did not write it at all before 2026-09-24. ensureAgentHooks
+ * merges only the `hooks` block, so nothing ever filled the gap and nothing
+ * said so. Measured 2026-09-13: the owner's ~/.claude/settings.json had no
+ * defaultMode while the template and the installer carried bypassPermissions,
+ * and a WSL VS Code session asked for permission on every command all day.
+ *
+ * WHY ONLY THIS FILE, NOT EVERY AGENT. The fleet's channel sessions are started
+ * with --dangerously-skip-permissions (agent-process.ts), and a sub-agent's
+ * `permissions` block is rewritten from its security profile on every launch
+ * (writeAgentSettingsFromProfile) -- a value written here would be wiped on the
+ * next start, and for a `strict` profile it would even undercut the allow/deny
+ * list the profile is there to enforce.
+ *
+ * ABSENT IS NOT THE SAME AS CHOSEN. The value is set ONLY when the key is
+ * missing. Any existing value -- "acceptEdits", "auto", "default", even "" --
+ * is the owner's decision and stays: install-linux.sh documents exactly that
+ * as the way to take the automation back, and a boot job that overwrote it
+ * would silently undo the opt-out on every restart.
+ */
+export function decidePermissionMode(
+  existing: Record<string, unknown>,
+  want: unknown,
+): Record<string, unknown> | null {
+  if (typeof want !== 'string' || want === '') return null
+  const perms = (existing.permissions ?? {}) as Record<string, unknown>
+  if (perms.defaultMode != null) return null
+  return { ...existing, permissions: { ...perms, defaultMode: want } }
+}
+
+export function userClaudeSettingsPath(): string {
+  return join(homedir(), '.claude', 'settings.json')
+}
+
+export function ensureUserPermissionMode(settingsPath: string = userClaudeSettingsPath()): boolean {
+  const tplPath = join(PROJECT_ROOT, 'templates', 'settings.json.template')
+  if (!existsSync(tplPath)) return false
+  let want: unknown
+  try {
+    const tpl = JSON.parse(resolveTemplatePlaceholders(readFileSync(tplPath, 'utf-8')))
+    want = (tpl?.permissions as Record<string, unknown> | undefined)?.defaultMode
+  } catch {
+    return false
+  }
+  let existing: Record<string, unknown> = {}
+  if (existsSync(settingsPath)) {
+    try {
+      existing = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    } catch {
+      // Unreadable settings: leave a hand-edited file we cannot parse alone.
+      return false
+    }
+  }
+  const next = decidePermissionMode(existing, want)
+  if (!next) return false
+  mkdirSync(dirname(settingsPath), { recursive: true })
+  atomicWriteFileSync(settingsPath, JSON.stringify(next, null, 2))
+  return true
+}
+
 // Idempotent migration: ensure the staleness-guard UserPromptSubmit hook is
 // present. Unlike ensureAgentHooks (which seeds the WHOLE hooks block only for
 // hook-less agents), this MERGES a single UserPromptSubmit entry into an agent

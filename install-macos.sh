@@ -312,6 +312,9 @@ if p.exists():
     except Exception:
         data = {}
 data["skipDangerousModePermissionPrompt"] = True
+# Same decision as install-linux.sh: do not prompt mid-work. To take it back:
+# "permissions": {"defaultMode": "acceptEdits"} in ~/.claude/settings.json.
+data.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
 p.parent.mkdir(parents=True, exist_ok=True)
 p.write_text(json.dumps(data, indent=2))
 try:
