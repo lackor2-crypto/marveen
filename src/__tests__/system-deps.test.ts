@@ -41,11 +41,16 @@ describe('a lista es a friss telepito egyutt jar', () => {
     }
   })
 
-  it('a csomagkezelovel nem telepitheto ajanlott program (himalaya) kezi letoltessel jon, ellenorzott osszeggel', () => {
+  it('a csomagkezelovel nem telepitheto ajanlott programok (himalaya, bun) kezi letoltessel jonnek', () => {
     const noPkg = SYSTEM_DEPS.filter(d => d.tier !== 'extra' && d.apt.length === 0)
-    expect(noPkg.map(d => d.id)).toEqual(['himalaya'])
+    expect(noPkg.map(d => d.id)).toEqual(['himalaya', 'bun'])
     expect(installer).toMatch(/install_himalaya/)
     expect(installer).toMatch(/sha256sum -c/)
+    // A Telegram-csatorna bun-nal fut (agent-process.ts ~/.bun/bin/bun).
+    expect(installer).toMatch(/bun\.sh\/install/)
+    const bun = SYSTEM_DEPS.find(d => d.id === 'bun')
+    expect(bun?.commands[0]).toMatch(/\.bun\/bin\/bun$/)
+    expect(bun?.manual?.hu && bun?.manual?.en).toBeTruthy()
   })
 
   it('minden bejegyzes kitoltott: nev, link, parancs, ketnyelvu leiras', () => {
