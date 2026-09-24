@@ -16,6 +16,7 @@ import {
 import { logger } from '../../logger.js'
 import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
+import { readQuotaSnapshot, DEFAULT_MAX_AGE_SEC } from '../quota.js'
 import type { RouteContext } from './types.js'
 import { readRateLimitSnapshot, readScrapedUsage, writeScrapedUsage } from '../rate-limit-status-io.js'
 import { tierForSnapshot, isStale } from '../../rate-limit-status.js'
@@ -736,6 +737,14 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         }
       }),
     ]
+    // Same file and the same staleness threshold the quota monitor uses, so the
+    // strip and the alert can never disagree about what the fleet has left.
+    const maxAgeSec = Number(process.env.QUOTA_MAX_AGE_SEC) || DEFAULT_MAX_AGE_SEC
+    const quota = readQuotaSnapshot(
+      join(PROJECT_ROOT, 'store', '.claude-rate-limits.json'),
+      Math.floor(Date.now() / 1000),
+      maxAgeSec,
+    )
 
     jsonMaybeGzip(req, res, {
       agents: { total: total + external, running: running + externalRunning, external },
@@ -749,6 +758,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       claudeAccounts,
       openrouterCredits,
       upstreamSync: readUpstreamSyncStatus(),
+      quota,
     })
     return true
   }

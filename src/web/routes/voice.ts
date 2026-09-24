@@ -40,15 +40,19 @@ const CHANNELS_BASE = join(homedir(), '.claude', 'channels')
 // channels/<provider>/.env for _vtools.py to read its token from. This store
 // folder is that state dir, written by transcribeWithBotToken.
 export const CODE_BOT_STT_DIR = join(STORE_DIR, 'code-bot-stt')
+// Install-scoped main-agent base (#915): <install>/.claude/channels/<provider>.
+const INSTALL_CHANNELS_BASE = join(PROJECT_ROOT, '.claude', 'channels')
 
-// Safe paths: ~/.claude/channels/<provider>/  OR  <AGENTS_BASE_DIR>/<name>/.claude/channels/<provider>/
-// Both must contain a .env file. '..' traversal always rejected.
+// Safe paths: ~/.claude/channels/<provider>/, <install>/.claude/channels/<provider>/
+// OR <AGENTS_BASE_DIR>/<name>/.claude/channels/<provider>/
+// All must contain a .env file. '..' traversal always rejected.
 function isSafeStateDir(dir: string): boolean {
   const resolved = dir.replace(/\/$/, '')
   if (resolved.includes('..')) return false
   if (!existsSync(join(resolved, '.env'))) return false
   if (resolved.startsWith(CHANNELS_BASE + '/') || resolved === CHANNELS_BASE) return true
   if (resolved === CODE_BOT_STT_DIR) return true
+  if (resolved.startsWith(INSTALL_CHANNELS_BASE + '/') || resolved === INSTALL_CHANNELS_BASE) return true
   if (resolved.startsWith(AGENTS_BASE_DIR + '/')) {
     // Must match: <AGENTS_BASE_DIR>/<agentName>/.claude/channels/<provider>
     const rel = resolved.slice(AGENTS_BASE_DIR.length + 1)
@@ -139,6 +143,17 @@ export async function transcribeWithBotToken(fileId: string, token: string): Pro
   }
   const text = await transcribeVoiceFile(fileId, CODE_BOT_STT_DIR)
   return text ? { text } : { error: 'failed' }
+/**
+ * Package-manager command for the missing system dependencies, per host
+ * platform. The command has to match the host: apt-get does not exist on macOS,
+ * where the dashboard also runs, and a command the user cannot run is worse
+ * than no suggestion -- it reads as authoritative. Homebrew ships venv inside
+ * its `python` formula, so there is no python3-venv counterpart to name there.
+ */
+export function systemDepsInstallCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'darwin'
+    ? 'brew install ffmpeg python'
+    : 'sudo apt-get install -y --no-install-recommends ffmpeg python3-venv python3'
 }
 
 export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
@@ -315,10 +330,7 @@ export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
     const depsMissing = !depCheck.stdout.trim().endsWith('OK')
 
     if (depsMissing) {
-      json(res, {
-        needsSudo: true,
-        sudoCommand: 'sudo apt-get install -y --no-install-recommends ffmpeg python3-venv python3',
-      })
+      json(res, { needsSudo: true, sudoCommand: systemDepsInstallCommand() })
       return true
     }
 

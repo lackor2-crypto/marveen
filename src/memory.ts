@@ -10,7 +10,6 @@ import {
   pruneAuditLogs,
   pruneTokenUsage,
   getMemoriesForChat,
-  listKanbanCardsSummary,
   type Memory,
 } from './db.js'
 import { runAgent } from './agent.js'
@@ -80,7 +79,10 @@ export async function buildMemoryContext(
   chatId: string,
   userMessage: string
 ): Promise<string> {
-  const ftsResults = searchMemories(userMessage, chatId, 3)
+  // Relaxed kept for the conversational recall path: this is a suggestion
+  // surfaced next to a live message, not an answer to "do we know this".
+  // Changing it is a separate decision from the endpoint's strict default.
+  const ftsResults = searchMemories(userMessage, chatId, 3, true)
   const recent = recentMemories(chatId, 5)
 
   const seen = new Set<number>()
@@ -103,35 +105,13 @@ export async function buildMemoryContext(
   return `[Memoria kontextus]\n${lines.join('\n')}`
 }
 
-const STATUS_HU: Record<string, string> = {
-  planned: 'Tervezett',
-  in_progress: 'Folyamatban',
-  waiting: 'Várakozik',
-  done: 'Kész',
-}
-
-const PRIORITY_HU: Record<string, string> = {
-  urgent: '🔴',
-  high: '🟠',
-  normal: '⚪',
-  low: '🔵',
-}
-
-export function buildKanbanContext(): string {
-  const cards = listKanbanCardsSummary()
-  if (cards.length === 0) return ''
-
-  const grouped: Record<string, string[]> = {}
-  for (const c of cards) {
-    const key = STATUS_HU[c.status] ?? c.status
-    if (!grouped[key]) grouped[key] = []
-    const assignee = c.assignee ? ` (${c.assignee})` : ''
-    grouped[key].push(`  ${PRIORITY_HU[c.priority] ?? '⚪'} ${c.title}${assignee} [${c.id}]`)
-  }
-
-  const lines = Object.entries(grouped).map(([status, items]) => `${status}:\n${items.join('\n')}`)
-  return `[Kanban tabla]\n${lines.join('\n')}`
-}
+// buildKanbanContext used to live here: it rendered EVERY unarchived card's
+// FULL title into a [Kanban tabla] block (no limit, no truncation -- ~1 MB of
+// titles on the live board, KANBANCTXDEAD824). Nothing ever called it, in src,
+// dist or any plugin. Removed rather than fixed: an unbounded full-board dump
+// is the wrong contract for agent context, and whoever wires kanban context in
+// the future should start from the heartbeat-summary shape (counts first,
+// titles truncated server-side -- see buildHeartbeatSummaryResponse).
 
 export async function saveConversationTurn(
   chatId: string,
