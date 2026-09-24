@@ -16,14 +16,14 @@
 
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import { KNOWN_VOICE_MODELS, AGENTS_BASE_DIR, readAgentVoiceConfig } from '../agent-config.js'
 import { getLastInboundModality, setLastInboundModality } from '../voice-modality.js'
 import { buildTtsDirective, resolveAgentChannelStateDir, inboundIsAudio } from '../voice-directive.js'
-import { PROJECT_ROOT } from '../../config.js'
+import { PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import type { RouteContext } from './types.js'
 
 const VOICE_DIR = join(homedir(), '.local', 'share', 'marveen-voice')
@@ -36,6 +36,10 @@ const SAFE_FILE_ID_RE = /^[A-Za-z0-9_\-]{10,200}$/
 // Known agent channel dirs -- only these are accepted as state_dir.
 // The channel plugin stores its .env (bot token) here.
 const CHANNELS_BASE = join(homedir(), '.claude', 'channels')
+// The code-bridge bot (@..._vscode_bot) is no channel plugin, so it has no
+// channels/<provider>/.env for _vtools.py to read its token from. This store
+// folder is that state dir, written by transcribeWithBotToken.
+export const CODE_BOT_STT_DIR = join(STORE_DIR, 'code-bot-stt')
 
 // Safe paths: ~/.claude/channels/<provider>/  OR  <AGENTS_BASE_DIR>/<name>/.claude/channels/<provider>/
 // Both must contain a .env file. '..' traversal always rejected.
@@ -44,6 +48,7 @@ function isSafeStateDir(dir: string): boolean {
   if (resolved.includes('..')) return false
   if (!existsSync(join(resolved, '.env'))) return false
   if (resolved.startsWith(CHANNELS_BASE + '/') || resolved === CHANNELS_BASE) return true
+  if (resolved === CODE_BOT_STT_DIR) return true
   if (resolved.startsWith(AGENTS_BASE_DIR + '/')) {
     // Must match: <AGENTS_BASE_DIR>/<agentName>/.claude/channels/<provider>
     const rel = resolved.slice(AGENTS_BASE_DIR.length + 1)
@@ -58,7 +63,7 @@ function voiceOnnxPath(model: string): string | null {
   return existsSync(p) ? p : null
 }
 
-function isVoiceInstalled(): boolean {
+export function isVoiceInstalled(): boolean {
   return existsSync(VENV_PY) && existsSync(VTOOLS_PY)
 }
 
@@ -106,6 +111,34 @@ export async function transcribeVoiceFile(fileId: string, stateDir: string): Pro
     return null
   }
   return result.stdout.trim()
+}
+
+export type BotTranscript = { text: string } | { error: 'not_installed' | 'failed' }
+
+/**
+ * Transcribe a voice file that arrived on a bot which has no channel state
+ * dir (the code-bridge bot). The token goes into a 0600 .env under the store,
+ * rewritten only when it changed, and the one STT path above does the rest.
+ * "Not installed" and "whisper failed" are told apart, so the caller can say
+ * which one it was instead of a blanket "nem sikerult".
+ */
+export async function transcribeWithBotToken(fileId: string, token: string): Promise<BotTranscript> {
+  if (!isVoiceInstalled()) return { error: 'not_installed' }
+  if (!token) return { error: 'failed' }
+  try {
+    mkdirSync(CODE_BOT_STT_DIR, { recursive: true, mode: 0o700 })
+    const envPath = join(CODE_BOT_STT_DIR, '.env')
+    const want = `TELEGRAM_BOT_TOKEN=${token}\n`
+    let have = ''
+    try { have = readFileSync(envPath, 'utf8') } catch { /* first use */ }
+    if (have !== want) writeFileSync(envPath, want, { mode: 0o600 })
+    chmodSync(envPath, 0o600)
+  } catch (err) {
+    logger.warn({ err }, 'transcribeWithBotToken: state dir not writable')
+    return { error: 'failed' }
+  }
+  const text = await transcribeVoiceFile(fileId, CODE_BOT_STT_DIR)
+  return text ? { text } : { error: 'failed' }
 }
 
 export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
