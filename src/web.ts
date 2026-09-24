@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensurePermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -682,6 +682,7 @@ export function startWebServer(port = 3420): http.Server {
   } else {
     try {
       const patched: string[] = []
+      const permModePatched: string[] = []
       const stalePatched: string[] = []
       const egressPatched: string[] = []
       const strayPatched: string[] = []
@@ -699,6 +700,11 @@ export function startWebServer(port = 3420): http.Server {
         // the re-registration below lands on a clean, unblocked settings file.
         pruned.push(...pruneStaleHooksFromSettingsFile(agentSettingsPath(agentName)))
         if (ensureAgentHooks(agentName)) patched.push(agentName)
+        // A jogosultsagi mod ugyanugy MINDEN agensre megy, a fo agensre is.
+        // ensureAgentHooks csak a `hooks` blokkot fesuli ossze, tehat egy
+        // FRISSITO telepites eddig SOHA nem kapta meg a sablon
+        // defaultMode-jat -- nemán kerdezett tovabb minden parancsnal.
+        if (ensurePermissionMode(agentName)) permModePatched.push(agentName)
         if (ensureAgentStalenessHook(agentName)) stalePatched.push(agentName)
         if (ensureEgressGate(agentName)) egressPatched.push(agentName)
         // A szemet-kapu ugyanugy MINDEN agensre megy, a fo agensre is:
@@ -786,6 +792,7 @@ export function startWebServer(port = 3420): http.Server {
       if (pruned.length) logger.info({ pruned }, 'Stale hook entries pruned from agent settings.json')
       if (patched.length) logger.info({ patched }, 'PreCompact hook backfilled into agent settings.json')
       if (stalePatched.length) logger.info({ patched: stalePatched }, 'staleness-guard UserPromptSubmit hook backfilled into agent settings.json')
+      if (permModePatched.length) logger.info({ patched: permModePatched }, 'permissions.defaultMode backfilled into agent settings.json')
       if (egressPatched.length) logger.info({ patched: egressPatched }, 'egress-gate WebFetch hook backfilled into agent settings.json')
       if (strayPatched.length) logger.info({ agents: strayPatched }, 'no-stray-files gate wired into agent settings')
       if (govPatched.length) logger.info({ patched: govPatched }, 'legacy governance hard-gates (email-send + self-pace) stripped from agent settings.json')
