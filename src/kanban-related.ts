@@ -106,24 +106,62 @@ export function referencedCardIds(text: string, cards: RelatedCandidate[]): stri
 }
 
 /**
- * The card an approval is about: the structured payload first, then an 8-hex id
- * in the description text.
+ * The card id an approval's action_payload names, in every shape agents have
+ * actually written (measured on the live approvals table, 2026-09-24):
+ *   {"kanban_card_id":"144fe69a"}   -- the documented shape (the card button)
+ *   {"card_id":"144fe69a"}           -- written by an agent by hand
+ *   "4637b37c" / a full UUID         -- a bare id, no JSON object at all
+ * Before this, only the first shape was understood; the other two were three
+ * approvals Boss approved whose cards silently stayed in waiting, and the
+ * reconcile loop then raised a NEW pending request for each of them.
+ * Returns null when the payload names no card (missing, empty, other JSON).
+ */
+export function payloadCardId(actionPayload: unknown): string | null {
+  if (typeof actionPayload !== 'string') return null
+  const raw = actionPayload.trim()
+  if (!raw) return null
+  const bare = (v: unknown): string | null => {
+    if (typeof v !== 'string') return null
+    const t = v.trim()
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i.test(t) ? t.toLowerCase() : null
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const o = parsed as Record<string, unknown>
+      // The documented key keeps its old contract (any non-empty string --
+      // callers have always trusted it); the hand-written shapes must look
+      // like a real card id, so a stray field is never taken for one.
+      if (typeof o.kanban_card_id === 'string' && o.kanban_card_id.trim()) return o.kanban_card_id.trim()
+      return bare(o.card_id)
+    }
+    return bare(parsed) // a JSON-quoted bare id: "\"4637b37c\""
+  } catch {
+    return bare(raw)
+  }
+}
+
+/**
+ * The card an approval is about: the structured payload first (any shape
+ * payloadCardId understands), then the description text -- the explicit
+ * "kanban-azonosító: xxxxxxxx" label before any other 8-hex token, because a
+ * description also mentions commit hashes.
  *
- * Shared rather than duplicated because two routes now need the same answer --
- * the approval endpoint, and the card-move endpoint that has to find out
- * whether a waiting card already has an approval on it. Two copies of this
- * would drift, and the failure mode of drift here is silent: a card looks
- * unsubmitted to one side and submitted to the other.
+ * Shared rather than duplicated because several routes need the same answer --
+ * the approval endpoint, the resolve handler that moves the card to done, and
+ * the card-move endpoint that has to find out whether a waiting card already
+ * has an approval on it. Two copies of this would drift, and the failure mode
+ * of drift here is silent: a card looks unsubmitted to one side and submitted
+ * to the other.
  */
 export function approvalCardId(actionPayload: unknown, actionDescription: string): string | null {
-  if (typeof actionPayload === 'string') {
-    try {
-      const parsed = JSON.parse(actionPayload) as { kanban_card_id?: unknown }
-      if (typeof parsed?.kanban_card_id === 'string' && parsed.kanban_card_id) return parsed.kanban_card_id
-    } catch { /* fall through to the text scrape */ }
-  }
-  const m = (actionDescription || '').match(/\b[0-9a-f]{8}\b/i)
-  return m ? m[0] : null
+  const fromPayload = payloadCardId(actionPayload)
+  if (fromPayload) return fromPayload
+  const text = actionDescription || ''
+  const labelled = text.match(/kanban[- ]azonos[ií]t[oó]:?\s*([0-9a-f]{8})\b/i)
+  if (labelled) return labelled[1].toLowerCase()
+  const m = text.match(/\b[0-9a-f]{8}\b/i)
+  return m ? m[0].toLowerCase() : null
 }
 
 /**
