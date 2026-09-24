@@ -176,3 +176,22 @@ export function startMeasure(now: number = Date.now()): StartResult {
     }
   }
 }
+
+// #379: a snapshot written by the pre-#379 script has the split COUNTS but not
+// the file lists, and nothing re-measures it until the weekly timer or a click
+// -- so after a deploy the two new tabs said "not measured yet" (Boss,
+// 2026-09-24). The server starts ONE measurement for such a snapshot per
+// process: if that run still leaves no lists (old script on disk, a failure),
+// it does not retry in a loop; the tab's own button stays available.
+let staleRemeasureTried = false
+
+/** true = a measurement is running now (started here or elsewhere). */
+export function remeasureStaleSnapshotOnce(now: number = Date.now()): boolean {
+  if (measureState(now).running) return true
+  if (staleRemeasureTried) return false
+  staleRemeasureTried = true
+  return startMeasure(now).ok
+}
+
+/** Test hook: forget that the one-shot re-measure was tried. */
+export function _resetStaleRemeasureForTest(): void { staleRemeasureTried = false }
