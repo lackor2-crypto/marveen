@@ -12055,7 +12055,12 @@ details.upstream-box > summary > h4 {
 .prj-empty-small { text-align: center; }
 .prj-steps { margin: 0 0 16px 20px; line-height: 1.6; }
 .prj-back-link { background: none; border: none; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; padding: 0; margin-bottom: 12px; }
-.prj-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.prj-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 8px; }
+/* The title/description block shrinks and wraps its own text; the action row
+   keeps its place top-right however long the description is. Without this the
+   whole .prj-head wrapped and a long description pushed the buttons down-left. */
+.prj-head-main { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.prj-head-actions { flex: 0 1 auto; max-width: 60%; }
 .prj-head h1 { margin: 0; }
 .prj-client { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
 .prj-archived-box { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -12177,7 +12182,8 @@ details.upstream-box > summary > h4 {
 .prj-folder-sub input[type="file"] { font-size: 13px; max-width: 100%; }
 @media (max-width: 768px) {
   .prj-sections { grid-template-columns: 1fr; }
-  .prj-head-actions { justify-content: flex-start; }
+  .prj-head { flex-direction: column; }
+  .prj-head-actions { justify-content: flex-start; max-width: none; }
   .prj-mig-controls .input { min-width: 0; width: 100%; }
   .prj-mig-field .input { min-width: 0; width: 100%; }
   .prj-mig-card { grid-template-columns: 1fr; }
