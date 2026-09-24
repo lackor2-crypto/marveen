@@ -365,22 +365,27 @@ describe('az onellenorzes eszreveszi, ha a meres elromlik', () => {
 // kulon sorba kerult, sajat mondattal.
 // ===========================================================================
 describe('a kartya nem kever ossze ket mertekegyseget', () => {
-  it('az elso szam a fajlok OSSZEGE, nem a commit-szam', () => {
+  it('kint csak a ket teendo-szam all; az osszeg a Reszletek ablakba kerult (#379)', () => {
     // #375 ota az osszegben a mar behuzott es a szandekosan kihagyott fajlok is
     // benne vannak (ha a meres szetbontotta) -- tovabbra is FAJL-osszeg.
     expect(app).toContain('String(conflicts + cleanNum + (split ? absorbedNum + skippedNum : 0))')
+    // Boss, #379: "KINT csak ez maradjon: utkozes nelkul athuzhato: N es
+    // utkozo: N". Az osszeg a magyarazo mondattal egyutt a Reszletek ablak
+    // "Mar behuzva" / "Szandekosan kihagyva" fulein all.
     const sor = app.slice(app.indexOf('<div class="upstream-sync-row">'))
     const eleje = sor.slice(0, sor.indexOf('</div>'))
-    expect(eleje.indexOf('${total}'), 'nem a vegosszeg all elol').toBeLessThan(eleje.indexOf('${conflicts}'))
-    expect(eleje.indexOf('${conflicts}')).toBeLessThan(eleje.indexOf('${clean}'))
+    expect(eleje).not.toContain('${total}')
+    expect(eleje).toContain('${conflicts}')
+    expect(eleje).toContain('${clean}')
     expect(eleje).not.toContain('${behind}')
+    expect(app).toContain('lastUpstreamSyncExplain = { html: explainHtml')
+    expect(app).toContain('function upstreamSplitIntro(')
   })
 
   it('a commit-szam kulon sorban all, es kimondja, hogy mas mertekegyseg', () => {
     expect(app).toContain("t('overview.upstream.commits', { c: behind })")
     for (const [nev, forras] of [['hu', hu], ['en', en]] as const) {
       expect(forras, `${nev}: hianyzik a commits kulcs`).toContain("'overview.upstream.commits'")
-      expect(forras, `${nev}: hianyzik a total kulcs`).toContain("'overview.upstream.total'")
     }
     expect(hu).toMatch(/'overview\.upstream\.commits':\s*'[^']*\{c\}[^']*mértékegység/)
   })

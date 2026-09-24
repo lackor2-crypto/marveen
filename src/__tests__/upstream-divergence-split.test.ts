@@ -62,17 +62,27 @@ describe('upstream-meres: a tiszta szam szetbontasa (#375)', () => {
     expect(out.skippedDeferredCount).toBe(0)
     expect(out.skipListError).toBeNull()
     expect(out.cleanFileCount).toBe(3)
+    // #379: the same split, file by file. Fresh install = an EMPTY list, not null.
+    expect(out.absorbedFiles).toEqual(['same.txt'])
+    expect(out.skippedFiles).toEqual([])
   })
 
   it('egyezo blobbal a listan allo fajl kihagyottnak szamit, a halasztott kulon is', () => {
     const out = measure(JSON.stringify({ files: {
-      'skip.txt': { blob: blob('upstream/main', 'skip.txt'), kind: 'decided' },
+      'skip.txt': { blob: blob('upstream/main', 'skip.txt'), kind: 'decided', reason: 'not ours' },
       'defer.txt': { blob: blob('upstream/main', 'defer.txt'), kind: 'deferred' },
     } }))
     expect(out.absorbedCount).toBe(1)
     expect(out.skippedCount).toBe(2)
     expect(out.skippedDeferredCount).toBe(1)
     expect(out.cleanFileCount).toBe(1)
+    // #379: per-file reason and kind for the 'Left out on purpose' tab.
+    const skipped = (out.skippedFiles as Array<Record<string, unknown>>)
+      .slice().sort((a, b) => String(a.path).localeCompare(String(b.path)))
+    expect(skipped).toEqual([
+      { path: 'defer.txt', kind: 'deferred', reason: null },
+      { path: 'skip.txt', kind: 'decided', reason: 'not ours' },
+    ])
   })
 
   it('ha az upstream azota ujra modositotta a fajlt, a regi dontes nem ervenyes: visszakerul a hatralevok koze', () => {
@@ -90,6 +100,9 @@ describe('upstream-meres: a tiszta szam szetbontasa (#375)', () => {
     expect(out.absorbedCount).toBeNull()
     expect(out.skippedCount).toBeNull()
     expect(out.skippedDeferredCount).toBeNull()
+    // #379: not measured is null, never an empty list.
+    expect(out.absorbedFiles).toBeNull()
+    expect(out.skippedFiles).toBeNull()
     // A szetbontas nelkuli, regi ertelmu szam: minden nem utkozo fajl.
     expect(out.cleanFileCount).toBe(4)
   })
