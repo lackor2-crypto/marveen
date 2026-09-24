@@ -13,7 +13,8 @@
 //
 // What follows the folders: the git mounts (life-mounts.json), the display
 // labels (life-labels.json), the archived marks (life-archived.json), the paper-archive records (life-physical.json)
-// and the created-ledger (life-tree-created.json). A store left on the old
+// the created-ledger (life-tree-created.json) and the projects' folder_path
+// (#359: missing here once, and every project's Files tab went empty). A store left on the old
 // path would silently point into nothing.
 //
 // Never overwrites: if the target already exists, that person is refused
@@ -26,6 +27,7 @@ import { moveDisplayLabels } from './life-labels.js'
 import { moveArchivedPrefix } from './life-archived.js'
 import { movePhysical } from './life-documents.js'
 import { moveLifeLedgerPrefix } from './life-tree-ledger.js'
+import { moveProjectFoldersPrefix } from './project-folder-follow.js'
 import { APP_LANG } from './config.js'
 import { logger } from './logger.js'
 
@@ -105,6 +107,9 @@ function moveOne(root: string, from: string, to: string, created: string[]): str
   moveArchivedPrefix(from, to)
   movePhysical(from, to)
   moveLifeLedgerPrefix(root, from, to)
+  // The folder already moved: a failing DB write must not undo that or hide
+  // it -- the startup heal (project-folder-follow.ts) fixes it next time.
+  try { moveProjectFoldersPrefix(from, to) } catch (err) { logger.warn({ err, from, to }, '[life] project folder_path did not follow the move') }
   return null
 }
 
