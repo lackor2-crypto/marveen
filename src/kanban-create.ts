@@ -26,12 +26,19 @@
  *      Miert: a #336 Munkapad-projekt het kartyara szabdalva allt a tablan
  *      (PDF-nezo, rajzvaszon, spec-mentes, jovahagyas-kotes ...), es a
  *      tulajdonosnak kellett kezzel osszeszednie.
+ *   5. PROJEKT KOTELEZO (Boss, 2026-09-21, #374) -- felso szintu kartya NEM
+ *      jon letre projekt nelkul, ha van egyaltalan aktiv projekt. Az
+ *      alfeladat a szulo projektjet orokli. Projekt nelkul csak kimondott
+ *      indokkal (`no_project_reason`) jon letre -- az a user dontese, az
+ *      indok a leirasba kerul. Miert: az agensek javitasonkent gyartottak a
+ *      projekt nelkuli kartyakat, a tulajdonosnak kellett utolag besorolnia
+ *      oket. Ures telepitesen (egy projekt sincs) nem kovetelheto.
  */
 import { randomUUID } from 'node:crypto'
 import { createKanbanCard, getKanbanCard, listKanbanCards, updateKanbanCard, type KanbanCard } from './db.js'
 import { findSimilarCards, referencedCardIds, withCrossLink } from './kanban-related.js'
 import { resolveCardLabels, applyCardLabels } from './web/kanban-labels.js'
-import { projectDefaultLabel, resolveProjectRef } from './projects.js'
+import { getProject, listActiveProjectIds, projectDefaultLabel, projectNameMap, resolveProjectRef } from './projects.js'
 
 export interface CardCandidate { id: string; seq: number | null; title: string; status: string }
 
@@ -40,6 +47,9 @@ export type CreateCardOutcome =
   | { ok: false; code: 'label_error'; error: string }
   | { ok: false; code: 'related_required'; error: string; similar: CardCandidate[] }
   | { ok: false; code: 'same_project'; error: string; cards: CardCandidate[] }
+  | { ok: false; code: 'project_required'; error: string; projects: ProjectCandidate[] }
+
+export interface ProjectCandidate { id: string; name: string }
 
 export interface CreateCardRequest {
   title?: unknown
@@ -57,6 +67,9 @@ export interface CreateCardRequest {
   /** Miert ONALLO projekt ez, holott egy nyitott kartyahoz kapcsolodik.
    *  Enelkul egy nyitott kartyahoz kapcsolodo uj kartya nem jon letre. */
   separate_project?: unknown
+  /** Miert marad a kartya projekt nelkul (a user igy dontott). Enelkul, ha van
+   *  aktiv projekt, projekt nelkuli felso szintu kartya nem jon letre. */
+  no_project_reason?: unknown
 }
 
 /** Egy kartya meg NYITOTT munka-e (nem kesz, nem archivalt). */
@@ -71,6 +84,20 @@ export const RELATED_REQUIRED_MESSAGE =
   + 'A szerver mindket iranyba beirja a hivatkozast. '
   + 'FIGYELEM: EGY PROJEKT = EGY KARTYA. Ha ez ugyanannak a munkanak a resze (reszfeladat, uj hiba, kovetkezo fazis), '
   + 'NE nyiss uj kartyat: irj kommentet a meglevo kartyara (POST /api/kanban/<id>/comments).'
+
+/** A projekt-nelkuliseg indokanak legrovidebb hossza. */
+export const NO_PROJECT_MIN_CHARS = 15
+
+export function projectRequiredMessage(projects: ProjectCandidate[]): string {
+  const list = projects.map((p) => `${p.name} (${p.id})`).join('; ')
+  return 'PROJEKT KOTELEZO: projekt nelkuli kanban kartya nem jon letre -- a kartya NEM jott letre. '
+    + `Aktiv projektek: ${list}. `
+    + 'Kuldd ujra a "project" mezovel (id vagy pontos nev). Iranytu: ami a felulet egy menupontjat fejleszti/javitja, '
+    + 'az ahhoz a projekthez tartozik, amelyik alatt a menupont van (pl. az Iroda alatti menupontok -> Iroda fejlesztese, '
+    + 'a sajat rendszer menupontjai -> a rendszer fejlesztesi projektje). '
+    + 'Ha NEM tudod egyertelmuen eldonteni, KOTELEZO megkerdezni a usert -- ne tippelj. '
+    + `Projekt nelkul csak akkor, ha a user kifejezetten igy dontott: "no_project_reason": "<miert, legalabb ${NO_PROJECT_MIN_CHARS} karakter>".`
+}
 
 export function sameProjectMessage(cards: CardCandidate[]): string {
   const list = cards.map((c) => (c.seq != null ? `#${c.seq}` : c.id) + ` (${c.id}) ${c.title}`).join('; ')
@@ -129,12 +156,34 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
     return { ok: false, code: 'same_project', error: sameProjectMessage(openRelated), cards: openRelated }
   }
 
-  const { labels: _labels, labelId: _labelId, related: _related, separate_project: _separate, ...rest } = data
+  const { labels: _labels, labelId: _labelId, related: _related, separate_project: _separate, no_project_reason: _noProject, ...rest } = data
   const cardFields = rest as Record<string, unknown>
   if (cardFields.project !== undefined) cardFields.project = resolveProjectRef(cardFields.project)
+
+  // PROJEKT KOTELEZO: az alfeladat a szulo projektjet orokli; a felso szintu
+  // kartya csak kimondott indokkal maradhat projekt nelkul.
+  if (parentId && !cardFields.project) {
+    const parent = getKanbanCard(parentId)
+    if (parent?.project) cardFields.project = parent.project
+  }
+  const noProjectReason = String(data.no_project_reason ?? '').trim()
+  const projectId = cardFields.project ? String(cardFields.project) : ''
+  const knownProject = projectId ? !!getProject(projectId) : false
+  if (!parentId && !knownProject && noProjectReason.length < NO_PROJECT_MIN_CHARS) {
+    const active = listActiveProjectIds()
+    if (active.length > 0) {
+      const names = projectNameMap()
+      const projects = active.map((id) => ({ id, name: names[id]?.name ?? id }))
+      return { ok: false, code: 'project_required', error: projectRequiredMessage(projects), projects }
+    }
+  }
+
   let description = String(cardFields.description ?? '')
   if (openRelated.length > 0) {
     description = `${description}${description.trim() ? '\n\n' : ''}Onallo projekt, mert: ${separateReason}`
+  }
+  if (!parentId && !knownProject && noProjectReason.length >= NO_PROJECT_MIN_CHARS) {
+    description = `${description}${description.trim() ? '\n\n' : ''}Projekt nelkul, mert: ${noProjectReason}`
   }
   cardFields.description = withCrossLink(description, relatedCards)
 

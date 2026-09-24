@@ -45,6 +45,14 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
    kapcsolódó új kártyára `409 same_project` a válasz. Részletek:
    `one-card-one-fix` skill, 6. pont.
 1. Állítsd össze a kártya adatait (title, description, priority, project).
+   **A PROJEKT KÖTELEZŐ** (2026-09-21, {{OWNER_NAME}}, #374): ami a felület egy
+   menüpontját fejleszti/javítja, az ahhoz a projekthez tartozik, amelyik alatt
+   a menüpont van (Iroda alatti menüpontok -> Iroda fejlesztése; a rendszer
+   saját menüpontjai, ágensei, szabályai -> a rendszer fejlesztési projektje).
+   Ha NEM egyértelmű, kérdezd meg {{OWNER_NAME}}-t, és várd meg a választ.
+   Projekt nélkül csak az ő kifejezett döntésére, `"no_project_reason"`
+   indokkal. A szerver `400 project_required`-del utasítja vissza a projekt
+   nélküli kártyát, és felsorolja az aktív projekteket (`GET /api/projects`).
 2. **Döntsd el a címkét, MIELŐTT létrehoznád a kártyát.** A négy
    (vagy {{OWNER_NAME}} által bővített) címke közül válassz:
    - `marveen_fejlesztese` -- MAGÁNAK a Marvin/Marveen rendszernek
@@ -70,14 +78,14 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
    curl -s -X POST http://localhost:{{WEB_PORT}}/api/kanban \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer $(cat store/.dashboard-token)" \
-     -d '{"title":"...","description":"...","status":"planned","labels":["marveen_fejlesztese"]}'
+     -d '{"title":"...","description":"...","status":"planned","project":"<projekt id vagy pontos név>","labels":["marveen_fejlesztese"]}'
    ```
    A válasz visszaadja a felvett címkéket: `{"ok":true,"id":"...","labels":["d52715fe"]}`.
 5. Ha `400`-at kapsz ("Címke kötelező" vagy "Ismeretlen címke"), a kártya
    NEM jött létre. Ne próbáld megkerülni: válassz a hibaüzenetben felsorolt
    címkék közül, vagy kérdezd meg {{OWNER_NAME}}-t (3. lépés).
-6. Alfeladatnál (`parent_id`) nem kell címkét megadni: a szerver a szülő
-   kártya címkéit örökli rá.
+6. Alfeladatnál (`parent_id`) nem kell címkét és projektet megadni: a
+   szerver a szülő kártya címkéit és projektjét örökli rá.
 
 ## Kapcsolódó kártyák felderítése -- KÖTELEZŐ, a létrehozás UTOLSÓ lépése
 
