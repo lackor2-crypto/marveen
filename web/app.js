@@ -21459,6 +21459,21 @@ function openSelfCheckInfo(id, params) {
   if (bodyEl) {
     const action = t('health.' + key + '_action', p)
     bodyEl.textContent = (action && action !== 'health.' + key + '_action') ? action : ''
+    // Ha a sor teendoje egy Google Console-kapcsolo (pl. kikapcsolt Drive API),
+    // a linket is odaadjuk -- de CSAK a Google Console-ra mutatot: a cim a
+    // szerver sorabol jon, es nem akarunk tetszoleges linket kattinthatova tenni.
+    const url = typeof p.url === 'string' ? p.url : ''
+    if (url.startsWith('https://console.cloud.google.com/')) {
+      const a = document.createElement('a')
+      a.href = url
+      a.target = '_blank'
+      a.rel = 'noopener noreferrer'
+      a.className = 'btn-primary btn-compact'
+      a.style.cssText = 'display:inline-block;margin-top:10px'
+      a.textContent = t('selfcheck_info.open_link') + ' \u2197'
+      bodyEl.appendChild(document.createElement('br'))
+      bodyEl.appendChild(a)
+    }
   }
   const ov = document.getElementById('selfCheckInfoOverlay')
   if (!ov) return
@@ -26375,13 +26390,16 @@ function renderWizardStep(host) {
   // esetben mar megvan. Ahol van helyben futo folyamat, ott a folyamat a
   // teendo; a regisztracios link lejjebb kerul, kismeretben, es kiirja
   // magarol, hogy a gepet NEM jelentkezteti be.
-  const links = item.flowId ? '' : (item.links || []).map(l =>
+  // A Google engedely-fajl lepesenel a linkek MAGUK a teendok (Console,
+  // hozzajarulasi kepernyo, a negy API bekapcsolasa), ezert ott maradnak.
+  const links = (item.flowId && item.flowId !== 'google-oauth-client') ? '' : (item.links || []).map(l =>
     `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-compact" style="margin-right:8px;display:inline-block;margin-top:6px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
 
   // Egy lepes, amit a felulten VEGIG lehet csinalni, ne kuldjon senkit
   // terminalba. Ez a doboz maga a folyamat, nem a leirasa.
   const flow = item.flowId === 'claude-login' ? wizardClaudeLoginHtml()
-    : item.flowId === 'system-deps' ? wizardSystemDepsHtml() : ''
+    : item.flowId === 'system-deps' ? wizardSystemDepsHtml()
+    : item.flowId === 'google-oauth-client' ? wizardGoogleClientHtml(item) : ''
 
   const example = item.exampleKey ? t(item.exampleKey) : (item.placeholder || '')
   const field = item.kind === 'external' ? '' : `
@@ -26431,6 +26449,7 @@ function renderWizardStep(host) {
   }
   if (item.flowId === 'claude-login') wireWizardClaudeLogin()
   if (item.flowId === 'system-deps') void loadWizardSystemDeps(false)
+  if (item.flowId === 'google-oauth-client') wireWizardGoogleClient()
   const leaveStep = () => _wizClaudeStopPoll()
   const back = document.getElementById('wizardBackBtn')
   if (back) back.addEventListener('click', () => { leaveStep(); stash(); _wizardStepIdx--; renderWizardStep(host) })
@@ -26438,6 +26457,67 @@ function renderWizardStep(host) {
   document.getElementById('wizardNextBtn').addEventListener('click', () => { leaveStep(); stash(); _wizardStepIdx++; renderWizardStep(host) })
   const saveNow = document.getElementById('wizardSaveNowBtn')
   if (saveNow) saveNow.addEventListener('click', () => { leaveStep(); stash(); renderWizardDone(host) })
+}
+
+// A Google engedely-fajl feltoltese A VARAZSLOBAN (kanban f97acc32). Eddig a
+// lepes azt kerte, hogy a fajlt kezzel masoljuk a store/ mappaba -- egy friss
+// telepitesen terminal nelkul ez nem ment. A fajl AZONNAL mentodik (nem a
+// varazslo vegen), mert nem .env-ertek, es a kovetkezo lepes (cimek bekotese)
+// mar ra epul.
+function wizardGoogleClientHtml(item) {
+  const present = !!item.configured
+  return `
+    <div style="margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:8px">
+      <input type="file" id="wizGclientFile" accept=".json,application/json" hidden>
+      <button type="button" class="btn-primary btn-compact" id="wizGclientPick">${escapeHtml(t('wizard.gclient.pick'))}</button>
+      <p id="wizGclientMsg" style="margin:8px 0 0;font-size:12px;line-height:1.5;color:var(--text-muted)">${present ? escapeHtml(t('wizard.gclient.present')) : ''}</p>
+    </div>`
+}
+
+function wireWizardGoogleClient() {
+  const pick = document.getElementById('wizGclientPick')
+  const input = document.getElementById('wizGclientFile')
+  const msg = document.getElementById('wizGclientMsg')
+  if (!pick || !input || !msg) return
+  const say = (text, tone) => {
+    msg.textContent = text
+    msg.style.color = tone === 'ok' ? '#10b981' : tone === 'bad' ? '#ef4444' : 'var(--text-muted)'
+  }
+  const send = async (text, replace) => {
+    const res = await fetch('/api/google-oauth-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, replace }),
+    })
+    let data = {}
+    try { data = await res.json() } catch { /* the status below still decides */ }
+    return { status: res.status, data }
+  }
+  pick.addEventListener('click', () => input.click())
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0]
+    input.value = ''
+    if (!file) return
+    pick.disabled = true
+    say(t('wizard.gclient.uploading'))
+    try {
+      const text = await file.text()
+      let r = await send(text, false)
+      if (r.status === 409 && r.data && r.data.error === 'exists') {
+        if (!confirm(t('wizard.gclient.confirm_replace'))) { say(t('wizard.gclient.err_exists')); return }
+        r = await send(text, true)
+      }
+      if (r.data && r.data.ok) { say(t('wizard.gclient.saved'), 'ok'); return }
+      const code = (r.data && r.data.error) || 'network'
+      const key = 'wizard.gclient.err_' + code
+      const human = t(key)
+      say(human !== key ? human : t('wizard.gclient.err_network'), 'bad')
+    } catch {
+      say(t('wizard.gclient.err_network'), 'bad')
+    } finally {
+      pick.disabled = false
+    }
+  })
 }
 
 // Everything is saved at the END, in one request: a half-finished walkthrough

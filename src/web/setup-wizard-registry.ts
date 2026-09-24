@@ -94,7 +94,7 @@ export interface SetupItem {
    * megjelennie hanem az autorizacios panelnak". A link plus a terminal command
    * is not a walkthrough; a step that CAN be done on the page must be.
    */
-  flowId?: 'claude-login' | 'system-deps'
+  flowId?: 'claude-login' | 'system-deps' | 'google-oauth-client'
 }
 
 /**
@@ -155,15 +155,28 @@ export const SETUP_ITEMS: SetupItem[] = [
     required: false, tier: 'recommended',
   },
   {
-    id: 'google-oauth', group: 'google', kind: 'external',
+    // Uploaded IN PLACE (kanban f97acc32): step 5 used to say "copy the file
+    // into store/google-oauth-client.json", which a fresh install cannot do
+    // without a terminal. The consent-screen and API steps were missing too --
+    // without them Google refuses the client, or every Drive/Gmail/Calendar
+    // call comes back 403 SERVICE_DISABLED.
+    id: 'google-oauth', group: 'google', kind: 'external', flowId: 'google-oauth-client',
     labelKey: 'wizard.item.google_oauth', descKey: 'wizard.item.google_oauth_desc',
     helpKey: 'wizard.item.google_oauth_help',
     stepKeys: [
-      'wizard.item.google_oauth_step1', 'wizard.item.google_oauth_step2',
-      'wizard.item.google_oauth_step3', 'wizard.item.google_oauth_step4',
-      'wizard.item.google_oauth_step5',
+      'wizard.item.google_oauth_step1', 'wizard.item.google_oauth_step_consent',
+      'wizard.item.google_oauth_step_apis',
+      'wizard.item.google_oauth_step2', 'wizard.item.google_oauth_step3',
+      'wizard.item.google_oauth_step4', 'wizard.item.google_oauth_step5',
     ],
-    links: [{ url: 'https://console.cloud.google.com/apis/credentials', labelKey: 'wizard.link.google_console' }],
+    links: [
+      { url: 'https://console.cloud.google.com/apis/credentials', labelKey: 'wizard.link.google_console' },
+      { url: 'https://console.cloud.google.com/auth/overview', labelKey: 'wizard.link.google_consent' },
+      { url: 'https://console.cloud.google.com/apis/library/gmail.googleapis.com', labelKey: 'wizard.link.api_gmail' },
+      { url: 'https://console.cloud.google.com/apis/library/drive.googleapis.com', labelKey: 'wizard.link.api_drive' },
+      { url: 'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com', labelKey: 'wizard.link.api_calendar' },
+      { url: 'https://console.cloud.google.com/apis/library/photospicker.googleapis.com', labelKey: 'wizard.link.api_photos' },
+    ],
     required: false, tier: 'recommended',
   },
   {
