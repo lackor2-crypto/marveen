@@ -36027,6 +36027,7 @@ async function loadIntezoPage() {
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
   bind('intezoRestoreBtn', 'click', () => _intezoRestore())
   bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
+  bind('intezoTreeBtn', 'click', () => _intezoTreeSetShown(!_intezoTreeShown()))
   bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
   // A lefixalt fejlec muveletsava. Delegalt kezelo: a gombok ujrarajzolasa
   // (disabled allapot) nem szakitja el a figyelot.
@@ -36837,6 +36838,11 @@ async function _intezoOpen(rel) {
   const uj = rel || ''
   // Mashova leptunk -> a kijeloles es vele az adatlap megszunik.
   if (uj !== _intezoPath) _intezoClearSelection()
+  // The SAME folder again = refresh, or a change (new folder, move, rename,
+  // archive) just happened: the tree's cached branches may be stale anywhere.
+  // Navigating elsewhere keeps them -- no refetch storm on every click.
+  if (uj === _intezoPath) { _intezoTreeKids = new Map(); _intezoTreeErr = new Map() }
+  else _intezoTreeCollapsed = new Set()
   _intezoPath = uj
   const search = document.getElementById('intezoSearch')
   if (search) search.value = ''
@@ -36865,6 +36871,8 @@ async function _intezoSearch() {
       folders: entries.filter((e) => e.isDir),
       files: entries.filter((e) => !e.isDir),
       truncated: r.truncated,
+      // A search hit list is NOT the folder's children: the tree must not cache it.
+      searching: true,
       message: entries.length ? null : t('intezo.no_hits', { q }),
     })
     _intezoRender()
@@ -37184,6 +37192,201 @@ function _intezoRender() {
 
   _intezoScheduleContentRefresh(rows)
   _intezoPlaceInfoCard()
+  void _intezoTreeSync()
+}
+
+/* ===========================================================================
+   THE LEFT FOLDER TREE (card adf4d1c5) -- two panes, like Windows Explorer.
+   Boss, 2026-09-24: "BALRA a mappafa, JOBBRA nagyobb panelen a kijelolt mappa
+   tartalma ... jobb oldalon egy almappara kattintva a jobb panel annak a
+   tartalmat mutatja, es igy tovabb lefele."
+
+   Only folders are in the tree. Clicking a name opens it on the right (the
+   same _intezoOpen as everywhere else, so selection, actions and the info
+   panel keep working). The arrow only expands/collapses, it does not navigate.
+   Branches load lazily (one /api/life/list per expanded folder) and are cached
+   until the same folder is reopened (refresh or a change, see _intezoOpen).
+   The #341 content marks (● ○ ?) are shown here too, and a folder known to
+   have no subfolders gets no arrow -- no clicking into a dead end.
+   =========================================================================== */
+let _intezoTreeKids = new Map()      // rel -> child folder entries
+let _intezoTreeErr = new Map()       // rel -> message (could not be listed)
+let _intezoTreeOpenSet = null        // folders the user expanded (remembered)
+let _intezoTreeCollapsed = new Set() // collapsed on the current path (until navigating)
+let _intezoTreeRootName = ''
+let _intezoTreeBusy = false
+
+function _intezoTreeOpenRels() {
+  if (!_intezoTreeOpenSet) {
+    let arr = []
+    try { arr = JSON.parse(localStorage.getItem('intezoTreeOpen') || '[]') } catch (e) { arr = [] }
+    _intezoTreeOpenSet = new Set(Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [])
+  }
+  return _intezoTreeOpenSet
+}
+function _intezoTreeSaveOpen() {
+  try { localStorage.setItem('intezoTreeOpen', JSON.stringify([..._intezoTreeOpenRels()].slice(-300))) } catch (e) { /* private mode: memory only */ }
+}
+function _intezoTreeShown() {
+  try { return localStorage.getItem('intezoTreeShown') !== '0' } catch (e) { return true }
+}
+function _intezoTreeSetShown(on) {
+  try { localStorage.setItem('intezoTreeShown', on ? '1' : '0') } catch (e) { /* memory only */ }
+  _intezoTreeRender()
+  if (on) void _intezoTreeSync()
+}
+
+/** The current folder and all its ancestors are always shown open. */
+function _intezoTreeForced() {
+  const out = new Set([''])
+  const parts = _intezoPath ? _intezoPath.split('/') : []
+  for (let i = 1; i <= parts.length; i++) out.add(parts.slice(0, i).join('/'))
+  return out
+}
+
+/** A folder we KNOW has no subfolders: no arrow. Unknown / pending keeps it. */
+function _intezoTreeIsLeaf(entry) {
+  const c = entry && entry.content
+  if (!c || c.pending) return false
+  return c.state === 'empty' || (c.state === 'has' && c.folders === 0)
+}
+
+function _intezoTreeIsOpen(rel, entry, forced) {
+  if (entry && _intezoTreeIsLeaf(entry)) return false
+  if (_intezoTreeCollapsed.has(rel)) return false
+  return forced.has(rel) || _intezoTreeOpenRels().has(rel)
+}
+
+/** Expanded folders whose children are not loaded yet (and whose parents are visible). */
+function _intezoTreeMissing() {
+  const forced = _intezoTreeForced()
+  const need = []
+  const walk = (rel, entry) => {
+    if (!_intezoTreeIsOpen(rel, entry, forced)) return
+    const kids = _intezoTreeKids.get(rel)
+    if (!kids) { if (!_intezoTreeErr.has(rel)) need.push(rel); return }
+    for (const k of kids) walk(k.rel, k)
+  }
+  walk('', null)
+  return need
+}
+
+async function _intezoTreeSync() {
+  const L = _intezoListing
+  if (L && !L.searching && !L.message && Array.isArray(L.folders)) {
+    _intezoTreeKids.set(_intezoPath, L.folders)
+    _intezoTreeErr.delete(_intezoPath)
+    if (_intezoPath === '' && L.breadcrumb && L.breadcrumb[0]) {
+      _intezoTreeRootName = L.breadcrumb[0].displayName || L.breadcrumb[0].name || ''
+    }
+  }
+  _intezoTreeRender()
+  if (_intezoTreeBusy || !_intezoTreeShown()) return
+  _intezoTreeBusy = true
+  try {
+    // Level by level: an expanded branch deep down needs its parent first.
+    for (let round = 0; round < 12; round++) {
+      const need = _intezoTreeMissing()
+      if (!need.length) break
+      await Promise.all(need.map(async (rel) => {
+        try {
+          const d = await _intezoGet('/api/life/list?deep=0&lang=' + (window._lang || 'hu')
+            + '&path=' + encodeURIComponent(rel))
+          if (d && d.message && !(d.folders || []).length) _intezoTreeErr.set(rel, d.message)
+          else _intezoTreeKids.set(rel, d.folders || [])
+          if (rel === '' && d.breadcrumb && d.breadcrumb[0]) {
+            _intezoTreeRootName = d.breadcrumb[0].displayName || d.breadcrumb[0].name || ''
+          }
+        } catch (e) {
+          _intezoTreeErr.set(rel, (e && e.message) ? e.message : t('intezo.tree_failed'))
+        }
+      }))
+      _intezoTreeRender()
+    }
+  } finally {
+    _intezoTreeBusy = false
+  }
+  // A branch expanded while we were loading: pick it up too.
+  if (_intezoTreeMissing().length) void _intezoTreeSync()
+}
+
+function _intezoTreeRender() {
+  const box = document.getElementById('intezoTree')
+  const btn = document.getElementById('intezoTreeBtn')
+  const shown = _intezoTreeShown()
+  if (btn) btn.setAttribute('aria-pressed', shown ? 'true' : 'false')
+  if (!box) return
+  box.hidden = !shown
+  if (!shown) return
+  const head = document.querySelector('#intezoPage .intezo-head')
+  // Stays in view under the pinned header while the long list on the right scrolls.
+  if (head) box.style.top = (head.offsetHeight + 6) + 'px'
+  const forced = _intezoTreeForced()
+  const node = (rel, name, entry, depth) => {
+    const leaf = !!entry && _intezoTreeIsLeaf(entry)
+    const open = _intezoTreeIsOpen(rel, entry, forced)
+    const cur = rel === _intezoPath
+    const hint = entry ? _faSugo(entry) : ''
+    let h = '<li role="treeitem"' + (leaf ? '' : ' aria-expanded="' + (open ? 'true' : 'false') + '"')
+      + (cur ? ' aria-current="true"' : '') + '>'
+      + '<div class="intezo-tree-row' + (cur ? ' is-current' : '') + (entry && entry.archived ? ' intezo-archived' : '')
+      + '" style="padding-left:' + (4 + depth * 14) + 'px">'
+    h += leaf
+      ? '<span class="intezo-tree-tw" aria-hidden="true"></span>'
+      : '<button type="button" class="intezo-tree-tw" data-tree-toggle="' + escapeHtml(rel) + '" aria-label="'
+        + escapeHtml(t(open ? 'intezo.tree_collapse' : 'intezo.tree_expand')) + '">' + (open ? '▾' : '▸') + '</button>'
+    h += (entry ? _intezoContentMark(entry) : '')
+      + '<a href="#" data-tree-open="' + escapeHtml(rel) + '"'
+      + ' title="' + escapeHtml(hint ? name + ' (' + hint + ')' : name) + '"'
+      + (entry && entry.caution ? ' style="color:var(--danger,#d33)"' : '')
+      + '>' + escapeHtml(name) + '</a></div>'
+    if (open) {
+      const kids = _intezoTreeKids.get(rel)
+      if (_intezoTreeErr.has(rel)) {
+        h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
+          + escapeHtml(_intezoTreeErr.get(rel)) + '</div>'
+      } else if (!kids) {
+        h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
+          + escapeHtml(t('intezo.tree_loading')) + '</div>'
+      } else if (kids.length) {
+        h += '<ul role="group">' + kids.map((k) => node(k.rel, k.displayName || k.name, k, depth + 1)).join('') + '</ul>'
+      }
+    }
+    return h + '</li>'
+  }
+  const keep = box.scrollTop
+  box.innerHTML = '<ul role="tree">' + node('', _intezoTreeRootName || t('intezo.tree_root_name'), null, 0) + '</ul>'
+  box.scrollTop = keep
+  box.querySelectorAll('a[data-tree-open]').forEach((a) => {
+    a.addEventListener('click', (ev) => { ev.preventDefault(); void _intezoOpen(a.getAttribute('data-tree-open')) })
+  })
+  box.querySelectorAll('button[data-tree-toggle]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const rel = b.getAttribute('data-tree-toggle')
+      const entry = _intezoTreeFindEntry(rel)
+      const open = _intezoTreeIsOpen(rel, entry, _intezoTreeForced())
+      if (open) { _intezoTreeOpenRels().delete(rel); _intezoTreeCollapsed.add(rel) }
+      else { _intezoTreeCollapsed.delete(rel); _intezoTreeOpenRels().add(rel) }
+      _intezoTreeSaveOpen()
+      void _intezoTreeSync()
+    })
+  })
+  // Bring the current folder into view -- inside the tree box only, never the page.
+  const curRow = box.querySelector('.intezo-tree-row.is-current')
+  if (curRow && box._intezoTreeScrolledFor !== _intezoPath) {
+    box._intezoTreeScrolledFor = _intezoPath
+    const top = curRow.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop
+    if (top < box.scrollTop || top > box.scrollTop + box.clientHeight - curRow.offsetHeight) {
+      box.scrollTop = Math.max(0, top - box.clientHeight / 3)
+    }
+  }
+}
+
+function _intezoTreeFindEntry(rel) {
+  if (!rel) return null
+  const parent = rel.indexOf('/') < 0 ? '' : rel.slice(0, rel.lastIndexOf('/'))
+  const kids = _intezoTreeKids.get(parent) || []
+  return kids.find((k) => k.rel === rel) || null
 }
 
 /**
