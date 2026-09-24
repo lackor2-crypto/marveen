@@ -1568,8 +1568,8 @@ async function uploadPhase(a: {
   // kihagyas mar felment fajlt fed, az fent marad, es nem kerul a torlendok koze.
   const kihagyas = excludeRules(pair.backup ? pair.exclude : [])
   const parosRel = (p: string) => (gyoker && p.startsWith(gyoker + '/') ? p.slice(gyoker.length + 1) : p)
-  const torlendok = Object.entries(state).filter(([id, s]) => !utkozoIdk.has(id) && !helyiSet.has(s.path)
-    && !isExcludedFile(kihagyas, parosRel(s.path)))
+  const torlendok = Object.entries(state).filter(([id, s]) => !utkozoIdk.has(id) && !helyiSet.has(s.path))
+    .filter(([, s]) => !isExcludedFile(kihagyas, parosRel(s.path)))
   const tracked = Object.keys(state).length
   // 3. FEK: tomeges torles megallitasa. Par fajl torlese hetkoznapi, a
   // nyilvantartas nagy hanyada viszont majdnem biztosan hiba (rossz mappa,
