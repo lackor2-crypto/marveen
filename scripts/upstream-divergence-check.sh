@@ -348,6 +348,28 @@ if split_files and clean:
                     continue
                 remaining += 1
             clean = str(remaining)
+            # Az UTKOZO fajlokra is all a dontes (#375, tulajdonosi A-dontes a
+            # 31 utkozo fajlrol): ha a lista az upstream MOSTANI blobjaval
+            # sorolja fel, akkor szandekosan a mienk marad -- nem "utkozo",
+            # hanem "szandekosan kihagyva". Ha az upstream azota ujra modositotta,
+            # a regi dontes nem ervenyes, es visszakerul az utkozok koze.
+            still_conflicting = []
+            for path in files:
+                d = decided.get(path)
+                if isinstance(d, dict) and d.get('blob', '') == uptree.get(path):
+                    skipped += 1
+                    reason = d.get('reason')
+                    skipped_files.append({
+                        'path': path,
+                        'kind': 'deferred' if d.get('kind') == 'deferred' else 'decided',
+                        'reason': reason if isinstance(reason, str) else None,
+                    })
+                    if d.get('kind') == 'deferred':
+                        deferred += 1
+                    continue
+                still_conflicting.append(path)
+            files = still_conflicting
+            conflicts = str(len(files))
     except Exception as e:
         skip_error = ('split: %s' % e)[:300]
     for pth in split_files.split(':'):

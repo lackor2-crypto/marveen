@@ -93,6 +93,27 @@ describe('upstream-meres: a tiszta szam szetbontasa (#375)', () => {
     expect(out.cleanFileCount).toBe(3)
   })
 
+  it('az UTKOZO fajlra is all a dontes: listan -> szandekosan kihagyva, nem utkozo (#375)', () => {
+    const out = measure(JSON.stringify({ files: {
+      'conf.txt': { blob: blob('upstream/main', 'conf.txt'), kind: 'deferred', reason: 'ours stays' },
+    } }))
+    expect(out.conflictCount).toBe(0)
+    expect(out.conflictingFiles).toEqual([])
+    expect(out.skippedCount).toBe(1)
+    expect(out.skippedDeferredCount).toBe(1)
+    expect(out.skippedFiles).toEqual([{ path: 'conf.txt', kind: 'deferred', reason: 'ours stays' }])
+    expect(out.cleanFileCount).toBe(3)
+  })
+
+  it('ha az upstream azota ujra modositotta az utkozo fajlt, visszakerul az utkozok koze', () => {
+    const out = measure(JSON.stringify({ files: {
+      'conf.txt': { blob: blob('upstream/main~1', 'conf.txt'), kind: 'deferred' },
+    } }))
+    expect(out.conflictCount).toBe(1)
+    expect(out.conflictingFiles).toEqual(['conf.txt'])
+    expect(out.skippedCount).toBe(0)
+  })
+
   it('olvashatatlan lista: kimondott hiba, a szetbontott mezok null-ok (nem 0)', () => {
     const out = measure('{ ez nem json')
     expect(typeof out.skipListError).toBe('string')
