@@ -2743,23 +2743,54 @@ export function markPendingTaskRetryAlert(taskName: string, agentName: string, t
 
 const EMBED_MODEL = 'nomic-embed-text'
 
-export async function generateEmbedding(text: string): Promise<number[] | null> {
+// Why a request failed to produce an embedding, so callers that care (the
+// backfill button) can tell the owner what to actually do instead of one
+// generic "not reachable" for every cause:
+//   unreachable    -- no HTTP response at all (connection refused, timed out,
+//                      or the request otherwise never completed). Covers both
+//                      "Ollama isn't running" and "it's running somewhere this
+//                      process can't reach" (wrong host/interface, firewall).
+//   model_missing  -- Ollama DID respond, so it's reachable, but it could not
+//                      produce a vector (the nomic-embed-text model was never
+//                      pulled).
+export type EmbeddingFailureReason = 'unreachable' | 'model_missing'
+
+async function generateEmbeddingDetailed(
+  text: string,
+): Promise<{ embedding: number[] | null; errorReason: EmbeddingFailureReason | null }> {
+  let resp: Response
   try {
-    const resp = await fetch(`${OLLAMA_URL}/api/embeddings`, {
+    resp = await fetch(`${OLLAMA_URL}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: EMBED_MODEL, prompt: text.slice(0, 2000) }),
       signal: AbortSignal.timeout(TOOL_TIMEOUTS['ollama-embedding']),
     })
-    const data = await resp.json() as { embedding?: number[] }
-    return data.embedding || null
   } catch (err) {
     // Debug-level so it doesn't spam default INFO logs when Ollama isn't
     // running (the common case on most user machines). Enables "why does
     // hybrid search only return FTS results?" diagnostics without noise.
-    logger.debug({ err, ollamaUrl: OLLAMA_URL }, 'Embedding generation failed (Ollama not running?)')
-    return null
+    logger.debug({ err, ollamaUrl: OLLAMA_URL }, 'Embedding generation failed (Ollama not reachable)')
+    return { embedding: null, errorReason: 'unreachable' }
   }
+  try {
+    const data = await resp.json() as { embedding?: number[]; error?: string }
+    if (!resp.ok || data.error || !data.embedding) {
+      // A response arrived, so Ollama IS reachable -- the missing piece is the
+      // model itself (Ollama answers 404 with an "error" body when the model
+      // was never pulled).
+      logger.debug({ status: resp.status, error: data.error, ollamaUrl: OLLAMA_URL }, 'Embedding model missing')
+      return { embedding: null, errorReason: 'model_missing' }
+    }
+    return { embedding: data.embedding, errorReason: null }
+  } catch (err) {
+    logger.debug({ err, ollamaUrl: OLLAMA_URL }, 'Embedding response could not be parsed')
+    return { embedding: null, errorReason: 'unreachable' }
+  }
+}
+
+export async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingDetailed(text)).embedding
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -2818,20 +2849,104 @@ export async function hybridSearch(agentId: string, query: string, limit: number
   return ranked.slice(0, limit).map(([id]) => byId.get(id)!)
 }
 
-export async function backfillEmbeddings(): Promise<number> {
-  const rows = db.prepare('SELECT id, content, keywords FROM memories WHERE embedding IS NULL').all() as { id: number; content: string; keywords: string | null }[]
-  let count = 0
+export interface BackfillEmbeddingsResult {
+  candidates: number
+  done: number
+  failed: number
+  // null only when every candidate succeeded (or there were none, in which
+  // case it's 'nothing_to_do' -- a zero count is not automatically a failure).
+  reason: 'nothing_to_do' | EmbeddingFailureReason | null
+}
+
+// After this many CONSECUTIVE failures we stop instead of working through the
+// rest of the list one 90s timeout at a time: 138 memories x 90s would be
+// 3.5 hours of "Generating..." with nothing to show for it once the cause is
+// already known after the first few (kanban ab9d1f19).
+const BACKFILL_FAIL_FAST_THRESHOLD = 3
+
+async function runBackfillLoop(
+  rows: { id: number; content: string; keywords: string | null }[],
+  onProgress?: (progress: { done: number; failed: number }) => void,
+): Promise<BackfillEmbeddingsResult> {
+  const candidates = rows.length
+  let done = 0
+  let failed = 0
+  let consecutiveFailures = 0
+  let lastFailureReason: EmbeddingFailureReason | null = null
   for (const row of rows) {
     const text = row.content + (row.keywords ? ' ' + row.keywords : '')
-    const emb = await generateEmbedding(text)
-    if (emb) {
-      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(emb), row.id)
-      count++
+    const { embedding, errorReason } = await generateEmbeddingDetailed(text)
+    if (embedding) {
+      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(embedding), row.id)
+      done++
+      consecutiveFailures = 0
+    } else {
+      failed++
+      consecutiveFailures++
+      lastFailureReason = errorReason
     }
+    onProgress?.({ done, failed })
+    if (consecutiveFailures >= BACKFILL_FAIL_FAST_THRESHOLD) break
     // Small delay to not overwhelm Ollama
     await new Promise(r => setTimeout(r, 100))
   }
-  return count
+  return { candidates, done, failed, reason: failed > 0 ? lastFailureReason : null }
+}
+
+export async function backfillEmbeddings(): Promise<BackfillEmbeddingsResult> {
+  const rows = db.prepare('SELECT id, content, keywords FROM memories WHERE embedding IS NULL').all() as { id: number; content: string; keywords: string | null }[]
+  if (rows.length === 0) return { candidates: 0, done: 0, failed: 0, reason: 'nothing_to_do' }
+  return runBackfillLoop(rows)
+}
+
+export interface BackfillEmbeddingsStatus {
+  running: boolean
+  candidates: number
+  done: number
+  failed: number
+  reason: 'nothing_to_do' | EmbeddingFailureReason | null
+}
+
+let backfillState: BackfillEmbeddingsStatus = { running: false, candidates: 0, done: 0, failed: 0, reason: null }
+
+// For the dashboard poller: what the last (or currently running) backfill
+// looks like right now. Never throws, never blocks on Ollama.
+export function getBackfillStatus(): BackfillEmbeddingsStatus {
+  return { ...backfillState }
+}
+
+// Starts backfillEmbeddings() in the background instead of making the HTTP
+// caller await it: a full run over ~140 memories takes minutes even when
+// EVERY call succeeds, which outlives a typical client timeout (curl gave up
+// at 2m29s in testing while the run kept going and finished on its own --
+// the owner saw an error at the end of a successful operation). The
+// dashboard polls getBackfillStatus() instead of waiting on this call.
+// Returns the status right after the (synchronous) candidate count, so a
+// nothing_to_do result can come back immediately without a background job.
+export function startBackfillEmbeddings(): BackfillEmbeddingsStatus {
+  if (backfillState.running) return { ...backfillState }
+  const rows = db.prepare('SELECT id, content, keywords FROM memories WHERE embedding IS NULL').all() as { id: number; content: string; keywords: string | null }[]
+  if (rows.length === 0) {
+    backfillState = { running: false, candidates: 0, done: 0, failed: 0, reason: 'nothing_to_do' }
+    return { ...backfillState }
+  }
+  backfillState = { running: true, candidates: rows.length, done: 0, failed: 0, reason: null }
+  runBackfillLoop(rows, (progress) => {
+    backfillState.done = progress.done
+    backfillState.failed = progress.failed
+  }).then((result) => {
+    backfillState = { running: false, ...result }
+  }).catch((err) => {
+    logger.error({ err }, 'backfillEmbeddings crashed mid-run')
+    backfillState = {
+      running: false,
+      candidates: backfillState.candidates,
+      done: backfillState.done,
+      failed: backfillState.failed,
+      reason: 'unreachable',
+    }
+  })
+  return { ...backfillState }
 }
 
 // --- Pending Channel Requests ---
