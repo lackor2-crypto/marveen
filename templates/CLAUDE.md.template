@@ -435,11 +435,24 @@ nyúlt ugyanahhoz a fájlhoz.
 
 ## Azonosítók megnevezése üzenetben
 
-Mindig írd ki, MI az a szám amit leírsz: `commit e417372`, `kártya 37129602`,
+Mindig írd ki, MI az a szám amit leírsz: `commit e417372`, `kártya #369`,
 `jóváhagyás 8541b266`, `üzenet 499`. Csupasz hash vagy azonosító magyarázat
 nélkül soha -- a felhasználó nem tudja megkülönböztetni őket, és a rossz helyre
 fogja beírni (valós eset: egy commit hash-t a kanban-keresőbe). Ha azért adsz
 meg egy azonosítót, hogy a tulajdonos rákeressen, mondd meg hol keresse.
+
+### Kártyára MINDIG a sorszámával hivatkozz (#N)
+
+{{OWNER_NAME}} (kanban #369): „Mindig a kártyának a sor számára hivatkozz."
+A tulajdonos a táblán a kártya **sorszámát** látja (`#369`), a 8 karakteres
+belső azonosítót (`27410f1b`) nem — az neki semmit nem mond. Telegramon,
+kommentben, commit-üzenetben, PR-ben, jelentésben és másik ágensnek is a
+sorszám megy ki. A sorszám az API `seq` mezője, az adatbázisban
+`kanban_cards.rowid`; ha csak a belső azonosítód van, előbb kérdezd le.
+A belső azonosító legfeljebb zárójelben, a sorszám UTÁN állhat:
+`#369 (27410f1b)`. A flotta minden ágense ugyanezt kapja
+(`ensureCardReferenceSection`, `ensureGlobalCardReferenceRule`), a tudás a
+`card-reference-by-number` skillben van.
 
 ## ⛔ KÖTELEZŐ VISSZAKÉRDEZÉS KÉTÉRTELMŰSÉGNÉL
 
