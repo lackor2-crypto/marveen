@@ -155,10 +155,16 @@ export interface UpstreamSplitFiles {
   // unreadable skip list) -- NOT "nothing there". [] = measured and empty.
   absorbed: string[] | null
   skipped: UpstreamSkippedFile[] | null
+  // true = the snapshot HAS the split counts but not the file lists: it was
+  // written by the script before #379 (e.g. the last measure ran before a
+  // deploy). Such a snapshot never grows the lists by itself, so the server
+  // re-measures it once (see /api/upstream/changes). A snapshot without counts
+  // (fresh install, no upstream remote, unreadable skip list) is NOT stale.
+  stale: boolean
 }
 
 export function readUpstreamSplitFiles(): UpstreamSplitFiles {
-  const none: UpstreamSplitFiles = { absorbed: null, skipped: null }
+  const none: UpstreamSplitFiles = { absorbed: null, skipped: null, stale: false }
   if (!existsSync(STATUS_PATH)) return none
   try {
     const o = JSON.parse(readFileSync(STATUS_PATH, 'utf-8')) as Record<string, unknown>
@@ -178,7 +184,9 @@ export function readUpstreamSplitFiles(): UpstreamSplitFiles {
           }]
         })
       : null
-    return { absorbed, skipped }
+    const hasCounts = typeof o.absorbedCount === 'number' || typeof o.skippedCount === 'number'
+    const stale = hasCounts && !('absorbedFiles' in o) && !('skippedFiles' in o)
+    return { absorbed, skipped, stale }
   } catch {
     return none
   }

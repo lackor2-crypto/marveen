@@ -27,7 +27,7 @@ import { readAgentModel } from '../agent-config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { readUpstreamSyncStatus, readUpstreamSplitFiles } from '../upstream-sync-status-io.js'
 import { readUpstreamChanges } from '../upstream-changes-io.js'
-import { measureState, startMeasure } from '../upstream-measure-runner.js'
+import { measureState, startMeasure, remeasureStaleSnapshotOnce } from '../upstream-measure-runner.js'
 import { exactTmuxTarget } from '../tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
@@ -376,7 +376,10 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // #379: the 'already pulled' / 'left out on purpose' lists come from the
     // divergence snapshot, not from the change list -- so they go out even
     // when the change list itself is missing.
-    const split = readUpstreamSplitFiles()
+    // A snapshot from before #379 has counts but no lists: re-measure it once
+    // instead of leaving both tabs on "not measured" until someone clicks.
+    const read = readUpstreamSplitFiles()
+    const split = { ...read, remeasuring: read.stale ? remeasureStaleSnapshotOnce() : measureState().running }
     if (!view) {
       jsonMaybeGzip(req, res, { available: false, split })
       return true
