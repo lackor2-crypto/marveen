@@ -930,6 +930,7 @@ window._i18n.hu = {
   'intezo.tree_failed': 'Ezt a mappát most nem sikerült beolvasni.',
   'intezo.badge_mounted': 'Ez a mappa máshol lévő tartalmat mutat',
   'intezo.content_has': 'Van benne tartalom.',
+  'intezo.content_only_empty_folders': 'Csak üres mappák vannak benne, egyetlen fájl sincs alatta.',
   'intezo.content_empty': 'Ez a mappa üres. Nem kell belenézned.',
   'intezo.content_empty_deep': 'Üres: sem itt, sem lejjebb nincs egyetlen fájl sem.',
   'intezo.content_unmeasured': 'Nem tudtam megmérni, mi van benne.',

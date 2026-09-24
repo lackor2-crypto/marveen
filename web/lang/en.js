@@ -902,6 +902,7 @@ window._i18n.en = {
   'intezo.tree_failed': 'This folder could not be read right now.',
   'intezo.badge_mounted': 'This folder shows content that lives elsewhere',
   'intezo.content_has': 'Has content.',
+  'intezo.content_only_empty_folders': 'Only empty folders inside, not a single file below.',
   'intezo.content_empty': 'This folder is empty. No need to look inside.',
   'intezo.content_empty_deep': 'Empty: there is not a single file here or below.',
   'intezo.content_unmeasured': 'I could not measure what is inside.',
