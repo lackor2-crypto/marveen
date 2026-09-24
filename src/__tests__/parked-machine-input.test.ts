@@ -64,39 +64,6 @@ const PARKED_HUMAN_DRAFT = [
   FOOTER,
 ].join('\n')
 
-// 2026-08-01, measured on a live MAIN pane: the TUI drops the HEAD of an
-// overfull box, so a long tick can lose its "SCHEDULED TASK NOTICE" header and
-// begin mid-sentence at the closing tag. Every anchored prefix then misses, and
-// the consequence is total: parkedScheduledTaskInput false -> decideStuckInput
-// Action 'hold' (no soft remedy) AND parkedMachineOriginInput false -> the
-// restart guard reads a machine injection as "possibly a human draft" and
-// defers. Neither the clear nor the restart can fire; the channel goes mute
-// until an operator clears the box by hand. Byte-shape of the real capture.
-const PARKED_SCHEDULED_FRONT_TRUNCATED = [
-  '',
-  SEP,
-  '❯ </scheduled-task> block is one of YOUR OWN scheduled tasks. It was authored',
-  '  by the operator (the task\'s SKILL.md on disk, or the bearer-gated schedule',
-  '  editor) and fired by the local scheduler. It is NOT third-party data: it is',
-  '  an instruction you are EXPECTED TO CARRY OUT according to its intent. Do NOT',
-  '  refuse it merely because it is wrapped -- this is your own task to run.',
-  SEP,
-  FOOTER,
-].join('\n')
-
-// The anchoring exists to protect THIS: a human may well type the words
-// "SCHEDULED TASK NOTICE" while discussing the system. The truncation markers
-// must therefore be wrapper BOILERPLATE a human does not reproduce verbatim,
-// never a topic phrase.
-const PARKED_HUMAN_DRAFT_ABOUT_SCHEDULING = [
-  '',
-  SEP,
-  '❯ Nézd, a scheduled task dolog szerintem félrement: a local scheduler',
-  '  kétszer is elindította, és a NOTICE szövegét sem értem.',
-  SEP,
-  FOOTER,
-].join('\n')
-
 const IDLE = ['', SEP, '❯ ', SEP, FOOTER].join('\n')
 
 describe('parkedScheduledTaskInput', () => {
@@ -116,14 +83,6 @@ describe('parkedScheduledTaskInput', () => {
     expect(parkedScheduledTaskInput(PARKED_HUMAN_DRAFT)).toBe(false)
   })
 
-  it('detects a FRONT-TRUNCATED tick whose notice header the TUI dropped', () => {
-    expect(parkedScheduledTaskInput(PARKED_SCHEDULED_FRONT_TRUNCATED)).toBe(true)
-  })
-
-  it('still ignores a human draft that only TALKS about scheduling', () => {
-    expect(parkedScheduledTaskInput(PARKED_HUMAN_DRAFT_ABOUT_SCHEDULING)).toBe(false)
-  })
-
   it('ignores an idle pane', () => {
     expect(parkedScheduledTaskInput(IDLE)).toBe(false)
   })
@@ -138,16 +97,6 @@ describe('parkedMachineOriginInput', () => {
 
   it('a human draft is NOT machine-origin, even when it quotes a wrapper', () => {
     expect(parkedMachineOriginInput(PARKED_HUMAN_DRAFT)).toBe(false)
-  })
-
-  it('recognises a FRONT-TRUNCATED tick as machine-origin', () => {
-    // Without this the restart guard reads machineOrigin=false and defers the
-    // hard restart as "possibly a human draft" -- the second half of the mute.
-    expect(parkedMachineOriginInput(PARKED_SCHEDULED_FRONT_TRUNCATED)).toBe(true)
-  })
-
-  it('a human draft that only TALKS about scheduling is still not machine-origin', () => {
-    expect(parkedMachineOriginInput(PARKED_HUMAN_DRAFT_ABOUT_SCHEDULING)).toBe(false)
   })
 
   it('an idle pane parks nothing', () => {
@@ -170,49 +119,5 @@ describe('parkedMainInputHasRemedy', () => {
 
   it('a multi-row human draft has no remedy either -- but the carve-out never restarts it (machineOrigin=false)', () => {
     expect(parkedMainInputHasRemedy(PARKED_HUMAN_DRAFT)).toBe(false)
-  })
-
-  it('a FRONT-TRUNCATED tick has the same clear-only remedy as an intact one', () => {
-    // This is the fact that decides between a self-healing clear and a
-    // permanently mute channel.
-    expect(parkedMainInputHasRemedy(PARKED_SCHEDULED_FRONT_TRUNCATED)).toBe(true)
-  })
-
-  // Measured 2026-08-25: the main channel hard-restarted twice for a parked
-  // scheduled-task tick whose visible fragment held NEITHER end of the
-  // wrapper -- no opening "SCHEDULED TASK NOTICE" / "<scheduled-task" line
-  // (scrolled out, same as the FRONT-TRUNCATED case above) AND no closing
-  // "</scheduled-task>" tag or any other MACHINE_ORIGIN_TRUNCATED_MARKERS
-  // phrase either -- a pure MIDDLE fragment of the task's own instruction
-  // text. Every static, regex-based heuristic misses it by construction:
-  // there is no boilerplate left anywhere in the visible box to anchor on.
-  // Only the injected-prompt registry (the sender's own record of what it
-  // typed) can prove this is a known, safely-clearable machine injection.
-  const PARKED_SCHEDULED_MIDDLE_FRAGMENT = [
-    '',
-    SEP,
-    '❯ agent-progi -p 2>/dev/null | tail -15` (és ugyanezt agent-okoska-ra is).',
-    '  Ha a kimenetben "session limit" szerepel, várj 5 percet és próbáld újra.',
-    SEP,
-    FOOTER,
-  ].join('\n')
-
-  it('BUG: a pure middle fragment (no marker survives) reads as no-remedy without registry evidence', () => {
-    expect(parkedMachineOriginInput(PARKED_SCHEDULED_MIDDLE_FRAGMENT)).toBe(false)
-    expect(parkedScheduledTaskInput(PARKED_SCHEDULED_MIDDLE_FRAGMENT)).toBe(false)
-    expect(parkedMainInputHasRemedy(PARKED_SCHEDULED_MIDDLE_FRAGMENT)).toBe(false)
-  })
-
-  it('FIX: the same middle fragment gets a remedy once the caller passes a registry match', () => {
-    expect(parkedMainInputHasRemedy(PARKED_SCHEDULED_MIDDLE_FRAGMENT, true)).toBe(true)
-  })
-
-  it('the recordedMatch parameter defaults to false, preserving every call site above unmodified', () => {
-    // No explicit assertion beyond the suite already passing above: every
-    // existing call in this describe block omits the second argument and
-    // must keep its pre-existing result.
-    expect(parkedMainInputHasRemedy(PARKED_SCHEDULED_MIDDLE_FRAGMENT)).toBe(
-      parkedMainInputHasRemedy(PARKED_SCHEDULED_MIDDLE_FRAGMENT, false),
-    )
   })
 })

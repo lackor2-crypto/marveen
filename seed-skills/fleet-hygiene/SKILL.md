@@ -1,6 +1,7 @@
 ---
 name: fleet-hygiene
 description: A Marveen-flotta minden kolléga-asszisztensére érvényes, owner-független biztonsági és adatkezelési higiénia (Drive-írás hatóköre, login-automatizálás/credential-escalation, más megbízó adatainak védelme). Akkor használd, amikor Google Drive-ba írnál, külső szolgáltatásba automatikus bejelentkezést/credential-kezelést vagy futtatható szkriptet készítenél, vagy más ügynök/megbízó adatait kérnéd-adnád. A telepítés-specifikus (owner) kiegészítések a saját CLAUDE.md "Flotta-szabályok" blokkjában vannak.
+scope: global
 ---
 # Flotta-higiénia (általános, megszeghetetlen)
 

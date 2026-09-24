@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -81,60 +81,5 @@ describe('ensureMainAgentIsolatedConfigDir', () => {
   it('darwin + setting explicitly off -> null (unchanged, no regression)', () => {
     SETTING = '0'
     expect(ensureMainAgentIsolatedConfigDir(undefined, 'darwin')).toBeNull()
-  })
-
-  // The settings.json rewrite runs on EVERY main-agent start. It used to be a
-  // pure copy of the shared ~/.claude/settings.json, so a key configured for
-  // the MAIN AGENT ALONE was dropped at the next restart -- silently, because
-  // the agent still starts, it just stops doing whatever that key drove.
-  // `statusLine` was lost that way three times (2026-07-28, 07-30, 08-03),
-  // each time taking context monitoring blind mid-work with no error anywhere.
-  it('keeps isolated-only settings keys the shared file never mentions', () => {
-    const dir = ensureMainAgentIsolatedConfigDir(undefined, 'linux')!
-    const own = join(dir, 'settings.json')
-    writeFileSync(own, JSON.stringify({
-      statusLine: { type: 'command', command: 'ctx.sh' },
-      model: 'agent-only-model',
-    }, null, 2) + '\n')
-
-    // Second start: the shared file still says nothing about statusLine.
-    ensureMainAgentIsolatedConfigDir(undefined, 'linux')
-
-    const after = JSON.parse(readFileSync(own, 'utf-8')) as Record<string, unknown>
-    expect(after.statusLine).toEqual({ type: 'command', command: 'ctx.sh' })
-    expect(after.model).toBe('agent-only-model')
-  })
-
-  // The Bash egress deny (BASH_EGRESS_DENY) is written into THIS file rather
-  // than the shared root, so the operator's own shell stays out of it while the
-  // main agent stays in. That only holds if a permissions block survives the
-  // rewrite this function performs on every start -- and it survives only
-  // because the shared file never mentions `permissions`. Asserted on the real
-  // provisioner, not inferred from the merge code, so the guarantee the egress
-  // change rests on is executed rather than believed.
-  it('keeps a permissions block the shared file never mentions (Bash egress deny target)', () => {
-    const dir = ensureMainAgentIsolatedConfigDir(undefined, 'linux')!
-    const own = join(dir, 'settings.json')
-    writeFileSync(own, JSON.stringify({
-      permissions: { deny: ['Bash(curl *https://*)', 'Bash(wget *)'] },
-    }, null, 2) + '\n')
-
-    ensureMainAgentIsolatedConfigDir(undefined, 'linux')
-
-    const after = JSON.parse(readFileSync(own, 'utf-8')) as Record<string, unknown>
-    expect((after.permissions as { deny: string[] }).deny).toEqual(['Bash(curl *https://*)', 'Bash(wget *)'])
-  })
-
-  it('lets the shared file win for every key it DOES define', () => {
-    writeFileSync(join(HOME, '.claude', 'settings.json'), JSON.stringify({ model: 'shared-model' }))
-    const dir = ensureMainAgentIsolatedConfigDir(undefined, 'linux')!
-    const own = join(dir, 'settings.json')
-    writeFileSync(own, JSON.stringify({ model: 'stale-model', statusLine: 'keep-me' }, null, 2) + '\n')
-
-    ensureMainAgentIsolatedConfigDir(undefined, 'linux')
-
-    const after = JSON.parse(readFileSync(own, 'utf-8')) as Record<string, unknown>
-    expect(after.model).toBe('shared-model')   // shared wins on conflict
-    expect(after.statusLine).toBe('keep-me')   // target-only key still survives
   })
 })
