@@ -376,3 +376,41 @@ describe('claim: a MARVEEN-feladat nem az elo checkoutban indul (#273)', () => {
     expect(getCodeTask(id)!.workspacePath).toBe(OUTSIDE)
   })
 })
+
+// #358 utan: az elohang "Kanban kartyat ne mozgass" mondata felulirta a
+// kanban-approval-workflow skillt, es a landolt #358/#359 'in_progress'-ben
+// ragadt. A 7. pont most kimondja: testing -> waiting, csak elore, done soha.
+describe('elohang: a kartya oszlopa a vegrehajto dolga (#358 utan)', () => {
+  it('a tilto mondat SEHOL nem szerepel, egyik allapotban es nyelven sem', () => {
+    for (const lang of ['hu', 'en'] as const) {
+      for (const worktree of [
+        undefined,
+        { redirected: true, branch: 'work/x', reason: null, wasLiveTree: true },
+        { redirected: false, branch: null, reason: 'boom', wasLiveTree: true },
+      ]) {
+        const text = buildCodeTaskPreamble({ workspacePath: ROOT, hostKind: 'unix', projectRoot: ROOT, lang, worktree })
+        expect(text).not.toMatch(/ne mozgass|do not move kanban/i)
+      }
+    }
+  })
+
+  it('HU: testing, majd waiting; elore csak, done soha; a sajat cim es token-ut', () => {
+    const hu = buildCodeTaskPreamble({ workspacePath: ROOT, hostKind: 'unix', projectRoot: ROOT, lang: 'hu', webPort: 4999 })
+    expect(hu).toContain('7. HA A FELADAT KANBAN KARTYARA SZOL')
+    expect(hu).toContain('"testing"-be')
+    expect(hu).toContain('"waiting"-be')
+    expect(hu).toContain('SOHA ne huzd')
+    expect(hu).toContain('"done"-ba soha ne tedd')
+    expect(hu).toContain('http://localhost:4999/api/kanban/card-ids')
+    expect(hu).toContain(`${ROOT}/store/.dashboard-token`)
+  })
+
+  it('EN: ugyanez angolul, magyar horgonyszo nelkul', () => {
+    const en = buildCodeTaskPreamble({ workspacePath: ROOT, hostKind: 'unix', projectRoot: ROOT, lang: 'en', webPort: 4999 })
+    expect(en).toContain('7. IF THE TASK IS ABOUT A KANBAN CARD')
+    expect(en).toContain('move the card to "testing"')
+    expect(en).toContain('move it to "waiting" RIGHT AWAY')
+    expect(en).toContain('never put it in "done"')
+    expect(en).not.toMatch(/kartya|tulajdonos|hibauzenet/i)
+  })
+})

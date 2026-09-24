@@ -30,7 +30,7 @@
 // on it. (Marvin, 2026-09-06: "TILOS unverified UNC-t ... ugy beleirni mintha
 // tudnank hogy mukodik. Amig nincs megmerve, az csak javaslat lehet.")
 
-import { PROJECT_ROOT, APP_LANG } from '../config.js'
+import { PROJECT_ROOT, APP_LANG, WEB_PORT } from '../config.js'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
 
 /** What kind of host MARVEEN runs on. The caller measures it (detectHostKind);
@@ -50,6 +50,8 @@ export interface PreambleInput {
   distro?: string | null
   /** Test seam; defaults to the install language. */
   lang?: 'hu' | 'en'
+  /** Test seam; defaults to this install's dashboard port. */
+  webPort?: number
   /**
    * How the working directory was decided (code-live-tree-worktree.ts).
    *
@@ -147,9 +149,9 @@ function worktreeParagraph(
 ): string {
   const tail = hu
     ? ' A vegen teljes teszt (npx vitest run) + tipusellenorzes (npx tsc --noEmit), a landolas scripts/land-pr.sh'
-      + ' (PR + CI) -- a main-re direkt push tilos. Kanban kartyat ne mozgass.'
+      + ' (PR + CI) -- a main-re direkt push tilos.'
     : ' Finish with the full test suite (npx vitest run) + type check (npx tsc --noEmit) and land through'
-      + ' scripts/land-pr.sh (PR + CI) -- never push straight to main. Do not move kanban cards.'
+      + ' scripts/land-pr.sh (PR + CI) -- never push straight to main.'
 
   if (wt?.redirected) {
     const br = wt.branch ?? '?'
@@ -190,7 +192,8 @@ function worktreeParagraph(
  * work belongs, where the source is (only when the session is NOT already in it),
  * how to work on it, what to do when a step cannot run here, which language the
  * closing summary is in, and how the executor reports back (the task result, NOT
- * a Telegram/inter-agent message it cannot send).
+ * a Telegram/inter-agent message it cannot send), and that the card's column
+ * (testing -> waiting) is the executor's own job.
  */
 export function buildCodeTaskPreamble(input: PreambleInput): string {
   const root = input.projectRoot ?? PROJECT_ROOT
@@ -254,7 +257,47 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
       + ' agent (no Telegram MCP, no inter-agent channel); the Marveen dashboard notifies the owner for you when the'
       + ' task finishes.')
 
+  out.push(cardLifecycleParagraph(root, input.webPort ?? WEB_PORT, hu))
+
   return out.join('\n')
+}
+
+/**
+ * Point 7 -- the card's column is the executor's job too (kanban #358 follow-up).
+ *
+ * WHY IT IS SAID HERE: until 2026-09-24 point 3 ended with "Kanban kartyat ne
+ * mozgass" -- and a code-bridge session obeyed it. #358 and #359 were landed
+ * (PR #295, #296) and then sat in 'in_progress', even though every fleet skill
+ * (kanban-approval-workflow) says in_progress -> testing -> waiting. The preface
+ * is the one text EVERY executor reads, so it overrode the skill. Boss: "amikor
+ * megcsinaltal egy kartyat, tedd a varakozikba ... tesztelesbol kell atkerulnie
+ * a varakozikba."
+ *
+ * Forward-only, and never 'done': leaving 'waiting' withdraws the owner's
+ * pending approval (withdrawApprovalForCardLeavingWaiting), and 'done' is the
+ * owner's decision alone. The dashboard URL is this install's own; from another
+ * machine it is not measured, so point 4 (report the exact error) applies.
+ */
+function cardLifecycleParagraph(root: string, port: number, hu: boolean): string {
+  const base = `http://localhost:${port}`
+  const token = `${root}/store/.dashboard-token`
+  return hu
+    ? '7. HA A FELADAT KANBAN KARTYARA SZOL (#N), a kartya oszlopa a TE dolgod: amikor a kod kesz es nekialsz a'
+      + ' tesztelesnek (vitest, tsc, kiprobalas), told a kartyat "testing"-be; amikor landolt es kesz, AZONNAL told'
+      + ' "waiting"-be -- ugyanabban a lepesben, nem kesobb. Csak ELORE: "waiting"-bol vagy "done"-bol SOHA ne huzd'
+      + ' vissza (az visszavonja a tulajdonos fuggo jovahagyasat), es "done"-ba soha ne tedd -- azt csak a'
+      + ` tulajdonos. Hogyan: GET ${base}/api/kanban/card-ids megadja a sorszamhoz (seq) a kartya id-jet, utana`
+      + ` POST ${base}/api/kanban/<id>/move {"status":"testing","sort_order":0,"actor":"code-bridge"},`
+      + ` "Authorization: Bearer <a(z) ${token} tartalma>". Ez ennek a telepitesnek a sajat cime; ha masik gepen`
+      + ' futsz es nem ered el, a 4. pont all: a pontos hibauzenet a zaro osszefoglaloba.'
+    : '7. IF THE TASK IS ABOUT A KANBAN CARD (#N), the card\'s column is YOUR job: when the code is done and you start'
+      + ' testing (vitest, tsc, trying it out), move the card to "testing"; when it has landed and is done, move it to'
+      + ' "waiting" RIGHT AWAY -- in the same step, not later. Forward only: NEVER pull it back out of "waiting" or'
+      + ' "done" (that withdraws the owner\'s pending approval), and never put it in "done" -- only the owner does.'
+      + ` How: GET ${base}/api/kanban/card-ids maps the number (seq) to the card id, then`
+      + ` POST ${base}/api/kanban/<id>/move {"status":"testing","sort_order":0,"actor":"code-bridge"},`
+      + ` "Authorization: Bearer <contents of ${token}>". That is this install's own address; if you run on another`
+      + ' machine and cannot reach it, point 4 applies: put the exact error in the closing summary.'
 }
 
 /** The prompt as the executor should receive it. */
