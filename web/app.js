@@ -37078,7 +37078,10 @@ function _intezoRender() {
     list.innerHTML = L.message ? '' : '<p style="opacity:.7" data-i18n="intezo.empty">Ez a mappa üres.</p>'
     return
   }
-  list.innerHTML = '<table style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
+  // intezo-list: every other row gets a darker background (zebra), so a long
+  // listing can be read along the row (owner, 2026-09-24). CSS in style.css;
+  // the selected / inbox rows keep their own inline background on top.
+  list.innerHTML = '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
     + rows.map((e) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
       + ' title="' + escapeHtml(t('intezo.row_title')) + '"'
