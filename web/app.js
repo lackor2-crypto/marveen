@@ -20973,12 +20973,41 @@ function upstreamSplitPathRow(path, extra) {
   return `<div class="upstream-file"><div class="upstream-file-path">${escapeHtml(path)}</div>${extra || ''}</div>`
 }
 
+/**
+ * A "Mar behuzva" / "Szandekosan kihagyva" ful, amikor a meres meg nem bontotta
+ * fajlokra (#379, 2026-09-24: a ket ful uresen allt egy #379 elotti
+ * pillanatkep miatt). A puszta szoveg zsakutca volt: a gomb a masik ablakban,
+ * az Attekintesen allt. Itt, a ful alatt is ott a gomb; ha a szerver mar
+ * elinditotta az ujramerest (regi pillanatkep -> egyszeri automatikus meres),
+ * azt mondjuk ki, es a vegen a lista magatol betoltodik.
+ */
+function upstreamSplitUnmeasuredHtml(data) {
+  const split = data && data.split
+  if ((split && split.remeasuring) || _upstreamMeasureRunning) {
+    if (!_upstreamMeasureRunning) _pollUpstreamMeasure(Date.now())
+    return `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.remeasuring'))}</p>`
+  }
+  return `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.unmeasured'))}</p>`
+    + `<p class="upstream-changes-empty"><button type="button" class="btn btn-secondary" id="upstreamSplitRemeasureBtn" onclick="startUpstreamSplitRemeasure()">${escapeHtml(t('upstream.split.remeasure_btn'))}</button></p>`
+}
+
+/** A ful gombja: ugyanaz a meres, mint az Attekintes gombja, utana a ful a
+ *  "folyamatban" szoveget mutatja, amig a lista meg nem jon. */
+async function startUpstreamSplitRemeasure() {
+  await startUpstreamMeasure()
+  if (_upstreamMeasureRunning && upstreamChangesCache && upstreamChangesCache.split) {
+    upstreamChangesCache.split.remeasuring = true
+  }
+  const filterEl = document.getElementById('upstreamChangesFilter')
+  renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
+}
+
 function renderUpstreamAbsorbed(data, filter, body, intro) {
   const list = data && data.split ? data.split.absorbed : null
   // null = a meres nem bontotta fajlokra (regi pillanatkep, olvashatatlan
   // kihagyas-lista) -- ez NEM ugyanaz, mint az ures lista.
   if (!Array.isArray(list)) {
-    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.unmeasured'))}</p>`
+    body.innerHTML = upstreamSplitUnmeasuredHtml(data)
     if (intro) intro.textContent = upstreamSplitIntro('')
     return
   }
@@ -20997,7 +21026,7 @@ function renderUpstreamAbsorbed(data, filter, body, intro) {
 function renderUpstreamSkipped(data, filter, body, intro) {
   const list = data && data.split ? data.split.skipped : null
   if (!Array.isArray(list)) {
-    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.unmeasured'))}</p>`
+    body.innerHTML = upstreamSplitUnmeasuredHtml(data)
     if (intro) intro.textContent = upstreamSplitIntro('')
     return
   }
@@ -21939,6 +21968,10 @@ function _pollUpstreamMeasure(startedAt) {
     // A meres a tetelesen listat (es rajta a kapu donteset) is ujrairja: a
     // kovetkezo megnyitas a frisset toltse be, ne a memoriaban maradt regit.
     upstreamChangesCache = null
+    // Ha a reszletek ablak nyitva van (pl. a "Mar behuzva" ful varta a
+    // merest), az is a friss listat mutassa, ne a "folyamatban" szoveget.
+    const changesModal = document.getElementById('upstreamChangesModal')
+    if (changesModal && changesModal.classList.contains('active')) openUpstreamChanges()
     if (data.status) {
       renderOverviewUpstreamSync(data.status)
       // A "kesz" nem azonos a "sikerult"-tel: ha a meres hibaval allt meg, azt
