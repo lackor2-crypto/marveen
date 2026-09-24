@@ -69,3 +69,20 @@ describe('Intezo content list zebra rows', () => {
     expect(css).toMatch(/table\.intezo-list > tbody > tr:hover \{ background:/)
   })
 })
+
+describe('Intezo content list: folder vs file', () => {
+  it('rows carry their kind, folders are bold, a divider sits before the first file', () => {
+    expect(app).toContain("(e.isDir ? 'intezo-dir' : 'intezo-file')")
+    expect(app).toContain("' intezo-first-file'")
+    expect(app).toContain('_intezoKindIcon(e)')
+    expect(css).toMatch(/tr\.intezo-dir a\[data-open\] \{ font-weight: 600; \}/)
+    expect(css).toMatch(/tr\.intezo-first-file > td \{ border-top:/)
+  })
+
+  it('the kind icon has a label in both languages', () => {
+    for (const k of ['kind_folder', 'kind_file']) {
+      expect(hu).toContain(`'intezo.${k}':`)
+      expect(en).toContain(`'intezo.${k}':`)
+    }
+  })
+})

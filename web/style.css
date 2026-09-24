@@ -12228,6 +12228,12 @@ details.upstream-box > summary > h4 {
    theme; hover is stronger than the stripe, the selected row (inline) wins. */
 table.intezo-list > tbody > tr:nth-child(even) { background: rgba(127, 127, 127, .09); }
 table.intezo-list > tbody > tr:hover { background: rgba(127, 127, 127, .18); }
+/* Folder vs file (card adf4d1c5): folders get a bold name, files a normal
+   one, and a divider line stands between the last folder and the first file. */
+.intezo-kind { margin-right: 6px; font-size: 15px; }
+tr.intezo-dir a[data-open] { font-weight: 600; }
+tr.intezo-file a[data-open] { font-weight: 400; }
+tr.intezo-first-file > td { border-top: 2px solid rgba(127, 127, 127, .35); }
 tr.intezo-archived > td { opacity: .45; }
 tr.intezo-archived > td:last-child { opacity: 1; }
 tr.intezo-archived a[data-open] { text-decoration: line-through; text-decoration-color: rgba(127,127,127,.5); }

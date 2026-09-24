@@ -36905,6 +36905,17 @@ function _intezoBadge(entry) {
 }
 
 /**
+ * FOLDER or FILE icon before the name. The source badge in the first column
+ * says WHERE the item lives (Drive, local, git), so it cannot tell a folder
+ * from a file; this one only says WHAT it is.
+ */
+function _intezoKindIcon(e) {
+  const tip = escapeHtml(t(e.isDir ? 'intezo.kind_folder' : 'intezo.kind_file'))
+  return '<span class="intezo-kind" role="img" aria-label="' + tip + '" title="' + tip + '">'
+    + (e.isDir ? '📁' : '📄') + '</span>'
+}
+
+/**
  * A mappa TARTALMANAK szoveges osszefoglaloja (a meret-oszlopba).
  *
  * Kartya #341 -- Boss: "ne kelljen a mappaba belepni ahhoz, hogy kiderüljon,
@@ -37082,7 +37093,7 @@ function _intezoRender() {
   // listing can be read along the row (owner, 2026-09-24). CSS in style.css;
   // the selected / inbox rows keep their own inline background on top.
   list.innerHTML = '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
-    + rows.map((e) =>
+    + rows.map((e, i) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
       + ' title="' + escapeHtml(t('intezo.row_title')) + '"'
       + ' data-pick="1"'
@@ -37092,10 +37103,15 @@ function _intezoRender() {
           // keresni a listaban.
           : (_faBeerkezo(e) ? ' style="background:rgba(255,179,0,.14)"' : ''))
       // ARCHIVED IN PLACE: grey, and the server already put it at the end.
-      + (e.archived ? ' class="intezo-archived"' : '')
+      // FOLDER vs FILE (owner, 2026-09-24: "nem tudom megkulonboztetni, hogy
+      // melyik a fajl es melyik a mappa"): a kind class (bold name, CSS), a
+      // folder / file icon before the name, and a divider above the first file.
+      + ' class="' + (e.isDir ? 'intezo-dir' : 'intezo-file')
+      + (!e.isDir && i > 0 && rows[i - 1].isDir ? ' intezo-first-file' : '')
+      + (e.archived ? ' intezo-archived' : '') + '"'
       + '>'
       + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
-      + '<td style="padding:2px 8px">' + _intezoContentMark(e) + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
+      + '<td style="padding:2px 8px">' + _intezoContentMark(e) + _intezoKindIcon(e) + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
       // Git-terulet: PIROS nev es lakat-jelzes. Nem tiltas -- minden muvelet
       // mukodik --, csak figyelemfelkeltes (Boss, 2026-08-21): "az egy fontos
       // mappa. jobb nem piszkalni".

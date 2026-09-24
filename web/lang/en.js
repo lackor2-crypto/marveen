@@ -875,6 +875,8 @@ window._i18n.en = {
   'intezo.no_hits': 'No hits for: {q}',
   'intezo.search_failed': 'The search failed.',
   'intezo.row_title': 'Click the row to select it, the name to open it -- right-click for the menu',
+  'intezo.kind_folder': 'Folder',
+  'intezo.kind_file': 'File',
   'intezo.caution_badge': 'better left alone',
   'intezo.badge_paper': 'A paper copy also exists',
   'intezo.archive_title': 'Archive: it stays in its place, only turns grey and goes to the end of the list',
