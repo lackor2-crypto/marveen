@@ -307,6 +307,12 @@
       "reason": "Removed in this fork on purpose: replaced by our own fleet-wide receipt ack (ac391855, 2026-08-23).",
       "card": "#375"
     },
+    "scripts/hooks/telegram_fallback_send.py": {
+      "blob": "8c0ffc9f01bbe868f41131143bd4c8033ed9a8a3",
+      "kind": "decided",
+      "reason": "Content identical to upstream; only the file mode differs: ours is executable on purpose (1aed09e3, 2026-08-28).",
+      "card": "#375"
+    },
     "scripts/hooks/telegram_progress.py": {
       "blob": "ddd95d839121b2ffd54775efaada8b6136855209",
       "kind": "decided",
