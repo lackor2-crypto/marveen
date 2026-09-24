@@ -95,10 +95,41 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
     expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
   })
 
+  it('MAS fiok auth-hibaja NEM aggathato a varakozo fiok sorara (2026-09-16 regresszio)', () => {
+    // A hibanaplo legutobbi futasaban a nyalomapuncidma bukott auth-tal, DE a
+    // varakozo fajlok a canadalackor-nal vannak. A ket dolog nem tartozik ossze:
+    // a canadalackor sora NEM lehet "auth-beragadt", mert nem az a fiok bukott.
+    const r = driveSyncRows(MOST, rendben([
+      { account: 'canadalackor', lastRunAt: napokkalEzelott(0), lastPending: 518 },
+    ]), kartya, true, { account: 'nyalomapuncidma', at: napokkalEzelott(0) })
+    expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
+    expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(true)
+  })
+
+  it('VESZFEK-nel sajat oszinte sor jon, nem incomplete es nem auth', () => {
+    const r = driveSyncRows(MOST, rendben([
+      { account: 'canadalackor', lastRunAt: napokkalEzelott(0), lastPending: 518,
+        lastResult: 'vészfék: 1531 fájl hiányzik a gépedről, ezért fent semmit nem töröltem' },
+    ]), kartya, true, null)
+    const sor = r.find((x) => x.id === 'drive_sync_safety_brake')
+    expect(sor?.status).toBe('bad')
+    expect(sor?.params).toMatchObject({ n: 1, names: 'canadalackor' })
+    // A veszfekes paros NEM szamit bele az incomplete-be (mas a teendo).
+    expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(false)
+    expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
+  })
+
   it('utolsoFutasAuthHibas: csak a LEGUTOBBI futas auth-hibaja szamit', async () => {
     const mod = await import('../web/system-health.js')
     // Nincs futas -> nincs beragadas (friss telepites csendje).
     expect(mod.utolsoFutasAuthHibas([])).toBeNull()
+  })
+
+  it('veszfekEredmeny/reszlegesEredmeny a lastResult kezdo-szavabol dont', async () => {
+    const mod = await import('../web/system-health.js')
+    expect(mod.veszfekEredmeny('vészfék: 1531 fájl hiányzik')).toBe(true)
+    expect(mod.veszfekEredmeny('rendben')).toBe(false)
+    expect(mod.veszfekEredmeny(undefined)).toBe(false)
   })
 })
 

@@ -1430,6 +1430,20 @@ export function reszlegesEredmeny(s: string | undefined): boolean {
 }
 
 /**
+ * VESZFEK-e a futas eredmenye?
+ *
+ * A szinkron beepitett biztonsagi feke: ha SOK fajl hianyzik a gepbol (amit
+ * korabban a felhorol lehuztunk), NEM torol semmit fent -- kulonben egy helyi
+ * torles/attukrozes az egesz felhobeli masolatot elvinne. A `lastResult` ilyenkor
+ * "vészfék:"-kel kezdodik. Ez NEM auth-hiba es NEM "magatol folytatja": amig a
+ * helyi fajlok vissza nem kerulnek (vagy a felhasznalo jova nem hagyja a torlest),
+ * a paros varakozik. Ezert kap SAJAT, oszinte sort, nem a megnyugtato incomplete-et.
+ */
+export function veszfekEredmeny(s: string | undefined): boolean {
+  return typeof s === 'string' && s.toLowerCase().startsWith('vészfék')
+}
+
+/**
  * Hany fajl var meg feltoltesre ennel a parosnal?
  *
  * A raktar-mentes elso feltoltese TOBB EJSZAKA: futasonkent 2000 fajl megy fel
@@ -1463,7 +1477,14 @@ export function utolsoFutasAuthHibas(
   const utolso = runs[0]
   if (!utolso || !utolso.runId) return null
   const hibak = loadSyncFailures({ runId: utolso.runId })
-  const auth = /\b401\b|\b403\b|invalid authentication|unauthorized|insufficient permission|invalid_grant|invalid credentials/i
+  // CSAK a valodi FIOK-szintu hitelesitesi hiba szamit itt. A memoria szerint ez
+  // pontosan a "401: Request had invalid authentication credentials" -- ilyenkor
+  // a fiok EGESZE nem tud belepni, tehat SOK fajl bukik egyszerre. A per-fajl
+  // `Drive 403` NEM ilyen: azt a Google a KONKRET fajlra adja (futtathato/archiv
+  // fajl letoltes-tiltas, "cannotDownloadAbusiveFile"), a fiok kozben tokeletesen
+  // hitelesit. A 403-at ezert KIVETTUK: attol tuzelt korabban hamisan az
+  // auth-sor, hogy par .exe/.zip 403-at kapott (Boss, 2026-09-16).
+  const auth = /\b401\b|invalid authentication credentials|invalid authentication|\binvalid_grant\b|\bunauthorized\b|invalid credentials/i
   const authHibak = hibak.filter((f) => auth.test(f.reason))
   if (!authHibak.length) return null
   const account = authHibak.find((f) => f.account)?.account || ''
@@ -1517,25 +1538,39 @@ export function driveSyncRows(
   // mutatni. `warn`: magatol halad, teendo csak akkor van, ha nem fogy.
   const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0)
   if (varakozok.length) {
-    const fajlok = varakozok.reduce((sum, p) => sum + varakozoFajlok(p), 0)
-    // HA a legutobbi futas hitelesitesi hibaba utkozott, akkor a varakozo fajlok
-    // NEM "magatol folytatodik" allapotban vannak, hanem beragadtak: a becsuletes
-    // sor a `bad` auth-sor, nem a megnyugtato `incomplete`. Enelkul a felulet azt
-    // hazudna, hogy nincs teendo, holott a fiokot ujra kell bejelentkeztetni.
-    // A hibanaplo csak a HIBAS futasokat tartalmazza: ha azota egy hibatlan
-    // futas is lement, a naplo "legutobbi" futasa mar elavult, es a fiok
-    // rendben van. Egy futas naponta egyszer megy, ezert a naplo-bejegyzes
-    // akkor friss, ha legfeljebb egy nappal regebbi a legutobbi futasnal.
+    // VESZFEK eloszor: ez a varakozas egy KONKRET, nevesitheto ok (sok helyi
+    // fajl hianyzik), nem "magatol folytatja". Sajat, oszinte sort kap.
+    const veszfekek = varakozok.filter((p) => veszfekEredmeny(p.lastResult))
+    if (veszfekek.length) {
+      const nevek = veszfekek.map((p) => String(p.account || '')).filter(Boolean)
+      const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
+      rows.push({ id: 'drive_sync_safety_brake', status: 'bad', params: { n: veszfekek.length, names: lista || '?' } })
+    }
+
+    const maradek = varakozok.filter((p) => !veszfekEredmeny(p.lastResult))
+    // HA a legutobbi futas VALODI FIOK-AUTH hibaba utkozott (401/invalid_grant),
+    // ES az az EPPEN VARAKOZO fiok, akkor a varakozo fajlok NEM "magatol
+    // folytatodik" allapotban vannak, hanem beragadtak -> `bad` auth-sor. A
+    // fiok-egyezes KRITIKUS: korabban a sor a hibanaplo BARMELY fiokjat a varakozo
+    // parosra aggatta, igy egy masik fiok per-fajl hibaja hamis auth-riasztast
+    // adott a canadalackor vARAKOZASAra (Boss, 2026-09-16).
+    // A hibanaplo csak a HIBAS futasokat tartalmazza: ha azota egy hibatlan futas
+    // is lement, a naplo "legutobbi" futasa mar elavult -> egy nap a friss-hatar.
+    const varakozoFiokok = new Set(maradek.map((p) => String(p.account || '')).filter(Boolean))
+    const authFiokVarakozik = !!authBeragadas && varakozoFiokok.has(authBeragadas.account)
     const legutobbiFutas = Math.max(-Infinity, ...allapot.parok
       .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
       .filter((t) => Number.isFinite(t)))
     const hibaIdo = authBeragadas?.at ? Date.parse(authBeragadas.at) : NaN
     const authFriss = !!authBeragadas
       && (!Number.isFinite(legutobbiFutas) || !Number.isFinite(hibaIdo) || hibaIdo >= legutobbiFutas - 86_400_000)
-    if (authBeragadas && authFriss) {
-      rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: fajlok, account: authBeragadas.account || '?' } })
-    } else {
-      rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
+    if (maradek.length) {
+      const fajlok = maradek.reduce((sum, p) => sum + varakozoFajlok(p), 0)
+      if (authBeragadas && authFiokVarakozik && authFriss) {
+        rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: fajlok, account: authBeragadas.account || '?' } })
+      } else {
+        rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: maradek.length, f: fajlok } })
+      }
     }
   }
 
