@@ -41,7 +41,54 @@ export const ACCEPTED_KEY_TYPE = 'ssh-ed25519'
 const HOSTNAME_LABEL = '[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?'
 const HOSTNAME_RE = new RegExp(`^${HOSTNAME_LABEL}(?:\\.${HOSTNAME_LABEL})*\\.?$`)
 
-export type HostCheck = { ok: true; host: string } | { ok: false; reason: string }
+/** Parameters interpolated into a user-facing message. Kept to strings and
+ * numbers so the same values can be handed to the dashboard's t() unchanged. */
+export type EnrollErrorParams = Record<string, string | number>
+
+export type HostCheck =
+  | { ok: true; host: string }
+  | { ok: false; reason: string; code: string; params: EnrollErrorParams }
+
+export type DashboardTokenDecision =
+  | { include: false }
+  | { include: true; token: string }
+  | { ok: false; reason: string }
+
+/**
+ * Decide what a connection bundle should carry for the dashboard token.
+ *
+ * The caller asks for a token bundle by DEFAULT; `--no-dashboard-token` opts
+ * out. So `includeToken=false` is a deliberate token-free bundle (the device
+ * gets the dashboard URL out of band) -- fine.
+ *
+ * But `includeToken=true` with NO token present is NOT fine: it means the
+ * dashboard has not written store/.dashboard-token, which in practice means the
+ * dashboard service is not running. A token-free bundle emitted here is unusable
+ * -- the device cannot reach the dashboard -- so this FAILS HARD rather than
+ * degrading silently. This mirrors the host-key check, which already fails hard
+ * for the same "unusable, don't emit it silently" reason; the token is simply
+ * the second field that same rule must cover. (INSTNODE806: a broken install
+ * whose dashboard never started shipped a token-free bundle on only a warning,
+ * and it surfaced downstream as the Bridge's opaque "Nothing to verify".)
+ */
+export function dashboardTokenDecision(
+  includeToken: boolean,
+  token: string | null,
+): DashboardTokenDecision {
+  if (!includeToken) return { include: false }
+  if (token === null || token === '') {
+    return {
+      ok: false,
+      reason:
+        'no dashboard access token found (store/.dashboard-token is missing, and DASHBOARD_TOKEN is unset). ' +
+        'The dashboard service has not written one, which usually means it is not running yet, so a usable ' +
+        'bundle cannot be built. Start the service and confirm the dashboard answers on its web port, then ' +
+        're-run. To deliberately emit a token-free bundle (the device gets the dashboard URL out of band), ' +
+        'pass --no-dashboard-token.',
+    }
+  }
+  return { include: true, token }
+}
 
 /**
  * Validate a user-supplied target address. `isIP` covers IPv4 and IPv6
@@ -53,12 +100,17 @@ export type HostCheck = { ok: true; host: string } | { ok: false; reason: string
  */
 export function checkEnrollHost(raw: string, isIP: (s: string) => number): HostCheck {
   const host = raw.trim()
-  if (!host) return { ok: false, reason: 'target address is empty' }
+  if (!host) return { ok: false, reason: 'target address is empty', code: 'host_empty', params: {} }
   // Quote back at most 60 characters: enough to recognise what was typed,
   // short enough that a pasted blob does not become the whole message.
   const seen = host.length > 60 ? `${host.slice(0, 60)}...` : host
   if (host.length > 253) {
-    return { ok: false, reason: `target address is too long (${host.length} characters, maximum 253)` }
+    return {
+      ok: false,
+      reason: `target address is too long (${host.length} characters, maximum 253)`,
+      code: 'host_too_long',
+      params: { length: host.length, max: 253 },
+    }
   }
   if (isIP(host) !== 0) return { ok: true, host }
   if (host.includes('@')) {
@@ -67,13 +119,25 @@ export function checkEnrollHost(raw: string, isIP: (s: string) => number): HostC
       reason:
         `"${seen}" looks like an email address. The target address is the machine's IP address or ` +
         'hostname; with Tailscale it is the address starting with 100, not the email address of the Tailscale account.',
+      code: 'host_email',
+      params: { seen },
     }
   }
   if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(host)) {
-    return { ok: false, reason: `"${seen}" is a URL. Enter only the address, without http:// or a path.` }
+    return {
+      ok: false,
+      reason: `"${seen}" is a URL. Enter only the address, without http:// or a path.`,
+      code: 'host_url',
+      params: { seen },
+    }
   }
   if (!HOSTNAME_RE.test(host)) {
-    return { ok: false, reason: `"${seen}" is not a valid IP address or hostname.` }
+    return {
+      ok: false,
+      reason: `"${seen}" is not a valid IP address or hostname.`,
+      code: 'host_invalid',
+      params: { seen },
+    }
   }
   return { ok: true, host }
 }
@@ -89,9 +153,17 @@ export const BUNDLE_FORMAT = 'marveen-remote/1'
 /** Raised for any validation failure so the CLI can print a clear message
  * and exit non-zero without a stack trace. */
 export class RemoteEnrollError extends Error {
-  constructor(message: string) {
+  /** Stable identifier of this failure, independent of the English wording.
+   * The dashboard translates on the code and falls back to `message`, so a
+   * code without a translation degrades to English rather than to a blank. */
+  readonly code: string
+  readonly params: EnrollErrorParams
+
+  constructor(message: string, code: string, params: EnrollErrorParams = {}) {
     super(message)
     this.name = 'RemoteEnrollError'
+    this.code = code
+    this.params = params
   }
 }
 
@@ -127,32 +199,34 @@ function isCanonicalBase64(s: string): boolean {
  */
 function validateEd25519Blob(base64: string): void {
   if (!isCanonicalBase64(base64)) {
-    throw new RemoteEnrollError('key body is not valid base64')
+    throw new RemoteEnrollError('key body is not valid base64', 'key_not_base64')
   }
   const buf = Buffer.from(base64, 'base64')
   let off = 0
-  if (buf.length < 4) throw new RemoteEnrollError('key blob is too short')
+  if (buf.length < 4) throw new RemoteEnrollError('key blob is too short', 'blob_too_short')
   const typeLen = buf.readUInt32BE(off)
   off += 4
   if (typeLen !== ACCEPTED_KEY_TYPE.length || off + typeLen > buf.length) {
-    throw new RemoteEnrollError('key blob has an unexpected type field')
+    throw new RemoteEnrollError('key blob has an unexpected type field', 'blob_type_field')
   }
   const embeddedType = buf.subarray(off, off + typeLen).toString('utf8')
   off += typeLen
   if (embeddedType !== ACCEPTED_KEY_TYPE) {
     throw new RemoteEnrollError(
       `embedded key type must be ${ACCEPTED_KEY_TYPE}, found "${embeddedType}"`,
+      'blob_type_mismatch',
+      { expected: ACCEPTED_KEY_TYPE, found: embeddedType },
     )
   }
-  if (off + 4 > buf.length) throw new RemoteEnrollError('key blob is truncated')
+  if (off + 4 > buf.length) throw new RemoteEnrollError('key blob is truncated', 'blob_truncated')
   const keyLen = buf.readUInt32BE(off)
   off += 4
   // ed25519 public keys are exactly 32 bytes.
   if (keyLen !== 32) {
-    throw new RemoteEnrollError('ed25519 public key must be 32 bytes')
+    throw new RemoteEnrollError('ed25519 public key must be 32 bytes', 'key_length')
   }
   if (off + keyLen !== buf.length) {
-    throw new RemoteEnrollError('key blob has trailing or missing bytes')
+    throw new RemoteEnrollError('key blob has trailing or missing bytes', 'blob_trailing')
   }
 }
 
@@ -164,32 +238,37 @@ function validateEd25519Blob(base64: string): void {
  */
 export function validatePublicKeyLine(rawLine: string): ParsedKey {
   if (typeof rawLine !== 'string') {
-    throw new RemoteEnrollError('public key line is required')
+    throw new RemoteEnrollError('public key line is required', 'line_required')
   }
   const line = rawLine.trim()
   if (line.length === 0) {
-    throw new RemoteEnrollError('public key line is empty')
+    throw new RemoteEnrollError('public key line is empty', 'line_empty')
   }
   if (line.includes('\n') || line.includes('\r')) {
-    throw new RemoteEnrollError('public key line must be a single line')
+    throw new RemoteEnrollError('public key line must be a single line', 'line_multiline')
   }
   const fields = line.split(/\s+/)
   if (fields.length !== 3) {
     throw new RemoteEnrollError(
       'line must contain exactly three fields: type, key, comment (no options, no extra fields)',
+      'line_fields',
     )
   }
   const [keyType, base64, comment] = fields
   if (keyType !== ACCEPTED_KEY_TYPE) {
-    throw new RemoteEnrollError(`key type must be exactly ${ACCEPTED_KEY_TYPE}`)
+    throw new RemoteEnrollError(`key type must be exactly ${ACCEPTED_KEY_TYPE}`, 'key_type', {
+      expected: ACCEPTED_KEY_TYPE,
+    })
   }
   validateEd25519Blob(base64)
   if (!comment.startsWith(COMMENT_PREFIX)) {
-    throw new RemoteEnrollError(`comment must start with "${COMMENT_PREFIX}"`)
+    throw new RemoteEnrollError(`comment must start with "${COMMENT_PREFIX}"`, 'comment_prefix', {
+      prefix: COMMENT_PREFIX,
+    })
   }
   const installId = comment.slice(COMMENT_PREFIX.length)
   if (!UUID_V4.test(installId)) {
-    throw new RemoteEnrollError('comment must be marveen-remote:<uuid v4>')
+    throw new RemoteEnrollError('comment must be marveen-remote:<uuid v4>', 'comment_uuid')
   }
   return { keyType: ACCEPTED_KEY_TYPE, base64, comment, installId }
 }
@@ -209,6 +288,118 @@ export function restrictOptions(webPort: number = REMOTE_PORT): string {
 /** The default-port restriction string. Retained for callers/tests that assert
  * the default shape; port-aware callers use restrictOptions(webPort). */
 export const RESTRICT_OPTIONS = restrictOptions(REMOTE_PORT)
+
+// ---------------------------------------------------------------------------
+// Bridge service-port allowlist (BRIDGEPORT817).
+//
+// The Bridge can open ADDITIONAL host loopback services on separate tabs; the
+// real enforcement is HERE, in the enrolled key's permitopen list -- the
+// Bridge-side allowlist is UX, this is the boundary. The policy therefore
+// lives server-side (the Bridge REQUESTS, this module VALIDATES):
+//   - explicit ports only, NEVER a wildcard or a range;
+//   - the dashboard webPort is always included and cannot be removed;
+//   - privileged ports (<1024, which covers sshd's canonical 22) are refused
+//     outright -- if such a forward is ever legitimately needed, that is a
+//     separate owner decision, not an allowlist entry's side effect;
+//   - the list is capped, so an allowlist can never quietly approximate "*".
+// Every change is written to the config-change ledger by the route layer.
+// ---------------------------------------------------------------------------
+
+export const BRIDGE_SERVICE_PORT_MIN = 1024
+export const BRIDGE_SERVICE_PORT_MAX = 65535
+export const MAX_BRIDGE_SERVICE_PORTS = 12
+
+export type ServicePortListVerdict =
+  | { ok: true; ports: number[] }
+  | { ok: false; error: string }
+
+/** Validate a requested service-port list. Returns a sorted, deduplicated
+ * list (webPort excluded -- it is implicit and always present). */
+export function validateBridgeServicePorts(raw: unknown, webPort: number): ServicePortListVerdict {
+  if (!Array.isArray(raw)) return { ok: false, error: 'ports must be an array' }
+  const out: number[] = []
+  for (const item of raw) {
+    const port = typeof item === 'number' ? item : NaN
+    if (!Number.isInteger(port)) return { ok: false, error: 'every port must be an integer' }
+    if (port < BRIDGE_SERVICE_PORT_MIN || port > BRIDGE_SERVICE_PORT_MAX) {
+      return { ok: false, error: `port ${port} out of range (${BRIDGE_SERVICE_PORT_MIN}-${BRIDGE_SERVICE_PORT_MAX}; privileged ports are refused)` }
+    }
+    if (port === webPort) continue // implicit, never refused, never duplicated
+    if (!out.includes(port)) out.push(port)
+  }
+  if (out.length > MAX_BRIDGE_SERVICE_PORTS) {
+    return { ok: false, error: `too many ports (max ${MAX_BRIDGE_SERVICE_PORTS})` }
+  }
+  out.sort((a, b) => a - b)
+  return { ok: true, ports: out }
+}
+
+/** Restriction options with the webPort plus explicit service ports. The
+ * single-port restrictOptions() stays the enrollment default: a fresh device
+ * starts with NO service ports. */
+export function restrictOptionsWithServices(webPort: number, servicePorts: number[]): string {
+  const permits = [webPort, ...servicePorts.filter((p) => p !== webPort)]
+    .map((p) => `permitopen="127.0.0.1:${p}"`)
+    .join(',')
+  return `restrict,port-forwarding,${permits},command="/bin/false"`
+}
+
+const PERMITOPEN_RE = /permitopen="127\.0\.0\.1:(\d{1,5})"/g
+
+/** The service ports (webPort excluded) currently granted by an options
+ * field. Tolerates the single-port legacy shape. */
+export function extractServicePorts(optionsField: string, webPort: number): number[] {
+  const ports: number[] = []
+  for (const m of optionsField.matchAll(PERMITOPEN_RE)) {
+    const p = Number(m[1])
+    if (p !== webPort && !ports.includes(p)) ports.push(p)
+  }
+  ports.sort((a, b) => a - b)
+  return ports
+}
+
+export interface ServicePortsRewrite {
+  content: string
+  found: boolean
+  before: number[]
+  after: number[]
+}
+
+/**
+ * Rewrite the permitopen set of the line carrying marveen-remote:<installId>.
+ * Only lines this codebase authored are touched (found by our comment, shape
+ * re-verified before rewrite); every other line is preserved byte-for-byte.
+ * The key material and comment are reproduced verbatim -- only the options
+ * field is rebuilt, from scratch, via restrictOptionsWithServices, so a
+ * hand-edited options field cannot smuggle anything through a rewrite.
+ */
+export function rewriteServicePorts(
+  existing: string,
+  installId: string,
+  webPort: number,
+  ports: number[],
+): ServicePortsRewrite {
+  const target = `${COMMENT_PREFIX}${installId}`
+  const lines = existing.length ? existing.split('\n') : []
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  let found = false
+  let before: number[] = []
+  const out = lines.map((line) => {
+    const trimmed = line.trim()
+    const fields = trimmed.split(/\s+/)
+    if (fields.length < 4 || fields[fields.length - 1] !== target) return line
+    // Our lines are exactly: <options> ssh-ed25519 <base64> marveen-remote:<uuid>
+    // (no spaces inside the options we author). Anything else with our comment
+    // is not ours to rewrite.
+    if (fields.length !== 4 || fields[1] !== ACCEPTED_KEY_TYPE) return line
+    found = true
+    before = extractServicePorts(fields[0], webPort)
+    return `${restrictOptionsWithServices(webPort, ports)} ${fields[1]} ${fields[2]} ${fields[3]}`
+  })
+  let content = out.join('\n')
+  if (content.length > 0 && !content.endsWith('\n')) content += '\n'
+  return { content, found, before, after: found ? [...ports].sort((a, b) => a - b) : [] }
+}
 
 /**
  * Build the exact restricted authorized_keys line for a validated key.

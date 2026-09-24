@@ -87,12 +87,19 @@ OBSERVE_FLAG="$STATE_DIR/.fleet-memgate-observe"  # if present -> observe-only
 # file flag (touch/rm store/.fleet-memgate-observe) or MARVEEN_MEM_GATE_OBSERVE=1.
 OBSERVE=0
 if [[ "${MARVEEN_MEM_GATE_OBSERVE:-0}" == "1" || -f "$OBSERVE_FLAG" ]]; then OBSERVE=1; fi
-ENV_FILE="${TELEGRAM_ENV:-$HOME/.claude/channels/telegram/.env}"
+# #915: main channel state is install-scoped once migrated; the legacy shared
+# path only serves unmigrated installs.
+TG_CHAN_DIR="${TELEGRAM_STATE_DIR:-}"
+if [ -z "$TG_CHAN_DIR" ]; then
+  TG_CHAN_DIR="$INSTALL_DIR/.claude/channels/telegram"
+  [ -f "$TG_CHAN_DIR/.env" ] || TG_CHAN_DIR="$HOME/.claude/channels/telegram"
+fi
+ENV_FILE="${TELEGRAM_ENV:-$TG_CHAN_DIR/.env}"
 # Alert target: the owner's chat id. Resolve from the channel access.json (the
 # first allow-listed sender) so no chat-id is ever hardcoded; override with
 # MARVEEN_ALERT_CHAT_ID. Empty -> the Telegram alert is skipped (log only), never
 # sent to a stranger.
-ACCESS_JSON="${TELEGRAM_ACCESS:-$HOME/.claude/channels/telegram/access.json}"
+ACCESS_JSON="${TELEGRAM_ACCESS:-$TG_CHAN_DIR/access.json}"
 CHAT_ID="${MARVEEN_ALERT_CHAT_ID:-}"
 if [[ -z "$CHAT_ID" && -f "$ACCESS_JSON" ]] && command -v python3 >/dev/null 2>&1; then
   CHAT_ID="$(python3 -c 'import json,sys
@@ -114,8 +121,10 @@ ALERT_COOLDOWN="${MARVEEN_MEM_ALERT_COOLDOWN:-${_ALERT_COOLDOWN_ENV:-3600}}"
 log() { echo "[fleet-memory-gate] $*" >&2; }
 
 # --- read memory ---
-mem_total="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)"
-mem_avail="$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)"
+# MEMGATE_PROC_MEMINFO exists for tests only (no /proc to stub on macOS).
+PROC_MEMINFO="${MEMGATE_PROC_MEMINFO:-/proc/meminfo}"
+mem_total="$(awk '/^MemTotal:/{print $2}' "$PROC_MEMINFO" 2>/dev/null)"
+mem_avail="$(awk '/^MemAvailable:/{print $2}' "$PROC_MEMINFO" 2>/dev/null)"
 if [[ -z "${mem_total:-}" || -z "${mem_avail:-}" || "$mem_total" -le 0 ]]; then
   log "cannot read /proc/meminfo -- fail-open (allow)"
   echo "meminfo-unreadable: allow"
@@ -215,13 +224,20 @@ send_alert() {
   local token=""
   [[ -f "$ENV_FILE" ]] && token="$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'"' \r\n')"
   if [[ -n "$token" ]]; then
-    curl -s --max-time 15 "https://api.telegram.org/bot${token}/sendMessage" \
-      --data-urlencode "chat_id=${CHAT_ID}" --data-urlencode "text=${msg}" >/dev/null 2>&1 \
-      && log "Telegram sent [$band]" || log "Telegram send failed (best-effort)"
+    # Honest send + cooldown stamp ONLY on confirmed delivery
+    # (NOTIFYVAKSWEEP826): stamping a failed send suppressed the retry for
+    # ALERT_COOLDOWN while the fleet was heading into OOM.
+    . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/send-telegram.sh"
+    local send_err
+    if send_err="$(send_telegram_message "$token" "$CHAT_ID" "$msg" 2>&1)"; then
+      log "Telegram sent [$band]"
+      echo "${band}:${now}" >"$ALERT_STAMP" 2>/dev/null || true
+    else
+      log "Telegram send FAILED -- cooldown stamp NOT written, will retry next run: ${send_err}"
+    fi
   else
     log "no TELEGRAM_BOT_TOKEN; alert only logged"
   fi
-  echo "${band}:${now}" >"$ALERT_STAMP" 2>/dev/null || true
 }
 
 set_safe_mode() {

@@ -49,7 +49,7 @@ interface CalendarListResponse {
 // process restart, because cachedTokens held the pre-re-auth (88-day-old,
 // already-revoked) refresh_token.
 let cachedTokens: { normal: TokenData; mtimeMs: number } | null = null
-let cachedClient: ClientCredentials | null = null
+let cachedClient: { value: ClientCredentials; mtimeMs: number } | null = null
 
 function loadTokens(): TokenData {
   let currentMtime = 0
@@ -72,10 +72,15 @@ function saveTokens(tokens: TokenData): void {
 }
 
 function loadClientCredentials(): ClientCredentials {
-  if (!cachedClient) {
-    cachedClient = JSON.parse(readFileSync(CLIENT_CREDS_PATH, 'utf-8'))
+  // mtime-invalidated like loadTokens above. Client credentials rotate rarely,
+  // but a bare `if (!cachedClient)` would hold a stale payload forever after an
+  // out-of-process credentials rewrite. Re-read whenever the file's mtime advances.
+  let currentMtime = 0
+  try { currentMtime = statSync(CLIENT_CREDS_PATH).mtimeMs } catch { /* missing -- fall through to readFileSync error */ }
+  if (!cachedClient || cachedClient.mtimeMs !== currentMtime) {
+    cachedClient = { value: JSON.parse(readFileSync(CLIENT_CREDS_PATH, 'utf-8')), mtimeMs: currentMtime }
   }
-  return cachedClient!
+  return cachedClient.value
 }
 
 function httpsRequest(
@@ -181,7 +186,10 @@ export async function getCalendarEvents(
     })
     if (retry.status !== 200) {
       logger.error({ status: retry.status, body: retry.data }, 'Google Calendar API error after refresh')
-      return []
+      // 5E0A32B0: throw, never return []. An API failure that returns an
+      // empty list is indistinguishable from a genuinely free calendar --
+      // the caller must be able to say "couldn't query" vs "no events".
+      throw new Error(`Google Calendar API error after refresh: ${retry.status}`)
     }
     const parsed: CalendarListResponse = JSON.parse(retry.data)
     return parsed.items ?? []
@@ -189,7 +197,7 @@ export async function getCalendarEvents(
 
   if (status !== 200) {
     logger.error({ status, body: data }, 'Google Calendar API error')
-    return []
+    throw new Error(`Google Calendar API error: ${status}`)
   }
 
   const parsed: CalendarListResponse = JSON.parse(data)

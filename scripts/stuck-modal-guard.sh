@@ -43,7 +43,14 @@ FIRSTSEEN_STAMP="$STORE/.stuck-modal-firstseen"
 RESPAWN_STAMP="$STORE/.channel-last-respawn"           # SHARED with channel-watchdog.sh
 RESPAWN_COUNT_FILE="$STORE/.stuck-modal-respawns"
 BACKOFF_STAMP="$STORE/.stuck-modal-backoff-alerted"
-TG_ENV="$HOME/.claude/channels/telegram/.env"
+# #915: main channel state is install-scoped once migrated; the legacy shared
+# path only serves unmigrated installs.
+TG_CHAN_DIR="${TELEGRAM_STATE_DIR:-}"
+if [ -z "$TG_CHAN_DIR" ]; then
+  TG_CHAN_DIR="$INSTALL_DIR/.claude/channels/telegram"
+  [ -f "$TG_CHAN_DIR/.env" ] || TG_CHAN_DIR="$HOME/.claude/channels/telegram"
+fi
+TG_ENV="$TG_CHAN_DIR/.env"
 LOG_TAG="stuck-modal-guard"
 
 STUCK_SECONDS="${STUCK_MODAL_SECONDS:-120}"   # must stay stuck this long before acting
@@ -128,9 +135,18 @@ alert_owner() {
   if [ -z "$token" ] || [ -z "$chat" ]; then
     log "ALERT (no bot token or owner chat id configured): $msg"; return 1
   fi
-  curl -s -m 10 -o /dev/null "https://api.telegram.org/bot${token}/sendMessage" \
-    --data-urlencode "chat_id=${chat}" --data-urlencode "text=${msg}" \
-    && log "owner alerted via direct Bot API" || log "ALERT sendMessage FAILED: $msg"
+  # Honest send (NOTIFYVAKSWEEP826): curl exit 0 alone is not delivery -- an
+  # HTTP 200 with {"ok":false} logged "owner alerted" while nothing arrived.
+  # Return reflects CONFIRMED delivery so the caller's backoff stamp can
+  # depend on it.
+  . "$(cd "$(dirname "$0")" && pwd)/lib/send-telegram.sh"
+  local send_err
+  if send_err="$(send_telegram_message "$token" "$chat" "$msg" 2>&1)"; then
+    log "owner alerted via direct Bot API (delivery confirmed)"
+    return 0
+  fi
+  log "ALERT sendMessage FAILED: ${send_err}"
+  return 1
 }
 
 # --- live guard ----------------------------------------------------------------
@@ -231,16 +247,24 @@ run_guard() {
     log "ALERT: stuck modal after $count respawns -- backing off, manual check needed"
     local bstamp=0; [ -f "$BACKOFF_STAMP" ] && bstamp="$(stat -c %Y "$BACKOFF_STAMP" 2>/dev/null || echo 0)"
     if [ $(( now - bstamp )) -ge 3600 ]; then
-      alert_owner "🔴 The ${SESSION} session is stuck in a /mcp modal and ${count} auto-respawns did not clear it. Manual check needed: tmux attach -t ${SESSION}. Messages sent during the outage may be lost -- please resend."
-      date +%s > "$BACKOFF_STAMP" 2>/dev/null || true
+      # Backoff stamp ONLY on confirmed delivery (NOTIFYVAKSWEEP826): this is
+      # the "your messages may be lost, resend" alert -- burying its own
+      # failure under an hour of backoff was the worst possible combination.
+      if alert_owner "🔴 The ${SESSION} session is stuck in a /mcp modal and ${count} auto-respawns did not clear it. Manual check needed: tmux attach -t ${SESSION}. Messages sent during the outage may be lost -- please resend."; then
+        date +%s > "$BACKOFF_STAMP" 2>/dev/null || true
+      else
+        log "alert not delivered -- backoff stamp NOT written, will retry next tick"
+      fi
     fi
     return 0
   fi
 
   local MAIN_MODEL="" MODEL_FLAG="" CLAUDE_Q
-  if [ -f "$INSTALL_DIR/.claude/settings.json" ] && command -v jq >/dev/null 2>&1; then
-    MAIN_MODEL="$(jq -r '.model // empty' "$INSTALL_DIR/.claude/settings.json" 2>/dev/null)"
-  fi
+  # RESPAWNMODEL807: ask the ONE resolver (all three layers: .env override >
+  # settings.json > shipped distribution default) instead of keeping a fourth
+  # jq-only copy that missed two of them and went flag-less the day the shipped
+  # settings.json stopped pinning a model (#924).
+  MAIN_MODEL="$(bash "$INSTALL_DIR/scripts/channels.sh" --resolve-main-model 2>/dev/null | head -1)"
   # W1: sanitize the model id before interpolating it into the respawn shell
   # string (defense in depth -- settings.json is local config). Preserves the
   # "[1m]" context suffix while stripping shell metacharacters.
@@ -253,7 +277,40 @@ run_guard() {
   CLAUDE_Q="$(printf '%q' "$CLAUDE")"
   # W2: %q-quote the (config-overridable) plugin id, same treatment as the model.
   local PLUGIN_Q; PLUGIN_Q="$(printf '%q' "$RESPAWN_PLUGIN")"
-  local RESPAWN_CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin\" && $CLAUDE_Q --dangerously-skip-permissions ${MODEL_FLAG}--channels $PLUGIN_Q"
+
+  # CFGDIR686: the main-agent isolated-config decision belongs on EVERY respawn
+  # path, not just the watchdog's. PR #686 fixed the 401 outage by giving
+  # channel-watchdog.sh a CFG_ENV -- this script was the other respawner and was
+  # missed, so a respawn from here silently dropped the main agent back onto the
+  # shared ~/.claude. That is the very outage shape the channels.sh guard exists
+  # to shout about, and it would fire at the worst moment: the session is
+  # already stuck, and the operator simply stops getting answers.
+  # Mirrors channel-watchdog.sh:186-201 exactly, including reading the fleet
+  # token via $(cat ...) at spawn time so the secret never lands in the
+  # RESPAWN_CMD string handed to tmux (visible via ps/pane history otherwise).
+  local CFG_ENV=""
+  local NODE_BIN; NODE_BIN="$(command -v node || true)"
+  if [ -n "$NODE_BIN" ] && [ -f "$INSTALL_DIR/dist/web/agent-process.js" ]; then
+    # The helper keys the isolated dir by PROVIDER; here the configured value is
+    # a full plugin id (plugin:<provider>@<owner>), so take the provider out of it
+    # rather than hard-coding 'telegram' -- a renamed install would otherwise get
+    # a config dir that belongs to a different channel.
+    local _prov="${RESPAWN_PLUGIN#plugin:}"; _prov="${_prov%%@*}"
+    local _cfg_line _cfg_mode _cfg_dir
+    _cfg_line="$("$NODE_BIN" "$INSTALL_DIR/scripts/main-agent-isolated-config.mjs" "$_prov" 2>>"$STORE/channels-failures.log" || true)"
+    _cfg_mode="${_cfg_line%%	*}"
+    _cfg_dir="${_cfg_line#*	}"
+    if [ -n "$_cfg_line" ] && [ -d "$_cfg_dir" ]; then
+      if [ "$_cfg_mode" = "explicit" ] || [ "$_cfg_mode" = "rotated" ]; then
+        CFG_ENV="export CLAUDE_CONFIG_DIR='$_cfg_dir' && "
+      else
+        CFG_ENV="export CLAUDE_CONFIG_DIR='$_cfg_dir' && export CLAUDE_CODE_OAUTH_TOKEN=\"\$(cat '$INSTALL_DIR/store/.claude-oauth-token')\" && "
+      fi
+      log "main-agent $_cfg_mode CLAUDE_CONFIG_DIR=$_cfg_dir"
+    fi
+  fi
+
+  local RESPAWN_CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin\" && ${CFG_ENV}$CLAUDE_Q --dangerously-skip-permissions ${MODEL_FLAG}--channels $PLUGIN_Q"
 
   log "stuck modal not cleared by Escape -- respawn-pane $SESSION (respawn #$((count+1)))"
   # G: alert ONLY after the respawn-pane actually succeeds, so a failed respawn

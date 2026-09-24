@@ -19,8 +19,15 @@ if [ "$CHANNEL_PROVIDER" != "telegram" ]; then
 fi
 
 # Load bot token
-if [ -f "$HOME/.claude/channels/telegram/.env" ]; then
-  BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN "$HOME/.claude/channels/telegram/.env" | cut -d= -f2)
+# #915: main channel state is install-scoped once migrated; the legacy shared
+# path only serves unmigrated installs.
+TG_CHAN_DIR="${TELEGRAM_STATE_DIR:-}"
+if [ -z "$TG_CHAN_DIR" ]; then
+  TG_CHAN_DIR="$INSTALL_DIR/.claude/channels/telegram"
+  [ -f "$TG_CHAN_DIR/.env" ] || TG_CHAN_DIR="$HOME/.claude/channels/telegram"
+fi
+if [ -f "$TG_CHAN_DIR/.env" ]; then
+  BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN "$TG_CHAN_DIR/.env" | cut -d= -f2)
 elif [ -f "$INSTALL_DIR/.env" ]; then
   BOT_TOKEN=$(grep TELEGRAM_BOT_TOKEN "$INSTALL_DIR/.env" | cut -d= -f2)
 fi
@@ -33,7 +40,11 @@ fi
 # Wait for plugin to set its commands first
 sleep 15
 
-curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
+# Honest call (NOTIFYVAKSWEEP826): the old fire-and-forget curl printed
+# "Bot menu updated" on transport failure and ok:false alike.
+. "$INSTALL_DIR/scripts/lib/send-telegram.sh"
+if telegram_api_call "$BOT_TOKEN" "setMyCommands" \
+  -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "commands": [
@@ -48,6 +59,9 @@ curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
       {"command": "status", "description": "Futó feladatok állapota"},
       {"command": "cancel", "description": "Futó feladat megszakítása"}
     ]
-  }' > /dev/null 2>&1
-
-echo "Bot menu updated"
+  }'; then
+  echo "Bot menu updated"
+else
+  echo "Bot menu update FAILED (see error above)" >&2
+  exit 1
+fi

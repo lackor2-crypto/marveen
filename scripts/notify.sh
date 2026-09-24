@@ -21,7 +21,10 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-if [ -z "$CHAT_ID" ]; then
+# CHATID0: "0" is the installer placeholder, not a chat. Without this the
+# FALLBACK channel fails exactly where it is needed most -- it fires when the
+# plugin is down, and on a placeholder install it would post to chat_id=0.
+if [ -z "$CHAT_ID" ] || [ "$CHAT_ID" = "0" ]; then
   echo "Hiba: ALLOWED_CHAT_ID nincs beallitva"
   exit 1
 fi
@@ -38,7 +41,17 @@ fi
 # reader can see who it came from. Distribution-safe: the main agent id is read
 # from .env (default marveen), no hardcoded names.
 SENDER=""
-SESS=$(tmux display-message -p '#S' 2>/dev/null)
+# Only ask tmux who we are when we are actually INSIDE a tmux pane. Detached
+# callers -- cron, systemd, a plain ssh shell -- have no session, but
+# `tmux display-message -p '#S'` still answers happily with whatever session the
+# server most recently touched. That mislabels a cron- or systemd-fired system
+# alert as coming from an arbitrary agent, which is worse than no attribution: it
+# points the reader at an uninvolved agent while a system alert is in flight.
+# No pane -> no claim about the sender; the message goes out as the main agent.
+SESS=""
+if [ -n "${TMUX:-}" ]; then
+  SESS=$(tmux display-message -p '#S' 2>/dev/null)
+fi
 case "$SESS" in
   agent-*)
     SENDER="${SESS#agent-}"
@@ -68,9 +81,16 @@ if [ -n "${VITEST:-}" ] || [ "${NODE_ENV:-}" = "test" ]; then
   MESSAGE="[TESZT] ${MESSAGE}"
 fi
 
-curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-  -d "chat_id=${CHAT_ID}" \
-  -d "text=${MESSAGE}" \
-  -d "parse_mode=HTML" > /dev/null
+# Delivery must be HONEST (NOTIFYVAK826): this script is the fleet's FALLBACK
+# channel, used exactly when the primary Telegram plugin is already down. The
+# success contract (curl exit 0 AND Bot API "ok":true, loud stderr otherwise,
+# token redacted) lives in the shared library so every sender speaks the same
+# truth (NOTIFYVAKSWEEP826) -- this script consumes it, it no longer inlines it.
+. "$SCRIPT_DIR/lib/send-telegram.sh"
 
-echo "Ertesites elkuldve."
+if send_telegram_message "$TOKEN" "$CHAT_ID" "$MESSAGE" --data-urlencode "parse_mode=HTML"; then
+  echo "Ertesites elkuldve."
+else
+  echo "Hiba: ertesites kuldese sikertelen (reszletek fent)." >&2
+  exit 1
+fi
