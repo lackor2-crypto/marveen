@@ -1552,10 +1552,17 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/email/delete' && method === 'POST') {
     const body = await readBody(req)
-    const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string }
-    if (!isKnownAccount(data.account ?? null) || !data.id) { json(res, { error: 'account and id required' }, 400); return true }
+    const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string; ids?: string[] }
+    // Bulk delete sends every checked id of ONE mailbox in `ids`, and they go
+    // out as ONE himalaya call. It used to be one request per message, all in
+    // parallel -- six concurrent himalaya processes on the same account, and
+    // one of them failed (Boss, 2026-09-24, #378: 6 checked, 5 deleted, 1 left
+    // behind; dashboard.log: `message move 112623 ... (1)`).
+    const ids = Array.isArray(data.ids) ? data.ids.map(String) : (data.id ? [String(data.id)] : [])
+    if (!isKnownAccount(data.account ?? null) || ids.length === 0 || (ids.length > 1 && !ids.every(i => /^\d+$/.test(i)))) { json(res, { error: 'account and id required' }, 400); return true }
+    const account = data.account as string
     const mailbox = data.mailbox || 'Inbox'
-    const trashMailbox = await mailboxFor(data.account as string, 'trash')
+    const trashMailbox = await mailboxFor(account, 'trash')
     // Gmail-IMAP trash semantics: UID MOVE (RFC 6851) into "[Gmail]/Kuka" both
     // removes the message from the source mailbox and files it into Trash --
     // this is what a normal Gmail client's delete button does (30-day
@@ -1564,22 +1571,41 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // mark \Deleted + expunge, same mechanism as archive but scoped to Kuka.
     // This used to just error out, leaving the button looking clickable but
     // permanently disabled after one click (Boss, 2026-08-05).
+    // Both paths retry only the local "resource temporarily unavailable"
+    // lock error (himalayaRead): that one fails before any IMAP command is
+    // sent, so a retry cannot move or flag anything twice.
     if (mailbox === trashMailbox) {
-      const store = await himalaya(['-a', data.account as string, 'imap', 'store', data.id, '-f', '\\Deleted', '-m', mailbox])
-      if (!store.ok) { logger.warn(`[email] permanent delete store failed: ${himalayaErrorText(store)}`); json(res, { error: himalayaErrorText(store) }, 502); return true }
-      const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
-      if (!expunge.ok) { logger.warn(`[email] permanent delete expunge failed: ${himalayaErrorText(expunge)}`); json(res, { error: himalayaErrorText(expunge) }, 502); return true }
-      purgeAttachmentCacheForMessage(data.account as string, mailbox, data.id)
-      purgeMessageBodyCache(data.account as string, mailbox, data.id)
-      invalidateEnvelopeCache(data.account as string, mailbox)
+      const store = await himalayaRead(['-a', account, 'imap', 'store', ids.join(','), '-f', '\\Deleted', '-m', mailbox])
+      if (!store.ok) { logger.warn(`[email] permanent delete store failed (${ids.join(',')}): ${himalayaErrorText(store)}`); json(res, { error: himalayaErrorText(store), failed: ids }, 502); return true }
+      const expunge = await himalayaRead(['-a', account, 'imap', 'expunge', mailbox])
+      if (!expunge.ok) { logger.warn(`[email] permanent delete expunge failed: ${himalayaErrorText(expunge)}`); json(res, { error: himalayaErrorText(expunge), failed: ids }, 502); return true }
+      for (const id of ids) {
+        purgeAttachmentCacheForMessage(account, mailbox, id)
+        purgeMessageBodyCache(account, mailbox, id)
+      }
+      invalidateEnvelopeCache(account, mailbox)
       json(res, { ok: true })
       return true
     }
-    const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', trashMailbox])
-    if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
-    purgeMessageBodyCache(data.account as string, mailbox, data.id)
-    invalidateEnvelopeCache(data.account as string, mailbox)
-    invalidateEnvelopeCache(data.account as string, trashMailbox)
+    let failed: string[] = []
+    let lastError = ''
+    const batch = await himalayaRead(['-a', account, 'message', 'move', ...ids, '-f', mailbox, '-t', trashMailbox])
+    if (!batch.ok) {
+      lastError = himalayaErrorText(batch)
+      logger.warn(`[email] delete (move to trash) failed (${ids.join(',')}): ${lastError}`)
+      // A failed batch may have moved some of the ids already; retry them one
+      // by one so the answer names exactly which ones are still in place.
+      if (ids.length > 1) {
+        for (const id of ids) {
+          const one = await himalayaRead(['-a', account, 'message', 'move', id, '-f', mailbox, '-t', trashMailbox])
+          if (!one.ok && await messageStillExists(account, mailbox, id)) { failed.push(id); lastError = himalayaErrorText(one) }
+        }
+      } else failed = ids
+    }
+    for (const id of ids) if (!failed.includes(id)) purgeMessageBodyCache(account, mailbox, id)
+    invalidateEnvelopeCache(account, mailbox)
+    invalidateEnvelopeCache(account, trashMailbox)
+    if (failed.length) { json(res, { error: lastError, failed }, 502); return true }
     json(res, { ok: true })
     return true
   }

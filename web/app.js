@@ -29556,13 +29556,30 @@ document.getElementById('emailBulkDeleteBtn')?.addEventListener('click', async (
   if (btn) btn.disabled = true
   try {
     const entries = Array.from(emailSelectedIds.entries())
-    const results = await Promise.all(entries.map(([id, mailbox]) =>
-      fetch('/api/email/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id }) })
-        .then(res => res.ok)
-        .catch(() => false)
-    ))
-    if (results.some(ok => !ok)) showToast(t('email.bulk_delete_partial_fail'))
-    const deleted = entries.filter((_, i) => results[i]).map(([id, mailbox]) => ({ id, mailbox }))
+    // One request per mailbox, carrying every checked id of it, sent one
+    // after the other -- the server moves them with a single IMAP command.
+    // One request per message in parallel left one checked mail behind
+    // (Boss, 2026-09-24, #378: 6 checked, 5 deleted).
+    const byMailbox = new Map()
+    for (const [id, mailbox] of entries) {
+      if (!byMailbox.has(mailbox)) byMailbox.set(mailbox, [])
+      byMailbox.get(mailbox).push(id)
+    }
+    const failedKeys = new Set()
+    for (const [mailbox, ids] of byMailbox) {
+      let failed = ids
+      try {
+        const res = await fetch('/api/email/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, ids }) })
+        if (res.ok) failed = []
+        else {
+          const body = await res.json().catch(() => null)
+          if (body && Array.isArray(body.failed)) failed = body.failed.map(String)
+        }
+      } catch { /* network error: the whole group counts as not deleted */ }
+      for (const id of failed) failedKeys.add(`${mailbox}\u0000${id}`)
+    }
+    if (failedKeys.size) showToast(t('email.bulk_delete_partial_fail'))
+    const deleted = entries.filter(([id, mailbox]) => !failedKeys.has(`${mailbox}\u0000${id}`)).map(([id, mailbox]) => ({ id, mailbox }))
     const ids = deleted.map(d => d.id)
     if (ids.includes(emailActiveId)) {
       clearEmailReaderPane()
@@ -29570,7 +29587,10 @@ document.getElementById('emailBulkDeleteBtn')?.addEventListener('click', async (
       emailActiveMailbox = null
       saveEmailUiState()
     }
-    emailSelectedIds = new Map()
+    // What failed stays selected (its checkbox is still ticked on screen), so
+    // the next Törlés click retries exactly those -- the selection used to be
+    // emptied while the tick stayed, and the button then did nothing.
+    emailSelectedIds = new Map(entries.filter(([id, mailbox]) => failedKeys.has(`${mailbox}\u0000${id}`)))
     if (removeEmailRowsLocally(deleted)) loadEmailEnvelopes()
     else emailUpdateBulkDeleteUI()
   } finally {
