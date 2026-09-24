@@ -4164,6 +4164,9 @@ window._i18n.en = {
   // --- Code bridge: chat tabs (2026-08-23) ---
   'cb.card.account_badge_tip': 'The VS Code Claude Code executor running on your own machine (on your own subscription).',
   'cb.card.external_badge': 'external coder',
+  'cb.card.where_wsl': '{folder} · WSL',
+  'cb.card.where_windows': '{folder} · Windows',
+  'cb.card.where_linux': '{folder} · Linux',
   'cb.card.external_note': 'An external program: the VS Code Claude Code running on your own machine, on your own subscription. Not a Marveen agent — Marveen only reaches it and gives it work. It can code anything, Marveen included.',
   'cb.card.ctx_value':      'context: {n}k tokens',
   'cb.card.ctx_short':      '{n}k',
