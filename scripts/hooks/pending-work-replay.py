@@ -94,7 +94,9 @@ def _agent_id_from_cwd(cwd):
 def _req(method, path, token):
     req = urllib.request.Request(API + path, method=method)
     req.add_header("Authorization", "Bearer " + token)
-    with urllib.request.urlopen(req, timeout=5) as r:
+    # 12 s: the answer now includes the abandoned-worktree scan (git over every
+    # worktree, #366). Still under the 15 s hook timeout in settings.json.template.
+    with urllib.request.urlopen(req, timeout=12) as r:
         return json.load(r)
 
 
