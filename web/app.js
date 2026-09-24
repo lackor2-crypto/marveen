@@ -19017,7 +19017,13 @@ function _accHubGooglePart(rows, title) {
     // "invalid_grant" is what an unverified (Testing-status) app's refresh token
     // turns into after 7 days. The raw python message says nothing an operator
     // can use; the plain-language one says what to press.
-    const state = a.kind === 'expired'
+    // A kikapcsolt API (kanban #358) nem bejelentkezesi hiba: az ujra-
+    // bejelentkeztetes gomb helyett a Google Console bekapcsolo oldalat adjuk.
+    const apiOff = a.kind === 'api-disabled'
+    const apiUrl = apiOff && typeof a.apiEnableUrl === 'string' && a.apiEnableUrl.startsWith('https://console.cloud.google.com/') ? a.apiEnableUrl : ''
+    const state = apiOff
+      ? `<span class="conn-note conn-note-bad">${escapeHtml(t('gconn.api_disabled_note', { apis: (a.disabledApis || []).map(x => ({ gmail: 'Gmail API', calendar: 'Google Calendar API', drive: 'Google Drive API' })[x] || x).join(', ') }))}</span>`
+      : a.kind === 'expired'
       ? `<span class="conn-note conn-note-bad">${escapeHtml(t('gconn.expired_note'))}</span>`
       : a.error
         ? `<span class="conn-note conn-note-bad">${escapeHtml(a.error)}</span>`
@@ -19033,7 +19039,8 @@ function _accHubGooglePart(rows, title) {
       <div class="conn-row-chips">${chips}${state}</div>
       <div class="conn-row-actions">
         <button class="btn-secondary btn-compact" data-gact="probe" data-id="${id}">${escapeHtml(t('gconn.check'))}</button>
-        ${a.error ? `<button class="btn-primary btn-compact" data-gact="reauth" data-id="${id}">${escapeHtml(t('gconn.reauth'))}</button>` : ''}
+        ${apiUrl ? `<a class="btn-primary btn-compact" href="${escapeAttr(apiUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('gconn.api_enable'))} \u2197</a>` : ''}
+        ${a.error && !apiOff ? `<button class="btn-primary btn-compact" data-gact="reauth" data-id="${id}">${escapeHtml(t('gconn.reauth'))}</button>` : ''}
         ${a.isDefault ? '' : `<button class="btn-secondary btn-compact" data-gact="default" data-id="${id}">${escapeHtml(t('gconn.make_default'))}</button>`}
         <button class="btn-secondary btn-compact" data-gact="remove" data-id="${id}">${escapeHtml(t('gconn.remove'))}</button>
       </div>
@@ -20538,7 +20545,7 @@ async function renderOverviewConnections() {
   // "hibas fiokok" sor ugyanazt allitana -- csak rosszabbul: nem nevezi meg a
   // fiokokat, es a Fiokok oldalra dob a vegigvezeto helyett. Ket sor egy
   // tenyrol egy dobozt venne el a negybol.
-  const eloRossz = health.some(h => h.id === 'google_live_bad')
+  const eloRossz = health.some(h => h.id === 'google_live_bad' || h.id === 'google_api_disabled')
   if (d.google.broken > 0 && !eloRossz) rows.push({ label: t('conn.ov_google_broken', { n: d.google.broken }), desc: act })
   if (d.mcp.needsLogin > 0) rows.push({ label: t('conn.ov_mcp_login', { n: d.mcp.needsLogin }), desc: act })
   if (d.google.total === 0 && d.google.clientPresent) rows.push({ label: t('conn.ov_google_none'), desc: act })
@@ -21592,11 +21599,17 @@ async function selfCheckGuideVerify() {
   if (_selfCheckGuideTarget && _selfCheckGuideTarget.live) {
     const acc = (d.health && Array.isArray(d.health.items)) ? d.health.items : []
     const bad = acc.find(x => x.id === 'google_live_bad')
+    const apiOff = acc.find(x => x.id === 'google_api_disabled')
     const okrow = acc.find(x => x.id === 'google_live_ok')
     renderOverviewConnections()
     if (bad) {
       result.className = 'guide-result bad'
       result.textContent = t('guide.verify_live_bad', { n: (bad.params && bad.params.n) || 0, names: (bad.params && bad.params.names) || '' })
+    } else if (apiOff) {
+      // A bejelentkezes mar rendben, de a Google-projektben egy API ki van
+      // kapcsolva (kanban #358) -- ezt nem "kesz"-kent jelentjuk.
+      result.className = 'guide-result bad'
+      result.textContent = t('health.google_api_disabled', apiOff.params || {})
     } else {
       // A siker nem a vege. Amig az alkalmazas "teszt" allapotban van, ez 7 nap
       // mulva megint le fog jarni -- ezt itt kell kimondani, nem egy masik

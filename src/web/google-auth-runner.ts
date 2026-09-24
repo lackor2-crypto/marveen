@@ -167,7 +167,7 @@ const probesInFlight = new Map<string, Promise<GoogleProbeResult>>()
 /** Ask Google what still works for one account. `force` skips the cache. */
 export async function probeGoogleAccount(id: string, force = false): Promise<GoogleProbeResult> {
   if (!isValidAccountId(id)) {
-    return { ok: false, email: null, services: { ...NO_SERVICES }, error: 'érvénytelen fiók-azonosító', kind: null }
+    return { ok: false, email: null, services: { ...NO_SERVICES }, error: 'érvénytelen fiók-azonosító', kind: null, disabledApis: [], apiEnableUrl: null }
   }
   const hit = probeCache.get(id)
   if (!force && hit && Date.now() - hit.at < PROBE_TTL_MS) return hit.result
@@ -229,6 +229,8 @@ export function listGoogleAccounts(): GoogleAccountRow[] {
       checkedAt: cached ? cached.at : null,
       error: cached ? cached.result.error : null,
       kind: cached ? cached.result.kind : null,
+      disabledApis: cached ? cached.result.disabledApis : [],
+      apiEnableUrl: cached ? cached.result.apiEnableUrl : null,
     }
   })
 }
@@ -253,6 +255,8 @@ export async function listGoogleAccountsProbed(force = false): Promise<GoogleAcc
       checkedAt: entry ? entry.at : Date.now(),
       error: result.error,
       kind: result.kind,
+      disabledApis: result.disabledApis,
+      apiEnableUrl: result.apiEnableUrl,
     })
   }
   return rows

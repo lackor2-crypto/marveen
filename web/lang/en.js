@@ -294,6 +294,8 @@ window._i18n.en = {
   'gconn.blocked_note':       'Worth knowing: at most 100 addresses can go on that list, and Google asks for a fresh sign-in every 7 days — if an account suddenly says "expired", just connect it again the same way. If someone else created this Google project, they are the one who has to add the address.',
   'gconn.blocked_retry':      'Added it, try again',
   'gconn.expired_note':       'Google expired the access (it does this every 7 days) — press "Sign in again".',
+  'gconn.api_disabled_note':  'Sign-in is fine, but this is switched off in your Google project: {apis}. This is not a sign-in problem — press "Turn it on at Google".',
+  'gconn.api_enable':         'Turn it on at Google',
   'gconn.reauth':             'Sign in again',
 
   // --- Claude Code connectors, per Claude account ---
@@ -742,6 +744,8 @@ window._i18n.en = {
   'health.google_live_bad_action': 'No calendar, no mail, no Drive — and nothing else shows it. Click here and I will walk you through reconnecting: you get a link, and no terminal is needed.',
   'health.google_dup':        '⚠️ The same Google account is connected under two names ({n} cases): {names}',
   'health.google_dup_action': 'One mailbox has two entries, and the fresh access sits under the numbered name — while the settings (Drive sync, mail rules) look for the ORIGINAL name, so those silently do nothing. Click here: on the Accounts page press “Disconnect” on the numbered name (e.g. work_2), then “Sign in again” on the original row — Google now offers the right account by itself.',
+  'health.google_api_disabled': 'Switched off in your Google project: {apis} — so mail / calendar / Drive do not work (account affected: {names}).',
+  'health.google_api_disabled_action': 'This is not a sign-in problem, reconnecting will not help: a switch has to be turned on at Google. What to do: open the link below, sign in with the Google account you created the permission file with, and press the blue "ENABLE" button. If more than one API is listed, do the same for the others: type its name into the search box of the Google Console. Once it is on, press the account\'s "Check" button on the Accounts page and this line goes away — otherwise it goes away by itself within an hour (the check runs hourly).',
   'health.google_live_never':  'You have Google accounts connected, but the live check has never run.',
   'health.google_live_never_action': 'Until it runs, access can die without anyone asking Google. Click here and I will run it now.',
   'health.google_live_stale':  'The live Google check has not run for {h}h.',

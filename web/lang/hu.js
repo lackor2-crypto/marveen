@@ -306,6 +306,8 @@ window._i18n.hu = {
   'gconn.blocked_note':       'Jó tudni: így legfeljebb 100 címet lehet felvenni, és ilyenkor a Google 7 naponta újra kéri a bejelentkezést — ha egy fiók egyszer csak „lejárt”-at ír, csak kösd be újra ugyanígy. Ha nem a te fiókod hozta létre ezt a Google-projektet, akkor annak kell felvennie a címet, aki létrehozta.',
   'gconn.blocked_retry':      'Felvettem, próbáljuk újra',
   'gconn.expired_note':       'A Google lejáratta a hozzáférést (ez 7 naponta megtörténik) — nyomd meg az „Újra bejelentkeztetem" gombot.',
+  'gconn.api_disabled_note':  'A bejelentkezés rendben van, de a Google-projektedben ki van kapcsolva: {apis}. Ez nem bejelentkezési hiba — nyomd meg a „Bekapcsolom a Google-nál” gombot.',
+  'gconn.api_enable':         'Bekapcsolom a Google-nál',
   'gconn.reauth':             'Újra bejelentkeztetem',
 
   // --- Claude Code kapcsolatok (fiokonkent) ---
@@ -769,6 +771,8 @@ window._i18n.hu = {
   'health.google_live_bad_action': 'Ilyenkor nincs naptár, nincs levél, nincs Drive — és ez sehol máshol nem látszik. Kattints ide, és végigviszlek az újracsatlakoztatáson: kapsz egy linket, és nem kell terminál hozzá.',
   'health.google_dup':        '⚠️ Ugyanaz a Google-fiók két néven van bekötve ({n} eset): {names}',
   'health.google_dup_action': 'Ugyanahhoz a postafiókhoz két bejegyzés tartozik, és a friss hozzáférés a sorszámozott néven ül — a beállítások (Drive-szinkron, levélszabályok) viszont az EREDETI nevet keresik, így azok némán állnak. Kattints ide: a Fiókok oldalon a sorszámozott néven (pl. munka_2) nyomd meg a „Leválasztás” gombot, majd az eredeti soron az „Újra bejelentkeztetem” gombot — a Google most már magától a helyes fiókot ajánlja fel.',
+  'health.google_api_disabled': 'A Google-projektedben ki van kapcsolva: {apis} — ezért nem megy a levél / naptár / Drive (érintett fiók: {names}).',
+  'health.google_api_disabled_action': 'Ez nem bejelentkezési hiba, az újracsatlakoztatás nem segít: egy kapcsolót kell bekapcsolni a Google-nál. Teendő: nyisd meg a lenti linket, jelentkezz be azzal a Google-fiókkal, amelyikkel az engedély-fájlt készítetted, és nyomd meg a kék „ENABLE” (Engedélyezés) gombot. Ha több API van felsorolva, a többinél ugyanígy: a Google Console bal oldali keresőjébe írd be a nevét. A bekapcsolás után a Fiókok oldalon nyomd meg a fiók „Ellenőrzés” gombját, és a sor eltűnik — ha nem teszed, legkésőbb egy órán belül magától is (az ellenőrzés óránként fut).',
   'health.google_live_never':  'Van bekötött Google-fiókod, de élő ellenőrzés még soha nem futott le.',
   'health.google_live_never_action': 'Amíg nem futott, a hozzáférés úgy tud meghalni, hogy senki nem kérdezi meg a Google-t. Kattints ide, és most azonnal lefuttatom.',
   'health.google_live_stale':  'A Google-fiókok élő ellenőrzése {h} órája nem futott le.',

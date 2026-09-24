@@ -52,8 +52,12 @@ const FIRST_RUN_DELAY_MS = 2 * 60 * 1000
 export interface GoogleLiveAccount {
   id: string
   ok: boolean
-  /** 'expired' | 'test-user' | null -- a google-accounts.ts osztalyozasa. */
+  /** 'expired' | 'test-user' | 'api-disabled' | null -- a google-accounts.ts osztalyozasa. */
   kind: string | null
+  /** 'api-disabled' eseten: mely API-k vannak kikapcsolva a Google-projektben,
+   *  es a bekapcsolo oldal (sajat epitesu Console-link). */
+  disabledApis?: string[]
+  apiEnableUrl?: string | null
 }
 
 export interface GoogleLiveCheck {
@@ -98,7 +102,10 @@ export async function runGoogleLiveCheck(storeDir: string = STORE_DIR): Promise<
   for (const row of listGoogleAccounts()) {
     try {
       const r = await probeGoogleAccount(row.id, true)
-      accounts.push({ id: row.id, ok: !!r.ok, kind: r.kind ?? null })
+      accounts.push({
+        id: row.id, ok: !!r.ok, kind: r.kind ?? null,
+        ...(r.disabledApis && r.disabledApis.length ? { disabledApis: r.disabledApis, apiEnableUrl: r.apiEnableUrl } : {}),
+      })
     } catch (err) {
       // Egy fiokon elhasalt probe nem viheti el az egesz kort: a tobbi fiokrol
       // szolo hir tobbet er, mint a semmi.
@@ -156,6 +163,9 @@ export function markGoogleLiveOk(accountId: string, storeDir: string = STORE_DIR
   const sor = data.accounts.find(a => a.id === id)
   if (sor) {
     if (sor.ok) return
+    // A kikapcsolt API-t a bejelentkezes NEM javitja meg (kanban #358): az egy
+    // kapcsolo a Google-projektben. Ezt csak egy uj meres oldhatja fel.
+    if (sor.kind === 'api-disabled') return
     sor.ok = true
     sor.kind = null
   } else {
@@ -167,6 +177,38 @@ export function markGoogleLiveOk(accountId: string, storeDir: string = STORE_DIR
     // Egy nem sikerult konyveles nem ronthatja el a bejelentkeztetest: a
     // kovetkezo oras meres ugyis a valosagot irja felul.
     logger.warn({ err, accountId: id }, 'google-live-check: nem sikerult elkonyvelni a sikeres bejelentkezest')
+  }
+}
+
+/**
+ * Egy KENYSZERITETT (a Fiokok oldal "Ellenorzes" gombja) probe eredmenyenek
+ * elkonyvelese a mert allapotba (kanban #358).
+ *
+ * Ez valodi meres, nem feltetelezes: a Google eppen most valaszolt. Enelkul a
+ * Google-projektben bekapcsolt API utan a piros "ki van kapcsolva" sor meg
+ * egy oraig allna, pedig a felhasznalo mar megcsinalta, amit kert. Ha nincs
+ * meg fajl, nem talalunk ki egyet (ugyanaz az elv, mint a markGoogleLiveOk-nal).
+ */
+export function recordGoogleLiveProbe(
+  accountId: string,
+  r: { ok: boolean; kind: string | null; disabledApis?: string[]; apiEnableUrl?: string | null },
+  storeDir: string = STORE_DIR,
+): void {
+  const id = (accountId || '').trim()
+  if (!id) return
+  const data = readGoogleLiveCheck(storeDir)
+  if (!data) return
+  const uj: GoogleLiveAccount = {
+    id, ok: !!r.ok, kind: r.kind ?? null,
+    ...(r.disabledApis && r.disabledApis.length ? { disabledApis: r.disabledApis, apiEnableUrl: r.apiEnableUrl ?? null } : {}),
+  }
+  const i = data.accounts.findIndex(a => a.id === id)
+  if (i >= 0) data.accounts[i] = uj
+  else data.accounts.push(uj)
+  try {
+    writeAtomic(join(storeDir, GOOGLE_LIVE_FILE), data)
+  } catch (err) {
+    logger.warn({ err, accountId: id }, 'google-live-check: nem sikerult elkonyvelni a probe eredmenyet')
   }
 }
 

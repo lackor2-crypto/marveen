@@ -70,6 +70,7 @@ import { resolveMainAgentConfigDir } from './agent-config.js'
 // mondott ellentetes mondatot.
 import { isAgentManagedChannel } from './mcp-connectors.js'
 import { googleOauthClientPresent, listGoogleAccounts } from './google-auth-runner.js'
+import { GOOGLE_API_LABEL, type GoogleApiName } from './google-accounts.js'
 import { listSecrets, getSecret } from './vault.js'
 import { allAgentModels, requiredKeyForModel } from './key-service-dependents.js'
 import { keyServiceView } from './key-service-slots.js'
@@ -1063,7 +1064,7 @@ const GOOGLE_LIVE_DEAD_MS = 24 * 60 * 60 * 1000
 
 interface GoogleLiveAllapot {
   checkedAt?: number
-  accounts?: { id?: string; ok?: boolean; kind?: string | null }[]
+  accounts?: { id?: string; ok?: boolean; kind?: string | null; disabledApis?: string[]; apiEnableUrl?: string | null }[]
 }
 
 /** Hany Google-fiok van bekotve. Fajlbol, mint a credential-expiry.ts:
@@ -1158,8 +1159,29 @@ export function googleLiveRows(
     // pillanatrol szolnanak, magabiztosan.
     rows.push({ id: 'google_live_stale', status: kora > GOOGLE_LIVE_DEAD_MS ? 'bad' : 'warn', params: { h: oraja } })
   }
+  // A kikapcsolt API (kanban #358) NEM "a Google elutasitja a fiokot": a
+  // fiok el, csak a Google-projektben egy kapcsolo all. Ha a
+  // google_live_bad sorba kerulne, az ujracsatlakoztatasra vinne -- ami
+  // semmit nem old meg, es a sor orokre piros maradna. Sajat sort kap, a
+  // bekapcsolo oldal linkjevel.
+  const kikapcsolt = data.accounts.filter(a => a && a.ok === false && a.kind === 'api-disabled')
+  if (kikapcsolt.length > 0) {
+    const apik = [...new Set(kikapcsolt.flatMap(a => Array.isArray(a.disabledApis) ? a.disabledApis : []))]
+      .map(x => GOOGLE_API_LABEL[x as GoogleApiName])
+      .filter(Boolean)
+    const url = kikapcsolt.map(a => a.apiEnableUrl).find(u => typeof u === 'string' && u.startsWith('https://console.cloud.google.com/'))
+    rows.push({
+      id: 'google_api_disabled',
+      status: 'bad',
+      params: {
+        apis: apik.join(', ') || '?',
+        names: kikapcsolt.map(a => tisztaNev(String(a.id ?? ''))).filter(Boolean).join(', '),
+        url: url || 'https://console.cloud.google.com/apis/library',
+      },
+    })
+  }
   const rossz = data.accounts
-    .filter(a => a && a.ok === false)
+    .filter(a => a && a.ok === false && a.kind !== 'api-disabled')
     .map(a => tisztaNev(String(a.id ?? '')))
     .filter(Boolean)
   if (rossz.length > 0) {
@@ -1168,7 +1190,7 @@ export function googleLiveRows(
       status: 'bad',
       params: { n: rossz.length, all: data.accounts.length, names: rossz.join(', ') },
     })
-  } else if (kora <= GOOGLE_LIVE_STALE_MS || eppenPotol) {
+  } else if (kikapcsolt.length === 0 && (kora <= GOOGLE_LIVE_STALE_MS || eppenPotol)) {
     // Zold sor is kell: a Boss szabalya szerint a "minden rendben"-t is ki kell
     // mondani, kulonben a hallgatas nem megkulonboztetheto a nem-futo
     // ellenorzestol -- pontosan ez volt a mai hiba alakja.
