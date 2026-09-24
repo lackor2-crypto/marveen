@@ -16,7 +16,33 @@
 // meg -- miközben a fiok 4,82 GB / 15 GB-tal, elesben listazta a Drive-jat. A
 // felulet olyan teendot tanacsolt (ujralogin), ami semmit nem old meg.
 
-export type DriveErrorKind = 'quota' | 'abusive' | 'auth' | 'other'
+export type DriveErrorKind = 'quota' | 'abusive' | 'auth' | 'api_disabled' | 'other'
+
+/**
+ * A Google-projektben nincs bekapcsolva a Drive API (kanban f97acc32).
+ *
+ * Friss telepitesen ez az ELSO, amibe a felhasznalo belefut, ha a varazslo
+ * "kapcsold be a szolgaltatasokat" lepeset kihagyta: a fiok belep, az
+ * engedely megvan, de a Google MINDEN Drive-keresre 403-at ad ("Google Drive
+ * API has not been used in project N before or it is disabled",
+ * SERVICE_DISABLED / accessNotConfigured). Nem egy fajlrol szol, hanem az egesz
+ * projektrol, es a teendo egy kapcsolo a Google Console-ban -- se ujralogin,
+ * se holnapi ujraprobalas nem segit. Ezert nem mehet se az `auth`, se a
+ * "Google nem adja ki" (besorolatlan) kosarba: az utobbi csendben elrejtene,
+ * hogy a friss telepitesen SEMMI nem szinkronizal.
+ */
+export const DRIVE_API_KIKAPCSOLVA_RE = /SERVICE_DISABLED|accessNotConfigured|has not been used in project|API has not been used|drive api .*is disabled|it is disabled\b/i
+
+/**
+ * A bekapcsolo oldal cime. MI epitjuk, csupa szamjegybol: a hibauzenet a
+ * Google-tol jovo kulso adat, abbol kimasolt cimet linkkent visszaadni nem
+ * szabad (ugyanaz az elv, mint a `pickerApiDisabled`-nel).
+ */
+export function driveApiEnableUrl(reason: string): string {
+  const base = 'https://console.cloud.google.com/apis/library/drive.googleapis.com'
+  const m = /project[=/\s"']*(\d{4,})/i.exec(String(reason || ''))
+  return m ? `${base}?project=${m[1]}` : base
+}
 
 /** Megtelt tarhely. A Google tobbfele szoveggel mondja, de a "quota" mindben ott van. */
 export const DRIVE_KVOTA_RE = /storage ?quota|storagequotaexceeded|quota (has been )?exceeded|exceeded.*quota|elfogyott a tarhely/i
@@ -43,6 +69,9 @@ export const DRIVE_AUTH_RE = /\b401\b|invalid authentication|unauthorized|invali
 export function driveErrorKind(reason: string): DriveErrorKind {
   const sz = String(reason || '')
   if (!sz.trim()) return 'other'
+  // A kikapcsolt API a LEGKONKRETABB: a 403 es az "is disabled" szoveg
+  // masik mintat is megfoghatna, de a teendo itt egyertelmu (Console-kapcsolo).
+  if (DRIVE_API_KIKAPCSOLVA_RE.test(sz)) return 'api_disabled'
   if (DRIVE_KVOTA_RE.test(sz)) return 'quota'
   if (DRIVE_ABUZIV_RE.test(sz)) return 'abusive'
   if (DRIVE_AUTH_RE.test(sz)) return 'auth'
@@ -102,6 +131,6 @@ export const DRIVE_VEGLEGES_ELUTASITAS_RE = /\b(40[0-9]|41[0-9]|42[0-9])\b/
 export function driveVeglegesenElutasitva(reason: string): boolean {
   const kind = driveErrorKind(reason)
   if (kind === 'abusive') return true
-  if (kind === 'quota' || kind === 'auth') return false
+  if (kind === 'quota' || kind === 'auth' || kind === 'api_disabled') return false
   return DRIVE_VEGLEGES_ELUTASITAS_RE.test(String(reason || ''))
 }

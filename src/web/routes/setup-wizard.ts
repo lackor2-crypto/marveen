@@ -28,6 +28,7 @@ import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
 import { measureSystemDeps, systemDepsSnapshot, installCommand, type DepsSnapshot } from '../../system-deps.js'
 import { startVisionInstall, visionInstallStatus } from '../../vision-install.js'
+import { saveOauthClient } from '../../google-oauth-client.js'
 import type { RouteContext } from './types.js'
 
 const ENV_FILE = join(PROJECT_ROOT, '.env')
@@ -111,6 +112,27 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
   // kulonben a telepito a hatterben indul, a felulet a statuszt kerdezi.
   if (path === '/api/vision/install' && method === 'POST') {
     json(res, startVisionInstall())
+    return true
+  }
+
+  // POST /api/google-oauth-client -- the Google OAuth client file, uploaded from
+  // the wizard instead of copied into store/ by hand (kanban f97acc32). The
+  // file holds client_secret: never logged, never echoed back.
+  if (path === '/api/google-oauth-client' && method === 'POST') {
+    let body: { text?: unknown; replace?: unknown }
+    try {
+      body = JSON.parse((await readBody(req)).toString()) as typeof body
+    } catch {
+      json(res, { ok: false, error: 'not_json' }, 400)
+      return true
+    }
+    const r = saveOauthClient(typeof body.text === 'string' ? body.text : '', { replace: body.replace === true })
+    if (!r.ok) {
+      json(res, r, r.error === 'exists' ? 409 : 400)
+      return true
+    }
+    logger.info({ replaced: r.replaced }, 'google oauth client file saved from the setup wizard')
+    json(res, r)
     return true
   }
 

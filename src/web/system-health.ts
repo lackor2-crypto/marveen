@@ -61,7 +61,7 @@ import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
 import { syncFailureRuns, loadSyncFailures } from '../drive-sync-failures.js'
-import { driveErrorKind, driveHibaUzenet, DRIVE_ELUTASITAS_RE, type DriveErrorKind } from '../drive-error-kind.js'
+import { driveApiEnableUrl, driveErrorKind, driveHibaUzenet, DRIVE_ELUTASITAS_RE, type DriveErrorKind } from '../drive-error-kind.js'
 import { loadDriveQuotas } from '../drive-quota.js'
 import { MAX_FOLDERS, MAX_FILES } from '../drive-sync-limits.js'
 import { resolveMainAgentConfigDir } from './agent-config.js'
@@ -1588,6 +1588,8 @@ export interface DriveAkadas {
   /** A Google sajat mondata (ha megvan). Ures: nem talaljuk ki helyette. */
   message: string
   at?: string
+  /** Csak `api_disabled`-nel: a bekapcsolo oldal (szamjegyekbol epitve). */
+  url?: string
 }
 
 /**
@@ -1630,6 +1632,7 @@ export function utolsoFutasAkadasai(
       csoportok.set(kulcs, {
         kind, account, files: 1, names: nev,
         message: driveHibaUzenet(f.reason), at: utolso.at,
+        ...(kind === 'api_disabled' ? { url: driveApiEnableUrl(f.reason) } : {}),
       })
     }
   }
@@ -1839,6 +1842,16 @@ export function driveSyncRows(
   if (auth) {
     rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: auth.files, account: authAcct } })
   }
+  // KIKAPCSOLT DRIVE API (kanban f97acc32). Friss telepitesen ez a jellemzo:
+  // a varazslo "kapcsold be a szolgaltatasokat" lepese kimaradt, es a Google
+  // minden Drive-kerest elutasit. NEM mehet a "Google nem adja ki" listaba --
+  // ott csendben azt mutatna, hogy csak nehany fajl maradt ki, holott SEMMI
+  // nem szinkronizal. A projekt kozos, ezert egy sor eleg, az elso fiokkal.
+  const apiOff = elso('api_disabled')
+  const apiOffAccts = new Set(frissek.filter((a) => a.kind === 'api_disabled').map((a) => a.account))
+  if (apiOff) {
+    rows.push({ id: 'drive_sync_api_disabled', status: 'bad', params: { account: apiOff.account, url: apiOff.url || driveApiEnableUrl('') } })
+  }
   // KARTEKONYNAK JELOLT FAJL: EZ NEM PROBLEMA, ezert NINCS SORA itt.
   //
   // Boss, 2026-09-23: "ha valami olyasmi tortenik, amit nem tud letolteni ...
@@ -1875,7 +1888,7 @@ export function driveSyncRows(
   // allitja meg a fiok tobbi feltolteset, ezert az nem zarja ki.
   const acctOf = (p: DriveSyncParos): string => String(p.account || '')
   const osszeg = (ps: DriveSyncParos[]): number => ps.reduce((sum, p) => sum + varakozoFajlok(p), 0)
-  const tobbiek = varakozok.filter((p) => acctOf(p) !== kvotaAcct && acctOf(p) !== authAcct)
+  const tobbiek = varakozok.filter((p) => acctOf(p) !== kvotaAcct && acctOf(p) !== authAcct && !apiOffAccts.has(acctOf(p)))
   if (tobbiek.length) {
     rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: tobbiek.length, f: osszeg(tobbiek), names: fiokNevek(tobbiek) } })
   }
