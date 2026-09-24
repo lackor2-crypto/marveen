@@ -140,7 +140,7 @@ import { sanitizeAgentName, safeJoin } from '../sanitize.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, jsonMaybeGzip, serveFile } from '../http-helpers.js'
 import { getPendingWork } from '../pending-work.js'
-import { buildAbandonedWorktreeContext, getAbandonedWorktrees, liveAbandonedDeps } from '../abandoned-worktrees.js'
+import { buildAbandonedWorktreeContext, getAbandonedWorktrees, liveAbandonedDeps, withScanBudget } from '../abandoned-worktrees.js'
 import { getWakeGreetingDecision } from '../wake-greeting-signal.js'
 import { buildWakeGreetingContext, composeSessionStartContext } from '../../wake-greeting.js'
 import {
@@ -1573,10 +1573,10 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     // the greeting, and ALSO when a taskstate replay already covered the rest
     // (alreadyReplayed): a replay restores the conversation, not the edits
     // sitting uncommitted in a worktree.
-    const abandoned = await getAbandonedWorktrees(
+    const abandoned = await withScanBudget(getAbandonedWorktrees(
       name, MAIN_AGENT_ID,
       liveAbandonedDeps(PROJECT_ROOT, STORE_DIR, () => [MAIN_AGENT_ID, ...listAgentNames()]),
-    )
+    ))
     const abandonedContext = buildAbandonedWorktreeContext(abandoned)
     json(res, {
       ...pending,

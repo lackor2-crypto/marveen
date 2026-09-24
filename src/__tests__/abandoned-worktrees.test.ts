@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import {
   parseWorktreeList, attributeOwners, parseDirtyFiles, addedLinesByFile,
   worktreeState, getAbandonedWorktrees, buildAbandonedWorktreeContext,
-  UNOWNED_QUIET_MS, MAX_LISTED, type AbandonedDeps, type WorktreeState,
+  UNOWNED_QUIET_MS, MAX_LISTED, SCAN_BUDGET_MS, withScanBudget, type AbandonedDeps, type WorktreeState,
 } from '../web/abandoned-worktrees.js'
 
 const REPO = join(__dirname, '..', '..')
@@ -185,10 +185,28 @@ describe('worktreeState on a real git repository', () => {
   })
 })
 
+describe('withScanBudget', () => {
+  const ok = { items: [], unowned: [], olvashatatlan: false }
+  it('a scan that answers in time is passed through', async () => {
+    expect(await withScanBudget(Promise.resolve(ok), 50)).toBe(ok)
+  })
+  it('a scan that overruns becomes "could not look", never an all-clear', async () => {
+    const r = await withScanBudget(new Promise(() => {}), 20)
+    expect(r.olvashatatlan).toBe(true)
+    expect(buildAbandonedWorktreeContext(r)).toMatch(/NEM LATTAM ODA/)
+  })
+  it('the budget leaves the hook room for the rest of the answer', () => {
+    const hook = readFileSync(join(REPO, 'scripts/hooks/pending-work-replay.py'), 'utf8')
+    const wait = Number(/urlopen\(req, timeout=(\d+)\)/.exec(hook)?.[1])
+    expect(SCAN_BUDGET_MS).toBeLessThanOrEqual((wait * 1000) / 2)
+  })
+})
+
 describe('wiring', () => {
   it('the SessionStart pending-work route injects the abandoned worktrees', () => {
     const src = readFileSync(join(REPO, 'src/web/routes/agents.ts'), 'utf8')
     expect(src).toContain('getAbandonedWorktrees(')
+    expect(src).toContain('withScanBudget(getAbandonedWorktrees(')
     expect(src).toContain('buildAbandonedWorktreeContext(abandoned)')
   })
   it('the hook waits for the scan, and still ends before the hook timeout', () => {
