@@ -18,7 +18,7 @@ import { currentBotName } from '../../config.js'
 import { startAgentProcess, isAgentRunning, sessionExistsOnHost } from '../agent-process.js'
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listKanbanCards } from '../../db.js'
-import { similarCardsBeforeClose, approvalCardId } from '../../kanban-related.js'
+import { similarCardsBeforeClose, approvalCardId, payloadCardId } from '../../kanban-related.js'
 import {
   parseVerificationMode, buildVerificationPrompt,
   isCodeBridgeAgent, codeBridgeProjectOf,
@@ -119,19 +119,16 @@ function notifyRequester(approval: Approval): void {
   }
 }
 
-// action_payload carries {"kanban_card_id": "..."} for approvals raised from
-// a kanban card (see the "Jóváhagyásra küldés" button, web/app.js). Shared by
-// the PATCH resolve handler (moves the card to done) and the verify-result
-// handler (posts the finding as a comment) -- malformed/missing payload just
-// means "no linked card", never an error worth surfacing.
+// The kanban card an approval is about. Shared by the PATCH resolve handler
+// (moves the card to done), the verify-result handler (posts the finding as a
+// comment) and the verification sweep. It MUST be the same answer the pairing
+// uses (approvalCardId): before 2026-09-24 this accepted only
+// {"kanban_card_id": ...}, so an approval with a bare id or {"card_id": ...}
+// payload was paired with its card (and counted as its open request) but on
+// approve the card stayed in waiting -- three of them on the live board.
+// No linked card just means "no linked card", never an error worth surfacing.
 export function kanbanCardIdFromApproval(approval: Approval): string | null {
-  if (!approval.action_payload) return null
-  try {
-    const payload = JSON.parse(approval.action_payload) as { kanban_card_id?: unknown }
-    return typeof payload.kanban_card_id === 'string' ? payload.kanban_card_id : null
-  } catch {
-    return null
-  }
+  return approvalCardId(approval.action_payload, approval.action_description || '')
 }
 
 /**
@@ -499,17 +496,12 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // explicitly rather than being silently exempted by category name,
     // so the choice is always a deliberate one, not a default.
     if (noKanbanCard !== true) {
-      let hasCardRef = false
-      if (typeof action_payload === 'string') {
-        try {
-          const parsed = JSON.parse(action_payload) as { kanban_card_id?: unknown }
-          hasCardRef = typeof parsed?.kanban_card_id === 'string' && parsed.kanban_card_id.length > 0
-        } catch { /* not JSON / no kanban_card_id -> falls through to the text scrape below */ }
-      }
-      if (!hasCardRef) hasCardRef = /\b[0-9a-f]{8}\b/i.test(action_description)
+      // Same answer as the pairing and the resolve path (approvalCardId):
+      // a third, stricter parser here rejected payloads the others accept.
+      const hasCardRef = approvalCardId(action_payload, action_description) !== null
       if (!hasCardRef) {
         json(res, {
-          error: 'Ez a jóváhagyás-kérés nem hivatkozik kanban kártyára (se action_payload.kanban_card_id, se 8-jegyű azonosító a leírásban). ' +
+          error: 'Ez a jóváhagyás-kérés nem hivatkozik kanban kártyára (se action_payload kártya-azonosítóval, se 8-jegyű azonosító a leírásban). ' +
             'Ha tényleg nincs kapcsolódó kártya (pl. email/fizetés jóváhagyás), küldd el "noKanbanCard": true mezővel is.',
         }, 400)
         return true
@@ -554,10 +546,14 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     if (requestCardId) {
       const existing = pendingApprovalForCard(requestCardId)
       if (existing) {
+        // Only a payload that names a card may replace the stored one: an
+        // unparseable or card-less payload over a good {"kanban_card_id"}
+        // left the approval with no readable card, so approving it never
+        // moved the card to done (2026-09-24).
         updateApprovalDescription(
           existing.id,
           action_description.trim(),
-          typeof action_payload === 'string' ? action_payload : null,
+          payloadCardId(action_payload) ? (action_payload as string) : null,
         )
         const refreshed = getApproval(existing.id) ?? existing
         logger.info({ id: existing.id, agent_id, cardId: requestCardId }, 'Existing pending approval updated instead of duplicated')
