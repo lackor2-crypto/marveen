@@ -26,6 +26,7 @@ const { planPersonsGroupMove, applyPersonsGroupMove } = await import('../life-pe
 const { buildKnownFolders } = await import('../life-inbox-analyze.js')
 const { addMount, listMounts } = await import('../life-mounts.js')
 const { setDisplayLabel, displayLabelFor } = await import('../life-labels.js')
+const { setArchived, isArchived } = await import('../life-archived.js')
 const { DEPOT_PHOTOS } = await import('../depot.js')
 
 const person = (id: string, name: string, role: 'owner' | 'person' = 'person') =>
@@ -45,19 +46,19 @@ describe('personRel / planLifeTree', () => {
     expect(personRel(flat, 'Teszt Elek')).toBe('Teszt Elek')
     const rels = planLifeTree(flat, 'hu').map((n) => n.rel)
     expect(rels).toContain('Teszt Elek')
-    expect(rels).toContain('Archív/Teszt Anna')
+    // No archive branch any more: archiving is a mark in place (life-archived.ts).
+    expect(rels.some((r) => r.startsWith('Archív'))).toBe(false)
     expect(rels.some((r) => r.startsWith('Család'))).toBe(false)
     expect(normalizeLifeConfig({ persons: flat.persons }).personsGroup).toBe('')
   })
 
-  it('with a group: persons and their archive go under it', () => {
+  it('with a group: persons go under it', () => {
     const rels = planLifeTree(grouped, 'hu').map((n) => n.rel)
     expect(rels).toContain('Család')
     expect(rels).toContain('Család/Teszt Elek')
     expect(rels).toContain('Család/Teszt Anna/Média')
-    expect(rels).toContain('Archív/Család/Teszt Anna')
     expect(rels).not.toContain('Teszt Elek')
-    expect(rels).not.toContain('Archív/Teszt Anna')
+    expect(rels.some((r) => r.startsWith('Archív'))).toBe(false)
   })
 
   it('inbox known folders are found under the group', () => {
@@ -71,7 +72,11 @@ describe('personRel / planLifeTree', () => {
 describe('moving existing folders into the group', () => {
   it('preview lists person + archive folders, apply moves them and the stores follow', () => {
     ensureLifeTree(flat, 'hu')
+    // An OLDER install still has an Archív branch with person folders: it follows.
+    mkdirSync(join(depot, 'Archív', 'Teszt Anna'), { recursive: true })
+    mkdirSync(join(depot, 'Archív', 'Teszt Elek'), { recursive: true })
     writeFileSync(join(depot, 'Teszt Anna', 'irat.pdf'), 'x', 'utf8')
+    expect(setArchived('Teszt Anna/irat.pdf', true).ok).toBe(true)
     mkdirSync(join(depot, ...DEPOT_PHOTOS.split('/'), 'fiok'), { recursive: true })
     expect(addMount({ rel: 'Teszt Elek/Média/Fotók', target: `${DEPOT_PHOTOS}/fiok`, kind: 'photos', label: 'x' }).ok).toBe(true)
     setDisplayLabel('Teszt Elek/Projektek', 'Saját')
@@ -91,6 +96,8 @@ describe('moving existing folders into the group', () => {
     expect(existsSync(join(depot, 'Teszt Anna'))).toBe(false)
     expect(listMounts()[0].rel).toBe('Család/Teszt Elek/Média/Fotók')
     expect(displayLabelFor('Család/Teszt Elek/Projektek')).toBe('Saját')
+    expect(isArchived('Család/Teszt Anna/irat.pdf')).toBe(true)
+    expect(isArchived('Teszt Anna/irat.pdf')).toBe(false)
     const ledger = JSON.parse(readFileSync(join(store, 'life-tree-created.json'), 'utf8'))
     expect(ledger.created).toContain('Család/Teszt Anna/Média')
     expect(ledger.created.some((x: string) => x.startsWith('Teszt Anna'))).toBe(false)
@@ -125,6 +132,8 @@ describe('moving existing folders into the group', () => {
 
   it('a failed move leaves no empty group folder behind, but keeps one with content', () => {
     ensureLifeTree(flat, 'hu')
+    // An older install's archive folder, whose target is already taken.
+    mkdirSync(join(depot, 'Archív', 'Teszt Anna'), { recursive: true })
     mkdirSync(join(depot, 'Archív', 'Család', 'Teszt Anna'), { recursive: true })
     writeFileSync(join(depot, 'Archív', 'Család', 'Teszt Anna', 'mas.txt'), 'y', 'utf8')
     const r = applyPersonsGroupMove(planPersonsGroupMove(normalizeLifeConfig(flat), normalizeLifeConfig(grouped), 'hu'))

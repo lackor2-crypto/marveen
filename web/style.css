@@ -12220,3 +12220,9 @@ details.upstream-box > summary > h4 {
 /* Projekt: uj fajl javasolt helye (kanban #321) */
 .prj-place { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-input); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .prj-place p { margin: 0; }
+
+/* ARCHIVED IN PLACE (card 4f3471f1): the row stays, greyed; the toggle stays
+   fully visible so it can be switched back. */
+tr.intezo-archived > td { opacity: .45; }
+tr.intezo-archived > td:last-child { opacity: 1; }
+tr.intezo-archived a[data-open] { text-decoration: line-through; text-decoration-color: rgba(127,127,127,.5); }

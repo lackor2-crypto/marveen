@@ -12,7 +12,7 @@
 // is always: preview (what moves where) -> the user confirms -> move.
 //
 // What follows the folders: the git mounts (life-mounts.json), the display
-// labels (life-labels.json), the paper-archive records (life-physical.json)
+// labels (life-labels.json), the archived marks (life-archived.json), the paper-archive records (life-physical.json)
 // and the created-ledger (life-tree-created.json). A store left on the old
 // path would silently point into nothing.
 //
@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path'
 import { lifeName, lifeRoot, personRel, type LifeConfig } from './life-tree.js'
 import { moveMountsPrefix } from './life-mounts.js'
 import { moveDisplayLabels } from './life-labels.js'
+import { moveArchivedPrefix } from './life-archived.js'
 import { movePhysical } from './life-documents.js'
 import { moveLifeLedgerPrefix } from './life-tree-ledger.js'
 import { APP_LANG } from './config.js'
@@ -101,6 +102,7 @@ function moveOne(root: string, from: string, to: string, created: string[]): str
   }
   moveMountsPrefix(from, to)
   moveDisplayLabels(from, to)
+  moveArchivedPrefix(from, to)
   movePhysical(from, to)
   moveLifeLedgerPrefix(root, from, to)
   return null

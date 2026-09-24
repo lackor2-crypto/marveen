@@ -34,6 +34,7 @@ import {
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside, mountsOverview } from './life-mounts.js'
 import { displayLabelFor, moveDisplayLabels } from './life-labels.js'
+import { isArchived, moveArchivedPrefix, dropArchivedPrefix } from './life-archived.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
 import { lifeHint, personHint, personsGroupHint, companyHint, samplePersonHint, sampleCompanyHint,
@@ -121,6 +122,11 @@ export interface LifeEntry {
   hint?: string
   /** Van-e a fajlnak papir parja. A lista is mutatja, nem csak a panel. */
   physical: boolean
+  /**
+   * Archived in place (store/life-archived.json): the item stays where it is,
+   * the list shows it grey and at the end of its group. See life-archived.ts.
+   */
+  archived: boolean
   /**
    * Ha ez a mappa egy BEKOTES, itt all az emberi felirata ("lackor2 Google
    * Fotok"). Ures egyebkent. A felulet ebbol tudja, hogy amit megnyitsz, az
@@ -545,6 +551,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
       storageId: src.storageId ?? null, storageName: src.storageName || '',
     },
     physical: getPhysical(rel).physical,
+    archived: isArchived(rel),
     mounted: '',
     caution: cautionFor(rel, name, abs, isDir, lang),
     // Mappaknal: van-e alatta barmi. Keret nelkul (pl. egyedi hivas) nem merunk:
@@ -762,6 +769,12 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
     folders.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
   }
   files.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+  // ARCHIVED ITEMS LAST, in their own group (folders among folders, files
+  // among files), keeping the order above among themselves. A stable sort, so
+  // switching the mark off puts the item straight back in its usual place.
+  const activeFirst = (a: LifeEntry, b: LifeEntry) => Number(a.archived) - Number(b.archived)
+  folders.sort(activeFirst)
+  files.sort(activeFirst)
 
   return { ...base, folders, files }
 }
@@ -1012,6 +1025,7 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): Mo
   // informacioja a regi utvonalon maradna, vagyis a semmin.
   movePhysical(fromRel, newRel)
   moveDisplayLabels(fromRel, newRel)
+  moveArchivedPrefix(fromRel, newRel)
   logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
   return { ok: true, rel: newRel, message: T(lang, `Áthelyezve ide: ${humanLocation(newRel)}`, `Moved here: ${humanLocation(newRel)}`) }
 }
@@ -1136,6 +1150,7 @@ export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveR
   const newRel = toLifeRel(target)
   movePhysical(rel, newRel)
   moveDisplayLabels(rel, newRel)
+  moveArchivedPrefix(rel, newRel)
   logger.info({ from: rel, to: newRel }, '[intezo] atnevezve')
   return withNameAdvice(
     { ok: true, rel: newRel, message: T(lang, `Új neve: ${clean}`, `Its new name: ${clean}`) },
@@ -1229,6 +1244,9 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
   }
   const newRel = toLifeRel(target)
   movePhysical(rel, newRel)
+  // Out of the tree: the mark goes. A new item with the same name starts
+  // active, and a restore from the Trash is a fresh start too.
+  dropArchivedPrefix(rel)
   logger.info({ from: rel, to: newRel }, '[intezo] kukaba')
   return {
     ok: true, rel: newRel,
