@@ -18,6 +18,7 @@ import { shellEscape } from '../sanitize.js'
 import { getExternalProjectPaths, addExternalProjectPath, removeExternalProjectPath, getGitHubRepos, installGitHubRepo, removeGitHubRepo, updateGitHubRepo, detectRequiredEnvVars } from '../dashboard-settings.js'
 import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta, getSecretFields, setSecretFields, getSecretHistory, listAllTags } from '../vault.js'
 import { normalizeVaultFields } from '../../vault-fields.js'
+import { logVaultRead } from '../vault-acl.js'
 import {
   getBindings, addBinding, removeBinding, removeBindingsForSecret,
   syncSecret, syncAllBindings, scanMcpConfigs, unsyncBinding,
@@ -829,6 +830,10 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
   if (vaultMatch && !isVaultSubroute && method === 'GET') {
     const id = decodeURIComponent(vaultMatch[1])
     const val = getSecret(id)
+    // VAULTSZELES826 F0: one audit row per value read (id, kind, principal,
+    // allowlist verdict) BEFORE the value leaves the server. Audit only: the
+    // verdict never blocks here. The value is not passed to the logger.
+    logVaultRead(id, ctx.auth, val !== null)
     if (val === null) { json(res, { error: 'Not found' }, 404); return true }
     // Single-entry read is the ONLY place field values leave the vault: the
     // editor needs them to show what is already stored. The list endpoint

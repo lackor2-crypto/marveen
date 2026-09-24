@@ -79,8 +79,12 @@ const USAGE_LIMIT_BANNER_REGION_LINES = 15
 // limit" still does not match) while recognising the banner itself. Kept in
 // sync with paneShowsLimitBlock() in pane-state.ts, which answers the same
 // question for the Agents page's 'limited' label.
+//
+// Upstream measured two more shapes the detector stayed silent on (2026-08-18):
+// "reached your weekly limit" and "Session limit reached". The pattern is the
+// UNION of both branches' measurements -- dropping either side loses a banner.
 const USAGE_LIMIT_RX =
-  /(usage limit reached|reached your usage limit|hit (?:your|the) (?:usage|weekly|session|\d+-hour) limit|approaching (?:your )?usage limit|usage limit (?:will )?reset|limit will reset at|\d+-hour limit reached|upgrade to increase your usage limit)/i
+  /(usage limit reached|reached your (?:usage|weekly) limit|hit (?:your|the) (?:usage|weekly|session|\d+-hour) limit|approaching (?:your )?(?:\w+ )?(?:usage|weekly) limit|usage limit (?:will )?reset|limit will reset at|\d+-hour limit reached|(?:weekly|session) limit reached|upgrade to increase your usage limit)/i
 
 // The reset moment inside the banner: "resets Aug 20, 8pm (Europe/Budapest)",
 // "reset at 9am". Bounded by the interpunct/pipe that separates the banner's

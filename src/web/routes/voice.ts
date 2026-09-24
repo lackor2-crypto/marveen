@@ -143,6 +143,8 @@ export async function transcribeWithBotToken(fileId: string, token: string): Pro
   }
   const text = await transcribeVoiceFile(fileId, CODE_BOT_STT_DIR)
   return text ? { text } : { error: 'failed' }
+}
+
 /**
  * Package-manager command for the missing system dependencies, per host
  * platform. The command has to match the host: apt-get does not exist on macOS,

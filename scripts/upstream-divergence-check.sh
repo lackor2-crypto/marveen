@@ -46,6 +46,19 @@ cd "${REPO_ROOT}" || exit 1
 OUT="${REPO_ROOT}/store/upstream-sync-status.json"
 RUN_TYPE="${1:-scheduled}"
 
+# A kimeneti hely (store/) egy git worktree-ben NEM letezik: ott a meres
+# eredmenye eddig nemán veszett el (a python a .tmp megnyitasanal hasalt el,
+# egy traceback-kel, a JSON pedig sehova nem kerult). Most kimondjuk, hol
+# kerestuk, a meres osszefoglalojat stdout-on akkor is kiirjuk, es a szkript
+# nem-nulla koddal lep ki -- a "nincs hova irni" nem tevesztheto ossze a
+# "kiirtam" esettel.
+OUT_DIR="$(dirname "${OUT}")"
+OUT_MISSING=""
+if [ ! -d "${OUT_DIR}" ]; then
+  OUT_MISSING=1
+  echo "upstream-divergence-check: a kimeneti hely NEM letezik: ${OUT_DIR} (git worktree-ben nincs store/?) -- a meres lefut, az eredmeny csak itt, stdout-on jelenik meg, fajlba NEM kerul" >&2
+fi
+
 export GIT_TERMINAL_PROMPT=0   # halozati hiba eseten NE kerjen jelszot es fagyjon meg
 
 # --- 1. Melyik helyi agrol beszelunk? -------------------------------------
@@ -365,11 +378,12 @@ data = {
     'error': err or None,
     'lastRunType': run_type,
 }
-tmp = out + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-    f.write('\n')
-os.replace(tmp, out)
+if os.path.isdir(os.path.dirname(out)):
+    tmp = out + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+    os.replace(tmp, out)
 print(json.dumps({k: data[k] for k in
       ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'absorbedCount', 'skippedCount',
        'skippedDeferredCount',
@@ -386,6 +400,10 @@ rm -f /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$ /tmp/uds-clean.$$ /tmp/ud
 # --no-llm: csak git, masodpercek -- a mar meglevo magyar szovegeket
 # megtartja, uj tetelt nem fordit (az fizetos API-hivas, azt nem inditjuk
 # magunktol). A lista hibaja NEM rontja el a fenti merest: az mar ki van irva.
+if [ -n "${OUT_MISSING}" ]; then
+  echo "upstream-divergence-check: ${OUT} NEM irodott ki (hianyzo ${OUT_DIR}), a tetelesen lista sem frissul" >&2
+  exit 3
+fi
 if [ -z "${ERR}" ]; then
   TSX="${REPO_ROOT}/node_modules/.bin/tsx"
   if [ -x "${TSX}" ]; then

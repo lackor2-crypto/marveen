@@ -69,6 +69,8 @@ describe('resolveKanbanDispatchTarget', () => {
     // base has no isBlocked -> nothing is treated as blocked.
     expect(resolveKanbanDispatchTarget('tuskohopkins', base)).toBe('tuskohopkins')
     expect(resolveKanbanDispatchTarget('GorcsevIvan', base)).toBe('gorcsevivan')
+  })
+
   // The echo bug: an agent that moves its own card to in_progress got the task
   // dispatched back at it as a fresh assignment, indistinguishable from real work.
   describe('self-move', () => {

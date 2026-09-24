@@ -59,9 +59,6 @@ vi.mock('../web/agent-config.js', () => ({
   readAgentVoiceConfig: () => ({ responseMode: 'text' }),
   // Paid model: keeps the free-tier rate-limit gate out of this test's way.
   readAgentModel: () => 'claude-sonnet-5',
-  // Default-OFF, matching the real reader: the agents in this test take the
-  // tmux path, so the cap being measured is the cap on the unchanged route.
-  readAgentWorksourceChannel: () => false,
 }))
 
 vi.mock('../web/agent-process.js', () => ({

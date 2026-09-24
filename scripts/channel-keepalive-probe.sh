@@ -1,5 +1,7 @@
 #!/bin/bash
-# Token-free IDLE-path keepalive producer (systemd --user timer, every 5 min).
+# Token-free IDLE-path keepalive producer (systemd --user timer on Linux,
+# launchd StartInterval on macOS via install-channel-keepalive-probe.sh --
+# every 3 min, see scripts/systemd/channel-keepalive-probe.timer).
 #
 # WHY: the keepalive freshness signal (store/.channel-keepalive mtime) has two
 # intended producers:
@@ -32,6 +34,20 @@ LOG_TAG="channel-keepalive-probe"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [$LOG_TAG] $*"; }
 
+# Whether a dedicated channel-watchdog recovery owner is actually installed on
+# THIS host. The probe declines to recover a dead pipe on purpose -- but only a
+# real, installed watchdog legitimately "owns recovery". The systemd
+# channel-watchdog timer has NO launchd twin, so on macOS it is simply absent
+# (CHANWDOG818): claiming an owner that isn't there turns a genuine outage into
+# silence. Fail loud instead when nothing owns recovery.
+channel_watchdog_installed() {
+  if [ "$(uname -s)" = "Darwin" ]; then
+    launchctl list 2>/dev/null | grep -q 'com\.marveen\.channel-watchdog'
+  else
+    systemctl --user is-enabled channel-watchdog.timer >/dev/null 2>&1
+  fi
+}
+
 # --- resolve the channels session (launch-order / rename independent) ---
 MAIN_AGENT_ID="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
 MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
@@ -46,7 +62,7 @@ fi
 
 # --- gate 1: the channels session must exist ---
 if ! "$TMUX_BIN" has-session -t "=$SESSION:" 2>/dev/null; then
-  log "session $SESSION absent -- marveen-channels.service owns start; no touch"
+  log "session $SESSION absent -- ${MAIN_AGENT_ID}-channels.service owns start; no touch"
   exit 0
 fi
 
@@ -75,17 +91,40 @@ descends_from_pane() {
 
 alive=0
 # Candidate pollers: bun/node processes whose argv references a /telegram/
-# plugin dir. Anchored on path separators to avoid matching an unrelated argv.
+# plugin dir.
+#
+# RUNTIME_TOKEN_RX below is the portable ERE spelling of the TS side's
+# /\b(bun|node)\b/ (src/channel-coordinator/provider-poller-match.ts). It must
+# stay equivalent to it: two detectors that disagree about the same process is
+# the defect GH #1147 reported, not a detail. The previous pattern here was
+# '(^| )(bun|node)( |$|.*/)', which required a SPACE or line start before the
+# runtime token, so a poller launched from a full path -- the shape the official
+# bun installer produces, /home/USER/.bun/bin/bun -- never matched, the probe
+# reported "no live telegram poller", and the keepalive was never advanced. With
+# the 45 minute liveness ceiling that turns a quiet-but-healthy session into a
+# fresh respawn every 15 minutes: the reporter measured 41 of them in one night,
+# each losing the main agent's conversation.
+#
+# \b is NOT used here on purpose: BSD grep (macOS) does not support it reliably,
+# and this probe runs on both. The character-class form is the portable
+# equivalent.
+RUNTIME_TOKEN_RX='(^|[^A-Za-z0-9_])(bun|node)([^A-Za-z0-9_]|$)'
 while read -r cand; do
   [ -z "$cand" ] && continue
   if descends_from_pane "$cand"; then
     alive=1
     break
   fi
-done < <(ps -axo pid,command 2>/dev/null | grep -E '(^| )(bun|node)( |$|.*/)' | grep -E '/telegram/' | grep -v grep | awk '{print $1}')
+done < <(ps -axo pid,command 2>/dev/null | grep -E "$RUNTIME_TOKEN_RX" | grep -E '/telegram/' | grep -v grep | awk '{print $1}')
 
 if [ "$alive" -ne 1 ]; then
-  log "no live telegram poller under $SESSION (pane $pane_pid) -- pipe may be down; not touching (watchdog owns recovery)"
+  # Do NOT advance the keepalive: a dead pipe must stay visibly stale so a real
+  # recovery owner can act. But only claim an owner that actually exists here.
+  if channel_watchdog_installed; then
+    log "no live telegram poller under $SESSION (pane $pane_pid) -- pipe may be down; not touching (channel-watchdog owns recovery)"
+  else
+    log "WARN no live telegram poller under $SESSION (pane $pane_pid) -- pipe may be down AND no channel-watchdog recovery unit is installed on this host (CHANWDOG818); automatic recovery relies only on process-death KeepAlive + the dashboard channel-monitor, so a FROZEN session while the dashboard is also down is NOT auto-recovered"
+  fi
   exit 0
 fi
 

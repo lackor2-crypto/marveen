@@ -1,3 +1,4 @@
+import { tmuxStderr } from './tmux-stderr.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, lstatSync, symlinkSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
@@ -14,6 +15,7 @@ import {
   hasFleetOauthToken,
   FLEET_OAUTH_TOKEN_PATH,
 } from './agent-process.js'
+import { withSessionSendLock } from './session-send-lock.js'
 import { readClaudeCodeOauthJson } from './claude-credentials.js'
 import { detectPaneState } from '../pane-state.js'
 import { notifyChannel } from '../notify.js'
@@ -58,7 +60,17 @@ const WORKER_DISABLED_PLUGINS = ['telegram', 'slack-channel']
 // ~/.claude entries NOT symlinked into the isolated config dir:
 //  - settings.json: we own it (enabledPlugins:{} override).
 //  - CLAUDE.md: skipped so global user memory never tints one-shot gens (refinement #1).
-const WORKER_CONFIG_SKIP = new Set(['settings.json', 'CLAUDE.md', '.DS_Store', '.lock'])
+// .claude.json is in this set for the same reason settings.json is: the worker
+// OWNS it (ensureWorkerCwd writes it below, stamping projects[ctx.home] trusted).
+// Symlinked, that write lands in the SHARED ~/.claude/.claude.json instead, and
+// then every claude process on the host -- both workers, the channels session,
+// each agent -- rewrites that one file wholesale from its own stale in-memory
+// copy. Measured 2026-08-29: the slow worker's home read trusted, the FAST
+// worker's home read hasTrustDialogAccepted:false, so every restart parked the
+// fast session on the "Do you trust the files in this folder?" modal until a
+// human answered it in the terminal. Nothing was wrong with the stamping code:
+// its write was simply being overwritten through the alias.
+const WORKER_CONFIG_SKIP = new Set(['settings.json', 'CLAUDE.md', '.claude.json', '.DS_Store', '.lock'])
 
 // --- Per-session context ------------------------------------------------------
 //
@@ -405,6 +417,11 @@ export function ensureWorkerCwd(ctx: WorkerCtx = ctxSlow): void {
   // flags on BOTH ctx.home and its realpath (macOS /var, symlinked $HOME
   // edge-cases) since Claude Code keys trust by the resolved workspace path.
   try {
+    // Heal an install that already has the alias: the skip-set above only stops
+    // NEW symlinks, so without this an existing worker dir keeps writing into
+    // the shared file forever. Same guard settings.json has had all along.
+    const workerClaudeJson = join(ctx.configDir, '.claude.json')
+    if (lstatSyncSafe(workerClaudeJson)?.isSymbolicLink()) rmSync(workerClaudeJson, { force: true })
     const homeClaudeJson = join(homedir(), '.claude.json')
     const parsed: { projects?: Record<string, unknown>; hasCompletedOnboarding?: boolean; [k: string]: unknown } =
       existsSync(homeClaudeJson) ? JSON.parse(readFileSync(homeClaudeJson, 'utf-8')) : {}
@@ -582,7 +599,7 @@ function alertWorkerStuck(ctx: WorkerCtx, paneTail: string): void {
   if (Date.now() - ctx.lastStuckAlert < WORKER_STUCK_ALERT_COOLDOWN_MS) return
   ctx.lastStuckAlert = Date.now()
   void notifyChannel(
-    `⚠️ Marveen worker [${ctx.session}]: a hatter-worker session nem all keszen (beragadt dialogus vagy ismeretlen kepernyo). Onjavitas lefutott (Escape + restart), de a keszenlet nem allt helyre. Erintett: agens-generalas, capability-osszefoglalo, heartbeat, digest. Nezz ra: tmux attach -t ${ctx.session}`,
+    `⚠️ Marveen worker [${ctx.session}]: a háttér-worker session nem áll készen (beragadt dialógus vagy ismeretlen képernyő). Önjavítás lefutott (Escape + restart), de a készenlét nem állt helyre. Érintett: ágens-generálás, capability-összefoglaló, heartbeat, digest. Nézz rá: tmux attach -t ${ctx.session}`,
   ).catch(() => { /* notifyChannel logs internally */ })
 }
 
@@ -619,7 +636,9 @@ function restartWorkerSession(ctx: WorkerCtx): void {
     logger.warn({ session: ctx.session }, 'agent-worker: WEB_ONLY mode -- refusing to restart (kill) a worker session')
     return
   }
-  try { execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(ctx.session)], { timeout: 5000 }) } catch { /* not running */ }
+  // TMUXWINDOWATTR920: stderr piped; "not running" is the expected case here,
+  // so it is logged at debug with the site instead of copied onto stderr.
+  try { execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(ctx.session)], { timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }) } catch (err) { logger.debug({ site: 'agent-worker.restart', session: ctx.session, tmux: tmuxStderr(err) }, 'tmux kill-session: not running') }
   try { startWorkerSessionFor(ctx) } catch (err) { logger.warn({ err, session: ctx.session }, 'agent-worker: restart failed') }
 }
 
@@ -663,8 +682,18 @@ async function runWorkerAttempt(ctx: WorkerCtx, message: string, timeoutMs: numb
   const donePath = join(ctx.scratchDir, `${reqId}.done`)
   for (const p of [outPath, donePath]) { try { rmSync(p, { force: true }) } catch { /* none */ } }
 
-  clearWorkerContext(ctx)
-  await sendPromptToSession(ctx.session, buildWorkerPrompt(message, outPath, donePath))
+  // PANEWRITERS805: /clear + prompt-send is ONE atomic delivery. Unlocked, the
+  // /clear could eat another writer's in-flight text, and a writer slipping in
+  // between the clear and our send would land its text into the freshly
+  // cleared context ahead of ours. Deliver mode (not recover): a dispatch must
+  // deliver; on a wedged holder we fail open past the budget, logged.
+  const sendRes = await withSessionSendLock(ctx.session, null, 'deliver', async () => {
+    clearWorkerContext(ctx)
+    await sendPromptToSession(ctx.session, buildWorkerPrompt(message, outPath, donePath), null, { lockMode: 'held' })
+  })
+  if (sendRes.failedOpen) {
+    logger.warn({ session: ctx.session, reqId }, 'agent-worker: dispatch ran without the send lane (fail-open past wait budget)')
+  }
 
   const start = Date.now()
   try {

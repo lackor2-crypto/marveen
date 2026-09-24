@@ -81,10 +81,22 @@ export function buildTmuxInvocation(
   localTmuxBin: string,
   tmuxArgs: string[],
   remoteTmuxBin = 'tmux',
+  runAsUser: string | null = null,
 ): TmuxInvocation {
   // Every tmux call in the codebase is built here, so this is the single place
   // that can guarantee targets are exact (see normalizeTmuxTargetArgs).
   const args = normalizeTmuxTargetArgs(tmuxArgs)
+  // Local agent that owns its own OS user: run tmux AS that user. tmux rejects a
+  // cross-user connection even when the socket's permissions allow it (measured
+  // 2026-08-19), so this is the only route that works. `-n` fails loudly instead
+  // of waiting for a password nobody can type; the sudoers rule grants this one
+  // binary for this one target user and nothing else.
+  //
+  // A remote (ssh) agent already runs as whoever the ssh login is, so host wins
+  // and runAsUser is not applied there -- the two are alternatives, not layers.
+  if (host == null && runAsUser) {
+    return { file: 'sudo', args: ['-n', '-u', runAsUser, localTmuxBin, ...args] }
+  }
   if (host == null) return { file: localTmuxBin, args }
   // remoteTmuxBin is a trusted constant ('tmux'); only the args carry data, so
   // only the args are quoted. The whole thing is a single argv element for ssh.

@@ -48,6 +48,8 @@ export function validateStuckAfterMinutes(raw: unknown): string | null {
   if (raw < 0) return 'stuckAfterMinutes must not be negative'
   if (raw > MAX_STUCK_AFTER_MINUTES) return `stuckAfterMinutes must be at most ${MAX_STUCK_AFTER_MINUTES} (6 hours)`
   return null
+}
+
 // HBSCHEDSZAM903: the hourly heartbeat digest's "enabled schedules" figure was
 // the ONE number the agent computed itself (counting enabled:true in the raw
 // /api/schedules array), and it drifted to a 13x error (376 reported vs 29

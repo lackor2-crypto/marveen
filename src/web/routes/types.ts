@@ -29,6 +29,7 @@ export interface RouteContext {
     user?: string
     peer?: string
     device?: string
+    deviceId?: number
     client?: string
     clientId?: number
   }

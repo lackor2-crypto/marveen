@@ -1575,6 +1575,8 @@ fi
 if [ -f "$INSTALL_DIR/scripts/install-guard-units.sh" ]; then
   bash "$INSTALL_DIR/scripts/install-guard-units.sh" \
     || warn "Az orszem-idozitok egy resze nem jott letre. Kezzel: bash scripts/install-guard-units.sh"
+fi
+
 # Idle-path keepalive probe (launchd twin of the Linux systemd timer). Without
 # it the ONLY producer of store/.channel-keepalive freshness is organic inbound
 # traffic, so a quiet night looks exactly like a wedged session: the file ages

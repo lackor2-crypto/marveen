@@ -357,7 +357,7 @@ if command -v free &>/dev/null; then
 fi
 
 MISSING_PKGS=""
-for pkg in ffmpeg git tmux lsof curl python3 pipx unzip; do
+for pkg in ffmpeg git tmux lsof curl python3 pipx unzip zstd; do
   if ! command -v "$pkg" &>/dev/null; then
     MISSING_PKGS="$MISSING_PKGS $pkg"
   fi
@@ -432,7 +432,7 @@ if [ -n "$MISSING_PKGS" ]; then
     # dnf/yum (Fedora/Nobara/RHEL). A disztro nodejs csomagja v20+ az aktualis
     # kiadasokon, es az npm-et is tartalmazza -- nincs szukseg kulso repora.
     # Csomagnevek megegyeznek a Debian-belivel (ffmpeg/git/tmux/lsof/curl/
-    # python3/pipx/unzip/nodejs). Az ffmpeg-hez Fedoran az RPM Fusion repo
+    # python3/pipx/unzip/zstd/nodejs). Az ffmpeg-hez Fedoran az RPM Fusion repo
     # kellhet; ha mar engedelyezve van, a csomag elerheto.
     # shellcheck disable=SC2086
     pkg_install_noninteractive $MISSING_PKGS
@@ -462,6 +462,7 @@ ok "pipx" $(pipx --version)
 ok "python3 $(python3 --version | awk '{print $2}')"
 ok "tmux $(tmux -V | awk '{print $2}')"
 ok "unzip" $(unzip -v | awk 'NR==1 {print $2}')
+ok "zstd $(zstd --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 
 # ─────────────────────────────────────────────
 # Ajanlott programok (nem kotelezo, de nelkuluk egy-egy funkcio nem megy)
@@ -695,6 +696,9 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 if command -v bun &>/dev/null; then
   ok "bun mar telepitve: $(bun --version)"
 else
+  # unzip -- a Bun hivatalos telepitoje ezzel csomagolja ki a binarist; nincs alapertelmezetten telepitve friss WSL distrokon,
+  # nelkule "error: unzip is required to install bun"-nal elhasal.
+  command -v unzip &>/dev/null || pkg_install_noninteractive unzip || true
   echo -e "  Bun telepitese (Telegram plugin fuggoseg)..."
   curl -fsSL https://bun.sh/install | bash 2>/dev/null
   if ! command -v bun &>/dev/null; then
@@ -954,6 +958,43 @@ else
 fi
 ok "Csatorna: $CHANNEL_PROVIDER"
 
+# INSTTOKEN807: probe the freshly entered bot token BEFORE anything is written.
+# Warn-only (advisory), for two hard reasons: a network hiccup must not block
+# the install, and the headless derive contract (Bridge payload) forbids new
+# interactive reads here -- so we say it loudly and let the install continue.
+# The dashboard save path hard-rejects the same states (#926); this is the
+# installer-side voice for the same three findings, each with its remedy.
+# set -e safe: every path ends in return 0; curl failures are guarded.
+# The token value itself is NEVER printed.
+probe_telegram_token() {
+  _ptt_t="$1"
+  [ -n "$_ptt_t" ] || return 0
+  _ptt_me="$(curl -s --max-time 8 "https://api.telegram.org/bot${_ptt_t}/getMe" 2>/dev/null)" || return 0
+  case "$_ptt_me" in
+    *'"ok":true'*) : ;;
+    *'"ok":false'*)
+      warn "A megadott bot token ERVENYTELEN (a Telegram getMe elutasitotta)."
+      echo -e "    ${DIM}Ellenorizd a @BotFather-tol kapott tokent. A telepites folytatodik, de a bot ezzel a tokennel nem fog valaszolni.${NC}"
+      return 0 ;;
+    *) return 0 ;;
+  esac
+  _ptt_wh="$(curl -s --max-time 8 "https://api.telegram.org/bot${_ptt_t}/getWebhookInfo" 2>/dev/null)" || return 0
+  case "$_ptt_wh" in
+    *'"url":"http'*)
+      warn "A bot token ervenyes, de a bot WEBHOOKRA van kotve -- a Marveen poller igy nem tud ra csatlakozni."
+      echo -e "    ${DIM}Teendo: nyisd meg bongeszoben: https://api.telegram.org/bot<A-TOKENED>/deleteWebhook${NC}"
+      echo -e "    ${DIM}vagy keszits uj botot a @BotFather-nel, es futtasd ujra a telepitot azzal.${NC}"
+      return 0 ;;
+  esac
+  _ptt_up="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://api.telegram.org/bot${_ptt_t}/getUpdates?timeout=0&limit=1" 2>/dev/null)" || return 0
+  if [ "$_ptt_up" = "409" ]; then
+    warn "A bot token ervenyes, de egy MASIK futo rendszer mar hasznalja (Telegram 409 Conflict)."
+    echo -e "    ${DIM}Egy tokent egyszerre csak egy telepites hasznalhat. Teendo: allitsd le a korabbi telepitest,${NC}"
+    echo -e "    ${DIM}vagy keszits uj botot a @BotFather-nel, es futtasd ujra a telepitot az uj tokennel.${NC}"
+  fi
+  return 0
+}
+
 BOT_TOKEN=""
 SLACK_BOT_TOKEN=""
 SLACK_APP_TOKEN=""
@@ -970,6 +1011,7 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ]; then
   echo -e "${DIM}  4. Masold ide a kapott tokent:${NC}"
   echo ""
   read -rp "$(_t prompt_telegram_token)" BOT_TOKEN
+  probe_telegram_token "$BOT_TOKEN"
 elif [ "$CHANNEL_PROVIDER" = "discord" ]; then
   echo ""
   echo -e "${DIM}  Az AI asszisztensed Discordon kommunikal veled.${NC}"
@@ -1334,11 +1376,18 @@ if [ -d "$SEED_SCHED_DIR" ]; then
   mkdir -p "$SCHED_TARGET_DIR"
   SCHED_NEW=0
   SCHED_SKIP=0
+  SCHED_TOMBSTONE="$SCHED_TARGET_DIR/.removed-defaults"
   for tpl in "$SEED_SCHED_DIR"/*/; do
     [ -d "$tpl" ] || continue
     task_name=$(basename "$tpl")
     [[ "$task_name" == "bumblebee-hygiene-scan" ]] && continue
     target="$SCHED_TARGET_DIR/$task_name"
+    # #796: a reinstall over an existing box must honor the dashboard's record
+    # of a deleted default (.removed-defaults); a UI re-create clears it.
+    if [ -f "$SCHED_TOMBSTONE" ] && grep -qxF "$task_name" "$SCHED_TOMBSTONE" 2>/dev/null; then
+      SCHED_SKIP=$((SCHED_SKIP + 1))
+      continue
+    fi
     if [ -d "$target" ]; then
       SCHED_SKIP=$((SCHED_SKIP + 1))
       continue
@@ -1544,14 +1593,34 @@ echo ""
 echo -e "${BOLD}$(_t section_6_linux)${NC}"
 
 # --- Ollama telepites ---
+#
+# Where the RUNTIME will look. src/config.ts:331 reads OLLAMA_URL and falls back
+# to http://localhost:11434; this step used to hardcode that fallback in seven
+# places, so an install pointed at a non-default or remote Ollama probed and
+# pulled the embedding model somewhere the running fleet would never read --
+# and installed a second, local daemon it did not need. Same precedence as the
+# runtime: the environment first, then the .env this installer has already
+# written, then the historical default.
+OLLAMA_API="${OLLAMA_URL:-}"
+if [ -z "$OLLAMA_API" ] && [ -f "$INSTALL_DIR/.env" ]; then
+  OLLAMA_API="$(grep -E '^OLLAMA_URL=' "$INSTALL_DIR/.env" | head -1 | cut -d= -f2- | tr -d ' "')"
+fi
+OLLAMA_API="${OLLAMA_API:-http://localhost:11434}"
+
 echo -e "  Ollama ellenorzese (szemantikus memoria kereseshez)..."
-if command -v ollama &>/dev/null; then
+if curl -s --max-time 5 "${OLLAMA_API}/api/version" &>/dev/null; then
+  # Answering already: nothing to install, wherever it happens to run.
+  ok "ollama elerheto (${OLLAMA_API})"
+elif command -v ollama &>/dev/null; then
   ok "ollama mar telepitve"
 else
   echo -e "  Ollama telepitese..."
   # Az ollama telepitoje sudo-val ir a /usr/local/bin-be es allit be systemd service-t.
   # Elore gyorsitotarazzuk a sudo hitelesitest, hogy a gyermek-script sudo prompt-ja ne bukjon el.
   sudo -v 2>/dev/null || true
+  # zstd -- az ollama telepitoje ezzel csomagolja ki a binarist; nincs alapertelmezetten telepitve friss WSL distron,
+  # nelkule "ERROR: This version requires zstd for extraction" hibaval elhasal.
+  command -v zstd &>/dev/null || pkg_install_noninteractive zstd || true
   # NEM fatalis: ha az ollama telepitoje hibara fut (pl. sudo, halozat, WSL),
   # csak figyelmeztetunk es kihagyjuk a szemantikus memoria lepest -- a telepito megy tovabb.
   if curl -fsSL https://ollama.com/install.sh | sh; then
@@ -1562,16 +1631,18 @@ else
   fi
 fi
 
-# A service-inditas es modell-letoltes csak akkor fut, ha az ollama tenyleg telepult.
-if command -v ollama &>/dev/null; then
+# The service-start + model-pull block runs when there is a local binary to
+# start OR an API to pull through -- a remote/containerised Ollama has no local
+# binary, but the model still has to exist on it.
+if command -v ollama &>/dev/null || curl -s --max-time 5 "${OLLAMA_API}/api/version" &>/dev/null; then
 # A telepito letrehoz egy ollama.service systemd egységet és elindítja.
 # Ha megis nem futna, systemctl-lel indítjuk -- NEM ollama serve &
-if ! curl -s http://localhost:11434/api/version &>/dev/null; then
+if ! curl -s "${OLLAMA_API}/api/version" &>/dev/null; then
   echo -e "$(_t linux.ollama_starting)"
   sudo systemctl enable --now ollama 2>/dev/null || true
   # Megvarjuk amig az API valaszol (max 15 mp)
   for i in $(seq 1 15); do
-    curl -s http://localhost:11434/api/version &>/dev/null && break
+    curl -s "${OLLAMA_API}/api/version" &>/dev/null && break
     sleep 1
   done
 fi
@@ -1580,21 +1651,37 @@ fi
 # stream:false --> szinkron, egyetlen valaszt ad vissza a letoltes utan
 ollama_pull() {
   local model="$1" size="$2"
-  if curl -s http://localhost:11434/api/tags | grep -q "\"$model\""; then
+  # API-up guard (BC100FAIL810): this whole step is declared optional/non-fatal,
+  # but on a host where the ollama BINARY installed yet its SERVICE never came up
+  # (no ollama.service unit, API at :11434 dead -- measured on ai-bootcamp-vps100
+  # 2026-08-10), the pull below would abort the whole install. Under `set -e` the
+  # `status=$(curl ... | python3 json.load)` assignment inherits the pipeline's
+  # exit code -- an empty curl (connection refused) makes json.load raise, python3
+  # exits non-zero, the assignment inherits it, and the ERR trap kills the
+  # install at step "ollama-whisper". So skip -- non-fatal -- whenever the API is
+  # not answering, instead of trying a pull that cannot work.
+  if ! curl -s --max-time 5 "${OLLAMA_API}/api/version" &>/dev/null; then
+    warn "ollama API nem valaszol (${OLLAMA_API}) -- $model letoltese kimarad (a szolgaltatas nem all fel). Kesobb: ollama serve && ollama pull $model"
+    return 0
+  fi
+  if curl -s "${OLLAMA_API}/api/tags" | grep -q "\"$model\""; then
     ok "$model mar letoltve"
     return 0
   fi
   echo -e "  $model letoltese ($size)..."
   local status
+  # `|| status=""` is load-bearing under `set -e`: a command-substitution
+  # assignment aborts the script when its pipeline exits non-zero (empty body ->
+  # json.load raises -> python3 exits 1). The guard turns that into the warn path.
   status=$(curl -s --max-time 600 \
-    -X POST http://localhost:11434/api/pull \
+    -X POST "${OLLAMA_API}/api/pull" \
     -H 'Content-Type: application/json' \
     -d "{\"model\": \"$model\", \"stream\": false}" |
-    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null)
+    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null) || status=""
   if [ "$status" = "success" ]; then
     ok "$model kesz"
   else
-    warn "$model letoltese sikertelen (status: $status) -- kezzel: ollama pull $model"
+    warn "$model letoltese sikertelen (status: ${status:-<ures valasz>}) -- kezzel: ollama pull $model"
   fi
 }
 
@@ -1874,6 +1961,17 @@ ${TZ_LINE}
 EOF
 
 # ${MORN_UNIT}.timer
+# WRITTEN BUT NOT ENABLED (see the enable list further down). The morning
+# briefing ships TWICE: as this 07:27 timer and as the seeded
+# scheduled-tasks/reggeli-napindito task at 07:30. Two runs of the same work
+# three minutes apart is one too many, and the timer is the weaker of the two:
+# it launches a headless `claude -p` whose config dir carries no channel
+# allowlist, so its reply tool rejects the owner's chat_id and the run refuses
+# itself as a prompt injection (observed 2026-09-13, and it stamped the day as
+# delivered on the way out). The scheduled task runs inside the live channel
+# session, which has the allowlist. The unit files stay on disk so an operator
+# who wants the timer path can `systemctl --user enable --now <id>-morning.timer`.
+#
 # NO Requires=/Wants= on the service here: a [Unit] dependency on the
 # triggered service makes EVERY activation of the timer unit (each systemd
 # user-manager start, not just the 07:27 elapse) queue an immediate start of
@@ -2022,9 +2120,9 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
   else
     warn "A unit-fajlok elkeszultek, de az engedelyezesuk nem sikerult -- ujrainditas utan a szolgaltatasok nem indulnak el maguktol."
     # ALL FOUR units the enable above covers, not just the two services. A
-    # command that silently drops the timer and the watchdog would leave them
-    # disabled while the operator sees no error and believes the fix worked --
-    # an incomplete instruction ends the same way as a false claim.
+    # command that silently drops the keepalive probe or the watchdog would leave
+    # them disabled while the operator sees no error and believes the fix worked
+    # -- an incomplete instruction ends the same way as a false claim.
     # The label gets its own line. With "Javitas most:" in front of the command,
     # the backslashes join all three printed lines into ONE command whose first
     # token is `Javitas`, so a pasted block fails with "Javitas: command not
@@ -2116,11 +2214,37 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ -n "$BOT_TOKEN" ]; then
 
   ACCESS_FILE="$CHANNEL_DIR/access.json"
 
+  # Is the Telegram bridge actually running?
+  #
+  # `systemctl --user is-active` alone answers a NARROWER question than this
+  # step needs -- "does a systemd USER unit for it exist and run" -- and the two
+  # answers diverge on exactly the hosts the [7/7] step already handles. There,
+  # `pidof systemd` / `systemctl --user status` failing is not an error: the
+  # installer falls back to a direct nohup launch and prints
+  #   "Channels (Telegram bridge) fut (nohup, pid N)"
+  # ...and then this check called the very bridge it had just started "not
+  # started", skipped pairing, and left the install with ALLOWED_CHAT_ID=0 plus
+  # a red warning telling the operator to pair by hand. WSL is a documented
+  # supported platform and has no systemd user session by default, so this is
+  # not an exotic shape.
+  #
+  # Ask the same three ways start.sh/stop.sh already distinguish -- user unit,
+  # system unit, direct launch -- so pairing works wherever the launch worked.
+  _bridge_is_up() {
+    systemctl --user is-active --quiet "${CHAN_UNIT}" 2>/dev/null && return 0
+    systemctl is-active --quiet "${CHAN_UNIT}" 2>/dev/null && return 0
+    # The pidfile start.sh writes on its no-systemd branch. `kill -0` only
+    # probes for existence; it sends no signal.
+    local _pid
+    _pid="$(cat "$INSTALL_DIR/store/channels.pid" 2>/dev/null)" || return 1
+    [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null
+  }
+
   # Megvarjuk amig a channels service tenyleg valaszol (max 15 mp)
   echo -e "  Varakozas a Telegram bridge elindulasara..."
   BRIDGE_OK=false
   for i in $(seq 1 15); do
-    if systemctl --user is-active --quiet "${CHAN_UNIT}" 2>/dev/null; then
+    if _bridge_is_up; then
       BRIDGE_OK=true
       break
     fi
@@ -2128,9 +2252,10 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ -n "$BOT_TOKEN" ]; then
   done
 
   if [ "$BRIDGE_OK" = "false" ]; then
-    warn "A ${CHAN_UNIT} service nem indult el. Parositas kihagyva."
-    echo -e "  ${DIM}Ellenorizd: journalctl --user -u ${CHAN_UNIT} -n 30${NC}"
-    echo -e "  ${DIM}Kesobb: systemctl --user start ${CHAN_UNIT}, majd irj a botodnak${NC}"
+    warn "A Telegram bridge nem indult el. Parositas kihagyva."
+    echo -e "  ${DIM}systemd-vel:  journalctl --user -u ${CHAN_UNIT} -n 30${NC}"
+    echo -e "  ${DIM}anelkul:      tail -n 30 $INSTALL_DIR/store/channels.log${NC}"
+    echo -e "  ${DIM}Kesobb: ./scripts/start.sh, majd irj a botodnak${NC}"
   else
     ok "Telegram bridge fut"
     echo ""

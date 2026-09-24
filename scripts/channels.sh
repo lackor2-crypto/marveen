@@ -143,9 +143,66 @@ resolve_main_model() {
     printf '%s' "$MAIN_AGENT_MODEL"
     return 0
   fi
-  if [ -f "$INSTALL_DIR/.claude/settings.json" ] && command -v jq >/dev/null 2>&1; then
-    jq -r '.model // empty' "$INSTALL_DIR/.claude/settings.json" 2>/dev/null
+  local _m=""
+  if [ -f "$INSTALL_DIR/.claude/settings.json" ]; then
+    # python3 fallback: jq is not guaranteed on the host (stock WSL/minimal
+    # Debian images ship without it). Behind a `command -v jq` guard alone the
+    # settings.json read silently resolves EMPTY on such a host: MODEL_FLAG is
+    # omitted, the main agent launches on the CLI's built-in default, and every
+    # status surface keeps naming the configured model -- a silent model drift
+    # with no error anywhere. python3 is already a hard dependency of the hooks,
+    # so it is always available as the fallback reader.
+    if command -v jq >/dev/null 2>&1; then
+      _m="$(jq -r '.model // empty' "$INSTALL_DIR/.claude/settings.json" 2>/dev/null)"
+    else
+      _m="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model") or "")' "$INSTALL_DIR/.claude/settings.json" 2>/dev/null)"
+    fi
   fi
+  if [ -n "$_m" ]; then
+    printf '%s' "$_m"
+    return 0
+  fi
+  # MODELMIGRATE806: settings.json has no model -> fall back to the SHIPPED
+  # distribution default (DISTRIBUTION_DEFAULT_AGENT_MODEL). This is what lets a
+  # model bump reach EXISTING installs through a plain code update: their
+  # settings.json (shipped before the model field existed) stays model-less, and
+  # WITHOUT this fallback they would silently keep the CLI default forever. We do
+  # NOT write the value into a per-install file -- that would pin an inherited
+  # default and cut those machines off from the NEXT bump. The shipped TS
+  # constant stays the single source of truth; node reads it (~one-time per
+  # restart). The .env override above still wins, so a hand-set model is untouched.
+  #
+  # EVERY failure here is NAMED to store/channels-failures.log, never a silent
+  # empty (Marveen review, the jq-gap's sibling): a missing node, a missing/stale
+  # dist (channels can start before the update rebuilds it), or an empty read all
+  # get a log line so the operator sees WHY the model is unset instead of it
+  # looking like nothing was configured.
+  local _fail_log="$INSTALL_DIR/store/channels-failures.log"
+  # Node may not be on the (narrow launchd) PATH at this point; try the standard
+  # install locations too -- the same ones line ~287 adds to PATH -- so this does
+  # not depend on the launcher having widened PATH before this runs.
+  local _node
+  _node="$(command -v node 2>/dev/null || true)"
+  if [ -z "$_node" ]; then
+    for _c in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.bun/bin/node" "$HOME/.local/bin/node" /home/linuxbrew/.linuxbrew/bin/node; do
+      [ -x "$_c" ] && { _node="$_c"; break; }
+    done
+  fi
+  if [ -z "$_node" ]; then
+    echo "resolve_main_model: node not found on PATH or standard locations; main-agent model left UNSET (would run the CLI default)" >>"$_fail_log" 2>/dev/null || true
+    return 0
+  fi
+  if [ ! -f "$INSTALL_DIR/dist/config-registry.js" ]; then
+    echo "resolve_main_model: dist/config-registry.js missing (build not present yet?); main-agent model left UNSET" >>"$_fail_log" 2>/dev/null || true
+    return 0
+  fi
+  local _def
+  _def="$("$_node" -e 'try { process.stdout.write(String(require(process.argv[1]).DISTRIBUTION_DEFAULT_AGENT_MODEL || "")) } catch (e) { process.exit(3) }' "$INSTALL_DIR/dist/config-registry.js" 2>/dev/null)"
+  if [ -z "$_def" ]; then
+    echo "resolve_main_model: read of DISTRIBUTION_DEFAULT_AGENT_MODEL was empty (stale or broken dist/config-registry.js); main-agent model left UNSET" >>"$_fail_log" 2>/dev/null || true
+    return 0
+  fi
+  printf '%s' "$_def"
 }
 
 # Test seam: print the resolved model and exit before any side effect.
@@ -155,11 +212,171 @@ if [ "${1:-}" = "--resolve-main-model" ]; then
   exit 0
 fi
 
+# --- pane-dead detector (PANEDEAD919) -----------------------------------------
+# With `remain-on-exit on` (set on the main session at launch, PR #1402) a pane
+# whose claude process died is KEPT by tmux instead of closing the session, so
+# `while has-session` below keeps looping and nothing restarts the channel until
+# the plugin-dead grace (180s) or, on a cold-start crash, the never-started
+# budget (600 -> 2400s) runs out. Before remain-on-exit the same death closed
+# the session and the supervisor relaunched within seconds. This check restores
+# that: a dead pane exits the loop on the SAME normal-end path (exit 0) the
+# session-gone case used, so the exit ledger reads the same as before.
+# Returns 0 (dead) only on a positive `1` from tmux; a failed query is NOT dead
+# (fail-safe: never restart on a broken instrument).
+pane_dead_detected() {
+  "$TMUX" list-panes -t "$1" -F '#{pane_dead}' 2>/dev/null | grep -q '^1$'
+}
+
+# Test seam: `channels.sh --pane-dead-check <session>` prints dead|alive and
+# exits before touching .env, the store or the real session. CHANNELS_TMUX_BIN
+# lets the contract test point it at a fake tmux (and a mutant copy of this
+# script at a real one) -- see scripts/__tests__/channels-pane-dead.test.sh.
+if [ "${1:-}" = "--pane-dead-check" ]; then
+  TMUX="${CHANNELS_TMUX_BIN:-$(command -v tmux)}"
+  if pane_dead_detected "${2:-}"; then echo dead; else echo alive; fi
+  exit 0
+fi
+
 if [ "${1:-}" = "--classify-mcp-pane" ]; then
   resolve_plugin_ids "${2:-$CHANNEL_PROVIDER}"
   classify_mcp_plugin_row "$(cat)"
   echo "$MCP_PLUGIN_STATE"
   exit 0
+fi
+
+# --- input-line probe for the /mcp unlock (MCPDUP806) -------------------------
+# Classifies a COLOURED capture (`tmux capture-pane -e -p`) of the main session.
+# Typing "/mcp" only opens the MCP manager when the pane sits at an EMPTY idle
+# prompt; into any other state the literal text lands in the input box instead.
+# On a fresh 0.3.9 install two consecutive boots did exactly that: each left a
+# parked "/mcp", the second appended to the first ("/mcp/mcp"), the combined
+# text was submitted as a PROMPT, and while parked it also made the message
+# router read the session as busy -- muting inter-agent delivery.
+#
+# Delegates to the compiled pane-state.js instruments (stripGhostSuggestion /
+# idleConsideringDimGhost / detectPaneState / parkedInputText) -- the same code
+# the dashboard recovery stack trusts -- rather than re-deriving TUI parsing in
+# shell. The coloured capture matters: Claude Code renders ghost/placeholder
+# hints dim (SGR 2) inside an EMPTY box, and a plain capture cannot tell them
+# from genuinely parked text.
+#
+# stdout, exactly one line:
+#   idle           -- input box live and provably empty; safe to type
+#   parked:<text>  -- text parked in the box (collapsed, truncated for logs)
+#   busy|unknown|… -- detectPaneState verdict; not safe to type
+#   unverifiable   -- node or dist/pane-state.js unavailable; not safe to type
+probe_pane_input_state() {
+  local _node _pane_js
+  _node="$(command -v node || true)"
+  # Test seam: the suite points this at a real build outside the checkout
+  # (dist/ is a build product, absent from a fresh clone). Runtime installs
+  # always carry dist/ -- the dashboard itself runs from it.
+  _pane_js="${CHANNELS_PANE_STATE_JS:-$INSTALL_DIR/dist/pane-state.js}"
+  if [ -z "$_node" ] || [ ! -f "$_pane_js" ]; then
+    echo "unverifiable"
+    return 0
+  fi
+  "$_node" -e '
+    const ps = require(process.argv[1])
+    let raw = ""
+    process.stdin.on("data", (d) => { raw += d })
+    process.stdin.on("end", () => {
+      const plain = ps.stripAllAnsi(raw)
+      const view = ps.stripGhostSuggestion(raw)
+      if (ps.idleConsideringDimGhost(plain, view)) { console.log("idle"); return }
+      const state = ps.detectPaneState(plain)
+      if (state === "typing") {
+        const parked = ps.parkedInputText(view) || ps.parkedInputText(plain) || ""
+        console.log("parked:" + parked.replace(/\s+/g, " ").slice(0, 120))
+        return
+      }
+      console.log(state)
+    })
+  ' "$_pane_js" 2>/dev/null || echo "unverifiable"
+}
+
+# True (exit 0) when $1 is nothing but our own unlock-probe residue -- one or
+# more "/mcp" fragments and whitespace. The post-unlock cleanup may only ever
+# clear text WE parked; anything else (a human draft, a delivered channel
+# message) is left alone for the stuck-input recovery stack.
+is_own_probe_residue() {
+  printf '%s' "$1" | grep -Eq '^[[:space:]]*(/mcp[[:space:]]*)+$'
+}
+
+# Test seams: drive the two helpers from stdin with no tmux / store / session.
+if [ "${1:-}" = "--probe-input-state" ]; then
+  probe_pane_input_state
+  exit 0
+fi
+
+if [ "${1:-}" = "--classify-unlock-residue" ]; then
+  if is_own_probe_residue "$(cat)"; then echo "own"; else echo "foreign"; fi
+  exit 0
+fi
+
+# CHEXIT910: EVERY exit of the real run leaves a row -- exit 0 included.
+#
+# Why: this script has SEVEN `exit 0` paths and channels-failures.log, true to
+# its name, records only failures -- so a clean self-exit leaves NO trace
+# anywhere (measured on hermes 2026-09-09 20:25:03: the service's main process
+# exited 0, systemd's Restart=on-failure did not restart it, and the box lost
+# its supervisor with nothing to read afterwards; journald had no line either,
+# because leftover cgroup processes suppressed the usual "Deactivated" record).
+# Marveen's ordering decision (msg 23453): exit LOGGING lands first; only then
+# is a Restart-policy change even discussable, because until the exit is
+# measured, `on-failure` is the last remaining signal.
+#
+# Scope, stated: an EXIT trap covers every code-path exit (explicit `exit N`,
+# end-of-script, `set -e`-style aborts) but NOT an untrapped fatal signal --
+# systemd/launchd already record "code=killed, signal=..." in that case, so
+# the invisible class was precisely the clean self-exit this closes.
+#
+# Placed AFTER the test seams above (their contract is "no tmux / store /
+# session" -- a trap before them would make every seam invocation write into
+# the repo's store/). Growth is bounded by service lifecycle frequency (the
+# chronic hermes churn is ~36 exits/day, a few KB); no rotation needed.
+# The log target is env-overridable so the positive-control test can point it
+# at a fixture file instead of a live store/.
+CHANNELS_EXITS_LOG="${CHANNELS_EXITS_LOG:-$INSTALL_DIR/store/channels-exits.log}"
+record_channels_exit() {
+  _rc="$1"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh exit code=${_rc} line=${CHEXIT_LAST_LINE:-?} cmd=[${CHEXIT_LAST_CMD:-?}] pid=$$" >> "$CHANNELS_EXITS_LOG" 2>/dev/null \
+    || echo "channels.sh: exit-log write FAILED (code=${_rc} line=${CHEXIT_LAST_LINE:-?} target=$CHANNELS_EXITS_LOG)" >&2
+}
+# CHEXITLINE910: `$LINENO` inside a trap string is 1 on bash >= 5 (measured on
+# hermes bash 5.2.37: every exit logged line=1, so the row could not say WHICH
+# of the seven exit paths ran -- the whole point of the line field; mac bash
+# 3.2 happened to report the real line, which is why the original review saw
+# 311). The line therefore comes from a DEBUG-trap tracker that records each
+# command's site as it executes; at exit time the last recorded site IS the
+# exit. Three guards, each measured:
+#   - the two `case` filters keep the EXIT handler's own commands from
+#     clobbering the tracked values on bash 3.2 (where BASH_COMMAND names them);
+#   - the same-command latch keeps them on bash 5.x, where the EXIT handler's
+#     commands fire DEBUG with BASH_COMMAND frozen as the exiting command and
+#     BASH_LINENO already reset to 1. Cost of the latch: an identical command
+#     text re-executed consecutively on a DIFFERENT line keeps the first
+#     line's attribution -- acceptable for exit attribution, stated here.
+# `$?` is preserved across the DEBUG trap (measured both platforms: a `false`
+# followed by `echo $?` still prints 1 with the tracker armed).
+set -o functrace
+chexit_track() {
+  case "$BASH_COMMAND" in record_channels_exit*) return 0;; esac
+  case " ${FUNCNAME[*]} " in *" record_channels_exit "*) return 0;; esac
+  [ "$BASH_COMMAND" = "${CHEXIT_LAST_CMD:-}" ] && return 0
+  CHEXIT_LAST_LINE="${BASH_LINENO[0]}"
+  CHEXIT_LAST_CMD="$BASH_COMMAND"
+  return 0
+}
+trap chexit_track DEBUG
+trap 'record_channels_exit "$?"' EXIT
+
+# Positive-control seam for the trap itself (Marveen's stipulation, msg 23453):
+# a deliberate exit through the test path MUST write a row, otherwise a silent
+# log is indistinguishable from "no exit happened". Sits AFTER the trap so the
+# exit exercises the real handler; touches nothing else.
+if [ "${1:-}" = "--exit-probe" ]; then
+  exit "${2:-0}"
 fi
 
 # Self-healing guard: ensure PLUGIN_ID is enabled in the PROJECT settings.json
@@ -257,8 +474,10 @@ unset _p
 
 # Extra safety net for existing installs whose tmux server already has a
 # polluted global env -- scrub channel tokens so new child sessions don't
-# inherit them. The main agent's plugin will still load its token from
-# ~/.claude/channels/<provider>/.env via the plugin's own bootstrap.
+# inherit them. The main agent's plugin will still load its token from the
+# install-scoped state dir (see the #915 migration below) via the exported
+# *_STATE_DIR, falling back to ~/.claude/channels/<provider>/.env only on an
+# unmigrated install.
 command -v tmux >/dev/null 2>&1 && tmux set-environment -g -u TELEGRAM_BOT_TOKEN 2>/dev/null || true
 command -v tmux >/dev/null 2>&1 && tmux set-environment -g -u SLACK_BOT_TOKEN 2>/dev/null || true
 command -v tmux >/dev/null 2>&1 && tmux set-environment -g -u DISCORD_BOT_TOKEN 2>/dev/null || true
@@ -285,11 +504,38 @@ export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:$HO
 # AVX-less x86 host: the install pinned a Node-based claude (cli.js entrypoint,
 # see install-linux.sh CLAUDE_PIN) because the Bun standalone binary SIGILLs
 # without AVX. The auto-updater would swap the pin for the latest Bun binary on
-# first run, killing every session -- disable it here so all agent sessions
-# inherit the guard via tmux. No-op on AVX-capable and ARM hosts.
+# first run, killing every session. Recorded here because it also decides WHICH
+# package spec the self-heal below reinstalls: on such a host "latest" is the
+# one thing we must never install.
+CLAUDE_PIN="2.1.110"   # keep in sync with install-linux.sh / scripts/fix-avx.sh
+CLAUDE_PKG="@anthropic-ai/claude-code"
+AVX_LESS=0
 if grep -qE '^flags[[:space:]]*:' /proc/cpuinfo 2>/dev/null && ! grep -qiw avx /proc/cpuinfo 2>/dev/null; then
-  export DISABLE_AUTOUPDATER=1
+  AVX_LESS=1
+  CLAUDE_PKG="@anthropic-ai/claude-code@${CLAUDE_PIN}"
 fi
+
+# Per-session auto-updater OFF on every host, not just the AVX-less one.
+#
+# Each agent session (channels + every worker + every sub-agent) runs its own
+# auto-updater against ONE shared global npm prefix. When two of them decide to
+# update in the same second they race, and npm has no lock across processes:
+# install A rm -rf's .../node_modules/@anthropic-ai/claude-code while install
+# B's postinstall (`node install.cjs`) is cwd'd inside it -> "Error: ENOENT ...
+# uv_cwd", and B then dies on "EEXIST: symlink ... /opt/homebrew/bin/claude".
+# Both abort, and what is left behind is no package dir AND no claude binary.
+#
+# Observed 2026-08-23 10:20:35 on the Mac mini: two concurrent installs 7ms
+# apart wiped claude entirely. The machine was powered off five minutes later,
+# so nothing re-ran the updater, and at the next boot channels.sh could only
+# log "ERROR: claude not found on PATH" into a 30-second KeepAlive loop. The
+# bot was silently, permanently down until a manual `npm install -g` cleared
+# it -- the operator noticed only because the morning messages went nowhere.
+#
+# Updating now happens in exactly ONE place: claude_ensure() below. That is
+# serialized by construction (channels.sh is the single boot entry point, and
+# it runs before the tmux server exists), so the race cannot re-form.
+export DISABLE_AUTOUPDATER=1
 
 # Disable Claude Code's "Prompt Suggestions" (the grayed-out/DIM suggested command
 # shown in the input box, picked from git history / conversation). For headless
@@ -299,6 +545,52 @@ fi
 # source removes the phantom entirely. Inherited by every sub-agent via the tmux
 # global env set below.
 export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
+
+# Same class, second source: the optional session-feedback survey ("How is Claude
+# doing this session?  1: Bad  2: Fine  3: Good  0: Dismiss") blocks on a keypress,
+# and an unattended agent never gets one -- the session takes no further turn.
+# Measured 2026-09-11: FOUR agents frozen on it at once, one for 23 HOURS, while
+# every external indicator read healthy (running=true, messages 'delivered' --
+# which only means the text reached the PANE, not that it was processed --,
+# pending=0, no error). Three restarts did not clear it; one keypress did.
+# Verified present in the shipped binary's CLAUDE_CODE_DISABLE_* table (2.1.205).
+export CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
+
+# The single, serialized Claude Code install/update point (see the
+# DISABLE_AUTOUPDATER block above).
+#
+# Two jobs, deliberately asymmetric:
+#   * claude MISSING -> reinstall synchronously and block on it. There is
+#     nothing to run otherwise, so waiting costs nothing and this is the
+#     self-heal for an update a power-off or a race left half-finished.
+#   * claude PRESENT -> at most one update per 24h (stamp file), in the
+#     BACKGROUND. A foreground `npm install -g` would hold the Telegram
+#     channel offline for the 20-40s it takes, on every boot.
+# Failures are logged, never fatal: a stale claude still works, and a missing
+# one is retried by the next KeepAlive restart 30 seconds later.
+CLAUDE_UPDATE_STAMP="$INSTALL_DIR/store/.claude-update-stamp"
+claude_install() {
+  local why="$1"
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "$(date '+%F %T') claude install SKIPPED ($why): npm not on PATH" >&2
+    return 1
+  fi
+  echo "$(date '+%F %T') claude install START ($why): $CLAUDE_PKG" >&2
+  if npm install -g "$CLAUDE_PKG" >/dev/null 2>&1; then
+    : > "$CLAUDE_UPDATE_STAMP"
+    echo "$(date '+%F %T') claude install OK ($why)" >&2
+  else
+    echo "$(date '+%F %T') claude install FAILED ($why)" >&2
+  fi
+}
+
+if ! command -v claude >/dev/null 2>&1; then
+  claude_install "binary missing -- self-heal"
+elif [ "$AVX_LESS" = "0" ] && [ -z "$(find "$CLAUDE_UPDATE_STAMP" -mtime -1 2>/dev/null)" ]; then
+  # AVX-less hosts are excluded on purpose: their claude is pinned, and
+  # "keep it current" is exactly what breaks them.
+  claude_install "daily check" &
+fi
 
 CLAUDE="$(command -v claude)"
 TMUX="$(command -v tmux)"
@@ -328,7 +620,7 @@ TMUX="$(command -v tmux)"
 # the one place the pane-scrape recovery could still misread it (the v1.15.0
 # dim-strip catches it on the recovery side, but killing it at the SOURCE on MAIN
 # too closes the gap end-to-end). Parity with the sub-agent launch.
-MCP_BATCH_ENV="export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false MCP_SERVER_CONNECTION_BATCH_SIZE=10 MCP_CONNECTION_NONBLOCKING=1 MCP_TIMEOUT=60000 && "
+MCP_BATCH_ENV="export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 MCP_SERVER_CONNECTION_BATCH_SIZE=10 MCP_CONNECTION_NONBLOCKING=1 MCP_TIMEOUT=60000 && "
 
 # Resolve the main agent's model so we can pass --model explicitly. Without
 # --model claude-code falls back to its built-in default, which can drift
@@ -380,11 +672,30 @@ CFG_ENV=""
 mkdir -p "$INSTALL_DIR/store" 2>/dev/null || true
 _node_bin="$(command -v node || true)"
 if [ -n "$_node_bin" ] && [ -f "$INSTALL_DIR/dist/web/agent-process.js" ]; then
-  _cfg_line="$("$_node_bin" "$INSTALL_DIR/scripts/main-agent-isolated-config.mjs" "$CHANNEL_PROVIDER" 2>>"$INSTALL_DIR/store/channels-failures.log" || true)"
+  # The helper's stdout is a CONTRACT ("<mode>\t<path>", or nothing), but it
+  # imports a dist module that logs through pino -- whose default destination is
+  # fd 1 (from a worker thread, so the script cannot intercept it). On 2026-09-12 one such line ("kept target-only settings keys", newly
+  # firing because #1218 added `permissions` to the isolated settings.json only)
+  # rode along on stdout, `_cfg_dir` became a multi-line value, `[ -d ]` failed,
+  # and the main agent silently dropped to the shared ~/.claude -- losing both the
+  # fleet-token auth and its own Bash egress deny. The contract now rides fd 3
+  # (`3>&1 2>>log 1>&2` below, so the module's own stdout AND stderr both land in
+  # the failures log); this filter is the fail-safe that does not depend on that,
+  # for ANY future writer to the contract descriptor. Anything that is not the contract line is ignored,
+  # and a non-empty output with no contract line in it is reported LOUDLY, because
+  # that is the shape that silently disables isolation.
+  _cfg_raw="$("$_node_bin" "$INSTALL_DIR/scripts/main-agent-isolated-config.mjs" "$CHANNEL_PROVIDER" 3>&1 2>>"$INSTALL_DIR/store/channels-failures.log" 1>&2 || true)"
+  _cfg_line="$(printf '%s\n' "$_cfg_raw" | grep -m1 -E '^(explicit|rotated|isolated)	/' || true)"
+  if [ -n "$_cfg_raw" ] && [ -z "$_cfg_line" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh: WARN main-agent-isolated-config.mjs printed output with NO contract line -- isolation skipped. Raw first line: $(printf '%s\n' "$_cfg_raw" | head -1)" >> "$INSTALL_DIR/store/channels-failures.log"
+  fi
   _cfg_mode="${_cfg_line%%	*}"
   _cfg_dir="${_cfg_line#*	}"
   if [ -n "$_cfg_line" ] && [ -d "$_cfg_dir" ]; then
-    if [ "$_cfg_mode" = "explicit" ]; then
+    if [ "$_cfg_mode" = "explicit" ] || [ "$_cfg_mode" = "rotated" ]; then
+      # Both carry their OWN .credentials.json (an operator-logged-in dir for
+      # `explicit`, a registered plan's dir for `rotated` -- design 6.5/4) --
+      # neither wants the fleet token injected below.
       CFG_ENV="export CLAUDE_CONFIG_DIR='$_cfg_dir' && "
     else
       # Seed the token from the SAME 0600 file the isolated dir is gated on, so
@@ -419,8 +730,17 @@ if [ -n "$_node_bin" ] && [ -f "$INSTALL_DIR/dist/web/agent-process.js" ]; then
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $(cat "$INSTALL_DIR/store/.dashboard-token")" \
         -d "{\"from\":\"channels-sh-guard\",\"to\":\"${MAIN_AGENT_ID:-marveen}\",\"content\":\"[GUARD] A fo agens a KOZOS ~/.claude alol indult, pedig van flotta setup-token (store/.claude-oauth-token). A MAIN_AGENT_ISOLATED_CONFIG nincs beallitva, ezert az auth a rotalodo megosztott credentialbol megy: ez lejarhat, 401-be all a TUI, es a csatorna NEMAN elerhetetlen lesz. Teendo: MAIN_AGENT_ISOLATED_CONFIG=1 beallitasa, majd channels session restart.\"}" \
-        >/dev/null 2>&1 || true
-      unset _guard_port
+        -o /dev/null -w '%{http_code}' 2>>"$INSTALL_DIR/store/channels-failures.log" > "$INSTALL_DIR/store/.channels-guard-http.$$" || true
+      # Honest delivery (NOTIFYVAKSWEEP826 zaro kor): a fenti WARN csak a helyi
+      # logban el -- ha a koordinatornak szolo POST elbukik, az is a logba
+      # kerul, kulonben a riasztas-vesztes lathatatlan.
+      _guard_http="$(cat "$INSTALL_DIR/store/.channels-guard-http.$$" 2>/dev/null || echo 000)"
+      rm -f "$INSTALL_DIR/store/.channels-guard-http.$$"
+      case "$_guard_http" in
+        2*) : ;;
+        *) echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh: WARN guard alert POST failed (HTTP ${_guard_http:-000}) -- a fenti WARN nem erte el a koordinatort" >> "$INSTALL_DIR/store/channels-failures.log" ;;
+      esac
+      unset _guard_port _guard_http
     fi
   fi
   # Trigger 2 (below): an install that HAS run isolated before. Its
@@ -436,11 +756,20 @@ if [ -n "$_node_bin" ] && [ -f "$INSTALL_DIR/dist/web/agent-process.js" ]; then
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $(cat "$INSTALL_DIR/store/.dashboard-token")" \
         -d "{\"from\":\"channels-sh-guard\",\"to\":\"${MAIN_AGENT_ID:-marveen}\",\"content\":\"[GUARD] A channels session most a KOZOS ~/.claude alol indult, pedig letezik izolalt config dir (.channels-config). A MAIN_AGENT_ISOLATED_CONFIG beallitas valoszinuleg elveszett (store/config-overrides.json torlodott es nincs .env kulcs). Az auth a rotalodo shared sessionbol megy, 401-veszely. Teendo: MAIN_AGENT_ISOLATED_CONFIG=1 visszaallitasa, majd channels session restart.\"}" \
-        >/dev/null 2>&1 || true
-      unset _guard_port
+        -o /dev/null -w '%{http_code}' 2>>"$INSTALL_DIR/store/channels-failures.log" > "$INSTALL_DIR/store/.channels-guard-http.$$" || true
+      # Honest delivery (NOTIFYVAKSWEEP826 zaro kor): a fenti WARN csak a helyi
+      # logban el -- ha a koordinatornak szolo POST elbukik, az is a logba
+      # kerul, kulonben a riasztas-vesztes lathatatlan.
+      _guard_http="$(cat "$INSTALL_DIR/store/.channels-guard-http.$$" 2>/dev/null || echo 000)"
+      rm -f "$INSTALL_DIR/store/.channels-guard-http.$$"
+      case "$_guard_http" in
+        2*) : ;;
+        *) echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh: WARN guard alert POST failed (HTTP ${_guard_http:-000}) -- a fenti WARN nem erte el a koordinatort" >> "$INSTALL_DIR/store/channels-failures.log" ;;
+      esac
+      unset _guard_port _guard_http
     fi
   fi
-  unset _cfg_line _cfg_mode _cfg_dir
+  unset _cfg_raw _cfg_line _cfg_mode _cfg_dir
 fi
 unset _node_bin
 
@@ -531,6 +860,51 @@ if [ -n "$ORPHAN_PIDS2" ]; then
   /bin/kill -KILL $ORPHAN_PIDS2 2>/dev/null || true
 fi
 
+# #915: install-scoped main-agent channel state. The shared
+# ~/.claude/channels/<provider>/ default meant any OTHER Claude Code session on
+# this host (CLI, desktop app) loaded the same bot token, SIGTERMed the pid in
+# bot.pid and took the bot over -- silently: no reply, empty transcript, no log
+# line anywhere. Sub-agents were never affected because their launcher exports
+# *_STATE_DIR; the main agent gets the same treatment now.
+#
+# One-time migration: MOVE (never copy) the legacy state into $MAIN_CHAN_DIR.
+# A token left behind in the shared path keeps the hijack window open, so the
+# legacy dir must end up with no live .env. The whole directory moves --
+# access.json (pairing allowlist), inbox/, progress/, invites.json -- because
+# a fresh-born state dir would silently drop the allowlist and delivery state.
+# Runs AFTER the session kill + orphan reaps above, so nothing is polling out
+# of the legacy dir while it moves. Idempotent: a migrated install skips both
+# branches.
+LEGACY_CHAN_DIR="$HOME/.claude/channels/$CHANNEL_PROVIDER"
+if [ "$LEGACY_CHAN_DIR" != "$MAIN_CHAN_DIR" ] && [ -f "$LEGACY_CHAN_DIR/.env" ]; then
+  if [ ! -f "$MAIN_CHAN_DIR/.env" ]; then
+    mkdir -p "$(dirname "$MAIN_CHAN_DIR")"
+    if [ ! -e "$MAIN_CHAN_DIR" ] && mv "$LEGACY_CHAN_DIR" "$MAIN_CHAN_DIR" 2>/dev/null; then
+      echo "[channels] #915: migrated $LEGACY_CHAN_DIR -> $MAIN_CHAN_DIR"
+    else
+      # Target already exists (partial earlier run): move entry by entry.
+      mkdir -p "$MAIN_CHAN_DIR"
+      for _entry in "$LEGACY_CHAN_DIR"/.[!.]* "$LEGACY_CHAN_DIR"/*; do
+        [ -e "$_entry" ] || continue
+        mv "$_entry" "$MAIN_CHAN_DIR/" 2>/dev/null || true
+      done
+      echo "[channels] #915: merged $LEGACY_CHAN_DIR into $MAIN_CHAN_DIR"
+    fi
+  else
+    # Both hold a .env (e.g. a fresh onboarding already wrote install-scoped):
+    # the shared-path token must not stay live -- park it next to the new one,
+    # keeping the file instead of deleting history.
+    mv "$LEGACY_CHAN_DIR/.env" "$MAIN_CHAN_DIR/.env.legacy-$(date +%s)" 2>/dev/null || true
+    echo "[channels] #915: parked stale legacy .env from $LEGACY_CHAN_DIR"
+  fi
+fi
+# Export for this script AND build the launch-command prefix for the spawned
+# session: the plugin honours *_STATE_DIR, and with it exported the main
+# session's poller does carry it (measured in #915) -- the old comment claiming
+# otherwise described the unexported state.
+export "$STATE_ENV_VAR"="$MAIN_CHAN_DIR"
+STATE_DIR_ENV="export ${STATE_ENV_VAR}='${MAIN_CHAN_DIR}' && "
+
 # P1 FIX: put the Claude auth token into the tmux SERVER global env BEFORE
 # new-session. A new session inherits the tmux SERVER's global environment, not
 # this shell's. The tmux server is SHARED across every agent, so if a sub-agent
@@ -560,6 +934,12 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
 fi
 # Propagate the prompt-suggestion disable to every sub-agent tmux session.
 $TMUX set-environment -g CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION false 2>/dev/null || true
+# Same for the auto-updater kill switch. A plain `export` above only reaches
+# sessions that inherit THIS shell, i.e. only when channels.sh happened to
+# create the tmux server first; the dashboard's worker sessions often win that
+# race. -g makes launch order irrelevant, which matters here because it takes
+# exactly two self-updating sessions to wipe the shared global install.
+$TMUX set-environment -g DISABLE_AUTOUPDATER 1 2>/dev/null || true
 
 # Hybrid channel-coordinator model: the native plugin stays the PRIMARY inbound
 # path (it always polls getUpdates here -- never outbound-only). The standalone
@@ -582,20 +962,68 @@ $TMUX set-environment -g CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION false 2>/dev/null 
 # otherwise new-session below fails with "duplicate session".
 $TMUX kill-session -t "=$SESSION:" 2>/dev/null || true
 $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$INSTALL_DIR" \
-  "${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
+  "${STATE_DIR_ENV}${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
+# remain-on-exit: without this, if the pane's claude process dies for ANY
+# reason (crashed plugin, OOM, a reap step killing its poller out from under
+# it) while it is the session's only window, tmux auto-closes the pane AND
+# the session with it. The auto-restart runner's forced pane relaunch
+# (auto-restart-runner.ts's restartMainChannelsSession, see channel-monitor.ts)
+# then fails with "can't find pane: $SESSION" because there is nothing left to
+# relaunch into -- root-caused 2026-09-19 (card 08a02137): the pre-relaunch
+# poller reap was killing the LIVE main session's poller (channels.sh now
+# exports STATE_DIR_ENV for main too, so the reap's env-var match hits the
+# current poller, not just stale ones), crashing claude's channel MCP
+# connection and collapsing the pane before the relaunch could run. With
+# remain-on-exit on, the pane survives as "dead" and the relaunch can always
+# find and reuse it. (Also fixed at the reap itself, see channel-poller-reap.ts;
+# this is the defense-in-depth layer, not the only fix.)
+$TMUX set-option -t "=$SESSION:" remain-on-exit on 2>/dev/null || true
 
 # Session startup guard: a Claude Code first-run dialogusait auto-accept-eljuk
 # kulonben a headless session orokre parkolna a prompton es a Telegram plugin
 # soha nem toltodne be. Tobb fajta dialog elofordulhat:
 #  - "Bypass Permissions mode" (--dangerously-skip-permissions confirmation,
 #    valasz: 2 Enter = "Yes, I accept")
-#  - "Do you trust the files in this folder?" / "trust" prompts (Y Enter)
+#  - a folder-trust dialogus (valasz: 1 Enter). KET szoveget kell nezni, mert
+#    a Claude Code 2.1.246 atirta a panelt: a regi kerdes ("Do you trust the
+#    files in this folder?") ELTUNT, az uj panel a "Quick safety check: ..."
+#    mondattal kezdodik es az opcio szovege "Yes, I trust this folder".
+#    A HORGONY az OPCIO-SZOVEG, mert az a funkcionalis elem; a folotte levo
+#    mondat az, amit a szallito atir (epp most tette). A regi kerdes marad a
+#    regebbi CLI-verziok miatt -- a regi panel opcioja "Yes, proceed" volt,
+#    tehat egyik string sem fedi le onmagaban mindket verziot. (TRUSTGATE901)
+#    FIGYELEM: az uj panel NEM tartalmazza a "Welcome to Claude Code" bannert,
+#    tehat a lenti welcome-ag sem kapta el -- a session csendben parkolt.
 #  - "Welcome to Claude Code" / kezdo vezetes (Enter a folytatashoz)
 # 12 sec timeout ket retry-jal, mert WSL/tmux paint slow lehet first-run-on.
 #
 # EPERM fallback (Claude Code 2.1.183+ regression): launching --channels in a
 # trusted project directory throws EPERM before any dialog appears. Detected
 # below; one auto-restart from /tmp where the trust dialog fires instead.
+# TRUSTGATE901: NEM szamra es NEM alapertelmezesre. A 2.1.252 eldobta az
+# "1."/"2." szamozast (a "1" igy semmit nem valaszt) ES a "No, exit" lett
+# az elso, kijelolt opcio -- a regi "1" + Enter tehat AKTIVAN a kilepest
+# valasztotta egy friss telepitesen. A valaszt a pane-bol olvassuk ki:
+# ha a kurzor sora maga a "yes", eleg a megerosites; ha a KOZVETLENUL
+# alatta levo sor az, egyet lepunk le. Barmi mas alaknal NEM nyomunk
+# semmit -- se Entert, se Escape-et: ezen a panelen egyik sem semleges
+# (az Escape maga a "No, exit"), tehat a nem-cselekves a helyes.
+# Ugyanez a kockazat all a bypass-panelre: ott is a "No, exit" az elso opcio.
+_answer_accept_dialog() {
+  _cur=$(printf '%s\n' "$1" | grep -n "❯" | head -1 | cut -d: -f1)
+  _yes=$(printf '%s\n' "$1" | grep -n "Yes" | grep -v "No, exit" | head -1 | cut -d: -f1)
+  if [ -n "$_cur" ] && [ -n "$_yes" ] && [ "$_yes" = "$_cur" ]; then
+    $TMUX send-keys -t "=$SESSION:" Enter
+  elif [ -n "$_cur" ] && [ -n "$_yes" ] && [ "$_yes" = "$((_cur + 1))" ]; then
+    $TMUX send-keys -t "=$SESSION:" Down
+    sleep 1
+    $TMUX send-keys -t "=$SESSION:" Enter
+  else
+    echo "channels.sh: elfogado dialogus ismeretlen alakban -- nem kuldok billentyut (TRUSTGATE901)" >&2
+  fi
+  unset _cur _yes
+}
+
 _eperm_restarted=0
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
   sleep 1
@@ -623,18 +1051,22 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
         # entry); see the PR description / card 7EB18437.
         [ -e "$INSTALL_DIR/CLAUDE.md" ] && ln -sf "$INSTALL_DIR/CLAUDE.md" "$_CHANNELS_STARTDIR/CLAUDE.md" 2>/dev/null || true
         $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$_CHANNELS_STARTDIR" \
-          "${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
+          "${STATE_DIR_ENV}${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
+        # See the primary new-session above: remain-on-exit keeps the pane
+        # (and session) alive if claude dies early, so the scheduled relaunch
+        # can always find it. This is the /tmp-fallback launch path, same fix.
+        $TMUX set-option -t "=$SESSION:" remain-on-exit on 2>/dev/null || true
         unset _CHANNELS_STARTDIR
       fi
       continue
       ;;
     *"Bypass Permissions mode"*"Yes, I accept"*)
-      $TMUX send-keys -t "=$SESSION:" "2" Enter
+      _answer_accept_dialog "$pane"
       sleep 1
       continue
       ;;
-    *"Do you trust the files in this folder?"*)
-      $TMUX send-keys -t "=$SESSION:" "1" Enter
+    *"Do you trust the files in this folder?"*|*"Yes, I trust this folder"*)
+      _answer_accept_dialog "$pane"
       sleep 1
       continue
       ;;
@@ -654,7 +1086,7 @@ unset _eperm_restarted
 # longer uses Remote Control.)
 _bot_name="${BOT_NAME:-${MAIN_AGENT_ID:-marveen}}"
 sleep 1
-$TMUX send-keys -t "=$SESSION:" "/name ${_bot_name}" Enter
+$TMUX send-keys -t "=$SESSION:" "/rename ${_bot_name}" Enter
 unset _bot_name
 
 # Reset the keep-alive watchdog baseline so a session that was just restarted
@@ -696,8 +1128,24 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
 #      then `Up`+`Enter`+`Enter` would land on "Disable" in the submenu and
 #      disable the plugin instead of reconnecting it (Szabi msg 427).
 #
-# We sequence both checks, log the decision, and fire only when both agree.
+# We sequence the checks, log the decision, and fire only when all agree.
 # The subshell is detached so the main script keeps moving to the wait-loop.
+#
+# MCPDUP806 hardening (2026-08-06, fresh-0.3.9 incident): the round is
+# bracketed by input-line proofs.
+#   - PRE-FLIGHT: "/mcp" is only typed into a PROVABLY empty idle prompt.
+#     Into any other pane state the literal text parks in the input box, the
+#     next boot's probe appends to it ("/mcp/mcp"), the combined text gets
+#     submitted as a prompt, and while parked it reads as busy to the message
+#     router -- muting inter-agent delivery to the main session.
+#   - END-OF-ROUND: Escape-until-idle (a single Escape from the per-plugin
+#     submenu only pops one level -- the list stays open), then, if our own
+#     "/mcp" residue is still parked, one Ctrl-C (the measured clear for a
+#     parked line; C-u and Escape verifiably do not empty it) and a final
+#     probe. The log records the PROVEN end state, never the intent.
+#   - EFFECT: after a fired unlock the bun-poller check re-runs and the log
+#     records whether the plugin actually came up -- a green "firing unlock"
+#     line alone said nothing about whether the fix landed.
 (
   sleep 15
   CLAUDE_PID="$($TMUX list-panes -t "=$SESSION:" -F '#{pane_pid}' 2>/dev/null | head -1)"
@@ -713,7 +1161,36 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
     exit 0
   fi
 
-  # Check 2: TUI confirmation that the plugin's row is in a failed state. The
+  # Check 2 (MCPDUP806 pre-flight): the input line must be PROVABLY empty
+  # before we type. Retried because a slow cold-start may not have rendered
+  # the idle footer yet at +15s; when the pane never confirms idle (busy turn,
+  # parked text, dialog, or no node/dist to measure with) we do NOT type --
+  # the dashboard channel-monitor's recovery ladder owns the pane from there.
+  PROBE_STATE="unverifiable"
+  for _try in 1 2 3; do
+    PROBE_STATE="$($TMUX capture-pane -t "=$SESSION:" -e -p 2>/dev/null | probe_pane_input_state)"
+    [ "$PROBE_STATE" = "idle" ] && break
+    case "$PROBE_STATE" in
+      parked:*)
+        # Residue of OUR OWN earlier probe (a previous boot's round left "/mcp"
+        # parked -- the incident state). It is ours, so clear it with the
+        # measured keystroke and let the retry re-prove emptiness. Any other
+        # parked text is never touched here; the stuck-input recovery stack
+        # owns it.
+        if is_own_probe_residue "${PROBE_STATE#parked:}"; then
+          $TMUX send-keys -t "=$SESSION:" C-c
+          sleep 1
+        fi
+        ;;
+    esac
+    sleep 10
+  done
+  if [ "$PROBE_STATE" != "idle" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: unlock probe SKIPPED -- input line not confirmed empty (state: $PROBE_STATE); typing /mcp would park in the box (MCPDUP806), deferring to the dashboard channel-monitor" >> "$INSTALL_DIR/store/channels-failures.log"
+    exit 0
+  fi
+
+  # Check 3: TUI confirmation that the plugin's row is in a failed state. The
   # /mcp view also shows "(disabled)" markers; we only fire on failed, never on
   # disabled (Enable-only submenu has no Reconnect, the Up+Enter+Enter sequence
   # would land somewhere unsafe). See classify_mcp_plugin_row above for why the
@@ -725,6 +1202,7 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
   PANE="$($TMUX capture-pane -t "=$SESSION:" -p 2>/dev/null || true)"
 
   classify_mcp_plugin_row "$PANE"
+  UNLOCK_FIRED=0
   case "$MCP_PLUGIN_STATE" in
     failed)
       echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: $CHANNEL_PROVIDER plugin row failed, firing /mcp Up+Enter+Enter unlock -- row: $MCP_PLUGIN_ROW" >> "$INSTALL_DIR/store/channels-failures.log"
@@ -734,7 +1212,7 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
       sleep 2
       $TMUX send-keys -t "=$SESSION:" Enter
       sleep 4
-      $TMUX send-keys -t "=$SESSION:" Escape
+      UNLOCK_FIRED=1
       ;;
     *)
       # Plugin is connected/enabled/not-listed, or we couldn't capture. Bail
@@ -743,9 +1221,57 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
       # detect down and run its own recovery ladder; we don't second-guess.
       # Log the row we DID see -- a stale matcher is invisible without it.
       echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: no failed plugin row in /mcp pane, skipping unlock (bun child absent but plugin not failed - check manually) -- looked for '$PLUGIN_PANE_ID', row: ${MCP_PLUGIN_ROW:-<none>}" >> "$INSTALL_DIR/store/channels-failures.log"
-      $TMUX send-keys -t "=$SESSION:" Escape
       ;;
   esac
+
+  # End-of-round (MCPDUP806): leave the input line PROVABLY empty. Escape
+  # dismisses the /mcp modal levels but never clears parked text, so after the
+  # bounded Escape loop any leftover of OUR OWN probe ("/mcp" fragments only --
+  # never anything else, a human draft or a delivered message belongs to the
+  # stuck-input recovery stack) is cleared with a single Ctrl-C and re-proven.
+  END_STATE="unknown"
+  for _i in 1 2 3 4 5; do
+    $TMUX send-keys -t "=$SESSION:" Escape
+    sleep 1
+    END_STATE="$($TMUX capture-pane -t "=$SESSION:" -e -p 2>/dev/null | probe_pane_input_state)"
+    [ "$END_STATE" = "idle" ] && break
+  done
+  case "$END_STATE" in
+    parked:*)
+      if is_own_probe_residue "${END_STATE#parked:}"; then
+        $TMUX send-keys -t "=$SESSION:" C-c
+        sleep 1
+        END_STATE="$($TMUX capture-pane -t "=$SESSION:" -e -p 2>/dev/null | probe_pane_input_state)"
+      fi
+      ;;
+  esac
+  if [ "$END_STATE" = "idle" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: unlock round finished, input line verified empty" >> "$INSTALL_DIR/store/channels-failures.log"
+  else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: input line NOT verified empty after unlock round (state: $END_STATE) -- not retrying (MCPDUP806), check manually: tmux attach -t $SESSION" >> "$INSTALL_DIR/store/channels-failures.log"
+  fi
+
+  # Effect (MCPDUP806): a fired unlock is only a keystroke sequence; whether it
+  # WORKED shows up as the plugin's bun poller appearing under the claude
+  # process. Poll for up to ~60s (a reconnect can take tens of seconds to
+  # spawn the poller -- an instant read would log a false STILL ABSENT), then
+  # record the measured outcome so the failure log carries the effect, not
+  # just the attempt.
+  if [ "$UNLOCK_FIRED" = "1" ]; then
+    BUN_AFTER=""
+    for _w in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      sleep 5
+      if [ -n "$CLAUDE_PID" ]; then
+        BUN_AFTER="$(/usr/bin/pgrep -P "$CLAUDE_PID" bun 2>/dev/null | head -1)"
+      fi
+      [ -n "$BUN_AFTER" ] && break
+    done
+    if [ -n "$BUN_AFTER" ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: unlock effect: plugin bun poller RUNNING (pid $BUN_AFTER)" >> "$INSTALL_DIR/store/channels-failures.log"
+    else
+      echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: unlock effect: plugin bun poller STILL ABSENT 60s after the Up+Enter+Enter unlock -- the unlock did not take effect" >> "$INSTALL_DIR/store/channels-failures.log"
+    fi
+  fi
 ) &
 
 # Bot menu setup (Telegram only; Slack uses App Manifest)
@@ -771,14 +1297,57 @@ START_TS=$(date +%s)
 #
 # Thresholds are deliberately COARSER than the dashboard monitor's (~60-120s)
 # so in normal operation the dashboard acts FIRST and this only fires when the
-# dashboard couldn't -- avoids double-restart races. bot.pid lives at the
-# main-agent channelStateDir(): ~/.claude/channels/<provider>/bot.pid (HOME-,
-# not INSTALL_DIR-relative; see src/channel-provider.ts channelStateDir()).
-MAIN_BOT_PID_FILE="$HOME/.claude/channels/$CHANNEL_PROVIDER/bot.pid"
+# dashboard couldn't -- avoids double-restart races. bot.pid lives in the
+# main-agent state dir -- install-scoped since the #915 migration above, which
+# has already run by the time this executes (see src/channel-provider.ts
+# channelStateDir() for the matching server-side resolution).
+MAIN_BOT_PID_FILE="$MAIN_CHAN_DIR/bot.pid"
 # Never-started budget: generous so a slow cold-start (WSL first-run, MCP
 # handshake + /mcp unlock retries) is never killed prematurely. The plugin
 # normally writes bot.pid within ~1-2 min; 10 min is a safe ceiling.
-PLUGIN_NEVER_STARTED_DEADLINE=$((START_TS + 600))
+#
+# The budget GROWS across consecutive restarts, and that is the point. On a host
+# where the plugin cannot start at all -- AVX-less box, broken plugin cache,
+# Claude auth deferred at install -- a fixed 10-minute budget becomes a
+# ten-minute restart cycle that never ends. Each restart kill-sessions and
+# recreates the agent's tmux session, so on a machine where Claude itself works
+# and only the plugin is dead, the main agent loses its context every ten
+# minutes. Measured on a live host on 2026-08-04: exit 1 at 08:23:52, systemd
+# restart at 08:24:03, fresh session at 08:24:04, and the same again one budget
+# later. Before the watchdog exited non-zero that host simply kept a working
+# agent with a dead channel -- so an unbounded cycle would be a regression for
+# that population, not an improvement.
+#
+# What is deliberately NOT damped: the signal. The warning still goes to the log
+# and the exit is still non-zero, so the service manager still restarts the unit
+# and OnFailure= still fires. We slow the churn down; we do not silence the
+# symptom. A host that recovers resets the streak, so a healthy machine keeps
+# the original fast watchdog.
+NEVER_STARTED_BASE=600
+NEVER_STARTED_CAP=2400
+NEVER_STARTED_STREAK_FILE="$INSTALL_DIR/store/.channel-neverstart-streak"
+
+# Budget for the Nth consecutive never-started exit: 600 -> 1200 -> 2400, capped.
+never_started_budget() {
+  _streak="${1:-0}"
+  case "$_streak" in ''|*[!0-9]*) _streak=0 ;; esac
+  _budget=$NEVER_STARTED_BASE
+  _i=0
+  while [ "$_i" -lt "$_streak" ]; do
+    _budget=$((_budget * 2))
+    if [ "$_budget" -ge "$NEVER_STARTED_CAP" ]; then
+      _budget=$NEVER_STARTED_CAP
+      break
+    fi
+    _i=$((_i + 1))
+  done
+  echo "$_budget"
+}
+
+NEVER_STARTED_STREAK="$(cat "$NEVER_STARTED_STREAK_FILE" 2>/dev/null | tr -d '[:space:]')"
+case "$NEVER_STARTED_STREAK" in ''|*[!0-9]*) NEVER_STARTED_STREAK=0 ;; esac
+PLUGIN_NEVER_STARTED_BUDGET="$(never_started_budget "$NEVER_STARTED_STREAK")"
+PLUGIN_NEVER_STARTED_DEADLINE=$((START_TS + PLUGIN_NEVER_STARTED_BUDGET))
 # Died-after-up budget: once we have seen the plugin alive, a continuous
 # disappearance this long means it crashed and is not self-recovering.
 PLUGIN_DEAD_GRACE=180
@@ -792,9 +1361,66 @@ PLUGIN_DEAD_SINCE=0
 # and the unit stayed inactive/dead for the next ten minutes.
 RESTART_REQUESTED=0
 
+# Producer-side respawn breadcrumb (SOAKRESPAWN819). The watchdog WARNs below
+# go to stderr, which under systemd lands ONLY in journald -- invisible to
+# every store/-file reader (dashboard log tails, soak checks, support
+# bundles). Measured on a live soak box 2026-08-19: 210 service restarts at a
+# ~40min cadence with zero trace outside the journal. This mirror gives the
+# store a copy of WHY the process exited; the dashboard's external-respawn
+# detector (channel-monitor.ts) says THAT a respawn happened, this file says
+# WHY. Best-effort by design: a failed write must never break the watchdog.
+CHANNELS_RESPAWN_LOG="$INSTALL_DIR/store/channels-respawn.log"
+# Best-effort capture of the plugin's OWN exit reason (SIGINT/SIGTERM/"exited
+# cleanly"/"connection closed after Xs"), from Claude Code's per-MCP-server
+# debug log. The watchdog below only ever sees bot.pid disappear -- it never
+# learns WHY, so every crash-loop entry up to now read "dead for 182s" and
+# nothing else. Added 2026-09-17 after a 7x crash-loop (03:00-03:12) that left
+# no usable trace. The log path is deterministic from Claude Code's own
+# cache-key scheme (cwd with "/" -> "-", server id with ":" -> "-");
+# best-effort by design, a missing/unreadable log must never block a restart.
+MCP_LOG_DIR="$HOME/.cache/claude-cli-nodejs/$(printf '%s' "$INSTALL_DIR" | tr '/' '-')/mcp-logs-$(printf '%s' "$PLUGIN_PANE_ID" | tr ':' '-')"
+mcp_plugin_log_tail() {
+  _f="$(ls -t "$MCP_LOG_DIR"/*.jsonl 2>/dev/null | head -1)"
+  [ -n "$_f" ] && tail -n 6 "$_f" 2>/dev/null | tr '\n' ' '
+  return 0
+}
+respawn_log() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$CHANNELS_RESPAWN_LOG" 2>/dev/null || true
+  # Chronic-churn cap (the 40-min cycle writes ~36 lines/day forever): trim to
+  # the newest 500 once past 1000. mv-free rewrite keeps the inode stable for
+  # anything tailing the file.
+  # tr strip is mandatory: BSD wc pads the count with leading spaces, which
+  # the non-numeric guard below would otherwise zero out (trim never firing
+  # on macOS -- caught by the runnable probe in external-respawn-detect).
+  _lines=$(wc -l < "$CHANNELS_RESPAWN_LOG" 2>/dev/null | tr -d '[:space:]')
+  case "$_lines" in (*[!0-9]*|'') _lines=0;; esac
+  if [ "$_lines" -gt 1000 ]; then
+    _trimmed=$(tail -n 500 "$CHANNELS_RESPAWN_LOG" 2>/dev/null)
+    [ -n "$_trimmed" ] && printf '%s\n' "$_trimmed" > "$CHANNELS_RESPAWN_LOG" 2>/dev/null || true
+  fi
+  unset _lines _trimmed
+}
+
+# Watchdog-sajat pane_pid, egyszer felderitve a session eletciklusara (a
+# tmux pane pid-je nem valtozik amig a pane el, es a `while has-session` fent
+# amugy is kileptet ha a session eltunik). A ${SESSION}-hoz tartozo claude
+# process pid-je -- ugyanaz a lekerdezes mint a post-init unlock Check 1-e
+# feljebb.
+_watchdog_claude_pid="$($TMUX list-panes -t "=$SESSION:" -F '#{pane_pid}' 2>/dev/null | head -1)"
+
 # Várakozás amíg a session él
 while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
   sleep 5
+
+  # PANEDEAD919: claude itself exited but remain-on-exit kept the pane (and so
+  # the session) alive -- leave on the normal-end path right away instead of
+  # waiting out the plugin-dead grace / never-started budget. RESTART_REQUESTED
+  # stays 0 on purpose: this is the pre-remain-on-exit "session gone" outcome.
+  if pane_dead_detected "$SESSION"; then
+    echo "WARN: $SESSION pane is dead (claude exited, pane kept by remain-on-exit) -- exiting for service-manager restart" >&2
+    respawn_log "pane-dead: claude process of $SESSION exited, pane kept by remain-on-exit -- exiting for service-manager restart"
+    break
+  fi
 
   NOW=$(date +%s)
   _plugin_alive=false
@@ -806,13 +1432,23 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
   fi
   unset _bot_pid
   # Fallback for plugin builds that never write bot.pid (e.g. telegram@0.0.1):
-  # treat a running plugin poller as alive. The poller is a bun process whose
-  # env CLAUDE_PLUGIN_ROOT points at the <provider> plugin dir. `ps eww -e`
-  # surfaces each process environment on macOS BSD ps (same technique the
-  # orphan-reaper above uses). Without this the watchdog false-restarts every
-  # ~10 min on plugin versions that don't emit a bot.pid.
+  # treat a running plugin poller as alive. The poller is a bun process, and
+  # we check it as a CHILD OF THIS SESSION'S OWN claude pane_pid (same
+  # process-tree check as the post-init unlock Check 1 above), NOT a
+  # host-wide scan.
+  #
+  # FIXED 2026-08-19 (kanban c0390130, found by pedro during a kanban-audit
+  # after his own channel sat silently dead from 07:40 to 08:30): the
+  # previous fallback used a host-global `ps eww -e | grep CLAUDE_PLUGIN_ROOT`,
+  # which matches ANY agent's telegram plugin process anywhere on the machine.
+  # On a multi-agent fleet host (14 telegram plugin processes running under
+  # other agents at the time) that grep ALWAYS found a hit, so _plugin_alive
+  # was always true even though THIS agent's own plugin was dead -- the exact
+  # failure the watchdog exists to catch, silently defeated. Single-agent
+  # installs never saw this because there was only ever one plugin process to
+  # find, and it happened to be the right one.
   if [ "$_plugin_alive" != "true" ]; then
-    if /bin/ps eww -e 2>/dev/null | grep -qE "CLAUDE_PLUGIN_ROOT=[^ ]*/${CHANNEL_PROVIDER}(/|@| |$)"; then
+    if [ -n "$_watchdog_claude_pid" ] && /usr/bin/pgrep -P "$_watchdog_claude_pid" bun >/dev/null 2>&1; then
       _plugin_alive=true
     fi
   fi
@@ -820,6 +1456,13 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
   if [ "$_plugin_alive" = "true" ]; then
     PLUGIN_SEEN_ONCE=true
     PLUGIN_DEAD_SINCE=0
+    # The plugin came up, so this host is not in the never-starting state:
+    # drop the streak so the next cold start gets the fast 10-minute watchdog
+    # again instead of inheriting a 40-minute budget from an old outage.
+    if [ "$NEVER_STARTED_STREAK" != "0" ]; then
+      rm -f "$NEVER_STARTED_STREAK_FILE" 2>/dev/null || true
+      NEVER_STARTED_STREAK=0
+    fi
   elif [ "$PLUGIN_SEEN_ONCE" = "true" ]; then
     # Was up, now gone -- start/continue the dead-grace timer (a transient
     # gap that recovers resets it, so only a sustained death triggers exit).
@@ -839,6 +1482,7 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
         $TMUX capture-pane -t "=$SESSION:" -p -S -60 2>/dev/null || true
         echo
       } >> "$INSTALL_DIR/store/channel-poller-crash-context.log" 2>/dev/null || true
+      respawn_log "died-after-up: $CHANNEL_PROVIDER plugin dead for $((NOW - PLUGIN_DEAD_SINCE))s -- exiting for service-manager restart -- mcp-log tail: $(mcp_plugin_log_tail)"
       RESTART_REQUESTED=1
       break
     fi
@@ -846,7 +1490,13 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
     # Never came up at all (e.g. a Claude Code build that silently disables
     # --channels). Give it the full cold-start budget, then restart.
     if [ "$NOW" -ge "$PLUGIN_NEVER_STARTED_DEADLINE" ]; then
-      echo "WARN: $CHANNEL_PROVIDER plugin never started within $((PLUGIN_NEVER_STARTED_DEADLINE - START_TS))s -- exiting for service-manager restart" >&2
+      # Persist the streak BEFORE exiting: the next process start reads it and
+      # waits longer. Written first so a kill between the write and the exit
+      # still leaves the counter advanced rather than stuck at the fast budget.
+      _next_streak=$((NEVER_STARTED_STREAK + 1))
+      echo "$_next_streak" > "$NEVER_STARTED_STREAK_FILE" 2>/dev/null || true
+      echo "WARN: $CHANNEL_PROVIDER plugin never started within ${PLUGIN_NEVER_STARTED_BUDGET}s -- exiting for service-manager restart (consecutive: $_next_streak, next budget: $(never_started_budget "$_next_streak")s)" >&2
+      respawn_log "never-started: $CHANNEL_PROVIDER plugin never started within ${PLUGIN_NEVER_STARTED_BUDGET}s (consecutive: $_next_streak, next budget: $(never_started_budget "$_next_streak")s)"
       # Boss, 2026-09-14 (kartya d4aee0b5): eddig CSAK a "dead-grace" ag (fentebb)
       # mentette a pane-t a crash-context logba -- ez, a "fel se jott" ag, NEM.
       # A 10:56-os restart pont ezen az agon ment, ezert nem lehetett latni, MIERT
@@ -854,7 +1504,7 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
       # a plugin indulasi hibaja (ami a pane-ben vesz el a respawnnal) igy tartos
       # nyomot hagy. Semmilyen viselkedest nem valtoztat.
       {
-        echo "=== $(date '+%Y-%m-%d %H:%M:%S') plugin never-started exit ($((PLUGIN_NEVER_STARTED_DEADLINE - START_TS))s), pane content: ==="
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S') plugin never-started exit (${PLUGIN_NEVER_STARTED_BUDGET}s), pane content: ==="
         $TMUX capture-pane -t "=$SESSION:" -p -S -60 2>/dev/null || true
         echo
       } >> "$INSTALL_DIR/store/channel-poller-crash-context.log" 2>/dev/null || true

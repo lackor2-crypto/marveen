@@ -737,6 +737,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         }
       }),
     ]
+
     // Same file and the same staleness threshold the quota monitor uses, so the
     // strip and the alert can never disagree about what the fleet has left.
     const maxAgeSec = Number(process.env.QUOTA_MAX_AGE_SEC) || DEFAULT_MAX_AGE_SEC
