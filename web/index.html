@@ -3289,7 +3289,9 @@
           <!-- NEZET (kartya #373): reszletes lista, vagy kis / kozepes ikonok
                belyegkeppel -- mint a Raktar -> Fotok. A valasztas a
                bongeszoben marad. -->
-          <label style="margin-left:auto"><span data-i18n="intezo.view_mode">Nézet:</span>
+          <!-- MENTESI TERKEP (#350): minden mappa-szabaly egy listaban. -->
+          <button type="button" id="intezoBackupMapBtn" class="btn-secondary" style="margin-left:auto;padding:2px 8px;font-size:13px" data-i18n="backup.map_btn" data-i18n-title="backup.map_btn_tip" title="Melyik mappa melyik felhő-fiókba menne">☁ Mentési térkép</button>
+          <label><span data-i18n="intezo.view_mode">Nézet:</span>
             <select id="intezoViewMode" style="font-size:13px;padding:2px 6px">
               <option value="details" data-i18n="intezo.view_details">Részletek</option>
               <option value="small" data-i18n="intezo.view_small">Kis ikonok</option>
