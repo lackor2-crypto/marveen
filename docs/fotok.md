@@ -32,23 +32,20 @@ gomb a **Marveenből** törli a képet; a Google Fotókban semmi nem változik.
 ## Ha azt írja: „Ehhez a fiókhoz még nincs Fotók-engedély”
 
 A Google a fotókra **külön engedélyt** kér, és ezt **fiókonként egyszer** kell
-megadni. Az oldal ki is írja a pontos parancsot, ilyen alakban:
+megadni. Terminál nem kell hozzá, az oldalon egy gombbal megy:
 
-```bash
-python3 scripts/google-auth.py auth lackor2
-```
-
-Futtasd a terminálban (a `lackor2` helyére a saját fiók neve kerül, ahogy az
-oldal kiírja). A parancs ad egy linket: nyisd meg, jelentkezz be **azzal** a
-Google-fiókkal, és engedélyezd a Fotókat. Utána frissítsd a Fotók oldalt, és a
-„Képek hozzáadása” gomb működni fog.
+1. Nyomd meg az **Engedély kérése** gombot.
+2. Nyisd meg a megjelenő linket, és lépj be **azzal** a Google-fiókkal.
+3. Nyomd meg az „Engedélyezem" gombot. Ha a böngészőben azt látod, hogy
+   „Marveen: a Google hitelesítés kész", akkor kész vagy: a „Képek hozzáadása"
+   gomb már működik.
 
 Ezt **minden fióknál külön** meg kell csinálni, amelyiknek a fotóit látni
 akarod. Egy régebben bekötött fiók belépése továbbra is érvényes marad — csak a
 fotó-engedély hiányzik belőle, mert a jogosultságok a beleegyezéskor dőlnek el,
 és utólag nem bővülnek maguktól.
 
-> Ha a parancs után a Marveen `SERVICE_DISABLED` hibát írna, akkor a Google
+> Ha az engedély megadása után a Marveen `SERVICE_DISABLED` hibát írna, akkor a Google
 > Cloud Console-ban a projekten engedélyezni kell a **Photos Picker API**-t.
 
 ## Hol vannak a képek?

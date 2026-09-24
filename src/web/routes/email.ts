@@ -20,15 +20,16 @@ import {
   type EmailRule, type EmailRuleKind, type EnvelopeLike,
 } from '../../email-rules.js'
 import { translateEmailContent } from '../email-translate.js'
+import { himalayaBin } from '../himalaya-bin.js'
 import { getSecret } from '../vault.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
-// files) -- mirrors the ~/.local/share/marveen-voice/ convention. Never
+// files) -- mirrors the ~/.local/share/marveen-voice/ convention (the binary
+// itself is resolved by himalaya-bin.ts: ~/.local/bin on Linux, brew on macOS). Never
 // tracked in the repo: the config references secrets by path, the secrets
 // themselves live in a 700-permission directory outside git entirely.
-const HIMALAYA_BIN = `${process.env.HOME}/.local/bin/himalaya`
 const HIMALAYA_CONFIG = `${process.env.HOME}/.local/share/marveen-himalaya/config.toml`
 // There used to be a manual kill switch here: a marker file
 // (~/.local/share/marveen-himalaya/disable-imap-direct) whose mere presence
@@ -91,7 +92,7 @@ interface HimalayaResult { ok: boolean; stdout: string; stdoutBuf: Buffer; stder
 // other caller (all of which parse himalaya's own JSON output) expects.
 function himalayaOnce(args: string[]): Promise<HimalayaResult> {
   return new Promise(resolve => {
-    execFile(HIMALAYA_BIN, ['-c', HIMALAYA_CONFIG, ...args], { timeout: TIMEOUT, maxBuffer: 96 * 1024 * 1024, encoding: 'buffer' }, (err, stdout, stderr) => {
+    execFile(himalayaBin(), ['-c', HIMALAYA_CONFIG, ...args], { timeout: TIMEOUT, maxBuffer: 96 * 1024 * 1024, encoding: 'buffer' }, (err, stdout, stderr) => {
       // A timeout/maxBuffer kill leaves himalaya's own stdout/stderr empty
       // (the process never got to write an error of its own) -- fall back to
       // Node's own err.message/code so a caller sees "maxBuffer exceeded" or
@@ -298,7 +299,7 @@ async function testAccountConfigToml(account: string, toml: string): Promise<{ o
   try {
     writeFileSync(configPath, toml, { mode: 0o600 })
     return await new Promise((resolve) => {
-      execFile(HIMALAYA_BIN, ['-c', configPath, '-a', account, 'envelope', 'list', '-m', 'Inbox', '--page-size', '1', '--json'],
+      execFile(himalayaBin(), ['-c', configPath, '-a', account, 'envelope', 'list', '-m', 'Inbox', '--page-size', '1', '--json'],
         { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (err) { resolve({ ok: false, error: (stderr || stdout || err.message || '').toString().slice(0, 500) }); return }
