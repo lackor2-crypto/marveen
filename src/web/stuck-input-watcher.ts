@@ -1,7 +1,7 @@
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { listAgentNames, readAgentRemoteHost } from './agent-config.js'
-import { isAgentRunning, captureParkedInputView, sendEnterToSession, capturePane } from './agent-process.js'
+import { isAgentRunning, captureParkedInputView, observedParkedInputView, prefetchParkedInputViews, sendEnterToSession, capturePane } from './agent-process.js'
 import { resolveAgentSession } from './channel-mcp-reconnect.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { recoverStuckInputForSession, sendAlert } from './channel-monitor.js'
@@ -144,12 +144,20 @@ function recoverParkedPaste(
   host: string | null,
   thresholds: StuckInputThresholds,
 ): boolean {
-  const pane = captureParkedInputView(session, host)
-  const sig = pane == null ? null : parkedPasteSignature(pane)
-  if (sig == null) return false
+  // Detection reads the sweep's picture (#390); the Enter below is only sent
+  // after a fresh capture still shows the same parked paste.
+  const seen = observedParkedInputView(session, host)
+  const seenSig = seen == null ? null : parkedPasteSignature(seen)
+  if (seenSig == null) return false
 
   const prev = watchState.get(session) ?? NO_STATE
-  const { recover, next } = decideStuckInputRecovery(sig, prev, Date.now(), thresholds)
+  let { recover, next } = decideStuckInputRecovery(seenSig, prev, Date.now(), thresholds)
+  if (recover) {
+    const fresh = captureParkedInputView(session, host)
+    const sig = fresh == null ? null : parkedPasteSignature(fresh)
+    if (sig == null) return false
+    ;({ recover, next } = decideStuckInputRecovery(sig, prev, Date.now(), thresholds))
+  }
   watchState.set(session, next)
 
   if (recover) {
@@ -275,6 +283,16 @@ export function startStuckInputWatcher(): NodeJS.Timeout {
     // the <channel>-block re-inject but NOT the ghost-risky plain-text branch
     // (no prompt-suggestion env-var on the main session). The give-up alert +
     // the rate-limited hard restart stay owned by channel-monitor (alert=false).
+    // One tmux call for every local pane this sweep looks at (#390): the checks
+    // below read that picture for detection, and re-capture before acting.
+    try {
+      const local = [MAIN_CHANNELS_SESSION, ...listAgentNames()
+        .filter((n) => readAgentRemoteHost(n) == null && isAgentRunning(n))
+        .map((n) => resolveAgentSession(n))]
+      await prefetchParkedInputViews(local)
+    } catch (err) {
+      logger.debug({ err }, 'stuck-input-watcher: prefetch failed, checks capture on their own')
+    }
     try {
       // Parked paste placeholder takes precedence (mutually exclusive with a
       // typing-parked box); only run the normal 'typing' recovery when there is
