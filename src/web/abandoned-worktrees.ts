@@ -364,7 +364,7 @@ export function buildAbandonedWorktreeContext(res: AbandonedResult): string | nu
   parts.push(
     'TEENDO MOST, minden uj munka elott (a tulajdonos, 2026-09-24: "feleledes utan azonnal csinalja is meg"):\n' +
       '  1. Nezd meg a valtozast (`git -C <ut> diff`, `git -C <ut> status`), es VIDD KESZRE: teszt, commit, `scripts/land-pr.sh "cim"` abbol a worktree-bol.\n' +
-      '  2. Ha a sor szerint a tartalom MAR A MAINEN VAN (vagy a munka mas formaban mar landolt -- nezd meg a main-t), a worktree csak maradek: NE landold ujra. A torles torles -- kerdezd meg a tulajdonost a csatornadon, es csak az o igen-je utan futtasd a `scripts/agent-worktree.sh --remove <nev>`-et.\n' +
+      '  2. Ha a sor szerint a tartalom MAR A MAINEN VAN (vagy a munka mas formaban mar landolt -- nezd meg a main-t), a worktree csak maradek: NE landold ujra, hanem TOROLD kerdezes nelkul -- `scripts/agent-worktree.sh --remove <nev>` (a tulajdonos allando engedelye, 2026-09-25, #384: "ha keszen vagy akkor torlesnek automatikusnak kellene lennie"). Commitolatlan valtozast ez a parancs nem dob el: ha megtagadja, a maradek megsem ures -- akkor vidd keszre, ne eroltesd (--force).\n' +
       '  3. Ha egy tetel megsem a tied, irj a gazdajanak inter-agent uzenetet -- idegen worktree-be nem irsz.\n' +
       '  4. A kesz munka kartyajat tedd "waiting"-be, es jelezd a tulajdonosnak a kesz-t azonositoval.\n' +
       'Felbehagyott munka nem maradhat: ha most sem tudod befejezni, commitold `wip:` uzenettel, ami leirja, hol tartasz.',

@@ -156,7 +156,7 @@ describe('getAbandonedWorktrees', () => {
     expect(r.olvashatatlan).toBe(false)
     expect(buildAbandonedWorktreeContext(r)).toBeNull()
   })
-  it('the text names the worktree, tells to finish and to ask before removing, and is capped', async () => {
+  it('the text names the worktree, tells to finish, to remove a landed remnant without asking (#384), and is capped', async () => {
     const many = Array.from({ length: MAX_LISTED + 3 }, (_, i) => ({ path: `/w/m${i}`, branch: `b${i}` }))
     const r = await getAbandonedWorktrees('me', 'main', deps({
       listWorktrees: async () => many,
@@ -165,7 +165,13 @@ describe('getAbandonedWorktrees', () => {
     const txt = buildAbandonedWorktreeContext(r)!
     expect(txt).toContain('/w/m0')
     expect(txt).toContain('land-pr.sh')
-    expect(txt).toMatch(/igen-je utan/)
+    // #384 (Boss, 2026-09-25): a landed, clean remnant is removed without
+    // asking -- the old "ask the owner first" line made agents hoard them.
+    expect(txt).not.toMatch(/igen-je utan/)
+    expect(txt).toMatch(/TOROLD kerdezes nelkul/)
+    expect(txt).toContain('agent-worktree.sh --remove')
+    // ...and never by force: a refusal means there is still work in it.
+    expect(txt).toMatch(/ne eroltesd \(--force\)/)
     expect(txt).toContain(`es meg 3`)
   })
 })
