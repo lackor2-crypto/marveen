@@ -20,7 +20,7 @@ vi.mock('../config.js', async () => {
 })
 
 const {
-  trashLife, purgeLife, renameLife, moveLife, autoPurgeTrash, migrateLegacyTrash, searchLife, listLife, explorerRoot,
+  trashLife, purgeLife, renameLife, moveLife, autoPurgeTrash, migrateLegacyTrash, searchLife, listLife, explorerRoot, kukaBelyeg,
 } = await import('../life-explorer.js')
 const { trashRelPath, legacyTrashRelPath, isInTrash, planLifeTree } = await import('../life-tree.js')
 const { findRepos } = await import('../git-sync.js')
@@ -179,5 +179,39 @@ describe('walkers leave the Kuka out', () => {
     expect([...mentesKihagyUt('')]).toContain(KUKA)
     expect(mentesAgHiba(KUKA)).toBeTruthy()
     expect(mentesAgHiba('Beérkező')).toBeNull()
+  })
+})
+
+describe('the stamp folder name is local time, not UTC', () => {
+  it('names the folder by the machine clock', () => {
+    const regi = process.env.TZ
+    process.env.TZ = 'Europe/Budapest'
+    try {
+      // 18:50:42 UTC is 20:50:42 in Budapest summer time -- the user saw the UTC one.
+      expect(kukaBelyeg(new Date('2026-09-25T18:50:42Z'))).toBe('2026-09-25_20-50-42')
+    } finally {
+      if (regi === undefined) delete process.env.TZ; else process.env.TZ = regi
+    }
+  })
+
+  it('trashLife uses it', () => {
+    writeFileSync(join(root, 'Beérkező', 'a.txt'), 'A')
+    const elotte = kukaBelyeg(new Date())
+    const r = trashLife('Beérkező/a.txt')
+    const utana = kukaBelyeg(new Date())
+    const stamp = r.rel.split('/')[1]
+    expect(stamp >= elotte && stamp <= utana).toBe(true)
+  })
+
+  it('auto-empty reads local stamps back, and old UTC-named folders still count', () => {
+    const nap = 24 * 60 * 60 * 1000
+    const most = Date.now()
+    mkdirSync(join(root, KUKA, kukaBelyeg(new Date(most - 31 * nap))), { recursive: true })
+    mkdirSync(join(root, KUKA, kukaBelyeg(new Date(most - 29 * nap))), { recursive: true })
+    const regiUtc = new Date(most - 40 * nap).toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
+    mkdirSync(join(root, KUKA, regiUtc), { recursive: true })
+    const r = autoPurgeTrash(30, most)
+    expect(r.torolt).toBe(2)
+    expect(readdirSync(join(root, KUKA))).toEqual([kukaBelyeg(new Date(most - 29 * nap))])
   })
 })

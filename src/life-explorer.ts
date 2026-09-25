@@ -1764,7 +1764,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
   }
 
   const kuka = join(root, trashRelPath(APP_LANG))
-  const stamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
+  const stamp = kukaBelyeg(new Date())
   const dir = join(kuka, stamp)
   // EGY MASODPERCEN BELUL ket azonos nevu tetel is jarhat. A `renameSync` egy
   // letezo FAJLT szo nelkul felulir -- vagyis a Kuka pont akkor nyelne el
@@ -1911,6 +1911,19 @@ export function migrateLegacyTrash(): { moved: number; failed: number; removedOl
 
 /** A Kuka belyeges mappaneve: `2026-08-22_00-05-01`. */
 const KUKA_BELYEG = /^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/
+
+/**
+ * The stamp folder name in the machine's LOCAL time (#395): the user reads it
+ * as "when did I throw this away", so a UTC name was two hours off in
+ * Budapest summer time. No zone is hard-coded -- the process TZ decides.
+ * autoPurgeTrash parses the name back as local time too (`new Date()` without
+ * a zone suffix). Older UTC-named folders still parse; they only look up to
+ * a few hours older or younger, which does not matter at a day-scale limit.
+ */
+export function kukaBelyeg(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`
+}
 
 /**
  * A Kuka automatikus uritese: ami `days` napnal regebben kerult be, elmegy.
