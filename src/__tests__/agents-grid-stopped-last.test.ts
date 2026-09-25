@@ -49,7 +49,27 @@ describe('#394 orderAgentsForGrid', () => {
   })
 
   it('a leallitott kartya halvany, hoverre/fokuszra olvashato', () => {
-    expect(css).toMatch(/\.agent-card\.is-stopped \{[^}]*opacity/)
-    expect(css).toMatch(/\.agent-card\.is-stopped:hover,\s*\n\.agent-card\.is-stopped:focus-within \{ opacity: 1/)
+    expect(css).toMatch(/\.agent-card\.is-stopped,[^{]*\{[^}]*opacity: \.55/)
+    expect(css).toMatch(/\.agent-card\.is-stopped:hover,\s*\n\.agent-card\.is-stopped:focus-within,[^{]*\{ opacity: 1/)
+  })
+})
+
+// Boss TG 6426: "Az org charton is szurkisd el oket." -- the org chart only
+// dims, it never reorders (the tree is the hierarchy).
+describe('#394 org chart: a stopped node is dimmed in place', () => {
+  const graph = fnBody('function renderTeamGraph(')
+
+  it('renderNode toggles is-stopped only on an explicit running:false', () => {
+    expect(graph).toContain("div.classList.toggle('is-stopped', node.running === false)")
+  })
+
+  it('the org chart is not re-sorted by running state', () => {
+    expect(graph).not.toMatch(/orderAgentsForGrid|sort\([^)]*running/)
+  })
+
+  it('one shared CSS rule dims the grid card and the chart node, hover/focus restores', () => {
+    expect(css).toMatch(/\.agent-card\.is-stopped,\s*\n\.team-node\.is-stopped \{ opacity: \.55; filter: grayscale\(\.6\); \}/)
+    expect(css).toContain('.team-node.is-stopped:hover')
+    expect(css).toContain('.team-node.is-stopped:focus-within { opacity: 1; filter: none; }')
   })
 })
