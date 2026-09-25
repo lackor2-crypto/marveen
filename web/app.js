@@ -5680,7 +5680,11 @@ function renderAgents() {
   // emiatt tuntette el az EGESZ listat -- csak Marvin latszott (Boss, 2026-09-06,
   // kanban #235), mert a dobott hiba a Marvin utani, tobbi-agens ciklus ELE esett.
   // Izolaljuk: egy dobott hiba csak a sajat kartyajat vigye, ne a teljes flottat.
-  try {
+  // #394: a STOPPED code bridge is no exception to "stopped goes last" -- its
+  // cards move to the end of the paid tier (just before the free divider).
+  let cbStopped = false
+  try { cbStopped = cbRunDotClass() === 'stopped' } catch (_) { /* unknown -> keep the old slot */ }
+  const renderCbCards = () => { try {
     renderCodeBridgeAgentCards(agentsGrid, addBtn)
   } catch (err) {
     // A NEMA ELEJTES ONMAGABAN HIBA (kanban #235, Boss 2026-09-07). A #47-ben
@@ -5690,7 +5694,8 @@ function renderAgents() {
     // kirajzolni, azt ki kell mondani, a hiba szovegevel egyutt.
     console.error('renderCodeBridgeAgentCards failed; showing a broken-card placeholder, fleet list stays intact', err)
     renderCodeBridgeBrokenCard(agentsGrid, addBtn, err)
-  }
+  } }
+  if (!cbStopped) renderCbCards()
 
   // Paid/unrestricted agents first, then a divider, then free-tier OpenRouter
   // agents -- otherwise the two tiers render interleaved and there's no way
@@ -5699,7 +5704,9 @@ function renderAgents() {
   const { paid: paidAgents, free: freeAgents } = orderAgentsForGrid(agents)
   const sortedAgents = [...paidAgents, ...freeAgents]
   let dividerEl = null
+  let cbPlaced = !cbStopped
   for (const agent of sortedAgents) {
+    if (!cbPlaced && agent === freeAgents[0]) { cbPlaced = true; renderCbCards() }
     if (!dividerEl && freeAgents.length && agent === freeAgents[0]) {
       dividerEl = document.createElement('div')
       dividerEl.className = 'agent-tier-divider'
@@ -5785,6 +5792,8 @@ function renderAgents() {
     wireContextControls(card, agent.name)
     agentsGrid.insertBefore(card, addBtn)
   }
+  // No free tier: a stopped code bridge still closes the paid tier.
+  if (!cbPlaced) renderCbCards()
   // Ugyanaz az izolacio, mint a kod-hid kartyanal: egy federalt kartya dobott
   // hibaja se vihesse el a mar kirakott flotta-listat (kanban #235).
   try {
@@ -6688,6 +6697,8 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       ? e.taskCounts
       : { running: codeBridgeCards.running, queued: codeBridgeCards.queued }
     const cbBusyNow = !!cbTc && (cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline))
+    // #394: dimmed like any other stopped agent (style.css .agent-card.is-stopped).
+    card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped')
     // A szinkulcs SZANDEKOSAN a projekt aliasa marad: egy projekt egy szin,
     // akkor is, ha kozben botot cserelsz.
     const name = cbCardTitle(e.title)

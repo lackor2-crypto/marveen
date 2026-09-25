@@ -73,3 +73,31 @@ describe('#394 org chart: a stopped node is dimmed in place', () => {
     expect(css).toContain('.team-node.is-stopped:focus-within { opacity: 1; filter: none; }')
   })
 })
+
+// Verification of #394 found the VS Code (code bridge) cards exempt: stopped,
+// they stayed first in the paid tier at full colour. Same rule as the fleet.
+describe('#394 code bridge card: stopped -> dimmed, end of the paid tier', () => {
+  const grid = fnBody('function renderAgents(')
+  const cb = fnBody('function renderCodeBridgeAgentCards(')
+
+  it('the code bridge card gets is-stopped from its own run state', () => {
+    expect(cb).toContain("card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped')")
+  })
+
+  it('running: rendered in the old slot; stopped: before the free divider, or after the paid tier', () => {
+    expect(grid).toContain("try { cbStopped = cbRunDotClass() === 'stopped' }")
+    expect(grid).toContain('if (!cbStopped) renderCbCards()')
+    const inLoop = grid.indexOf("if (!cbPlaced && agent === freeAgents[0]) { cbPlaced = true; renderCbCards() }")
+    const divider = grid.indexOf("dividerEl.className = 'agent-tier-divider'")
+    expect(inLoop).toBeGreaterThan(0)
+    expect(inLoop).toBeLessThan(divider)
+    const tail = grid.indexOf('if (!cbPlaced) renderCbCards()')
+    expect(tail).toBeGreaterThan(divider)
+    expect(tail).toBeLessThan(grid.indexOf('renderFederatedAgentCards(agentsGrid, addBtn)'))
+  })
+
+  it('the broken-card fallback still guards the moved render', () => {
+    const fn = grid.slice(grid.indexOf('const renderCbCards = '), grid.indexOf('if (!cbStopped) renderCbCards()'))
+    expect(fn).toContain('renderCodeBridgeBrokenCard(agentsGrid, addBtn, err)')
+  })
+})
