@@ -336,7 +336,7 @@ const _netStatus = (() => {
     giveUp(idempotent) { if (idempotent) pageFailed = true },
     isDown: () => down,
   }
-})()
+})();
 
 (() => {
   const TOKEN_KEY = 'marveen-dashboard-token'
