@@ -43,7 +43,12 @@ TODAY="$(date +%F)"
 #   $2: stub exit code
 run_case() {
   local mode="$1" stub_rc="$2"
-  local dir="$TMP/inst.$RANDOM"
+  # mktemp, not "$TMP/inst.$RANDOM": each case runs in its own $(...) subshell,
+  # and two cases that drew the same $RANDOM shared one install -- the earlier
+  # case's stamp then made a later "NOT stamped" case read today's date
+  # (measured on CI, 2026-09-25: the bare-constant case got the success stamp).
+  local dir
+  dir="$(mktemp -d "$TMP/inst.XXXXXX")"
   mkdir -p "$dir/scripts" "$dir/store" "$dir/bin"
   cp "$REPO/scripts/morning-briefing.sh" "$dir/scripts/"
   printf 'ALLOWED_CHAT_ID=1234\n' > "$dir/.env"
