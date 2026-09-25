@@ -39,7 +39,7 @@ import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig, mediaTargets,
-  inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists, inboxDir,
+  inboxCount, safeLifeName, newLifeId, lifeName, trashRelPath, lifeConfigExists, inboxDir,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
   sanitizeCustodianIds, personRel,
@@ -917,7 +917,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // repo-kerdes futott le eloszor, es a felulet a "ennek ellenere toroljem?"
     // kerdest kinalta az EGESZ fara -- olyasmire, amit a purgeLife ugyis
     // megtagad. Rossz kerdest feltenni ilyen gombnal onmagaban is hiba.
-    const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+    const kukaRel = trashRelPath(APP_LANG)
     if (rel !== kukaRel && !rel.startsWith(kukaRel + '/')) {
       send(res, 200, purgeLife(rel, uiLang(url)))
       return true

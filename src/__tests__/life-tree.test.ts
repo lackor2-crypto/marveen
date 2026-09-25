@@ -151,7 +151,7 @@ describe('ensureLifeTree', () => {
   // teszt egy felig meglevo fan futna, es zoldre menne akkor is, ha romlott.
   beforeEach(() => {
     for (const n of ['Teszt Elek', 'Példa-Kovács Anna', 'Cégek', 'Média', 'Tudás',
-      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer']) {
+      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer', 'Kuka']) {
       rmSync(join(depot, n), { recursive: true, force: true })
     }
   })
@@ -293,7 +293,7 @@ describe('a felhasznalo torlese vegleges (elhagyott mappak)', () => {
     // lemez all ugyanazon az utvonalon". A masodikban a csendes "nem hozok
     // vissza semmit" karosabb, ezert ilyenkor a naplonak nem hiszunk.
     for (const n of ['Teszt Elek', 'Példa-Kovács Anna', 'Cégek', 'Média', 'Tudás',
-      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer']) {
+      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer', 'Kuka']) {
       rmSync(join(depot, n), { recursive: true, force: true })
     }
     const st = lifeTreeStatus(cfg, 'hu')
@@ -348,7 +348,9 @@ describe('listLife', () => {
     const l = listLife('', { deep: false })
     expect(l.folders[0]?.name).toBe('Beérkező')
     expect(l.folders[1]?.name).toBe('Teszt Elek')
-    expect(l.folders[l.folders.length - 1]?.name).toBe('Rendszer')
+    // #395: a Kuka a gyokerben all, a Rendszer UTAN, legvegul -- mint a Lomtar.
+    expect(l.folders[l.folders.length - 1]?.name).toBe('Kuka')
+    expect(l.folders[l.folders.length - 2]?.name).toBe('Rendszer')
   })
   it('minden tetel kap forrasjelvenyt', () => {
     const l = listLife('Teszt Elek', { deep: false })

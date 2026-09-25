@@ -8,7 +8,7 @@
 //   * `up`   -- a fajl a GEPEDROL tunt el, a Drive-on meg megvan. Igen = a
 //               Drive-peldany a Drive KUKAJABA megy (30 napig visszahozhato).
 //   * `down` -- a fajl a DRIVE-ROL tunt el, a gepeden meg megvan. Igen = a
-//               helyi peldany a raktar sajat Kukajaba megy (Rendszer / Kuka),
+//               helyi peldany a raktar sajat Kukajaba megy (a gyokerbeli Kuka),
 //               NEM vegleges torles.
 //
 // A "nem" soha nem torol semmit: a tetel kikerul a sorbol, a fajl marad.
