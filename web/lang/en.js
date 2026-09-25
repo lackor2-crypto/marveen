@@ -908,6 +908,7 @@ window._i18n.en = {
   'backup.mega_delete_no': "Keep",
   'intezo.thumb_video': 'Video',
   'intezo.thumb_none': 'No preview for this file.',
+  'intezo.thumb_slow': "The preview did not arrive this time (the machine answered slowly). Press Refresh, or open the file.",
   'intezo.truncated': 'This folder has a lot of files, so only the first 2000 are shown. Use the search box.',
   'intezo.empty': 'This folder is empty.',
   'intezo.info_title': 'Details',
