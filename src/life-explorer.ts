@@ -210,12 +210,24 @@ export interface LifeListing {
   files: LifeEntry[]
   /** Igaz, ha a mappa tulzsufolt volt, es levagtuk a listat. */
   truncated: boolean
+  /**
+   * Levagasnal a mappa VALODI (latszo) elemszama, kulonben null. A felulet
+   * ebbol mondja ki, hogy "2000 / 3615" -- enelkul a "Mind kijelolese" az
+   * egesz mappanak allitotta a levagott reszt (#389, Boss TG 1509).
+   */
+  total?: number | null
   /** Emberi mondat, ha valami nem sikerult. Nem hiba: uzenet a feluletnek. */
   message: string | null
 }
 
-/** Hany tetelt adunk vissza egy mappabol. Efolott a felulet is hasznalhatatlan. */
-const MAX_ENTRIES = 2000
+/**
+ * Hany tetelt adunk vissza egy mappabol. A regi 2000 egy valodi fotomappat
+ * (3615 kep) csendben kettevagott, es a "Mind kijelolese" csak az elso reszt
+ * jelolte ki (#389, Boss TG 1509). A listazas kulon szalon fut (#387), a
+ * belyegkepek lustan toltodnek, igy egy tobbezres mappa is elfer; ez a korlat
+ * csak a kezelhetetlenul nagy mappakat fogja meg.
+ */
+export const MAX_ENTRIES = 20000
 
 /**
  * Relativ utvonal -> abszolut, a gyokerbol KILEPNI NEM LEHET.
@@ -676,7 +688,11 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
     // A rejtett es rendszer-tetelek csak zajt visznek a listaba. A `.git`
     // SZANDEKOSAN nem latszik: a git-jelveny amugy is kimondja, hogy repo.
     if (isHiddenEntry(name)) continue
-    if (++seen > MAX_ENTRIES) { base.truncated = true; break }
+    if (++seen > MAX_ENTRIES) {
+      base.truncated = true
+      base.total = names.filter((n) => !isHiddenEntry(n)).length
+      break
+    }
     const full = join(abs, name)
     let cst: Stats
     // `statSync` es nem `lstatSync`: egy jelkapcsolat (kesobbi NAS- vagy

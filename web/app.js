@@ -38154,7 +38154,13 @@ function _intezoRender() {
   }
   if (pathEl) pathEl.textContent = L.display || ''
   if (msg) { msg.hidden = !L.message; msg.textContent = L.message || '' }
-  if (trunc) trunc.hidden = !L.truncated
+  if (trunc) {
+    trunc.hidden = !L.truncated
+    if (L.truncated) {
+      const shown = (L.folders || []).length + (L.files || []).length
+      trunc.textContent = L.total ? t('intezo.truncated_n', { n: shown, total: L.total }) : t('intezo.truncated')
+    }
+  }
 
   const rows = [].concat(L.folders || [], L.files || [])
   if (!rows.length) {
@@ -38984,7 +38990,12 @@ function _intezoRenderMultiBar() {
   if (!_intezoMulti) return
   const n = _intezoMulti.size
   const txt = document.getElementById('intezoMultiText')
-  if (txt) txt.textContent = n ? t('intezo.multi_count', { n }) : t('intezo.multi_hint')
+  // A levagott mappanal a szamlalo kimondja, hogy ez NEM az egesz mappa
+  // (#389, Boss TG 1509: "2000 elem kijelolve ... itt valami bug van").
+  const L = _intezoListing
+  if (txt) txt.textContent = !n ? t('intezo.multi_hint')
+    : (L && L.truncated && L.total) ? t('intezo.multi_count_partial', { n, total: L.total })
+    : t('intezo.multi_count', { n })
   const mv = document.getElementById('intezoMultiMoveBtn')
   if (mv) mv.disabled = !n
 }
