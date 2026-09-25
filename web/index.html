@@ -3274,6 +3274,11 @@
           <button class="btn-secondary" id="intezoTreeBtn" aria-pressed="true"
                   data-i18n="intezo.tree_toggle" data-i18n-title="intezo.tree_toggle_title"
                   title="Bal oldali mappafa mutatása vagy elrejtése">Mappafa</button>
+          <!-- TOBB ELEM KIJELOLESE (#381, Boss TG 1471): pipak minden elemen,
+               utana "Athelyezes szemelyhez". -->
+          <button class="btn-secondary" id="intezoMultiBtn" aria-pressed="false"
+                  data-i18n="intezo.multi_btn" data-i18n-title="intezo.multi_btn_title"
+                  title="Pipák minden fájlon és mappán, hogy többet egyszerre áthelyezhess">☑ Kijelölés</button>
         </div>
 
         <!-- FORRASJELVENY-MOD. Alapertelmezes az IKONOS -- Boss valasztasa.
@@ -3320,6 +3325,14 @@
           <span id="intezoClipText" class="intezo-actions-name"></span>
           <button class="btn-primary btn-compact" id="intezoClipPasteBtn" data-i18n="intezo.clip_paste">Beillesztés ide</button>
           <button class="btn-secondary btn-compact" id="intezoClipCancelBtn" data-i18n="intezo.clip_cancel">Mégse</button>
+        </div>
+        <!-- TOBB ELEM (#381): hany elem van kipipalva, es mit csinaljunk veluk. -->
+        <div id="intezoMultiBar" class="intezo-actions intezo-clipbar" hidden>
+          <span id="intezoMultiText" class="intezo-actions-name"></span>
+          <button class="btn-primary btn-compact" id="intezoMultiMoveBtn" data-i18n="intezo.multi_to_person">Áthelyezés személyhez…</button>
+          <button class="btn-secondary btn-compact" id="intezoMultiAllBtn" data-i18n="intezo.multi_all">Mind kijelölése</button>
+          <button class="btn-secondary btn-compact" id="intezoMultiNoneBtn" data-i18n="intezo.multi_none">Pipák törlése</button>
+          <button class="btn-secondary btn-compact" id="intezoMultiDoneBtn" data-i18n="intezo.multi_done">Kész</button>
         </div>
         </div>
 

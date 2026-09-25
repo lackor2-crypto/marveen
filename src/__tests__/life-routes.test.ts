@@ -914,3 +914,38 @@ describe('POST /api/life/move -- git-repo gyokerebe sem', () => {
     expect(existsSync(join(depot, 'MvSrc', 'a.txt'))).toBe(true)
   })
 })
+
+describe('GET /api/life/media-targets -- "Athelyezes szemelyhez" celjai (#381)', () => {
+  beforeEach(() => {
+    rmSync(join(store, 'life-tree.json'), { force: true })
+    for (const n of readdirSync(depot)) rmSync(join(depot, n), { recursive: true, force: true })
+  })
+
+  const get = async () => {
+    const { ctx, out } = ctxFor('/api/life/media-targets', 'GET')
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+
+  it('friss telepitesen (nincs fa-beallitas) ures lista, nem hiba', async () => {
+    const out = await get()
+    expect(out.status).toBe(200)
+    expect(out.body.ok).toBe(true)
+    expect(Array.isArray(out.body.targets)).toBe(true)
+  })
+
+  it('a szemely Media/Fotok utja a fa tervebol jon, es megmondja, letezik-e mar', async () => {
+    const { ctx, out: saved } = ctxFor('/api/life/config', 'POST', { persons: [owner], companies: [{ name: 'Teszt Kft' }] })
+    await tryHandleLife(ctx)
+    expect(saved.status).toBe(200)
+    const out = await get()
+    const p = out.body.targets.find((x: any) => x.name === 'Teszt Elek')
+    expect(p).toBeTruthy()
+    expect(p.kind).toBe('person')
+    expect(p.media.photos).toMatch(/Teszt Elek\//)
+    expect(p.exists.photos).toBe(false)
+    mkdirSync(join(depot, p.media.photos), { recursive: true })
+    const again = (await get()).body.targets.find((x: any) => x.name === 'Teszt Elek')
+    expect(again.exists.photos).toBe(true)
+  })
+})
