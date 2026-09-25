@@ -2016,6 +2016,11 @@ window._i18n.en = {
   // --- Autonomy ---
   'approvals.page_title':        'Approvals',
   'approvals.page_subtitle':     'Agent action approvals, history and status',
+  // --- Header count boxes as filters (#385) ---
+  'statFilter.title_on':        'Click to show only these ({label})',
+  'statFilter.title_off':       'This filter is on. Click again to show everything',
+  'statFilter.title_current':   'This is what you are viewing',
+  'statFilter.none':            'Nothing in this state right now.',
   'approvals.stat.pending':      'Pending',
   'approvals.stat.approved':     'Approved',
   'approvals.stat.rejected':     'Rejected',

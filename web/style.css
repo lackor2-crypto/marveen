@@ -3967,6 +3967,31 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 
 /* === Memory page === */
+/* === Header count boxes that double as filters (#385) === */
+button.stat-card--filter {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.stat-card--filter .stat-value,
+.stat-card--filter .stat-label { display: block; }
+@media (hover: hover) {
+  button.stat-card--filter:hover { border-color: var(--accent); }
+}
+button.stat-card--filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button.stat-card--filter.is-active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+}
+button.stat-card--filter.is-active .stat-label { color: var(--text); }
+
 /* === Memory Stats === */
 .mem-stats {
   display: flex;

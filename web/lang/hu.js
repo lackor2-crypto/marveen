@@ -2532,6 +2532,11 @@ window._i18n.hu = {
   // --- Autonomy ---
   'approvals.page_title':        'Jóváhagyások',
   'approvals.page_subtitle':     'Ágens-kérések jóváhagyása, előzmények és státusz',
+  // --- Header count boxes as filters (#385) ---
+  'statFilter.title_on':        'Kattints: csak ezek látszanak ({label})',
+  'statFilter.title_off':       'Ez a szűrő van bekapcsolva. Kattints újra: minden látszik',
+  'statFilter.title_current':   'Ezt nézed most',
+  'statFilter.none':            'Ebben az állapotban most nincs egy sem.',
   'approvals.stat.pending':      'Várakozó',
   'approvals.stat.approved':     'Jóváhagyott',
   'approvals.stat.rejected':     'Elutasított',

@@ -10374,6 +10374,11 @@ memSearchInput.addEventListener('keydown', (e) => {
   }
 })
 
+// Header tier boxes (#385) = the tier tabs.
+wireStatFilterCards(memStats, (tier) => {
+  document.querySelector(`#memTabs .mem-tab[data-tier="${CSS.escape(tier)}"]`)?.click()
+})
+
 // Tab switching
 document.getElementById('memTabs').addEventListener('click', (e) => {
   const tab = e.target.closest('.mem-tab')
@@ -10381,6 +10386,7 @@ document.getElementById('memTabs').addEventListener('click', (e) => {
   document.querySelectorAll('.mem-tab').forEach(t => t.classList.remove('active'))
   tab.classList.add('active')
   currentMemTier = tab.dataset.tier
+  syncStatFilterCards(memStats, (k) => k === currentMemTier, t('statFilter.title_current'))
 
   const isLog = currentMemTier === 'log'
   const isGraph = currentMemTier === 'graph'
@@ -10536,10 +10542,15 @@ async function loadMemStats() {
     const stats = await res.json()
     const embCount = stats.withEmbedding || 0
     const embPct = stats.total > 0 ? Math.round(embCount / stats.total * 100) : 0
+    // A tier box opens that tier's tab (#385). The list always shows exactly one
+    // tier, so there is no "clear" -- the box of the open tab just stays on.
+    // Total and vector coverage have no list of their own: plain boxes.
     memStats.innerHTML = `
       <div class="stat-card"><div class="stat-value">${stats.total}</div><div class="stat-label">${t('memories.stat.total')}</div></div>
       ${Object.entries(stats.byTier || {}).map(([tier, count]) =>
-        `<div class="stat-card"><div class="stat-value" style="color:${tierColors[tier] || 'var(--accent)'}">${count}</div><div class="stat-label">${tierLabels[tier] || tier}</div></div>`
+        document.querySelector(`#memTabs .mem-tab[data-tier="${CSS.escape(tier)}"]`)
+          ? statFilterCard({ value: count, label: escapeHtml(tierLabels[tier] || tier), color: tierColors[tier] || 'var(--accent)', filter: tier, active: currentMemTier === tier, activeTitle: t('statFilter.title_current') })
+          : `<div class="stat-card"><div class="stat-value" style="color:${tierColors[tier] || 'var(--accent)'}">${count}</div><div class="stat-label">${escapeHtml(tierLabels[tier] || tier)}</div></div>`
       ).join('')}
       <div class="stat-card"><div class="stat-value">${embCount}</div><div class="stat-label">${t('memories.stat.vectors_pct', { pct: embPct })}</div></div>
       <button class="btn-secondary btn-compact" id="memBackfillBtn" style="margin-left:auto;font-size:11px;padding:6px 12px;align-self:center">${t('memories.stat.vectors_btn')}</button>
@@ -11514,6 +11525,8 @@ const connectorModalOverlay = document.getElementById('connectorModalOverlay')
 const connectorDetailOverlay = document.getElementById('connectorDetailOverlay')
 const catalogInstallOverlay = document.getElementById('catalogInstallOverlay')
 let connectors = []
+// Status picked by clicking a header count box (#385); '' = all.
+let _connectorStatusFilter = ''
 let catalogItems = []
 let catalogFilter = 'all'
 let catalogInstallTarget = null
@@ -11887,14 +11900,29 @@ function renderConnectors() {
     const configured = connectors.filter(c => c.status === 'configured').length
     const needsAuth = connectors.filter(c => c.status === 'needs_auth').length
     const failed = connectors.filter(c => c.status === 'failed').length
+    // Each status box is also a filter on the list below (#385); "Total" is
+    // the unfiltered view. A box that is the active filter stays visible even
+    // when its count dropped to zero, so the filter can be switched off.
+    const cur = _connectorStatusFilter
+    const box = (filter, value, labelKey, color) => statFilterCard({
+      value, label: t(labelKey), color, filter, active: cur === filter,
+      activeTitle: filter === '' ? t('statFilter.title_current') : undefined,
+    })
     connectorStats.innerHTML = `
-      <div class="stat-card"><div class="stat-value">${connectors.length}</div><div class="stat-label">${t('connectors.stat.total')}</div></div>
-      <div class="stat-card"><div class="stat-value" style="color:var(--success)">${connected}</div><div class="stat-label">${t('connectors.stat.active')}</div></div>
-      ${configured ? `<div class="stat-card"><div class="stat-value" style="color:var(--info)">${configured}</div><div class="stat-label">${t('connectors.stat.configured')}</div></div>` : ''}
-      ${needsAuth ? `<div class="stat-card"><div class="stat-value" style="color:var(--accent)">${needsAuth}</div><div class="stat-label">${t('connectors.stat.needs_auth')}</div></div>` : ''}
-      ${failed ? `<div class="stat-card"><div class="stat-value" style="color:var(--danger)">${failed}</div><div class="stat-label">${t('connectors.stat.failed')}</div></div>` : ''}
+      ${box('', connectors.length, 'connectors.stat.total')}
+      ${box('connected', connected, 'connectors.stat.active', 'var(--success)')}
+      ${configured || cur === 'configured' ? box('configured', configured, 'connectors.stat.configured', 'var(--info)') : ''}
+      ${needsAuth || cur === 'needs_auth' ? box('needs_auth', needsAuth, 'connectors.stat.needs_auth', 'var(--accent)') : ''}
+      ${failed || cur === 'failed' ? box('failed', failed, 'connectors.stat.failed', 'var(--danger)') : ''}
     `
+    wireStatFilterCards(connectorStats, (key, active) => {
+      _connectorStatusFilter = active ? '' : key
+      renderConnectors()
+    })
   }
+  const statusFiltered = _connectorStatusFilter
+    ? connectors.filter(c => c.status === _connectorStatusFilter)
+    : connectors
 
   connectorGrid.innerHTML = ''
   const hasClaudeAiEntries = connectors.some(c => c.source === 'claude.ai')
@@ -11917,7 +11945,7 @@ function renderConnectors() {
 
   // Group by scope
   const groups = new Map()
-  for (const c of connectors) {
+  for (const c of statusFiltered) {
     const scope = c.scope || 'global'
     if (!groups.has(scope)) groups.set(scope, [])
     groups.get(scope).push(c)
@@ -11973,7 +12001,10 @@ function renderConnectors() {
     section.className = 'connector-scope-section'
     const header = document.createElement('div')
     header.className = 'connector-scope-header collapsible'
-    header.innerHTML = `<span class="connector-scope-toggle">▶</span> ${icon} ${escapeHtml(label)} <span class="connector-scope-count">${items.length}</span>`
+    // Under a status filter (#385) the sections open by themselves -- a match
+    // folded away inside a closed section would read as "nothing found".
+    const open = !!_connectorStatusFilter
+    header.innerHTML = `<span class="connector-scope-toggle">${open ? '▼' : '▶'}</span> ${icon} ${escapeHtml(label)} <span class="connector-scope-count">${items.length}</span>`
     header.addEventListener('click', () => {
       const grid = section.querySelector('.connector-scope-grid')
       const toggle = header.querySelector('.connector-scope-toggle')
@@ -11983,7 +12014,7 @@ function renderConnectors() {
     section.appendChild(header)
     const grid = document.createElement('div')
     grid.className = 'connector-scope-grid'
-    grid.hidden = true
+    grid.hidden = !open
     for (const c of items) renderCard(c, grid)
     section.appendChild(grid)
     container.appendChild(section)
@@ -11994,6 +12025,13 @@ function renderConnectors() {
   globalHeading.className = 'connector-group-heading'
   globalHeading.textContent = t('connectors.heading.global')
   connectorGrid.appendChild(globalHeading)
+
+  if (_connectorStatusFilter && statusFiltered.length === 0) {
+    const none = document.createElement('div')
+    none.className = 'connector-loading'
+    none.textContent = t('statFilter.none')
+    connectorGrid.appendChild(none)
+  }
 
   const builtinGrid = document.createElement('div')
   builtinGrid.className = 'connector-builtin-grid'
@@ -12009,7 +12047,9 @@ function renderConnectors() {
     if (btn) btn.addEventListener('click', () => openBuiltinDetail(b))
     builtinGrid.appendChild(div)
   }
-  connectorGrid.appendChild(builtinGrid)
+  // The built-in servers carry no status and are in none of the counts, so a
+  // status filter hides them.
+  if (!_connectorStatusFilter) connectorGrid.appendChild(builtinGrid)
 
   const globalGrid = document.createElement('div')
   globalGrid.className = 'connector-scope-grid'
@@ -16487,6 +16527,7 @@ async function loadGlobalSkills() {
       btn.classList.add('active')
       skillsActiveFilter = btn.dataset.filter || 'all'
       skillsActiveCategory = 'all'
+      syncStatFilterCards(document.getElementById('skillsStats'), (k) => k === skillsActiveFilter, _skillsStatActiveTitle)
       renderSkillsSidebar()
       renderGlobalSkillsGrid()
     })
@@ -16558,16 +16599,31 @@ function renderSkillsSidebar() {
   })
 }
 
+// The "Total" box IS the unfiltered view, so while on it has nothing to clear.
+function _skillsStatActiveTitle(key) {
+  return key === 'all' ? t('statFilter.title_current') : undefined
+}
+
 function renderGlobalSkills() {
   const userCount = globalSkills.filter(s => s.source === 'user').length
   const pluginCount = globalSkills.filter(s => s.source === 'plugin').length
 
+  // Each box is also the source filter below it (#385), the same one the
+  // All / User / Plugin / Agent buttons set. "Total" = the All button.
+  const box = (filter, value, labelKey, color) => statFilterCard({
+    value, label: t(labelKey), color, filter, active: skillsActiveFilter === filter,
+    activeTitle: _skillsStatActiveTitle(filter),
+  })
   skillsStats.innerHTML = `
-    <div class="stat-card"><div class="stat-value">${globalSkills.length}</div><div class="stat-label">${t('skills.stat.total')}</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--info)">${userCount}</div><div class="stat-label">${t('skills.stat.user')}</div></div>
-    ${pluginCount ? `<div class="stat-card"><div class="stat-value" style="color:var(--accent)">${pluginCount}</div><div class="stat-label">${t('skills.stat.plugin')}</div></div>` : ''}
-    ${localAgentSkills.length ? `<div class="stat-card"><div class="stat-value" style="color:var(--warning)">${localAgentSkills.length}</div><div class="stat-label">${t('skills.stat.agent_local')}</div></div>` : ''}
+    ${box('all', globalSkills.length, 'skills.stat.total')}
+    ${box('user', userCount, 'skills.stat.user', 'var(--info)')}
+    ${pluginCount || skillsActiveFilter === 'plugin' ? box('plugin', pluginCount, 'skills.stat.plugin', 'var(--accent)') : ''}
+    ${localAgentSkills.length || skillsActiveFilter === 'agent' ? box('agent', localAgentSkills.length, 'skills.stat.agent_local', 'var(--warning)') : ''}
   `
+  wireStatFilterCards(skillsStats, (key, active) => {
+    const want = active ? 'all' : key
+    document.querySelector(`#skillsFilterBtns .skills-filter-btn[data-filter="${want}"]`)?.click()
+  })
 
   skillsActiveCategory = 'all'
   renderSkillsSidebar()
@@ -23941,6 +23997,52 @@ async function setAutonomyLevel(key, level) {
 }
 
 // ============================================================
+// === Header count boxes as filters (#385) ===
+// ============================================================
+// Boss, 2026-09-24: "ha rakattintok a dobozra, akkor az egy szuro az jelenjen
+// meg" -- clicking a count box in a page header narrows the list below to what
+// the box counts; clicking the active box again clears the filter. The box is a
+// real <button> so it works from the keyboard and on touch, and aria-pressed
+// carries the on/off state. A box whose number does not correspond to a part of
+// the list (a grand total that equals "no filter" aside, e.g. vector coverage)
+// stays a plain, non-clickable stat-card.
+function statFilterCard({ value, label, color, filter, active, activeTitle }) {
+  const plain = String(label).replace(/<[^>]*>/g, '')
+  const title = active ? (activeTitle || t('statFilter.title_off')) : t('statFilter.title_on', { label: plain })
+  const style = color ? ` style="color:${color}"` : ''
+  return `<button type="button" class="stat-card stat-card--filter${active ? ' is-active' : ''}" data-stat-filter="${escapeAttr(filter)}" data-stat-label="${escapeAttr(plain)}" aria-pressed="${active ? 'true' : 'false'}" title="${escapeAttr(title)}" aria-label="${escapeAttr(value + ' ' + plain + ' -- ' + title)}"><span class="stat-value"${style}>${value}</span><span class="stat-label">${label}</span></button>`
+}
+
+// Re-mark which box is on after the filter changed some other way (dropdown,
+// tab, filter button) without re-rendering the boxes. activeTitle may be a
+// function of the box key, for boxes where "click again" does not clear.
+function syncStatFilterCards(container, isActive, activeTitle) {
+  if (!container) return
+  container.querySelectorAll('.stat-card--filter').forEach((b) => {
+    const on = !!isActive(b.dataset.statFilter)
+    const plain = b.dataset.statLabel || ''
+    const at = typeof activeTitle === 'function' ? activeTitle(b.dataset.statFilter) : activeTitle
+    const title = on ? (at || t('statFilter.title_off')) : t('statFilter.title_on', { label: plain })
+    b.classList.toggle('is-active', on)
+    b.setAttribute('aria-pressed', on ? 'true' : 'false')
+    b.title = title
+    const v = b.querySelector('.stat-value')?.textContent || ''
+    b.setAttribute('aria-label', v + ' ' + plain + ' -- ' + title)
+  })
+}
+
+// One delegated click listener per container; the handler gets the box's key.
+function wireStatFilterCards(container, onPick) {
+  if (!container || container.dataset.statFilterWired) return
+  container.dataset.statFilterWired = '1'
+  container.addEventListener('click', (e) => {
+    const b = e.target.closest('.stat-card--filter')
+    if (!b || !container.contains(b)) return
+    onPick(b.dataset.statFilter, b.classList.contains('is-active'))
+  })
+}
+
+// ============================================================
 // === Approvals ===
 // ============================================================
 
@@ -23951,9 +24053,21 @@ const _approvalsState = { status: '', agent: '', category: '', search: '', offse
 
 document.getElementById('refreshApprovalsBtn').addEventListener('click', loadApprovalsPage)
 document.getElementById('approvalsFilterStatus').addEventListener('change', (e) => {
-  _approvalsState.status = e.target.value
+  _setApprovalsStatusFilter(e.target.value)
+})
+
+// The status dropdown and the header count boxes (#385) are two handles on the
+// same filter; both go through here so they never disagree.
+function _setApprovalsStatusFilter(status) {
+  _approvalsState.status = status
   _approvalsState.offset = 0
+  const sel = document.getElementById('approvalsFilterStatus')
+  if (sel && sel.value !== status) sel.value = status
+  syncStatFilterCards(document.getElementById('approvalsStats'), (k) => k === status)
   _renderApprovalsTable()
+}
+wireStatFilterCards(document.getElementById('approvalsStats'), (key, active) => {
+  _setApprovalsStatusFilter(active ? '' : key)
 })
 document.getElementById('approvalsFilterAgent').addEventListener('change', (e) => {
   _approvalsState.agent = e.target.value
@@ -24070,14 +24184,19 @@ function _renderApprovalsStats() {
   // A 'withdrawn' (visszavonva) kartya csak akkor jelenik meg, ha van ilyen --
   // egy friss telepitesen (nulla visszavont) ne foglaljon helyet feleslegesen,
   // de amint van, ne tunjon el a szambol (korabban 'timeout' ala esett).
-  const withdrawnCard = counts.withdrawn > 0
-    ? `<div class="stat-card"><div class="stat-value" style="color:var(--text-muted)">${counts.withdrawn}</div><div class="stat-label">${t('approvals.stat.withdrawn')}</div></div>`
-    : ''
+  // Each box is also the status filter for the table below (#385).
+  const cur = _approvalsState.status
+  const box = (status, color) => statFilterCard({
+    value: counts[status], label: t('approvals.stat.' + status), color, filter: status, active: cur === status,
+  })
+  // A withdrawn box that is the active filter stays even at zero, so the
+  // filter can always be switched off where it was switched on.
+  const withdrawnCard = counts.withdrawn > 0 || cur === 'withdrawn' ? box('withdrawn', 'var(--text-muted)') : ''
   statsEl.innerHTML = `
-    <div class="stat-card"><div class="stat-value" style="color:var(--warning)">${counts.pending}</div><div class="stat-label">${t('approvals.stat.pending')}</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--success)">${counts.approved}</div><div class="stat-label">${t('approvals.stat.approved')}</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--danger)">${counts.rejected}</div><div class="stat-label">${t('approvals.stat.rejected')}</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--text-muted)">${counts.timeout}</div><div class="stat-label">${t('approvals.stat.timeout')}</div></div>
+    ${box('pending', 'var(--warning)')}
+    ${box('approved', 'var(--success)')}
+    ${box('rejected', 'var(--danger)')}
+    ${box('timeout', 'var(--text-muted)')}
     ${withdrawnCard}
   `
 
@@ -31279,6 +31398,9 @@ document.getElementById('emailComposeNewSendBtn')?.addEventListener('click', asy
 // Ideas (Ötletláda)
 // ============================================================
 let ideas = []
+// Every idea in scope regardless of the status filter: the header boxes count
+// from this, so picking one status does not zero out the others (#385).
+let _ideasAllStatuses = []
 let ideasPromoteId = null
 let ideaEditId = null
 let ideaDetailId = null
@@ -31289,14 +31411,15 @@ async function loadIdeasPage() {
   const statusFilter = document.getElementById('ideaStatusFilter')?.value ?? 'active'
   const categoryFilter = document.getElementById('ideaCategoryFilter')?.value || ''
   const params = new URLSearchParams()
-  // 'active' = new+reviewed, fetched unfiltered then narrowed client-side
-  if (statusFilter && statusFilter !== 'active') params.set('status', statusFilter)
+  // The status is narrowed client-side (never sent to the server): the header
+  // boxes need the count of EVERY status, not just the one being shown (#385).
+  // 'active' = new+reviewed.
   if (categoryFilter) params.set('category', categoryFilter)
   if (_prjScope.ideas) params.set('project', _prjScope.ideas)
   _prjScopeBar('ideas', loadIdeasPage)
   const [ideasRes, catsRes] = await Promise.all([fetch('/api/ideas?' + params), fetch('/api/ideas/categories')])
-  ideas = await ideasRes.json()
-  if (statusFilter === 'active') ideas = ideas.filter(i => i.status === 'new' || i.status === 'reviewed')
+  _ideasAllStatuses = await ideasRes.json()
+  ideas = _ideasAllStatuses.filter(i => _ideaStatusMatches(statusFilter, i.status))
   const cats = await catsRes.json()
   const catSel = document.getElementById('ideaCategoryFilter')
   if (catSel) {
@@ -31307,17 +31430,36 @@ async function loadIdeasPage() {
   renderIdeasList()
 }
 
+// '' = every status, 'active' = new + reviewed, otherwise one exact status.
+function _ideaStatusMatches(filter, status) {
+  if (!filter) return true
+  if (filter === 'active') return status === 'new' || status === 'reviewed'
+  return status === filter
+}
+
 function renderIdeasStats() {
   const counts = { new: 0, reviewed: 0, kanban: 0, rejected: 0 }
-  for (const i of ideas) counts[i.status] = (counts[i.status] || 0) + 1
+  for (const i of _ideasAllStatuses) counts[i.status] = (counts[i.status] || 0) + 1
   const el = document.getElementById('ideasStats')
   if (!el) return
-  el.innerHTML = Object.entries(counts).map(([s, n]) =>
-    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:90px">
-      <div style="font-size:22px;font-weight:700;color:${STATUS_COLORS[s]}">${n}</div>
-      <div style="font-size:12px;color:var(--text-muted)">${typeof STATUS_LABELS[s] === 'function' ? STATUS_LABELS[s]() : STATUS_LABELS[s]}</div>
-    </div>`
-  ).join('')
+  // Each box is also the status filter (#385). Under the default "active"
+  // view both the new and the reviewed box are on, because both are shown.
+  const cur = document.getElementById('ideaStatusFilter')?.value ?? 'active'
+  el.innerHTML = Object.entries(counts).map(([s, n]) => statFilterCard({
+    value: n,
+    label: escapeHtml(typeof STATUS_LABELS[s] === 'function' ? STATUS_LABELS[s]() : STATUS_LABELS[s]),
+    color: STATUS_COLORS[s],
+    filter: s,
+    active: cur !== '' && _ideaStatusMatches(cur, s),
+  })).join('')
+  wireStatFilterCards(el, (key) => {
+    const sel = document.getElementById('ideaStatusFilter')
+    if (!sel) return
+    // Only a box that IS the whole filter switches it off; under "active"
+    // (new + reviewed) a click narrows to that one status instead.
+    sel.value = sel.value === key ? '' : key
+    loadIdeasPage()
+  })
 }
 
 function renderIdeasList() {
