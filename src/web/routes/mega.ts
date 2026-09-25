@@ -4,6 +4,7 @@
 //   POST /api/mega/accounts  -- uj fiok {email, password}; csak sikeres belepes utan marad meg
 //   POST /api/mega/remove    -- fiok levetele {name}; a fajlokhoz NEM nyul
 //   POST /api/mega/measure   -- tarhely-meres MOST {name}
+//   POST /api/mega/rclone-install -- az rclone letoltese ~/.local/bin ala (friss telepitesen a feluletrol, #360)
 //
 // A jelszo sose megy vissza a bongeszonek, es a naploba sem kerul.
 import { json, readBody } from '../http-helpers.js'
@@ -11,6 +12,7 @@ import { logger } from '../../logger.js'
 import {
   rcloneStatus, readMegaAccounts, readMegaQuota, addMegaAccount, removeMegaAccount, measureMegaQuota,
 } from '../../mega.js'
+import { installRclone } from '../../rclone-install.js'
 import type { RouteContext } from './types.js'
 
 async function readJson(req: RouteContext['req']): Promise<any> {
@@ -25,6 +27,8 @@ async function readJson(req: RouteContext['req']): Promise<any> {
 /** Ennyi utan a tarhely-meres elavult: a Fiokok oldal megnyitasa ujramer. */
 const QUOTA_STALE_MS = 6 * 60 * 60 * 1000
 const measuring = new Set<string>()
+/** Egyszerre egy rclone-telepites: ket gyors kattintas ne toltson le ketszer. */
+let installing = false
 
 /**
  * Az elavult meresek frissitese a HATTERBEN -- az oldal nem var ra. Egy
@@ -80,6 +84,24 @@ export async function tryHandleMega(ctx: RouteContext): Promise<boolean> {
     if (!name || !removeMegaAccount(name)) { json(res, { error: 'not_found' }, 404); return true }
     logger.info({ account: name }, '[mega] fiok levetelve (a fajlok maradtak)')
     json(res, { ok: true, ...(await state()) })
+    return true
+  }
+
+  if (path === '/api/mega/rclone-install' && method === 'POST') {
+    if (installing) { json(res, { error: 'busy' }, 409); return true }
+    installing = true
+    try {
+      const r = await installRclone()
+      if (!r.ok) {
+        logger.warn({ code: r.code, detail: r.detail }, '[mega] rclone telepitese nem sikerult')
+        json(res, { error: r.code, detail: r.detail }, 502)
+        return true
+      }
+      logger.info({ version: r.version, path: r.path }, '[mega] rclone telepitve a feluletrol')
+      json(res, { ok: true, version: r.version, ...(await state()) })
+    } finally {
+      installing = false
+    }
     return true
   }
 

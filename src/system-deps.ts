@@ -202,8 +202,8 @@ export const SYSTEM_DEPS: SystemDep[] = [
     affects: { hu: 'MEGA fiókot nem lehet hozzáadni. A Drive, a Fotók és a Git ettől függetlenül működik.', en: 'MEGA accounts cannot be added. Drive, Photos and Git work regardless.' },
     apt: [], dnf: [], brew: ['rclone'],
     manual: {
-      hu: 'A Marveen telepítője magától letölti a ~/.local/bin mappába (rendszergazdai jog nélkül). Ha utólag kell: futtasd újra a telepítőt, vagy töltsd le a letöltési oldalról.',
-      en: 'The Marveen installer downloads it into ~/.local/bin by itself (no admin rights needed). To add it later: run the installer again, or download it from its download page.',
+      hu: 'A Marveen telepítője magától felteszi. Ha utólag kell: a Fiókok lapon a MEGA-fiók hozzáadásánál az „rclone telepítése most” gomb letölti a ~/.local/bin mappába (rendszergazdai jog nélkül, ellenőrzött letöltéssel).',
+      en: 'The Marveen installer adds it by itself. To add it later: on the Accounts page, under adding a MEGA account, the “Install rclone now” button downloads it into ~/.local/bin (no admin rights, verified download).',
     },
     url: 'https://rclone.org/downloads/',
     commands: [localBin('rclone'), 'rclone'], versionArgs: ['version'],

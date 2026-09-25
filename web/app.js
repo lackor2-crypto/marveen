@@ -20188,6 +20188,8 @@ function _megaRender(data) {
     rs.hidden = inst
     if (!inst) _connSetState('megaRcloneState', t('mega.rclone_missing'), null)
   }
+  const ir = document.getElementById('megaRcloneInstallRow')
+  if (ir) ir.hidden = inst
   if (btn) btn.disabled = !inst
   // A lista a fiok-kartyakon jelenik meg (renderAccountsHub), nem itt.
   _hubMega = (data && data.accounts) || []
@@ -20208,6 +20210,31 @@ async function _megaLoad() {
     const r = await _megaCall('/api/mega')
     if (r.ok) _megaRender(r.data)
   } catch { /* a blokk ures marad, a tobbi fiok-kartya ettol megy */ }
+}
+
+// Az rclone letoltese a feluletrol (#360): friss telepitesen terminal nelkul.
+// A szerver a hivatalos kiadast tolti le, ellenorzo-osszeggel (src/rclone-install.ts).
+async function _megaRcloneInstall() {
+  const btn = document.getElementById('megaRcloneInstallBtn')
+  if (btn) btn.disabled = true
+  _connSetState('megaRcloneState', t('mega.rclone_installing'), null)
+  try {
+    const r = await _megaCall('/api/mega/rclone-install', {})
+    if (r.ok && r.data && r.data.ok) {
+      _megaRender(r.data)
+      _connSetState('megaAddState', t('mega.rclone_installed', { v: r.data.version || '' }), null)
+    } else {
+      const code = (r.data && r.data.error) || 'unknown'
+      const key = 'mega.rclone_err_' + code
+      const msg = t(key) === key ? t('mega.rclone_err_unknown') : t(key)
+      const detail = r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''
+      _connSetState('megaRcloneState', msg + detail, 'bad')
+    }
+  } catch (e) {
+    _connSetState('megaRcloneState', t('mega.rclone_err_unknown') + ' (' + String(e && e.message || e) + ')', 'bad')
+  } finally {
+    if (btn) btn.disabled = false
+  }
 }
 
 async function _megaAdd() {
@@ -20268,6 +20295,7 @@ function renderConnectionsPanel() {
   if (megasec && megasec.dataset.wired !== '1') {
     megasec.dataset.wired = '1'
     document.getElementById('megaAddBtn').addEventListener('click', _megaAdd)
+    document.getElementById('megaRcloneInstallBtn').addEventListener('click', _megaRcloneInstall)
   }
   if (megasec) _megaLoad()
   if (!gsec || !msec) return
