@@ -64,7 +64,7 @@
     "install-linux.sh": {
       "blob": "066bb24bf8bc347fd4cc5bbf6aa3dcca7a86eecd",
       "kind": "decided",
-      "reason": "Owner decision (2026-09-24): ours -- the morning timer stays enabled; the rest of the upstream change merged.",
+      "reason": "Owner decision (2026-09-24): ours -- the morning timer stays enabled and the auto-deploy unit stays; the upstream keepalive-probe units merged by hand (#375).",
       "card": "#375"
     },
     "install-macos.sh": {
@@ -131,6 +131,12 @@
       "blob": "a452a788fd425bb27d790ee12f37af21e3efe81e",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/mio-orszem-precheck.test.py": {
+      "blob": "6c2e75f5c3f9fe610c49ae07703dc41fff9baf8a",
+      "kind": "decided",
+      "reason": "Test of scripts/hooks/mio-orszem-precheck.sh, which is left out (hard-coded /Users path, not host-agnostic): without the hook the test can only fail.",
       "card": "#375"
     },
     "scripts/__tests__/ops-scripts-portable.test.sh": {

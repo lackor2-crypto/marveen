@@ -1834,6 +1834,7 @@ DASH_UNIT="${SERVICE_ID}-dashboard"
 CHAN_UNIT="${SERVICE_ID}-channels"
 MORN_UNIT="${SERVICE_ID}-morning"
 DEPLOY_UNIT="${SERVICE_ID}-deploy"
+KEEPALIVE_UNIT="${SERVICE_ID}-channel-keepalive-probe"
 
 # Detect the host timezone so the scheduled-task runner (which reads
 # cron expressions in Node's local TZ) fires at the operator's wall
@@ -2031,6 +2032,46 @@ AccuracySec=30s
 WantedBy=timers.target
 EOF
 
+# ${KEEPALIVE_UNIT}.service/.timer -- token-free IDLE-path keepalive producer
+# (upstream sync, #375). store/.channel-keepalive has two producers: organic
+# inbound (channel-monitor, BUSY periods) and this probe (QUIET periods). The
+# repo shipped scripts/channel-keepalive-probe.sh, but nothing installed it, so
+# on a quiet night the file aged past the dashboard's 45-minute liveness ceiling
+# and a healthy session was "recovered" (measured upstream: 13 restarts in one
+# night). The probe does NOT fake liveness: it touches the keepalive only after
+# proving from the process tree that the channels session, its claude pid and a
+# telegram poller under it are alive -- a genuinely dead pipe still ages out.
+cat >"$SYSTEMD_DIR/${KEEPALIVE_UNIT}.service" <<EOF
+[Unit]
+Description=${BOT_NAME} token-free idle-path channel keepalive probe
+
+[Service]
+Type=oneshot
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/scripts/channel-keepalive-probe.sh
+Environment=PATH=$HOME/.local/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=$HOME
+${TZ_LINE}
+StandardOutput=append:$INSTALL_DIR/store/channel-keepalive-probe.log
+StandardError=append:$INSTALL_DIR/store/channel-keepalive-probe.log
+EOF
+
+# Same "no Requires=/Wants= on the triggered service" rule as the morning timer:
+# the [Timer] section already binds to ${KEEPALIVE_UNIT}.service by name. 3
+# minutes is far inside every consumer's staleness threshold.
+cat >"$SYSTEMD_DIR/${KEEPALIVE_UNIT}.timer" <<EOF
+[Unit]
+Description=${BOT_NAME} channel keepalive probe every 3 minutes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=3min
+AccuracySec=20s
+
+[Install]
+WantedBy=timers.target
+EOF
+
 # marveen-host-watchdog.service -- host/WSL-VM restart detector (btime-based).
 # Distinguishes a whole-VM restart (all units down at once, NOT an app crash)
 # from a service crash, and Telegrams it. See scripts/host-restart-watchdog.sh.
@@ -2115,7 +2156,7 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
   # macOS branch had. `if` rather than `&&`: a failing enable inside an if
   # CONDITION is exempt from errexit and from the ERR trap, so the installer
   # reports it instead of dying on it.
-  if systemctl --user enable "${DASH_UNIT}" "${CHAN_UNIT}" "${MORN_UNIT}.timer" "${DEPLOY_UNIT}.timer" "${SERVICE_ID}-host-watchdog.service" 2>/dev/null; then
+  if systemctl --user enable "${DASH_UNIT}" "${CHAN_UNIT}" "${MORN_UNIT}.timer" "${DEPLOY_UNIT}.timer" "${KEEPALIVE_UNIT}.timer" "${SERVICE_ID}-host-watchdog.service" 2>/dev/null; then
     ok "systemd unitok generalva es engedelyezve"
   else
     warn "A unit-fajlok elkeszultek, de az engedelyezesuk nem sikerult -- ujrainditas utan a szolgaltatasok nem indulnak el maguktol."
@@ -2133,7 +2174,7 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
     echo -e "  ${DIM}Javitas most:${NC}"
     echo -e "  ${DIM}systemctl --user enable \\${NC}"
     echo -e "  ${DIM}    ${DASH_UNIT} ${CHAN_UNIT} \\${NC}"
-    echo -e "  ${DIM}    ${MORN_UNIT}.timer ${DEPLOY_UNIT}.timer ${SERVICE_ID}-host-watchdog.service${NC}"
+    echo -e "  ${DIM}    ${MORN_UNIT}.timer ${DEPLOY_UNIT}.timer ${KEEPALIVE_UNIT}.timer ${SERVICE_ID}-host-watchdog.service${NC}"
   fi
   # The independent guards (backup, dashboard/channel watchdogs, rate-limit
   # alert, sub-agent retry...). On the reference install they were hand-made
@@ -2147,7 +2188,7 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
   # on an already-running user manager the timer would not tick until the next
   # boot. --now starts it immediately so a fresh install auto-deploys from the
   # first landed PR onward, without a reboot.
-  systemctl --user start "${DEPLOY_UNIT}.timer" 2>/dev/null || true
+  systemctl --user start "${DEPLOY_UNIT}.timer" "${KEEPALIVE_UNIT}.timer" 2>/dev/null || true
   systemctl --user start "${DASH_UNIT}" "${CHAN_UNIT}" 2>/dev/null || true
   sleep 2
   for svc in "${DASH_UNIT}" "${CHAN_UNIT}"; do
