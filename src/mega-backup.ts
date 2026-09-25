@@ -137,8 +137,23 @@ export function saveMegaState(state: MegaBackupState): void {
 // -------------------------------------------------------------- remote side
 
 /** `mega_x:Marveen-backup/<rule path>` -- the rule's own folder on MEGA. */
+/**
+ * The key of an account's own mirror folder (Raktar/Tarolok/MEGA/<account>,
+ * card #360): its files go to the ROOT of that MEGA account (owner, 2026-09-25:
+ * "1A, 2A" -- by hand, into the account root). Never a rule path: a rule path
+ * comes from `normRulePath`, which cannot start with a colon-pair folder the
+ * Explorer would create.
+ */
+export const MEGA_MIRROR = '::mirror'
+
 export function megaRemoteDir(remote: string, path: string): string {
+  if (path === MEGA_MIRROR) return `${remote}:`
   return `${remote}:${MEGA_BACKUP_DIR}${path ? '/' + path : ''}`
+}
+
+/** One file under a remote folder -- the account root has no trailing slash to add. */
+export function megaRemoteFile(dir: string, rel: string): string {
+  return dir.endsWith(':') ? dir + rel : `${dir}/${rel}`
 }
 
 export type RemoteList = { ok: true; files: Set<string> } | { ok: false; error: string }
@@ -165,6 +180,8 @@ export interface MegaPlan {
   uploadBytes: number
   /** Uploaded earlier, deleted on MEGA since: NOT uploaded again. */
   remoteDeleted: string[]
+  /** Already on MEGA, never uploaded by Marveen: left alone (mirror only). */
+  remoteUntracked: string[]
   /** Gone from the machine, still on MEGA: only ever a confirmation-queue item. */
   wouldDelete: { rel: string; size: number }[]
   /** Recorded, but gone from both sides: dropped from the record. */
@@ -177,14 +194,23 @@ export interface MegaPlan {
 }
 
 /** Pure: what one backup run would do. */
-export function planMegaBackup(walk: LocalWalk, state: MegaBackupState, remote: Set<string>, rules: ExcludeRules): MegaPlan {
+export function planMegaBackup(
+  walk: LocalWalk, state: MegaBackupState, remote: Set<string>, rules: ExcludeRules,
+  opts: { keepRemoteUntracked?: boolean } = {},
+): MegaPlan {
   const upload: LocalFile[] = []
   const remoteDeleted: string[] = []
+  const remoteUntracked: string[] = []
   const localSet = new Set<string>()
   for (const f of walk.files) {
     localSet.add(f.rel)
     const s = state.files[f.rel]
-    if (!s) { upload.push(f); continue }
+    if (!s) {
+      // Mirror of an account root: a file already there that Marveen never
+      // uploaded (put there on the MEGA website) is NEVER overwritten.
+      if (opts.keepRemoteUntracked && remote.has(f.rel)) { remoteUntracked.push(f.rel); continue }
+      upload.push(f); continue
+    }
     if (!remote.has(f.rel)) { remoteDeleted.push(f.rel); continue }
     if (s.size !== f.size || Math.round(s.mtimeMs) !== Math.round(f.mtimeMs)) upload.push(f)
   }
@@ -202,7 +228,7 @@ export function planMegaBackup(walk: LocalWalk, state: MegaBackupState, remote: 
   }
   return {
     upload, uploadBytes: upload.reduce((n, f) => n + f.size, 0),
-    remoteDeleted, wouldDelete, forget,
+    remoteDeleted, remoteUntracked, wouldDelete, forget,
     brake: shouldBrakeDeletions(wouldDelete.length, tracked),
     tracked, truncated: walk.truncated,
   }
@@ -345,7 +371,7 @@ export async function decideMegaDelete(opts: {
     const remote = opts.remoteOf(item.account)
     if (!remote) return { ok: false, error: 'no_account' }
     if (!opts.bin) return { ok: false, error: 'rclone_missing' }
-    const target = `${megaRemoteDir(remote, item.path)}/${item.rel}`
+    const target = megaRemoteFile(megaRemoteDir(remote, item.path), item.rel)
     const r = await opts.run(opts.bin, ['deletefile', '--config', rcloneConfigPath(), target])
     if (r.code !== 0) return { ok: false, error: r.stderr.trim().slice(-400) || `rclone exit ${r.code}` }
   }

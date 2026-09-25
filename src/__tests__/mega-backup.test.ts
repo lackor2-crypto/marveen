@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import {
   setMegaBackupStoreForTests, walkForMega, planMegaBackup, runMegaUpload, loadMegaState, saveMegaState,
   syncMegaDeleteQueue, loadMegaDeleteQueue, decideMegaDelete, megaItemId, listMegaRemote, megaRemoteDir,
-  type MegaBackupState,
+  megaRemoteFile, MEGA_MIRROR, type MegaBackupState,
 } from '../mega-backup.js'
 import { excludeRules } from '../backup-exclude.js'
 import type { Runner } from '../mega.js'
@@ -221,3 +221,33 @@ describe('deletion queue', () => {
     expect(loadMegaDeleteQueue().broken).toBeTruthy()
   })
 })
+
+describe('account-root mirror (#360: by hand, into the account root)', () => {
+  it('the mirror key points at the account ROOT, a rule at Marveen-backup/<path>', () => {
+    expect(megaRemoteDir('mega_a', MEGA_MIRROR)).toBe('mega_a:')
+    expect(megaRemoteDir('mega_a', 'Projektek')).toBe('mega_a:Marveen-backup/Projektek')
+    expect(megaRemoteFile('mega_a:', 'x/y.txt')).toBe('mega_a:x/y.txt')
+    expect(megaRemoteFile('mega_a:Marveen-backup/P', 'y.txt')).toBe('mega_a:Marveen-backup/P/y.txt')
+  })
+
+  it('a file already on MEGA that Marveen never uploaded is NOT overwritten', () => {
+    file('mine.txt'); file('theirs.txt')
+    const walk = walkForMega(base, none)
+    const plan = planMegaBackup(walk, st(), new Set(['theirs.txt']), none, { keepRemoteUntracked: true })
+    expect(plan.upload.map((f) => f.rel)).toEqual(['mine.txt'])
+    expect(plan.remoteUntracked).toEqual(['theirs.txt'])
+    // A rule upload keeps the old behaviour (its folder is Marveen's own).
+    expect(planMegaBackup(walk, st(), new Set(['theirs.txt']), none).upload.map((f) => f.rel).sort()).toEqual(['mine.txt', 'theirs.txt'])
+  })
+
+  it('"yes" on a mirror file deletes exactly that file at the account root', async () => {
+    const remote = new Set(['a/gone.txt'])
+    const { run, calls } = mockRclone(remote)
+    syncMegaDeleteQueue('a', MEGA_MIRROR, [{ rel: 'a/gone.txt', size: 1 }])
+    const r = await decideMegaDelete({ id: megaItemId('a', MEGA_MIRROR, 'a/gone.txt'), yes: true, bin: '/fake/rclone', remoteOf: () => 'mega_a', run })
+    expect(r).toEqual({ ok: true })
+    expect(calls[0][0]).toBe('deletefile')
+    expect(calls[0][calls[0].length - 1]).toBe('mega_a:a/gone.txt')
+  })
+})
+
