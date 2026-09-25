@@ -36,6 +36,10 @@ window._i18n.hu = {
   'common.required_paren': '(kötelező)',
   'common.unknown':           'Ismeretlen',
   'common.error_load':        'Hiba a betöltés során',
+  'net.restarting': 'A {brand} éppen frissül, pillanat... Magától újrapróbálom.',
+  'net.back': 'A {brand} újra elérhető.',
+  'net.unreachable': 'A {brand} most nem érhető el (lehet, hogy éppen frissül). Amint újra elérhető, az oldal magától újratöltődik.',
+  'net.unreachable_action': 'A {brand} most nem érhető el (lehet, hogy éppen frissül), ezért ez a művelet NEM ment végbe. Pár másodperc múlva próbáld újra.',
 
   // --- Overview dynamic ---
   'overview.stat.agents_sub':       '{n} összesen',

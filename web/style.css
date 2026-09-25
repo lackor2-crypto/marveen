@@ -12831,3 +12831,15 @@ span.intezo-tree-tw { cursor: default; }
   border: 1px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
+
+/* #390: kozos "a Marveen eppen frissul" csik -- minden oldalon ugyanaz, a
+   tartalom folott, mobilon is a kepernyon belul marad. */
+.net-status-banner {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 10050; max-width: calc(100vw - 24px); box-sizing: border-box;
+  padding: 8px 16px; border-radius: 8px; font-size: 14px; line-height: 1.4; text-align: center;
+  background: #fef3c7; color: #78350f; border: 1px solid #f59e0b;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+.net-status-banner[hidden] { display: none; }
+.net-status-banner.is-back { background: #dcfce7; color: #14532d; border-color: #22c55e; }
