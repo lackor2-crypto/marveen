@@ -949,7 +949,11 @@ export function ensureQuarantineReader(name: string): boolean {
 // scaffold silently dropping the task.
 function copyTaskConfigWithAgentRewrite(srcPath: string, destPath: string): void {
   try {
-    const raw = readFileSync(srcPath, 'utf-8')
+    // #393: the placeholders ({{PROJECT_ROOT}}, {{INSTALL_DIR}}, ...) are
+    // resolved here too, not only in SKILL.md -- a `preCheck` path shipped as
+    // "{{PROJECT_ROOT}}/scripts/..." otherwise reached the scheduler verbatim,
+    // was treated as a relative path, never ran, and every tick woke the model.
+    const raw = resolveTemplatePlaceholders(readFileSync(srcPath, 'utf-8'))
     const cfg = JSON.parse(raw) as Record<string, unknown>
     if (typeof cfg.agent === 'string') {
       cfg.agent = MAIN_AGENT_ID
@@ -959,6 +963,25 @@ function copyTaskConfigWithAgentRewrite(srcPath: string, destPath: string): void
     // Malformed or unreadable: fall back to a byte copy so the file is
     // still seeded and the operator gets a chance to fix it.
     copyFileSync(srcPath, destPath)
+  }
+}
+
+// #393: an already-seeded task-config.json may still carry an unresolved
+// template placeholder (the seeders before this fix left them in). Resolve ONLY
+// the literal placeholders -- every other byte, including the operator's own
+// edits, stays as it is. Idempotent: a config without "{{" is not touched.
+export function healTaskConfigPlaceholders(cfgPath: string): boolean {
+  try {
+    if (!existsSync(cfgPath)) return false
+    const raw = readFileSync(cfgPath, 'utf-8')
+    if (!raw.includes('{{')) return false
+    const fixed = resolveTemplatePlaceholders(raw)
+    if (fixed === raw) return false
+    JSON.parse(fixed)
+    atomicWriteFileSync(cfgPath, fixed)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -972,7 +995,7 @@ export function ensureDefaultScheduledTasks(): void {
     const src = join(repoTasks, taskName)
     const dest = join(destRoot, taskName)
     if (!statSync(src).isDirectory()) continue
-    if (existsSync(dest)) continue
+    if (existsSync(dest)) { healTaskConfigPlaceholders(join(dest, 'task-config.json')); continue }
     mkdirSync(dest, { recursive: true })
     for (const file of readdirSync(src)) {
       const srcFile = join(src, file)

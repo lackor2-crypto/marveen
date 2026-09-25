@@ -1040,6 +1040,7 @@ if [ -d "$SEED_SKILLS_DIR" ]; then
           -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
           -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
           -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+          -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
           -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
           "$f" > "$target/$rel"
     done < <(find "$skill_dir" -type f -print0)
@@ -1094,6 +1095,7 @@ if [ -d "$SEED_SCHED_DIR" ]; then
             -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
             -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
             -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+            -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
             -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
             "$f" > "$target/$rel"
       done < <(find "$tpl" -type f -print0)
@@ -1138,6 +1140,7 @@ if [ "$RESEED_FLEET" = "1" ] || [ "$REGEN_CLAUDEMD" = "1" ]; then
     [ -f "$INSTALL_DIR/.env" ] && REGEN_CHAT_ID=$(grep '^CHAT_ID=' "$INSTALL_DIR/.env" | cut -d= -f2-)
     sed -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
         -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+        -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
         -e "s/{{CHAT_ID}}/$REGEN_CHAT_ID/g" \
         -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
         -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
