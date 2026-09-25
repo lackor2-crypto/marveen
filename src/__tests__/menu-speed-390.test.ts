@@ -170,3 +170,21 @@ describe('OpenRouter price lookup never waits on the network for a list page', (
     expect(Date.now() - t0).toBeLessThan(1000)
   })
 })
+
+describe('Overview draws before the live measure returns', () => {
+  const app = src('web/app.js')
+  const body = /async function loadOverview\(\) \{[\s\S]*?\n}\n/.exec(app)?.[0] ?? ''
+
+  it('fires measure=1 in the background and awaits only the plain snapshot', () => {
+    expect(body).toContain("const measured = fetch('/api/overview?measure=1')")
+    expect(body).toContain("const res = await fetch('/api/overview')")
+    expect(body).not.toMatch(/await fetch\('\/api\/overview\?measure=1'\)/)
+    // the measured answer still repaints the quota section (refresh = re-measure)
+    expect(body).toMatch(/measured\.then[\s\S]*renderOverviewRateLimit\(md\.rateLimit/)
+  })
+
+  it('does not hold the activity list behind /api/team/graph', () => {
+    expect(body).not.toMatch(/await fetch\('\/api\/team\/graph'\)/)
+    expect(body).toContain("fetch('/api/team/graph').then(")
+  })
+})
