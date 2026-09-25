@@ -731,7 +731,7 @@ function switchPage(pageId) {
   // szandekosan nem lat el (az csak a #navMarvin csoportjait sopri). Ha a
   // Drive vagy a Fotok az aktiv lap, a csoport nem maradhat csukva: a "hol
   // vagyok" jelzes nem bujhat el egy osszecsukott menu mogott.
-  if (pageId === 'drive' || pageId === 'photos' || pageId === 'gitrepos') {
+  if (pageId === 'drive' || pageId === 'photos' || pageId === 'gitrepos' || pageId === 'megadepot') {
     const depotGroup = document.querySelector('.sb-group[data-group="depot-content"]')
     if (depotGroup && !depotGroup.classList.contains('open')) {
       depotGroup.classList.add('open')
@@ -785,6 +785,7 @@ function switchPage(pageId) {
   if (pageId !== 'photos') { _photosStopPoll(); _photosReleaseBlobs() }
   if (pageId === 'photos') loadPhotosPage()
   if (pageId === 'gitrepos') loadGitReposPage()
+  if (pageId === 'megadepot') loadMegaDepotPage()
   if (pageId === 'accounts') loadAccountsPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
@@ -43449,6 +43450,75 @@ async function loadGitReposPage() {
   // szinkron-allapottol fuggetlenul, mert az mas kerdes (mi var feltoltesre).
   _gitreposLoadCommitPush()
 }
+
+// === RAKTAR -> MEGA (#391) ===
+// A bekotott MEGA-fiokok a Raktarban, a Drive / Fotok / Git tarolok mellett.
+// Ket forras, parhuzamosan: /api/mega (fiokok + mert tarhely) es /api/storages
+// (a fiok mappaja az Intezoben). Ha barmelyik nem valaszol, azt KULON mondjuk
+// ki -- a "nem lattam oda" nem ugyanaz, mint a "nincs fiok".
+async function loadMegaDepotPage() {
+  const box = document.getElementById('megadepotStateBox')
+  const host = document.getElementById('megadepotList')
+  if (!box || !host) return
+  let mega, stor
+  try {
+    const [mr, sr] = await Promise.all([fetch('/api/mega'), fetch('/api/storages')])
+    if (!mr.ok) throw new Error('HTTP ' + mr.status)
+    mega = await mr.json()
+    stor = sr.ok ? await sr.json() : null
+  } catch (err) {
+    host.innerHTML = ''
+    box.hidden = false
+    box.className = 'info-box gitrepos-state-warn'
+    box.textContent = t('megadepot.load_failed', { err: String(err && err.message || err) })
+    return
+  }
+  const accounts = Array.isArray(mega && mega.accounts) ? mega.accounts : []
+  const relByAccount = {}
+  for (const r of ((stor && stor.rows) || [])) if (r && r.kind === 'mega') relByAccount[r.account] = r
+  if (!accounts.length) {
+    host.innerHTML = ''
+    box.hidden = false
+    box.className = 'info-box gitrepos-state-info'
+    box.textContent = (mega && mega.rclone && !mega.rclone.installed)
+      ? t('megadepot.empty_no_rclone')
+      : t('megadepot.empty_no_accounts')
+    return
+  }
+  box.hidden = true
+  const when = (ms) => ms ? new Date(ms).toLocaleString() : '—'
+  host.innerHTML = '<div class="megadepot-grid">' + accounts.map((a) => {
+    const q = a.quota
+    const row = relByAccount[a.name]
+    let quota
+    if (!q) quota = escapeHtml(t('mega.quota_unmeasured'))
+    else if (q.error) quota = escapeHtml(t('mega.quota_failed', { when: when(q.measuredAt) }))
+    else {
+      const pct = q.total ? Math.min(100, Math.round((q.used || 0) / q.total * 100)) : 0
+      quota = escapeHtml(t('megadepot.used', { used: _depoBytes(q.used || 0), total: _depoBytes(q.total), free: _depoBytes(q.free) }))
+        + '<div class="megadepot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><span style="width:' + pct + '%"></span></div>'
+    }
+    const open = row && row.rel
+      ? '<button class="btn-secondary btn-compact" data-megadepot-open="' + escapeAttr(row.rel) + '">' + escapeHtml(t('megadepot.open')) + '</button>'
+      : '<span class="conn-note">' + escapeHtml(t('megadepot.no_folder')) + '</span>'
+    return '<div class="megadepot-card">'
+      + '<div class="megadepot-title">' + escapeHtml(a.email || a.name) + (row && row.id ? ' <span class="conn-note">' + escapeHtml(row.id) + '</span>' : '') + '</div>'
+      + '<div class="megadepot-quota">' + quota + '</div>'
+      + '<div class="megadepot-actions">' + open + '</div>'
+      + '</div>'
+  }).join('') + '</div>'
+  host.querySelectorAll('[data-megadepot-open]').forEach((b) => b.addEventListener('click', () => {
+    if (typeof _intezoClearSelection === 'function') _intezoClearSelection()
+    _intezoPath = b.getAttribute('data-megadepot-open')
+    if (location.hash.slice(1) === 'intezo') switchPage('intezo')
+    else location.hash = 'intezo'
+  }))
+}
+document.getElementById('megadepotAccountsBtn')?.addEventListener('click', () => {
+  if (location.hash.slice(1) === 'accounts') switchPage('accounts')
+  else location.hash = 'accounts'
+})
+
 
 // Hany tarolo var commit+push-ra, es ki kapta legutobb a munkat. A szamot
 // MINDIG friss felmeresbol vesszuk (a foldi igazsag maguk a tarolok), nem egy

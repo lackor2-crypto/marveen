@@ -12204,6 +12204,14 @@ details.upstream-box > summary > h4 {
    Egy extra funkcio hianya SOSE piros -- Boss, 2026-08-11. */
 .gitrepos-state-info { border-left: 3px solid var(--accent, #2563eb); }
 .gitrepos-state-warn { border-left: 3px solid #b45309; }
+/* Raktar -> MEGA (#391) */
+.megadepot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.megadepot-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.megadepot-title { font-weight: 600; overflow-wrap: anywhere; }
+.megadepot-quota { font-size: 13px; color: var(--text-muted); }
+.megadepot-bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text-muted) 20%, transparent); margin-top: 6px; overflow: hidden; }
+.megadepot-bar > span { display: block; height: 100%; background: var(--accent, #2563eb); }
+.megadepot-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 600px) {
   .gitrepos-row { flex-wrap: wrap; }
   .gitrepos-badge { order: -1; }

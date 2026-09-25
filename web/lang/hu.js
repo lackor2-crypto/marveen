@@ -4763,6 +4763,16 @@ window._i18n.hu = {
 
   // --- Git tarolok (Raktar) ---
   'nav.gitrepos':                   'Git tárolók',
+  'nav.megadepot': "MEGA",
+  'megadepot.page_title': "MEGA",
+  'megadepot.page_subtitle': "A bekötött MEGA-fiókok, mennyi hely van rajtuk, és a mappájuk az Intézőben",
+  'megadepot.manage': "Fiókok kezelése",
+  'megadepot.load_failed': "Nem tudtam lekérdezni a MEGA-fiókokat, ezért nem látok oda. A hiba: {err}",
+  'megadepot.empty_no_rclone': "Még nincs bekötve MEGA-fiók, és hiányzik hozzá az rclone program is. A „Fiókok kezelése” gombbal a Fiókok lapra jutsz: ott egy gombbal telepíted, és felveheted a MEGA-fiókot. Extra funkció, nélküle is működik minden.",
+  'megadepot.empty_no_accounts': "Még nincs bekötve MEGA-fiók. A „Fiókok kezelése” gombbal a Fiókok lapra jutsz, ott a MEGA gombbal felveheted. Extra funkció, nélküle is működik minden.",
+  'megadepot.used': "Foglalt: {used} / {total} — szabad: {free}",
+  'megadepot.open': "Megnyitás az Intézőben",
+  'megadepot.no_folder': "A fiók mappája még nincs meg a Raktárban (a következő frissítéskor létrejön).",
   'gitrepos.page_title':            'Git tárolók',
   'gitrepos.page_subtitle':         'A leszinkronizált git tárolók és az, hogy mikor frissültek utoljára',
   'gitrepos.sync_now':              'Szinkron most',

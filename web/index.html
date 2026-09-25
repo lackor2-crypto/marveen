@@ -301,6 +301,13 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
             <span class="sb-label" data-i18n="nav.gitrepos">Git tárolók</span>
           </a>
+          <!-- MEGA (#391): a Drive, a Fotok es a Git tarolok testvere a Raktarban --
+               a bekotott MEGA-fiokok, a helyuk, es egy kattintas az Intezo
+               Rendszer/Tarolok/MEGA/<fiok> mappajara. Boss TG 1254 + 6380. -->
+          <a href="#" class="sb-link" data-page="megadepot">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            <span class="sb-label" data-i18n="nav.megadepot">MEGA</span>
+          </a>
         </div>
       </div>
       <a href="#" class="sb-link sb-link-settings" data-page="irodaSettings">
@@ -3633,6 +3640,23 @@
       <div class="info-box" id="gitreposStateBox" hidden></div>
 
       <div id="gitreposList"></div>
+    </div>
+
+    <!-- === MEGA (Raktar) Page -- #391 === -->
+    <div class="page" id="megadepotPage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 data-i18n="megadepot.page_title">MEGA</h1>
+            <p class="subtitle" data-i18n="megadepot.page_subtitle">A bekötött MEGA-fiókok, mennyi hely van rajtuk, és a mappájuk az Intézőben</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+            <button class="btn-secondary" id="megadepotAccountsBtn" data-i18n="megadepot.manage">Fiókok kezelése</button>
+          </div>
+        </div>
+      </div>
+      <div class="info-box" id="megadepotStateBox" hidden></div>
+      <div id="megadepotList"></div>
     </div>
 
     <!-- === Projektek (Iroda) Page -- kanban #321 ===
