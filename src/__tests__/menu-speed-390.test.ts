@@ -1,0 +1,110 @@
+// #390: a menu item must show its page at once. These guard the measured
+// causes of the slow pages so a refactor does not quietly bring them back.
+import { describe, it, expect, beforeEach } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { procField, procChildren } from '../web/main-agent-runtime.js'
+import { spawn } from 'node:child_process'
+import { calendarListOutput, _resetCalendarCacheForTest } from '../web/settings-calendar-cache.js'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const src = (p: string) => readFileSync(path.join(ROOT, p), 'utf8')
+
+describe('procField reads /proc instead of spawning ps', () => {
+  it.skipIf(!existsSync('/proc/self/stat'))('answers comm, args and etimes for a live process', () => {
+    const pid = process.pid
+    expect(procField(pid, 'comm=')).toBeTruthy()
+    expect(procField(pid, 'args=')).toContain('node')
+    const et = Number(procField(pid, 'etimes='))
+    expect(Number.isFinite(et)).toBe(true)
+    expect(Math.abs(et - process.uptime())).toBeLessThan(5)
+  })
+
+  it.skipIf(!existsSync('/proc/self/task'))('lists the direct children of a process', async () => {
+    const child = spawn('sleep', ['5'])
+    try {
+      await new Promise((r) => setTimeout(r, 50))
+      expect(procChildren(process.pid)).toContain(child.pid)
+    } finally { child.kill() }
+    expect(procChildren(2 ** 30)).toBeUndefined()
+  })
+
+  it('falls back (undefined) for an unknown field or a missing process', () => {
+    expect(procField(process.pid, 'rss=')).toBeUndefined()
+    expect(procField(2 ** 30, 'comm=')).toBeUndefined()
+  })
+})
+
+describe('settings calendar list is served from a stale-while-revalidate cache', () => {
+  beforeEach(() => _resetCalendarCacheForTest())
+  const good = JSON.stringify({ account: 'a', calendars: [{ id: 'x', summary: 'X' }] })
+
+  it('a second open within a minute does not run the lookup again', async () => {
+    let calls = 0
+    const fetcher = async () => { calls++; return good }
+    expect(await calendarListOutput('a', fetcher)).toBe(good)
+    expect(await calendarListOutput('a', fetcher)).toBe(good)
+    expect(calls).toBe(1)
+  })
+
+  it('a failed lookup is never cached as the answer', async () => {
+    let calls = 0
+    const fetcher = async () => { calls++; return calls === 1 ? JSON.stringify({ error: 'offline' }) : good }
+    expect(await calendarListOutput('a', fetcher)).toContain('offline')
+    expect(await calendarListOutput('a', fetcher)).toBe(good)
+    expect(calls).toBe(2)
+  })
+
+  it('accounts are cached separately', async () => {
+    const seen: string[] = []
+    const fetcher = async (a: string) => { seen.push(a); return good }
+    await calendarListOutput('a', fetcher)
+    await calendarListOutput('b', fetcher)
+    expect(seen).toEqual(['a', 'b'])
+  })
+
+  it('concurrent opens share one lookup', async () => {
+    let calls = 0
+    const fetcher = () => new Promise<string>((r) => { calls++; setTimeout(() => r(good), 10) })
+    await Promise.all([calendarListOutput('a', fetcher), calendarListOutput('a', fetcher)])
+    expect(calls).toBe(1)
+  })
+})
+
+describe('source contracts for the measured slow paths', () => {
+  it('vault memoizes the scrypt-derived key', () => {
+    const s = src('src/web/vault.ts')
+    expect(s).toMatch(/derivedKeyCache\.get\(/)
+    expect(s).toMatch(/derivedKeyCache\.set\(/)
+  })
+
+  it('account routes use the async (non-blocking) identity probes', () => {
+    const s = src('src/web/routes/accounts.ts')
+    expect(s).toMatch(/await identityAuditAsync\(\)/)
+    expect(s).toMatch(/readIdentityDetailedAsync\(/)
+    const r = src('src/web/claude-auth-runner.ts')
+    // an older background refresh must not overwrite a newer result
+    expect(r).toMatch(/accountGen/)
+    expect(r).toMatch(/export function refreshAccountsInBackground/)
+  })
+
+  it('accounts are prewarmed at startup', () => {
+    expect(src('src/web.ts')).toMatch(/refreshAccountsInBackground\(\)/)
+  })
+
+  it('kanban starts its list fetches before waiting for /api/marveen', () => {
+    const a = src('web/app.js')
+    const body = a.slice(a.indexOf('async function loadKanban()'), a.indexOf('async function loadKanban()') + 4000)
+    expect(body.indexOf('const listsReady = Promise.all(')).toBeGreaterThan(-1)
+    expect(body.indexOf('const listsReady = Promise.all(')).toBeLessThan(body.indexOf('await marveenReady'))
+  })
+
+  it('approvals do not wait for the agent list before drawing the table', () => {
+    const a = src('web/app.js')
+    const start = a.indexOf('async function loadApprovalsPage')
+    const body = a.slice(start, start + 4000)
+    expect(body).not.toMatch(/await ensureAgentsLoaded\(\)/)
+    expect(body).toMatch(/agentsReady/)
+  })
+})

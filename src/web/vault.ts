@@ -174,8 +174,23 @@ function getMasterKey(): Buffer {
   return Buffer.from(readFileSync(VAULT_KEY_PATH, 'utf-8').trim(), 'base64')
 }
 
+// #390: a scrypt SZANDEKOSAN lassu (~12 ms bejegyzesenkent), es szinkron: a
+// Raktar/Fiokok lap minden megnyitasa az OSSZES bejegyzesre ujra lefuttatta,
+// MERVE 330 ms-ig allitva meg az egesz szervert. Ugyanaz a (mesterkulcs, so)
+// par mindig ugyanazt a kulcsot adja, tehat egyszer eleg kiszamolni. A kulcs a
+// folyamat memoriajaban marad, ahol a mesterkulcs amugy is ott van; a
+// mesterkulcs cserejekor a map kulcsa is mas, a regi bejegyzes nem talal.
+const derivedKeyCache = new Map<string, Buffer>()
+const DERIVED_KEY_CACHE_MAX = 1024
+
 function deriveKey(master: Buffer, salt: Buffer): Buffer {
-  return scryptSync(master, salt, KEY_LENGTH)
+  const k = master.toString('base64') + ':' + salt.toString('base64')
+  const hit = derivedKeyCache.get(k)
+  if (hit) return hit
+  const key = scryptSync(master, salt, KEY_LENGTH)
+  if (derivedKeyCache.size >= DERIVED_KEY_CACHE_MAX) derivedKeyCache.clear()
+  derivedKeyCache.set(k, key)
+  return key
 }
 
 function encrypt(plaintext: string): string {

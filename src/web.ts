@@ -11,6 +11,7 @@ import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndp
 import { sweepExpiredSessions } from './web/auth-sessions.js'
 import { autoPurgeTrash } from './life-explorer.js'
 import { prewarmOffThread } from './life-list-offthread.js'
+import { refreshAccountsInBackground } from './web/claude-auth-runner.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { sweepExpiredDeviceKeys } from './web/auth-device-keys.js'
 import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-origin.js'
@@ -651,6 +652,13 @@ export function startWebServer(port = 3420): http.Server {
     try { prewarmOffThread() } catch (err) { logger.warn({ err }, '[life] elomelegites sikertelen') }
   }, 5_000)
   if (typeof lifePrewarm.unref === 'function') lifePrewarm.unref()
+
+  // #390: a Claude-fiokok listaja (fiokonkent egy `claude auth status`)
+  // aszinkron, parhuzamosan elore -- a Fiokok lap elso megnyitasa se varjon ra.
+  const accountsPrewarm = setTimeout(() => {
+    refreshAccountsInBackground().catch((err) => logger.warn({ err }, '[accounts] elomelegites sikertelen'))
+  }, 6_000)
+  if (typeof accountsPrewarm.unref === 'function') accountsPrewarm.unref()
 
   // A projektek mappa-utja a szemelyek gyujtomappaja (Csalad) utan: ami a
   // koltoztetes elott a regi helyre mutatott, az inditaskor az ujra kerul (#359).

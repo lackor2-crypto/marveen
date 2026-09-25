@@ -11,7 +11,8 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
-import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutAccount, listAccounts, identityAudit } from '../claude-auth-runner.js'
+import { startLogin, loginStatus, submitCode, cancelLogin, readIdentityDetailedAsync, logoutAccount, listAccounts, listAccountsAsync, identityAuditAsync } from '../claude-auth-runner.js'
+import { resolveMainAgentConfigDir } from '../agent-config.js'
 import { pinExpectedEmail } from '../claude-plans.js'
 import { pinMainExpectedEmail } from '../main-account-identity.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
@@ -67,7 +68,8 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // ugyanazon a Claude-fiokon) es a `blind` szam egyutt jar: ha nem lattunk
     // oda minden fiokba, a lista HIANYOS lehet, es a lap ezt ki is mondja --
     // egy ures utkozes-lista nem azonos azzal, hogy nincs baj.
-    const audit = identityAudit()
+    // #390: aszinkron -- a fiokonkenti CLI-proba nem allithatja meg a szervert.
+    const audit = await identityAuditAsync()
     json(res, {
       ...loginStatus(),
       dependents: defaultLoginDependents().length,
@@ -320,6 +322,12 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // showed "not configured" no matter how many GitHub accounts were set up
     // on the Storages page.
     const githubAccounts = gitAccountsWithToken()
+    // #390: a gep sajat Claude-bejelentkezese. Alapesetben (nincs kulon
+    // MAIN_AGENT_CONFIG_DIR) ugyanaz a ~/.claude, mint a fiok-lista alapsora --
+    // azt a gyorsitotarbol vesszuk, nem inditunk ra meg egy CLI-t.
+    const claudeIdentity = resolveMainAgentConfigDir() === null
+      ? ((await listAccountsAsync()).find(r => r.isDefault)?.identity ?? (await readIdentityDetailedAsync()).identity)
+      : (await readIdentityDetailedAsync()).identity
     const google = googleAccountNames()
     // A NULLA KÉT DOLGOT JELENTHET: olvashatatlan trezornál a `listSecrets()`
     // ÜRES listát ad, ami pontosan úgy néz ki, mint egy friss telepítés. Ezért
@@ -332,7 +340,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
       core: [
         // Which login, not just "yes there is one": the whole point of #52 is
         // that Boss can see and change the account from here.
-        { id: 'claude-code', configured: true, identity: readIdentity() },
+        { id: 'claude-code', configured: true, identity: claudeIdentity },
         { id: 'telegram', configured: TELEGRAM_BOT_TOKEN.trim() !== '' },
       ],
       optional: [
