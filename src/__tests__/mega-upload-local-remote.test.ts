@@ -15,7 +15,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rcloneBin, type Runner } from '../mega.js'
-import { setMegaBackupStoreForTests, walkForMega, runMegaUpload, longRunner, MEGA_BACKUP_DIR } from '../mega-backup.js'
+import { setMegaBackupStoreForTests, walkForMega, runMegaUpload, longRunner, MEGA_BACKUP_DIR, MEGA_MIRROR, listMegaRemote, megaRemoteDir, planMegaBackup, loadMegaState } from '../mega-backup.js'
 import { excludeRules } from '../backup-exclude.js'
 
 const bin = rcloneBin()
@@ -35,7 +35,8 @@ const run: Runner = (b, args, input) => {
   const j = safe.findIndex((a) => /^[\w-]+:/.test(a))
   if (j >= 0) {
     if (!safe[j].startsWith('mega_t:')) throw new Error(`unexpected remote ${safe[j]}`)
-    safe[j] = 'mega_t:' + join(target, safe[j].slice('mega_t:'.length))
+    const rest = safe[j].slice('mega_t:'.length)
+    safe[j] = 'mega_t:' + (rest ? join(target, rest) : target)
   }
   return longRunner(b, safe, input)
 }
@@ -84,3 +85,22 @@ describe.skipIf(!bin)('MEGA upload with the real rclone against a local remote (
     expect(readFileSync(dest('a.txt'), 'utf-8')).toBe('alpha')
   }, 60_000)
 })
+
+describe.skipIf(!bin)('account-root mirror with the real rclone against a local remote (#360)', () => {
+  it('goes to the ROOT in the same layout, and never overwrites a file Marveen did not upload', async () => {
+    put('Docs/a.txt', 'alpha')
+    put('theirs.txt', 'local version')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, 'theirs.txt'), 'put there on the MEGA website')
+    const ex = excludeRules([MEGA_BACKUP_DIR])
+    const remote = await listMegaRemote(bin!, megaRemoteDir('mega_t', MEGA_MIRROR), run)
+    expect(remote.ok).toBe(true)
+    const plan = planMegaBackup(walkForMega(base, ex), loadMegaState('t', MEGA_MIRROR).state, remote.ok ? remote.files : new Set(), ex, { keepRemoteUntracked: true })
+    expect(plan.remoteUntracked).toEqual(['theirs.txt'])
+    const r = await runMegaUpload({ bin: bin!, remote: 'mega_t', account: 't', path: MEGA_MIRROR, base, files: plan.upload, run })
+    expect(r).toEqual({ uploaded: 1, failed: [], error: null })
+    expect(readFileSync(join(target, 'Docs', 'a.txt'), 'utf-8')).toBe('alpha')
+    expect(readFileSync(join(target, 'theirs.txt'), 'utf-8')).toBe('put there on the MEGA website')
+  }, 60_000)
+})
+

@@ -18886,6 +18886,7 @@ function _accHubMegaPart(rows) {
       <div class="conn-row-main"><span class="conn-row-name">MEGA</span></div>
       <div class="conn-row-chips">${note}</div>
       <div class="conn-row-actions">
+        <button class="btn-secondary btn-compact" data-mega-upload="${name}">${escapeHtml(t('mega.upload'))}</button>
         <button class="btn-secondary btn-compact" data-mega-measure="${name}">${escapeHtml(t('mega.measure'))}</button>
         <button class="btn-secondary btn-compact" data-mega-remove="${name}" data-mega-email="${escapeAttr(a.email)}">${escapeHtml(t('mega.remove'))}</button>
       </div>
@@ -19361,7 +19362,7 @@ function renderAccountsHub() {
   if (el.dataset.wired !== '1') {
     el.dataset.wired = '1'
     el.addEventListener('click', (e) => {
-      if (e.target.closest('[data-mega-measure],[data-mega-remove]')) { _megaListClick(e); return }
+      if (e.target.closest('[data-mega-measure],[data-mega-remove],[data-mega-upload]')) { _megaListClick(e); return }
       const out = e.target.closest('.acc-claude-logout')
       if (out) { _claudeAuthLogout(out.dataset.plan || '', out.dataset.who || ''); return }
       const back = e.target.closest('.acc-claude-relogin')
@@ -20264,6 +20265,9 @@ async function _megaAdd() {
 async function _megaListClick(ev) {
   const m = ev.target.closest('[data-mega-measure]')
   const rm = ev.target.closest('[data-mega-remove]')
+  const up = ev.target.closest('[data-mega-upload]')
+  // #360: Raktar/Tarolok/MEGA/<fiok> -> the account root, by hand, preview first.
+  if (up) { _bkOpenMegaUpload(null, up.dataset.megaUpload); return }
   if (m) {
     // A kartya a merés alatt ujrarajzolodhat; az allapot ezert toast, nem sor.
     m.disabled = true
@@ -39336,9 +39340,19 @@ function _bkEl(tag, css, text) {
  * exactly the previewed list. Files gone from the machine are listed for a
  * yes/no each; nothing is deleted on MEGA without that "yes".
  */
-async function _bkOpenMegaUpload(rule) {
-  const { back, box } = _bkPanel(t('backup.mega_title', { name: _bkFromText(rule.path), target: _bkTargetText(rule.target) }))
+async function _bkOpenMegaUpload(rule, mirrorAccount) {
+  // `mirrorAccount` (card #360): the account's own folder, Raktar/Tarolok/MEGA/<account>,
+  // goes to the ROOT of that MEGA account. Same preview -> button -> upload.
+  const mirror = !!mirrorAccount
+  const acc = mirror ? mirrorAccount : rule.target.account
+  const key = mirror ? '::mirror' : rule.path
+  const api = mirror ? '/api/backup-rules/mega/mirror/' : '/api/backup-rules/mega/'
+  const body = mirror ? { account: acc } : { path: rule.path }
+  const { back, box } = _bkPanel(mirror
+    ? t('backup.mega_mirror_title', { account: acc })
+    : t('backup.mega_title', { name: _bkFromText(rule.path), target: _bkTargetText(rule.target) }))
   box.appendChild(_bkEl('p', 'margin:0 0 10px;font-size:12px;opacity:.75', t('backup.mega_intro')))
+  if (mirror) box.appendChild(_bkEl('p', 'margin:0 0 10px;font-size:12px;opacity:.75', t('backup.mega_mirror_intro', { account: acc })))
   const status = _bkEl('div', 'font-size:13px;margin:6px 0')
   const actions = _bkEl('div', 'margin:8px 0')
   const delBox = _bkEl('div', 'margin-top:10px')
@@ -39349,7 +39363,7 @@ async function _bkOpenMegaUpload(rule) {
   exArea.rows = 3
   exArea.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px'
   exArea.placeholder = t('backup.mega_exclude_placeholder')
-  exArea.value = (rule.exclude || []).join('\n')
+  exArea.value = ((rule && rule.exclude) || []).join('\n')
   const exSave = _bkButton(t('backup.mega_exclude_save'), '', async () => {
     try {
       const d = await _bkPost('/api/backup-rules/exclude', { path: rule.path, exclude: exArea.value })
@@ -39357,7 +39371,7 @@ async function _bkOpenMegaUpload(rule) {
       await preview()
     } catch (e) { showToast((e && e.message) || '') }
   })
-  box.appendChild(exLabel); box.appendChild(exHelp); box.appendChild(exArea); box.appendChild(exSave)
+  if (!mirror) { box.appendChild(exLabel); box.appendChild(exHelp); box.appendChild(exArea); box.appendChild(exSave) }
   box.appendChild(status); box.appendChild(actions); box.appendChild(delBox)
   box.appendChild(_bkButton(t('backup.close'), '', () => back.remove()))
 
@@ -39372,7 +39386,7 @@ async function _bkOpenMegaUpload(rule) {
       d = await res.json()
     } catch (e) { return }
     if (d.error) delBox.appendChild(_bkEl('p', 'color:var(--danger);font-size:12px', d.error))
-    const mine = (d.items || []).filter((i) => i.account === rule.target.account && i.path === rule.path)
+    const mine = (d.items || []).filter((i) => i.account === acc && i.path === key)
     if (!mine.length) return
     delBox.appendChild(_bkEl('div', 'font-size:13px;font-weight:600;margin-bottom:4px', t('backup.mega_deletes_title', { n: mine.length })))
     delBox.appendChild(_bkEl('div', 'font-size:12px;opacity:.75;margin-bottom:6px', t('backup.mega_deletes_help')))
@@ -39411,7 +39425,7 @@ async function _bkOpenMegaUpload(rule) {
       if (!document.body.contains(box)) { clearInterval(poll); return }
       try {
         const d = await (await fetch('/api/backup-rules/mega/status')).json()
-        if (d.job && d.job.path === rule.path && !showJob(d.job)) { clearInterval(poll); showDeletes() }
+        if (d.job && d.job.path === key && d.job.account === acc && !showJob(d.job)) { clearInterval(poll); showDeletes() }
       } catch (e) { /* keep polling */ }
     }, 3000)
   }
@@ -39420,11 +39434,13 @@ async function _bkOpenMegaUpload(rule) {
     actions.innerHTML = ''
     status.textContent = t('backup.mega_measuring')
     let p
-    try { p = await _bkPost('/api/backup-rules/mega/preview', { path: rule.path }) }
+    try { p = await _bkPost(api + 'preview', body) }
     catch (e) { status.textContent = (e && e.message) || t('backup.load_failed'); return }
     const lines = []
     lines.push(p.files ? t('backup.mega_preview_files', { n: p.files, gb: _bkGb(p.bytes) }) : t('backup.mega_preview_nothing'))
+    if (mirror && p.localEmpty) lines.push(t('backup.mega_mirror_empty', { account: acc }))
     if (p.remoteDeleted) lines.push(t('backup.mega_preview_remote_deleted', { n: p.remoteDeleted }))
+    if (p.remoteUntracked) lines.push(t('backup.mega_preview_remote_untracked', { n: p.remoteUntracked }))
     if (p.children && p.children.length) lines.push(t('backup.mega_preview_children', { list: p.children.join(', ') }))
     if (p.truncated) lines.push(t('backup.mega_preview_truncated'))
     if (p.brake) lines.push(t('backup.mega_preview_brake', { n: p.wouldDelete, of: p.tracked }))
@@ -39437,7 +39453,7 @@ async function _bkOpenMegaUpload(rule) {
       go.type = 'button'; go.className = 'btn-primary'
       go.addEventListener('click', async () => {
         go.disabled = true
-        try { const d = await _bkPost('/api/backup-rules/mega/run', { path: rule.path }); showJob(d.job); watchJob() }
+        try { const d = await _bkPost(api + 'run', body); showJob(d.job); watchJob() }
         catch (e) { go.disabled = false; showToast((e && e.message) || '') }
       })
       actions.appendChild(go)
@@ -39448,7 +39464,7 @@ async function _bkOpenMegaUpload(rule) {
   // A running upload of this rule is shown instead of a new preview.
   try {
     const d = await (await fetch('/api/backup-rules/mega/status')).json()
-    if (d.job && d.job.path === rule.path && d.job.running) { showJob(d.job); watchJob(); showDeletes(); return }
+    if (d.job && d.job.path === key && d.job.account === acc && d.job.running) { showJob(d.job); watchJob(); showDeletes(); return }
   } catch (e) { /* fall through to the preview */ }
   preview()
 }
