@@ -10423,6 +10423,9 @@ body {
   align-items: center;
   margin-top: 12px;
 }
+/* display:flex outranks the browser's [hidden] default: without this the
+   "Install rclone now" row (#360) stayed visible with rclone installed. */
+.claude-auth-actions[hidden] { display: none; }
 .claude-auth-flow {
   margin-top: 16px;
   padding-top: 12px;
