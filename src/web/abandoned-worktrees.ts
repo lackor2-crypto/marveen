@@ -31,6 +31,7 @@
 // is a deletion and stays behind the owner's yes (the ask-back rule).
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
+import { open, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 export const MAX_LISTED = 8
@@ -131,6 +132,24 @@ function escapeRe(s: string): string {
  * (code-bridge sessions, worktree names) never own anything.
  */
 export function attributeOwners(auditText: string, paths: string[], knownAgents: string[]): Map<string, string | null> {
+  const scan = ownerScanner(paths, knownAgents)
+  scan.feed(auditText)
+  return scan.owners()
+}
+
+export interface OwnerScanner {
+  /** Feed complete audit lines, in log order (a trailing partial line is parsed as-is). */
+  feed(text: string): void
+  owners(): Map<string, string | null>
+}
+
+/**
+ * The incremental form of `attributeOwners`: the log is append-only and the
+ * later line wins, so feeding it chunk by chunk gives the same answer as one
+ * pass over the whole text (#390: the full 16 MB log x 73 worktrees used to
+ * stall the whole server for 1-3 s on every SessionStart).
+ */
+export function ownerScanner(paths: string[], knownAgents: string[]): OwnerScanner {
   const known = new Set(knownAgents)
   const strong = new Map<string, string | null>(paths.map((p) => [p, null]))
   const weak = new Map<string, string | null>(paths.map((p) => [p, null]))
@@ -148,30 +167,63 @@ export function attributeOwners(auditText: string, paths: string[], knownAgents:
     return {
       p,
       pre: clean + '/',
+      // A worktree under `.worktrees/<name>` (whose name survives JSON
+      // encoding unchanged) can only be hit by a line that says
+      // `.worktrees/<name>` -- every hit below spells out the full path or
+      // that -- or by a creation command. Such lines are found by name below,
+      // the rest skipped before JSON.parse and the regexes.
+      indexed: clean.endsWith(`/.worktrees/${base}`) && /^[A-Za-z0-9._-]+$/.test(base) ? base : null,
       created: unique ? new RegExp(`agent-worktree\\.sh\\s+["']?${escapeRe(base)}["']?(?=$|[\\s;&|)])`) : null,
       cdInto: new RegExp(`\\bcd\\s+["']?(?:${escapeRe(clean)}|(?:\\S*/)?\\.worktrees/${escapeRe(base)})${end}`),
     }
   })
-  for (const line of auditText.split('\n')) {
-    if (!line.includes('/') && !line.includes('agent-worktree')) continue
-    let rec: { agent?: string; session_agent?: string; op?: string; target?: string; cwd?: string }
-    try { rec = JSON.parse(line) } catch { continue }
-    const who = typeof rec.session_agent === 'string' ? rec.session_agent : rec.agent
-    if (!who || !known.has(who)) continue
-    const target = typeof rec.target === 'string' ? rec.target : ''
-    const isBash = rec.op === 'bash'
-    for (const pr of probes) {
-      const hitFile = FILE_OPS.has(rec.op ?? '') && target.startsWith(pr.pre)
-      const hitCreate = isBash && pr.created != null && pr.created.test(target)
-      if (hitFile || hitCreate) { strong.set(pr.p, who); continue }
-      const hitCwd = typeof rec.cwd === 'string' && (rec.cwd === pr.p || rec.cwd.startsWith(pr.pre))
-      const hitCd = isBash && pr.cdInto.test(target)
-      if (hitCwd || hitCd) weak.set(pr.p, who)
+  const byName = new Map<string, typeof probes>()
+  const always: typeof probes = []
+  for (const pr of probes) {
+    if (pr.indexed == null) { always.push(pr); continue }
+    const l = byName.get(pr.indexed) ?? []
+    l.push(pr)
+    byName.set(pr.indexed, l)
+  }
+  const NAME_CHAR = /[A-Za-z0-9._-]/
+  const candidates = (line: string): typeof probes => {
+    if (line.includes('agent-worktree')) return probes
+    const hit = new Set(always)
+    const mark = '.worktrees/'
+    for (let i = line.indexOf(mark); i >= 0; i = line.indexOf(mark, i + 1)) {
+      let j = i + mark.length
+      while (j < line.length && NAME_CHAR.test(line[j])) j++
+      for (const pr of byName.get(line.slice(i + mark.length, j)) ?? []) hit.add(pr)
+    }
+    return [...hit]
+  }
+  const feed = (text: string): void => {
+    for (const line of text.split('\n')) {
+      if (!line.includes('/') && !line.includes('agent-worktree')) continue
+      const cand = candidates(line)
+      if (!cand.length) continue
+      let rec: { agent?: string; session_agent?: string; op?: string; target?: string; cwd?: string }
+      try { rec = JSON.parse(line) } catch { continue }
+      const who = typeof rec.session_agent === 'string' ? rec.session_agent : rec.agent
+      if (!who || !known.has(who)) continue
+      const target = typeof rec.target === 'string' ? rec.target : ''
+      const isBash = rec.op === 'bash'
+      for (const pr of cand) {
+        const hitFile = FILE_OPS.has(rec.op ?? '') && target.startsWith(pr.pre)
+        const hitCreate = isBash && pr.created != null && pr.created.test(target)
+        if (hitFile || hitCreate) { strong.set(pr.p, who); continue }
+        const hitCwd = typeof rec.cwd === 'string' && (rec.cwd === pr.p || rec.cwd.startsWith(pr.pre))
+        const hitCd = isBash && pr.cdInto.test(target)
+        if (hitCwd || hitCd) weak.set(pr.p, who)
+      }
     }
   }
-  const owners = new Map<string, string | null>()
-  for (const p of paths) owners.set(p, strong.get(p) ?? weak.get(p) ?? null)
-  return owners
+  const owners = (): Map<string, string | null> => {
+    const out = new Map<string, string | null>()
+    for (const p of paths) out.set(p, strong.get(p) ?? weak.get(p) ?? null)
+    return out
+  }
+  return { feed, owners }
 }
 
 /** `git status --porcelain` -> the paths (rename: the new one). */
@@ -290,6 +342,8 @@ export async function worktreeState(path: string, base: string, git: GitRun = de
 export interface AbandonedDeps {
   listWorktrees: () => Promise<WorktreeRef[]>
   readAudit: () => string
+  /** Optional faster path for the owners (the live wiring reads the log incrementally). */
+  owners?: (paths: string[], knownAgents: string[]) => Promise<Map<string, string | null>>
   knownAgents: () => string[]
   state: (path: string) => Promise<WorktreeState>
   now: () => number
@@ -302,7 +356,10 @@ export interface AbandonedDeps {
 export async function getAbandonedWorktrees(agent: string, mainAgentId: string, deps: AbandonedDeps): Promise<AbandonedResult> {
   try {
     const wts = await deps.listWorktrees()
-    const owners = attributeOwners(deps.readAudit(), wts.map((w) => w.path), deps.knownAgents())
+    const paths = wts.map((w) => w.path)
+    const owners = deps.owners
+      ? await deps.owners(paths, deps.knownAgents())
+      : attributeOwners(deps.readAudit(), paths, deps.knownAgents())
     const isMain = agent === mainAgentId
     const mine = wts.filter((w) => owners.get(w.path) === agent)
     const nobody = isMain ? wts.filter((w) => owners.get(w.path) == null) : []
@@ -372,6 +429,58 @@ export function buildAbandonedWorktreeContext(res: AbandonedResult): string | nu
   return parts.join('\n\n')
 }
 
+interface AuditScanMemo { key: string; ino: number; size: number; tail: string; scan: OwnerScanner }
+let auditScanMemo: AuditScanMemo | null = null
+export function _resetAuditScanMemoForTest(): void { auditScanMemo = null }
+
+/** Lines per slice before the scan gives the event loop a turn. */
+const FEED_SLICE_LINES = 2000
+
+/** `scan.feed(text)` in slices, yielding between them: a first full scan of a big log must not freeze the server. */
+async function feedYielding(scan: OwnerScanner, text: string): Promise<void> {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i += FEED_SLICE_LINES) {
+    scan.feed(lines.slice(i, i + FEED_SLICE_LINES).join('\n'))
+    if (i + FEED_SLICE_LINES < lines.length) await new Promise((r) => setImmediate(r))
+  }
+}
+
+/**
+ * Owners from the audit log at `file`, reading only what was appended since
+ * the last call (same worktrees, same agents, same file that only grew). A
+ * rotated/truncated log or a changed worktree set starts over. The unfinished
+ * last line is kept back until its newline arrives. Missing file = nobody
+ * worked anywhere (a fresh install), not a failure; other read errors throw
+ * (the caller reports "could not look").
+ */
+export async function ownersFromAuditFile(file: string, paths: string[], knownAgents: string[]): Promise<Map<string, string | null>> {
+  let st
+  try { st = await stat(file) } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') { auditScanMemo = null; return attributeOwners('', paths, knownAgents) }
+    throw e
+  }
+  const key = JSON.stringify([paths, knownAgents])
+  let m = auditScanMemo
+  if (!m || m.key !== key || m.ino !== st.ino || st.size < m.size) {
+    m = { key, ino: st.ino, size: 0, tail: '', scan: ownerScanner(paths, knownAgents) }
+  }
+  if (st.size > m.size) {
+    const fh = await open(file, 'r')
+    try {
+      const buf = Buffer.alloc(st.size - m.size)
+      const { bytesRead } = await fh.read(buf, 0, buf.length, m.size)
+      const text = m.tail + buf.subarray(0, bytesRead).toString('utf8')
+      const nl = text.lastIndexOf('\n')
+      await feedYielding(m.scan, nl >= 0 ? text.slice(0, nl) : '')
+      m.tail = nl >= 0 ? text.slice(nl + 1) : text
+      m.size += bytesRead
+    } finally { await fh.close() }
+  }
+  auditScanMemo = m
+  // The kept-back partial line is not an answer yet; a copy so callers cannot touch the memo.
+  return new Map(m.scan.owners())
+}
+
 /** The live wiring: git in PROJECT_ROOT, the audit log in STORE_DIR. */
 export function liveAbandonedDeps(projectRoot: string, storeDir: string, knownAgents: () => string[], base = 'origin/main'): AbandonedDeps {
   return {
@@ -386,6 +495,7 @@ export function liveAbandonedDeps(projectRoot: string, storeDir: string, knownAg
       // not a failure.
       return existsSync(p) ? readFileSync(p, 'utf8') : ''
     },
+    owners: (paths, agents) => ownersFromAuditFile(join(storeDir, 'agent-audit.jsonl'), paths, agents),
     knownAgents,
     state: (path) => worktreeState(path, base),
     now: () => Date.now(),
