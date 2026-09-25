@@ -180,7 +180,7 @@ async function resolveCostPerMInput(model: string): Promise<number | null> {
 }
 import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
-import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, codeBridgeDisplayState, CODE_BRIDGE_ACTIVITY_ID } from '../code-bridge-store.js'
+import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, codeBridgeDisplayState, codeBridgeProjectDisplayStates, CODE_BRIDGE_ACTIVITY_ID } from '../code-bridge-store.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { claudeModelOptions } from '../../claude-models.js'
 import { scanInstalledClaude } from '../../claude-model-discovery.js'
@@ -912,7 +912,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null; queued?: number; queuedOnly?: boolean }> = []
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null; queued?: number; queuedOnly?: boolean; projects?: Record<string, { state: string; queuedOnly: boolean; codeSessionId: string | null }> }> = []
 
     // A compaction the dashboard itself started (gate or card button). The pane
     // shows none of the usual busy signals while it runs, so without this the
@@ -1094,6 +1094,10 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           codeLabel: first?.project ?? liveFirst?.project ?? null,
           queued: act.queued,
           queuedOnly,
+          // #397: one VS Code card per project -- each card reads its OWN row
+          // here. A project that is missing is idle; a response without this
+          // field (old server) makes the card show nothing, not a guess.
+          projects: codeBridgeProjectDisplayStates(act, CODE_BRIDGE_ENABLED),
         })
       }
     }

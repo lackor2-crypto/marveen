@@ -472,7 +472,9 @@ describe('felulet: egy meres, egy szam', () => {
 
   it('a kod-hid kartyaja a 3 masodperces meresbol kapja a "dolgozik" jelzot', () => {
     expect(app).toContain("const cbEntry = entries.find((e) => e.kind === 'code-bridge') || null")
-    expect(app).toContain("const cbWorking = !!cbEntry && cbEntry.state === 'working'")
+    // #397: each card reads its OWN project's state from the same measurement.
+    expect(app).toContain("const cbWorking = !!cbState && cbState.state === 'working'")
+    expect(app).toContain('cbEntry.projects[project]')
     expect(app).toContain("agentsGrid.querySelectorAll('.code-bridge-agent-card [data-cb-busy]')")
   })
 
@@ -488,7 +490,8 @@ describe('felulet: egy meres, egy szam', () => {
     // A 2. panasz lenyege: ha nem Boss inditotta a munkat, semmi nem latszott.
     // A jelzo a 3 masodperces meresbol kapja a session azonositojat, tehat
     // fuggetlen attol, KI adta ki a feladatot.
-    expect(app).toContain('el.dataset.codeSession = cbEntry.codeSessionId')
+    // #397: the project's own running conversation, not the bridge's first one.
+    expect(app).toContain('el.dataset.codeSession = cbState.codeSessionId')
     expect(app).toContain("if (cbBusyBtn.dataset.codeSession) openCodeConversationModal(cbBusyBtn.dataset.codeSession")
   })
 

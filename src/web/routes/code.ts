@@ -40,7 +40,7 @@ import {
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   sameWorkspace, workspaceKey,
-  recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
+  recordCodeWorkerSeen, codeBridgeHealth, codeTaskCountsByProject, WORKER_STALE_MS, listCodeTabs,
   requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation, findRunningTaskByRunSession,
   requestFolderBrowse, takeFolderBrowseRequests, recordFolderBrowseResult, getFolderBrowse,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
@@ -798,6 +798,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // tudnia kell, hogy van-e ertelme a gombnak: regi worker mellett nincs.
       hasTranscript: typeof tb.transcriptPath === 'string' && tb.transcriptPath.length > 0,
     })
+    // #397: queued / running per project -- the card shows ITS project's work,
+    // not the bridge-wide total.
+    const taskCounts = codeTaskCountsByProject()
     const projects = listCodeSessions().map((p) => {
       // MEG NEM FUTOTT vs NEM LATOK ODA: a `lastAgentRunSession` `null`-ja
       // kizarolag azt jelenti, hogy ehhez a projekthez meg egyszer sem futott
@@ -817,6 +820,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       return {
       ...p,
       currentSource,
+      running: taskCounts[p.project]?.running ?? 0,
+      queued: taskCounts[p.project]?.queued ?? 0,
       currentRunning: run ? run.running : false,
       currentAt: run ? run.at : null,
       tabs: (tabsByWorkspace.get(workspaceKey(p.workspacePath))?.tabs ?? []).map((tb) => tabRow(tb, markSessionId)),
