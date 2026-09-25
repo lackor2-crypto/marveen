@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
-import { startLogin, loginStatus, submitCode, cancelLogin, readIdentityDetailedAsync, logoutAccount, listAccounts, listAccountsAsync, identityAuditAsync } from '../claude-auth-runner.js'
+import { startLogin, loginStatus, submitCode, cancelLogin, machineIdentityAsync, logoutAccount, listAccounts, listAccountsAsync, identityAuditAsync } from '../claude-auth-runner.js'
 import { resolveMainAgentConfigDir } from '../agent-config.js'
 import { pinExpectedEmail } from '../claude-plans.js'
 import { pinMainExpectedEmail } from '../main-account-identity.js'
@@ -326,8 +326,8 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // MAIN_AGENT_CONFIG_DIR) ugyanaz a ~/.claude, mint a fiok-lista alapsora --
     // azt a gyorsitotarbol vesszuk, nem inditunk ra meg egy CLI-t.
     const claudeIdentity = resolveMainAgentConfigDir() === null
-      ? ((await listAccountsAsync()).find(r => r.isDefault)?.identity ?? (await readIdentityDetailedAsync()).identity)
-      : (await readIdentityDetailedAsync()).identity
+      ? ((await listAccountsAsync()).find(r => r.isDefault)?.identity ?? (await machineIdentityAsync()).identity)
+      : (await machineIdentityAsync()).identity
     const google = googleAccountNames()
     // A NULLA KÉT DOLGOT JELENTHET: olvashatatlan trezornál a `listSecrets()`
     // ÜRES listát ad, ami pontosan úgy néz ki, mint egy friss telepítés. Ezért

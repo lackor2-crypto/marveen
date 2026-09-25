@@ -294,6 +294,23 @@ export async function countUserTurnsCached(fromMs: number, toMs: number = Number
   return value
 }
 
+/** A mai nap kezdete es a tegnapi nap kezdete (helyi ido), ms. */
+function overviewDayBounds(): { startTs: number; yesterday: number } {
+  const startOfDay = new Date()
+  startOfDay.setHours(0, 0, 0, 0)
+  const startTs = startOfDay.getTime()
+  return { startTs, yesterday: startTs - 24 * 60 * 60 * 1000 }
+}
+
+/**
+ * #390: inditaskor a hatterben kiszamolja az Attekintes ket kor-szamat, hogy
+ * az elso megnyitas ne a naplok vegigolvasasara varjon.
+ */
+export function prewarmOverviewCounts(): Promise<unknown> {
+  const { startTs, yesterday } = overviewDayBounds()
+  return Promise.all([countUserTurnsCached(startTs), countUserTurnsCached(yesterday, startTs)])
+}
+
 /** Csak teszthez: a szamlalo-cache uritese. */
 export function resetTurnCountCacheForTest(): void {
   turnCountCache.clear()
@@ -451,14 +468,15 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     const memStats = db0.prepare("SELECT COUNT(*) as c FROM memories").get() as { c: number }
     const memCats = db0.prepare("SELECT COUNT(DISTINCT category) as c FROM memories").get() as { c: number }
 
-    const startOfDay = new Date()
-    startOfDay.setHours(0, 0, 0, 0)
-    const startTs = startOfDay.getTime()
-    const yesterday = startTs - 24 * 60 * 60 * 1000
+    const { startTs, yesterday } = overviewDayBounds()
     const schedToday = countTaskRunsBetween(startTs)
     const schedYesterday = countTaskRunsBetween(yesterday, startTs)
-    const userTurns = await countUserTurnsCached(startTs)
-    const userTurnsPrev = await countUserTurnsCached(yesterday, startTs)
+    // #390: a ket szamlalas egymastol fuggetlen -- hideg gyorsitotarnal
+    // egyutt fussanak, ne egymas utan.
+    const [userTurns, userTurnsPrev] = await Promise.all([
+      countUserTurnsCached(startTs),
+      countUserTurnsCached(yesterday, startTs),
+    ])
     const tasksToday = schedToday + userTurns
     const tasksYesterday = schedYesterday + userTurnsPrev
 

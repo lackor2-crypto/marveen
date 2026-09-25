@@ -89,8 +89,47 @@ export interface OpenRouterModelInfo {
 let allModelsCache: { at: number; models: OpenRouterModelInfo[] } | null = null
 const ALL_MODELS_TTL_MS = 6 * 60 * 60 * 1000 // 6h
 
+let allModelsInflight: Promise<OpenRouterModelInfo[]> | null = null
+
 export async function fetchAllOpenRouterModels(nowMs: number): Promise<OpenRouterModelInfo[]> {
   if (allModelsCache && nowMs - allModelsCache.at < ALL_MODELS_TTL_MS) return allModelsCache.models
+  // Egyszerre egy letoltes: parhuzamos hivok ugyanarra varnak.
+  if (!allModelsInflight) {
+    allModelsInflight = downloadAllOpenRouterModels(nowMs).finally(() => { allModelsInflight = null })
+  }
+  return allModelsInflight
+}
+
+/**
+ * #390: egy lista-oldal (Agensek) nem varhat az internetre. Lejart katalogusnal
+ * a regit adja AZONNAL, es a hatterben frissit; ha meg egyaltalan nincs
+ * katalogus (inditas utan), legfeljebb `maxWaitMs`-ig var, utana null --
+ * a hivo ilyenkor "nincs ar"-t mutat, es a kovetkezo lekerdezes mar a
+ * letoltott katalogusbol valaszol.
+ */
+export async function openRouterModelsWithin(nowMs: number, maxWaitMs: number): Promise<OpenRouterModelInfo[] | null> {
+  if (allModelsCache && nowMs - allModelsCache.at < ALL_MODELS_TTL_MS) return allModelsCache.models
+  const pending = fetchAllOpenRouterModels(nowMs)
+  if (allModelsCache) {
+    pending.catch(() => {})
+    return allModelsCache.models
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>((r) => { timer = setTimeout(() => r(null), maxWaitMs) })
+  try {
+    return await Promise.race([pending.catch(() => null), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** Csak teszthez. */
+export function _setOpenRouterCatalogForTest(models: OpenRouterModelInfo[] | null, atMs = Date.now()): void {
+  allModelsCache = models ? { at: atMs, models } : null
+  allModelsInflight = null
+}
+
+async function downloadAllOpenRouterModels(nowMs: number): Promise<OpenRouterModelInfo[]> {
   const resp = await fetch('https://openrouter.ai/api/v1/models')
   if (!resp.ok) throw new Error(`openrouter models fetch: HTTP ${resp.status}`)
   const data = await resp.json() as { data?: Array<Record<string, unknown>> }

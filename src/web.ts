@@ -11,7 +11,7 @@ import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndp
 import { sweepExpiredSessions } from './web/auth-sessions.js'
 import { autoPurgeTrash } from './life-explorer.js'
 import { prewarmOffThread } from './life-list-offthread.js'
-import { refreshAccountsInBackground } from './web/claude-auth-runner.js'
+import { refreshAccountsInBackground, machineIdentityAsync } from './web/claude-auth-runner.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { sweepExpiredDeviceKeys } from './web/auth-device-keys.js'
 import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-origin.js'
@@ -78,7 +78,7 @@ import { tryHandleAgents } from './web/routes/agents.js'
 import { tryHandleMarveen } from './web/routes/marveen.js'
 import { tryHandleRecall } from './web/routes/recall.js'
 import { tryHandleBackgroundTasks, sweepOrphanedBackgroundTasks } from './web/routes/background-tasks.js'
-import { tryHandleOverview } from './web/routes/overview.js'
+import { tryHandleOverview, prewarmOverviewCounts } from './web/routes/overview.js'
 import { tryHandleAccounts } from './web/routes/accounts.js'
 import { tryHandleConnections } from './web/routes/connections.js'
 import { tryHandleDriveBrowser } from './web/routes/drive-browser.js'
@@ -657,6 +657,8 @@ export function startWebServer(port = 3420): http.Server {
   // aszinkron, parhuzamosan elore -- a Fiokok lap elso megnyitasa se varjon ra.
   const accountsPrewarm = setTimeout(() => {
     refreshAccountsInBackground().catch((err) => logger.warn({ err }, '[accounts] elomelegites sikertelen'))
+    machineIdentityAsync().catch((err) => logger.warn({ err }, '[accounts] gep-azonossag elomelegites sikertelen'))
+    prewarmOverviewCounts().catch((err) => logger.warn({ err }, '[overview] elomelegites sikertelen'))
   }, 6_000)
   if (typeof accountsPrewarm.unref === 'function') accountsPrewarm.unref()
 

@@ -13,7 +13,7 @@ import { ensureFederationClaudeMdSection } from '../federation/onboarding.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { CHANNEL_PLUGIN_IDS } from '../plugin-ids.js'
 import { getSecret, setSecret, deleteSecret, listSecrets } from '../vault.js'
-import { loadOpenRouterCatalog, fetchAllOpenRouterModels, loadCuratedManual, addCuratedManual, removeCuratedManual } from '../openrouter-models.js'
+import { loadOpenRouterCatalog, fetchAllOpenRouterModels, openRouterModelsWithin, loadCuratedManual, addCuratedManual, removeCuratedManual } from '../openrouter-models.js'
 import { GLM_MODELS, GLM_VAULT_KEY } from '../glm-models.js'
 import {
   agentDir,
@@ -171,8 +171,9 @@ async function resolveCostPerMInput(model: string): Promise<number | null> {
   if (known !== null) return known
   if (!model.includes('/') || model.toLowerCase().endsWith(':free')) return null
   try {
-    const models = await fetchAllOpenRouterModels(Date.now())
-    return models.find(m => m.id === model)?.promptPrice ?? null
+    // #390: a lista nem var az internetre (lasd openRouterModelsWithin).
+    const models = await openRouterModelsWithin(Date.now(), 200)
+    return models?.find(m => m.id === model)?.promptPrice ?? null
   } catch {
     return null
   }

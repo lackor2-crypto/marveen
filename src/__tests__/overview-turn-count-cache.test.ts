@@ -108,7 +108,8 @@ describe('a naplo-olvasas nem blokkolja az esemenyhurkot', () => {
 
   it('a vegpont a cache-elt valtozatot hivja', () => {
     const handler = OVERVIEW_SRC.slice(OVERVIEW_SRC.indexOf("path === '/api/overview'"))
-    expect(handler.includes('await countUserTurnsCached(')).toBe(true)
+    expect(handler.includes('countUserTurnsCached(startTs)')).toBe(true)
+    expect(handler.includes('countUserTurnsCached(yesterday, startTs)')).toBe(true)
     expect(handler.includes('countUserTurns(startTs)'), 'kozvetlen, cache nelkuli hivas').toBe(false)
   })
 })
