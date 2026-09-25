@@ -116,3 +116,44 @@ describe('Intezo felulet (#387)', () => {
     expect(render).toContain('_intezoTreeIsChild(rel, k)')
   })
 })
+
+describe('Intezo lista kulon szalon (#387)', () => {
+  const src = (p: string) => readFileSync(join(__dirname, '..', p), 'utf8')
+  it('a lista-vegpont nem a fo szalon listaz, es iras utan a szal tarat is eldobja', () => {
+    const route = src('web/routes/life.ts')
+    const list = route.slice(route.indexOf("path === '/api/life/list'"), route.indexOf("path === '/api/life/list'") + 2500)
+    expect(list).toContain('await listLifeOffThread(rel')
+    expect(list).not.toContain('send(res, 200, listLifeCached(')
+    expect(list).not.toContain('send(res, 200, listLife(')
+    expect(route).toContain("if (method !== 'GET' && method !== 'HEAD') clearOffThreadListings()")
+    // A lassu meghajto emberi mondatot kap, ket nyelven -- nem gepi kodot.
+    expect(list).toContain('The drive is very slow right now')
+    expect(list).toContain('A meghajtó most nagyon lassú')
+  })
+  it('az elomelegites is a kulon szalon fut', () => {
+    expect(src('web.ts')).toContain('prewarmOffThread()')
+  })
+  it('a szal kezeli a listazast, az eldobast es az elomelegitest', () => {
+    const w = src('life-list-worker.ts')
+    expect(w).toContain("m.op === 'clear'")
+    expect(w).toContain("m.op === 'prewarm'")
+    expect(w).toContain('listLifeCached(')
+  })
+
+  it('szal nelkul (forrasbol futva) a regi, fo szalas listazasra esik vissza', async () => {
+    const { listLifeOffThread, clearOffThreadListings, _offThreadState } = await import('../life-list-offthread.js')
+    expect(_offThreadState().workerFile).toBeNull()
+    mkdirSync(join(root, 'A'))
+    const l = await listLifeOffThread('', { lang: 'hu' })
+    expect(l.folders.map((f) => f.name)).toContain('A')
+    const light = await listLifeOffThread('', { content: false, lang: 'hu' })
+    expect(light.folders.map((f) => f.name)).toContain('A')
+    expect(_offThreadState().copies).toBeGreaterThan(0)
+    // Iras a Marveenen at: minden masolat eldobva, a kovetkezo lista mar az uj allapot.
+    mkdirSync(join(root, 'B'))
+    clearOffThreadListings()
+    expect(_offThreadState().copies).toBe(0)
+    const after = await listLifeOffThread('', { lang: 'hu' })
+    expect(after.folders.map((f) => f.name)).toEqual(expect.arrayContaining(['A', 'B']))
+  })
+})

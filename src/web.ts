@@ -9,7 +9,8 @@ import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
-import { autoPurgeTrash, prewarmLifeListings } from './life-explorer.js'
+import { autoPurgeTrash } from './life-explorer.js'
+import { prewarmOffThread } from './life-list-offthread.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { sweepExpiredDeviceKeys } from './web/auth-device-keys.js'
 import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-origin.js'
@@ -647,7 +648,7 @@ export function startWebServer(port = 3420): http.Server {
   // #387: az Intezo gyokere es elso szintje elore kilistazva, hogy az elso
   // kattintas se varjon. Kesleltetve, hogy az indulast ne lassitsa.
   const lifePrewarm = setTimeout(() => {
-    try { prewarmLifeListings() } catch (err) { logger.warn({ err }, '[life] elomelegites sikertelen') }
+    try { prewarmOffThread() } catch (err) { logger.warn({ err }, '[life] elomelegites sikertelen') }
   }, 5_000)
   if (typeof lifePrewarm.unref === 'function') lifePrewarm.unref()
 
