@@ -11,7 +11,7 @@ import {
   clearAIProvidersForTest, listAIProviders, pickAIProvider, registerAIProvider,
   type AIChunk, type AIProvider,
 } from '../workbench-agent/provider.js'
-import { textFromStreamLine, renderConversation } from '../workbench-agent/provider-anthropic.js'
+import { textFromStreamLine, renderConversation, makeCliTextFilter } from '../workbench-agent/provider-anthropic.js'
 
 function stub(id: string, available: boolean): AIProvider {
   return {
@@ -65,7 +65,43 @@ describe('a CLI stream-json sorainak ertelmezese', () => {
     expect(textFromStreamLine(JSON.stringify({
       type: 'assistant',
       message: { content: [{ type: 'text', text: 'Első' }, { type: 'text', text: ' rész' }] },
-    }))).toEqual({ text: 'Első rész' })
+    }))).toEqual({ text: 'Első rész', whole: true })
+  })
+
+  // #401: a CLI a darabokat ES a zaro egesz uzenetet is kuldi; ha mindketto
+  // tovabbmegy, a tool-hivas JSON-ja duplazodik es a JSON.parse elhasal.
+  const cliText = (lines: object[]): string => {
+    const pick = makeCliTextFilter()
+    let out = ''
+    for (const l of lines) {
+      const ev = textFromStreamLine(JSON.stringify(l))
+      const t = ev ? pick(ev) : null
+      if (t) out += t
+    }
+    return out
+  }
+  const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } })
+  const whole = (text: string) => ({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
+
+  it('#401: darabok + zaro egesz uzenet -> a szoveg EGYSZER jon, a tool-JSON ertelmezheto', () => {
+    const call = '{"tool":"project.listKanban","input":{}}'
+    const out = cliText([
+      { type: 'system', subtype: 'init' },
+      delta('{"tool":"project.'), delta('listKanban","input":{}}'),
+      whole(call),
+      { type: 'result', is_error: false, result: call },
+    ])
+    expect(out).toBe(call)
+    expect(JSON.parse(out)).toEqual({ tool: 'project.listKanban', input: {} })
+  })
+
+  it('#401: delta nelkuli futas -- az egesz uzenet a tartalek, az megy ki', () => {
+    expect(cliText([whole('Szia!'), { type: 'result', is_error: false, result: 'Szia!' }])).toBe('Szia!')
+  })
+
+  it('#401: tobb uzenet egymas utan -- mindegyik egyszer', () => {
+    expect(cliText([delta('A'), whole('A'), delta('B'), delta('C'), whole('BC')])).toBe('ABC')
+    expect(cliText([delta('A'), whole('A'), whole('D')])).toBe('AD')
   })
 
   it('a zaro sor: siker', () => {
