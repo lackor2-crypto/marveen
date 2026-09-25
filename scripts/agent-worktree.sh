@@ -98,6 +98,7 @@ Kesz: $DIR  (branch: $BRANCH)
   npx vitest run            # a tesztek itt FUTNAK (elo telepitesen nem)
   git add -A && git commit
   scripts/land-pr.sh "commit cim"   # branch -> PR -> CI zold -> merge (a main-re direkt push TILOS)
+                                    # merge utan a tiszta worktree-t maga torli: cd $BASE
 
 A landolt kod NEM kerul magatol a futo alkalmazasba: a dashboard a $BASE
 checkout dist/-jebol fut. Ezt a scripts/deploy-live.sh viszi ki (idozitve fut:

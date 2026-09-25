@@ -59,6 +59,9 @@ describe('land-pr-worktree-cleanup.sh -- a landolt, tiszta worktree eltunik', ()
     expect(hasBranch('work/agens-1')).toBe(false)
     expect(git(main, 'worktree', 'list')).not.toContain('agens-1')
     expect(r.err).toContain('torolve')
+    // The caller's tool reports the vanished cwd as a failure; the script
+    // must name the MERGE-ELVE line as the fact (measured on #384's landing).
+    expect(r.err).toContain('NEM a landolas hibaja')
   })
 
   it('a node_modules symlink nem szamit munkanak, es a cel-mappa NEM torlodik vele', () => {
@@ -148,5 +151,11 @@ describe('land-pr.sh bekotes', () => {
   it('van kikapcsolo, es a fejlec dokumentalja', () => {
     expect(landPr).toContain('LAND_PR_KEEP_WORKTREE')
     expect(landPr.split('\n').slice(0, 40).join('\n')).toContain('LAND_PR_KEEP_WORKTREE')
+  })
+
+  it('a landolasi szabaly kimondja: a torolt munkakonyvtar miatti hiba nem a landolas hibaja', async () => {
+    const scaffold = readFileSync(join(__dirname, '..', 'web', 'agent-scaffold.ts'), 'utf8')
+    expect(scaffold).toContain('LAND_PR_KEEP_WORKTREE=1')
+    expect(scaffold).toContain('NEM a landolas hibaja')
   })
 })

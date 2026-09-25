@@ -84,4 +84,9 @@ if [ -n "$LOCAL_BRANCH" ] && [ "$LOCAL_BRANCH" != "main" ] && [ "$LOCAL_BRANCH" 
   fi
 fi
 say "a shelled munkakonyvtara megszunt -- lepj ki: cd $OWNER_ROOT"
+# Measured on #384's own landing: the Claude Code Bash tool runs `pwd -P` after
+# every command, which now fails (getcwd: No such file or directory) and turns a
+# successful landing into "exit code 1". The script cannot change its caller's
+# directory, so it says plainly which line is the fact.
+say "Ha a hivo eszkoz ezutan 'getcwd'/'pwd' hibat vagy nem-nulla kilepokodot ir: az a torolt munkakonyvtar, NEM a landolas hibaja. A fenti MERGE-ELVE sor a teny."
 exit 0
