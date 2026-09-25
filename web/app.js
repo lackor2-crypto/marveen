@@ -34401,6 +34401,8 @@ async function _depoPost(url, body) {
   if (url.indexOf('/api/life/') === 0 && url.indexOf('lang=') < 0) {
     url += (url.indexOf('?') < 0 ? '?' : '&') + 'lang=' + (window._lang || 'hu')
   }
+  // #387: egy iras utan az Intezo tarolt listai elavulhattak -- eldobjuk.
+  if (url.indexOf('/api/life/') === 0 && typeof _intezoCacheClear === 'function') _intezoCacheClear()
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -37616,6 +37618,38 @@ async function _intezoEnsure() {
 
 let _intezoListing = null
 
+/*
+ * #387 -- AZONNALI MEGNYITAS. Boss: "raklikkelek es varni kell [...] nem egy
+ * Windows intezo, hogy raklikkelek es abban a pillanatban megjelenik."
+ *  - Mar megnyitott mappa: a korabbi lista AZONNAL latszik, mogotte csendben
+ *    frissul (ha kozben valtozott, ujrarajzoljuk).
+ *  - Uj mappa: ha a teljes lista 150 ms alatt nem jon meg, egy konnyu lista
+ *    (csak nevek + tipusok, meres nelkul) rajzol elore, a teljes utana tolt be.
+ *  - Ugyanaz a mappa ujra (Frissites gomb, vagy egy iras-muvelet utan) = a
+ *    tar TELJES eldobasa es friss lista a szervertol: elavultat nem mutatunk.
+ *    Minden /api/life/ iras (`_depoPost`) is eldobja.
+ */
+const _intezoListCache = new Map()
+function _intezoListKey(p) { return (window._lang || 'hu') + '|' + p }
+function _intezoListUrl(p) {
+  return '/api/life/list?lang=' + (window._lang || 'hu') + '&path=' + encodeURIComponent(p)
+}
+function _intezoCachePut(p, listing) {
+  if (!listing || listing.message) return
+  const k = _intezoListKey(p)
+  _intezoListCache.delete(k)
+  _intezoListCache.set(k, listing)
+  if (_intezoListCache.size > 150) _intezoListCache.delete(_intezoListCache.keys().next().value)
+}
+function _intezoCacheClear() { _intezoListCache.clear() }
+
+function _intezoScrollTop() {
+  const list = document.getElementById('intezoList')
+  if (list && list.getBoundingClientRect && list.getBoundingClientRect().top < 0 && list.scrollIntoView) {
+    list.scrollIntoView({ block: 'start' })
+  }
+}
+
 async function _intezoOpen(rel) {
   const uj = rel || ''
   const navigated = uj !== _intezoPath
@@ -37625,30 +37659,63 @@ async function _intezoOpen(rel) {
   // The SAME folder again = refresh, or a change (new folder, move, rename,
   // archive) just happened: the tree's cached branches may be stale anywhere.
   // Navigating elsewhere keeps them -- no refetch storm on every click.
-  if (uj === _intezoPath) { _intezoTreeKids = new Map(); _intezoTreeErr = new Map() }
+  if (uj === _intezoPath) { _intezoTreeKids = new Map(); _intezoTreeErr = new Map(); _intezoCacheClear() }
   else _intezoTreeCollapsed = new Set()
   _intezoPath = uj
   const search = document.getElementById('intezoSearch')
   if (search) search.value = ''
+  // #386 -- belepes utan a mappa tartalma a lap tetejen latszodjon: ha a
+  // lista teteje kigordult a kepbol (egy hosszu mappa aljarol leptunk be),
+  // odagorgetunk. Frissitesnel (ugyanaz a mappa) nem ugrunk el. Csak az ELSO
+  // rajzolasnal -- a kesobbi (csendes) ujrarajzolas nem rant el.
+  let drawn = false
+  const draw = (listing) => {
+    _intezoListing = listing
+    _intezoRender()
+    if (!drawn && navigated) _intezoScrollTop()
+    drawn = true
+  }
   try {
     await _faSugokBetolt()
     // #350: the backup marks next to folder names. Never blocks the listing.
-    void _bkLoad().then(() => { if (_intezoListing) _intezoRender() })
-    _intezoListing = await _intezoGet('/api/life/list?lang=' + (window._lang || 'hu')
-      + '&path=' + encodeURIComponent(_intezoPath))
+    // Only redraw a listing of THIS folder -- mid-click it may still be the old one.
+    void _bkLoad().then(() => {
+      const L = _intezoListing
+      if (L && (L.searching || typeof L.rel !== 'string' || L.rel === _intezoPath)) _intezoRender()
+    })
+  } catch (e) { /* a sugok nelkul is listazunk */ }
+  const cached = navigated ? _intezoListCache.get(_intezoListKey(uj)) : null
+  if (cached) {
+    draw(cached)
+    // Csendes frissites: a szerver a sajat tarabol valaszol, es ha kivulrol
+    // valtozott a mappa, azt is eszreveszi. Csak akkor rajzolunk ujra, ha mas.
+    try {
+      const friss = await _intezoGet(_intezoListUrl(uj))
+      if (uj !== _intezoPath) return
+      _intezoCachePut(uj, friss)
+      if (JSON.stringify(friss) !== JSON.stringify(cached)) draw(friss)
+    } catch (e) { /* a korabbi lista marad, a kovetkezo megnyitas ujra probalja */ }
+    return
+  }
+  let full = null
+  // Only when ENTERING a folder: on a refresh the current listing stays on
+  // screen until the fresh one arrives (a light one would blank the counts).
+  const light = !navigated ? null : new Promise((r) => setTimeout(r, 150)).then(async () => {
+    if (full || uj !== _intezoPath) return
+    try {
+      const L = await _intezoGet(_intezoListUrl(uj) + '&deep=0&content=0')
+      if (!full && uj === _intezoPath && !L.message) draw(L)
+    } catch (e) { /* a teljes lista hozza */ }
+  })
+  try {
+    full = await _intezoGet(_intezoListUrl(uj) + (navigated ? '' : '&fresh=1'))
   } catch (e) {
-    _intezoListing = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : t('intezo.open_failed') }
+    full = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : t('intezo.open_failed') }
   }
-  _intezoRender()
-  // #386 -- belepes utan a mappa tartalma a lap tetejen latszodjon: ha a
-  // lista teteje kigordult a kepbol (egy hosszu mappa aljarol leptunk be),
-  // odagorgetunk. Frissitesnel (ugyanaz a mappa) nem ugrunk el.
-  if (navigated) {
-    const list = document.getElementById('intezoList')
-    if (list && list.getBoundingClientRect && list.getBoundingClientRect().top < 0 && list.scrollIntoView) {
-      list.scrollIntoView({ block: 'start' })
-    }
-  }
+  void light
+  if (uj !== _intezoPath) return
+  _intezoCachePut(uj, full)
+  draw(full)
 }
 
 function _intezoUp() {
@@ -38239,18 +38306,30 @@ function _intezoTreeMissing() {
     if (!_intezoTreeIsOpen(rel, entry, forced)) return
     const kids = _intezoTreeKids.get(rel)
     if (!kids) { if (!_intezoTreeErr.has(rel)) need.push(rel); return }
-    for (const k of kids) walk(k.rel, k)
+    for (const k of kids) if (_intezoTreeIsChild(rel, k)) walk(k.rel, k)
   }
   walk('', null)
   return need
 }
 
+/** A branch only ever holds folders BELOW it -- anything else would make the tree a loop. */
+function _intezoTreeIsChild(parent, k) {
+  const r = k && typeof k.rel === 'string' ? k.rel : ''
+  return !!r && r !== parent && (parent === '' || r.indexOf(parent + '/') === 0)
+}
+
 async function _intezoTreeSync() {
   const L = _intezoListing
+  // #387: the listing is filed under ITS OWN folder (`L.rel`), not under
+  // `_intezoPath`: while a click is loading, the path is already the new one
+  // but the listing still the old one. Filed under the new path, the root's
+  // folders became Csalad's children -- Csalad among them -- and the tree
+  // recursed until "Maximum call stack size exceeded".
+  const at = (L && typeof L.rel === 'string') ? L.rel : _intezoPath
   if (L && !L.searching && !L.message && Array.isArray(L.folders)) {
-    _intezoTreeKids.set(_intezoPath, L.folders)
-    _intezoTreeErr.delete(_intezoPath)
-    if (_intezoPath === '' && L.breadcrumb && L.breadcrumb[0]) {
+    _intezoTreeKids.set(at, L.folders)
+    _intezoTreeErr.delete(at)
+    if (at === '' && L.breadcrumb && L.breadcrumb[0]) {
       _intezoTreeRootName = L.breadcrumb[0].displayName || L.breadcrumb[0].name || ''
     }
   }
@@ -38334,7 +38413,8 @@ function _intezoTreeRender() {
         h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
           + escapeHtml(t('intezo.tree_loading')) + '</div>'
       } else if (kids.length) {
-        h += '<ul role="group">' + kids.map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i)).join('') + '</ul>'
+        h += '<ul role="group">' + kids.filter((k) => _intezoTreeIsChild(rel, k))
+          .map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i)).join('') + '</ul>'
       }
     }
     return h + '</li>'
@@ -38414,6 +38494,7 @@ function _intezoScheduleContentRefresh(rows) {
         + '&path=' + encodeURIComponent(ut))
       if (ut !== _intezoPath) return
       _intezoListing = friss
+      _intezoCachePut(ut, friss)
       _intezoRender()
     } catch (e) { /* a kovetkezo megnyitas ujra probalja */ }
   }, 1500)

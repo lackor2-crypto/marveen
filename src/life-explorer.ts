@@ -298,7 +298,7 @@ export function humanSize(n: number): string {
  * A kulcsban benne a NYELV is: az emberi indoklas (`reason`) nyelvfuggo, es egy
  * magyar mondat egy angol feluleten hiba volna.
  */
-const contentCache = new Map<string, { content: LifeContent; at: number }>()
+const contentCache = new Map<string, { content: LifeContent; at: number; mtime?: number }>()
 
 /** Meddig ervenyes egy meres. Rovid: a felhasznalo epp most rendezget a faban. */
 const CONTENT_TTL_MS = 15_000
@@ -315,7 +315,7 @@ function cacheKey(abs: string, lang: string, rel = ''): string { return `${lang}
  * felulet a MUVELET ELOTTI darabszamot mutatna, es a felhasznalo azt hinne,
  * nem tortent meg, amit kert.
  */
-export function clearContentCache(): void { contentCache.clear() }
+export function clearContentCache(): void { contentCache.clear(); listCache.clear() }
 
 /** Hany mappa varhat merese a hatterben. Efolott nem gyujtunk tovabb. */
 const PENDING_MAX = 500
@@ -370,10 +370,13 @@ function enqueueMeasure(abs: string, lang: string, rel = ''): void {
  * `pending` jelzest kap, a meres a hatterben lefut, es a kovetkezo lekeres mar
  * a valodi szamokat hozza.
  */
-function contentFor(abs: string, lang: string, budget: MeasureBudget, rel = ''): LifeContent {
+function contentFor(abs: string, lang: string, budget: MeasureBudget, rel = '', mtime?: number): LifeContent {
   const key = cacheKey(abs, lang, rel)
   const hit = contentCache.get(key)
-  if (hit && Date.now() - hit.at < CONTENT_TTL_MS) return hit.content
+  // #387: ha a mappa kozvetlen tartalma kivulrol valtozott (mas az mtime-ja),
+  // a regi szam nem ervenyes -- a lista-tar ujjlenyomata is ezt nezi.
+  const sameDir = mtime === undefined || hit?.mtime === undefined || hit.mtime === mtime
+  if (hit && sameDir && Date.now() - hit.at < CONTENT_TTL_MS) return hit.content
   if (budget.dirs <= 0 || Date.now() > budget.deadline) {
     enqueueMeasure(abs, lang, rel)
     return {
@@ -385,7 +388,7 @@ function contentFor(abs: string, lang: string, budget: MeasureBudget, rel = ''):
   // Ha a keret MERES KOZBEN fogyott el, a valasz felkesz: nem tesszuk el, mert
   // akkor 15 masodpercig egy felbehagyott meres latszana vegleges "nem mert"-nek.
   if (c.pending) { enqueueMeasure(abs, lang, rel); return c }
-  contentCache.set(key, { content: c, at: Date.now() })
+  contentCache.set(key, { content: c, at: Date.now(), mtime })
   return c
 }
 
@@ -568,7 +571,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     // Mappaknal: van-e alatta barmi. Keret nelkul (pl. egyedi hivas) nem merunk:
     // a mezo ilyenkor hianyzik, es a felulet nem ir ki rola semmit -- ez tisztabb,
     // mint egy meg nem mert nulla.
-    ...(isDir && budget ? { content: contentFor(abs, lang, budget, rel) } : {}),
+    ...(isDir && budget ? { content: contentFor(abs, lang, budget, rel, st.mtimeMs) } : {}),
   }
 }
 
@@ -788,6 +791,148 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
   files.sort(activeFirst)
 
   return { ...base, folders, files }
+}
+
+/*
+ * GYORS MEGNYITAS (#387). Boss: "raklikkelek es varni kell [...] nem egy
+ * Windows intezo, hogy raklikkelek es abban a pillanatban megjelenik." A melyi
+ * lista (forras-jelveny egy szinttel lejjebb + darabszam-meres) egy WSL-bol
+ * elert Windows-meghajton masodpercekig tart -- hidegen 25 mp is volt. Ezert a
+ * kesz listat eltesszuk, es a kovetkezo megnyitas azonnal kapja.
+ *
+ * NEM mutathat elavultat, ezert harom ret vedi:
+ *  1. Minden iras a Marveenen at (`clearContentCache`, a route bejaratanal
+ *     is) eldobja az egeszet.
+ *  2. Minden kiszolgalas elott egy OLCSO ujjlenyomat: a mappa nevei es tipusai
+ *     (egy beolvasas) + minden almappa mtime-ja. Ha kivulrol (Windows Intezo,
+ *     Drive-szinkron) valtozott a mappa vagy egy almappa kozvetlen tartalma,
+ *     az ujjlenyomat mas, es ujra listazunk.
+ *  3. Ami ennel melyebben valtozhat (unoka-mappa tartalma), azt a hatter
+ *     frissiti: `LIST_FRESH_MS` utan a regi lista meg azonnal megy, de mogotte
+ *     elindul egy csendes ujralistazas, es a kovetkezo keres mar azt kapja.
+ */
+const listCache = new Map<string, { at: number; sig: string; listing: LifeListing }>()
+const LIST_FRESH_MS = 60_000
+const LIST_CACHE_MAX = 400
+const revalidateQueue: Array<{ key: string; rel: string; opts: { deep: boolean; lang: string } }> = []
+let revalidateTimer: ReturnType<typeof setTimeout> | null = null
+
+function listSignature(abs: string, rel: string): string | null {
+  let ents: Dirent[]
+  try { ents = readdirSync(abs, { withFileTypes: true }) } catch { return null }
+  const parts: string[] = []
+  for (const d of ents) {
+    if (isHiddenEntry(d.name)) continue
+    let tag = d.isDirectory() ? 'd' : d.isSymbolicLink() ? 'l' : 'f'
+    if (tag !== 'f') {
+      try { tag += statSync(join(abs, d.name)).mtimeMs } catch { tag += '?' }
+    }
+    parts.push(d.name + '\u0001' + tag)
+  }
+  // A bekotesek (Drive, Fotok) a lemezen mashol allnak: az o mtime-juk is szamit.
+  for (const m of mountsInside(rel)) {
+    const a = resolveLifePath(m.rel)
+    let mt = '?'
+    try { if (a) mt = String(statSync(a).mtimeMs) } catch { /* nincs */ }
+    parts.push('@' + m.rel + '\u0001' + mt)
+  }
+  parts.sort()
+  return parts.join('\u0000')
+}
+
+function listingHasPending(l: LifeListing): boolean {
+  return l.folders.some((f) => f.content && f.content.pending)
+}
+
+function listKey(root: string, rel: string, deep: boolean, lang: string): string {
+  return `${root}\u0000${rel}\u0000${deep ? 1 : 0}\u0000${lang}`
+}
+
+function storeListing(key: string, sig: string, listing: LifeListing): void {
+  if (listing.message) return
+  if (listCache.size >= LIST_CACHE_MAX && !listCache.has(key)) {
+    const oldest = listCache.keys().next().value
+    if (oldest !== undefined) listCache.delete(oldest)
+  }
+  listCache.delete(key)
+  listCache.set(key, { at: Date.now(), sig, listing })
+}
+
+function drainRevalidate(): void {
+  revalidateTimer = null
+  const job = revalidateQueue.shift()
+  if (job) {
+    try { listLifeCached(job.rel, { ...job.opts, fresh: true }) } catch (e) {
+      logger.warn(`life-explorer: hatter-frissites elhasalt (${job.rel}): ${String(e)}`)
+    }
+  }
+  if (revalidateQueue.length) {
+    revalidateTimer = setTimeout(drainRevalidate, 50)
+    if (typeof revalidateTimer.unref === 'function') revalidateTimer.unref()
+  }
+}
+
+function enqueueRevalidate(key: string, rel: string, opts: { deep: boolean; lang: string }, delayMs = 30): void {
+  if (revalidateQueue.some((j) => j.key === key)) return
+  if (revalidateQueue.length >= 200) return
+  revalidateQueue.push({ key, rel, opts })
+  if (!revalidateTimer) {
+    revalidateTimer = setTimeout(drainRevalidate, delayMs)
+    if (typeof revalidateTimer.unref === 'function') revalidateTimer.unref()
+  }
+}
+
+/**
+ * A felulet listaja, gyorsitotarbol ha lehet (#387). `fresh: true` = biztosan
+ * ujra listaz (a Frissites gomb es a hatter-frissites). A tobbi hivo (Beerkezo
+ * besorolo) tovabbra is a mindig friss `listLife`-ot hasznalja.
+ */
+export function listLifeCached(rel: string, opts: { deep?: boolean; lang?: string; fresh?: boolean } = {}): LifeListing & { cached?: boolean } {
+  const deep = opts.deep !== false
+  const lang = opts.lang === 'en' || opts.lang === 'hu' ? opts.lang : APP_LANG
+  const root = explorerRoot()
+  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const abs = root ? resolveLifePath(clean) : null
+  // Nincs raktar / kilep a fabol: az uzenet olcso, nincs mit eltenni.
+  if (!root || !abs) return listLife(clean, { deep, lang })
+  const sig = listSignature(abs, clean)
+  if (sig === null) return listLife(clean, { deep, lang })
+  const key = listKey(root, clean, deep, lang)
+  const hit = listCache.get(key)
+  if (!opts.fresh && hit && hit.sig === sig) {
+    // A "meg merem" sorok miatt kicsit kesobb: addig a hatter-meres vegez.
+    if (listingHasPending(hit.listing)) enqueueRevalidate(key, clean, { deep, lang }, 1000)
+    else if (Date.now() - hit.at > LIST_FRESH_MS) enqueueRevalidate(key, clean, { deep, lang })
+    return { ...hit.listing, cached: true }
+  }
+  const listing = listLife(clean, { deep, lang })
+  storeListing(key, sig, listing)
+  // Meg nem mert darabszam: a hatter-meres utan ujra listazunk, hogy a
+  // kovetkezo keres mar a valodi szamot kapja, ne a "meg merem"-et.
+  if (listingHasPending(listing)) enqueueRevalidate(key, clean, { deep, lang }, 1000)
+  return listing
+}
+
+/**
+ * ELOMELEGITES inditaskor (#387): a gyoker es az elso szint listaja, hogy az
+ * elso kattintas se varjon. Hatterben, egyenkent, a tobbi munkat nem
+ * akasztja meg; raktar nelkul (friss telepites) nem csinal semmit.
+ */
+export function prewarmLifeListings(lang: string = APP_LANG): number {
+  if (!explorerRoot()) return 0
+  let root: LifeListing
+  try { root = listLifeCached('', { lang }) } catch { return 0 }
+  const kids = root.folders.map((f) => f.rel)
+  const next = () => {
+    const rel = kids.shift()
+    if (rel === undefined) return
+    try { listLifeCached(rel, { lang }) } catch { /* a kovetkezo megnyitas ujra probalja */ }
+    const tm = setTimeout(next, 100)
+    if (typeof tm.unref === 'function') tm.unref()
+  }
+  const tm = setTimeout(next, 100)
+  if (typeof tm.unref === 'function') tm.unref()
+  return 1 + root.folders.length
 }
 
 function buildBreadcrumb(rel: string): Array<{ name: string; rel: string; displayName?: string | null }> {

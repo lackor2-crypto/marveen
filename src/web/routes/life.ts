@@ -61,7 +61,7 @@ import { existsSync, statSync, createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
 import {
-  listLife, lifeInfo, moveLife, copyLife, pasteLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
+  listLife, listLifeCached, lifeInfo, moveLife, copyLife, pasteLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
   clearContentCache,
   resolveLifePath,
   type PasteOptions, type ItemResolution,
@@ -303,7 +303,14 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const deep = url.searchParams.get('deep') !== '0'
     // `lang`: a felulet nyelve. Csak a sugokat valtja, a mappaneveket nem --
     // azok a lemezen allnak.
-    send(res, 200, listLife(rel, { deep, lang: uiLang(url) }))
+    // #387: `content=0` -> csak nevek es tipusok, meres nelkul (a felulet
+    // ezzel rajzol azonnal, amig a teljes lista megjon). `fresh=1` -> a
+    // Frissites gomb: gyorsitotar nelkul.
+    if (url.searchParams.get('content') === '0') {
+      send(res, 200, listLife(rel, { deep: false, content: false, lang: uiLang(url) }))
+      return true
+    }
+    send(res, 200, listLifeCached(rel, { deep, lang: uiLang(url), fresh: url.searchParams.get('fresh') === '1' }))
     return true
   }
 

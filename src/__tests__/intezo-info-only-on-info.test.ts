@@ -77,7 +77,10 @@ describe('#386 -- az adatlap csak az Info gombra nyilik', () => {
   it('mappaba lepes utan a lista teteje latszik', () => {
     const f = fnBody('async function _intezoOpen(')
     expect(f).toContain('const navigated = uj !== _intezoPath')
-    expect(f).toMatch(/if \(navigated\)[\s\S]*scrollIntoView\(\{ block: 'start' \}\)/)
+    // #387: the scroll moved into _intezoScrollTop, called on the FIRST draw
+    // after navigating (the cached / light / full listing, whichever is first).
+    expect(f).toMatch(/if \(!drawn && navigated\) _intezoScrollTop\(\)/)
+    expect(fnBody('function _intezoScrollTop(')).toContain("scrollIntoView({ block: 'start' })")
   })
 
   it('Ctrl+X/C a kijelolesen, Kivagas/Masolas a jobb klikk menuben mukodik', () => {
