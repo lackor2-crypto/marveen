@@ -4,7 +4,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { procField } from '../web/main-agent-runtime.js'
+import { procField, procChildren } from '../web/main-agent-runtime.js'
+import { spawn } from 'node:child_process'
 import { calendarListOutput, _resetCalendarCacheForTest } from '../web/settings-calendar-cache.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -18,6 +19,15 @@ describe('procField reads /proc instead of spawning ps', () => {
     const et = Number(procField(pid, 'etimes='))
     expect(Number.isFinite(et)).toBe(true)
     expect(Math.abs(et - process.uptime())).toBeLessThan(5)
+  })
+
+  it.skipIf(!existsSync('/proc/self/task'))('lists the direct children of a process', async () => {
+    const child = spawn('sleep', ['5'])
+    try {
+      await new Promise((r) => setTimeout(r, 50))
+      expect(procChildren(process.pid)).toContain(child.pid)
+    } finally { child.kill() }
+    expect(procChildren(2 ** 30)).toBeUndefined()
   })
 
   it('falls back (undefined) for an unknown field or a missing process', () => {

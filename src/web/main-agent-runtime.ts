@@ -29,7 +29,7 @@
 // ===========================================================================
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { exactTmuxTarget } from './tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 
@@ -83,6 +83,26 @@ export function procField(pid: number, field: string): string | null | undefined
 }
 const CLK_TCK = 100
 
+/**
+ * A folyamat kozvetlen gyerekei a /proc-bol (`ps --ppid` nelkul). A szal-
+ * csoport minden szalanak kulon `children` fajlja van, ezert mindet olvassuk.
+ * undefined = a /proc nem adott valaszt, a `ps` jon.
+ */
+export function procChildren(pid: number): number[] | undefined {
+  try {
+    const out = new Set<number>()
+    for (const tid of readdirSync(`/proc/${pid}/task`)) {
+      let raw = ''
+      try { raw = readFileSync(`/proc/${pid}/task/${tid}/children`, 'utf-8') } catch { continue }
+      for (const t of raw.split(/\s+/)) {
+        const n = parseInt(t, 10)
+        if (Number.isFinite(n) && n > 0) out.add(n)
+      }
+    }
+    return [...out]
+  } catch { return undefined }
+}
+
 function ps(pid: number, field: string): string | null {
   const fromProc = procField(pid, field)
   if (fromProc !== undefined) return fromProc
@@ -116,12 +136,14 @@ function findClaudePid(session: string): number | null {
   if (ps(panePid, 'comm=') === 'claude') return panePid
 
   // A panel nem claude: a KOZVETLEN gyerekei kozott keressuk.
-  let kids: number[] = []
-  try {
-    const out = execFileSync('/bin/ps', ['--ppid', String(panePid), '-o', 'pid='],
-      { timeout: 3000, encoding: 'utf-8' })
-    kids = out.split('\n').map(l => parseInt(l.trim(), 10)).filter(n => Number.isFinite(n) && n > 0)
-  } catch { kids = [] }
+  let kids = procChildren(panePid)
+  if (kids === undefined) {
+    try {
+      const out = execFileSync('/bin/ps', ['--ppid', String(panePid), '-o', 'pid='],
+        { timeout: 3000, encoding: 'utf-8' })
+      kids = out.split('\n').map(l => parseInt(l.trim(), 10)).filter(n => Number.isFinite(n) && n > 0)
+    } catch { kids = [] }
+  }
   for (const kid of kids) {
     if (ps(kid, 'comm=') === 'claude') return kid
   }
