@@ -119,6 +119,20 @@
     })
   }
 
+  /** Egy munkadarab lesz az aktualis: kozepen az o szerkesztoje, a chat az o
+   *  beszelgetese. A lista, a valto es a lepteto gombok mind ezt hivjak. */
+  function selectItem(id) {
+    if (!id) return
+    WB.selectedId = id
+    WB.panel = 'editor'
+    // Mas munkadarab: a felig nyitott resz-szerkesztes nem szivaroghat at.
+    WB.partEdit = null
+    WB.partNewOpen = false
+    loadDetail(WB.selectedId)
+    // Mas munkadarab = MAS beszelgetes: a hozza tartozot toltjuk be.
+    loadChatHistory()
+  }
+
   function loadDetail(id) {
     WB.detail = null
     WB.preview = null
@@ -163,15 +177,17 @@
         + '<p class="wb-muted">' + esc(t('workbench.empty.hint')) + '</p>'
         + '</div>'
     } else {
-      body = '<ul class="wb-items">' + WB.items.map(function (it) {
-        return '<li><button type="button" class="wb-item' + (it.id === WB.selectedId ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '">'
-          + '<span class="wb-item-title">' + esc(it.title) + '</span>'
+      body = '<ul class="wb-items">' + WB.items.map(function (it, i) {
+        var on = it.id === WB.selectedId
+        return '<li><button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
+          + '<span class="wb-item-title">' + esc((i + 1) + '. ' + it.title) + '</span>'
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
           + '</button></li>'
       }).join('') + '</ul>'
     }
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items">'
-      + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + '</h2>'
+      + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
+      + '<p class="wb-hint">' + esc(t('workbench.items.switch_hint')) + '</p>'
       + body
       + (archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
@@ -1239,6 +1255,30 @@
       + '</div>'
   }
 
+  /** Munkadarab-valto a szerkeszto tetejen (#359, Boss 1249): a munkadarabok
+   *  kozott innen is valtani lehet, akkor is, ha a lista nem latszik (mobilon
+   *  egyszerre egy panel van kint, es a kattintas ide, a kozepso panelre visz). */
+  function switcherHtml() {
+    var items = WB.items || []
+    if (items.length < 2) return ''
+    var idx = -1
+    for (var i = 0; i < items.length; i++) if (items[i].id === WB.selectedId) idx = i
+    var opts = (idx < 0 ? '<option value="" selected>' + esc(t('workbench.switch.choose')) + '</option>' : '')
+      + items.map(function (it, j) {
+        return '<option value="' + escA(it.id) + '"' + (j === idx ? ' selected' : '') + '>' + esc((j + 1) + '. ' + it.title) + '</option>'
+      }).join('')
+    var prev = idx > 0 ? items[idx - 1].id : ''
+    var next = idx >= 0 && idx < items.length - 1 ? items[idx + 1].id : (idx < 0 ? items[0].id : '')
+    return '<div class="wb-switch">'
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-item="' + escA(prev) + '"' + (prev ? '' : ' disabled')
+      + ' title="' + escA(t('workbench.switch.prev')) + '" aria-label="' + escA(t('workbench.switch.prev')) + '">‹</button>'
+      + '<label class="wb-switch-label" for="wbSwitch">' + esc(t('workbench.switch.label')) + '</label>'
+      + '<select class="wb-input wb-switch-select" id="wbSwitch">' + opts + '</select>'
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-item="' + escA(next) + '"' + (next ? '' : ' disabled')
+      + ' title="' + escA(t('workbench.switch.next')) + '" aria-label="' + escA(t('workbench.switch.next')) + '">›</button>'
+      + '</div>'
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
@@ -1256,6 +1296,7 @@
     }
     return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.editor')) + '</h2>'
+      + switcherHtml()
       + inner + '</section>'
   }
 
@@ -2105,14 +2146,7 @@
     if (panelBtn) { WB.panel = panelBtn.getAttribute('data-wb-panel'); render(); return }
     var itemBtn = e.target.closest('[data-wb-item]')
     if (itemBtn) {
-      WB.selectedId = itemBtn.getAttribute('data-wb-item')
-      WB.panel = 'editor'
-      // Mas munkadarab: a felig nyitott resz-szerkesztes nem szivaroghat at.
-      WB.partEdit = null
-      WB.partNewOpen = false
-      loadDetail(WB.selectedId)
-      // Mas munkadarab = MAS beszelgetes: a hozza tartozot toltjuk be.
-      loadChatHistory()
+      selectItem(itemBtn.getAttribute('data-wb-item'))
       return
     }
     var act = e.target.closest('[data-wb-act]')
@@ -2303,6 +2337,10 @@
 
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
+    if (e.target.id === 'wbSwitch') {
+      selectItem(e.target.value)
+      return
+    }
     if (e.target.id === 'wbDocUpload') {
       var docs = e.target.files
       if (docs && docs.length) uploadDocumentVersion(docs[0])

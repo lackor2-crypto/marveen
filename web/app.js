@@ -43143,6 +43143,56 @@ async function _prjOpenCardHere(cardId) {
 
 // ---- Fajlok ful: a projekt mappaja HELYBEN ----
 
+// Nezet (#359, Boss 1249): 'tree' = mapparendszer, 'flat' = omlesztett lista a
+// legutobb modositott fajlokrol (a #294 elotti nezet). A valasztas nezonkenti
+// kenyelem, ezert localStorage -- ha nem elerheto, a mapparendszer az alap.
+const _PRJ_FILES_VIEW_KEY = 'prjFilesView'
+function _prjFilesView() {
+  try { return localStorage.getItem(_PRJ_FILES_VIEW_KEY) === 'flat' ? 'flat' : 'tree' } catch { return 'tree' }
+}
+function _prjSetFilesView(v) {
+  try { localStorage.setItem(_PRJ_FILES_VIEW_KEY, v === 'flat' ? 'flat' : 'tree') } catch { /* csak erre a latogatasra szol */ }
+  _prj.filesViewNow = v === 'flat' ? 'flat' : 'tree'
+  if (_prj.filesViewNow === 'flat') _prjLoadFlat()
+  _prjRefreshFilesTab()
+}
+function _prjCurrentFilesView() { return _prj.filesViewNow || (_prj.filesViewNow = _prjFilesView()) }
+
+async function _prjLoadFlat() {
+  const f = _prj.files
+  if (!f || f.state !== 'ok' || f.flat) return
+  f.flat = { loading: true, files: [], err: null }
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(f.pid) + '/files')
+  if (_prj.files !== f) return
+  f.flat = r.ok && r.data && r.data.state === 'ok'
+    ? { loading: false, files: r.data.files || [], err: null }
+    : { loading: false, files: [], err: (r.data && r.data.message) || r.message || t('projects.files.tree_err') }
+  _prjRefreshTree()
+}
+
+/** Omlesztett nezet: a legutobb modositott fajlok egy listaban, mindegyik
+ *  mellett a mappaja -- kattintasra ugyanugy az Intezo nyilik abban a mappaban. */
+function _prjFlatHtml() {
+  const fl = _prj.files && _prj.files.flat
+  if (!fl || fl.loading) return `<div class="prj-tree-note prj-muted" style="--d:0">${escapeHtml(t('common.loading'))}</div>`
+  if (fl.err) return `<div class="prj-tree-note depo-bad" style="--d:0">${escapeHtml(fl.err)}</div>`
+  if (!fl.files.length) return `<div class="prj-tree-note prj-muted" style="--d:0">${escapeHtml(t('projects.files.empty'))}</div>`
+  const base = (_prj.files.path || '') + '/'
+  const out = fl.files.map((x) => {
+    const sub = String(x.rel || '').startsWith(base) ? String(x.rel).slice(base.length) : String(x.name || '')
+    const slash = sub.lastIndexOf('/')
+    const folder = slash > 0 ? sub.slice(0, slash) : ''
+    return `<button type="button" class="prj-tree-row is-file" style="--d:0" data-prj-reveal="${escapeAttr(folder)}" title="${escapeAttr(t('projects.files.reveal_hint'))}">
+    <span class="prj-tree-caret" aria-hidden="true"></span><span class="prj-tree-ico" aria-hidden="true">📄</span>
+    <span class="prj-tree-name">${escapeHtml(x.name)}<span class="prj-tree-path">${escapeHtml(folder || t('projects.files.root_folder'))}</span></span><span class="prj-tree-meta">${escapeHtml(_prjAgo(x.at))}</span></button>`
+  }).join('')
+  return out + (fl.files.length >= 100 ? `<div class="prj-tree-note prj-muted" style="--d:0">${escapeHtml(t('projects.files.flat_limit', { n: fl.files.length }))}</div>` : '')
+}
+
+function _prjFilesBodyHtml() {
+  return _prjCurrentFilesView() === 'flat' ? _prjFlatHtml() : _prjTreeHtml('', 0)
+}
+
 async function _prjLoadFiles() {
   const pid = _prj.current
   if (!pid) return
@@ -43158,6 +43208,7 @@ async function _prjLoadFiles() {
     _prj.files.path = d.path
     if (d.state === 'ok') _prj.files.dirs[''] = { entries: d.entries || [], truncated: !!d.truncated }
   }
+  if (_prj.files.state === 'ok' && _prjCurrentFilesView() === 'flat') _prjLoadFlat()
   _prjRefreshFilesTab()
 }
 
@@ -43186,7 +43237,7 @@ async function _prjToggleDir(sub) {
 
 function _prjRefreshTree() {
   const el = document.getElementById('prjFileTree')
-  if (el) el.innerHTML = _prjTreeHtml('', 0)
+  if (el) el.innerHTML = _prjFilesBodyHtml()
 }
 
 function _prjFileMeta(e) {
@@ -43295,18 +43346,24 @@ function _prjFilesTabHtml() {
     actions = `${p.archived_at ? '' : `<button type="button" class="btn-primary btn-compact" data-prj-act="new-file">${escapeHtml(t('projects.files.add_btn'))}</button>`}
       <button type="button" class="btn-secondary btn-compact" data-prj-act="open-intezo">${escapeHtml(t('projects.file.open_intezo'))}</button>`
     const q = _prj.fileFind ? _prj.fileFind.q : ''
+    const view = _prjCurrentFilesView()
+    const viewBtn = (v, key) => `<button type="button" class="tab-btn${view === v ? ' active' : ''}" data-prj-files-view="${v}" aria-pressed="${view === v}">${escapeHtml(t(key))}</button>`
     inner = `<p class="prj-muted">${escapeHtml(t('projects.files.folder_line', { path: d.path || '' }))}</p>
+      <div class="prj-files-view" role="group" aria-label="${escapeAttr(t('projects.files.view_label'))}">
+        <span class="prj-muted">${escapeHtml(t('projects.files.view_label'))}</span>
+        ${viewBtn('tree', 'projects.files.view_tree')}${viewBtn('flat', 'projects.files.view_flat')}
+      </div>
       <input type="search" class="prj-find-input" id="prjFindInput" value="${escapeAttr(q)}"
         placeholder="${escapeAttr(t('projects.files.find_placeholder'))}" aria-label="${escapeAttr(t('projects.files.find_placeholder'))}">
       <div id="prjFindOut"></div>
-      <div class="prj-tree" id="prjFileTree">${_prjTreeHtml('', 0)}</div>`
+      <div class="prj-tree" id="prjFileTree">${_prjFilesBodyHtml()}</div>`
   }
   return `<section class="prj-section" id="prjFilesBody">
     <div class="prj-section-row">
       <h2>${escapeHtml(t('projects.files.title'))}</h2>
       <div class="prj-item-actions">${actions}</div>
     </div>
-    <p class="prj-section-hint">${escapeHtml(t('projects.files.hint'))}</p>
+    <p class="prj-section-hint">${escapeHtml(t(d && d.state === 'ok' && _prjCurrentFilesView() === 'flat' ? 'projects.files.hint_flat' : 'projects.files.hint'))}</p>
     ${inner}
   </section>`
 }
@@ -43316,6 +43373,8 @@ document.addEventListener('input', (e) => {
 })
 
 document.addEventListener('click', (e) => {
+  const view = e.target.closest('[data-prj-files-view]')
+  if (view && view.closest('#prjFilesBody')) { _prjSetFilesView(view.getAttribute('data-prj-files-view')); return }
   const dir = e.target.closest('[data-prj-dir]')
   if (dir && dir.closest('#prjFilesBody')) { _prjToggleDir(dir.getAttribute('data-prj-dir')); return }
   const rev = e.target.closest('[data-prj-reveal]')
