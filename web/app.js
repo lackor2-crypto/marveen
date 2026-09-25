@@ -36755,6 +36755,10 @@ function _intezoSetViewMode(mode) {
  */
 const _intezoThumbCache = new Map()
 const _INTEZO_THUMB_CACHE_MAX = 600
+// #392: egy belyegkep-keres legfeljebb ennyi ideig foglalhat helyet a sorban,
+// es halozati hiba / idotullepes utan ennyiszer probaljuk ujra.
+const _INTEZO_THUMB_TIMEOUT_MS = 20000
+const _INTEZO_THUMB_TRIES = 3
 let _intezoThumbObserver = null
 let _intezoThumbActive = 0
 const _intezoThumbQueue = []
@@ -36792,8 +36796,14 @@ async function _intezoThumbFetch(box) {
   const key = _intezoThumbKey(rel, box.getAttribute('data-mtime'))
   if (_intezoThumbCache.has(key)) { _intezoThumbApply(box, _intezoThumbCache.get(key)); return }
   let val
+  // #392: IDOKORLAT. A sor egyszerre negy kerest enged; ha negy lassu (video
+  // FFmpeg-gel egy lassu meghajton) idokorlat nelkul log, az EGESZ sor all, es
+  // a lap alja szurke marad (Boss TG 6386: "lefagyott").
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), _INTEZO_THUMB_TIMEOUT_MS) : null
   try {
-    const res = await fetch('/api/life/thumb?lang=' + (window._lang || 'hu') + '&rel=' + encodeURIComponent(rel))
+    const res = await fetch('/api/life/thumb?lang=' + (window._lang || 'hu') + '&rel=' + encodeURIComponent(rel),
+      ctrl ? { signal: ctrl.signal } : undefined)
     if (res.ok) {
       val = { url: URL.createObjectURL(await res.blob()) }
     } else {
@@ -36801,8 +36811,20 @@ async function _intezoThumbFetch(box) {
       val = { fail: d.message || t('intezo.thumb_none') }
     }
   } catch (e) {
-    // Halozati hiba: NEM jegyezzuk meg, a kovetkezo rajzolas ujra probalja.
+    // Halozati hiba vagy idotullepes: NEM jegyezzuk meg. Az IntersectionObserver
+    // a dobozt mar levette, tehat ha itt csak kilepnenk, a csempe VEGLEG szurke
+    // maradna a kovetkezo teljes ujrarajzolasig -- ezert visszatesszuk a sor
+    // vegere, novekvo varakozassal, legfeljebb harom probaig.
+    const tries = (Number(box.getAttribute('data-thumb-try')) || 0) + 1
+    box.setAttribute('data-thumb-try', String(tries))
+    if (tries < _INTEZO_THUMB_TRIES) {
+      setTimeout(() => { if (box.isConnected) { _intezoThumbQueue.push(box); _intezoThumbPump() } }, 1500 * tries)
+    } else {
+      _intezoThumbApply(box, { fail: t('intezo.thumb_slow') })
+    }
     return
+  } finally {
+    if (timer) clearTimeout(timer)
   }
   _intezoThumbRemember(key, val)
   // Kozben ujrarajzolodhatott a lista: a friss dobozokra is rakerul.

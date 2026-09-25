@@ -936,6 +936,7 @@ window._i18n.hu = {
   'backup.mega_delete_no': "Maradjon",
   'intezo.thumb_video': 'Videó',
   'intezo.thumb_none': 'Ehhez a fájlhoz nincs előnézet.',
+  'intezo.thumb_slow': "Az előnézet most nem jött meg (a gép lassan válaszolt). Nyomd meg a Frissítést, vagy nyisd meg a fájlt.",
   'intezo.truncated': 'Ebben a mappában nagyon sok fájl van, ezért csak az első 2000 látszik. Használd a keresőt.',
   'intezo.empty': 'Ez a mappa üres.',
   'intezo.info_title': 'Részletes információ',
