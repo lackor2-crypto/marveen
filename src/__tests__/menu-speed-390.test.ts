@@ -188,3 +188,62 @@ describe('Overview draws before the live measure returns', () => {
     expect(body).toContain("fetch('/api/team/graph').then(")
   })
 })
+
+describe('user-turn count reads only the appended part of a transcript', () => {
+  let home: string
+  let oldHome: string | undefined
+  beforeEach(() => {
+    oldHome = process.env.HOME
+    home = mkdtempSync(path.join(tmpdir(), 'turns390-'))
+    process.env.HOME = home
+  })
+  afterEach(() => {
+    process.env.HOME = oldHome
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('counts an appended turn and a line finished only in the next write', async () => {
+    const { countUserTurnsCached, resetTurnCountCacheForTest, resetTurnFileScansForTest } = await import('../web/routes/overview.js')
+    resetTurnCountCacheForTest(); resetTurnFileScansForTest()
+    const dir = path.join(home, '.claude', 'projects', 'p1')
+    mkdirSync(dir, { recursive: true })
+    const f = path.join(dir, 's.jsonl')
+    const now = Date.now()
+    const turn = (ms: number, content: unknown = 'hi') => JSON.stringify({ type: 'user', timestamp: new Date(ms).toISOString(), message: { content } })
+    writeFileSync(f, turn(now - 1000) + '\n' + turn(now - 900, [{ type: 'tool_result' }]) + '\n')
+    const from = now - 60_000
+    expect(await countUserTurnsCached(from)).toBe(1)
+    // a half-written line is not counted yet, and not lost when it completes
+    const next = turn(now - 500)
+    appendFileSync(f, next.slice(0, 20))
+    resetTurnCountCacheForTest()
+    expect(await countUserTurnsCached(from)).toBe(1)
+    appendFileSync(f, next.slice(20) + '\n' + turn(now - 400) + '\n')
+    resetTurnCountCacheForTest()
+    expect(await countUserTurnsCached(from)).toBe(3)
+    // the time window still applies to remembered stamps
+    resetTurnCountCacheForTest()
+    expect(await countUserTurnsCached(from, now - 450)).toBe(2)
+  })
+
+  it('rereads a file that was rewritten shorter', async () => {
+    const { countUserTurnsCached, resetTurnCountCacheForTest, resetTurnFileScansForTest } = await import('../web/routes/overview.js')
+    resetTurnCountCacheForTest(); resetTurnFileScansForTest()
+    const dir = path.join(home, '.claude', 'projects', 'p2')
+    mkdirSync(dir, { recursive: true })
+    const f = path.join(dir, 's.jsonl')
+    const now = Date.now()
+    const turn = (ms: number) => JSON.stringify({ type: 'user', timestamp: new Date(ms).toISOString(), message: { content: 'x' } })
+    writeFileSync(f, turn(now - 3000) + '\n' + turn(now - 2000) + '\n')
+    expect(await countUserTurnsCached(now - 60_000)).toBe(2)
+    writeFileSync(f, turn(now - 1000) + '\n')
+    resetTurnCountCacheForTest()
+    expect(await countUserTurnsCached(now - 60_000)).toBe(1)
+  })
+
+  it('the overview route no longer rereads whole transcripts', () => {
+    const o = src('src/web/routes/overview.ts')
+    expect(o).toContain('userTurnStampsOf(absFile, fstat)')
+    expect(o).not.toMatch(/await readFile\(absFile/)
+  })
+})

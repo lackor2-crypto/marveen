@@ -169,8 +169,11 @@ const FORCE_MIN_AGE_MS = 3_000
 
 interface CacheEntry { at: number; result: LiveUsageResult }
 const cache = new Map<string, CacheEntry>()
+/** Ennyi idos meresig a rendes betoltes a regit adja es a hatterben frissit. */
+const STALE_OK_MS = 5 * 60_000
+const inFlight = new Set<string>()
 
-export function clearLiveUsageCacheForTest(): void { cache.clear() }
+export function clearLiveUsageCacheForTest(): void { cache.clear(); inFlight.clear() }
 
 export async function liveUsageForAccount(
   accountId: string,
@@ -184,6 +187,19 @@ export async function liveUsageForAccount(
   if (hit) {
     const age = now - hit.at
     if (age < (opts.force ? FORCE_MIN_AGE_MS : CACHE_TTL_MS)) return hit.result
+    // #390: a rendes (nem F5) betoltes nem var a halozatra: a meglevo meres
+    // megy ki -- a sajat `measuredAt`-javal, tehat a kora oszinte --, a friss
+    // a hatterben jon. Az F5 (`force`) tovabbra is megvarja az elo merest.
+    if (!opts.force && age < STALE_OK_MS) {
+      if (!inFlight.has(accountId)) {
+        inFlight.add(accountId)
+        void fetchLiveUsage(token, Date.now())
+          .then(result => { cache.set(accountId, { at: Date.now(), result }) })
+          .catch(() => { /* a regi meres marad */ })
+          .finally(() => { inFlight.delete(accountId) })
+      }
+      return hit.result
+    }
   }
   const result = await fetchLiveUsage(token, now)
   cache.set(accountId, { at: now, result })

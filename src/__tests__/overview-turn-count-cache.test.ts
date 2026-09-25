@@ -103,7 +103,9 @@ describe('a naplo-olvasas nem blokkolja az esemenyhurkot', () => {
     for (const sync of ['readFileSync', 'readdirSync', 'statSync']) {
       expect(body.includes(sync), `${sync} visszakerult -- ez alatt az egesz dashboard all`).toBe(false)
     }
-    expect(body.includes('await readFile(')).toBe(true)
+    // #390: a fajlt aszinkron, es csak a hozzairt veget olvassa (userTurnStampsOf -> readRange)
+    expect(body.includes('await userTurnStampsOf(')).toBe(true)
+    expect(OVERVIEW_SRC).toContain('await fh.read(')
   })
 
   it('a vegpont a cache-elt valtozatot hivja', () => {

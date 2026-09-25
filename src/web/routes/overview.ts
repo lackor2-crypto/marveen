@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { readdir, readFile, stat as statAsync } from 'node:fs/promises'
+import { open, readdir, stat as statAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName, APP_TZ } from '../../config.js'
@@ -317,6 +317,70 @@ export function resetTurnCountCacheForTest(): void {
   turnCountInFlight.clear()
 }
 
+// #390: a naplok append-only JSONL-ek, 2026-09-25-en ~34 MB csak a
+// ket napra. Ha percenkent ketszer mind at kellett olvasni es JSON-ne
+// bontani, a hatterben futo frissites ~0,4 mp-re megfogta az egyszalu
+// szervert, es az eppen erkezo keres (az Attekintes is) arra vart. Ezert
+// fajlonkent megjegyezzuk a mar felbontott "valodi" user-fordulok
+// idobelyeget, es a kovetkezo korben CSAK a hozzairt veget olvassuk el.
+type TurnFileScan = { size: number; mtimeMs: number; ino: number; stamps: number[]; tail: string }
+const turnFileScans = new Map<string, TurnFileScan>()
+
+/** Csak teszthez: a fajlonkenti forduloszam-memo uritese. */
+export function resetTurnFileScansForTest(): void { turnFileScans.clear() }
+
+function userTurnStamp(line: string): number | null {
+  if (!line) return null
+  let e: any
+  try { e = JSON.parse(line) } catch { return null }
+  if (e.type !== 'user' || e.isMeta) return null
+  const ts = e.timestamp ? Date.parse(e.timestamp) : 0
+  if (!ts) return null
+  const content = e.message?.content
+  if (typeof content === 'string') {
+    if (content.startsWith('<local-command') || content.startsWith('<command-name>')) return null
+    return ts
+  }
+  if (Array.isArray(content)) {
+    if (content.some((b: any) => b && b.type === 'tool_result')) return null
+    return ts
+  }
+  return null
+}
+
+async function readRange(absFile: string, from: number, to: number): Promise<string> {
+  const fh = await open(absFile, 'r')
+  try {
+    const buf = Buffer.alloc(to - from)
+    let off = 0
+    while (off < buf.length) {
+      const { bytesRead } = await fh.read(buf, off, buf.length - off, from + off)
+      if (bytesRead === 0) break
+      off += bytesRead
+    }
+    return buf.subarray(0, off).toString('utf-8')
+  } finally { await fh.close() }
+}
+
+/** A fajl valodi user-fordulainak idobelyegei, a mar latott reszt ujra nem bontva. */
+async function userTurnStampsOf(absFile: string, fstat: { size: number; mtimeMs: number; ino: number }): Promise<number[]> {
+  const prev = turnFileScans.get(absFile)
+  if (prev && prev.ino === fstat.ino && prev.size === fstat.size && prev.mtimeMs === fstat.mtimeMs) return prev.stamps
+  const append = prev && prev.ino === fstat.ino && fstat.size > prev.size
+  const base = append ? prev!.size : 0
+  const chunk = (append ? prev!.tail : '') + await readRange(absFile, base, fstat.size)
+  const lines = chunk.split('\n')
+  // Az utolso, sortores nelkuli sor meg irodhat: kovetkezo korben ujra.
+  const tail = lines.pop() ?? ''
+  const stamps = append ? prev!.stamps.slice() : []
+  for (const line of lines) {
+    const ts = userTurnStamp(line)
+    if (ts !== null) stamps.push(ts)
+  }
+  turnFileScans.set(absFile, { size: fstat.size, mtimeMs: fstat.mtimeMs, ino: fstat.ino, stamps, tail })
+  return stamps
+}
+
 // Count "real" user turns (operator prompts, Telegram messages) in every
 // Claude Code session JSONL under ~/.claude/projects/. Filters out
 // tool_result, local-command, and synthetic system events so a task-heavy
@@ -325,6 +389,7 @@ async function countUserTurns(fromMs: number, toMs: number = Number.POSITIVE_INF
   const root = join(homedir(), '.claude', 'projects')
   if (!existsSync(root)) return 0
   let total = 0
+  const seen = new Set<string>()
   try {
     for (const projectDir of await readdir(root)) {
       const absDir = join(root, projectDir)
@@ -337,29 +402,20 @@ async function countUserTurns(fromMs: number, toMs: number = Number.POSITIVE_INF
         let fstat: Awaited<ReturnType<typeof statAsync>>
         try { fstat = await statAsync(absFile) } catch { continue }
         if (fstat.mtimeMs < fromMs) continue
+        seen.add(absFile)
         try {
-          const data = await readFile(absFile, 'utf-8')
-          for (const line of data.split('\n')) {
-            if (!line) continue
-            let e: any
-            try { e = JSON.parse(line) } catch { continue }
-            if (e.type !== 'user' || e.isMeta) continue
-            const ts = e.timestamp ? Date.parse(e.timestamp) : 0
-            if (!ts || ts < fromMs || ts >= toMs) continue
-            const content = e.message?.content
-            if (typeof content === 'string') {
-              if (content.startsWith('<local-command') || content.startsWith('<command-name>')) continue
-              total++
-            } else if (Array.isArray(content)) {
-              const hasToolResult = content.some((b: any) => b && b.type === 'tool_result')
-              if (hasToolResult) continue
-              total++
-            }
+          for (const ts of await userTurnStampsOf(absFile, fstat)) {
+            if (ts >= fromMs && ts < toMs) total++
           }
         } catch { /* skip unreadable file */ }
       }
     }
   } catch { /* ignore */ }
+  // Csak a mar nem vizsgalt (torolt / tul regi) fajlok memojat dobjuk el,
+  // es csak a teljes, mindent latott kor utan (a legkorabbi fromMs a tegnapi).
+  if (turnFileScans.size > seen.size * 2 + 64) {
+    for (const k of turnFileScans.keys()) if (!seen.has(k)) turnFileScans.delete(k)
+  }
   return total
 }
 
