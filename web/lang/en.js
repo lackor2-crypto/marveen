@@ -36,6 +36,10 @@ window._i18n.en = {
   'common.required_paren': '(required)',
   'common.unknown':           'Unknown',
   'common.error_load':        'Error loading data',
+  'net.restarting': '{brand} is restarting, one moment... Retrying automatically.',
+  'net.back': '{brand} is back.',
+  'net.unreachable': "{brand} can't be reached right now (it may be restarting). The page reloads itself as soon as it is back.",
+  'net.unreachable_action': "{brand} can't be reached right now (it may be restarting), so this action did NOT go through. Try again in a few seconds.",
 
   // --- Overview dynamic ---
   'overview.stat.agents_sub':       '{n} total',

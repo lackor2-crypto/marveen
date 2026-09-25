@@ -213,6 +213,131 @@ function mainAgentId() {
   return window._marveen?.agentId || window._brandTokens?.agentId || 'marveen'
 }
 
+// #390: a network drop or a Marveen restart must not put a raw "Failed to
+// fetch" on any page (Boss TG 6383: "A Marveen eppen frissul, pillanat...").
+// Wraps the raw fetch for same-origin /api calls:
+//  - a network error on a GET/HEAD is retried with backoff; a POST/PUT/DELETE
+//    is NEVER retried (it may already have run) -- it fails with a human
+//    sentence saying the action did not go through;
+//  - a 502/503/504 on a GET is only treated as an outage when the public
+//    probe is down too: our own routes answer 502/503 on purpose (Drive,
+//    projects), and those must reach the caller unchanged at once;
+//  - an AbortError passes through untouched;
+//  - when the retries run out, the thrown Error carries the human sentence,
+//    so every `e.message` on screen shows it instead of "Failed to fetch".
+// Pure (deps injected) so it can be unit-tested outside the browser.
+function createResilientFetch(rawFetch, opts = {}) {
+  const delays = opts.delays || [1000, 2000, 3000, 4000, 5000, 5000]
+  const sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)))
+  const noop = () => {}
+  const onDown = opts.onDown || noop
+  const onUp = opts.onUp || noop
+  const onGiveUp = opts.onGiveUp || noop
+  const probe = opts.probe || (async () => {
+    try { const r = await rawFetch('/api/auth/status', { cache: 'no-store' }); return r.ok } catch { return false }
+  })
+  const msgRead = opts.msgRead || (() => 'Server unreachable')
+  const msgWrite = opts.msgWrite || (() => 'Server unreachable, the action did not go through')
+  const isReq = (x) => typeof Request !== 'undefined' && x instanceof Request
+  return async function resilientFetch(input, init) {
+    const method = String((init && init.method) || (isReq(input) ? input.method : '') || 'GET').toUpperCase()
+    const idempotent = method === 'GET' || method === 'HEAD'
+    const signal = (init && init.signal) || (isReq(input) ? input.signal : null) || null
+    for (let attempt = 0; ; attempt++) {
+      let res = null
+      let err = null
+      try { res = await rawFetch(input, init) } catch (e) { err = e }
+      if (err && (err.name === 'AbortError' || (signal && signal.aborted))) throw err
+      let down = !!err
+      if (!down && idempotent && (res.status === 502 || res.status === 503 || res.status === 504)) {
+        down = !(await probe())
+      }
+      if (!down) { onUp(); return res }
+      onDown()
+      if (!idempotent || attempt >= delays.length) {
+        onGiveUp(idempotent)
+        if (res) return res
+        const e = new Error(idempotent ? msgRead() : msgWrite())
+        e.cause = err
+        e.marveenNetwork = true
+        throw e
+      }
+      await sleep(delays[attempt])
+      if (signal && signal.aborted) throw (err || new DOMException('Aborted', 'AbortError'))
+    }
+  }
+}
+
+// #390: the one banner every page shares while Marveen is unreachable, plus
+// the probe that notices it is back. When a page's load had to give up during
+// the outage, the page reloads its own content on recovery -- the user never
+// has to press F5. The Settings page is left alone: re-running its loader
+// would throw away unsaved edits.
+const _netStatus = (() => {
+  let down = false
+  let pageFailed = false
+  let probeTimer = null
+  let backTimer = null
+  let rawFetch = null
+  function banner() {
+    let el = document.getElementById('netStatusBanner')
+    if (!el && document.body) {
+      el = document.createElement('div')
+      el.id = 'netStatusBanner'
+      el.className = 'net-status-banner'
+      el.setAttribute('role', 'status')
+      el.setAttribute('aria-live', 'polite')
+      el.hidden = true
+      document.body.appendChild(el)
+    }
+    return el
+  }
+  function show(key, cls) {
+    const el = banner()
+    if (!el) return
+    el.textContent = window.t ? window.t(key) : ''
+    el.classList.toggle('is-back', cls === 'is-back')
+    el.hidden = false
+  }
+  function scheduleProbe() {
+    if (probeTimer || !rawFetch) return
+    probeTimer = setTimeout(async () => {
+      probeTimer = null
+      if (!down) return
+      let ok = false
+      try { ok = (await rawFetch('/api/auth/status', { cache: 'no-store' })).ok } catch { ok = false }
+      if (ok) markUp()
+      else scheduleProbe()
+    }, 2000)
+  }
+  function markDown() {
+    if (backTimer) { clearTimeout(backTimer); backTimer = null }
+    if (!down) { down = true; show('net.restarting') }
+    scheduleProbe()
+  }
+  function markUp() {
+    if (!down) return
+    down = false
+    if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
+    show('net.back', 'is-back')
+    backTimer = setTimeout(() => { const el = banner(); if (el) el.hidden = true; backTimer = null }, 2500)
+    if (pageFailed) {
+      pageFailed = false
+      const active = document.querySelector('.sb-link.active[data-page]')?.dataset.page || location.hash.slice(1)
+      if (active && active !== 'settings' && typeof switchPage === 'function') {
+        try { switchPage(active) } catch (e) { console.warn('[net] page reload after reconnect failed', e) }
+      }
+    }
+  }
+  return {
+    attach(fetchFn) { rawFetch = fetchFn },
+    markDown,
+    markUp,
+    giveUp(idempotent) { if (idempotent) pageFailed = true },
+    isDown: () => down,
+  }
+})()
+
 (() => {
   const TOKEN_KEY = 'marveen-dashboard-token'
   const urlParams = new URLSearchParams(window.location.search)
@@ -232,6 +357,14 @@ function mainAgentId() {
   }
 
   const originalFetch = window.fetch.bind(window)
+  _netStatus.attach(originalFetch)
+  const apiFetch = createResilientFetch(originalFetch, {
+    onDown: _netStatus.markDown,
+    onUp: _netStatus.markUp,
+    onGiveUp: _netStatus.giveUp,
+    msgRead: () => window.t('net.unreachable'),
+    msgWrite: () => window.t('net.unreachable_action'),
+  })
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input))
     // Only attach the token to same-origin API calls. Relative paths always
@@ -254,7 +387,7 @@ function mainAgentId() {
       if (!lh.has('X-Ui-Lang')) lh.set('X-Ui-Lang', window._lang === 'en' ? 'en' : 'hu')
       init.headers = lh
     }
-    const res = await originalFetch(input, init)
+    const res = await (isSameOriginApi ? apiFetch : originalFetch)(input, init)
     if (res.status === 401 && isSameOriginApi) {
       // Token missing, wrong, or revoked. Wipe and prompt once per page load.
       // Keep a URL-provided session token so a transient 401 does not lock out
