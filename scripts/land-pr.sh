@@ -24,6 +24,8 @@
 #   scripts/land-pr.sh "PR cim" ["PR leiras"]
 #   scripts/land-pr.sh --branch <branch-nev> "PR cim" ["PR leiras"]
 #   scripts/land-pr.sh --no-merge "PR cim"     # csak PR-t nyit, nem merge-el
+#   (cd <worktree> && scripts/land-pr.sh "PR cim")   # alhejban: a merge utan a
+#       worktree torlodik (#384), igy a hivo shell nem marad torolt mappaban
 #
 # Kornyezeti valtozok (opcionalis):
 #   LAND_PR_CI_WAIT_MAX   -- meddig varjunk a CI-re, masodpercben (alap: 1500)
