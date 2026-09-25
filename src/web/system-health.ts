@@ -49,7 +49,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs'
 import { statfsSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { makeLazyBinResolver } from '../platform.js'
 import { join, dirname } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
@@ -383,12 +383,27 @@ export type NamedCred = 'be' | 'ki' | 'vak'
  *  nem inditja ujra a CLI-t fiokonkent masodszor is. */
 const utolsoCim = new Map<string, string | null>()
 
+function authStatusEnv(configDir: string): NodeJS.ProcessEnv {
+  return { ...process.env, NO_COLOR: '1', CLAUDE_CONFIG_DIR: configDir }
+}
+
+/** A `claude auth status --json` kimenetenek ertelmezese (a cimet is megjegyzi). */
+function parseAuthStatus(configDir: string, out: string): NamedCred {
+  if (!out.trim()) return 'vak'
+  try {
+    const o = JSON.parse(out) as Record<string, unknown>
+    if (!o || typeof o !== 'object') return 'vak'
+    utolsoCim.set(configDir, typeof o.email === 'string' && o.email.trim() ? o.email.trim() : null)
+    return o.loggedIn === true ? 'be' : 'ki'
+  } catch { return 'vak' }
+}
+
 export function namedLoginProbe(configDir: string): NamedCred {
   let out: string
   try {
     out = execFileSync(CLAUDE_BIN(), ['auth', 'status', '--json'], {
       timeout: 20_000, encoding: 'utf-8',
-      env: { ...process.env, NO_COLOR: '1', CLAUDE_CONFIG_DIR: configDir },
+      env: authStatusEnv(configDir),
       stdio: ['ignore', 'pipe', 'ignore'],
     })
   } catch (e) {
@@ -400,15 +415,74 @@ export function namedLoginProbe(configDir: string): NamedCred {
     const st = (e as { stdout?: string | Buffer })?.stdout
     if (st === undefined || st === null) return 'vak'
     out = typeof st === 'string' ? st : st.toString('utf-8')
-    if (!out.trim()) return 'vak'
   }
-  try {
-    const o = JSON.parse(out) as Record<string, unknown>
-    if (!o || typeof o !== 'object') return 'vak'
-    utolsoCim.set(configDir, typeof o.email === 'string' && o.email.trim() ? o.email.trim() : null)
-    return o.loggedIn === true ? 'be' : 'ki'
-  } catch { return 'vak' }
+  return parseAuthStatus(configDir, out)
 }
+
+/** Ugyanaz a proba, de a szervert nem allitja meg (aszinkron gyerekfolyamat). */
+export function namedLoginProbeAsync(configDir: string): Promise<NamedCred> {
+  return new Promise(resolve => {
+    try {
+      execFile(CLAUDE_BIN(), ['auth', 'status', '--json'], {
+        timeout: 20_000, encoding: 'utf-8', env: authStatusEnv(configDir),
+      }, (_err, stdout) => {
+        // Kijelentkezett fioknal exit 1, de a valasz a stdout-on van (lasd fent).
+        resolve(parseAuthStatus(configDir, typeof stdout === 'string' ? stdout : ''))
+      })
+    } catch { resolve('vak') }
+  })
+}
+
+// #390: az Attekintes minden betoltesekor lefuto onellenorzes fiokonkent
+// SZINKRON inditotta a `claude auth status`-t -- 2026-09-25-en merve 1,3-2,5
+// mp, amig a teljes dashboard allt (minden mas keres is erre vart). A proba
+// eredmenye ezert egy percig ervenyes; utana a regi valasz megy ki, a friss
+// pedig ASZINKRON a hatterben jon. Csak a legelso, meg semmit nem latott
+// konyvtar kerdez szinkron -- ezt az inditaskori elomelegites (prewarm) elore
+// kitolti, igy a gyakorlatban nem fordul elo.
+const LOGIN_PROBE_TTL_MS = 60_000
+const loginProbeCache = new Map<string, { st: NamedCred; at: number }>()
+const loginProbeInFlight = new Map<string, Promise<NamedCred>>()
+
+function refreshLoginProbe(configDir: string): Promise<NamedCred> {
+  const running = loginProbeInFlight.get(configDir)
+  if (running) return running
+  const p = namedLoginProbeAsync(configDir)
+    .then(st => { loginProbeCache.set(configDir, { st, at: Date.now() }); return st })
+    .finally(() => { loginProbeInFlight.delete(configDir) })
+  loginProbeInFlight.set(configDir, p)
+  return p
+}
+
+/** Gyorsitott proba: friss talalat -> azonnal; regi -> azonnal + hatterfrissites. */
+export function namedLoginProbeCached(configDir: string, now: number = Date.now()): NamedCred {
+  const hit = loginProbeCache.get(configDir)
+  if (hit) {
+    if (now - hit.at >= LOGIN_PROBE_TTL_MS) void refreshLoginProbe(configDir).catch(() => { /* a regi marad */ })
+    return hit.st
+  }
+  const st = namedLoginProbe(configDir)
+  loginProbeCache.set(configDir, { st, at: Date.now() })
+  return st
+}
+
+/** Inditaskor: minden ismert config-konyvtar probaja a hatterben. */
+export function prewarmLoginProbes(): Promise<unknown> {
+  const dirs = new Set<string>([join(homedir(), '.claude')])
+  const main = resolveMainAgentConfigDir()
+  if (main) dirs.add(main)
+  try {
+    if (existsSync(CLAUDE_PLANS_PATH)) {
+      for (const p of resolveClaudePlans(readFileSync(CLAUDE_PLANS_PATH, 'utf-8'), homedir())) {
+        try { if (statSync(p.configDir).isDirectory()) dirs.add(p.configDir) } catch { /* nincs mappa */ }
+      }
+    }
+  } catch { /* olvashatatlan lista: a sor maga majd jelzi */ }
+  return Promise.all([...dirs].map(d => refreshLoginProbe(d).catch(() => 'vak')))
+}
+
+/** Csak teszthez. */
+export function _resetLoginProbeCacheForTest(): void { loginProbeCache.clear(); loginProbeInFlight.clear() }
 
 /** Kit latott a legutobbi proba ebben a konyvtarban. `undefined` = nem tudom
  *  (nem futott proba, vagy nem lehetett elolvasni) -- ez NEM "nincs cim". */
@@ -419,7 +493,7 @@ export function namedLoginEmail(configDir: string): string | null | undefined {
 export function namedLoginRows(
   plansPath: string = CLAUDE_PLANS_PATH,
   ertelmez: (raw: string) => ClaudePlan[] = raw => resolveClaudePlans(raw, homedir()),
-  proba: (configDir: string) => NamedCred = namedLoginProbe,
+  proba: (configDir: string) => NamedCred = namedLoginProbeCached,
   // A cim ugyanabbol a valaszbol jon, amibol a be/ki/vak allapot: nincs masodik
   // CLI-hivas fiokonkent. Tesztbol injektalhato.
   cimOlvaso: (configDir: string) => string | null | undefined = namedLoginEmail,
@@ -544,7 +618,7 @@ export function namedLoginRows(
  */
 export function mainAccountRows(
   mainConfigDir: string = join(homedir(), '.claude'),
-  proba: (configDir: string) => NamedCred = namedLoginProbe,
+  proba: (configDir: string) => NamedCred = namedLoginProbeCached,
   cimOlvaso: (configDir: string) => string | null | undefined = namedLoginEmail,
   olvasRogzitett: () => string | null = readMainExpectedEmail,
 ): HealthRow[] {

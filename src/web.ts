@@ -79,6 +79,7 @@ import { tryHandleMarveen } from './web/routes/marveen.js'
 import { tryHandleRecall } from './web/routes/recall.js'
 import { tryHandleBackgroundTasks, sweepOrphanedBackgroundTasks } from './web/routes/background-tasks.js'
 import { tryHandleOverview, prewarmOverviewCounts } from './web/routes/overview.js'
+import { prewarmLoginProbes } from './web/system-health.js'
 import { tryHandleAccounts } from './web/routes/accounts.js'
 import { tryHandleConnections } from './web/routes/connections.js'
 import { tryHandleDriveBrowser } from './web/routes/drive-browser.js'
@@ -659,6 +660,7 @@ export function startWebServer(port = 3420): http.Server {
     refreshAccountsInBackground().catch((err) => logger.warn({ err }, '[accounts] elomelegites sikertelen'))
     machineIdentityAsync().catch((err) => logger.warn({ err }, '[accounts] gep-azonossag elomelegites sikertelen'))
     prewarmOverviewCounts().catch((err) => logger.warn({ err }, '[overview] elomelegites sikertelen'))
+    prewarmLoginProbes().catch((err) => logger.warn({ err }, '[health] bejelentkezes-proba elomelegites sikertelen'))
   }, 6_000)
   if (typeof accountsPrewarm.unref === 'function') accountsPrewarm.unref()
 
