@@ -18,6 +18,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
+import { startDashboardBackup } from './backup/dashboard.js'
 import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
@@ -643,6 +644,9 @@ export function startWebServer(port = 3420): http.Server {
   kukaSepres()
   const kukaSepresInterval = setInterval(kukaSepres, 24 * 60 * 60 * 1000)
 
+  // #396: the daily full backup (Settings -> Backup sets the time).
+  const stopBackupScheduler = startDashboardBackup()
+
   // "De menet kozben is ha egy olyan altalanos skill jon letre azt is mind be
   // kell egetni!" (Boss, 2026-08-30) -- a letrehozas pillanataban valo beegetes
   // csak azt fogja meg, amit Marveen ir. Egy agens kozvetlenul is tehet fajlt a
@@ -978,6 +982,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(verificationSweepInterval)
     clearInterval(authSessionSweepInterval)
     clearInterval(kukaSepresInterval)
+    stopBackupScheduler()
     clearInterval(skillSeederInterval)
     clearInterval(updateCheckerInterval)
     if (federationPollerInterval) clearInterval(federationPollerInterval)

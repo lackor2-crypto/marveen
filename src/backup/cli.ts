@@ -1,7 +1,7 @@
 /**
  * Terminal / systemd entry point of the full backup (#396).
  *
- *   node dist/backup/cli.js create [--kind scheduled|manual] [--include-logs]
+ *   node dist/backup/cli.js create [--kind scheduled|manual]
  *   node dist/backup/cli.js verify <file> [--key <recovery key>]
  *   node dist/backup/cli.js list
  *
@@ -27,13 +27,19 @@ export async function main(argv: string[]): Promise<number> {
   if (cmd === 'create') {
     const kind = (arg(argv, '--kind') ?? 'manual') as BackupKind
     if (!['scheduled', 'manual', 'pre-restore'].includes(kind)) { console.error('backup: unknown --kind'); return 2 }
-    const r = await runBackup({ kind, includeLogs: argv.includes('--include-logs') })
+    const r = await runBackup({ kind })
+    if (r.skipped) { console.log('backup: skipped (a backup succeeded less than an hour ago)'); return 0 }
     for (const w of r.warnings) console.error(`backup: warning: ${w}`)
     if (!r.ok) {
       console.error(`backup: FAILED (${r.error})${r.detail ? `: ${r.detail}` : ''}`)
       return r.error === 'locked' || r.error === 'restore_in_progress' ? 75 : 1
     }
     console.log(`backup: wrote ${r.file} (${r.size} bytes, ${r.durationMs} ms)`)
+    for (const x of r.replicas ?? []) {
+      if (x.dest === 'local') continue
+      console.log(`backup: copy to ${x.dest}: ${x.ok ? 'ok' : `NOT DONE (${x.reason}${x.detail ? `: ${x.detail}` : ''})`}`)
+    }
+    for (const [dest, names] of Object.entries(r.pruned ?? {})) console.log(`backup: pruned ${names?.length} old backup(s) from ${dest}`)
     return 0
   }
   if (cmd === 'list') {
@@ -75,7 +81,7 @@ export async function main(argv: string[]): Promise<number> {
       rmSync(dir, { recursive: true, force: true })
     }
   }
-  console.error('usage: cli.js create [--kind scheduled|manual] [--include-logs] | verify <file> [--key K] | list')
+  console.error('usage: cli.js create [--kind scheduled|manual] | verify <file> [--key K] | list')
   return 2
 }
 

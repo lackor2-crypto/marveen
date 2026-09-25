@@ -1,15 +1,17 @@
 /**
  * The real-install entry points of the full backup (#396): resolve the live
- * paths, the agents and the stored recovery key, and call the engine. The
- * engine modules themselves take everything as arguments so tests run on temp
- * roots.
+ * paths, the agents, the destinations and the stored recovery key, and call the
+ * engine. The engine modules themselves take everything as arguments so tests
+ * run on temp roots.
  */
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
-import { createBackup, BACKUP_NAME_RE, type BackupResult, type BackupStage } from './create.js'
+import { BACKUP_NAME_RE, type BackupStage } from './create.js'
 import { defaultInventoryContext } from './inventory.js'
 import { getOrCreateKey } from './key-store.js'
+import { realDeps } from './destinations.js'
+import { runFullBackup, type RunResult } from './pipeline.js'
 import type { BackupKind } from './crypto.js'
 
 export async function storeDir(): Promise<string> {
@@ -20,10 +22,11 @@ export function localBackupDir(store: string): string {
   return join(store, 'backups')
 }
 
-export async function runBackup(opts: { kind: BackupKind; includeLogs?: boolean; db?: Database.Database | null; onStage?: (s: BackupStage) => void }): Promise<BackupResult> {
+export async function runBackup(opts: { kind: BackupKind; db?: Database.Database | null; onStage?: (s: BackupStage) => void }): Promise<RunResult> {
   const ctx = await defaultInventoryContext()
   const key = getOrCreateKey(ctx.storeDir)
-  return createBackup({ kind: opts.kind, includeLogs: opts.includeLogs, ctx, recoveryKey: key.key, db: opts.db ?? null, onStage: opts.onStage })
+  const deps = await realDeps(ctx.storeDir)
+  return runFullBackup({ kind: opts.kind, ctx, recoveryKey: key.key, deps, db: opts.db ?? null, onStage: opts.onStage })
 }
 
 export interface LocalBackupEntry { name: string; file: string; size: number; mtimeMs: number }

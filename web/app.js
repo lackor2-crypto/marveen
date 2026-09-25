@@ -21072,8 +21072,9 @@ async function renderOverviewConnections() {
   // A mentes akkor is kap sort, ha rendben van: eppen az volt a baj, hogy
   // hetekig sikeresen futott, csak nem azt mentette, amit kellett volna --
   // egy nema "rendben" ott semmit nem arult volna el.
-  const bok = health.find(h => h.id === 'backup_ok')
-  if (bok) greenRows.push({ label: t('health.backup_ok', bok.params || {}), desc: t('health.backup_ok_action') })
+  // #396: a teljes mentes zold sorai (hany helyen van meg / friss telepites).
+  const bok = health.find(h => h.id === 'backup_ok' || h.id === 'backup_ok_copies' || h.id === 'backup_none_yet')
+  if (bok) greenRows.push({ label: t('health.' + bok.id, bok.params || {}), desc: t('health.' + bok.id + '_action', bok.params || {}) })
   // Ugyanez all az upstream-meresre: eppen az volt a baj, hogy a szam
   // magabiztosan ott allt, kozben senki nem merte. A zold sor kimondja, hogy
   // MOST merte valaki, es mikor.

@@ -80,7 +80,12 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
-import { depotRoot } from '../depot.js'
+import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
+import { getDb } from '../db.js'
+import { backupHealthRow } from '../backup/health.js'
+import { readState as readBackupState, stateExists } from '../backup/state.js'
+import { readConfig as readBackupConfig, resolveDestinations } from '../backup/destinations.js'
+import { readKeyFile } from '../backup/key-store.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
@@ -208,15 +213,40 @@ function newestFullBackup(dir: string): { path: string; mtime: number } | null {
   return best
 }
 
+/** DB has no cards and no memories: a fresh install with nothing to protect yet. */
+function dbLooksFresh(): boolean {
+  try {
+    const db = getDb()
+    const n = (t: string) => (db.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n
+    return n('kanban_cards') === 0 && n('memories') === 0
+  } catch { return false }
+}
+
 function backupRows(now: number): HealthRow[] {
   const full = newestFullBackup(join(STORE_DIR, 'backups'))
   const legacy = newestArchive(backupsDir())
-  if (full && (!legacy || full.mtime >= legacy.mtime)) {
-    const age = now - full.mtime
-    const hours = Math.floor(age / (60 * 60 * 1000))
-    if (age >= BACKUP_DEAD_MS) return [{ id: 'backup_stale', status: 'bad', params: { h: hours } }]
-    if (age >= BACKUP_STALE_MS) return [{ id: 'backup_stale', status: 'warn', params: { h: hours } }]
-    return [{ id: 'backup_ok', status: 'ok', params: { h: hours } }]
+  // #396: the encrypted full backup and its state file decide, as soon as
+  // either exists -- or on an install that never had the old archive at all.
+  // The legacy tar check only stays until the first new-format backup (plan §10.17).
+  if (full || stateExists(STORE_DIR) || !legacy) {
+    const cfg = readBackupConfig(STORE_DIR)
+    let kitConfirmed: boolean | null = null
+    try { const k = readKeyFile(STORE_DIR); kitConfirmed = k ? k.current.confirmedAt != null : null } catch { kitConfirmed = false }
+    const root = depotRoot()
+    return [backupHealthRow({
+      now,
+      state: readBackupState(STORE_DIR),
+      stateExists: stateExists(STORE_DIR),
+      newestLocalMs: full?.mtime ?? null,
+      destinations: resolveDestinations(cfg, {
+        storeDir: STORE_DIR,
+        depotRoot: () => root,
+        depotBackupDir: () => (root ? join(root, DEPOT_BACKUPS) : null),
+      }),
+      kitConfirmed,
+      freshInstall: dbLooksFresh(),
+      scheduleTime: cfg.schedule.time,
+    })]
   }
   const newest = legacy
   if (!newest) {
