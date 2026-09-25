@@ -17055,6 +17055,11 @@ function renderTeamGraph(container, data, opts = {}) {
     else if (node.role === 'leader') div.classList.add('leader')
     const roleLabel = node.role === 'main' ? t('team.role.main') : (node.role === 'leader' ? t('team.role.leader') : t('team.role.member'))
     const running = node.running ? t('team.running') : t('team.stopped')
+    // #394: a leallt agens halvanyan all az org charton is, mint az Agensek
+    // racsban -- de a helyen marad (a fa hierarchia, nem rendezzuk at). Csak a
+    // KIMONDOTT `running: false` halvanyit: ha egy regebbi szerver nem kuldi a
+    // mezot, a csomopont teljes erovel latszik, nem "leallt"-kent.
+    div.classList.toggle('is-stopped', node.running === false)
     const avatarUrl = node.id === mainAgentId
       ? `/api/marveen/avatar${avatarBust()}`
       : `/api/agents/${encodeURIComponent(node.id)}/avatar${avatarBust()}`

@@ -2314,10 +2314,16 @@ main.email-active .page-header { flex-shrink: 0; }
 /* #394 (Boss TG 6411): a stopped agent's card is a little greyed out and sits
    at the end of its tier. Hover / keyboard focus brings it back to full
    strength, so it stays readable; the buttons keep working. Opacity + grayscale
-   work the same on the light and the dark theme. */
-.agent-card.is-stopped { opacity: .55; filter: grayscale(.6); transition: opacity .15s, filter .15s; }
+   work the same on the light and the dark theme. The org chart (Boss TG 6426)
+   uses the same rule; there the node keeps its place in the hierarchy. No
+   `transition` here: it would replace each element's own (border, transform). */
+.agent-card.is-stopped,
+.team-node.is-stopped { opacity: .55; filter: grayscale(.6); }
 .agent-card.is-stopped:hover,
-.agent-card.is-stopped:focus-within { opacity: 1; filter: none; }
+.agent-card.is-stopped:focus-within,
+.team-node.is-stopped:hover,
+.team-node.is-stopped:focus-within { opacity: 1; filter: none; }
+.team-node.is-stopped.team-dragging { opacity: .45; }
 /* $/1M-token badge on a paid agent's grid card (Boss 2026-08-08: "melyik
    mennyit eszik"). Only ever rendered for a known Claude-tier price -- see
    knownModelCostPerM() -- never a guessed OpenRouter number. */
