@@ -4685,6 +4685,16 @@ window._i18n.en = {
 
   // --- Git repositories (Depot) ---
   'nav.gitrepos':                   'Git repositories',
+  'nav.megadepot': "MEGA",
+  'megadepot.page_title': "MEGA",
+  'megadepot.page_subtitle': "Your connected MEGA accounts, how much space they have, and their folder in the Explorer",
+  'megadepot.manage': "Manage accounts",
+  'megadepot.load_failed': "I could not fetch the MEGA accounts, so I cannot see them. The error: {err}",
+  'megadepot.empty_no_rclone': "No MEGA account is connected yet, and the rclone program it needs is missing too. \"Manage accounts\" takes you to the Accounts page: install it there with one button, then add your MEGA account. Extra feature: everything works without it.",
+  'megadepot.empty_no_accounts': "No MEGA account is connected yet. \"Manage accounts\" takes you to the Accounts page, where the MEGA button adds one. Extra feature: everything works without it.",
+  'megadepot.used': "Used: {used} / {total} — free: {free}",
+  'megadepot.open': "Open in the Explorer",
+  'megadepot.no_folder': "The account folder is not in the Depot yet (it is created on the next refresh).",
   'gitrepos.page_title':            'Git repositories',
   'gitrepos.page_subtitle':         'The synced git repositories and when they were last refreshed',
   'gitrepos.sync_now':              'Sync now',
