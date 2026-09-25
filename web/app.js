@@ -34267,7 +34267,13 @@ async function _depoPost(url, body) {
   const data = await res.json().catch(() => ({}))
   // The human sentence first: `error` is a machine code (`bad_config`) the
   // user cannot act on.
-  if (!res.ok) throw new Error(data.message || data.error || ('hiba: ' + res.status))
+  if (!res.ok) {
+    const err = new Error(data.message || data.error || ('hiba: ' + res.status))
+    // A hivo a valasz tobbi mezojet is latja (pl. 409 `name_exists` + `suggested`, #383).
+    err.status = res.status
+    err.data = data
+    throw err
+  }
   return data
 }
 
@@ -38350,9 +38356,22 @@ async function _intezoPaste(targetRel) {
   if (!clip) { showToast(t('intezo.clip_empty')); return }
   const target = String(targetRel || '')
   const cut = clip.mode === 'cut'
+  const url = cut ? '/api/life/move' : '/api/life/copy'
   try {
-    const r = await _depoPost(cut ? '/api/life/move' : '/api/life/copy', { from: clip.rel, to: target })
-    showToast(r.message || t('intezo.done'))
+    let r
+    try {
+      r = await _depoPost(url, { from: clip.rel, to: target })
+    } catch (e) {
+      // Foglalt nev (#383, Boss TG 6343: "szo nelkul beillesztette ... nem szol"):
+      // KERDEZUNK. Felulirast nem kinalunk; a `(2)` csak kifejezett valaszra jon.
+      if (!(e && e.status === 409 && e.data && e.data.code === 'name_exists' && e.data.suggested)) throw e
+      const keep = await _intezoAskNameClash(e.data)
+      if (!keep) { _intezoRenderClip(); return }
+      r = await _depoPost(url, { from: clip.rel, to: target, keepBoth: true })
+    }
+    // A vegso nevet mondjuk ki -- ha `(2)` lett belole, azt is lassa.
+    const finalName = r && r.rel ? String(r.rel).split('/').pop() : ''
+    showToast(finalName ? t('intezo.clip_pasted', { name: finalName }) : (r.message || t('intezo.done')))
     if (cut && r.ok) _intezoClip = null
     // A kijelolt elem a regi helyen mar nem letezik -- ne mutassunk halott adatlapot.
     if (cut && r.ok && _intezoSelected && _intezoSelected.rel === clip.rel) _intezoClearSelection()
@@ -38361,6 +38380,52 @@ async function _intezoPaste(targetRel) {
     showToast((e && e.message) ? e.message : t(cut ? 'intezo.move_failed' : 'intezo.copy_failed'))
   }
   _intezoRenderClip()
+}
+
+/**
+ * Nevutkozes-kerdes beilleszteskor (#383). Ket valasz van: mindketto
+ * megtartasa (a gombon az UJ nev all, hogy lassa, mi lesz) vagy megse.
+ * Felulirast szandekosan nem kinal. Esc / hatterre kattintas = megse.
+ */
+function _intezoAskNameClash(info) {
+  return new Promise(resolve => {
+    const name = String(info.conflictName || '')
+    const kind = t(info.conflictIsDir ? 'intezo.clip_exists_folder' : 'intezo.clip_exists_file')
+    const ov = document.createElement('div')
+    ov.className = 'modal-overlay active'
+    ov.innerHTML = `
+      <div class="modal" style="max-width:440px" role="dialog" aria-modal="true">
+        <div class="modal-header"><h2>${escapeHtml(t('intezo.clip_exists_title'))}</h2></div>
+        <div class="modal-body">
+          <p style="margin:0 0 8px">${escapeHtml(t('intezo.clip_exists_body', { name, kind }))}</p>
+          <p style="margin:0;color:var(--text-muted)">${escapeHtml(t('intezo.clip_exists_hint'))}</p>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button type="button" class="btn-secondary" data-act="cancel">${escapeHtml(t('intezo.cancel'))}</button>
+          <button type="button" class="btn-primary" data-act="keep" style="white-space:normal;text-align:left">${escapeHtml(t('intezo.clip_keep_both', { name: String(info.suggested) }))}</button>
+        </div>
+      </div>`
+    let done = false
+    const finish = v => {
+      if (done) return
+      done = true
+      document.removeEventListener('keydown', onKey, true)
+      ov.remove()
+      resolve(v)
+    }
+    const onKey = ev => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false) }
+    }
+    ov.addEventListener('click', ev => {
+      const act = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null
+      if (act) finish(act.getAttribute('data-act') === 'keep')
+      else if (ev.target === ov) finish(false)
+    })
+    document.addEventListener('keydown', onKey, true)
+    document.body.appendChild(ov)
+    const keepBtn = ov.querySelector('[data-act="keep"]')
+    if (keepBtn) keepBtn.focus()
+  })
 }
 
 async function _intezoConfirmPick(mode, target) {
