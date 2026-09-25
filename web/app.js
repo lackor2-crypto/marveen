@@ -21009,6 +21009,8 @@ async function renderOverviewConnections() {
               // 2026-09-17). A hitelesitesi-hiba sora VISZONT a Fiokok oldalra
               // visz, ott kell ujra bejelentkezni ("miert nem visz a fiokok
               // oldalra ahol meg kel tennem a bejelentkezest").
+              : h.id.startsWith('backup_')
+                ? 'openBackupSettings()'
               : h.id === 'drive_sync_backup_brake'
                 ? "switchPage('drive')"
                 // A megtelt Drive NEM bejelentkezesi hiba: a teendo a helyfelszabaditas,
@@ -25463,7 +25465,7 @@ window.addEventListener('beforeunload', (e) => {
 // entry never requires a frontend change just to render a sane heading.
 function settingsModuleLabel(mod) {
   const key = `settings.module.${mod}`
-  const known = { kanban: true, system: true, heartbeat: true, audit: true, ideabox: true, channels: true, security: true, autonomy: true, debate: true, windows: true, wizard: true }
+  const known = { kanban: true, system: true, heartbeat: true, audit: true, ideabox: true, channels: true, security: true, autonomy: true, debate: true, windows: true, wizard: true, backup: true }
   return known[mod] ? t(key) : (mod.charAt(0).toUpperCase() + mod.slice(1))
 }
 
@@ -26007,7 +26009,7 @@ async function loadSettings() {
     const securityDefs = byModule.get('security') ?? []
     byModule.delete('security')
 
-    const allModules = [...byModule.keys(), 'security', 'autonomy', 'windows', 'wizard']
+    const allModules = [...byModule.keys(), 'security', 'backup', 'autonomy', 'windows', 'wizard']
     const savedTab = localStorage.getItem(SETTINGS_ACTIVE_TAB_KEY) || allModules[0]
     const activeTab = allModules.includes(savedTab) ? savedTab : allModules[0]
 
@@ -26066,6 +26068,26 @@ async function loadSettings() {
         panel.appendChild(group)
       }
       tabPanels.appendChild(panel)
+    }
+
+    // #396: Backup tab (synthetic). The whole panel lives in web/backup.js.
+    {
+      const mod = 'backup'
+      const btn = document.createElement('button')
+      btn.className = 'tab-btn' + (mod === activeTab ? ' active' : '')
+      btn.dataset.tab = mod
+      btn.textContent = settingsModuleLabel(mod)
+      btn.addEventListener('click', () => activateSettingsTab(mod))
+      tabNav.appendChild(btn)
+      const panel = document.createElement('div')
+      panel.className = 'tab-panel'
+      panel.id = `settings-panel-${mod}`
+      panel.hidden = mod !== activeTab
+      const body = document.createElement('div')
+      body.id = 'backupPanel'
+      panel.appendChild(body)
+      tabPanels.appendChild(panel)
+      if (mod === activeTab && typeof window.renderBackupPanel === 'function') window.renderBackupPanel(body)
     }
 
     // Autonomy tab
@@ -26418,6 +26440,16 @@ function activateSettingsTab(mod) {
     if (body && !body.innerHTML.trim()) renderSetupWizardPanel(body)
   }
 
+  if (mod === 'backup') {
+    const body = document.getElementById('backupPanel')
+    if (body && typeof window.renderBackupPanel === 'function') window.renderBackupPanel(body)
+  }
+}
+
+// #396: every backup line of the Overview self-check opens Settings -> Backup.
+function openBackupSettings() {
+  localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, 'backup')
+  switchPage('settings')
 }
 
 // === Setup wizard panel ===

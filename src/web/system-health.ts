@@ -82,10 +82,9 @@ import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
 import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
 import { getDb } from '../db.js'
-import { backupHealthRow } from '../backup/health.js'
-import { readState as readBackupState, stateExists } from '../backup/state.js'
+import { computeBackupHealth } from '../backup/health.js'
+import { stateExists } from '../backup/state.js'
 import { readConfig as readBackupConfig, resolveDestinations } from '../backup/destinations.js'
-import { readKeyFile } from '../backup/key-store.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
@@ -214,7 +213,7 @@ function newestFullBackup(dir: string): { path: string; mtime: number } | null {
 }
 
 /** DB has no cards and no memories: a fresh install with nothing to protect yet. */
-function dbLooksFresh(): boolean {
+export function dbLooksFresh(): boolean {
   try {
     const db = getDb()
     const n = (t: string) => (db.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n
@@ -229,23 +228,17 @@ function backupRows(now: number): HealthRow[] {
   // either exists -- or on an install that never had the old archive at all.
   // The legacy tar check only stays until the first new-format backup (plan §10.17).
   if (full || stateExists(STORE_DIR) || !legacy) {
-    const cfg = readBackupConfig(STORE_DIR)
-    let kitConfirmed: boolean | null = null
-    try { const k = readKeyFile(STORE_DIR); kitConfirmed = k ? k.current.confirmedAt != null : null } catch { kitConfirmed = false }
     const root = depotRoot()
-    return [backupHealthRow({
-      now,
-      state: readBackupState(STORE_DIR),
-      stateExists: stateExists(STORE_DIR),
-      newestLocalMs: full?.mtime ?? null,
-      destinations: resolveDestinations(cfg, {
+    return [computeBackupHealth({
+      storeDir: STORE_DIR,
+      destinations: resolveDestinations(readBackupConfig(STORE_DIR), {
         storeDir: STORE_DIR,
         depotRoot: () => root,
         depotBackupDir: () => (root ? join(root, DEPOT_BACKUPS) : null),
       }),
-      kitConfirmed,
+      newestLocalMs: full?.mtime ?? null,
       freshInstall: dbLooksFresh(),
-      scheduleTime: cfg.schedule.time,
+      now,
     })]
   }
   const newest = legacy
