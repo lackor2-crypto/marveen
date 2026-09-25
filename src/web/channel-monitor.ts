@@ -12,6 +12,8 @@ import {
   agentSessionName,
   capturePane,
   captureParkedInputView,
+  observedParkedInputView,
+  invalidateObservedPanes,
   clearInputBuffer,
   dismissResumeSummaryModalIfPresent,
   dismissModelConsentDialogIfPresent,
@@ -310,9 +312,16 @@ export async function recoverStuckInputForSession(
   // Ghost-stripped capture: a dim autocomplete hint in an empty box must NOT
   // read as parked input, or the recovery below would re-type + submit it
   // (phantom prompt-injection). See captureParkedInputView / stripGhostSuggestion.
+  //
+  // Detection reads the watcher sweep's picture (#390, up to OBSERVE_TTL_MS
+  // old). Anything that then types into the pane is decided again on a FRESH
+  // capture, so a clear/re-inject/Enter never acts on an older picture.
+  const seen = observedParkedInputView(session)
+  let decision = decideStuckInputRecovery(seen != null ? stuckInputSignature(seen) : null, prev, Date.now(), thresholds)
+  if (!decision.recover) return decision.next
   const pane = captureParkedInputView(session)
   const sig = pane != null ? stuckInputSignature(pane) : null
-  const decision = decideStuckInputRecovery(sig, prev, Date.now(), thresholds)
+  decision = decideStuckInputRecovery(sig, prev, Date.now(), thresholds)
   if (decision.recover && pane != null) {
     const attempt = decision.next.attempts
     const block = parkedChannelInput(pane)
@@ -401,6 +410,8 @@ async function performStuckInputAction(
     logger.warn({ err, session, action }, 'Stuck-input recovery action failed')
     return
   }
+  // Something was typed (or cleared): the next detection must not reuse the picture from before.
+  invalidateObservedPanes(session)
   if (submitted) {
     // submitLanded() handles a null capture internally (-> not landed). prevSig
     // is non-null here in practice (recover only fires on a parked signature),

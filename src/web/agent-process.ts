@@ -25,6 +25,7 @@ import { provisionMemoryBoundaryDir } from './memory-boundary.js'
 import { renameSharedCredentialsIfSafe } from './claude-credentials-guard.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { SessionListCache } from './tmux-session-cache.js'
+import { makeBatchedCapture } from './tmux-batch-capture.js'
 import {
   buildTmuxInvocation,
   buildSshExec,
@@ -959,6 +960,8 @@ export function agentSessionName(name: string): string {
 // default timeout because an ssh round-trip (handshake + remote exec) is slower
 // than a local fork; ServerAlive/ConnectTimeout in SSH_OPTS bound a dead host.
 function runTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: number } = {}): void {
+  // Whatever this sends may change a pane: no detection may reuse an older picture.
+  if (!host) invalidateObservedPanes()
   // Ensure the private ControlMaster socket dir exists before ANY remote ssh
   // call (idempotent, ~free). Without this a watcher-first remote call after a
   // marveen restart would lose connection multiplexing and re-handshake each tick.
@@ -2252,16 +2255,76 @@ export function sendEnterToSession(session: string, host: string | null = null):
   }
 }
 
+function runLocalTmuxAsync(args: string[], maxBuffer = 1024 * 1024): Promise<{ ok: boolean; out: string }> {
+  const inv = buildTmuxInvocation(null, tmuxBin(), args)
+  return new Promise((resolve) => {
+    execFile(inv.file, inv.args, { timeout: 3000, encoding: 'utf-8', maxBuffer }, (err, stdout) => {
+      resolve({ ok: !err, out: String(stdout ?? '') })
+    })
+  })
+}
+
+function capturePaneAsyncSingle(session: string): Promise<string | null> {
+  return runLocalTmuxAsync(['capture-pane', '-t', session, '-p']).then((r) => (r.ok ? r.out : null))
+}
+
+// Captures asked for in the same event-loop turn share ONE tmux process (#390):
+// even an async spawn blocks the loop for the fork, and the 3 s activity poll
+// asked for one per running agent. Each answer is still taken when asked.
+const batchedCapture = makeBatchedCapture((args) => runLocalTmuxAsync(args, 16 * 1024 * 1024), capturePaneAsyncSingle)
+
+// -- Observation view (#390) ------------------------------------------------
+// The stuck-input watchers read every local pane's ghost-stripped view on each
+// sweep, twice per session (parked-paste check, then the typing check), each a
+// synchronous fork. A sweep now fetches all of them in ONE async tmux call and
+// the checks read that picture. It is for DETECTION only: a picture may be up
+// to OBSERVE_TTL_MS old, so every path that then writes into the pane (Enter,
+// clear, re-inject) re-captures fresh first and acts only on that -- never on
+// the observed picture (lackor2-bot's condition, msg 4445).
+export const OBSERVE_TTL_MS = 2500
+const observedParked = new Map<string, { pane: string | null; at: number }>()
+
+const batchedParkedCapture = makeBatchedCapture(
+  (args) => runLocalTmuxAsync(args, 16 * 1024 * 1024),
+  (session) => runLocalTmuxAsync(['capture-pane', '-t', session, '-e', '-p']).then((r) => (r.ok ? r.out : null)),
+  ['-e', '-p'],
+)
+
+/** Fetch the ghost-stripped views of these LOCAL sessions in one tmux call. */
+export async function prefetchParkedInputViews(sessions: string[]): Promise<void> {
+  const views = await Promise.all(sessions.map((s) => batchedParkedCapture(s)))
+  const at = Date.now()
+  sessions.forEach((s, i) => {
+    const raw = views[i]
+    observedParked.set(s, { pane: raw == null ? null : stripGhostSuggestion(raw), at })
+  })
+}
+
+/**
+ * The ghost-stripped view for DETECTION: the sweep's picture when younger than
+ * OBSERVE_TTL_MS, else a capture now. Remote sessions always capture now.
+ * Never act on this -- act on a fresh captureParkedInputView().
+ */
+export function observedParkedInputView(session: string, host: string | null = null): string | null {
+  if (host) return captureParkedInputView(session, host)
+  const hit = observedParked.get(session)
+  if (hit && Date.now() - hit.at < OBSERVE_TTL_MS) return hit.pane
+  const pane = captureParkedInputView(session)
+  observedParked.set(session, { pane, at: Date.now() })
+  return pane
+}
+
+/** Forget the observed pictures -- after anything was typed into a pane. */
+export function invalidateObservedPanes(session?: string): void {
+  if (session) observedParked.delete(session)
+  else observedParked.clear()
+}
+
 // Local-only, non-blocking twin of capturePane: same output, but the fork runs
 // off the event loop, so a polled endpoint can refresh a pane without the server
 // going deaf for the duration. Null on any error, exactly like capturePane.
 export function capturePaneAsync(session: string): Promise<string | null> {
-  const inv = buildTmuxInvocation(null, tmuxBin(), ['capture-pane', '-t', session, '-p'])
-  return new Promise((resolve) => {
-    execFile(inv.file, inv.args, { timeout: 3000, encoding: 'utf-8' }, (err, stdout) => {
-      resolve(err ? null : stdout)
-    })
-  })
+  return batchedCapture(session)
 }
 
 // Capture a pane snapshot with an execSync timeout. Null on any error so
