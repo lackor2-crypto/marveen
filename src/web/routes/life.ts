@@ -63,6 +63,7 @@ import { join as pathJoin, extname as pathExtname, basename as pathBasename } fr
 import { existsSync, statSync, createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
+import { listLifeOffThread, clearOffThreadListings } from '../../life-list-offthread.js'
 import {
   listLife, listLifeCached, lifeInfo, moveLife, copyLife, pasteLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
   clearContentCache,
@@ -142,7 +143,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   // a bejaratnal: igy egy kesobb hozzaadott iro vegpont sem felejtheti el, es
   // a felulet nem mutathat a MUVELET ELOTTI darabszamot. Olvasasra nem nyulunk
   // hozza -- ott eppen a gyorsitotar a lenyeg.
-  if (method !== 'GET' && method !== 'HEAD') clearContentCache()
+  if (method !== 'GET' && method !== 'HEAD') clearOffThreadListings()
 
   // Depo nelkul egyetlen vegpontnak sincs ertelme -- es ez nem hiba, hanem egy
   // meg el nem vegzett beallitas. Ezert mondjuk meg, HOVA menjen erte.
@@ -309,11 +310,23 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // #387: `content=0` -> csak nevek es tipusok, meres nelkul (a felulet
     // ezzel rajzol azonnal, amig a teljes lista megjon). `fresh=1` -> a
     // Frissites gomb: gyorsitotar nelkul.
-    if (url.searchParams.get('content') === '0') {
-      send(res, 200, listLife(rel, { deep: false, content: false, lang: uiLang(url) }))
-      return true
+    // A listazas KULON SZALON fut (life-list-offthread.ts): egy lassu meghajto
+    // igy csak ezt a valaszt kesleltetheti, nem az egesz dashboardot.
+    try {
+      const listing = url.searchParams.get('content') === '0'
+        ? await listLifeOffThread(rel, { content: false, lang: uiLang(url) })
+        : await listLifeOffThread(rel, { deep, lang: uiLang(url), fresh: url.searchParams.get('fresh') === '1' })
+      send(res, 200, listing)
+    } catch (e) {
+      const en = uiLang(url) === 'en'
+      send(res, 503, {
+        error: 'list_timeout',
+        message: en
+          ? 'The drive is very slow right now, the folder did not load. Try again in a moment.'
+          : 'A meghajtó most nagyon lassú, a mappa nem töltődött be. Próbáld újra egy pillanat múlva.',
+        detail: String((e as Error)?.message || e),
+      })
     }
-    send(res, 200, listLifeCached(rel, { deep, lang: uiLang(url), fresh: url.searchParams.get('fresh') === '1' }))
     return true
   }
 
