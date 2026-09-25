@@ -2264,3 +2264,18 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
 
   return false
 }
+
+/**
+ * The few Drive calls the full backup (#396, src/backup/destinations.ts) needs
+ * to keep its off-site copy in one Drive folder. Re-exported as one object so
+ * the backup reuses these uploaders instead of growing a second Drive client.
+ */
+export const backupDriveApi = {
+  token: (account: string) => tokenSzolgaltato(account),
+  ensureFolder: ensureDriveFolderByName,
+  listFolder,
+  uploadNewFile,
+  trashFile: trashDriveFile,
+  downloadFile: (id: string, dest: string, token: TokenForras) =>
+    downloadTo(`${DRIVE_FILES_URL}/${encodeURIComponent(id)}?alt=media`, token, dest),
+}
