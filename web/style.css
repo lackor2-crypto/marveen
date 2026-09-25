@@ -12889,3 +12889,10 @@ span.intezo-tree-tw { cursor: default; }
   .bk-row-actions { justify-content: flex-start; width: 100%; }
   .bk-row-actions .btn-primary, .bk-row-actions .btn-secondary { flex: 1 1 auto; min-height: 40px; }
 }
+/* #396 fresh-install question + restore flow */
+.bk-wizard { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 24px 12px; }
+.bk-wizard-card { background: var(--bg-card); color: var(--text); border-radius: var(--radius); max-width: 720px; width: 100%; padding: 20px; box-sizing: border-box; }
+.bk-wizard-card h2 { margin: 0 0 10px; font-size: 20px; }
+.bk-steps { margin: 8px 0 0 18px; padding: 0; font-size: 13px; }
+.bk-steps li { margin-bottom: 6px; }
+@media (max-width: 720px) { .bk-wizard { padding: 0; } .bk-wizard-card { border-radius: 0; min-height: 100%; } }

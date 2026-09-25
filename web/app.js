@@ -23295,6 +23295,11 @@ function dismissOnboarding() {
 }
 async function initOnboarding() {
   if (onboardingDismissed()) return
+  // #396: a fresh install first asks "do you have a backup?" (web/backup.js);
+  // choosing the restore path skips the normal onboarding. backup.js loads
+  // AFTER this file, so wait until every script has run.
+  if (document.readyState === 'loading') await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }))
+  if (typeof window.maybeAskRestoreFirst === 'function' && await window.maybeAskRestoreFirst()) return
   const s = await fetchOnboardingStatus()
   if (!s || !s.needsOnboarding) return
   renderOnboarding(s)
