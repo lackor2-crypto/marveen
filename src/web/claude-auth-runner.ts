@@ -270,7 +270,39 @@ const ACCOUNT_STALE_OK_MS = 5 * 60_000
 let accountGen = 0
 let accountRefresh: Promise<AccountRow[]> | null = null
 
-export function invalidateAccountCache(): void { accountCache = null; accountGen++ }
+export function invalidateAccountCache(): void { accountCache = null; machineIdentity = null; accountGen++ }
+
+// #390: a gep SAJAT bejelentkezese (~/.claude, a folyamat kornyezete szerint).
+// Ha a foagens kulon mappan fut (MAIN_AGENT_CONFIG_DIR), a Fiokok oldal ezt
+// kulon kerdezi meg -- gyorsitotar nelkul minden megnyitas egy ~0,5 s-os CLI-
+// futas volt. Ugyanaz a szabaly, mint a fiok-listanal: friss vagy
+// elfogadhatoan regi valasz azonnal, a regi a hatterben frissul; egy sikertelen
+// proba soha nem marad meg valasznak; bejelentkezes/kijelentkezes eldobja.
+type IdentityProbe = { identity: AuthIdentity; probeOk: boolean }
+let machineIdentity: { at: number; value: IdentityProbe } | null = null
+let machineIdentityRefresh: Promise<IdentityProbe> | null = null
+
+function refreshMachineIdentity(): Promise<IdentityProbe> {
+  if (machineIdentityRefresh) return machineIdentityRefresh
+  const gen = accountGen
+  machineIdentityRefresh = readIdentityDetailedAsync()
+    .then((value) => {
+      if (gen === accountGen) machineIdentity = value.probeOk ? { at: Date.now(), value } : null
+      return value
+    })
+    .finally(() => { machineIdentityRefresh = null })
+  return machineIdentityRefresh
+}
+
+export async function machineIdentityAsync(): Promise<IdentityProbe> {
+  const now = Date.now()
+  if (machineIdentity && now - machineIdentity.at < ACCOUNT_CACHE_MS) return machineIdentity.value
+  if (machineIdentity && now - machineIdentity.at < ACCOUNT_STALE_OK_MS) {
+    void refreshMachineIdentity().catch(() => {})
+    return machineIdentity.value
+  }
+  return refreshMachineIdentity()
+}
 
 export function listAccounts(force = false): AccountRow[] {
   const now = Date.now()

@@ -1,11 +1,14 @@
 // #390: a menu item must show its page at once. These guard the measured
 // causes of the slow pages so a refactor does not quietly bring them back.
-import { describe, it, expect, beforeEach } from 'vitest'
-import { readFileSync, existsSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { readFileSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { procField, procChildren } from '../web/main-agent-runtime.js'
 import { spawn } from 'node:child_process'
+import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, projectsDirFor, _resetScanMemoForTest } from '../web/active-model.js'
+import { openRouterModelsWithin, _setOpenRouterCatalogForTest } from '../web/openrouter-models.js'
 import { calendarListOutput, _resetCalendarCacheForTest } from '../web/settings-calendar-cache.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -82,7 +85,9 @@ describe('source contracts for the measured slow paths', () => {
   it('account routes use the async (non-blocking) identity probes', () => {
     const s = src('src/web/routes/accounts.ts')
     expect(s).toMatch(/await identityAuditAsync\(\)/)
-    expect(s).toMatch(/readIdentityDetailedAsync\(/)
+    // the machine's own login is served from the same SWR cache, not probed per open
+    expect(s).toMatch(/await machineIdentityAsync\(\)/)
+    expect(s).not.toMatch(/readIdentityDetailedAsync\(/)
     const r = src('src/web/claude-auth-runner.ts')
     // an older background refresh must not overwrite a newer result
     expect(r).toMatch(/accountGen/)
@@ -106,5 +111,62 @@ describe('source contracts for the measured slow paths', () => {
     const body = a.slice(start, start + 4000)
     expect(body).not.toMatch(/await ensureAgentsLoaded\(\)/)
     expect(body).toMatch(/agentsReady/)
+  })
+})
+
+describe('transcript reads are memoized by file signature', () => {
+  let root = ''
+  const work = '/work/agent-x'
+  let file = ''
+  const line = (o: object) => JSON.stringify(o) + '\n'
+  beforeEach(() => {
+    _resetScanMemoForTest()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    root = mkdtempSync(path.join(tmpdir(), 'm390-'))
+    const dir = projectsDirFor(work, root)
+    mkdirSync(dir, { recursive: true })
+    file = path.join(dir, 's.jsonl')
+  })
+  afterEach(() => { vi.useRealTimers(); rmSync(root, { recursive: true, force: true }) })
+  const later = () => vi.setSystemTime(Date.now() + 10_000) // past the 3 s TTL
+
+  it('an appended turn is seen (the memo never hides a change)', () => {
+    writeFileSync(file, line({ type: 'assistant', timestamp: '2026-09-25T10:00:00Z', message: { model: 'claude-a', usage: { input_tokens: 10 } } }))
+    expect(readActiveModelFromProjectDir(work, undefined, root)).toBe('claude-a')
+    expect(readContextReadingFromProjectDir(work, root).tokens).toBe(10)
+    later()
+    appendFileSync(file, line({ type: 'assistant', timestamp: '2026-09-25T10:01:00Z', message: { model: 'claude-b', usage: { input_tokens: 20 } } }))
+    expect(readActiveModelFromProjectDir(work, undefined, root)).toBe('claude-b')
+    expect(readContextReadingFromProjectDir(work, root).tokens).toBe(20)
+  })
+
+  it('with a since bound, a model named only before it is not reported', () => {
+    writeFileSync(file,
+      line({ type: 'assistant', timestamp: '2026-09-25T10:00:00Z', message: { model: 'claude-old' } }) +
+      line({ type: 'user', timestamp: '2026-09-25T11:00:00Z', message: { content: 'hi' } }))
+    const since = Math.floor(Date.parse('2026-09-25T10:30:00Z') / 1000)
+    expect(readActiveModelFromProjectDir(work, since, root)).toBeNull()
+    later()
+    appendFileSync(file, line({ type: 'assistant', timestamp: '2026-09-25T11:01:00Z', message: { model: 'claude-new' } }))
+    expect(readActiveModelFromProjectDir(work, since, root)).toBe('claude-new')
+  })
+})
+
+describe('OpenRouter price lookup never waits on the network for a list page', () => {
+  afterEach(() => { _setOpenRouterCatalogForTest(null); vi.restoreAllMocks() })
+  const m = { id: 'x/y', name: 'y', contextLength: 1, promptPrice: 3, completionPrice: 4, free: false }
+
+  it('a stale catalog answers at once and refreshes in the background', async () => {
+    _setOpenRouterCatalogForTest([m], 0)
+    const f = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
+    expect(await openRouterModelsWithin(Date.now(), 50)).toEqual([m])
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+
+  it('with no catalog at all it gives up after the wait instead of hanging', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
+    const t0 = Date.now()
+    expect(await openRouterModelsWithin(Date.now(), 30)).toBeNull()
+    expect(Date.now() - t0).toBeLessThan(1000)
   })
 })

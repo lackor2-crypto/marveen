@@ -137,6 +137,36 @@ export function scanLinesBackward(path: string, visit: (line: string) => boolean
   } finally { closeSync(fd) }
 }
 
+// #390: egy VALTOZATLAN naplot (ugyanaz a meret es modositasi ido) nem
+// olvasunk vegig ujra -- az eredmenye sem valtozhatott. Egy uresjaratban allo
+// vagy friss (meg modell-/usage-sor nelkuli) munkamenetnel a visszafele
+// kereses az EGESZ fajlt bejarta minden /api/agents lekerdezesnel, es ez
+// agensenkent szaz ms-okra megallitotta a szervert.
+const scanMemo = new Map<string, { sig: string; value: unknown }>()
+const SCAN_MEMO_MAX = 256
+
+function fileSig(path: string): string | null {
+  try {
+    const st = statSync(path)
+    return `${st.size}:${st.mtimeMs}`
+  } catch { return null }
+}
+
+function memoByFile<T>(key: string, path: string, compute: () => T): T {
+  const sig = fileSig(path)
+  const hit = scanMemo.get(key)
+  if (sig !== null && hit && hit.sig === sig) return hit.value as T
+  const value = compute()
+  if (sig !== null) {
+    if (scanMemo.size >= SCAN_MEMO_MAX) scanMemo.clear()
+    scanMemo.set(key, { sig, value })
+  }
+  return value
+}
+
+/** Csak teszthez. */
+export function _resetScanMemoForTest(): void { scanMemo.clear() }
+
 function newestTranscript(dir: string): string | null {
   return rankedTranscripts(dir)[0] ?? null
 }
@@ -158,21 +188,30 @@ export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?:
     // model-less transcript look like "we cannot tell", which is a different
     // and much more alarming statement than the truth.
     for (const transcript of rankedTranscripts(dir)) {
-      scanLinesBackward(transcript, (line) => {
-        try {
-          const entry = JSON.parse(line)
-          const msg = entry?.message
-          const model = msg?.model
-          if (typeof model !== 'string' || model.startsWith('<')) return false
-          if (sinceUnixSec !== undefined) {
-            const ts = entry?.timestamp
-            if (typeof ts !== 'string') return false
-            const lineUnix = Math.floor(new Date(ts).getTime() / 1000)
-            if (!Number.isFinite(lineUnix) || lineUnix < sinceUnixSec) return false
-          }
-          value = model
-          return true
-        } catch { return false /* skip malformed JSON line */ }
+      value = memoByFile(`model:${transcript}:${sinceUnixSec ?? ''}`, transcript, () => {
+        let found: string | null = null
+        scanLinesBackward(transcript, (line) => {
+          try {
+            const entry = JSON.parse(line)
+            let lineUnix: number | null = null
+            if (sinceUnixSec !== undefined) {
+              const ts = entry?.timestamp
+              if (typeof ts === 'string') {
+                const u = Math.floor(new Date(ts).getTime() / 1000)
+                if (Number.isFinite(u)) lineUnix = u
+              }
+              // A naplo idorendben bovul: egy `since` elotti sor elott mar
+              // csak regebbiek allnak -- innen nincs mit keresni.
+              if (lineUnix !== null && lineUnix < sinceUnixSec) return true
+            }
+            const model = entry?.message?.model
+            if (typeof model !== 'string' || model.startsWith('<')) return false
+            if (sinceUnixSec !== undefined && lineUnix === null) return false
+            found = model
+            return true
+          } catch { return false /* skip malformed JSON line */ }
+        })
+        return found
       })
       if (value !== null) break
     }
@@ -316,59 +355,64 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
         // The transcript is there and readable; from here on the only question
         // is whether it carries a number, so anything short of that is 'fresh'
         // (a live session with no API accounting), never 'unknown'.
-        reading = { tokens: null, state: 'fresh' }
-        // The quota wall is read from the newest turns backwards, and only the
-        // UNBROKEN run at the end counts: an agent that hit the limit an hour
-        // ago and has been answering since is not blocked now.
-        let quota: ContextQuotaBlock | null = null
-        let quotaRunBroken = false
-        scanLinesBackward(transcript, (line) => {
-          try {
-            const entry = JSON.parse(line)
-            // A turn happened here even if it carries no numbers: distinguishes
-            // "session never ran" from "session ran and we cannot size it".
-            if (entry?.type === 'assistant' && reading.state === 'fresh') {
-              reading = { tokens: null, state: 'no-usage' }
-            }
-            if (entry?.type === 'assistant' && !quotaRunBroken) {
-              const rejection = readQuotaRejection(entry)
-              if (rejection) {
-                if (quota === null) quota = rejection
-                else quota.rejectedTurns += 1
-              } else quotaRunBroken = true
-            }
-            // Post-compaction and still idle: no fresh usage exists yet, so the
-            // authoritative current size is the boundary's postTokens.
-            if (entry?.type === 'system' && entry?.subtype === 'compact_boundary') {
-              const post = Number(entry?.compactMetadata?.postTokens)
-              if (Number.isFinite(post) && post > 0) reading = { tokens: post, state: 'measured' }
-              // Boundary without a usable postTokens: treat as fresh (empty),
-              // never fall through to the stale pre-compaction usage below.
-              return true
-            }
-            const u = entry?.message?.usage
-            if (u && typeof u === 'object') {
-              const inp = Number(u.input_tokens) || 0
-              const cr = Number(u.cache_read_input_tokens) || 0
-              const cc = Number(u.cache_creation_input_tokens) || 0
-              const total = inp + cr + cc
-              if (total > 0) { reading = { tokens: total, state: 'measured' }; return true }
-            }
-          } catch { /* skip malformed JSON line */ }
-          return false
-        })
-        // Zero usage AND the file says why -> name the real cause. Without this
-        // the caller only learns "unmeasurable", which is also what a healthy
-        // brand-new session reports.
-        if (quota !== null) {
-          reading = reading.state === 'no-usage'
-            ? { tokens: null, state: 'quota-blocked', quota }
-            : { ...reading, quota }
-        }
+        reading = memoByFile(`ctx:${transcript}`, transcript, () => scanContextReading(transcript))
       }
     }
   } catch { /* fall through as 'unknown' */ }
   ctxCache.set(cacheKey, { value: reading, expiresAt: now + TTL_MS })
+  return reading
+}
+
+function scanContextReading(transcript: string): ContextReading {
+  let reading: ContextReading = { tokens: null, state: 'fresh' }
+  // The quota wall is read from the newest turns backwards, and only the
+  // UNBROKEN run at the end counts: an agent that hit the limit an hour
+  // ago and has been answering since is not blocked now.
+  let quota: ContextQuotaBlock | null = null
+  let quotaRunBroken = false
+  scanLinesBackward(transcript, (line) => {
+    try {
+      const entry = JSON.parse(line)
+      // A turn happened here even if it carries no numbers: distinguishes
+      // "session never ran" from "session ran and we cannot size it".
+      if (entry?.type === 'assistant' && reading.state === 'fresh') {
+        reading = { tokens: null, state: 'no-usage' }
+      }
+      if (entry?.type === 'assistant' && !quotaRunBroken) {
+        const rejection = readQuotaRejection(entry)
+        if (rejection) {
+          if (quota === null) quota = rejection
+          else quota.rejectedTurns += 1
+        } else quotaRunBroken = true
+      }
+      // Post-compaction and still idle: no fresh usage exists yet, so the
+      // authoritative current size is the boundary's postTokens.
+      if (entry?.type === 'system' && entry?.subtype === 'compact_boundary') {
+        const post = Number(entry?.compactMetadata?.postTokens)
+        if (Number.isFinite(post) && post > 0) reading = { tokens: post, state: 'measured' }
+        // Boundary without a usable postTokens: treat as fresh (empty),
+        // never fall through to the stale pre-compaction usage below.
+        return true
+      }
+      const u = entry?.message?.usage
+      if (u && typeof u === 'object') {
+        const inp = Number(u.input_tokens) || 0
+        const cr = Number(u.cache_read_input_tokens) || 0
+        const cc = Number(u.cache_creation_input_tokens) || 0
+        const total = inp + cr + cc
+        if (total > 0) { reading = { tokens: total, state: 'measured' }; return true }
+      }
+    } catch { /* skip malformed JSON line */ }
+    return false
+  })
+  // Zero usage AND the file says why -> name the real cause. Without this
+  // the caller only learns "unmeasurable", which is also what a healthy
+  // brand-new session reports.
+  if (quota !== null) {
+    reading = reading.state === 'no-usage'
+      ? { tokens: null, state: 'quota-blocked', quota }
+      : { ...reading, quota }
+  }
   return reading
 }
 
