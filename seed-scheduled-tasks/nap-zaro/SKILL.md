@@ -32,7 +32,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:$PORT/api/daily-log?
    ha ma még nincs bejegyzés, a mai nap eleje. A memória-listázás `q` nélkül fut, így NEM
    frissíti az `accessed_at`-et (a keresés igen, azt itt ne használd).
    ```bash
-SINCE=<az 1. lépés last_ts értéke; ha 0, akkor: $(date -d "$TODAY 00:00" +%s)>
+SINCE=<az 1. lépés last_ts értéke; ha 0, akkor: $(python3 -c 'import datetime as d; print(int(d.datetime.combine(d.date.today(), d.time()).timestamp()))')>
+# (nem `date -d`: a macOS-es BSD date nem ismeri, ott a lépés csendben elhasal)
 python3 - "$PORT" "$TOKEN" "$SINCE" <<'PY'
 import json, sys, urllib.request, datetime as dt
 port, token, since = sys.argv[1], sys.argv[2], int(sys.argv[3])

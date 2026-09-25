@@ -4930,6 +4930,7 @@ window._i18n.hu = {
   "projects.form.desc_ph": "Egy-két mondat: miről szól ez a munka?",
   "projects.form.client": "Kinek készül?",
   "projects.form.optional": "(nem kötelező)",
+  "projects.form.label_required_starter": "(kötelező, mert kezdő kártya is készül -- ha nem kell címke, vedd ki lent a pipát)",
   "projects.form.client_ph": "pl. saját magamnak, Kovács Kft., egy barátomnak",
   "projects.form.client_hint": "Szabad szöveg — lehet cég, személy vagy saját magad. Semmi nem függ tőle.",
   "projects.form.status": "Állapot",

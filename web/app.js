@@ -24591,12 +24591,22 @@ function _approvalsHasPendingVerification() {
 // categories (email_send, payment, ...) have no payload at all, hence the
 // try/catch -- absence is normal, not an error.
 function _approvalKanbanCardId(a) {
+  // Same shapes as the server's payloadCardId (src/kanban-related.ts): the
+  // documented {"kanban_card_id"}, a hand-written {"card_id"}, or a bare id --
+  // all three were found on live approvals (2026-09-24).
+  const cardIdRe = /^[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i
   if (a.action_payload) {
     try {
       const parsed = typeof a.action_payload === 'string' ? JSON.parse(a.action_payload) : a.action_payload
-      if (parsed && parsed.kanban_card_id) return String(parsed.kanban_card_id)
-    } catch { /* fall through to the text-scrape fallback below */ }
+      if (parsed && typeof parsed === 'object' && parsed.kanban_card_id) return String(parsed.kanban_card_id)
+      if (parsed && typeof parsed === 'object' && typeof parsed.card_id === 'string' && cardIdRe.test(parsed.card_id.trim())) return parsed.card_id.trim().toLowerCase()
+      if (typeof parsed === 'string' && cardIdRe.test(parsed.trim())) return parsed.trim().toLowerCase()
+    } catch {
+      if (typeof a.action_payload === 'string' && cardIdRe.test(a.action_payload.trim())) return a.action_payload.trim().toLowerCase()
+    }
   }
+  const labelled = a.action_description && a.action_description.match(/kanban[- ]azonos[ií]t[oó]:?\s*([0-9a-f]{8})\b/i)
+  if (labelled) return labelled[1].toLowerCase()
   // Boss 2026-08-09/10: the kanban_done category (above) is the only one
   // that carries a structured payload, but other categories (mostly
   // marveen_kod_modositas review/verification requests) still reference a
@@ -43471,7 +43481,7 @@ function _prjFormHtml() {
         <select id="prjStatus" class="input">${['active', 'paused', 'closed'].map((s) => `<option value="${s}"${p.status === s ? ' selected' : ''}>${escapeHtml(t('projects.status.' + s))}</option>`).join('')}</select>
       </div>` : ''}
       <div class="form-group">
-        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint">${escapeHtml(t('projects.form.optional'))}</span></label>
+        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint" id="prjLabelReq">${escapeHtml(t(edit ? 'projects.form.optional' : 'projects.form.label_required_starter'))}</span></label>
         <select id="prjLabel" class="input">${labelOpts}</select>
         <p class="prj-field-hint">${escapeHtml(t('projects.form.label_hint'))}</p>
       </div>
@@ -43539,6 +43549,13 @@ function _prjWireForm(ov) {
   q('#prjFolderSubs')?.addEventListener('change', _prjFolderPreview)
   q('#prjExParent')?.addEventListener('change', _prjLoadExisting)
   q('#prjExFolder')?.addEventListener('change', _prjFolderPreview)
+  // #382: the default label is optional -- unless a starter card is created,
+  // which needs one. The hint next to the label follows the checkbox, so the
+  // form never says "optional" and then refuses to save for the lack of it.
+  q('#prjStarter')?.addEventListener('change', () => {
+    const req = q('#prjLabelReq')
+    if (req) req.textContent = t(q('#prjStarter').checked ? 'projects.form.label_required_starter' : 'projects.form.optional')
+  })
   q('#prjFormSave')?.addEventListener('click', _prjSubmitForm)
   ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
   q('#prjName')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); _prjSubmitForm() } })
