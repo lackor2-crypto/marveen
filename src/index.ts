@@ -7,6 +7,7 @@ import {
   openSync,
   closeSync,
   writeSync,
+  existsSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync, execSync } from 'node:child_process'
@@ -14,6 +15,7 @@ import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
 import { initDatabase, runEmbeddingBackfill } from './db.js'
+import { recoverInterruptedRestore } from './backup/restore.js'
 import { migrateLegacyAliases } from './web/code-bridge-store.js'
 import { readBrokerConfig, writeBrokerConfig } from './web/context-broker-store.js'
 import { runDecaySweep, runDailyDigest } from './memory.js'
@@ -466,6 +468,18 @@ async function main(): Promise<void> {
   })
 
   await acquireLock()
+
+  // #396: a restore whose runner died half-way is rolled back BEFORE the
+  // database is opened -- never start on a half-restored tree.
+  // A restore whose runner is still ALIVE (a watchdog started us mid-restore)
+  // is waited for: opening the DB now would race the file swap.
+  try {
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
+    for (let i = 0; i < 300 && recoverInterruptedRestore(STORE_DIR, alive) === null && existsSync(join(STORE_DIR, 'restore-in-progress.json')); i++) {
+      if (i === 0) logger.warn('A restore is in progress -- waiting for it before opening the database')
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  } catch (err) { logger.error({ err }, 'Restore recovery at startup failed') }
 
   // Database
   initDatabase()

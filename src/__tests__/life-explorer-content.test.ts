@@ -28,10 +28,17 @@ if (!root || !root.startsWith(depot)) {
 }
 
 function folder(rel: string, name: string) {
-  const l = listLife(rel, { lang: 'hu' })
-  const f = l.folders.find((x) => x.name === name)
-  if (!f) throw new Error(`nincs ilyen mappa a listaban: ${name} (${rel})`)
-  return f
+  // A lista 800 ms-os meres-kerettel dolgozik; terhelt gepen (a teljes suite
+  // alatt) ez kifuthat, es akkor a mappa `pending` -- "meg merem" -- jelzest
+  // kap. Ez a termek szerzodese: a KOVETKEZO lekeres hozza a valodi szamot.
+  // Egyetlen lekeresbol itelni ezert terheles-fuggo hamis bukas volt
+  // (merve 2026-09-25: 'unknown' a teljes suite-ban, 3/3 zold kulon futtatva).
+  for (let attempt = 0; ; attempt++) {
+    const l = listLife(rel, { lang: 'hu' })
+    const f = l.folders.find((x) => x.name === name)
+    if (!f) throw new Error(`nincs ilyen mappa a listaban: ${name} (${rel})`)
+    if (!f.content?.pending || attempt >= 3) return f
+  }
 }
 
 beforeEach(() => {

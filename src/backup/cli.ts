@@ -81,8 +81,55 @@ export async function main(argv: string[]): Promise<number> {
       rmSync(dir, { recursive: true, force: true })
     }
   }
-  console.error('usage: cli.js create [--kind scheduled|manual] | verify <file> [--key K] | list')
+  if (cmd === 'restore') return restoreCmd(argv)
+  console.error('usage: cli.js create [--kind scheduled|manual] | verify <file> [--key K] | list | restore <file> --unit <dashboard.service> [--key K] [--exclude a,b] [--yes]')
   return 2
+}
+
+/**
+ * The terminal path of a restore (docs/MIGRATION.md appendix). Same engine as
+ * Settings -> Backup: preview first; with --yes the pre-restore backup, then
+ * the runner steps in THIS process (it is outside the dashboard's service, so
+ * stopping that does not stop us).
+ */
+async function restoreCmd(argv: string[]): Promise<number> {
+  const file = argv[1]
+  const unit = arg(argv, '--unit')
+  if (!file || !unit) {
+    console.error('usage: restore <file> --unit <the dashboard service, e.g. marveen-dashboard.service> [--key K] [--exclude skills,schedules] [--yes]')
+    console.error('       list the units with: systemctl --user list-units --type=service')
+    return 2
+  }
+  const { defaultInventoryContext } = await import('./inventory.js')
+  const { openPreview, startRestore, RestoreError } = await import('./restore-service.js')
+  const { runRestore, systemdHooks } = await import('./restore-runner.js')
+  const ctx = await defaultInventoryContext()
+  const rctx = { projectRoot: ctx.projectRoot, storeDir: ctx.storeDir, home: ctx.home }
+  const { readFileSync, existsSync } = await import('node:fs')
+  const appVersion = String(JSON.parse(readFileSync(join(ctx.projectRoot, 'package.json'), 'utf8')).version)
+  try {
+    const dbFile = join(ctx.storeDir, 'claudeclaw.db')
+    const { id, inspection: ins } = await openPreview({ file, uploaded: false, key: arg(argv, '--key'), ctx: rctx, appVersion, currentDb: existsSync(dbFile) ? dbFile : null })
+    console.log(`backup made ${ins.manifest.createdAt} by Marveen ${ins.manifest.appVersion}; compatible: ${ins.compat.ok ? 'yes' : `NO (${ins.compat.reason})`}`)
+    for (const c of ins.categories) console.log(`  ${c.id}: ${c.willAdd} new, ${c.willOverwrite} overwritten, ${c.held} held until you confirm`)
+    for (const t of ['kanban_cards', 'memories']) console.log(`  ${t}: now ${ins.dbCounts.current?.[t] ?? 0} -> backup ${ins.dbCounts.backup[t] ?? 0}`)
+    for (const w of ins.warnings) console.log(`  warning: ${w.code}${w.items ? `: ${w.items.slice(0, 5).join(', ')}` : ''}`)
+    if (!argv.includes('--yes')) { console.log('nothing changed. Run again with --yes to restore.'); return 0 }
+    const exclude = (arg(argv, '--exclude') ?? '').split(',').map((x) => x.trim()).filter(Boolean) as any
+    let planFile = ''
+    await startRestore(id, exclude, {
+      ctx: rctx, unit,
+      preBackup: async () => runBackup({ kind: 'pre-restore' }),
+      launch: (f) => { planFile = f },
+    })
+    const plan = JSON.parse(readFileSync(planFile, 'utf8'))
+    const out = await runRestore(plan, systemdHooks(unit))
+    console.log(out.ok ? 'restore: done. Log in each agent again, then confirm in Settings -> Backup that the old machine is off.' : `restore: FAILED (${out.reason})${out.rolledBack ? ' -- rolled back' : ''}`)
+    return out.ok ? 0 : 1
+  } catch (err: any) {
+    if (err instanceof RestoreError || err instanceof BackupDecryptError) { console.error(`restore: refused (${err.code})`); return 1 }
+    throw err
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

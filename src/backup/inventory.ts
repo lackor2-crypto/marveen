@@ -134,6 +134,7 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   'context-restart-gate-status.json', 'drive-delete-queue.json', 'external-ops-last-run',
   'kanban-audit-state.json', 'schedule-last-run.json', 'terminal-input.json', 'pending-patches',
   'task-run-history.json', 'backup-state.json', 'restore-in-progress.json', 'onboarding-choice.json',
+  'restore-result.json', 'restore-held', 'restored-local-commits.bundle',
   /^channels-paused-after-restore\.json$/, /^schedules-paused-after-restore\.json$/,
   /^drive-sync-paused-/, /\.state$/, /\.tmp$/,
   // Install-generated helper scripts (the installer recreates them).
