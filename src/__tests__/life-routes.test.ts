@@ -711,6 +711,197 @@ describe('POST /api/life/move -- foglalt nevnel kerdez, felul nem ir', () => {
   })
 })
 
+// #383 2. lepes (Boss TG 6346: "minden kell ami a Windows intezojeben is
+// van"): Csere / Kihagyas / Mindketto megtartasa, mappanal Egyesites. Felulirni
+// soha nem ir: a lecserelt elem a Kukaba kerul, onnan visszaallithato.
+describe('beillesztes utkozessel -- Csere / Kihagyas / Egyesites', () => {
+  const post = async (url: string, body: Record<string, unknown>) => {
+    const { ctx, out } = ctxFor(url, 'POST', body)
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+  // A Kuka a fa `Rendszer/Kuka/<idobelyeg>/` mappaja: minden ott levo fajl
+  // tartalmat kigyujtjuk, hogy lassuk, a regi tenyleg odakerult.
+  const trashContents = (): string[] => {
+    const acc: string[] = []
+    const walk = (d: string) => {
+      if (!existsSync(d)) return
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, e.name)
+        if (e.isDirectory()) walk(p)
+        else acc.push(readFileSync(p, 'utf-8'))
+      }
+    }
+    for (const top of readdirSync(depot)) walk(join(depot, top, 'Kuka'))
+    return acc
+  }
+  const mk = (rel: string, content?: string) => {
+    if (content === undefined) mkdirSync(join(depot, rel), { recursive: true })
+    else { mkdirSync(join(depot, rel, '..'), { recursive: true }); writeFileSync(join(depot, rel), content) }
+  }
+  const read = (rel: string) => readFileSync(join(depot, rel), 'utf-8')
+
+  it('a 409 megmondja, mit lehet: fajlnal Csere igen, Egyesites nem', async () => {
+    mk('RsA/a.txt', 'uj-a'); mk('RsB/a.txt', 'regi-a')
+    const out = await post('/api/life/copy', { from: 'RsA/a.txt', to: 'RsB' })
+    expect(out.status).toBe(409)
+    expect(out.body.canReplace).toBe(true)
+    expect(out.body.canMerge).toBe(false)
+  })
+
+  it('Csere (masolas): az uj a helyen, a regi a Kukaban, az eredeti megmarad', async () => {
+    const out = await post('/api/life/copy', { from: 'RsA/a.txt', to: 'RsB', resolution: 'replace' })
+    expect(out.status).toBe(200)
+    expect(out.body.replaced).toBe(1)
+    expect(read('RsB/a.txt')).toBe('uj-a')
+    expect(read('RsA/a.txt')).toBe('uj-a')
+    expect(trashContents()).toContain('regi-a')
+    expect(existsSync(join(depot, 'RsB', 'a (2).txt'))).toBe(false)
+  })
+
+  it('Csere (kivagas): a forras eltunik, a regi a Kukaban', async () => {
+    mk('RsA/b.txt', 'uj-b'); mk('RsB/b.txt', 'regi-b')
+    const out = await post('/api/life/move', { from: 'RsA/b.txt', to: 'RsB', resolution: 'replace' })
+    expect(out.status).toBe(200)
+    expect(read('RsB/b.txt')).toBe('uj-b')
+    expect(existsSync(join(depot, 'RsA', 'b.txt'))).toBe(false)
+    expect(trashContents()).toContain('regi-b')
+  })
+
+  it('Kihagyas: semmi nem valtozik, a forras is marad', async () => {
+    mk('RsA/c.txt', 'uj-c'); mk('RsB/c.txt', 'regi-c')
+    const out = await post('/api/life/move', { from: 'RsA/c.txt', to: 'RsB', resolution: 'skip' })
+    expect(out.status).toBe(200)
+    expect(out.body.code).toBe('skipped')
+    expect(read('RsA/c.txt')).toBe('uj-c')
+    expect(read('RsB/c.txt')).toBe('regi-c')
+  })
+
+  it('Csere nem megy ugyanabba a mappaba (onmagat nem csereli le), sem mappara', async () => {
+    const self = await post('/api/life/copy', { from: 'RsA/c.txt', to: 'RsA' })
+    expect(self.status).toBe(409)
+    expect(self.body.canReplace).toBe(false)
+    const r = await post('/api/life/copy', { from: 'RsA/c.txt', to: 'RsA', resolution: 'replace' })
+    expect(r.status).toBe(400)
+    expect(r.body.code).toBe('cannot_replace')
+    expect(read('RsA/c.txt')).toBe('uj-c')
+    mk('RsD/Mappa'); mk('RsE/Mappa')
+    const d = await post('/api/life/copy', { from: 'RsD/Mappa', to: 'RsE', resolution: 'replace' })
+    expect(d.body.code).toBe('cannot_replace')
+    const en = await post('/api/life/copy?lang=en', { from: 'RsD/Mappa', to: 'RsE', resolution: 'replace' })
+    expect(en.body.message).toMatch(/Only a file can replace a file/)
+  })
+
+  it('mappa-utkozes: a 409 felsorolja a belso utkozeseket', async () => {
+    mk('MgA/Fotok/1.jpg', 'uj-1'); mk('MgA/Fotok/2.jpg', 'uj-2'); mk('MgA/Fotok/3.jpg', 'uj-3')
+    mk('MgA/Fotok/al/x.txt', 'uj-x'); mk('MgA/Fotok/csak-itt.txt', 'itt')
+    mk('MgB/Fotok/1.jpg', 'regi-1'); mk('MgB/Fotok/2.jpg', 'regi-2'); mk('MgB/Fotok/3.jpg', 'regi-3')
+    mk('MgB/Fotok/al/x.txt', 'regi-x'); mk('MgB/Fotok/csak-ott.txt', 'ott')
+    const out = await post('/api/life/copy', { from: 'MgA/Fotok', to: 'MgB' })
+    expect(out.status).toBe(409)
+    expect(out.body.canMerge).toBe(true)
+    expect(out.body.canReplace).toBe(false)
+    const paths = out.body.innerConflicts.map((c: any) => c.path).sort()
+    expect(paths).toEqual(['1.jpg', '2.jpg', '3.jpg', 'al/x.txt'])
+    expect(out.body.innerTotal).toBe(4)
+  })
+
+  it('Egyesites (masolas) fajlonkent: csere / kihagyas / mindketto, a tobbi alapbol mindketto', async () => {
+    const out = await post('/api/life/copy', {
+      from: 'MgA/Fotok', to: 'MgB', resolution: 'merge',
+      perFile: { '1.jpg': 'replace', '2.jpg': 'skip', 'al/x.txt': 'replace' },
+    })
+    expect(out.status).toBe(200)
+    expect(out.body.replaced).toBe(2)
+    expect(out.body.skipped).toBe(1)
+    expect(out.body.keptBoth).toBe(1)
+    expect(read('MgB/Fotok/1.jpg')).toBe('uj-1')
+    expect(read('MgB/Fotok/2.jpg')).toBe('regi-2')
+    expect(read('MgB/Fotok/3.jpg')).toBe('regi-3')
+    expect(read('MgB/Fotok/3 (2).jpg')).toBe('uj-3')
+    expect(read('MgB/Fotok/al/x.txt')).toBe('uj-x')
+    expect(read('MgB/Fotok/csak-itt.txt')).toBe('itt')
+    expect(read('MgB/Fotok/csak-ott.txt')).toBe('ott')
+    expect(trashContents()).toEqual(expect.arrayContaining(['regi-1', 'regi-x']))
+    // masolas: a forras erintetlen
+    expect(read('MgA/Fotok/1.jpg')).toBe('uj-1')
+    expect(out.body.message).toMatch(/Kukában/)
+  })
+
+  it('Egyesites (kivagas) "mindre ezt" Cserevel: a kiurult forras-mappa eltunik', async () => {
+    mk('MmA/Docs/a.txt', 'uj-a'); mk('MmA/Docs/sub/b.txt', 'uj-b'); mk('MmA/Docs/uj.txt', 'uj')
+    mk('MmB/Docs/a.txt', 'regi-a'); mk('MmB/Docs/sub/b.txt', 'regi-b')
+    const out = await post('/api/life/move', { from: 'MmA/Docs', to: 'MmB', resolution: 'merge', fileResolution: 'replace' })
+    expect(out.status).toBe(200)
+    expect(out.body.replaced).toBe(2)
+    expect(read('MmB/Docs/a.txt')).toBe('uj-a')
+    expect(read('MmB/Docs/sub/b.txt')).toBe('uj-b')
+    expect(read('MmB/Docs/uj.txt')).toBe('uj')
+    expect(existsSync(join(depot, 'MmA', 'Docs'))).toBe(false)
+    expect(trashContents()).toEqual(expect.arrayContaining(['regi-a', 'regi-b']))
+  })
+
+  it('Egyesites (kivagas) Kihagyassal: a kihagyott fajl a forrasban marad', async () => {
+    mk('MsA/D/k.txt', 'uj-k'); mk('MsA/D/m.txt', 'uj-m')
+    mk('MsB/D/k.txt', 'regi-k')
+    const out = await post('/api/life/move', { from: 'MsA/D', to: 'MsB', resolution: 'merge', fileResolution: 'skip' })
+    expect(out.status).toBe(200)
+    expect(read('MsB/D/k.txt')).toBe('regi-k')
+    expect(read('MsB/D/m.txt')).toBe('uj-m')
+    expect(read('MsA/D/k.txt')).toBe('uj-k')
+  })
+
+  it('ismeretlen feloldast nem hajt vegre: a sima kerdes jon vissza', async () => {
+    mk('MxA/q.txt', 'uj'); mk('MxB/q.txt', 'regi')
+    const out = await post('/api/life/copy', { from: 'MxA/q.txt', to: 'MxB', resolution: 'overwrite' })
+    expect(out.status).toBe(409)
+    expect(read('MxB/q.txt')).toBe('regi')
+  })
+
+  it('Egyesites git-repot tartalmazo cel-mappaba nem megy', async () => {
+    mk('MrA/Kod/f.txt', 'f'); mk('MrB/Kod/proj/.git'); mk('MrB/Kod/proj/src')
+    const out = await post('/api/life/copy', { from: 'MrA/Kod', to: 'MrB', resolution: 'merge' })
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('has_repos')
+    expect(existsSync(join(depot, 'MrB', 'Kod', 'f.txt'))).toBe(false)
+  })
+})
+
+// #383 hiba (Boss TG 6350: "megprobaltam torolni a beerkezo 2 nevu mappat, es
+// nem engedte"): a gyokerben CSAK az a mappa vedett, amit a Konyvtarszerkezet
+// letrehozasa ujra letrehozna -- egy beillesztett masolat torolheto.
+describe('POST /api/life/trash -- gyokerben csak a sablon-ag vedett', () => {
+  const trash = async (rel: string, q = '') => {
+    const { ctx, out } = ctxFor('/api/life/trash' + q, 'POST', { rel })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+  it('egy beillesztett gyoker-mappa (Beerkezo (2)) torolheto', async () => {
+    mkdirSync(join(depot, 'Beerkezo (2)'), { recursive: true })
+    writeFileSync(join(depot, 'Beerkezo (2)', 'f.txt'), 'f')
+    const out = await trash('Beerkezo (2)')
+    expect(out.status).toBe(200)
+    expect(out.body.ok).toBe(true)
+    expect(existsSync(join(depot, 'Beerkezo (2)'))).toBe(false)
+  })
+  it('a sablon fo-aga (a Konyvtarszerkezet letrehozasa ujra letrehozna) tovabbra sem', async () => {
+    // Ugyanabbol a forrasbol, amibol a Konyvtarszerkezet letrehozasa epit
+    // (a telepites nyelven), nem kezzel irt nevlistabol.
+    const { planLifeTree, loadLifeConfig } = await import('../life-tree.js')
+    const { APP_LANG } = await import('../config.js')
+    const top = planLifeTree(loadLifeConfig(), APP_LANG)[0].rel.split('/')[0]
+    mkdirSync(join(depot, top), { recursive: true })
+    const out = await trash(top)
+    // A Kuka-vegpont a visszautasitast is 200-zal adja, `ok: false`-szal.
+    expect(out.body.ok).toBe(false)
+    expect(out.body.code).toBe('top')
+    expect(existsSync(join(depot, top))).toBe(true)
+    const en = await trash(top, '?lang=en')
+    expect(en.body.code).toBe('top')
+    expect(en.body.message).not.toMatch(/[áéőű]/)
+  })
+})
+
 describe('POST /api/life/move -- git-repo gyokerebe sem', () => {
   it('a repo gyokerebe nem helyez at', async () => {
     mkdirSync(join(depot, 'MvRepo', '.git'), { recursive: true })
