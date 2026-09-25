@@ -554,3 +554,105 @@ describe('POST /api/life/move -- bekotest nem szakit el', () => {
     expect(out.body.message).toMatch(/linked|link/i)
   })
 })
+
+// #383: Masolas + Beillesztes. Az eredeti marad, felulirni SOHA nem szabad, es
+// ugyanazok az orok allnak, mint az Athelyezesnel (git-repo, bekotes).
+describe('POST /api/life/copy -- masol, sosem ir felul', () => {
+  const copy = async (from: string, to: string, q = '') => {
+    const { ctx, out } = ctxFor('/api/life/copy' + q, 'POST', { from, to })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+
+  it('fajlt masol, az eredeti a helyen marad', async () => {
+    mkdirSync(join(depot, 'CpA'), { recursive: true })
+    mkdirSync(join(depot, 'CpB'), { recursive: true })
+    writeFileSync(join(depot, 'CpA', 'irat.pdf'), 'eredeti')
+    const out = await copy('CpA/irat.pdf', 'CpB')
+    expect(out.status).toBe(200)
+    expect(out.body.rel).toBe('CpB/irat.pdf')
+    expect(readFileSync(join(depot, 'CpB', 'irat.pdf'), 'utf-8')).toBe('eredeti')
+    expect(existsSync(join(depot, 'CpA', 'irat.pdf'))).toBe(true)
+  })
+
+  it('foglalt nevnel "nev (2)" lesz, a meglevo fajl erintetlen', async () => {
+    writeFileSync(join(depot, 'CpB', 'irat.pdf'), 'mar itt volt')
+    const out = await copy('CpA/irat.pdf', 'CpB')
+    expect(out.status).toBe(200)
+    expect(out.body.rel).toBe('CpB/irat (2).pdf')
+    expect(readFileSync(join(depot, 'CpB', 'irat.pdf'), 'utf-8')).toBe('mar itt volt')
+    // Ugyanabba a mappaba beillesztve is masolat lesz, nem felulirás.
+    const same = await copy('CpA/irat.pdf', 'CpA')
+    expect(same.body.rel).toBe('CpA/irat (2).pdf')
+    expect(readFileSync(join(depot, 'CpA', 'irat.pdf'), 'utf-8')).toBe('eredeti')
+  })
+
+  it('mappat a teljes tartalmaval masol', async () => {
+    mkdirSync(join(depot, 'CpDir', 'al'), { recursive: true })
+    writeFileSync(join(depot, 'CpDir', 'al', 'x.txt'), 'x')
+    const out = await copy('CpDir', 'CpB')
+    expect(out.status).toBe(200)
+    expect(readFileSync(join(depot, 'CpB', 'CpDir', 'al', 'x.txt'), 'utf-8')).toBe('x')
+    expect(existsSync(join(depot, 'CpDir', 'al', 'x.txt'))).toBe(true)
+  })
+
+  it('mappat onmagaba nem masol', async () => {
+    const out = await copy('CpDir', 'CpDir/al')
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('into_self')
+    expect(existsSync(join(depot, 'CpDir', 'al', 'CpDir'))).toBe(false)
+  })
+
+  it('git-repoba -- a gyokerebe sem -- nem masol', async () => {
+    mkdirSync(join(depot, 'CpRepo', '.git'), { recursive: true })
+    mkdirSync(join(depot, 'CpRepo', 'src'), { recursive: true })
+    for (const to of ['CpRepo', 'CpRepo/src']) {
+      const out = await copy('CpA/irat.pdf', to)
+      expect(out.status).toBe(400)
+      expect(out.body.code).toBe('git_repo')
+    }
+    expect(existsSync(join(depot, 'CpRepo', 'irat.pdf'))).toBe(false)
+  })
+
+  it('git-repot nem sokszoroz', async () => {
+    const out = await copy('CpRepo', 'CpB')
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('has_repos')
+    expect(existsSync(join(depot, 'CpB', 'CpRepo'))).toBe(false)
+  })
+
+  it('bekotest nem masol, es bekotest tartalmazo mappat sem', async () => {
+    mkdirSync(join(depot, 'CpTarolo'), { recursive: true })
+    writeFileSync(join(depot, 'CpTarolo', 'f.txt'), 'f')
+    mkdirSync(join(depot, 'CpFa'), { recursive: true })
+    const add = ctxFor('/api/life/mounts', 'POST', { rel: 'CpFa/Kotes', target: 'CpTarolo' })
+    await tryHandleLife(add.ctx)
+    expect(add.out.body.ok).toBe(true)
+    const a = await copy('CpFa/Kotes', 'CpB')
+    expect(a.body.code).toBe('mounted')
+    const b = await copy('CpFa', 'CpB')
+    expect(b.body.code).toBe('has_mounts')
+    // A bekotes CELJA viszont masolhato: onnan semmi nem mozdul.
+    const c = await copy('CpTarolo', 'CpB')
+    expect(c.status).toBe(200)
+    expect(existsSync(join(depot, 'CpTarolo', 'f.txt'))).toBe(true)
+  })
+
+  it('angol feluleten angol mondatot ad', async () => {
+    const out = await copy('CpA/irat.pdf', 'CpRepo', '?lang=en')
+    expect(out.body.message).toMatch(/git repository/)
+  })
+})
+
+describe('POST /api/life/move -- git-repo gyokerebe sem', () => {
+  it('a repo gyokerebe nem helyez at', async () => {
+    mkdirSync(join(depot, 'MvRepo', '.git'), { recursive: true })
+    mkdirSync(join(depot, 'MvSrc'), { recursive: true })
+    writeFileSync(join(depot, 'MvSrc', 'a.txt'), 'a')
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvSrc/a.txt', to: 'MvRepo' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('git_repo')
+    expect(existsSync(join(depot, 'MvSrc', 'a.txt'))).toBe(true)
+  })
+})

@@ -21,6 +21,7 @@ import {
   existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
   copyFileSync, rmSync, type Stats, type Dirent,
 } from 'node:fs'
+import { cp } from 'node:fs/promises'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
 import { depotRoot, DEPOT_PROJECTS } from './depot.js'
@@ -1038,6 +1039,75 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): Mo
   moveArchivedPrefix(fromRel, newRel)
   logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
   return { ok: true, rel: newRel, message: T(lang, `Áthelyezve ide: ${humanLocation(newRel)}`, `Moved here: ${humanLocation(newRel)}`) }
+}
+
+/**
+ * A masolat szabad neve a celmappaban: `irat.pdf` -> `irat (2).pdf`,
+ * `Mappa` -> `Mappa (2)`. Soha nem irunk felul: ha a nev foglalt, a kovetkezo
+ * szabad sorszamot kapja -- ugyanigy tesz a Windows Intezo is, ha ugyanabba a
+ * mappaba illesztesz be.
+ */
+export function freeCopyName(dir: string, name: string, isDir: boolean): string {
+  if (!existsSync(join(dir, name))) return name
+  const dot = isDir ? -1 : name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  for (let i = 2; i < 1000; i++) {
+    const cand = `${stem} (${i})${ext}`
+    if (!existsSync(join(dir, cand))) return cand
+  }
+  return ''
+}
+
+/**
+ * MASOLAS a fan belul (kartya #383, a jobbklikkes Masolas + Beillesztes).
+ *
+ * Fajl es mappa (a teljes tartalmaval) egyarant. Az eredeti a helyen marad.
+ * SOHA nem ir felul: foglalt nevnel `nev (2)` lesz belole. Aszinkron, mert egy
+ * nagy mappa masolasa masodpercekig tart, es kozben a dashboard tobbi
+ * kerese nem allhat.
+ *
+ * A papir-nyilvantartas, a megjelenitett nev es az archiv-jeloles NEM megy
+ * at a masolatra: az az eredeti irathoz tartozik, a masolat uj peldany.
+ */
+export async function copyLife(fromRel: string, toDirRel: string, lang = APP_LANG): Promise<MoveResult> {
+  const from = resolveLifePath(fromRel)
+  const toDir = resolveLifePath(toDirRel)
+  if (!from || !toDir) {
+    return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
+  }
+  const fromStat = statSafe(from)
+  if (!fromStat) {
+    return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs a régi helyén, ezért nem tudom lemásolni. Frissítsd a listát.', 'This is no longer where it was, so I cannot copy it. Refresh the list.') }
+  }
+  if (!statSafe(toDir)?.isDirectory()) {
+    return { ok: false, rel: '', code: 'no_target', message: T(lang, 'A célként megadott hely nem mappa.', 'The place you gave as the target is not a folder.') }
+  }
+  const isDir = fromStat.isDirectory()
+  // Egy mappat SAJAT MAGA ALA masolni vegtelen melysegu masolatot adna.
+  if (isDir && (toDir === from || toDir.startsWith(from + sep))) {
+    return { ok: false, rel: '', code: 'into_self', message: T(lang, 'Egy mappát nem lehet önmagába másolni.', 'A folder cannot be copied into itself.') }
+  }
+  const name = freeCopyName(toDir, basename(from), isDir)
+  if (!name) {
+    return { ok: false, rel: '', code: 'exists', message: T(lang, 'Ebben a mappában már túl sok ilyen nevű másolat van. Nevezz át néhányat, és próbáld újra.', 'This folder already has too many copies with this name. Rename some of them and try again.') }
+  }
+  const target = join(toDir, name)
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+  if (existsSync(target)) {
+    return { ok: false, rel: '', code: 'exists', message: T(lang, `A célmappában közben megjelent egy ${name} nevű elem. Nem írom felül -- próbáld újra.`, `An item called ${name} just appeared in the target folder. I will not overwrite it -- try again.`) }
+  }
+  try {
+    await cp(from, target, { recursive: true, force: false, errorOnExist: true, preserveTimestamps: true })
+  } catch (err: any) {
+    // Felbemaradt masolat NE maradjon a fan: az ugy nezne ki, mint egy teljes.
+    try { rmSync(target, { recursive: true, force: true }) } catch { /* marad, de a hibat kimondjuk */ }
+    return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült lemásolni: ${String(err?.code || err?.message || err)}`, `Could not copy it: ${String(err?.code || err?.message || err)}`) }
+  }
+  const newRel = toLifeRel(target)
+  logger.info({ from: fromRel, to: newRel }, '[intezo] masolva')
+  return { ok: true, rel: newRel, message: T(lang, `Lemásolva ide: ${humanLocation(newRel)}`, `Copied here: ${humanLocation(newRel)}`) }
 }
 
 function statSafe(p: string): Stats | null {

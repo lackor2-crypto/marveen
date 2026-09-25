@@ -11323,6 +11323,14 @@ details.upstream-box > summary > h4 {
    akkor is ott allna, amikor semmi nincs kijelolve. (Erre teszt all:
    hidden-attribute-css-contract.) */
 .intezo-actions[hidden] { display: none; }
+/* VAGOLAP (#383): a Beillesztes sav halvany kiemelessel, hogy latszodjon: valami
+   "a kezedben van". A kivagott elem halvanyan, mint a Windows Intezoben. */
+.intezo-clipbar { background: var(--bg-hover, rgba(127,127,127,.08)); padding-left: 8px; padding-right: 8px; border-radius: 6px; }
+.intezo-clipbar .intezo-actions-name { font-weight: 500; }
+.intezo-cut { opacity: .45; }
+@media (max-width: 600px) {
+  .intezo-clipbar .intezo-actions-name { max-width: 100%; flex-basis: 100%; white-space: normal; }
+}
 
 
 /* TAROLOK: a sor-gombok ket oszlopban, kisebben.
