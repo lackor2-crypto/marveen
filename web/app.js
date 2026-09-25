@@ -36441,6 +36441,13 @@ async function _depoRunSync() {
 let _intezoPath = ''
 /** A kijelolt tetel (az informacios panel errol szol). */
 let _intezoSelected = null
+/**
+ * A VAGOLAP (#383), mint a Windows Intezoben: Kivagas vagy Masolas ide tesz egy
+ * elemet, a Beillesztes a MOSTANI (vagy a jobbklikkelt) mappaba viszi.
+ * `{ rel, name, isDir, mode: 'cut' | 'copy' }` vagy null. Csak a lapon el,
+ * a szerveren semmi nem valtozik, amig be nem illesztik.
+ */
+let _intezoClip = null
 /** Az athelyezes celjat / a papir helyet valaszto mod, ha eppen fut. */
 let _intezoSearchTimer = null
 
@@ -36603,7 +36610,8 @@ async function loadIntezoPage() {
   bind('intezoRestoreBtn', 'click', () => _intezoRestore())
   bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
   bind('intezoTreeBtn', 'click', () => _intezoTreeSetShown(!_intezoTreeShown()))
-  bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
+  bind('intezoClipPasteBtn', 'click', () => _intezoPaste(_intezoPath))
+  bind('intezoClipCancelBtn', 'click', () => _intezoClipClear())
   // A lefixalt fejlec muveletsava. Delegalt kezelo: a gombok ujrarajzolasa
   // (disabled allapot) nem szakitja el a figyelot.
   const abar = document.getElementById('intezoActionBar')
@@ -37897,6 +37905,9 @@ function _intezoRender() {
       if (e) void _intezoOpenMenu(ev, e)
     })
   })
+  // A kivagott elem halvanyan (#383) -- es a sav Beillesztes-gombja a MOSTANI
+  // mappa nevet mutassa, ha kozben masik mappaba leptek.
+  _intezoRenderClip()
   // (Az ures teruletre adott jobb klikket mar nem itt fogjuk el, hanem az
   //  EGESZ Intezo lapon -- lasd `_intezoMenuBound`. A lista magassaga ugyanis
   //  a sorok szama: egy ket-elemu mappaban a tablazat par pixel, alatta meg
@@ -38154,12 +38165,11 @@ function _intezoScheduleContentRefresh(rows) {
 }
 
 /**
- * KULON KIS PANEL a celmappa kitallozasahoz.
+ * KULON KIS PANEL a papir peldany helyenek kitallozasahoz.
  *
- * `mode`: 'move' = athelyezes celja, 'paper' = a papir peldany helye.
- * Fajlt es MAPPAT egyarant lehet athelyezni -- a mappa a tartalmaval egyutt
- * megy. Ezert a panel a sajat kiindulasi agat kiszurkiti: egy mappat nem lehet
- * onmagaba tenni, es jobb ezt latni, mint utolag hibauzenetet kapni.
+ * Athelyezesre mar NEM ez szolgal (#383): Boss, TG 6314: "Ami a Windows
+ * intezoben van, jobb egergomb, kivag, masol, beilleszt. [...] Ne legyen ez az
+ * ablak." -- lasd `_intezoClipSet` / `_intezoPaste`.
  */
 function _intezoOpenFolderPicker(mode) {
   const sel = _intezoSelected
@@ -38171,9 +38181,7 @@ function _intezoOpenFolderPicker(mode) {
   // Nelkule a panel letrejonne, de LATHATATLAN maradna.
   overlay.className = 'modal-overlay active'
   overlay.id = 'intezoPickerOverlay'
-  const what = mode === 'move'
-    ? t('intezo.pick_move_to', { name: sel.name || '' })
-    : t('intezo.pick_paper_at', { name: sel.name || '' })
+  const what = t('intezo.pick_paper_at', { name: sel.name || '' })
   overlay.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
     + '<h3 style="margin:0 0 4px">' + escapeHtml(what) + '</h3>'
     + '<p class="subtitle" style="margin:0 0 10px">' + escapeHtml(t('intezo.pick_help')) + '</p>'
@@ -38182,7 +38190,7 @@ function _intezoOpenFolderPicker(mode) {
     + '<p style="margin:10px 0 4px;font-size:13px">' + escapeHtml(t('intezo.pick_here')) + ' <b id="intezoPickerHere"></b></p>'
     + '<div style="text-align:right;margin-top:8px">'
     + '<button class="btn-secondary" id="intezoPickerCancel">' + escapeHtml(t('intezo.cancel')) + '</button> '
-    + '<button class="btn-primary" id="intezoPickerOk">Ez legyen az</button>'
+    + '<button class="btn-primary" id="intezoPickerOk">' + escapeHtml(t('intezo.pick_ok')) + '</button>'
     + '</div></div>'
   document.body.appendChild(overlay)
 
@@ -38218,15 +38226,11 @@ function _intezoOpenFolderPicker(mode) {
       const up = document.createElement('button')
       up.className = 'btn-secondary btn-compact'
       up.style.cssText = 'display:block;width:100%;text-align:left;margin:2px 0'
-      up.textContent = '⬆ Fel egy szintet'
+      up.textContent = '⬆ ' + t('intezo.pick_up')
       up.addEventListener('click', () => { here = data.parent; draw() })
       list.appendChild(up)
     }
-    const folders = (data.folders || []).filter((f) => {
-      // Onmagaba nem lehet athelyezni -- ne is kinaljuk fel.
-      if (mode !== 'move' || !sel.isDir) return true
-      return f.rel !== sel.rel && String(f.rel + '/').indexOf(sel.rel + '/') !== 0
-    })
+    const folders = data.folders || []
     if (!folders.length) {
       const p = document.createElement('p')
       p.style.cssText = 'opacity:.7;font-size:13px;padding:6px'
@@ -38244,7 +38248,7 @@ function _intezoOpenFolderPicker(mode) {
       // ahhoz, hogy kiderüljon, ures-e (#341).
       const db = _intezoCountText(f)
       b.textContent = f.name
-        + (f.caution ? '  (git — ide nem)' : (sugo ? '  (' + sugo + ')' : ''))
+        + (f.caution ? '  (' + t('intezo.pick_git_no') + ')' : (sugo ? '  (' + sugo + ')' : ''))
         + (db ? '  · ' + db : '')
       if (f.caution) b.title = f.caution
       b.addEventListener('click', () => { here = f.rel; draw() })
@@ -38258,21 +38262,78 @@ function _intezoStartPick(mode) {
   _intezoOpenFolderPicker(mode)
 }
 
+/** Kivagas / Masolas: az elem a vagolapra kerul. Semmi nem mozdul meg. */
+function _intezoClipSet(entry, mode) {
+  if (!entry || !entry.rel) { showToast(t('intezo.select_first')); return }
+  _intezoClip = { rel: entry.rel, name: entry.name || entry.rel, isDir: !!entry.isDir, mode }
+  _intezoRenderClip()
+  showToast(t(mode === 'cut' ? 'intezo.clip_cut_toast' : 'intezo.clip_copy_toast', { name: _intezoClip.name }))
+}
+
+function _intezoClipClear() {
+  _intezoClip = null
+  _intezoRenderClip()
+}
+
+/**
+ * A vagolap sav: mi van rajta, kivagva vagy masolva, es a Beillesztes ide +
+ * Megse gomb. Ez az ERINTESES ut is (telefonon nincs jobb egergomb): a sav
+ * mindig latszik, amig valami a vagolapon van.
+ */
+function _intezoRenderClip() {
+  const bar = document.getElementById('intezoClipBar')
+  const txt = document.getElementById('intezoClipText')
+  const paste = document.getElementById('intezoClipPasteBtn')
+  if (bar) bar.hidden = !_intezoClip
+  if (_intezoClip) {
+    if (txt) {
+      txt.textContent = t(_intezoClip.mode === 'cut' ? 'intezo.clip_on_cut' : 'intezo.clip_on_copy', {
+        name: (_intezoClip.isDir ? '📁 ' : '📄 ') + _intezoClip.name,
+      })
+      txt.title = _intezoClip.rel
+    }
+    if (paste) paste.textContent = t('intezo.clip_paste_here', { name: _intezoMostaniNev() })
+  }
+  _intezoMarkCut()
+}
+
+/** A kivagott elem halvanyan latszik, mint a Windows Intezoben. */
+function _intezoMarkCut() {
+  const list = document.getElementById('intezoList')
+  if (!list) return
+  const cutRel = _intezoClip && _intezoClip.mode === 'cut' ? _intezoClip.rel : null
+  list.querySelectorAll('[data-rel]').forEach((el) => {
+    el.classList.toggle('intezo-cut', cutRel !== null && el.getAttribute('data-rel') === cutRel)
+  })
+}
+
+/**
+ * Beillesztes a `targetRel` mappaba. Kivagas = athelyezes (utana a vagolap
+ * kiurul), Masolas = masolat (a vagolap marad, tobbszor is beilleszthető).
+ * A dontest -- felulirasi tilalom, git-repo, bekotes, onmagaba -- a szerver
+ * hozza meg, es emberi mondattal valaszol.
+ */
+async function _intezoPaste(targetRel) {
+  const clip = _intezoClip
+  if (!clip) { showToast(t('intezo.clip_empty')); return }
+  const target = String(targetRel || '')
+  const cut = clip.mode === 'cut'
+  try {
+    const r = await _depoPost(cut ? '/api/life/move' : '/api/life/copy', { from: clip.rel, to: target })
+    showToast(r.message || t('intezo.done'))
+    if (cut && r.ok) _intezoClip = null
+    // A kijelolt elem a regi helyen mar nem letezik -- ne mutassunk halott adatlapot.
+    if (cut && r.ok && _intezoSelected && _intezoSelected.rel === clip.rel) _intezoClearSelection()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t(cut ? 'intezo.move_failed' : 'intezo.copy_failed'))
+  }
+  _intezoRenderClip()
+}
+
 async function _intezoConfirmPick(mode, target) {
   const sel = _intezoSelected
   if (!sel) { _intezoRender(); return }
-  if (mode === 'move') {
-    try {
-      const r = await _depoPost('/api/life/move', { from: sel.rel, to: target })
-      showToast(r.message || t('intezo.done'))
-      await _intezoOpen(_intezoPath)
-      if (r.ok) await _intezoInfo(r.rel)
-    } catch (e) {
-      showToast((e && e.message) ? e.message : t('intezo.move_failed'))
-      _intezoRender()
-    }
-    return
-  }
   // Papir helye: csak beirjuk a mezobe. A mentes kulon gomb -- igy egy
   // felreklikkelt mappa meg visszavonhato.
   const el = document.getElementById('intezoPhysLocation')
@@ -38798,7 +38859,8 @@ function _intezoActionClick(ev) {
   switch (btn.getAttribute('data-intezo-act')) {
     case 'preview': if (_intezoSelected) void _intezoOpenPreviewWindow(_intezoSelected); break
     case 'download': window.open(_intezoFileUrl(_intezoSelected.rel, true), '_blank'); break
-    case 'move': _intezoStartPick('move'); break
+    case 'cut': _intezoClipSet(_intezoSelected, 'cut'); break
+    case 'copy': _intezoClipSet(_intezoSelected, 'copy'); break
     case 'mount': {
       _intezoJumpTo('intezoMountTitle')
       const sel = document.getElementById('intezoMountTarget')
@@ -39455,6 +39517,9 @@ async function _intezoOpenMenu(ev, entry) {
 
   if (!entry) {
     m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: _intezoMostaniNev() }), () => _intezoMkdir()))
+    if (_intezoClip) {
+      m.appendChild(_intezoMenuItem('📋  ' + t('intezo.menu_paste_into', { name: _intezoMostaniNev() }), () => _intezoPaste(_intezoPath)))
+    }
     // A Kukaban allva a leggyakoribb szandek nem uj mappa, hanem a takaritas.
     if (_intezoKukaban(_intezoPath)) {
       m.appendChild(_intezoMenuSep())
@@ -39467,7 +39532,13 @@ async function _intezoOpenMenu(ev, entry) {
     // MEGJELENITETT nev: a lemez-nevet nem bantja, ezert git-repora es bekotott
     // mappara is mukodik (a valodi atnevezes ott elszakitana a szinkront).
     m.appendChild(_intezoMenuItem('🏷️  ' + t('intezo.menu_display_name'), () => _intezoSetDisplayName(entry)))
-    m.appendChild(_intezoMenuItem('➡️  ' + t('intezo.menu_move'), () => _intezoStartPick('move')))
+    m.appendChild(_intezoMenuSep())
+    m.appendChild(_intezoMenuItem('✂️  ' + t('intezo.menu_cut'), () => _intezoClipSet(entry, 'cut')))
+    m.appendChild(_intezoMenuItem('📄  ' + t('intezo.menu_copy'), () => _intezoClipSet(entry, 'copy')))
+    if (_intezoClip && entry.isDir) {
+      m.appendChild(_intezoMenuItem('📋  ' + t('intezo.menu_paste_into', { name: entry.name || entry.rel }), () => _intezoPaste(entry.rel)))
+    }
+    m.appendChild(_intezoMenuSep())
     if (entry.isDir) {
       m.appendChild(_intezoMenuItem('🔗  ' + t('intezo.menu_mount'), () => {
         _intezoJumpTo('intezoMountTitle')
@@ -39516,6 +39587,29 @@ if (!window._intezoMenuBound) {
   })
   document.addEventListener('scroll', () => _intezoCloseMenu(), true)
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _intezoCloseMenu() })
+  // BILLENTYUK (#383), mint a Windows Intezoben: Ctrl+X kivag, Ctrl+C masol,
+  // Ctrl+V a mostani mappaba illeszt, Esc kiuriti a vagolapot. Beviteli mezoben
+  // es kijelolt szovegnel a bongeszo sajat masolasa marad.
+  document.addEventListener('keydown', (e) => {
+    const lap = document.getElementById('intezoPage')
+    if (!lap || lap.hidden) return
+    const tg = e.target
+    if (tg && tg.closest && tg.closest('input,textarea,select,[contenteditable="true"]')) return
+    if (document.querySelector('.modal-overlay.active')) return
+    if (e.key === 'Escape') { if (_intezoClip && !_intezoMenuEl) _intezoClipClear(); return }
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+    const k = String(e.key || '').toLowerCase()
+    if (k === 'c' && window.getSelection && String(window.getSelection() || '')) return
+    if ((k === 'x' || k === 'c') && _intezoSelected) {
+      e.preventDefault()
+      _intezoClipSet(_intezoSelected, k === 'x' ? 'cut' : 'copy')
+    } else if (k === 'v' && _intezoClip) {
+      e.preventDefault()
+      void _intezoPaste(_intezoPath)
+    }
+  // CAPTURE: a menut becsuko Esc-figyelo UTANA fut, igy az Esc elobb a nyitott
+  // menut zarja, es csak egy MASODIK Esc uriti a vagolapot.
+  }, true)
 
   // JOBB EGERGOMB AZ INTEZO BARMELY URES PONTJAN = a MOSTANI mappa menuje
   // (elsosorban az „Uj mappa itt"). Boss, 2026-08-22: „ha itt az ures reszen

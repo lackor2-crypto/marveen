@@ -61,7 +61,7 @@ import { existsSync, statSync, createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
 import {
-  listLife, lifeInfo, moveLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
+  listLife, lifeInfo, moveLife, copyLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
   clearContentCache,
   resolveLifePath,
 } from '../../life-explorer.js'
@@ -557,13 +557,27 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   // resolveLifePath egy bekotott utvonalat a bekotes CELJARA fordit, igy egy
   // bekotott mappa "athelyezese" a mogotte allo valodi tarolot (pl. a teljes
   // Drive- vagy Git-mappat) vitte el, a bekotes pedig a semmibe mutatott.
+  // BEILLESZTES CELJA (#383): egy git-repo BARMELYIK pontjara -- a gyokeret is
+  // beleertve -- kezzel semmi nem kerulhet. A `writeBlockReason` a repo
+  // gyokeret szabadnak veszi (azt magat szabad mozgatni), ezert a CEL-oldalon
+  // kulon kerdezzuk meg: a gyokerbe tett fajl ugyanugy a repoba kerul.
+  const intoRepoReason = (to: string, lang: string): string => {
+    const at = repoAt(to)
+    if (!at) return ''
+    return T(lang,
+      `Ez a mappa egy git-repó (${at.rel}), ezért ide kézzel nem teszek semmit. `
+        + 'A repóba a szerkesztőből kerül a munka, commit + push után -- kézzel betéve a következő letöltés vagy visszasírja, vagy csendben eldobja.',
+      `This folder is a git repository (${at.rel}), so I will not put anything in it by hand. `
+        + 'Work gets into a repository from the editor, with commit + push -- dropped in by hand, the next download either complains or silently drops it.')
+  }
+
   if (path === '/api/life/move' && method === 'POST') {
     const lang = uiLang(url)
     const body = await readJson(req)
     const from = String(body?.from ?? '')
     // MINDKET veget nezzuk: a repobol kimozgatni ugyanugy elrontja a
     // verziokovetest, mint belerakni egy oda nem tartozo fajlt.
-    const blocked = writeBlockReason(from) || writeBlockReason(String(body?.to ?? ''))
+    const blocked = writeBlockReason(from) || intoRepoReason(String(body?.to ?? ''), lang)
     if (blocked) {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
       return true
@@ -576,6 +590,50 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const baj = bekotesOrzo(fromKey, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
     const result = moveLife(from, String(body?.to ?? ''), lang)
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  // MASOLAS (#383): a jobbklikkes Masolas + Beillesztes. Az eredeti a helyen
+  // marad, ezert a forras-oldali orok enyhebbek, mint az Athelyezesnel: egy
+  // bekotes CELJAT nyugodtan le lehet masolni, hiszen onnan semmi nem mozdul.
+  if (path === '/api/life/copy' && method === 'POST') {
+    const lang = uiLang(url)
+    const body = await readJson(req)
+    const from = String(body?.from ?? '')
+    const to = String(body?.to ?? '')
+    const blocked = intoRepoReason(to, lang)
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
+    const fromKey = from.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    // Egy BEKOTES masolata a mogotte allo teljes tarolot (pl. egy egesz
+    // Drive-mappat) masolna be a faba -- nem ezt varja, aki egy mutatot lat.
+    if (listMounts().some((m) => m.rel === fromKey)) {
+      send(res, 400, { ok: false, rel: '', code: 'mounted', message: T(lang,
+        'Ez a mappa csak MUTAT egy másik helyre, saját tartalma nincs. A benne lévő fájlokat egyenként le tudod másolni.',
+        'This folder only POINTS to another place, it has no content of its own. You can copy the files inside it one by one.') })
+      return true
+    }
+    // Bekotest tartalmazo mappa masolata a bekotest NEM vinne magaval: a
+    // masolatban az a resz csendben ures maradna.
+    const alatta = fromKey ? listMounts().filter((m) => m.rel.startsWith(fromKey + '/')) : []
+    if (alatta.length) {
+      send(res, 400, { ok: false, rel: '', code: 'has_mounts', message: T(lang,
+        `Ebben a mappában bekötés van (pl. ${alatta[0].rel}). A másolatba a bekötés nem kerülne át, az a rész üres maradna -- ezért így nem másolom. Másold a benne lévő mappákat külön.`,
+        `This folder has a link inside it (e.g. ${alatta[0].rel}). The link would not come along into the copy and that part would stay empty -- so I will not copy it like this. Copy the folders inside it separately.`) })
+      return true
+    }
+    // Git-repot nem sokszorozunk: a masolat egy masodik, gazdatlan klon lenne.
+    const repok = reposInside(from)
+    if (repok.length) {
+      send(res, 400, { ok: false, rel: '', code: 'has_repos', message: T(lang,
+        `Ez egy git-repó, vagy van benne egy (${repok[0]}). Azt nem másolom: a másolat egy második, gazdátlan példány lenne. Ha kell még egy, töltsd le újra a repót.`,
+        `This is a git repository, or has one inside it (${repok[0]}). I will not copy it: the copy would be a second, ownerless clone. If you need another one, download the repository again.`) })
+      return true
+    }
+    const result = await copyLife(from, to, lang)
     send(res, result.ok ? 200 : 400, result)
     return true
   }
