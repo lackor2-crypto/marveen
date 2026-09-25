@@ -3333,6 +3333,11 @@
         <div id="intezoMultiBar" class="intezo-actions intezo-clipbar" hidden>
           <span id="intezoMultiText" class="intezo-actions-name"></span>
           <button class="btn-primary btn-compact" id="intezoMultiMoveBtn" data-i18n="intezo.multi_to_person">Áthelyezés személyhez…</button>
+          <!-- Boss TG 1603: "amikor kijelolom akkor ott fent a sorban is" -- torles
+               a savban is, nem csak a jobb klikkben. A felirat (Kukaba / Vegleges)
+               a mappatol fugg, azt az app.js irja. -->
+          <button class="btn-danger btn-compact" id="intezoMultiDelBtn" data-i18n="intezo.menu_trash">Törlés</button>
+          <button class="btn-danger btn-compact" id="intezoMultiEmptyBtn" data-i18n="intezo.menu_empty_trash" hidden>A Kuka kiürítése (végleges)</button>
           <button class="btn-secondary btn-compact" id="intezoMultiAllBtn" data-i18n="intezo.multi_all">Mind kijelölése</button>
           <button class="btn-secondary btn-compact" id="intezoMultiNoneBtn" data-i18n="intezo.multi_none">Pipák törlése</button>
           <button class="btn-secondary btn-compact" id="intezoMultiDoneBtn" data-i18n="intezo.multi_done">Kész</button>
