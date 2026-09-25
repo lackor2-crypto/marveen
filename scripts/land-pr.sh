@@ -28,6 +28,7 @@
 # Kornyezeti valtozok (opcionalis):
 #   LAND_PR_CI_WAIT_MAX   -- meddig varjunk a CI-re, masodpercben (alap: 1500)
 #   LAND_PR_EMPTY_GRACE   -- ures rollup tureshatara, masodpercben (alap: 120)
+#   LAND_PR_KEEP_WORKTREE -- 1 = a sikeres merge utan NE torolje a tiszta worktree-t
 #
 # Kovetelmeny: `gh` CLI bejelentkezve a push-fiokkal (GITHUB_PUSH_ACCOUNT),
 # `node` es telepitett node_modules, es az `origin` remote a valodi repora
@@ -393,6 +394,9 @@ pr_state="$(gh pr view "$PR_URL" -R "$REPO" --json state --jq '.state' 2>&1)"
 state_rc=$?
 set -e
 
+# Csak a forrasbol visszaolvasott MERGED jogosit fel a worktree torlesere (6. lepes).
+MERGED_CONFIRMED=0
+[ "$state_rc" -eq 0 ] && [ "$pr_state" = "MERGED" ] && MERGED_CONFIRMED=1
 if [ "$state_rc" -ne 0 ]; then
   # NEM LATOK ODA. Nem allitjuk sem azt, hogy sikerult, sem azt, hogy nem.
   [ "$merge_rc" -eq 0 ] || die "a 'gh pr merge' hibaval tert vissza (exit $merge_rc), es a PR allapotat sem tudom visszaolvasni, tehat NEM tudom, mergelodott-e. PR: $PR_URL -- a gh merge sajat uzenete: $merge_out -- a 'gh pr view' hibaja: $pr_state"
@@ -477,3 +481,25 @@ fi
 # --- 5. lokalis main frissitese ------------------------------------------------
 git fetch -q origin main && echo "land-pr: origin/main = $(git rev-parse --short "$MAIN_REF"). Frissitsd a lokalis checkoutod, ha kell." >&2
 echo "land-pr: KESZ. Az elo peldanyra a scripts/deploy-live.sh viszi ki (idozitve fut)." >&2
+
+# --- 6. a landolt worktree takaritasa (2026-09-25, kartya #384) -----------------
+# Boss (TG 1454): "maskor ne hagyj ott az ilyeneket. ha keszen vagy akkor
+# torlesnek automatikusnak kellene lennie. minden agentnel." Eddig a worktree a
+# merge utan ott maradt, es az ebredeskori FELBEHAGYOTT WORKTREE-K blokk
+# kerdezest irt elo a maradek torlesehez -- egy nap alatt negy landolt maradek
+# gyult ossze egyetlen agensnel.
+#
+# CSAK akkor torlunk, ha biztosan nem veszik el semmi:
+#   - a forras szerint MERGED a PR (ha az allapotot nem tudtuk visszaolvasni, nem),
+#   - a HEAD ugyanaz, mint amit felnyomtunk (a CI-varas alatt nem jott uj commit),
+#   - a munkafa tiszta (se modositott, se nem-kovetett fajl),
+#   - egy agens-worktree-rol van szo (a worktree-gyoker alatt, nem a fo checkout).
+# Barmelyik feltetel hianyaban NEM torlunk, es kimondjuk, miert. A lokalis
+# branchet is toroljuk, ha a hegye a landolt commit: kulonben a kovetkezo
+# `agent-worktree.sh <nev>` a regi, squash-elt agat huzna vissza a friss main
+# helyett. Kikapcsolo: LAND_PR_KEEP_WORKTREE=1.
+if [ "$MERGED_CONFIRMED" != "1" ]; then
+  echo "land-pr: a worktree-t NEM toroltem: a PR MERGED allapotat nem tudtam visszaolvasni." >&2
+elif [ "${LAND_PR_KEEP_WORKTREE:-0}" != "1" ]; then
+  bash "$BASE/scripts/land-pr-worktree-cleanup.sh" "$PUSHED_SHA" || true
+fi
