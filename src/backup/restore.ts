@@ -89,6 +89,10 @@ export function buildRestorePlan(o: {
   const paths = [...o.manifest.files.map((f) => f.path), ...(o.manifest.links ?? []).map((l) => l.path)]
   for (const logical of paths) {
     if (logical === 'manifest.json') continue
+    // The NEW install's access token stays: the browser doing the restore is
+    // signed in with it, and the old one could only be read from a terminal.
+    // The old dashboard logins come back with the database.
+    if (/^project\/store\/\.dashboard-token$/.test(logical)) continue
     const category = logical === 'project/local-commits.bundle' ? 'git' : categoryOf(logical, o.manifest.categories)
     if (category === 'reference' || category === 'logs') continue
     if (exclude.includes(category)) continue

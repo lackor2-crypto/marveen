@@ -110,6 +110,11 @@ describe('restore A -> empty B with different paths', async () => {
     expect(readFileSync(join(B.projectRoot, '.env'), 'utf8')).toContain('FOO=bar')
   })
 
+  it('keeps the new install\'s own access token (the browser stays signed in)', () => {
+    expect(existsSync(join(B.storeDir, '.dashboard-token'))).toBe(false)
+    expect(existsSync(join(B.storeDir, 'vault.json'))).toBe(true)
+  })
+
   it('never restores Claude logins, hooks, or service units', () => {
     expect(existsSync(join(B.home, '.claude-marvin', '.credentials.json'))).toBe(false)
     expect(existsSync(join(B.projectRoot, 'agents', 'alpha', '.claude', 'settings.json'))).toBe(false)
