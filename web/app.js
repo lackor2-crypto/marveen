@@ -22412,9 +22412,20 @@ async function loadOverview() {
     // "amikor frissiti a user a bongeszot az oldalt, akkor az is frissuljon".
     // Ahol nem sikerul elo merest szerezni (a fiok epp nem jelent semmit), ott
     // szandekosan marad a regi, oszinte kor: "0 perce" csak valodi meresre jar.
-    const res = await fetch('/api/overview?measure=1')
+    //
+    // #390: az elo meres fiokonkent egy halozati kerdes (~0,35 s). Az oldal
+    // ezert ELOSZOR a meglevo adatbol rajzol (azonnal), es a friss meres a
+    // hatterben jon: amikor megerkezik, a keret-szekcio (az egyetlen resz,
+    // amit a `measure=1` megvaltoztat) ujrarajzolodik belole.
+    const measured = fetch('/api/overview?measure=1')
+    const res = await fetch('/api/overview')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const d = await res.json()
+    measured.then(async (mr) => {
+      if (!mr.ok) return
+      const md = await mr.json()
+      renderOverviewRateLimit(md.rateLimit, md.openrouterCredits, md.claudeAccounts)
+    }).catch(() => { /* a meglevo adat marad kint */ })
     // Stats
     document.getElementById('statAgents').textContent = d.agents.running
     // A kulso (VS Code) kartyak nincsenek a Marveen-ugynokok kozott, de latszanak
@@ -22437,13 +22448,12 @@ async function loadOverview() {
     renderOverviewUpstreamSync(d.upstreamSync)
     // Team: reuse the hierarchy graph renderer so the overview card shows
     // exactly what the Csapat page does (avatars + reports-to tree).
-    try {
-      const tg = await fetch('/api/team/graph')
-      if (tg.ok) {
-        const graph = await tg.json()
-        renderTeamGraph(document.getElementById('overviewTeamGrid'), graph)
-      }
-    } catch {}
+    // #390: fire-and-forget, so the activity list below does not wait on it.
+    fetch('/api/team/graph').then(async (tg) => {
+      if (!tg.ok) return
+      const graph = await tg.json()
+      renderTeamGraph(document.getElementById('overviewTeamGrid'), graph)
+    }).catch(() => {})
     // Activity
     const act = document.getElementById('overviewActivity')
     act.innerHTML = ''
