@@ -191,8 +191,34 @@ function archiveMissingUncached(archivePath: string): string[] | null {
   return MUST_BACKUP.filter(f => !has(f))
 }
 
+/** Newest encrypted full backup (#396, store/backups/*.mbk), or null. Its
+ *  content is checked by the engine itself (manifest + hashes), so only its
+ *  age matters here. */
+function newestFullBackup(dir: string): { path: string; mtime: number } | null {
+  let best: { path: string; mtime: number } | null = null
+  let names: string[] = []
+  try { names = readdirSync(dir) } catch { return null }
+  for (const name of names) {
+    if (!name.startsWith('marveen-backup-') || !name.endsWith('.mbk')) continue
+    try {
+      const m = statSync(join(dir, name)).mtimeMs
+      if (!best || m > best.mtime) best = { path: join(dir, name), mtime: m }
+    } catch { /* raced away */ }
+  }
+  return best
+}
+
 function backupRows(now: number): HealthRow[] {
-  const newest = newestArchive(backupsDir())
+  const full = newestFullBackup(join(STORE_DIR, 'backups'))
+  const legacy = newestArchive(backupsDir())
+  if (full && (!legacy || full.mtime >= legacy.mtime)) {
+    const age = now - full.mtime
+    const hours = Math.floor(age / (60 * 60 * 1000))
+    if (age >= BACKUP_DEAD_MS) return [{ id: 'backup_stale', status: 'bad', params: { h: hours } }]
+    if (age >= BACKUP_STALE_MS) return [{ id: 'backup_stale', status: 'warn', params: { h: hours } }]
+    return [{ id: 'backup_ok', status: 'ok', params: { h: hours } }]
+  }
+  const newest = legacy
   if (!newest) {
     return [{ id: 'backup_missing', status: 'bad' }]
   }
