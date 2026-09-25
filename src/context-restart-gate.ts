@@ -143,7 +143,8 @@ export interface GateInputs {
   /**
    * Count of agent_messages FROM this agent with status IN (pending, delivered)
    * and created_at within staleCutoffMs. These represent live dispatched work
-   * the agent is waiting for.
+   * the agent is waiting for -- reports to the main agent and the gate's own
+   * alerts are excluded (see getDispatchedPendingStats, #400).
    */
   pendingOutboundCount: number
   /**

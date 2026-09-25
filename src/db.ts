@@ -2459,27 +2459,50 @@ export interface DispatchedPendingStats {
   hasStale: boolean
 }
 
+/** origin_note of the context-restart gate's own persistent-block alert. */
+export const GATE_ALERT_ORIGIN_NOTE = 'context-restart-gate persistent-block alert'
+
 /**
  * Check how many outbound messages this agent dispatched that have not yet
  * received a result (status pending or delivered), separating live (within
  * staleCutoffMs) from stale (beyond it). Used by the context-restart gate.
+ *
+ * Only DISPATCHED WORK counts, i.e. something the agent is waiting on. Two
+ * kinds of outbound row are not that, and used to hold the gate shut (#400):
+ *
+ *  - Rows addressed to the coordinator (the main agent). A sub-agent's
+ *    messages upward are done-reports and alerts; the coordinator hands out
+ *    work, it is not delegated to. Nobody closes those rows as 'done', so each
+ *    report re-armed the 2h window and a busy sub-agent never got past the gate.
+ *  - The gate's own persistent-block alert. It is sent FROM the blocked agent,
+ *    so counting it made the block self-sustaining: every alert blocked for
+ *    another 2h and produced the next alert.
+ *
+ * Work the agent hands to any other agent still counts, the coordinator's own
+ * delegations included.
  */
 export function getDispatchedPendingStats(
   fromAgent: string,
   nowMs: number,
   staleCutoffMs: number,
+  coordinatorId?: string | null,
 ): DispatchedPendingStats {
   const cutoffEpoch = Math.floor((nowMs - staleCutoffMs) / 1000)
+  const notWork = `AND COALESCE(origin_note, '') <> ?
+         AND (? IS NULL OR to_agent <> ?)`
+  const coord = coordinatorId || null
   const liveRow = db.prepare(
     `SELECT COUNT(*) AS cnt FROM agent_messages
        WHERE from_agent = ? AND status IN ('pending','delivered')
-         AND CAST(created_at AS INTEGER) > ?`,
-  ).get(fromAgent, cutoffEpoch) as { cnt: number }
+         AND CAST(created_at AS INTEGER) > ?
+         ${notWork}`,
+  ).get(fromAgent, cutoffEpoch, GATE_ALERT_ORIGIN_NOTE, coord, coord) as { cnt: number }
   const staleRow = db.prepare(
     `SELECT COUNT(*) AS cnt FROM agent_messages
        WHERE from_agent = ? AND status IN ('pending','delivered')
-         AND CAST(created_at AS INTEGER) <= ?`,
-  ).get(fromAgent, cutoffEpoch) as { cnt: number }
+         AND CAST(created_at AS INTEGER) <= ?
+         ${notWork}`,
+  ).get(fromAgent, cutoffEpoch, GATE_ALERT_ORIGIN_NOTE, coord, coord) as { cnt: number }
   return {
     count:    liveRow?.cnt ?? 0,
     hasStale: (staleRow?.cnt ?? 0) > 0,

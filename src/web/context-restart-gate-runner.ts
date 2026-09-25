@@ -17,6 +17,7 @@ import { resolveAgentConfigDir } from './claude-plans.js'
 import { readGateConfig, readGateRunState, readGateStatus, writeGateRunState, writeGateStatus } from './context-restart-gate-store.js'
 import {
   getDispatchedPendingStats,
+  GATE_ALERT_ORIGIN_NOTE,
   hasOpenInboundQuestion,
   createAgentMessage,
 } from '../db.js'
@@ -432,7 +433,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   const contextTokens = contextReading.tokens
 
   const dispatchedStats = (() => {
-    try { return getDispatchedPendingStats(name, nowMs, cfg.staleCutoffMs) }
+    try { return getDispatchedPendingStats(name, nowMs, cfg.staleCutoffMs, MAIN_AGENT_ID) }
     catch { return null }
   })()
 
@@ -617,7 +618,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
             name,
             MAIN_AGENT_ID,
             `[CONTEXT-RESTART-GATE] A(z) "${name}" agens kapuja ${blockedSinceMin} perce folyamatosan blokkolt. Ok: ${decision.reason}.${childInfo} A(z) ${Math.round(cfg.thresholdTokens / 1000)}k tokenes kuszob ele ert, de a kapu nem enged -- ellenorizd hogy nincs-e elakadt munka.`,
-            'context-restart-gate persistent-block alert',
+            GATE_ALERT_ORIGIN_NOTE,
           )
           logger.warn({ agent: name, reason: decision.reason, blockedSinceMin },
             'context-restart-gate: persistent-block alert sent')
