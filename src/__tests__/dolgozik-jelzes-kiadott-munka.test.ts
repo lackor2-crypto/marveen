@@ -104,17 +104,19 @@ describe('kod-hid: a kiadott munka a sorban allas alatt is "dolgozik"', () => {
 describe('felulet: EGY meresbol lesz zold minden kartyan', () => {
   it('a 3 masodperces szavazas a kiszolgalo allapotat hasznalja, nem szamol ujra', () => {
     // Ha a felulet maga dontene, ket kulonbozo "dolgozik" fogalom lenne.
-    expect(app).toContain("const cbWorking = !!cbEntry && cbEntry.state === 'working'")
+    // #397: per project, still the server's state -- no recount in the page.
+    expect(app).toContain("const cbWorking = !!cbState && cbState.state === 'working'")
     expect(app).toContain("const workingCount = entries.filter((e) => e.state === 'working').length")
   })
 
   it('a kod-hid kartyajanak elso kirajzolasa UGYANAZT a feltetelt hasznalja (nincs 3 masodperces villogas)', () => {
-    expect(app).toContain('(codeBridgeCards.running > 0 || (codeBridgeCards.queued > 0 && codeBridgeCards.workerOnline))')
+    // #397: the same condition, on the card's OWN project counts (cbTc).
+    expect(app).toContain('(cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline))')
   })
 
   it('a zold cimkeje kimondja, ha a munka meg csak ki van adva', () => {
     expect(app).toContain("meta.label = t('activity.state.working_queued')")
-    expect(app).toContain("cbEntry.queuedOnly ? t('activity.state.working_queued') : t('activity.state.working')")
+    expect(app).toContain("cbState.queuedOnly ? t('activity.state.working_queued') : t('activity.state.working')")
   })
 
   it('a ket uj kulcs MINDKET nyelvben megvan', () => {

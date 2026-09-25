@@ -2380,6 +2380,13 @@ export interface CodeBridgeActivity {
    *  `CodeSession.marvinOwned` beszelgetes-szintu ervenyessege egesziti ki:
    *  amint a sor masik beszelgetesre all at, a jeloles torlodik. */
   liveMarvinOwnedActive: boolean
+  /** #397: the projects whose Marvin-owned conversation is freshly active --
+   *  the same measurement as `liveMarvinOwnedActive`, kept per project so a
+   *  VS Code card only turns "working" for its OWN project. */
+  liveMarvinOwnedActiveProjects: string[]
+  /** #397: queued / running `code_tasks` counted per project (GROUP BY, not the
+   *  8-row tail lists). A project that is absent has zero of both. */
+  countsByProject: Record<string, { queued: number; running: number }>
 }
 
 /** Meddig szamit egy `live === true` beszelgetes "meg dolgozik"-nak MERT
@@ -2537,7 +2544,17 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     const ts = c.lastActivity ?? c.mtime
     return ts == null || now - ts <= LIVE_SESSION_STALE_MS
   })
+  // #397: the same freshness check, per project -- one card per project.
+  const liveMarvinOwnedActiveProjects = [...new Set(liveCands.filter((c) => {
+    const reg = byPath.get(workspaceKey(c.workspacePath))
+    if (!reg?.marvinOwned || reg.sessionId !== c.sessionId) return false
+    const ts = c.lastActivity ?? c.mtime
+    return ts == null || now - ts <= LIVE_SESSION_STALE_MS
+  }).map((c) => byPath.get(workspaceKey(c.workspacePath))!.project))]
+  const countsByProject = codeTaskCountsByProject()
   return {
+    liveMarvinOwnedActiveProjects,
+    countsByProject,
     present: lastSeen > 0 || sessions > 0,
     workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
     queued,
@@ -2607,6 +2624,63 @@ export function codeBridgeDisplayState(
   }
   if (!act.liveMeasured) return { state: 'unknown', queuedOnly: false }
   return { state: 'idle', queuedOnly: false }
+}
+
+/** #397: queued / running task counts per project. The VS Code cards are one
+ *  per project; the bridge-wide totals made EVERY card show "working" when any
+ *  single project had a task (Boss, TG 6436: a Marveen task lit up the stock
+ *  trading card too). */
+export function codeTaskCountsByProject(): Record<string, { queued: number; running: number }> {
+  ensureTables()
+  const out: Record<string, { queued: number; running: number }> = {}
+  const rows = getDb()
+    .prepare(`SELECT project, status, COUNT(*) AS n FROM code_tasks WHERE status IN ('queued', 'running') GROUP BY project, status`)
+    .all() as Array<{ project: string | null; status: string; n: number }>
+  for (const r of rows) {
+    const key = String(r.project ?? '')
+    const cur = out[key] ?? (out[key] = { queued: 0, running: 0 })
+    if (r.status === 'queued') cur.queued = Number(r.n) || 0
+    else cur.running = Number(r.n) || 0
+  }
+  return out
+}
+
+/** #397: the display state of ONE project's card, from the same decision as
+ *  the bridge-wide `codeBridgeDisplayState` -- only the project's own tasks and
+ *  its own Marvin-owned conversation count. Account-wide signals (quota block,
+ *  worker online, liveness measured) stay shared: they are not per project. */
+export function codeBridgeProjectDisplayStates(
+  act: CodeBridgeActivity,
+  bridgeEnabled: boolean,
+): Record<string, { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean; codeSessionId: string | null }> {
+  const projects = new Set<string>([
+    ...Object.keys(act.countsByProject),
+    ...act.liveMarvinOwnedActiveProjects,
+    ...act.running.map((r) => r.project),
+  ])
+  const owned = new Set(act.liveMarvinOwnedActiveProjects)
+  const out: Record<string, { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean; codeSessionId: string | null }> = {}
+  for (const project of projects) {
+    const running = act.running.filter((r) => r.project === project)
+    const counts = act.countsByProject[project] ?? { queued: 0, running: 0 }
+    // The tail list is capped; the GROUP BY count is not. A running task past
+    // the cap still counts as running.
+    const runningList = running.length > 0 || counts.running === 0
+      ? running
+      : [{ project, prompt: '', sessionId: null }]
+    const { state, queuedOnly } = codeBridgeDisplayState(
+      { ...act, running: runningList, queued: counts.queued, liveMarvinOwnedActive: owned.has(project) },
+      bridgeEnabled,
+    )
+    const live = act.liveSessions.find((l) => l.project === project && l.current)
+      ?? act.liveSessions.find((l) => l.project === project) ?? null
+    out[project] = {
+      state,
+      queuedOnly,
+      codeSessionId: running[0] ? running[0].sessionId : (live ? live.sessionId : null),
+    }
+  }
+  return out
 }
 
 export function codeBridgeHealth(now = Date.now()): CodeBridgeHealth {

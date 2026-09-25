@@ -5913,23 +5913,33 @@ async function refreshAgentTerminalBusy() {
   // egyperces adat-frissitesevel.
   if (agentsGrid) {
     const cbEntry = entries.find((e) => e.kind === 'code-bridge') || null
-    const cbWorking = !!cbEntry && cbEntry.state === 'working'
     agentsGrid.querySelectorAll('.code-bridge-agent-card [data-cb-busy]').forEach((el) => {
+      // #397 (Boss TG 6436): a project's card reads its OWN project state. The
+      // bridge-wide state made the stock-trading card say "working" while the
+      // task ran on Marveen. A project missing from the map is idle; a server
+      // without the map (old backend) -> the card claims nothing.
+      const cardEl = el.closest('.code-bridge-agent-card')
+      const project = cardEl ? cardEl.dataset.cbProject : ''
+      const cbState = !cbEntry ? null
+        : !project ? cbEntry
+        : (cbEntry.projects && typeof cbEntry.projects === 'object') ? (cbEntry.projects[project] || null)
+        : null
+      const cbWorking = !!cbState && cbState.state === 'working'
       el.hidden = !cbWorking
       // A CIMKE is ugyanabbol a meresbol jon, mint a Tevekenyseg lapon: ha a
       // zoldet egyedul a SOR adja (kiadva, de meg nem indult el -- kartya
       // 5603b3d4), a jelzo ezt kimondja, nem "dolgozik"-ot allit.
       if (cbWorking) {
-        el.textContent = cbEntry.queuedOnly ? t('activity.state.working_queued') : t('activity.state.working')
-        el.title = cbEntry.queuedOnly ? t('activity.state_tip.working_queued') : t('cb.card.busy_help')
+        el.textContent = cbState.queuedOnly ? t('activity.state.working_queued') : t('activity.state.working')
+        el.title = cbState.queuedOnly ? t('activity.state_tip.working_queued') : t('cb.card.busy_help')
       }
       // A beszelgetes azonositoja a jelzon ul: enelkul a kattintas nem tudna,
       // MIT nyisson. Ha nincs (regi kiszolgalo, vagy nem tudjuk, hol fut), a
       // jelzo latszik, de nem nyit semmit -- nem igerunk olyan ablakot,
       // amirol nem tudjuk, hogy letezik.
-      if (cbWorking && cbEntry.codeSessionId) {
-        el.dataset.codeSession = cbEntry.codeSessionId
-        el.dataset.codeLabel = cbEntry.codeLabel || ''
+      if (cbWorking && cbState.codeSessionId) {
+        el.dataset.codeSession = cbState.codeSessionId
+        el.dataset.codeLabel = cbState === cbEntry ? (cbEntry.codeLabel || '') : project
       } else {
         delete el.dataset.codeSession
         delete el.dataset.codeLabel
@@ -6017,18 +6027,31 @@ function cbIdleCardEntry(off) {
   }
 }
 
+// #397 (Boss TG 6436): the queued / running tasks of ONE project's card. The
+// server counts them per project (GET /api/code/projects). An old server does
+// not send the fields -> `null`: the card then claims no work at all, rather
+// than borrowing the bridge-wide total, which belongs to every project.
+function cbRowTaskCounts(row) {
+  if (!row || typeof row.running !== 'number' || typeof row.queued !== 'number') return null
+  return { running: row.running, queued: row.queued }
+}
+
 // Mit csinal EPPEN a hid. A bal menu jelvenye megszunt a Kod-hid-lappal
 // egyutt, es a "3 sorban" onmagaban is ertekesebb informacio, mint egy szam
 // egy menupont mellett: itt latszik, amikor a kartyat nezed.
-function cbCardNote() {
+function cbCardNote(row) {
   // ELOSZOR a fuggoben levo le-/bekapcsolas: ez a kartyan KIVUL eddig sehol nem
   // latszott, pedig ez valtoztatja meg leginkabb, hogy mire szamit az ember.
   if (codeBridgeCards.savedEnabled === false && codeBridgeCards.state !== 'disabled') {
     return t('cb.card.stop_pending')
   }
   if (!codeBridgeCards.workerOnline) return t('cb.card.worker_off')
-  const busy = codeBridgeCards.queued + codeBridgeCards.running
-  if (codeBridgeCards.running) return t('cb.card.busy', { n: codeBridgeCards.running, q: codeBridgeCards.queued })
+  // #397: a project's card counts ITS project's tasks (cbRowTaskCounts); the
+  // bridge-wide total lit up every card when any one project had work.
+  const counts = row ? cbRowTaskCounts(row) : { running: codeBridgeCards.running, queued: codeBridgeCards.queued }
+  if (!counts) return t('cb.card.worker_on')
+  const busy = counts.queued + counts.running
+  if (counts.running) return t('cb.card.busy', { n: counts.running, q: counts.queued })
   if (busy) return t('cb.card.queued', { n: busy })
   return t('cb.card.worker_on')
 }
@@ -6584,6 +6607,8 @@ function cbEntryFromProject(r, ctx) {
     note: c.note,
     roleHolder: c.roleHolder,
     project: r.project,
+    // #397: this project's own queued / running tasks (`null` = old server).
+    taskCounts: cbRowTaskCounts(r),
     // Lehet `null` = nem latunk ra. A kettot a kiiras kulon mondja el.
     contextTokens: (typeof r.contextTokens === 'number' && r.contextTokens > 0) ? r.contextTokens : null,
     // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
@@ -6642,7 +6667,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     ? rows.map(function (r) {
         return cbEntryFromProject(r, {
           online: codeBridgeCards.workerOnline,
-          note: cbCardNote(),
+          note: cbCardNote(r),
           // Szerepet csak VALODI projekthez lehet rendelni: a "meg nincs
           // projekt" kartya nem cimezheto, igy jelolonegyzetet sem kap.
           roleHolder: cbRoleHolder(r.project),
@@ -6655,6 +6680,14 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   for (const e of entries) {
     const card = document.createElement('div')
     card.className = 'agent-card code-bridge-agent-card'
+    // #397: the 3-second activity refresh finds this card's OWN project state
+    // by this key (refreshAgentTerminalBusy). The no-project placeholder card
+    // has none and keeps the bridge-wide state -- it stands for the bridge.
+    if (e.project) card.dataset.cbProject = e.project
+    const cbTc = e.project
+      ? e.taskCounts
+      : { running: codeBridgeCards.running, queued: codeBridgeCards.queued }
+    const cbBusyNow = !!cbTc && (cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline))
     // A szinkulcs SZANDEKOSAN a projekt aliasa marad: egy projekt egy szin,
     // akkor is, ha kozben botot cserelsz.
     const name = cbCardTitle(e.title)
@@ -6715,7 +6748,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
              belsejeben all, ezert IDEZOJEL-BACKTICK NEM KERULHET bele -- a backtick
              kilep a sablonbol, es a szoveg kozepe kifejezeskent ertekelodik ki
              (ReferenceError: dot is not defined). -->
-        <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${(codeBridgeCards.running > 0 || (codeBridgeCards.queued > 0 && codeBridgeCards.workerOnline)) ? '' : ' hidden'}>${escapeHtml(codeBridgeCards.running > 0 ? t('activity.state.working') : t('activity.state.working_queued'))}</button>
+        <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${cbBusyNow ? '' : ' hidden'}>${escapeHtml(cbTc && cbTc.running > 0 ? t('activity.state.working') : t('activity.state.working_queued'))}</button>
         <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
