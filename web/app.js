@@ -38363,18 +38363,25 @@ async function _intezoPaste(targetRel) {
       r = await _depoPost(url, { from: clip.rel, to: target })
     } catch (e) {
       // Foglalt nev (#383, Boss TG 6343: "szo nelkul beillesztette ... nem szol"):
-      // KERDEZUNK. Felulirast nem kinalunk; a `(2)` csak kifejezett valaszra jon.
+      // KERDEZUNK. Semmi nem tortenik kifejezett valasz nelkul.
       if (!(e && e.status === 409 && e.data && e.data.code === 'name_exists' && e.data.suggested)) throw e
-      const keep = await _intezoAskNameClash(e.data)
-      if (!keep) { _intezoRenderClip(); return }
-      r = await _depoPost(url, { from: clip.rel, to: target, keepBoth: true })
+      const choice = await _intezoAskNameClash(e.data)
+      if (!choice) { _intezoRenderClip(); return }
+      r = await _depoPost(url, Object.assign({ from: clip.rel, to: target }, choice))
     }
-    // A vegso nevet mondjuk ki -- ha `(2)` lett belole, azt is lassa.
+    // A vegso nevet es a szamokat mondjuk ki -- ha `(2)` lett belole, azt is lassa.
     const finalName = r && r.rel ? String(r.rel).split('/').pop() : ''
-    showToast(finalName ? t('intezo.clip_pasted', { name: finalName }) : (r.message || t('intezo.done')))
-    if (cut && r.ok) _intezoClip = null
+    const parts = []
+    if (r && r.code === 'skipped') parts.push(t('intezo.clip_skipped_one', { name: String(clip.rel).split('/').pop() }))
+    else parts.push(finalName ? t('intezo.clip_pasted', { name: finalName }) : (r.message || t('intezo.done')))
+    if (r && r.replaced) parts.push(t('intezo.clip_replaced_trash', { n: r.replaced }))
+    if (r && r.keptBoth) parts.push(t('intezo.clip_kept_n', { n: r.keptBoth }))
+    if (r && r.skipped && r.code !== 'skipped') parts.push(t('intezo.clip_skipped_n', { n: r.skipped }))
+    showToast(parts.join(' · '))
+    // Kihagyasnal semmi nem mozdult: a vagolap marad, ujra be lehet illeszteni mashova.
+    if (cut && r.ok && r.code !== 'skipped') _intezoClip = null
     // A kijelolt elem a regi helyen mar nem letezik -- ne mutassunk halott adatlapot.
-    if (cut && r.ok && _intezoSelected && _intezoSelected.rel === clip.rel) _intezoClearSelection()
+    if (cut && r.ok && r.code !== 'skipped' && _intezoSelected && _intezoSelected.rel === clip.rel) _intezoClearSelection()
     await _intezoOpen(_intezoPath)
   } catch (e) {
     showToast((e && e.message) ? e.message : t(cut ? 'intezo.move_failed' : 'intezo.copy_failed'))
@@ -38383,28 +38390,82 @@ async function _intezoPaste(targetRel) {
 }
 
 /**
- * Nevutkozes-kerdes beilleszteskor (#383). Ket valasz van: mindketto
- * megtartasa (a gombon az UJ nev all, hogy lassa, mi lesz) vagy megse.
- * Felulirast szandekosan nem kinal. Esc / hatterre kattintas = megse.
+ * Nevutkozes-kerdes beilleszteskor (#383, Boss TG 6346: "minden kell ami a
+ * Windows intezojeben is van"). A valasz egy feloldas, vagy `null` (= megse):
+ *   - FAJL fajlra: Csere (a regi a Kukaba kerul) / Kihagyas / Mindketto megtartasa;
+ *   - MAPPA mappara: Egyesites -- a belso fajl-utkozesekre ugyanez a harom
+ *     valasz, egyszerre mindre vagy fajlonkent --, Mindketto megtartasa, Megse;
+ *   - ugyanabba a mappaba / fajl mappara: csak Mindketto megtartasa vagy Megse.
+ * Esc / hatterre kattintas = megse.
  */
 function _intezoAskNameClash(info) {
   return new Promise(resolve => {
     const name = String(info.conflictName || '')
     const kind = t(info.conflictIsDir ? 'intezo.clip_exists_folder' : 'intezo.clip_exists_file')
+    const canReplace = !!info.canReplace
+    const canMerge = !!info.canMerge
+    const inner = Array.isArray(info.innerConflicts) ? info.innerConflicts : []
+    const innerTotal = Number(info.innerTotal || inner.length)
+    // Literal keys, so the i18n parity gate can see every one of them.
+    const resLabel = { replace: t('intezo.clip_res_replace'), skip: t('intezo.clip_res_skip'), keepBoth: t('intezo.clip_res_keepBoth') }
+    const itemOpts = (c, sel) => ['replace', 'skip', 'keepBoth']
+      .filter(v => v !== 'replace' || (!c || (!c.isDir && !c.existingIsDir)))
+      .map(v => `<option value="${v}"${v === sel ? ' selected' : ''}>${escapeHtml(resLabel[v])}</option>`).join('')
+    let body
+    if (canMerge) {
+      body = `<p style="margin:0 0 8px">${escapeHtml(t('intezo.clip_merge_body', { name }))}</p>`
+      if (inner.length) {
+        body += `<p style="margin:0 0 6px">${escapeHtml(t('intezo.clip_merge_inner', { n: innerTotal }))}</p>
+          <div style="display:flex;flex-direction:column;gap:4px;margin:0 0 8px">
+            ${['replace', 'skip', 'keepBoth'].map(v => `<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="intezoClashRes" value="${v}"${v === 'keepBoth' ? ' checked' : ''}> ${escapeHtml(resLabel[v])}</label>`).join('')}
+          </div>`
+        if (inner.length > 1) {
+          body += `<label style="display:flex;gap:6px;align-items:center;margin:0 0 6px"><input type="checkbox" id="intezoClashAll" checked> ${escapeHtml(t('intezo.clip_apply_all'))}</label>
+            <div id="intezoClashList" hidden style="max-height:40vh;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:6px">
+              ${inner.map((c, i) => `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:3px 0">
+                <span style="flex:1 1 180px;min-width:0;overflow-wrap:anywhere">${escapeHtml(c.path)}</span>
+                <select data-i="${i}" style="flex:0 1 auto;max-width:100%">${itemOpts(c, 'keepBoth')}</select></div>`).join('')}
+            </div>`
+          if (innerTotal > inner.length) body += `<p style="margin:6px 0 0;color:var(--text-muted)">${escapeHtml(t('intezo.clip_more_default', { n: innerTotal - inner.length }))}</p>`
+        }
+      } else {
+        body += `<p style="margin:0;color:var(--text-muted)">${escapeHtml(t('intezo.clip_merge_clean'))}</p>`
+      }
+    } else {
+      body = `<p style="margin:0 0 8px">${escapeHtml(t('intezo.clip_exists_body', { name, kind }))}</p>
+        <p style="margin:0;color:var(--text-muted)">${escapeHtml(t(canReplace ? 'intezo.clip_replace_hint' : 'intezo.clip_exists_hint'))}</p>`
+    }
+    const btn = (act, cls, label) => `<button type="button" class="${cls}" data-act="${act}" style="white-space:normal;text-align:left">${escapeHtml(label)}</button>`
+    const buttons = [btn('cancel', 'btn-secondary', t('intezo.cancel'))]
+    if (canReplace || canMerge) buttons.push(btn('skip', 'btn-secondary', t('intezo.clip_skip')))
+    buttons.push(btn('keepBoth', (canReplace || canMerge) ? 'btn-secondary' : 'btn-primary', t('intezo.clip_keep_both', { name: String(info.suggested) })))
+    if (canReplace) buttons.push(btn('replace', 'btn-primary', t('intezo.clip_replace')))
+    if (canMerge) buttons.push(btn('merge', 'btn-primary', t('intezo.clip_merge')))
     const ov = document.createElement('div')
     ov.className = 'modal-overlay active'
     ov.innerHTML = `
-      <div class="modal" style="max-width:440px" role="dialog" aria-modal="true">
-        <div class="modal-header"><h2>${escapeHtml(t('intezo.clip_exists_title'))}</h2></div>
-        <div class="modal-body">
-          <p style="margin:0 0 8px">${escapeHtml(t('intezo.clip_exists_body', { name, kind }))}</p>
-          <p style="margin:0;color:var(--text-muted)">${escapeHtml(t('intezo.clip_exists_hint'))}</p>
-        </div>
-        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <button type="button" class="btn-secondary" data-act="cancel">${escapeHtml(t('intezo.cancel'))}</button>
-          <button type="button" class="btn-primary" data-act="keep" style="white-space:normal;text-align:left">${escapeHtml(t('intezo.clip_keep_both', { name: String(info.suggested) }))}</button>
-        </div>
+      <div class="modal" style="max-width:520px;width:calc(100% - 32px)" role="dialog" aria-modal="true">
+        <div class="modal-header"><h2>${escapeHtml(t(canMerge ? 'intezo.clip_merge_title' : 'intezo.clip_exists_title'))}</h2></div>
+        <div class="modal-body">${body}</div>
+        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${buttons.join('')}</div>
       </div>`
+    const allBox = ov.querySelector('#intezoClashAll')
+    const list = ov.querySelector('#intezoClashList')
+    if (allBox && list) allBox.addEventListener('change', () => { list.hidden = allBox.checked })
+    const collect = act => {
+      if (act !== 'merge') return { resolution: act }
+      const radio = ov.querySelector('input[name="intezoClashRes"]:checked')
+      const fileResolution = radio ? radio.value : 'keepBoth'
+      const out = { resolution: 'merge', fileResolution }
+      if (allBox && list && !allBox.checked) {
+        out.perFile = {}
+        list.querySelectorAll('select[data-i]').forEach(sel => {
+          const c = inner[Number(sel.getAttribute('data-i'))]
+          if (c) out.perFile[c.path] = sel.value
+        })
+      }
+      return out
+    }
     let done = false
     const finish = v => {
       if (done) return
@@ -38414,17 +38475,19 @@ function _intezoAskNameClash(info) {
       resolve(v)
     }
     const onKey = ev => {
-      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false) }
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(null) }
     }
     ov.addEventListener('click', ev => {
       const act = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null
-      if (act) finish(act.getAttribute('data-act') === 'keep')
-      else if (ev.target === ov) finish(false)
+      if (act) {
+        const a = act.getAttribute('data-act')
+        finish(a === 'cancel' ? null : collect(a))
+      } else if (ev.target === ov) finish(null)
     })
     document.addEventListener('keydown', onKey, true)
     document.body.appendChild(ov)
-    const keepBtn = ov.querySelector('[data-act="keep"]')
-    if (keepBtn) keepBtn.focus()
+    const first = ov.querySelector('.btn-primary[data-act]')
+    if (first) first.focus()
   })
 }
 

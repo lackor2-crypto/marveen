@@ -61,9 +61,10 @@ import { existsSync, statSync, createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
 import {
-  listLife, lifeInfo, moveLife, copyLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
+  listLife, lifeInfo, moveLife, copyLife, pasteLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
   clearContentCache,
   resolveLifePath,
+  type PasteOptions, type ItemResolution,
 } from '../../life-explorer.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import { listSourceKinds } from '../../life-sources.js'
@@ -577,6 +578,46 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   const pasteStatus = (r: { ok: boolean; code?: string; suggested?: string }) => (r.ok ? 200 : isNameClash(r) ? 409 : 400)
   const pasteBody = <R extends { ok: boolean; code?: string; suggested?: string }>(r: R) => (isNameClash(r) ? { ...r, code: 'name_exists' } : r)
 
+  // UTKOZES FELOLDASA (#383, Boss TG 6346: "minden kell ami a Windows
+  // intezojeben is van"). Csak az engedett szavakat vesszuk at; a `keepBoth:
+  // true` a regi (1. lepes) alak, ugyanazt jelenti.
+  const RES = ['keepBoth', 'replace', 'skip', 'merge'] as const
+  const ITEM = ['replace', 'skip', 'keepBoth'] as const
+  const pasteOpts = (body: any): PasteOptions => {
+    const resolution = (RES as readonly string[]).includes(body?.resolution) ? body.resolution
+      : body?.keepBoth === true ? 'keepBoth' : undefined
+    const fileResolution = (ITEM as readonly string[]).includes(body?.fileResolution) ? body.fileResolution : undefined
+    let perFile: Record<string, ItemResolution> | undefined
+    if (body?.perFile && typeof body.perFile === 'object' && !Array.isArray(body.perFile)) {
+      perFile = {}
+      for (const [k, v] of Object.entries(body.perFile)) {
+        if (typeof k === 'string' && k.length < 4096 && (ITEM as readonly string[]).includes(v as string)) perFile[k] = v as ItemResolution
+      }
+    }
+    return { resolution, fileResolution, perFile }
+  }
+  // A CSERE a celban allo regit a Kukaba viszi, az EGYESITES a cel-mappaba ir:
+  // a CEL-oldali elemre ugyanazok az orok allnak, mint a sajat Kukaba
+  // tetelere / athelyezesere -- kulonben a Csere gomb megkerulne oket.
+  const targetGuard = (from: string, to: string, opts: PasteOptions, lang: string): { code: string; message: string } | null => {
+    if (opts.resolution !== 'replace' && opts.resolution !== 'merge') return null
+    const name = from.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || ''
+    const toKey = to.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const targetRel = toKey ? toKey + '/' + name : name
+    const blocked = writeBlockReason(targetRel)
+    if (blocked) return { code: 'git_repo', message: blocked }
+    if (listMounts().some((m) => m.rel === targetRel)) return { code: 'mounted', message: mountedMsg(lang) }
+    const baj = bekotesOrzo(targetRel, lang)
+    if (baj) return baj
+    const repok = reposInside(targetRel)
+    if (repok.length) {
+      return { code: 'has_repos', message: T(lang,
+        `A cél-mappában git-repó van (${repok[0]}). Oda nem egyesítek és nem cserélek kézzel.`,
+        `The target folder has a git repository inside it (${repok[0]}). I will not merge or replace into it by hand.`) }
+    }
+    return null
+  }
+
   if (path === '/api/life/move' && method === 'POST') {
     const lang = uiLang(url)
     const body = await readJson(req)
@@ -595,7 +636,10 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const baj = bekotesOrzo(fromKey, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    const result = moveLife(from, String(body?.to ?? ''), lang, { keepBoth: body?.keepBoth === true })
+    const opts = pasteOpts(body)
+    const celBaj = targetGuard(from, String(body?.to ?? ''), opts, lang)
+    if (celBaj) { send(res, 400, { ok: false, rel: '', ...celBaj }); return true }
+    const result = await pasteLife('move', from, String(body?.to ?? ''), lang, opts)
     send(res, pasteStatus(result), pasteBody(result))
     return true
   }
@@ -639,7 +683,10 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
         `This is a git repository, or has one inside it (${repok[0]}). I will not copy it: the copy would be a second, ownerless clone. If you need another one, download the repository again.`) })
       return true
     }
-    const result = await copyLife(from, to, lang, { keepBoth: body?.keepBoth === true })
+    const opts = pasteOpts(body)
+    const celBaj = targetGuard(from, to, opts, lang)
+    if (celBaj) { send(res, 400, { ok: false, rel: '', ...celBaj }); return true }
+    const result = await pasteLife('copy', from, to, lang, opts)
     send(res, pasteStatus(result), pasteBody(result))
     return true
   }

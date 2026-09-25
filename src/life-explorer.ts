@@ -19,7 +19,7 @@
 //     birosagi vegzes visszaallithatatlan -- egy hibauzenet nem az.
 import {
   existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
-  copyFileSync, rmSync, type Stats, type Dirent,
+  copyFileSync, rmSync, rmdirSync, type Stats, type Dirent,
 } from 'node:fs'
 import { cp } from 'node:fs/promises'
 import { join, dirname, basename, resolve, sep } from 'node:path'
@@ -30,7 +30,7 @@ import { detectSource, type SourceInfo } from './life-sources.js'
 import { storageMissText } from './storage-index.js'
 import { getPhysical, movePhysical, forgetPhysical, type PhysicalRecord } from './life-documents.js'
 import {
-  lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, personsGroupRel,
+  lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, personsGroupRel, planLifeTree,
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside, mountsOverview } from './life-mounts.js'
@@ -977,20 +977,78 @@ export interface MoveResult {
   conflictName?: string
   conflictIsDir?: boolean
   suggested?: string
+  /** What the user may choose for this clash (#383, TG 6346 -- the Windows set):
+   *  Replace only file-on-file, Merge only folder-on-folder, and neither when
+   *  the item would land on ITSELF (pasting into its own folder). */
+  sourceIsDir?: boolean
+  canReplace?: boolean
+  canMerge?: boolean
+  /** Folder merge: the files that exist on both sides (capped), and how many. */
+  innerConflicts?: InnerConflict[]
+  innerTotal?: number
+  /** Outcome counters of a resolved paste. */
+  replaced?: number
+  skipped?: number
+  keptBoth?: number
 }
+
+export interface InnerConflict { path: string; isDir: boolean; existingIsDir: boolean; suggested: string }
 
 /** Paste options (#383). `keepBoth` = the user saw the name clash and chose
  *  to keep both: the new item gets the next free `name (N)`. Without it a
  *  clash is ALWAYS a question, never a silent rename and never an overwrite. */
-export interface PasteOptions { keepBoth?: boolean }
+export interface PasteOptions {
+  keepBoth?: boolean
+  /** How to resolve the top-level clash. `keepBoth` = next free `name (N)`;
+   *  `replace` = the old item goes to the Kuka (restorable), the new takes its
+   *  name; `skip` = nothing happens; `merge` = folder into folder. */
+  resolution?: 'keepBoth' | 'replace' | 'skip' | 'merge'
+  /** Merge: default answer for a file that exists on both sides. */
+  fileResolution?: ItemResolution
+  /** Merge: per-file answers, keyed by the path inside the merged folder. */
+  perFile?: Record<string, ItemResolution>
+}
+export type ItemResolution = 'replace' | 'skip' | 'keepBoth'
 
-function nameClash(dir: string, name: string, isDir: boolean, lang: string): MoveResult {
+const INNER_CONFLICT_LIST_MAX = 200
+const INNER_CONFLICT_WALK_MAX = 20000
+
+/** Files/folders present on BOTH sides of a folder merge (recursing where both are folders). */
+function innerClashes(src: string, dst: string, prefix = '', acc: { list: InnerConflict[]; total: number; seen: number } = { list: [], total: 0, seen: 0 }) {
+  let names: string[] = []
+  try { names = readdirSync(src) } catch { return acc }
+  for (const n of names) {
+    if (++acc.seen > INNER_CONFLICT_WALK_MAX) break
+    const s = statSafe(join(src, n))
+    const d = statSafe(join(dst, n))
+    if (!s || !d) continue
+    const p = prefix ? prefix + '/' + n : n
+    if (s.isDirectory() && d.isDirectory()) { innerClashes(join(src, n), join(dst, n), p, acc); continue }
+    acc.total++
+    if (acc.list.length < INNER_CONFLICT_LIST_MAX) {
+      acc.list.push({ path: p, isDir: s.isDirectory(), existingIsDir: d.isDirectory(), suggested: freeCopyName(dst, n, s.isDirectory()) })
+    }
+  }
+  return acc
+}
+
+
+function nameClash(dir: string, name: string, isDir: boolean, lang: string, fromAbs?: string): MoveResult {
   const suggested = freeCopyName(dir, name, isDir)
-  const existingIsDir = !!statSafe(join(dir, name))?.isDirectory()
+  const existingAbs = join(dir, name)
+  const existingIsDir = !!statSafe(existingAbs)?.isDirectory()
+  // Pasting into its own folder: the "other" item IS the source. Replacing or
+  // merging it with itself makes no sense -- only Keep both / Cancel.
+  const self = !!fromAbs && resolve(fromAbs) === resolve(existingAbs)
+  const canReplace = !self && !isDir && !existingIsDir
+  const canMerge = !self && isDir && existingIsDir
+  const inner = canMerge && fromAbs ? innerClashes(fromAbs, existingAbs) : null
   const what = existingIsDir ? T(lang, 'mappa', 'folder') : T(lang, 'fájl', 'file')
   return {
     ok: false, rel: '', code: 'exists',
     conflictName: name, conflictIsDir: existingIsDir, suggested,
+    sourceIsDir: isDir, canReplace, canMerge,
+    ...(inner ? { innerConflicts: inner.list, innerTotal: inner.total } : {}),
     message: T(lang,
       `Ebben a mappában már van ilyen nevű ${what}: ${name}. Nem írom felül.`,
       `This folder already has a ${what} called ${name}. I will not overwrite it.`),
@@ -1037,7 +1095,7 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opt
   // `nev (2)` csak a felhasznalo kifejezett "Mindketto megtartasa" valasza utan.
   if (existsSync(target)) {
     const isDir = !!statSafe(from)?.isDirectory()
-    if (!opts.keepBoth) return nameClash(toDir, name, isDir, lang)
+    if (!opts.keepBoth) return nameClash(toDir, name, isDir, lang, from)
     name = freeCopyName(toDir, name, isDir)
     if (!name) {
       return { ok: false, rel: '', code: 'exists', message: T(lang, 'Ebben a mappában már túl sok ilyen nevű elem van. Nevezz át néhányat, és próbáld újra.', 'This folder already has too many items with this name. Rename some of them and try again.') }
@@ -1122,7 +1180,7 @@ export async function copyLife(fromRel: string, toDirRel: string, lang = APP_LAN
     return { ok: false, rel: '', code: 'into_self', message: T(lang, 'Egy mappát nem lehet önmagába másolni.', 'A folder cannot be copied into itself.') }
   }
   // Foglalt nev: KERDES, nem csendes `(2)` (#383, Boss TG 6343).
-  if (existsSync(join(toDir, basename(from))) && !opts.keepBoth) return nameClash(toDir, basename(from), isDir, lang)
+  if (existsSync(join(toDir, basename(from))) && !opts.keepBoth) return nameClash(toDir, basename(from), isDir, lang, from)
   const name = freeCopyName(toDir, basename(from), isDir)
   if (!name) {
     return { ok: false, rel: '', code: 'exists', message: T(lang, 'Ebben a mappában már túl sok ilyen nevű másolat van. Nevezz át néhányat, és próbáld újra.', 'This folder already has too many copies with this name. Rename some of them and try again.') }
@@ -1159,6 +1217,161 @@ function statSafe(p: string): Stats | null {
 function withNameAdvice(result: MoveResult, advice: NameAdvice): MoveResult {
   if (advice.ok) return result
   return { ...result, notice: advice.message, suggestion: advice.suggestion, noticeCode: advice.code }
+}
+
+/**
+ * Move or copy ONE item on disk. Copy never overwrites (`errorOnExist`); a move
+ * is a rename, and across disks (`EXDEV`) a copy that deletes the source only
+ * after it succeeded.
+ */
+async function putItem(from: string, to: string, mode: 'copy' | 'move'): Promise<void> {
+  const copyOpts = { recursive: true, force: false, errorOnExist: true, preserveTimestamps: true }
+  if (mode === 'copy') { await cp(from, to, copyOpts); return }
+  try {
+    renameSync(from, to)
+  } catch (err: any) {
+    if (err?.code !== 'EXDEV') throw err
+    await cp(from, to, copyOpts)
+    rmSync(from, { recursive: true, force: true })
+  }
+}
+
+/** The paper record, display label and archive mark follow a moved item. */
+function followMove(fromRel: string, toRel: string): void {
+  movePhysical(fromRel, toRel)
+  moveDisplayLabels(fromRel, toRel)
+  moveArchivedPrefix(fromRel, toRel)
+}
+
+/**
+ * REPLACE one file (#383, Boss TG 6346: "kell a feluliras is"). The old file
+ * is NOT overwritten: it goes to the Kuka, where it can be restored. Order:
+ * the new one lands under a free temporary name first, THEN the old one goes
+ * to the Kuka, THEN the new one takes the name -- so a failed step never
+ * leaves the place empty. If the Kuka refuses, the new one is taken back.
+ */
+async function replaceOne(fromAbs: string, targetAbs: string, mode: 'copy' | 'move', lang: string): Promise<void> {
+  const dir = dirname(targetAbs)
+  const tmpName = freeCopyName(dir, basename(targetAbs), false)
+  if (!tmpName) throw new Error(T(lang, 'Ebben a mappában már túl sok ilyen nevű elem van.', 'This folder already has too many items with this name.'))
+  const tmp = join(dir, tmpName)
+  const fromRel = toLifeRel(fromAbs)
+  await putItem(fromAbs, tmp, mode)
+  const trashed = trashLife(toLifeRel(targetAbs), lang)
+  if (!trashed.ok) {
+    try {
+      if (mode === 'copy') rmSync(tmp, { recursive: true, force: true })
+      else renameSync(tmp, fromAbs)
+    } catch { /* the message below still says what happened */ }
+    throw new Error(trashed.message)
+  }
+  renameSync(tmp, targetAbs)
+  if (mode === 'move') followMove(fromRel, toLifeRel(targetAbs))
+}
+
+interface PasteStats { placed: number; replaced: number; skipped: number; keptBoth: number }
+
+/**
+ * MERGE a folder into a same-named folder (#383, Windows "Mappák egyesítése").
+ * What exists on one side only just goes in; folders on both sides merge
+ * recursively; a FILE on both sides gets the user's answer (per file, or the
+ * "for all" default). Replace on a file-vs-folder clash is not possible, so it
+ * becomes Keep both -- nothing is ever lost. After a move the emptied source
+ * folders are removed; skipped files stay where they were.
+ */
+async function mergeDirs(src: string, dst: string, prefix: string, mode: 'copy' | 'move', opts: PasteOptions, st: PasteStats, lang: string): Promise<void> {
+  for (const n of readdirSync(src)) {
+    const s = join(src, n)
+    const d = join(dst, n)
+    const ss = statSafe(s)
+    if (!ss) continue
+    const ds = statSafe(d)
+    const p = prefix ? prefix + '/' + n : n
+    if (!ds) {
+      const sRel = toLifeRel(s)
+      await putItem(s, d, mode)
+      if (mode === 'move') followMove(sRel, toLifeRel(d))
+      st.placed++
+      continue
+    }
+    if (ss.isDirectory() && ds.isDirectory()) {
+      await mergeDirs(s, d, p, mode, opts, st, lang)
+      if (mode === 'move') { try { rmdirSync(s) } catch { /* not empty: something was skipped */ } }
+      continue
+    }
+    let r: ItemResolution = opts.perFile?.[p] ?? opts.fileResolution ?? 'keepBoth'
+    if (r === 'replace' && (ss.isDirectory() || ds.isDirectory())) r = 'keepBoth'
+    if (r === 'skip') { st.skipped++; continue }
+    if (r === 'replace') { await replaceOne(s, d, mode, lang); st.replaced++; continue }
+    const nn = freeCopyName(dst, n, ss.isDirectory())
+    if (!nn) throw new Error(T(lang, `Ebben a mappában már túl sok ${n} nevű elem van.`, `This folder already has too many items called ${n}.`))
+    const sRel = toLifeRel(s)
+    await putItem(s, join(dst, nn), mode)
+    if (mode === 'move') followMove(sRel, toLifeRel(join(dst, nn)))
+    st.keptBoth++
+  }
+}
+
+function pasteSummary(lang: string, name: string, st: PasteStats): string {
+  const parts = [T(lang, `Beillesztve: ${name}.`, `Pasted: ${name}.`)]
+  if (st.replaced) parts.push(T(lang, `${st.replaced} elem lecserélve, a régiek a Kukában.`, `${st.replaced} item(s) replaced, the old ones are in the Trash.`))
+  if (st.keptBoth) parts.push(T(lang, `${st.keptBoth} elem új néven megtartva.`, `${st.keptBoth} item(s) kept under a new name.`))
+  if (st.skipped) parts.push(T(lang, `${st.skipped} elem kihagyva.`, `${st.skipped} item(s) skipped.`))
+  return parts.join(' ')
+}
+
+/**
+ * PASTE with an answer to a name clash (#383). Without a `resolution` (or with
+ * `keepBoth`) this is exactly moveLife / copyLife: a clash comes back as a
+ * question. `skip` / `replace` / `merge` act on the clash the way the Windows
+ * Explorer does, and never overwrite: a replaced item goes to the Kuka.
+ */
+export async function pasteLife(mode: 'copy' | 'move', fromRel: string, toDirRel: string, lang = APP_LANG, opts: PasteOptions = {}): Promise<MoveResult> {
+  const res = opts.resolution ?? (opts.keepBoth ? 'keepBoth' : undefined)
+  const plain = () => (mode === 'move'
+    ? moveLife(fromRel, toDirRel, lang, { keepBoth: res === 'keepBoth' })
+    : copyLife(fromRel, toDirRel, lang, { keepBoth: res === 'keepBoth' }))
+  if (!res || res === 'keepBoth') return plain()
+  const from = resolveLifePath(fromRel)
+  const toDir = resolveLifePath(toDirRel)
+  // Every "cannot even start" case (outside, missing, not a folder, into
+  // itself) is answered by the plain operation, in its own words.
+  if (!from || !toDir || !statSafe(from) || !statSafe(toDir)?.isDirectory()) return plain()
+  const isDir = !!statSafe(from)?.isDirectory()
+  if (isDir && (toDir === from || toDir.startsWith(from + sep))) return plain()
+  const name = basename(from)
+  const target = join(toDir, name)
+  // The clash is gone meanwhile (someone renamed it): a plain paste is right.
+  if (!existsSync(target)) return plain()
+  const targetIsDir = !!statSafe(target)?.isDirectory()
+  const self = resolve(target) === resolve(from)
+  const st: PasteStats = { placed: 0, replaced: 0, skipped: 0, keptBoth: 0 }
+
+  if (res === 'skip') {
+    return { ok: true, rel: '', code: 'skipped', skipped: 1, message: T(lang, `Kihagyva: ${name}. Semmi nem változott.`, `Skipped: ${name}. Nothing changed.`) }
+  }
+  if (res === 'replace' && (self || isDir || targetIsDir)) {
+    return { ok: false, rel: '', code: 'cannot_replace', message: T(lang, 'Csak fájlt lehet fájlra cserélni. Mappánál válaszd az egyesítést vagy a „Mindkettő megtartása" gombot.', 'Only a file can replace a file. For a folder, choose merge or "Keep both".') }
+  }
+  if (res === 'merge' && (self || !isDir || !targetIsDir)) {
+    return { ok: false, rel: '', code: 'cannot_merge', message: T(lang, 'Egyesíteni csak két különböző mappát lehet.', 'Only two different folders can be merged.') }
+  }
+  clearContentCache()
+  const targetRel = toLifeRel(target)
+  try {
+    if (res === 'replace') {
+      await replaceOne(from, target, mode, lang)
+      st.replaced = 1
+    } else {
+      await mergeDirs(from, target, '', mode, opts, st, lang)
+      if (mode === 'move') { try { rmdirSync(from) } catch { /* skipped files stay in the source */ } }
+    }
+  } catch (err: any) {
+    const done = pasteSummary(lang, name, st)
+    return { ok: false, rel: '', code: 'failed', ...st, message: T(lang, `Félúton elakadt: ${String(err?.message || err)} (Ami addig megtörtént: ${done})`, `Stopped halfway: ${String(err?.message || err)} (What happened until then: ${done})`) }
+  }
+  logger.info({ from: fromRel, to: targetRel, mode, res, ...st }, '[intezo] beillesztes utkozessel')
+  return { ok: true, rel: targetRel, ...st, message: pasteSummary(lang, name, st) }
 }
 
 /** Uj mappa a fan belul. A nev nem lehet utvonal -- csak nev. */
@@ -1305,6 +1518,23 @@ function szabadNev(dir: string, name: string): string {
   return join(dir, `${torzs} (${Date.now()})${kit}`)
 }
 
+/**
+ * Is this root-level name one of the tree's MAIN BRANCHES -- something the
+ * "Create directory structure" step would put back? Asked from the same plan
+ * that creates them (`planLifeTree`), not from a hand-kept list: a folder the
+ * user made or pasted at the root (#383, Boss TG 6350: "Beérkező (2)" could
+ * not be deleted) is not a branch and may go to the Trash. If the plan cannot
+ * be read, every root item counts as a branch -- the old, safe refusal.
+ */
+function isPlannedTopBranch(name: string): boolean {
+  if (name === lifeName('system', APP_LANG)) return true
+  try {
+    return planLifeTree(loadLifeConfig(), APP_LANG).some((n) => n.rel.split('/')[0] === name)
+  } catch {
+    return true
+  }
+}
+
 export function trashLife(rel: string, lang = APP_LANG): MoveResult {
   // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
   clearContentCache()
@@ -1321,7 +1551,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
     return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs itt. Frissítsd a listát.', 'This is not here any more. Refresh the list.') }
   }
   const parts = toLifeRel(abs).split('/')
-  if (parts.length === 1) {
+  if (parts.length === 1 && isPlannedTopBranch(parts[0])) {
     return {
       ok: false, rel: '', code: 'top',
       message: T(lang, 'Ez a fa egyik fő ága — a következő „Könyvtárszerkezet létrehozása" úgyis visszatenné. '
