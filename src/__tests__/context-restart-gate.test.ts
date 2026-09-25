@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
+import { initDatabase, createAgentMessage, getDispatchedPendingStats, GATE_ALERT_ORIGIN_NOTE } from '../db.js'
 import {
   isInfrastructureChild,
   findClaudePidInTree,
@@ -526,5 +527,42 @@ describe('hasLiveTaskState freshness window', () => {
       null,
     )
     expect(d.action).toBe('allow')
+  })
+})
+
+// #400: the gate held a sub-agent shut for 6h on "pending-outbound-messages".
+// Every row it counted was a done-report to the main agent (nobody closes those
+// as 'done', so each one re-armed the 2h window) or the gate's own alert, which
+// is sent FROM the blocked agent and so kept the block alive by itself.
+describe('getDispatchedPendingStats -- only dispatched work counts (#400)', () => {
+  beforeAll(() => { initDatabase(':memory:') })
+  const HOUR = 3_600_000
+  const uniq = () => `${Date.now()}-${Math.floor(performance.now() * 1000)}`
+
+  it('a done-report to the coordinator does not block', () => {
+    const sub = `sub-${uniq()}`, coord = `coord-${uniq()}`
+    createAgentMessage(sub, coord, '#397 verify kesz: PASS')
+    expect(getDispatchedPendingStats(sub, Date.now(), 2 * HOUR, coord).count).toBe(0)
+  })
+
+  it("the gate's own persistent-block alert does not block, even without a coordinator id", () => {
+    const sub = `sub-${uniq()}`
+    createAgentMessage(sub, `anyone-${uniq()}`, '[CONTEXT-RESTART-GATE] ...', GATE_ALERT_ORIGIN_NOTE)
+    const stats = getDispatchedPendingStats(sub, Date.now(), 2 * HOUR, null)
+    expect(stats.count).toBe(0)
+    expect(stats.hasStale).toBe(false)
+  })
+
+  it('real delegated work to another agent still blocks', () => {
+    const sub = `sub-${uniq()}`, coord = `coord-${uniq()}`
+    createAgentMessage(sub, coord, 'kesz-jelentes')
+    createAgentMessage(sub, `peer-${uniq()}`, 'nezd at ezt a PR-t es jelezz vissza')
+    expect(getDispatchedPendingStats(sub, Date.now(), 2 * HOUR, coord).count).toBe(1)
+  })
+
+  it("the coordinator's own delegations to sub-agents still block", () => {
+    const coord = `coord-${uniq()}`
+    createAgentMessage(coord, `sub-${uniq()}`, 'Munkacsomag: #400')
+    expect(getDispatchedPendingStats(coord, Date.now(), 2 * HOUR, coord).count).toBe(1)
   })
 })
