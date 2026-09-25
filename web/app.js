@@ -36933,6 +36933,8 @@ async function loadIntezoPage() {
   bind('intezoMultiAllBtn', 'click', () => _intezoMultiAll(true))
   bind('intezoMultiNoneBtn', 'click', () => _intezoMultiAll(false))
   bind('intezoMultiMoveBtn', 'click', () => void _intezoMoveToPersonDialog())
+  bind('intezoMultiDelBtn', 'click', () => void _intezoTrashMany(_intezoSelectionItems()))
+  bind('intezoMultiEmptyBtn', 'click', () => void _intezoEmptyKuka())
   _intezoRenderMultiBar()
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
   bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
@@ -39008,6 +39010,16 @@ function _intezoRenderMultiBar() {
     : t('intezo.multi_count', { n })
   const mv = document.getElementById('intezoMultiMoveBtn')
   if (mv) mv.disabled = !n
+  // Torles a savbol is (Boss TG 1603). A Kukaban vegleges, mashol Kukaba tesz;
+  // a Kuka kiuritese gomb csak a Kukaban latszik.
+  const bent = _intezoKukaban(_intezoPath)
+  const del = document.getElementById('intezoMultiDelBtn')
+  if (del) {
+    del.disabled = !n
+    del.textContent = (bent ? '🔥 ' : '🗑 ') + t(bent ? 'intezo.menu_purge_n' : 'intezo.menu_trash_n', { n })
+  }
+  const ures = document.getElementById('intezoMultiEmptyBtn')
+  if (ures) ures.hidden = !bent
 }
 
 /* ===========================================================================
@@ -41225,7 +41237,7 @@ if (!window._intezoMenuBound) {
 // A Kuka utja a telepites nyelvet koveti (`Rendszer/Kuka` / `System/Trash`),
 // ezert a szerver mondja meg minden listazasban (`trashRel`). A legutobb
 // latott erteket megjegyezzuk: a keresesi talalatok listaja nem hozza.
-let _INTEZO_KUKA = ''
+var _INTEZO_KUKA = ''
 function _intezoKukaRel() {
   const L = _intezoListing
   if (L && typeof L.trashRel === 'string' && L.trashRel) _INTEZO_KUKA = L.trashRel

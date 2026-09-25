@@ -231,6 +231,19 @@ describe('#389 felulet -- kijeloles, mint a Windows Intezoben', () => {
     expect(many).toContain('r.ok === false')
   })
 
+  // Boss TG 1603: "amikor kijelolom akkor ott fent a sorban is hogy kuka
+  // uritese mind" -- a torles a kijeloles-savban is ott van.
+  it('a kijeloles-savban is van torles, a Kukaban vegleges + Kuka uritese', () => {
+    const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf-8')
+    expect(html).toContain('id="intezoMultiDelBtn"')
+    expect(html).toContain('id="intezoMultiEmptyBtn"')
+    expect(app).toContain("bind('intezoMultiDelBtn', 'click', () => void _intezoTrashMany(_intezoSelectionItems()))")
+    expect(app).toContain("bind('intezoMultiEmptyBtn', 'click', () => void _intezoEmptyKuka())")
+    const bar = fnBody('function _intezoRenderMultiBar(')
+    expect(bar).toContain("t(bent ? 'intezo.menu_purge_n' : 'intezo.menu_trash_n', { n })")
+    expect(bar).toContain('ures.hidden = !bent')
+  })
+
   // Friss, angol telepitesen a Kuka `System/Trash` -- a felulet nem egetheti be.
   it('a Kuka utjat a szerver listazasa adja, nincs beegetve', () => {
     expect(app).not.toContain("'Rendszer/Kuka'")
