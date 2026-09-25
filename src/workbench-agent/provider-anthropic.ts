@@ -65,7 +65,7 @@ export function loggedInConfigDir(agent = MAIN_AGENT_ID): string | null {
 }
 
 /** Egy kimenet-sor a CLI stream-json modjabol -> szovegdarab, ha van benne. */
-export function textFromStreamLine(line: string): { text?: string; done?: boolean; limit?: boolean; error?: string } | null {
+export function textFromStreamLine(line: string): { text?: string; whole?: boolean; done?: boolean; limit?: boolean; error?: string } | null {
   const s = line.trim()
   if (!s) return null
   let j: any
@@ -76,10 +76,11 @@ export function textFromStreamLine(line: string): { text?: string; done?: boolea
     return { text: j.event.delta.text }
   }
   if (j.type === 'content_block_delta' && typeof j.delta?.text === 'string') return { text: j.delta.text }
-  // Egesz asszisztens-uzenet.
+  // Egesz asszisztens-uzenet. `whole`: a --include-partial-messages mellett
+  // ugyanez a szoveg MAR megjott darabokban -- a hivo dont (#401).
   if (j.type === 'assistant' && Array.isArray(j.message?.content)) {
     const text = j.message.content.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('')
-    return text ? { text } : null
+    return text ? { text, whole: true } : null
   }
   // Zaro sor.
   if (j.type === 'result') {
@@ -88,6 +89,24 @@ export function textFromStreamLine(line: string): { text?: string; done?: boolea
     return { done: true }
   }
   return null
+}
+
+/**
+ * A CLI a --include-partial-messages mellett MINDKETTOT kuldi: a darabokat
+ * (content_block_delta) ES a zaro egesz uzenetet ({type:'assistant'}). Ha
+ * mindkettot tovabbadjuk, a valasz duplan jon, es a tool-hivas JSON-ja
+ * ertelmezhetetlen lesz (#401). Az egesz uzenet csak akkor megy tovabb, ha
+ * elotte egyetlen darab sem jott hozza (delta nelkuli futas = tartalek).
+ */
+export function makeCliTextFilter(): (ev: { text?: string; whole?: boolean }) => string | null {
+  let deltaSinceWhole = false
+  return (ev) => {
+    if (!ev.text) return null
+    if (!ev.whole) { deltaSinceWhole = true; return ev.text }
+    const dup = deltaSinceWhole
+    deltaSinceWhole = false
+    return dup ? null : ev.text
+  }
 }
 
 /** A promptba fuzott beszelgetes: a CLI egy bemenetet kap. */
@@ -137,6 +156,7 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
   req.signal?.addEventListener('abort', onAbort, { once: true })
 
   let buf = ''
+  const pickText = makeCliTextFilter()
   child.stdout?.on('data', (d: Buffer) => {
     buf += d.toString('utf-8')
     let nl: number
@@ -145,8 +165,10 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
       buf = buf.slice(nl + 1)
       const ev = textFromStreamLine(line)
       if (!ev) continue
-      if (ev.text) { sawText = true; push({ kind: 'text', text: ev.text }) }
-      else if (ev.limit) push({ kind: 'error', code: 'limit', detail: 'the provider reported its usage limit' })
+      if (ev.text) {
+        const text = pickText(ev)
+        if (text) { sawText = true; push({ kind: 'text', text }) }
+      } else if (ev.limit) push({ kind: 'error', code: 'limit', detail: 'the provider reported its usage limit' })
       else if (ev.error) push({ kind: 'error', code: 'failed', detail: ev.error })
     }
   })
