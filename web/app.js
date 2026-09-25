@@ -38282,15 +38282,26 @@ function _intezoTreeRender() {
   // Stays in view under the pinned header while the long list on the right scrolls.
   if (head) box.style.top = (head.offsetHeight + 6) + 'px'
   const forced = _intezoTreeForced()
-  const node = (rel, name, entry, depth) => {
+  // TAGOLAS (#388). Boss: "a bal menü átláthatatlan [...] Korpás Lászlóra ha
+  // ráklikkelek, akkor ami az összes [...] alatt van, annak a hátterét az
+  // egésznek megváltoztatni". Minden felso szintu ag (szemely, ceg) SAJAT
+  // szint kap: bal oldali csik + halvany hatter az egesz alfajan. Az az ag,
+  // amelyikben most allunk, erosebb arnyalatot kap, a mostani mappa alatti
+  // resz meg egy kicsit erosebbet. A sorokon behuzas-vonalak (mint VS Code-ban).
+  const onPath = (rel) => rel !== '' && (_intezoPath === rel || String(_intezoPath).startsWith(rel + '/'))
+  const node = (rel, name, entry, depth, idx) => {
     const leaf = !!entry && _intezoTreeIsLeaf(entry)
     const open = _intezoTreeIsOpen(rel, entry, forced)
     const cur = rel === _intezoPath
     const hint = entry ? _faSugo(entry) : ''
+    const branch = depth === 1
     let h = '<li role="treeitem"' + (leaf ? '' : ' aria-expanded="' + (open ? 'true' : 'false') + '"')
-      + (cur ? ' aria-current="true"' : '') + '>'
+      + (cur ? ' aria-current="true"' : '')
+      + (branch ? ' class="intezo-tree-branch' + (onPath(rel) ? ' is-active-branch' : '') + '"'
+        + ' style="--tree-c:' + _intezoTreeBranchColor(idx) + '"' : '')
+      + '>'
       + '<div class="intezo-tree-row' + (cur ? ' is-current' : '') + (entry && entry.archived ? ' intezo-archived' : '')
-      + '" style="padding-left:' + (4 + depth * 14) + 'px">'
+      + '" style="padding-left:' + (4 + depth * 14) + 'px;--d:' + depth + '">'
     h += leaf
       ? '<span class="intezo-tree-tw" aria-hidden="true"></span>'
       : '<button type="button" class="intezo-tree-tw" data-tree-toggle="' + escapeHtml(rel) + '" aria-label="'
@@ -38309,13 +38320,13 @@ function _intezoTreeRender() {
         h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
           + escapeHtml(t('intezo.tree_loading')) + '</div>'
       } else if (kids.length) {
-        h += '<ul role="group">' + kids.map((k) => node(k.rel, k.displayName || k.name, k, depth + 1)).join('') + '</ul>'
+        h += '<ul role="group">' + kids.map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i)).join('') + '</ul>'
       }
     }
     return h + '</li>'
   }
   const keep = box.scrollTop
-  box.innerHTML = '<ul role="tree">' + node('', _intezoTreeRootName || t('intezo.tree_root_name'), null, 0) + '</ul>'
+  box.innerHTML = '<ul role="tree">' + node('', _intezoTreeRootName || t('intezo.tree_root_name'), null, 0, 0) + '</ul>'
   box.scrollTop = keep
   box.querySelectorAll('a[data-tree-open]').forEach((a) => {
     a.addEventListener('click', (ev) => { ev.preventDefault(); void _intezoOpen(a.getAttribute('data-tree-open')) })
@@ -38340,6 +38351,17 @@ function _intezoTreeRender() {
       box.scrollTop = Math.max(0, top - box.clientHeight / 3)
     }
   }
+}
+
+/**
+ * Egy felso szintu ag sajat szine (#388). A szomszedos agak jol elvaljanak:
+ * az arnyalat ~137 fokot lep (aranymetszes-szog), igy tiz ag utan sem jon ket
+ * hasonlo egymas melle. Csak a SZIN jon innen -- az attetszoseget a CSS adja,
+ * igy vilagos es sotet temaban is ugyanugy halvany marad.
+ */
+function _intezoTreeBranchColor(idx) {
+  const hue = Math.round(((Number(idx) || 0) * 137.508 + 210) % 360)
+  return 'hsl(' + hue + ' 65% 50%)'
 }
 
 function _intezoTreeFindEntry(rel) {
