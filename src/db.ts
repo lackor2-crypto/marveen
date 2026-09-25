@@ -2478,8 +2478,17 @@ export const GATE_ALERT_ORIGIN_NOTE = 'context-restart-gate persistent-block ale
  *    so counting it made the block self-sustaining: every alert blocked for
  *    another 2h and produced the next alert.
  *
- * Work the agent hands to any other agent still counts, the coordinator's own
- * delegations included.
+ *
+ * A third kind was found fleet-wide (#400, global fix): nobody closes ANY
+ * agent_messages row as 'done' in practice, so every delegation stayed open
+ * after its answer came back (lackor2-bot->usalackor: 580 open rows). A row
+ * therefore also stops counting once its recipient has sent anything back to
+ * the sender after it. This is direction-agnostic: it covers the
+ * coordinator's delegations and peer-to-peer requests alike, without reading
+ * message content.
+ *
+ * Work the agent hands to any other agent still counts until it is answered,
+ * the coordinator's own delegations included.
  */
 export function getDispatchedPendingStats(
   fromAgent: string,
@@ -2488,17 +2497,23 @@ export function getDispatchedPendingStats(
   coordinatorId?: string | null,
 ): DispatchedPendingStats {
   const cutoffEpoch = Math.floor((nowMs - staleCutoffMs) / 1000)
+  // A row is answered once its recipient sent anything back to the sender
+  // after it (later id, so a same-second reply counts too).
   const notWork = `AND COALESCE(origin_note, '') <> ?
-         AND (? IS NULL OR to_agent <> ?)`
+         AND (? IS NULL OR to_agent <> ?)
+         AND NOT EXISTS (
+           SELECT 1 FROM agent_messages r
+            WHERE r.from_agent = m.to_agent AND r.to_agent = m.from_agent
+              AND r.id > m.id)`
   const coord = coordinatorId || null
   const liveRow = db.prepare(
-    `SELECT COUNT(*) AS cnt FROM agent_messages
+    `SELECT COUNT(*) AS cnt FROM agent_messages m
        WHERE from_agent = ? AND status IN ('pending','delivered')
          AND CAST(created_at AS INTEGER) > ?
          ${notWork}`,
   ).get(fromAgent, cutoffEpoch, GATE_ALERT_ORIGIN_NOTE, coord, coord) as { cnt: number }
   const staleRow = db.prepare(
-    `SELECT COUNT(*) AS cnt FROM agent_messages
+    `SELECT COUNT(*) AS cnt FROM agent_messages m
        WHERE from_agent = ? AND status IN ('pending','delivered')
          AND CAST(created_at AS INTEGER) <= ?
          ${notWork}`,
