@@ -177,6 +177,12 @@ describe('#389 felulet -- kijeloles, mint a Windows Intezoben', () => {
     expect(app).toMatch(/ev\.shiftKey && _intezoMulti && _intezoAnchor[\s\S]{0,200}_intezoSelectRange\(_intezoAnchor, rel, true\)/)
   })
 
+  it('Shift+kattintas a pipan: a kattintott UTOLSO elem is pipat kap (Boss TG 6378)', () => {
+    // A pipa click-kezeloje preventDefault-ot hiv; a bongeszo ezutan
+    // visszaallitja a pipa allapotat, ezert a festest meg kell ismetelni.
+    expect(app).toMatch(/_intezoSelectRange\(_intezoAnchor, rel, true\)[\s\S]{0,700}setTimeout\(_intezoPaintSelection, 0\)/)
+  })
+
   it('billentyuk: Ctrl+A, nyilak, Szokoz, Enter, Delete, Esc a kijelolest zarja', () => {
     expect(app).toContain("if (k === 'a' && !e.shiftKey)")
     expect(app).toContain('_intezoSelectAll()')
