@@ -7,8 +7,9 @@
  * no copy" is told apart from "the depot is not reachable".
  */
 import type { HealthRow } from '../web/system-health.js'
-import type { BackupState } from './state.js'
-import type { Destination } from './destinations.js'
+import { readState, stateExists, type BackupState } from './state.js'
+import { readConfig, type Destination } from './destinations.js'
+import { readKeyFile } from './key-store.js'
 
 const HOUR = 60 * 60 * 1000
 export const STALE_MS = 36 * HOUR
@@ -56,4 +57,21 @@ export function backupHealthRow(i: HealthInput): HealthRow {
   if (copies < 2) return { id: 'backup_single_copy', status: 'warn', params: { h: hours } }
   if (i.kitConfirmed === false) return { id: 'backup_kit_unconfirmed', status: 'warn', params: { h: hours } }
   return { id: 'backup_ok_copies', status: 'ok', params: { h: hours, n: copies } }
+}
+
+/** The row for this install, reading the state, config and key files. */
+export function computeBackupHealth(o: { storeDir: string; destinations: Destination[]; newestLocalMs: number | null; freshInstall: boolean; now?: number }): HealthRow {
+  const cfg = readConfig(o.storeDir)
+  let kitConfirmed: boolean | null = null
+  try { const k = readKeyFile(o.storeDir); kitConfirmed = k ? k.current.confirmedAt != null : null } catch { kitConfirmed = false }
+  return backupHealthRow({
+    now: o.now ?? Date.now(),
+    state: readState(o.storeDir),
+    stateExists: stateExists(o.storeDir),
+    newestLocalMs: o.newestLocalMs,
+    destinations: o.destinations,
+    kitConfirmed,
+    freshInstall: o.freshInstall,
+    scheduleTime: cfg.schedule.time,
+  })
 }

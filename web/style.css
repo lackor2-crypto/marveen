@@ -12843,3 +12843,38 @@ span.intezo-tree-tw { cursor: default; }
 }
 .net-status-banner[hidden] { display: none; }
 .net-status-banner.is-back { background: #dcfce7; color: #14532d; border-color: #22c55e; }
+
+/* #396 Settings -> Backup (web/backup.js). Mobile first: every row wraps, the
+   buttons drop under the text on a phone, nothing needs sideways scrolling. */
+.bk { max-width: 980px; }
+.bk-row, .bk-item {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 20px;
+  padding: 14px 18px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: 8px;
+}
+.bk-row-info, .bk-item-main { flex: 1 1 320px; min-width: 0; }
+.bk-row-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.bk-row-desc { font-size: 13px; color: var(--text); margin-top: 4px; }
+.bk-row-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; overflow-wrap: anywhere; }
+.bk-row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.bk-status { padding: 14px 18px; border-radius: var(--radius); margin-bottom: 8px; border: 1px solid var(--border); border-left-width: 4px; }
+.bk-status-main { font-size: 14px; font-weight: 600; }
+.bk-status-sub { font-size: 13px; margin-top: 4px; }
+.bk-tone-ok { border-left-color: var(--success); }
+.bk-tone-warn { border-left: 4px solid #f59e0b; }
+.bk-tone-bad { border-left-color: var(--danger); }
+.bk-tone-warn-text { color: #b45309; }
+.bk-stage { font-size: 12px; color: var(--text-muted); }
+.bk-field { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 13px; max-width: 420px; }
+.bk-field .input { width: 100%; box-sizing: border-box; }
+.bk-check, .bk-switch { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; }
+.bk-key { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 6px; }
+.bk-key code { font-size: 16px; letter-spacing: 0.04em; overflow-wrap: anywhere; user-select: all; }
+.bk-pill { font-size: 11px; border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; color: var(--text-muted); white-space: nowrap; }
+.bk-advanced summary { cursor: pointer; font-size: 13px; color: var(--text-muted); margin: 14px 0 8px; }
+.bk-error { color: var(--danger); }
+@media (max-width: 720px) {
+  .bk-row, .bk-item { padding: 12px; }
+  .bk-row-actions { justify-content: flex-start; width: 100%; }
+  .bk-row-actions .btn-primary, .bk-row-actions .btn-secondary { flex: 1 1 auto; min-height: 40px; }
+}
