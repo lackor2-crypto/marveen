@@ -1166,3 +1166,45 @@ export function inboxCount(lang: string = APP_LANG): number {
     return 0
   }
 }
+
+/** One person or company with its planned media folders (#381). */
+export interface MediaTarget {
+  ownerId: string
+  kind: 'person' | 'company'
+  /** The folder name on disk (the person's / company's branch). */
+  name: string
+  rel: string
+  /** Base media folder per media kind (`photos`, `videos`, ...), when planned. */
+  media: Partial<Record<(typeof MEDIA_KINDS)[number], string>>
+}
+
+/**
+ * Where "Move to person" may put things (#381, Boss TG 1471: "ezt mind
+ * mozgassa at ehhez a szemelyhez ... a megfelelo media fotok ala"). Read from
+ * the SAME plan the "Create directory structure" button builds, so a person
+ * added under "Who should be in the tree?" shows up here with no extra step,
+ * and nothing here is a hand-kept list. For each owner the SHALLOWEST media
+ * folder of a kind is the base one (the per-country / per-group ones sit
+ * below it).
+ */
+export function mediaTargets(input: LifeConfig = loadLifeConfig(), lang: string = APP_LANG): MediaTarget[] {
+  const plan = planLifeTree(input, lang)
+  const out: MediaTarget[] = []
+  const byOwner = new Map<string, MediaTarget>()
+  for (const n of plan) {
+    if ((n.kind === 'person' || n.kind === 'company') && n.ownerId && !byOwner.has(n.ownerId)) {
+      const t: MediaTarget = { ownerId: n.ownerId, kind: n.kind, name: n.rel.split('/').pop() || n.rel, rel: n.rel, media: {} }
+      byOwner.set(n.ownerId, t)
+      out.push(t)
+    }
+  }
+  for (const n of plan) {
+    if (n.kind !== 'media' || !n.ownerId || !n.key) continue
+    const t = byOwner.get(n.ownerId)
+    const k = n.key as (typeof MEDIA_KINDS)[number]
+    if (!t || !(MEDIA_KINDS as readonly string[]).includes(k)) continue
+    const cur = t.media[k]
+    if (!cur || n.rel.split('/').length < cur.split('/').length) t.media[k] = n.rel
+  }
+  return out.filter((t) => Object.keys(t.media).length > 0)
+}

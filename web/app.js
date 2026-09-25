@@ -36486,6 +36486,13 @@ let _intezoSelected = null
  * a szerveren semmi nem valtozik, amig be nem illesztik.
  */
 let _intezoClip = null
+/**
+ * TOBB ELEM KIJELOLESE (#381, Boss TG 1471: "egy ilyen kis negyzet, amit ha
+ * kipipalok ... ezt mind mozgassa at ehhez a szemelyhez"). `null` = a mod ki
+ * van kapcsolva; kulonben rel -> { rel, name, isDir, media } a kipipalt
+ * elemekrol. Mappavaltaskor megmarad: tobb mappabol is lehet gyujteni.
+ */
+let _intezoMulti = null
 /** Az athelyezes celjat / a papir helyet valaszto mod, ha eppen fut. */
 let _intezoSearchTimer = null
 
@@ -36650,6 +36657,12 @@ async function loadIntezoPage() {
   bind('intezoTreeBtn', 'click', () => _intezoTreeSetShown(!_intezoTreeShown()))
   bind('intezoClipPasteBtn', 'click', () => _intezoPaste(_intezoPath))
   bind('intezoClipCancelBtn', 'click', () => _intezoClipClear())
+  bind('intezoMultiBtn', 'click', () => _intezoMultiSetOn(!_intezoMulti))
+  bind('intezoMultiDoneBtn', 'click', () => _intezoMultiSetOn(false))
+  bind('intezoMultiAllBtn', 'click', () => _intezoMultiAll(true))
+  bind('intezoMultiNoneBtn', 'click', () => _intezoMultiAll(false))
+  bind('intezoMultiMoveBtn', 'click', () => void _intezoMoveToPersonDialog())
+  _intezoRenderMultiBar()
   // A lefixalt fejlec muveletsava. Delegalt kezelo: a gombok ujrarajzolasa
   // (disabled allapot) nem szakitja el a figyelot.
   const abar = document.getElementById('intezoActionBar')
@@ -37753,7 +37766,7 @@ function _intezoGridHtml(rows, view) {
       const tip = [name, _faSugo(e), e.caution, e.isDir ? '' : e.sizeHuman, _intezoDateText(e)]
         .filter(Boolean).join('\n')
       const media = !e.isDir && (e.media === 'image' || e.media === 'video') ? e.media : ''
-      const bg = _intezoSelected && _intezoSelected.rel === e.rel ? ' intezo-tile-selected'
+      const bg = (_intezoSelected && _intezoSelected.rel === e.rel) || (_intezoMulti && _intezoMulti.has(e.rel)) ? ' intezo-tile-selected'
         : (_faBeerkezo(e) ? ' intezo-tile-inbox' : '')
       return '<div class="intezo-tile ' + (e.isDir ? 'intezo-dir' : 'intezo-file')
         + (e.archived ? ' intezo-archived' : '') + bg + '"'
@@ -37766,6 +37779,7 @@ function _intezoGridHtml(rows, view) {
         + (media === 'video' ? '<span class="intezo-tile-play" role="img" aria-label="'
             + escapeHtml(t('intezo.thumb_video')) + '">▶</span>' : '')
         + (e.physical ? '<span class="intezo-tile-corner" title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')
+        + (_intezoMulti ? '<span class="intezo-tile-check">' + _intezoMultiCb(e) + '</span>' : '')
         + '</div>'
         + '<div class="intezo-tile-name">' + _intezoBadge(e) + ' '
         + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
@@ -37841,7 +37855,7 @@ function _intezoRender() {
       // 2026-09-24: inline it wrapped long rows and made them uneven).
       + ' title="' + escapeHtml((_faSugo(e) ? _faSugo(e) + '\n\n' : '') + t('intezo.row_title')) + '"'
       + ' data-pick="1"'
-      + (_intezoSelected && _intezoSelected.rel === e.rel
+      + ((_intezoSelected && _intezoSelected.rel === e.rel) || (_intezoMulti && _intezoMulti.has(e.rel))
           ? ' style="background:rgba(127,127,127,.15)"'
           // A BEERKEZO sajat hattere: ez a munka kezdopontja, ne kelljen
           // keresni a listaban.
@@ -37854,7 +37868,7 @@ function _intezoRender() {
       + (!e.isDir && i > 0 && rows[i - 1].isDir ? ' intezo-first-file' : '')
       + (e.archived ? ' intezo-archived' : '') + '"'
       + '>'
-      + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
+      + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoMultiCb(e) + _intezoBadge(e) + '</td>'
       + '<td style="padding:2px 8px">' + _intezoContentMark(e) + _intezoKindIcon(e) + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
       // Git-terulet: PIROS nev es lakat-jelzes. Nem tiltas -- minden muvelet
       // mukodik --, csak figyelemfelkeltes (Boss, 2026-08-21): "az egy fontos
@@ -37918,8 +37932,11 @@ function _intezoRender() {
   list.querySelectorAll('[data-pick]').forEach((tr) => {
     tr.style.cursor = 'pointer'
     tr.addEventListener('click', (ev) => {
-      if (ev.target && ev.target.closest && ev.target.closest('a[data-open],button')) return
+      if (ev.target && ev.target.closest && ev.target.closest('a[data-open],button,input')) return
       const rel = tr.getAttribute('data-rel')
+      // Kijelolo modban a sor/csempe barmely pontja a pipat valtja --
+      // telefonon a kis negyzetet nehez eltalalni.
+      if (_intezoMulti) { const e = rows.find((x) => x.rel === rel); if (e) _intezoMultiToggle(e); return }
       if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
       else void _intezoInfo(rel)
     })
@@ -37950,6 +37967,14 @@ function _intezoRender() {
   //  EGESZ Intezo lapon -- lasd `_intezoMenuBound`. A lista magassaga ugyanis
   //  a sorok szama: egy ket-elemu mappaban a tablazat par pixel, alatta meg
   //  fel kepernyonyi ures hely, ahol a bongeszo sajat menuje jott elo.)
+
+  list.querySelectorAll('input[data-multi]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const e = rows.find((x) => x.rel === cb.getAttribute('data-multi'))
+      if (e) _intezoMultiToggle(e, cb.checked)
+    })
+  })
+  _intezoRenderMultiBar()
 
   list.querySelectorAll('button[data-archive]').forEach((b) => {
     b.addEventListener('click', () => {
@@ -38389,6 +38414,253 @@ async function _intezoPaste(targetRel) {
   _intezoRenderClip()
 }
 
+/* ===========================================================================
+   TOBB ELEM KIJELOLESE + ATHELYEZES SZEMELYHEZ (#381)
+   Boss TG 1471: "a Windows intezo tetejenel ... megnyomok egy gombot ... az
+   osszes fajlnal ... megjelenjen egy ilyen kis negyzet ... meg lehessen adni,
+   hogy ezt mind mozgassa at ehhez a szemelyhez ... a megfelelo media fotok
+   ala". A szemelyek listaja a fa TERVEBOL jon (/api/life/media-targets), igy
+   egy friss telepitesen is az all benne, akit a "Kik szerepeljenek a faban?"
+   resznel felvettek -- es ha meg senki, azt mondja meg, hol lehet felvenni.
+   =========================================================================== */
+function _intezoMultiCb(e) {
+  if (!_intezoMulti) return ''
+  return '<input type="checkbox" class="intezo-multi-cb" data-multi="' + escapeHtml(e.rel) + '"'
+    + (_intezoMulti.has(e.rel) ? ' checked' : '')
+    + ' aria-label="' + escapeHtml(t('intezo.multi_cb_aria', { name: e.displayName || e.name })) + '">'
+}
+
+function _intezoMultiSetOn(on) {
+  _intezoMulti = on ? new Map() : null
+  const btn = document.getElementById('intezoMultiBtn')
+  if (btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+  // Az egy-elemes kijeloles (adatlap) es a pipak ket kulon mod, nem keverednek.
+  if (on && _intezoSelected) _intezoClearSelection()
+  _intezoRender()
+  _intezoRenderMultiBar()
+}
+
+function _intezoMultiEntry(e) {
+  return { rel: e.rel, name: e.displayName || e.name, isDir: !!e.isDir, media: e.media || '' }
+}
+
+function _intezoMultiToggle(e, want) {
+  if (!_intezoMulti) return
+  const on = want === undefined ? !_intezoMulti.has(e.rel) : !!want
+  if (on) _intezoMulti.set(e.rel, _intezoMultiEntry(e))
+  else _intezoMulti.delete(e.rel)
+  // Csak az adott sort/csempet frissitjuk, nem az egesz listat -- igy a
+  // gorgetes es a mar betoltott belyegkepek a helyukon maradnak.
+  const list = document.getElementById('intezoList')
+  const node = list ? [...list.querySelectorAll('[data-pick]')].find((n) => n.getAttribute('data-rel') === e.rel) : null
+  if (node) {
+    const cb = node.querySelector('input[data-multi]')
+    if (cb) cb.checked = on
+    if (node.classList.contains('intezo-tile')) node.classList.toggle('intezo-tile-selected', on)
+    else node.style.background = on ? 'rgba(127,127,127,.15)' : ''
+  }
+  _intezoRenderMultiBar()
+}
+
+function _intezoMultiAll(on) {
+  if (!_intezoMulti) return
+  if (!on) _intezoMulti.clear()
+  else {
+    const L = _intezoListing || {}
+    ;[].concat(L.folders || [], L.files || []).forEach((e) => _intezoMulti.set(e.rel, _intezoMultiEntry(e)))
+  }
+  _intezoRender()
+  _intezoRenderMultiBar()
+}
+
+function _intezoRenderMultiBar() {
+  const bar = document.getElementById('intezoMultiBar')
+  if (!bar) return
+  bar.hidden = !_intezoMulti
+  if (!_intezoMulti) return
+  const n = _intezoMulti.size
+  const txt = document.getElementById('intezoMultiText')
+  if (txt) txt.textContent = n ? t('intezo.multi_count', { n }) : t('intezo.multi_hint')
+  const mv = document.getElementById('intezoMultiMoveBtn')
+  if (mv) mv.disabled = !n
+}
+
+/** Video-e az elem (a lista `media` mezoje alapjan) -- ezek mehetnek a Videok ala. */
+function _intezoIsVideo(item) { return !item.isDir && item.media === 'video' }
+
+async function _intezoMoveToPersonDialog() {
+  if (!_intezoMulti || !_intezoMulti.size) { showToast(t('intezo.multi_pick_first')); return }
+  const items = [..._intezoMulti.values()]
+  const hasVideo = items.some(_intezoIsVideo)
+  const ov = document.createElement('div')
+  ov.className = 'modal-overlay active'
+  ov.innerHTML = '<div class="modal" style="max-width:560px;width:calc(100% - 32px)" role="dialog" aria-modal="true">'
+    + '<div class="modal-header"><h2 data-mp="title"></h2></div>'
+    + '<div class="modal-body" data-mp="body"></div>'
+    + '<div class="modal-footer" data-mp="foot" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"></div></div>'
+  document.body.appendChild(ov)
+  const title = ov.querySelector('[data-mp="title"]')
+  const body = ov.querySelector('[data-mp="body"]')
+  const foot = ov.querySelector('[data-mp="foot"]')
+  const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close() } }
+  const close = () => { document.removeEventListener('keydown', onKey, true); ov.remove() }
+  document.addEventListener('keydown', onKey, true)
+  ov.addEventListener('click', (ev) => { if (ev.target === ov) close() })
+  const setFoot = (extra) => {
+    foot.innerHTML = '<button type="button" class="btn-secondary" data-mp="cancel">' + escapeHtml(t('intezo.cancel')) + '</button>' + (extra || '')
+    foot.querySelector('[data-mp="cancel"]').addEventListener('click', close)
+  }
+  title.textContent = t('intezo.mp_title', { n: items.length })
+  body.innerHTML = '<p>' + escapeHtml(t('intezo.mp_loading')) + '</p>'
+  setFoot()
+
+  let targets
+  try {
+    const r = await _intezoGet('/api/life/media-targets')
+    targets = ((r && r.targets) || []).filter((x) => x.media && x.media.photos)
+  } catch (e) {
+    body.innerHTML = '<p>' + escapeHtml((e && e.message) || t('intezo.mp_failed_load')) + '</p>'
+    return
+  }
+
+  const showPeople = () => {
+    title.textContent = t('intezo.mp_title', { n: items.length })
+    setFoot()
+    if (!targets.length) {
+      body.innerHTML = '<p>' + escapeHtml(t('intezo.mp_none')) + '</p>'
+      return
+    }
+    const group = (kind, label) => {
+      const list = targets.filter((x) => x.kind === kind)
+      if (!list.length) return ''
+      return '<p style="margin:10px 0 4px;font-weight:600">' + escapeHtml(label) + '</p>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:6px">'
+        + list.map((x) => '<button type="button" class="btn-secondary" data-owner="' + escapeHtml(x.ownerId) + '">'
+          + escapeHtml(x.name) + '</button>').join('') + '</div>'
+    }
+    body.innerHTML = '<p style="margin:0">' + escapeHtml(t('intezo.mp_pick_person')) + '</p>'
+      + group('person', t('intezo.mp_people')) + group('company', t('intezo.mp_companies'))
+    body.querySelectorAll('[data-owner]').forEach((b) => b.addEventListener('click', () => {
+      const x = targets.find((y) => y.ownerId === b.getAttribute('data-owner'))
+      if (x) void showFolder(x, x.media.photos)
+    }))
+  }
+
+  // 2. lepes: a szemely Media/Fotok mappaja az almappaival -- ha egy
+  // esemeny-mappaba kell (pl. "Mykael csalad"), ide lehet lelepni.
+  const showFolder = async (x, rel) => {
+    const base = x.media.photos
+    title.textContent = t('intezo.mp_title_person', { name: x.name })
+    body.innerHTML = '<p>' + escapeHtml(t('intezo.mp_loading')) + '</p>'
+    let subs = []
+    let missing = false
+    try {
+      const L = await _intezoGet('/api/life/list?deep=0&path=' + encodeURIComponent(rel))
+      subs = (L && L.folders) || []
+      // A lista a hianyzo mappat uzenettel jelzi, nem hibakoddal.
+      if (L && (L.ok === false || (L.message && !subs.length))) missing = true
+    } catch (e) { missing = true }
+    const atBase = rel === base
+    const vidRel = x.media.videos
+    const offerVideos = atBase && hasVideo && !!vidRel
+    const nice = (r) => r.split('/').join(' › ')
+    body.innerHTML = '<p style="margin:0 0 6px">' + escapeHtml(t('intezo.mp_where', { path: nice(rel) })) + '</p>'
+      + (missing ? '<p style="margin:0 0 6px;color:var(--text-muted)">' + escapeHtml(t('intezo.mp_missing')) + '</p>' : '')
+      + (subs.length
+        ? '<p style="margin:6px 0 4px;color:var(--text-muted)">' + escapeHtml(t('intezo.mp_sub_help')) + '</p>'
+          + '<div style="max-height:40vh;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:4px">'
+          + subs.map((f) => '<button type="button" class="btn-secondary" data-sub="' + escapeHtml(f.rel) + '"'
+            + ' style="display:block;width:100%;text-align:left;margin:2px 0;white-space:normal">📁 '
+            + escapeHtml(f.displayName || f.name) + '</button>').join('') + '</div>'
+        : '')
+      + (!atBase ? '<p style="margin:8px 0 0"><button type="button" class="btn-secondary" data-mp="up">'
+        + escapeHtml(t('intezo.mp_up')) + '</button></p>' : '')
+      + (offerVideos ? '<label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">'
+        + '<input type="checkbox" data-mp="videos" checked style="margin-top:3px"> <span>'
+        + escapeHtml(t('intezo.mp_videos', { path: nice(vidRel) })) + '</span></label>' : '')
+    setFoot('<button type="button" class="btn-secondary" data-mp="back">' + escapeHtml(t('intezo.mp_back')) + '</button>'
+      + '<button type="button" class="btn-primary" data-mp="go">' + escapeHtml(t('intezo.mp_go', { n: items.length })) + '</button>')
+    body.querySelectorAll('[data-sub]').forEach((b) => b.addEventListener('click', () => void showFolder(x, b.getAttribute('data-sub'))))
+    const up = body.querySelector('[data-mp="up"]')
+    if (up) up.addEventListener('click', () => void showFolder(x, rel.split('/').slice(0, -1).join('/')))
+    foot.querySelector('[data-mp="back"]').addEventListener('click', showPeople)
+    const go = foot.querySelector('[data-mp="go"]')
+    go.addEventListener('click', () => {
+      const vb = body.querySelector('[data-mp="videos"]')
+      const vids = offerVideos && vb && vb.checked
+      close()
+      void _intezoBulkMove(items, (it) => (vids && _intezoIsVideo(it) ? vidRel : rel))
+    })
+    go.focus()
+  }
+  showPeople()
+}
+
+/**
+ * Az athelyezes elemenkent, sorban -- ugyanaz a /api/life/move, mint a
+ * Kivagas + Beillesztes, tehat ugyanazok az orok (git-repo, bekotes) es
+ * ugyanaz a nevutkozes-kerdes. "A tobbi utkozesre is ezt" utan nem kerdez
+ * ujra. A Megse az egesz sort megallitja; ami addig atment, ott marad, ami
+ * nem, kipipalva marad.
+ */
+async function _intezoBulkMove(items, destFor) {
+  const created = new Set()
+  const dests = new Set()
+  const failed = []
+  let moved = 0, skipped = 0, replaced = 0, sticky = null, stopped = false
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    const to = destFor(it)
+    showToast(t('intezo.mp_progress', { i: i + 1, n: items.length }))
+    try {
+      if (!created.has(to)) {
+        // Friss telepitesen a szemely Media/Fotok mappaja meg nincs meg: most
+        // jon letre, a koztes szintekkel egyutt (letezonel nem csinal semmit).
+        await _depoPost('/api/life/inbox/create-target-folder', { rel: to })
+        created.add(to)
+      }
+      let r
+      try {
+        r = await _depoPost('/api/life/move', { from: it.rel, to })
+      } catch (e) {
+        if (!(e && e.status === 409 && e.data && e.data.code === 'name_exists' && e.data.suggested)) throw e
+        const info = e.data
+        let choice = null
+        if (sticky && (sticky.resolution !== 'replace' || info.canReplace) && (sticky.resolution !== 'merge' || info.canMerge)) {
+          choice = sticky
+        } else {
+          choice = await _intezoAskNameClash(info, { more: items.length - i - 1 })
+          if (!choice) { stopped = true; break }
+          // A fajlonkenti lista egy adott mappara szol, azt nem visszuk tovabb.
+          if (choice.applyAll) sticky = { resolution: choice.resolution, fileResolution: choice.fileResolution }
+        }
+        const req = { from: it.rel, to, resolution: choice.resolution }
+        if (choice.fileResolution) req.fileResolution = choice.fileResolution
+        if (choice.perFile) req.perFile = choice.perFile
+        r = await _depoPost('/api/life/move', req)
+      }
+      if (r && r.code === 'skipped') skipped++
+      else {
+        moved++
+        dests.add(to)
+        replaced += Number((r && r.replaced) || 0)
+        skipped += Number((r && r.skipped) || 0)
+      }
+      if (_intezoMulti) _intezoMulti.delete(it.rel)
+    } catch (e) {
+      failed.push(it.name + ': ' + ((e && e.message) || t('intezo.move_failed')))
+    }
+  }
+  const parts = [t('intezo.mp_done', { n: moved, path: [...dests].map((d) => d.split('/').join(' › ')).join(', ') || '-' })]
+  if (replaced) parts.push(t('intezo.clip_replaced_trash', { n: replaced }))
+  if (skipped) parts.push(t('intezo.clip_skipped_n', { n: skipped }))
+  if (stopped) parts.push(t('intezo.mp_stopped'))
+  if (failed.length) parts.push(t('intezo.mp_errors', { n: failed.length, first: failed[0] }))
+  showToast(parts.join(' · '))
+  await _intezoOpen(_intezoPath)
+  _intezoRenderMultiBar()
+}
+
 /**
  * Nevutkozes-kerdes beilleszteskor (#383, Boss TG 6346: "minden kell ami a
  * Windows intezojeben is van"). A valasz egy feloldas, vagy `null` (= megse):
@@ -38398,7 +38670,8 @@ async function _intezoPaste(targetRel) {
  *   - ugyanabba a mappaba / fajl mappara: csak Mindketto megtartasa vagy Megse.
  * Esc / hatterre kattintas = megse.
  */
-function _intezoAskNameClash(info) {
+function _intezoAskNameClash(info, opts) {
+  const more = Number((opts && opts.more) || 0)
   return new Promise(resolve => {
     const name = String(info.conflictName || '')
     const kind = t(info.conflictIsDir ? 'intezo.clip_exists_folder' : 'intezo.clip_exists_file')
@@ -38441,6 +38714,10 @@ function _intezoAskNameClash(info) {
     buttons.push(btn('keepBoth', (canReplace || canMerge) ? 'btn-secondary' : 'btn-primary', t('intezo.clip_keep_both', { name: String(info.suggested) })))
     if (canReplace) buttons.push(btn('replace', 'btn-primary', t('intezo.clip_replace')))
     if (canMerge) buttons.push(btn('merge', 'btn-primary', t('intezo.clip_merge')))
+    // Tobb elem athelyezesenel (#381): ne kelljen minden utkozesnel kulon valaszolni.
+    if (more > 0) {
+      body += `<label style="display:flex;gap:6px;align-items:center;margin:10px 0 0"><input type="checkbox" id="intezoClashRest"> ${escapeHtml(t('intezo.clip_apply_rest', { n: more }))}</label>`
+    }
     const ov = document.createElement('div')
     ov.className = 'modal-overlay active'
     ov.innerHTML = `
@@ -38453,6 +38730,12 @@ function _intezoAskNameClash(info) {
     const list = ov.querySelector('#intezoClashList')
     if (allBox && list) allBox.addEventListener('change', () => { list.hidden = allBox.checked })
     const collect = act => {
+      const out = collectRes(act)
+      const rest = ov.querySelector('#intezoClashRest')
+      if (rest && rest.checked) out.applyAll = true
+      return out
+    }
+    const collectRes = act => {
       if (act !== 'merge') return { resolution: act }
       const radio = ov.querySelector('input[name="intezoClashRes"]:checked')
       const fileResolution = radio ? radio.value : 'keepBoth'

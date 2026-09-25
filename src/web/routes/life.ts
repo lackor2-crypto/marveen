@@ -35,7 +35,7 @@ import { lifeThumb } from '../../life-thumbs.js'
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
-  ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig,
+  ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig, mediaTargets,
   inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists, inboxDir,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
@@ -304,6 +304,32 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // `lang`: a felulet nyelve. Csak a sugokat valtja, a mappaneveket nem --
     // azok a lemezen allnak.
     send(res, 200, listLife(rel, { deep, lang: uiLang(url) }))
+    return true
+  }
+
+  // HOVA MEHET AZ "ATHELYEZES SZEMELYHEZ" (#381): szemelyek es cegek a
+  // tervezett media-mappaikkal, es hogy azok a lemezen mar leteznek-e. Egy
+  // friss telepitesen, ahol a Konyvtarszerkezet letrehozasa meg nem futott,
+  // `exists: false` jon -- az athelyezes ilyenkor maga hozza letre a mappat.
+  if (path === '/api/life/media-targets' && method === 'GET') {
+    let targets: ReturnType<typeof mediaTargets> = []
+    try {
+      targets = mediaTargets(loadLifeConfig(), APP_LANG)
+    } catch (err) {
+      const lang = uiLang(url)
+      send(res, 500, { ok: false, code: 'plan_failed', message: T(lang,
+        `Nem sikerült beolvasni, kik szerepelnek a fában: ${String((err as Error)?.message || err)}`,
+        `Could not read who is in the tree: ${String((err as Error)?.message || err)}`) })
+      return true
+    }
+    const exists = (rel: string) => { const abs = resolveLifePath(rel); return !!abs && existsSync(abs) }
+    send(res, 200, {
+      ok: true,
+      targets: targets.map((t) => ({
+        ...t,
+        exists: Object.fromEntries(Object.entries(t.media).map(([k, rel]) => [k, exists(rel as string)])),
+      })),
+    })
     return true
   }
 
