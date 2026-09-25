@@ -125,6 +125,24 @@ describe('a gyorsitotar', () => {
     expect(f).toHaveBeenCalledTimes(2)
   })
 
+  it('#390: lejart rendes koron a regi meres megy ki azonnal, a friss a hatterben', async () => {
+    let n = 0
+    const f = vi.fn(async () => new Response(JSON.stringify({ five_hour: { utilization: ++n * 10, resets_at: null } }), { status: 200 }))
+    globalThis.fetch = f as unknown as typeof fetch
+    const first = await liveUsageForAccount('a', 'sk-x', { now: 1_000 })
+    const again = await liveUsageForAccount('a', 'sk-x', { now: 30_000 })   // TTL utan
+    expect(again).toBe(first)                                               // nem vart
+    await vi.waitFor(() => expect(f).toHaveBeenCalledTimes(2))
+    await liveUsageForAccount('a', 'sk-x', { now: 31_000 })                 // meg fut? nincs dupla
+    expect(f.mock.calls.length).toBeLessThanOrEqual(3)
+    // tul regi meres (5 perc felett): megvarjuk az elot
+    clearLiveUsageCacheForTest()
+    await liveUsageForAccount('b', 'sk-x', { now: 1_000 })
+    const before = f.mock.calls.length
+    await liveUsageForAccount('b', 'sk-x', { now: 1_000 + 6 * 60_000 })
+    expect(f.mock.calls.length).toBe(before + 1)
+  })
+
   it('a fiokok nem latjak egymas valaszat', async () => {
     const f = json(200, { five_hour: { utilization: 10, resets_at: null } })
     globalThis.fetch = f as unknown as typeof fetch
