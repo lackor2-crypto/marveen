@@ -1469,10 +1469,29 @@ async function loadKanban() {
     // kanbanSwimlanes and kanbanLabels, so the labels (from the labels feature)
     // stay populated too. Also covers opening the Kanban page first, before the
     // Agents page populated window._marveen.
-    try {
-      const mr = await fetch('/api/marveen')
-      if (mr.ok) window._marveen = { ...(window._marveen || {}), ...(await mr.json()) }
-    } catch { /* ignore -- aging/WIP/swimlanes/labels just won't render until _marveen loads */ }
+    //
+    // #390: IN PARALLEL with the cards, not before them. It used to be awaited
+    // first, so every Kanban open waited ~0,4 s for a config the board already
+    // had from the previous open. Now: when the board config is already known,
+    // the cards render at once and the fresh config re-renders only if it
+    // actually changed; only the very first open (no config yet) waits for it,
+    // and even then alongside the card fetch.
+    const kanbanCfgOf = (m) => JSON.stringify([m?.kanbanAging, m?.kanbanWip, m?.kanbanSwimlanes, m?.kanbanLabels])
+    const hadKanbanCfg = !!window._marveen?.kanbanWip
+    const cfgBefore = kanbanCfgOf(window._marveen)
+    const marveenReady = fetch('/api/marveen')
+      .then((mr) => (mr.ok ? mr.json() : null))
+      .then((m) => { if (m) window._marveen = { ...(window._marveen || {}), ...m } })
+      .catch(() => { /* ignore -- aging/WIP/swimlanes/labels just won't render until _marveen loads */ })
+    const namesReady = refreshProjectNames()
+    const listsReady = Promise.all([
+      fetch('/api/kanban'),
+      fetch('/api/kanban/assignees'),
+      fetch('/api/kanban-projects'),
+      fetch('/api/kanban/labels'),
+    ])
+    if (!hadKanbanCfg) await marveenReady
+    else marveenReady.then(() => { if (kanbanCfgOf(window._marveen) !== cfgBefore && typeof renderKanban === 'function') renderKanban() })
     if (!kanbanGroupByInitialized) {
       kanbanGroupByInitialized = true
       // A user's own past choice (saved to localStorage) wins over the
@@ -1499,13 +1518,7 @@ async function loadKanban() {
         if (Array.isArray(storedHiddenCols)) kanbanHiddenColumns = new Set(storedHiddenCols)
       } catch { /* ignore malformed storage */ }
     }
-    const namesReady = refreshProjectNames()
-    const [cardsRes, assigneesRes, projectsRes, labelsRes] = await Promise.all([
-      fetch('/api/kanban'),
-      fetch('/api/kanban/assignees'),
-      fetch('/api/kanban-projects'),
-      fetch('/api/kanban/labels'),
-    ])
+    const [cardsRes, assigneesRes, projectsRes, labelsRes] = await listsReady
     kanbanCards = await cardsRes.json()
     // Board cards are ids we know for sure -- keeps references linkable even if
     // the boot-time id fetch failed, and picks up cards created since.
@@ -24138,11 +24151,21 @@ const _approvalsExpanded = new Set()
 let _prjApprovalMap = {}
 
 async function loadApprovalsPage() {
-  await ensureAgentsLoaded()   // kulonben az ellenorzes-oszlop nyers agens-id-t mutat
+  // #390: az agens-nevek (kulonben az ellenorzes-oszlop nyers agens-id-t
+  // mutat) PARHUZAMOSAN jonnek a listaval, nem elotte -- korabban minden
+  // megnyitas ~0,5 s-ot vart rajuk, mielott a lista lekerese egyaltalan
+  // elindult. Ha kesobb erkeznek, a tablazat ujrarajzolodik a nevekkel.
+  const hadAgents = agents.length > 0
+  const agentsReady = ensureAgentsLoaded()
   const tbody = document.getElementById('approvalsTbody')
   const statsEl = document.getElementById('approvalsStats')
-  tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.loading')}</td></tr>`
-  statsEl.innerHTML = ''
+  // Mar lattuk a listat: azonnal az marad kint (a friss a hatterben jon), nem
+  // egy "betoltes..." sor torli le minden megnyitaskor.
+  const haveStale = Array.isArray(_approvalsAll) && _approvalsAll.length > 0 && tbody.querySelector('tr .approvals-desc-cell')
+  if (!haveStale) {
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.loading')}</td></tr>`
+    statsEl.innerHTML = ''
+  }
   if (_approvalsCountdownInterval) { clearInterval(_approvalsCountdownInterval); _approvalsCountdownInterval = null }
   if (_approvalsVerifyPollInterval) { clearInterval(_approvalsVerifyPollInterval); _approvalsVerifyPollInterval = null }
 
@@ -24155,6 +24178,7 @@ async function loadApprovalsPage() {
     _syncApprovalFilterOptions()
     _renderApprovalsStats()
     _renderApprovalsTable()
+    if (!hadAgents) agentsReady.then(() => { if (agents.length && document.getElementById('approvalsPage')?.hidden === false) _renderApprovalsTable() })
     _approvalsCountdownInterval = setInterval(_updateCountdowns, 1000)
     // Only poll while something is actually pending review -- no point
     // hitting the endpoint every 5s once every dispatched agent has reported.

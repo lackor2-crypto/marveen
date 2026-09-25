@@ -32,9 +32,8 @@ import { googleAccountNames } from './accounts.js'
 import os from 'node:os'
 import fs from 'node:fs'
 import path0 from 'node:path'
-import { execFile } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import type { RouteContext } from './types.js'
+import { calendarListOutput } from '../settings-calendar-cache.js'
 
 export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
@@ -206,14 +205,7 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
         const account = ctx.url.searchParams.get('account')
           || String(getEffectiveSettingValue('HEARTBEAT_CALENDAR_ACCOUNT') || '')
           || ''
-        const root = path0.resolve(path0.dirname(fileURLToPath(import.meta.url)), '../../..')
-        const args = [path0.join(root, 'scripts', 'google-auth.py'), 'calendars']
-        if (account) args.push(account)
-        const out = await new Promise<string>((resolve) => {
-          execFile('python3', args, { cwd: root, timeout: 15000 }, (err, stdout) => {
-            resolve(err && !stdout ? '' : String(stdout || ''))
-          })
-        })
+        const out = await calendarListOutput(account)
         let parsed: { error?: string; account?: string; calendars?: Array<Record<string, unknown>> } | null = null
         try { parsed = JSON.parse(out.trim() || '{}') } catch { parsed = null }
         if (!parsed || parsed.error || !Array.isArray(parsed.calendars)) {

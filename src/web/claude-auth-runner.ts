@@ -15,7 +15,7 @@
 //
 // ONE login flow at a time, though: they all drive the same tmux window, and two
 // people pasting codes into one pane helps nobody.
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
@@ -166,12 +166,49 @@ export function readIdentity(configDir?: string | null): AuthIdentity {
 export function readIdentityDetailed(configDir?: string | null): { identity: AuthIdentity; probeOk: boolean } {
   let out: string
   try {
-    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
-    if (configDir) env.CLAUDE_CONFIG_DIR = configDir
     out = execFileSync(CLAUDE(), ['auth', 'status', '--json'], {
-      timeout: 20_000, encoding: 'utf-8', env,
+      timeout: 20_000, encoding: 'utf-8', env: identityProbeEnv(configDir),
     })
   } catch (err) {
+    return interpretIdentityProbe(null, err, configDir)
+  }
+  return interpretIdentityProbe(out, null, configDir)
+}
+
+/**
+ * Ugyanaz a proba, de NEM allitja meg a szervert (#390).
+ *
+ * MERVE 2026-09-25: egy `claude auth status` 0,45 s, es a szinkron valtozat
+ * ezalatt az EGESZ dashboardot megallitja -- a Fiokok lap 1,6 s-ig, a vele
+ * egyutt indulo /api/claude-plans 3,1 s-ig varakozott, pedig az maga egy
+ * fajlolvasas. Az aszinkron proba alatt a tobbi keres tovabb fut, es tobb
+ * fiok probaja PARHUZAMOSAN mehet.
+ */
+export function readIdentityDetailedAsync(configDir?: string | null): Promise<{ identity: AuthIdentity; probeOk: boolean }> {
+  return new Promise((resolve) => {
+    try {
+      execFile(CLAUDE(), ['auth', 'status', '--json'], {
+        timeout: 20_000, encoding: 'utf-8', env: identityProbeEnv(configDir),
+      }, (err, stdout) => {
+        resolve(err
+          ? interpretIdentityProbe(null, Object.assign(err, { stdout }), configDir)
+          : interpretIdentityProbe(stdout, null, configDir))
+      })
+    } catch (err) {
+      resolve(interpretIdentityProbe(null, err, configDir))
+    }
+  })
+}
+
+function identityProbeEnv(configDir?: string | null): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
+  if (configDir) env.CLAUDE_CONFIG_DIR = configDir
+  return env
+}
+
+function interpretIdentityProbe(stdout: string | null, err: unknown, configDir?: string | null): { identity: AuthIdentity; probeOk: boolean } {
+  let out = stdout ?? ''
+  if (stdout === null) {
     const st = (err as { stdout?: string | Buffer })?.stdout
     const text = st === undefined || st === null ? '' : (typeof st === 'string' ? st : st.toString('utf-8'))
     if (!text.trim()) {
@@ -222,14 +259,78 @@ export interface AccountRow {
 // on the next tick, and registering one invalidates the cache outright.
 let accountCache: { at: number; rows: AccountRow[] } | null = null
 const ACCOUNT_CACHE_MS = 10_000
+// #390: egy ennel nem regebbi lista AZONNAL kimegy, es a hatterben frissul.
+// A bejelentkezes/kijelentkezes/rogzites a gyorsitotarat eldobja
+// (invalidateAccountCache), tehat a sajat modositas SOSE latszik regi
+// allapotban; ez az ablak csak a kivulrol (terminalbol) tortent valtozasra
+// vonatkozik, es az is a kovetkezo megnyitasra mar friss.
+const ACCOUNT_STALE_OK_MS = 5 * 60_000
+// Minden eldobas/kenyszeritett ujraepites noveli: egy KOZBEN elinditott
+// hatter-frissites eredmenye igy nem irhatja felul az ujabbat.
+let accountGen = 0
+let accountRefresh: Promise<AccountRow[]> | null = null
 
-export function invalidateAccountCache(): void { accountCache = null }
+export function invalidateAccountCache(): void { accountCache = null; accountGen++ }
 
 export function listAccounts(force = false): AccountRow[] {
-  if (!force && accountCache && Date.now() - accountCache.at < ACCOUNT_CACHE_MS) return accountCache.rows
+  const now = Date.now()
+  if (!force && accountCache && now - accountCache.at < ACCOUNT_CACHE_MS) return accountCache.rows
+  // Regebbi, de meg elfogadhato lista: azonnal vissza, frissites a hatterben --
+  // a szinkron ujraepites fiokonkent 0,45 s-ra megallitana az egesz szervert.
+  if (!force && accountCache && now - accountCache.at < ACCOUNT_STALE_OK_MS) {
+    void refreshAccountsInBackground()
+    return accountCache.rows
+  }
+  accountGen++
   const rows = buildAccountRows()
   accountCache = { at: Date.now(), rows }
   return rows
+}
+
+/**
+ * A lap-kiszolgalok ezt hivjak: soha nem allitja meg a szervert. Friss vagy
+ * elfogadhatoan regi listat azonnal ad (es a regit hatterben frissiti);
+ * gyorsitotar nelkul megvarja a PARHUZAMOS, aszinkron probat.
+ */
+export async function listAccountsAsync(): Promise<AccountRow[]> {
+  const now = Date.now()
+  if (accountCache && now - accountCache.at < ACCOUNT_CACHE_MS) return accountCache.rows
+  if (accountCache && now - accountCache.at < ACCOUNT_STALE_OK_MS) {
+    void refreshAccountsInBackground()
+    return accountCache.rows
+  }
+  return refreshAccountsInBackground()
+}
+
+export function identityAuditAsync(): Promise<IdentityAudit> {
+  return listAccountsAsync().then(auditRows)
+}
+
+/** Egyszerre csak egy frissites fut; a tobbi hivo ugyanarra var. */
+export function refreshAccountsInBackground(): Promise<AccountRow[]> {
+  if (accountRefresh) return accountRefresh
+  const gen = accountGen
+  accountRefresh = buildAccountRowsAsync()
+    .then((rows) => {
+      if (gen === accountGen) accountCache = { at: Date.now(), rows }
+      return gen === accountGen || !accountCache ? rows : accountCache.rows
+    })
+    .catch((err) => {
+      logger.warn({ err }, 'claude-auth: background account refresh failed')
+      return accountCache?.rows ?? []
+    })
+    .finally(() => { accountRefresh = null })
+  return accountRefresh
+}
+
+async function buildAccountRowsAsync(): Promise<AccountRow[]> {
+  const mainDir = resolveMainAgentConfigDir()
+  const plans = readClaudePlans()
+  const probes = await Promise.all([
+    readIdentityDetailedAsync(mainDir),
+    ...plans.map(p => readIdentityDetailedAsync(p.configDir)),
+  ])
+  return assembleAccountRows(mainDir, plans, probes)
 }
 
 function buildAccountRows(): AccountRow[] {
@@ -240,7 +341,17 @@ function buildAccountRows(): AccountRow[] {
   // The frontend identifies this row by `isDefault`, not by configDir, so
   // carrying a non-null dir here is safe (see app.js liveAccountRowFor).
   const mainDir = resolveMainAgentConfigDir()
-  const def = readIdentityDetailed(mainDir)
+  const plans = readClaudePlans()
+  const probes = [readIdentityDetailed(mainDir), ...plans.map(p => readIdentityDetailed(p.configDir))]
+  return assembleAccountRows(mainDir, plans, probes)
+}
+
+function assembleAccountRows(
+  mainDir: string | null,
+  plans: ReturnType<typeof readClaudePlans>,
+  probes: Array<{ identity: AuthIdentity; probeOk: boolean }>,
+): AccountRow[] {
+  const def = probes[0]
   const rows: AccountRow[] = [{
     id: null,
     // No label from here: the row is marked isDefault and the PAGE names it, so
@@ -257,8 +368,8 @@ function buildAccountRows(): AccountRow[] {
     expectedEmail: readMainExpectedEmail(),
     identityVerdict: { kind: 'signed_out' },
   }]
-  for (const plan of readClaudePlans()) {
-    const got = readIdentityDetailed(plan.configDir)
+  plans.forEach((plan, i) => {
+    const got = probes[i + 1]
     rows.push({
       id: plan.id,
       label: plan.label,
@@ -271,7 +382,7 @@ function buildAccountRows(): AccountRow[] {
       expectedEmail: plan.expectedEmail ?? null,
       identityVerdict: { kind: 'signed_out' },
     })
-  }
+  })
   // KI VAN EBBEN A SLOTBAN. Egy menetben, hogy az utkozes-kereses (ket slot
   // ugyanazon a fiokon) mindenkit lasson -- a gep sajat bejelentkezeset is.
   const audit = auditIdentities(rows.map(r => ({
@@ -290,7 +401,10 @@ function buildAccountRows(): AccountRow[] {
 
 /** Az osszes fiok azonossag-vizsgalata (utkozesek is), a gyorsitotarbol. */
 export function identityAudit(force = false): IdentityAudit {
-  const rows = listAccounts(force)
+  return auditRows(listAccounts(force))
+}
+
+function auditRows(rows: AccountRow[]): IdentityAudit {
   return auditIdentities(rows.map(r => ({
     id: r.id,
     label: r.isDefault ? '' : (r.label || r.id || ''),

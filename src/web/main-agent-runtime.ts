@@ -29,6 +29,7 @@
 // ===========================================================================
 
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { exactTmuxTarget } from './tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 
@@ -53,7 +54,38 @@ export interface MainAgentRuntime {
 
 const UNKNOWN: MainAgentRuntime = { pid: null, startedAtMs: null, model: null }
 
+// #390: Linuxon a /proc kozvetlenul megmondja ugyanazt, amit a `ps` -- alfolyamat
+// nelkul. MERVE: a /api/marveen egy hivasa 4-5 szinkron `ps`/`tmux` inditast
+// vart vegig (~170 ms), es ezalatt az egesz dashboard allt. Ahol nincs /proc
+// (macOS), vagy nem olvashato, a regi `ps` ut marad.
+/** undefined = a /proc nem adott valaszt, a `ps` jon. */
+export function procField(pid: number, field: string): string | null | undefined {
+  try {
+    if (field === 'comm=') return readFileSync(`/proc/${pid}/comm`, 'utf-8').trim() || null
+    if (field === 'args=') {
+      const raw = readFileSync(`/proc/${pid}/cmdline`, 'utf-8')
+      return raw.split('\0').filter(Boolean).join(' ') || null
+    }
+    if (field === 'etimes=') {
+      // stat 22. mezo: indulas a rendszerinditas ota, orajel-utemben. A comm
+      // zarojelben all es szokozt is tartalmazhat, ezert az utolso ')' utan
+      // bontunk.
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf-8')
+      const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+      const startTicks = Number(rest[19])
+      const uptime = Number(readFileSync('/proc/uptime', 'utf-8').split(' ')[0])
+      if (!Number.isFinite(startTicks) || !Number.isFinite(uptime)) return undefined
+      const secs = Math.floor(uptime - startTicks / CLK_TCK)
+      return secs >= 0 ? String(secs) : null
+    }
+  } catch { /* fall through to ps */ }
+  return undefined
+}
+const CLK_TCK = 100
+
 function ps(pid: number, field: string): string | null {
+  const fromProc = procField(pid, field)
+  if (fromProc !== undefined) return fromProc
   try {
     const out = execFileSync('/bin/ps', ['-p', String(pid), '-o', field],
       { timeout: 2000, encoding: 'utf-8' })
@@ -116,7 +148,20 @@ export function extractModelFlag(args: string): string | null {
  * Mit futtat MOST a foagens. Minden mezo kulon lehet null: a hivo ilyenkor a
  * korabbi, ido-alapu jelre esik vissza, nem pedig hamis biztonsagot allit.
  */
+// Egy lap-betoltes ketszer is megkerdezi (a /api/marveen maga, es a modell-
+// feloldas rajta keresztul): ket masodpercen belul ugyanaz a valasz.
+let runtimeMemo: { session: string; at: number; value: MainAgentRuntime } | null = null
+const RUNTIME_MEMO_MS = 2000
+
 export function readMainAgentRuntime(session: string = MAIN_CHANNELS_SESSION): MainAgentRuntime {
+  const now = Date.now()
+  if (runtimeMemo && runtimeMemo.session === session && now - runtimeMemo.at < RUNTIME_MEMO_MS) return runtimeMemo.value
+  const value = readMainAgentRuntimeUncached(session)
+  runtimeMemo = { session, at: Date.now(), value }
+  return value
+}
+
+function readMainAgentRuntimeUncached(session: string): MainAgentRuntime {
   const pid = findClaudePid(session)
   if (pid === null) return UNKNOWN
 
