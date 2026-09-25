@@ -565,4 +565,41 @@ describe('getDispatchedPendingStats -- only dispatched work counts (#400)', () =
     createAgentMessage(coord, `sub-${uniq()}`, 'Munkacsomag: #400')
     expect(getDispatchedPendingStats(coord, Date.now(), 2 * HOUR, coord).count).toBe(1)
   })
+
+  // Global fix: recipients never close rows as 'done', so an answered
+  // delegation used to count forever. An answer from the recipient closes it.
+  it("the coordinator's delegation stops blocking once the sub-agent answered", () => {
+    const coord = `coord-${uniq()}`, sub = `sub-${uniq()}`
+    createAgentMessage(coord, sub, 'Munkacsomag: #400')
+    createAgentMessage(sub, coord, '#400 kesz')
+    expect(getDispatchedPendingStats(coord, Date.now(), 2 * HOUR, coord).count).toBe(0)
+  })
+
+  it('an answer from a DIFFERENT agent does not close the delegation', () => {
+    const coord = `coord-${uniq()}`, sub = `sub-${uniq()}`
+    createAgentMessage(coord, sub, 'Munkacsomag')
+    createAgentMessage(`other-${uniq()}`, coord, 'unrelated')
+    expect(getDispatchedPendingStats(coord, Date.now(), 2 * HOUR, coord).count).toBe(1)
+  })
+
+  it('a message from the recipient sent BEFORE the delegation does not close it', () => {
+    const coord = `coord-${uniq()}`, sub = `sub-${uniq()}`
+    createAgentMessage(sub, coord, 'earlier report')
+    createAgentMessage(coord, sub, 'new task')
+    expect(getDispatchedPendingStats(coord, Date.now(), 2 * HOUR, coord).count).toBe(1)
+  })
+
+  it('peer-to-peer: a request blocks until the peer answers', () => {
+    const a = `peerA-${uniq()}`, b = `peerB-${uniq()}`, coord = `coord-${uniq()}`
+    createAgentMessage(a, b, 'nezd at a PR-t')
+    expect(getDispatchedPendingStats(a, Date.now(), 2 * HOUR, coord).count).toBe(1)
+    createAgentMessage(b, a, 'atnezve, PASS')
+    expect(getDispatchedPendingStats(a, Date.now(), 2 * HOUR, coord).count).toBe(0)
+  })
+
+  it('a sub-agent question to the coordinator without answer does not block the sub-agent', () => {
+    const sub = `sub-${uniq()}`, coord = `coord-${uniq()}`
+    createAgentMessage(sub, coord, 'kerdes: melyik branch?')
+    expect(getDispatchedPendingStats(sub, Date.now(), 2 * HOUR, coord).count).toBe(0)
+  })
 })
