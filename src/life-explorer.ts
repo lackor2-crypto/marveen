@@ -218,6 +218,12 @@ export interface LifeListing {
   total?: number | null
   /** Emberi mondat, ha valami nem sikerult. Nem hiba: uzenet a feluletnek. */
   message: string | null
+  /**
+   * A Kuka relativ utja ezen a telepitesen (`Rendszer/Kuka` vagy
+   * `System/Trash`). A lemez-nev a telepites nyelvet koveti, ezert a felulet
+   * nem egetheti be -- innen tudja, mikor kinalja a vegleges torlest.
+   */
+  trashRel?: string
 }
 
 /**
@@ -647,6 +653,7 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
     files: [],
     truncated: false,
     message: null,
+    trashRel: lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG),
   }
   if (!root) {
     return { ...base, message: T(lang, 'Nincs raktár beállítva, ezért nincs mit mutatni. A Raktár oldalon add meg, hol legyen a Marveen tárhelye.', 'No depot is set, so there is nothing to show. On the Depot page tell me where Marveen should keep its files.') }
