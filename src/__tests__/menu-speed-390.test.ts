@@ -269,3 +269,12 @@ describe('the self-check login probe does not stall the server', () => {
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
+
+describe('the Drive sync failure list is parsed once per file version', () => {
+  it('loadSyncFailures serves from a size+mtime memo and hands out copies', () => {
+    const f = src('src/drive-sync-failures.ts')
+    expect(f).toContain('if (parsedMemo && parsedMemo.sig === sig) return parsedMemo.rows')
+    expect(f).toMatch(/sig = `\$\{st\.ino\}:\$\{st\.size\}:\$\{st\.mtimeMs\}:\$\{st\.ctimeMs\}`/)
+    expect(f).toContain('out.push({ ...f })')
+  })
+})
