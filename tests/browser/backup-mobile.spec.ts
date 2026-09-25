@@ -44,7 +44,11 @@ for (const lang of ['hu', 'en'] as const) {
     page.on('pageerror', (e) => errors.push(e.message))
     const ok = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     await page.route('**/api/**', (r) => r.fulfill(ok({})))
-    await page.route('**/api/settings', (r) => r.fulfill(ok({ settings: [] })))
+    // One real-shaped setting: with an EMPTY list loadSettings builds no tabs at
+    // all (it shows "no settings" and returns), so the Backup tab never appears.
+    await page.route('**/api/settings', (r) => r.fulfill(ok({ settings: [
+      { key: 'SCHEDULER_TZ', module: 'system', type: 'string', value: 'Europe/Budapest', default: 'Europe/Budapest', description: 'tz', requiresRestart: false },
+    ] })))
     await page.route('**/api/auth/status', (r) => r.fulfill(ok({ method: 'token', authenticated: true })))
     await page.route('**/api/backup/status**', (r) => r.fulfill(ok(STATUS)))
     await page.route('**/api/backup/list**', (r) => r.fulfill(ok(LIST)))
@@ -81,7 +85,7 @@ for (const lang of ['hu', 'en'] as const) {
     expect(overflow, overflow.join('\n')).toEqual([])
     const box = await run.boundingBox()
     expect(box!.x + box!.width).toBeLessThanOrEqual(390)
-    await page.screenshot({ path: `test-results/backup-mobile-${lang}.png`, fullPage: true })
+    await page.locator('#backupPanel').screenshot({ path: `test-results/backup-mobile-${lang}.png`, timeout: 20_000, animations: 'disabled', caret: 'hide' })
     expect(errors, errors.join(' | ')).toEqual([])
   })
 }
