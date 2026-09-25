@@ -247,3 +247,25 @@ describe('user-turn count reads only the appended part of a transcript', () => {
     expect(o).not.toMatch(/await readFile\(absFile/)
   })
 })
+
+describe('the self-check login probe does not stall the server', () => {
+  it('system-health probes through the cached, async-refreshing wrapper', () => {
+    const h = src('src/web/system-health.ts')
+    expect(h).toContain('proba: (configDir: string) => NamedCred = namedLoginProbeCached,')
+    expect(h).not.toContain('proba: (configDir: string) => NamedCred = namedLoginProbe,')
+    expect(h).toMatch(/execFile\(CLAUDE_BIN\(\), \['auth', 'status', '--json'\]/)
+    expect(src('src/web.ts')).toContain('prewarmLoginProbes()')
+  })
+
+  it('a known directory answers from cache and refreshes in the background', async () => {
+    const { namedLoginProbeCached, _resetLoginProbeCacheForTest } = await import('../web/system-health.js')
+    _resetLoginProbeCacheForTest()
+    const dir = mkdtempSync(path.join(tmpdir(), 'probe390-'))
+    try {
+      const first = namedLoginProbeCached(dir)            // cold: synchronous probe
+      const t0 = Date.now()
+      expect(namedLoginProbeCached(dir, Date.now() + 120_000)).toBe(first) // stale: immediate
+      expect(Date.now() - t0).toBeLessThan(50)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
