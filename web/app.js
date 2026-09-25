@@ -37622,6 +37622,7 @@ let _intezoListing = null
 
 async function _intezoOpen(rel) {
   const uj = rel || ''
+  const navigated = uj !== _intezoPath
   // Mashova leptunk -> a kijeloles es vele az adatlap megszunik.
   if (uj !== _intezoPath) _intezoClearSelection()
   // The SAME folder again = refresh, or a change (new folder, move, rename,
@@ -37642,6 +37643,15 @@ async function _intezoOpen(rel) {
     _intezoListing = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : t('intezo.open_failed') }
   }
   _intezoRender()
+  // #386 -- belepes utan a mappa tartalma a lap tetejen latszodjon: ha a
+  // lista teteje kigordult a kepbol (egy hosszu mappa aljarol leptunk be),
+  // odagorgetunk. Frissitesnel (ugyanaz a mappa) nem ugrunk el.
+  if (navigated) {
+    const list = document.getElementById('intezoList')
+    if (list && list.getBoundingClientRect && list.getBoundingClientRect().top < 0 && list.scrollIntoView) {
+      list.scrollIntoView({ block: 'start' })
+    }
+  }
 }
 
 function _intezoUp() {
@@ -38065,7 +38075,7 @@ function _intezoRender() {
       // fel-kattintas ne helyezzen at semmit.
       if (row && row.getAttribute('data-dir')) _intezoOpen(rel)
       else if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
-      else _intezoInfo(rel)
+      else void _intezoSelectOnly(rel)
     })
   })
   // BAL KLIKK A SOR BARMELY PONTJARA = kijeloles/kijeloles-levetel.
@@ -38080,7 +38090,7 @@ function _intezoRender() {
       // telefonon a kis negyzetet nehez eltalalni.
       if (_intezoMulti) { const e = rows.find((x) => x.rel === rel); if (e) _intezoMultiToggle(e); return }
       if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
-      else void _intezoInfo(rel)
+      else void _intezoSelectOnly(rel)
     })
   })
 
@@ -38128,9 +38138,13 @@ function _intezoRender() {
 
   list.querySelectorAll('button[data-info]').forEach((b) => {
     b.addEventListener('click', () => {
-      // Kapcsolo: ugyanarra a tetelre masodszor kattintva becsukodik.
+      // Kapcsolo: ugyanarra a tetelre masodszor kattintva becsukodik. (#386)
+      // A kijeloles maga NEM eleg a becsukashoz: egy sima kattintassal kijelolt
+      // (panel nelkuli) tetelen az Info gomb KINYITJA a panelt, nem levesz.
       const rel = b.getAttribute('data-info')
-      if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
+      const card = document.getElementById('intezoInfoCard')
+      const open = card && !card.hidden
+      if (open && _intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
       else _intezoInfo(rel)
     })
   })
@@ -38947,6 +38961,10 @@ async function _intezoInfo(rel, quiet) {
     return
   }
   _intezoSelected = info
+  // #386 -- a sima kattintas CSAK kijelol: a nyitott adatlap is becsukodik,
+  // kulonben egy korabbi Info-kattintas panelje ugrana at az uj tetelre, es
+  // tolna le a lista tobbi reszet.
+  if (quiet === 'select') card.hidden = true
   if (!quiet) {
     card.hidden = false
     // Szandekos (nem-quiet) kijeloles: a felhasznalo maga valasztott egy elemet,
@@ -39013,6 +39031,21 @@ async function _intezoInfo(rel, quiet) {
   _intezoRenderActions()
   void _intezoRenderPreview(info)
   _intezoRender()
+}
+
+/**
+ * SIMA BAL KATTINTAS egy soron / csempen / fajlneven: CSAK kijelol (#386).
+ *
+ * Boss: „ez a részletes információ, ez csak az info-ra rákattintva jöjjön
+ * elő, kizárólag csak akkor, máskor ne." A lenyilo adatlap a lista kozepere
+ * ekelodott, es letolta a mappa tobbi reszet. Az adatlapot mostantol csak az
+ * Info gomb es a jobb klikk menu „Részletes információ" pontja nyitja.
+ * A kijeloles ettol ugyanaz marad (sav, Ctrl+X/C/V, Kivagas/Masolas), es egy
+ * elonezheto fajl elonezet-ablaka is ugyanugy felnyilik, mint eddig.
+ */
+function _intezoSelectOnly(rel) {
+  _intezoPreviewDismissed = false
+  return _intezoInfo(rel, 'select')
 }
 
 /** A vegpont URL-je egy fajl bajtjaihoz -- elonezetre vagy letoltesre. */
@@ -39531,7 +39564,7 @@ async function _intezoSaveMountNote() {
       provisional: prov ? prov.checked : false,
     })
     showToast(r.message || t('intezo.done'))
-    await _intezoInfo(_intezoSelected.rel)
+    await _intezoInfo(_intezoSelected.rel, true)
   } catch (e) {
     showToast((e && e.message) ? e.message : t('intezo.save_failed'))
   }
@@ -39549,7 +39582,7 @@ async function _intezoAddMount() {
     })
     showToast(r.message || t('intezo.done'))
     await _intezoOpen(_intezoPath)
-    await _intezoInfo(_intezoSelected.rel)
+    await _intezoInfo(_intezoSelected.rel, true)
   } catch (e) {
     showToast((e && e.message) ? e.message : t('intezo.mount_failed'))
   }
@@ -39573,7 +39606,7 @@ async function _intezoRemoveMount() {
     const r = await _depoPost('/api/life/mounts/remove', { rel: _intezoSelected.rel })
     showToast(r.message || t('intezo.done'))
     await _intezoOpen(_intezoPath)
-    await _intezoInfo(_intezoSelected.rel)
+    await _intezoInfo(_intezoSelected.rel, true)
   } catch (e) {
     showToast((e && e.message) ? e.message : t('intezo.unmount_failed'))
   }
@@ -39616,7 +39649,7 @@ async function _intezoSavePhysical() {
       note: note ? note.value : '',
     })
     showToast('Mentve.')
-    await _intezoInfo(_intezoSelected.rel)
+    await _intezoInfo(_intezoSelected.rel, true)
   } catch (e) {
     showToast((e && e.message) ? e.message : t('intezo.save_failed'))
   }
