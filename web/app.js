@@ -36805,10 +36805,6 @@ async function loadIntezoPage() {
   bind('intezoMultiNoneBtn', 'click', () => _intezoMultiAll(false))
   bind('intezoMultiMoveBtn', 'click', () => void _intezoMoveToPersonDialog())
   _intezoRenderMultiBar()
-  // A lefixalt fejlec muveletsava. Delegalt kezelo: a gombok ujrarajzolasa
-  // (disabled allapot) nem szakitja el a figyelot.
-  const abar = document.getElementById('intezoActionBar')
-  if (abar && !abar._intezoBound) { abar._intezoBound = 1; abar.addEventListener('click', _intezoActionClick) }
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
   bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
   bind('intezoConfigBtn', 'click', () => _intezoCfgOpen())
@@ -37623,6 +37619,7 @@ let _intezoListing = null
 async function _intezoOpen(rel) {
   const uj = rel || ''
   const navigated = uj !== _intezoPath
+  if (navigated) _intezoNavAt = Date.now()
   // Mashova leptunk -> a kijeloles es vele az adatlap megszunik.
   if (uj !== _intezoPath) _intezoClearSelection()
   // The SAME folder again = refresh, or a change (new folder, move, rename,
@@ -38068,6 +38065,7 @@ function _intezoRender() {
   list.querySelectorAll('a[data-open]').forEach((a) => {
     a.addEventListener('click', (e) => {
       e.preventDefault()
+      if (_intezoClickSwallowed()) return
       const rel = a.getAttribute('data-open')
       const row = a.closest('[data-rel]')
       // Ha eppen celt valasztunk (athelyezes / papir helye), a kattintas
@@ -38089,17 +38087,24 @@ function _intezoRender() {
       // Kijelolo modban a sor/csempe barmely pontja a pipat valtja --
       // telefonon a kis negyzetet nehez eltalalni.
       if (_intezoMulti) { const e = rows.find((x) => x.rel === rel); if (e) _intezoMultiToggle(e); return }
+      if (_intezoClickSwallowed()) return
+      // #386 -- MAPPA: egy kattintas a sor/csempe/ikon barmely pontjan BELEP
+      // (Boss: "jöjjön be igenis a mappa ha ráklikkelek a mappára, ne csak
+      // akkor [...] ha a szövegre"). FAJL: csendes kijeloles, sav es adatlap
+      // nelkul. A tobbi muvelet a jobb klikk menuben van.
+      if (tr.getAttribute('data-dir')) { void _intezoOpen(rel); return }
       if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
       else void _intezoSelectOnly(rel)
     })
   })
 
-  // IKONRACS (#373): dupla kattintas a mappa-csempen = belepes, mint a
-  // Windows Intezoben. (A nev linkje tovabbra is egy kattintasra belep.)
-  list.querySelectorAll('.intezo-tile[data-dir="1"]').forEach((tile) => {
-    tile.addEventListener('dblclick', (ev) => {
-      if (ev.target && ev.target.closest && ev.target.closest('button')) return
-      _intezoOpen(tile.getAttribute('data-rel'))
+  // #386 -- DUPLA KATTINTAS FAJLON = megnyitas az elonezet-ablakban, mint a
+  // Windows Intezoben. (Mappara nem kell: egy kattintas mar belep.)
+  list.querySelectorAll('[data-pick][data-dir=""]').forEach((el) => {
+    el.addEventListener('dblclick', (ev) => {
+      if (_intezoMulti) return
+      if (ev.target && ev.target.closest && ev.target.closest('button,input')) return
+      void _intezoOpenFile(el.getAttribute('data-rel'))
     })
   })
 
@@ -38107,9 +38112,18 @@ function _intezoRender() {
   // neven -- aki jobbra, az ures reszre kattint, ugyanugy a sort erti alatta.
   list.querySelectorAll('[data-rel]').forEach((tr) => {
     tr.addEventListener('contextmenu', (ev) => {
+      // A hosszu nyomas mar kinyitotta (Androidon a bongeszo is kuld egy
+      // contextmenu-t utana) -- ne nyiljon ket menu.
+      if (Date.now() - _intezoLongPressAt < 1000) { ev.preventDefault(); return }
       const rel = tr.getAttribute('data-rel')
       const e = rows.find((x) => x.rel === rel)
       if (e) void _intezoOpenMenu(ev, e)
+    })
+    // TELEFON (#386): hosszu nyomas = jobb klikk menu. iPhone-on a bongeszo
+    // nem kuld contextmenu-t, es a menu nelkul ott nem volna Kivagas/Masolas.
+    _intezoBindLongPress(tr, (x, y) => {
+      const e = rows.find((r) => r.rel === tr.getAttribute('data-rel'))
+      if (e) void _intezoOpenMenu({ preventDefault() {}, clientX: x, clientY: y }, e)
     })
   })
   // A kivagott elem halvanyan (#383) -- es a sav Beillesztes-gombja a MOSTANI
@@ -39028,9 +39042,59 @@ async function _intezoInfo(rel, quiet) {
   if (note) note.value = p.note || ''
   _intezoRenderMount(info)
   _intezoRenderGit(info)
-  _intezoRenderActions()
-  void _intezoRenderPreview(info)
+  if (quiet !== 'select') void _intezoRenderPreview(info)
   _intezoRender()
+}
+
+// #386 -- mikor leptunk utoljara mappaba / mikor nyilt hosszu nyomasra menu.
+let _intezoNavAt = 0
+let _intezoLongPressAt = 0
+
+/**
+ * Elnyelendo-e ez a kattintas (#386).
+ *
+ * (1) Aki megszokasbol DUPLAN kattint egy mappara: az elso kattintas mar
+ *     belep, a masodik az uj lista ugyanazon a helyen allo sorara esne, es
+ *     egy szinttel melyebbre vinne. Belepes utan rovid ideig nem fogadunk
+ *     kattintast. (2) Hosszu nyomas utan a telefon egy kattintast is kuld --
+ *     az a menut nyitotta, nem belepest kert.
+ */
+function _intezoClickSwallowed() {
+  const most = Date.now()
+  return most - _intezoNavAt < 500 || most - _intezoLongPressAt < 700
+}
+
+/** Hosszu nyomas (~0,5 mp, elmozdulas nelkul) egy elemen -> `fn(x, y)`. */
+function _intezoBindLongPress(el, fn) {
+  let timer = null
+  let x0 = 0
+  let y0 = 0
+  const stop = () => { if (timer) { clearTimeout(timer); timer = null } }
+  el.addEventListener('touchstart', (ev) => {
+    if (_intezoMulti || !ev.touches || ev.touches.length !== 1) return
+    x0 = ev.touches[0].clientX
+    y0 = ev.touches[0].clientY
+    stop()
+    timer = setTimeout(() => {
+      timer = null
+      _intezoLongPressAt = Date.now()
+      fn(x0, y0)
+    }, 500)
+  }, { passive: true })
+  el.addEventListener('touchmove', (ev) => {
+    const t0 = ev.touches && ev.touches[0]
+    if (t0 && (Math.abs(t0.clientX - x0) > 10 || Math.abs(t0.clientY - y0) > 10)) stop()
+  }, { passive: true })
+  el.addEventListener('touchend', stop)
+  el.addEventListener('touchcancel', stop)
+}
+
+/** Fajl megnyitasa (dupla kattintas, menu): kijeloles + elonezet-ablak. */
+async function _intezoOpenFile(rel) {
+  if (!_intezoSelected || _intezoSelected.rel !== rel) await _intezoInfo(rel, 'select')
+  if (!_intezoSelected || _intezoSelected.rel !== rel) return
+  _intezoPreviewDismissed = false
+  await _intezoOpenPreviewWindow(_intezoSelected)
 }
 
 /**
@@ -39040,11 +39104,11 @@ async function _intezoInfo(rel, quiet) {
  * elő, kizárólag csak akkor, máskor ne." A lenyilo adatlap a lista kozepere
  * ekelodott, es letolta a mappa tobbi reszet. Az adatlapot mostantol csak az
  * Info gomb es a jobb klikk menu „Részletes információ" pontja nyitja.
- * A kijeloles ettol ugyanaz marad (sav, Ctrl+X/C/V, Kivagas/Masolas), es egy
- * elonezheto fajl elonezet-ablaka is ugyanugy felnyilik, mint eddig.
+ * A kijeloles ettol ugyanaz marad (Ctrl+X/C/V, jobb klikk menu). A kijeloles
+ * CSENDES: az elonezet-ablak sem ugrik fel -- azt a dupla kattintas vagy a
+ * menu „Előnézet" pontja nyitja (#386, masodik kor).
  */
 function _intezoSelectOnly(rel) {
-  _intezoPreviewDismissed = false
   return _intezoInfo(rel, 'select')
 }
 
@@ -39413,39 +39477,6 @@ async function _intezoRenderGit(info) {
   box.appendChild(btns)
 }
 
-/**
- * A LEFIXALT FEJLEC muveletsava.
- *
- * Boss, 2026-08-21: "Ez az athelyezes masik mappaba nevu gomb ott van a lista
- * legaljan. nem a felso reszhez kellene tenni? ott alul senki sem latja."
- *
- * A gombok NEM masoljak a logikat: ugyanazokat a fuggvenyeket hivjak, mint a
- * lenti panel gombjai, vagy egyszeruen odagorgetnek. Igy nem tud a ket hely
- * kulon utra menni.
- */
-function _intezoRenderActions() {
-  const bar = document.getElementById('intezoActionBar')
-  const name = document.getElementById('intezoActionName')
-  if (!bar) return
-  if (!_intezoSelected) { bar.hidden = true; return }
-  bar.hidden = false
-  if (name) {
-    name.textContent = (_intezoSelected.isDir ? '📁 ' : '📄 ') + (_intezoSelected.name || '')
-    name.title = _intezoSelected.rel || ''
-  }
-  // Bekotni csak mappat lehet -- fajlnal a gomb ne igerjen semmit.
-  const mount = bar.querySelector('[data-intezo-act="mount"]')
-  if (mount) mount.disabled = !_intezoSelected.isDir
-
-  // Elonezet/letoltes csak FAJLNAL van ertelme -- mappaknal rejtve marad.
-  // Az Elonezet gomb ezen felul csak azoknal a fajltipusoknal latszik, amiket
-  // a szerver bongeszoben-megjelenithetonek jelolt (kartya #164).
-  const preview = bar.querySelector('[data-intezo-act="preview"]')
-  const download = bar.querySelector('[data-intezo-act="download"]')
-  const isFile = !_intezoSelected.isDir
-  if (preview) preview.hidden = !isFile || !_intezoSelected.previewable
-  if (download) download.hidden = !isFile
-}
 
 /** A panel egy reszehez gorget, es elore lathatova teszi a panelt. */
 function _intezoJumpTo(id) {
@@ -39462,34 +39493,9 @@ function _intezoClearSelection() {
   _intezoClosePreviewWindow(false)
   const card = document.getElementById('intezoInfoCard')
   if (card) card.hidden = true
-  _intezoRenderActions()
   _intezoRender()
 }
 
-function _intezoActionClick(ev) {
-  const btn = ev.target && ev.target.closest ? ev.target.closest('[data-intezo-act]') : null
-  if (!btn) return
-  ev.preventDefault()
-  if (!_intezoSelected && btn.getAttribute('data-intezo-act') !== 'clear') {
-    showToast(t('intezo.select_first'))
-    return
-  }
-  switch (btn.getAttribute('data-intezo-act')) {
-    case 'preview': if (_intezoSelected) void _intezoOpenPreviewWindow(_intezoSelected); break
-    case 'download': window.open(_intezoFileUrl(_intezoSelected.rel, true), '_blank'); break
-    case 'cut': _intezoClipSet(_intezoSelected, 'cut'); break
-    case 'copy': _intezoClipSet(_intezoSelected, 'copy'); break
-    case 'mount': {
-      _intezoJumpTo('intezoMountTitle')
-      const sel = document.getElementById('intezoMountTarget')
-      if (sel && !sel.disabled) sel.focus()
-      break
-    }
-    case 'paper': _intezoJumpTo('intezoPhysTitle'); break
-    case 'info': _intezoJumpTo('intezoInfoCard'); break
-    case 'clear': _intezoClearSelection(); break
-  }
-}
 
 /** A bekotesek felajanlhato celjai. Egyszer szedjuk ossze, oldal-nyitaskor. */
 let _intezoMountOpts = []
@@ -40157,6 +40163,11 @@ async function _intezoOpenMenu(ev, entry) {
     }
   } else {
     if (entry.isDir) m.appendChild(_intezoMenuItem('📂  ' + t('intezo.menu_open'), () => _intezoOpen(entry.rel)))
+    // #386: a megszunt muveletsav fajl-gombjai.
+    if (!entry.isDir) {
+      m.appendChild(_intezoMenuItem('👁  ' + t('intezo.preview'), () => _intezoOpenFile(entry.rel)))
+      m.appendChild(_intezoMenuItem('⬇  ' + t('intezo.download'), () => window.open(_intezoFileUrl(entry.rel, true), '_blank')))
+    }
     if (entry.isDir) m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: entry.name || entry.rel }), () => _intezoMkdirInto(entry.rel)))
     m.appendChild(_intezoMenuItem('✏️  ' + t('intezo.menu_rename'), () => _intezoRename(entry)))
     // MEGJELENITETT nev: a lemez-nevet nem bantja, ezert git-repora es bekotott
@@ -40226,7 +40237,13 @@ if (!window._intezoMenuBound) {
     const tg = e.target
     if (tg && tg.closest && tg.closest('input,textarea,select,[contenteditable="true"]')) return
     if (document.querySelector('.modal-overlay.active')) return
-    if (e.key === 'Escape') { if (_intezoClip && !_intezoMenuEl) _intezoClipClear(); return }
+    if (e.key === 'Escape') {
+      if (_intezoMenuEl) return
+      if (_intezoClip) _intezoClipClear()
+      // #386: a megszunt sav „Kijelölés vége" gombja helyett -- mint Windowsban.
+      else if (_intezoSelected) _intezoClearSelection()
+      return
+    }
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
     const k = String(e.key || '').toLowerCase()
     if (k === 'c' && window.getSelection && String(window.getSelection() || '')) return
