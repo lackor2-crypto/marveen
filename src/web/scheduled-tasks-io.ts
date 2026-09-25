@@ -12,6 +12,41 @@ export const SCHEDULED_TASKS_DIR = join(homedir(), '.claude', 'scheduled-tasks')
 // legitimate schedule prompt -- real ones are usually <1k chars.
 export const MAX_SCHEDULED_TASK_PROMPT_LEN = 50_000
 
+// #796: a deleted DEFAULT scheduled task must stay deleted. Seeding is
+// skip-if-missing at three points -- ensureDefaultScheduledTasks() on every
+// dashboard start, and the install/update shell seed loops -- so without a
+// record of the deletion, a shipped task the operator removed reappears on the
+// next restart or update. This tombstone is a newline-separated list of task
+// names that all three seed points consult; the DELETE route appends to it and
+// (re)creating a task clears its entry. Kept as a plain dotfile in the tasks
+// dir (not a subdirectory) so listScheduledTasks -- which filters to dirs --
+// never treats it as a task, and the shell seeders can read it with grep.
+export const REMOVED_DEFAULTS_FILE = join(SCHEDULED_TASKS_DIR, '.removed-defaults')
+
+export function readRemovedDefaultTasks(): Set<string> {
+  try {
+    return new Set(
+      readFileSync(REMOVED_DEFAULTS_FILE, 'utf-8')
+        .split('\n').map(l => l.trim()).filter(l => l.length > 0),
+    )
+  } catch { return new Set<string>() }
+}
+
+export function markDefaultTaskRemoved(taskName: string): void {
+  const names = readRemovedDefaultTasks()
+  if (names.has(taskName)) return
+  names.add(taskName)
+  mkdirSync(SCHEDULED_TASKS_DIR, { recursive: true })
+  atomicWriteFileSync(REMOVED_DEFAULTS_FILE, [...names].sort().join('\n') + '\n')
+}
+
+export function clearDefaultTaskRemoved(taskName: string): void {
+  const names = readRemovedDefaultTasks()
+  if (!names.delete(taskName)) return
+  const body = [...names].sort().join('\n')
+  atomicWriteFileSync(REMOVED_DEFAULTS_FILE, body.length > 0 ? body + '\n' : '')
+}
+
 export interface ScheduledTask {
   name: string
   description: string
@@ -28,6 +63,12 @@ export interface ScheduledTask {
   // skipIfBusy false (default) so the queue + alert path catches a
   // long-running busy state and nothing business-critical is lost.
   skipIfBusy?: boolean
+  // When true, this task drives the shared desktop (GUI automation,
+  // computer-use). While another agent holds the desktop lock, its ticks are
+  // skipped -- and the skip is RECORDED, never silent. Marked per task rather
+  // than matched against a list of task names in the runner: a hand-kept list
+  // is a blind spot the day someone adds a GUI round and forgets it.
+  requiresDesktop?: boolean
   // When true, skip the busy-state check entirely and inject the prompt
   // via tmux send-keys regardless. The Claude session will process it at
   // the next idle slot. Useful for critical tasks that must never be
@@ -60,7 +101,7 @@ export interface ScheduledTask {
   // limit are recorded as a 'missed' run and reported, never silently dropped.
   catchUpMaxAgeMinutes?: number
   // How long this task may run before the post-fire watchdog calls it stuck and
-  // alerts the operator. Unset uses the global TASK_FIRE_TIMEOUT_MS (5 min),
+  // alerts the operator. Unset uses the global TASK_FIRE_TIMEOUT_MS (45 min),
   // which is right for a short-cadence heartbeat and wrong for a task whose job
   // is to think for a while. Clamped at both ends, see resolveStuckTimeoutMs.
   // DISTINCT from catchUpMaxAgeMinutes: that one judges a MISSED occurrence's
@@ -71,6 +112,13 @@ export interface ScheduledTask {
   // target session before injecting the prompt; a dead server defers the task
   // with a reasoned alert instead of a silent runtime failure.
   requires?: { mcp_servers?: string[]; platform?: 'wsl' }
+  // type='heartbeat' only (HBMETRICSWIRE910): the runner executes
+  // scripts/heartbeat-metrics.sh at prompt-build time and appends its output
+  // PRE-RENDERED in final report form to the prompt. The receiving round
+  // copies the block verbatim instead of running the instrument itself --
+  // instructing the round to run it was measured failing 4 separate times
+  // (fabricated numbers with the instruction standing).
+  injectMetrics?: boolean
 }
 
 function readFileOr(path: string, fallback: string): string {
@@ -103,7 +151,7 @@ export function readScheduledTask(taskName: string): ScheduledTask | null {
   const skillContent = hasSkill ? readFileOr(skillPath, '') : ''
   const { name, description, body } = parseSkillMdFrontmatter(skillContent)
 
-  let config: { schedule?: string; agent?: string; enabled?: boolean; createdAt?: number; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; description?: string; command?: string; timeoutMs?: number; failThreshold?: number; preCheck?: string; catchUpMaxAgeMinutes?: unknown; stuckAfterMinutes?: unknown; requires?: { mcp_servers?: unknown; platform?: unknown } } = {}
+  let config: { schedule?: string; agent?: string; enabled?: boolean; createdAt?: number; type?: string; skipIfBusy?: boolean; requiresDesktop?: boolean; forceSend?: boolean; targetSession?: string; description?: string; command?: string; timeoutMs?: number; failThreshold?: number; preCheck?: string; catchUpMaxAgeMinutes?: unknown; stuckAfterMinutes?: unknown; requires?: { mcp_servers?: unknown; platform?: unknown }; injectMetrics?: unknown } = {}
   try {
     config = JSON.parse(readFileOr(configPath, '{}'))
   } catch { /* use defaults */ }
@@ -121,6 +169,7 @@ export function readScheduledTask(taskName: string): ScheduledTask | null {
     createdAt: config.createdAt || 0,
     type: (config.type as 'task' | 'heartbeat' | 'command') || 'task',
     skipIfBusy: config.skipIfBusy === true,
+    requiresDesktop: config.requiresDesktop === true,
     forceSend: config.forceSend === true,
     targetSession: config.targetSession || undefined,
     command: config.command,
@@ -130,6 +179,7 @@ export function readScheduledTask(taskName: string): ScheduledTask | null {
     catchUpMaxAgeMinutes: parseCatchUpMaxAge(config.catchUpMaxAgeMinutes),
     stuckAfterMinutes: parseFiniteMinutes(config.stuckAfterMinutes),
     requires: parseRequires(config.requires),
+    injectMetrics: config.injectMetrics === true,
   }
 }
 
@@ -192,10 +242,13 @@ export function listScheduledTasks(): ScheduledTask[] {
 
 export function writeScheduledTask(
   taskName: string,
-  data: { description?: string; prompt?: string; schedule?: string; agent?: string; enabled?: boolean; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; command?: string; timeoutMs?: number; failThreshold?: number; preCheck?: string; catchUpMaxAgeMinutes?: number; stuckAfterMinutes?: number },
+  data: { description?: string; prompt?: string; schedule?: string; agent?: string; enabled?: boolean; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; command?: string; timeoutMs?: number; failThreshold?: number; preCheck?: string; catchUpMaxAgeMinutes?: number; stuckAfterMinutes?: number; injectMetrics?: boolean },
 ): void {
   const dir = join(SCHEDULED_TASKS_DIR, taskName)
   mkdirSync(dir, { recursive: true })
+  // (Re)creating a task with this name is a deliberate act -- lift any tombstone
+  // so a later restart's seeding treats it as present, not as removed (#796).
+  clearDefaultTaskRemoved(taskName)
 
   const skillPath = join(dir, 'SKILL.md')
   const configPath = join(dir, 'task-config.json')
@@ -231,6 +284,7 @@ export function writeScheduledTask(
     if (data.stuckAfterMinutes > 0) config.stuckAfterMinutes = data.stuckAfterMinutes
     else delete config.stuckAfterMinutes
   }
+  if (data.injectMetrics !== undefined) config.injectMetrics = data.injectMetrics
   if (data.description !== undefined) config.description = data.description
   if (!config.createdAt) config.createdAt = Math.floor(Date.now() / 1000)
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))

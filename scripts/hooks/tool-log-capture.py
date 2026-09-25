@@ -1,5 +1,45 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: log every tool call to /api/tool-log for the activity dashboard."""
+"""PostToolUse + PostToolUseFailure hook: log every tool call to /api/tool-log
+for the activity dashboard.
+
+TWO EVENTS, ONE SCRIPT (TOOLLOGVAKSIKER921, measured 2026-09-21 on Claude Code
+2.1.278): a tool call that FAILS does not fire PostToolUse at all. It fires
+PostToolUseFailure, whose payload carries an `error` string and `is_interrupt`
+and has NO `tool_response`. A hook registered under PostToolUse alone therefore
+never sees a failure -- it is not that failures were logged as success=1, they
+were not logged at all (2948/2948 rows success=1 in the whole history, while
+two exit-1 calls from the same session had no row). The `success` column is
+derived from `hook_event_name` first: PostToolUseFailure -> 0. The older
+`tool_response.is_error` check is kept as a second signal for tool families
+that report an error inside a successful PostToolUse payload; a plain Bash
+success payload has only stdout/stderr/interrupted/isImage/noOutputExpected.
+
+REGISTRATION IS PER-AGENT, WITH ONE EXCEPTION THAT IS NOT A LEAK TO FIX BY
+MOVING FILES. This hook is shipped in templates/settings.json.template, which
+ensureAgentHooks merges into the file agentSettingsPath(name) returns. For a
+sub-agent that is the agent's OWN settings.json
+(agents/<name>/.claude/settings.json). For MAIN_AGENT_ID that function returns
+~/.claude/settings.json (agent-scaffold.ts), and web.ts starts the scaffold
+loop with the main agent -- so on the owner's machine this entry DOES sit in
+the global settings file, and every Claude Code session started there loads it,
+including the owner's own sessions. That is the current, measured behaviour:
+skill-usage-capture.py already rides the same PostToolUse path in that same
+file. Do not read the per-agent placement as a filter on who gets logged.
+
+What the per-agent placement does buy is scope on OTHER machines and for
+sub-agents: a session that never loads a given agent's settings.json never
+reaches this hook under that agent's name. If the owner's own sessions must be
+kept out of tool_call_log, the filter belongs IN this hook (identity is already
+resolved below, so the check is cheap) and needs a test -- moving the entry
+between settings files will not do it, because the main agent's settings file
+IS the global one.
+
+Identity comes from ledger_lib.agent_id_from_payload (LEDGERCWD828 / #1100):
+the session transcript path first, then MARVEEN_AGENT_ID, then cwd. The
+transcript path is fixed when the session starts, so an agent that later cds
+into another repo (devy working in molyo) still logs under its own name --
+measured 2026-08-29, both branches.
+"""
 import sys
 import os
 import json
@@ -80,6 +120,18 @@ def _input_summary(tool_input: dict, tool_name: str) -> str:
     return ''
 
 
+def _success_from_payload(payload: dict) -> bool:
+    """False for a PostToolUseFailure event, or for a PostToolUse payload whose
+    tool_response carries is_error; True otherwise. The event name is the
+    primary signal -- a failed Bash call never reaches PostToolUse."""
+    if payload.get('hook_event_name') == 'PostToolUseFailure':
+        return False
+    tr = payload.get('tool_response')
+    if isinstance(tr, dict) and tr.get('is_error'):
+        return False
+    return True
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -97,7 +149,7 @@ def main():
     duration_ms = payload.get('duration_ms')
     if not isinstance(duration_ms, int):
         duration_ms = None
-    success = not bool(payload.get('tool_response', {}).get('is_error') if isinstance(payload.get('tool_response'), dict) else False)
+    success = _success_from_payload(payload)
 
     if not session_id or not tool_name:
         sys.exit(0)
@@ -105,7 +157,7 @@ def main():
     # WRITER -> strict agent resolution (kanban #202). This hook now runs for the
     # whole fleet, so the permissive basename fallback would file activity under
     # invented ids (that is how `store` became an "agent" in conversation_log).
-    agent_id = ledger_lib.known_agent_id(cwd)
+    agent_id = ledger_lib.known_agent_id_from_payload(payload)
     if not agent_id:
         sys.exit(0)
 

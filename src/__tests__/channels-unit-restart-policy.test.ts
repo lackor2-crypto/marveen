@@ -243,6 +243,11 @@ describe('update.sh migration for already-installed machines', () => {
 
   it('is actually called by update.sh, not merely defined', () => {
     const afterDefinition = UPDATE.slice(UPDATE.indexOf('migrate_channels_restart() {') + 1)
-    expect(afterDefinition).toMatch(/^migrate_channels_restart$/m)
+    // Upstream (#375) calls it from run_unit_maintenance with "$@"; either a
+    // direct top-level call or that wrapper -- as long as the wrapper runs.
+    const direct = /^migrate_channels_restart$/m.test(afterDefinition)
+    const viaWrapper = /^\s+migrate_channels_restart "\$@"$/m.test(afterDefinition)
+      && /^run_unit_maintenance$/m.test(afterDefinition)
+    expect(direct || viaWrapper).toBe(true)
   })
 })

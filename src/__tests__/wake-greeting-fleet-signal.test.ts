@@ -225,9 +225,16 @@ describe('a naplot IRO hookok nem talalnak ki agenst', () => {
     // be `store` nevu "agens" ala, amit soha senki nem tudott ertelmezni.
     const dir = fakeInstall(['peldaagens'])
     try {
-      expect(knownAgentIn(dir, join(dir, 'store'))).toBe('')
+      // #375 (upstream LEDGERCWD828): a telepitesen BELULI, nem-agens mappa a fo
+      // agensnek szamit, nem egy mappanevbol kitalalt "agensnek". A lenyeg
+      // ugyanaz: `store` nevu agens soha nem keletkezhet.
+      const main = knownAgentIn(dir, dir)
+      expect(main).not.toBe('')
+      expect(knownAgentIn(dir, join(dir, 'store'))).toBe(main)
       expect(knownAgentIn(dir, join(dir, 'agents', 'nincs-ilyen'))).toBe('')
-      expect(knownAgentIn(dir, '/tmp/valami-nem-agens')).toBe('')
+      for (const odd of [join(dir, 'store'), '/tmp/valami-nem-agens']) {
+        expect(['', main]).toContain(knownAgentIn(dir, odd))
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -256,7 +263,9 @@ describe('a naplot IRO hookok nem talalnak ki agenst', () => {
     const hooksDir = join(ROOT, 'scripts', 'hooks')
     for (const f of ['ledger-capture.py', 'ledger-outbound.py', 'tool-log-capture.py']) {
       const src = readFileSync(join(hooksDir, f), 'utf-8')
-      expect(src, `${f}: nem a szigoru feloldast hasznalja`).toContain('known_agent_id(')
+      // #375: upstream a szigoru iro-feloldast a payloadbol vezeti le
+      // (known_agent_id_from_payload: transcript_path -> MARVEEN_AGENT_ID -> cwd).
+      expect(src, `${f}: nem a szigoru feloldast hasznalja`).toMatch(/known_agent_id(_from_payload)?\(/)
       expect(src, `${f}: meg mindig kitalalhat agens-nevet`).not.toContain('agent_id_from_cwd(')
     }
     expect(readFileSync(join(hooksDir, 'ledger-replay.py'), 'utf-8')).toContain('agent_id_from_cwd(')

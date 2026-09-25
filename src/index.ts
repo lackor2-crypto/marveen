@@ -1,6 +1,7 @@
 import {
   readFileSync,
   readlinkSync,
+  realpathSync,
   unlinkSync,
   mkdirSync,
   openSync,
@@ -103,9 +104,27 @@ function argvBelongsToThisInstall(argv: string, pid: number): boolean {
 // or node:fs directly.
 function buildProcessLockContext(): ProcessLockContext {
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
+  // realpath so this compares equal against /proc/<pid>/cwd, which the
+  // kernel always reports fully symlink-resolved (upstream process-lock).
+  let selfProjectRoot: string | null
+  try {
+    selfProjectRoot = realpathSync(PROJECT_ROOT)
+  } catch {
+    selfProjectRoot = null
+  }
   return {
     currentPid: process.pid,
     uid,
+    selfProjectRoot,
+    getProcessCwd(pid: number): string | null {
+      const cwd = processCwd(pid)
+      if (cwd == null) return null
+      try {
+        return realpathSync(cwd)
+      } catch {
+        return cwd
+      }
+    },
     listPortHolders(port: number): number[] {
       try {
         const raw = execSync(`lsof -ti :${port} 2>/dev/null || true`, { timeout: 3000, encoding: 'utf-8' }).trim()

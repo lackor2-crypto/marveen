@@ -1,6 +1,48 @@
 {
   "_comment": "Upstream files left out ON PURPOSE (kanban #375). An entry is valid only while the upstream blob still matches: if upstream changes the file again, it counts as still to pull and needs a new decision. blob=null means upstream deleted the file. kind=deferred: postponed, not final; kind=decided: final. Read by scripts/upstream-divergence-check.sh.",
   "files": {
+    ".claude/settings.json": {
+      "blob": "458362ebbf183b582b88d7533ae06695afde6ddf",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    ".env.example": {
+      "blob": "8a3ff2b4a7c32ce178b49d28fd1d4b9317a07e54",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    ".github/workflows/secret-gate.yml": {
+      "blob": "f388dc30d3ee310793dd3a04194f96ea27ddd67a",
+      "kind": "decided",
+      "reason": "Owner decision (2026-09-24): ours.",
+      "card": "#375"
+    },
+    ".gitignore": {
+      "blob": "56cb3ac316b8a2ec0db176854e6c1ec91fb1ed30",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "README.md": {
+      "blob": "2ec43e13eae82bc3a70e169d4917989c6f7a2269",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "docs/config-reference.md": {
+      "blob": "4ab38c3f7152e7087e9504f10501e7f121a6bbee",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "docs/onboarding-uj-asszisztens.md": {
+      "blob": "9a50b062d1f34478c4b1355e87abd2ac6c09bfc1",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
     "docs/telegram-live-progress.md": {
       "blob": "b96738adb914e2020c3c1bb762df6dca51c0f385",
       "kind": "deferred",
@@ -11,6 +53,42 @@
       "blob": "584919777094df2a1b392c76ef8e179d58c89241",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "install-lang.sh": {
+      "blob": "8b46943861d859931800429c8704f1cb4b7e0326",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "install-linux.sh": {
+      "blob": "066bb24bf8bc347fd4cc5bbf6aa3dcca7a86eecd",
+      "kind": "decided",
+      "reason": "Owner decision (2026-09-24): ours -- the morning timer stays enabled and the auto-deploy unit stays; the upstream keepalive-probe units merged by hand (#375).",
+      "card": "#375"
+    },
+    "install-macos.sh": {
+      "blob": "12fffd9118f7de2c5ad2a40b7ecebe00f9a62fc7",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "package-lock.json": {
+      "blob": "873217a2ea50d23dce25511c702c010e4ca6fc5f",
+      "kind": "deferred",
+      "reason": "Lockfile of package.json, which is in C-31 (owner decision A, 2026-09-24): follows it.",
+      "card": "#375"
+    },
+    "package.json": {
+      "blob": "f8e8153101835187343a1eb1f289725c438cec6a",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "scheduled-tasks/dream-engine/SKILL.md": {
+      "blob": "a1ae06a0765f03c2a1e281fee12934d6243fc26d",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
       "card": "#375"
     },
     "scripts/__tests__/channel-process-gate.test.py": {
@@ -55,6 +133,24 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/__tests__/mio-orszem-precheck.test.py": {
+      "blob": "6c2e75f5c3f9fe610c49ae07703dc41fff9baf8a",
+      "kind": "decided",
+      "reason": "Test of scripts/hooks/mio-orszem-precheck.sh, which is left out (hard-coded /Users path, not host-agnostic): without the hook the test can only fail.",
+      "card": "#375"
+    },
+    "scripts/__tests__/ops-scripts-portable.test.sh": {
+      "blob": "dbb77538ad5a5410a6ea6ae9178bfaf6d6ae0ac7",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/__tests__/seed-skills.test.sh": {
+      "blob": "914c61bd060f733b10a24a9bd7f2d632764a31c3",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
     "scripts/__tests__/telegram-live-progress.test.py": {
       "blob": "ff0920a4adcf2942a6113a335f369dd293a5ee8c",
       "kind": "deferred",
@@ -73,16 +169,82 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/agent-msg.sh": {
+      "blob": "476ccb2f7c201aeabcf711ca3a24b098803f79eb",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/backup.sh": {
+      "blob": "53ef3dbf94516833cfa897b8f9c32a77010b4e81",
+      "kind": "decided",
+      "reason": "Owner decision (2026-09-24): ours. Upstream backs up the whole store/ (here store/accounts alone is ~760 MB).",
+      "card": "#375"
+    },
+    "scripts/channel-keepalive-probe.sh": {
+      "blob": "70f78f86adfc26637051f7515eb2968b88a71682",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/channel-watchdog.sh": {
+      "blob": "032da18795b87a5d228be063bb70ba4194451507",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/channels.sh": {
+      "blob": "5fdc0c31ada4a670725e290982920e0a24299ca1",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
     "scripts/context-restart-gate-doctor.mjs": {
       "blob": "05253ae9b03337e0d991a60528a119aa49c370d3",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/digest-provenance-gate.mjs": {
+      "blob": "478358e43cbac5b34935cbc159281ec6b1faf89e",
+      "kind": "deferred",
+      "reason": "Left out (owner decision A (2026-09-24)): imports kanban-write-gate.mjs (removed in this fork) and is wired only from agent-scaffold.ts (C-31).",
+      "card": "#375"
+    },
+    "scripts/doctor.sh": {
+      "blob": "5cb9d3ec34866e0ea0ff107652c64fb38679443c",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/email-send-gate.mjs": {
+      "blob": "27e5fdad5886f86935de69b230416f5445802bca",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "scripts/fleet-memory-gate.sh": {
+      "blob": "57247cd74f61235d5e8441523830280bbac2d1bb",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
     "scripts/garmin_run_gate.py": {
       "blob": "e3105110d92ca3a97d5505e099b05392d08f2a2f",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/graph-mail.ts": {
+      "blob": "38cd07d61e0d7b779052ba55fe676a2d3eabcc1c",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/hooks/channel-inbox-drain.py": {
+      "blob": "90ccba6283f818378e4b21d42bc0ae3ee8071451",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
       "card": "#375"
     },
     "scripts/hooks/channel-process-gate.py": {
@@ -103,10 +265,28 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/hooks/ledger-capture.py": {
+      "blob": "5998af1f5d0cf4fb1b2ceafb64ecb0e0a5ecaa94",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/hooks/ledger-outbound.py": {
+      "blob": "e207445abae10f0e786c431910e95f56c6169420",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
     "scripts/hooks/ledger-replay.py": {
       "blob": "cdd0a94c8c54452b8c3a54c0682519c548064231",
       "kind": "decided",
       "reason": "Excluded by the principle gate: would overwrite our own behaviour.",
+      "card": "#375"
+    },
+    "scripts/hooks/ledger_lib.py": {
+      "blob": "8fc2fd6af6fa957a1658c8b355d3db95e55df817",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
       "card": "#375"
     },
     "scripts/hooks/memory-frontmatter-gate.py": {
@@ -127,6 +307,54 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/hooks/telegram-ack.py": {
+      "blob": "7b502a8cef7ef0b5205cad647895a73db625824d",
+      "kind": "decided",
+      "reason": "Removed in this fork on purpose: replaced by our own fleet-wide receipt ack (ac391855, 2026-08-23).",
+      "card": "#375"
+    },
+    "scripts/hooks/telegram_fallback_send.py": {
+      "blob": "8c0ffc9f01bbe868f41131143bd4c8033ed9a8a3",
+      "kind": "decided",
+      "reason": "Content identical to upstream; only the file mode differs: ours is executable on purpose (1aed09e3, 2026-08-28).",
+      "card": "#375"
+    },
+    "scripts/hooks/telegram_progress.py": {
+      "blob": "ddd95d839121b2ffd54775efaada8b6136855209",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/hooks/telegram_progress_clear.py": {
+      "blob": "0720bbecfaaf076472c0f69c583f05b19eebbb21",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/hooks/telegram_progress_watchdog.py": {
+      "blob": "0bc834bfa101b91f693b8cff47981c5f9505492b",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/hooks/tool-log-capture.py": {
+      "blob": "aa3362e5066f09a1ca9749bf48bebbcd711e287a",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/install-channel-image-hook.sh": {
+      "blob": "b30cb769a08c93e7a34680c88974a196e37eb4fd",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "scripts/install-git-guard-hook.sh": {
+      "blob": "c2965cc0766cf993ab5d8e39ed5b6014d452e528",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
     "scripts/install-telegram-progress-hook.sh": {
       "blob": "9642c56a3b1151a176f03fda3e358d67ca6d2942",
       "kind": "deferred",
@@ -143,6 +371,18 @@
       "blob": "d1032f0e200ffbe96b3e81608d28758ff45cbb91",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/limit-monitor.sh": {
+      "blob": "79e50fcfaff81bec887de66150100c28a239a326",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/main-agent-isolated-config.mjs": {
+      "blob": "398be23c492c74eda6eda9051f356dea32d6fde3",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): resolveMainAgentRotatedConfigDir from agent-process.ts; the rest merged.",
       "card": "#375"
     },
     "scripts/memoria_heartbeat_gate.py": {
@@ -163,6 +403,24 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/migrate-main-agent-id.sh": {
+      "blob": "016ca275b72277048945354123d46ee893acea6f",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/pr-ledger-collect.mjs": {
+      "blob": "c7a7e40a7057582fced739586bff28b8a2e7b2dd",
+      "kind": "deferred",
+      "reason": "Left out with routes/pr-ledger.ts (owner decision A (2026-09-24)): the PR ledger builds on db.ts (C-31).",
+      "card": "#375"
+    },
+    "scripts/pr-ledger-lib.mjs": {
+      "blob": "76ea2c4079fec97e794521521a68a12b2d916e26",
+      "kind": "deferred",
+      "reason": "Left out with routes/pr-ledger.ts (owner decision A (2026-09-24)): the PR ledger builds on db.ts (C-31).",
+      "card": "#375"
+    },
     "scripts/progress-mode.sh": {
       "blob": "4caad0c75613aa12968280487f3c37b2e80f1ed7",
       "kind": "deferred",
@@ -181,10 +439,34 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/self-pace-gate.mjs": {
+      "blob": "49027822572bcd987dbaa933a43f2b49bd7fa199",
+      "kind": "decided",
+      "reason": "Removed in this fork on purpose: governance hard-gates dismantled (3230a213, 2026-08-20).",
+      "card": "#375"
+    },
     "scripts/skill.ts": {
       "blob": "e2dea2f12fb8dc9f01447c9e37c46a2009156b49",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/start.sh": {
+      "blob": "67edd340c70b91662f3a057c42686c53b7ca7c1f",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/stop.sh": {
+      "blob": "e67433761ac09cf43e62ae1ab68603187bf58993",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/stuck-modal-guard.sh": {
+      "blob": "161b2bbf8685f0145424d47231fda4859ea3780b",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
       "card": "#375"
     },
     "scripts/telegram-live-progress.py": {
@@ -211,10 +493,34 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "scripts/verify-channels-health.sh": {
+      "blob": "8ce78e89b2f9cbe1ccabd32218cbdbdc249c8bc7",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "scripts/voice/_vtools.py": {
+      "blob": "468a1473e0bfdfeea8fe063b7a0062c4482b4163",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "scripts/watchdog.sh": {
+      "blob": "2cfe28af3bfe419f72c57fb4a0ea8b9b9f705ee1",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
     "scripts/worker-tail.sh": {
       "blob": "eca5f07d8d13b1a31b119172ebe7c4fb80c151b7",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "seed-scheduled-tasks/kanban-audit/SKILL.md": {
+      "blob": "86d053ffc7b6a57fab05aa7d8fa8ed2a64dfe57c",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
       "card": "#375"
     },
     "seed-skills/bridge-szolgaltatas-lapok/SKILL.md": {
@@ -235,10 +541,46 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "seed-skills/fleet-hygiene/SKILL.md": {
+      "blob": "e1caf21fbdecd0171f8fac1611b65c1daf942e3e",
+      "kind": "decided",
+      "reason": "Ours: keeps the mandatory scope: global header line (skill scope rule).",
+      "card": "#375"
+    },
+    "seed-skills/handoff/SKILL.md": {
+      "blob": "552defbe0d86a62b3365fe3b32b5d3c43d7df47b",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/__tests__/activity-no-main-duplicate.test.ts": {
+      "blob": "523244e028a30a26db3b530255527e9911ef123a",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-delete-stops-session.test.ts": {
+      "blob": "bf216c2ecf43fe0896267823ca815c753fe5fc73",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/agent-identity-setup.test.ts": {
       "blob": "edbfb9669d7341cf44e430c2d31d61267431cce3",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-local-base-url.test.ts": {
+      "blob": "1c66815b11e78c048db39e3945a10337354dcb62",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-provider-env.test.ts": {
+      "blob": "aacb29a737147c706620717d63c6d81403281af7",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/agent-put-fields.test.ts": {
@@ -265,10 +607,40 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/agent-scaffold-inviolable-rules.test.ts": {
+      "blob": "eabe5a2f80e86b299a4d0aa371f295f48d867f1e",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/agent-taskstate.test.ts": {
       "blob": "82dc411aa813d66c0800e7f8007dfdcd2a42e43f",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-terminal-mask-keys.test.ts": {
+      "blob": "2befa8a3bbbcc011eb1126fd1533b2c9f06ba5cf",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-terminal-tmux-target.test.ts": {
+      "blob": "bc14fadc0b49494af9c06911bcb47ce49cec2173",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-tool-deny.test.ts": {
+      "blob": "2fc2bb6efe27090fd3de195af9b066018f46c87c",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/api-messages-freshness.test.ts": {
+      "blob": "1a7c16690c0c6f90e7b189226afe9e16a4d4353b",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/approvals-delivery.test.ts": {
@@ -289,16 +661,106 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/autonomy-section.test.ts": {
+      "blob": "dd420b3044f5ba5949e1ea60e5b9ff95cccf4930",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/__tests__/bash-egress-deny.test.ts": {
+      "blob": "f0864873e973a4384ea6e7de2ad5bfe555514b4b",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/bridge-pairing-i18n.test.ts": {
+      "blob": "5da8970e4ff27f4d9b1fef46b179ed26e9063ea0",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/browser-content-notice.test.ts": {
+      "blob": "0de2eef6469d3234d351b8e2fd91b947f2dd92dc",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/built-commit-stamp.test.ts": {
+      "blob": "ba7c0bd12f2106612d937b4a23b49415b0e1bb9c",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-deafness-recovery.test.ts": {
+      "blob": "7a515fa2688345071a41418b003e7414cd942c2b",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): tests the channel-monitor.ts buildMainSessionRespawnCmd({config}) API.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-event-log.test.ts": {
+      "blob": "b04e44955869ea1181e7a7010d33bd2b0234b100",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-health-monitor.test.ts": {
+      "blob": "70b7c434f031b3cd72448a92e82273929f66c3be",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-inbound-framing.test.ts": {
+      "blob": "33893ade909c7bb8f225933e0a2438230b5b8068",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
     "src/__tests__/channel-mcp-reconnect.test.ts": {
       "blob": "756e5e6d036de77d37a7dad512a3a6b421bdc517",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/channel-monitor-launchd-effect.test.ts": {
+      "blob": "5c6777c1a13b9c7229ac89b82cc1cf6efea6a659",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-monitor-resume-recovery.test.ts": {
+      "blob": "e7850cae42ac213af8bcb18dfc9d8c72acae9370",
+      "kind": "decided",
+      "reason": "Merged by hand (#375); cases needing channel-monitor.ts (C-31) upstream API left out.",
+      "card": "#375"
+    },
     "src/__tests__/channel-monitor-session-recreate.test.ts": {
       "blob": "da3f721cb42b52eb39a1962d8e01732d96622989",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-monitor-subagent-overdue-guard.test.ts": {
+      "blob": "ec0657ddef0f03b7fd3b18893a7b6f73d4da9426",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-plugin-unlock.test.ts": {
+      "blob": "1b9627a25100d2212ed72122dd8cf51f5974aa12",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-provider-send-timeout.test.ts": {
+      "blob": "51197f76f5461c373dc458f0f06d3c2d0286ac79",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-provider-unknown-value.test.ts": {
+      "blob": "20816d1fd16e7cb60ac6882174ad72dd130c5931",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/channel-provider.test.ts": {
@@ -313,16 +775,52 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/channel-state-dir-915.test.ts": {
+      "blob": "f4e8fa43b7aad88fe993ae6b3cfa41ba2f19ee07",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/channels-never-started-backoff.test.ts": {
+      "blob": "fdf3ce7b9e5b29f87facbbd1dbc26c1276c3f2ac",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/channels-unit-restart-policy.test.ts": {
       "blob": "807e4fc7a4408f5e807e2f00567c42b231455bf3",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/channels-watchdog-plugin-scope.test.ts": {
+      "blob": "42dfa32b980317ac6ebb8951ed51cba32726f0fa",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/claude-plans-write.test.ts": {
+      "blob": "40e7664c9b2b4330b2ef44457945a96aeb0d2faf",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/clear-continuity.test.ts": {
+      "blob": "95524b23518a1a36f2fcf426d230806989924dc2",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/completion-notification.test.ts": {
       "blob": "2cacb7c852d3d7a99a5e2f33b3f2a5909a1a694d",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-cooldown-status.test.ts": {
+      "blob": "2fb602e5960e952a346f46e429d6258459725eb8",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/context-guard-daily-tier.test.ts": {
@@ -385,10 +883,34 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/context-restart-gate.test.ts": {
+      "blob": "fa4791c32bdebcd711a9f2a28af089e2c5cd3a80",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
     "src/__tests__/conversation-ledger-schema.test.ts": {
       "blob": "ee53800ea2b0d98b6d9b52ecaf90602a1aef4d34",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/copy-gate-main-agent-coverage.test.ts": {
+      "blob": "99409f04f122f13d6e8c9fbc7208e9ce788ba5d0",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/count-newer-from-sender.test.ts": {
+      "blob": "0e4087acc4c955c2726aaed18b742da08b43568f",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/db-no-unixepoch-on-writer-path.test.ts": {
+      "blob": "068b1f9dc9ad8057121df02342caa88b5b66eff4",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/db.test.ts": {
@@ -403,6 +925,18 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/digest-provenance-gate.test.ts": {
+      "blob": "74af92e81018e0332113c2ea1d43a74f22a9c563",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/egress-gate-port-validation.test.ts": {
+      "blob": "7627eda8b44b25fea0463c9762ba5ebe79291d52",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/egress-gate.test.ts": {
       "blob": "ed87c7eabab4e55cb9c20c9a5e45fafcc5949b1e",
       "kind": "deferred",
@@ -415,16 +949,64 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/email-extract-parity.test.ts": {
+      "blob": "b3c5d96084d087e915752f134c1a3326f9076871",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/email-gate-matcher-drift.test.ts": {
       "blob": "8cdd8f60cc4201c19df06f332d6b0866147ff716",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/email-send-gate-scope.test.ts": {
+      "blob": "f25f8e6e915d6a3583ee74af388ecee7ea2a5b76",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/email-send-gate.test.ts": {
+      "blob": "d3612d2f723cbd382f7bcd81de222ebc1342e08a",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
     "src/__tests__/email-thread-reply-gate.test.ts": {
       "blob": "cd2027b12f8d35edd29be25730ba10c31331fb63",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/embed-model-split.test.ts": {
+      "blob": "6ece4edc0a075984f5a6a9c1524012141409257a",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/external-respawn-detect.test.ts": {
+      "blob": "eec586bda1f2b79d3d2ad3c450ca794949c12853",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/feedback-draft-modal.test.ts": {
+      "blob": "018c94dfc8f04391e4320963d1db65b21db92c65",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/feedback-modal-positive-router.test.ts": {
+      "blob": "878322f84088ed0b0108de328d5cff4951aa0b69",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/feedback-modal-positive-scheduler.test.ts": {
+      "blob": "b25f0a4d0aae2b55c129e9743a62933a39e681e6",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/fixtures/attestation-vectors.json": {
@@ -757,16 +1339,118 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/fleet-auth-section.test.ts": {
+      "blob": "02e6bfe9c96e19dbdfc41de8fe80623de62c9d76",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/fleet-helper-search-carries-the-label.test.ts": {
+      "blob": "27e2e678e110f3ad2c79fc3d98075508f03fa848",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/fleet-roster-section.test.ts": {
+      "blob": "e90cf7702d908093b943b45d2ee891220af15ba9",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/__tests__/fts-or-fallback.test.ts": {
+      "blob": "cb1e1ad7c85283cd15bc027a39fd1328c4011536",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/full-width-layout-css-contract.test.ts": {
+      "blob": "fa3bc364b9bb40fe60700a379a71aa5a74d05baf",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/generated-curl-payload-quoting.test.ts": {
+      "blob": "a50cd45f014ece2a31a3d0d73663a5ed9a8a7344",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/ghost-suggestion-strip.test.ts": {
       "blob": "ccf7722ab6904ed050f0407f7131a42ab3528638",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/governance-gates.test.ts": {
+      "blob": "cbebd61b28a48a8ced6935329aa9d7c36e2f13fe",
+      "kind": "decided",
+      "reason": "Removed in this fork on purpose: governance hard-gates dismantled (3230a213, 2026-08-20).",
+      "card": "#375"
+    },
     "src/__tests__/heartbeat-agent-scaffold.test.ts": {
       "blob": "7fafbf18f8cddd0d43b28bacc93674b5b705fae7",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-calendar-fail-open.test.ts": {
+      "blob": "3cd314de98b303619afbe2753c1f228902d2bc88",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-db-size.test.ts": {
+      "blob": "db39d97058e6f7d6a9998a021c79606d99acd588",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-hook-wiring.test.ts": {
+      "blob": "1910c803583f7cd3484cfe843b233454d242fe42",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-hot-memory-count.test.ts": {
+      "blob": "f62e4ae94d72e2b3256780fd9c36e6e5e8d2fcb1",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-metrics-inject.test.ts": {
+      "blob": "6887e53def5d8adc3373db410e235ec2ebad8439",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-metrics-script.test.ts": {
+      "blob": "30b488ac2792ecf981e4fb6dcf84b9ef6cb80841",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-summary-truncation-safe.test.ts": {
+      "blob": "421a006551756ddd01d73223299e8760f3de077c",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-urgent-open-only.test.ts": {
+      "blob": "b860371879d4e40fb118df83f44e44383e78c7bd",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/hook-command-quoting.test.ts": {
+      "blob": "1048b1988e6c8554754900c62570d76d455f1057",
+      "kind": "decided",
+      "reason": "Upstream cases test the email-send gate, which this fork removed on purpose (3230a213, 2026-08-20).",
+      "card": "#375"
+    },
+    "src/__tests__/hook-cross-scope-dedupe.test.ts": {
+      "blob": "2f3c60a9bc82acca4cbaa55fec57324c77298a1f",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/hook-exit-code-invariant.test.ts": {
@@ -787,6 +1471,30 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/hookstripfleet-channel-hooks.test.ts": {
+      "blob": "446bcb33e2599c9dc4a3cc283321e6df0626d820",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/ideas-stats-unfiltered.test.ts": {
+      "blob": "b671cf51c443af4533caae6ddbc27b4bd86d39cd",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/injected-prompt-registry.test.ts": {
+      "blob": "6340b31667bb4d3c69e13e7660a6d0e99d9f9faa",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/installer-start-and-fallback.test.ts": {
+      "blob": "9017ce4fcfe808b73fdcd1389ebf1c9eaf374f7e",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
     "src/__tests__/isolated-channel-config.test.ts": {
       "blob": "95a2575f8ed72a1c0e8714aa1098653c0be98f36",
       "kind": "deferred",
@@ -805,10 +1513,70 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/janitor-under-send-lane.test.ts": {
+      "blob": "18c1952f96cbbd815f987112f2738ee5759a0247",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-archive-stale-updated-at.test.ts": {
+      "blob": "4434a7cac1bea3e27348dd0fa638a371c6f7a1a6",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-blockers.test.ts": {
+      "blob": "d98f3c0c8a2e9e6f28eff6b0cc866719d80007d8",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-card-method-not-allowed.test.ts": {
+      "blob": "cf0f8a8b2a3fc6c515545bfdc61a2d1dd0aba4ef",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-comment-requires-card.test.ts": {
+      "blob": "746fd1138b8ff18329fffa3cc7646eb813b987f7",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-create-id-echo.test.ts": {
+      "blob": "aa8dadce81d6863817090ca049e88945eb0c28e3",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/kanban-dispatch-instructions.test.ts": {
       "blob": "a2fa813001ded68d91f6d6da567ca4e0a419f7a1",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-dispatch-rearm.test.ts": {
+      "blob": "d9a186a0af48c44c14299c284dbe0caf45d8feaa",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-dispatch-silent-noop.test.ts": {
+      "blob": "745f718cc9cc16660d31c2ea966aaacb19fda9d0",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-dispatch.test.ts": {
+      "blob": "f24dc9ca2e1fc9a08d7b092273b161c71cce3dff",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-field-bump-updated-at.test.ts": {
+      "blob": "0c169afd9a75bda02861e8a17fb879590fcfe19b",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/kanban-modal-overlay-click-data-loss.test.ts": {
@@ -817,10 +1585,34 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/kanban-parent-activity.test.ts": {
+      "blob": "0e6f330278b65df2d6fbbfd8fdf2dcbedaf7357d",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-put-unknown-field.test.ts": {
+      "blob": "6def5b63b8ffee6143a4316be867f179bd23a20d",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-timestamp-type-gate.test.ts": {
+      "blob": "5a1ba248d95c5c17f8379f85e8e83ad8bcc7fbc0",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/kanban-title-gate-trigger.test.ts": {
       "blob": "367aa7b11a1f51c7b4fb7ecad7b944d66279e319",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-update-audit.test.ts": {
+      "blob": "ae5bb557a4d3eaf8e168997398811b220104c056",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/kanban-write-gate.test.ts": {
@@ -829,10 +1621,100 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/ledger-agent-identity.test.ts": {
+      "blob": "d94a0be0efe55a9e5ebb3dd7187e1ed2a4cb192b",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/ledger-live-drain-task-seed.test.ts": {
+      "blob": "ea81587a51e650cc99bd6a0382507648425b68e8",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-agent-active-model-location.test.ts": {
+      "blob": "e615095268591dc4ade41260cdfa7193ba291a56",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-agent-config-dir.test.ts": {
+      "blob": "be181a01de24b8b88c1e35b800d34b3ca67bb963",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
     "src/__tests__/main-agent-isolated-config.test.ts": {
       "blob": "3516f1cbdd849e80fa013aa557bb95aee3697266",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/main-agent-rotated-config-dir.test.ts": {
+      "blob": "3fbb116f55e1f5db6b4284821730a4d80e8d4a15",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-config-decision-rotation-precedence.test.ts": {
+      "blob": "425908f23b13fd766f087a36864c66f776cd8965",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-config-guard-wiring.test.ts": {
+      "blob": "ab1f3e62dae9aabf7de16261b40c1f863ef77944",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-model-env-precedence.test.ts": {
+      "blob": "987d3d1a13a04337f399abfe02c4d6009ef4a6f3",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-model-resolution-parity.test.ts": {
+      "blob": "4df553356e091ea0487e43384d7e31be1573fe6e",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-parked-escalation.test.ts": {
+      "blob": "94224ae8cf35547837af3fc6486bb5a6c235a0f5",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/main-shared-config-guard.test.ts": {
+      "blob": "9082bd2720b121f23ceb2345d42b8f5842f92b7a",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/mcp-list-channel-section.test.ts": {
+      "blob": "1ca38e89d166538e01e770ed7c7fa807b80867a4",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memories-import-categorize-model.test.ts": {
+      "blob": "18ce12267383e0ac6dfe996cf4018b0de50eaeca",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memories-search-has-a-floor.test.ts": {
+      "blob": "a8c0fca43ac21a0e2e62fc738ffad9b9b5dc1c9a",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-embedding-staleness.test.ts": {
+      "blob": "a024658abd20bb85bba3a9c86561f490ac835457",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/memory-frontmatter-gate.test.ts": {
@@ -841,16 +1723,160 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/memory-listing-carries-the-label.test.ts": {
+      "blob": "9548a239fa8d29521584bbd832ccd72d674222c2",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-offset-paging.test.ts": {
+      "blob": "7d3566eb08120867515f65104fcb3bd27cec35fb",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-search-label-backfill.test.ts": {
+      "blob": "6d37ffa5163de300d5f5b227549593da6442ffe6",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-search-recipe-reads-the-label.test.ts": {
+      "blob": "d6eb761335dde01d81c2a74ec24509d28afcf969",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-search-tier-goes-into-the-query.test.ts": {
+      "blob": "a72bb28deed866a7c9224f90583fc423990762ea",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-write-trace.test.ts": {
+      "blob": "47290116995258d5b1d3e3673858d52475fbddae",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/message-router-tick-cap.test.ts": {
+      "blob": "1de23311464f79e7e9c34ec98ecad71ffa8b0011",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): mocks readAgentWorksourceChannel; message-router.ts stays ours.",
+      "card": "#375"
+    },
+    "src/__tests__/messages-main-agent-no-false-warning.test.ts": {
+      "blob": "4057a6872b7e3dcaa24ef2a9c2a777db69388914",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/minimax-model-selector.test.ts": {
+      "blob": "ca008eeaf0447219cd3e84b75986d377d1ff98d8",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/model-fallback.test.ts": {
       "blob": "09bc3bf772d195be0980f4bec929eed4ecfadc67",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/model-id-injection.test.ts": {
+      "blob": "acad81b06d0afff74909ec566478f6b408877702",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/model-suggest.test.ts": {
+      "blob": "b0014b2840c6239182369492038e1ec6dda2fbb9",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): tests the upstream model-suggest.ts (see there).",
+      "card": "#375"
+    },
+    "src/__tests__/notify-chat-id-placeholder.test.ts": {
+      "blob": "c447040c1215483d428b56ea8043dce3feab8411",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/onboarding-channel-live-wait.test.ts": {
+      "blob": "554e150b1c0059038d837bd3502302ee0f17a5bb",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/outgoing-copy-gate-rules-policy.test.ts": {
+      "blob": "eec8b274580c026883f25c55b771d172945a8596",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/outgoing-copy-gate-scope.test.ts": {
+      "blob": "bf426210f2f419ef05254a7abae2afbcc747f9e7",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/outgoing-copy-gate-tokens.test.ts": {
+      "blob": "6385c3cb248ac39f5a1eef6ece6a17f5eb5b7766",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/pane-busy-blank-tail.test.ts": {
+      "blob": "70805e0a1a4c5a4ef4e36fa6a182d8a1de47e27d",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/pane-first-run-gate.test.ts": {
+      "blob": "010e6987bf185cb3d95e6abe5f8152d617fa9911",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): tests upstream pane-gate code in agent-process.ts.",
+      "card": "#375"
+    },
+    "src/__tests__/pane-state.test.ts": {
+      "blob": "e8a534605744578a265e083912c51065651cfb55",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/__tests__/pane-writers-under-send-lock.test.ts": {
+      "blob": "c56a4ac70f80679bb59c3745381d42111d1d5d46",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/parked-clear-sequence.test.ts": {
+      "blob": "6a4c49c7c9bb6c83c3f7a2288470df35930c0660",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/parked-input-rescue.test.ts": {
+      "blob": "159c4409aeecc6dbbf2350825c0f138f514c7fae",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/parked-machine-input.test.ts": {
       "blob": "ded1a517e9e2cf0b4c4557d70fd1e0bebc167028",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/permission-footer-anywhere.test.ts": {
+      "blob": "2893d549ec2bd80a805eec3e2540eeece90a6637",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/pr-ledger.test.ts": {
+      "blob": "64ccc6d6f91f56572cede369aaed4f21659bfc75",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/process-lock.test.ts": {
@@ -865,10 +1891,46 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/prompt-injection-defense.test.ts": {
+      "blob": "1d529dce336617f432f32004ef13dd82c393f345",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/__tests__/provenance-gate.test.ts": {
+      "blob": "1c036411b22bbdd8691b70b1761b42f686adb501",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/quarantine-allowlist-render.test.ts": {
       "blob": "a9908f54184ab15f145d9f57e908813cab5d3e61",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/quarantine-reader-render-path.test.ts": {
+      "blob": "3bcb9a850165d4442438cc4c50d75c7605f41ff8",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/queued-messages-not-idle.test.ts": {
+      "blob": "c083cdc007651a3d6519cdddcfe52c2ba3ff2bc4",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/quota-gate-wiring.test.ts": {
+      "blob": "b769fd11d2d139fcd0ed38e6904b2812efd755ff",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/recovery-brief-every-fresh-door.test.ts": {
+      "blob": "e6a6cf07ad558912ade89fd7f43701e419548451",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/renderagents-no-main-duplicate.test.ts": {
@@ -895,10 +1957,64 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/result-summary.test.ts": {
+      "blob": "bcb5b951a00ffc71369e5e8cd5e1dfb8623ae90d",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/router-batch-inject.test.ts": {
+      "blob": "538ad6e6e9268ecb2477c27556927b09fbb07c23",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/router-main-agent-wakeup.test.ts": {
+      "blob": "712ace38d04fddc564e4b8a416549af297be5ca9",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/router-no-silent-reinject.test.ts": {
+      "blob": "cc8b2834a0462164d0ee3fbcb0df995fe659406a",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/router-status-reread.test.ts": {
+      "blob": "da5ef68ac2c9f83b83f951363f52de9f611a9b51",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/router-stuck-alert.test.ts": {
+      "blob": "c7efe943f19520dd04d2b05cda96b67e128774c2",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/sched-overfull-parked-input.test.ts": {
+      "blob": "8c8c4099b52d37a7e8bdc784589de68f611ce089",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/schedule-catchup.test.ts": {
       "blob": "6b6a931f6ad31c6dfe9cf1aff060886d67d8136f",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-inflight-config-dir.test.ts": {
+      "blob": "880adaba3254e9ccb16a841446f47760969d0400",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-runner-bound-channel.test.ts": {
+      "blob": "7f5f878ae7d8861a9ce452efeee7931fa9c7b15f",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/schedule-runner-bound-chatid.test.ts": {
@@ -913,6 +2029,18 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/schedule-runner-main-agent-missing.test.ts": {
+      "blob": "93c3b08675941675dae157062fb006c19a3190be",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-runner-parked-janitor.test.ts": {
+      "blob": "9624f7539f26c5514ecba3f7f5f20c523b9fa111",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/schedule-runner-precheck.test.ts": {
       "blob": "10848a7ff8e07a1d4496eeba0de7ef90d79a5d7f",
       "kind": "decided",
@@ -925,16 +2053,64 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/schedule-runner-retry-missing.test.ts": {
+      "blob": "7b58ba08dc106f16f7edb86bd87ef7c68606e4ff",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/schedule-task-timeout.test.ts": {
       "blob": "ffe7183b2976dcfcaf9539e2ad53bf7644e29151",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/scheduled-task-deletion-tombstone.test.ts": {
+      "blob": "1d31c43a7dd2620b353bd6179561f23e7041e6c0",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/script-tests-runner.test.ts": {
+      "blob": "2155f455a9384c7d679b22aa54ea3d25eead1ef3",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/secret-gate.test.ts": {
+      "blob": "4d31c4693d72a0ec9c407b54c409d1570efbc0f6",
+      "kind": "decided",
+      "reason": "Owner decision (2026-09-24): secret-gate stays ours, so does its test.",
+      "card": "#375"
+    },
+    "src/__tests__/send-invocation-conformance.test.ts": {
+      "blob": "dd25918213e9de17ad15c12a8d005b5983948599",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/send-prompt-force-send-gate.test.ts": {
       "blob": "1f28b02e390885569eb617fa3091ed1401781b92",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/session-send-lock.test.ts": {
+      "blob": "e0564f101fed813785acbb161c6c019acf9fae52",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/session-title-banner.test.ts": {
+      "blob": "e63a28a19685c4461512fe91199a57a714fd48b1",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/shipped-recipes-no-sqlite-cli.test.ts": {
+      "blob": "d3ae584627136e761fed2243e18c3057e5ef5057",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/skill-cli-core.test.ts": {
@@ -961,6 +2137,24 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/__tests__/skill-usage-hook-registration.test.ts": {
+      "blob": "dc19f733e11137b40a01a3089502c80ed3403c0a",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/skills-path-trap-section.test.ts": {
+      "blob": "b900de0f46248be641616a3bfb4bd0354cdbbaa5",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/slack-half-configured-onboarding.test.ts": {
+      "blob": "2ed95094cc38e15449b18721da807eb188f92710",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/ssh-tmux.test.ts": {
       "blob": "fbe9a18271bdd9499e0b41e7a1739a5d35b52e1b",
       "kind": "decided",
@@ -979,10 +2173,58 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/system-directive-auth-section.test.ts": {
+      "blob": "80d65e4651601d320447bf188d53548a5ef5f8ba",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/system-directive-verify-endpoint.test.ts": {
+      "blob": "21984b77fbb49566cfe3067ebe7e7109c6e6247f",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/system-sender-allowlist.test.ts": {
+      "blob": "d759e19881002f405faf10dc746c275c39868cf5",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/system-sender-reserved.test.ts": {
+      "blob": "36cb22884a536346b0b972c960458465e7406fc3",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/task-run-completion.test.ts": {
+      "blob": "6395d565cc3ee14e275ca05ff15fd73176fbd916",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/telegram-send-okfalse.test.ts": {
+      "blob": "8222d5ca1df251c96dce7295b1b40d04b76bfae0",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/template-identity-hygiene.test.ts": {
       "blob": "54d86bce1aa82ccdf2361e4d7c9d5c11256c4f15",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/tmux-stderr-attribution.test.ts": {
+      "blob": "51bffac2ead7a29d3f5af1fab1279a36bb4a6c31",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/token-prune-lag.test.ts": {
+      "blob": "2291117eb61bbc973d7796b45d0c1c481740e911",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/token-usage.test.ts": {
@@ -991,10 +2233,46 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/tool-log-capture-failure-event.test.ts": {
+      "blob": "ac47e1d2a61f53762999a653def70a8836a5358b",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/tool-log-hook-registration.test.ts": {
+      "blob": "c81e299aeef30ca18b9cf4ffa9970efbd81e694e",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/__tests__/update-checker-branch.test.ts": {
       "blob": "517c85905023c900f85dc33d6027ee427d339279",
       "kind": "decided",
       "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/update-native-module-loadcheck.test.ts": {
+      "blob": "780f7912bd3328b6f669184e537caee7c85d98bd",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/vault-master-key.test.ts": {
+      "blob": "244fe5426132a337f8af8aa0c74804b25b0a7781",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/vault-read-audit.test.ts": {
+      "blob": "95c6c0743aee690468c2b1c887b8663534568a9c",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
+    "src/__tests__/voice-channel-hanna.test.ts": {
+      "blob": "5e9adcfaae491e754f87801f053eb0120af69042",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
     "src/__tests__/welcome-screen-recovery.test.ts": {
@@ -1003,10 +2281,22 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
+    "src/__tests__/worksource-wiring.test.ts": {
+      "blob": "aef9bb6d98c822efdbb906c693a47cb6ac8af129",
+      "kind": "deferred",
+      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "card": "#375"
+    },
     "src/auto-restart.ts": {
       "blob": "839eac8dc278d6005170f61acf1fcbf789cbf0eb",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/channel-coordinator/liveness.ts": {
+      "blob": "5d89c1812fa078f838d4448ca8126d0df76a5392",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
       "card": "#375"
     },
     "src/channel-provider.ts": {
@@ -1015,10 +2305,76 @@
       "reason": "Would overwrite our own channel behaviour (principle gate).",
       "card": "#375"
     },
+    "src/config-registry.ts": {
+      "blob": "ee82a3de50d82d24651228866165c18635dec620",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/config.ts": {
+      "blob": "5edbaa99bdc369bea50b27f54c0f983a91630a45",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
     "src/context-guard.ts": {
       "blob": "737ed020b74360dac7d4c23eda5e5fcd42fb7c0d",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/context-restart-gate.ts": {
+      "blob": "b2d4bc1a970bc88b0e7f43607712947fa1216212",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/db.ts": {
+      "blob": "4c62e262e2d6ecebaebfd93527ed4fccd57a5215",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/heartbeat.ts": {
+      "blob": "4b78d9e034d72b1973793c0bef61d4185e575055",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): getMainParkedState from agent-process.ts.",
+      "card": "#375"
+    },
+    "src/index.ts": {
+      "blob": "926fe81ed7c9a09ae6a1e44eeae46cf3fc459ba7",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): DECAY_SWEEP_INTERVAL_MS from db.ts; only the ProcessLockContext fields (selfProjectRoot, getProcessCwd) were ported.",
+      "card": "#375"
+    },
+    "src/kanban-dispatch.ts": {
+      "blob": "7fffc38f78b99573fb88fd797ac67b3593ffb872",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/memory.ts": {
+      "blob": "ce2755bc7da33474381233c06862848ddcd634c6",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): new db.ts signatures.",
+      "card": "#375"
+    },
+    "src/model-fallback.ts": {
+      "blob": "93ea8f17a6c9608003f047c1c9b5f8defe0f1da8",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): limit regex widened to the union of both sides.",
+      "card": "#375"
+    },
+    "src/notify.ts": {
+      "blob": "3d6581ee8c0cc2f02af2f98da2311fbe946640ff",
+      "kind": "decided",
+      "reason": "Upstream CHATID0 fix (placeholder chat id 0 treated as missing) already covered by our ownerChatId().",
+      "card": "#375"
+    },
+    "src/pane-state.ts": {
+      "blob": "52c868de627a2e791345180051b215f22c74b8ac",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
       "card": "#375"
     },
     "src/skill-cli-core.ts": {
@@ -1039,6 +2395,18 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/tool-timeouts.ts": {
+      "blob": "d43a4da8d68424c889c5fad55539ecff51caaef8",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/web.ts": {
+      "blob": "3ae469a731a60ca1e6a46318fb22296304db16d2",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
     "src/web/active-model.ts": {
       "blob": "33899f4ba5045f00c4e9e1e820d9bcc5295aed74",
       "kind": "deferred",
@@ -1051,10 +2419,40 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/web/agent-message-wrap.ts": {
+      "blob": "d001ce9ca991b7e88651e30c7ea5df41d46b4732",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/web/agent-process.ts": {
+      "blob": "42490bddd71300c905498b94f8c05ca0b17f08d5",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
     "src/web/agent-put-fields.ts": {
       "blob": "69ce01fdd32899cf93f68071e045d4c32e10e0ae",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/agent-scaffold.ts": {
+      "blob": "60e2755b187a761987fdb0c9bf19684f6e974510",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/agent-taskstate.ts": {
+      "blob": "625d03282bb75b554ce23822f67cc4e51b0706c1",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/agent-worker.ts": {
+      "blob": "33142b2fbb1abff84038086b9c56549057604c37",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): lockMode from agent-process.ts.",
       "card": "#375"
     },
     "src/web/auto-restart-runner.ts": {
@@ -1063,10 +2461,64 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/web/channel-mcp-reconnect.ts": {
+      "blob": "633a2552f141560971a56b442fb03fee4e8787b5",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/channel-monitor.ts": {
+      "blob": "8cdeac8b13699522556c15179a04fabca51328fa",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/channel-plugin-unlock.ts": {
+      "blob": "1a5ca263586e3f67cdbdeeb5e3ad7647d97e341d",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/channel-poller-reap.ts": {
+      "blob": "920e2523a22c7653f6556302f2a6a0781743f19a",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/claude-plans.ts": {
+      "blob": "7c832321e4b4522eea60490b26f1bfc69f3475ec",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/command-task.ts": {
+      "blob": "1ba336bf924d349ac10eac7d0e5fa6adae882827",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): markTaskRunCompleted and appendTaskRun():number live in db.ts.",
+      "card": "#375"
+    },
+    "src/web/context-guard-runner.ts": {
+      "blob": "e160c72ed35d45a17ead0f03ae0f1995894d519c",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
     "src/web/context-guard-store.ts": {
       "blob": "0593a081cc624a6e8770cd630e85da9c3402b929",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/context-restart-gate-runner.ts": {
+      "blob": "86515bbefb24118f2906a3288a0b4701c43f5141",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/context-restart-gate-store.ts": {
+      "blob": "f00ecccbc027deb26ec68be562168e870600f48c",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
       "card": "#375"
     },
     "src/web/heartbeat-agent-scaffold.ts": {
@@ -1075,16 +2527,292 @@
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/web/heartbeat-metrics-inject.ts": {
+      "blob": "ce9c172486ffa598f206bae84dc4c76c0c1ade19",
+      "kind": "deferred",
+      "reason": "New upstream module built on C-31 (AGENT_API_ORIGIN in config.ts) -- left out with it (owner decision A (2026-09-24)).",
+      "card": "#375"
+    },
+    "src/web/hook-registration-guard.ts": {
+      "blob": "b28c9bfc04f2ae9cfd4e3d5a6f1aec5da6f71914",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/http-helpers.ts": {
+      "blob": "4d416c1fef8dc667b5921ca4ad849ecf9ed1ab3f",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/web/inbox-nudge-watcher.ts": {
+      "blob": "16ea8433849e794c5e68f413615b853ecbee20f3",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): clearFeedbackModalAndRecheck from agent-process.ts.",
+      "card": "#375"
+    },
+    "src/web/main-config-decision.ts": {
+      "blob": "80073a822f0a6e34f8c73949dc1ba4e2c5d79f38",
+      "kind": "deferred",
+      "reason": "New upstream module built on C-31 (agent-process.ts) -- left out with it (owner decision A (2026-09-24)).",
+      "card": "#375"
+    },
     "src/web/main-transcript-root.ts": {
       "blob": "5f7bd1b29c37c5ae422477e2b46f323b07030a1c",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
       "card": "#375"
     },
+    "src/web/message-router.ts": {
+      "blob": "2350380c18889ba448f00127059bd118dea288d9",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): worksource/batch-inject delivery needs readAgentWorksourceChannel (agent-config.ts, deferred) and clearFeedbackModalAndRecheck (agent-process.ts).",
+      "card": "#375"
+    },
+    "src/web/model-suggest.ts": {
+      "blob": "2af4e076711e2c2754d18f3fd563d9f8401674e4",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): upstream drops the tokenAvgInputPerCall signal that routes/agents.ts sends; DISTRIBUTION_DEFAULT from config-registry.ts.",
+      "card": "#375"
+    },
+    "src/web/profiles.ts": {
+      "blob": "e3321e5087ea2d07884252b45aef7c8811e89a42",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/reauth-healer.ts": {
+      "blob": "918106ace86885138d3a99c2494f6aeb8562114c",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
     "src/web/rescue-failure-tracker.ts": {
       "blob": "2b5639da7fa7c39ac8eda7492842881e60e0eb01",
       "kind": "deferred",
       "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/routes/agent-terminal.ts": {
+      "blob": "cf57ba1065272a7bde9723865d5709faaf05ed21",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): per-user tmux routing needs tmuxInvocationFor from agent-process.ts.",
+      "card": "#375"
+    },
+    "src/web/routes/agents-skills.ts": {
+      "blob": "23a380b7d40b5cd70885d9205c6fb4cc1fe9dbfe",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/web/routes/agents.ts": {
+      "blob": "94101d8787f0206a215e711b20f1910fc4596cb6",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/routes/approvals.ts": {
+      "blob": "5837e95738dbf8af083a9cac0e4ac81c45ec5ac8",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/routes/connectors.ts": {
+      "blob": "d821fb73ea84e929cb77ca158e7bbf78e2de6cd0",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/routes/ideas.ts": {
+      "blob": "06d261823e57a4b4ab9e434ca07aa3f579c7d1c4",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): idea scope (work/personal) needs listIdeas/createIdea scope in db.ts.",
+      "card": "#375"
+    },
+    "src/web/routes/kanban.ts": {
+      "blob": "0bfd8f56b457337d15222b17024fe28574f60c6a",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): blockers, KANBAN_WRITABLE_FIELDS, heartbeat summary in db.ts; only the actor self-move pass-through was ported.",
+      "card": "#375"
+    },
+    "src/web/routes/marveen.ts": {
+      "blob": "56e36a5fc5dfa53ca0cf33e19cc264a3918169a5",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/routes/memories.ts": {
+      "blob": "c31bc1c428716eafb8e07b8a4bfd382c8845ba69",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): hybrid trace / tier-in-search / offset need db.ts signatures.",
+      "card": "#375"
+    },
+    "src/web/routes/messages.ts": {
+      "blob": "082d5e466521dde82cb4a7c1e5a11c240e983af2",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/routes/migrate.ts": {
+      "blob": "33ae87c9e6cfdf3f251d99c4df4e95cc6a7e82d6",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/routes/onboarding.ts": {
+      "blob": "0411a71ed6b46910a0357cd0e42348dc60bce9e8",
+      "kind": "decided",
+      "reason": "Owner decision (2026-09-24): the Claude login check stays file-only (claude-auth-presence.ts), upstream tmux-environment leg not taken; the rest merged by hand.",
+      "card": "#375"
+    },
+    "src/web/routes/overview.ts": {
+      "blob": "6438431757fc8fa86be6d1fab17f02725f592866",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/routes/pr-ledger.ts": {
+      "blob": "ed52ccc80e1015a41a335c302faa0cb6b49347c6",
+      "kind": "deferred",
+      "reason": "New upstream module built on C-31 (listPrLedger in db.ts) -- left out with it (owner decision A (2026-09-24)).",
+      "card": "#375"
+    },
+    "src/web/routes/research.ts": {
+      "blob": "1da1ceb6fd4c76a82a77c23d1d4ddddab48d0f3b",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/routes/schedules.ts": {
+      "blob": "80b4563f84d0297d02c0ca6e1cdfd58362d84a5f",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/routes/skills.ts": {
+      "blob": "34c1e440bd5009e79546d686ec9fbc481ba0af7e",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/web/routes/types.ts": {
+      "blob": "a57dcc9ecf1d135a10189288e10c50b784a80643",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/routes/updates.ts": {
+      "blob": "7755cd0e260fe60fc274d1475afd31f9e4503419",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "src/web/routes/voice.ts": {
+      "blob": "7887cfe8e3e108e3eb668560bc1ab99ffc66c2dd",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/schedule-runner.ts": {
+      "blob": "6486e1a363182d22992daadb9fea90ab6a63428d",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "src/web/scheduled-tasks-io.ts": {
+      "blob": "355b771c82fd51e9e32c2137ddd61b3c1fd41f20",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/ssh-tmux.ts": {
+      "blob": "81747fd722ce4b84f5e522f29d45067211846f36",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/stuck-tool-call-watcher.ts": {
+      "blob": "80f56ab7a9fa84b1f431db27a7eb240aa873e53c",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): readTranscriptMtimeFromProjectDir from active-model.ts (deferred).",
+      "card": "#375"
+    },
+    "src/web/telegram-inbox-wake.ts": {
+      "blob": "c2a97316f2bda1537711fd1dbdf44e5a48753533",
+      "kind": "deferred",
+      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): clearFeedbackModalAndRecheck from agent-process.ts.",
+      "card": "#375"
+    },
+    "src/web/token-usage.ts": {
+      "blob": "82ebcf785cd0d988b2f8146b6049ad078fe521c0",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/update-checker.ts": {
+      "blob": "b4dffa346e8f60bec6466b6c9b0ca9b48202971b",
+      "kind": "decided",
+      "reason": "Owner decision (2026-09-24): the \"new version\" signal follows our own origin (what update.sh pulls); no hardcoded fallback repo.",
+      "card": "#375"
+    },
+    "src/web/vault.ts": {
+      "blob": "938948a65bc5c264b36387da6ed0230974f95781",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "src/web/voice-directive.ts": {
+      "blob": "cc6ae56ef4eb7074d0655d2326816d3d06b6736b",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "templates/CLAUDE.md.template": {
+      "blob": "39b23c7b2269e4220dd0b161ff9c475de2a9562a",
+      "kind": "decided",
+      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
+      "card": "#375"
+    },
+    "templates/settings.json.template": {
+      "blob": "7500c488547154e25b81d1be0f2e1e948ce8f8cf",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "update.sh": {
+      "blob": "a75de2c593c13b6f15b39b9b4dc86ef29514f6f9",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
+      "card": "#375"
+    },
+    "web/app.js": {
+      "blob": "dba935621dc310c2a95c4308f0bee6240a193194",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "web/index.html": {
+      "blob": "b4f142158c1c6f8e3c215274836eeb8c6d6c72f4",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "web/lang/en.js": {
+      "blob": "6d8de35454f4152c92c956cded28cca14a395943",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "web/lang/hu.js": {
+      "blob": "151a2c8cac7fbe6bf0c4f62fa628ec084a113156",
+      "kind": "deferred",
+      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
+      "card": "#375"
+    },
+    "web/style.css": {
+      "blob": "fe0979cde94488243665adebb5771c974b977c9d",
+      "kind": "decided",
+      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
       "card": "#375"
     }
   }

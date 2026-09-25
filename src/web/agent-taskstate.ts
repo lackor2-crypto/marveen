@@ -157,9 +157,9 @@ export function buildTaskStateInjection(r: AgentTaskState): string {
   const lines: string[] = [
     SENTINEL,
     // Source-neutral wording: the same record is replayed after a compact, a
-    // resume AND a crash respawn (source=startup, added 2026-07-27), so it must
-    // not claim a compact happened.
-    'A sessiond ujraindult egy FOLYAMATBAN LEVO feladat kozben (tomorites, resume vagy osszeomlas utani ujraindulas). Ez NEM uj feladat -- FOLYTASD onnan ahol abbamaradt. NE INDITSD ujra a mar kesz lepeseket, es NE delegald ujra amit mar atadtal.',
+    // resume, a /clear AND a crash respawn (source=startup, added 2026-07-27),
+    // so it must not claim a compact happened.
+    'A sessiond ujraindult egy FOLYAMATBAN LEVO feladat kozben (tomorites, resume, /clear vagy osszeomlas utani ujraindulas). Ez NEM uj feladat -- FOLYTASD onnan ahol abbamaradt. NE INDITSD ujra a mar kesz lepeseket, es NE delegald ujra amit mar atadtal.',
   ]
   // Order is deliberate (knowledge base points 39, 60, 61): models use the head
   // and the tail of a block far better than its middle, so the non-negotiable

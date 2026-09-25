@@ -36,6 +36,10 @@ vi.mock('../db.js', () => ({
     if (toAgent) return [] // per-agent query for reconnect pre-pass
     return mockGetPendingMessages()
   },
+  // The router re-reads the row's status immediately before sending (the tick
+  // works from a snapshot taken at its start). Pending here keeps these
+  // fixtures on the delivery path they were written to measure.
+  getMessageStatus: (..._a: unknown[]) => 'pending',
   markMessageDelivered: (...a: unknown[]) => mockMarkDelivered(...a),
   markMessageFailed: (...a: unknown[]) => mockMarkFailed(...a),
   markMessageDone: (..._a: unknown[]) => true,
@@ -58,6 +62,9 @@ vi.mock('../web/agent-config.js', () => ({
 }))
 
 vi.mock('../web/agent-process.js', () => ({
+  // The not-ready-path modal clear: false = no modal, so every caller keeps
+  // its existing skip/busy behaviour and these fixtures are unaffected.
+  clearFeedbackModalAndRecheck: () => false,
   agentSessionName: (name: string) => `agent-${name}`,
   isSessionReadyForPrompt: vi.fn(() => false),
   clearStaleParkedInput: vi.fn(() => false),

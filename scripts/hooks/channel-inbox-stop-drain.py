@@ -108,7 +108,16 @@ def self_test():
         }
 
         os.environ["MAIN_AGENT_ID"] = "mainbot"
-        payload = {"cwd": home}
+        os.environ.pop("MARVEEN_AGENT_ID", None)
+        # The sub-agent is named by its transcript path, the session-stable
+        # identity anchor (ledger_lib.agent_id_from_payload, LEDGERCWD828). A
+        # bare temp-dir cwd outside the install now resolves to the MAIN agent
+        # on purpose, so it can no longer stand in for a sub-agent here.
+        install_root = os.path.dirname(os.path.dirname(HERE))
+        payload = {
+            "cwd": home,
+            "transcript_path": os.path.join(install_root, "agents", "tester", "t.jsonl"),
+        }
 
         # 1. A message waiting at the end of a turn is handed over, with the
         #    instruction that says where to answer.
@@ -126,14 +135,13 @@ def self_test():
         #    than a message that waits for the next turn.
         with open(pending, "w", encoding="utf-8") as f:
             f.write(_json.dumps(entry) + "\n")
-        assert _decide({"cwd": home, "stop_hook_active": True}, state) == ""
+        assert _decide(dict(payload, stop_hook_active=True), state) == ""
         assert os.path.exists(pending), "the queue must survive the loop guard"
 
         # 4. The main agent never drains: it receives Telegram natively, and
         #    stealing its queue here would hide messages from it. Its cwd is the
         #    install root itself, which is how every hook here tells the two
         #    apart (ledger_lib.agent_id_from_cwd).
-        install_root = os.path.dirname(os.path.dirname(HERE))
         assert _decide({"cwd": install_root}, state) == ""
         assert os.path.exists(pending)
 

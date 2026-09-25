@@ -86,7 +86,8 @@ export function kanbanMoveInstructions(id: string, target: string): string {
 // assigned agent once via the inter-agent message router (createAgentMessage),
 // which gives retry / dedup / trust-wrapping / busy-receiver handling for free.
 // dispatched_at is the once-only guard; errors never block the card move.
-function fireKanbanDispatch(id: string): void {
+// `actor` is the mover: an agent that moves its own card is not re-woken (self-move).
+function fireKanbanDispatch(id: string, actor?: string | null): void {
   try {
     const card = getKanbanCard(id)
     if (!card || card.dispatched_at) return
@@ -100,6 +101,7 @@ function fireKanbanDispatch(id: string): void {
       // usage wall (Boss, 2026-09-14 -- the same capability gate as the
       // scheduler). Fresh install with no snapshot -> not blocked -> unchanged.
       isBlocked: isAgentQuotaBlocked,
+      actor,
     })
     if (!target) return
     const desc = (card.description ?? '').trim()
@@ -303,8 +305,9 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const body = await readBody(req)
     const { status, sort_order, actor } = JSON.parse(body.toString())
     if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
-      // Wake the assigned agent once when the card enters in_progress.
-      if (status === 'in_progress') fireKanbanDispatch(id)
+      // Wake the assigned agent once when the card enters in_progress -- unless
+      // that agent is the one who moved it (self-pickup needs no wake-up).
+      if (status === 'in_progress') fireKanbanDispatch(id, actor)
       // Kanban 2741d289 (#252). Boss: "ha az [a kartya] mar le van zarva, akkor
       // oda mar nem irok tobbet." A lezaras jelet a CSET-ben kell hagyni, mert a
       // kovetkezo dispatch-ot vegzo agens azt latja, nem az adatbazist.
