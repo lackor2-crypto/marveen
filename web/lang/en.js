@@ -918,7 +918,6 @@ window._i18n.en = {
   'intezo.physical_pick': 'Pick from the tree',
   'intezo.physical_note_ph': 'For example: blue folder, 2nd drawer',
   'intezo.physical_save': 'Save',
-  'intezo.sel_clear':                'Clear selection',
   'intezo.preview': 'Preview',
   'intezo.download': 'Download',
   'intezo.preview_loading': 'Loading…',

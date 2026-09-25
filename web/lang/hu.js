@@ -946,7 +946,6 @@ window._i18n.hu = {
   'intezo.physical_pick': 'Kiválasztás a fából',
   'intezo.physical_note_ph': 'Például: kék dosszié, 2. fiók',
   'intezo.physical_save': 'Mentés',
-  'intezo.sel_clear':                'Kijelölés vége',
   'intezo.preview': 'Előnézet',
   'intezo.download': 'Letöltés',
   'intezo.preview_loading': 'Betöltés…',

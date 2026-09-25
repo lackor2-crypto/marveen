@@ -50,10 +50,10 @@ describe('#386 -- az adatlap csak az Info gombra nyilik', () => {
   it('a kijelolo mod a nyitott adatlapot is becsukja', () => {
     const f = fnBody('function _intezoSelectOnly(')
     expect(f).toContain("_intezoInfo(rel, 'select')")
-    // az elonezet-ablak ugyanugy felnyilhat, mint eddig
-    expect(f).toContain('_intezoPreviewDismissed = false')
     const info = fnBody('async function _intezoInfo(')
     expect(info).toMatch(/quiet === 'select'\) card\.hidden = true/)
+    // csendes: az elonezet-ablak sem ugrik fel egy sima kattintasra
+    expect(info).toContain("if (quiet !== 'select') void _intezoRenderPreview(info)")
   })
 
   it('az Info gomb nyit; csak NYITOTT adatlapnal csuk be', () => {
@@ -80,9 +80,55 @@ describe('#386 -- az adatlap csak az Info gombra nyilik', () => {
     expect(f).toMatch(/if \(navigated\)[\s\S]*scrollIntoView\(\{ block: 'start' \}\)/)
   })
 
-  it('a kijeloles tovabbra is a Ctrl+X/C es a Kivagas/Masolas alapja', () => {
+  it('Ctrl+X/C a kijelolesen, Kivagas/Masolas a jobb klikk menuben mukodik', () => {
     const kod = csakKod(app)
     expect(kod).toMatch(/\(k === 'x' \|\| k === 'c'\) && _intezoSelected/)
-    expect(kod).toContain("case 'cut': _intezoClipSet(_intezoSelected, 'cut')")
+    expect(kod).toContain("_intezoClipSet(entry, 'cut')")
+  })
+})
+
+describe('#386 masodik kor -- nincs muveletsav, mappa egy kattintasra nyilik', () => {
+  const html = readFileSync(join(process.cwd(), 'web', 'index.html'), 'utf8')
+
+  it('a kijelolt tetel muveletsava nincs a lapon, es a kod sem hivatkozik ra', () => {
+    expect(html).not.toContain('id="intezoActionBar"')
+    const kod = csakKod(app)
+    expect(kod).not.toContain('intezoActionBar')
+    expect(kod).not.toContain('data-intezo-act')
+  })
+
+  it('mappa sor/csempe egy kattintasra belep', () => {
+    const h = handler('[data-pick]')
+    expect(h).toMatch(/if \(tr\.getAttribute\('data-dir'\)\) \{ void _intezoOpen\(rel\); return \}/)
+    // a tobbes kijelolo modban a kattintas tovabbra is pipal, ELOBB
+    expect(h.indexOf('_intezoMultiToggle')).toBeLessThan(h.indexOf('_intezoOpen(rel)'))
+  })
+
+  it('a megszokasbol dupla kattintas nem visz ket szinttel lejjebb', () => {
+    const f = fnBody('function _intezoClickSwallowed(')
+    expect(f).toContain('_intezoNavAt < 500')
+    expect(handler('[data-pick]')).toContain('_intezoClickSwallowed()')
+    expect(handler('a[data-open]')).toContain('_intezoClickSwallowed()')
+    expect(fnBody('async function _intezoOpen(')).toContain('if (navigated) _intezoNavAt = Date.now()')
+  })
+
+  it('a sav muveletei a jobb klikk menuben vannak', () => {
+    const menu = csakKod(app.slice(app.indexOf('async function _intezoOpenMenu'), app.indexOf('if (!window._intezoMenuBound)')))
+    for (const k of ['intezo.menu_cut', 'intezo.menu_copy', 'intezo.menu_mount', 'intezo.menu_paper', 'intezo.menu_info', 'intezo.preview', 'intezo.download']) {
+      expect(menu).toContain("t('" + k + "')")
+    }
+  })
+
+  it('telefonon hosszu nyomas nyitja a menut, es utana nem lep be', () => {
+    const lp = fnBody('function _intezoBindLongPress(')
+    expect(lp).toContain("addEventListener('touchstart'")
+    expect(lp).toContain('_intezoLongPressAt = Date.now()')
+    expect(fnBody('function _intezoClickSwallowed(')).toContain('_intezoLongPressAt < 700')
+    expect(csakKod(app)).toContain('_intezoBindLongPress(tr,')
+  })
+
+  it('dupla kattintas fajlon megnyitja, az Esc leveszi a kijelolest', () => {
+    expect(csakKod(app)).toMatch(/querySelectorAll\('\[data-pick\]\[data-dir=""\]'\)[\s\S]{0,200}dblclick[\s\S]{0,200}_intezoOpenFile\(/)
+    expect(csakKod(app)).toMatch(/else if \(_intezoSelected\) _intezoClearSelection\(\)/)
   })
 })
