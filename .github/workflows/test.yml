@@ -41,6 +41,11 @@ jobs:
           echo "claude CI stub: tests must not execute this binary" >&2
           exit 1
           EOF
+      # #375: this workflow arrived with the upstream sync and, unlike ci.yml,
+      # had no ffmpeg -- the photos-picker thumbnail tests failed with
+      # "spawn ffmpeg ENOENT" (5 tests). Same install step as ci.yml.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: npm run typecheck
       - run: npm test
       # Shell-test wiring (SEEDREFRESH826 fold-in, from the #1066 verify): a
