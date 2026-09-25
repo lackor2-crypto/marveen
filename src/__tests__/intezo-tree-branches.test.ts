@@ -42,7 +42,8 @@ describe('#388 -- tagolt Intezo-fa', () => {
 
   it('a sorok kapjak a melyseget (behuzas-vonalakhoz), az agak indexet', () => {
     expect(render).toContain("px;--d:' + depth + '\">'")
-    expect(render).toContain('kids.map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i))')
+    // #387: only real descendants are drawn (no loop), the index still per branch.
+    expect(render).toContain('.map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i))')
   })
 
   it('a CSS attetszo keveressel dolgozik (vilagos es sotet temaban is halvany)', () => {
