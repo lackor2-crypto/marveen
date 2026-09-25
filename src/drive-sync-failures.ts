@@ -111,24 +111,53 @@ export function parseFailureLine(line: string): SyncFailure | null {
  *
  * `runId`-val szurve csak egy futase. A `limit` a visszaadott sorokra vonatkozik.
  */
-export function loadSyncFailures(opts: { runId?: string; limit?: number } = {}): SyncFailure[] {
+// #390: a lista tobb MB (2026-09-25: 6,7 MB), es az Attekintes onellenorzese
+// egy betoltesen haromszor is vegigbontotta -- ~0,3 mp, amig az egesz
+// dashboard allt. A felbontott sorokat a fajl meret+ido alairasaig megtartjuk;
+// barmilyen iras (hozzafuzes, forgatas, torles) uj alairast ad.
+let parsedMemo: { sig: string; rows: SyncFailure[] } | null = null
+
+/** Csak teszthez: a felbontott lista elfelejtese. */
+export function _resetSyncFailuresMemoForTest(): void { parsedMemo = null }
+
+function parsedFailures(): SyncFailure[] {
+  let sig: string
+  try {
+    if (!existsSync(FAILURES_PATH)) { parsedMemo = null; return [] }
+    const st = statSync(FAILURES_PATH)
+    sig = `${st.ino}:${st.size}:${st.mtimeMs}:${st.ctimeMs}`
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, '[drive-sync] a hibalistat nem tudtam beolvasni')
+    return []
+  }
+  if (parsedMemo && parsedMemo.sig === sig) return parsedMemo.rows
   let raw = ''
   try {
-    if (!existsSync(FAILURES_PATH)) return []
     raw = readFileSync(FAILURES_PATH, 'utf8')
   } catch (err: any) {
     logger.warn({ err: err?.message }, '[drive-sync] a hibalistat nem tudtam beolvasni')
     return []
   }
-  const out: SyncFailure[] = []
+  const rows: SyncFailure[] = []
   for (const line of raw.split('\n')) {
     const f = parseFailureLine(line)
-    if (!f) continue
-    if (opts.runId && f.runId !== opts.runId) continue
-    out.push(f)
+    if (f) rows.push(f)
   }
-  out.reverse()
-  return opts.limit ? out.slice(0, opts.limit) : out
+  parsedMemo = { sig, rows }
+  return rows
+}
+
+export function loadSyncFailures(opts: { runId?: string; limit?: number } = {}): SyncFailure[] {
+  const rows = parsedFailures()
+  const out: SyncFailure[] = []
+  // Legujabb elol; a hivo sajat masolatot kap, a memot nem valtoztathatja meg.
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const f = rows[i]
+    if (opts.runId && f.runId !== opts.runId) continue
+    out.push({ ...f })
+    if (opts.limit && out.length >= opts.limit) break
+  }
+  return out
 }
 
 /** Az OSSZES feljegyzett futas azonositoja, legujabb elol. */
