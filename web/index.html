@@ -2237,6 +2237,14 @@
           <input type="text" class="input" id="emailComposeNewCc" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" readonly onfocus="this.readOnly=false" onblur="if(!this.value)this.readOnly=true" data-i18n-placeholder="email.compose_cc_placeholder" placeholder="Cc (opcionális)">
           <input type="text" class="input" id="emailComposeNewSubject" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" readonly onfocus="this.readOnly=false" onblur="if(!this.value)this.readOnly=true" data-i18n-placeholder="email.compose_subject_placeholder" placeholder="Tárgy">
           <textarea class="input" id="emailComposeNewText" rows="10" data-i18n-placeholder="email.compose_text_placeholder" placeholder="Szöveg..."></textarea>
+          <!-- #389: az Intezo "Kuldes > E-mail" menupontja ide teszi a kijelolt
+               fajlokat (mappat ZIP-ben). A fiok-valaszto csak akkor latszik, ha
+               innen nyilt es tobb fiok van. -->
+          <div id="emailComposeNewFrom" hidden style="margin-top:8px">
+            <label for="emailComposeNewAccount" style="font-size:13px;display:block;margin-bottom:4px" data-i18n="email.compose_from_label">Melyik fiókodról menjen?</label>
+            <select class="input" id="emailComposeNewAccount"></select>
+          </div>
+          <div id="emailComposeNewAttach" hidden style="margin-top:8px;font-size:13px"></div>
         </div>
         <div class="modal-actions">
           <button class="btn-primary" id="emailComposeNewSendBtn" data-i18n="email.btn.send">Küldés</button>

@@ -8,6 +8,8 @@
 //   GET  /api/life/info       -- a reszletes informacios panel egy tetelrol
 //   GET  /api/life/file       -- egy fajl BAJTJAI (elonezet/letoltes, kartya #164)
 //   GET  /api/life/thumb      -- kep/video belyegkepe az ikon-nezethez (kartya #373)
+//   POST /api/life/send-info  -- mit vinne egy kijeloles csatolmanykent (#389)
+//   GET  /api/life/zip        -- egy mappa zip-kent, a megosztas-ablaknak (#389)
 //   GET  /api/life/search     -- nev szerinti kereses a fan belul
 //   GET  /api/life/name-check -- LETREHOZAS ELOTT: rendben van-e ez a nev
 //   POST /api/life/mkdir      -- uj mappa
@@ -32,6 +34,7 @@
 // felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
 import { fileKind } from '../../file-kind.js'
 import { lifeThumb } from '../../life-thumbs.js'
+import { lifeSendInfo, prepareLifeAttachments, SHARE_LIMIT } from '../../life-send.js'
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
@@ -441,6 +444,48 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       // eset, es NEM hiba. A valasz feje mar elment, uzenetet mar nem kuldhetunk.
       logger.debug({ err: err?.message }, '[eletfa] a fajl kuldese felbeszakadt')
       res.destroy()
+    }
+    return true
+  }
+
+  // KULDES (#389): mit vinne egy kijeloles csatolmanykent -- darab, meret,
+  // a mappak zip-neve --, MIELOTT barmi elkeszulne. A levelirot ez tolti ki.
+  if (path === '/api/life/send-info' && method === 'POST') {
+    let data: { rels?: unknown } = {}
+    try { data = JSON.parse((await readBody(req)).toString() || '{}') } catch { data = {} }
+    const info = lifeSendInfo(data.rels, uiLang(url) === 'en' ? 'en' : 'hu')
+    send(res, info.ok ? 200 : 400, info)
+    return true
+  }
+
+  // EGY MAPPA ZIP-KENT (#389) -- a bongeszo megosztas-ablakanak (WhatsApp,
+  // Messenger...), ami csak fajlt tud atadni, mappat nem. Ugyanaz a hatar,
+  // mint a /api/life/file-nal: resolveLifePath().
+  if (path === '/api/life/zip' && method === 'GET') {
+    const lang = uiLang(url) === 'en' ? 'en' : 'hu'
+    const rel = url.searchParams.get('rel') || ''
+    const prep = prepareLifeAttachments([rel], lang, SHARE_LIMIT)
+    if (!prep.ok) { send(res, 400, { error: prep.code, message: prep.message }); return true }
+    const zipPath = prep.paths[0]
+    if (!zipPath || !zipPath.endsWith('.zip')) {
+      prep.cleanup()
+      send(res, 400, { error: 'not_a_folder', message: T(lang, 'Ez nem mappa -- a fájlt közvetlenül lehet küldeni.', 'This is not a folder -- the file can be sent as it is.') })
+      return true
+    }
+    try {
+      const st = statSync(zipPath)
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': contentDispositionHeader(pathBasename(zipPath), 'attachment'),
+        'Content-Length': st.size,
+        'Cache-Control': 'private, no-store',
+      })
+      await pipeline(createReadStream(zipPath), res)
+    } catch (err: any) {
+      logger.debug({ err: err?.message }, '[eletfa] a zip kuldese felbeszakadt')
+      res.destroy()
+    } finally {
+      prep.cleanup()
     }
     return true
   }

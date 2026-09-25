@@ -8,6 +8,7 @@ import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { cacheGet, cacheGetStale, cacheSet, refreshInBackground, singleFlight } from '../email-list-cache.js'
+import { prepareLifeAttachments } from '../../life-send.js'
 import { readAttachmentFlags, saveAttachmentFlags } from '../email-attachment-flag-store.js'
 import type { CacheEntry } from '../email-list-cache.js'
 import { logger } from '../../logger.js'
@@ -1386,17 +1387,28 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   // that -- IMAP APPEND is the only way to get the same effect here).
   if (path === '/api/email/compose' && method === 'POST') {
     const body = await readBody(req)
-    const data = JSON.parse(body.toString()) as { account?: string; to?: string; cc?: string; subject?: string; text?: string }
-    if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || !data.text?.trim()) { json(res, { error: 'account, to and text required' }, 400); return true }
-    const composeSentMailbox = await mailboxFor(data.account as string, 'sent')
-    const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text, '--send', '--save', composeSentMailbox]
-    if (data.cc?.trim()) args.push('--cc', data.cc.trim())
-    if (data.subject?.trim()) args.push('-s', data.subject.trim())
-    const r = await himalaya(args)
-    if (!r.ok) { logger.warn(`[email] compose failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
-    invalidateEnvelopeCache(data.account as string, composeSentMailbox)
-    json(res, { ok: true })
-    return true
+    const data = JSON.parse(body.toString()) as { account?: string; to?: string; cc?: string; subject?: string; text?: string; lifeAttachments?: unknown }
+    // SEND FROM THE INTEZO (#389): tree items as attachments -- files as they
+    // are, folders zipped. Built only now, at the user's own Send press. With
+    // attachments the body may be empty -- a photo needs no letter.
+    const lifeRels = Array.isArray(data.lifeAttachments) ? data.lifeAttachments : []
+    if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || (!data.text?.trim() && !lifeRels.length)) { json(res, { error: 'account, to and text required' }, 400); return true }
+    const prep = lifeRels.length ? prepareLifeAttachments(lifeRels, lang === 'en' ? 'en' : 'hu') : null
+    if (prep && !prep.ok) { json(res, { error: prep.message, code: prep.code }, 400); return true }
+    try {
+      const composeSentMailbox = await mailboxFor(data.account as string, 'sent')
+      const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text?.trim() ? data.text : '\n', '--send', '--save', composeSentMailbox]
+      if (data.cc?.trim()) args.push('--cc', data.cc.trim())
+      if (data.subject?.trim()) args.push('-s', data.subject.trim())
+      for (const p of prep ? prep.paths : []) args.push('--attach', p)
+      const r = await himalaya(args)
+      if (!r.ok) { logger.warn(`[email] compose failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
+      invalidateEnvelopeCache(data.account as string, composeSentMailbox)
+      json(res, { ok: true })
+      return true
+    } finally {
+      if (prep) prep.cleanup()
+    }
   }
 
   if (path === '/api/email/read' && method === 'POST') {
