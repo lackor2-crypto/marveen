@@ -35524,7 +35524,7 @@ async function loadDepoPage() {
  * A szinkron magatol SEMMIT nem torol. Ami torlodne, az itt all, a kartya
  * tetejen, csillaggal -- es tetelenkent kell ra igent vagy nemet mondani. Az
  * igen sem vegleges: a fajl a Kukaba megy (fent a Drive Kukajaba, lent a
- * raktar Rendszer / Kuka mappajaba).
+ * raktar gyokerbeli Kuka mappajaba).
  */
 function _depoDelErr(code) {
   var k = 'ddel.err_' + String(code || '')
@@ -41390,7 +41390,7 @@ if (!window._intezoMenuBound) {
 // DONTES viszont nem itt szuletik: a szerver `purgeLife`-ja akkor sem torol
 // veglegesen, ha innen barmi mast kuldenenk. Ez itt csak azt intezi, hogy a
 // felhasznalo a HELYES menupontot lassa.
-// A Kuka utja a telepites nyelvet koveti (`Rendszer/Kuka` / `System/Trash`),
+// A Kuka utja a telepites nyelvet koveti (`Kuka` / `Trash`, a fa gyokereben),
 // ezert a szerver mondja meg minden listazasban (`trashRel`). A legutobb
 // latott erteket megjegyezzuk: a keresesi talalatok listaja nem hozza.
 var _INTEZO_KUKA = ''

@@ -9,7 +9,7 @@ import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
-import { autoPurgeTrash } from './life-explorer.js'
+import { autoPurgeTrash, migrateLegacyTrash } from './life-explorer.js'
 import { prewarmOffThread } from './life-list-offthread.js'
 import { refreshAccountsInBackground, machineIdentityAsync } from './web/claude-auth-runner.js'
 import { getEffectiveSettingValue } from './settings-store.js'
@@ -629,6 +629,9 @@ export function startWebServer(port = 3420): http.Server {
   // A Kuka nem raktar: ami LIFE_TRASH_DAYS napnal regebben kerult bele, magatol
   // elmegy. (Boss keresere, 2026-08-22.) A hatarideig barmikor visszahozhato.
   const kukaSepres = () => {
+    // #395: a regi `Rendszer/Kuka` tartalma a gyokerbeli Kukaba koltozik,
+    // mielott barmi urulne. Idempotens, ures regi Kukanal nem csinal semmit.
+    try { migrateLegacyTrash() } catch (err) { logger.warn({ err }, 'A Kuka atkoltoztetese nem futott le') }
     try {
       const napok = Number(getEffectiveSettingValue('LIFE_TRASH_DAYS'))
       const r = autoPurgeTrash(napok)

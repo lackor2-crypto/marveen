@@ -39,7 +39,8 @@ import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { execFile } from 'node:child_process'
-import { PROJECT_ROOT } from '../../config.js'
+import { PROJECT_ROOT, APP_LANG } from '../../config.js'
+import { trashRelPath } from '../../life-tree.js'
 import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotAccountDir, depotHealth, depotRoot, DEPOT_DRIVE, DEPOT_SYSTEM_ROOT } from '../../depot.js'
@@ -359,7 +360,9 @@ export function mentesKihagy(pair: SyncPair): Set<string> {
  * arrol szol, ami fel fog menni.
  */
 export function mentesKihagyUt(localPath: string): Set<string> {
-  return mentesUtNorm(localPath) ? new Set<string>() : new Set([DEPOT_SYSTEM_ROOT])
+  // A Kuka (#395 ota a gyokerben) sem megy fel: kidobott holmit menteni a
+  // Drive-ra annyi, mint a torlest visszacsinalni -- es fizetett helyet foglal.
+  return mentesUtNorm(localPath) ? new Set<string>() : new Set([DEPOT_SYSTEM_ROOT, trashRelPath(APP_LANG)])
 }
 
 /** Raktar-beli ut egysegesitese: `\` -> `/`, se eleje, se vege perjel. */
@@ -378,6 +381,11 @@ export function mentesAgHiba(localPath: string): string | null {
     return `A(z) „${DEPOT_SYSTEM_ROOT}” ág nem menthető a Drive-ra: ebben az ágban áll maga a Drive-másolatod és a fényképtárad.`
       + ' Feltölteni annyi lenne, mint a mentést menteni – ugyanazok a fájlok mennének fel másodszor is.'
       + ' A teljes raktár mentése ezt az egy ágat magától kihagyja.'
+  }
+  if (elso === trashRelPath(APP_LANG)) {
+    return APP_LANG === 'en'
+      ? 'The Trash is not backed up to the Drive: it only holds things you threw away. A full depot backup skips it by itself.'
+      : 'A Kuka nem menthető a Drive-ra: csak a kidobott holmid van benne. A teljes raktár mentése magától kihagyja.'
   }
   return null
 }
@@ -1712,7 +1720,7 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
  *
  * `approve: true` (IGEN), es ez sem vegleges torles:
  *   * `up`   -> a Drive-peldany a Drive KUKAJABA megy.
- *   * `down` -> a helyi peldany a raktar Kukajaba (Rendszer / Kuka) megy.
+ *   * `down` -> a helyi peldany a raktar Kukajaba (a gyokerbeli Kuka) megy.
  *
  * Minden igen elott UJRA megnezzuk, hogy a helyzet fennall-e: ha a fajl kozben
  * visszakerult a gepre (up), vagy mar nincs meg (down), nem torlunk semmit.
@@ -1977,7 +1985,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
       tooBig: tulNagy,
       unreadable: nemLathato,
       truncated: csonkolt,
-      excluded: mentesUtNorm(rel) ? null : DEPOT_SYSTEM_ROOT,
+      excluded: mentesUtNorm(rel) ? null : `${DEPOT_SYSTEM_ROOT}, ${trashRelPath(APP_LANG)}`,
       driveFolder: `${MENTES_MAPPA}/${mentesMappaNev(rel)}`,
       perRun: MAX_UPLOADS,
       runs: Math.max(1, Math.ceil(Math.max(0, meres.files - tulNagy) / MAX_UPLOADS)),

@@ -109,7 +109,8 @@ const NAMES: NameTable = {
   devices:         { hu: 'Eszközök',   en: 'Devices' },
   digitalServices: { hu: 'Digitális szolgáltatások', en: 'Digital services' },
 
-  // RENDSZER alatti bontas (a specifikacio 4. pontja)
+  // RENDSZER alatti bontas (a specifikacio 4. pontja). A `trash` (Kuka) 2026-09-25
+  // ota NEM itt all, hanem a fa gyokereben -- lasd `trashRelPath()`.
   marvin:      { hu: 'Marvin',      en: 'Marvin' },
   storages:    { hu: 'Tárolók',     en: 'Storages' },
   trash:       { hu: 'Kuka',        en: 'Trash' },
@@ -121,6 +122,32 @@ export function lifeName(key: string, lang: string = APP_LANG): string {
   const row = NAMES[key]
   if (!row) return key
   return lang === 'hu' ? row.hu : row.en
+}
+
+/**
+ * THE Kuka's path, relative to the tree root -- the ONE place that says where it
+ * is (#395, Boss TG 1608: "ki kellene tenni ... a főkönyvtárba, hanak ott
+ * szokott a helye lenni, nem a rendszer alatt"). Every trash/purge/auto-empty
+ * path and every walker exclusion asks this, never builds its own string.
+ */
+export function trashRelPath(lang: string = APP_LANG): string {
+  return lifeName('trash', lang)
+}
+
+/**
+ * Is this tree-relative path the Kuka or something inside it? Walkers (search,
+ * git pull, photo index, dedup, backups, self-checks) ask this to leave the
+ * thrown-away items out (#395).
+ */
+export function isInTrash(rel: string, lang: string = APP_LANG): boolean {
+  const r = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const k = trashRelPath(lang)
+  return r === k || r.startsWith(k + '/')
+}
+
+/** Where the Kuka stood before #395 (`Rendszer/Kuka`) -- only the migration reads it. */
+export function legacyTrashRelPath(lang: string = APP_LANG): string {
+  return lifeName('system', lang) + '/' + lifeName('trash', lang)
 }
 
 /**
@@ -739,6 +766,11 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
   // `Marvin` a 8. alapszabaly szerint szemelyes projekt, a git-repok a 7. pont
   // szerint a szemely/ceg `GIT_REPOS` mappajaban vannak -- egyik sem rendszer-ag.
   add(`${systemDir}/${lifeName('storages', lang)}`, 'system', 'storages')
+
+  // 6. KUKA: a fa gyokereben (#395), mint a Windows Lomtar a sajat helyen.
+  //    A tervben all, tehat friss telepitesen letrejon, es fo agkent vedett:
+  //    nem torolheto, nem nevezheto at, nem helyezheto at.
+  add(trashRelPath(lang), 'system', 'trash')
 
   return out
 }

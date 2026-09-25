@@ -26,6 +26,7 @@ import {
 import { logger } from '../../logger.js'
 import { loadSyncConfig } from './drive-sync.js'
 import { resolveLifePath } from '../../life-explorer.js'
+import { trashRelPath } from '../../life-tree.js'
 import { depotAccountDir, DEPOT_MEGA } from '../../depot.js'
 import { mkdirSync } from 'node:fs'
 import type { RouteContext } from './types.js'
@@ -202,7 +203,8 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
     // belongs to the backup rules of the same account.
     const ex = mirror
       ? excludeRules([MEGA_BACKUP_DIR])
-      : excludeRules([...(rule!.exclude || []), ...childExclusions(rules, key)])
+      // The Kuka (#395: at the tree root) never goes up: a root backup leaves it out.
+      : excludeRules([...(rule!.exclude || []), ...childExclusions(rules, key), ...(normRulePath(key) === '' ? [trashRelPath()] : [])])
     const walk = walkForMega(base, ex)
     if (walk.unreachable) return fail('no_dir', 404)
     const remote = await listMegaRemote(bin, megaRemoteDir(account.remote, key), defaultRunner)

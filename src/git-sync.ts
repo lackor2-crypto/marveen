@@ -27,6 +27,7 @@ import { join, sep } from 'node:path'
 import { STORE_DIR } from './config.js'
 import { explorerRoot, toLifeRel } from './life-explorer.js'
 import { DEPOT_PROJECTS } from './depot.js'
+import { trashRelPath } from './life-tree.js'
 import { gitEnvFor } from './git-accounts.js'
 import { SCHEDULED_TASKS_DIR } from './web/scheduled-tasks-io.js'
 import { logger } from './logger.js'
@@ -269,6 +270,8 @@ export async function findRepos(): Promise<string[]> {
     try { names = await fsp.readdir(dir, { withFileTypes: true }) } catch { return }
     for (const d of names) {
       if (d.name.startsWith('.') || SKIP_DIRS.has(d.name)) continue
+      // A Kukaba dobott repot nem huzzuk le (#395).
+      if (depth === 0 && d.name === trashRelPath()) continue
       const full = join(dir, d.name)
       let konyvtar = d.isDirectory()
       // A bekotott mappak lehetnek jelzofajlok is -- azokon AT kell latni,

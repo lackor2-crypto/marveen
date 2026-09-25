@@ -720,7 +720,7 @@ describe('beillesztes utkozessel -- Csere / Kihagyas / Egyesites', () => {
     expect(await tryHandleLife(ctx)).toBe(true)
     return out
   }
-  // A Kuka a fa `Rendszer/Kuka/<idobelyeg>/` mappaja: minden ott levo fajl
+  // A Kuka a fa gyokerbeli `Kuka/<idobelyeg>/` mappaja (#395): minden ott levo fajl
   // tartalmat kigyujtjuk, hogy lassuk, a regi tenyleg odakerult.
   const trashContents = (): string[] => {
     const acc: string[] = []
@@ -732,7 +732,7 @@ describe('beillesztes utkozessel -- Csere / Kihagyas / Egyesites', () => {
         else acc.push(readFileSync(p, 'utf-8'))
       }
     }
-    for (const top of readdirSync(depot)) walk(join(depot, top, 'Kuka'))
+    walk(join(depot, 'Kuka'))
     return acc
   }
   const mk = (rel: string, content?: string) => {

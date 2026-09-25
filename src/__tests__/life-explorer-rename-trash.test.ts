@@ -13,7 +13,7 @@ vi.mock('../config.js', async () => {
 })
 
 const { renameLife, trashLife, purgeLife, autoPurgeTrash, explorerRoot } = await import('../life-explorer.js')
-const { lifeName } = await import('../life-tree.js')
+const { trashRelPath } = await import('../life-tree.js')
 const { reposInside } = await import('../git-guard.js')
 
 const root = explorerRoot() as string
@@ -65,7 +65,7 @@ describe('trashLife', () => {
     expect(r.ok).toBe(true)
     expect(existsSync(join(root, 'Beérkező', 'valami'))).toBe(false)
     expect(existsSync(join(root, ...r.rel.split('/'), 'a.txt'))).toBe(true)
-    expect(r.rel.startsWith(lifeName('system', 'hu') + '/' + lifeName('trash', 'hu'))).toBe(true)
+    expect(r.rel.startsWith(trashRelPath('hu'))).toBe(true)
   })
 
   it('a fa fo agat nem kukazza', () => {
@@ -117,9 +117,9 @@ describe('a Kuka hatarai', () => {
   it('a Kukat nem teszi bele sajat magaba, es ezt emberi mondatban mondja', () => {
     mkdirSync(join(root, 'Beérkező', 'q'), { recursive: true })
     trashLife('Beérkező/q')          // hogy legyen mar Kuka
-    const r = trashLife(lifeName('system', 'hu') + '/' + lifeName('trash', 'hu'))
+    const r = trashLife(trashRelPath('hu'))
     expect(r.ok).toBe(false)
-    expect(r.code).toBe('in_trash')
+    expect(r.code).toBe('trash_itself')
     expect(r.message).not.toMatch(/EINVAL/)
   })
 })
@@ -139,7 +139,7 @@ describe('reposInside', () => {
   })
 })
 
-const KUKA = lifeName('system', 'hu') + '/' + lifeName('trash', 'hu')
+const KUKA = trashRelPath('hu')
 
 describe('purgeLife -- vegleges torles', () => {
   it('a Kukan KIVUL nem torol veglegesen', () => {

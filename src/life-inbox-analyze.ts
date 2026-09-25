@@ -281,7 +281,7 @@ const MAX_SCAN_FILES = 8000
 const MAX_SCAN_DEPTH = 14
 // A gyoker kozvetlen agai, amik NEM szemelyt jelentenek -- ezeket a tanulas
 // at sem lepi (a szemelyeket a `config.persons` neve adja meg, ld. lent).
-const SKIP_ROOT_DIRS = new Set(['Rendszer', 'System', 'Beérkező', 'Inbox', 'Cégek', 'Companies', 'Közös', 'Common'])
+const SKIP_ROOT_DIRS = new Set(['Rendszer', 'System', 'Beérkező', 'Inbox', 'Cégek', 'Companies', 'Közös', 'Common', 'Kuka', 'Trash'])
 const SKIP_ANY_DIR = new Set(['.git', 'node_modules', 'GIT_REPOS'])
 
 export function tokenize(name: string): string[] {

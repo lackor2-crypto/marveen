@@ -31,6 +31,7 @@ import { storageMissText } from './storage-index.js'
 import { getPhysical, movePhysical, forgetPhysical, type PhysicalRecord } from './life-documents.js'
 import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, personsGroupRel, planLifeTree,
+  trashRelPath, legacyTrashRelPath, isInTrash,
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside, mountsOverview } from './life-mounts.js'
@@ -86,8 +87,10 @@ function topOrder(lang: string): string[] {
     // A ket elo tarolo. A Boss kifejezett kerese, hogy ezek a helyukon
     // maradjanak (2026-08-21): "az jol sikerult es atlathato".
     lifeName('archive', lang),
-    // Amihez soha nem kell hozzanyulni. Ez az utolso.
+    // Amihez soha nem kell hozzanyulni.
     lifeName('system', lang),
+    // A Kuka a legvegen, mint a Lomtar (#395).
+    trashRelPath(lang),
   ]
 }
 
@@ -219,8 +222,8 @@ export interface LifeListing {
   /** Emberi mondat, ha valami nem sikerult. Nem hiba: uzenet a feluletnek. */
   message: string | null
   /**
-   * A Kuka relativ utja ezen a telepitesen (`Rendszer/Kuka` vagy
-   * `System/Trash`). A lemez-nev a telepites nyelvet koveti, ezert a felulet
+   * A Kuka relativ utja ezen a telepitesen (`Kuka` vagy `Trash`, a fa
+   * gyokereben, #395). A lemez-nev a telepites nyelvet koveti, ezert a felulet
    * nem egetheti be -- innen tudja, mikor kinalja a vegleges torlest.
    */
   trashRel?: string
@@ -653,7 +656,7 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
     files: [],
     truncated: false,
     message: null,
-    trashRel: lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG),
+    trashRel: trashRelPath(APP_LANG),
   }
   if (!root) {
     return { ...base, message: T(lang, 'Nincs raktár beállítva, ezért nincs mit mutatni. A Raktár oldalon add meg, hol legyen a Marveen tárhelye.', 'No depot is set, so there is nothing to show. On the Depot page tell me where Marveen should keep its files.') }
@@ -1235,6 +1238,7 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opt
   // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
   clearContentCache()
 
+  if (isTrashItself(fromRel)) return trashItselfRefusal(lang)
   const from = resolveLifePath(fromRel)
   const toDir = resolveLifePath(toDirRel)
   if (!from || !toDir) {
@@ -1617,6 +1621,7 @@ export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveR
   // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
   clearContentCache()
 
+  if (isTrashItself(rel)) return trashItselfRefusal(lang)
   const abs = resolveLifePath(rel)
   if (!abs) {
     return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
@@ -1657,7 +1662,7 @@ export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveR
 /**
  * TORLES -- valojaban KUKAZAS.
  *
- * A fajl a `Rendszer/Kuka/<idopont>/` ala kerul, es ott is marad, amig a
+ * A fajl a `Kuka/<idopont>/` ala kerul (a fa gyokereben, #395), es ott is marad, amig a
  * felhasznalo ki nem uriti. Egy fa-nezetben, ahol egy sorral feljebb a teljes
  * eleted all, visszafordithatatlan gombot nem adunk a kez ala.
  *
@@ -1673,6 +1678,22 @@ export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveR
  * A kiterjesztes a vegen marad, kulonben a `x.txt (2)` nevu fajlt a rendszer
  * mar nem ismerne fel szovegnek.
  */
+/**
+ * Is `rel` the Kuka ITSELF (not something inside it)? The Kuka may be emptied,
+ * never renamed, moved or trashed (#395): every trash/purge path points at it.
+ */
+function isTrashItself(rel: string): boolean {
+  return String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') === trashRelPath(APP_LANG)
+}
+
+function trashItselfRefusal(lang: string): MoveResult {
+  return {
+    ok: false, rel: '', code: 'trash_itself',
+    message: T(lang, 'A Kukát nem lehet átnevezni, áthelyezni vagy törölni — ez a helye. Ha a tartalmától szabadulnál meg, használd „A Kuka kiürítése" gombot.',
+      'The Trash cannot be renamed, moved or deleted -- this is its place. To get rid of what is in it, use the "Empty the Trash" button.'),
+  }
+}
+
 function szabadNev(dir: string, name: string): string {
   let cand = join(dir, name)
   if (!existsSync(cand)) return cand
@@ -1695,7 +1716,7 @@ function szabadNev(dir: string, name: string): string {
  * be read, every root item counts as a branch -- the old, safe refusal.
  */
 function isPlannedTopBranch(name: string): boolean {
-  if (name === lifeName('system', APP_LANG)) return true
+  if (name === lifeName('system', APP_LANG) || name === trashRelPath(APP_LANG)) return true
   try {
     return planLifeTree(loadLifeConfig(), APP_LANG).some((n) => n.rel.split('/')[0] === name)
   } catch {
@@ -1718,6 +1739,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
   if (!existsSync(abs)) {
     return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs itt. Frissítsd a listát.', 'This is not here any more. Refresh the list.') }
   }
+  if (isTrashItself(toLifeRel(abs))) return trashItselfRefusal(lang)
   const parts = toLifeRel(abs).split('/')
   if (parts.length === 1 && isPlannedTopBranch(parts[0])) {
     return {
@@ -1728,7 +1750,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
     }
   }
 
-  const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+  const kukaRel = trashRelPath(APP_LANG)
   const relNow = toLifeRel(abs)
   // A Kuka nem kerulhet onmagaba. Enelkul a `renameSync` EINVAL-t ad, es a
   // felhasznalo egy gepi szot kap valasznak.
@@ -1741,7 +1763,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
     }
   }
 
-  const kuka = join(root, lifeName('system', APP_LANG), lifeName('trash', APP_LANG))
+  const kuka = join(root, trashRelPath(APP_LANG))
   const stamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
   const dir = join(kuka, stamp)
   // EGY MASODPERCEN BELUL ket azonos nevu tetel is jarhat. A `renameSync` egy
@@ -1764,7 +1786,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
   return {
     ok: true, rel: newRel,
     // A TENYLEGES nevet mondjuk: nevutkozeskor mas lett, mint ami a listaban allt.
-    message: T(lang, `A Kukába került: ${basename(target)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`, `Moved to the Trash: ${basename(target)}. You will find it under System / Trash / ${stamp} until you empty it.`),
+    message: T(lang, `A Kukába került: ${basename(target)}. Ott megtalálod a Kuka / ${stamp} alatt, amíg ki nem üríted.`, `Moved to the Trash: ${basename(target)}. You will find it under Trash / ${stamp} until you empty it.`),
   }
 }
 
@@ -1772,7 +1794,7 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
  * VEGLEGES TORLES -- csak a Kukan belul.
  *
  * Ez az egyetlen muvelet a fan, ami nem visszavonhato, ezert a legszukebbre
- * van szabva: a `Rendszer/Kuka` alatt mukodik, mashol nem. A Kuka MAGA nem
+ * van szabva: a `Kuka` alatt mukodik, mashol nem. A Kuka MAGA nem
  * torlodik, csak kiurul -- kell a hely a kovetkezo kukazasnak.
  */
 export function purgeLife(rel: string, lang = APP_LANG): MoveResult {
@@ -1787,7 +1809,7 @@ export function purgeLife(rel: string, lang = APP_LANG): MoveResult {
   if (!existsSync(abs)) {
     return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs itt. Frissítsd a listát.', 'This is not here any more. Refresh the list.') }
   }
-  const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+  const kukaRel = trashRelPath(APP_LANG)
   const relNow = toLifeRel(abs)
   // A HATAR. Veglegeset csak ott, ahonnan a felhasznalo mar egyszer
   // elbucsuzott a fajltol.
@@ -1839,6 +1861,54 @@ export function purgeLife(rel: string, lang = APP_LANG): MoveResult {
   return { ok: true, rel: dirname(relNow) === '.' ? '' : toLifeRel(dirname(abs)), message: T(lang, `Véglegesen törölve: ${nev}`, `Deleted for good: ${nev}`) }
 }
 
+/**
+ * #395: the Kuka moved from `Rendszer/Kuka` to the tree root. An install that
+ * still has the old folder gets its contents carried over at startup.
+ *
+ * Never overwrites: a name that already exists at the new place gets a
+ * `name (2)` suffix (`szabadNev`). Idempotent: with no old folder it does
+ * nothing, and a half-finished earlier run simply continues. The old folder
+ * is removed only once it is EMPTY. A move that fails leaves the item where it
+ * was -- the next start tries again.
+ */
+export function migrateLegacyTrash(): { moved: number; failed: number; removedOld: boolean } {
+  const out = { moved: 0, failed: 0, removedOld: false }
+  const root = explorerRoot()
+  if (!root) return out
+  const regi = join(root, legacyTrashRelPath(APP_LANG))
+  if (!existsSync(regi)) return out
+  const uj = join(root, trashRelPath(APP_LANG))
+  let list: string[] = []
+  try { list = readdirSync(regi) } catch (err) {
+    logger.warn({ err, regi }, '[intezo] a regi Kuka nem olvashato, a migracio kimarad')
+    return out
+  }
+  try { mkdirSync(uj, { recursive: true }) } catch (err) {
+    logger.warn({ err, uj }, '[intezo] az uj Kuka nem hozhato letre, a migracio kimarad')
+    return out
+  }
+  for (const nev of list) {
+    const from = join(regi, nev)
+    const target = szabadNev(uj, nev)
+    try {
+      renameSync(from, target)
+      movePhysical(legacyTrashRelPath(APP_LANG) + '/' + nev, toLifeRel(target))
+      out.moved++
+    } catch (err) {
+      out.failed++
+      logger.warn({ err, from }, '[intezo] a regi Kuka egy tetele nem koltozott at')
+    }
+  }
+  try {
+    if (!readdirSync(regi).length) { rmSync(regi, { recursive: true, force: true }); out.removedOld = true }
+  } catch { /* marad, a kovetkezo inditas ujra probalja */ }
+  if (out.moved || out.failed || out.removedOld) {
+    clearContentCache()
+    logger.info({ ...out, from: legacyTrashRelPath(APP_LANG), to: trashRelPath(APP_LANG) }, '[intezo] Kuka atkoltoztetve a fa gyokerebe (#395)')
+  }
+  return out
+}
+
 /** A Kuka belyeges mappaneve: `2026-08-22_00-05-01`. */
 const KUKA_BELYEG = /^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/
 
@@ -1856,7 +1926,7 @@ export function autoPurgeTrash(days: number, most = Date.now()): { torolt: numbe
 
   const nevek: string[] = []
   if (!Number.isFinite(days) || days <= 0) return { torolt: 0, nevek }
-  const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+  const kukaRel = trashRelPath(APP_LANG)
   const abs = resolveLifePath(kukaRel)
   if (!abs || !existsSync(abs)) return { torolt: 0, nevek }
   const hatar = most - days * 24 * 60 * 60 * 1000
@@ -1906,6 +1976,8 @@ export function searchLife(rel: string, query: string, limit = 200, lang = APP_L
   // (GIT_REPOS alatt a repok, Media/Fotok mogott a fotok) a fa-utvonalhoz
   // kotottek, es a talalat `rel`-je is annak kell legyen, amit a lista mutat.
   const startRel = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  // A Kuka kimarad (#395) -- hacsak a kereses nem EPPEN a Kukaban indult.
+  const kukaIs = isInTrash(startRel)
   const queue: Array<{ abs: string; rel: string }> = [{ abs: startAbs, rel: startRel }]
   let visited = 0
   while (queue.length && entries.length < limit && visited < 20000) {
@@ -1930,6 +2002,7 @@ export function searchLife(rel: string, query: string, limit = 200, lang = APP_L
       let st: Stats
       try { st = statSync(full) } catch { continue }
       const childRel = dir.rel ? `${dir.rel}/${name}` : name
+      if (!kukaIs && isInTrash(childRel)) continue
       if (name.toLowerCase().includes(q)) {
         if (entries.length >= limit) { truncated = true; break }
         entries.push(entryFrom(full, name, st, dir.rel, false, lang))
