@@ -29,7 +29,8 @@ import type { UpstreamSyncStatus } from '../web/upstream-sync-status-io.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..', '..')
 const script = readFileSync(join(ROOT, 'scripts', 'upstream-divergence-check.sh'), 'utf8')
-const backup = readFileSync(join(ROOT, 'scripts', 'backup.sh'), 'utf8')
+// Since #396 the tar path lives on as the fallback in backup-legacy.sh.
+const backup = readFileSync(join(ROOT, 'scripts', 'backup-legacy.sh'), 'utf8')
 const app = readFileSync(join(ROOT, 'web', 'app.js'), 'utf8')
 const hu = readFileSync(join(ROOT, 'web', 'lang', 'hu.js'), 'utf8')
 const en = readFileSync(join(ROOT, 'web', 'lang', 'en.js'), 'utf8')

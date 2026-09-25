@@ -1,344 +1,37 @@
 #!/usr/bin/env bash
-# Marveen backup.
+# Marveen backup (#396): one encrypted full backup file (.mbk).
 #
-# The archive has two top-level groups so a restore is unambiguous about
-# where each file belongs (see docs/MIGRATION.md):
+# The work is done by the backup engine in the dashboard build
+# (src/backup/, docs/BACKUP-RESTORE-PLAN.md): a consistent DB snapshot, every
+# secret, setting, agent, memory, skill and schedule, packed and encrypted
+# with the recovery key from store/.backup-key into store/backups/.
+# The same engine runs from the dashboard (Settings -> Backup) and from here
+# (the 6-hourly unit installed by scripts/install-guard-units.sh).
 #
-#   repo/   -> extract under the project root (this repo)
-#     store/**                 (DB WAL-checkpointed first; minus models,
-#                               virtualenvs, browser profile and logs)
-#     .env                     (project root secrets)
-#     scheduled-tasks.json     (legacy, if present)
-#     assets/meetings/**       (meeting transcripts/memos)
-#     agents/*/CLAUDE.md, SOUL.md, .mcp.json, agent-config.json
-#     agents/*/memory/**         (the agent's own memory index + entries)
-#     agents/*/.claude/channels/{telegram,slack,discord}/.env, access.json
+# Fallback: when dist/backup/cli.js is missing (a broken or not-yet-run build)
+# the old plain tar.gz path runs instead, so a broken build never stops
+# backups: scripts/backup-legacy.sh.
 #
-#   home/   -> extract under $HOME
-#     .claude/skills/**            (the self-built skill library)
-#     .claude/scheduled-tasks/**   (file-based scheduled tasks: SKILL.md + config)
-#     .claude/channels/*/.env      (MAIN orchestrator channel token)
-#     .claude/channels/*/access.json, invites.json, approved/**  (pairing state)
-#     Library/LaunchAgents/com.<MAIN_AGENT_ID>.*.plist (launchd jobs)
-#
-# Output: backups/claudeclaw-YYYYmmdd-HHMMSS.tar.gz
-# Retention: keeps the most recent 14 archives, prunes the rest.
-#
-# Restore (preserve modes so the 0600 token files stay private):
-#   tar -xpzf <archive> -C /tmp/restore        # inspect first
-#   then copy repo/* into the project root and home/* into $HOME.
-# Full runbook: docs/MIGRATION.md.
+# Exit code 75 from the engine means "skipped" (another backup or a restore is
+# running): not a failure for the timer.
 
 set -euo pipefail
-
-# The archive carries live secrets (store/.claude-oauth-token, .dashboard-token,
-# the vault master key next to vault.json, every channel .env). It must be
-# born 0600 -- not chmod-ed afterwards, because a crash between tar and chmod
-# would leave a world-readable copy (BACKUPTITOK915: measured 0644 on the
-# owner host under the default umask 022). umask 077 covers the archive, the
-# backups/ dir, the staging dir and every temp file this script creates.
 umask 077
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Overridable so a test can build a throwaway archive without touching the
-# real backup directory (and its retention sweep).
-BACKUP_DIR="${BACKUP_DIR:-${REPO_ROOT}/backups}"
-STAMP="$(date +%Y%m%d-%H%M%S)"
-ARCHIVE="${BACKUP_DIR}/claudeclaw-${STAMP}.tar.gz"
-KEEP=14
+CLI="${REPO_ROOT}/dist/backup/cli.js"
 
-mkdir -p "${BACKUP_DIR}"
-cd "${REPO_ROOT}"
-
-# Checkpoint WAL into the main DB file so the snapshot is self-contained.
-# Tolerate a missing sqlite3 CLI -- just fall back to copying the files as-is.
-if [[ -f store/claudeclaw.db ]] && command -v sqlite3 >/dev/null 2>&1; then
-  sqlite3 store/claudeclaw.db 'PRAGMA wal_checkpoint(TRUNCATE);' >/dev/null || true
-fi
-
-# --- Build the two path lists (each relative to its own base). -------------
-# tar refuses missing entries, which would fail the whole backup on a fresh
-# machine (no agents yet) -- so we only list paths that actually exist.
-REPOLIST="$(mktemp -t claudeclaw-repo.XXXXXX)"
-HOMELIST="$(mktemp -t claudeclaw-home.XXXXXX)"
-MANIFEST="$(mktemp -t claudeclaw-manifest.XXXXXX)"
-STAGE="$(mktemp -d -t claudeclaw-stage.XXXXXX)"
-BUNDLE=""
-trap 'rm -f "${REPOLIST}" "${HOMELIST}" "${MANIFEST}"; [[ -n "${BUNDLE}" ]] && rm -f "${BUNDLE}"; rm -rf "${STAGE}"' EXIT
-
-# add_if <listfile> <base> <relpath>  -- append relpath when <base>/<relpath> exists.
-add_if() {
-  local list="$1" base="$2" rel="$3"
-  if [[ -e "${base}/${rel}" ]]; then echo "${rel}" >> "${list}"; fi
-}
-
-# repo/ group (relative to REPO_ROOT)
-add_if "${REPOLIST}" "${REPO_ROOT}" store/claudeclaw.db
-add_if "${REPOLIST}" "${REPO_ROOT}" store/claudeclaw.db-shm
-add_if "${REPOLIST}" "${REPO_ROOT}" store/claudeclaw.db-wal
-add_if "${REPOLIST}" "${REPO_ROOT}" store/.dashboard-token
-add_if "${REPOLIST}" "${REPO_ROOT}" store/config-overrides.json
-# Credentials a restore CANNOT regenerate. Measured 2026-08-19 on the real
-# archive (claudeclaw-20260819-125659.tar.gz): it carried the database and the
-# dashboard token, and NOTHING else from store/ -- so restoring onto a fresh
-# machine would have lost all ten connected Google accounts, the GitHub tokens,
-# the OAuth client, and the vault key TOGETHER WITH the vault it decrypts (the
-# vault would have been unreadable even had the file survived). All small, all
-# 0600; add_if keeps a missing file from failing the backup.
-add_if "${REPOLIST}" "${REPO_ROOT}" store/google-tokens.json
-add_if "${REPOLIST}" "${REPO_ROOT}" store/google-oauth-client.json
-add_if "${REPOLIST}" "${REPO_ROOT}" store/.github-tokens.json
-add_if "${REPOLIST}" "${REPO_ROOT}" store/.vault-key
-add_if "${REPOLIST}" "${REPO_ROOT}" store/vault.json
-add_if "${REPOLIST}" "${REPO_ROOT}" store/vault-bindings.json
-# Hand-authored settings: cheap to carry, tedious to reconstruct from memory.
-add_if "${REPOLIST}" "${REPO_ROOT}" store/autonomy-config.json
-add_if "${REPOLIST}" "${REPO_ROOT}" store/email-rules.json
-add_if "${REPOLIST}" "${REPO_ROOT}" store/agents-desired.json
-add_if "${REPOLIST}" "${REPO_ROOT}" .env
-add_if "${REPOLIST}" "${REPO_ROOT}" scheduled-tasks.json
-add_if "${REPOLIST}" "${REPO_ROOT}" assets/meetings
-# Per-agent identity + channel secrets (glob; missing dir is not an error).
-#
-# agent-config.json and memory/ are in this list because of a real restore:
-# on 2026-08-24 an accidentally deleted agent (Gypsy) came back from a backup
-# with its prompt and channel token intact -- but WITHOUT its model, its
-# security profile and its team wiring, because those live in
-# agent-config.json, which the backup did not carry. The identity had to be
-# reconstructed by measurement. A backup that restores a mute, model-less
-# agent is not a backup of that agent.
-if [[ -d agents ]]; then
-  find agents -type f \
-    \( -name 'CLAUDE.md' -o -name 'SOUL.md' -o -name '.mcp.json' \
-       -o -name 'agent-config.json' \
-       -o -name 'access.json' -o -name '.env' \) \
-    -print >> "${REPOLIST}"
-  # memory/ is a whole tree, not a fixed filename set.
-  find agents -type d -name memory -print >> "${REPOLIST}"
-fi
-
-# home/ group (relative to $HOME)
-add_if "${HOMELIST}" "${HOME}" .claude/skills
-add_if "${HOMELIST}" "${HOME}" .claude/scheduled-tasks
-# The file-based auto-memory. Until 2026-09-04 this was NOT in the archive, and
-# a restore test that day proved what that costs: 490 markdown memories for the
-# main agent alone, none of them in the tarball. The SQLite copy is not a
-# substitute -- it holds the prose, not the frontmatter, the type or the
-# [[links]] between memories. Only the memory/ directories are taken, not the
-# whole projects/ tree, which is full of transcripts and tool-result dumps.
-if [[ -d "${HOME}/.claude/projects" ]]; then
-  ( cd "${HOME}" && find .claude/projects -maxdepth 2 -type d -name memory -print ) >> "${HOMELIST}"
-fi
-# MAIN orchestrator channel tokens + pairing state, per provider. bot.pid and
-# inbox/ are runtime/transient and intentionally excluded. Since #915 the
-# main state dir is install-scoped (<repo>/.claude/channels/<provider>); the
-# HOME base only still holds it on an unmigrated install -- take both, each
-# from its own list so restore puts them back where they came from.
-if [[ -d "${HOME}/.claude/channels" ]]; then
-  ( cd "${HOME}" && find .claude/channels -maxdepth 2 \
-      \( -name '.env' -o -name 'access.json' -o -name 'invites.json' \) \
-      -print ) >> "${HOMELIST}"
-  ( cd "${HOME}" && find .claude/channels -maxdepth 2 -type d -name 'approved' -print ) >> "${HOMELIST}"
-fi
-if [[ -d "${REPO_ROOT}/.claude/channels" ]]; then
-  ( cd "${REPO_ROOT}" && find .claude/channels -maxdepth 2 \
-      \( -name '.env' -o -name 'access.json' -o -name 'invites.json' \) \
-      -print ) >> "${REPOLIST}"
-  ( cd "${REPO_ROOT}" && find .claude/channels -maxdepth 2 -type d -name 'approved' -print ) >> "${REPOLIST}"
-fi
-# launchd jobs for this fleet. The job labels are com.<MAIN_AGENT_ID>.<service>
-# (see src/web/main-agent.ts), so resolve MAIN_AGENT_ID the way the app does
-# (src/env.ts: read from .env, default "marveen" when unset) instead of
-# hardcoding one deployment's prefix. Parsing mirrors env.ts: last definition
-# wins, surrounding matching quotes stripped.
-MAIN_AGENT_ID="marveen"
-if [[ -f "${REPO_ROOT}/.env" ]]; then
-  # `|| true`: with `set -o pipefail`, a no-match grep would otherwise fail the
-  # whole substitution (and, under `set -e`, abort the backup) on any install
-  # that leaves MAIN_AGENT_ID unset and relies on the "marveen" default.
-  _mid="$(grep -E '^[[:space:]]*MAIN_AGENT_ID[[:space:]]*=' "${REPO_ROOT}/.env" | tail -1 \
-    | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/' || true)"
-  [[ -n "${_mid}" ]] && MAIN_AGENT_ID="${_mid}"
-fi
-if [[ -d "${HOME}/Library/LaunchAgents" ]]; then
-  ( cd "${HOME}" && find Library/LaunchAgents -maxdepth 1 -name "com.${MAIN_AGENT_ID}.*.plist" -print ) >> "${HOMELIST}"
-fi
-# systemd user units -- the Linux half of the launchd block above, which was
-# missing. Measured 2026-08-19 on this install: 30+ hand-written unit files
-# (dashboard, channels, backup timer, watchdogs, morning run) and NOT ONE of
-# them was in the archive. A restore would have brought the data back with
-# nothing scheduled to act on it -- including the timer that makes the next
-# backup. The *.d drop-ins carry the environment overrides, and the
-# *.wants/ entries carry which units are ENABLED; both are copied as-is
-# (cp -pR keeps symlinks as symlinks, verified), so enablement survives.
-if [[ -d "${HOME}/.config/systemd/user" ]]; then
-  # Three shapes, all needed: the unit files themselves; the drop-in .conf
-  # files, which sit INSIDE <unit>.d/ and are named freely (override.conf,
-  # cooldown.conf) so they need a -path match, not a -name one; and the
-  # *.target.wants/ symlinks that record enablement.
-  ( cd "${HOME}" && find .config/systemd/user -maxdepth 2 \
-      \( -name "${MAIN_AGENT_ID}-*.service" -o -name "${MAIN_AGENT_ID}-*.timer" \
-         -o -name "${MAIN_AGENT_ID}-*.socket" \
-         -o -path ".config/systemd/user/${MAIN_AGENT_ID}-*.d/*.conf" \
-         -o -path ".config/systemd/user/*.wants/${MAIN_AGENT_ID}-*" \) \
-      -print ) >> "${HOMELIST}"
-fi
-
-# --- Local commits that live on no remote. ---------------------------------
-# This archive deliberately carries unversioned state, not the source: the
-# source is supposed to live on a git remote. On 2026-09-04 that assumption
-# broke -- nine days of work sat committed locally and pushed nowhere, so the
-# only copy was this disk, and the tarball did not hold it either. A bundle of
-# every local branch that origin does not already have closes the gap for a few
-# hundred KB (the full history is 26 MB, but the shared part is recoverable by
-# cloning origin). Restore, after cloning origin:
-#   git fetch <restored>/repo/local-commits.bundle 'refs/heads/*:refs/heads/*'
-if command -v git >/dev/null 2>&1 && [[ -d "${REPO_ROOT}/.git" ]]; then
-  BUNDLE="$(mktemp -t claudeclaw-bundle.XXXXXX)"
-  # An empty ref set makes `git bundle` refuse with "empty bundle", which is
-  # the GOOD case (everything is already pushed), not an error -- so a failure
-  # here just drops the file instead of failing the backup.
-  if git -C "${REPO_ROOT}" bundle create "${BUNDLE}" \
-       --branches --not --remotes=origin >/dev/null 2>&1; then
-    echo "backup: local-commits.bundle $(wc -c < "${BUNDLE}" | awk '{print $1}') bytes"
-  else
-    rm -f "${BUNDLE}"; BUNDLE=""
-    echo "backup: no local-only commits to bundle"
+if [[ -f "${CLI}" ]] && command -v node >/dev/null 2>&1; then
+  set +e
+  node "${CLI}" create --kind scheduled "$@"
+  rc=$?
+  set -e
+  if [[ ${rc} -eq 75 ]]; then
+    echo "backup: skipped (another backup or a restore is running)"
+    exit 0
   fi
+  exit ${rc}
 fi
 
-if [[ ! -s "${REPOLIST}" && ! -s "${HOMELIST}" ]]; then
-  echo "backup: nothing to archive" >&2
-  exit 0
-fi
-
-# --- Manifest (stored at the archive root for self-description). -----------
-{
-  echo "Marveen backup ${STAMP}"
-  echo "host: $(hostname 2>/dev/null || echo '?')   user: ${USER:-?}   home: ${HOME}"
-  echo "repo root: ${REPO_ROOT}"
-  echo "Restore: tar -xpzf <archive> -C <tmp>; copy repo/* -> project root, home/* -> \$HOME."
-  echo "See docs/MIGRATION.md for the full runbook (TCC, launchd paths, one-bot-one-poller, venv rebuild)."
-  echo "--- repo/ ---"; sed 's,^,repo/,' "${REPOLIST}" 2>/dev/null || true
-  if [[ -n "${BUNDLE}" ]]; then
-    echo "repo/local-commits.bundle   (git bundle: local branches absent from origin)"
-  fi
-  echo "--- home/ ---"; sed 's,^,home/,' "${HOMELIST}" 2>/dev/null || true
-} > "${MANIFEST}"
-
-# --- Assemble the archive via a staging dir, then one plain tar. -----------
-# The repo/ and home/ groups are produced by copying into a staging tree, NOT
-# by tar name-substitution: bsdtar's `-s` and GNU tar's `--transform` are
-# mutually incompatible (on GNU tar, `-s` is `--same-order` and takes no
-# argument), so a substitution-based build is not portable. Staging + a single
-# `tar -czf -C "${STAGE}" .` works identically on macOS (bsdtar) and Linux
-# (GNU tar). Everything backed up is small (a few MB), so the copy is cheap;
-# `cp -pR` preserves modes so the 0600 token files stay private.
-cp "${MANIFEST}" "${STAGE}/MANIFEST.txt"
-
-stage_group() {  # stage_group <listfile> <base> <group>
-  local list="$1" base="$2" group="$3" rel parent
-  [[ -s "${list}" ]] || return 0
-  while IFS= read -r rel; do
-    [[ -z "${rel}" ]] && continue
-    parent="$(dirname "${rel}")"
-    mkdir -p "${STAGE}/${group}/${parent}"
-    cp -pR "${base}/${rel}" "${STAGE}/${group}/${parent}/"
-  done < "${list}"
-}
-
-stage_group "${REPOLIST}" "${REPO_ROOT}" repo
-stage_group "${HOMELIST}" "${HOME}" home
-
-if [[ -n "${BUNDLE}" ]]; then
-  mkdir -p "${STAGE}/repo"
-  cp -p "${BUNDLE}" "${STAGE}/repo/local-commits.bundle"
-  chmod 600 "${STAGE}/repo/local-commits.bundle"
-fi
-
-# Archive only the top-level entries that exist (a group dir is absent when
-# its list was empty), so tar never errors on a missing entry and the names
-# stay clean (no leading "./").
-( cd "${STAGE}" && tar -czf "${ARCHIVE}" MANIFEST.txt \
-    $( [[ -d repo ]] && echo repo ) $( [[ -d home ]] && echo home ) )
-echo "backup: wrote ${ARCHIVE} ($(wc -c < "${ARCHIVE}" | awk '{print $1}') bytes)"
-
-# --- Verify the archive against the manifest. ------------------------------
-# The manifest says what the backup INTENDED to carry; until now nothing
-# checked what it actually carries. That gap is exactly how 2026-09-04
-# happened: the store/ whitelist had been silently dropping files for weeks
-# and the restore test was what finally noticed, not the backup itself. A
-# backup that cannot say what is inside it is a promise, not a copy.
-#
-# Two checks, because they fail differently:
-#   - every manifest entry has a matching path in the archive (a staging copy
-#     that silently did nothing shows up here),
-#   - a few load-bearing items are present by name (an archive that is valid,
-#     small and useless -- the 09-04 shape -- shows up here even if the
-#     manifest itself was built wrong).
-ARCHIVE_LIST="$(mktemp -t claudeclaw-verify.XXXXXX)"
-trap 'rm -f "${REPOLIST}" "${HOMELIST}" "${MANIFEST}" "${ARCHIVE_LIST}"; [[ -n "${BUNDLE}" ]] && rm -f "${BUNDLE}"; rm -rf "${STAGE}"' EXIT
-tar -tzf "${ARCHIVE}" > "${ARCHIVE_LIST}"
-
-missing=0
-while IFS= read -r want; do
-  # Manifest body lines only: the header block and the group separators are
-  # prose, not paths.
-  case "${want}" in repo/*|home/*) ;; *) continue ;; esac
-  # A directory entry is listed once in the manifest and expands to many paths
-  # in the archive, so match on the prefix, and anchor it so "store/x" cannot
-  # be satisfied by "store/xyz".
-  if ! grep -qE "^${want}(/|$)" "${ARCHIVE_LIST}"; then
-    echo "backup: MISSING from the archive: ${want}" >&2
-    missing=$((missing + 1))
-  fi
-done < <(sed -e 's/  *(.*)$//' "${MANIFEST}")
-
-# Load-bearing by name. Each one has already been lost or nearly lost once:
-# the memory directories and the local-commit bundle on 2026-09-04, the
-# credential-carrying store/ files by the whitelist that preceded it.
-for marker in "repo/store/claudeclaw.db" "home/.claude/skills" "home/.claude/scheduled-tasks"; do
-  grep -qE "^${marker}(/|$)" "${ARCHIVE_LIST}" || {
-    echo "backup: MISSING load-bearing item: ${marker}" >&2
-    missing=$((missing + 1))
-  }
-done
-# The file-based memories: only required when this host actually has some, so
-# a fresh install does not fail its first backup.
-if ( cd "${HOME}" && find .claude/projects -maxdepth 2 -type d -name memory -print -quit 2>/dev/null | grep -q . ); then
-  grep -qE "^home/\.claude/projects/.*/memory(/|$)" "${ARCHIVE_LIST}" || {
-    echo "backup: MISSING load-bearing item: the file-based memory directories" >&2
-    missing=$((missing + 1))
-  }
-fi
-
-if [[ "${missing}" -gt 0 ]]; then
-  echo "backup: FAILED verification -- ${missing} item(s) named in the manifest are not in ${ARCHIVE}." >&2
-  echo "backup: the archive is kept for inspection, but do NOT treat it as a good copy." >&2
-  # launchd sends this script's output to logs/backup.log, which nobody opens.
-  # A loud failure into an unread file is the same silence the verification
-  # above exists to break, so the failure also goes onto the agent message
-  # queue, where it survives the agent being asleep at 04:30 and gets read on
-  # the next turn. Best-effort: a messaging problem must not change the exit
-  # code or mask the real failure.
-  if [[ -x "${REPO_ROOT}/scripts/agent-msg.sh" ]]; then
-    bash "${REPO_ROOT}/scripts/agent-msg.sh" halpali halpali \
-      "[MENTES] A napi mentes ellenorzese ELBUKOTT ${STAMP}-kor: ${missing} tetel hianyzik az archivumbol (reszletek: logs/backup.log). Az archivum NEM tekintheto jo masolatnak." \
-      >/dev/null 2>&1 || true
-  fi
-  exit 6
-fi
-echo "backup: verified $(grep -cE '^(repo|home)/' "${MANIFEST}") manifest entries against the archive"
-
-# The archive contains sensitive tokens (dashboard bearer, channel bot tokens,
-# project .env secrets). Do not auto-sync ${BACKUP_DIR} to iCloud, Dropbox,
-# Google Drive, or any other cloud-backup folder. Keep it local.
-echo "backup: WARNING -- archive contains sensitive tokens; keep ${BACKUP_DIR} out of cloud-sync folders (iCloud / Dropbox / Google Drive)." >&2
-
-# Keep the newest ${KEEP} archives, drop the rest. while-read (not mapfile)
-# for macOS bash 3.2 compatibility.
-ls -1t "${BACKUP_DIR}"/claudeclaw-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | while IFS= read -r f; do
-  [[ -z "${f}" ]] && continue
-  rm -f "${f}"
-  echo "backup: pruned $(basename "${f}")"
-done
+echo "backup: ${CLI} is missing -- falling back to scripts/backup-legacy.sh" >&2
+exec bash "${REPO_ROOT}/scripts/backup-legacy.sh"

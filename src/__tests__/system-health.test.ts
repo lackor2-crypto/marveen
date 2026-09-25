@@ -120,9 +120,14 @@ describe('a mento scriptek ES a lista egyutt mozognak', () => {
   // Ez a teszt a DRIFTET fogja meg: a listat a kod ismeri, a mentest egy shell
   // script vegzi. Ket kulon helyen leirt igazsag -- pontosan igy allt elo, hogy
   // a mentes evekig "mukodott" a rossz fajllal.
-  it('scripts/backup.sh minden kotelezo hozzaferest ment', () => {
-    const sh = readFileSync(join(REPO, 'scripts', 'backup.sh'), 'utf8')
+  it('scripts/backup-legacy.sh (a tartalek ut) minden kotelezo hozzaferest ment', () => {
+    const sh = readFileSync(join(REPO, 'scripts', 'backup-legacy.sh'), 'utf8')
     for (const f of MUST_BACKUP) expect(sh, `hianyzik: ${f}`).toContain(`store/${f}`)
+  })
+
+  it('a teljes mentes (#396) leltara is minden kotelezo hozzaferest visz', async () => {
+    const { STORE_INCLUDE } = await import('../backup/inventory.js')
+    for (const f of MUST_BACKUP) expect(STORE_INCLUDE, `hianyzik: ${f}`).toContain(f)
   })
 
   it('a kezi personal-backup/backup.sh is', () => {
