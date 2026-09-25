@@ -571,6 +571,12 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
         + 'Work gets into a repository from the editor, with commit + push -- dropped in by hand, the next download either complains or silently drops it.')
   }
 
+  // NEVUTKOZES (#383): 409 + `name_exists`, a javasolt nevvel. Nem hiba, hanem
+  // kerdes -- a hivo `keepBoth: true`-val ismetli meg, ha mindkettot megtartja.
+  const isNameClash = (r: { ok: boolean; code?: string; suggested?: string }) => !r.ok && r.code === 'exists' && !!r.suggested
+  const pasteStatus = (r: { ok: boolean; code?: string; suggested?: string }) => (r.ok ? 200 : isNameClash(r) ? 409 : 400)
+  const pasteBody = <R extends { ok: boolean; code?: string; suggested?: string }>(r: R) => (isNameClash(r) ? { ...r, code: 'name_exists' } : r)
+
   if (path === '/api/life/move' && method === 'POST') {
     const lang = uiLang(url)
     const body = await readJson(req)
@@ -589,8 +595,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const baj = bekotesOrzo(fromKey, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    const result = moveLife(from, String(body?.to ?? ''), lang)
-    send(res, result.ok ? 200 : 400, result)
+    const result = moveLife(from, String(body?.to ?? ''), lang, { keepBoth: body?.keepBoth === true })
+    send(res, pasteStatus(result), pasteBody(result))
     return true
   }
 
@@ -633,8 +639,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
         `This is a git repository, or has one inside it (${repok[0]}). I will not copy it: the copy would be a second, ownerless clone. If you need another one, download the repository again.`) })
       return true
     }
-    const result = await copyLife(from, to, lang)
-    send(res, result.ok ? 200 : 400, result)
+    const result = await copyLife(from, to, lang, { keepBoth: body?.keepBoth === true })
+    send(res, pasteStatus(result), pasteBody(result))
     return true
   }
 

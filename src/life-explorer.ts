@@ -968,6 +968,33 @@ export interface MoveResult {
   notice?: string
   suggestion?: string
   noticeCode?: string
+  /**
+   * NEVUTKOZES (#383, Boss TG 6343: "szo nelkul beillesztette ... nem szol").
+   * `code: 'exists'` mellett: a celmappaban mar allo elem neve, fajta, es a
+   * szabad nev, amit "Mindketto megtartasa" eseten kapna. A felulet ebbol
+   * KERDEZ; a (2) csak kifejezett `keepBoth`-ra jon letre.
+   */
+  conflictName?: string
+  conflictIsDir?: boolean
+  suggested?: string
+}
+
+/** Paste options (#383). `keepBoth` = the user saw the name clash and chose
+ *  to keep both: the new item gets the next free `name (N)`. Without it a
+ *  clash is ALWAYS a question, never a silent rename and never an overwrite. */
+export interface PasteOptions { keepBoth?: boolean }
+
+function nameClash(dir: string, name: string, isDir: boolean, lang: string): MoveResult {
+  const suggested = freeCopyName(dir, name, isDir)
+  const existingIsDir = !!statSafe(join(dir, name))?.isDirectory()
+  const what = existingIsDir ? T(lang, 'mappa', 'folder') : T(lang, 'fájl', 'file')
+  return {
+    ok: false, rel: '', code: 'exists',
+    conflictName: name, conflictIsDir: existingIsDir, suggested,
+    message: T(lang,
+      `Ebben a mappában már van ilyen nevű ${what}: ${name}. Nem írom felül.`,
+      `This folder already has a ${what} called ${name}. I will not overwrite it.`),
+  }
 }
 
 /**
@@ -978,7 +1005,7 @@ export interface MoveResult {
  * keverjuk ide, mert egy elgepelt nev egy athelyezes kozben eszrevetlen
  * maradna.)
  */
-export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): MoveResult {
+export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opts: PasteOptions = {}): MoveResult {
   // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
   clearContentCache()
 
@@ -995,8 +1022,8 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): Mo
   if (!toIsDir) {
     return { ok: false, rel: '', code: 'no_target', message: T(lang, 'A célként megadott hely nem mappa.', 'The place you gave as the target is not a folder.') }
   }
-  const name = basename(from)
-  const target = join(toDir, name)
+  let name = basename(from)
+  let target = join(toDir, name)
   if (target === from) {
     return { ok: false, rel: fromRel, code: 'same', message: T(lang, 'Ez a fájl már ebben a mappában van.', 'This file is already in that folder.') }
   }
@@ -1006,11 +1033,16 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): Mo
     return { ok: false, rel: '', code: 'into_self', message: T(lang, 'Egy mappát nem lehet önmagába áthelyezni.', 'A folder cannot be moved into itself.') }
   }
   // NEM IRUNK FELUL. Egy azonos nevu irat csendes felulirasa visszafordithatatlan.
+  // Es nem is nevezunk at szo nelkul (#383): utkozesnel KERDES jon vissza, a
+  // `nev (2)` csak a felhasznalo kifejezett "Mindketto megtartasa" valasza utan.
   if (existsSync(target)) {
-    return {
-      ok: false, rel: '', code: 'exists',
-      message: T(lang, `A célmappában már van ilyen nevű fájl: ${name}. Nem írom felül -- előbb nevezd át valamelyiket.`, `The target folder already has a file called ${name}. I will not overwrite it -- rename one of them first.`),
+    const isDir = !!statSafe(from)?.isDirectory()
+    if (!opts.keepBoth) return nameClash(toDir, name, isDir, lang)
+    name = freeCopyName(toDir, name, isDir)
+    if (!name) {
+      return { ok: false, rel: '', code: 'exists', message: T(lang, 'Ebben a mappában már túl sok ilyen nevű elem van. Nevezz át néhányat, és próbáld újra.', 'This folder already has too many items with this name. Rename some of them and try again.') }
     }
+    target = join(toDir, name)
   }
 
   try {
@@ -1063,14 +1095,15 @@ export function freeCopyName(dir: string, name: string, isDir: boolean): string 
  * MASOLAS a fan belul (kartya #383, a jobbklikkes Masolas + Beillesztes).
  *
  * Fajl es mappa (a teljes tartalmaval) egyarant. Az eredeti a helyen marad.
- * SOHA nem ir felul: foglalt nevnel `nev (2)` lesz belole. Aszinkron, mert egy
+ * SOHA nem ir felul, es foglalt nevnel sem nevez at szo nelkul: `code:
+ * 'exists'` + a javasolt nev jon vissza, a `nev (2)` csak `keepBoth`-ra. Aszinkron, mert egy
  * nagy mappa masolasa masodpercekig tart, es kozben a dashboard tobbi
  * kerese nem allhat.
  *
  * A papir-nyilvantartas, a megjelenitett nev es az archiv-jeloles NEM megy
  * at a masolatra: az az eredeti irathoz tartozik, a masolat uj peldany.
  */
-export async function copyLife(fromRel: string, toDirRel: string, lang = APP_LANG): Promise<MoveResult> {
+export async function copyLife(fromRel: string, toDirRel: string, lang = APP_LANG, opts: PasteOptions = {}): Promise<MoveResult> {
   const from = resolveLifePath(fromRel)
   const toDir = resolveLifePath(toDirRel)
   if (!from || !toDir) {
@@ -1088,6 +1121,8 @@ export async function copyLife(fromRel: string, toDirRel: string, lang = APP_LAN
   if (isDir && (toDir === from || toDir.startsWith(from + sep))) {
     return { ok: false, rel: '', code: 'into_self', message: T(lang, 'Egy mappát nem lehet önmagába másolni.', 'A folder cannot be copied into itself.') }
   }
+  // Foglalt nev: KERDES, nem csendes `(2)` (#383, Boss TG 6343).
+  if (existsSync(join(toDir, basename(from))) && !opts.keepBoth) return nameClash(toDir, basename(from), isDir, lang)
   const name = freeCopyName(toDir, basename(from), isDir)
   if (!name) {
     return { ok: false, rel: '', code: 'exists', message: T(lang, 'Ebben a mappában már túl sok ilyen nevű másolat van. Nevezz át néhányat, és próbáld újra.', 'This folder already has too many copies with this name. Rename some of them and try again.') }

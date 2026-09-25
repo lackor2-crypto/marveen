@@ -575,15 +575,45 @@ describe('POST /api/life/copy -- masol, sosem ir felul', () => {
     expect(existsSync(join(depot, 'CpA', 'irat.pdf'))).toBe(true)
   })
 
-  it('foglalt nevnel "nev (2)" lesz, a meglevo fajl erintetlen', async () => {
+  // #383 (Boss TG 6343: "szo nelkul beillesztette ... nem szol"): foglalt nevnel
+  // KERDES jon vissza (409 name_exists + javasolt nev), semmi nem jon letre;
+  // a `nev (2)` csak kifejezett keepBoth-ra.
+  it('foglalt nevnel 409 name_exists + javasolt nev, es semmi nem jon letre', async () => {
     writeFileSync(join(depot, 'CpB', 'irat.pdf'), 'mar itt volt')
     const out = await copy('CpA/irat.pdf', 'CpB')
+    expect(out.status).toBe(409)
+    expect(out.body.code).toBe('name_exists')
+    expect(out.body.suggested).toBe('irat (2).pdf')
+    expect(out.body.conflictName).toBe('irat.pdf')
+    expect(out.body.conflictIsDir).toBe(false)
+    expect(out.body.message).toContain('irat.pdf')
+    expect(existsSync(join(depot, 'CpB', 'irat (2).pdf'))).toBe(false)
+    expect(readFileSync(join(depot, 'CpB', 'irat.pdf'), 'utf-8')).toBe('mar itt volt')
+    const en = await copy('CpA/irat.pdf', 'CpB', '?lang=en')
+    expect(en.body.message).toMatch(/already has a file/)
+  })
+
+  it('keepBoth-ra "nev (2)" lesz, a meglevo fajl erintetlen', async () => {
+    const { ctx, out } = ctxFor('/api/life/copy', 'POST', { from: 'CpA/irat.pdf', to: 'CpB', keepBoth: true })
+    expect(await tryHandleLife(ctx)).toBe(true)
     expect(out.status).toBe(200)
     expect(out.body.rel).toBe('CpB/irat (2).pdf')
     expect(readFileSync(join(depot, 'CpB', 'irat.pdf'), 'utf-8')).toBe('mar itt volt')
-    // Ugyanabba a mappaba beillesztve is masolat lesz, nem felulirás.
+  })
+
+  it('ugyanabba a mappaba beillesztve is kerdez (mappanal is), keepBoth-ra masolat lesz', async () => {
     const same = await copy('CpA/irat.pdf', 'CpA')
-    expect(same.body.rel).toBe('CpA/irat (2).pdf')
+    expect(same.status).toBe(409)
+    expect(same.body.suggested).toBe('irat (2).pdf')
+    mkdirSync(join(depot, 'CpA', 'Beerkezo'), { recursive: true })
+    const dir = await copy('CpA/Beerkezo', 'CpA')
+    expect(dir.status).toBe(409)
+    expect(dir.body.conflictIsDir).toBe(true)
+    expect(dir.body.suggested).toBe('Beerkezo (2)')
+    expect(existsSync(join(depot, 'CpA', 'Beerkezo (2)'))).toBe(false)
+    const { ctx, out } = ctxFor('/api/life/copy', 'POST', { from: 'CpA/Beerkezo', to: 'CpA', keepBoth: true })
+    await tryHandleLife(ctx)
+    expect(out.body.rel).toBe('CpA/Beerkezo (2)')
     expect(readFileSync(join(depot, 'CpA', 'irat.pdf'), 'utf-8')).toBe('eredeti')
   })
 
@@ -641,6 +671,43 @@ describe('POST /api/life/copy -- masol, sosem ir felul', () => {
   it('angol feluleten angol mondatot ad', async () => {
     const out = await copy('CpA/irat.pdf', 'CpRepo', '?lang=en')
     expect(out.body.message).toMatch(/git repository/)
+  })
+})
+
+// #383: a Kivagas + Beillesztes (move) ugyanugy kerdez foglalt nevnel.
+describe('POST /api/life/move -- foglalt nevnel kerdez, felul nem ir', () => {
+  const move = async (body: Record<string, unknown>) => {
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', body)
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+  it('409 name_exists, semmi nem mozdul', async () => {
+    mkdirSync(join(depot, 'MnA'), { recursive: true })
+    mkdirSync(join(depot, 'MnB'), { recursive: true })
+    writeFileSync(join(depot, 'MnA', 'level.txt'), 'uj')
+    writeFileSync(join(depot, 'MnB', 'level.txt'), 'regi')
+    const out = await move({ from: 'MnA/level.txt', to: 'MnB' })
+    expect(out.status).toBe(409)
+    expect(out.body.code).toBe('name_exists')
+    expect(out.body.suggested).toBe('level (2).txt')
+    expect(readFileSync(join(depot, 'MnA', 'level.txt'), 'utf-8')).toBe('uj')
+    expect(readFileSync(join(depot, 'MnB', 'level.txt'), 'utf-8')).toBe('regi')
+  })
+  it('keepBoth-ra "nev (2)" neven kerul at, a meglevo erintetlen', async () => {
+    const out = await move({ from: 'MnA/level.txt', to: 'MnB', keepBoth: true })
+    expect(out.status).toBe(200)
+    expect(out.body.rel).toBe('MnB/level (2).txt')
+    expect(existsSync(join(depot, 'MnA', 'level.txt'))).toBe(false)
+    expect(readFileSync(join(depot, 'MnB', 'level (2).txt'), 'utf-8')).toBe('uj')
+    expect(readFileSync(join(depot, 'MnB', 'level.txt'), 'utf-8')).toBe('regi')
+  })
+  it('mappanal is kerdez', async () => {
+    mkdirSync(join(depot, 'MnA', 'Beerkezo'), { recursive: true })
+    mkdirSync(join(depot, 'MnB', 'Beerkezo'), { recursive: true })
+    const out = await move({ from: 'MnA/Beerkezo', to: 'MnB' })
+    expect(out.status).toBe(409)
+    expect(out.body.conflictIsDir).toBe(true)
+    expect(existsSync(join(depot, 'MnA', 'Beerkezo'))).toBe(true)
   })
 })
 
