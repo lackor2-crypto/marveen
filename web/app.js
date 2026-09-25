@@ -43534,6 +43534,17 @@ async function _prjOpenForm(mode, project) {
   setTimeout(() => ov.querySelector('#prjName')?.focus(), 150)
 }
 
+/**
+ * #382: the default label is REQUIRED only when a starter card is made AND the
+ * board has labels at all. On a fresh install the labels table is empty, and
+ * then both the save check and the server (resolveCardLabels) let it through
+ * without one -- the hint must not claim otherwise.
+ */
+function _prjLabelHintKey(starter) {
+  const labels = (_prj.form && _prj.form.labels) || []
+  return starter && labels.length ? 'projects.form.label_required_starter' : 'projects.form.optional'
+}
+
 function _prjFormHtml() {
   const f = _prj.form
   const p = f.project || {}
@@ -43575,7 +43586,7 @@ function _prjFormHtml() {
         <select id="prjStatus" class="input">${['active', 'paused', 'closed'].map((s) => `<option value="${s}"${p.status === s ? ' selected' : ''}>${escapeHtml(t('projects.status.' + s))}</option>`).join('')}</select>
       </div>` : ''}
       <div class="form-group">
-        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint" id="prjLabelReq">${escapeHtml(t(edit ? 'projects.form.optional' : 'projects.form.label_required_starter'))}</span></label>
+        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint" id="prjLabelReq">${escapeHtml(t(_prjLabelHintKey(!edit)))}</span></label>
         <select id="prjLabel" class="input">${labelOpts}</select>
         <p class="prj-field-hint">${escapeHtml(t('projects.form.label_hint'))}</p>
       </div>
@@ -43648,7 +43659,7 @@ function _prjWireForm(ov) {
   // form never says "optional" and then refuses to save for the lack of it.
   q('#prjStarter')?.addEventListener('change', () => {
     const req = q('#prjLabelReq')
-    if (req) req.textContent = t(q('#prjStarter').checked ? 'projects.form.label_required_starter' : 'projects.form.optional')
+    if (req) req.textContent = t(_prjLabelHintKey(q('#prjStarter').checked))
   })
   q('#prjFormSave')?.addEventListener('click', _prjSubmitForm)
   ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
