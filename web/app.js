@@ -4451,6 +4451,22 @@ function attachTmuxCopyButtons(host, agent) {
 // A model id like "google/gemma-4-31b-it:free" is a free-tier OpenRouter
 // model; anything else (including 'inherit'/'opus'/undefined for Claude-auth
 // agents) counts as paid/unrestricted.
+/**
+ * #394 -- the agents grid order (Boss TG 6411: "amelyik le van allitva, az egy
+ * kicsit szurkuljon be, es menjen az utolso helyre ... az ingyeneseknel
+ * ugyanigy"). Two tiers, paid first, then free; inside each tier the running
+ * agents first, the stopped ones last. Stable: the incoming order is kept
+ * within running and within stopped.
+ */
+function orderAgentsForGrid(agents) {
+  const list = Array.isArray(agents) ? agents : []
+  const tier = (free) => {
+    const inTier = list.filter((a) => !!isFreeModel(a && a.model) === free)
+    return inTier.filter((a) => a && a.running).concat(inTier.filter((a) => !(a && a.running)))
+  }
+  return { paid: tier(false), free: tier(true) }
+}
+
 function isFreeModel(model) {
   return typeof model === 'string' && model.toLowerCase().endsWith(':free')
 }
@@ -5546,8 +5562,8 @@ function renderAgents() {
   // Paid/unrestricted agents first, then a divider, then free-tier OpenRouter
   // agents -- otherwise the two tiers render interleaved and there's no way
   // to tell at a glance which cards are on a shared, rate-limited free pool.
-  const paidAgents = agents.filter(a => !isFreeModel(a.model))
-  const freeAgents = agents.filter(a => isFreeModel(a.model))
+  // #394: within each tier the stopped agents go last (Boss TG 6411).
+  const { paid: paidAgents, free: freeAgents } = orderAgentsForGrid(agents)
   const sortedAgents = [...paidAgents, ...freeAgents]
   let dividerEl = null
   for (const agent of sortedAgents) {
@@ -5578,6 +5594,8 @@ function renderAgents() {
     const chDotClass = chConnected ? 'connected' : 'disconnected'
     const chLabel = chConnected ? t('agents.status.online') : t('agents.status.offline')
     const isRunning = agent.running || false
+    // #394: a stopped agent's card is dimmed (style.css .agent-card.is-stopped).
+    card.classList.toggle('is-stopped', !isRunning)
     const runDotClass = isRunning ? 'running' : 'stopped'
     const runLabel = isRunning ? t('agents.status.running') : t('agents.status.stopped')
 
