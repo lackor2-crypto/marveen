@@ -31,14 +31,16 @@ import {
   walkLocalFiles,
 } from '../web/routes/drive-sync.js'
 import { DEPOT_SYSTEM_ROOT } from '../depot.js'
+import { trashRelPath } from '../life-tree.js'
 
 const paros = (localPath: string, extra: Record<string, unknown> = {}) =>
   ({ id: 'x', account: 'a@b.hu', folderId: 'f', backup: true, localPath, ...extra }) as any
 
 describe('#47 -- mit hagyunk ki a mentesbol', () => {
-  it('a TELJES raktar mentesebol a Rendszer ag kimarad (kulonben a mentest mentenenk)', () => {
-    expect([...mentesKihagyUt('')]).toEqual([DEPOT_SYSTEM_ROOT])
-    expect([...mentesKihagy(paros(''))]).toEqual([DEPOT_SYSTEM_ROOT])
+  it('a TELJES raktar mentesebol a Rendszer ag es a Kuka kimarad (kulonben a mentest mentenenk)', () => {
+    // #395: the Kuka lives at the root now, and thrown-away files are not backed up.
+    expect([...mentesKihagyUt('')]).toEqual([DEPOT_SYSTEM_ROOT, trashRelPath()])
+    expect([...mentesKihagy(paros(''))]).toEqual([DEPOT_SYSTEM_ROOT, trashRelPath()])
   })
 
   it('egy KIVALASZTOTT ag mentesebol semmi nem marad ki', () => {
