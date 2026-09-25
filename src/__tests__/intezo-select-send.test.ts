@@ -212,7 +212,39 @@ describe('#389 felulet -- kijeloles, mint a Windows Intezoben', () => {
   it('tobb elem a Kukaba EGY kerdessel; Kukaban levo elemet nem kever bele', () => {
     const b = fnBody('async function _intezoTrashMany(')
     expect(b).toContain("t('intezo.trash_confirm_n'")
-    expect(b).toContain("t('intezo.multi_trash_in_kuka')")
+    expect(b).toContain("t('intezo.multi_mixed_kuka')")
+  })
+
+  // Boss TG 1600: "a kukaban nincs torlesi lehetoseg ... kijeloltem mindet,
+  // es nincs torlesi lehetoseg sehol". A tobbes kijeloles menujebol a Kukaban
+  // a torles-menupont egyszeruen kimaradt, a Delete csak egy toastot adott.
+  it('a Kukaban a tobbes kijelolesre VAN vegleges torles (menu + Delete)', () => {
+    const menu = fnBody('async function _intezoOpenMenu(')
+    expect(menu).toContain("t('intezo.menu_purge_n'")
+    expect(menu).toContain('_intezoPurgeMany(multi)')
+    const del = fnBody('async function _intezoTrashMany(')
+    expect(del).toContain('await _intezoPurgeMany(list)')
+    const many = fnBody('async function _intezoPurgeMany(')
+    expect(many).toContain("t('intezo.purge_confirm_n'")
+    expect(many).toContain("'/api/life/purge'")
+    // A purge 200-zal is mondhat nemet (`ok:false`) -- azt nem szamolhatjuk sikernek.
+    expect(many).toContain('r.ok === false')
+  })
+
+  // Friss, angol telepitesen a Kuka `System/Trash` -- a felulet nem egetheti be.
+  it('a Kuka utjat a szerver listazasa adja, nincs beegetve', () => {
+    expect(app).not.toContain("'Rendszer/Kuka'")
+    const src = fnBody('function _intezoKukaRel(') + '\n' + fnBody('function _intezoKukaban(')
+    const make = (listing: any) => new Function('_intezoListing',
+      'let _INTEZO_KUKA = ""\n' + src + '\nreturn _intezoKukaban')(listing)
+    const en = make({ trashRel: 'System/Trash' })
+    expect(en('System/Trash/2026-09-25_x/a.jpg')).toBe(true)
+    expect(en('Rendszer/Kuka/a.jpg')).toBe(false)
+    const hu = make({ trashRel: 'Rendszer/Kuka' })
+    expect(hu('Rendszer/Kuka')).toBe(true)
+    expect(hu('Rendszer/Kukazas/a')).toBe(false)
+    // Nincs meg listazas -> nem allit Kukat (a szerver ugyis orzi a hatart).
+    expect(make(null)('Rendszer/Kuka/a')).toBe(false)
   })
 
   it('jobb klikk tobbes kijelolesnel a kijelolesre szol, es van benne Kuldes', () => {

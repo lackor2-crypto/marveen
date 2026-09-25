@@ -39316,7 +39316,10 @@ _intezoBindRubberBand()
 async function _intezoTrashMany(items) {
   const list = (items || []).filter((x) => x && x.rel)
   if (!list.length) return
-  if (list.some((x) => _intezoKukaban(x.rel))) { showToast(t('intezo.multi_trash_in_kuka')); return }
+  const bentDb = list.filter((x) => _intezoKukaban(x.rel)).length
+  // A Kukabol a Delete is vegleges torlest jelent (egy kerdes utan).
+  if (bentDb === list.length) { await _intezoPurgeMany(list); return }
+  if (bentDb) { showToast(t('intezo.multi_mixed_kuka')); return }
   if (list.length === 1) { await _intezoTrash(list[0]); return }
   if (!confirm(t('intezo.trash_confirm_n', { n: list.length }))) return
   let ok = 0
@@ -41037,8 +41040,17 @@ async function _intezoOpenMenu(ev, entry) {
     _intezoMenuSend(m, multi, build)
     m.appendChild(_intezoMenuItem('👤  ' + t('intezo.multi_to_person'), () => _intezoMoveToPersonDialog()))
     m.appendChild(_intezoMenuSep())
-    if (!multi.some((x) => _intezoKukaban(x.rel))) {
+    // A Kukaban a torles mar VEGLEGES (Boss TG 1600: "kijeloltem mindet, es
+    // nincs torlesi lehetoseg sehol"). Vegyes kijelolesnel -- Kukas es nem
+    // Kukas elem egyutt -- a szerver ugyis megtagadna a felet, ezert ott a
+    // menupont megmondja, miert nem megy, ahelyett hogy eltunne.
+    const bentDb = multi.filter((x) => _intezoKukaban(x.rel)).length
+    if (bentDb === multi.length) {
+      m.appendChild(_intezoMenuItem('🔥  ' + t('intezo.menu_purge_n', { n: multi.length }), () => _intezoPurgeMany(multi), true))
+    } else if (bentDb === 0) {
       m.appendChild(_intezoMenuItem('🗑  ' + t('intezo.menu_trash_n', { n: multi.length }), () => _intezoTrashMany(multi), true))
+    } else {
+      m.appendChild(_intezoMenuItem('🗑  ' + t('intezo.menu_trash_n', { n: multi.length }), () => showToast(t('intezo.multi_mixed_kuka')), true))
     }
     m.appendChild(_intezoMenuItem('✖  ' + t('intezo.menu_multi_end'), () => _intezoMultiSetOn(false)))
   } else if (!entry) {
@@ -41098,7 +41110,7 @@ async function _intezoOpenMenu(ev, entry) {
     }))
     m.appendChild(_intezoMenuSep())
     // A Kukaban a „torles" mar nem athelyezes: onnan mar csak lefele van ut.
-    if (entry.rel === _INTEZO_KUKA) {
+    if (entry.rel === _intezoKukaRel()) {
       m.appendChild(_intezoMenuItem('🔥  ' + t('intezo.menu_empty_trash'), () => _intezoEmptyKuka(), true))
     } else if (_intezoKukaban(entry.rel)) {
       m.appendChild(_intezoMenuItem('🔥  ' + t('intezo.menu_purge'), () => _intezoPurge(entry), true))
@@ -41210,24 +41222,66 @@ if (!window._intezoMenuBound) {
 // DONTES viszont nem itt szuletik: a szerver `purgeLife`-ja akkor sem torol
 // veglegesen, ha innen barmi mast kuldenenk. Ez itt csak azt intezi, hogy a
 // felhasznalo a HELYES menupontot lassa.
-const _INTEZO_KUKA = 'Rendszer/Kuka'
+// A Kuka utja a telepites nyelvet koveti (`Rendszer/Kuka` / `System/Trash`),
+// ezert a szerver mondja meg minden listazasban (`trashRel`). A legutobb
+// latott erteket megjegyezzuk: a keresesi talalatok listaja nem hozza.
+let _INTEZO_KUKA = ''
+function _intezoKukaRel() {
+  const L = _intezoListing
+  if (L && typeof L.trashRel === 'string' && L.trashRel) _INTEZO_KUKA = L.trashRel
+  return _INTEZO_KUKA
+}
 function _intezoKukaban(rel) {
+  const k = _intezoKukaRel()
+  if (!k) return false
   const r = String(rel || '')
-  return r === _INTEZO_KUKA || r.indexOf(_INTEZO_KUKA + '/') === 0
+  return r === k || r.indexOf(k + '/') === 0
 }
 
 /** Vegleges torles a Kukabol -- ez az egyetlen visszavonhatatlan gomb a fan. */
 async function _intezoPurge(entry) {
   const mi = t(entry.isDir ? 'intezo.the_folder' : 'intezo.the_file')
   if (!confirm(t('intezo.purge_confirm', { name: entry.name || entry.rel, what: mi })
-      + '\n\nBiztos vagy benne?')) return
+      + '\n\n' + t('intezo.are_you_sure'))) return
   await _intezoPurgeKeres({ rel: entry.rel })
+}
+
+/**
+ * Tobb elem VEGLEGES torlese a Kukabol -- EGY kerdessel, ami kimondja, hogy
+ * nincs visszaut. Egyenkent hivja ugyanazt a vegpontot, mint az egyes torles:
+ * a hatart (csak a Kukaban) tovabbra is a szerver orzi. Git-repot tartalmazo
+ * elemnel a szerver megall; azt kulon, egyenkent kell megerositeni.
+ */
+async function _intezoPurgeMany(items) {
+  const list = (items || []).filter((x) => x && x.rel && _intezoKukaban(x.rel))
+  if (!list.length) return
+  if (list.length === 1 && list[0].rel !== _intezoKukaRel()) { await _intezoPurge(list[0]); return }
+  if (!confirm(t('intezo.purge_confirm_n', { n: list.length }))) return
+  let ok = 0
+  const failed = []
+  for (let i = 0; i < list.length; i++) {
+    showToast(t('intezo.mp_progress', { i: i + 1, n: list.length }))
+    try {
+      const r = await _depoPost('/api/life/purge', { rel: list[i].rel })
+      if (r && r.ok === false) throw new Error(r.message || t('intezo.purge_failed'))
+      ok++
+      if (_intezoMulti) _intezoMulti.delete(list[i].rel)
+    } catch (e) {
+      failed.push(list[i].name + ': ' + ((e && e.message) || t('intezo.purge_failed')))
+    }
+  }
+  const parts = [t('intezo.purge_done_n', { n: ok })]
+  if (failed.length) parts.push(t('intezo.mp_errors', { n: failed.length, first: failed[0] }))
+  showToast(parts.join(' · '))
+  _intezoClearSelection()
+  await _intezoOpen(_intezoPath)
+  _intezoRenderMultiBar()
 }
 
 /** A Kuka teljes kiuritese -- a mappa marad, a tartalma nem. */
 async function _intezoEmptyKuka() {
   if (!confirm(t('intezo.empty_trash_confirm'))) return
-  await _intezoPurgeKeres({ rel: _INTEZO_KUKA })
+  await _intezoPurgeKeres({ rel: _intezoKukaRel() })
 }
 
 // A ketto ugyanazt a vegpontot hivja, ugyanazzal a masodik kerdessel: ha
