@@ -38296,6 +38296,11 @@ function _intezoRender() {
         _intezoSelectRange(_intezoAnchor, rel, true)
         _intezoFocus = rel
         _intezoPaintSelection()
+        // A preventDefault miatt a bongeszo a kattintas UTAN visszaallitja a
+        // pipa korabbi allapotat -- a kattintott (utolso) elem pipaja igy
+        // uresen maradt, pedig a kijelolesben benne van (Boss TG 6378). A
+        // visszaallitas utan ujrafestunk.
+        setTimeout(_intezoPaintSelection, 0)
         return
       }
       _intezoAnchor = rel
