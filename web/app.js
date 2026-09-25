@@ -31359,10 +31359,65 @@ function emailShowComposeNew() {
     const el = document.getElementById(id)
     if (el) el.value = ''
   })
+  // #389: egy korabbi Intezo-kuldes csatolmanyai ne maradjanak itt.
+  _emailComposeLife = null
+  const att = document.getElementById('emailComposeNewAttach')
+  if (att) { att.hidden = true; att.innerHTML = '' }
+  const from = document.getElementById('emailComposeNewFrom')
+  if (from) from.hidden = true
   openModal(overlay)
   requestAnimationFrame(() => document.getElementById('emailComposeNewTo')?.focus())
 }
 document.getElementById('emailComposeNewBtn')?.addEventListener('click', emailShowComposeNew)
+
+/**
+ * Az Intezobol kuldott fajlok (#389). `{ rels, account }` vagy null. A fajlokat
+ * a SZERVER csatolja a sajat helyukrol (mappat ZIP-ben) -- a bongeszo nem
+ * tolti le es fel oket.
+ */
+let _emailComposeLife = null
+
+/**
+ * Uj level a kijelolt fajlokkal csatolmanykent. SOHA nem kuld: csak megnyitja
+ * az ablakot kitoltve, a Kuldes gombot a felhasznalo nyomja meg.
+ */
+function emailShowComposeWithLifeFiles(info, accounts) {
+  emailShowComposeNew()
+  const items = (info && info.items) || []
+  _emailComposeLife = {
+    rels: items.map((x) => x.rel),
+    account: emailAccount && accounts.some((a) => a.id === emailAccount) ? emailAccount : accounts[0].id,
+  }
+  const subj = document.getElementById('emailComposeNewSubject')
+  if (subj) {
+    subj.readOnly = false
+    subj.value = items.length === 1 ? items[0].sendName : t('email.compose_life_subject_n', { n: items.length })
+  }
+  const from = document.getElementById('emailComposeNewFrom')
+  const sel = document.getElementById('emailComposeNewAccount')
+  if (from && sel) {
+    sel.innerHTML = accounts.map((a) => '<option value="' + escapeAttr(a.id) + '">' + escapeHtml(a.label || a.id) + '</option>').join('')
+    sel.value = _emailComposeLife.account
+    sel.onchange = () => { if (_emailComposeLife) _emailComposeLife.account = sel.value }
+    from.hidden = accounts.length < 2
+  }
+  const att = document.getElementById('emailComposeNewAttach')
+  if (att) {
+    const mb = (n) => (Number(n || 0) / 1024 / 1024).toFixed(1)
+    att.innerHTML = '<div style="font-weight:600;margin-bottom:4px">📎 '
+      + escapeHtml(t('email.compose_life_attached', { n: items.length, mb: mb(info.totalBytes) })) + '</div>'
+      + '<ul style="margin:0;padding-left:18px">'
+      + items.map((x) => '<li>' + (x.isDir ? '🗜 ' : '📄 ') + escapeHtml(x.sendName)
+        + (x.isDir ? ' <span style="opacity:.7">(' + escapeHtml(t('email.compose_life_zip', { n: x.files })) + ')</span>' : '')
+        + '</li>').join('')
+      + '</ul><div style="opacity:.7;margin-top:4px">' + escapeHtml(t('email.compose_life_hint')) + '</div>'
+    att.hidden = false
+  }
+  requestAnimationFrame(() => {
+    const to = document.getElementById('emailComposeNewTo')
+    if (to) { to.readOnly = false; to.focus() }
+  })
+}
 document.getElementById('emailComposeNewClose')?.addEventListener('click', () => closeModal(document.getElementById('emailComposeNewOverlay')))
 document.getElementById('emailComposeNewCancelBtn')?.addEventListener('click', () => closeModal(document.getElementById('emailComposeNewOverlay')))
 document.getElementById('emailComposeNewOverlay')?.addEventListener('click', (e) => {
@@ -31374,18 +31429,24 @@ document.getElementById('emailComposeNewSendBtn')?.addEventListener('click', asy
   const subject = document.getElementById('emailComposeNewSubject')?.value.trim()
   const text = document.getElementById('emailComposeNewText')?.value.trim()
   if (!to) { showToast(t('email.compose_missing_recipient')); return }
-  if (!text) { showToast(t('email.compose_empty_text')); return }
+  const life = _emailComposeLife
+  // Csatolmannyal a szoveg lehet ures (egy fenykep elkuldesehez nem kell level).
+  if (!text && !life) { showToast(t('email.compose_empty_text')); return }
+  const account = life ? life.account : emailAccount
+  if (!account) { showToast(t('intezo.send_email_no_account')); return }
   const sendBtn = document.getElementById('emailComposeNewSendBtn')
   sendBtn.disabled = true
   sendBtn.textContent = t('email.sending')
   try {
     const res = await fetch('/api/email/compose', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: emailAccount, to, cc, subject, text }),
+      body: JSON.stringify(Object.assign({ account, to, cc, subject, text: text || '' },
+        life ? { lifeAttachments: life.rels, lang: window._lang || 'hu' } : {})),
     })
-    const data = await res.json()
-    if (!res.ok) { showToast(data.error || t('email.send_error')); return }
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { showToast(data.message || data.error || t('email.send_error')); return }
     showToast(t('email.new_message_sent_toast'))
+    _emailComposeLife = null
     closeModal(document.getElementById('emailComposeNewOverlay'))
     if (emailMailbox === emailSentMailbox()) loadEmailEnvelopes()
   } finally {
@@ -36635,6 +36696,15 @@ let _intezoClip = null
  * elemekrol. Mappavaltaskor megmarad: tobb mappabol is lehet gyujteni.
  */
 let _intezoMulti = null
+/**
+ * WINDOWS-SZERU KIJELOLES (#389, Boss TG 6369: "megnyomom a shift-et, mint a
+ * Windows intézőben [...] mind a 100-at vagy mind a 20-at kijelöli").
+ * `_intezoAnchor` = a horgony: az utolso sima/Ctrl kattintas eleme, innen
+ * szamol a Shift-tartomany. `_intezoFocus` = a billentyuzet-kurzor (nyilak,
+ * Szokoz, Enter). Mindketto rel, es csak a lapon el.
+ */
+let _intezoAnchor = null
+let _intezoFocus = null
 /** Az athelyezes celjat / a papir helyet valaszto mod, ha eppen fut. */
 let _intezoSearchTimer = null
 
@@ -37918,7 +37988,7 @@ function _intezoGridHtml(rows, view) {
       const bg = (_intezoSelected && _intezoSelected.rel === e.rel) || (_intezoMulti && _intezoMulti.has(e.rel)) ? ' intezo-tile-selected'
         : (_faBeerkezo(e) ? ' intezo-tile-inbox' : '')
       return '<div class="intezo-tile ' + (e.isDir ? 'intezo-dir' : 'intezo-file')
-        + (e.archived ? ' intezo-archived' : '') + bg + '"'
+        + (e.archived ? ' intezo-archived' : '') + (_intezoFocus === e.rel ? ' intezo-focus' : '') + bg + '"'
         + ' data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '" data-pick="1"'
         + ' title="' + escapeHtml(tip) + '">'
         + '<div class="intezo-tile-thumb"'
@@ -38015,7 +38085,7 @@ function _intezoRender() {
       // folder / file icon before the name, and a divider above the first file.
       + ' class="' + (e.isDir ? 'intezo-dir' : 'intezo-file')
       + (!e.isDir && i > 0 && rows[i - 1].isDir ? ' intezo-first-file' : '')
-      + (e.archived ? ' intezo-archived' : '') + '"'
+      + (e.archived ? ' intezo-archived' : '') + (_intezoFocus === e.rel ? ' intezo-focus' : '') + '"'
       + '>'
       + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoMultiCb(e) + _intezoBadge(e) + '</td>'
       + '<td style="padding:2px 8px">' + _intezoContentMark(e) + _intezoKindIcon(e) + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
@@ -38067,6 +38137,8 @@ function _intezoRender() {
       e.preventDefault()
       if (_intezoClickSwallowed()) return
       const rel = a.getAttribute('data-open')
+      // #389: Shift/Ctrl a neven is KIJELOL (mint Windowsban), nem nyit meg.
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { e.stopPropagation(); _intezoPickWithKeys(rel, e); return }
       const row = a.closest('[data-rel]')
       // Ha eppen celt valasztunk (athelyezes / papir helye), a kattintas
       // BELEP a mappaba -- a kivalasztas kulon gombbal tortenik, hogy egy
@@ -38081,13 +38153,26 @@ function _intezoRender() {
   // a nev BELEP, ez pedig KIJELOL -- ket kulon szandek, ket kulon hely.
   list.querySelectorAll('[data-pick]').forEach((tr) => {
     tr.style.cursor = 'pointer'
+    // Shift+kattintas ne jelolje ki a SZOVEGET a sorok kozott (bongeszo-alap).
+    tr.addEventListener('mousedown', (ev) => { if (ev.shiftKey) ev.preventDefault() })
     tr.addEventListener('click', (ev) => {
       if (ev.target && ev.target.closest && ev.target.closest('a[data-open],button,input')) return
       const rel = tr.getAttribute('data-rel')
+      if (_intezoClickSwallowed()) return
+      // #389: Shift = tartomany a horgonytol, Ctrl = egy elem ki/be -- a
+      // Kijeloles gomb nelkul is, mint a Windows Intezoben.
+      if (ev.shiftKey || ev.ctrlKey || ev.metaKey) { _intezoPickWithKeys(rel, ev); return }
       // Kijelolo modban a sor/csempe barmely pontja a pipat valtja --
       // telefonon a kis negyzetet nehez eltalalni.
-      if (_intezoMulti) { const e = rows.find((x) => x.rel === rel); if (e) _intezoMultiToggle(e); return }
-      if (_intezoClickSwallowed()) return
+      if (_intezoMulti) {
+        const e = rows.find((x) => x.rel === rel)
+        if (e) _intezoMultiToggle(e)
+        _intezoAnchor = rel
+        _intezoSetFocus(rel)
+        return
+      }
+      _intezoAnchor = rel
+      _intezoFocus = rel
       // #386 -- MAPPA: egy kattintas a sor/csempe/ikon barmely pontjan BELEP
       // (Boss: "jöjjön be igenis a mappa ha ráklikkelek a mappára, ne csak
       // akkor [...] ha a szövegre"). FAJL: csendes kijeloles, sav es adatlap
@@ -38135,6 +38220,20 @@ function _intezoRender() {
   //  fel kepernyonyi ures hely, ahol a bongeszo sajat menuje jott elo.)
 
   list.querySelectorAll('input[data-multi]').forEach((cb) => {
+    // #389: Shift+kattintas a pipan = tartomany a horgonytol, mint Windowsban.
+    cb.addEventListener('click', (ev) => {
+      const rel = cb.getAttribute('data-multi')
+      if (ev.shiftKey && _intezoMulti && _intezoAnchor) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        _intezoSelectRange(_intezoAnchor, rel, true)
+        _intezoFocus = rel
+        _intezoPaintSelection()
+        return
+      }
+      _intezoAnchor = rel
+      _intezoFocus = rel
+    })
     cb.addEventListener('change', () => {
       const e = rows.find((x) => x.rel === cb.getAttribute('data-multi'))
       if (e) _intezoMultiToggle(e, cb.checked)
@@ -38517,12 +38616,25 @@ function _intezoStartPick(mode) {
   _intezoOpenFolderPicker(mode)
 }
 
-/** Kivagas / Masolas: az elem a vagolapra kerul. Semmi nem mozdul meg. */
+/**
+ * Kivagas / Masolas: az elem (vagy #389 ota a TOBBES kijeloles, tombkent) a
+ * vagolapra kerul. Semmi nem mozdul meg. A `rel/name/isDir` az elso elemet
+ * mutatja, az `items` mindet.
+ */
 function _intezoClipSet(entry, mode) {
-  if (!entry || !entry.rel) { showToast(t('intezo.select_first')); return }
-  _intezoClip = { rel: entry.rel, name: entry.name || entry.rel, isDir: !!entry.isDir, mode }
+  const list = (Array.isArray(entry) ? entry : [entry]).filter((x) => x && x.rel)
+  if (!list.length) { showToast(t('intezo.select_first')); return }
+  const items = list.map((x) => ({ rel: x.rel, name: x.name || x.rel, isDir: !!x.isDir }))
+  _intezoClip = Object.assign({ mode, items }, items[0])
   _intezoRenderClip()
-  showToast(t(mode === 'cut' ? 'intezo.clip_cut_toast' : 'intezo.clip_copy_toast', { name: _intezoClip.name }))
+  if (items.length > 1) showToast(t(mode === 'cut' ? 'intezo.clip_cut_toast_n' : 'intezo.clip_copy_toast_n', { n: items.length }))
+  else showToast(t(mode === 'cut' ? 'intezo.clip_cut_toast' : 'intezo.clip_copy_toast', { name: _intezoClip.name }))
+}
+
+/** A vagolap elemei (a regi, egy-elemes alakot is ertve). */
+function _intezoClipItems() {
+  if (!_intezoClip) return []
+  return Array.isArray(_intezoClip.items) && _intezoClip.items.length ? _intezoClip.items : [_intezoClip]
 }
 
 function _intezoClipClear() {
@@ -38542,10 +38654,13 @@ function _intezoRenderClip() {
   if (bar) bar.hidden = !_intezoClip
   if (_intezoClip) {
     if (txt) {
-      txt.textContent = t(_intezoClip.mode === 'cut' ? 'intezo.clip_on_cut' : 'intezo.clip_on_copy', {
-        name: (_intezoClip.isDir ? '📁 ' : '📄 ') + _intezoClip.name,
-      })
-      txt.title = _intezoClip.rel
+      const items = _intezoClipItems()
+      txt.textContent = items.length > 1
+        ? t(_intezoClip.mode === 'cut' ? 'intezo.clip_on_cut_n' : 'intezo.clip_on_copy_n', { n: items.length })
+        : t(_intezoClip.mode === 'cut' ? 'intezo.clip_on_cut' : 'intezo.clip_on_copy', {
+          name: (_intezoClip.isDir ? '📁 ' : '📄 ') + _intezoClip.name,
+        })
+      txt.title = items.map((x) => x.rel).join('\n')
     }
     if (paste) paste.textContent = t('intezo.clip_paste_here', { name: _intezoMostaniNev() })
   }
@@ -38556,9 +38671,9 @@ function _intezoRenderClip() {
 function _intezoMarkCut() {
   const list = document.getElementById('intezoList')
   if (!list) return
-  const cutRel = _intezoClip && _intezoClip.mode === 'cut' ? _intezoClip.rel : null
+  const cut = new Set(_intezoClip && _intezoClip.mode === 'cut' ? _intezoClipItems().map((x) => x.rel) : [])
   list.querySelectorAll('[data-rel]').forEach((el) => {
-    el.classList.toggle('intezo-cut', cutRel !== null && el.getAttribute('data-rel') === cutRel)
+    el.classList.toggle('intezo-cut', cut.has(el.getAttribute('data-rel')))
   })
 }
 
@@ -38571,6 +38686,8 @@ function _intezoMarkCut() {
 async function _intezoPaste(targetRel) {
   const clip = _intezoClip
   if (!clip) { showToast(t('intezo.clip_empty')); return }
+  const items = _intezoClipItems()
+  if (items.length > 1) { await _intezoPasteMany(clip, items, targetRel); return }
   const target = String(targetRel || '')
   const cut = clip.mode === 'cut'
   const url = cut ? '/api/life/move' : '/api/life/copy'
@@ -38599,11 +38716,73 @@ async function _intezoPaste(targetRel) {
     if (cut && r.ok && r.code !== 'skipped') _intezoClip = null
     // A kijelolt elem a regi helyen mar nem letezik -- ne mutassunk halott adatlapot.
     if (cut && r.ok && r.code !== 'skipped' && _intezoSelected && _intezoSelected.rel === clip.rel) _intezoClearSelection()
+    if (cut && r.ok && r.code !== 'skipped' && _intezoMulti) _intezoMulti.delete(clip.rel)
     await _intezoOpen(_intezoPath)
   } catch (e) {
     showToast((e && e.message) ? e.message : t(cut ? 'intezo.move_failed' : 'intezo.copy_failed'))
   }
   _intezoRenderClip()
+}
+
+/**
+ * Tobb elem beillesztese (#389). Ugyanaz a nevutkozes-kerdes, mint egy elemnel,
+ * de a "Mindre ugyanigy" valasz a tobbire is all -- nem kerdez 100-szor.
+ * Kivagasnal csak az marad a vagolapon, ami NEM ment at (hiba, kihagyas, megse).
+ */
+async function _intezoPasteMany(clip, items, targetRel) {
+  const target = String(targetRel || '')
+  const cut = clip.mode === 'cut'
+  const url = cut ? '/api/life/move' : '/api/life/copy'
+  const left = []
+  const failed = []
+  let done = 0, skipped = 0, replaced = 0, sticky = null, stopped = false
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    if (stopped) { left.push(it); continue }
+    showToast(t('intezo.mp_progress', { i: i + 1, n: items.length }))
+    try {
+      let r
+      try {
+        r = await _depoPost(url, { from: it.rel, to: target })
+      } catch (e) {
+        if (!(e && e.status === 409 && e.data && e.data.code === 'name_exists' && e.data.suggested)) throw e
+        const info = e.data
+        let choice = null
+        if (sticky && (sticky.resolution !== 'replace' || info.canReplace) && (sticky.resolution !== 'merge' || info.canMerge)) {
+          choice = sticky
+        } else {
+          choice = await _intezoAskNameClash(info, { more: items.length - i - 1 })
+          if (!choice) { stopped = true; left.push(it); continue }
+          if (choice.applyAll) sticky = { resolution: choice.resolution, fileResolution: choice.fileResolution }
+        }
+        const req = { from: it.rel, to: target, resolution: choice.resolution }
+        if (choice.fileResolution) req.fileResolution = choice.fileResolution
+        if (choice.perFile) req.perFile = choice.perFile
+        r = await _depoPost(url, req)
+      }
+      if (r && r.code === 'skipped') { skipped++; left.push(it); continue }
+      done++
+      replaced += Number((r && r.replaced) || 0)
+      skipped += Number((r && r.skipped) || 0)
+      if (cut) {
+        if (_intezoMulti) _intezoMulti.delete(it.rel)
+        if (_intezoSelected && _intezoSelected.rel === it.rel) _intezoClearSelection()
+      }
+    } catch (e) {
+      left.push(it)
+      failed.push(it.name + ': ' + ((e && e.message) || t(cut ? 'intezo.move_failed' : 'intezo.copy_failed')))
+    }
+  }
+  const parts = [t('intezo.clip_pasted_n', { n: done })]
+  if (replaced) parts.push(t('intezo.clip_replaced_trash', { n: replaced }))
+  if (skipped) parts.push(t('intezo.clip_skipped_n', { n: skipped }))
+  if (stopped) parts.push(t('intezo.mp_stopped'))
+  if (failed.length) parts.push(t('intezo.mp_errors', { n: failed.length, first: failed[0] }))
+  showToast(parts.join(' · '))
+  if (cut) _intezoClip = left.length ? Object.assign({ mode: 'cut', items: left }, left[0]) : null
+  await _intezoOpen(_intezoPath)
+  _intezoRenderClip()
+  _intezoRenderMultiBar()
 }
 
 /* ===========================================================================
@@ -38675,6 +38854,498 @@ function _intezoRenderMultiBar() {
   if (txt) txt.textContent = n ? t('intezo.multi_count', { n }) : t('intezo.multi_hint')
   const mv = document.getElementById('intezoMultiMoveBtn')
   if (mv) mv.disabled = !n
+}
+
+/* ===========================================================================
+   WINDOWS-SZERU KIJELOLES (#389)
+   Boss TG 6369: "megnyomom a shift-et, mint a Windows intézőben és akkor az
+   elsőre ráklikkelek, [...] 20 képpel arrébb vagy 100 képpel arrébb [...]
+   mind a 100-at vagy mind a 20-at kijelöli [...] ez a Marvin intéző ugyanazt
+   tudja, mindenféle fajta kényelmi funkciót."
+   Shift/Ctrl+kattintas, Ctrl+A, nyilak (+Shift), Szokoz, Enter, Delete, Esc
+   es egerrel keret-huzas -- a Kijeloles gomb NELKUL is. A tobbes kijeloles
+   ugyanaz a `_intezoMulti` halmaz, mint a pipas modban (#381), igy minden
+   tobbes muvelet (Athelyezes szemelyhez, Kivagas/Masolas, Kukaba, Kuldes)
+   egyforman latja.
+   =========================================================================== */
+
+/** A lathato sorrend: elol a mappak, utana a fajlok -- ahogy a lista mutatja. */
+function _intezoVisibleRows() {
+  const L = _intezoListing || {}
+  return [].concat(L.folders || [], L.files || [])
+}
+
+/**
+ * Bekapcsolja a tobbes kijelolest, ha meg nincs. Igaz, ha most kapcsolt be
+ * (ilyenkor a listat ujra kell rajzolni, hogy a pipak megjelenjenek). Az
+ * egy-elemes kijeloles (adatlap) csendben lezarul -- a hivo donti el, atviszi-e.
+ */
+function _intezoMultiEnsure() {
+  if (_intezoMulti) return false
+  _intezoMulti = new Map()
+  const btn = document.getElementById('intezoMultiBtn')
+  if (btn) btn.setAttribute('aria-pressed', 'true')
+  if (_intezoSelected) {
+    _intezoSelected = null
+    _intezoDetachInfoCard()
+    _intezoClosePreviewWindow(false)
+    const card = document.getElementById('intezoInfoCard')
+    if (card) card.hidden = true
+  }
+  return true
+}
+
+/** A horgony es a cel kozotti elemek (a lathato sorrendben) kijelolese. */
+function _intezoSelectRange(fromRel, toRel, additive) {
+  const rows = _intezoVisibleRows()
+  let a = rows.findIndex((x) => x.rel === fromRel)
+  const b = rows.findIndex((x) => x.rel === toRel)
+  if (b < 0) return
+  if (a < 0) a = b
+  if (!additive) _intezoMulti.clear()
+  for (let i = Math.min(a, b); i <= Math.max(a, b); i++) _intezoMulti.set(rows[i].rel, _intezoMultiEntry(rows[i]))
+}
+
+/**
+ * A kijeloles megjelenitese HELYBEN (pipa, hatter, kurzor-keret), a lista
+ * ujrarajzolasa nelkul -- a gorgetes es a betoltott belyegkepek maradnak.
+ */
+function _intezoPaintSelection() {
+  const list = document.getElementById('intezoList')
+  if (list) {
+    const rows = _intezoVisibleRows()
+    list.querySelectorAll('[data-pick]').forEach((node) => {
+      const rel = node.getAttribute('data-rel')
+      const inMulti = !!(_intezoMulti && _intezoMulti.has(rel))
+      const on = inMulti || !!(_intezoSelected && _intezoSelected.rel === rel)
+      const cb = node.querySelector('input[data-multi]')
+      if (cb) cb.checked = inMulti
+      if (node.classList.contains('intezo-tile')) node.classList.toggle('intezo-tile-selected', on)
+      else {
+        const e = rows.find((x) => x.rel === rel)
+        node.style.background = on ? 'rgba(127,127,127,.15)' : (e && _faBeerkezo(e) ? 'rgba(255,179,0,.14)' : '')
+      }
+      node.classList.toggle('intezo-focus', rel === _intezoFocus)
+    })
+  }
+  _intezoRenderMultiBar()
+}
+
+/** A billentyuzet-kurzor athelyezese, a sor a lathato reszbe gorgetve. */
+function _intezoSetFocus(rel) {
+  _intezoFocus = rel
+  const list = document.getElementById('intezoList')
+  if (!list) return
+  let hit = null
+  list.querySelectorAll('[data-pick]').forEach((node) => {
+    const on = node.getAttribute('data-rel') === rel
+    node.classList.toggle('intezo-focus', on)
+    if (on) hit = node
+  })
+  if (hit && hit.scrollIntoView) hit.scrollIntoView({ block: 'nearest' })
+}
+
+/**
+ * Kattintas Shift-tel / Ctrl-lal (vagy Cmd-del), mint a Windows Intezoben:
+ *   Shift       = a horgonytol idaig minden (a korabbi kijeloles helyett);
+ *   Ctrl        = ez az egy ki/be, a tobbi marad;
+ *   Ctrl+Shift  = a tartomany HOZZAADODIK a meglevohoz.
+ * Ha elotte egy fajl sima kattintassal ki volt jelolve, az a kiindulopont.
+ */
+function _intezoPickWithKeys(rel, ev) {
+  const rows = _intezoVisibleRows()
+  const e = rows.find((x) => x.rel === rel)
+  if (!e) return
+  const prevSingle = _intezoSelected ? _intezoSelected.rel : null
+  const turnedOn = _intezoMultiEnsure()
+  const additive = !!(ev.ctrlKey || ev.metaKey)
+  if (ev.shiftKey) {
+    const anchor = _intezoAnchor && rows.some((x) => x.rel === _intezoAnchor) ? _intezoAnchor : rel
+    _intezoSelectRange(anchor, rel, additive)
+    _intezoAnchor = anchor
+  } else {
+    if (turnedOn && prevSingle && prevSingle !== rel) {
+      const p = rows.find((x) => x.rel === prevSingle)
+      if (p) _intezoMulti.set(p.rel, _intezoMultiEntry(p))
+    }
+    if (_intezoMulti.has(rel)) _intezoMulti.delete(rel)
+    else _intezoMulti.set(rel, _intezoMultiEntry(e))
+    _intezoAnchor = rel
+  }
+  _intezoFocus = rel
+  if (turnedOn) _intezoRender()
+  _intezoPaintSelection()
+}
+
+/** Ctrl+A: a mostani mappa minden eleme. */
+function _intezoSelectAll() {
+  const rows = _intezoVisibleRows()
+  if (!rows.length) return
+  const turnedOn = _intezoMultiEnsure()
+  rows.forEach((e) => _intezoMulti.set(e.rel, _intezoMultiEntry(e)))
+  if (turnedOn) _intezoRender()
+  _intezoPaintSelection()
+}
+
+/**
+ * Amire a tobbes muvelet vonatkozik: a pipalt elemek, vagy -- ha nincs pipa --
+ * az egy kijelolt elem. Ures lista, ha semmi.
+ */
+function _intezoSelectionItems() {
+  if (_intezoMulti && _intezoMulti.size) return [..._intezoMulti.values()]
+  if (_intezoSelected && _intezoSelected.rel) {
+    return [{ rel: _intezoSelected.rel, name: _intezoSelected.displayName || _intezoSelected.name || _intezoSelected.rel, isDir: !!_intezoSelected.isDir, media: _intezoSelected.media || '' }]
+  }
+  return []
+}
+
+/** Hany oszlopos most az ikonracs (1, ha a reszletes lista latszik). */
+function _intezoGridCols() {
+  const list = document.getElementById('intezoList')
+  const tiles = list ? list.querySelectorAll('.intezo-tile[data-pick]') : []
+  if (!tiles.length) return 1
+  const top = tiles[0].offsetTop
+  let n = 0
+  for (const el of tiles) { if (el.offsetTop !== top) break; n++ }
+  return Math.max(1, n)
+}
+
+/**
+ * Billentyuk a listan, mint a Windows Intezoben. Igaz, ha a billentyut
+ * lekezelte (a hivo ilyenkor megallitja a bongeszo sajat viselkedeset).
+ *   Nyilak / Home / End = a kurzor mozog (+Shift: tartomany a horgonytol);
+ *   Szokoz = a kurzor alatti elem ki/be; Enter = megnyitas; Delete = Kukaba.
+ * Pipas modban a sima nyil CSAK a kurzort viszi -- a meglevo pipakat nem
+ * dobja el (Windowsban ez a Ctrl+nyil).
+ */
+function _intezoKeyNav(e) {
+  const rows = _intezoVisibleRows()
+  if (!rows.length) return false
+  const k = e.key
+  const tg = e.target
+  const onControl = tg && tg.closest && tg.closest('button,a,summary')
+  if ((k === 'Enter' || k === ' ') && onControl) return false
+  const cur = rows.findIndex((x) => x.rel === _intezoFocus)
+  if (k === 'Delete') {
+    const items = _intezoSelectionItems()
+    if (!items.length) return false
+    void _intezoTrashMany(items)
+    return true
+  }
+  if (k === 'Enter') {
+    if (cur < 0) return false
+    const it = rows[cur]
+    if (it.isDir) void _intezoOpen(it.rel)
+    else void _intezoOpenFile(it.rel)
+    return true
+  }
+  if (k === ' ') {
+    if (cur < 0) return false
+    const turnedOn = _intezoMultiEnsure()
+    const it = rows[cur]
+    if (_intezoMulti.has(it.rel)) _intezoMulti.delete(it.rel)
+    else _intezoMulti.set(it.rel, _intezoMultiEntry(it))
+    _intezoAnchor = it.rel
+    if (turnedOn) _intezoRender()
+    _intezoPaintSelection()
+    return true
+  }
+  const grid = _intezoViewMode() !== 'details'
+  const cols = grid ? _intezoGridCols() : 1
+  let next
+  if (k === 'ArrowDown') next = cur < 0 ? 0 : cur + cols
+  else if (k === 'ArrowUp') next = cur < 0 ? 0 : cur - cols
+  else if (k === 'ArrowRight' && grid) next = cur < 0 ? 0 : cur + 1
+  else if (k === 'ArrowLeft' && grid) next = cur < 0 ? 0 : cur - 1
+  else if (k === 'Home') next = 0
+  else if (k === 'End') next = rows.length - 1
+  else return false
+  next = Math.max(0, Math.min(rows.length - 1, next))
+  const target = rows[next]
+  if (e.shiftKey) {
+    const turnedOn = _intezoMultiEnsure()
+    const anchor = _intezoAnchor && rows.some((x) => x.rel === _intezoAnchor)
+      ? _intezoAnchor : (cur >= 0 ? rows[cur].rel : target.rel)
+    _intezoSelectRange(anchor, target.rel, !!(e.ctrlKey || e.metaKey))
+    _intezoAnchor = anchor
+    _intezoFocus = target.rel
+    if (turnedOn) _intezoRender()
+    _intezoPaintSelection()
+    _intezoSetFocus(target.rel)
+  } else if (_intezoMulti || e.ctrlKey || e.metaKey) {
+    _intezoSetFocus(target.rel)
+  } else {
+    // Sima nyil pipak nelkul: egy elem kijelolve, csendben (adatlap nelkul).
+    _intezoAnchor = target.rel
+    _intezoSetFocus(target.rel)
+    void _intezoSelectOnly(target.rel)
+  }
+  return true
+}
+
+/**
+ * KERET-HUZAS (rubber band) egerrel: az ures helyrol inditva egy teglalap, ami
+ * minden elemet kijelol, amihez hozzaer. Ctrl-lal a meglevohoz ad. Csak eger
+ * (telefonon a huzas gorgetes); a sorokon/csempeken inditva a sima kattintas
+ * marad.
+ */
+function _intezoBindRubberBand() {
+  if (window._intezoBandBound) return
+  window._intezoBandBound = 1
+  document.addEventListener('mousedown', (ev) => {
+    if (ev.button !== 0) return
+    const lap = document.getElementById('intezoPage')
+    const main = lap && !lap.hidden ? lap.querySelector('.intezo-main') : null
+    const tg = ev.target
+    if (!main || !tg || !tg.closest || !main.contains(tg)) return
+    if (tg.closest('[data-pick],a,button,input,select,textarea,label,summary,[contenteditable="true"],#intezoInfoCard,.intezo-ctxmenu')) return
+    if (document.querySelector('.modal-overlay.active')) return
+    const x0 = ev.clientX
+    const y0 = ev.clientY
+    const base = new Map(_intezoMulti && (ev.ctrlKey || ev.metaKey) ? _intezoMulti : [])
+    let box = null
+    let turnedOn = false
+    const move = (mv) => {
+      const w = Math.abs(mv.clientX - x0)
+      const h = Math.abs(mv.clientY - y0)
+      if (!box) {
+        if (w < 5 && h < 5) return
+        box = document.createElement('div')
+        box.className = 'intezo-band'
+        document.body.appendChild(box)
+        // Huzas kozben a bongeszo ne jelolje ki a SZOVEGET a sorok kozott.
+        document.body.style.userSelect = 'none'
+        if (window.getSelection) window.getSelection().removeAllRanges()
+        turnedOn = _intezoMultiEnsure()
+        if (turnedOn) _intezoRender()
+      }
+      mv.preventDefault()
+      const L = Math.min(mv.clientX, x0)
+      const T = Math.min(mv.clientY, y0)
+      box.style.left = L + 'px'; box.style.top = T + 'px'
+      box.style.width = w + 'px'; box.style.height = h + 'px'
+      const R = L + w
+      const B = T + h
+      const rows = _intezoVisibleRows()
+      _intezoMulti.clear()
+      base.forEach((v, k2) => _intezoMulti.set(k2, v))
+      const list = document.getElementById('intezoList')
+      if (list) list.querySelectorAll('[data-pick]').forEach((node) => {
+        const r = node.getBoundingClientRect()
+        if (r.right < L || r.left > R || r.bottom < T || r.top > B) return
+        const e = rows.find((x) => x.rel === node.getAttribute('data-rel'))
+        if (e) _intezoMulti.set(e.rel, _intezoMultiEntry(e))
+      })
+      _intezoPaintSelection()
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move, true)
+      document.removeEventListener('mouseup', up, true)
+      if (!box) return
+      box.remove()
+      document.body.style.userSelect = ''
+      // A huzas utani EGY `click` ne vigye tovabb (pl. ne csukja be a
+      // kijelolest). Kozvetlenul a mouseup utan jon, ugyanabban a korben; a
+      // hosszu-nyomas idobelyeget NEM hasznaljuk, mert az egy masodpercig a
+      // jobb klikket is elnyelne.
+      const eat = (c) => { c.stopPropagation(); c.preventDefault() }
+      document.addEventListener('click', eat, { capture: true, once: true })
+      setTimeout(() => document.removeEventListener('click', eat, true), 0)
+    }
+    document.addEventListener('mousemove', move, true)
+    document.addEventListener('mouseup', up, true)
+  })
+}
+_intezoBindRubberBand()
+
+/** Tobb elem a Kukaba -- EGY kerdessel, ami kimondja, hogy visszaszerezheto. */
+async function _intezoTrashMany(items) {
+  const list = (items || []).filter((x) => x && x.rel)
+  if (!list.length) return
+  if (list.some((x) => _intezoKukaban(x.rel))) { showToast(t('intezo.multi_trash_in_kuka')); return }
+  if (list.length === 1) { await _intezoTrash(list[0]); return }
+  if (!confirm(t('intezo.trash_confirm_n', { n: list.length }))) return
+  let ok = 0
+  const failed = []
+  for (let i = 0; i < list.length; i++) {
+    showToast(t('intezo.mp_progress', { i: i + 1, n: list.length }))
+    try {
+      await _depoPost('/api/life/trash', { rel: list[i].rel })
+      ok++
+      if (_intezoMulti) _intezoMulti.delete(list[i].rel)
+    } catch (e) {
+      failed.push(list[i].name + ': ' + ((e && e.message) || t('intezo.trash_failed')))
+    }
+  }
+  const parts = [t('intezo.trash_done_n', { n: ok })]
+  if (failed.length) parts.push(t('intezo.mp_errors', { n: failed.length, first: failed[0] }))
+  showToast(parts.join(' · '))
+  if (_intezoSelected && list.some((x) => x.rel === _intezoSelected.rel)) _intezoSelected = null
+  await _intezoOpen(_intezoPath)
+  _intezoRenderMultiBar()
+}
+
+/* ===========================================================================
+   KULDES (#389) -- a jobbklikk-menu "Küldés" almenuje.
+   Boss TG 6369: "jobb egérgomb, akkor ott van, hogy send to [...] tudjam
+   küldeni például e-mailen [...] whatsapp [...] facebook, messenger".
+   - E-mail: a Marveen levelirója nyilik meg, a kijeloles csatolmanykent
+     (mappa ZIP-ben). SOHA nem kuld magatol -- a Kuldest a felhasznalo nyomja.
+   - Megosztas: a rendszer sajat megosztas-ablaka (Web Share API). Ebben
+     jelenik meg a WhatsApp, a Messenger, a Gmail stb. -- amit az adott
+     gepre/telefonra telepitettek. A WSL-bol a Windows alkalmazasai nem
+     vezerelhetok megbizhatoan; a bongeszo megosztas-ablaka viszont pont erre
+     valo, es ott mukodik, ahol a felhasznalo tenyleg ul.
+   =========================================================================== */
+
+/** Tud-e ez a bongeszo fajlt atadni mas alkalmazasnak. `null` = igen, kulonben emberi mondat. */
+function _intezoShareBlocker() {
+  if (!window.isSecureContext) {
+    return t('intezo.send_share_insecure', { url: 'http://localhost:' + (location.port || '80') })
+  }
+  if (!navigator.share || !navigator.canShare) return t('intezo.send_share_unsupported')
+  try {
+    if (!navigator.canShare({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] })) return t('intezo.send_share_unsupported')
+  } catch (e) { return t('intezo.send_share_unsupported') }
+  return null
+}
+
+/** Az e-mail fiokok, frissen kerdezve. `null` = nem lattunk oda (hiba). */
+async function _intezoEmailAccounts() {
+  try {
+    const r = await fetch('/api/email/accounts')
+    if (!r.ok) return null
+    const d = await r.json()
+    return Array.isArray(d) ? d : null
+  } catch (e) { return null }
+}
+
+function _intezoMb(n) { return (Number(n || 0) / 1024 / 1024).toFixed(1) }
+
+/** A kijeloles merete es a csatolmanyok neve, a szervertol. Hibanal toast + null. */
+async function _intezoSendInfo(items) {
+  try {
+    return await _depoPost('/api/life/send-info?lang=' + (window._lang || 'hu'), { rels: items.map((x) => x.rel) })
+  } catch (e) {
+    showToast((e && e.message) || t('intezo.send_failed'))
+    return null
+  }
+}
+
+async function _intezoSendEmail(items) {
+  const accounts = await _intezoEmailAccounts()
+  if (accounts === null) { showToast(t('intezo.send_email_accounts_failed')); return }
+  if (!accounts.length) { showToast(t('intezo.send_email_no_account')); return }
+  const info = await _intezoSendInfo(items)
+  if (!info) return
+  if (info.overEmailLimit) {
+    showToast(t('intezo.send_email_too_big', { mb: _intezoMb(info.totalBytes), limit: _intezoMb(info.emailLimit) }))
+    return
+  }
+  emailShowComposeWithLifeFiles(info, accounts)
+}
+
+/**
+ * A rendszer megosztas-ablaka. A fajlokat ELOBB letoltjuk (mappat ZIP-kent), es
+ * csak utana kerjuk a megosztast egy kulon gombbal: a bongeszo a megosztast
+ * csak kozvetlenul egy kattintas utan engedi, egy hosszu letoltes utan mar nem.
+ */
+async function _intezoSendShare(items) {
+  const blocker = _intezoShareBlocker()
+  if (blocker) { showToast(blocker); return }
+  const info = await _intezoSendInfo(items)
+  if (!info) return
+  if (info.totalBytes > 200 * 1024 * 1024) {
+    showToast(t('intezo.send_share_too_big', { mb: _intezoMb(info.totalBytes) }))
+    return
+  }
+  showToast(t('intezo.send_preparing', { n: info.items.length }))
+  const files = []
+  try {
+    for (const it of info.items) {
+      const url = it.isDir
+        ? '/api/life/zip?rel=' + encodeURIComponent(it.rel) + '&lang=' + (window._lang || 'hu')
+        : _intezoFileUrl(it.rel, true)
+      const r = await fetch(url)
+      if (!r.ok) {
+        let msg = ''
+        try { msg = (await r.json()).message || '' } catch (e) { /* not json */ }
+        throw new Error(msg || t('intezo.send_failed'))
+      }
+      const blob = await r.blob()
+      files.push(new File([blob], it.sendName, { type: blob.type || 'application/octet-stream' }))
+    }
+  } catch (e) {
+    showToast((e && e.message) || t('intezo.send_failed'))
+    return
+  }
+  if (!navigator.canShare({ files })) { showToast(t('intezo.send_share_type')); return }
+  const ov = document.createElement('div')
+  ov.className = 'modal-overlay active'
+  ov.innerHTML = '<div class="modal" style="max-width:460px;width:calc(100% - 32px)" role="dialog" aria-modal="true">'
+    + '<div class="modal-header"><h2>' + escapeHtml(t('intezo.send_share_title')) + '</h2></div>'
+    + '<div class="modal-body"><p style="margin:0 0 8px">' + escapeHtml(t('intezo.send_share_ready', { n: files.length, mb: _intezoMb(info.totalBytes) })) + '</p>'
+    + '<p style="margin:0;color:var(--text-muted);font-size:13px">' + escapeHtml(t('intezo.send_share_hint')) + '</p></div>'
+    + '<div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">'
+    + '<button type="button" class="btn-secondary" data-act="cancel">' + escapeHtml(t('intezo.cancel')) + '</button>'
+    + '<button type="button" class="btn-primary" data-act="share">' + escapeHtml(t('intezo.send_share_go')) + '</button></div></div>'
+  const close = () => { document.removeEventListener('keydown', onKey, true); ov.remove() }
+  const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close() } }
+  document.addEventListener('keydown', onKey, true)
+  ov.addEventListener('click', async (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null
+    if (!b) { if (ev.target === ov) close(); return }
+    if (b.getAttribute('data-act') === 'cancel') { close(); return }
+    try {
+      await navigator.share({ files, title: files.length === 1 ? files[0].name : t('intezo.send_share_title') })
+      close()
+    } catch (e) {
+      // A felhasznalo bezarta a megosztas-ablakot: ez nem hiba.
+      if (e && e.name === 'AbortError') { close(); return }
+      showToast(t('intezo.send_share_error', { msg: (e && e.message) || '' }))
+    }
+  })
+  document.body.appendChild(ov)
+  const go = ov.querySelector('[data-act="share"]')
+  if (go) go.focus()
+}
+
+/**
+ * A Kuldes almenu: a menu HELYBEN valt at (nem nyilik mellette masodik
+ * doboz), mert telefonon nincs "rahuzas", es a keskeny kepernyon egy oldalra
+ * nyilo almenu kilogna. A "‹" sor visz vissza.
+ */
+function _intezoMenuSend(m, items, rebuild) {
+  m.appendChild(_intezoMenuStay('📤  ' + t('intezo.menu_send') + '  ›', async () => {
+    const jegy = _intezoMenuSeq
+    m.innerHTML = ''
+    const back = _intezoMenuStay('‹  ' + t('intezo.menu_send'), () => { m.innerHTML = ''; rebuild(); _intezoPlaceMenu(m) })
+    back.style.fontWeight = '600'
+    m.appendChild(back)
+    m.appendChild(_intezoMenuSep())
+    const mail = _intezoMenuItem('✉️  ' + t('intezo.send_email'), () => _intezoSendEmail(items))
+    m.appendChild(mail)
+    const share = _intezoMenuItem('📱  ' + t('intezo.send_share'), () => _intezoSendShare(items))
+    m.appendChild(share)
+    const shareBlock = _intezoShareBlocker()
+    if (shareBlock) _intezoMenuHint(share, shareBlock)
+    else _intezoMenuHint(share, t('intezo.send_share_apps'))
+    _intezoPlaceMenu(m)
+    // Az e-mail fiok hianyat a menu ELORE kimondja, ne csak kattintasra.
+    const accounts = await _intezoEmailAccounts()
+    if (jegy !== _intezoMenuSeq || !mail.isConnected) return
+    if (accounts === null) _intezoMenuHint(mail, t('intezo.send_email_accounts_failed'))
+    else if (!accounts.length) _intezoMenuHint(mail, t('intezo.send_email_no_account'))
+    _intezoPlaceMenu(m)
+  }))
+}
+
+/** Halvany masodik sor egy menupont alatt: miert nem fog menni. */
+function _intezoMenuHint(btn, text) {
+  const s = document.createElement('span')
+  s.textContent = text
+  s.style.cssText = 'display:block;white-space:normal;max-width:300px;font-size:11px;opacity:.7;margin-top:2px'
+  btn.appendChild(s)
 }
 
 /** Video-e az elem (a lista `media` mezoje alapjan) -- ezek mehetnek a Videok ala. */
@@ -39093,7 +39764,7 @@ function _intezoBindLongPress(el, fn) {
   let y0 = 0
   const stop = () => { if (timer) { clearTimeout(timer); timer = null } }
   el.addEventListener('touchstart', (ev) => {
-    if (_intezoMulti || !ev.touches || ev.touches.length !== 1) return
+    if (!ev.touches || ev.touches.length !== 1) return
     x0 = ev.touches[0].clientX
     y0 = ev.touches[0].clientY
     stop()
@@ -40119,6 +40790,19 @@ function _intezoMenuItem(cimke, fn, veszelyes) {
   return b
 }
 
+/** Menupont, ami NEM csukja be a menut (almenu nyitasa, "vissza"). */
+function _intezoMenuStay(cimke, fn) {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.textContent = cimke
+  b.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:none;'
+    + 'padding:7px 14px;font-size:13px;cursor:pointer;white-space:nowrap;color:var(--text)'
+  b.addEventListener('mouseenter', () => { b.style.background = 'var(--bg-card-hover)' })
+  b.addEventListener('mouseleave', () => { b.style.background = 'none' })
+  b.addEventListener('click', (ev) => { ev.stopPropagation(); fn() })
+  return b
+}
+
 function _intezoMenuSep() {
   const d = document.createElement('div')
   d.style.cssText = 'height:1px;background:var(--border);margin:4px 0'
@@ -40148,10 +40832,22 @@ async function _intezoOpenMenu(ev, entry) {
   _intezoCloseMenu()
   const jegy = ++_intezoMenuSeq
 
+  // TOBBES KIJELOLES (#389): ha pipak vannak, a jobb klikk a KIJELOLESRE szol.
+  // Egy meg ki nem jelolt elemre kattintva az is bekerul (nem dobja el a tobbit).
+  let multi = null
+  if (entry && _intezoMulti && _intezoMulti.size) {
+    if (!_intezoMulti.has(entry.rel)) {
+      const row = _intezoVisibleRows().find((x) => x.rel === entry.rel)
+      _intezoMulti.set(entry.rel, row ? _intezoMultiEntry(row) : { rel: entry.rel, name: entry.name || entry.rel, isDir: !!entry.isDir, media: '' })
+      _intezoPaintSelection()
+    }
+    if (_intezoMulti.size > 1) multi = [..._intezoMulti.values()]
+  }
+
   // ELOBB KIJELOLES. A Boss keresere: „persze elobb kivalasztas."
   // CSENDESEN: a jobb klikk menut ker, nem adatlapot. A „Részletes információ"
   // menupont nyitja ki, ha tenyleg az kell.
-  if (entry) {
+  if (entry && !multi) {
     try { await _intezoInfo(entry.rel, true) } catch (e) {}
     // A jobb klikk MENUT ker, nem adatlapot. A `quiet` csak azt ereti el, hogy
     // ne NYISSA ki -- ha viszont mar nyitva volt egy korabbi bal kattintastol,
@@ -40173,7 +40869,25 @@ async function _intezoOpenMenu(ev, entry) {
     + 'background:var(--bg-modal);color:var(--text);border:1px solid var(--border);'
     + 'border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18)'
 
-  if (!entry) {
+  const build = () => {
+  if (multi) {
+    // Egy fejlec-sor: mire vonatkozik a menu. Tobbes kijelolesnel csak az all
+    // itt, aminek mind a kijelolt elemre van ertelme -- nem zsufolt.
+    const head = document.createElement('div')
+    head.textContent = t('intezo.menu_multi_head', { n: multi.length })
+    head.style.cssText = 'padding:6px 14px;font-size:12px;font-weight:600;opacity:.75'
+    m.appendChild(head)
+    m.appendChild(_intezoMenuSep())
+    m.appendChild(_intezoMenuItem('✂️  ' + t('intezo.menu_cut_n', { n: multi.length }), () => _intezoClipSet(multi, 'cut')))
+    m.appendChild(_intezoMenuItem('📄  ' + t('intezo.menu_copy_n', { n: multi.length }), () => _intezoClipSet(multi, 'copy')))
+    _intezoMenuSend(m, multi, build)
+    m.appendChild(_intezoMenuItem('👤  ' + t('intezo.multi_to_person'), () => _intezoMoveToPersonDialog()))
+    m.appendChild(_intezoMenuSep())
+    if (!multi.some((x) => _intezoKukaban(x.rel))) {
+      m.appendChild(_intezoMenuItem('🗑  ' + t('intezo.menu_trash_n', { n: multi.length }), () => _intezoTrashMany(multi), true))
+    }
+    m.appendChild(_intezoMenuItem('✖  ' + t('intezo.menu_multi_end'), () => _intezoMultiSetOn(false)))
+  } else if (!entry) {
     m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: _intezoMostaniNev() }), () => _intezoMkdir()))
     if (_intezoClip) {
       m.appendChild(_intezoMenuItem('📋  ' + t('intezo.menu_paste_into', { name: _intezoMostaniNev() }), () => _intezoPaste(_intezoPath)))
@@ -40198,6 +40912,19 @@ async function _intezoOpenMenu(ev, entry) {
     m.appendChild(_intezoMenuSep())
     m.appendChild(_intezoMenuItem('✂️  ' + t('intezo.menu_cut'), () => _intezoClipSet(entry, 'cut')))
     m.appendChild(_intezoMenuItem('📄  ' + t('intezo.menu_copy'), () => _intezoClipSet(entry, 'copy')))
+    _intezoMenuSend(m, [entry], build)
+    // Telefonon nincs Shift/Ctrl: innen indul a tobbes kijeloles ezzel az elemmel.
+    if (!_intezoMulti) {
+      m.appendChild(_intezoMenuItem('☑  ' + t('intezo.menu_select'), () => {
+        _intezoMultiEnsure()
+        const row = _intezoVisibleRows().find((x) => x.rel === entry.rel)
+        if (row) _intezoMulti.set(row.rel, _intezoMultiEntry(row))
+        _intezoAnchor = entry.rel
+        _intezoFocus = entry.rel
+        _intezoRender()
+        _intezoPaintSelection()
+      }))
+    }
     if (_intezoClip && entry.isDir) {
       m.appendChild(_intezoMenuItem('📋  ' + t('intezo.menu_paste_into', { name: entry.name || entry.rel }), () => _intezoPaste(entry.rel)))
     }
@@ -40225,6 +40952,8 @@ async function _intezoOpenMenu(ev, entry) {
       m.appendChild(_intezoMenuItem('🗑  ' + t('intezo.menu_trash'), () => _intezoTrash(entry), true))
     }
   }
+  }
+  build()
 
   document.body.appendChild(m)
   _intezoMenuEl = m
@@ -40234,9 +40963,16 @@ async function _intezoOpenMenu(ev, entry) {
   m.addEventListener('contextmenu', (e) => e.preventDefault())
   // Ne logjon ki a kepernyorol: ha a jobb also sarokban kattintott, a menu
   // befele nyilik.
+  m._at = { x: ev.clientX, y: ev.clientY }
+  _intezoPlaceMenu(m)
+}
+
+/** A menu a kattintas helyere, de a kepernyon belul (almenu-valtaskor is). */
+function _intezoPlaceMenu(m) {
+  const at = m._at || { x: 8, y: 8 }
   const r = m.getBoundingClientRect()
-  const x = Math.min(ev.clientX, window.innerWidth - r.width - 8)
-  const y = Math.min(ev.clientY, window.innerHeight - r.height - 8)
+  const x = Math.min(at.x, window.innerWidth - r.width - 8)
+  const y = Math.min(at.y, window.innerHeight - r.height - 8)
   m.style.left = Math.max(4, x) + 'px'
   m.style.top = Math.max(4, y) + 'px'
 }
@@ -40261,17 +40997,33 @@ if (!window._intezoMenuBound) {
     if (document.querySelector('.modal-overlay.active')) return
     if (e.key === 'Escape') {
       if (_intezoMenuEl) return
-      if (_intezoClip) _intezoClipClear()
+      // #389: elobb a tobbes kijeloles zarul, aztan a vagolap, aztan az egy elem.
+      if (_intezoMulti) _intezoMultiSetOn(false)
+      else if (_intezoClip) _intezoClipClear()
       // #386: a megszunt sav „Kijelölés vége" gombja helyett -- mint Windowsban.
       else if (_intezoSelected) _intezoClearSelection()
       return
     }
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+    // #389: nyilak, Home/End, Szokoz, Enter, Delete -- mint a Windows Intezoben.
+    if (!e.altKey && !_intezoMenuEl && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', ' ', 'Enter', 'Delete'].indexOf(e.key) >= 0) {
+      if (tg && tg.closest && tg.closest('#intezoTree')) return
+      if (_intezoKeyNav(e)) e.preventDefault()
+      return
+    }
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return
     const k = String(e.key || '').toLowerCase()
-    if (k === 'c' && window.getSelection && String(window.getSelection() || '')) return
-    if ((k === 'x' || k === 'c') && _intezoSelected) {
+    if (k === 'a' && !e.shiftKey) {
+      if (window.getSelection && String(window.getSelection() || '') && !_intezoMulti) window.getSelection().removeAllRanges()
       e.preventDefault()
-      _intezoClipSet(_intezoSelected, k === 'x' ? 'cut' : 'copy')
+      _intezoSelectAll()
+      return
+    }
+    if (e.shiftKey) return
+    if (k === 'c' && window.getSelection && String(window.getSelection() || '')) return
+    const sel = _intezoSelectionItems()
+    if ((k === 'x' || k === 'c') && sel.length) {
+      e.preventDefault()
+      _intezoClipSet(sel.length > 1 ? sel : (_intezoSelected || sel[0]), k === 'x' ? 'cut' : 'copy')
     } else if (k === 'v' && _intezoClip) {
       e.preventDefault()
       void _intezoPaste(_intezoPath)

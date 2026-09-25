@@ -82,7 +82,10 @@ describe('#386 -- az adatlap csak az Info gombra nyilik', () => {
 
   it('Ctrl+X/C a kijelolesen, Kivagas/Masolas a jobb klikk menuben mukodik', () => {
     const kod = csakKod(app)
-    expect(kod).toMatch(/\(k === 'x' \|\| k === 'c'\) && _intezoSelected/)
+    // #389 ota a tobbes kijelolesre is: `_intezoSelectionItems()` = a pipak,
+    // vagy ha nincs pipa, az egy kijelolt elem.
+    expect(kod).toMatch(/\(k === 'x' \|\| k === 'c'\) && sel\.length/)
+    expect(fnBody('function _intezoSelectionItems(')).toContain('_intezoSelected')
     expect(kod).toContain("_intezoClipSet(entry, 'cut')")
   })
 })
