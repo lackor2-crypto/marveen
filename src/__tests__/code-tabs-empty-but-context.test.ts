@@ -71,6 +71,7 @@ const harness = `
   ${extractFn(app, 'cbTabViewBtn')}
   ${extractFn(app, 'cbClosedTabsHtml')}
   ${extractFn(app, 'cbTabsPickHtml')}
+  ${extractFn(app, 'cbRowTaskCounts')}
   ${extractFn(app, 'cbEntryFromProject')}
   return {
     cbTabsPickHtml: cbTabsPickHtml, cbTabsEmptyHasCtx: cbTabsEmptyHasCtx,
