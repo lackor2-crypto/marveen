@@ -70,6 +70,10 @@ export function buildZip(entries: ZipEntry[], modified: Date = new Date()): Buff
     const payload = useDeflate ? deflated : raw
     const method = useDeflate ? 8 : 0
     const crc = crc32(raw)
+    // General-purpose bit 11: the name is UTF-8. Without it Windows Explorer
+    // reads an accented name ("Ajánlat") as CP437 and shows garbage. Only set
+    // for non-ASCII names, so plain archives stay byte-identical.
+    const flags = /[^\x00-\x7f]/.test(entry.name) ? 0x0800 : 0
 
     total += payload.length + nameBuf.length * 2 + 76
     if (total > MAX_TOTAL) throw new Error('zip: archive too large for zip32')
@@ -77,7 +81,7 @@ export function buildZip(entries: ZipEntry[], modified: Date = new Date()): Buff
     const local = Buffer.alloc(30 + nameBuf.length)
     local.writeUInt32LE(0x04034b50, 0)
     local.writeUInt16LE(20, 4)          // version needed
-    local.writeUInt16LE(0, 6)           // flags
+    local.writeUInt16LE(flags, 6)       // flags
     local.writeUInt16LE(method, 8)
     local.writeUInt16LE(time, 10)
     local.writeUInt16LE(date, 12)
@@ -92,7 +96,7 @@ export function buildZip(entries: ZipEntry[], modified: Date = new Date()): Buff
     central.writeUInt32LE(0x02014b50, 0)
     central.writeUInt16LE(20, 4)        // version made by
     central.writeUInt16LE(20, 6)        // version needed
-    central.writeUInt16LE(0, 8)
+    central.writeUInt16LE(flags, 8)
     central.writeUInt16LE(method, 10)
     central.writeUInt16LE(time, 12)
     central.writeUInt16LE(date, 14)

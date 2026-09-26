@@ -119,6 +119,11 @@
     // "nem tudtam betolteni" sose latsszon "meg nincs dontes"-nek.
     decOpen: false,
     decisions: null,
+    // --- atadocsomag (#406, 12. pont) ---
+    hoOpen: false,
+    hoScope: 'done',
+    hoPlan: null,
+    hoError: null,
     decError: null,
     decBusy: false,
     decEdit: null,
@@ -3093,6 +3098,86 @@
       + '</li>'
   }
 
+  // ---- atadocsomag (#406, 12. pont) -----------------------------------------
+  //
+  // Egy gomb: a projekt anyaga egy ZIP-ben (Tartalom oldal + munkadarabonkent
+  // egy mappa). ELOBB a terv latszik -- mi kerul bele, es mi NEM (hianyzo
+  // fajl, nincs Raktar) --, hogy senki ne adjon at hianyos csomagot tudtan kivul.
+
+  function hoSize(bytes) {
+    var mb = (bytes || 0) / (1024 * 1024)
+    return mb >= 1 ? t('workbench.ho.mb', { n: mb.toFixed(1) }) : t('workbench.ho.kb', { n: Math.max(1, Math.round((bytes || 0) / 1024)) })
+  }
+
+  function loadHandoff() {
+    var pid = WB.projectId
+    var scope = WB.hoScope
+    WB.hoPlan = null
+    WB.hoError = null
+    render()
+    return api('GET', '/api/workbench/handoff?project=' + encodeURIComponent(pid) + '&scope=' + encodeURIComponent(scope)).then(function (r) {
+      if (WB.projectId !== pid || WB.hoScope !== scope) return
+      if (!r.ok) { WB.hoError = r.message; render(); return }
+      WB.hoPlan = (r.data && r.data.plan) || null
+      if (!WB.hoPlan) WB.hoError = t('workbench.ho.no_plan')
+      render()
+    })
+  }
+
+  function hoProblemsHtml(plan) {
+    var rows = []
+    plan.items.forEach(function (e) {
+      [e.source].concat(e.images || []).forEach(function (f) {
+        if (f && f.problem) rows.push('<li>' + esc(e.title + ': ' + f.name) + ' -- ' + esc(t('workbench.ho.problem.' + f.problem)) + '</li>')
+      })
+    })
+    if (!rows.length) return ''
+    return '<div class="wb-ho-warn"><p>' + esc(t('workbench.ho.problems', { n: rows.length })) + '</p><ul>' + rows.join('') + '</ul></div>'
+  }
+
+  function handoffPanelHtml() {
+    if (!WB.hoOpen) return ''
+    var p = WB.hoPlan
+    var scopeBtn = function (sc, label) {
+      var on = WB.hoScope === sc
+      return '<button type="button" class="btn-secondary" data-wb-act="ho-scope" data-wb-scope="' + sc + '" aria-pressed="' + on + '">' + esc(label) + '</button>'
+    }
+    var body
+    if (WB.hoError) {
+      body = '<div class="info-box depo-bad">' + esc(WB.hoError) + '</div>'
+        + '<button type="button" class="btn-secondary" data-wb-act="ho-refresh">' + esc(t('workbench.tpl.retry')) + '</button>'
+    } else if (!p) {
+      body = '<p class="wb-hint">' + esc(t('workbench.loading')) + '</p>'
+    } else if (!p.all_count) {
+      body = '<p class="wb-hint">' + esc(t('workbench.ho.no_items')) + '</p>'
+    } else if (!p.items.length) {
+      body = '<p class="wb-hint">' + esc(t('workbench.ho.nothing_done')) + '</p>'
+    } else {
+      var href = '/api/workbench/handoff/download?project=' + encodeURIComponent(WB.projectId)
+        + '&scope=' + encodeURIComponent(WB.hoScope) + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      body = '<p>' + esc(t('workbench.ho.summary', { items: p.items.length, files: p.files, size: hoSize(p.total_bytes) })) + '</p>'
+        + '<ul class="wb-ho-list">' + p.items.map(function (e) {
+          return '<li>' + esc(e.title) + ' <span class="wb-muted">(' + esc(typeLabel(e.type)) + ' · ' + esc(statusLabel(e.status)) + ')</span></li>'
+        }).join('') + '</ul>'
+        + hoProblemsHtml(p)
+        + (p.too_large
+          ? '<div class="info-box depo-bad">' + esc(t('workbench.ho.too_large')) + '</div>'
+          : '<a class="btn-primary wb-ho-download" href="' + escA(href) + '" download>' + esc(t('workbench.ho.download')) + '</a>')
+    }
+    return '<section class="wb-caps-panel wb-ho-panel" id="wbHoPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.ho.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="ho-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.ho.intro')) + '</p>'
+      + '<div class="wb-ho-scope" role="group" aria-label="' + escA(t('workbench.ho.scope_label')) + '">'
+      + scopeBtn('done', p ? t('workbench.ho.scope_done_n', { n: p.done_count }) : t('workbench.ho.scope_done'))
+      + scopeBtn('all', p ? t('workbench.ho.scope_all_n', { n: p.all_count }) : t('workbench.ho.scope_all'))
+      + '</div>'
+      + body
+      + '</section>'
+  }
+
   function decisionsPanelHtml() {
     if (!WB.decOpen) return ''
     var body = ''
@@ -3304,6 +3389,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="search-open" aria-pressed="' + !!WB.searchOpen + '">' + esc(t('workbench.search.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
@@ -3311,6 +3397,7 @@
       + searchPanelHtml()
       + timelinePanelHtml()
       + decisionsPanelHtml()
+      + handoffPanelHtml()
       + overviewHtml()
       + panelTabsHtml()
       + layoutHtml()
@@ -3694,6 +3781,10 @@
     else if (a === 'approval-withdraw') approvalAction('withdraw')
     else if (a === 'approval-approve') approvalAction('approve')
     else if (a === 'approval-reject') approvalAction('reject')
+    else if (a === 'ho-open') { WB.hoOpen = !WB.hoOpen; if (WB.hoOpen) loadHandoff(); else render() }
+    else if (a === 'ho-close') { WB.hoOpen = false; render() }
+    else if (a === 'ho-refresh') loadHandoff()
+    else if (a === 'ho-scope') { var sc = act.getAttribute('data-wb-scope'); if (sc === 'done' || sc === 'all') { WB.hoScope = sc; loadHandoff() } }
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
     else if (a === 'dec-close') { WB.decOpen = false; WB.decEdit = null; render() }
     else if (a === 'dec-edit') { WB.decEdit = act.getAttribute('data-wb-dec'); render() }
