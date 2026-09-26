@@ -805,3 +805,14 @@
 .wb-post-story { position: relative; }
 .wb-post-reactions { display: flex; justify-content: space-around; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border, #d0d7de); color: var(--muted, #6b7280); font-size: 0.9em; }
 @media (max-width: 560px) { .wb-post-mobile, .wb-post-desktop { width: 100%; } }
+
+/* #406 -- poszt letoltes: a gombsor tordelodik telefonon is */
+.wb-post-dl { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.wb-post-dl button { max-width: 100%; }
+/* PDF: csak az elonezeti kartya kerul a lapra */
+@media print {
+  body.wb-printing-post * { visibility: hidden !important; }
+  body.wb-printing-post .wb-post-stage, body.wb-printing-post .wb-post-stage * { visibility: visible !important; }
+  body.wb-printing-post .wb-post-stage { position: absolute; left: 0; top: 0; width: 500px; max-width: 100%; }
+  body.wb-printing-post .wb-post-safe { display: none; }
+}

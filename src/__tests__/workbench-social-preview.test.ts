@@ -93,4 +93,40 @@ describe('kozossegi poszt elonezet (#406)', () => {
     expect(html).toContain('workbench.post.no_image')
     expect(html).toContain('workbench.post.no_text')
   })
+
+  it('letoltes: JPG/PNG/PDF gomb a platform meretevel; kep nelkul a kep-gombok tiltva, emberi mondattal', async () => {
+    const h = await openItem(COMPOSITE, [TEXT, IMAGE])
+    h.click({ 'data-wb-act': 'post-toggle' })
+    let html = h.html()
+    expect(html).toContain('data-wb-act="post-dl" data-wb-fmt="jpg"')
+    expect(html).toContain('data-wb-fmt="png"')
+    expect(html).toContain('data-wb-act="post-pdf"')
+    expect(html).toContain('workbench.post.dl_hint')
+    expect(html).not.toMatch(/data-wb-fmt="jpg" disabled/)
+    const e = await openItem(COMPOSITE, [TEXT])
+    e.click({ 'data-wb-act': 'post-toggle' })
+    html = e.html()
+    expect(html).toMatch(/data-wb-fmt="jpg" disabled/)
+    expect(html).toContain('workbench.post.dl_no_image')
+    expect(html).not.toMatch(/data-wb-act="post-pdf" disabled/)
+  })
+
+  it('kivagas: ugyanaz, mint az elonezet object-fit:cover + huzott pozicio', async () => {
+    const h = workbenchHarness()
+    const crop = h.win.MarvinWorkbench._post.crop
+    // 4000x3000 fekvo kep -> 1080x1350 allo: a teljes magassag, kozepen
+    const c = crop(4000, 3000, 1080, 1350, 50, 50)
+    expect(c.sh).toBeCloseTo(3000)
+    expect(c.sw).toBeCloseTo(2400)
+    expect(c.sx).toBeCloseTo(800)
+    expect(c.sy).toBeCloseTo(0)
+    // bal szelre huzva
+    expect(crop(4000, 3000, 1080, 1350, 0, 50).sx).toBeCloseTo(0)
+    expect(crop(4000, 3000, 1080, 1350, 100, 50).sx).toBeCloseTo(1600)
+    // a kimenet aranya mindig a platform arany
+    const s = crop(1000, 2000, 1200, 630, 50, 30)
+    expect(s.sw / s.sh).toBeCloseTo(1200 / 630)
+    expect(crop(0, 0, 1080, 1080, 50, 50)).toBeNull()
+    expect(h.win.MarvinWorkbench._post.maxBytes).toBe(5 * 1024 * 1024)
+  })
 })
