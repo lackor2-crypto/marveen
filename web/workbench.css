@@ -764,3 +764,11 @@
 @media (max-width: 640px) {
   .wb-mic, .wb-tts { min-height: 36px; }
 }
+
+/* Betekinto link (#406, 18. pont) */
+.wb-share { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border, #ddd); }
+.wb-share-new { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.wb-share-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.wb-share-row { margin: 6px 0; word-break: break-word; }
+.wb-share-link { display: flex; gap: 6px; margin-top: 4px; }
+.wb-share-link .wb-input { flex: 1 1 auto; min-width: 0; font-size: 12px; }

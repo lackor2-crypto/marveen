@@ -35,7 +35,8 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
-import { APP_LANG } from '../../config.js'
+import { APP_LANG, DASHBOARD_PUBLIC_URL } from '../../config.js'
+import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned,
@@ -245,6 +246,34 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   todo_gcal_failed: {
     hu: 'A Google Naptár nem fogadta el az eseményt. A Google ezt válaszolta:',
     en: 'Google Calendar did not accept the event. Google replied:',
+  },
+  share_bad_kind: {
+    hu: 'Nem derül ki, mire szóljon a link: egy munkadarabra vagy az átadási csomagra.',
+    en: 'It is not clear what the link should show: one work item or the handoff package.',
+  },
+  share_bad_days: {
+    hu: 'A link 1, 7 vagy 30 napig lehet érvényes. Válassz ezek közül.',
+    en: 'The link can be valid for 1, 7 or 30 days. Pick one of these.',
+  },
+  share_bad_scope: {
+    hu: 'Az átadási csomag a kész munkadarabokból vagy mindegyikből állhat. Válassz ezek közül.',
+    en: 'The handoff package can hold the finished work items or all of them. Pick one of these.',
+  },
+  share_item_not_found: {
+    hu: 'Ez a munkadarab már nincs meg, így linket sem lehet adni hozzá. Frissítsd az oldalt.',
+    en: 'This work item no longer exists, so no link can be made for it. Refresh the page.',
+  },
+  share_project_not_found: {
+    hu: 'Ez a projekt már nincs meg. Frissítsd az oldalt.',
+    en: 'This project no longer exists. Refresh the page.',
+  },
+  share_blocked: {
+    hu: 'Linket kiadni most tiltva van (Beállítások → Autonómia: a „Jogosultság-változtatás / megosztás” 1-es szinten). Állítsd 2-re (jóváhagyással) vagy 3-ra.',
+    en: 'Issuing links is switched off (Settings → Autonomy: "Permission change / sharing" is at level 1). Set it to 2 (with approval) or 3.',
+  },
+  share_not_found: {
+    hu: 'Ez a link már nincs meg. Frissítsd az oldalt.',
+    en: 'This link no longer exists. Refresh the page.',
   },
   todo_none_due: {
     hu: 'Ebben a projektben nincs nyitott, határidős teendő, így a naptárba sincs mit betenni.',
@@ -944,6 +973,38 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = addTodo({ work_item_id: it.id, text: body['text'], due_date: body['due_date'], repeat: body['repeat'], by: actor(ctx), source: 'owner' })
     if (!r.ok) return fail(res, r.code === 'too_many' ? 409 : r.code === 'item_not_found' ? 404 : 400, 'todo_' + r.code, lang)
     json(res, { todo: r.todo, todos: listItemTodos(it.id) })
+    return true
+  }
+  // BETEKINTO LINK (#406, 18. pont): letrehozas a `permission_change` kapun
+  // at, visszavonas azonnal. A nyilvanos lap a `workbench-share-view.ts`-ben.
+  if (path === '/api/workbench/shares' && method === 'GET') {
+    const project = getProject(String(url.searchParams.get('project') || ''))
+    if (!project) return fail(res, 404, 'share_project_not_found', lang)
+    try { settleShareApprovals() } catch { /* a lista akkor is jojjon */ }
+    json(res, { shares: listProjectShares(project.id), public_base: DASHBOARD_PUBLIC_URL ? DASHBOARD_PUBLIC_URL.replace(/\/$/, '') : null })
+    return true
+  }
+  if (path === '/api/workbench/shares' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const r = requestShare({
+      kind: body['kind'], project_id: body['project'], work_item_id: body['item_id'], scope: body['scope'], days: body['days'],
+      lang: lang === 'en' ? 'en' : 'hu', actor: actor(ctx),
+    })
+    if (!r.ok) {
+      if (r.code === 'project_archived') return fail(res, 409, 'project_archived', lang)
+      if (r.code === 'blocked') return fail(res, 403, 'share_blocked', lang)
+      return fail(res, r.code.endsWith('not_found') ? 404 : 400, 'share_' + r.code, lang)
+    }
+    json(res, { state: r.state, share: r.share, shares: listProjectShares(r.share.project_id) })
+    return true
+  }
+  const shareRevoke = path.match(/^\/api\/workbench\/shares\/([^/]+)\/revoke$/)
+  if (shareRevoke && method === 'POST') {
+    const had = getShare(decodeURIComponent(shareRevoke[1]))
+    if (!had) return fail(res, 404, 'share_not_found', lang)
+    revokeShare(had.id)
+    json(res, { shares: listProjectShares(had.project_id) })
     return true
   }
   // GOOGLE NAPTAR (#406, 14. pont B): csak a tulajdonos kattintasara,
