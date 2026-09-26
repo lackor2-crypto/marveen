@@ -38,7 +38,7 @@ import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG } from '../../config.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -272,6 +272,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   not_found: {
     hu: 'Ez a munkadarab nem található (lehet, hogy közben törölték).',
     en: 'This work item was not found (it may have been deleted).',
+  },
+  pin_bad_value: {
+    hu: 'Nem derült ki, hogy kitűzni vagy levenni kell-e a csillagot. Frissítsd az oldalt, és kattints újra a csillagra.',
+    en: 'It was not clear whether to pin or unpin this item. Refresh the page and click the star again.',
   },
   bad_json: {
     hu: 'A kérés nem értelmezhető.',
@@ -1095,6 +1099,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
+    return true
+  }
+
+  // KITUZES (#406, 21bcb1f4): csillag a listan. A valasz a friss listat is
+  // visszaadja, hogy a felulet ne sajat maga rendezzen (egy szabaly, egy hely).
+  if (segs.length === 2 && segs[1] === 'pin' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    if (typeof body['pinned'] !== 'boolean') return fail(res, 400, 'pin_bad_value', lang)
+    const updated = setWorkItemPinned(item.id, body['pinned'])
+    if (!updated) return fail(res, 404, 'not_found', lang)
+    json(res, { item: updated, items: listWorkItems(item.project_id) })
     return true
   }
 

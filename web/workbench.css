@@ -80,6 +80,26 @@
 .wb-item-title { word-break: break-word; }
 .wb-item-meta { font-size: 0.8rem; opacity: 0.7; }
 
+/* Kituzes (#406, 21bcb1f4): a csillag a sor elejen, telefonon is kenyelmes
+   celpont (min. 36px), a munkadarab-gomb kitolti a maradekot. */
+.wb-item-row { display: flex; align-items: stretch; gap: 6px; }
+.wb-item-row .wb-item { flex: 1 1 auto; min-width: 0; }
+.wb-item-pin {
+  flex: 0 0 auto;
+  min-width: 36px;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.wb-item-pin:hover:not(:disabled) { border-color: var(--accent, #2563eb); opacity: 1; }
+.wb-item-pin[aria-pressed="true"] { color: #d97706; opacity: 1; }
+.wb-item-pin:disabled { cursor: default; }
+
 .wb-empty {
   border: 1px dashed var(--border, #d0d7de);
   border-radius: 8px;
