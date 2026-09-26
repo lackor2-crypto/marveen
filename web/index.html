@@ -28,16 +28,29 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Marveen">
   <script>
-    // Service worker intentionally DISABLED. A caching SW caused iOS load
-    // failures (respondWith null on cache miss) and a reload-loop when combined
-    // with re-registration. We no longer register one, and we actively
-    // unregister any previously-installed SW so a wedged client self-heals on
-    // the next visit. The dashboard is a localhost/tailnet tool that does not
-    // need offline caching.
-    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-      navigator.serviceWorker.getRegistrations()
-        .then((regs) => regs.forEach((r) => r.unregister()))
-        .catch(() => {});
+    // Service worker: OFFLINE NOTICE ONLY (card #409). It caches nothing but
+    // /offline.html and only answers when the app page itself cannot load, so
+    // a phone that cannot reach this machine says so instead of showing just
+    // the launch icon. The earlier caching worker broke iOS loads and a
+    // kill-switch caused a reload loop (dc7f2962) -- see web/sw.js for the
+    // rules that keep this one out of those failures. Any registration with a
+    // different script is removed; registering /sw.js again only updates it.
+    // No reload, no controllerchange handler.
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+      window.addEventListener('load', function () {
+        var sw = navigator.serviceWorker
+        var keep = location.origin + '/sw.js'
+        ;(sw.getRegistrations ? sw.getRegistrations() : Promise.resolve([]))
+          .then(function (regs) {
+            regs.forEach(function (r) {
+              var w = r.active || r.waiting || r.installing
+              if (w && w.scriptURL.split('?')[0] !== keep) r.unregister()
+            })
+          })
+          .catch(function () {})
+          .then(function () { return sw.register('/sw.js', { scope: '/' }) })
+          .catch(function () {})
+      })
     }
   </script>
 </head>

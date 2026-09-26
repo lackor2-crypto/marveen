@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<!--
+  Shown by sw.js ONLY when the app page itself could not be loaded (network
+  error or no answer in 15 s). Stored on the device, so it must stand alone:
+  no external file, no app script, both languages inline. It never reloads by
+  itself -- only the button does (card #409).
+-->
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a1917">
+  <title>Nem érem el a gépet</title>
+  <style>
+    :root { --bg: #faf9f5; --fg: #1a1917; --muted: #6b6860; --card: #fff; --line: #e3e0d6; --accent: #d97757; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1a1917; --fg: #f3f1ea; --muted: #a9a59a; --card: #262522; --line: #3a3833; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 16px; background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; }
+    main { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line);
+      border-radius: 16px; padding: 24px; }
+    h1 { font-size: 1.3rem; margin: 0 0 8px; }
+    p { margin: 0 0 12px; }
+    ol { margin: 0 0 16px; padding-left: 1.3em; }
+    li { margin-bottom: 6px; }
+    .muted { color: var(--muted); font-size: 0.92rem; }
+    button { width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: var(--accent);
+      color: #fff; font-size: 1.05rem; font-weight: 600; cursor: pointer; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div data-lang="hu">
+      <h1>Nem érem el a gépet</h1>
+      <p>A telefon nem kapott választ attól a géptől, amelyiken a dashboard fut. Az internet ettől még működhet: ilyenkor általában a kapcsolat a géppel akadt el.</p>
+      <ol>
+        <li>Ha a <b>Tailscale</b> alkalmazással éred el: nyisd meg a telefonon, kapcsold <b>ki</b>, majd újra <b>be</b>.</li>
+        <li>Nézd meg, hogy a gép be van-e kapcsolva, és nem alszik-e.</li>
+        <li>Ha a gép épp most frissült, várj egy percet.</li>
+      </ol>
+      <button type="button" data-retry>Újra próbálom</button>
+      <p class="muted" style="margin-top:12px">Ezt az oldalt a telefon tárolja, hogy ilyenkor is szólni tudjon. Semmi nem veszett el.</p>
+    </div>
+    <div data-lang="en" hidden>
+      <h1>Cannot reach the computer</h1>
+      <p>The phone got no answer from the computer the dashboard runs on. The internet may still be fine: usually the connection to that computer is stuck.</p>
+      <ol>
+        <li>If you reach it through the <b>Tailscale</b> app: open it on the phone, switch it <b>off</b>, then <b>on</b> again.</li>
+        <li>Check that the computer is switched on and not asleep.</li>
+        <li>If it has just been updated, wait a minute.</li>
+      </ol>
+      <button type="button" data-retry>Try again</button>
+      <p class="muted" style="margin-top:12px">The phone keeps this page so it can tell you this. Nothing is lost.</p>
+    </div>
+  </main>
+  <script>
+    (function () {
+      var lang = 'hu'
+      try { lang = localStorage.getItem('marveen.lang') || '' } catch (e) { lang = '' }
+      if (lang !== 'hu' && lang !== 'en') lang = /^hu\b/i.test(navigator.language || '') ? 'hu' : 'en'
+      document.documentElement.lang = lang
+      var blocks = document.querySelectorAll('[data-lang]')
+      for (var i = 0; i < blocks.length; i++) blocks[i].hidden = blocks[i].getAttribute('data-lang') !== lang
+      document.title = lang === 'en' ? 'Cannot reach the computer' : 'Nem érem el a gépet'
+      var buttons = document.querySelectorAll('[data-retry]')
+      for (var j = 0; j < buttons.length; j++) buttons[j].addEventListener('click', function () { location.reload() })
+    })()
+  </script>
+</body>
+</html>
