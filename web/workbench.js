@@ -1164,21 +1164,14 @@
 
   /** A kep a platform PONTOS mereteben, a huzott kivagassal. JPG-nel 0.9-es
    *  minoseg, es ha 5 MB folott lenne, lepcsozetesen lejjebb. */
-  function postDownload(fmt) {
+  function postRender(fmt) {
     var st = postState()
     var img = postImage()
-    if (!img || st.busy) return
     var pf = postPlatform(st.platform)
-    st.busy = true
-    render()
-    var done = function (ok, msg) {
-      st.busy = false
-      render()
-      window.showToast(ok ? t('workbench.post.dl_done', { w: pf.w, h: pf.h }) : t('workbench.post.dl_failed', { message: msg || '' }))
-    }
-    loadImg(partImageSrc(img)).then(function (im) {
+    if (!img) return Promise.reject(new Error(''))
+    return loadImg(partImageSrc(img)).then(function (im) {
       var c = postCrop(im.naturalWidth, im.naturalHeight, pf.w, pf.h, st.fx, st.fy)
-      if (!c) { done(false, ''); return }
+      if (!c) throw new Error('')
       var cv = document.createElement('canvas')
       cv.width = pf.w
       cv.height = pf.h
@@ -1187,19 +1180,90 @@
       ctx.fillRect(0, 0, pf.w, pf.h)
       ctx.imageSmoothingQuality = 'high'
       ctx.drawImage(im, c.sx, c.sy, c.sw, c.sh, 0, 0, pf.w, pf.h)
-      if (fmt === 'png') {
-        cv.toBlob(function (blob) { done(downloadBlob(blob, postFileName(pf, 'png'))) }, 'image/png')
-        return
-      }
-      var q = 0.9
-      var step = function () {
-        cv.toBlob(function (blob) {
-          if (blob && blob.size > POST_MAX_BYTES && q > 0.55) { q = Math.round((q - 0.1) * 100) / 100; step(); return }
-          done(downloadBlob(blob, postFileName(pf, 'jpg')))
-        }, 'image/jpeg', q)
-      }
-      step()
-    }).catch(function (e) { done(false, e && e.message) })
+      return new Promise(function (resolve, reject) {
+        if (fmt === 'png') {
+          cv.toBlob(function (blob) { blob ? resolve({ blob: blob, pf: pf, ext: 'png' }) : reject(new Error('')) }, 'image/png')
+          return
+        }
+        var q = 0.9
+        var step = function () {
+          cv.toBlob(function (blob) {
+            if (!blob) { reject(new Error('')); return }
+            if (blob.size > POST_MAX_BYTES && q > 0.55) { q = Math.round((q - 0.1) * 100) / 100; step(); return }
+            resolve({ blob: blob, pf: pf, ext: 'jpg' })
+          }, 'image/jpeg', q)
+        }
+        step()
+      })
+    })
+  }
+
+  function postDownload(fmt) {
+    var st = postState()
+    if (!postImage() || st.busy) return
+    st.busy = true
+    render()
+    postRender(fmt).then(function (r) {
+      st.busy = false
+      render()
+      var ok = downloadBlob(r.blob, postFileName(r.pf, r.ext))
+      window.showToast(ok ? t('workbench.post.dl_done', { w: r.pf.w, h: r.pf.h }) : t('workbench.post.dl_failed', { message: '' }))
+    }).catch(function (e) {
+      st.busy = false
+      render()
+      window.showToast(t('workbench.post.dl_failed', { message: (e && e.message) || '' }))
+    })
+  }
+
+  /** Az elmentett platform-kepek (a betekinto link ezeket adja). A NULLA ket
+   *  dolog: "meg nincs" (ures lista) vs "nem latok oda" (hiba) -- kulon mondat. */
+  function loadPostFiles() {
+    var st = postState()
+    var itemId = st.itemId
+    st.filesError = null
+    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/post-files').then(function (r) {
+      if (WB.selectedId !== itemId) return
+      if (r.ok) { st.files = (r.data && r.data.files) || []; st.filesError = null } else st.filesError = r.message
+      render()
+    })
+  }
+
+  /** A kesz kep UJ fajlkent a projekt mappajaba (sosem ir felul), hogy a
+   *  betekinto link letoltesre kinalhassa. Mindig JPG (5 MB alatt). */
+  function postSave() {
+    var st = postState()
+    if (!postImage() || st.busy || archived()) return
+    var itemId = st.itemId
+    st.busy = true
+    render()
+    var fail = function (msg) { st.busy = false; render(); window.showToast(t('workbench.post.save_failed', { message: msg || '' })) }
+    postRender('jpg').then(function (r) {
+      var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/post-files?platform=' + encodeURIComponent(r.pf.id)
+        + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      return fetch(url, { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: r.blob }).then(function (res) {
+        return res.json().catch(function () { return null }).then(function (data) {
+          if (!res.ok) { fail((data && data.message) || t('workbench.err.http', { status: res.status })); return }
+          st.busy = false
+          window.showToast(t('workbench.post.saved', { name: (data && data.name) || '' }))
+          loadPostFiles()
+        })
+      })
+    }).catch(function (e) { fail((e && e.message) || t('workbench.err.network')) })
+  }
+
+  function postFilesHtml(st) {
+    if (st.filesError) return '<p class="wb-hint">' + esc(t('workbench.post.files_error', { message: st.filesError })) + '</p>'
+    if (!st.files) return ''
+    if (!st.files.length) return '<p class="wb-hint">' + esc(t('workbench.post.files_none')) + '</p>'
+    return '<div class="wb-post-files"><p class="wb-hint">' + esc(t('workbench.post.files_title')) + '</p><ul>'
+      + st.files.map(function (f) {
+        var pf = postPlatform(f.platform)
+        return '<li>' + esc(t('workbench.post.pf.' + pf.id, { w: pf.w, h: pf.h })) + ': '
+          + (f.available
+            ? '<a href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '&download=1" target="_blank" rel="noopener">' + esc(f.name) + '</a>'
+            : '<span class="wb-muted">' + esc(t('workbench.post.file_missing', { name: f.name })) + '</span>')
+          + '</li>'
+      }).join('') + '</ul></div>'
   }
 
   /** A poszt-nezet PDF-kent: a bongeszo sajat nyomtatasa (Mentes PDF-kent),
@@ -1274,8 +1338,11 @@
       + '<button type="button" class="btn-secondary" data-wb-act="post-dl" data-wb-fmt="png"' + (img && !st.busy ? '' : ' disabled') + '>'
       + esc(t('workbench.post.dl_png')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="post-pdf">' + esc(t('workbench.post.dl_pdf')) + '</button>'
+      + (archived() ? '' : '<button type="button" class="btn-secondary" data-wb-act="post-save"' + (img && !st.busy ? '' : ' disabled') + '>'
+        + esc(t('workbench.post.save', { w: pf.w, h: pf.h })) + '</button>')
       + '</div>'
       + '<p class="wb-hint">' + esc(t(img ? 'workbench.post.dl_hint' : 'workbench.post.dl_no_image')) + '</p>'
+      + (img ? '<p class="wb-hint">' + esc(t('workbench.post.save_hint')) + '</p>' : '') + postFilesHtml(st)
     return '<div class="wb-post-block">' + head + controls
       + '<div class="wb-post-stage wb-post-' + st.view + '">' + card + '</div>' + facts + dl + '</div>'
   }
@@ -5711,11 +5778,12 @@
     else if (a === 'create') { e.preventDefault(); create() }
     else if (a === 'tpl-use') useTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'tpl-retry') { WB.templatesError = null; WB.templates = null; render(); loadTemplates() }
-    else if (a === 'post-toggle') { var ps = postState(); ps.open = !ps.open; render() }
+    else if (a === 'post-toggle') { var ps = postState(); ps.open = !ps.open; render(); if (ps.open && !ps.files) loadPostFiles() }
     else if (a === 'post-view') { var pv = act.getAttribute('data-wb-view'); if (pv === 'mobile' || pv === 'desktop') { postState().view = pv; render() } }
     else if (a === 'post-more') { var pm = postState(); pm.more = !pm.more; render() }
     else if (a === 'post-dl') postDownload(act.getAttribute('data-wb-fmt') === 'png' ? 'png' : 'jpg')
     else if (a === 'post-pdf') postPdf()
+    else if (a === 'post-save') postSave()
     else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
     else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partNewDraft = ''; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }

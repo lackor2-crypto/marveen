@@ -816,3 +816,5 @@
   body.wb-printing-post .wb-post-stage { position: absolute; left: 0; top: 0; width: 500px; max-width: 100%; }
   body.wb-printing-post .wb-post-safe { display: none; }
 }
+.wb-post-files ul { margin: 4px 0 0; padding-left: 18px; }
+.wb-post-files li { word-break: break-word; }

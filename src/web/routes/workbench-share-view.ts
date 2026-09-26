@@ -6,6 +6,8 @@
 //   GET /view/<token>            -> a lap (szkript nelkul, sandbox CSP)
 //   GET /view/<token>/file       -> munkadarab-linknel: az eredeti fajl letoltese
 //   GET /view/<token>/download   -> csomag-linknel: az atadasi csomag (ZIP)
+//   GET /view/<token>/post/<id>  -> vegyes munkadarabnal: egy elmentett
+//                                   platform-meretu posztkep (#406)
 // Barmilyen hibanal (rossz, lejart, visszavont token, eltunt munkadarab)
 // ugyanaz az emberi mondat jon, 404-gyel -- a kivulallo nem tudja meg, melyik.
 import { createReadStream, statSync } from 'node:fs'
@@ -15,6 +17,7 @@ import { getProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { buildExportPage } from '../../workbench-export.js'
 import { buildPreview } from '../../workbench-preview.js'
+import { listPostFiles, getPostFile, POST_PLATFORMS } from '../../workbench-post-files.js'
 import { planHandoff, buildHandoffZip, HANDOFF_MAX_BYTES } from '../../workbench-handoff.js'
 import { resolveShareToken, noteShareView, shareLangHint, type ShareRow } from '../../workbench-share.js'
 import type { RouteContext } from './types.js'
@@ -30,6 +33,9 @@ const T = {
     handoff: 'Átadási csomag', project: 'Projekt', zip: 'A csomag letöltése (ZIP)',
     noItems: 'Ebben a csomagban most nincs egy munkadarab sem.', tooLarge: 'A csomag túl nagy a letöltéshez. Szólj annak, aki a linket küldte.',
     items: 'Munkadarabok',
+    postTitle: 'A poszt képei, platform-méretben',
+    postNone: 'Ehhez a poszthoz még nincs elmentett platform-méretű kép. A poszt tartalma lent látható; a képet a küldőtől kérheted.',
+    postPdf: 'PDF-hez: a böngésző Nyomtatás menüjében válaszd a „Mentés PDF-ként” lehetőséget.',
   },
   en: {
     gone: 'This link is not valid: it expired, was revoked, or was not copied exactly. Ask the person who sent it for a new one.',
@@ -39,12 +45,23 @@ const T = {
     handoff: 'Handoff package', project: 'Project', zip: 'Download the package (ZIP)',
     noItems: 'This package has no work items right now.', tooLarge: 'The package is too large to download. Tell the person who sent the link.',
     items: 'Work items',
+    postTitle: 'Post images, at platform size',
+    postNone: 'No platform-size image has been saved for this post yet. The post content is shown below; ask the sender for the image.',
+    postPdf: 'For a PDF: in the browser Print menu choose "Save as PDF".',
   },
 } as const
 
 const TYPE: Record<string, Record<Lang, string>> = {
   document: { hu: 'Dokumentum', en: 'Document' }, image: { hu: 'Kép', en: 'Image' }, graphic: { hu: 'Grafika', en: 'Graphic' },
   video: { hu: 'Videó', en: 'Video' }, note: { hu: 'Jegyzet', en: 'Note' }, composite: { hu: 'Vegyes', en: 'Mixed' },
+}
+const PLATFORM: Record<string, Record<Lang, string>> = {
+  fb_feed: { hu: 'Facebook hírfolyam', en: 'Facebook feed' }, fb_square: { hu: 'Facebook négyzet', en: 'Facebook square' },
+  fb_link: { hu: 'Facebook link-kép', en: 'Facebook link image' }, fb_story: { hu: 'Facebook történet', en: 'Facebook story' },
+  ig_feed: { hu: 'Instagram hírfolyam', en: 'Instagram feed' }, ig_portrait: { hu: 'Instagram álló', en: 'Instagram portrait' },
+  ig_square: { hu: 'Instagram négyzet', en: 'Instagram square' }, ig_story: { hu: 'Instagram történet', en: 'Instagram story' },
+  li_landscape: { hu: 'LinkedIn fekvő', en: 'LinkedIn landscape' }, li_square: { hu: 'LinkedIn négyzet', en: 'LinkedIn square' },
+  li_portrait: { hu: 'LinkedIn álló', en: 'LinkedIn portrait' },
 }
 const STATUS: Record<string, Record<Lang, string>> = {
   draft: { hu: 'Vázlat', en: 'Draft' }, in_progress: { hu: 'Folyamatban', en: 'In progress' },
@@ -112,6 +129,22 @@ function itemFile(itemId: string): { abs: string; name: string; size: number } |
   } catch { return null }
 }
 
+/** Vegyes munkadarab (poszt): az elmentett platform-kepek letoltesre. Szkript
+ *  nincs, tehat itt nem vagunk -- csak a Munkapadon mar elmentett fajlt adjuk. */
+function postSection(s: ShareRow, token: string, type: string): string {
+  if (type !== 'composite') return ''
+  const t = T[s.lang]
+  const files = listPostFiles(s.work_item_id as string).filter((f) => f.available)
+  const list = files.length
+    ? files.map((f) => {
+      const pf = POST_PLATFORMS[f.platform]
+      const label = `${PLATFORM[f.platform]?.[s.lang] ?? f.platform} (${pf ? `${pf.w}×${pf.h}` : ''})`
+      return `<a class="btn" href="/view/${esc(token)}/post/${esc(f.id)}" download>${esc(label)}</a> <span class="muted">(${esc(f.name)})</span><br>`
+    }).join('')
+    : `<p class="muted">${esc(t.postNone)}</p>`
+  return `<div class="meta" style="border:1px solid #ccc;border-radius:8px;padding:8px 10px;margin:8px 0"><strong>${esc(t.postTitle)}</strong><br>${list}<span class="muted">${esc(t.postPdf)}</span></div>`
+}
+
 function itemPage(res: RouteContext['res'], s: ShareRow, token: string): void {
   const t = T[s.lang]
   const item = getWorkItem(s.work_item_id as string)!
@@ -119,7 +152,7 @@ function itemPage(res: RouteContext['res'], s: ShareRow, token: string): void {
   const exp = buildExportPage(item, null, s.lang, { toolbar: false, fileOnly: file ? t.fileOnly : t.noFile })
   const banner = `<p class="meta" style="border:1px solid #ccc;border-radius:8px;padding:8px 10px">${esc(t.banner)} · ${esc(t.until)}: ${esc(untilText(s))}`
     + (file ? `<br><a class="btn" href="/view/${esc(token)}/file" download>${esc(t.download)}</a> <span class="muted">(${esc(file.name)})</span>` : '')
-    + '</p>'
+    + '</p>' + postSection(s, token, item.type)
   page(res, 200, exp.html.replace('<body>', `<body>\n${banner}`))
 }
 
@@ -152,7 +185,7 @@ function attachment(res: RouteContext['res'], name: string, size: number, type: 
 
 export async function tryHandleWorkbenchShareView(ctx: RouteContext): Promise<boolean> {
   const { path, method, res } = ctx
-  const m = /^\/view\/([^/]+)(?:\/(file|download))?\/?$/.exec(path)
+  const m = /^\/view\/([^/]+)(?:\/(file|download|post)(?:\/([^/]+))?)?\/?$/.exec(path)
   if (!m) return false
   if (method !== 'GET' && method !== 'HEAD') {
     res.writeHead(405, { ...SAFE_HEADERS, Allow: 'GET' })
@@ -162,6 +195,8 @@ export async function tryHandleWorkbenchShareView(ctx: RouteContext): Promise<bo
   const token = decodeURIComponent(m[1])
   const s = resolveShareToken(token)
   if (!s) { gone(res, token); return true }
+  // Csak a poszt-kepnek van al-azonositoja: /file/x, /download/x nem a mienk.
+  if (m[3] && m[2] !== 'post') { gone(res, token); return true }
 
   if (!m[2]) {
     noteShareView(s.id)
@@ -174,6 +209,16 @@ export async function tryHandleWorkbenchShareView(ctx: RouteContext): Promise<bo
     const f = itemFile(s.work_item_id as string)
     if (!f) { gone(res, token); return true }
     attachment(res, f.name, f.size, 'application/octet-stream')
+    if (method === 'HEAD') { res.end(); return true }
+    createReadStream(f.abs).on('error', () => res.destroy()).pipe(res)
+    return true
+  }
+  if (m[2] === 'post' && m[3] && s.kind === 'item') {
+    const f = getPostFile(s.work_item_id as string, decodeURIComponent(m[3]))
+    if (!f || !f.abs) { gone(res, token); return true }
+    let size = 0
+    try { size = statSync(f.abs).size } catch { gone(res, token); return true }
+    attachment(res, f.name, size, f.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg')
     if (method === 'HEAD') { res.end(); return true }
     createReadStream(f.abs).on('error', () => res.destroy()).pipe(res)
     return true
