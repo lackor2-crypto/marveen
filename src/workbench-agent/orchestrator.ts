@@ -29,7 +29,8 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { logger } from '../logger.js'
 import { getProject } from '../projects.js'
 import { getWorkItem } from '../workbench.js'
-import { createApproval, createAgentMessage, getApproval, listApprovals } from '../db.js'
+import { createApproval, createAgentMessage, getApproval, getKanbanSeqByIdPrefix, listApprovals } from '../db.js'
+import { describeToolApproval } from './approval-text.js'
 import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
 import { runTool } from './execute.js'
@@ -144,19 +145,29 @@ export function requestToolApproval(params: {
   projectId: string
   workItemId: string | null
   input: Record<string, unknown>
+  lang?: Lang
 }): string {
   const id = randomUUID()
-  const description = `Munkapad: ${params.tool} (projekt ${params.projectId}${params.workItemId ? `, munkadarab ${params.workItemId}` : ''})`
+  let projectName: string | null = null
+  let workItemTitle: string | null = null
+  try { projectName = getProject(params.projectId)?.name ?? null } catch { projectName = null }
+  try { workItemTitle = params.workItemId ? getWorkItem(params.workItemId)?.title ?? null : null } catch { workItemTitle = null }
+  const description = describeToolApproval({
+    tool: params.tool, lang: params.lang ?? 'hu', projectName, projectId: params.projectId,
+    workItemTitle, actor: params.actor || null, input: params.input, seqOf: getKanbanSeqByIdPrefix,
+  })
   createApproval({
     id,
-    agent_id: params.actor || MAIN_AGENT_ID,
+    // H4: a jegy gazdaja a fo agens (a Munkapad az o neveben dolgozik); a
+    // dashboard-felhasznalo neve nem agens-azonosito -- az a leirasba kerul.
+    agent_id: MAIN_AGENT_ID,
     category: params.category,
     action_description: description,
     action_payload: JSON.stringify({ source: 'workbench', tool: params.tool, project: params.projectId, workItem: params.workItemId, input: params.input }),
   })
   try {
     createAgentMessage('system', MAIN_AGENT_ID, [
-      '[APPROVAL_REQUEST]', `id=${id}`, `agent=${params.actor}`,
+      '[APPROVAL_REQUEST]', `id=${id}`, `agent=${MAIN_AGENT_ID}`,
       `category=${params.category}`, `action=${description}`, 'timeout_at=null',
     ].join(' '))
   } catch (err) {
@@ -444,7 +455,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         if (!already) {
           const approvalId = requestToolApproval({
             tool: tool.name, category: decision.category, actor: input.actor,
-            projectId: project.id, workItemId: workItem?.id ?? null, input: call.input,
+            projectId: project.id, workItemId: workItem?.id ?? null, input: call.input, lang,
           })
           const m = msg('tool_needs_approval', lang, { tool: tool.name })
           finishToolCall(row.id, 'needs_approval', { approvalId }, approvalId)

@@ -12,6 +12,7 @@
 //   6. minden lepes nyomot hagy a KOZOS auditban.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { initDatabase, createApproval, listApprovals, resolveApproval } from '../db.js'
+import { MAIN_AGENT_ID } from '../config.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, listWorkItems } from '../workbench.js'
 import { runTurn, validateTurn, parseToolCall, mayBeToolCall, resetRunningForTest, MESSAGE_MAX_CHARS } from '../workbench-agent/orchestrator.js'
@@ -249,7 +250,12 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
     // A jegy a MEGLEVO listaban van, a Munkapad forrasmegjelolesevel.
     const pending = listApprovals({ status: 'pending', limit: 10 })
     expect(pending).toHaveLength(1)
-    expect(pending[0].agent_id).toBe('teszt-felhasznalo')
+    // H4 (#404): a jegy a fo agense; a dashboard-felhasznalo a leirasban all.
+    expect(pending[0].agent_id).toBe(MAIN_AGENT_ID)
+    // H3 (#404): emberi leiras -- eszkoz szoval, cel, ki kerte.
+    expect(pending[0].action_description).toContain('új munkadarab létrehozása')
+    expect(pending[0].action_description).toContain('Új ajánlat')
+    expect(pending[0].action_description).toContain('kérte: teszt-felhasznalo')
     expect(pending[0].category).toBe('marveen_selfdev')
     const payload = JSON.parse(pending[0].action_payload || '{}')
     expect(payload).toMatchObject({ source: 'workbench', tool: 'workItem.create', project: projectId })
