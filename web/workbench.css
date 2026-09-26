@@ -570,3 +570,11 @@
 .wb-search-hit { border-bottom: 1px solid var(--border, #d0d7de); padding-bottom: 4px; word-break: break-word; }
 .wb-search-snip { font-size: 13px; opacity: .9; }
 .wb-search-snip mark { background: var(--highlight, #fde68a); color: inherit; padding: 0 1px; }
+
+/* --- jovahagyas munkadarabra (#406, 9. pont) ------------------------------- */
+.wb-approval { border: 1px solid var(--border, #d0d7de); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.wb-approval-review { border-color: var(--warning, #d97706); }
+.wb-approval-done { border-color: var(--success, #16a34a); }
+.wb-approval p { margin: 0 0 6px; }
+.wb-approval-reason { width: 100%; box-sizing: border-box; margin: 4px 0; }
+.wb-approval-btns { display: flex; flex-wrap: wrap; gap: 6px; }

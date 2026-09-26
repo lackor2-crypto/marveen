@@ -50,6 +50,7 @@ import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.j
 import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
+import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -120,6 +121,30 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   project_archived: {
     hu: 'Ez a projekt archiválva van, ezért csak olvasható. Ha dolgozni akarsz benne, előbb állítsd vissza a Projektek oldalon.',
     en: 'This project is archived, so it is read-only. To work in it, restore it first on the Projects page.',
+  },
+  approval_owner_only: {
+    hu: 'Elfogadni vagy visszadobni csak a tulajdonos tud, bejelentkezve a felületen.',
+    en: 'Only the owner can approve or send back, signed in on the dashboard.',
+  },
+  approval_bad_action: {
+    hu: 'Ismeretlen jóváhagyási lépés.',
+    en: 'Unknown approval step.',
+  },
+  approval_already_done: {
+    hu: 'Ez a munkadarab már el van fogadva, nem kell újra jóváhagyásra küldeni.',
+    en: 'This work item is already approved; it does not need to be sent again.',
+  },
+  approval_not_in_review: {
+    hu: 'Ez a munkadarab most nem vár jóváhagyásra, ezért nincs mit visszavonni.',
+    en: 'This work item is not waiting for approval, so there is nothing to withdraw.',
+  },
+  approval_no_pending: {
+    hu: 'Ehhez a munkadarabhoz most nincs nyitott jóváhagyási kérés (lehet, hogy közben döntöttek róla). Frissítsd az oldalt.',
+    en: 'There is no open approval request for this work item (it may have been decided meanwhile). Reload the page.',
+  },
+  approval_reason_too_long: {
+    hu: 'Az indoklás túl hosszú (legfeljebb 1000 karakter).',
+    en: 'The note is too long (1000 characters at most).',
   },
   search_query_short: {
     hu: 'Írj be legalább 2 betűt a kereséshez.',
@@ -620,8 +645,31 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       versions: listWorkItemVersionsView(item.id),
       parts: listWorkItemParts(item.id),
       part_kinds: WORK_ITEM_PART_KINDS,
+      approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
+    return true
+  }
+
+  // JOVAHAGYAS MUNKADARABRA (#406, 9. pont): bekuldes / visszavonas a
+  // Munkapadrol barki; DONTENI (elfogad / visszadob) csak bejelentkezett
+  // munkamenet tud -- az agensek kozos tokenje nem.
+  if (segs.length === 2 && segs[1] === 'approval' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const action = body['action']
+    const who = actor(ctx)
+    let r
+    if (action === 'submit') r = submitWorkItemForApproval(item.id, { actor: who, lang })
+    else if (action === 'withdraw') r = withdrawWorkItemApproval(item.id, { actor: who, lang })
+    else if (action === 'approve' || action === 'reject') {
+      if (ctx.auth?.kind !== 'session') return fail(res, 403, 'approval_owner_only', lang)
+      r = decideWorkItemApproval(item.id, action === 'approve' ? 'approved' : 'rejected', { by: who || 'dashboard', reason: body['reason'] })
+    } else return fail(res, 400, 'approval_bad_action', lang)
+    if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)
+    json(res, { item: r.item, approval: r.approval })
     return true
   }
 

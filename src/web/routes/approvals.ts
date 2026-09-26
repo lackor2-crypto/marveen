@@ -676,6 +676,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // #404 H2: egy Munkapad-lepes jovahagyasa utan a lepes MOST fut le a
     // tarolt bemenettel (elutasitasnal a beszelgetes ertesul). Dinamikus
     // import: az approvals route ne huzza be a Munkapad teljes lancat.
+    // #406, 9. pont: munkadarab-jegynel a munkadarab kovesse a dontest.
+    void import('../../workbench-approval.js')
+      .then((m) => { m.applyWorkItemApprovalOutcome(idMatch[1]) })
+      .catch((err) => logger.warn({ err }, 'workbench item approval outcome failed'))
     void import('../../workbench-agent/approved-runner.js')
       .then((m) => m.settleWorkbenchApprovals())
       .catch((err) => logger.warn({ err }, 'workbench approval settle failed'))

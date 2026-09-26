@@ -102,6 +102,8 @@
     search: null,
     searchError: null,
     searchBusy: false,
+    // --- jovahagyas munkadarabra (#406, 9. pont) ---
+    approvalBusy: false,
     // --- projekt-attekinto (#406, 2. pont) ---
     // `overview === null` = MEG NEM kerdeztuk meg; a hiba KULON all, hogy a
     // "nem tudtam lekerdezni" sose latsszon "nincs semmi"-nek.
@@ -1875,6 +1877,7 @@
       inner = '<div class="wb-editor-head"><h3>' + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
+        + approvalBoxHtml()
         + versionBarHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
           ? compareHtml()
@@ -2545,6 +2548,66 @@
     }).join('') + '</div>'
   }
 
+  // ---- jovahagyas munkadarabra (#406, 9. pont) ------------------------------
+  //
+  // Ugyanaz, mint a kartyaknal: "kesz, jovahagyasra var", es a tulajdonos egy
+  // gombbal elfogadja vagy visszadobja. A jegy a Jovahagyasok oldalon is ott van.
+
+  function approvalBoxHtml() {
+    if (!WB.detail || archived()) return ''
+    var it = WB.detail.item
+    var a = WB.detail.approval || null
+    var busy = WB.approvalBusy ? ' disabled' : ''
+    var out = '<div class="wb-approval wb-approval-' + esc(it.status) + '">'
+    if (it.status === 'review' && a && a.status === 'pending') {
+      out += '<p><strong>' + esc(t('workbench.approval.pending')) + '</strong> '
+        + '<span class="wb-muted">' + esc(t('workbench.approval.since', { when: when(a.requested_at) })) + '</span></p>'
+        + '<textarea id="wbApprovalReason" class="wb-approval-reason" rows="2" maxlength="1000"'
+        + ' placeholder="' + escA(t('workbench.approval.reason_placeholder')) + '"'
+        + ' aria-label="' + escA(t('workbench.approval.reason_placeholder')) + '"></textarea>'
+        + '<div class="wb-approval-btns">'
+        + '<button type="button" class="btn-primary" data-wb-act="approval-approve"' + busy + '>' + esc(t('workbench.approval.approve')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="approval-reject"' + busy + '>' + esc(t('workbench.approval.reject')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="approval-withdraw"' + busy + '>' + esc(t('workbench.approval.withdraw')) + '</button>'
+        + '</div>'
+    } else if (it.status === 'done') {
+      out += '<p>' + esc(t('workbench.approval.done')) + '</p>'
+    } else {
+      if (it.status === 'review') out += '<p class="wb-muted">' + esc(t('workbench.approval.closed_without_decision')) + '</p>'
+      else if (a && a.status === 'rejected') {
+        out += '<p class="wb-approval-rejected-note"><strong>' + esc(t('workbench.approval.rejected')) + '</strong>'
+          + (a.reason ? ' ' + esc(a.reason) : '') + '</p>'
+      }
+      out += '<p class="wb-hint">' + esc(t('workbench.approval.intro')) + '</p>'
+        + '<button type="button" class="btn-primary" data-wb-act="approval-submit"' + busy + '>' + esc(t('workbench.approval.submit')) + '</button>'
+    }
+    return out + '</div>'
+  }
+
+  function approvalAction(action) {
+    if (!WB.detail || WB.approvalBusy) return
+    var id = WB.detail.item.id
+    var body = { action: action }
+    if (action === 'approve' || action === 'reject') {
+      var el = document.getElementById('wbApprovalReason')
+      var reason = el && typeof el.value === 'string' ? el.value.trim() : ''
+      if (reason) body.reason = reason
+      if (action === 'reject' && !reason && !window.confirm(t('workbench.approval.reject_no_reason'))) return
+    }
+    WB.approvalBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', body).then(function (r) {
+      WB.approvalBusy = false
+      if (!WB.detail || WB.detail.item.id !== id) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (r.data && r.data.item) WB.detail.item = r.data.item
+      WB.detail.approval = (r.data && r.data.approval) || null
+      window.showToast(t('workbench.approval.toast.' + action))
+      render()
+      load(WB.projectId)
+    })
+  }
+
   // ---- kereses a projekt egeszeben (#406, 8. pont) ---------------------------
   //
   // Egy mezo, a talalatok forrasonkent csoportositva. A forras, amibe a szerver
@@ -3151,6 +3214,10 @@
     else if (a === 'tl-close') { WB.tlOpen = false; render() }
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
+    else if (a === 'approval-submit') approvalAction('submit')
+    else if (a === 'approval-withdraw') approvalAction('withdraw')
+    else if (a === 'approval-approve') approvalAction('approve')
+    else if (a === 'approval-reject') approvalAction('reject')
     else if (a === 'search-open') { WB.searchOpen = !WB.searchOpen; render(); if (WB.searchOpen) { var si = document.getElementById('wbSearchInput'); if (si && si.focus) si.focus() } }
     else if (a === 'search-close') { WB.searchOpen = false; render() }
     else if (a === 'cap-test') testCap(act.getAttribute('data-wb-cap'))
