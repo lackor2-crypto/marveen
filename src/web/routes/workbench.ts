@@ -48,6 +48,7 @@ import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
+import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -484,6 +485,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     json(res, { project: { id: project.id, name: project.name, archived: project.archived_at != null }, overview: buildWorkbenchOverview(project.id) })
+    return true
+  }
+
+  // PROJEKT-IDOVONAL (#406, 7. pont): a projekt minden esemenye, a
+  // legfrissebb elol. `before` = lapozas visszafele (masodperc). Csak olvas.
+  if (path === '/api/workbench/timeline' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const beforeRaw = Number(url.searchParams.get('before') || '')
+    json(res, {
+      timeline: buildProjectTimeline(project.id, {
+        before: Number.isFinite(beforeRaw) && beforeRaw > 0 ? beforeRaw : null,
+        limit: clampTimelineLimit(url.searchParams.get('limit')),
+      }),
+    })
     return true
   }
 
