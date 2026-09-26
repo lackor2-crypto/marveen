@@ -206,13 +206,16 @@ export function todoAdd(project: ProjectRow, input: Record<string, unknown>): To
   if (!it || it.project_id !== project.id) return { ok: false, code: 'item_not_found', detail: 'give the id of a work item in THIS project (workItem)' }
   const due = resolveAgentDue({ due: input.due, dueWeekday: input.dueWeekday, dueInDays: input.dueInDays })
   if (!due.ok) return { ok: false, code: 'bad_input', detail: 'the due date is not valid: use due (YYYY-MM-DD), dueWeekday (e.g. friday) or dueInDays (a whole number)' }
-  const r = addTodo({ work_item_id: it.id, text: input.text, due_date: due.due, by: 'agent', source: 'agent' })
+  const r = addTodo({ work_item_id: it.id, text: input.text, due_date: due.due, repeat: input.repeat, by: 'agent', source: 'agent' })
   if (!r.ok) {
     const detail = r.code === 'text_required' ? 'text is required'
       : r.code === 'text_too_long' ? `the text is longer than ${TODO_TEXT_MAX} characters; shorten it`
-      : r.code === 'too_many' ? `this work item already has ${TODOS_PER_ITEM_MAX} to-dos; the owner has to tick off or remove old ones first`
+      : r.code === 'too_many' ? `this work item already has ${TODOS_PER_ITEM_MAX} open to-dos; the owner has to tick off or remove old ones first`
+      : r.code === 'bad_repeat' ? 'repeat must be weekly or monthly (or left out)'
+      : r.code === 'repeat_needs_due' ? 'a repeating to-do needs a due date: give due, dueWeekday or dueInDays'
       : 'the work item was not found'
-    return { ok: false, code: r.code === 'text_required' || r.code === 'text_too_long' || r.code === 'bad_due_date' ? 'bad_input' : r.code, detail }
+    const bad = ['text_required', 'text_too_long', 'bad_due_date', 'bad_repeat', 'repeat_needs_due'].includes(r.code)
+    return { ok: false, code: bad ? 'bad_input' : r.code, detail }
   }
-  return { ok: true, data: { id: r.todo.id, text: r.todo.text, due: r.todo.due_date, workItem: it.id, workItemTitle: it.title } }
+  return { ok: true, data: { id: r.todo.id, text: r.todo.text, due: r.todo.due_date, repeat: r.todo.repeat, workItem: it.id, workItemTitle: it.title } }
 }
