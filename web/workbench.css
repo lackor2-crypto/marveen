@@ -649,3 +649,21 @@
   .wb-cell { font-size: 16px; width: 7.5em; }
   .wb-table-tools button, .wb-table-tabs button { flex: 1 1 45%; }
 }
+
+/* Kis teendok hataridovel (#406, 14. pont). A lejart piros, a mai sarga. */
+.wb-td-box { border: 1px solid var(--border, #d0d7de); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+.wb-td-box > summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+.wb-td-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.wb-td-form #wbTdText { flex: 1 1 220px; }
+.wb-td-date-label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.wb-td-list { list-style: none; margin: 4px 0 8px; padding: 0; }
+.wb-td-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border, #eaeef2); overflow-wrap: anywhere; }
+.wb-td-check { flex: 0 0 auto; width: 28px; height: 28px; border: 2px solid var(--border, #8c959f); border-radius: 6px; background: transparent; cursor: pointer; font-weight: 700; line-height: 1; }
+.wb-td-done .wb-td-text { text-decoration: line-through; opacity: .65; }
+.wb-td-due { font-size: 12px; opacity: .8; }
+.wb-td-overdue .wb-td-due { color: var(--danger, #cf222e); font-weight: 600; opacity: 1; }
+.wb-td-today .wb-td-due { color: var(--warning, #9a6700); font-weight: 600; opacity: 1; }
+@media (max-width: 700px) {
+  .wb-td-check { width: 36px; height: 36px; }
+  .wb-td-form .wb-input { font-size: 16px; }
+}

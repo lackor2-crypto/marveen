@@ -52,6 +52,7 @@ import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TAB
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
 import { ensureLastWeekSummary, listWeeklySummaries, currentWeekSummary } from '../../workbench-weekly.js'
+import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTodos, todosToIcs, TODO_TEXT_MAX } from '../../workbench-todos.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -168,6 +169,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   handoff_too_large: {
     hu: 'A csomag túl nagy lenne (200 MB fölött). Válaszd a „csak a kész” lehetőséget, vagy vedd ki a nagy fájlokat (például a videókat).',
     en: 'The package would be too large (over 200 MB). Choose "only finished", or leave out the large files (for example videos).',
+  },
+  todo_text_required: {
+    hu: 'Írd be, mi a teendő (például: „szöveget átnézni”).',
+    en: 'Type what needs doing (for example: "review the text").',
+  },
+  todo_text_too_long: {
+    hu: 'A teendő legfeljebb 300 karakter lehet. Ha hosszabb, bontsd kisebb lépésekre.',
+    en: 'A to-do can be at most 300 characters. If it is longer, split it into smaller steps.',
+  },
+  todo_bad_due_date: {
+    hu: 'A határidő nem érvényes nap. Válassz egy napot a naptárból, vagy hagyd üresen.',
+    en: 'The due date is not a valid day. Pick a day from the calendar, or leave it empty.',
+  },
+  todo_too_many: {
+    hu: 'Ezen a munkadarabon már 100 teendő van. Pipáld ki vagy töröld a régieket, mielőtt újat veszel fel.',
+    en: 'This work item already has 100 to-dos. Tick off or remove old ones before adding a new one.',
+  },
+  todo_not_found: {
+    hu: 'Ez a teendő nem található (lehet, hogy közben törölték). Frissítsd az oldalt.',
+    en: 'This to-do was not found (it may have been removed meanwhile). Reload the page.',
+  },
+  todo_item_not_found: {
+    hu: 'A munkadarab nem található (lehet, hogy közben törölték). Frissítsd az oldalt.',
+    en: 'The work item was not found (it may have been removed meanwhile). Reload the page.',
+  },
+  todo_no_due: {
+    hu: 'Ennek a teendőnek nincs határideje, így a naptárba sincs mit betenni. Adj meg előbb egy napot.',
+    en: 'This to-do has no due date, so there is nothing to put in the calendar. Set a day first.',
+  },
+  todo_none_due: {
+    hu: 'Ebben a projektben nincs nyitott, határidős teendő, így a naptárba sincs mit betenni.',
+    en: 'This project has no open to-dos with a due date, so there is nothing to put in the calendar.',
   },
   decision_text_required: {
     hu: 'Írd be, miben állapodtatok meg (például: „a logó kék marad”).',
@@ -764,6 +797,91 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r) return fail(res, 400, 'decision_text_required', lang)
     if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : r.code === 'too_many' ? 409 : 400, 'decision_' + r.code, lang)
     json(res, { decision: r.decision })
+    return true
+  }
+
+  // KIS TEENDOK HATARIDOVEL (#406, 14. pont). Naptar: szabvanyos .ics fajl,
+  // amit barmely naptar felvesz -- semmi nem megy ki a geprol magatol.
+  if (path === '/api/workbench/todos' && method === 'GET') {
+    const itemId = (url.searchParams.get('item') || '').trim()
+    if (itemId) {
+      const it = getWorkItem(itemId)
+      if (!it) return fail(res, 404, 'todo_item_not_found', lang)
+      json(res, { todos: listItemTodos(it.id), max_chars: TODO_TEXT_MAX })
+      return true
+    }
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    json(res, { todos: listProjectTodos(project.id), max_chars: TODO_TEXT_MAX })
+    return true
+  }
+  if (path === '/api/workbench/todos' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const it = typeof body['item_id'] === 'string' ? getWorkItem(body['item_id']) : undefined
+    if (!it) return fail(res, 404, 'todo_item_not_found', lang)
+    const project = getProject(it.project_id)
+    if (project && project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = addTodo({ work_item_id: it.id, text: body['text'], due_date: body['due_date'], by: actor(ctx), source: 'owner' })
+    if (!r.ok) return fail(res, r.code === 'too_many' ? 409 : r.code === 'item_not_found' ? 404 : 400, 'todo_' + r.code, lang)
+    json(res, { todo: r.todo, todos: listItemTodos(it.id) })
+    return true
+  }
+  const todoIcsAll = path === '/api/workbench/todos/ics' && method === 'GET'
+  const todoMatch = path.match(/^\/api\/workbench\/todos\/([^/]+)(\/ics)?$/)
+  if (todoIcsAll || (todoMatch && method === 'GET' && todoMatch[2])) {
+    let rows: { id: string; text: string; due_date: string | null; item_title: string }[]
+    let projectName: string
+    let fileBase: string
+    if (todoIcsAll) {
+      const project = getProject((url.searchParams.get('project') || '').trim())
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      rows = listProjectTodos(project.id).filter((x) => x.due_date && x.done_at == null)
+      if (!rows.length) return fail(res, 409, 'todo_none_due', lang)
+      projectName = project.name
+      fileBase = project.name
+    } else {
+      const td = getTodo(decodeURIComponent(todoMatch![1]))
+      if (!td) return fail(res, 404, 'todo_not_found', lang)
+      if (!td.due_date) return fail(res, 409, 'todo_no_due', lang)
+      const it = getWorkItem(td.work_item_id)
+      const project = getProject(td.project_id)
+      rows = [{ ...td, item_title: it ? it.title : '' }]
+      projectName = project ? project.name : ''
+      fileBase = td.text.slice(0, 40)
+    }
+    const ics = Buffer.from(todosToIcs(rows, projectName, lang === 'en' ? 'en' : 'hu'), 'utf-8')
+    const name = (fileBase.replace(/[\u0000-\u001f<>:"/\\|?*]+/g, '_').trim() || 'teendo') + '.ics'
+    res.writeHead(200, {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': contentDispositionHeader(name, 'attachment'),
+      'Content-Length': ics.length,
+      'Cache-Control': 'private, no-store',
+    })
+    res.end(ics)
+    return true
+  }
+  if (todoMatch && !todoMatch[2] && (method === 'PATCH' || method === 'DELETE')) {
+    const td = getTodo(decodeURIComponent(todoMatch[1]))
+    if (!td) return fail(res, 404, 'todo_not_found', lang)
+    const project = getProject(td.project_id)
+    if (project && project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (method === 'DELETE') {
+      deleteTodo(td.id)
+      json(res, { ok: true, todos: listItemTodos(td.work_item_id) })
+      return true
+    }
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const r = updateTodo(td.id, {
+      text: 'text' in body ? body['text'] : undefined,
+      due_date: 'due_date' in body ? (body['due_date'] ?? '') : undefined,
+      done: typeof body['done'] === 'boolean' ? body['done'] : undefined,
+    })
+    if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : 400, 'todo_' + r.code, lang)
+    json(res, { todo: r.todo, todos: listItemTodos(td.work_item_id) })
     return true
   }
 

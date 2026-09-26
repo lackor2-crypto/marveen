@@ -28,6 +28,8 @@ import { withCrossLink } from '../kanban-related.js'
 import { agentConfigRoot } from '../web/agent-config.js'
 import type { ToolResult } from './execute.js'
 import { addDecision, listDecisions, DECISION_MAX_CHARS } from '../workbench-decisions.js'
+import { addTodo, resolveAgentDue, TODO_TEXT_MAX, TODOS_PER_ITEM_MAX } from '../workbench-todos.js'
+import { getWorkItem } from '../workbench.js'
 
 export const IDEA_LIST_MAX = 50
 export const COMMENT_MAX_CHARS = 4000
@@ -196,4 +198,21 @@ export function decisionRecord(project: ProjectRow, input: Record<string, unknow
     return { ok: false, code: r.code === 'text_required' || r.code === 'text_too_long' ? 'bad_input' : r.code, detail }
   }
   return { ok: true, data: { id: r.decision.id, text: r.decision.text, project: project.id, projectName: project.name } }
+}
+
+/** #406, 14. pont: kis teendo hataridovel egy munkadarabon. */
+export function todoAdd(project: ProjectRow, input: Record<string, unknown>): ToolResult {
+  const it = getWorkItem(str(input.workItem ?? input.work_item_id))
+  if (!it || it.project_id !== project.id) return { ok: false, code: 'item_not_found', detail: 'give the id of a work item in THIS project (workItem)' }
+  const due = resolveAgentDue({ due: input.due, dueWeekday: input.dueWeekday, dueInDays: input.dueInDays })
+  if (!due.ok) return { ok: false, code: 'bad_input', detail: 'the due date is not valid: use due (YYYY-MM-DD), dueWeekday (e.g. friday) or dueInDays (a whole number)' }
+  const r = addTodo({ work_item_id: it.id, text: input.text, due_date: due.due, by: 'agent', source: 'agent' })
+  if (!r.ok) {
+    const detail = r.code === 'text_required' ? 'text is required'
+      : r.code === 'text_too_long' ? `the text is longer than ${TODO_TEXT_MAX} characters; shorten it`
+      : r.code === 'too_many' ? `this work item already has ${TODOS_PER_ITEM_MAX} to-dos; the owner has to tick off or remove old ones first`
+      : 'the work item was not found'
+    return { ok: false, code: r.code === 'text_required' || r.code === 'text_too_long' || r.code === 'bad_due_date' ? 'bad_input' : r.code, detail }
+  }
+  return { ok: true, data: { id: r.todo.id, text: r.todo.text, due: r.todo.due_date, workItem: it.id, workItemTitle: it.title } }
 }
