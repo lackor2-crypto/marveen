@@ -720,6 +720,8 @@
 .wb-td-repeat { font-size: 12px; opacity: .8; white-space: nowrap; }
 .wb-td-overdue .wb-td-due { color: var(--danger, #cf222e); font-weight: 600; opacity: 1; }
 .wb-td-today .wb-td-due { color: var(--warning, #9a6700); font-weight: 600; opacity: 1; }
+.wb-td-gcal { font-size: 12px; opacity: .8; }
+.wb-td-gcal-warn { color: var(--warning, #9a6700); opacity: 1; }
 @media (max-width: 700px) {
   .wb-td-check { width: 36px; height: 36px; }
   .wb-td-form .wb-input { font-size: 16px; }

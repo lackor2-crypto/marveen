@@ -45,6 +45,19 @@ export interface TodoRow {
   next_id: string | null
   /** Melyik hataridore ment mar ki emlekezteto (otlet a5ecabbe). */
   reminded_for?: string | null
+  /** Google Naptar (#406, 14. pont B): a letrehozott esemeny azonositoja --
+   *  ujabb kattintasra ezt frissitjuk, nem uj esemenyt keszitunk. */
+  gcal_event_id?: string | null
+  /** Melyik bekotott Google-fiok naptaraba ment ki. */
+  gcal_account?: string | null
+  /** A meg eldontetlen jovahagyasi jegy -- amig ez all, nem nyitunk masodikat. */
+  gcal_approval_id?: string | null
+  /** Mikor irtuk utoljara sikeresen a naptarba (unix mp). */
+  gcal_synced_at?: number | null
+  /** Az utolso sikertelen kiserlet kodja ('rejected' | 'failed' | 'no_due' ...) */
+  gcal_error?: string | null
+  /** A sikertelen kiserlet nyers reszlete (a Google valasza), ha van. */
+  gcal_error_detail?: string | null
 }
 
 export const TODO_REPEATS = ['weekly', 'monthly'] as const
@@ -90,6 +103,10 @@ export function ensureTodoTable(): void {
   // Emlekezteto (otlet a5ecabbe): melyik HATARIDORE ment mar ki. Ha a hatarido
   // valtozik, az emlekezteto ujra elesedik.
   if (!cols.has('reminded_for')) db.exec('ALTER TABLE work_item_todos ADD COLUMN reminded_for TEXT')
+  // Google Naptar (#406, 14. pont B).
+  for (const [c, t] of [['gcal_event_id', 'TEXT'], ['gcal_account', 'TEXT'], ['gcal_approval_id', 'TEXT'], ['gcal_synced_at', 'INTEGER'], ['gcal_error', 'TEXT'], ['gcal_error_detail', 'TEXT']] as const) {
+    if (!cols.has(c)) db.exec(`ALTER TABLE work_item_todos ADD COLUMN ${c} ${t}`)
+  }
   tablesDb = db
 }
 
@@ -332,7 +349,7 @@ function icsStamp(sec: number): string {
   return new Date(sec * 1000).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 }
 
-function nextDay(due: string): string {
+export function nextDay(due: string): string {
   const [y, m, d] = due.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)
 }

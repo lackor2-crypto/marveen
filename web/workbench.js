@@ -129,6 +129,9 @@
     todos: null,
     tdError: null,
     tdBusy: false,
+    // Google Naptar (#406, 14. pont B): { state, account } a szervertol; null =
+    // meg nem kerdeztuk. A 'check_failed' KULON all a 'no_account'-tol.
+    gcal: null,
     pinBusy: false,
     tdOpen: false,
     tdRem: null,
@@ -252,6 +255,64 @@
       WB.tdError = null
       WB.todos = (r.data && r.data.todos) || []
       render()
+      if (!WB.gcal) loadGcalStatus()
+    })
+  }
+
+  function loadGcalStatus() {
+    return api('GET', '/api/workbench/gcal-status').then(function (r) {
+      WB.gcal = r.ok && r.data && r.data.gcal ? r.data.gcal : { state: 'check_failed', account: null }
+      render()
+    })
+  }
+
+  /** A teendo Google Naptar-resze: gomb, allapot, vagy a beallitas utja. */
+  function tdGcalHtml(td, ro) {
+    if (!td.due_date || td.done_at != null || archived() || !WB.gcal) return ''
+    // Beallitatlan Google: a sor NEM kap gombot -- a lista feletti mondat
+    // (tdGcalSetupHtml) mondja meg egyszer, hol kell bekotni.
+    if (WB.gcal.state !== 'ready') return ''
+    if (td.gcal_approval_id) {
+      return ' <span class="wb-td-gcal">' + esc(t('workbench.td.gcal.pending')) + '</span>'
+        + ' <button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.td.gcal.open_approvals')) + '</button>'
+    }
+    var note = ''
+    if (td.gcal_error === 'rejected') note = ' <span class="wb-td-gcal wb-td-gcal-warn">' + esc(t('workbench.td.gcal.rejected')) + '</span>'
+    else if (td.gcal_error) note = ' <span class="wb-td-gcal wb-td-gcal-warn" title="' + escA(td.gcal_error_detail || '') + '">' + esc(t('workbench.td.gcal.failed')) + '</span>'
+    else if (td.gcal_event_id) note = ' <span class="wb-td-gcal">' + esc(t('workbench.td.gcal.in_calendar')) + '</span>'
+    return note + ' <button type="button" class="wb-linklike" data-wb-act="td-gcal" data-wb-todo="' + escA(td.id) + '"' + ro + '>'
+      + esc(t(td.gcal_event_id ? 'workbench.td.gcal.update' : 'workbench.td.gcal.add')) + '</button>'
+  }
+
+  /** Friss telepitesen (nincs Google-fiok) a gomb helyett EZ latszik: egy
+   *  emberi mondat es a Varazslo Google-lepesere vivo gomb. Csak akkor, ha van
+   *  mit a naptarba tenni (nyitott, hataridos teendo). */
+  function tdGcalSetupHtml(list) {
+    if (!WB.gcal || WB.gcal.state === 'ready' || archived()) return ''
+    if (!(list || []).some(function (x) { return x.due_date && x.done_at == null })) return ''
+    var st = WB.gcal.state
+    var hint = st === 'no_scope' ? 'workbench.td.gcal.setup_scope' : st === 'check_failed' ? 'workbench.td.gcal.setup_unknown' : 'workbench.td.gcal.setup_none'
+    return '<p class="wb-hint wb-td-gcal-setup">' + esc(t(hint))
+      + ' <button type="button" class="wb-linklike" data-wb-act="td-gcal-setup">' + esc(t('workbench.td.gcal.setup')) + '</button></p>'
+  }
+
+  function tdGcalRequest(tdId) {
+    if (WB.tdBusy) return
+    var pid = WB.projectId
+    WB.tdBusy = true
+    render()
+    return api('POST', '/api/workbench/todos/' + encodeURIComponent(tdId) + '/gcal', {}).then(function (r) {
+      WB.tdBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) {
+        var detail = r.data && r.data.detail ? ' ' + r.data.detail : ''
+        window.showToast(r.message + detail)
+        // A beallitas kozben valtozhatott (fiok ki/be): kerdezzuk ujra.
+        WB.gcal = null
+        return loadTodos(pid)
+      }
+      window.showToast(t(r.data && r.data.state === 'pending' ? 'workbench.td.gcal.toast_pending' : 'workbench.td.gcal.toast_done'))
+      return loadTodos(pid)
     })
   }
 
@@ -314,6 +375,7 @@
       + (withItem ? ' <button type="button" class="wb-linklike" data-wb-act="td-item" data-wb-item-id="' + escA(td.work_item_id) + '">'
         + esc(td.item_title || '') + '</button>' : '')
       + ics
+      + tdGcalHtml(td, ro)
       + (td.repeat && !done && !archived() ? ' <button type="button" class="wb-linklike" data-wb-act="td-norepeat" data-wb-todo="' + escA(td.id) + '"' + ro + '>'
         + esc(t('workbench.td.repeat_stop')) + '</button>' : '')
       + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="td-delete" data-wb-todo="' + escA(td.id) + '"' + ro + '>'
@@ -332,7 +394,7 @@
     else {
       var mine = WB.todos.filter(function (x) { return x.work_item_id === id })
       body = mine.length
-        ? '<ul class="wb-td-list">' + mine.map(function (x) { return tdRowHtml(x, false) }).join('') + '</ul>'
+        ? tdGcalSetupHtml(mine) + '<ul class="wb-td-list">' + mine.map(function (x) { return tdRowHtml(x, false) }).join('') + '</ul>'
         : '<p class="wb-hint">' + esc(t('workbench.td.empty_item')) + '</p>'
     }
     var form = archived() ? '' : '<form id="wbTdForm" class="wb-td-form">'
@@ -447,6 +509,7 @@
       var hasDue = groups.overdue.length + groups.today.length + groups.upcoming.length > 0
       body = (hasDue ? '<p><a class="btn-secondary wb-td-ics-all" href="/api/workbench/todos/ics?project=' + encodeURIComponent(WB.projectId)
         + '&lang=' + encodeURIComponent(window._lang || 'hu') + '" download>' + esc(t('workbench.td.all_to_calendar')) + '</a></p>' : '')
+        + tdGcalSetupHtml(WB.todos)
         + ['overdue', 'today', 'upcoming', 'nodate', 'done'].map(function (g) {
           if (!groups[g].length) return ''
           return '<h3 class="wb-search-group">' + esc(t('workbench.td.group.' + g, { n: groups[g].length })) + '</h3>'
@@ -5189,6 +5252,8 @@
     else if (a === 'td-rem-test') reminderRequest('POST', '/api/workbench/todo-reminder/test', {}, 'workbench.td.rem.test_ok')
     else if (a === 'td-close') { WB.tdOpen = false; render() }
     else if (a === 'td-retry') { WB.tdError = null; WB.todos = null; render(); loadTodos() }
+    else if (a === 'td-gcal') { var gId = act.getAttribute('data-wb-todo'); if (gId) tdGcalRequest(gId) }
+    else if (a === 'td-gcal-setup') { if (typeof window.openWizardItem === 'function') window.openWizardItem('google-accounts') }
     else if (a === 'td-item') { var tid = act.getAttribute('data-wb-item-id'); if (tid) selectItem(tid) }
     else if (a === 'td-toggle' || a === 'td-delete' || a === 'td-norepeat') {
       var tdId = act.getAttribute('data-wb-todo')
