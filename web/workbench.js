@@ -49,6 +49,9 @@
     // --- reszek (vegyes munkadarab, 3. fazis) ---
     partEdit: null,
     partNewOpen: false,
+    partNewDraft: '',
+    dict: null,
+    speaking: null,
     partBusy: false,
     // --- kepessegek / fuggosegek (8. fazis) ---
     // `caps === null` NEM azt jelenti, hogy nincs egy kepesseg sem: azt, hogy
@@ -927,6 +930,7 @@
         + ' placeholder="' + escA(t(part.kind === 'text' ? 'workbench.parts.text_placeholder' : 'workbench.parts.caption_placeholder')) + '">'
         + esc(value) + '</textarea>'
         + '<div class="wb-form-actions">'
+        + micButtonHtml('wbPartText')
         + '<button type="submit" class="btn-primary" data-wb-act="part-save" data-wb-part="' + escA(part.id) + '"' + (WB.partBusy ? ' disabled' : '') + '>'
         + esc(WB.partBusy ? t('workbench.parts.saving') : t('workbench.parts.save')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="part-cancel">' + esc(t('common.cancel')) + '</button>'
@@ -956,6 +960,7 @@
     return '<li class="wb-part" data-wb-part-row="' + escA(part.id) + '">'
       + '<div class="wb-part-head">'
       + '<span class="wb-pill">' + esc(t(part.kind === 'image' ? 'workbench.parts.image_kind' : 'workbench.parts.text_kind')) + '</span>'
+      + ((part.kind === 'text' ? part.text : part.caption) ? ttsButtonHtml('part:' + part.id) : '')
       + tools + '</div>'
       + partBodyHtml(part)
       + '</li>'
@@ -980,8 +985,9 @@
     var adder = WB.partNewOpen
       ? '<form class="wb-part-form" id="wbPartNewForm">'
         + '<textarea class="wb-input wb-part-input" id="wbPartNewText" rows="5" placeholder="'
-        + escA(t('workbench.parts.text_placeholder')) + '"></textarea>'
+        + escA(t('workbench.parts.text_placeholder')) + '">' + esc(WB.partNewDraft || '') + '</textarea>'
         + '<div class="wb-form-actions">'
+        + micButtonHtml('wbPartNewText')
         + '<button type="submit" class="btn-primary" data-wb-act="part-add-text"' + (WB.partBusy ? ' disabled' : '') + '>'
         + esc(WB.partBusy ? t('workbench.parts.saving') : t('workbench.parts.save')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="part-cancel">' + esc(t('common.cancel')) + '</button>'
@@ -1099,8 +1105,8 @@
       var current = !WB.previewVersion || (WB.detail && WB.detail.item && WB.previewVersion === WB.detail.item.current_version_id)
       var canEdit = !archived() && !p.truncated && current
       return (canEdit
-        ? '<p><button type="button" class="btn-secondary" data-wb-act="text-edit">' + esc(t('workbench.edit.text_open')) + '</button></p>'
-        : '')
+        ? '<p><button type="button" class="btn-secondary" data-wb-act="text-edit">' + esc(t('workbench.edit.text_open')) + '</button> ' + ttsButtonHtml('preview') + '</p>'
+        : (p.text ? '<p>' + ttsButtonHtml('preview') + '</p>' : ''))
         + '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>'
         + (p.truncated ? '<p class="wb-hint">' + esc(t('workbench.preview.truncated')) + '</p>' : '')
         + (!archived() && !current ? '<p class="wb-hint">' + esc(t('workbench.edit.text_old_version')) + '</p>' : '')
@@ -1114,6 +1120,7 @@
       + '<label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>'
       + '<textarea class="wb-input wb-part-input wb-text-edit" id="wbTextEdit" rows="16">' + esc(WB.textEdit.value) + '</textarea>'
       + '<div class="wb-form-actions">'
+      + micButtonHtml('wbTextEdit')
       + '<button type="submit" class="btn-primary" data-wb-act="text-save"' + (busy ? ' disabled' : '') + '>'
       + esc(busy ? t('workbench.parts.saving') : t('workbench.edit.text_save')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="text-cancel">' + esc(t('common.cancel')) + '</button>'
@@ -1825,6 +1832,185 @@
       if (d.mode === 'nw' || d.mode === 'sw') c.x = right - c.w
     }
     return imgClampCrop(c, rs.w, rs.h)
+  }
+
+  // ---- DIKTALAS ES FELOLVASAS (#406, 17. pont) --------------------------------
+  //
+  // A bongeszo SAJAT eszkozeivel, szerver-oldali fuggoseg nelkul:
+  //  - diktalas: Web Speech API (Chrome, Edge, Safari -- telefonon is). Ahol
+  //    nincs (pl. Firefox), azt KIMONDJUK, es a telefon billentyuzetenek
+  //    mikrofonjat ajanljuk (az barmelyik mezoben mukodik).
+  //  - felolvasas: speechSynthesis -- a gep / telefon sajat hangjai, halozat
+  //    nelkul. Ha nincs magyar hang telepitve, azt is kimondjuk.
+
+  function speechRecCtor() { return window.SpeechRecognition || window.webkitSpeechRecognition || null }
+  function speechLang() { return window._lang === 'en' ? 'en-US' : 'hu-HU' }
+
+  function micButtonHtml(targetId) {
+    var on = !!(WB.dict && WB.dict.target === targetId)
+    return '<button type="button" class="btn-secondary wb-mic' + (on ? ' wb-mic-on' : '') + '" data-wb-act="dict" data-wb-dict="' + escA(targetId) + '"'
+      + ' aria-pressed="' + on + '" title="' + escA(t('workbench.voice.mic_title')) + '">'
+      + esc(on ? t('workbench.voice.mic_stop') : t('workbench.voice.mic')) + '</button>'
+  }
+
+  function dictValue(targetId) {
+    var el = document.getElementById(targetId)
+    if (el && typeof el.value === 'string') return el.value
+    if (targetId === 'wbChatInput') return WB.chatDraft || ''
+    if (targetId === 'wbTextEdit' && WB.textEdit) return WB.textEdit.value || ''
+    if (targetId === 'wbPartText' && WB.partDraft) return WB.partDraft.value || ''
+    return ''
+  }
+
+  function dictSetValue(targetId, v) {
+    var el = document.getElementById(targetId)
+    if (el && 'value' in el) el.value = v
+    if (targetId === 'wbChatInput') WB.chatDraft = v
+    else if (targetId === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = v
+    else if (targetId === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: v }
+    else if (targetId === 'wbPartNewText') WB.partNewDraft = v
+  }
+
+  function dictJoin(base, parts) {
+    var said = parts.filter(function (s) { return s && s.trim() }).map(function (s) { return s.trim() }).join(' ')
+    if (!said) return base
+    return base + (base && !/\s$/.test(base) ? ' ' : '') + said
+  }
+
+  var DICT_ERRORS = { 'not-allowed': 'denied', 'service-not-allowed': 'denied', 'no-speech': 'no_speech', 'audio-capture': 'no_mic', network: 'network', 'language-not-supported': 'lang' }
+
+  function dictStop() {
+    var d = WB.dict
+    WB.dict = null
+    if (d && d.rec) { try { d.rec.stop() } catch (_e) { /* mar all */ } }
+    render()
+  }
+
+  function dictToggle(targetId) {
+    if (WB.dict) {
+      var same = WB.dict.target === targetId
+      dictStop()
+      if (same) return
+    }
+    var SR = speechRecCtor()
+    if (!SR) { window.showToast(t('workbench.voice.no_dictation')); return }
+    var rec
+    try { rec = new SR() } catch (_e) { window.showToast(t('workbench.voice.no_dictation')); return }
+    rec.lang = speechLang()
+    rec.interimResults = true
+    rec.continuous = true
+    var d = { target: targetId, rec: rec, base: dictValue(targetId), finals: [], error: null }
+    rec.onresult = function (ev) {
+      if (WB.dict !== d) return
+      var interim = ''
+      for (var i = ev.resultIndex || 0; i < ev.results.length; i++) {
+        var r = ev.results[i]
+        var tx = r && r[0] ? String(r[0].transcript || '') : ''
+        if (r.isFinal) d.finals.push(tx)
+        else interim += tx
+      }
+      dictSetValue(targetId, dictJoin(d.base, d.finals.concat([interim])))
+    }
+    rec.onerror = function (ev) { d.error = ev && ev.error ? String(ev.error) : 'other' }
+    rec.onend = function () {
+      // A vegleges szoveg marad (a felig hallott resz nem).
+      dictSetValue(targetId, dictJoin(d.base, d.finals))
+      if (WB.dict === d) { WB.dict = null; render() }
+      if (d.error && d.error !== 'aborted') {
+        var k = DICT_ERRORS[d.error] || 'other'
+        window.showToast(t('workbench.voice.err_' + k, { code: d.error }))
+      }
+    }
+    WB.dict = d
+    try { rec.start() } catch (e) {
+      WB.dict = null
+      window.showToast(t('workbench.voice.err_other', { code: (e && e.message) || '' }))
+      return
+    }
+    render()
+    var el = document.getElementById(targetId)
+    if (el && typeof el.focus === 'function') el.focus()
+  }
+
+  function ttsSupported() { return !!(window.speechSynthesis && window.SpeechSynthesisUtterance) }
+
+  function ttsButtonHtml(key) {
+    if (!ttsSupported()) return ''
+    var on = WB.speaking === key
+    return '<button type="button" class="wb-part-btn wb-tts' + (on ? ' wb-tts-on' : '') + '" data-wb-act="tts" data-wb-tts="' + escA(key) + '" aria-pressed="' + on + '">'
+      + esc(on ? t('workbench.voice.tts_stop') : t('workbench.voice.tts')) + '</button>'
+  }
+
+  function ttsTextFor(key) {
+    var k = String(key || '')
+    if (k === 'preview') return (WB.preview && WB.preview.text) || ''
+    if (k.indexOf('turn:') === 0) {
+      var turn = chatState().turns[Number(k.slice(5))]
+      return turn ? turn.text || '' : ''
+    }
+    if (k.indexOf('part:') === 0) {
+      var id = k.slice(5)
+      var part = partsOf().filter(function (p) { return p.id === id })[0]
+      return part ? (part.kind === 'text' ? part.text : part.caption) || '' : ''
+    }
+    return ''
+  }
+
+  /** Felolvasasra: jelolo-karakterek nelkul, rovid darabokban (a Chrome a
+   *  hosszu mondatot ~15 mp utan csendben elvagja). */
+  function ttsChunks(text) {
+    var clean = String(text || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]+/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    var sentences = clean.split(/(?<=[.!?…:;])\s+|\n+/)
+    var out = []
+    var cur = ''
+    sentences.forEach(function (s) {
+      s = s.replace(/\s+/g, ' ').trim()
+      if (!s) return
+      while (s.length > 220) { var cut = s.lastIndexOf(' ', 220); if (cut < 80) cut = 220; if (cur) { out.push(cur); cur = '' } out.push(s.slice(0, cut)); s = s.slice(cut).trim() }
+      if (cur && (cur + ' ' + s).length > 220) { out.push(cur); cur = s } else cur = cur ? cur + ' ' + s : s
+    })
+    if (cur) out.push(cur)
+    return out
+  }
+
+  function ttsStop() {
+    WB.speaking = null
+    if (ttsSupported()) { try { window.speechSynthesis.cancel() } catch (_e) { /* nem baj */ } }
+  }
+
+  function ttsToggle(key) {
+    if (!ttsSupported()) { window.showToast(t('workbench.voice.no_tts')); return }
+    var same = WB.speaking === key
+    ttsStop()
+    if (same) { render(); return }
+    var chunks = ttsChunks(ttsTextFor(key))
+    if (!chunks.length) { window.showToast(t('workbench.voice.tts_empty')); render(); return }
+    var lang = speechLang()
+    var voices = []
+    try { voices = window.speechSynthesis.getVoices() || [] } catch (_e) { voices = [] }
+    var prefix = lang.slice(0, 2).toLowerCase()
+    var voice = voices.filter(function (v) { return String(v.lang || '').toLowerCase().indexOf(prefix) === 0 })[0] || null
+    // Ha a bongeszo MAR felsorolta a hangjait, es nincs koztuk ilyen nyelvu,
+    // azt kimondjuk -- kulonben egy angol hang olvasna fel magyar szoveget.
+    if (!voice && voices.length) window.showToast(t('workbench.voice.no_voice'))
+    WB.speaking = key
+    chunks.forEach(function (c, i) {
+      var u = new window.SpeechSynthesisUtterance(c)
+      u.lang = lang
+      if (voice) u.voice = voice
+      if (i === chunks.length - 1) {
+        u.onend = function () { if (WB.speaking === key) { WB.speaking = null; render() } }
+      }
+      u.onerror = function (ev) {
+        if (WB.speaking !== key) return
+        WB.speaking = null
+        render()
+        var code = ev && ev.error ? String(ev.error) : ''
+        if (code && code !== 'canceled' && code !== 'interrupted') window.showToast(t('workbench.voice.tts_failed', { code: code }))
+      }
+      window.speechSynthesis.speak(u)
+    })
+    render()
   }
 
   function previewHtml() {
@@ -3549,10 +3735,11 @@
     return '<div class="wb-turn-via">' + esc(line) + '</div>'
   }
 
-  function turnHtml(turn) {
+  function turnHtml(turn, index) {
     var who = turn.role === 'user' ? t('workbench.chat.you') : t('workbench.chat.agent')
     var body = ''
     if (turn.text) body += '<div class="wb-turn-text">' + esc(turn.text) + '</div>'
+    if (turn.text && turn.role !== 'user' && typeof index === 'number') body += '<div class="wb-turn-tts">' + ttsButtonHtml('turn:' + index) + '</div>'
     if (turn.tools && turn.tools.length) body += turn.tools.map(toolLineHtml).join('')
     if (turn.notices && turn.notices.length) {
       body += turn.notices.map(function (n) { return '<div class="wb-turn-notice">' + esc(n) + '</div>' }).join('')
@@ -3595,10 +3782,12 @@
       + '<div class="wb-chat-row">'
       + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
       + escA(t('workbench.chat.placeholder')) + '">' + esc(WB.chatDraft) + '</textarea>'
+      + '<div class="wb-chat-btns">'
+      + micButtonHtml('wbChatInput')
       + (streaming
         ? '<button type="button" class="btn-secondary" data-wb-act="chat-stop">' + esc(t('workbench.chat.stop')) + '</button>'
         : '<button type="button" class="btn-primary" data-wb-act="chat-send">' + esc(t('workbench.chat.send')) + '</button>')
-      + '</div>'
+      + '</div></div>'
       + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail
         ? t('workbench.chat.target_item', { title: WB.detail.item.title })
         : t('workbench.chat.target_project')) + '</p>'
@@ -4517,8 +4706,14 @@
     // A tablazat egy cellajaban all a kurzor: az ujrarajzolas utan ugyanoda
     // tesszuk vissza (a chat streamelese kozben is lehessen gepelni).
     var active = document.activeElement
-    var keepCell = active && /^wb(Cell_|Img)/.test(String(active.id || '')) ? active.id : null
+    var keepCell = active && /^wb(Cell_|Img|TextEdit$|PartText$|PartNewText$|ChatInput$)/.test(String(active.id || '')) ? active.id : null
     var caret = keepCell && typeof active.selectionStart === 'number' ? active.selectionStart : null
+    // Az uj szoveges resz mezojet semmi mas nem tarolja: az ujrarajzolas (pl.
+    // mentes kozben, diktalas indulasakor) kulonben kitorolne a begepelt szoveget.
+    var newPart = document.getElementById('wbPartNewText')
+    // Csak amig a mezo nyitva van: mentes/megse utan a regi elem meg a DOM-ban
+    // all, es a kiuritett piszkozatot kulonben visszairnank.
+    if (WB.partNewOpen && newPart && typeof newPart.value === 'string') WB.partNewDraft = newPart.value
     el.innerHTML = '<div class="wb-root">'
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
@@ -4665,6 +4860,7 @@
       WB.partBusy = false
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.partNewOpen = false
+      WB.partNewDraft = ''
       applyParts(r.data)
       window.showToast(t('workbench.parts.added'))
     })
@@ -4913,6 +5109,8 @@
     else if (a === 'compare-open') openCompare()
     else if (a === 'compare-close') { WB.compare = null; render() }
     else if (a === 'text-edit') openTextEdit()
+    else if (a === 'dict') dictToggle(act.getAttribute('data-wb-dict'))
+    else if (a === 'tts') ttsToggle(act.getAttribute('data-wb-tts'))
     else if (a === 'img-open') openImageEditor()
     else if (a === 'img-close') imgClose()
     else if (a === 'img-save') imgSave()
@@ -4953,7 +5151,7 @@
     else if (a === 'tpl-use') useTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'tpl-retry') { WB.templatesError = null; WB.templates = null; render(); loadTemplates() }
     else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
-    else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partEdit = null; render() }
+    else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partNewDraft = ''; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }
     else if (a === 'part-edit') { WB.partEdit = act.getAttribute('data-wb-part'); WB.partDraft = null; WB.partNewOpen = false; render() }
     else if (a === 'part-save') { e.preventDefault(); savePart(act.getAttribute('data-wb-part')) }
@@ -5024,7 +5222,7 @@
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
-    else if (a === 'chat-send') sendChat()
+    else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-setup') openChatSetup()
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
@@ -5298,6 +5496,7 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       if (typeof e.preventDefault === 'function') e.preventDefault()
       WB.chatDraft = e.target.value
+      if (WB.dict) dictStop()
       sendChat()
     }
   })
@@ -5415,6 +5614,9 @@
     WB.previewVersion = null
     WB.table = null
     WB.img = null
+    if (WB.dict) { try { WB.dict.rec.stop() } catch (_e) { /* mar all */ } }
+    WB.dict = null
+    ttsStop()
     WB.overview = null
     WB.overviewError = null
   }

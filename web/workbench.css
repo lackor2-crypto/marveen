@@ -752,3 +752,13 @@
   .wb-img-h { width: 28px; height: 28px; }
   .wb-img .wb-input { font-size: 16px; }
 }
+
+/* Diktalas es felolvasas (#406, 17. pont). A chat gombjai egy sorban, a
+ * teljes szelessegu mezo ALATT (lasd .wb-chat-row fent). */
+.wb-chat-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.wb-mic-on { border-color: var(--danger, #d33); color: var(--danger, #d33); }
+.wb-tts-on { font-weight: 600; }
+.wb-turn-tts { margin-top: 4px; }
+@media (max-width: 640px) {
+  .wb-mic, .wb-tts { min-height: 36px; }
+}
