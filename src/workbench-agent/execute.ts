@@ -33,7 +33,7 @@ import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
-import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord } from './project-tools.js'
+import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
 
@@ -623,6 +623,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'kanban.relate': return kanbanRelate(project, input)
     case 'decision.list': return decisionList(project)
     case 'decision.record': return decisionRecord(project, input)
+    case 'workItem.addTodo': return todoAdd(project, input)
 
     default:
       return { ok: false, code: 'tool_unknown', detail: `there is no tool named ${name}` }

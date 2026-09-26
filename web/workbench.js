@@ -120,6 +120,13 @@
     weekly: null,
     wkError: null,
     wkShown: null,
+    // --- kis teendok hataridovel (#406, 14. pont) ---
+    // `todos === null` = meg nem toltottuk be; a hiba KULON all, hogy a "nem
+    // tudtam betolteni" sose latsszon "nincs teendo"-nek.
+    todos: null,
+    tdError: null,
+    tdBusy: false,
+    tdOpen: false,
     // --- dontesnaplo (#406, 10. pont) ---
     // `decisions === null` = meg nem toltottuk be; a hiba KULON all, hogy a
     // "nem tudtam betolteni" sose latsszon "meg nincs dontes"-nek.
@@ -195,10 +202,161 @@
       WB.project = r.data.project
       WB.items = r.data.items || []
       loadOverview(projectId)
+      loadTodos(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
       if (WB.selectedId && !WB.items.some(function (i) { return i.id === WB.selectedId })) WB.selectedId = null
       render()
     })
+  }
+
+  // ---- kis teendok hataridovel (#406, 14. pont) -------------------------------
+  // A projekt osszes teendoje EGY listaban jon; a szerkeszto a kivalasztott
+  // munkadarabet szuri ki belole. A naptarba egy .ics fajl viszi at (barmely
+  // naptar felveszi), semmi nem megy ki a geprol magatol.
+
+  function loadTodos(projectId) {
+    var pid = projectId || WB.projectId
+    if (!pid) return
+    return api('GET', '/api/workbench/todos?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.projectId !== pid) return
+      if (!r.ok) { WB.tdError = r.message; WB.todos = null; render(); return }
+      WB.tdError = null
+      WB.todos = (r.data && r.data.todos) || []
+      render()
+    })
+  }
+
+  /** A mai nap (a bongeszo helyi ideje szerint), YYYY-MM-DD. */
+  function todayStr() {
+    var d = new Date()
+    function p(n) { return (n < 10 ? '0' : '') + n }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+  }
+
+  function tdDueState(td) {
+    if (td.done_at != null || !td.due_date) return ''
+    var today = todayStr()
+    if (td.due_date < today) return 'overdue'
+    if (td.due_date === today) return 'today'
+    return 'upcoming'
+  }
+
+  function tdDueLabel(td) {
+    if (!td.due_date) return ''
+    var d
+    try {
+      var a = td.due_date.split('-')
+      d = new Date(+a[0], +a[1] - 1, +a[2]).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+    } catch (_e) { d = td.due_date }
+    var st = tdDueState(td)
+    return st === 'overdue' ? t('workbench.td.overdue', { date: d })
+      : st === 'today' ? t('workbench.td.today', { date: d })
+        : t('workbench.td.due', { date: d })
+  }
+
+  function tdRowHtml(td, withItem) {
+    var ro = archived() || WB.tdBusy ? ' disabled' : ''
+    var done = td.done_at != null
+    var st = tdDueState(td)
+    var ics = td.due_date && !done
+      ? ' <a class="wb-linklike" href="/api/workbench/todos/' + encodeURIComponent(td.id) + '/ics?lang=' + encodeURIComponent(window._lang || 'hu') + '" download>'
+        + esc(t('workbench.td.to_calendar')) + '</a>' : ''
+    return '<li class="wb-td-row' + (done ? ' wb-td-done' : '') + (st ? ' wb-td-' + st : '') + '">'
+      + '<button type="button" class="wb-td-check" data-wb-act="td-toggle" data-wb-todo="' + escA(td.id) + '" aria-pressed="' + done + '"'
+      + ' aria-label="' + escA(t(done ? 'workbench.td.undo' : 'workbench.td.tick')) + '"' + ro + '>' + (done ? '✓' : '') + '</button>'
+      + '<div class="wb-td-body"><span class="wb-td-text">' + esc(td.text) + '</span>'
+      + (td.due_date ? ' <span class="wb-td-due">' + esc(tdDueLabel(td)) + '</span>' : '')
+      + (withItem ? ' <button type="button" class="wb-linklike" data-wb-act="td-item" data-wb-item-id="' + escA(td.work_item_id) + '">'
+        + esc(td.item_title || '') + '</button>' : '')
+      + ics
+      + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="td-delete" data-wb-todo="' + escA(td.id) + '"' + ro + '>'
+        + esc(t('workbench.td.delete')) + '</button>')
+      + '</div></li>'
+  }
+
+  /** A szerkesztoben: a kivalasztott munkadarab teendoi + uj teendo. */
+  function todosBoxHtml() {
+    if (!WB.detail) return ''
+    var id = WB.detail.item.id
+    var body
+    if (WB.tdError) body = '<p class="wb-error">' + esc(WB.tdError) + '</p>'
+      + '<button type="button" class="btn-secondary" data-wb-act="td-retry">' + esc(t('workbench.tpl.retry')) + '</button>'
+    else if (WB.todos === null) body = '<p class="wb-hint">' + esc(t('workbench.td.loading')) + '</p>'
+    else {
+      var mine = WB.todos.filter(function (x) { return x.work_item_id === id })
+      body = mine.length
+        ? '<ul class="wb-td-list">' + mine.map(function (x) { return tdRowHtml(x, false) }).join('') + '</ul>'
+        : '<p class="wb-hint">' + esc(t('workbench.td.empty_item')) + '</p>'
+    }
+    var form = archived() ? '' : '<form id="wbTdForm" class="wb-td-form">'
+      + '<input class="wb-input" id="wbTdText" type="text" maxlength="300" placeholder="' + escA(t('workbench.td.placeholder')) + '"'
+      + ' aria-label="' + escA(t('workbench.td.text_label')) + '">'
+      + '<label class="wb-td-date-label">' + esc(t('workbench.td.due_label'))
+      + ' <input class="wb-input" id="wbTdDue" type="date"></label>'
+      + '<button type="submit" class="btn-primary"' + (WB.tdBusy ? ' disabled' : '') + '>' + esc(t('workbench.td.add')) + '</button>'
+      + '</form>'
+    return '<details class="wb-td-box" open><summary>' + esc(t('workbench.td.title_item')) + '</summary>' + form + body + '</details>'
+  }
+
+  /** Eszkozsor-panel: a projekt MINDEN teendoje, lejart / ma / kozelgo / hatarido nelkul / kesz. */
+  function todosPanelHtml() {
+    if (!WB.tdOpen) return ''
+    var body = ''
+    if (WB.tdError) {
+      body = '<p class="wb-error">' + esc(WB.tdError) + '</p>'
+        + '<button type="button" class="btn-secondary" data-wb-act="td-retry">' + esc(t('workbench.tpl.retry')) + '</button>'
+    } else if (WB.todos === null) {
+      body = '<p class="wb-hint">' + esc(t('workbench.td.loading')) + '</p>'
+    } else if (!WB.todos.length) {
+      body = '<p class="wb-hint">' + esc(t('workbench.td.empty_project')) + '</p>'
+    } else {
+      var groups = { overdue: [], today: [], upcoming: [], nodate: [], done: [] }
+      WB.todos.forEach(function (x) {
+        if (x.done_at != null) groups.done.push(x)
+        else if (!x.due_date) groups.nodate.push(x)
+        else groups[tdDueState(x)].push(x)
+      })
+      var hasDue = groups.overdue.length + groups.today.length + groups.upcoming.length > 0
+      body = (hasDue ? '<p><a class="btn-secondary wb-td-ics-all" href="/api/workbench/todos/ics?project=' + encodeURIComponent(WB.projectId)
+        + '&lang=' + encodeURIComponent(window._lang || 'hu') + '" download>' + esc(t('workbench.td.all_to_calendar')) + '</a></p>' : '')
+        + ['overdue', 'today', 'upcoming', 'nodate', 'done'].map(function (g) {
+          if (!groups[g].length) return ''
+          return '<h3 class="wb-search-group">' + esc(t('workbench.td.group.' + g, { n: groups[g].length })) + '</h3>'
+            + '<ul class="wb-td-list">' + groups[g].map(function (x) { return tdRowHtml(x, true) }).join('') + '</ul>'
+        }).join('')
+    }
+    return '<section class="wb-caps-panel wb-td-panel" id="wbTdPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.td.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="td-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.td.intro')) + '</p>'
+      + body
+      + '</section>'
+  }
+
+  function tdRequest(method, url, body, toastKey) {
+    if (WB.tdBusy) return
+    var pid = WB.projectId
+    WB.tdBusy = true
+    render()
+    return api(method, url, body).then(function (r) {
+      WB.tdBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (toastKey === 'add') { var el = document.getElementById('wbTdText'); if (el) el.value = ''; var d = document.getElementById('wbTdDue'); if (d) d.value = '' }
+      window.showToast(t('workbench.td.toast.' + toastKey))
+      return loadTodos(pid)
+    })
+  }
+
+  function addTodoFromForm() {
+    if (!WB.detail) return
+    var el = document.getElementById('wbTdText')
+    var text = el && typeof el.value === 'string' ? el.value.trim() : ''
+    if (!text) { window.showToast(t('workbench.td.empty_text')); return }
+    var due = document.getElementById('wbTdDue')
+    tdRequest('POST', '/api/workbench/todos', { item_id: WB.detail.item.id, text: text, due_date: (due && due.value) || '' }, 'add')
   }
 
   // ---- projekt-attekinto (#406, 2. pont) -------------------------------------
@@ -2511,6 +2669,7 @@
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
         + approvalBoxHtml()
+        + todosBoxHtml()
         + versionBarHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
           ? compareHtml()
@@ -3756,6 +3915,8 @@
         if (!r.ok || WB.selectedId !== itemId || !WB.detail) return
         WB.detail = r.data
         loadPreview(itemId, WB.previewVersion, true)
+        // az agens teendot is felvehetett (workItem.addTodo)
+        loadTodos()
       })
     }, 400)
   }
@@ -3779,6 +3940,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="wk-open" aria-pressed="' + !!WB.wkOpen + '">' + esc(t('workbench.wk.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="td-open" aria-pressed="' + !!WB.tdOpen + '">' + esc(t('workbench.td.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
@@ -3788,6 +3950,7 @@
       + timelinePanelHtml()
       + weeklyPanelHtml()
       + decisionsPanelHtml()
+      + todosPanelHtml()
       + handoffPanelHtml()
       + overviewHtml()
       + panelTabsHtml()
@@ -4103,6 +4266,10 @@
     WB.weekly = null
     WB.wkError = null
     WB.wkShown = null
+    WB.todos = null
+    WB.tdError = null
+    WB.tdBusy = false
+    WB.tdOpen = false
     WB.decOpen = false
     WB.decisions = null
     WB.decError = null
@@ -4202,6 +4369,17 @@
     else if (a === 'ho-close') { WB.hoOpen = false; render() }
     else if (a === 'ho-refresh') loadHandoff()
     else if (a === 'ho-scope') { var sc = act.getAttribute('data-wb-scope'); if (sc === 'done' || sc === 'all') { WB.hoScope = sc; loadHandoff() } }
+    else if (a === 'td-open') { WB.tdOpen = !WB.tdOpen; render(); if (WB.tdOpen && WB.todos === null) loadTodos() }
+    else if (a === 'td-close') { WB.tdOpen = false; render() }
+    else if (a === 'td-retry') { WB.tdError = null; WB.todos = null; render(); loadTodos() }
+    else if (a === 'td-item') { var tid = act.getAttribute('data-wb-item-id'); if (tid) selectItem(tid) }
+    else if (a === 'td-toggle' || a === 'td-delete') {
+      var tdId = act.getAttribute('data-wb-todo')
+      var cur = (WB.todos || []).filter(function (x) { return x.id === tdId })[0]
+      if (!cur) return
+      if (a === 'td-toggle') tdRequest('PATCH', '/api/workbench/todos/' + encodeURIComponent(tdId), { done: cur.done_at == null }, cur.done_at == null ? 'done' : 'undone')
+      else if (window.confirm(t('workbench.td.delete_confirm', { text: cur.text }))) tdRequest('DELETE', '/api/workbench/todos/' + encodeURIComponent(tdId), undefined, 'deleted')
+    }
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
     else if (a === 'dec-close') { WB.decOpen = false; WB.decEdit = null; render() }
     else if (a === 'dec-edit') { WB.decEdit = act.getAttribute('data-wb-dec'); render() }
@@ -4519,6 +4697,7 @@
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
     if (e.target && e.target.id === 'wbSearchForm') { e.preventDefault(); runSearch() }
     if (e.target && e.target.id === 'wbDecForm') { e.preventDefault(); addDecisionFromForm() }
+    if (e.target && e.target.id === 'wbTdForm') { e.preventDefault(); addTodoFromForm() }
     if (e.target && e.target.id === 'wbDecEditForm') { e.preventDefault(); saveDecisionEdit() }
   })
 

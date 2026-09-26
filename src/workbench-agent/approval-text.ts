@@ -33,6 +33,7 @@ const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'research.save': { hu: 'kutatási jegyzet mentése', en: 'save a research note' },
   'web.search': { hu: 'webkeresés', en: 'web search' },
   'decision.record': { hu: 'döntés rögzítése a döntésnaplóba', en: 'record a decision in the decision log' },
+  'workItem.addTodo': { hu: 'teendő felvétele határidővel', en: 'add a to-do with a due date' },
 }
 
 /** Az eszkoz emberi neve; ismeretlennel a gepi nev marad (nem talalunk ki). */

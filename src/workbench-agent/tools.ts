@@ -261,6 +261,14 @@ export const TOOLS: ToolDef[] = [
     input: 'text: the decision in one or two sentences (at most 500 characters); workItem (optional): the id of the work item it is about',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
+  // #406, 14. pont: kis teendo hataridovel. A `workItem.` elotag miatt a
+  // felulet utana magatol frissul.
+  {
+    name: 'workItem.addTodo',
+    description: 'Add a small to-do with an optional due date to a work item (for example: "review the text by Friday"). It shows up in the work item and in the project to-do list, and the owner can put it in their calendar with one click. You do not know today\'s date: for a weekday say dueWeekday, for "in N days" say dueInDays, and the server works out the day; the result tells you the date it chose.',
+    input: 'workItem: the id of the work item; text: the to-do in one short sentence (at most 300 characters); due (optional): YYYY-MM-DD; or dueWeekday (optional): monday..sunday, the nearest such day, today included; or dueInDays (optional): a whole number of days from today',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
   // #404: webkereses. A kifejezes kimegy a keresoszolgaltatonak, de a vilagban
   // semmit nem valtoztat -- ezert sajat, csak-olvaso kategoria (`web_research`),
   // amit a tulajdonos az Autonomia lapon kulon le tud venni.
