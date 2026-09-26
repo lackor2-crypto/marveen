@@ -44,6 +44,7 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { startWeeklySummarySweeper } from './workbench-weekly.js'
 import { startSystemDepsMonitor } from './system-deps.js'
 import { scanInstalledClaude } from './claude-model-discovery.js'
 import { registerDiscoveredClaudeModels } from './config-registry.js'
@@ -656,6 +657,10 @@ export function startWebServer(port = 3420): http.Server {
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
 
+  // #406, 13. pont: minden aktiv projektnek magatol elkeszul a mult heti
+  // osszefoglalo, akkor is, ha senki nem nyitja meg a Munkapadot.
+  const weeklySummaryInterval = startWeeklySummarySweeper((err) => logger.warn({ err }, '[workbench] heti osszefoglalo sikertelen'))
+
   // #387: az Intezo gyokere es elso szintje elore kilistazva, hogy az elso
   // kattintas se varjon. Kesleltetve, hogy az indulast ne lassitsa.
   const lifePrewarm = setTimeout(() => {
@@ -986,6 +991,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(kukaSepresInterval)
     stopBackupScheduler()
     clearInterval(skillSeederInterval)
+    clearInterval(weeklySummaryInterval)
     clearInterval(updateCheckerInterval)
     if (federationPollerInterval) clearInterval(federationPollerInterval)
     if (capabilityRunnerInterval) clearInterval(capabilityRunnerInterval)

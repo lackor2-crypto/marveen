@@ -114,6 +114,12 @@
     searchBusy: false,
     // --- jovahagyas munkadarabra (#406, 9. pont) ---
     approvalBusy: false,
+    // --- heti osszefoglalo (#406, 13. pont) ---
+    // `weekly === null` = meg nem toltottuk be; a hiba KULON all.
+    wkOpen: false,
+    weekly: null,
+    wkError: null,
+    wkShown: null,
     // --- dontesnaplo (#406, 10. pont) ---
     // `decisions === null` = meg nem toltottuk be; a hiba KULON all, hogy a
     // "nem tudtam betolteni" sose latsszon "meg nincs dontes"-nek.
@@ -3056,6 +3062,103 @@
   // irja be; a Munkapad-agens a beszelgetesbol rogzit, es minden forduloban
   // megkapja. Torles nincs: a visszavont dontes athuzva latszik, visszaallithato.
 
+  // HETI OSSZEFOGLALO (#406, 13. pont). A szerver keszit minden lezart hetrol
+  // egyet magatol (es megorzi); a folyo het "eddig" allapota elo. A szoveget itt
+  // rakjuk ossze ket nyelven, a szerver csak szamot es nevet ad.
+
+  function loadWeekly() {
+    var pid = WB.projectId
+    if (!pid) return
+    WB.wkError = null
+    return api('GET', '/api/workbench/weekly?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.projectId !== pid) return
+      if (!r.ok) { WB.wkError = r.message; WB.weekly = null; render(); return }
+      WB.weekly = r.data || { current: null, weeks: [] }
+      if (WB.wkShown == null) WB.wkShown = 'current'
+      render()
+    })
+  }
+
+  function wkRange(s) {
+    try {
+      var a = new Date(s.week_start * 1000)
+      var b = new Date((s.week_end - 1) * 1000)
+      return a.toLocaleDateString() + ' – ' + b.toLocaleDateString()
+    } catch (_e) { return '-' }
+  }
+
+  function wkListHtml(key, names, total) {
+    if (!names || !names.length) return ''
+    var more = total > names.length ? '<li class="wb-hint">' + esc(t('workbench.wk.more', { n: total - names.length })) + '</li>' : ''
+    return '<h3 class="wb-search-group">' + esc(t(key, { n: total })) + '</h3>'
+      + '<ul class="wb-wk-list">' + names.map(function (x) { return '<li>' + esc(x) + '</li>' }).join('') + more + '</ul>'
+  }
+
+  function wkSummaryHtml(s) {
+    if (!s) return ''
+    var c = s.counts || {}
+    var head = '<p class="wb-wk-range"><strong>' + esc(t(s.live ? 'workbench.wk.this_week' : 'workbench.wk.week_of', { range: wkRange(s) })) + '</strong>'
+      + (s.live ? ' <span class="wb-hint">' + esc(t('workbench.wk.so_far')) + '</span>' : '') + '</p>'
+    var errs = (s.errors || []).length
+      ? '<div class="wb-wk-warn"><p>' + esc(t('workbench.wk.partial')) + '</p></div>' : ''
+    if (s.quiet) return head + '<p class="wb-hint">' + esc(t(s.live ? 'workbench.wk.quiet_now' : 'workbench.wk.quiet')) + '</p>'
+    var facts = [
+      ['items_created', 'workbench.wk.f.created'], ['finished', 'workbench.wk.f.finished'], ['versions', 'workbench.wk.f.versions'],
+      ['files', 'workbench.wk.f.files'], ['approvals_requested', 'workbench.wk.f.appr_req'], ['approvals_approved', 'workbench.wk.f.appr_ok'],
+      ['approvals_rejected', 'workbench.wk.f.appr_back'], ['decisions', 'workbench.wk.f.decisions'], ['cards_created', 'workbench.wk.f.cards_new'],
+      ['cards_done', 'workbench.wk.f.cards_done'],
+    ].filter(function (f) { return c[f[0]] > 0 }).map(function (f) {
+      return '<li><strong>' + esc(String(c[f[0]])) + '</strong> ' + esc(t(f[1])) + '</li>'
+    }).join('')
+    var busiest = (s.busiest || []).length
+      ? '<h3 class="wb-search-group">' + esc(t('workbench.wk.busiest')) + '</h3><ul class="wb-wk-list">'
+        + s.busiest.map(function (b) { return '<li>' + esc(b.title) + ' <span class="wb-hint">' + esc(t('workbench.wk.versions_n', { n: b.versions })) + '</span></li>' }).join('') + '</ul>'
+      : ''
+    var open = s.open_now != null ? '<p class="wb-hint">' + esc(t('workbench.wk.open_now', { n: s.open_now })) + '</p>' : ''
+    return head + errs
+      + (facts ? '<ul class="wb-wk-facts">' + facts + '</ul>' : '')
+      + wkListHtml('workbench.wk.new_items', s.created, c.items_created || 0)
+      + wkListHtml('workbench.wk.done_items', s.finished, c.finished || 0)
+      + busiest
+      + wkListHtml('workbench.wk.decisions', s.decisions, c.decisions || 0)
+      + open
+  }
+
+  function weeklyPanelHtml() {
+    if (!WB.wkOpen) return ''
+    var body = ''
+    if (WB.wkError) {
+      body = '<p class="wb-error">' + esc(WB.wkError) + '</p>'
+        + '<button type="button" class="btn-secondary" data-wb-act="wk-refresh">' + esc(t('workbench.tpl.retry')) + '</button>'
+    } else if (WB.weekly === null) {
+      body = '<p class="wb-hint">' + esc(t('workbench.wk.loading')) + '</p>'
+    } else {
+      var weeks = WB.weekly.weeks || []
+      var tabs = '<div class="wb-wk-weeks" role="group" aria-label="' + escA(t('workbench.wk.pick')) + '">'
+        + '<button type="button" class="btn-secondary" data-wb-act="wk-show" data-wb-week="current" aria-pressed="' + (WB.wkShown === 'current') + '">'
+        + esc(t('workbench.wk.this_week_btn')) + '</button>'
+        + weeks.map(function (w) {
+          var k = String(w.week_start)
+          return '<button type="button" class="btn-secondary" data-wb-act="wk-show" data-wb-week="' + escA(k) + '" aria-pressed="' + (WB.wkShown === k) + '">'
+            + esc(wkRange(w)) + '</button>'
+        }).join('')
+        + '</div>'
+      var shown = WB.wkShown === 'current' ? WB.weekly.current
+        : weeks.filter(function (w) { return String(w.week_start) === WB.wkShown })[0] || WB.weekly.current
+      body = tabs
+        + (weeks.length ? '' : '<p class="wb-hint">' + esc(t('workbench.wk.no_history')) + '</p>')
+        + wkSummaryHtml(shown)
+    }
+    return '<section class="wb-caps-panel wb-wk-panel" id="wbWkPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.wk.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="wk-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.wk.intro')) + '</p>'
+      + body
+      + '</section>'
+  }
+
   function loadDecisions() {
     var pid = WB.projectId
     if (!pid) return
@@ -3387,6 +3490,7 @@
       + ' title="' + escA(t('workbench.layout.hint')) + '">'
       + esc(t(WB.layout === 'split' ? 'workbench.layout.to_classic' : 'workbench.layout.to_split')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="search-open" aria-pressed="' + !!WB.searchOpen + '">' + esc(t('workbench.search.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="wk-open" aria-pressed="' + !!WB.wkOpen + '">' + esc(t('workbench.wk.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
@@ -3396,6 +3500,7 @@
       + capsPanelHtml()
       + searchPanelHtml()
       + timelinePanelHtml()
+      + weeklyPanelHtml()
       + decisionsPanelHtml()
       + handoffPanelHtml()
       + overviewHtml()
@@ -3701,6 +3806,10 @@
     WB.search = null
     WB.searchError = null
     WB.searchBusy = false
+    WB.wkOpen = false
+    WB.weekly = null
+    WB.wkError = null
+    WB.wkShown = null
     WB.decOpen = false
     WB.decisions = null
     WB.decError = null
@@ -3773,6 +3882,10 @@
     else if (a === 'caps-open') { WB.capsOpen = true; if (WB.caps === null) loadCaps(false); else render() }
     else if (a === 'caps-close') { WB.capsOpen = false; render() }
     else if (a === 'caps-refresh') loadCaps(true)
+    else if (a === 'wk-open') { WB.wkOpen = !WB.wkOpen; if (WB.wkOpen && WB.weekly === null) loadWeekly(); else render() }
+    else if (a === 'wk-close') { WB.wkOpen = false; render() }
+    else if (a === 'wk-refresh') { WB.weekly = null; WB.wkError = null; render(); loadWeekly() }
+    else if (a === 'wk-show') { WB.wkShown = act.getAttribute('data-wb-week') || 'current'; render() }
     else if (a === 'tl-open') { WB.tlOpen = !WB.tlOpen; if (WB.tlOpen && WB.tl === null) loadTimeline(false); else render() }
     else if (a === 'tl-close') { WB.tlOpen = false; render() }
     else if (a === 'tl-refresh') loadTimeline(false)

@@ -50,6 +50,7 @@ import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.j
 import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
+import { ensureLastWeekSummary, listWeeklySummaries, currentWeekSummary } from '../../workbench-weekly.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -646,6 +647,24 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       'Cache-Control': 'private, no-store',
     })
     res.end(r.zip)
+    return true
+  }
+
+  // HETI OSSZEFOGLALO (#406, 13. pont): a folyo het elo + a mentett hetek.
+  // A megnyitas maga potolja a hianyzo mult heti osszefoglalot.
+  if (path === '/api/workbench/weekly' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const now = Math.floor(Date.now() / 1000)
+    let ensured: string
+    try { ensured = ensureLastWeekSummary(project.id, now) } catch { ensured = 'failed' }
+    json(res, {
+      current: currentWeekSummary(project.id, now),
+      weeks: listWeeklySummaries(project.id),
+      last_week: ensured,
+    })
     return true
   }
 
