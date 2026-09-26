@@ -211,7 +211,9 @@ export function approvedApprovalFor(tool: string, projectId: string, sessionId?:
   const want = canonicalToolInput(input)
   const usable = (id: string): boolean => {
     if (getApproval(id)?.status !== 'approved') return false
-    try { return !isApprovalConsumed(id) } catch { return true }
+    // #406 bugkereses 3.: ha nem tudjuk megnezni, elhasznalt-e a jegy, akkor
+    // NINCS jog -- egy mar felhasznalt "igen" nem futtathat ujra.
+    try { return !isApprovalConsumed(id) } catch { return false }
   }
   if (sessionId) {
     try {
@@ -470,7 +472,15 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       // A felhasznalt jegyet a futas soraba irjuk: igy egy "igen" EGY futast
       // enged (isApprovalConsumed), nem a kovetkezoket is.
       const usedApproval = decision.kind === 'approval' ? approvedApprovalFor(tool.name, project.id, session.id, call.input) : null
-      const result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang, actor: input.actor })
+      // #406 bugkereses 4.: egy dobo eszkoz (EACCES, EISDIR) eddig 'running'-ban
+      // hagyta a sort, es a modell nem kapott TOOL RESULT-ot -- mint az
+      // approved-runnerben, a kivetel is rendes hibaeredmeny lesz.
+      let result: Awaited<ReturnType<typeof runTool>>
+      try {
+        result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang, actor: input.actor })
+      } catch (e) {
+        result = { ok: false as const, code: 'failed', detail: e instanceof Error ? e.message : String(e) }
+      }
       if (result.ok) {
         finishToolCall(row.id, 'ok', result.data, usedApproval)
         auditWorkbench({ agent: input.actor, tool: tool.name, op: tool.destructive ? 'write' : 'read', target: workItem?.id || project.id, cwd: project.id })

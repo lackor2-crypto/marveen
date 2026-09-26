@@ -12,9 +12,9 @@
  *      ilyen" vagy "nem latok oda" -- a tool SOSE ad vissza ures listat
  *      magyarazat nelkul.
  */
-import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
+import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
 import { getTool } from './tools.js'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { getProject, type ProjectRow } from '../projects.js'
 import { projectContext } from '../project-context.js'
 import { projectFileTarget, writeProjectFile, safeFileName } from '../project-files.js'
@@ -93,7 +93,30 @@ function projectFileRef(project: ProjectRow, raw: unknown): FileRef {
   const abs = join(target.dirAbs, name)
   // A join utan is ellenorizzuk: egy `..`-t tartalmazo fajlnev nem vihet ki.
   if (!abs.startsWith(target.dirAbs)) return { ok: false, code: 'bad_input', detail: 'path leads outside the project folder' }
+  // #406 bugkereses 1.: a mappat a projectFileTarget feloldja, a fajlnevet
+  // nem -- egy projektbeli jelkapcsolat (`titok.txt -> ~/.ssh/...`) a
+  // statSync/readFileSync-en at KIFELE vezetett. A link celja a projekt
+  // mappajan belul kell maradjon; ha nem (vagy nem tudjuk feloldani), elutasitjuk.
+  if (isEscapingLink(project, abs)) {
+    return { ok: false, code: 'bad_input', detail: 'this is a link that points outside the project folder; the workbench does not follow it' }
+  }
   return { ok: true, dirAbs: target.dirAbs, dirRel: target.dirRel, name, abs, rel: `${target.dirRel}/${name}` }
+}
+
+function isEscapingLink(project: ProjectRow, abs: string): boolean {
+  let isLink = false
+  try { isLink = lstatSync(abs).isSymbolicLink() } catch { return false }
+  if (!isLink) return false
+  const root = projectFileTarget(project, '')
+  if (!root.ok) return true
+  try {
+    const base = realpathSync(root.dirAbs)
+    const real = realpathSync(abs)
+    return real !== base && !real.startsWith(base + sep)
+  } catch {
+    // Torott link, vagy nem tudjuk megnezni, hova mutat: inkabb nem kovetjuk.
+    return true
+  }
 }
 
 /** Letezik-e, es fajl-e. A hibauzenetet SOSE talaljuk ki: az eredeti megy tovabb. */

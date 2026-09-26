@@ -8,7 +8,7 @@
 //   3. minden eredmeny megkulonbozteti a "nincs semmi"-t a "nem latok oda"-tol;
 //   4. a kontextus meretkorlatos, es kimondja, ahol nincs adata.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getKanbanCard, createLabel } from '../db.js'
@@ -250,6 +250,20 @@ describe('file.read -- a projektmappa hatara', () => {
       expect((r.data as any).text).toBe('Ez a fájl tartalma.')
       expect((r.data as any).truncated).toBe(false)
     }
+  })
+
+  // #406 bugkereses 1.: a projektbeli jelkapcsolat nem vezethet ki.
+  it('a projektmappan KIVULRE mutato jelkapcsolatot nem koveti', () => {
+    symlinkSync(join(depot, 'titok.txt'), join(depot, 'Projektek', 'teszt', 'link.txt'))
+    const r = executeTool('file.read', { path: 'link.txt' }, ctx())
+    expect(r.ok).toBe(false)
+    expect(JSON.stringify(r)).not.toContain('MAPPÁN KÍVÜL')
+  })
+
+  it('a projektmappan BELULRE mutato jelkapcsolatot koveti', () => {
+    symlinkSync(join(depot, 'Projektek', 'teszt', 'jegyzet.txt'), join(depot, 'Projektek', 'teszt', 'belso.txt'))
+    const r = executeTool('file.read', { path: 'belso.txt' }, ctx())
+    expect(r.ok).toBe(true)
   })
 
   it('a hosszu fajl levagva jon, ES a valasz megmondja, hogy levagtuk', () => {
