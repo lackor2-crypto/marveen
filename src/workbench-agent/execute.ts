@@ -34,6 +34,7 @@ import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave } from './project-tools.js'
+import { webSearch } from './web-search.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -113,6 +114,10 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
  *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
  *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+  if (name === 'web.search') {
+    if (!getProject(ctx.projectId)) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
+    return webSearch(input, ctx.lang)
+  }
   if (name !== 'document.toPdf') return executeTool(name, input, ctx)
 
   const project = getProject(ctx.projectId)

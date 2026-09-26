@@ -5615,6 +5615,7 @@ window._i18n.hu = {
   "workbench.tool.research.save": "Kutatási jegyzet mentése",
   "workbench.tool.kanban.comment": "Komment írása a kártyára",
   "workbench.tool.kanban.relate": "Kártyák összekötése",
+  "workbench.tool.web.search": "Keresés a weben",
   "workbench.tool.project.get": "Projekt adatainak lekérése",
   "workbench.tool.project.getContext": "Projekt áttekintése",
   "workbench.tool.project.listFiles": "Fájlok listázása",

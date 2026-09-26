@@ -212,6 +212,14 @@
       "locked": false,
       "maxLevel": 3,
       "timeout_minutes": 60
+    },
+    {
+      "key": "web_research",
+      "label": "Munkapad: webkereses (csak olvas; a keresokifejezes a keresoszolgaltatohoz megy, mas nem)",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
     }
   ]
 }

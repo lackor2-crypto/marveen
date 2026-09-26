@@ -29,6 +29,7 @@ import { getEffectiveSettingValue } from './settings-store.js'
 import { getSettingDefinition } from './config-registry.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { listAIProviders } from './workbench-agent/provider.js'
+import { activeWebSearchProvider, BRAVE_KEY_URL, WEB_SEARCH_KEY_SETTING, lastWebSearchProbe, probeWebSearch } from './workbench-agent/web-search.js'
 
 export type CapabilityState =
   /** Mukodik, meg is mertuk. */
@@ -292,6 +293,51 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
       return { state: 'not_configured', detail, version: null, path: null }
     },
   },
+  // #404: webkereses. A kulcs a FELULETROL irhato (titok: csak az latszik,
+  // hogy van-e). Az "Ellenorzes most" egy valodi, egytalalatos keresessel mer,
+  // mert csak igy derul ki, hogy a kulcs JO-e -- a sima "be van irva" hazudna.
+  {
+    key: 'web_search',
+    tier: 'extra',
+    title: { hu: 'Webkeresés', en: 'Web search' },
+    what_for: {
+      hu: 'Ezzel a Munkapad ügynöke rá tud keresni valamire az interneten (árak, szabványok, hírek), és a talált oldalak címét is megmondja.',
+      en: 'With this the Workbench agent can look things up on the internet (prices, standards, news) and tells you the address of each page it found.',
+    },
+    affects: {
+      hu: 'Enélkül minden más működik, csak az ügynök nem keres a weben: amit nem tud, azt megmondja, és nem talál ki helyette semmit.',
+      en: 'Without it everything else works; only the agent will not search the web: what it does not know, it says so and does not make it up.',
+    },
+    how_to: {
+      hu: [
+        'Nyisd meg a Brave Search API oldalát (a link lent van), és regisztrálj. Van ingyenes csomag is.',
+        'A bejelentkezés után az „API Keys” részen hozz létre egy kulcsot, és másold ki. Hosszú betű-szám sor, például: BSAxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        'Illeszd be alább a mezőbe, és nyomd meg a Mentést.',
+        'Nyomd meg az „Ellenőrzés most” gombot: egy próbakereséssel megnézi, hogy a kulcs működik-e.',
+      ],
+      en: [
+        'Open the Brave Search API page (the link is below) and sign up. There is a free plan.',
+        'After signing in, create a key under "API Keys" and copy it. It is a long string of letters and numbers, for example: BSAxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        'Paste it into the field below and press Save.',
+        'Press "Check now": it runs one test search to see whether the key works.',
+      ],
+    },
+    obtain_url: BRAVE_KEY_URL,
+    setting_key: WEB_SEARCH_KEY_SETTING,
+    testable: true,
+    async measure(force) {
+      const p = activeWebSearchProvider()
+      if (!p.configured()) return { state: 'not_configured', detail: null, version: null, path: null }
+      if (!force) {
+        // Nem egetunk keresest minden oldalbetoltesnel: a legutobbi VALODI
+        // meres all, ha ugyanarra a kulcsra szolt; ha meg nem mertunk, kimondjuk.
+        const last = lastWebSearchProbe()
+        if (last) return last
+        return { state: 'ok', detail: 'key saved, not tested yet -- press "Check now"', version: null, path: p.id }
+      }
+      return probeWebSearch()
+    },
+  },
   // Amire NINCS megvalositasunk. Kimondva soroljuk fel, hogy a felhasznalo ne
   // keressen olyan kapcsolot, ami nincs -- es ne varjon olyan gombra, ami nem
   // csinalna semmit. A spec 1. szakasza emliti oket; a bekotesuk kesobbi munka.
@@ -372,17 +418,20 @@ function settingOf(key: string): CapabilitySetting | null {
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Az FFmpeg teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server címe (üresen: nem használjuk)'
         : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'Saját Anthropic API-kulcs (üresen: a bejelentkezett előfizetés)'
+        : key === 'BRAVE_SEARCH_API_KEY' ? 'Brave Search API-kulcs (üresen: nincs webkeresés)'
         : key,
       en: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'Full path to LibreOffice (empty: found automatically)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Full path to FFmpeg (empty: found automatically)'
         : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server address (empty: not used)'
         : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'Your own Anthropic API key (empty: the signed-in subscription)'
+        : key === 'BRAVE_SEARCH_API_KEY' ? 'Brave Search API key (empty: no web search)'
         : key,
     },
     placeholder: key === 'WORKBENCH_LIBREOFFICE_PATH' ? '/usr/bin/soffice'
       : key === 'WORKBENCH_FFMPEG_PATH' ? '/usr/bin/ffmpeg'
       : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'http://localhost:8080'
       : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'sk-ant-...'
+      : key === 'BRAVE_SEARCH_API_KEY' ? 'BSA...'
       : '',
   }
 }
