@@ -1395,7 +1395,12 @@
       st.error = null
       st.sessionId = r.data.session ? r.data.session.id : null
       var regi = (r.data.messages || []).filter(function (m) { return m.role !== 'tool' }).map(function (m) {
-        return { role: m.role === 'user' ? 'user' : 'agent', text: m.content || '', tools: [], notices: [], error: null, done: true }
+        return {
+          role: m.role === 'user' ? 'user' : 'agent', text: m.content || '', tools: [], notices: [], error: null, done: true,
+          model: m.model || null,
+          via: m.via_kind === 'api_key' ? { kind: 'api_key' }
+            : m.via_kind === 'account' && m.via_account ? { kind: 'account', account: m.via_account } : null,
+        }
       })
       // ELE fuzzuk, nem felulirjuk. A betoltes kozben a felhasznalo mar
       // irhatott (eppen azert nem szurke a mezo); a kesve beerkezo elozmeny
@@ -1463,6 +1468,17 @@
       + '</div>'
   }
 
+  /** Melyik fiokkal / modellel ment a valasz (#402). Ha nem tudjuk (regi sor),
+   *  nem irunk semmit -- nem talalgatunk. */
+  function turnViaHtml(turn) {
+    if (turn.role === 'user' || !turn.via) return ''
+    var model = turn.model || '-'
+    var line = turn.via.kind === 'api_key'
+      ? t('workbench.chat.via_api_key', { model: model })
+      : t('workbench.chat.via_account', { account: turn.via.account || '-', model: model })
+    return '<div class="wb-turn-via">' + esc(line) + '</div>'
+  }
+
   function turnHtml(turn) {
     var who = turn.role === 'user' ? t('workbench.chat.you') : t('workbench.chat.agent')
     var body = ''
@@ -1474,6 +1490,7 @@
     if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
     if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
     if (!body && turn.role === 'agent') body = '<div class="wb-turn-text wb-muted">' + esc(t('workbench.chat.thinking')) + '</div>'
+    body += turnViaHtml(turn)
     return '<div class="wb-turn wb-turn-' + (turn.role === 'user' ? 'user' : 'agent') + '">'
       + '<div class="wb-turn-who">' + esc(who) + '</div>' + body + '</div>'
   }
@@ -1552,7 +1569,7 @@
     }
     if (ev.type === 'notice') { turn.notices.push(ev.message || ev.code); return }
     if (ev.type === 'error') { turn.error = ev.message || ev.code; return }
-    if (ev.type === 'done') { turn.done = true; turn.model = ev.model || null }
+    if (ev.type === 'done') { turn.done = true; turn.model = ev.model || null; turn.via = ev.via || null }
   }
 
   function parseSseChunk(turn, chunk) {

@@ -28,12 +28,23 @@ export interface AICallRequest {
   maxOutputChars?: number
   /** Megszakitas (a kliens lecsukta az SSE-t). */
   signal?: AbortSignal
+  /**
+   * Melyik agens elofizeteses fiokjat hasznalja (agent id). Ures = a
+   * szolgaltato alapertelmezettje (a fo agens). Parameter, hogy egy kesobbi
+   * fiok-valto (#402 2. resz) ne a providerhez nyuljon.
+   */
+  account?: string
 }
+
+/** Honnan ment a hivas: melyik fiok, vagy a szerveroldali API-kulcs. SOSE token/email. */
+export type AIVia =
+  | { kind: 'account'; account: string }
+  | { kind: 'api_key' }
 
 /** Egy darab a streambol. `done` utan mar nem jon tobb. */
 export type AIChunk =
   | { kind: 'text'; text: string }
-  | { kind: 'done'; model: string }
+  | { kind: 'done'; model: string; via?: AIVia }
   | { kind: 'error'; code: AIErrorCode; detail: string }
 
 /** Miert nem jott valasz. Mindegyik a TENYLEGES esemenybol jon, nem talalgatas. */

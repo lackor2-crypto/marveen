@@ -130,6 +130,35 @@ describe('a teljes fordulo', () => {
     expect(audit[0]).toMatchObject({ agent: 'teszt-felhasznalo', target: workItemId })
   })
 
+  // #402: minden valasznal latszik, melyik fiokkal / modellel ment -- es ez
+  // a mentett sorban is ott van, hogy visszatolteskor se vesszen el.
+  it('#402: a valasz fiokja es modellje a done esemenyben ES a mentett sorban', async () => {
+    const p = fakeProvider(['Kész.'])
+    p.stream = async function* (req: AICallRequest): AsyncIterable<AIChunk> {
+      p.seen.push(req)
+      yield { kind: 'text', text: 'Kész.' }
+      yield { kind: 'done', model: 'teszt-modell', via: { kind: 'account', account: req.account || 'alap-agens' } }
+    }
+    const evs = await collect(runTurn({ projectId, workItemId, message: 'szia', lang: 'hu', actor: 'teszt-felhasznalo', account: 'masik-agens' }, p))
+    expect(p.seen[0].account).toBe('masik-agens')
+    expect(evs.at(-1)).toMatchObject({ type: 'done', model: 'teszt-modell', via: { kind: 'account', account: 'masik-agens' } })
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const a = listAgentMessages(session.id).find((m) => m.role === 'assistant')
+    expect(a).toMatchObject({ model: 'teszt-modell', via_kind: 'account', via_account: 'masik-agens' })
+  })
+
+  it('#402: API-kulcsos ut -- a sor ezt mondja, fiok-nev nelkul', async () => {
+    const p = fakeProvider(['Kész.'])
+    p.stream = async function* (): AsyncIterable<AIChunk> {
+      yield { kind: 'text', text: 'Kész.' }
+      yield { kind: 'done', model: 'teszt-modell', via: { kind: 'api_key' } }
+    }
+    await turn('szia', p)
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const a = listAgentMessages(session.id).find((m) => m.role === 'assistant')
+    expect(a).toMatchObject({ model: 'teszt-modell', via_kind: 'api_key', via_account: null })
+  })
+
   it('a modell a MERT tenyeket kapja meg, es tilos kitalalnia', async () => {
     const p = fakeProvider(['Rendben.'])
     await turn('Hol tartunk?', p)

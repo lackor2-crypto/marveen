@@ -49,6 +49,18 @@ export interface AgentMessageRow {
   role: MessageRole
   content: string
   created_at: number
+  /** Asszisztens-valasznal: melyik modell valaszolt (#402). Regi soron null. */
+  model?: string | null
+  /** 'account' | 'api_key' -- melyik uton ment (#402). Regi soron null. */
+  via_kind?: string | null
+  /** 'account' uton az agens-id, akinek a fiokjat hasznalta. SOSE token/email. */
+  via_account?: string | null
+}
+
+/** Egy valaszhoz mentett "honnan ment" adat. */
+export interface AgentMessageMeta {
+  model?: string | null
+  via?: { kind: 'account'; account: string } | { kind: 'api_key' } | null
 }
 
 export interface AgentToolCallRow {
@@ -107,6 +119,12 @@ export function ensureAgentTables(): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_agent_sessions_item ON workbench_agent_sessions(work_item_id, started_at DESC)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_agent_messages_session ON workbench_agent_messages(session_id, created_at)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_agent_tool_calls_session ON workbench_agent_tool_calls(session_id, started_at)')
+  // #402: a valasz melle mentjuk, melyik fiokkal/modellel ment, hogy
+  // visszatolteskor is latszodjon. Regi adatbazison hozzaadjuk.
+  const cols = new Set((db.prepare('PRAGMA table_info(workbench_agent_messages)').all() as Array<{ name: string }>).map((c) => c.name))
+  for (const c of ['model', 'via_kind', 'via_account']) {
+    if (!cols.has(c)) db.exec(`ALTER TABLE workbench_agent_messages ADD COLUMN ${c} TEXT`)
+  }
   tablesDb = db
 }
 
@@ -175,13 +193,16 @@ export function listAgentSessions(workItemId: string): AgentSessionRow[] {
   return getDb().prepare('SELECT * FROM workbench_agent_sessions WHERE work_item_id = ? ORDER BY started_at DESC').all(v) as AgentSessionRow[]
 }
 
-export function addAgentMessage(sessionId: string, role: MessageRole, content: string): AgentMessageRow {
+export function addAgentMessage(sessionId: string, role: MessageRole, content: string, meta?: AgentMessageMeta): AgentMessageRow {
   ensureAgentTables()
   const id = randomUUID()
   const ts = nowSec()
-  getDb().prepare('INSERT INTO workbench_agent_messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, sessionId, role, content, ts)
-  return { id, session_id: sessionId, role, content, created_at: ts }
+  const model = meta?.model ?? null
+  const viaKind = meta?.via?.kind ?? null
+  const viaAccount = meta?.via && meta.via.kind === 'account' ? meta.via.account : null
+  getDb().prepare('INSERT INTO workbench_agent_messages (id, session_id, role, content, created_at, model, via_kind, via_account) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, sessionId, role, content, ts, model, viaKind, viaAccount)
+  return { id, session_id: sessionId, role, content, created_at: ts, model, via_kind: viaKind, via_account: viaAccount }
 }
 
 export function listAgentMessages(sessionId: string, limit = 200): AgentMessageRow[] {

@@ -150,6 +150,7 @@
 .wb-turn-who { font-size: 0.75rem; font-weight: 600; color: var(--muted, #6b7280); margin-bottom: 2px; }
 .wb-turn-text { white-space: pre-wrap; word-break: break-word; }
 .wb-turn-user .wb-turn-text { background: var(--panel-alt, #f3f4f6); border-radius: 8px; padding: 6px 8px; }
+.wb-turn-via { font-size: 0.72rem; color: var(--muted, #6b7280); margin-top: 4px; }
 .wb-turn-notice { font-size: 0.82rem; color: var(--muted, #6b7280); margin-top: 4px; }
 .wb-tool { font-size: 0.82rem; margin-top: 4px; }
 .wb-tool-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
