@@ -4312,6 +4312,8 @@ window._i18n.en = {
   'auth.login.desc':              'Enter your dashboard username and password.',
   'auth.login.username':          'Username',
   'auth.login.password':          'Password',
+  'auth.login.show_password':     'Show password',
+  'auth.login.hide_password':     'Hide password',
   'auth.login.submit':            'Sign in',
   'auth.login.err_empty':         'Enter a username and password.',
   'auth.login.err_invalid':       'Invalid credentials.',
