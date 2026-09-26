@@ -1139,6 +1139,80 @@
     return { name: name, initial: initial }
   }
 
+  /** Kivagas a forrasképbol, pontosan ugy, mint a CSS object-fit:cover +
+   *  object-position fx% fy% (amit az elonezetben huzott): a letoltott kep
+   *  ugyanazt mutatja, mint a keret. Tiszta szamitas -- a tesztek ezt merik. */
+  function postCrop(nw, nh, w, h, fx, fy) {
+    nw = +nw || 0; nh = +nh || 0
+    if (nw <= 0 || nh <= 0 || w <= 0 || h <= 0) return null
+    var scale = Math.max(w / nw, h / nh)
+    var sw = w / scale
+    var sh = h / scale
+    var cx = Math.min(100, Math.max(0, +fx || 0)) / 100
+    var cy = Math.min(100, Math.max(0, +fy || 0)) / 100
+    return { sx: (nw - sw) * cx, sy: (nh - sh) * cy, sw: sw, sh: sh }
+  }
+
+  // Feltoltesi felso hatar: a LinkedIn 5 MB-ot enged (#406 komment 1623), a
+  // Facebook/Instagram tobbet -- a legszigorubbhoz igazodunk, igy barhova megy.
+  var POST_MAX_BYTES = 5 * 1024 * 1024
+
+  function postFileName(pf, ext) {
+    var title = ((WB.detail && WB.detail.item && WB.detail.item.title) || 'poszt').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'poszt'
+    return title + ' - ' + pf.id + ' ' + pf.w + 'x' + pf.h + '.' + ext
+  }
+
+  /** A kep a platform PONTOS mereteben, a huzott kivagassal. JPG-nel 0.9-es
+   *  minoseg, es ha 5 MB folott lenne, lepcsozetesen lejjebb. */
+  function postDownload(fmt) {
+    var st = postState()
+    var img = postImage()
+    if (!img || st.busy) return
+    var pf = postPlatform(st.platform)
+    st.busy = true
+    render()
+    var done = function (ok, msg) {
+      st.busy = false
+      render()
+      window.showToast(ok ? t('workbench.post.dl_done', { w: pf.w, h: pf.h }) : t('workbench.post.dl_failed', { message: msg || '' }))
+    }
+    loadImg(partImageSrc(img)).then(function (im) {
+      var c = postCrop(im.naturalWidth, im.naturalHeight, pf.w, pf.h, st.fx, st.fy)
+      if (!c) { done(false, ''); return }
+      var cv = document.createElement('canvas')
+      cv.width = pf.w
+      cv.height = pf.h
+      var ctx = cv.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, pf.w, pf.h)
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(im, c.sx, c.sy, c.sw, c.sh, 0, 0, pf.w, pf.h)
+      if (fmt === 'png') {
+        cv.toBlob(function (blob) { done(downloadBlob(blob, postFileName(pf, 'png'))) }, 'image/png')
+        return
+      }
+      var q = 0.9
+      var step = function () {
+        cv.toBlob(function (blob) {
+          if (blob && blob.size > POST_MAX_BYTES && q > 0.55) { q = Math.round((q - 0.1) * 100) / 100; step(); return }
+          done(downloadBlob(blob, postFileName(pf, 'jpg')))
+        }, 'image/jpeg', q)
+      }
+      step()
+    }).catch(function (e) { done(false, e && e.message) })
+  }
+
+  /** A poszt-nezet PDF-kent: a bongeszo sajat nyomtatasa (Mentes PDF-kent),
+   *  csak az elonezeti kartya kerul a lapra. Nincs uj csomag, telefonon is megy. */
+  function postPdf() {
+    if (typeof window.print !== 'function') return
+    var cls = 'wb-printing-post'
+    document.body.classList.add(cls)
+    var off = function () { document.body.classList.remove(cls); window.removeEventListener('afterprint', off) }
+    window.addEventListener('afterprint', off)
+    try { window.print() } finally { setTimeout(off, 1000) }
+  }
+
   function postPreviewHtml() {
     var it = WB.detail && WB.detail.item
     if (!it || it.type !== 'composite') return ''
@@ -1194,8 +1268,16 @@
     }
     var facts = '<p class="wb-hint">' + esc(t('workbench.post.facts', { w: pf.w, h: pf.h, n: text.length, lines: lines }))
       + (pf.story ? ' ' + esc(t('workbench.post.story_hint')) : '') + '</p>'
+    var dl = '<div class="wb-post-dl" role="group" aria-label="' + escA(t('workbench.post.dl_title')) + '">'
+      + '<button type="button" class="btn-primary" data-wb-act="post-dl" data-wb-fmt="jpg"' + (img && !st.busy ? '' : ' disabled') + '>'
+      + esc(t(st.busy ? 'workbench.post.dl_busy' : 'workbench.post.dl_jpg', { w: pf.w, h: pf.h })) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="post-dl" data-wb-fmt="png"' + (img && !st.busy ? '' : ' disabled') + '>'
+      + esc(t('workbench.post.dl_png')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="post-pdf">' + esc(t('workbench.post.dl_pdf')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t(img ? 'workbench.post.dl_hint' : 'workbench.post.dl_no_image')) + '</p>'
     return '<div class="wb-post-block">' + head + controls
-      + '<div class="wb-post-stage wb-post-' + st.view + '">' + card + '</div>' + facts + '</div>'
+      + '<div class="wb-post-stage wb-post-' + st.view + '">' + card + '</div>' + facts + dl + '</div>'
   }
 
   // ---- elonezet (4. fazis) ---------------------------------------------------
@@ -5632,6 +5714,8 @@
     else if (a === 'post-toggle') { var ps = postState(); ps.open = !ps.open; render() }
     else if (a === 'post-view') { var pv = act.getAttribute('data-wb-view'); if (pv === 'mobile' || pv === 'desktop') { postState().view = pv; render() } }
     else if (a === 'post-more') { var pm = postState(); pm.more = !pm.more; render() }
+    else if (a === 'post-dl') postDownload(act.getAttribute('data-wb-fmt') === 'png' ? 'png' : 'jpg')
+    else if (a === 'post-pdf') postPdf()
     else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
     else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partNewDraft = ''; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }
@@ -6138,5 +6222,6 @@
     isOpen: function () { return WB.open },
     // A kepszerkeszto tiszta (DOM nelkuli) lepesei -- a tesztek ezeket merik.
     _img: { floodKey: imgFloodKey, clampCrop: imgClampCrop, aspectCrop: imgAspectCrop, outSize: imgOutSize, rotSize: imgRotSize },
+    _post: { crop: postCrop, maxBytes: POST_MAX_BYTES },
   }
 })()
