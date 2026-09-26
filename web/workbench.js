@@ -1085,6 +1085,119 @@
       + '</div>'
   }
 
+  // ---- kozossegi poszt elonezet (#406, Boss TG 6642/6653) --------------------
+  //
+  // "Ugy nezzen ki, mint a valodi poszt": a vegyes munkadarab szovegreszei a
+  // poszt szovege, az elso kepresze a poszt kepe. A meretek a kutatasbol
+  // (#406 komment 1623): minden platform 1080 px szeles kepet var. A kepet a
+  // valasztott aranyra vagjuk; a kivagas huzhato (focus x/y szazalekban), es a
+  // letoltes (kovetkezo adag) ugyanezt a kivagast rajzolja ki. Markajel nincs:
+  // semleges kor a nev kezdobetujevel, semleges reakcio-sor.
+  var POST_PLATFORMS = [
+    { id: 'fb_feed', net: 'fb', w: 1080, h: 1350 },
+    { id: 'fb_square', net: 'fb', w: 1080, h: 1080 },
+    { id: 'fb_link', net: 'fb', w: 1200, h: 630 },
+    { id: 'fb_story', net: 'fb', w: 1080, h: 1920, story: true },
+    { id: 'ig_feed', net: 'ig', w: 1080, h: 1350 },
+    { id: 'ig_portrait', net: 'ig', w: 1080, h: 1440 },
+    { id: 'ig_square', net: 'ig', w: 1080, h: 1080 },
+    { id: 'ig_story', net: 'ig', w: 1080, h: 1920, story: true },
+    { id: 'li_landscape', net: 'li', w: 1200, h: 627 },
+    { id: 'li_square', net: 'li', w: 1080, h: 1080 },
+    { id: 'li_portrait', net: 'li', w: 1080, h: 1350 },
+  ]
+  // Sorok a "Tovabbiak" elott: a levagast a SOROK szama dontik el, nem a
+  // karakterszam (#406 komment 1623); a karakterszamot csak kiirjuk.
+  var POST_LINES = { fb: { mobile: 3, desktop: 5 }, ig: { mobile: 2, desktop: 2 }, li: { mobile: 3, desktop: 3 } }
+
+  function postPlatform(id) {
+    for (var i = 0; i < POST_PLATFORMS.length; i++) if (POST_PLATFORMS[i].id === id) return POST_PLATFORMS[i]
+    return POST_PLATFORMS[0]
+  }
+
+  function postState() {
+    if (!WB.post || WB.post.itemId !== WB.selectedId) {
+      WB.post = { itemId: WB.selectedId, open: false, platform: 'fb_feed', view: 'mobile', more: false, fx: 50, fy: 50 }
+    }
+    return WB.post
+  }
+
+  function postText() {
+    return partsOf().filter(function (p) { return p.kind === 'text' && (p.text || '').trim() })
+      .map(function (p) { return p.text.trim() }).join('\n\n')
+  }
+
+  function postImage() {
+    var parts = partsOf()
+    for (var i = 0; i < parts.length; i++) if (parts[i].kind === 'image' && parts[i].asset_path) return parts[i]
+    return null
+  }
+
+  function postAuthor() {
+    var name = (WB.project && WB.project.name) || t('workbench.post.author_fallback')
+    var initial = (name.trim().charAt(0) || '?').toUpperCase()
+    return { name: name, initial: initial }
+  }
+
+  function postPreviewHtml() {
+    var it = WB.detail && WB.detail.item
+    if (!it || it.type !== 'composite') return ''
+    var st = postState()
+    var head = '<div class="wb-post-head"><h4 class="wb-parts-title">' + esc(t('workbench.post.title')) + '</h4>'
+      + '<button type="button" class="btn-secondary" data-wb-act="post-toggle" aria-expanded="' + (st.open ? 'true' : 'false') + '">'
+      + esc(t(st.open ? 'workbench.post.hide' : 'workbench.post.show')) + '</button></div>'
+    if (!st.open) return '<div class="wb-post-block">' + head + '<p class="wb-hint">' + esc(t('workbench.post.intro')) + '</p></div>'
+    var pf = postPlatform(st.platform)
+    var opts = POST_PLATFORMS.map(function (p) {
+      return '<option value="' + p.id + '"' + (p.id === pf.id ? ' selected' : '') + '>'
+        + esc(t('workbench.post.pf.' + p.id, { w: p.w, h: p.h })) + '</option>'
+    }).join('')
+    var controls = '<div class="wb-post-controls">'
+      + '<label class="wb-label" for="wbPostPlatform">' + esc(t('workbench.post.platform')) + '</label>'
+      + '<select id="wbPostPlatform" class="wb-input" data-wb-post="platform">' + opts + '</select>'
+      + '<div class="wb-post-views" role="group" aria-label="' + escA(t('workbench.post.view')) + '">'
+      + ['mobile', 'desktop'].map(function (v) {
+        return '<button type="button" class="btn-secondary' + (st.view === v ? ' wb-post-view-on' : '') + '" data-wb-act="post-view" data-wb-view="' + v + '" aria-pressed="' + (st.view === v ? 'true' : 'false') + '">'
+          + esc(t('workbench.post.view_' + v)) + '</button>'
+      }).join('')
+      + '</div></div>'
+    var text = postText()
+    var img = postImage()
+    var au = postAuthor()
+    var ratio = pf.w + ' / ' + pf.h
+    var imgHtml = img
+      ? '<div class="wb-post-frame" data-wb-post-frame style="aspect-ratio:' + ratio + '" title="' + escA(t('workbench.post.drag_hint')) + '">'
+        + '<img src="' + escA(partImageSrc(img)) + '" alt="' + escA(img.caption || t('workbench.parts.image_alt')) + '" draggable="false"'
+        + ' style="object-position:' + st.fx + '% ' + st.fy + '%">'
+        + (pf.story ? '<div class="wb-post-safe wb-post-safe-top"></div><div class="wb-post-safe wb-post-safe-bottom"></div>' : '')
+        + '</div>'
+      : '<div class="wb-post-frame wb-post-noimg" style="aspect-ratio:' + ratio + '"><p>' + esc(t('workbench.post.no_image')) + '</p></div>'
+    var lines = POST_LINES[pf.net][st.view]
+    var textHtml = text
+      ? '<div class="wb-post-text' + (st.more ? '' : ' wb-post-clamp') + '" style="--wb-post-lines:' + lines + '">' + esc(text) + '</div>'
+        + '<button type="button" class="wb-post-more" data-wb-act="post-more">' + esc(t(st.more ? 'workbench.post.less' : (pf.net === 'fb' ? 'workbench.post.more_fb' : 'workbench.post.more'))) + '</button>'
+      : '<p class="wb-muted">' + esc(t('workbench.post.no_text')) + '</p>'
+    var authorHtml = '<div class="wb-post-author"><span class="wb-post-avatar" aria-hidden="true">' + esc(au.initial) + '</span>'
+      + '<span><strong>' + esc(au.name) + '</strong><br><span class="wb-muted">' + esc(t('workbench.post.just_now')) + '</span></span></div>'
+    var reactions = '<div class="wb-post-reactions" aria-hidden="true">'
+      + (pf.net === 'ig'
+        ? '<span>♡</span><span>💬</span><span>↗</span>'
+        : '<span>👍 ' + esc(t('workbench.post.like')) + '</span><span>💬 ' + esc(t('workbench.post.comment')) + '</span><span>↗ ' + esc(t('workbench.post.share')) + '</span>')
+      + '</div>'
+    var card
+    if (pf.story) {
+      card = '<div class="wb-post-card wb-post-story">' + authorHtml + imgHtml + '</div>'
+    } else if (pf.net === 'ig') {
+      card = '<div class="wb-post-card">' + authorHtml + imgHtml + reactions + textHtml + '</div>'
+    } else {
+      card = '<div class="wb-post-card">' + authorHtml + textHtml + imgHtml + reactions + '</div>'
+    }
+    var facts = '<p class="wb-hint">' + esc(t('workbench.post.facts', { w: pf.w, h: pf.h, n: text.length, lines: lines }))
+      + (pf.story ? ' ' + esc(t('workbench.post.story_hint')) : '') + '</p>'
+    return '<div class="wb-post-block">' + head + controls
+      + '<div class="wb-post-stage wb-post-' + st.view + '">' + card + '</div>' + facts + '</div>'
+  }
+
   // ---- elonezet (4. fazis) ---------------------------------------------------
   //
   // A bajtokat a MEGLEVO fajl-kiszolgalo adja (`/api/life/file?rel=`), a PDF-et
@@ -3682,7 +3795,8 @@
             : 'workbench.upload.drop_item')) + '</p>')
             + previewHtml()
             + canvasHtml()
-            + partsHtml())
+            + partsHtml()
+            + postPreviewHtml())
     }
     var dropAttr = WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="item"' : ''
     return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor"' + dropAttr + '>'
@@ -5515,6 +5629,9 @@
     else if (a === 'create') { e.preventDefault(); create() }
     else if (a === 'tpl-use') useTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'tpl-retry') { WB.templatesError = null; WB.templates = null; render(); loadTemplates() }
+    else if (a === 'post-toggle') { var ps = postState(); ps.open = !ps.open; render() }
+    else if (a === 'post-view') { var pv = act.getAttribute('data-wb-view'); if (pv === 'mobile' || pv === 'desktop') { postState().view = pv; render() } }
+    else if (a === 'post-more') { var pm = postState(); pm.more = !pm.more; render() }
     else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
     else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partNewDraft = ''; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }
@@ -5758,6 +5875,29 @@
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
 
+  // Kozossegi poszt: a kivagas huzasa a kepkereten. Csak a focus szazalekot
+  // allitja (object-position), rajzolas nelkul -- a letoltes ugyanezt hasznalja.
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !WB.post || !e.target || !e.target.closest) return
+    var frame = e.target.closest('[data-wb-post-frame]')
+    if (!frame) return
+    var img = frame.querySelector('img')
+    if (!img) return
+    e.preventDefault()
+    var st = WB.post
+    var sx = e.clientX, sy = e.clientY, fx0 = st.fx, fy0 = st.fy
+    var rect = frame.getBoundingClientRect()
+    function move(ev) {
+      // Huzas jobbra = a kep jobbra megy = a kivagas balra (kisebb x).
+      st.fx = Math.max(0, Math.min(100, fx0 - (ev.clientX - sx) / Math.max(1, rect.width) * 100))
+      st.fy = Math.max(0, Math.min(100, fy0 - (ev.clientY - sy) / Math.max(1, rect.height) * 100))
+      img.style.objectPosition = st.fx + '% ' + st.fy + '%'
+    }
+    function up() { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up) }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+  })
+
   // Ctrl+S / Cmd+S a szerkesztoben: mentes (uj verzio) -- a bongeszo sajat
   // "oldal mentese" ablaka helyett, ami itt senkinek nem kell.
   document.addEventListener('keydown', function (e) {
@@ -5871,6 +6011,7 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
+    if (e.target.id === 'wbPostPlatform') { postState().platform = postPlatform(e.target.value).id; postState().more = false; render(); return }
     if (e.target.id === 'wbSwitch') {
       selectItem(e.target.value)
       return
