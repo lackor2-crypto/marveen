@@ -80,6 +80,11 @@
     // chat. A valasztas a bongeszoben marad meg (nincs szerver-oldali allapot).
     layout: readLayout(),
     liveTimer: null,
+    // --- projekt-attekinto (#406, 2. pont) ---
+    // `overview === null` = MEG NEM kerdeztuk meg; a hiba KULON all, hogy a
+    // "nem tudtam lekerdezni" sose latsszon "nincs semmi"-nek.
+    overview: null,
+    overviewError: null,
   }
 
   /** A mentett elrendezes. Ha a bongeszo nem enged tarolni (privat mod, regi
@@ -133,9 +138,85 @@
       WB.error = null
       WB.project = r.data.project
       WB.items = r.data.items || []
+      loadOverview(projectId)
       if (WB.selectedId && !WB.items.some(function (i) { return i.id === WB.selectedId })) WB.selectedId = null
       render()
     })
+  }
+
+  // ---- projekt-attekinto (#406, 2. pont) -------------------------------------
+
+  function loadOverview(projectId) {
+    return api('GET', '/api/workbench/overview?project=' + encodeURIComponent(projectId)).then(function (r) {
+      if (WB.projectId !== projectId) return
+      if (!r.ok) { WB.overviewError = r.message; render(); return }
+      WB.overviewError = null
+      WB.overview = (r.data && r.data.overview) || null
+      render()
+    })
+  }
+
+  function ovItemsHtml(items) {
+    if (!items || !items.length) return ''
+    return '<ul class="wb-ov-list">' + items.map(function (it) {
+      return '<li><button type="button" class="wb-linklike" data-wb-item="' + escA(it.id) + '">' + esc(it.title) + '</button></li>'
+    }).join('') + '</ul>'
+  }
+
+  function ovTile(cls, title, count, body) {
+    return '<div class="wb-ov-tile ' + cls + '">'
+      + '<div class="wb-ov-title">' + esc(title) + '</div>'
+      + (count === null ? '' : '<div class="wb-ov-num">' + esc(String(count)) + '</div>')
+      + body + '</div>'
+  }
+
+  /** Egy pillantasra: nyitott, jovahagyasra var, friss kesz, utoljara valtozott
+   *  fajl. Minden szam MERT: ha egy forras nem valaszolt, azt kimondjuk, es a
+   *  helyere nem irunk nullat. */
+  function overviewHtml() {
+    if (WB.overviewError) {
+      return '<section class="wb-ov" aria-label="' + escA(t('workbench.ov.title')) + '">'
+        + '<p class="wb-preview-bad">' + esc(t('workbench.ov.error', { message: WB.overviewError })) + '</p></section>'
+    }
+    var o = WB.overview
+    if (!o) return '<section class="wb-ov"><p class="wb-muted">' + esc(t('workbench.ov.loading')) + '</p></section>'
+
+    var cards = o.cards || {}
+    var openBody = ovItemsHtml(o.open && o.open.items)
+      + (cards.open === null
+        ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.cards_unknown', { message: cards.error || '' })) + '</p>'
+        : '<p class="wb-hint">' + esc(t('workbench.ov.cards_open', { n: cards.open || 0 })) + '</p>')
+      + (o.open && o.open.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.open_none')) + '</p>')
+
+    var ap = o.approvals || {}
+    var reviewCount = (o.review && o.review.count) || 0
+    var waitBody = ovItemsHtml(o.review && o.review.items)
+      + (ap.count === null
+        ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.approvals_unknown', { message: ap.error || '' })) + '</p>'
+        : (ap.items && ap.items.length
+          ? '<ul class="wb-ov-list">' + ap.items.map(function (a) { return '<li class="wb-ov-approval">' + esc(a.description) + '</li>' }).join('') + '</ul>'
+          : ''))
+      + (reviewCount || ap.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.wait_none')) + '</p>')
+      + (ap.count ? '<p><button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button></p>' : '')
+    var waitCount = ap.count === null ? null : reviewCount + (ap.count || 0)
+
+    var rd = o.recent_done || {}
+    var doneBody = ovItemsHtml(rd.items)
+      + (rd.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.done_none', { days: rd.days || 14 })) + '</p>')
+
+    var lf = o.last_file
+    var fileBody = lf
+      ? '<p class="wb-ov-file">' + esc(lf.name) + '</p>'
+        + '<p class="wb-hint">' + esc(t('workbench.ov.file_in', { when: when(lf.at) })) + ' '
+        + '<button type="button" class="wb-linklike" data-wb-item="' + escA(lf.item_id) + '">' + esc(lf.item_title) + '</button></p>'
+      : '<p class="wb-hint">' + esc(t('workbench.ov.file_none')) + '</p>'
+
+    return '<section class="wb-ov" aria-label="' + escA(t('workbench.ov.title')) + '">'
+      + ovTile('wb-ov-open', t('workbench.ov.open'), (o.open && o.open.count) || 0, openBody)
+      + ovTile('wb-ov-wait' + (waitCount ? ' wb-ov-attn' : ''), t('workbench.ov.wait'), waitCount, waitBody)
+      + ovTile('wb-ov-done', t('workbench.ov.done', { days: rd.days || 14 }), rd.count || 0, doneBody)
+      + ovTile('wb-ov-file-tile', t('workbench.ov.file'), null, fileBody)
+      + '</section>'
   }
 
   /** Egy munkadarab lesz az aktualis: kozepen az o szerkesztoje, a chat az o
@@ -2039,6 +2120,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml()
+      + overviewHtml()
       + panelTabsHtml()
       + layoutHtml()
       + '</div>'
@@ -2316,6 +2398,8 @@
     WB.partEdit = null
     WB.partNewOpen = false
     WB.partBusy = false
+    WB.overview = null
+    WB.overviewError = null
     render()
     load(projectId)
     loadChatStatus()
@@ -2351,6 +2435,7 @@
     if (!act) return
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
+    else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
@@ -2595,6 +2680,8 @@
     WB.partBusy = false
     WB.preview = null
     WB.previewVersion = null
+    WB.overview = null
+    WB.overviewError = null
   }
 
   window.MarvinWorkbench = {

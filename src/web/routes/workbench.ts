@@ -45,6 +45,7 @@ import {
 } from '../../workbench.js'
 import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import { buildPreview } from '../../workbench-preview.js'
+import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -435,6 +436,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
 
     return fail(res, 404, 'not_found', lang)
+  }
+
+  // PROJEKT-ATTEKINTO (#406, 2. pont): nyitott / jovahagyasra var / friss
+  // kesz / utoljara valtozott fajl. Csak olvas; ismeretlen projektre 404.
+  if (path === '/api/workbench/overview' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    json(res, { project: { id: project.id, name: project.name, archived: project.archived_at != null }, overview: buildWorkbenchOverview(project.id) })
+    return true
   }
 
   if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
