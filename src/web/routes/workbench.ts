@@ -52,6 +52,8 @@ import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeli
 import { searchProject } from '../../workbench-search.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
+import { contentDispositionHeader } from './drive-browser.js'
+import { planHandoff, buildHandoffZip, isHandoffScope, HANDOFF_MAX_BYTES } from '../../workbench-handoff.js'
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
 import { buildExportPage, requestSendApproval, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
 import {
@@ -148,6 +150,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   approval_reason_too_long: {
     hu: 'Az indoklás túl hosszú (legfeljebb 1000 karakter).',
     en: 'The note is too long (1000 characters at most).',
+  },
+  handoff_bad_scope: {
+    hu: 'Válaszd ki, mi kerüljön a csomagba: csak a kész munkadarabok, vagy mind.',
+    en: 'Choose what goes into the package: only the finished work items, or all of them.',
+  },
+  handoff_no_items: {
+    hu: 'Ebben a projektben még nincs munkadarab, így nincs mit csomagba tenni. Előbb hozz létre egyet.',
+    en: 'This project has no work items yet, so there is nothing to package. Create one first.',
+  },
+  handoff_nothing_done: {
+    hu: 'Még egyik munkadarab sincs „Kész” állapotban. Állítsd késznek, amit átadnál, vagy válaszd a „Mind” lehetőséget.',
+    en: 'No work item is marked "Done" yet. Mark what you want to hand over as done, or choose "All".',
+  },
+  handoff_too_large: {
+    hu: 'A csomag túl nagy lenne (200 MB fölött). Válaszd a „csak a kész” lehetőséget, vagy vedd ki a nagy fájlokat (például a videókat).',
+    en: 'The package would be too large (over 200 MB). Choose "only finished", or leave out the large files (for example videos).',
   },
   decision_text_required: {
     hu: 'Írd be, miben állapodtatok meg (például: „a logó kék marad”).',
@@ -604,6 +622,30 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = await searchProject(project, url.searchParams.get('q'))
     if (!r.ok) return fail(res, 400, r.code === 'query_short' ? 'search_query_short' : 'search_query_long', lang)
     json(res, { search: r.result })
+    return true
+  }
+
+  // ATADOCSOMAG (#406, 12. pont): elobb a terv (mi kerul bele, mi hianyzik),
+  // utana a letoltes. Semmi nem irodik a lemezre, semmi nem megy ki sehova.
+  if ((path === '/api/workbench/handoff' || path === '/api/workbench/handoff/download') && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const scope = url.searchParams.get('scope') || 'done'
+    if (!isHandoffScope(scope)) return fail(res, 400, 'handoff_bad_scope', lang)
+    if (!getProject(pid)) return fail(res, 404, 'project_not_found', lang)
+    if (path === '/api/workbench/handoff') {
+      json(res, { plan: planHandoff(pid, scope), max_bytes: HANDOFF_MAX_BYTES })
+      return true
+    }
+    const r = buildHandoffZip(pid, scope, lang)
+    if (!r.ok) return fail(res, r.code === 'project_not_found' ? 404 : r.code === 'handoff_too_large' ? 413 : 409, r.code, lang)
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': contentDispositionHeader(r.filename, 'attachment'),
+      'Content-Length': r.zip.length,
+      'Cache-Control': 'private, no-store',
+    })
+    res.end(r.zip)
     return true
   }
 

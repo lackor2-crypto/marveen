@@ -99,7 +99,7 @@ function existsRel(rel: string): boolean {
 
 /** A megmutatando fajl UTJA (Raktar-relativ), vagy `null`, ha nincs ilyen.
  *  Sorrend: a verzio elonezet-fajlja -> a munkadarab forrasfajlja. */
-function sourceRel(item: WorkItemRow, version: WorkItemVersionRow | null, project: ProjectRow | null): string | null {
+export function sourceRel(item: WorkItemRow, version: WorkItemVersionRow | null, project: ProjectRow | null): string | null {
   // Sorrend: a verzio SAJAT fajlja nyer. A `preview_path` a kifejezetten
   // elonezetnek keszult valtozat, a `source_path` a verzio forrasa; a
   // munkadarab sajat `source_path`-ja csak a VEGSO tartalek. Enelkul egy REGI
