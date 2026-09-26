@@ -24,6 +24,12 @@
     detail: null,
     formOpen: false,
     busy: false,
+    // --- sablonok (#406, 11. pont) ---
+    // null = meg nem jott meg; a hiba KULON all, nem "nincs sablon".
+    templates: null,
+    templatesLang: null,
+    templatesError: null,
+    tplBusy: null,
     error: null,
     // Mobilon egyszerre egy panel latszik; asztalin mind a harom.
     panel: 'items',
@@ -174,6 +180,7 @@
       WB.project = r.data.project
       WB.items = r.data.items || []
       loadOverview(projectId)
+      if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
       if (WB.selectedId && !WB.items.some(function (i) { return i.id === WB.selectedId })) WB.selectedId = null
       render()
     })
@@ -329,6 +336,7 @@
       + (archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
+          + templatesHtml()
           + uploadZoneHtml())
       + '</section>'
   }
@@ -471,6 +479,64 @@
       + esc(WB.busy ? t('workbench.new.creating') : t('workbench.new.create')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="cancel-new">' + esc(t('common.cancel')) + '</button>'
       + '</div></form>'
+  }
+
+  // ---- sablonok (#406, 11. pont) --------------------------------------------
+  //
+  // Egy kattintas: uj munkadarab, a szerkezet mar benne (ajanlat, level,
+  // kozossegi poszt, meghivo). A sablonok a szerverrol jonnek a felulet
+  // nyelven; friss telepitesen is ott vannak, nincs mit beallitani.
+
+  function loadTemplates() {
+    var lang = window._lang || 'hu'
+    return api('GET', '/api/workbench/templates').then(function (r) {
+      if (!r.ok) { WB.templatesError = r.message; render(); return }
+      WB.templatesError = null
+      WB.templates = (r.data && r.data.templates) || []
+      WB.templatesLang = lang
+      render()
+    })
+  }
+
+  function templatesHtml() {
+    var body
+    if (WB.templatesError) {
+      body = '<div class="info-box depo-bad">' + esc(t('workbench.tpl.load_failed', { error: WB.templatesError })) + '</div>'
+        + '<button type="button" class="btn-secondary" data-wb-act="tpl-retry">' + esc(t('workbench.tpl.retry')) + '</button>'
+    } else if (WB.templates === null) {
+      body = '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    } else if (!WB.templates.length) {
+      body = '<p class="wb-muted">' + esc(t('workbench.tpl.none')) + '</p>'
+    } else {
+      body = '<div class="wb-tpl-list">' + WB.templates.map(function (tp) {
+        var busy = WB.tplBusy === tp.id
+        return '<button type="button" class="wb-tpl-btn" data-wb-act="tpl-use" data-wb-tpl="' + escA(tp.id) + '"'
+          + (WB.tplBusy ? ' disabled' : '') + ' title="' + escA(tp.description) + '">'
+          + '<span class="wb-tpl-name">' + esc(busy ? t('workbench.tpl.creating') : tp.name) + '</span>'
+          + '<span class="wb-tpl-desc">' + esc(tp.description) + '</span>'
+          + '</button>'
+      }).join('') + '</div>'
+        + '<p class="wb-hint">' + esc(t('workbench.tpl.hint')) + '</p>'
+    }
+    return '<div class="wb-tpl">'
+      + '<p class="wb-label">' + esc(t('workbench.tpl.title')) + '</p>'
+      + body
+      + '</div>'
+  }
+
+  function useTemplate(id) {
+    if (!id || WB.tplBusy || archived()) return
+    WB.tplBusy = id
+    render()
+    api('POST', '/api/workbench/templates/use', { project_id: WB.projectId, template: id }).then(function (r) {
+      WB.tplBusy = null
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.formOpen = false
+      window.showToast(t('workbench.tpl.created', { title: r.data.item.title }))
+      // Rogton megnyitjuk: a szerkezet mar ott van, lehet atirni.
+      selectItem(r.data.item.id)
+      load(WB.projectId)
+    })
   }
 
   // ---- reszek: VEGYES munkadarab (3. fazis) ---------------------------------
@@ -3333,6 +3399,8 @@
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; render() }
     else if (a === 'create') { e.preventDefault(); create() }
+    else if (a === 'tpl-use') useTemplate(act.getAttribute('data-wb-tpl'))
+    else if (a === 'tpl-retry') { WB.templatesError = null; WB.templates = null; render(); loadTemplates() }
     else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
     else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }

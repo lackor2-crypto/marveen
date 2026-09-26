@@ -98,6 +98,14 @@ export const TOOLS: ToolDef[] = [
     input: 'title: the name of the work item; type: one of document, image, graphic, video, note, composite (pick composite when it will hold text AND images together). The type is only a label: parts can be added to any work item.',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
+  // #406, 11. pont: sablonok. Ugyanaz, mint a workItem.create, csak a reszek
+  // (a szerkezet) is megjonnek vele.
+  {
+    name: 'workItem.fromTemplate',
+    description: 'Create a new work item from a ready template, with its structure already filled in (the owner then replaces the [bracketed] places). Templates: offer (a quote for a client), letter, social_post (Facebook/Instagram post), invitation. Use it when the owner asks for one of these.',
+    input: 'template: offer, letter, social_post or invitation; title (optional): the name of the new work item, default is the template name',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
   {
     name: 'workItem.update',
     description: 'Change the title or the status of an existing work item.',
