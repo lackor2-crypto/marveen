@@ -73,7 +73,20 @@ describe('osztott nezet (#406, 1. pont)', () => {
     expect(h.html()).toContain('workbench.layout.to_classic')
     h.click({ 'data-wb-act': 'layout-toggle' })
     expect(h.html()).not.toContain('class="wb-split"')
-    expect(h.html()).toContain('class="wb-grid"')
+    expect(h.html()).toContain('class="wb-grid wb-grid-chatfirst"')
+    // Boss, 2026-09-26 (TG 6552): harom panelben BAL oldalt a chat, kozepen a
+    // munka, jobbra a kontextus; a munkadarab-lista alul.
+    const html = h.html()
+    const chat = html.indexOf('class="wb-grid-chat"')
+    const editor = html.indexOf('wb-panel-editor')
+    const ctx = html.indexOf('wb-panel-context')
+    const below = html.indexOf('class="wb-grid-below"')
+    expect(chat).toBeGreaterThan(-1)
+    expect(editor).toBeGreaterThan(chat)
+    expect(ctx).toBeGreaterThan(editor)
+    expect(below).toBeGreaterThan(ctx)
+    expect(html.slice(below)).toContain('wb-panel-items')
+    expect(html.slice(chat, editor)).toContain('id="wbChat"')
     expect(h.html()).toContain('workbench.layout.to_split')
     expect(h.storage['marveen.workbench.layout']).toBe('classic')
 

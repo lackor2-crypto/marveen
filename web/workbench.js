@@ -4470,14 +4470,19 @@
   }
 
   /** A ket elrendezes. Mindkettoben UGYANAZOK a panelek allnak (semmi nem
-   *  vesz el valtaskor), csak mas a helyuk. Osztott nezetben a chat bal
-   *  oldalt, az elo munkadarab jobb oldalt all; a lista es a reszletek alattuk.
-   *  Telefonon (keskeny kepernyo) a ket oszlop egymas ala kerul: felul a
-   *  munkadarab, alatta a chat -- a CSS dolga, nem kulon kod. */
+   *  vesz el valtaskor), csak mas a helyuk.
+   *  Harom panel: bal oldalt a CHAT, kozepen az aktualis munka, jobbra a
+   *  kontextus; a munkadarab-lista (uj munkadarab, sablonok) ALATTUK -- azt
+   *  ritkan kell, a chatet folyamatosan (Boss, 2026-09-26, TG 6552).
+   *  Osztott nezet: keskeny chat bal oldalt, SZELES elo munkadarab jobb
+   *  oldalt (TG 6553: "a chat a kepernyo felet elfoglalja. Minek?"); a lista
+   *  es a reszletek alattuk. Telefonon egymas ala kerulnek -- a CSS dolga. */
   function layoutHtml() {
     if (WB.layout !== 'split') {
-      return '<div class="wb-grid">' + itemsPanelHtml() + editorPanelHtml() + contextPanelHtml() + '</div>'
-        + chatBarHtml()
+      return '<div class="wb-grid wb-grid-chatfirst">'
+        + '<div class="wb-grid-chat">' + chatBarHtml() + '</div>'
+        + editorPanelHtml() + contextPanelHtml() + '</div>'
+        + '<div class="wb-grid-below">' + itemsPanelHtml() + '</div>'
     }
     return '<div class="wb-split">'
       + '<div class="wb-split-chat">' + chatBarHtml() + '</div>'

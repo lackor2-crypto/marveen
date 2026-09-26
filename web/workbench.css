@@ -28,6 +28,13 @@
   gap: 12px;
   align-items: stretch;
 }
+/* Harom panel (TG 6552): bal oszlop a chat, alatta a munkadarab-lista. */
+.wb-grid-chatfirst { grid-template-columns: minmax(260px, 1.1fr) minmax(300px, 2fr) minmax(180px, 0.8fr); }
+.wb-grid-chat { min-width: 0; display: flex; }
+.wb-grid-chat .wb-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 420px; }
+.wb-grid-chat .wb-chat-log { max-height: 62vh; min-height: 200px; }
+.wb-grid-below { margin-top: 12px; }
+.wb-grid-below .wb-panel { min-height: 0; }
 
 .wb-panel {
   border: 1px solid var(--border, #d0d7de);
@@ -203,6 +210,10 @@
  * kozottuk (mobile-parity-check). */
 @media (max-width: 900px) {
   .wb-grid { grid-template-columns: 1fr; }
+  /* telefonon felul a munka, alatta a chat */
+  .wb-grid-chat { order: 2; }
+  .wb-grid-chat .wb-chat { min-height: 0; }
+  .wb-grid-chat .wb-chat-log { max-height: 50vh; }
   .wb-panel-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
   .wb-panel { display: none; }
   .wb-panel-current { display: flex; }
@@ -474,7 +485,7 @@
  * valtozik. Telefonon egymas ala kerulnek: felul a munkadarab, alatta a chat. */
 .wb-split {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
+  grid-template-columns: minmax(260px, 0.75fr) minmax(360px, 2fr);
   gap: 12px;
   align-items: start;
 }
