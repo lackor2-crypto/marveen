@@ -122,6 +122,7 @@ import { tryHandleIdeas } from './web/routes/ideas.js'
 import { tryHandleProjects } from './web/routes/projects.js'
 import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
+import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
 import { tryHandleWorkbenchAgent } from './web/routes/workbench-agent.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
@@ -289,6 +290,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleStorages(routeCtx)) return
       if (await tryHandleMega(routeCtx)) return
       if (await tryHandleBackupRules(routeCtx)) return
+      if (await tryHandleBackupRestore(routeCtx)) return
       if (await tryHandleBackup(routeCtx)) return
       if (await tryHandleSystemRestart(routeCtx)) return
       if (await tryHandleUpdates(routeCtx)) return

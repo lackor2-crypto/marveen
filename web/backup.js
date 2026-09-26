@@ -43,6 +43,7 @@
       var err = new Error((data && data.message) || tr('fbk.err.generic'))
       err.code = data && data.error
       err.status = res.status
+      err.data = data
       throw err
     }
     return data
@@ -216,7 +217,9 @@
       return '<div class="bk-item"><div class="bk-item-main"><strong>' + h(fmtTime(b.time)) + '</strong>' +
         (b.kind === 'pre-restore' ? ' <span class="bk-pill">' + h(tr('fbk.list.pre_restore')) + '</span>' : '') +
         '<div class="bk-row-meta">' + h(fmtSize(b.size)) + ' · ' + h(where) + ' · ' + h(ver) + '</div></div>' +
-        '<div class="bk-row-actions">' + dl + '</div></div>'
+        '<div class="bk-row-actions">' + dl +
+        '<button class="btn-secondary btn-compact" data-bk="r-open" data-source="' + a(b.where.indexOf('local') >= 0 ? 'local' : b.where[0]) + '" data-name="' + a(b.name) + '">' + h(tr('fbk.list.restore')) + '</button>' +
+        '</div></div>'
     }).join('')
     var empty = !(l.backups || []).length ? '<div class="bk-row-meta">' + h(tr('fbk.list.empty')) + '</div>' : ''
     return '<div class="settings-group-title">' + h(tr('fbk.list.title')) + '</div>' +
@@ -254,8 +257,12 @@
       statusHtml() + runHtml() + kitHtml() +
       '<div class="settings-group-title">' + h(tr('fbk.dest.title')) + '</div>' +
       (S.status.destinations || []).map(destRowHtml).join('') +
-      scheduleHtml() + listHtml() + advancedHtml() +
+      scheduleHtml() + listHtml() +
+      '<div class="settings-group-title">' + h(tr('fbk.r.title')) + '</div>' +
+      '<div id="bkRestoreHost"></div>' +
+      advancedHtml() +
       '</div>'
+    mountRestore(document.getElementById('bkRestoreHost') || null)
   }
 
   // ---------------------------------------------------------------- actions
@@ -362,7 +369,9 @@
     ev.preventDefault()
     S.busy = true
     try {
-      if (act === 'reload') await load()
+      if (act === 'w-restore' || act === 'w-fresh') await wizardChoice(act === 'w-restore' ? 'restore' : 'fresh')
+      else if (act.indexOf('r-') === 0) await restoreAction(act, el)
+      else if (act === 'reload') await load()
       else if (act === 'run') await run()
       else if (act === 'download') await downloadBackup(el.getAttribute('data-name'))
       else if (act === 'goto') { if (typeof switchPage === 'function') switchPage(el.getAttribute('data-page')) }
@@ -411,6 +420,8 @@
 
   async function onChange(ev) {
     var el = ev.target
+    if (el && el.getAttribute && el.getAttribute('data-bk') === 'r-file') { await restoreUpload(el); return }
+    if (el && el.getAttribute && el.getAttribute('data-bk') === 'r-cat') { toggleCat(el); return }
     if (!el || !el.getAttribute || el.getAttribute('data-bk') !== 'kit-confirm' || !el.checked) return
     try {
       await api('POST', '/api/backup/kit/confirm')
@@ -418,6 +429,311 @@
       showToast(tr('fbk.kit.confirmed'), { type: 'success' })
       await load()
     } catch (e) { el.checked = false; showToast(e.message, { type: 'error' }) }
+  }
+
+  // ================================================================ restore
+  // One flow, two homes: the "Restore" section of this page, and the first
+  // screen of a fresh install ("Do you have a backup?"). Steps: choose ->
+  // (key) -> preview -> confirm -> progress (survives the restart) -> result.
+
+  var R = {
+    host: null,
+    step: 'choose',
+    src: null,
+    preview: null,
+    exclude: {},
+    keyId: null,
+    status: null,
+    polling: false,
+    wizard: false,
+  }
+
+  function rh(html) { if (R.host) R.host.innerHTML = html }
+
+  function countRows(p) {
+    var cur = (p.dbCounts && p.dbCounts.current) || {}
+    var bak = (p.dbCounts && p.dbCounts.backup) || {}
+    return ['kanban_cards', 'memories', 'projects', 'approvals'].filter(function (t) { return bak[t] !== undefined }).map(function (t) {
+      return '<div class="bk-row-meta">' + h(tr('fbk.r.count', { what: tr('fbk.r.t.' + t), now: cur[t] || 0, backup: bak[t] })) + '</div>'
+    }).join('')
+  }
+
+  function catRows(p) {
+    return (p.categories || []).map(function (c) {
+      var optional = (p.optional || []).indexOf(c.id) >= 0
+      var detail = tr('fbk.r.cat_detail', { add: c.willAdd, over: c.willOverwrite, held: c.held })
+      var box = c.id === 'database'
+        ? '<input type="checkbox" checked disabled>'
+        : optional ? '<input type="checkbox" data-bk="r-cat" data-cat="' + a(c.id) + '"' + (R.exclude[c.id] ? '' : ' checked') + '>' : '<input type="checkbox" checked disabled>'
+      return '<label class="bk-check">' + box + ' <span><strong>' + h(tr('fbk.cat.' + c.id)) + '</strong> — ' + h(detail) + '</span></label>' +
+        (c.id === 'database' ? '<div class="bk-row-meta">' + h(tr('fbk.r.db_fixed')) + '</div>' : '')
+    }).join('')
+  }
+
+  function warnRows(p) {
+    return (p.warnings || []).map(function (w) {
+      var items = w.items && w.items.length ? ' (' + w.items.slice(0, 8).join(', ') + ')' : ''
+      return '<div class="bk-row-meta bk-tone-warn-text">' + h(tr('fbk.r.warn.' + w.code, { n: w.n || 0 }) + items) + '</div>'
+    }).join('')
+  }
+
+  // The outcome codes the runner writes (src/backup/restore.ts RestoreOutcomeCode).
+  var FAIL_CODES = ['failed', 'interrupted', 'busy', 'stop_failed', 'never_started']
+
+  // With a dashboard login, the start needs the password typed now (an agent
+  // holds the access token, never the password).
+  function confirmFields(p) {
+    if (!p.confirm || p.confirm === 'none') return ''
+    var user = p.confirm === 'user_password'
+      ? '<label class="bk-field"><span>' + h(tr('fbk.r.pw_user')) + '</span><input class="input" id="bkRestoreUser" autocomplete="username" spellcheck="false"></label>'
+      : ''
+    return user + '<label class="bk-field"><span>' + h(tr('fbk.r.pw')) + '</span><input class="input" type="password" id="bkRestorePw" autocomplete="current-password"></label>' +
+      '<div class="bk-row-meta">' + h(tr('fbk.r.pw_why')) + '</div>'
+  }
+
+  function renderRestore() {
+    if (!R.host) return
+    var st = R.status
+    var head = ''
+    if (st && st.channelsHeld) {
+      head = '<div class="bk-row bk-tone-warn"><div class="bk-row-info"><div class="bk-row-title">' + h(tr('fbk.r.held_title')) + '</div>' +
+        '<div class="bk-row-desc">' + h(tr('fbk.channels.paused')) + '</div></div>' +
+        '<div class="bk-row-actions"><button class="btn-primary" data-bk="r-release">' + h(tr('fbk.r.release')) + '</button></div></div>'
+    }
+    if (R.step === 'running') {
+      rh(head + '<div class="bk-row"><div class="bk-row-info"><div class="bk-row-title">' + h(tr('fbk.r.running')) + '</div>' +
+        '<div class="bk-row-desc">' + h(tr('fbk.r.running_why')) + '</div></div></div>')
+      return
+    }
+    if (R.step === 'result' && st && st.result) {
+      var r = st.result
+      var body = r.ok
+        ? '<div class="bk-row-title">' + h(tr('fbk.r.done')) + '</div>' +
+          '<ol class="bk-steps">' +
+          '<li>' + h(tr('fbk.r.next_login')) + ' <button class="btn-secondary btn-compact" data-bk="goto" data-page="accounts">' + h(tr('fbk.r.next_login_btn')) + '</button></li>' +
+          (st.channelsHeld ? '<li>' + h(tr('fbk.r.next_release')) + '</li>' : '') +
+          '<li>' + h(tr('fbk.r.next_depot')) + '</li>' +
+          '</ol>'
+        : '<div class="bk-row-title">' + h(tr('fbk.r.failed')) + '</div>' +
+          '<div class="bk-row-desc">' + h(tr('fbk.r.code.' + (FAIL_CODES.indexOf(r.code) >= 0 ? r.code : 'failed'))) + '</div>' +
+          (r.reason ? '<div class="bk-row-meta">' + h(tr('fbk.r.failed_detail', { reason: r.reason })) + '</div>' : '')
+      rh(head + '<div class="bk-row ' + (r.ok ? 'bk-tone-ok' : 'bk-tone-bad') + '"><div class="bk-row-info">' + body + '</div>' +
+        '<div class="bk-row-actions"><button class="btn-secondary btn-compact" data-bk="r-reset">' + h(tr('fbk.r.close')) + '</button></div></div>')
+      return
+    }
+    if (R.step === 'preview' && R.preview) {
+      var p = R.preview
+      var compatBad = p.compat && !p.compat.ok
+      rh(head + '<div class="bk-row"><div class="bk-row-info">' +
+        '<div class="bk-row-title">' + h(tr('fbk.restore.preview')) + '</div>' +
+        '<div class="bk-row-meta">' + h(tr('fbk.r.made', { when: fmtTime(Date.parse(p.createdAt)) || p.createdAt, version: p.appVersion })) + '</div>' +
+        (compatBad ? '<div class="bk-error">' + h(tr('fbk.r.compat.' + p.compat.reason)) + '</div>' : '') +
+        countRows(p) + catRows(p) + warnRows(p) +
+        (p.needsLogin && p.needsLogin.length ? '<div class="bk-row-meta">' + h(tr('fbk.r.needs_login', { names: p.needsLogin.join(', ') })) + '</div>' : '') +
+        '<div class="bk-row-meta">' + h(tr('fbk.r.logins_back')) + '</div>' +
+        '<div class="bk-row-desc">' + h(p.freshInstall ? tr('fbk.r.fresh') : tr('fbk.restore.safety')) + '</div>' +
+        '<div class="bk-row-desc">' + h(tr('fbk.channels.paused')) + '</div>' +
+        confirmFields(p) +
+        '</div><div class="bk-row-actions">' +
+        '<button class="btn-primary" data-bk="r-start"' + (compatBad || (p.bytes && !p.bytes.enough) ? ' disabled' : '') + '>' + h(tr('fbk.r.start')) + '</button>' +
+        '<button class="btn-secondary btn-compact" data-bk="r-cancel">' + h(tr('fbk.r.cancel')) + '</button>' +
+        '</div></div>')
+      return
+    }
+    // choose (+ key when needed)
+    var keyField = '<label class="bk-field"><span>' + h(R.keyId ? tr('fbk.r.key_for', { id: R.keyId }) : tr('fbk.r.key')) + '</span>' +
+      '<input class="input" id="bkRestoreKey" autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"></label>' +
+      '<div class="bk-row-meta">' + h(tr('fbk.r.key_hint')) + '</div>'
+    rh(head + '<div class="bk-row"><div class="bk-row-info">' +
+      '<div class="bk-row-desc">' + h(tr('fbk.r.why')) + '</div>' +
+      '<label class="bk-field"><span>' + h(tr('fbk.r.upload')) + '</span><input type="file" accept=".mbk" data-bk="r-file" class="input"></label>' +
+      '<div class="bk-row-meta">' + h(tr('fbk.r.upload_hint')) + '</div>' + keyField +
+      (R.src ? '<div class="bk-row-meta">' + h(tr('fbk.r.selected', { name: R.src.name || R.src.fileName || '' })) + '</div>' : '') +
+      '</div><div class="bk-row-actions">' +
+      (R.src ? '<button class="btn-primary" data-bk="r-preview">' + h(tr('fbk.r.open')) + '</button>' : '') +
+      (R.wizard ? '<button class="btn-secondary btn-compact" data-bk="r-wizard-back">' + h(tr('fbk.wizard.back')) + '</button>' : '') +
+      '</div></div>')
+  }
+
+  function mountRestore(host) {
+    R.host = host
+    renderRestore()
+    refreshRestoreStatus()
+  }
+
+  async function refreshRestoreStatus() {
+    try {
+      R.status = await api('GET', '/api/backup/restore/status')
+      if (R.status.running) { R.step = 'running'; pollRestore() }
+      // After the restart (or a new login) the page is new: an outcome the
+      // owner has not closed yet is shown again, with its next steps.
+      else if (!R.status.running && R.status.result && !R.status.result.seen && R.step === 'choose') R.step = 'result'
+      renderRestore()
+    } catch (e) { /* the page still works without it */ }
+  }
+
+  function toggleCat(el) {
+    var id = el.getAttribute('data-cat')
+    if (el.checked) delete R.exclude[id]; else R.exclude[id] = true
+  }
+
+  async function restoreUpload(el) {
+    var f = el.files && el.files[0]
+    if (!f) return
+    showToast(tr('fbk.r.uploading', { name: f.name }))
+    try {
+      var res = await fetch('/api/backup/restore/upload?lang=' + L(), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f })
+      var data = null
+      try { data = await res.json() } catch (e) { data = null }
+      if (!res.ok) throw new Error((data && data.message) || tr('fbk.err.generic'))
+      R.src = { source: 'upload', uploadId: data.uploadId, fileName: f.name }
+      renderRestore()
+    } catch (e) { showToast(e.message, { type: 'error' }) }
+  }
+
+  async function openPreview() {
+    var keyEl = document.getElementById('bkRestoreKey')
+    var body = { source: R.src.source, name: R.src.name, uploadId: R.src.uploadId, key: keyEl && keyEl.value.trim() ? keyEl.value.trim() : undefined }
+    try {
+      R.preview = await api('POST', '/api/backup/restore/open', body)
+      R.exclude = {}
+      R.step = 'preview'
+      R.keyId = null
+    } catch (e) {
+      if ((e.code === 'key_needed' || e.code === 'wrong_key') && e.data) {
+        R.keyId = e.data.keyId || null
+        if (e.data.uploadId) R.src.uploadId = e.data.uploadId
+      }
+      showToast(e.message, { type: 'error' })
+    }
+    renderRestore()
+  }
+
+  async function pollRestore() {
+    if (R.polling) return
+    R.polling = true
+    for (;;) {
+      await new Promise(function (r) { setTimeout(r, 3000) })
+      try {
+        var st = await api('GET', '/api/backup/restore/status')
+        R.status = st
+        // Not running any more: the outcome is in (the server answers
+        // "never started" itself when the runner never took the plan).
+        if (!st.running) break
+      } catch (e) { /* the dashboard is restarting: keep asking */ }
+    }
+    R.polling = false
+    R.step = R.status && R.status.result ? 'result' : 'choose'
+    renderRestore()
+    if (S.host) load()
+  }
+
+  async function restoreAction(act, el) {
+    if (act === 'r-open') {
+      R.src = { source: el.getAttribute('data-source'), name: el.getAttribute('data-name') }
+      R.step = 'choose'
+      R.keyId = null
+      await openPreview()
+      if (R.host && R.host.scrollIntoView) R.host.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else if (act === 'r-preview') {
+      await openPreview()
+    } else if (act === 'r-cancel') {
+      if (R.preview) { try { await api('POST', '/api/backup/restore/cancel', { previewId: R.preview.previewId }) } catch (e) { /* gone anyway */ } }
+      R.preview = null; R.src = null; R.step = 'choose'; renderRestore()
+    } else if (act === 'r-start') {
+      if (!window.confirm(tr('fbk.r.confirm'))) return
+      var exclude = Object.keys(R.exclude)
+      var body = { previewId: R.preview.previewId, exclude: exclude }
+      var pw = document.getElementById('bkRestorePw')
+      var user = document.getElementById('bkRestoreUser')
+      if (pw) body.password = pw.value
+      if (user) body.username = user.value.trim()
+      showToast(tr('fbk.r.starting'))
+      await api('POST', '/api/backup/restore/start', body)
+      R.step = 'running'
+      renderRestore()
+      pollRestore()
+    } else if (act === 'r-release') {
+      if (!window.confirm(tr('fbk.r.release_confirm'))) return
+      var r = await api('POST', '/api/backup/restore/release')
+      showToast(r.kept && r.kept.length ? tr('fbk.r.released_kept', { n: r.kept.length }) : tr('fbk.r.released'), { type: r.kept && r.kept.length ? 'warn' : 'success' })
+      await refreshRestoreStatus()
+    } else if (act === 'r-reset') {
+      if (R.status && R.status.result && !R.status.result.seen) {
+        try { await api('POST', '/api/backup/restore/ack') } catch (e) { /* shown again next time, no harm */ }
+        R.status.result.seen = true
+      }
+      R.step = 'choose'; R.preview = null; R.src = null
+      if (R.wizard && W.el) { W.el.remove(); W.el = null; R.wizard = false; R.host = null; return }
+      renderRestore()
+    } else if (act === 'r-wizard-back') {
+      renderWizardQuestion()
+    }
+  }
+
+  // ---------------------------------------------------------------- wizard
+  // A fresh install's first question. The server decides "fresh" (no login,
+  // no cards, no memories, not asked yet); the choice is stored, so it is
+  // asked once.
+
+  var W = { el: null, resolve: null }
+
+  function wizardShell(inner) {
+    if (!W.el) {
+      W.el = document.createElement('div')
+      W.el.className = 'bk-wizard'
+      W.el.addEventListener('click', onClick)
+      W.el.addEventListener('change', onChange)
+      document.body.appendChild(W.el)
+    }
+    W.el.innerHTML = '<div class="bk-wizard-card">' + inner + '</div>'
+  }
+
+  function renderWizardQuestion() {
+    wizardShell('<h2>' + h(tr('fbk.wizard.q')) + '</h2>' +
+      '<p>' + h(tr('fbk.wizard.why')) + '</p>' +
+      '<p class="bk-row-meta">' + h(tr('fbk.wizard.login_note')) + '</p>' +
+      '<div class="bk-row-actions" style="justify-content:flex-start">' +
+      '<button class="btn-primary" data-bk="w-restore">' + h(tr('fbk.wizard.yes')) + '</button>' +
+      '<button class="btn-secondary" data-bk="w-fresh">' + h(tr('fbk.wizard.no')) + '</button></div>')
+  }
+
+  async function wizardChoice(choice) {
+    await api('POST', '/api/backup/onboarding', { choice: choice })
+    if (choice === 'fresh') {
+      if (W.el) { W.el.remove(); W.el = null }
+      var done = W.resolve; W.resolve = null
+      if (done) done(false)
+      return
+    }
+    R.wizard = true
+    wizardShell('<h2>' + h(tr('fbk.r.title')) + '</h2><div id="bkWizardRestore"></div>')
+    mountRestore(document.getElementById('bkWizardRestore'))
+    var d = W.resolve; W.resolve = null
+    if (d) d(true)
+  }
+
+  /** Resolves true when the restore path was chosen (skip the normal onboarding). */
+  window.maybeAskRestoreFirst = async function () {
+    // A restore that is still running, or one whose outcome was not read yet,
+    // comes first: after the restart or a new login the page starts over, and
+    // the outcome holds the next steps (Claude logins, the paused channels).
+    var st = null
+    try { st = await api('GET', '/api/backup/restore/status') } catch (e) { st = null }
+    if (st && (st.running || (st.result && !st.result.seen))) {
+      R.wizard = true
+      R.step = st.running ? 'running' : 'result'
+      wizardShell('<h2>' + h(tr('fbk.r.title')) + '</h2><div id="bkWizardRestore"></div>')
+      mountRestore(document.getElementById('bkWizardRestore'))
+      return true
+    }
+    var r
+    try { r = await api('GET', '/api/backup/onboarding') } catch (e) { return false }
+    if (!r || !r.ask) return false
+    return new Promise(function (resolve) {
+      W.resolve = resolve
+      renderWizardQuestion()
+    })
   }
 
   window.renderBackupPanel = function (host) {

@@ -5,11 +5,13 @@
  * refuses; the plan file carries the paused DB tasks.
  */
 import { describe, it, expect, afterAll } from 'vitest'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBackup } from '../backup/create.js'
 import { generateRecoveryKey } from '../backup/crypto.js'
-import { openPreview, startRestore, RestoreError } from '../backup/restore-service.js'
+import { openPreview, startRestore, restoreStatus, ackRestoreResult, RestoreError, PENDING_TTL_MS } from '../backup/restore-service.js'
+import { runRestore } from '../backup/restore-runner.js'
+import { acquireBackupLock } from '../backup/create.js'
 import { populatedInstall, emptyInstall, makeDb } from './backup-fixture.js'
 
 const roots: string[] = []
@@ -62,5 +64,73 @@ describe('startRestore', () => {
     const B = emptyInstall('start-b4'); roots.push(B.root)
     await expect(startRestore('nope', [], { ctx: { projectRoot: B.projectRoot, storeDir: B.storeDir, home: B.home }, unit: 'x', preBackup: async () => ({ ok: true }), launch: () => {} }))
       .rejects.toMatchObject({ code: 'preview_expired' })
+  })
+})
+
+// The page waits for the runner's answer. Every road must end in one: running
+// while handed over (also after a reload), an outcome when the runner is done
+// or failed early, and "never started" when nobody took the plan.
+describe('the page never waits forever', () => {
+  it('handed over = running, and a second restore cannot start next to it', async () => {
+    const B = emptyInstall('start-p1'); roots.push(B.root)
+    makeDb(join(B.storeDir, 'claudeclaw.db'), 0, 0)
+    const { ctx, p } = await preview(B)
+    await startRestore(p.id, [], { ctx, unit: 'x.service', preBackup: async () => ({ ok: true }), launch: () => {} })
+    expect(restoreStatus(B.storeDir)).toMatchObject({ running: true, result: null })
+    const second = await preview(B)
+    await expect(startRestore(second.p.id, [], { ctx, unit: 'x.service', preBackup: async () => ({ ok: true }), launch: () => {} }))
+      .rejects.toMatchObject({ code: 'restore_running' })
+  })
+
+  it('a plan nobody took ends as "never started", once', async () => {
+    const B = emptyInstall('start-p2'); roots.push(B.root)
+    makeDb(join(B.storeDir, 'claudeclaw.db'), 0, 0)
+    const { ctx, p } = await preview(B)
+    const r = await startRestore(p.id, [], { ctx, unit: 'x.service', preBackup: async () => ({ ok: true }), launch: () => {} })
+    const later = Date.now() + PENDING_TTL_MS + 1000
+    const st = restoreStatus(B.storeDir, later)
+    expect(st.running).toBe(false)
+    expect(st.result).toMatchObject({ ok: false, code: 'never_started', planId: r.planId })
+    expect(existsSync(join(B.storeDir, 'restore-pending.json'))).toBe(false)
+  })
+
+  it('a launcher that throws leaves nothing pending', async () => {
+    const B = emptyInstall('start-p3'); roots.push(B.root)
+    makeDb(join(B.storeDir, 'claudeclaw.db'), 0, 0)
+    const { ctx, p } = await preview(B)
+    await expect(startRestore(p.id, [], { ctx, unit: 'x.service', preBackup: async () => ({ ok: true }), launch: () => { throw new Error('spawn ENOENT') } }))
+      .rejects.toMatchObject({ code: 'failed' })
+    expect(restoreStatus(B.storeDir).running).toBe(false)
+  })
+
+  it('the runner answers even when it cannot take the lock or stop the dashboard', async () => {
+    const B = emptyInstall('start-p4'); roots.push(B.root)
+    makeDb(join(B.storeDir, 'claudeclaw.db'), 0, 0)
+    const { ctx, p } = await preview(B)
+    let planFile = ''
+    const r = await startRestore(p.id, [], { ctx, unit: 'x.service', preBackup: async () => ({ ok: true }), launch: (f) => { planFile = f } })
+    const plan = JSON.parse(readFileSync(planFile, 'utf8'))
+
+    const release = acquireBackupLock(B.storeDir, 'test')!
+    try {
+      const busy = await runRestore(plan, { stop: () => {}, start: () => {}, sleep: async () => {}, lockWaitMs: 0 })
+      expect(busy.code).toBe('busy')
+    } finally { release() }
+    expect(restoreStatus(B.storeDir)).toMatchObject({ running: false, result: { code: 'busy', planId: r.planId } })
+
+    let started = 0
+    const stopFailed = await runRestore(plan, { stop: () => { throw new Error('unit not found') }, start: () => { started++ }, sleep: async () => {} })
+    expect(stopFailed.code).toBe('stop_failed')
+    expect(started).toBe(1)
+    expect(restoreStatus(B.storeDir).result).toMatchObject({ code: 'stop_failed' })
+  })
+
+  it('a closed outcome is marked seen, and stays so', () => {
+    const B = emptyInstall('start-p5'); roots.push(B.root)
+    writeFileSync(join(B.storeDir, 'restore-result.json'), JSON.stringify({ ok: true, code: 'done', finishedAt: 1, planId: 'x' }))
+    expect(restoreStatus(B.storeDir).result?.seen).toBeUndefined()
+    expect(ackRestoreResult(B.storeDir)).toBe(true)
+    expect(restoreStatus(B.storeDir).result).toMatchObject({ ok: true, seen: true })
+    expect(ackRestoreResult(B.storeDir)).toBe(false)
   })
 })
