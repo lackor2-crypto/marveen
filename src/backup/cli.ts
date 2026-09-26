@@ -163,7 +163,13 @@ async function restoreCmd(argv: string[]): Promise<number> {
       launch: (f) => { planFile = f },
     })
     const plan = JSON.parse(readFileSync(planFile, 'utf8'))
-    const out = await runRestore(plan, systemdHooks(unit))
+    const { PENDING } = await import('./restore.js')
+    let out
+    try { out = await runRestore(plan, systemdHooks(unit)) } finally {
+      // This process IS the runner here: the page's "running" marker ends with it.
+      rmSync(join(ctx.storeDir, PENDING), { force: true })
+      rmSync(planFile, { force: true })
+    }
     console.log(out.ok ? 'restore: done. Log in each agent again, then confirm in Settings -> Backup that the old machine is off.' : `restore: FAILED (${out.reason})${out.rolledBack ? ' -- rolled back' : ''}`)
     return out.ok ? 0 : 1
   } catch (err: any) {
