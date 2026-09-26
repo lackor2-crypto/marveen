@@ -293,6 +293,7 @@
   function loadDetail(id) {
     WB.detail = null
     WB.textEdit = null
+    if (WB.img && WB.img.itemId !== id) WB.img = null
     if (WB.compare && WB.compare.itemId !== id) WB.compare = null
     WB.preview = null
     WB.previewVersion = null
@@ -740,7 +741,10 @@
         + esc(t('workbench.canvas.download')) + '</a></p>'
     }
     if (p.kind === 'image') {
-      return '<img class="wb-preview-image" src="' + escA(p.url) + '" alt="' + escA(p.name || t('workbench.preview.title')) + '">'
+      // KEPSZERKESZTES (#406, 16. pont): csak a mostani verzio, nem archivalt projektben.
+      if (imgState()) return imageEditorHtml()
+      return (imgCanEdit(p) ? '<p><button type="button" class="btn-primary" data-wb-act="img-open">' + esc(t('workbench.img.open')) + '</button></p>' : '')
+        + '<img class="wb-preview-image" src="' + escA(p.url) + '" alt="' + escA(p.name || t('workbench.preview.title')) + '">'
     }
     if (p.kind === 'video') {
       return '<video class="wb-preview-video" src="' + escA(p.url) + '" controls></video>'
@@ -1077,6 +1081,411 @@
       loadDetail(r.data.item.id)
       openTable(r.data.item.id, null)
     })
+  }
+
+  // ---- KEPSZERKESZTES EGERREL (#406, 16. pont) -------------------------------
+  //
+  // Minden a bongeszoben tortenik (canvas), a gepre nem kell kepszerkeszto. A
+  // lepesek sorrendje rogzitett: forgatas/tukrozes -> vagas -> meret ->
+  // hatter kivetele -> felirat. Mentes: a kesz kep UJ fajl + UJ verzio (a regi
+  // kep megmarad). A vagokeret egerrel ES ujjal is huzhato (Pointer Events), es
+  // szamokkal is megadhato -- a ket ut ugyanazt az allapotot irja.
+
+  var IMG_PREVIEW_MAX = 900
+  var IMG_MAX_SIDE = 8000
+  var IMG_MAX_PIXELS = 16000000
+  var IMG_ASPECTS = { free: 0, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4, '16:9': 16 / 9, '9:16': 9 / 16 }
+
+  function imgRotSize(w, h, rot) { return rot % 180 ? { w: h, h: w } : { w: w, h: h } }
+
+  function imgClampCrop(c, W, H) {
+    var w = Math.max(1, Math.min(W, Math.round(c.w)))
+    var h = Math.max(1, Math.min(H, Math.round(c.h)))
+    var x = Math.max(0, Math.min(W - w, Math.round(c.x)))
+    var y = Math.max(0, Math.min(H - h, Math.round(c.y)))
+    return { x: x, y: y, w: w, h: h }
+  }
+
+  /** A legnagyobb, adott aranyu, kozepre igazitott keret. */
+  function imgAspectCrop(W, H, ratio) {
+    if (!ratio) return { x: 0, y: 0, w: W, h: H }
+    var w = W
+    var h = Math.round(W / ratio)
+    if (h > H) { h = H; w = Math.round(H * ratio) }
+    return { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), w: w, h: h }
+  }
+
+  /** A kimeneti meret: a kert szelesseg, aranyosan, a bongeszo canvas-hataran belul. */
+  function imgOutSize(crop, outW) {
+    var w = Math.max(1, Math.round(Number(outW) || crop.w))
+    var h = Math.max(1, Math.round(crop.h * w / crop.w))
+    var k = Math.min(1, IMG_MAX_SIDE / Math.max(w, h), Math.sqrt(IMG_MAX_PIXELS / (w * h)))
+    return { w: Math.max(1, Math.floor(w * k)), h: Math.max(1, Math.floor(h * k)) }
+  }
+
+  /** Egyszinu hatter kivetele: a kattintott pontbol ARASZTASSAL a hasonlo
+   *  szinu, OSSZEFUGGO kepponteket atlatszova teszi. Igy a targyon beluli,
+   *  veletlenul ugyanolyan szinu folt megmarad. `tol`: 0-255, csatornankent. */
+  function imgFloodKey(data, W, H, seeds, tol) {
+    var seen = new Uint8Array(W * H)
+    var cleared = 0
+    for (var s = 0; s < seeds.length; s++) {
+      var sx = Math.max(0, Math.min(W - 1, Math.floor(seeds[s].x)))
+      var sy = Math.max(0, Math.min(H - 1, Math.floor(seeds[s].y)))
+      var si = (sy * W + sx) * 4
+      var r0 = data[si]
+      var g0 = data[si + 1]
+      var b0 = data[si + 2]
+      var stack = [sy * W + sx]
+      while (stack.length) {
+        var p = stack.pop()
+        if (seen[p]) continue
+        var i = p * 4
+        if (Math.abs(data[i] - r0) > tol || Math.abs(data[i + 1] - g0) > tol || Math.abs(data[i + 2] - b0) > tol) continue
+        seen[p] = 1
+        if (data[i + 3] !== 0) { data[i + 3] = 0; cleared++ }
+        var x = p % W
+        if (x > 0) stack.push(p - 1)
+        if (x < W - 1) stack.push(p + 1)
+        if (p >= W) stack.push(p - W)
+        if (p < W * (H - 1)) stack.push(p + W)
+      }
+    }
+    return cleared
+  }
+
+  function imgState() { return WB.img && WB.img.itemId === WB.selectedId ? WB.img : null }
+
+  function imgCanEdit(p) {
+    var current = !WB.previewVersion || (WB.detail && WB.detail.item && WB.previewVersion === WB.detail.item.current_version_id)
+    return !!(p && p.available && p.kind === 'image' && p.url && !archived() && current)
+  }
+
+  function openImageEditor() {
+    var p = WB.preview
+    if (!imgCanEdit(p) || !WB.detail) return
+    var itemId = WB.selectedId
+    WB.img = {
+      itemId: itemId, baseVersion: WB.detail.item.current_version_id, name: p.name || '', src: p.url,
+      loading: true, error: null, el: null, W: 0, H: 0, rot: 0, flip: false,
+      crop: null, aspect: 'free', outW: 0,
+      caption: { text: '', pos: 'bottom', size: 6, color: 'white', band: true },
+      bg: { pick: false, seeds: [], tol: 32 }, rotUrl: '', outUrl: '', busy: false, dirty: false,
+    }
+    render()
+    loadImg(p.url).then(function (im) {
+      var st = imgState()
+      if (!st || st.itemId !== itemId) return
+      st.el = im
+      st.W = im.naturalWidth || im.width
+      st.H = im.naturalHeight || im.height
+      st.loading = false
+      imgResetGeometry(st)
+      render()
+      imgRefresh(true)
+    }).catch(function () {
+      var st = imgState()
+      if (!st) return
+      st.loading = false
+      st.error = t('workbench.img.load_failed')
+      render()
+    })
+  }
+
+  function imgResetGeometry(st) {
+    var rs = imgRotSize(st.W, st.H, st.rot)
+    st.crop = imgAspectCrop(rs.w, rs.h, IMG_ASPECTS[st.aspect] || 0)
+    st.outW = st.crop.w
+    st.bg.seeds = []
+  }
+
+  /** A forgatott/tukrozott teljes kep egy canvason. */
+  function imgRotated(st, scale) {
+    var rs = imgRotSize(st.W, st.H, st.rot)
+    var cv = document.createElement('canvas')
+    cv.width = Math.max(1, Math.round(rs.w * scale))
+    cv.height = Math.max(1, Math.round(rs.h * scale))
+    var ctx = cv.getContext('2d')
+    ctx.save()
+    ctx.translate(cv.width / 2, cv.height / 2)
+    ctx.rotate(st.rot * Math.PI / 180)
+    if (st.flip) ctx.scale(-1, 1)
+    ctx.drawImage(st.el, -st.W * scale / 2, -st.H * scale / 2, st.W * scale, st.H * scale)
+    ctx.restore()
+    return cv
+  }
+
+  /** A KESZ kep. `maxSide`: elonezethez kicsinyitve, mentesnel teljes meretben. */
+  function imgOutput(st, maxSide) {
+    var out = imgOutSize(st.crop, st.outW)
+    var k = maxSide ? Math.min(1, maxSide / Math.max(out.w, out.h)) : 1
+    var ow = Math.max(1, Math.round(out.w * k))
+    var oh = Math.max(1, Math.round(out.h * k))
+    // A forrast csak akkora felbontasban forgatjuk, amekkora a kimenethez kell.
+    var srcScale = Math.min(1, Math.max(ow / st.crop.w, oh / st.crop.h) * 1.001)
+    var rot = imgRotated(st, srcScale)
+    var cv = document.createElement('canvas')
+    cv.width = ow
+    cv.height = oh
+    var ctx = cv.getContext('2d')
+    ctx.drawImage(rot, st.crop.x * srcScale, st.crop.y * srcScale, st.crop.w * srcScale, st.crop.h * srcScale, 0, 0, ow, oh)
+    if (st.bg.seeds.length) {
+      var id = ctx.getImageData(0, 0, ow, oh)
+      imgFloodKey(id.data, ow, oh, st.bg.seeds.map(function (s) { return { x: s.x * ow, y: s.y * oh } }), st.bg.tol)
+      ctx.putImageData(id, 0, 0)
+    }
+    var cap = st.caption
+    if (cap.text && cap.text.trim()) {
+      var fs = Math.max(8, Math.round(oh * cap.size / 100))
+      ctx.font = 'bold ' + fs + 'px sans-serif'
+      ctx.textBaseline = 'top'
+      ctx.textAlign = 'center'
+      var lines = wrapLines(ctx, cap.text.trim(), ow * 0.9)
+      var lh = Math.round(fs * 1.25)
+      var bh = lines.length * lh + Math.round(fs * 0.6)
+      var top = cap.pos === 'top' ? 0 : cap.pos === 'middle' ? Math.round((oh - bh) / 2) : oh - bh
+      if (cap.band) {
+        ctx.fillStyle = cap.color === 'black' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'
+        ctx.fillRect(0, top, ow, bh)
+      }
+      ctx.fillStyle = cap.color === 'black' ? '#111111' : '#ffffff'
+      lines.forEach(function (ln, i) { ctx.fillText(ln, ow / 2, top + Math.round(fs * 0.3) + i * lh) })
+    }
+    return cv
+  }
+
+  function imgOutType(st) {
+    if (st.bg.seeds.length) return 'image/png'
+    return /\.jpe?g$/i.test(st.name) ? 'image/jpeg' : /\.webp$/i.test(st.name) ? 'image/webp' : 'image/png'
+  }
+
+  /** Az elonezet frissitese, ujrarajzolas NELKUL (a mezok fokusza marad). */
+  function imgRefresh(rotChanged) {
+    var st = imgState()
+    if (!st || !st.el || typeof document.createElement !== 'function') return
+    if (st.timer) clearTimeout(st.timer)
+    st.timer = setTimeout(function () {
+      st.timer = null
+      try {
+        if (rotChanged || !st.rotUrl) {
+          var rs = imgRotSize(st.W, st.H, st.rot)
+          st.rotUrl = imgRotated(st, Math.min(1, IMG_PREVIEW_MAX / Math.max(rs.w, rs.h))).toDataURL('image/jpeg', 0.85)
+          var stageImg = document.getElementById('wbImgStageImg')
+          if (stageImg) stageImg.src = st.rotUrl
+        }
+        st.outUrl = imgOutput(st, IMG_PREVIEW_MAX).toDataURL('image/png')
+        var outImg = document.getElementById('wbImgOut')
+        if (outImg) outImg.src = st.outUrl
+        else render()
+      } catch (e) {
+        st.error = t('workbench.img.render_failed', { message: (e && e.message) || '' })
+        render()
+      }
+    }, 120)
+  }
+
+  function imgCropStyle(st) {
+    var rs = imgRotSize(st.W, st.H, st.rot)
+    var pc = function (v, of) { return (Math.round(10000 * v / of) / 100) + '%' }
+    return 'left:' + pc(st.crop.x, rs.w) + ';top:' + pc(st.crop.y, rs.h) + ';width:' + pc(st.crop.w, rs.w) + ';height:' + pc(st.crop.h, rs.h)
+  }
+
+  function imgNum(id, label, value) {
+    return '<label class="wb-img-num"><span>' + esc(label) + '</span><input class="wb-input" type="number" inputmode="numeric" min="0" id="' + id + '" value="' + escA(value) + '"></label>'
+  }
+
+  function imageEditorHtml() {
+    var st = imgState()
+    var close = '<button type="button" class="btn-secondary" data-wb-act="img-close">' + esc(t('workbench.img.close')) + '</button>'
+    if (st.loading) return '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    if (st.error && !st.crop) return '<p class="wb-preview-bad">' + esc(st.error) + '</p><div class="wb-form-actions">' + close + '</div>'
+    var out = imgOutSize(st.crop, st.outW)
+    var cap = st.caption
+    var aspects = Object.keys(IMG_ASPECTS).map(function (k) {
+      return '<button type="button" class="' + (st.aspect === k ? 'btn-primary' : 'btn-secondary') + '" aria-pressed="' + (st.aspect === k) + '" data-wb-act="img-aspect" data-wb-aspect="' + escA(k) + '">'
+        + esc(k === 'free' ? t('workbench.img.aspect_free') : k) + '</button>'
+    }).join('')
+    var sel = function (id, value, opts) {
+      return '<select class="wb-input" id="' + id + '">' + opts.map(function (o) {
+        return '<option value="' + escA(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + esc(o[1]) + '</option>'
+      }).join('') + '</select>'
+    }
+    return '<div class="wb-img">'
+      + (st.error ? '<p class="wb-preview-bad">' + esc(st.error) + '</p>' : '')
+      + '<div class="wb-img-cols">'
+      // --- bal: vagas
+      + '<div class="wb-img-col"><h5>' + esc(t('workbench.img.crop_title')) + '</h5>'
+      + '<div class="wb-img-stage" id="wbImgStage"><img id="wbImgStageImg" alt="" draggable="false" src="' + escA(st.rotUrl || st.src) + '">'
+      + '<div class="wb-img-crop" data-wb-crop="move" style="' + imgCropStyle(st) + '">'
+      + ['nw', 'ne', 'sw', 'se'].map(function (h) { return '<span class="wb-img-h wb-img-h-' + h + '" data-wb-crop="' + h + '"></span>' }).join('')
+      + '</div></div>'
+      + '<p class="wb-hint">' + esc(t('workbench.img.crop_hint')) + '</p>'
+      + '<div class="wb-img-row">' + aspects + '</div>'
+      + '<div class="wb-img-row">'
+      + imgNum('wbImgCx', 'X', st.crop.x) + imgNum('wbImgCy', 'Y', st.crop.y)
+      + imgNum('wbImgCw', t('workbench.img.width'), st.crop.w) + imgNum('wbImgCh', t('workbench.img.height'), st.crop.h)
+      + '</div>'
+      + '<div class="wb-img-row">'
+      + '<button type="button" class="btn-secondary" data-wb-act="img-rot-left">' + esc(t('workbench.img.rotate_left')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="img-rot-right">' + esc(t('workbench.img.rotate_right')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="img-flip" aria-pressed="' + !!st.flip + '">' + esc(t('workbench.img.flip')) + '</button>'
+      + '</div></div>'
+      // --- jobb: eredmeny
+      + '<div class="wb-img-col"><h5>' + esc(t('workbench.img.result_title')) + '</h5>'
+      + '<div class="wb-img-result' + (st.bg.pick ? ' wb-img-picking' : '') + '"><img id="wbImgOut" alt="' + escA(t('workbench.img.result_title')) + '" draggable="false"'
+      + (st.bg.pick ? ' data-wb-img-pick="1"' : '') + ' src="' + escA(st.outUrl || st.rotUrl || st.src) + '"></div>'
+      + '<p class="wb-muted">' + esc(t('workbench.img.out_size', { w: out.w, h: out.h })) + '</p>'
+      + '<div class="wb-img-row">' + imgNum('wbImgOutW', t('workbench.img.out_width'), st.outW)
+      + '<button type="button" class="btn-secondary" data-wb-act="img-size-orig">' + esc(t('workbench.img.size_orig')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="img-size-half">50%</button></div>'
+      + '<h5>' + esc(t('workbench.img.caption_title')) + '</h5>'
+      + '<input class="wb-input" type="text" id="wbImgCapText" maxlength="300" placeholder="' + escA(t('workbench.img.caption_placeholder')) + '" value="' + escA(cap.text) + '">'
+      + '<div class="wb-img-row">'
+      + sel('wbImgCapPos', cap.pos, [['top', t('workbench.img.pos_top')], ['middle', t('workbench.img.pos_middle')], ['bottom', t('workbench.img.pos_bottom')]])
+      + sel('wbImgCapColor', cap.color, [['white', t('workbench.img.color_white')], ['black', t('workbench.img.color_black')]])
+      + '<label class="wb-img-num"><span>' + esc(t('workbench.img.caption_size')) + '</span><input type="range" id="wbImgCapSize" min="2" max="20" value="' + escA(cap.size) + '"></label>'
+      + '<label class="wb-img-check"><input type="checkbox" id="wbImgCapBand"' + (cap.band ? ' checked' : '') + '> ' + esc(t('workbench.img.caption_band')) + '</label>'
+      + '</div>'
+      + '<h5>' + esc(t('workbench.img.bg_title')) + '</h5>'
+      + '<div class="wb-img-row">'
+      + '<button type="button" class="' + (st.bg.pick ? 'btn-primary' : 'btn-secondary') + '" aria-pressed="' + !!st.bg.pick + '" data-wb-act="img-bg-pick">' + esc(t(st.bg.pick ? 'workbench.img.bg_picking' : 'workbench.img.bg_pick')) + '</button>'
+      + (st.bg.seeds.length ? '<button type="button" class="btn-secondary" data-wb-act="img-bg-clear">' + esc(t('workbench.img.bg_clear', { n: st.bg.seeds.length })) + '</button>' : '')
+      + '<label class="wb-img-num"><span>' + esc(t('workbench.img.bg_tol')) + '</span><input type="range" id="wbImgTol" min="0" max="120" value="' + escA(st.bg.tol) + '"></label>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.img.bg_hint')) + '</p>'
+      + '</div></div>'
+      + '<div class="wb-form-actions">'
+      + '<button type="button" class="btn-primary" data-wb-act="img-save"' + (st.busy ? ' disabled' : '') + '>' + esc(st.busy ? t('workbench.parts.saving') : t('workbench.img.save')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="img-reset">' + esc(t('workbench.img.reset')) + '</button>'
+      + close + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.img.save_hint')) + '</p>'
+      + '</div>'
+  }
+
+  function imgClose() {
+    var st = imgState()
+    if (st && st.dirty && !window.confirm(t('workbench.img.discard_confirm'))) return
+    WB.img = null
+    render()
+  }
+
+  function imgSetAspect(key) {
+    var st = imgState()
+    if (!st || !st.crop || !(key in IMG_ASPECTS)) return
+    st.aspect = key
+    var rs = imgRotSize(st.W, st.H, st.rot)
+    st.crop = imgAspectCrop(rs.w, rs.h, IMG_ASPECTS[key])
+    st.outW = st.crop.w
+    st.bg.seeds = []
+    st.dirty = true
+    render()
+    imgRefresh(false)
+  }
+
+  function imgRotate(delta) {
+    var st = imgState()
+    if (!st || !st.crop) return
+    st.rot = (st.rot + delta + 360) % 360
+    imgResetGeometry(st)
+    st.dirty = true
+    render()
+    imgRefresh(true)
+  }
+
+  /** Egy mezo az allapotba. Az ujrarajzolast csak a szam-mezok kerik (a keret
+   *  helye valtozik); a szoveges mezo alatt csak az elonezet frissul. */
+  function imgField(id, el) {
+    var st = imgState()
+    if (!st || !st.crop) return false
+    var v = el.value
+    var rs = imgRotSize(st.W, st.H, st.rot)
+    if (id === 'wbImgCx' || id === 'wbImgCy' || id === 'wbImgCw' || id === 'wbImgCh') {
+      var n = Number(v)
+      if (!Number.isFinite(n)) return true
+      var c = { x: st.crop.x, y: st.crop.y, w: st.crop.w, h: st.crop.h }
+      if (id === 'wbImgCx') c.x = n
+      else if (id === 'wbImgCy') c.y = n
+      else if (id === 'wbImgCw') c.w = n
+      else c.h = n
+      st.crop = imgClampCrop(c, rs.w, rs.h)
+      st.aspect = 'free'
+      st.outW = st.crop.w
+      st.bg.seeds = []
+      var box = document.querySelector && document.querySelector('[data-wb-crop="move"]')
+      if (box && box.setAttribute) box.setAttribute('style', imgCropStyle(st))
+    } else if (id === 'wbImgOutW') {
+      var w = Number(v)
+      if (Number.isFinite(w) && w > 0) st.outW = Math.min(IMG_MAX_SIDE, Math.round(w))
+    } else if (id === 'wbImgCapText') st.caption.text = String(v || '')
+    else if (id === 'wbImgCapPos') st.caption.pos = v
+    else if (id === 'wbImgCapColor') st.caption.color = v
+    else if (id === 'wbImgCapSize') st.caption.size = Math.max(2, Math.min(20, Number(v) || 6))
+    else if (id === 'wbImgCapBand') st.caption.band = !!el.checked
+    else if (id === 'wbImgTol') st.bg.tol = Math.max(0, Math.min(120, Number(v) || 0))
+    else return false
+    st.dirty = true
+    imgRefresh(false)
+    return true
+  }
+
+  function imgSave() {
+    var st = imgState()
+    if (!st || st.busy || !st.crop || !WB.selectedId) return
+    var itemId = WB.selectedId
+    var type = imgOutType(st)
+    st.busy = true
+    st.error = null
+    render()
+    var fail = function (msg) {
+      var s2 = imgState()
+      if (!s2) return
+      s2.busy = false
+      render()
+      window.showToast(msg)
+    }
+    var cv
+    try { cv = imgOutput(st, 0) } catch (e) { fail(t('workbench.img.render_failed', { message: (e && e.message) || '' })); return }
+    cv.toBlob(function (blob) {
+      if (!blob) { fail(t('workbench.img.render_failed', { message: '' })); return }
+      var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/image-edit?base_version=' + encodeURIComponent(st.baseVersion || '')
+        + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      fetch(url, { method: 'POST', headers: { 'Content-Type': blob.type || type }, body: blob }).then(function (res) {
+        return res.json().catch(function () { return null }).then(function (data) {
+          if (!res.ok) { fail((data && data.message) || t('workbench.err.http', { status: res.status })); return }
+          WB.img = null
+          applyVersions(data)
+          window.showToast(t('workbench.img.saved', { n: data && data.version ? data.version.version_no : '', name: (data && data.name) || '' }))
+        })
+      }).catch(function () { fail(t('workbench.err.network')) })
+    }, type, type === 'image/png' ? undefined : 0.92)
+  }
+
+  // Vagokeret huzasa (eger + erintes). Huzas kozben csak a doboz stilusa
+  // valtozik; elengedeskor kerul az allapotba, es akkor frissul az eredmeny.
+  var imgDrag = null
+
+  function imgDragApply(d, clientX, clientY) {
+    var st = imgState()
+    if (!st) return null
+    var rs = imgRotSize(st.W, st.H, st.rot)
+    var dx = (clientX - d.x0) * rs.w / (d.rect.width || 1)
+    var dy = (clientY - d.y0) * rs.h / (d.rect.height || 1)
+    var c = { x: d.crop.x, y: d.crop.y, w: d.crop.w, h: d.crop.h }
+    var ratio = IMG_ASPECTS[st.aspect] || 0
+    if (d.mode === 'move') { c.x += dx; c.y += dy; return imgClampCrop(c, rs.w, rs.h) }
+    var right = c.x + c.w
+    var bottom = c.y + c.h
+    if (d.mode === 'nw' || d.mode === 'sw') c.x = Math.min(right - 8, Math.max(0, c.x + dx))
+    if (d.mode === 'nw' || d.mode === 'ne') c.y = Math.min(bottom - 8, Math.max(0, c.y + dy))
+    c.w = d.mode === 'ne' || d.mode === 'se' ? Math.max(8, Math.min(rs.w - c.x, c.w + dx)) : right - c.x
+    c.h = d.mode === 'sw' || d.mode === 'se' ? Math.max(8, Math.min(rs.h - c.y, c.h + dy)) : bottom - c.y
+    if (ratio) {
+      c.h = c.w / ratio
+      if (c.y + c.h > rs.h) { c.h = rs.h - c.y; c.w = c.h * ratio }
+      if (d.mode === 'nw' || d.mode === 'ne') c.y = bottom - c.h
+      if (d.mode === 'nw' || d.mode === 'sw') c.x = right - c.w
+    }
+    return imgClampCrop(c, rs.w, rs.h)
   }
 
   function previewHtml() {
@@ -3766,7 +4175,7 @@
     // A tablazat egy cellajaban all a kurzor: az ujrarajzolas utan ugyanoda
     // tesszuk vissza (a chat streamelese kozben is lehessen gepelni).
     var active = document.activeElement
-    var keepCell = active && /^wbCell_/.test(String(active.id || '')) ? active.id : null
+    var keepCell = active && /^wb(Cell_|Img)/.test(String(active.id || '')) ? active.id : null
     var caret = keepCell && typeof active.selectionStart === 'number' ? active.selectionStart : null
     el.innerHTML = '<div class="wb-root">'
       + '<div class="wb-head">'
@@ -4155,6 +4564,25 @@
     else if (a === 'compare-open') openCompare()
     else if (a === 'compare-close') { WB.compare = null; render() }
     else if (a === 'text-edit') openTextEdit()
+    else if (a === 'img-open') openImageEditor()
+    else if (a === 'img-close') imgClose()
+    else if (a === 'img-save') imgSave()
+    else if (a === 'img-reset' && imgState()) {
+      var ist = imgState()
+      ist.rot = 0; ist.flip = false; ist.aspect = 'free'
+      ist.caption = { text: '', pos: 'bottom', size: 6, color: 'white', band: true }
+      ist.bg = { pick: false, seeds: [], tol: 32 }
+      ist.dirty = false
+      imgResetGeometry(ist); render(); imgRefresh(true)
+    }
+    else if (a === 'img-aspect') imgSetAspect(act.getAttribute('data-wb-aspect'))
+    else if (a === 'img-rot-left') imgRotate(-90)
+    else if (a === 'img-rot-right') imgRotate(90)
+    else if (a === 'img-flip' && imgState()) { imgState().flip = !imgState().flip; imgState().bg.seeds = []; imgState().dirty = true; render(); imgRefresh(true) }
+    else if (a === 'img-size-orig' && imgState()) { imgState().outW = imgState().crop.w; render(); imgRefresh(false) }
+    else if (a === 'img-size-half' && imgState()) { imgState().outW = Math.max(1, Math.round(imgState().crop.w / 2)); imgState().dirty = true; render(); imgRefresh(false) }
+    else if (a === 'img-bg-pick' && imgState()) { imgState().bg.pick = !imgState().bg.pick; render() }
+    else if (a === 'img-bg-clear' && imgState()) { imgState().bg.seeds = []; render(); imgRefresh(false) }
     else if (a === 'table-open') openTable(WB.selectedId, WB.previewVersion)
     else if (a === 'table-close') closeTable()
     else if (a === 'table-save') saveTable()
@@ -4392,6 +4820,7 @@
       return
     }
     if (WB.table && tableCellInput(e.target.id, e.target.value)) return
+    if (WB.img && /^wbImg/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
     if (e.target.id === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = e.target.value
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
@@ -4412,6 +4841,68 @@
     else if (id === 'wbPartText' && WB.partEdit) savePart(WB.partEdit)
     else if (id === 'wbPartNewText') addTextPart()
   })
+
+  // Kepszerkeszto: kattintas az EREDMENYEN = a hatter egy pontja (arasztas innen).
+  document.addEventListener('click', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var pick = e.target.closest('[data-wb-img-pick]')
+    var st = imgState()
+    if (!pick || !st || !st.bg.pick || typeof pick.getBoundingClientRect !== 'function') return
+    var rect = pick.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    st.bg.seeds.push({
+      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+    })
+    st.dirty = true
+    render()
+    imgRefresh(false)
+  })
+
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var h = e.target.closest('[data-wb-crop]')
+    var st = imgState()
+    var stage = document.getElementById('wbImgStage')
+    if (!h || !st || !st.crop || !stage || typeof stage.getBoundingClientRect !== 'function') return
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    imgDrag = {
+      mode: h.getAttribute('data-wb-crop'), x0: e.clientX, y0: e.clientY, rect: stage.getBoundingClientRect(),
+      crop: { x: st.crop.x, y: st.crop.y, w: st.crop.w, h: st.crop.h }, last: null,
+    }
+    if (h.setPointerCapture && e.pointerId != null) { try { h.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ } }
+  })
+
+  document.addEventListener('pointermove', function (e) {
+    if (!imgDrag) return
+    var st = imgState()
+    if (!st) { imgDrag = null; return }
+    var c = imgDragApply(imgDrag, e.clientX, e.clientY)
+    if (!c) return
+    imgDrag.last = c
+    var box = document.querySelector('[data-wb-crop="move"]')
+    var saved = st.crop
+    st.crop = c
+    if (box && box.setAttribute) box.setAttribute('style', imgCropStyle(st))
+    st.crop = saved
+  })
+
+  function imgDragEnd(commit) {
+    if (!imgDrag) return
+    var st = imgState()
+    var c = imgDrag.last
+    imgDrag = null
+    if (!st || !c || !commit) { render(); return }
+    st.crop = c
+    st.aspect = IMG_ASPECTS[st.aspect] ? st.aspect : 'free'
+    st.outW = c.w
+    st.bg.seeds = []
+    st.dirty = true
+    render()
+    imgRefresh(false)
+  }
+  document.addEventListener('pointerup', function () { imgDragEnd(true) })
+  document.addEventListener('pointercancel', function () { imgDragEnd(false) })
 
   // Tablazat: Enter = a lenti cella (mint az Excelben), Shift+Enter = a fenti.
   document.addEventListener('keydown', function (e) {
@@ -4445,6 +4936,7 @@
 
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
+    if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
     if (e.target.id === 'wbSwitch') {
       selectItem(e.target.value)
       return
@@ -4553,6 +5045,7 @@
     WB.preview = null
     WB.previewVersion = null
     WB.table = null
+    WB.img = null
     WB.overview = null
     WB.overviewError = null
   }
@@ -4562,5 +5055,7 @@
     close: closeWorkbench,
     reset: resetWorkbench,
     isOpen: function () { return WB.open },
+    // A kepszerkeszto tiszta (DOM nelkuli) lepesei -- a tesztek ezeket merik.
+    _img: { floodKey: imgFloodKey, clampCrop: imgClampCrop, aspectCrop: imgAspectCrop, outSize: imgOutSize, rotSize: imgRotSize },
   }
 })()
