@@ -465,3 +465,18 @@
   .wb-split-work .wb-panel { min-height: 0; }
   .wb-grid-aside { grid-template-columns: 1fr; }
 }
+
+/* --- projekt-idovonal (#406, 7. pont) ------------------------------------- */
+.wb-tl { list-style: none; margin: 12px 0 0; padding: 0; max-height: 360px; overflow-y: auto; }
+.wb-tl-row { display: grid; grid-template-columns: auto 10px 1fr; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--border, #d0d7de); }
+.wb-tl-row:last-child { border-bottom: 0; }
+.wb-tl-when { font-size: 12px; opacity: .75; white-space: nowrap; }
+.wb-tl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent, #3b82f6); align-self: center; }
+.wb-tl-approval_rejected .wb-tl-dot { background: var(--warning, #d97706); }
+.wb-tl-approval_approved .wb-tl-dot, .wb-tl-card_done .wb-tl-dot { background: var(--success, #16a34a); }
+.wb-tl-link { background: none; border: 0; padding: 0; text-align: left; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
+.wb-tl-more { margin-top: 8px; }
+@media (max-width: 700px) {
+  .wb-tl-row { grid-template-columns: 1fr; gap: 2px; }
+  .wb-tl-dot { display: none; }
+}
