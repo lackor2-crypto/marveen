@@ -203,7 +203,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'kanban.create',
     description: 'Open a kanban card. Code fixes and development tasks are NOT work items: they belong on the kanban board. The card is always bound to THIS project, whatever the request says. ONE PROJECT = ONE CARD: if an open card already covers this work (a sub-task, a new bug in it, its next phase), do not open a new card -- the server refuses it; tell the owner to continue on that card.',
-    input: 'title: the card title; description (optional); priority (optional): low, normal, high or urgent; related (optional): the ids of cards this one relates to, or an empty list if there is none; separate_project (optional): only if it relates to an open card but is truly a separate project, why (at least 15 characters)',
+    input: 'title: the card title; labels: a list with at least one label name or id (e.g. ["some_label"]) -- if you do not know the labels, leave it out: the project default is used, or the error lists the labels to choose from; description (optional); priority (optional): low, normal, high or urgent; related (optional): the ids of cards this one relates to, or an empty list if there is none; separate_project (optional): only if it relates to an open card but is truly a separate project, why (at least 15 characters)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
 ]

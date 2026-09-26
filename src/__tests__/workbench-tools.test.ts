@@ -475,6 +475,39 @@ describe('kanban.create -- a kod-javitas kartya, es MINDIG ehhez a projekthez ko
     expect(r.ok).toBe(true)
     if (r.ok) expect((r.data as any).labels).toEqual(['lab1'])
   })
+
+  // #403: a modell 3x adott labels:["iroda_fejlesztese"]-t, es mind a harom
+  // label_error lett, mert az eszkoz a cimket el sem kuldte a szervernek.
+  it('#403: a modell altal adott cimke-NEV atmegy, a kartya letrejon', () => {
+    createLabel({ id: 'lab1', name: 'iroda_fejlesztese', color: '#fff' })
+    createLabel({ id: 'lab2', name: 'marveen_fejlesztese', color: '#fff' })
+    const r = executeTool('kanban.create', { title: 'Egy teljesen új dolog', related: [], labels: ['iroda_fejlesztese'] }, ctx())
+    expect(r.ok, JSON.stringify(r)).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).labels).toEqual(['lab1'])
+      expect(getKanbanCard((r.data as any).id)?.project).toBe(projectId)
+    }
+  })
+
+  it('#403: id-vel, egyetlen szovegkent es a "tags" alnevvel is atmegy', () => {
+    createLabel({ id: 'lab1', name: 'iroda_fejlesztese', color: '#fff' })
+    for (const input of [{ labels: ['lab1'] }, { labels: 'iroda_fejlesztese' }, { tags: ['iroda_fejlesztese'] }]) {
+      const r = executeTool('kanban.create', { title: `Egy teljesen új dolog ${JSON.stringify(input)}`, related: [], ...input }, ctx())
+      expect(r.ok, JSON.stringify(input) + ' ' + JSON.stringify(r)).toBe(true)
+      if (r.ok) expect((r.data as any).labels).toEqual(['lab1'])
+    }
+  })
+
+  it('#403: ismeretlen cimke -- nem talalgat, a hiba felsorolja a valaszthatokat', () => {
+    createLabel({ id: 'lab1', name: 'iroda_fejlesztese', color: '#fff' })
+    const r = executeTool('kanban.create', { title: 'Egy teljesen új dolog', related: [], labels: ['nincs_ilyen'] }, ctx())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.detail).toContain('iroda_fejlesztese')
+  })
+
+  it('#403: az eszkoz-leiras megmondja a modellnek, hogy a cimket hova irja', () => {
+    expect(getTool('kanban.create')?.input).toMatch(/labels/)
+  })
 })
 
 // --- 6. fazis: FAJLMUVELETEK -----------------------------------------------
