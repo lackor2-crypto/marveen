@@ -43850,9 +43850,21 @@ function _megaLabel(account) {
 /** A listazas hibaja emberi mondatban. Az ures mappa NEM ide tartozik. */
 function _megaListErrorText(data, status) {
   const code = (data && data.error) || ''
-  const known = ['rclone_missing', 'login_failed', 'twofa', 'not_activated', 'network', 'transfer_quota',
-    'timeout', 'dir_not_found', 'not_found', 'bad_path', 'network_client']
-  const reason = known.includes(code) ? t('megadepot.browse_err_' + code) : t('megadepot.browse_err_unknown', { status: String(status || '?') })
+  // Literal kulcsok: a lang-parity teszt csak igy latja, hogy mind megvan.
+  const known = {
+    rclone_missing: () => t('megadepot.browse_err_rclone_missing'),
+    login_failed: () => t('megadepot.browse_err_login_failed'),
+    twofa: () => t('megadepot.browse_err_twofa'),
+    not_activated: () => t('megadepot.browse_err_not_activated'),
+    network: () => t('megadepot.browse_err_network'),
+    transfer_quota: () => t('megadepot.browse_err_transfer_quota'),
+    timeout: () => t('megadepot.browse_err_timeout'),
+    dir_not_found: () => t('megadepot.browse_err_dir_not_found'),
+    not_found: () => t('megadepot.browse_err_not_found'),
+    bad_path: () => t('megadepot.browse_err_bad_path'),
+    network_client: () => t('megadepot.browse_err_network_client'),
+  }
+  const reason = Object.prototype.hasOwnProperty.call(known, code) ? known[code]() : t('megadepot.browse_err_unknown', { status: String(status || '?') })
   return t('megadepot.browse_failed', { reason })
 }
 
