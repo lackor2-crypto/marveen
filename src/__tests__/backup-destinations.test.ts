@@ -202,6 +202,11 @@ describe('health (§9)', () => {
     expect(backupHealthRow({ ...base, now, destinations: both, state: ok, kitConfirmed: false })).toMatchObject({ id: 'backup_kit_unconfirmed', status: 'warn' })
     expect(backupHealthRow({ ...base, now, destinations: both, state: ok, kitConfirmed: true })).toMatchObject({ id: 'backup_ok_copies', status: 'ok', params: { n: 3 } })
   })
+  it('after a restore the held channels come first, even on an install with no backup yet', () => {
+    const now = Date.now()
+    expect(backupHealthRow({ ...base, now, freshInstall: true, channelsHeld: true })).toEqual({ id: 'backup_channels_held', status: 'warn' })
+    expect(backupHealthRow({ ...base, now, state: { lastSuccessAt: now - H }, channelsHeld: true }).id).toBe('backup_channels_held')
+  })
 })
 
 describe('the auto-deploy never touches the local backups', () => {

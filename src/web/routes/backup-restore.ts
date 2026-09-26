@@ -3,9 +3,11 @@
 //   POST /api/backup/restore/upload          -- the .mbk as the raw body -> { uploadId }
 //   POST /api/backup/restore/open            -- { source: local|depot|cloud|upload, name?, uploadId?, key? }
 //                                               -> the preview (nothing is changed yet)
-//   POST /api/backup/restore/start           -- { previewId, exclude[] } -> pre-restore backup,
-//                                               then the detached runner restarts the dashboard
+//   POST /api/backup/restore/start           -- { previewId, exclude[], username?, password? } ->
+//                                               pre-restore backup, then the detached runner
+//                                               restarts the dashboard
 //   GET  /api/backup/restore/status          -- read from files, so it survives the restart
+//   POST /api/backup/restore/ack             -- the owner closed the result screen
 //   POST /api/backup/restore/release         -- "the old machine is off": held channels +
 //                                               paused schedules come back
 //   POST /api/backup/restore/cancel          -- drop a preview
@@ -13,19 +15,26 @@
 //   POST /api/backup/onboarding              -- { choice: restore|fresh }, asked once
 //
 // Every error is { error, message } with the message in the request language.
+//
+// WHO MAY START A RESTORE. With a dashboard login, starting needs a dashboard
+// password typed at that moment: the bearer token is held by every agent, and a
+// restore must never start from a channel message (plan §10.16). Without a
+// login (a fresh install) there is no human-only secret; the token is the
+// owner's browser, and the backup-restore skill forbids agents to start one.
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { json, readBody } from '../http-helpers.js'
 import { APP_LANG, PROJECT_ROOT, STORE_DIR } from '../../config.js'
-import { countDashboardUsers, getDb } from '../../db.js'
+import { countDashboardUsers, getDashboardUser, getDb } from '../../db.js'
+import { verifyPassword } from '../password-hash.js'
 import { restartAvailability } from '../../self-restart.js'
 import type { RouteContext } from './types.js'
 import { readHeader, BackupDecryptError } from '../../backup/crypto.js'
 import { runBackup, listBackupsIn, localBackupDir } from '../../backup/service.js'
 import { readConfig, resolveDestinations, listDestination, realDeps } from '../../backup/destinations.js'
-import { openPreview, startRestore, dropPreview, restoreStatus, launchRunner, RestoreError } from '../../backup/restore-service.js'
+import { openPreview, startRestore, dropPreview, restoreStatus, ackRestoreResult, launchRunner, RestoreError } from '../../backup/restore-service.js'
 import { releaseHeld, OPTIONAL_CATEGORIES } from '../../backup/restore.js'
 import { InspectError, type Inspection } from '../../backup/inspect.js'
 import type { BackupCategory } from '../../backup/inventory.js'
@@ -40,7 +49,7 @@ function uiLang(ctx: RouteContext): Lang {
 
 const M: Record<string, { hu: string; en: string }> = {
   key_needed: { hu: 'Ehhez a mentéshez add meg a helyreállító kulcsot (a vészhelyzeti lapon áll, kulcs-azonosító: {keyId}).', en: 'Enter the recovery key for this backup (it is on the emergency kit, key id: {keyId}).' },
-  wrong_key: { hu: 'Ez a kulcs nem ehhez a mentéshez tartozik. Nézd meg a vészhelyzeti lapot: a kulcs-azonosítónak egyeznie kell.', en: 'This key does not belong to this backup. Check the emergency kit: the key id must match.' },
+  wrong_key: { hu: 'Ez a kulcs nem ehhez a mentéshez tartozik (kulcs-azonosító: {keyId}). Nézd meg a vészhelyzeti lapot: az ott álló kulcs-azonosítónak egyeznie kell.', en: 'This key does not belong to this backup (key id: {keyId}). Check the emergency kit: the key id on it must match.' },
   corrupt: { hu: 'A mentésfájl sérült, ebből nem lehet visszaállni. Próbálj egy másik mentést (a Raktárból vagy a felhőből).', en: 'The backup file is damaged and cannot be restored. Try another backup (from the depot or the cloud).' },
   truncated: { hu: 'A mentésfájl csonka (nem töltődött le vagy fel teljesen). Töltsd le/fel újra.', en: 'The backup file is cut short (it did not download or upload completely). Get it again.' },
   not_a_backup: { hu: 'Ez nem Marveen mentésfájl (.mbk).', en: 'This is not a Marveen backup file (.mbk).' },
@@ -58,6 +67,8 @@ const M: Record<string, { hu: string; en: string }> = {
   not_found: { hu: 'Ez a mentés nem található (lehet, hogy közben törlődött).', en: 'This backup cannot be found (it may have been removed meanwhile).' },
   unreachable: { hu: 'Ez a hely most nem elérhető: {detail}', en: 'This place is not reachable right now: {detail}' },
   bad_request: { hu: 'Hibás kérés.', en: 'Bad request.' },
+  password_required: { hu: 'A visszaállítás indításához add meg a dashboard-belépésed jelszavát.', en: 'Enter your dashboard password to start the restore.' },
+  password_wrong: { hu: 'Ez a felhasználónév vagy jelszó nem jó. Próbáld újra.', en: 'That username or password is not right. Try again.' },
   failed: { hu: 'Nem sikerült: {detail}', en: 'It failed: {detail}' },
 }
 
@@ -106,8 +117,34 @@ async function upload(ctx: RouteContext): Promise<boolean> {
   return true
 }
 
-function previewPayload(id: string, ins: Inspection) {
+/**
+ * What the start button needs typed in: nothing (no dashboard login on this
+ * install), the password of the logged-in user, or a username + password (the
+ * browser uses the access token, but logins exist).
+ */
+type StartConfirm = 'none' | 'password' | 'user_password'
+function startConfirm(ctx: RouteContext): StartConfirm {
+  let loginOn = false
+  try { loginOn = countDashboardUsers() > 0 } catch { loginOn = false }
+  if (!loginOn) return 'none'
+  return ctx.auth?.kind === 'session' && ctx.auth.user ? 'password' : 'user_password'
+}
+
+async function confirmStart(ctx: RouteContext, b: any): Promise<'ok' | 'password_required' | 'password_wrong'> {
+  const need = startConfirm(ctx)
+  if (need === 'none') return 'ok'
+  const pw = typeof b?.password === 'string' ? b.password : ''
+  if (!pw) return 'password_required'
+  const username = need === 'password' && ctx.auth?.kind === 'session' ? ctx.auth.user : String(b?.username || '').trim()
+  if (!username) return 'password_required'
+  const user = getDashboardUser(username)
+  if (!user || user.disabled || !(await verifyPassword(pw, user.password_hash))) return 'password_wrong'
+  return 'ok'
+}
+
+function previewPayload(id: string, ins: Inspection, confirm: StartConfirm) {
   return {
+    confirm,
     previewId: id,
     createdAt: ins.manifest.createdAt,
     appVersion: ins.manifest.appVersion,
@@ -165,13 +202,22 @@ async function open(ctx: RouteContext): Promise<boolean> {
   try { currentDb = getDb() } catch { currentDb = join(STORE_DIR, 'claudeclaw.db') }
   try {
     const { id, inspection } = await openPreview({ file, uploaded, key: typeof b.key === 'string' ? b.key : null, ctx: { projectRoot: PROJECT_ROOT, storeDir: STORE_DIR, home: homedir() }, appVersion, currentDb })
-    json(ctx.res, previewPayload(id, inspection))
+    json(ctx.res, previewPayload(id, inspection, startConfirm(ctx)))
   } catch (e: any) {
     if (e instanceof RestoreError && e.code === 'key_needed') {
       // The file stays for the second try, with the key typed in.
       let uploadId: string | undefined
       if (uploaded) { uploadId = randomBytes(8).toString('hex'); uploads.set(uploadId, file) }
       json(ctx.res, { error: e.code, message: M.key_needed[uiLang(ctx)].replace('{keyId}', e.vars.keyId ?? ''), keyId: e.vars.keyId, ...(uploadId ? { uploadId } : {}) }, 400)
+      return true
+    }
+    if (e instanceof BackupDecryptError && e.code === 'wrong_key') {
+      // Same as above: the file stays, only the key was wrong.
+      let keyId = ''
+      try { keyId = readHeader(file).header.keyId } catch { /* the message still reads */ }
+      let uploadId: string | undefined
+      if (uploaded) { uploadId = randomBytes(8).toString('hex'); uploads.set(uploadId, file) }
+      json(ctx.res, { error: 'wrong_key', message: M.wrong_key[uiLang(ctx)].replace('{keyId}', keyId), keyId, ...(uploadId ? { uploadId } : {}) }, 400)
       return true
     }
     if (uploaded) rmSync(file, { force: true })
@@ -186,6 +232,8 @@ async function start(ctx: RouteContext): Promise<boolean> {
   const b = await body(ctx)
   if (!b || typeof b.previewId !== 'string') return fail(ctx, 400, 'bad_request')
   const exclude = (Array.isArray(b.exclude) ? b.exclude : []).filter((c: unknown) => OPTIONAL_CATEGORIES.includes(c as BackupCategory)) as BackupCategory[]
+  const confirmed = await confirmStart(ctx, b)
+  if (confirmed !== 'ok') return fail(ctx, 401, confirmed)
   const avail = restartAvailability()
   let db: any = null
   try { db = getDb() } catch { db = null }
@@ -195,7 +243,7 @@ async function start(ctx: RouteContext): Promise<boolean> {
       unit: avail.possible ? avail.unit : null,
       unitReason: avail.reason,
       preBackup: async () => runBackup({ kind: 'pre-restore', db }),
-      launch: (planFile) => launchRunner(PROJECT_ROOT, planFile),
+      launch: (planFile) => launchRunner(PROJECT_ROOT, STORE_DIR, planFile),
     })
     json(ctx.res, { ok: true, ...r }, 202)
   } catch (e: any) {
@@ -233,6 +281,7 @@ export async function tryHandleBackupRestore(ctx: RouteContext): Promise<boolean
   if (path === '/api/backup/restore/open' && method === 'POST') return open(ctx)
   if (path === '/api/backup/restore/start' && method === 'POST') return start(ctx)
   if (path === '/api/backup/restore/status' && method === 'GET') { json(ctx.res, restoreStatus(STORE_DIR)); return true }
+  if (path === '/api/backup/restore/ack' && method === 'POST') { json(ctx.res, { ok: true, changed: ackRestoreResult(STORE_DIR) }); return true }
   if (path === '/api/backup/restore/cancel' && method === 'POST') {
     const b = await body(ctx)
     if (b && typeof b.previewId === 'string') dropPreview(b.previewId)

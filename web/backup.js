@@ -477,6 +477,20 @@
     }).join('')
   }
 
+  // The outcome codes the runner writes (src/backup/restore.ts RestoreOutcomeCode).
+  var FAIL_CODES = ['failed', 'interrupted', 'busy', 'stop_failed', 'never_started']
+
+  // With a dashboard login, the start needs the password typed now (an agent
+  // holds the access token, never the password).
+  function confirmFields(p) {
+    if (!p.confirm || p.confirm === 'none') return ''
+    var user = p.confirm === 'user_password'
+      ? '<label class="bk-field"><span>' + h(tr('fbk.r.pw_user')) + '</span><input class="input" id="bkRestoreUser" autocomplete="username" spellcheck="false"></label>'
+      : ''
+    return user + '<label class="bk-field"><span>' + h(tr('fbk.r.pw')) + '</span><input class="input" type="password" id="bkRestorePw" autocomplete="current-password"></label>' +
+      '<div class="bk-row-meta">' + h(tr('fbk.r.pw_why')) + '</div>'
+  }
+
   function renderRestore() {
     if (!R.host) return
     var st = R.status
@@ -500,7 +514,9 @@
           (st.channelsHeld ? '<li>' + h(tr('fbk.r.next_release')) + '</li>' : '') +
           '<li>' + h(tr('fbk.r.next_depot')) + '</li>' +
           '</ol>'
-        : '<div class="bk-row-title">' + h(tr('fbk.r.failed')) + '</div><div class="bk-row-desc">' + h(tr('fbk.r.failed_reason', { reason: r.reason || '' })) + '</div>'
+        : '<div class="bk-row-title">' + h(tr('fbk.r.failed')) + '</div>' +
+          '<div class="bk-row-desc">' + h(tr('fbk.r.code.' + (FAIL_CODES.indexOf(r.code) >= 0 ? r.code : 'failed'))) + '</div>' +
+          (r.reason ? '<div class="bk-row-meta">' + h(tr('fbk.r.failed_detail', { reason: r.reason })) + '</div>' : '')
       rh(head + '<div class="bk-row ' + (r.ok ? 'bk-tone-ok' : 'bk-tone-bad') + '"><div class="bk-row-info">' + body + '</div>' +
         '<div class="bk-row-actions"><button class="btn-secondary btn-compact" data-bk="r-reset">' + h(tr('fbk.r.close')) + '</button></div></div>')
       return
@@ -510,13 +526,14 @@
       var compatBad = p.compat && !p.compat.ok
       rh(head + '<div class="bk-row"><div class="bk-row-info">' +
         '<div class="bk-row-title">' + h(tr('fbk.restore.preview')) + '</div>' +
-        '<div class="bk-row-meta">' + h(tr('fbk.r.made', { when: p.createdAt, version: p.appVersion })) + '</div>' +
+        '<div class="bk-row-meta">' + h(tr('fbk.r.made', { when: fmtTime(Date.parse(p.createdAt)) || p.createdAt, version: p.appVersion })) + '</div>' +
         (compatBad ? '<div class="bk-error">' + h(tr('fbk.r.compat.' + p.compat.reason)) + '</div>' : '') +
         countRows(p) + catRows(p) + warnRows(p) +
         (p.needsLogin && p.needsLogin.length ? '<div class="bk-row-meta">' + h(tr('fbk.r.needs_login', { names: p.needsLogin.join(', ') })) + '</div>' : '') +
         '<div class="bk-row-meta">' + h(tr('fbk.r.logins_back')) + '</div>' +
         '<div class="bk-row-desc">' + h(p.freshInstall ? tr('fbk.r.fresh') : tr('fbk.restore.safety')) + '</div>' +
         '<div class="bk-row-desc">' + h(tr('fbk.channels.paused')) + '</div>' +
+        confirmFields(p) +
         '</div><div class="bk-row-actions">' +
         '<button class="btn-primary" data-bk="r-start"' + (compatBad || (p.bytes && !p.bytes.enough) ? ' disabled' : '') + '>' + h(tr('fbk.r.start')) + '</button>' +
         '<button class="btn-secondary btn-compact" data-bk="r-cancel">' + h(tr('fbk.r.cancel')) + '</button>' +
@@ -547,7 +564,10 @@
   async function refreshRestoreStatus() {
     try {
       R.status = await api('GET', '/api/backup/restore/status')
-      if (R.status.running && R.step !== 'running') { R.step = 'running'; pollRestore() }
+      if (R.status.running) { R.step = 'running'; pollRestore() }
+      // After the restart (or a new login) the page is new: an outcome the
+      // owner has not closed yet is shown again, with its next steps.
+      else if (!R.status.running && R.status.result && !R.status.result.seen && R.step === 'choose') R.step = 'result'
       renderRestore()
     } catch (e) { /* the page still works without it */ }
   }
@@ -580,7 +600,7 @@
       R.step = 'preview'
       R.keyId = null
     } catch (e) {
-      if (e.code === 'key_needed' && e.data) {
+      if ((e.code === 'key_needed' || e.code === 'wrong_key') && e.data) {
         R.keyId = e.data.keyId || null
         if (e.data.uploadId) R.src.uploadId = e.data.uploadId
       }
@@ -597,11 +617,13 @@
       try {
         var st = await api('GET', '/api/backup/restore/status')
         R.status = st
-        if (!st.running && st.result) break
+        // Not running any more: the outcome is in (the server answers
+        // "never started" itself when the runner never took the plan).
+        if (!st.running) break
       } catch (e) { /* the dashboard is restarting: keep asking */ }
     }
     R.polling = false
-    R.step = 'result'
+    R.step = R.status && R.status.result ? 'result' : 'choose'
     renderRestore()
     if (S.host) load()
   }
@@ -621,8 +643,13 @@
     } else if (act === 'r-start') {
       if (!window.confirm(tr('fbk.r.confirm'))) return
       var exclude = Object.keys(R.exclude)
+      var body = { previewId: R.preview.previewId, exclude: exclude }
+      var pw = document.getElementById('bkRestorePw')
+      var user = document.getElementById('bkRestoreUser')
+      if (pw) body.password = pw.value
+      if (user) body.username = user.value.trim()
       showToast(tr('fbk.r.starting'))
-      await api('POST', '/api/backup/restore/start', { previewId: R.preview.previewId, exclude: exclude })
+      await api('POST', '/api/backup/restore/start', body)
       R.step = 'running'
       renderRestore()
       pollRestore()
@@ -632,6 +659,10 @@
       showToast(r.kept && r.kept.length ? tr('fbk.r.released_kept', { n: r.kept.length }) : tr('fbk.r.released'), { type: r.kept && r.kept.length ? 'warn' : 'success' })
       await refreshRestoreStatus()
     } else if (act === 'r-reset') {
+      if (R.status && R.status.result && !R.status.result.seen) {
+        try { await api('POST', '/api/backup/restore/ack') } catch (e) { /* shown again next time, no harm */ }
+        R.status.result.seen = true
+      }
       R.step = 'choose'; R.preview = null; R.src = null
       if (R.wizard && W.el) { W.el.remove(); W.el = null; R.wizard = false; R.host = null; return }
       renderRestore()
@@ -684,6 +715,18 @@
 
   /** Resolves true when the restore path was chosen (skip the normal onboarding). */
   window.maybeAskRestoreFirst = async function () {
+    // A restore that is still running, or one whose outcome was not read yet,
+    // comes first: after the restart or a new login the page starts over, and
+    // the outcome holds the next steps (Claude logins, the paused channels).
+    var st = null
+    try { st = await api('GET', '/api/backup/restore/status') } catch (e) { st = null }
+    if (st && (st.running || (st.result && !st.result.seen))) {
+      R.wizard = true
+      R.step = st.running ? 'running' : 'result'
+      wizardShell('<h2>' + h(tr('fbk.r.title')) + '</h2><div id="bkWizardRestore"></div>')
+      mountRestore(document.getElementById('bkWizardRestore'))
+      return true
+    }
     var r
     try { r = await api('GET', '/api/backup/onboarding') } catch (e) { return false }
     if (!r || !r.ask) return false

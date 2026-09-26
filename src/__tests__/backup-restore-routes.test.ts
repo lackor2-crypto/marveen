@@ -22,16 +22,25 @@ vi.mock('../config.js', async () => {
 
 const mem = new Database(':memory:')
 mem.exec("CREATE TABLE kanban_cards (id TEXT); CREATE TABLE memories (id INTEGER); CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, status TEXT)")
-const dbState = { users: 0 }
+const dbState = { users: 0, hash: '' }
 vi.mock('../db.js', async () => {
   const actual = await vi.importActual<typeof import('../db.js')>('../db.js')
-  return { ...actual, countDashboardUsers: () => dbState.users, getDb: () => mem }
+  return {
+    ...actual,
+    countDashboardUsers: () => dbState.users,
+    getDb: () => mem,
+    getDashboardUser: (u: string) => (dbState.users && u.toLowerCase() === 'owner'
+      ? { id: 1, username: 'owner', password_hash: dbState.hash, created_at: 0, updated_at: 0, disabled: 0 }
+      : undefined),
+  }
 })
 vi.mock('../self-restart.js', async () => ({
   restartAvailability: () => ({ possible: false, unit: null, reason: 'not a service here' }),
 }))
 
 const { tryHandleBackupRestore, shouldAskForBackup } = await import('../web/routes/backup-restore.js')
+const { hashPassword } = await import('../web/password-hash.js')
+dbState.hash = await hashPassword('correct horse battery')
 const { createBackup } = await import('../backup/create.js')
 const { getOrCreateKey } = await import('../backup/key-store.js')
 const { populatedInstall } = await import('./backup-fixture.js')
@@ -43,7 +52,7 @@ const made = await createBackup({ kind: 'manual', ctx: A.ctx, recoveryKey: key, 
 mkdirSync(join(store, 'backups'), { recursive: true })
 copyFileSync(made.file!, join(store, 'backups', made.name!))
 
-function call(path: string, method: string, body?: unknown, raw?: Buffer) {
+function call(path: string, method: string, body?: unknown, raw?: Buffer, auth: any = { kind: 'token' }) {
   const chunks: Buffer[] = []
   const out: { status: number; body: any } = { status: 200, body: null }
   const res: any = new Writable({ write(c: Buffer, _e: string, cb: () => void) { chunks.push(Buffer.from(c)); cb() } })
@@ -54,7 +63,7 @@ function call(path: string, method: string, body?: unknown, raw?: Buffer) {
   req.headers = {}
   const url = new URL(`http://localhost${path}`)
   return (async () => {
-    const handled = await tryHandleBackupRestore({ req, res, path: url.pathname, method, url, auth: { kind: 'token' } } as any)
+    const handled = await tryHandleBackupRestore({ req, res, path: url.pathname, method, url, auth } as any)
     if (handled) await finished
     try { out.body = JSON.parse(Buffer.concat(chunks).toString()) } catch { out.body = null }
     return { handled, ...out }
@@ -92,6 +101,17 @@ describe('upload + open', () => {
     expect(r.status).toBe(400)
     expect(r.body.error).toBe('wrong_key')
     expect(r.body.message).toMatch(/emergency kit/)
+    expect(r.body.message).toContain(r.body.keyId)
+  })
+
+  it('after a wrong key the uploaded file stays for the next try', async () => {
+    const up = await call('/api/backup/restore/upload', 'POST', undefined, readFileSync(made.file!))
+    const bad = await call('/api/backup/restore/open', 'POST', { source: 'upload', uploadId: up.body.uploadId, key: 'ABCDE-ABCDE-ABCDE-ABCDE-ABCDE-ABCDE' })
+    expect(bad.body.error).toBe('wrong_key')
+    expect(bad.body.uploadId).toBeTruthy()
+    const again = await call('/api/backup/restore/open', 'POST', { source: 'upload', uploadId: bad.body.uploadId, key })
+    expect(again.status, JSON.stringify(again.body)).toBe(200)
+    await call('/api/backup/restore/cancel', 'POST', { previewId: again.body.previewId })
   })
 
   it('without a stored key it asks for one, names the key id, and keeps the upload', async () => {
@@ -115,6 +135,45 @@ describe('upload + open', () => {
 })
 
 describe('start / status / release', () => {
+  it('without a dashboard login nothing extra is asked', async () => {
+    const p = await call('/api/backup/restore/open', 'POST', { source: 'local', name: made.name })
+    expect(p.body.confirm).toBe('none')
+    await call('/api/backup/restore/cancel', 'POST', { previewId: p.body.previewId })
+  })
+
+  it('with a dashboard login the start needs the password typed now (the token alone is what every agent has)', async () => {
+    dbState.users = 1
+    const p = await call('/api/backup/restore/open', 'POST', { source: 'local', name: made.name })
+    expect(p.body.confirm).toBe('user_password')
+    const none = await call('/api/backup/restore/start?lang=en', 'POST', { previewId: p.body.previewId })
+    expect(none.status).toBe(401)
+    expect(none.body.error).toBe('password_required')
+    const wrong = await call('/api/backup/restore/start', 'POST', { previewId: p.body.previewId, username: 'owner', password: 'nope nope nope' })
+    expect(wrong.body.error).toBe('password_wrong')
+    // The right password passes this gate; the next one (no restartable service here) answers.
+    const right = await call('/api/backup/restore/start', 'POST', { previewId: p.body.previewId, username: 'owner', password: 'correct horse battery' })
+    expect(right.body.error).toBe('cannot_restart')
+    await call('/api/backup/restore/cancel', 'POST', { previewId: p.body.previewId })
+  })
+
+  it('a logged-in session types only the password', async () => {
+    dbState.users = 1
+    const session = { kind: 'session', user: 'owner' }
+    const p = await call('/api/backup/restore/open', 'POST', { source: 'local', name: made.name }, undefined, session)
+    expect(p.body.confirm).toBe('password')
+    const right = await call('/api/backup/restore/start', 'POST', { previewId: p.body.previewId, password: 'correct horse battery' }, undefined, session)
+    expect(right.body.error).toBe('cannot_restart')
+    await call('/api/backup/restore/cancel', 'POST', { previewId: p.body.previewId })
+  })
+
+  it('ack marks the outcome as read', async () => {
+    writeFileSync(join(store, 'restore-result.json'), JSON.stringify({ ok: true, code: 'done', finishedAt: 1, planId: 'p' }))
+    try {
+      expect((await call('/api/backup/restore/ack', 'POST')).body).toEqual({ ok: true, changed: true })
+      expect((await call('/api/backup/restore/status', 'GET')).body.result.seen).toBe(true)
+    } finally { rmSync(join(store, 'restore-result.json'), { force: true }) }
+  })
+
   it('refuses when the install cannot restart itself, with the reason', async () => {
     const p = await call('/api/backup/restore/open', 'POST', { source: 'local', name: made.name })
     const r = await call('/api/backup/restore/start?lang=en', 'POST', { previewId: p.body.previewId, exclude: [] })

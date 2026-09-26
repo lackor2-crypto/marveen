@@ -10,6 +10,7 @@ import type { HealthRow } from '../web/system-health.js'
 import { readState, stateExists, type BackupState } from './state.js'
 import { readConfig, type Destination } from './destinations.js'
 import { readKeyFile } from './key-store.js'
+import { heldPending } from './restore.js'
 
 const HOUR = 60 * 60 * 1000
 export const STALE_MS = 36 * HOUR
@@ -26,9 +27,14 @@ export interface HealthInput {
   /** DB has no cards and no memories: nothing to protect yet. */
   freshInstall: boolean
   scheduleTime: string
+  /** A restore holds the channels and schedules until the owner confirms the old machine is off. */
+  channelsHeld?: boolean
 }
 
 export function backupHealthRow(i: HealthInput): HealthRow {
+  // First: after a restore, Telegram & co. stay silent until the owner says the
+  // old machine is off. Nothing else about backup matters as much right then.
+  if (i.channelsHeld) return { id: 'backup_channels_held', status: 'warn' }
   const last = i.state.lastSuccessAt ?? i.newestLocalMs ?? null
   if (!last) {
     if (i.state.lastRun && !i.state.lastRun.ok) return { id: 'backup_failed', status: 'bad', params: { code: i.state.lastRun.error ?? '?' } }
@@ -73,5 +79,6 @@ export function computeBackupHealth(o: { storeDir: string; destinations: Destina
     kitConfirmed,
     freshInstall: o.freshInstall,
     scheduleTime: cfg.schedule.time,
+    channelsHeld: heldPending(o.storeDir),
   })
 }

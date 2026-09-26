@@ -34,6 +34,8 @@ import { inspectDatabaseFile } from './db-snapshot.js'
 
 export const FLAG = 'restore-in-progress.json'
 export const RESULT = 'restore-result.json'
+/** Written when the dashboard hands a plan to the runner, removed by the runner. */
+export const PENDING = 'restore-pending.json'
 export const HELD_FILE = 'channels-paused-after-restore.json'
 export const PAUSED_TASKS_FILE = 'schedules-paused-after-restore.json'
 /** Categories the user may leave out; the database is all-or-nothing (§2.1). */
@@ -229,7 +231,27 @@ export function postRestoreCheck(storeDir: string, manifestCounts: Record<string
   return { ok: true }
 }
 
-export interface RestoreOutcome { ok: boolean; reason?: string; rolledBack?: boolean; rollbackErrors?: string[]; skipped?: string[]; finishedAt: number; planId: string }
+/**
+ * `code` is what the page translates; `reason` is the technical detail next to
+ * it. `seen` is set once the owner closed the result screen.
+ */
+export type RestoreOutcomeCode = 'done' | 'failed' | 'interrupted' | 'busy' | 'stop_failed' | 'never_started'
+export interface RestoreOutcome {
+  ok: boolean
+  code?: RestoreOutcomeCode
+  reason?: string
+  rolledBack?: boolean
+  rollbackErrors?: string[]
+  skipped?: string[]
+  finishedAt: number
+  planId: string
+  seen?: boolean
+}
+
+/** The result the page reads after the restart (store/restore-result.json). */
+export function writeOutcome(storeDir: string, outcome: RestoreOutcome): void {
+  writeFileSync(join(storeDir, RESULT), JSON.stringify(outcome, null, 1), { mode: 0o600 })
+}
 
 /**
  * The whole in-place part (flag, apply, check, rollback), without stopping or
@@ -248,13 +270,13 @@ export function performRestore(plan: RestorePlan, opts: { failAt?: string } = {}
       writeFileSync(join(plan.ctx.storeDir, HELD_FILE), JSON.stringify({ planId: plan.id, at: Date.now(), items: held }, null, 1), { mode: 0o600 })
       writeFileSync(join(plan.ctx.storeDir, PAUSED_TASKS_FILE), JSON.stringify({ planId: plan.id, ids: plan.pausedTaskIds }, null, 1), { mode: 0o600 })
     }
-    outcome = { ok: true, skipped: skipped.slice(0, 50), finishedAt: Date.now(), planId: plan.id }
+    outcome = { ok: true, code: 'done', skipped: skipped.slice(0, 50), finishedAt: Date.now(), planId: plan.id }
   } catch (err: any) {
     const rb = rollback(plan.rollbackDir)
     rmSync(plan.heldDir, { recursive: true, force: true })
-    outcome = { ok: false, reason: String(err?.message || err).slice(0, 400), rolledBack: true, rollbackErrors: rb.errors, finishedAt: Date.now(), planId: plan.id }
+    outcome = { ok: false, code: 'failed', reason: String(err?.message || err).slice(0, 400), rolledBack: true, rollbackErrors: rb.errors, finishedAt: Date.now(), planId: plan.id }
   }
-  writeFileSync(join(plan.ctx.storeDir, RESULT), JSON.stringify(outcome, null, 1), { mode: 0o600 })
+  writeOutcome(plan.ctx.storeDir, outcome)
   rmSync(plan.stagingDir, { recursive: true, force: true })
   rmSync(flag, { force: true })
   return outcome
@@ -271,8 +293,8 @@ export function recoverInterruptedRestore(storeDir: string, isAlive: (pid: numbe
   try { f = JSON.parse(readFileSync(flag, 'utf8')) } catch { /* damaged flag: roll back what we can find */ }
   if (typeof f.pid === 'number' && f.pid !== process.pid && isAlive(f.pid)) return null
   const rb = f.rollbackDir ? rollback(f.rollbackDir) : { restored: 0, errors: ['no rollback dir recorded'] }
-  const outcome: RestoreOutcome = { ok: false, reason: 'interrupted', rolledBack: true, rollbackErrors: rb.errors, finishedAt: Date.now(), planId: f.planId ?? '?' }
-  writeFileSync(join(storeDir, RESULT), JSON.stringify(outcome, null, 1), { mode: 0o600 })
+  const outcome: RestoreOutcome = { ok: false, code: 'interrupted', reason: 'interrupted', rolledBack: true, rollbackErrors: rb.errors, finishedAt: Date.now(), planId: f.planId ?? '?' }
+  writeOutcome(storeDir, outcome)
   rmSync(flag, { force: true })
   return outcome
 }

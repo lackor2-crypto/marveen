@@ -109,7 +109,7 @@ for (const lang of ['hu', 'en'] as const) {
 }
 
 const PREVIEW = {
-  previewId: 'p1', createdAt: '2026-09-25T21:20:11+02:00', appVersion: '1.29.0', compat: { ok: true, needsMigration: false },
+  previewId: 'p1', confirm: 'user_password', createdAt: '2026-09-25T21:20:11+02:00', appVersion: '1.29.0', compat: { ok: true, needsMigration: false },
   categories: [
     { id: 'database', files: 1, willOverwrite: 1, willAdd: 0, held: 0 },
     { id: 'depot-config', files: 10, willOverwrite: 2, willAdd: 8, held: 0 },

@@ -16,9 +16,10 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { acquireBackupLock } from './create.js'
-import { performRestore, type RestoreOutcome, type RestorePlan } from './restore.js'
+import { performRestore, writeOutcome, PENDING, type RestoreOutcome, type RestorePlan } from './restore.js'
 
 export interface RunnerHooks {
   stop: () => void
@@ -42,13 +43,19 @@ export async function runRestore(plan: RestorePlan, hooks: RunnerHooks, opts: { 
     await sleep(2000)
     release = acquireBackupLock(plan.ctx.storeDir, 'restore')
   }
+  // Every way out leaves a result behind: the page waits for exactly that file,
+  // and without it would wait forever.
   if (!release) {
-    return { ok: false, reason: 'a backup is still running', rolledBack: false, finishedAt: Date.now(), planId: plan.id }
+    const busy: RestoreOutcome = { ok: false, code: 'busy', reason: 'a backup is still running', rolledBack: false, finishedAt: Date.now(), planId: plan.id }
+    writeOutcome(plan.ctx.storeDir, busy)
+    return busy
   }
   let outcome: RestoreOutcome
   try {
     try { hooks.stop() } catch (e: any) {
-      return { ok: false, reason: `could not stop the dashboard: ${e?.message || e}`, rolledBack: false, finishedAt: Date.now(), planId: plan.id }
+      const stopFailed: RestoreOutcome = { ok: false, code: 'stop_failed', reason: `could not stop the dashboard: ${e?.message || e}`, rolledBack: false, finishedAt: Date.now(), planId: plan.id }
+      writeOutcome(plan.ctx.storeDir, stopFailed)
+      return stopFailed
     }
     outcome = performRestore(plan, opts)
   } finally {
@@ -64,7 +71,15 @@ async function main(argv: string[]): Promise<number> {
   if (!planFile) { console.error('usage: restore-runner.js <planFile>'); return 2 }
   const plan = JSON.parse(readFileSync(planFile, 'utf8')) as RestorePlan
   if (!plan.unit) { console.error('restore: no service unit in the plan'); return 2 }
-  const out = await runRestore(plan, systemdHooks(plan.unit))
+  let out: RestoreOutcome
+  try {
+    out = await runRestore(plan, systemdHooks(plan.unit))
+  } catch (e: any) {
+    out = { ok: false, code: 'failed', reason: String(e?.message || e).slice(0, 400), rolledBack: false, finishedAt: Date.now(), planId: plan.id }
+    writeOutcome(plan.ctx.storeDir, out)
+  } finally {
+    rmSync(join(plan.ctx.storeDir, PENDING), { force: true })
+  }
   rmSync(planFile, { force: true })
   console.log(`restore: ${out.ok ? 'done' : `FAILED (${out.reason})${out.rolledBack ? ', rolled back' : ''}`}`)
   return out.ok ? 0 : 1

@@ -99,7 +99,8 @@ describe('Settings -> Backup page', () => {
     for (const t of ['kanban_cards', 'memories', 'projects', 'approvals']) used.add(`fbk.r.t.${t}`)
     for (const w of ['old_paths', 'backup_had_missing', 'disk_space']) used.add(`fbk.r.warn.${w}`)
     for (const c of ['backup_newer', 'format_unknown']) used.add(`fbk.r.compat.${c}`)
-    for (const k of ['fbk.cat.', 'fbk.r.t.', 'fbk.r.warn.', 'fbk.r.compat.']) used.delete(k)
+    for (const c of ['failed', 'interrupted', 'busy', 'stop_failed', 'never_started']) used.add(`fbk.r.code.${c}`)
+    for (const k of ['fbk.cat.', 'fbk.r.t.', 'fbk.r.warn.', 'fbk.r.compat.', 'fbk.r.code.']) used.delete(k)
     used.delete('fbk.dest.')
     used.delete('fbk.reason.')
     used.delete('fbk.stage.')
@@ -190,6 +191,71 @@ describe('Settings -> Backup page', () => {
     await flush()
     expect(H.toasts).toContain('kulcs kell')
     expect(restoreHost.innerHTML).toContain('[fbk.r.key_for ab12cd34]')
+  })
+
+  it('restore with a dashboard login: the start sends the typed user name + password', async () => {
+    const name = 'marveen-backup-20260925-212011-host.mbk'
+    const H = harness({
+      'GET /api/backup/status': STATUS,
+      'GET /api/backup/list': { backups: [{ name, size: 10, time: 1, where: ['local'], kind: 'manual', verified: null }], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'GET /api/backup/restore/status': { running: false, result: null, channelsHeld: false },
+      'POST /api/backup/restore/open': {
+        previewId: 'p1', confirm: 'user_password', createdAt: 'x', appVersion: '1.29.0', compat: { ok: true }, categories: [], optional: [],
+        dbCounts: { backup: {}, current: {} }, warnings: [], needsLogin: [], freshInstall: false, bytes: { enough: true }, agents: [], keyId: 'ab12cd34',
+      },
+      'POST /api/backup/restore/start': { ok: true, planId: 'p1', preBackup: 'made' },
+    })
+    const restoreHost: any = { innerHTML: '' }
+    const fields: Record<string, any> = { bkRestoreHost: restoreHost, bkRestoreUser: { value: ' owner ' }, bkRestorePw: { value: 'secret pw' } }
+    H.win.document.getElementById = (id: string) => fields[id] ?? null
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    await H.click({ 'data-bk': 'r-open', 'data-source': 'local', 'data-name': name })
+    await flush()
+    expect(restoreHost.innerHTML).toContain('id="bkRestoreUser"')
+    expect(restoreHost.innerHTML).toContain('id="bkRestorePw"')
+    expect(restoreHost.innerHTML).toContain('[fbk.r.pw_why]')
+    await H.click({ 'data-bk': 'r-start' })
+    await flush()
+    const start = H.calls.find((c) => c.url === '/api/backup/restore/start')!
+    expect(start.body).toEqual({ previewId: 'p1', exclude: [], username: 'owner', password: 'secret pw' })
+    expect(restoreHost.innerHTML).toContain('[fbk.r.running]')
+  })
+
+  it('an outcome not read yet is shown again (after the restart / a new login), and closing marks it read', async () => {
+    const H = harness({
+      'GET /api/backup/status': STATUS,
+      'GET /api/backup/list': { backups: [], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'GET /api/backup/restore/status': { running: false, result: { ok: false, code: 'never_started', reason: 'spawn systemd-run ENOENT', finishedAt: 1, planId: 'p' }, channelsHeld: false },
+      'POST /api/backup/restore/ack': { ok: true, changed: true },
+    })
+    const restoreHost: any = { innerHTML: '' }
+    H.win.document.getElementById = (id: string) => (id === 'bkRestoreHost' ? restoreHost : null)
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush(); await flush()
+    expect(restoreHost.innerHTML).toContain('[fbk.r.failed]')
+    expect(restoreHost.innerHTML).toContain('[fbk.r.code.never_started]')
+    expect(restoreHost.innerHTML).toContain('spawn systemd-run ENOENT')
+    await H.click({ 'data-bk': 'r-reset' })
+    await flush()
+    expect(H.calls.some((c) => c.method === 'POST' && c.url === '/api/backup/restore/ack')).toBe(true)
+    expect(restoreHost.innerHTML).toContain('data-bk="r-file"')
+  })
+
+  it('the first screen: a finished restore whose outcome was not read comes before everything else', async () => {
+    const H = harness({
+      'GET /api/backup/restore/status': { running: false, result: { ok: true, code: 'done', finishedAt: 1, planId: 'p' }, channelsHeld: true },
+    })
+    const wizardHost: any = { innerHTML: '' }
+    H.win.document.getElementById = (id: string) => (id === 'bkWizardRestore' ? wizardHost : null)
+    expect(await H.win.maybeAskRestoreFirst()).toBe(true)
+    await flush(); await flush()
+    expect(H.created.find((e) => e.className === 'bk-wizard')).toBeTruthy()
+    expect(wizardHost.innerHTML).toContain('[fbk.r.done]')
+    expect(wizardHost.innerHTML).toContain('data-bk="r-release"')
+    expect(H.calls.some((c) => c.url === '/api/backup/onboarding')).toBe(false)
   })
 
   it('held channels: the page shows the "old machine is off" button', async () => {
