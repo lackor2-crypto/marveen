@@ -310,13 +310,13 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     },
     how_to: {
       hu: [
-        'Nyisd meg a Brave Search API oldalát (a link lent van), és regisztrálj. Van ingyenes csomag is.',
+        'Nyisd meg a Brave Search API oldalát (a link lent van), és regisztrálj. Teljesen ingyenes csomag nincs, de minden hónapban 5 dollár ingyenes keretet ad (nagyjából 1000 keresés); ehhez bankkártyát kell megadni, és csak a kereten felüli keresést számlázzák ki.',
         'A bejelentkezés után az „API Keys” részen hozz létre egy kulcsot, és másold ki. Hosszú betű-szám sor, például: BSAxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         'Illeszd be alább a mezőbe, és nyomd meg a Mentést.',
         'Nyomd meg az „Ellenőrzés most” gombot: egy próbakereséssel megnézi, hogy a kulcs működik-e.',
       ],
       en: [
-        'Open the Brave Search API page (the link is below) and sign up. There is a free plan.',
+        'Open the Brave Search API page (the link is below) and sign up. There is no fully free plan, but it gives 5 dollars of free credit every month (roughly 1000 searches); you need to add a bank card, and only searches above the credit are billed.',
         'After signing in, create a key under "API Keys" and copy it. It is a long string of letters and numbers, for example: BSAxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         'Paste it into the field below and press Save.',
         'Press "Check now": it runs one test search to see whether the key works.',

@@ -35,7 +35,7 @@ export type SetupItemKind =
 export interface SetupItem {
   id: string
   /** Settings group this belongs to, used to order the wizard's steps. */
-  group: 'identity' | 'channel' | 'google' | 'backup' | 'maintenance' | 'models'
+  group: 'identity' | 'channel' | 'google' | 'backup' | 'maintenance' | 'models' | 'integrations'
   kind: SetupItemKind
   /** .env key this writes, when kind is 'env' or 'secret'. */
   envKey?: string
@@ -95,6 +95,14 @@ export interface SetupItem {
    * is not a walkthrough; a step that CAN be done on the page must be.
    */
   flowId?: 'claude-login' | 'system-deps' | 'google-oauth-client'
+  /**
+   * Where the value lives. Default: the .env file. 'override' means the key is
+   * a settings-registry key another screen already writes as an override
+   * (store/config-overrides.json); an override wins over .env, so writing .env
+   * here would be silently shadowed. Such an item is read and written through
+   * the override store, and takes effect without a restart.
+   */
+  store?: 'override'
 }
 
 /**
@@ -269,6 +277,26 @@ export const SETUP_ITEMS: SetupItem[] = [
     exampleKey: 'wizard.item.ollama_example',
     required: false, tier: 'extra', placeholder: 'http://localhost:11434',
   },
+  {
+    // #404: the Workbench web search. Before this entry the key could only be
+    // set on the Workbench page, so a fresh install was never walked to it and
+    // the Overview self-check never asked about it. The value is a
+    // settings-registry key: the route stores it as an override, the same
+    // place the Workbench form writes, so the two can never disagree.
+    id: 'web-search', group: 'integrations', kind: 'secret', envKey: 'BRAVE_SEARCH_API_KEY', store: 'override',
+    labelKey: 'wizard.item.web_search', descKey: 'wizard.item.web_search_desc',
+    helpKey: 'wizard.item.web_search_help',
+    stepKeys: [
+      'wizard.item.web_search_step1', 'wizard.item.web_search_step2',
+      'wizard.item.web_search_step3', 'wizard.item.web_search_step4',
+    ],
+    links: [
+      { url: 'https://brave.com/search/api/', labelKey: 'wizard.link.brave_api' },
+      { url: 'https://api-dashboard.search.brave.com/', labelKey: 'wizard.link.brave_dashboard' },
+    ],
+    exampleKey: 'wizard.item.web_search_example',
+    required: false, tier: 'extra', placeholder: 'BSA...',
+  },
 ]
 
 /** The wizard's view of one capability, with this install's state filled in. */
@@ -342,6 +370,11 @@ export function buildSetupSummary(
 }
 
 /** Env keys the wizard is allowed to write. Anything else is rejected. */
+/** Keys the wizard reads and writes through the settings override store. */
+export function overrideStoredKeys(): Set<string> {
+  return new Set(SETUP_ITEMS.filter(i => i.store === 'override' && i.envKey).map(i => i.envKey!))
+}
+
 export function writableEnvKeys(): Set<string> {
   return new Set(
     SETUP_ITEMS.filter(i => i.kind === 'env' || i.kind === 'secret')

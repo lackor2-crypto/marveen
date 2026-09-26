@@ -80,6 +80,8 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
+import { integrationStates } from './setup-wizard-values.js'
+import type { SetupItemState } from './setup-wizard-registry.js'
 import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
 import { getDb } from '../db.js'
 import { computeBackupHealth } from '../backup/health.js'
@@ -2232,6 +2234,25 @@ export function voiceRows(
     : { id: 'voice_stt_missing', status: 'warn' }]
 }
 
+// Az opcionalis kulso szolgaltatasok (a varazslo 'integrations' csoportja:
+// webkereses, es ide kerul minden kesobbi kulcsos szolgaltatas -- kep-, video-,
+// hanggeneralas). #404, Boss 2026-09-26: "az onellenorzes ezt mind figyelje".
+// Egy sor szolgaltatasonkent, a varazslo SAJAT allapotabol (ugyanaz a
+// wizardValues, amit a varazslo mutat), tehat a ketto nem mondhat mast.
+// Extra szint: hianyzaskor 'warn', ami a kartyan SEMLEGES szin -- SOHA 'bad'.
+// Ha az allapotot nem tudom kiolvasni, azt mondom ki, nem a "nincs beallitva"-t.
+export function integrationRows(
+  states: () => SetupItemState[] = () => integrationStates(),
+): HealthRow[] {
+  let list: SetupItemState[]
+  try { list = states() } catch { return [{ id: 'integration_blind', status: 'warn', params: {} }] }
+  return list.map(i => ({
+    id: i.configured ? 'integration_ok' : 'integration_missing',
+    status: i.configured ? 'ok' as const : 'warn' as const,
+    params: { item: i.id, labelKey: i.labelKey },
+  }))
+}
+
 // A gepre telepitendo kulso programok (kanban d7acdd75). A lista es a meres a
 // src/system-deps.ts-ben van; ez csak kiolvassa a hatterben mert pillanatkepet
 // (a meres folyamat-inditas, az onellenorzes pedig szinkron).
@@ -2318,6 +2339,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...skillSeedRows(),
     ...skillScopeReviewRows(),
     ...voiceRows(),
+    ...integrationRows(),
     ...systemDepRows(),
     ...megaRows(),
   ]

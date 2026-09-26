@@ -20960,6 +20960,11 @@ async function renderOverviewConnections() {
     // eldonteni. Ahol nincs meres, ott NEM keletkezik mezo -- a szoveg ilyenkor
     // szam nelkul, de oszinten beszel (Boss, 2026-09-22: "mi az hogy nincs hely?").
     bajtParamok(h.params)
+    // #404: an optional integration names ITSELF in the reader's language --
+    // the server sends the wizard's label key, not a Hungarian/English name.
+    if (h.id.startsWith('integration_') && h.params && h.params.labelKey) {
+      h.params = { ...h.params, name: t(h.params.labelKey) }
+    }
     // A "nem el a Google-hozzaferes" sor MEGNEVEZI a fiokokat -- azokat kell
     // egyesevel ujracsatlakoztatni, es a vegigvezeto ezt HELYBEN elvegzi.
     // Boss, 2026-08-22: "es ha most ez problema akkor az onnellenorzes
@@ -20980,6 +20985,9 @@ async function renderOverviewConnections() {
         // lepesere visz: ott all a lista es a bemasolhato telepito-sor.
         : h.id.startsWith('system_deps_')
         ? 'openSystemDepsStep()'
+        // Egy hianyzo kulso szolgaltatas sora a varazslo SAJAT lepesere visz.
+        : (h.id === 'integration_missing' && h.params && /^[a-z0-9-]+$/.test(String(h.params.item || '')))
+        ? `openWizardItem('${h.params.item}')`
         : (h.id === 'google_live_never' || h.id === 'google_live_stale')
           ? 'runGoogleLiveCheckNow()'
           // Az allo vegrehajto sora a KOD-HID lapra visz, mert ott all a
@@ -26880,6 +26888,20 @@ async function openClaudeLoginStep() {
 // betenni, hogy erzekelje ... ha nincs, akkor mondja, hogy ezt telepiteni kell".
 // A lista es a meres a szerveren van (src/system-deps.ts); ez csak megmutatja:
 // mi van meg, mi hianyzik, mire kell, es egy bemasolhato telepito-sort.
+// #404: open the wizard straight at one capability's step (the self-check row
+// of a missing integration lands here). When it is already set up, the step
+// is not among the to-dos, so the full list is shown instead.
+async function openWizardItem(id) {
+  switchPage('settings')
+  activateSettingsTab('wizard')
+  const host = document.getElementById('setupWizardPanel')
+  if (!host) return
+  await renderSetupWizardPanel(host)
+  const todo = (_wizardData?.items || []).filter(i => !i.configured)
+  const idx = todo.findIndex(i => i.id === id)
+  if (idx >= 0) { _wizardStepIdx = idx; renderWizardStep(host) }
+}
+
 async function openSystemDepsStep() {
   switchPage('settings')
   activateSettingsTab('wizard')
