@@ -144,6 +144,14 @@
     decisions: null,
     // --- atadocsomag (#406, 12. pont) ---
     hoOpen: false,
+    // Betekinto linkek (#406, 18. pont): a projekt linkjei + a kivalasztott ervenyesseg.
+    shares: null,
+    sharesFor: null,
+    sharesBase: null,
+    sharesError: null,
+    shareDays: 7,
+    shareBusy: false,
+    sharesLoading: null,
     hoScope: 'done',
     hoPlan: null,
     hoError: null,
@@ -3088,6 +3096,7 @@
       + '<h4 class="wb-exp-title">' + esc(t('workbench.exp.title')) + '</h4>'
       + rows.join('')
       + sendHtml()
+      + shareBoxHtml('item')
       + '</div>'
   }
 
@@ -4490,6 +4499,127 @@
     return mb >= 1 ? t('workbench.ho.mb', { n: mb.toFixed(1) }) : t('workbench.ho.kb', { n: Math.max(1, Math.round((bytes || 0) / 1024)) })
   }
 
+  // --- BETEKINTO LINK (#406, 18. pont) ---------------------------------------
+  // Csak olvashato, lejaro link egy munkadarabra vagy az atadasi csomagra. A
+  // letrehozas a jovahagyasi kapun megy at; a visszavonas azonnali.
+  function loadShares() {
+    var pid = WB.projectId
+    if (!pid || WB.sharesLoading === pid) return Promise.resolve()
+    WB.sharesLoading = pid
+    return api('GET', '/api/workbench/shares?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.sharesLoading === pid) WB.sharesLoading = null
+      if (WB.projectId !== pid) return
+      WB.sharesFor = pid
+      if (!r.ok) { WB.sharesError = r.message; WB.shares = []; render(); return }
+      WB.sharesError = null
+      WB.shares = (r.data && r.data.shares) || []
+      WB.sharesBase = (r.data && r.data.public_base) || null
+      render()
+    }).catch(function () {
+      if (WB.sharesLoading === pid) WB.sharesLoading = null
+      if (WB.projectId !== pid) return
+      WB.sharesFor = pid
+      WB.shares = []
+      WB.sharesError = t('workbench.share.load_failed')
+      render()
+    })
+  }
+
+  function shareUrl(sh) {
+    if (!sh.path) return ''
+    return (WB.sharesBase || (window.location && window.location.origin) || '') + sh.path
+  }
+
+  /** Csak ezen a gepen nyilik meg a link? (nincs kulso cim beallitva, es helyi cimen nezzuk) */
+  function shareLocalOnly() {
+    if (WB.sharesBase) return false
+    var h = String((window.location && window.location.hostname) || '')
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]'
+  }
+
+  function shareDate(sec) {
+    try {
+      return new Date(sec * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    } catch (e) { return '' }
+  }
+
+  function shareRowHtml(sh) {
+    var state, extra = ''
+    if (sh.revoked_at) state = t('workbench.share.st.revoked')
+    else if (sh.status === 'rejected') state = t('workbench.share.st.rejected')
+    else if (sh.status === 'pending') {
+      state = t('workbench.share.st.pending')
+      extra = ' <button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.td.gcal.open_approvals')) + '</button>'
+    } else if (sh.live) {
+      state = t('workbench.share.st.live', { date: shareDate(sh.expires_at) })
+      var u = shareUrl(sh)
+      extra = '<div class="wb-share-link"><input class="wb-input" type="text" readonly value="' + escA(u) + '" aria-label="' + escA(t('workbench.share.link_label')) + '">'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="share-copy" data-wb-share-url="' + escA(u) + '">' + esc(t('workbench.share.copy')) + '</button></div>'
+        + (sh.view_count ? '<span class="wb-hint">' + esc(t('workbench.share.views', { n: sh.view_count })) + '</span>' : '')
+    } else state = t('workbench.share.st.expired')
+    var open = !sh.revoked_at && (sh.status === 'pending' || sh.live)
+    var what = sh.kind === 'handoff' ? t(sh.scope === 'all' ? 'workbench.share.what_handoff_all' : 'workbench.share.what_handoff_done') : (sh.item_title || '')
+    return '<li class="wb-share-row"><span>' + esc(what) + ' · ' + esc(state) + '</span>' + extra
+      + (open ? ' <button type="button" class="wb-linklike" data-wb-act="share-revoke" data-wb-share="' + escA(sh.id) + '">' + esc(t('workbench.share.revoke')) + '</button>' : '')
+      + '</li>'
+  }
+
+  /** A link-doboz. `kind`: 'item' (a kivalasztott munkadarab) vagy 'handoff'. */
+  function shareBoxHtml(kind) {
+    if (WB.sharesFor !== WB.projectId) { loadShares(); return '<div class="wb-share"><p class="wb-hint">' + esc(t('workbench.loading')) + '</p></div>' }
+    var mine = (WB.shares || []).filter(function (sh) {
+      return kind === 'handoff' ? sh.kind === 'handoff' : (sh.kind === 'item' && sh.work_item_id === WB.selectedId)
+    })
+    var days = [1, 7, 30].map(function (d) {
+      return '<button type="button" class="btn-secondary btn-compact" data-wb-act="share-days" data-wb-days="' + d + '" aria-pressed="' + (WB.shareDays === d) + '">' + esc(t('workbench.share.days', { n: d })) + '</button>'
+    }).join('')
+    var ro = archived()
+    return '<div class="wb-share" role="region" aria-label="' + escA(t('workbench.share.title')) + '">'
+      + '<h4 class="wb-exp-title">' + esc(t('workbench.share.title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t(kind === 'handoff' ? 'workbench.share.intro_handoff' : 'workbench.share.intro_item')) + '</p>'
+      + (WB.sharesError ? '<div class="info-box depo-bad">' + esc(WB.sharesError) + '</div>' : '')
+      + (ro ? '' : '<div class="wb-share-new" role="group" aria-label="' + escA(t('workbench.share.valid_for')) + '"><span class="wb-hint">' + esc(t('workbench.share.valid_for')) + '</span>' + days
+        + '<button type="button" class="btn-primary btn-compact" data-wb-act="share-create" data-wb-share-kind="' + kind + '"' + (WB.shareBusy ? ' disabled' : '') + '>' + esc(t('workbench.share.create')) + '</button></div>')
+      + (shareLocalOnly() ? '<p class="wb-hint wb-td-gcal-warn">' + esc(t('workbench.share.local_only')) + '</p>' : '')
+      + (mine.length ? '<ul class="wb-share-list">' + mine.map(shareRowHtml).join('') + '</ul>' : '')
+      + '</div>'
+  }
+
+  function shareCreate(kind) {
+    if (WB.shareBusy) return
+    var body = { kind: kind, project: WB.projectId, days: WB.shareDays }
+    if (kind === 'item') body.item_id = WB.selectedId
+    else body.scope = WB.hoScope
+    WB.shareBusy = true
+    render()
+    return api('POST', '/api/workbench/shares', body).then(function (r) {
+      WB.shareBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.shares = (r.data && r.data.shares) || WB.shares
+      WB.sharesFor = WB.projectId
+      window.showToast(t(r.data && r.data.state === 'active' ? 'workbench.share.toast_live' : 'workbench.share.toast_pending'))
+      render()
+    }).catch(function () { WB.shareBusy = false; window.showToast(t('workbench.share.load_failed')); render() })
+  }
+
+  function shareRevoke(id) {
+    if (!window.confirm(t('workbench.share.revoke_confirm'))) return
+    return api('POST', '/api/workbench/shares/' + encodeURIComponent(id) + '/revoke', {}).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      WB.shares = (r.data && r.data.shares) || WB.shares
+      window.showToast(t('workbench.share.toast_revoked'))
+      render()
+    })
+  }
+
+  function shareCopy(u) {
+    var done = function () { window.showToast(t('workbench.share.toast_copied')) }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(u).then(done, function () { window.showToast(u) }); return }
+    } catch (e) { /* lent: a link maga a toastban */ }
+    window.showToast(u)
+  }
+
   function loadHandoff() {
     var pid = WB.projectId
     var scope = WB.hoScope
@@ -4556,6 +4686,7 @@
       + scopeBtn('all', p ? t('workbench.ho.scope_all_n', { n: p.all_count }) : t('workbench.ho.scope_all'))
       + '</div>'
       + body
+      + (p && p.items && p.items.length ? shareBoxHtml('handoff') : '')
       + '</section>'
   }
 
@@ -5079,6 +5210,7 @@
     if (!projectId) return
     WB.open = true
     WB.projectId = projectId
+    WB.shares = null; WB.sharesFor = null; WB.sharesError = null; WB.sharesLoading = null
     WB.project = projectName ? { id: projectId, name: projectName } : null
     WB.items = null
     WB.detail = null
@@ -5164,6 +5296,10 @@
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
     else if (a === 'export-open') { WB.exportOpen = WB.selectedId; render() }
+    else if (a === 'share-days') { var sd = Number(act.getAttribute('data-wb-days')); if (sd === 1 || sd === 7 || sd === 30) { WB.shareDays = sd; render() } }
+    else if (a === 'share-create') { var sk = act.getAttribute('data-wb-share-kind'); if (sk === 'item' || sk === 'handoff') shareCreate(sk) }
+    else if (a === 'share-revoke') { var sid = act.getAttribute('data-wb-share'); if (sid) shareRevoke(sid) }
+    else if (a === 'share-copy') shareCopy(act.getAttribute('data-wb-share-url') || '')
     else if (a === 'export-close') { WB.exportOpen = null; render() }
     else if (a === 'export-print') openPrint()
     else if (a === 'export-png') exportPng()

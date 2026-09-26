@@ -83,7 +83,7 @@ export interface ExportPage {
  * A munkadarab nyomtathato lapja. `print`: a lap tetejen ott a "Nyomtatas /
  * PDF" gomb (a letoltott valtozatban nincs -- az mar a vegtermek).
  */
-export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang: Lang, opts: { toolbar?: boolean; autoPrint?: boolean } = {}): ExportPage {
+export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang: Lang, opts: { toolbar?: boolean; autoPrint?: boolean; fileOnly?: string } = {}): ExportPage {
   const w = W[lang]
   const project = getProject(item.project_id)
   const p = buildPreview(item.id, wantedVersion)
@@ -110,9 +110,9 @@ export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang:
   } else if (p.kind === 'canvas') {
     const c = readCanvas(item.id, wantedVersion)
     if (c.ok) blocks.push(`<div class="canvas">${renderCanvasForItem(item, c.doc)}</div>`)
-    else blocks.push(`<p class="missing">${esc(w.fileOnly)}</p>`)
+    else blocks.push(`<p class="missing">${esc(opts.fileOnly ?? w.fileOnly)}</p>`)
   } else {
-    blocks.push(`<p class="missing">${esc(w.fileOnly)}${p.name ? ` (${esc(p.name)})` : ''}</p>`)
+    blocks.push(`<p class="missing">${esc(opts.fileOnly ?? w.fileOnly)}${p.name ? ` (${esc(p.name)})` : ''}</p>`)
   }
   if (!blocks.length) blocks.push(`<p class="missing">${esc(w.empty)}</p>`)
 

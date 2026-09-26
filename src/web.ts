@@ -133,6 +133,7 @@ import { tryHandleSettings } from './web/routes/settings.js'
 import { tryHandleAuditLog } from './web/routes/audit-log.js'
 import { tryHandleFleetQ } from './web/routes/fleet-q.js'
 import { tryHandleStatic } from './web/routes/static.js'
+import { tryHandleWorkbenchShareView } from './web/routes/workbench-share-view.js'
 import { tryHandleVendor } from './web/routes/vendor.js'
 import { tryHandleVoice } from './web/routes/voice.js'
 import { tryHandleAutofill, isExtensionOrigin } from './web/routes/autofill.js'
@@ -254,6 +255,9 @@ export function startWebServer(port = 3420): http.Server {
     try {
       const routeCtx: RouteContext = { req, res, path, method, url, fedPeer: fedPeerForCtx, auth: ctxAuth }
 
+      // A betekinto link nyilvanos lapja (#406, 18. pont): /view/<token>, nem
+      // /api/ alatt, a token csak itt ervenyes.
+      if (await tryHandleWorkbenchShareView(routeCtx)) return
       if (await tryHandleAuth(routeCtx)) return
       if (await tryHandleSecurity(routeCtx)) return
       if (await tryHandleProfiles(routeCtx)) return

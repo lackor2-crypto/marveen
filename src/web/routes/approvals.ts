@@ -688,6 +688,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     void import('../../workbench-todo-gcal.js')
       .then((m) => m.settleTodoCalendarApprovals())
       .catch((err) => logger.warn({ err }, 'workbench todo calendar settle failed'))
+    // #406, 18. pont: a betekinto link a jovahagyassal elesedik (elutasitasnal nem).
+    void import('../../workbench-share.js')
+      .then((m) => m.settleShareApprovals())
+      .catch((err) => logger.warn({ err }, 'workbench share settle failed'))
     // Kártya 62c63a5e (#108): a verify-result ág már régóta rámásolja a
     // reviewer-agent leletét a kapcsolódó kártyára, de maga a záró döntés
     // (ez az endpoint) eddig semmit nem írt oda -- a resolutionReason csak
