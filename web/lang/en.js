@@ -5589,6 +5589,12 @@ window._i18n.en = {
   "workbench.archived_hint": "This project is archived, so no new work item is created in it. Bring the project back if you want to work in it.",
   "workbench.err.not_loaded": "The Workbench did not load just now. Refresh the page (Ctrl+Shift+R) and try again.",
   "workbench.err.http": "The request failed ({status}).",
+  "workbench.items.switch_hint_split": "Click a work item: it becomes the current one and opens at the top right, next to the conversation.",
+  "workbench.layout.to_classic": "Three panels",
+  "workbench.layout.to_split": "Split view",
+  "workbench.layout.hint": "Split view: the conversation on the left, the work item live on the right. Three panels: list, work item and details side by side, the conversation below. Your choice is remembered in this browser.",
+  "workbench.split.none": "Here you see the work item live while you talk to the agent on the left. Pick one, or start a new one.",
+  "workbench.split.more": "…and {n} more in the list below.",
   // #396 Settings -> Backup (web/backup.js)
   "settings.module.backup": "Backup",
   "fbk.title": "Backup and restore",

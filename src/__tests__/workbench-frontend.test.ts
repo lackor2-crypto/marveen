@@ -1838,7 +1838,8 @@ describe('munkadarabok kozti valtas (#359)', () => {
     expect(html).toContain('1. Darab 1')
     expect(html).toContain('3. Darab 3')
     expect(html).toContain('⟦workbench.panel.items⟧ (3)')
-    expect(html).toContain('⟦workbench.items.switch_hint⟧')
+    // Osztott nezetben (#406, 1. pont) a mondat a jobb oldalt nevezi meg.
+    expect(html).toMatch(/⟦workbench\.items\.switch_hint(_split)?⟧/)
   })
 
   it('a listaban kattintott darab lesz az aktualis, es kozepen az nyilik meg', async () => {

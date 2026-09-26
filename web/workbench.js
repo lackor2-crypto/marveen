@@ -74,6 +74,25 @@
     preview: null,
     previewVersion: null,
     versionBusy: false,
+    // --- osztott nezet (#406, 1. pont) ---
+    // 'split' = bal oldalt a chat, jobb oldalt az ELO munkadarab (a szakmaban
+    // bevett "chat + artifact" elrendezes); 'classic' = a harom panel, alatta a
+    // chat. A valasztas a bongeszoben marad meg (nincs szerver-oldali allapot).
+    layout: readLayout(),
+    liveTimer: null,
+  }
+
+  /** A mentett elrendezes. Ha a bongeszo nem enged tarolni (privat mod, regi
+   *  bongeszo), az osztott nezet az alap -- a hiba nem akaszthatja meg a Munkapadot. */
+  function readLayout() {
+    try {
+      var v = window.localStorage && window.localStorage.getItem('marveen.workbench.layout')
+      return v === 'classic' ? 'classic' : 'split'
+    } catch (_e) { return 'split' }
+  }
+
+  function saveLayout(v) {
+    try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.layout', v) } catch (_e) { /* nem baj: csak most ervenyes */ }
   }
 
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
@@ -187,7 +206,7 @@
     }
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
-      + '<p class="wb-hint">' + esc(t('workbench.items.switch_hint')) + '</p>'
+      + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
       + body
       + (archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
@@ -1279,10 +1298,28 @@
       + '</div>'
   }
 
+  /** Osztott nezetben a jobb oldal akkor sem ures, ha meg nincs kivalasztva
+   *  semmi: a munkadarabok egy kattintasra ott vannak, es uj is indithato. */
+  function splitPickHtml() {
+    var items = WB.items || []
+    var list = items.length
+      ? '<ul class="wb-split-pick">' + items.slice(0, 8).map(function (it) {
+        return '<li><button type="button" class="wb-item" data-wb-item="' + escA(it.id) + '">'
+          + '<span class="wb-item-title">' + esc(it.title) + '</span>'
+          + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
+          + '</button></li>'
+      }).join('') + '</ul>'
+      : ''
+    var more = items.length > 8 ? '<p class="wb-hint">' + esc(t('workbench.split.more', { n: items.length - 8 })) + '</p>' : ''
+    var add = archived() ? '' : '<p><button type="button" class="btn-secondary" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button></p>'
+    return list + more + add
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
-      inner = '<p class="wb-muted wb-center">' + esc(t('workbench.editor.none')) + '</p>'
+      inner = '<p class="wb-muted wb-center">' + esc(t(WB.layout === 'split' ? 'workbench.split.none' : 'workbench.editor.none')) + '</p>'
+        + (WB.layout === 'split' ? splitPickHtml() : '')
     } else if (!WB.detail) {
       inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
     } else {
@@ -1668,6 +1705,7 @@
       }
       if (found) { found.status = ev.status; found.detail = ev.detail || found.detail; found.approvalId = ev.approvalId || found.approvalId }
       else turn.tools.push({ name: ev.name, status: ev.status, detail: ev.detail || '', approvalId: ev.approvalId || '' })
+      if (ev.status === 'ok' && String(ev.name || '').indexOf('workItem.') === 0) scheduleLiveRefresh()
       return
     }
     if (ev.type === 'notice') { turn.notices.push(ev.message || ev.code); return }
@@ -1952,6 +1990,41 @@
     }).join('') + '</div>'
   }
 
+  /** A ket elrendezes. Mindkettoben UGYANAZOK a panelek allnak (semmi nem
+   *  vesz el valtaskor), csak mas a helyuk. Osztott nezetben a chat bal
+   *  oldalt, az elo munkadarab jobb oldalt all; a lista es a reszletek alattuk.
+   *  Telefonon (keskeny kepernyo) a ket oszlop egymas ala kerul: felul a
+   *  munkadarab, alatta a chat -- a CSS dolga, nem kulon kod. */
+  function layoutHtml() {
+    if (WB.layout !== 'split') {
+      return '<div class="wb-grid">' + itemsPanelHtml() + editorPanelHtml() + contextPanelHtml() + '</div>'
+        + chatBarHtml()
+    }
+    return '<div class="wb-split">'
+      + '<div class="wb-split-chat">' + chatBarHtml() + '</div>'
+      + '<div class="wb-split-work">' + editorPanelHtml() + '</div>'
+      + '</div>'
+      + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>'
+  }
+
+  /** ELO elonezet: amikor az agens egy munkadarab-eszkozt SIKERESEN lefuttat,
+   *  a jobb oldal meg a valasz vege elott frissul. Rovid kesleltetessel, hogy
+   *  egy sor egymas utani lepes ne kerjen le tucatnyi elonezetet. */
+  function scheduleLiveRefresh() {
+    if (!WB.selectedId) return
+    if (WB.liveTimer) clearTimeout(WB.liveTimer)
+    var itemId = WB.selectedId
+    WB.liveTimer = setTimeout(function () {
+      WB.liveTimer = null
+      if (!WB.open || WB.selectedId !== itemId) return
+      api('GET', '/api/workbench/items/' + encodeURIComponent(itemId)).then(function (r) {
+        if (!r.ok || WB.selectedId !== itemId || !WB.detail) return
+        WB.detail = r.data
+        loadPreview(itemId, WB.previewVersion, true)
+      })
+    }, 400)
+  }
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -1959,13 +2032,15 @@
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
       + '<h1>' + esc(t('workbench.title', { project: WB.project ? WB.project.name : '' })) + '</h1>'
+      + '<button type="button" class="btn-secondary" data-wb-act="layout-toggle" aria-pressed="' + (WB.layout === 'split') + '"'
+      + ' title="' + escA(t('workbench.layout.hint')) + '">'
+      + esc(t(WB.layout === 'split' ? 'workbench.layout.to_classic' : 'workbench.layout.to_split')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml()
       + panelTabsHtml()
-      + '<div class="wb-grid">' + itemsPanelHtml() + editorPanelHtml() + contextPanelHtml() + '</div>'
-      + chatBarHtml()
+      + layoutHtml()
       + '</div>'
     if (WB.formOpen) {
       var input = document.getElementById('wbNewTitle')
@@ -2276,6 +2351,7 @@
     if (!act) return
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
+    else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; render() }
@@ -2493,6 +2569,7 @@
    *  oldal ujraindul. A `closeWorkbench()` visszavinne a projekt-oldalra --
    *  itt eppen az a dolgunk, hogy ne szoljunk bele abba, amit a hivo rajzol. */
   function resetWorkbench() {
+    if (WB.liveTimer) { clearTimeout(WB.liveTimer); WB.liveTimer = null }
     WB.open = false
     WB.projectId = null
     WB.project = null
