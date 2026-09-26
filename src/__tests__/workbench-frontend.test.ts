@@ -769,7 +769,11 @@ describe('vegyes munkadarab -- kep ES szoveg EGY munkadarabban', () => {
     h.respond(() => ({ status: 200, body: { ok: true, parts: [{ id: 'pt9', kind: 'text', position: 1, text: 'Új bekezdés' }] } }))
     h.click({ 'data-wb-act': 'part-add-text' })
 
-    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Új bekezdés'))
+    // Mentes kozben a mezo megtartja a szoveget (#406, 17. pont), ezert a
+    // valaszt varjuk meg, nem a szoveg megjeleneset.
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.parts.added'))
+    expect(h.rootEl.innerHTML).not.toContain('wbPartNewForm')
+    expect(h.rootEl.innerHTML).toContain('Új bekezdés')
     const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
     expect(post!.url).toContain('/api/workbench/items/w1/parts')
     expect(JSON.parse(String(post!.init!.body))).toEqual({ kind: 'text', text: 'Új bekezdés' })
