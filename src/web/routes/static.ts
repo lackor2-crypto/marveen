@@ -252,6 +252,9 @@ export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promis
     return true
   }
   if (path === '/sw.js') { serveFile(req, res, join(webDir, 'sw.js')); return true }
+  // #409: the offline notice the service worker stores and shows when the phone
+  // cannot reach this machine. Fetched with cache:'reload' at worker install.
+  if (path === '/offline.html') { serveFile(req, res, join(webDir, 'offline.html')); return true }
 
   if (path.startsWith('/lang/')) {
     const langFile = path.replace('/lang/', '')
