@@ -517,3 +517,8 @@
   /* Telefonon nincs huzas: a "huzd ide" mondat helyett a gomb beszel. */
   .wb-drop-item-hint { display: none; }
 }
+
+/* --- Kozvetlen szerkesztes (#406, 4. pont) --------------------------------- */
+.wb-edit-hint { margin: 0 0 8px; }
+.wb-text-edit { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; min-height: 240px; }
+@media (max-width: 900px) { .wb-text-edit { min-height: 180px; font-size: 16px; } }

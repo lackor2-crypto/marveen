@@ -74,6 +74,8 @@
     preview: null,
     previewVersion: null,
     versionBusy: false,
+    // --- kozvetlen szovegszerkesztes (#406, 4. pont) ---
+    textEdit: null,
     // --- osztott nezet (#406, 1. pont) ---
     // 'split' = bal oldalt a chat, jobb oldalt az ELO munkadarab (a szakmaban
     // bevett "chat + artifact" elrendezes); 'classic' = a harom panel, alatta a
@@ -238,6 +240,7 @@
 
   function loadDetail(id) {
     WB.detail = null
+    WB.textEdit = null
     WB.preview = null
     WB.previewVersion = null
     WB.versionBusy = false
@@ -361,8 +364,8 @@
         var url
         if (intoItem) {
           url = '/api/workbench/items/' + encodeURIComponent(intoItem)
-            + (isImageFile(f) ? '/parts/image' : '/document')
-            + '?name=' + name + '&type=' + type + '&lang=' + lang
+            + (isImageFile(f) ? '/parts/image?new_version=1&' : '/document?')
+            + 'name=' + name + '&type=' + type + '&lang=' + lang
         } else {
           url = '/api/workbench/items/upload?project=' + encodeURIComponent(projectId)
             + '&name=' + name + '&type=' + type + '&lang=' + lang
@@ -457,7 +460,9 @@
 
   function partBodyHtml(part) {
     if (WB.partEdit === part.id) {
-      var value = part.kind === 'text' ? (part.text || '') : (part.caption || '')
+      var value = WB.partDraft && WB.partDraft.id === part.id
+        ? WB.partDraft.value
+        : (part.kind === 'text' ? (part.text || '') : (part.caption || ''))
       return '<form class="wb-part-form" id="wbPartForm">'
         + (part.kind === 'image'
           ? '<label class="wb-label" for="wbPartText">' + esc(t('workbench.parts.caption_label')) + '</label>'
@@ -500,6 +505,17 @@
       + '</li>'
   }
 
+  /** Kimondjuk, hogy a mentes nem ir felul semmit -- es hol tartunk. */
+  function editVersionHintHtml() {
+    if (archived() || !WB.detail) return ''
+    var cur = null
+    var it = WB.detail.item
+    ;(WB.detail.versions || []).forEach(function (v) { if (it && v.id === it.current_version_id) cur = v })
+    return '<p class="wb-hint wb-edit-hint">' + esc(cur
+      ? t('workbench.edit.hint_n', { n: cur.version_no })
+      : t('workbench.edit.hint')) + '</p>'
+  }
+
   function partsHtml() {
     var parts = partsOf()
     var list = parts.length
@@ -516,6 +532,7 @@
         + '</div></form>'
       : ''
     return '<div class="wb-parts-block">'
+      + editVersionHintHtml()
       + '<h4 class="wb-parts-title">' + esc(t('workbench.parts.title'))
       + (parts.length ? ' <span class="wb-muted">(' + esc(parts.length === 1 ? t('workbench.parts.count_one') : t('workbench.parts.count', { n: parts.length })) + ')</span>' : '')
       + '</h4>'
@@ -616,10 +633,60 @@
       return '<audio class="wb-preview-audio" src="' + escA(p.url) + '" controls></audio>'
     }
     if (p.kind === 'text') {
-      return '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>'
+      if (WB.textEdit && WB.textEdit.itemId === WB.selectedId) return textEditHtml()
+      // KOZVETLEN SZERKESZTES (#406, 4. pont): csak a MOSTANI verziot, es csak
+      // ha az egeszet latjuk -- a levagott elonezet visszairasa a fajl vegenek
+      // elvesztese lenne.
+      var current = !WB.previewVersion || (WB.detail && WB.detail.item && WB.previewVersion === WB.detail.item.current_version_id)
+      var canEdit = !archived() && !p.truncated && current
+      return (canEdit
+        ? '<p><button type="button" class="btn-secondary" data-wb-act="text-edit">' + esc(t('workbench.edit.text_open')) + '</button></p>'
+        : '')
+        + '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>'
         + (p.truncated ? '<p class="wb-hint">' + esc(t('workbench.preview.truncated')) + '</p>' : '')
+        + (!archived() && !current ? '<p class="wb-hint">' + esc(t('workbench.edit.text_old_version')) + '</p>' : '')
     }
     return ''
+  }
+
+  function textEditHtml() {
+    var busy = WB.textEdit && WB.textEdit.busy
+    return '<form class="wb-part-form" id="wbTextEditForm">'
+      + '<label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>'
+      + '<textarea class="wb-input wb-part-input wb-text-edit" id="wbTextEdit" rows="16">' + esc(WB.textEdit.value) + '</textarea>'
+      + '<div class="wb-form-actions">'
+      + '<button type="submit" class="btn-primary" data-wb-act="text-save"' + (busy ? ' disabled' : '') + '>'
+      + esc(busy ? t('workbench.parts.saving') : t('workbench.edit.text_save')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="text-cancel">' + esc(t('common.cancel')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.edit.text_hint')) + '</p>'
+      + '</form>'
+  }
+
+  function openTextEdit() {
+    var p = WB.preview
+    if (!p || p.kind !== 'text' || p.truncated || archived() || !WB.selectedId) return
+    WB.textEdit = { itemId: WB.selectedId, value: p.text || '', busy: false }
+    render()
+    var el = document.getElementById('wbTextEdit')
+    if (el && typeof el.focus === 'function') el.focus()
+  }
+
+  function saveTextEdit() {
+    if (!WB.textEdit || WB.textEdit.busy || !WB.selectedId) return
+    var el = document.getElementById('wbTextEdit')
+    if (el && typeof el.value === 'string') WB.textEdit.value = el.value
+    var itemId = WB.selectedId
+    WB.textEdit.busy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/text', { text: WB.textEdit.value }).then(function (r) {
+      if (WB.selectedId !== itemId || !WB.textEdit) return
+      WB.textEdit.busy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.textEdit = null
+      applyVersions(r.data)
+      window.showToast(t('workbench.edit.text_saved', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
+    })
   }
 
   function previewHtml() {
@@ -2292,6 +2359,11 @@
   function applyParts(data) {
     if (!WB.detail || !data) return
     if (data.parts) WB.detail.parts = data.parts
+    // Uj verzio keletkezett: a lista es a munkadarab is a friss, es az
+    // elonezet a legujabbat mutatja (nem egy korabban kivalasztott regit).
+    if (data.versions) WB.detail.versions = data.versions
+    if (data.item) WB.detail.item = data.item
+    if (data.version) WB.previewVersion = null
     WB.partBusy = false
     render()
     // A reszek a munkadarab TARTALMA: valtozasuk utan az elonezet sem a regi.
@@ -2343,8 +2415,11 @@
     })
   }
 
+  /** MINDEN MENTES UJ VERZIO (#406, 4. pont): a `new_version=1` miatt a
+   *  szerver elobb uj verziot nyit, es a valtoztatas abba kerul -- a regi
+   *  allapot megmarad, es egy kattintassal visszaallithato. */
   function partsUrl(tail) {
-    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/parts' + (tail || '')
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/parts' + (tail || '') + '?new_version=1'
   }
 
   function addTextPart() {
@@ -2410,7 +2485,7 @@
     WB.partBusy = true
     render()
     var url = partsUrl('/image')
-      + '?name=' + encodeURIComponent(file.name || 'kep.jpg')
+      + '&name=' + encodeURIComponent(file.name || 'kep.jpg')
       + '&type=' + encodeURIComponent(file.type || '')
       + '&lang=' + encodeURIComponent(window._lang || 'hu')
     fetch(url, { method: 'POST', body: file }).then(function (res) {
@@ -2568,6 +2643,9 @@
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
+    else if (a === 'text-edit') openTextEdit()
+    else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
+    else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
@@ -2576,7 +2654,7 @@
     else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
     else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }
-    else if (a === 'part-edit') { WB.partEdit = act.getAttribute('data-wb-part'); WB.partNewOpen = false; render() }
+    else if (a === 'part-edit') { WB.partEdit = act.getAttribute('data-wb-part'); WB.partDraft = null; WB.partNewOpen = false; render() }
     else if (a === 'part-save') { e.preventDefault(); savePart(act.getAttribute('data-wb-part')) }
     else if (a === 'part-up') movePart(act.getAttribute('data-wb-part'), 'up')
     else if (a === 'part-down') movePart(act.getAttribute('data-wb-part'), 'down')
@@ -2742,6 +2820,27 @@
   })
 
   // Enter kuld, Shift+Enter uj sort ir. (Telefonon a gomb marad a fo ut.)
+  // A szerkeszto tartalma az ALLAPOTBAN el, nem csak a mezoben: egy kozben
+  // erkezo ujrarajzolas (attekinto, elonezet, lista) kulonben visszairna az
+  // eredeti szoveget, es a begepelt munka elveszne.
+  document.addEventListener('input', function (e) {
+    if (!WB.open || !e.target) return
+    if (e.target.id === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = e.target.value
+    else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
+  })
+
+  // Ctrl+S / Cmd+S a szerkesztoben: mentes (uj verzio) -- a bongeszo sajat
+  // "oldal mentese" ablaka helyett, ami itt senkinek nem kell.
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !e.target || !(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 's') return
+    var id = e.target.id
+    if (id !== 'wbTextEdit' && id !== 'wbPartText' && id !== 'wbPartNewText') return
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    if (id === 'wbTextEdit') saveTextEdit()
+    else if (id === 'wbPartText' && WB.partEdit) savePart(WB.partEdit)
+    else if (id === 'wbPartNewText') addTextPart()
+  })
+
   document.addEventListener('keydown', function (e) {
     if (!WB.open || !e.target || e.target.id !== 'wbChatInput') return
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2813,6 +2912,7 @@
   document.addEventListener('submit', function (e) {
     if (!WB.open) return
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
+    if (e.target && e.target.id === 'wbTextEditForm') { e.preventDefault(); saveTextEdit() }
     if (e.target && e.target.id === 'wbPartNewForm') { e.preventDefault(); addTextPart() }
     if (e.target && e.target.id === 'wbPartForm') { e.preventDefault(); savePart(WB.partEdit) }
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
