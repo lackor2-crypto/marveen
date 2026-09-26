@@ -496,3 +496,24 @@
 /* Szovegszeru gomb (verzio-visszaallitas, attekinto-linkek). */
 .wb-linklike { background: none; border: 0; padding: 0; color: var(--accent, #2563eb); cursor: pointer; font: inherit; text-decoration: underline; }
 .wb-linklike[disabled] { opacity: 0.5; cursor: default; }
+
+/* --- Behuzas es feltoltes (#406, 3. pont) -----------------------------------
+ * A behuzas KOZBEN a celteruletek kiemelodnek, hogy latsszon, hova lehet
+ * ejteni. Telefonon a gomb a fo ut (ott nincs huzas) -- ezert az mindig ott all. */
+.wb-drop {
+  border: 2px dashed var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.wb-drop-text { margin: 0; font-size: 0.9rem; }
+.wb-dragging [data-wb-drop] { outline: 2px dashed var(--accent, #2563eb); outline-offset: 2px; }
+.wb-dragging .wb-drop { border-color: var(--accent, #2563eb); background: rgba(37, 99, 235, 0.06); }
+.wb-drop-item-hint { margin: 0; }
+@media (max-width: 900px) {
+  /* Telefonon nincs huzas: a "huzd ide" mondat helyett a gomb beszel. */
+  .wb-drop-item-hint { display: none; }
+}
