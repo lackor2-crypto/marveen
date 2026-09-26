@@ -43822,10 +43822,250 @@ async function loadGitReposPage() {
 // Ket forras, parhuzamosan: /api/mega (fiokok + mert tarhely) es /api/storages
 // (a fiok mappaja az Intezoben). Ha barmelyik nem valaszol, azt KULON mondjuk
 // ki -- a "nem lattam oda" nem ugyanaz, mint a "nincs fiok".
+//
+// #398 (Boss TG 6448): "ne csak az intezoben lassam, hanem itt is ... ugyanugy,
+// mint a drive." A fiok tartalma helyben bongeszheto (/api/mega/list, csak
+// olvas): fiokvalaszto, mappaba belepes, vissza a morzsasoron, es tobb fioknal
+// a Drive-eal azonos hasabos nezet. Az Intezo-gomb masodlagos marad.
+let _megaAccount = ''
+let _megaAccountsAll = []      // [{ name, email }]
+let _megaAllMode = false
+const _megaStacks = {}         // fiok -> mappaverem [{ path, name }]
+const MEGA_LS_MODE = 'marveen.megadepot.allmode'
+const MEGA_LS_HIDDEN = 'marveen.megadepot.hidden'
+let _megaHidden = new Set()    // a hasabos nezetben kikapcsolt fiokok
+/** Keres-sorszam nezetenkent: a kesve jott valasz ne irja felul a frissebbet. */
+const _megaSeq = {}
+
+function _megaStack(account) {
+  if (!_megaStacks[account]) _megaStacks[account] = [{ path: '', name: t('megadepot.root_label') }]
+  return _megaStacks[account]
+}
+
+function _megaLabel(account) {
+  const a = _megaAccountsAll.find((x) => x.name === account)
+  return (a && (a.email || a.name)) || account
+}
+
+/** A listazas hibaja emberi mondatban. Az ures mappa NEM ide tartozik. */
+function _megaListErrorText(data, status) {
+  const code = (data && data.error) || ''
+  // Literal kulcsok: a lang-parity teszt csak igy latja, hogy mind megvan.
+  const known = {
+    rclone_missing: () => t('megadepot.browse_err_rclone_missing'),
+    login_failed: () => t('megadepot.browse_err_login_failed'),
+    twofa: () => t('megadepot.browse_err_twofa'),
+    not_activated: () => t('megadepot.browse_err_not_activated'),
+    network: () => t('megadepot.browse_err_network'),
+    transfer_quota: () => t('megadepot.browse_err_transfer_quota'),
+    timeout: () => t('megadepot.browse_err_timeout'),
+    dir_not_found: () => t('megadepot.browse_err_dir_not_found'),
+    not_found: () => t('megadepot.browse_err_not_found'),
+    bad_path: () => t('megadepot.browse_err_bad_path'),
+    network_client: () => t('megadepot.browse_err_network_client'),
+  }
+  const reason = Object.prototype.hasOwnProperty.call(known, code) ? known[code]() : t('megadepot.browse_err_unknown', { status: String(status || '?') })
+  return t('megadepot.browse_failed', { reason })
+}
+
+function _megaErrorHtml(data, status) {
+  const detail = data && data.detail ? String(data.detail) : ''
+  return '<p>' + escapeHtml(_megaListErrorText(data, status)) + '</p>'
+    + (detail ? '<p class="conn-note">' + escapeHtml(t('megadepot.browse_detail', { detail })) + '</p>' : '')
+}
+
+async function _megaFetchList(account, path) {
+  try {
+    const res = await fetch('/api/mega/list?name=' + encodeURIComponent(account) + '&path=' + encodeURIComponent(path))
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data || !Array.isArray(data.items)) return { ok: false, status: res.status, data }
+    return { ok: true, items: data.items }
+  } catch (err) {
+    return { ok: false, status: 0, data: { error: 'network_client', detail: String(err && err.message || err) } }
+  }
+}
+
+function megaRowHtml(f) {
+  const icon = f.isDir
+    ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+    : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+  const modified = f.modTime ? new Date(f.modTime).toLocaleDateString() : ''
+  return '<div class="drive-row' + (f.isDir ? '' : ' mega-file-row') + '" data-mega-path="' + escapeAttr(f.path) + '" data-mega-dir="' + (f.isDir ? '1' : '0') + '" data-mega-name="' + escapeAttr(f.name) + '">'
+    + (f.isDir
+      ? '<button type="button" class="drive-row-name mega-row-open" title="' + escapeAttr(t('megadepot.open_folder')) + '">' + icon + '<span>' + escapeHtml(f.name) + '</span></button>'
+      : '<div class="drive-row-name">' + icon + '<span title="' + escapeAttr(f.name) + '">' + escapeHtml(f.name) + '</span></div>')
+    + '<div class="drive-row-meta">' + escapeHtml(modified) + '</div>'
+    + '<div class="drive-row-meta">' + escapeHtml(f.isDir ? '' : fmtDriveSize(f.size)) + '</div>'
+    + '<div class="drive-row-actions"></div>'
+    + '</div>'
+}
+
+function _megaBindRows(list, stack, reload) {
+  list.querySelectorAll('.mega-row-open').forEach((btn) => btn.addEventListener('click', () => {
+    const row = btn.closest('.drive-row')
+    stack.push({ path: row.getAttribute('data-mega-path'), name: row.getAttribute('data-mega-name') })
+    reload()
+  }))
+}
+
+function _megaCrumbsHtml(stack) {
+  return stack.map((f, i) => {
+    const isLast = i === stack.length - 1
+    return '<span class="drive-crumb' + (isLast ? ' drive-crumb-current' : '') + '" data-idx="' + i + '"'
+      + (isLast ? '' : ' role="button" tabindex="0"') + '>' + escapeHtml(f.name) + '</span>'
+      + (isLast ? '' : '<span class="drive-crumb-sep">/</span>')
+  }).join('')
+}
+
+function _megaBindCrumbs(bc, account, reload) {
+  bc.querySelectorAll('.drive-crumb:not(.drive-crumb-current)').forEach((el) => {
+    const go = () => {
+      _megaStacks[account] = _megaStack(account).slice(0, Number(el.getAttribute('data-idx')) + 1)
+      reload()
+    }
+    el.addEventListener('click', go)
+    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go() } })
+  })
+}
+
+/** Egy-fiokos nezet: a kivalasztott fiok aktualis mappaja. */
+async function loadMegaFolder() {
+  const account = _megaAccount
+  const list = document.getElementById('megadepotBrowseList')
+  const empty = document.getElementById('megadepotEmpty')
+  const errBox = document.getElementById('megadepotError')
+  const bc = document.getElementById('megadepotBreadcrumb')
+  if (!list || !empty || !errBox || !bc || !account) return
+  const stack = _megaStack(account)
+  bc.innerHTML = _megaCrumbsHtml(stack)
+  _megaBindCrumbs(bc, account, loadMegaFolder)
+  empty.hidden = true
+  errBox.hidden = true
+  errBox.innerHTML = ''
+  list.innerHTML = '<div class="drive-loading">' + escapeHtml(t('drive.loading')) + '</div>'
+  const seq = _megaSeq[''] = (_megaSeq[''] || 0) + 1
+  const r = await _megaFetchList(account, stack[stack.length - 1].path)
+  // Kozben masik fiokot vagy mappat valasztottak: a kesve jott valasz ne irja felul.
+  if (seq !== _megaSeq[''] || account !== _megaAccount || _megaAllMode) return
+  if (!r.ok) {
+    list.innerHTML = ''
+    errBox.innerHTML = _megaErrorHtml(r.data, r.status)
+    errBox.hidden = false
+    return
+  }
+  if (!r.items.length) { list.innerHTML = ''; empty.hidden = false; return }
+  list.innerHTML = r.items.map(megaRowHtml).join('')
+  _megaBindRows(list, stack, loadMegaFolder)
+}
+
+/** Hasabos nezet: minden fiok sajat hasabban, sajat mappaveremmel. */
+async function loadMegaColumn(account) {
+  const col = document.querySelector('.drive-col[data-mega-acc="' + CSS.escape(account) + '"]')
+  if (!col) return
+  const list = col.querySelector('.drive-col-list')
+  const bc = col.querySelector('.drive-col-crumbs')
+  const stack = _megaStack(account)
+  bc.innerHTML = _megaCrumbsHtml(stack)
+  _megaBindCrumbs(bc, account, () => loadMegaColumn(account))
+  list.innerHTML = '<div class="drive-loading">' + escapeHtml(t('drive.loading')) + '</div>'
+  const key = 'col:' + account
+  const seq = _megaSeq[key] = (_megaSeq[key] || 0) + 1
+  const r = await _megaFetchList(account, stack[stack.length - 1].path)
+  if (seq !== _megaSeq[key] || !_megaAllMode) return
+  // Egy fiok hibaja csak a SAJAT hasabjat rontja el.
+  if (!r.ok) { list.innerHTML = '<div class="drive-col-error">' + _megaErrorHtml(r.data, r.status) + '</div>'; return }
+  if (!r.items.length) { list.innerHTML = '<div class="drive-col-empty">' + escapeHtml(t('megadepot.empty_folder')) + '</div>'; return }
+  list.innerHTML = r.items.map(megaRowHtml).join('')
+  _megaBindRows(list, stack, () => loadMegaColumn(account))
+}
+
+function _megaShownAccounts() {
+  return _megaAccountsAll.filter((a) => !_megaHidden.has(a.name))
+}
+
+/** Melyik fiok latszik hasabkent -- mint a Drive-on. Az utolsot nem lehet elrejteni. */
+function _megaRenderChips() {
+  const box = document.getElementById('megadepotMultiChips')
+  if (!box) return
+  box.innerHTML = _megaAccountsAll.map((a) => {
+    const on = !_megaHidden.has(a.name)
+    return '<button class="drive-chip' + (on ? ' drive-chip-on' : '') + '" data-mega-chip="' + escapeAttr(a.name) + '" aria-pressed="' + on + '" title="' + escapeAttr(a.email || a.name) + '">' + escapeHtml(a.name) + '</button>'
+  }).join('')
+  box.querySelectorAll('[data-mega-chip]').forEach((chip) => chip.addEventListener('click', () => {
+    const acc = chip.getAttribute('data-mega-chip')
+    if (_megaHidden.has(acc)) _megaHidden.delete(acc)
+    else _megaHidden.add(acc)
+    if (_megaShownAccounts().length === 0) { _megaHidden.delete(acc); return }
+    try { localStorage.setItem(MEGA_LS_HIDDEN, JSON.stringify([..._megaHidden])) } catch { /* tiltott tarolo */ }
+    _megaRenderChips()
+    renderMegaMulti()
+  }))
+}
+
+function renderMegaMulti() {
+  const wrap = document.getElementById('megadepotMulti')
+  if (!wrap) return
+  const shown = _megaShownAccounts()
+  wrap.innerHTML = shown.map((a) => '<section class="drive-col" data-mega-acc="' + escapeAttr(a.name) + '">'
+    + '<header class="drive-col-head"><span class="drive-col-name" title="' + escapeAttr(a.email || a.name) + '">' + escapeHtml(a.email || a.name) + '</span>'
+    + '<span class="drive-col-tools"><button class="btn-icon" data-mega-refresh="' + escapeAttr(a.name) + '" title="' + escapeAttr(t('drive.refresh_btn')) + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button></span></header>'
+    + '<div class="drive-breadcrumb drive-col-crumbs"></div><div class="drive-list drive-col-list"></div></section>').join('')
+  wrap.querySelectorAll('[data-mega-refresh]').forEach((b) => b.addEventListener('click', () => loadMegaColumn(b.getAttribute('data-mega-refresh'))))
+  // Egyszerre legfeljebb ennyi rclone fusson -- mint a Drive-hasaboknal.
+  _drivePool(shown.map((a) => a.name), DRIVE_MULTI_CONCURRENCY, (acc) => loadMegaColumn(acc))
+}
+
+function _megaApplyMode() {
+  const multi = document.getElementById('megadepotMulti')
+  const bar = document.getElementById('megadepotMultiBar')
+  const browser = document.getElementById('megadepotBrowser')
+  const select = document.getElementById('megadepotAccountSelect')
+  const toggle = document.getElementById('megadepotAllToggle')
+  const label = document.getElementById('megadepotAllToggleLabel')
+  const has = _megaAccountsAll.length > 0
+  if (multi) multi.hidden = !has || !_megaAllMode
+  if (bar) bar.hidden = !has || !_megaAllMode
+  if (browser) browser.hidden = !has || _megaAllMode
+  if (select) select.hidden = !has || _megaAllMode || _megaAccountsAll.length < 2
+  if (toggle) {
+    toggle.hidden = _megaAccountsAll.length < 2
+    toggle.setAttribute('aria-pressed', String(_megaAllMode))
+  }
+  if (label) label.textContent = t(_megaAllMode ? 'drive.single_account_btn' : 'drive.all_accounts_btn')
+}
+
+function _megaShowContents() {
+  _megaApplyMode()
+  if (!_megaAccountsAll.length) return
+  if (_megaAllMode) { _megaRenderChips(); renderMegaMulti(); return }
+  const select = document.getElementById('megadepotAccountSelect')
+  const names = _megaAccountsAll.map((a) => a.name)
+  if (!names.includes(_megaAccount)) {
+    const saved = _recallAccount('megadepot')
+    _megaAccount = names.includes(saved) ? saved : names[0]
+  }
+  if (select) {
+    select.innerHTML = _megaAccountsAll.map((a) => '<option value="' + escapeAttr(a.name) + '"' + (a.name === _megaAccount ? ' selected' : '') + '>' + escapeHtml(a.email || a.name) + '</option>').join('')
+    select.onchange = () => {
+      _megaAccount = select.value
+      _rememberAccount('megadepot', _megaAccount)
+      loadMegaFolder()
+    }
+  }
+  loadMegaFolder()
+}
+
+document.getElementById('megadepotAllToggle')?.addEventListener('click', () => {
+  _megaAllMode = !_megaAllMode
+  try { localStorage.setItem(MEGA_LS_MODE, _megaAllMode ? '1' : '0') } catch { /* tiltott tarolo */ }
+  _megaShowContents()
+})
+
 async function loadMegaDepotPage() {
   const box = document.getElementById('megadepotStateBox')
   const host = document.getElementById('megadepotList')
   if (!box || !host) return
+  try { _megaAllMode = localStorage.getItem(MEGA_LS_MODE) === '1' } catch { _megaAllMode = false }
   let mega, stor
   try {
     const [mr, sr] = await Promise.all([fetch('/api/mega'), fetch('/api/storages')])
@@ -43834,16 +44074,30 @@ async function loadMegaDepotPage() {
     stor = sr.ok ? await sr.json() : null
   } catch (err) {
     host.innerHTML = ''
+    _megaAccountsAll = []
+    _megaApplyMode()
     box.hidden = false
     box.className = 'info-box gitrepos-state-warn'
     box.textContent = t('megadepot.load_failed', { err: String(err && err.message || err) })
     return
   }
   const accounts = Array.isArray(mega && mega.accounts) ? mega.accounts : []
+  _megaAccountsAll = accounts.map((a) => ({ name: a.name, email: a.email }))
+  // Egy kozben levett fiok mappaverme ne maradjon meg.
+  for (const k of Object.keys(_megaStacks)) if (!_megaAccountsAll.some((a) => a.name === k)) delete _megaStacks[k]
+  try {
+    const saved = JSON.parse(localStorage.getItem(MEGA_LS_HIDDEN) || '[]')
+    _megaHidden = new Set(Array.isArray(saved) ? saved : [])
+  } catch { _megaHidden = new Set() }
+  // Kozben levett fiok nem tarthatja rejtve magat, es nem tuntetheti el az osszes hasabot.
+  _megaHidden = new Set([..._megaHidden].filter((n) => _megaAccountsAll.some((a) => a.name === n)))
+  if (_megaAccountsAll.length && _megaShownAccounts().length === 0) _megaHidden = new Set()
+  if (_megaAccountsAll.length < 2) _megaAllMode = false
   const relByAccount = {}
   for (const r of ((stor && stor.rows) || [])) if (r && r.kind === 'mega') relByAccount[r.account] = r
   if (!accounts.length) {
     host.innerHTML = ''
+    _megaApplyMode()
     box.hidden = false
     box.className = 'info-box gitrepos-state-info'
     box.textContent = (mega && mega.rclone && !mega.rclone.installed)
@@ -43853,7 +44107,8 @@ async function loadMegaDepotPage() {
   }
   box.hidden = true
   const when = (ms) => ms ? new Date(ms).toLocaleString() : '—'
-  host.innerHTML = '<div class="megadepot-grid">' + accounts.map((a) => {
+  host.innerHTML = '<h3 class="megadepot-accounts-title">' + escapeHtml(t('megadepot.accounts_heading')) + '</h3>'
+    + '<div class="megadepot-grid">' + accounts.map((a) => {
     const q = a.quota
     const row = relByAccount[a.name]
     let quota
@@ -43864,6 +44119,7 @@ async function loadMegaDepotPage() {
       quota = escapeHtml(t('megadepot.used', { used: _depoBytes(q.used || 0), total: _depoBytes(q.total), free: _depoBytes(q.free) }))
         + '<div class="megadepot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><span style="width:' + pct + '%"></span></div>'
     }
+    // Masodlagos gomb (#398): a tartalom lent, helyben latszik.
     const open = row && row.rel
       ? '<button class="btn-secondary btn-compact" data-megadepot-open="' + escapeAttr(row.rel) + '">' + escapeHtml(t('megadepot.open')) + '</button>'
       : '<span class="conn-note">' + escapeHtml(t('megadepot.no_folder')) + '</span>'
@@ -43879,6 +44135,7 @@ async function loadMegaDepotPage() {
     if (location.hash.slice(1) === 'intezo') switchPage('intezo')
     else location.hash = 'intezo'
   }))
+  _megaShowContents()
 }
 document.getElementById('megadepotAccountsBtn')?.addEventListener('click', () => {
   if (location.hash.slice(1) === 'accounts') switchPage('accounts')

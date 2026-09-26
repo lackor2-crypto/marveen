@@ -5,12 +5,13 @@
 //   POST /api/mega/remove    -- fiok levetele {name}; a fajlokhoz NEM nyul
 //   POST /api/mega/measure   -- tarhely-meres MOST {name}
 //   POST /api/mega/rclone-install -- az rclone letoltese ~/.local/bin ala (friss telepitesen a feluletrol, #360)
+//   GET  /api/mega/list?name=&path= -- egy mappa tartalma a fiokon (#398), csak olvas
 //
 // A jelszo sose megy vissza a bongeszonek, es a naploba sem kerul.
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
-  rcloneStatus, readMegaAccounts, readMegaQuota, addMegaAccount, removeMegaAccount, measureMegaQuota,
+  rcloneStatus, readMegaAccounts, readMegaQuota, addMegaAccount, removeMegaAccount, measureMegaQuota, listMegaDir,
 } from '../../mega.js'
 import { installRclone } from '../../rclone-install.js'
 import type { RouteContext } from './types.js'
@@ -62,6 +63,25 @@ export async function tryHandleMega(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/mega' && method === 'GET') {
     refreshStale()
     json(res, await state())
+    return true
+  }
+
+  if (path === '/api/mega/list' && method === 'GET') {
+    const name = String(ctx.url.searchParams.get('name') || '').trim()
+    const r = await listMegaDir(name, ctx.url.searchParams.get('path') ?? '')
+    if (!r.ok) {
+      // Minden hiba KULON kodot kap -- a bongeszo ebbol mondja ki, hogy "nem
+      // lattam oda", es nem mutat ures mappat helyette.
+      const status = r.error === 'not_found' || r.error === 'dir_not_found' ? 404
+        : r.error === 'bad_path' ? 400
+        : r.error === 'rclone_missing' ? 409
+        : r.error === 'timeout' ? 504
+        : 502
+      if (status >= 500) logger.warn({ account: name, error: r.error, detail: r.detail }, '[mega] listazas nem sikerult')
+      json(res, { error: r.error, detail: r.detail ?? null }, status)
+      return true
+    }
+    json(res, { ok: true, path: r.path, items: r.items })
     return true
   }
 

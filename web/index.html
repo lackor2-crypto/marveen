@@ -3654,14 +3654,39 @@
         <div class="page-header-row">
           <div>
             <h1 data-i18n="megadepot.page_title">MEGA</h1>
-            <p class="subtitle" data-i18n="megadepot.page_subtitle">A bekötött MEGA-fiókok, mennyi hely van rajtuk, és a mappájuk az Intézőben</p>
+            <p class="subtitle" data-i18n="megadepot.page_subtitle">A bekötött MEGA-fiókok tartalma, mennyi hely van rajtuk, és a mappájuk az Intézőben</p>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+            <!-- #398: ugyanaz a kapcsolo, mint a Drive-on -- egy fiok (legordulo)
+                 VAGY minden fiok egymas mellett, hasabokban. -->
+            <button class="btn-secondary btn-compact" id="megadepotAllToggle" aria-pressed="false" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="5" height="16"/><rect x="10" y="4" width="5" height="16"/><rect x="17" y="4" width="4" height="16"/></svg>
+              <span id="megadepotAllToggleLabel" data-i18n="drive.all_accounts_btn">Összes fiók</span>
+            </button>
+            <select id="megadepotAccountSelect" class="input" style="width:auto" hidden data-i18n-aria-label="megadepot.account_select" aria-label="MEGA-fiók"></select>
             <button class="btn-secondary" id="megadepotAccountsBtn" data-i18n="megadepot.manage">Fiókok kezelése</button>
           </div>
         </div>
       </div>
       <div class="info-box" id="megadepotStateBox" hidden></div>
+
+      <!-- #398: a fiok tartalma helyben, mint a Drive oldalon. Csak olvas. -->
+      <div id="megadepotBrowser" hidden>
+        <div class="drive-breadcrumb" id="megadepotBreadcrumb"></div>
+        <div id="megadepotBrowseList" class="drive-list"></div>
+        <div id="megadepotEmpty" class="vault-empty" hidden>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <p data-i18n="megadepot.empty_folder">Ez a mappa üres -- a MEGA-n tényleg nincs benne semmi.</p>
+        </div>
+        <div id="megadepotError" class="info-box gitrepos-state-warn" hidden></div>
+      </div>
+      <div class="drive-multi-bar" id="megadepotMultiBar" hidden>
+        <span class="drive-multi-bar-label" data-i18n="drive.columns_label">Látható fiókok:</span>
+        <span id="megadepotMultiChips" class="megadepot-chips"></span>
+      </div>
+      <div class="drive-multi" id="megadepotMulti" hidden></div>
+      <!-- Fiokonkent a tarhely es az Intezo-gomb (#391) -- a tartalom alatt,
+           mert a bongeszo az elsodleges (#398). -->
       <div id="megadepotList"></div>
     </div>
 
