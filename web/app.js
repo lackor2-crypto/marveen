@@ -920,7 +920,10 @@ function switchPage(pageId) {
   if (pageId === 'gitrepos') loadGitReposPage()
   if (pageId === 'megadepot') loadMegaDepotPage()
   if (pageId === 'accounts') loadAccountsPage()
-  if (pageId === 'approvals') loadApprovalsPage()
+  // Boss, 2026-09-26 (TG 6556): a menupontra (vagy egy linkre) belepve
+  // alapbol a VARAKOZOK latszanak, ha van ilyen; ha nincs, az osszes. A
+  // Frissites gomb es a sajat szuro-valasztas ezt nem irja felul.
+  if (pageId === 'approvals') { _approvalsDefaultOnEntry = true; loadApprovalsPage() }
   if (pageId === 'debate') loadDebatePage()
   if (pageId === 'openrouter') loadOpenRouterPage()
   if (pageId !== 'settings') stopRunningIndicatorPoll()
@@ -24290,6 +24293,14 @@ const APPROVALS_PAGE_LIMIT = 50
 
 let _approvalsCountdownInterval = null
 const _approvalsState = { status: '', agent: '', category: '', search: '', offset: 0 }
+/** Egy friss belepes utan a betoltes donti el az alap-szurot (varakozok, ha
+ *  van; kulonben az osszes). Csak egyszer, belepesenkent. */
+var _approvalsDefaultOnEntry = false
+
+/** A belepeskori alap-szuro: 'pending', ha van varakozo jovahagyas, kulonben ''. */
+function approvalsEntryDefaultStatus(list) {
+  return Array.isArray(list) && list.some((a) => a && a.status === 'pending') ? 'pending' : ''
+}
 
 document.getElementById('refreshApprovalsBtn').addEventListener('click', loadApprovalsPage)
 document.getElementById('approvalsFilterStatus').addEventListener('change', (e) => {
@@ -24403,7 +24414,12 @@ async function loadApprovalsPage() {
     _prjApprovalMap = _prjScope.approvals ? await _prjScopeMapLoad('approval', _approvalsAll.map((a) => a.id)) : {}
     _syncApprovalFilterOptions()
     _renderApprovalsStats()
-    _renderApprovalsTable()
+    if (_approvalsDefaultOnEntry) {
+      _approvalsDefaultOnEntry = false
+      _setApprovalsStatusFilter(approvalsEntryDefaultStatus(_approvalsAll))
+    } else {
+      _renderApprovalsTable()
+    }
     if (!hadAgents) agentsReady.then(() => { if (agents.length && document.getElementById('approvalsPage')?.hidden === false) _renderApprovalsTable() })
     _approvalsCountdownInterval = setInterval(_updateCountdowns, 1000)
     // Only poll while something is actually pending review -- no point
