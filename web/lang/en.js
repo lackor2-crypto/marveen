@@ -5712,7 +5712,7 @@ window._i18n.en = {
   "workbench.context.project": "Project",
   "workbench.context.work_item": "Work item",
   "workbench.context.kanban": "Kanban",
-  "workbench.context.kanban_soon": "The project's cards appear here in a later phase. Until then you see them on the project's Kanban tab.",
+  "workbench.context.kanban_soon": "The project's cards are shown above, on the four tiles (Planned, In progress, Awaiting approval, Done). The whole board is on the project's Kanban tab.",
   "workbench.context.versions": "Versions",
   "workbench.context.no_versions": "This work item has no version yet.",
   "workbench.context.no_selection": "No work item is selected.",

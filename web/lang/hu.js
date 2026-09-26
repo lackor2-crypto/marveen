@@ -5790,7 +5790,7 @@ window._i18n.hu = {
   "workbench.context.project": "Projekt",
   "workbench.context.work_item": "Munkadarab",
   "workbench.context.kanban": "Kanban",
-  "workbench.context.kanban_soon": "A projekt kártyái egy következő fázisban jelennek meg itt. Addig a projekt Kanban fülén látod őket.",
+  "workbench.context.kanban_soon": "A projekt kártyái fent, a négy csempén látszanak (Tervezett, Folyamatban, Jóváhagyásra vár, Kész). Az egész táblát a projekt Kanban fülén látod.",
   "workbench.context.versions": "Verziók",
   "workbench.context.no_versions": "Ennek a munkadarabnak még nincs verziója.",
   "workbench.context.no_selection": "Nincs kiválasztva munkadarab.",
