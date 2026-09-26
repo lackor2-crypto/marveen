@@ -575,6 +575,12 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         priority: asString(input.priority) || undefined,
         status: 'planned',
         project: project.id,
+        // #403: a modell altal adott cimke(k) -- id vagy nev. Ha nem ad, a
+        // createCardWithRules a projekt alapertelmezett cimkejet veszi; ha
+        // az sincs, label_error jon a valaszthato cimkek listajaval, es a
+        // modell abbol valaszt. Beegetett cimke vagy "a leggyakoribb a
+        // projektben" talalgatas NINCS: egy projektben vegyes cimkek allnak.
+        labels: labelsInput(input.labels ?? input.label ?? input.tags),
         related: input.related,
         separate_project: input.separate_project,
       })
@@ -593,6 +599,14 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     default:
       return { ok: false, code: 'tool_unknown', detail: `there is no tool named ${name}` }
   }
+}
+
+/** A modell cimke-bemenete (lista, egyetlen szoveg, vagy vesszovel elvalasztott
+ *  szoveg) -> tiszta lista. Ures -> undefined (a szerver dont a projekt-alapbol). */
+export function labelsInput(v: unknown): string[] | undefined {
+  const raw = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : []
+  const out = raw.map((x) => String(x ?? '').trim()).filter(Boolean)
+  return out.length ? out : undefined
 }
 
 /** A projekt munkadarabjai -- a kontextus-epito hasznalja (nem tool). */
