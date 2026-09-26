@@ -106,7 +106,7 @@ export async function buildMemoryContext(
 const STATUS_HU: Record<string, string> = {
   planned: 'Tervezett',
   in_progress: 'Folyamatban',
-  waiting: 'Várakozik',
+  waiting: 'Jóváhagyásra vár',
   done: 'Kész',
 }
 
