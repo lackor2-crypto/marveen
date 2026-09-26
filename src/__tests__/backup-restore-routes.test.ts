@@ -146,7 +146,7 @@ describe('start / status / release', () => {
     const p = await call('/api/backup/restore/open', 'POST', { source: 'local', name: made.name })
     expect(p.body.confirm).toBe('user_password')
     const none = await call('/api/backup/restore/start?lang=en', 'POST', { previewId: p.body.previewId })
-    expect(none.status).toBe(401)
+    expect(none.status).toBe(403) // never 401 (#410): that signs the owner out
     expect(none.body.error).toBe('password_required')
     const wrong = await call('/api/backup/restore/start', 'POST', { previewId: p.body.previewId, username: 'owner', password: 'nope nope nope' })
     expect(wrong.body.error).toBe('password_wrong')

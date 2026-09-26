@@ -320,7 +320,9 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
       // Session callers must prove knowledge of the current password.
       const current = str(body.current_password)
       if (!(await verifyPassword(current, user.password_hash))) {
-        json(res, INVALID_CREDENTIALS, 401)
+        // 403, not 401 (#410): the session is fine, the typed current password
+        // is not -- a 401 here made the dashboard sign the owner out.
+        json(res, { ...INVALID_CREDENTIALS, code: 'current_password_wrong' }, 403)
         return true
       }
     } else if (auth?.kind === 'token') {

@@ -25811,6 +25811,7 @@ function renderSessionPanel(body, status) {
       })
       const data = await r.json().catch(() => ({}))
       if (r.ok) { msg.classList.add('ok'); msg.textContent = t('auth.card.password_changed') }
+      else if (data.code === 'current_password_wrong') { msg.classList.add('err'); msg.textContent = t('auth.card.err_current_wrong') }
       else { msg.classList.add('err'); msg.textContent = data.error || t('auth.card.err_generic') }
     } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
   })

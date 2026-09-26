@@ -134,9 +134,10 @@ describe('the recovery key (kit)', () => {
   it('with a login: a token (agents hold it) is refused, a session needs the password', async () => {
     dbState.users = 1
     expect((await call('/api/backup/kit', 'POST', {})).status).toBe(403)
-    expect((await call('/api/backup/kit', 'POST', {}, { kind: 'session', user: 'boss' })).status).toBe(401)
+    // 403, never 401 (#410): the dashboard signs the owner out on any /api 401.
+    expect((await call('/api/backup/kit', 'POST', {}, { kind: 'session', user: 'boss' })).status).toBe(403)
     const wrong = await call('/api/backup/kit', 'POST', { password: 'rossz' }, { kind: 'session', user: 'boss' })
-    expect(wrong.status).toBe(401)
+    expect(wrong.status).toBe(403)
     expect(wrong.body.error).toBe('password_wrong')
     const right = await call('/api/backup/kit', 'POST', { password: 'Helyes-Jelszo-123' }, { kind: 'session', user: 'boss' })
     expect(right.status).toBe(200)
