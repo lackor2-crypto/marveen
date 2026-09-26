@@ -19,11 +19,19 @@
 # and a guard that is already running is not this script's to replace. Re-run
 # is safe and only fills the gaps.
 #
-# Usage: scripts/install-guard-units.sh [--dry-run]
+# Usage: scripts/install-guard-units.sh [--dry-run] [--retire-only]
+#   --retire-only: only take down RETIRED units (see retire_backup_timer), write
+#   nothing new. update.sh runs it this way on every update.
 set -uo pipefail
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
+DRY=0; RETIRE_ONLY=0
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1 ;;
+    --retire-only) RETIRE_ONLY=1 ;;
+  esac
+done
 
 env_val(){ grep -E "^$1=" "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"' "; }
 MAIN_AGENT_ID="$(env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID//[^a-zA-Z0-9_-]/}"
@@ -36,8 +44,11 @@ IS_WSL=0; { [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>
 # name | command (relative to INSTALL_DIR unless absolute) | schedule | platforms | description
 #   schedule: every:<seconds>  or  daily:<HH:MM>  (+ boot run after 2 min)
 #   platforms: all | linux | wsl
+# No "backup" guard any more (card #411): the dashboard's own scheduler makes
+# the one daily backup at the time set on Settings -> Backup. The 6-hourly
+# timer this list used to install made 4-5 backups a day while the page said
+# "once a day" (owner, TG 6581, 2026-09-26). retire_backup_timer takes it down.
 GUARDS=(
-  "backup|bash scripts/backup.sh|every:21600|all|local data backup (kanban/memory/config snapshot)"
   "dashboard-health|scripts/dashboard-health-guard.sh|every:60|linux|dashboard health guard (restart if it stops answering)"
   "channel-watchdog|scripts/channel-watchdog.sh|every:300|linux|channels watchdog (independent of the dashboard)"
   "channel-keepalive-probe|scripts/channel-keepalive-probe.sh|every:180|all|token-free channel keepalive probe"
@@ -165,6 +176,38 @@ EOF
     || launchctl load "$dir/$label.plist" 2>/dev/null || true
   written=$((written+1))
 }
+
+# RETIRED: the 6-hourly backup timer this script installed until #411. Taken
+# down ONLY when it is still ours -- its service runs scripts/backup.sh. A unit
+# of that name that runs anything else was tuned by hand and stays.
+retire_backup_timer() {
+  if [ "$OS" = "Darwin" ]; then
+    local dir="$HOME/Library/LaunchAgents" label="com.${SERVICE_ID}.backup"
+    [ -f "$dir/$label.plist" ] || return 0
+    grep -q "scripts/backup.sh" "$dir/$label.plist" 2>/dev/null || { say "$label: nem a regi mentes-idozito, marad"; return 0; }
+    if [ "$DRY" = 1 ]; then say "[dry-run] retire $label"; return 0; fi
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$dir/$label.plist" 2>/dev/null || true
+    rm -f "$dir/$label.plist"
+    say "$label: regi 6 oras mentes-idozito leveve (a mentes naponta egyszer a dashboardbol megy)"
+    return 0
+  fi
+  local dir="$HOME/.config/systemd/user" unit="${SERVICE_ID}-backup"
+  [ -f "$dir/$unit.service" ] || [ -f "$dir/$unit.timer" ] || return 0
+  if [ -f "$dir/$unit.service" ] && ! grep -q "scripts/backup.sh" "$dir/$unit.service" 2>/dev/null; then
+    say "$unit: nem a regi mentes-idozito, marad"; return 0
+  fi
+  if [ "$DRY" = 1 ]; then say "[dry-run] retire $unit"; return 0; fi
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now "$unit.timer" >/dev/null 2>&1 || true
+    systemctl --user stop "$unit.service" >/dev/null 2>&1 || true
+  fi
+  rm -f "$dir/$unit.timer" "$dir/$unit.service"
+  command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload >/dev/null 2>&1 || true
+  say "$unit: regi 6 oras mentes-idozito leveve (a mentes naponta egyszer a dashboardbol megy)"
+}
+
+retire_backup_timer
+[ "$RETIRE_ONLY" = 1 ] && exit 0
 
 ENABLE=()
 for g in "${GUARDS[@]}"; do

@@ -6,7 +6,7 @@
  *   node dist/backup/cli.js verify-offsite
  *   node dist/backup/cli.js list
  *
- * scripts/backup.sh (the 6-hourly unit) calls `create --kind scheduled`.
+ * scripts/backup.sh (run by hand; the 6-hourly unit was retired in #411) calls `create --kind scheduled`.
  * Exit codes: 0 ok, 1 failure, 2 usage, 75 skipped (locked / restore running).
  */
 import { rmSync, mkdirSync } from 'node:fs'

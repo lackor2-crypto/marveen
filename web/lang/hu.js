@@ -6181,7 +6181,7 @@ window._i18n.hu = {
   "fbk.reason.disabled": "ki van kapcsolva",
   "fbk.when.title": "Mikor",
   "fbk.when.why": "Naponta egyszer, a megadott időben magától készül mentés (ha a gép akkor ki van kapcsolva, bekapcsolás után pótolja). Emellett hatóránként is fut egy.",
-  "fbk.when.retention": "Megőrzés: a gépen az utolsó 3; a Raktárban az utolsó 7 nap, 4 hét és 6 hónap egy-egy mentése; a felhőben 7 nap, 4 hét és 3 hónap. A régebbieket magától törli.",
+  "fbk.when.retention": "Megőrzés: a gépen az utolsó 3; a Raktárban az utolsó 7 nap, 4 hét és 3 hónap egy-egy mentése; a felhőben 7 nap, 4 hét és 3 hónap. A régebbieket magától törli.",
   "fbk.when.time": "Napi mentés ideje",
   "fbk.when.enabled": "Napi mentés bekapcsolva",
   "fbk.list.title": "Mentések",

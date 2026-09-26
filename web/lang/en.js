@@ -6103,7 +6103,7 @@ window._i18n.en = {
   "fbk.reason.disabled": "turned off",
   "fbk.when.title": "When",
   "fbk.when.why": "Once a day at the time below a backup runs by itself (if the machine is off then, it catches up after start). One also runs every six hours.",
-  "fbk.when.retention": "Kept: the last 3 on this machine; in the depot one per day for 7 days, per week for 4 weeks and per month for 6 months; in the cloud 7 days, 4 weeks and 3 months. Older ones are removed by themselves.",
+  "fbk.when.retention": "Kept: the last 3 on this machine; in the depot one per day for 7 days, per week for 4 weeks and per month for 3 months; in the cloud 7 days, 4 weeks and 3 months. Older ones are removed by themselves.",
   "fbk.when.time": "Daily backup time",
   "fbk.when.enabled": "Daily backup on",
   "fbk.list.title": "Backups",

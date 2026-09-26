@@ -26,7 +26,8 @@ export interface RetentionPolicy { last?: number; daily?: number; weekly?: numbe
 
 export const POLICIES: Record<'local' | 'depot' | 'cloud', RetentionPolicy> = {
   local: { last: 3 },
-  depot: { daily: 7, weekly: 4, monthly: 6 },
+  // Owner's choice A (card #411, TG 6590): 7 daily + 4 weekly + 3 monthly.
+  depot: { daily: 7, weekly: 4, monthly: 3 },
   cloud: { daily: 7, weekly: 4, monthly: 3 },
 }
 

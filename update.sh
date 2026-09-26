@@ -654,11 +654,21 @@ park_morning_timer() {
   return 0
 }
 
+# #411: the 6-hourly backup timer the guard installer used to write made 4-5
+# backups a day while Settings -> Backup said "once a day". Only its own,
+# unmodified unit is taken down (the script checks it runs scripts/backup.sh).
+retire_legacy_backup_timer() {
+  [ -f "$INSTALL_DIR/scripts/install-guard-units.sh" ] || return 0
+  bash "$INSTALL_DIR/scripts/install-guard-units.sh" --retire-only 2>/dev/null || true
+  return 0
+}
+
 run_unit_maintenance() {
   repair_morning_timer "$@"
   migrate_channels_restart "$@"
   install_keepalive_probe_timer "$@"
   park_morning_timer "$@"
+  retire_legacy_backup_timer
   return 0
 }
 run_unit_maintenance

@@ -37,7 +37,7 @@ describe('planPrune', () => {
     expect(drop).toHaveLength(7)
   })
 
-  it('depot over 120 days, 4 a day: 7 daily + 4 weekly + 6 monthly, overlapping', () => {
+  it('depot over 120 days, 4 a day: 7 daily + 4 weekly + 3 monthly, overlapping (owner choice A, #411)', () => {
     const list = daily(120, 4)
     const { keep } = planPrune(list, POLICIES.depot, NOW)
     const days = new Set(keep.map((e) => new Date(e.time).toDateString()))
@@ -49,11 +49,14 @@ describe('planPrune', () => {
     expect(keep.length).toBe(days.size)
     // The 7 newest days are all there.
     for (let d = 0; d < 7; d++) expect(days.has(new Date(NOW - d * DAY).toDateString())).toBe(true)
-    // Between 7 (all overlap) and 17 (none overlap) distinct days; months reach back ~5 months.
-    expect(keep.length).toBeGreaterThanOrEqual(12)
-    expect(keep.length).toBeLessThanOrEqual(17)
+    // Between 7 (all overlap) and 14 (none overlap) distinct days; the months
+    // reach back to the end of the month before last: at least 29 days, at
+    // most ~3 months.
+    expect(keep.length).toBeGreaterThanOrEqual(9)
+    expect(keep.length).toBeLessThanOrEqual(14)
     const oldest = Math.min(...keep.map((e) => e.time))
-    expect(NOW - oldest).toBeGreaterThan(100 * DAY)
+    expect(NOW - oldest).toBeGreaterThan(28 * DAY)
+    expect(NOW - oldest).toBeLessThan(93 * DAY)
   })
 
   it('never drops the newest verified backup', () => {
