@@ -1125,7 +1125,7 @@
   function openTextEdit() {
     var p = WB.preview
     if (!p || p.kind !== 'text' || p.truncated || archived() || !WB.selectedId) return
-    WB.textEdit = { itemId: WB.selectedId, value: p.text || '', busy: false }
+    WB.textEdit = { itemId: WB.selectedId, value: p.text || '', busy: false, baseVersion: (WB.detail && WB.detail.item && WB.detail.item.current_version_id) || '' }
     render()
     var el = document.getElementById('wbTextEdit')
     if (el && typeof el.focus === 'function') el.focus()
@@ -1138,7 +1138,7 @@
     var itemId = WB.selectedId
     WB.textEdit.busy = true
     render()
-    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/text', { text: WB.textEdit.value }).then(function (r) {
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/text', { text: WB.textEdit.value, base_version: WB.textEdit.baseVersion || undefined }).then(function (r) {
       if (WB.selectedId !== itemId || !WB.textEdit) return
       WB.textEdit.busy = false
       if (!r.ok) { render(); window.showToast(r.message); return }
@@ -2348,6 +2348,7 @@
     render()
     api('PUT', '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas', {
       canvas: { width: 1080, height: 1080, background: '#ffffff', objects: [] },
+      base_version: (WB.detail && WB.detail.item && WB.detail.item.current_version_id) || undefined,
     }).then(function (r) {
       WB.canvasBusy = false
       if (!r.ok) {
@@ -4751,6 +4752,7 @@
     var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/document'
       + '?name=' + encodeURIComponent(file.name || 'dokumentum.docx')
       + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      + ((WB.detail && WB.detail.item && WB.detail.item.current_version_id) ? '&base_version=' + encodeURIComponent(WB.detail.item.current_version_id) : '')
     fetch(url, { method: 'POST', body: file }).then(function (res) {
       return res.json().catch(function () { return null }).then(function (data) {
         WB.docBusy = false

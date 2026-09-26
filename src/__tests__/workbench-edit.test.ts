@@ -239,7 +239,7 @@ describe('a felulet', () => {
     h.click({ 'data-wb-act': 'text-save' })
     await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.edit.text_saved'))
     const post = h.fetchCalls.find((c) => c.url.includes('/items/w1/text'))!
-    expect(JSON.parse(String(post.init!.body))).toEqual({ text: 'átírt' })
+    expect(JSON.parse(String(post.init!.body))).toEqual({ text: 'átírt', base_version: 'v1' })
     expect(h.toasts.join(' ')).toContain('terv (2).md')
     expect(h.html()).not.toContain('id="wbTextEdit"')
   })
