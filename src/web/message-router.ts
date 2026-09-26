@@ -4,6 +4,7 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { resolveAgentChannelStateDir } from './voice-directive.js'
 import {
   getPendingMessages,
+  getMessageStatus,
   markMessageDelivered,
   markMessageDone,
   markMessageFailed,
@@ -657,6 +658,19 @@ export async function runMessageRouterTick(): Promise<void> {
           // Text message: record modality so a previous voice flag is cleared.
           setLastInboundModality(msg.to_agent, chatId, 'text')
         }
+      }
+
+      // Re-read the row right before the send (#413, rebuilt from upstream
+      // 9fb22e5d). The tick works from a snapshot taken at its top; a row that
+      // was closed, answered or deleted while earlier rows were being typed or
+      // a voice note transcribed (STT can hold a tick for a minute) would still
+      // go out -- so closing a queued message had no effect once its tick began.
+      const liveStatus = getMessageStatus(msg.id)
+      if (liveStatus !== 'pending') {
+        logger.info({ id: msg.id, to: msg.to_agent, status: liveStatus }, 'message-router: row no longer pending at send time, skipped')
+        routerLoggedMisses.delete(msg.id)
+        routerInjectFailures.delete(msg.id)
+        continue
       }
 
       try {

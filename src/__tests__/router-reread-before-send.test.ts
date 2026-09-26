@@ -1,4 +1,6 @@
-// Contract test for the account-wide OpenRouter free-tier rate limit
+// #413 (rebuilt from upstream 9fb22e5d): the router re-reads a row right before
+// the send. Harness copied from router-free-tier-pacing.test.ts.
+// ORIGINAL NOTE of that harness: account-wide OpenRouter free-tier rate limit
 // (kanban 45c3cfad) as it is enforced in the message router.
 //
 // Every :free agent in the fleet draws on ONE 20 req/min budget. The router's
@@ -15,6 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockGetPendingMessages = vi.fn()
 const mockSendPromptToSession = vi.fn(async (..._a: unknown[]) => undefined)
+const mockStatus = vi.fn((_id: number): string | null => 'pending')
 
 vi.mock('../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
@@ -30,7 +33,7 @@ vi.mock('../db.js', () => ({
   getPendingMessages: (toAgent?: string) => (toAgent ? [] : mockGetPendingMessages()),
   markMessageDelivered: (..._a: unknown[]) => true,
   // #413: the router re-reads the row right before the send; the rows here stay pending.
-  getMessageStatus: (..._a: unknown[]) => 'pending',
+  getMessageStatus: (id: number) => mockStatus(id),
   markMessageFailed: (..._a: unknown[]) => true,
   markMessageDone: (..._a: unknown[]) => true,
   markPendingFederatedFailed: (..._a: unknown[]) => true,
@@ -49,8 +52,7 @@ vi.mock('../web/voice-directive.js', () => ({
 vi.mock('../web/agent-config.js', () => ({
   readAgentRemoteHost: () => null,
   readAgentVoiceConfig: () => ({ responseMode: 'text' }),
-  readAgentModel: (name: string) =>
-    name === 'sonny' ? 'claude-sonnet-5' : `vendor/${name}-tiny:free`,
+  readAgentModel: (_name: string) => 'claude-sonnet-5',
 }))
 
 vi.mock('../web/agent-process.js', () => ({
@@ -72,74 +74,42 @@ vi.mock('../web/agent-message-wrap.js', () => ({
 }))
 
 import { runMessageRouterTick } from '../web/message-router.js'
-import {
-  _resetFreeDispatchWindowForTest,
-  EFFECTIVE_FREE_MODEL_RPM,
-} from '../openrouter-dispatch-throttle.js'
+import { _resetFreeDispatchWindowForTest } from '../openrouter-dispatch-throttle.js'
 
 let nextId = 1
 function msg(to: string, from = 'orin') {
-  return {
-    id: nextId++,
-    from_agent: from,
-    to_agent: to,
-    content: 'ping',
-    created_at: Math.floor(Date.now() / 1000),
-  }
+  return { id: nextId++, from_agent: from, to_agent: to, content: 'ping', created_at: Math.floor(Date.now() / 1000) }
 }
+const sent = () => mockSendPromptToSession.mock.calls.map((c) => String(c[0]))
 
-/** Receivers the router actually injected into during the last tick. */
-function deliveredSessions(): string[] {
-  return mockSendPromptToSession.mock.calls.map((c) => String(c[0]))
-}
-
-describe('router free-tier pacing', () => {
+describe('router re-reads the row before the send (#413)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     _resetFreeDispatchWindowForTest()
+    mockStatus.mockImplementation(() => 'pending')
     nextId = 1
   })
 
-  it('lets only one free-tier message out per tick, leaving the rest pending', async () => {
-    const pending = [msg('gemma'), msg('ling'), msg('north')]
-    mockGetPendingMessages.mockReturnValue(pending)
-
+  it('a row closed after the tick snapshot is NOT sent; the others are', async () => {
+    const a = msg('sonny')
+    const b = msg('sonny2')
+    mockGetPendingMessages.mockReturnValue([a, b])
+    mockStatus.mockImplementation((id) => (id === a.id ? 'done' : 'pending'))
     await runMessageRouterTick()
-
-    // Anti-burst spacing: the whole fan-out cannot leave in one pass.
-    expect(deliveredSessions()).toEqual(['agent-gemma'])
+    expect(sent()).toEqual(['agent-sonny2'])
   })
 
-  it('never blocks a paid-model agent behind the free-tier queue', async () => {
-    mockGetPendingMessages.mockReturnValue([msg('gemma'), msg('ling'), msg('sonny')])
-
+  it('a deleted row (null status) is not sent either', async () => {
+    const a = msg('sonny')
+    mockGetPendingMessages.mockReturnValue([a])
+    mockStatus.mockImplementation(() => null)
     await runMessageRouterTick()
-
-    const delivered = deliveredSessions()
-    expect(delivered).toContain('agent-sonny')
-    expect(delivered).toHaveLength(2) // one free + the paid one
+    expect(sent()).toEqual([])
   })
 
-  it('holds the shared ceiling across many ticks, however many rounds overlap', async () => {
-    // Two fan-outs' worth of free-tier traffic, hammered for a simulated
-    // minute of ticks. The window is real wall-clock, so within one test run
-    // nothing ages out: the ceiling is the hard stop.
-    mockGetPendingMessages.mockReturnValue(
-      Array.from({ length: 24 }, (_, i) => msg(`free${i}`)),
-    )
-
-    for (let tick = 0; tick < 24; tick++) await runMessageRouterTick()
-
-    expect(mockSendPromptToSession.mock.calls.length).toBeLessThanOrEqual(EFFECTIVE_FREE_MODEL_RPM)
-  })
-
-  it('does not make a human wait out the fan-out spacing', async () => {
-    // A channel-inbound message (someone typing in Telegram) is interactive:
-    // it spends from the same budget but skips the anti-burst gap.
-    mockGetPendingMessages.mockReturnValue([msg('gemma'), msg('ling', 'channel')])
-
+  it('a still-pending row goes out as before', async () => {
+    mockGetPendingMessages.mockReturnValue([msg('sonny')])
     await runMessageRouterTick()
-
-    expect(deliveredSessions()).toEqual(['agent-gemma', 'agent-ling'])
+    expect(sent()).toEqual(['agent-sonny'])
   })
 })
