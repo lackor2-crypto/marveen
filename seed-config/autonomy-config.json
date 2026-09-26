@@ -214,6 +214,14 @@
       "timeout_minutes": 60
     },
     {
+      "key": "calendar_write",
+      "label": "Munkapad: teendo beirasa a Google Naptarba (csak a tulajdonos kattintasara, teendonkent)",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
+    },
+    {
       "key": "web_research",
       "label": "Munkapad: webkereses (csak olvas; a keresokifejezes a keresoszolgaltatohoz megy, mas nem)",
       "level": 3,

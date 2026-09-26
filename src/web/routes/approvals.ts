@@ -683,6 +683,11 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     void import('../../workbench-agent/approved-runner.js')
       .then((m) => m.settleWorkbenchApprovals())
       .catch((err) => logger.warn({ err }, 'workbench approval settle failed'))
+    // #406, 14. pont B: egy naptar-jegy dontese utan a teendo esemenye MOST
+    // megy ki (elutasitasnal a teendon latszik).
+    void import('../../workbench-todo-gcal.js')
+      .then((m) => m.settleTodoCalendarApprovals())
+      .catch((err) => logger.warn({ err }, 'workbench todo calendar settle failed'))
     // Kártya 62c63a5e (#108): a verify-result ág már régóta rámásolja a
     // reviewer-agent leletét a kapcsolódó kártyára, de maga a záró döntés
     // (ez az endpoint) eddig semmit nem írt oda -- a resolutionReason csak

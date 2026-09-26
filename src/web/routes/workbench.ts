@@ -55,6 +55,7 @@ import { searchProject } from '../../workbench-search.js'
 import { ensureLastWeekSummary, listWeeklySummaries, currentWeekSummary } from '../../workbench-weekly.js'
 import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTodos, todosToIcs, TODO_TEXT_MAX } from '../../workbench-todos.js'
 import { getReminderStatus, setReminderSettings } from '../../workbench-todo-reminder.js'
+import { gcalStatus, requestTodoCalendar, settleTodoCalendarApprovals } from '../../workbench-todo-gcal.js'
 import { sendOwnerChannelChecked } from '../../notify.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
@@ -224,6 +225,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   todo_reminder_send_failed: {
     hu: 'A próba-üzenet nem ment ki. A csatorna ezt válaszolta:',
     en: 'The test message did not go out. The channel replied:',
+  },
+  todo_gcal_no_account: {
+    hu: 'Még nincs bekötve Google-fiók, így a Google Naptárba sincs hova írni. Bekötni a Beállítások → Varázsló „Google-fiókok” lépésében lehet. Addig a „Naptárba (.ics)” letöltés bármely naptárral működik.',
+    en: 'No Google account is connected yet, so there is no Google Calendar to write to. Connect one in Settings → Wizard, "Google accounts" step. Until then the "To calendar (.ics)" download works with any calendar.',
+  },
+  todo_gcal_no_scope: {
+    hu: 'A bekötött Google-fiók nem adott engedélyt a naptár írására. Csatlakoztasd újra a Beállítások → Varázsló „Google-fiókok” lépésében, és a Google ablakában engedélyezd a Naptárat is.',
+    en: 'The connected Google account did not grant permission to write the calendar. Reconnect it in Settings → Wizard, "Google accounts" step, and allow Calendar in the Google window.',
+  },
+  todo_gcal_check_failed: {
+    hu: 'Nem tudtam megnézni, milyen Google-fiók van bekötve (a fiókok listája nem olvasható). Nézd meg a Beállítások → Varázsló „Google-fiókok” lépését.',
+    en: 'I could not check which Google account is connected (the account list cannot be read). Look at Settings → Wizard, "Google accounts" step.',
+  },
+  todo_gcal_blocked: {
+    hu: 'A Google Naptárba írás most tiltva van (Beállítások → Autonómia: „Munkapad: teendő beírása a Google Naptárba” 1-es szinten). Állítsd 2-re (jóváhagyással) vagy 3-ra.',
+    en: 'Writing to Google Calendar is switched off (Settings → Autonomy: "Workbench: to-do into Google Calendar" is at level 1). Set it to 2 (with approval) or 3.',
+  },
+  todo_gcal_failed: {
+    hu: 'A Google Naptár nem fogadta el az eseményt. A Google ezt válaszolta:',
+    en: 'Google Calendar did not accept the event. Google replied:',
   },
   todo_none_due: {
     hu: 'Ebben a projektben nincs nyitott, határidős teendő, így a naptárba sincs mit betenni.',
@@ -867,6 +888,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // KIS TEENDOK HATARIDOVEL (#406, 14. pont). Naptar: szabvanyos .ics fajl,
   // amit barmely naptar felvesz -- semmi nem megy ki a geprol magatol.
   if (path === '/api/workbench/todos' && method === 'GET') {
+    // Ha kozben dontottek egy naptar-jegyrol, a lista mar a kimenetelt mutassa.
+    try { await settleTodoCalendarApprovals() } catch { /* a lista ettol meg jon */ }
     const itemId = (url.searchParams.get('item') || '').trim()
     if (itemId) {
       const it = getWorkItem(itemId)
@@ -921,6 +944,29 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = addTodo({ work_item_id: it.id, text: body['text'], due_date: body['due_date'], repeat: body['repeat'], by: actor(ctx), source: 'owner' })
     if (!r.ok) return fail(res, r.code === 'too_many' ? 409 : r.code === 'item_not_found' ? 404 : 400, 'todo_' + r.code, lang)
     json(res, { todo: r.todo, todos: listItemTodos(it.id) })
+    return true
+  }
+  // GOOGLE NAPTAR (#406, 14. pont B): csak a tulajdonos kattintasara,
+  // teendonkent, a `calendar_write` jovahagyasi kapun at.
+  if (path === '/api/workbench/gcal-status' && method === 'GET') {
+    json(res, { gcal: gcalStatus() })
+    return true
+  }
+  const gcalMatch = path.match(/^\/api\/workbench\/todos\/([^/]+)\/gcal$/)
+  if (gcalMatch && method === 'POST') {
+    const td = getTodo(decodeURIComponent(gcalMatch[1]))
+    if (!td) return fail(res, 404, 'todo_not_found', lang)
+    const project = getProject(td.project_id)
+    if (project && project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = await requestTodoCalendar(td.id, lang === 'en' ? 'en' : 'hu', actor(ctx))
+    if (!r.ok) {
+      if (r.code === 'not_found') return fail(res, 404, 'todo_not_found', lang)
+      if (r.code === 'no_due') return fail(res, 409, 'todo_no_due', lang)
+      if (r.code === 'blocked') return fail(res, 403, 'todo_gcal_blocked', lang)
+      if (r.code === 'failed') return failDetail(res, 502, 'todo_gcal_failed', lang, (r.detail || '').slice(0, 300))
+      return fail(res, r.code === 'check_failed' ? 503 : 409, 'todo_gcal_' + r.code, lang)
+    }
+    json(res, { state: r.state, approval_id: r.state === 'pending' ? r.approval_id : null, todo: getTodo(td.id), todos: listItemTodos(td.work_item_id) })
     return true
   }
   const todoIcsAll = path === '/api/workbench/todos/ics' && method === 'GET'

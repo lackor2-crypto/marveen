@@ -24058,7 +24058,11 @@ async function renderAutonomyContent(gridEl, footerEl) {
 
       const label = document.createElement('div')
       label.className = 'autonomy-row-label'
-      label.textContent = cat.label
+      // Ha a kategorianak van forditasa, a felulet nyelven latszik (#406);
+      // kulonben a konfigban tarolt cimke.
+      const catKey = 'autonomy.cat.' + cat.key
+      const catLabel = t(catKey)
+      label.textContent = catLabel !== catKey ? catLabel : cat.label
 
       const levels = document.createElement('div')
       levels.className = 'autonomy-levels'
