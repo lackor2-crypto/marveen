@@ -4397,6 +4397,8 @@ window._i18n.en = {
   'auth.card.err_mismatch':       'Passwords do not match.',
   'auth.card.err_too_short':      'The password must be at least {n} characters.',
   'auth.card.err_generic':        'The operation failed.',
+  'mem.load_more':                'Load more (showing {n} so far)',
+  'mem.load_failed':              'The memories could not be loaded.',
   'auth.card.err_current_wrong':  'The current password is not right. Type it again.',
   'auth.card.signed_in_as':       'Signed in as {user}.',
   'auth.card.current_password':   'Current password',

@@ -1455,10 +1455,15 @@ export function decayMemories(): void {
   db.prepare('UPDATE memories SET salience = MAX(salience * 0.995, 0.01) WHERE created_at < ?').run(oneWeekAgo)
 }
 
-export function getMemoriesForChat(chatId: string, limit = 10): Memory[] {
+// `offset` pages the LISTING (#413, upstream 09a4712e rebuilt): without it
+// every page past the first returned the same rows. `id DESC` breaks the ties:
+// accessed_at has one-second granularity, so a bulk import leaves hundreds of
+// rows on the same second, and LIMIT/OFFSET over unordered ties can repeat one
+// row and never return another.
+export function getMemoriesForChat(chatId: string, limit = 10, offset = 0): Memory[] {
   return db
-    .prepare('SELECT * FROM memories WHERE chat_id = ? ORDER BY accessed_at DESC LIMIT ?')
-    .all(chatId, limit) as Memory[]
+    .prepare('SELECT * FROM memories WHERE chat_id = ? ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?')
+    .all(chatId, limit, offset) as Memory[]
 }
 
 // --- In-process memory cache (TTL-based) ---
@@ -1545,17 +1550,18 @@ export function saveAgentMemory(
 // accessed memories" instead of "the N most recent <category> memories", so an
 // older-but-still-active memory would drop out of the list with no truncation
 // signal -- invisible to the caller, and worst right after a restart.
-export function getAgentMemories(agentId: string, limit: number = 20, category?: string): Memory[] {
-  const key = `${agentId}:${limit}:${category ?? ''}`
+export function getAgentMemories(agentId: string, limit: number = 20, category?: string, offset = 0): Memory[] {
+  // The offset is part of the key, or page 2 would be served page 1's rows.
+  const key = `${agentId}:${limit}:${category ?? ''}:${offset}`
   const cached = memoryCacheGet(key)
   if (cached) return cached
   const result = (category
     ? db.prepare(
-        "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND category = ? ORDER BY accessed_at DESC LIMIT ?"
-      ).all(agentId, category, limit)
+        "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND category = ? ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?"
+      ).all(agentId, category, limit, offset)
     : db.prepare(
-        "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') ORDER BY accessed_at DESC LIMIT ?"
-      ).all(agentId, limit)) as Memory[]
+        "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?"
+      ).all(agentId, limit, offset)) as Memory[]
   memoryCacheSet(key, result)
   return result
 }

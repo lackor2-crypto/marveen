@@ -58,6 +58,20 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
     const tier = url.searchParams.get('tier') || url.searchParams.get('category') || ''
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200)
     const mode = url.searchParams.get('mode') || 'fts'
+    // Paging (#413, upstream 09a4712e rebuilt): only the plain LISTING pages.
+    // A search ranks by relevance (hybrid fuses two rankings, the FTS branch
+    // oversamples and re-ranks in JS), so an SQL OFFSET would page over a
+    // different order than page 1. Refused out loud instead of ignored.
+    const offsetRaw = url.searchParams.get('offset')
+    const offset = offsetRaw == null || offsetRaw === '' ? 0 : Number(offsetRaw)
+    if (!Number.isInteger(offset) || offset < 0) {
+      json(res, { error: 'bad_offset', message: 'Az offset nem negatív egész szám kell legyen. / offset must be a non-negative integer.' }, 400)
+      return true
+    }
+    if (offset > 0 && (url.searchParams.get('q')?.trim() || url.searchParams.get('project'))) {
+      json(res, { error: 'offset_with_search', message: 'Keresésnél és projekt-szűrésnél nincs lapozás: szűkítsd a keresést. / Paging works on the plain list only, not with a search or a project filter.' }, 400)
+      return true
+    }
 
     // Projekt-szures (kanban #321): `project=<id>` csak a projekthez kotott
     // memoriak, `project=none` a sehova nem kotottek. Kereses nelkul a kotottek
@@ -98,9 +112,14 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
       }
     } else if (agentId) {
       // Category goes into the query, not a post-filter: see getAgentMemories.
-      results = getAgentMemories(agentId, fetchLimit, tier || undefined)
+      results = getAgentMemories(agentId, fetchLimit, tier || undefined, offset)
+    } else if (tier) {
+      // Tier with no agent: the category goes into SQL too, ahead of LIMIT and
+      // OFFSET, or a page would be "the <tier> ones among the next N".
+      results = getDb().prepare('SELECT * FROM memories WHERE chat_id = ? AND category = ? ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?')
+        .all(ALLOWED_CHAT_ID, tier, fetchLimit, offset) as Memory[]
     } else {
-      results = getMemoriesForChat(ALLOWED_CHAT_ID, fetchLimit)
+      results = getMemoriesForChat(ALLOWED_CHAT_ID, fetchLimit, offset)
     }
 
     // Still needed for the search branches above, which rank by relevance and
