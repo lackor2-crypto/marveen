@@ -125,10 +125,6 @@ export async function probeFfmpeg(opts: { force?: boolean; candidates?: string[]
   }, opts)
 }
 
-function onlyofficeUrl(): string {
-  try { return String(getEffectiveSettingValue('WORKBENCH_ONLYOFFICE_URL') ?? '').trim() } catch { return '' }
-}
-
 export const CAPABILITIES: CapabilityDescriptor[] = [
   {
     key: 'pdf_preview',
@@ -178,39 +174,6 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     async measure(force) { return fromProbe(await probeLibreOffice({ force })) },
     extra() {
       return { extensions: Object.keys(OFFICE_CONVERTIBLE), candidates: sofficeCandidates(), configured_by: configuredSoffice()?.source ?? null }
-    },
-  },
-  {
-    key: 'office_embedded_edit',
-    tier: 'extra',
-    title: { hu: 'Word-dokumentum szerkesztése a böngészőben', en: 'Editing Word documents in the browser' },
-    what_for: {
-      hu: 'Egy ONLYOFFICE Document Server címével a dokumentumot közvetlenül a böngészőben lehetne szerkeszteni, letöltés nélkül.',
-      en: 'With the address of an ONLYOFFICE Document Server you could edit the document right in the browser, without downloading it.',
-    },
-    affects: {
-      hu: 'Ez kényelmi lehetőség. Enélkül a bevált út működik: letöltöd, szerkeszted a saját géped programjával, visszatöltöd -- és abból új verzió lesz, semmi nem vész el.',
-      en: 'This is a convenience. Without it the proven path works: download, edit in your own program, upload again -- that creates a new version and nothing is lost.',
-    },
-    how_to: {
-      hu: [
-        'Ehhez egy külön kiszolgálóra van szükség (ONLYOFFICE Document Server), ami nem része a Marveennek.',
-        'Ha már fut ilyen a hálózatodon, írd be alább a címét, például: http://localhost:8080',
-        'Ha nincs ilyened, hagyd üresen: a letöltés -> szerkesztés -> visszatöltés út ugyanúgy új verziót készít.',
-      ],
-      en: [
-        'This needs a separate server (ONLYOFFICE Document Server), which is not part of Marveen.',
-        'If you already run one, type its address below, for example: http://localhost:8080',
-        'If you do not have one, leave it empty: download -> edit -> upload still creates a new version.',
-      ],
-    },
-    obtain_url: 'https://www.onlyoffice.com/download-docs.aspx',
-    setting_key: 'WORKBENCH_ONLYOFFICE_URL',
-    testable: false,
-    async measure() {
-      const u = onlyofficeUrl()
-      if (!u) return { state: 'not_configured', detail: null, version: null, path: null }
-      return { state: 'ok', detail: null, version: null, path: u }
     },
   },
   {
@@ -413,16 +376,13 @@ function settingOf(key: string): CapabilitySetting | null {
     label: {
       hu: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'A LibreOffice teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Az FFmpeg teljes útvonala (üresen: magától megkeresi)'
-        : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server címe (üresen: nem használjuk)'
         : key,
       en: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'Full path to LibreOffice (empty: found automatically)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Full path to FFmpeg (empty: found automatically)'
-        : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server address (empty: not used)'
         : key,
     },
     placeholder: key === 'WORKBENCH_LIBREOFFICE_PATH' ? '/usr/bin/soffice'
       : key === 'WORKBENCH_FFMPEG_PATH' ? '/usr/bin/ffmpeg'
-      : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'http://localhost:8080'
       : '',
   }
 }
