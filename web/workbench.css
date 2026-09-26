@@ -778,3 +778,30 @@
 .wb-vid-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
 .wb-vid-row .wb-label { min-width: 48px; margin: 0; }
 .wb-vid-time { width: 7em; min-width: 0; }
+
+/* Kozossegi poszt elonezet (#406, Boss TG 6642/6653). Semleges, markajel nelkul. */
+.wb-post-block { margin-top: 16px; border-top: 1px solid var(--border, #d0d7de); padding-top: 12px; }
+.wb-post-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.wb-post-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.wb-post-controls select { max-width: 100%; }
+.wb-post-views { display: inline-flex; gap: 4px; }
+.wb-post-view-on { border-color: var(--accent, #2563eb); font-weight: 600; }
+.wb-post-stage { margin: 8px auto; max-width: 100%; }
+.wb-post-mobile { width: 360px; }
+.wb-post-desktop { width: 500px; }
+.wb-post-card { border: 1px solid var(--border, #d0d7de); border-radius: 10px; background: var(--card-bg, #fff); overflow: hidden; }
+.wb-post-author { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 0.9em; line-height: 1.2; }
+.wb-post-avatar { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--accent, #2563eb); color: #fff; font-weight: 700; flex: none; }
+.wb-post-text { padding: 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+.wb-post-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--wb-post-lines, 3); line-clamp: var(--wb-post-lines, 3); overflow: hidden; }
+.wb-post-more { background: none; border: 0; padding: 2px 12px 8px; color: var(--muted, #6b7280); cursor: pointer; font-weight: 600; }
+.wb-post-frame { position: relative; width: 100%; overflow: hidden; background: #111; cursor: grab; touch-action: none; }
+.wb-post-frame img { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; }
+.wb-post-noimg { display: flex; align-items: center; justify-content: center; background: var(--bg-subtle, #f3f4f6); cursor: default; text-align: center; padding: 12px; }
+.wb-post-safe { position: absolute; left: 0; right: 0; height: 13%; border: 2px dashed rgba(255,255,255,0.8); background: rgba(0,0,0,0.25); pointer-events: none; }
+.wb-post-safe-top { top: 0; }
+.wb-post-safe-bottom { bottom: 0; }
+.wb-post-story .wb-post-author { position: absolute; z-index: 1; color: #fff; }
+.wb-post-story { position: relative; }
+.wb-post-reactions { display: flex; justify-content: space-around; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border, #d0d7de); color: var(--muted, #6b7280); font-size: 0.9em; }
+@media (max-width: 560px) { .wb-post-mobile, .wb-post-desktop { width: 100%; } }
