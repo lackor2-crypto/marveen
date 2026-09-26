@@ -618,26 +618,25 @@ describe('agent-chat (3. fazis)', () => {
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Most nincs szabad keret.'))
   })
 
-  it('a kulcs-beallito urlap a feluletrol menti a kulcsot, es nem visszhangozza', async () => {
+  it('a beallito urlap csak a modellt kinalja es menti -- kulcs-mezo nincs (#404)', async () => {
     await openChat()
     h.respond((url) => {
-      if (url.indexOf('/api/workbench/agent/config') >= 0) return { status: 200, body: { WORKBENCH_MODEL: '', keyConfigured: false } }
+      if (url.indexOf('/api/workbench/agent/config') >= 0) return { status: 200, body: { WORKBENCH_MODEL: '' } }
       if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: false, message: 'Nincs beállítva AI-szolgáltató.' }, usage: { usedPct: null, measured: false }, allowed: true } }
       return { status: 200, body: itemsBody([]) }
     })
     h.click({ 'data-wb-act': 'chat-setup' })
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatSetup"'))
-    // A kulcs mezo URES: a meglevo kulcs sosem jon vissza a feluletre.
-    expect(h.rootEl.innerHTML).toMatch(/id="wbChatKey"[^>]*type="password"/)
-    expect(h.rootEl.innerHTML).not.toContain('sk-ant-valodi')
+    expect(h.rootEl.innerHTML).not.toContain('wbChatKey')
+    expect(h.rootEl.innerHTML).not.toContain('console.anthropic.com')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.setup_intro')
 
-    h.inputs.wbChatKey = { value: 'sk-ant-uj-kulcs', focus() {} }
     h.inputs.wbChatModel = { value: 'claude-sonnet-5', focus() {} }
     h.click({ 'data-wb-act': 'chat-setup-save' })
     await vi.waitFor(() => {
       const post = h.fetchCalls.find((c) => c.url.indexOf('/api/workbench/agent/config') >= 0 && c.init && c.init.method === 'POST')
       expect(post).toBeTruthy()
-      expect(JSON.parse(String(post?.init?.body)).WORKBENCH_ANTHROPIC_API_KEY).toBe('sk-ant-uj-kulcs')
+      expect(JSON.parse(String(post?.init?.body))).toEqual({ WORKBENCH_MODEL: 'claude-sonnet-5' })
     })
   })
 })
@@ -1297,7 +1296,8 @@ describe('kepesseg-panel (8. fazis)', () => {
       how_to: ['Alapesetben nincs teendőd.'], obtain_url: null,
       optional: false, available: true, state: 'ok', message: 'Elérhető (claude-opus-5).',
       detail: null, version: 'claude-opus-5', path: 'anthropic', checked_at: 1758600000000, testable: true,
-      setting: { key: 'WORKBENCH_ANTHROPIC_API_KEY', value: null, secret: true, configured: false, label: 'Saját Anthropic API-kulcs', placeholder: 'sk-ant-...' },
+      // #404: a Munkapad-ugynoknek nincs beallitasa (egyetlen ut az elofizetes).
+      setting: null,
     },
     {
       key: 'tts', tier: 'extra', title: 'Felolvasás (ElevenLabs)',
@@ -1357,10 +1357,20 @@ describe('kepesseg-panel (8. fazis)', () => {
   })
 
   it('TITOKNAL jelszo-mezo all, ures ertekkel -- a kulcs sosem kerul a kepernyore', async () => {
-    await openPanel()
+    // A felulet altalanos titok-kezeleset merjuk egy kitalalt titkos sorral:
+    // a Munkapadnak jelenleg nincs titkos beallitasa (#404).
+    const caps = CAPS.map((c) => (c.key === 'video_render'
+      ? { ...c, setting: { key: 'WORKBENCH_TEST_SECRET', value: null, secret: true, configured: false, label: 'Titok', placeholder: '' } }
+      : c))
+    await openPanel(caps)
     const html = h.rootEl.innerHTML
-    expect(html).toContain('id="wbCapSet-WORKBENCH_ANTHROPIC_API_KEY" type="password"')
+    expect(html).toContain('id="wbCapSet-WORKBENCH_TEST_SECRET" type="password"')
     expect(html).toContain('workbench.caps.secret_empty')
+  })
+
+  it('#404: a Munkapad-ugynok soraban nincs beallito mezo (sajat API-kulcs nincs)', async () => {
+    await openPanel()
+    expect(h.rootEl.innerHTML).not.toContain('wbCapSet-WORKBENCH_ANTHROPIC_API_KEY')
   })
 
   it('"Ellenorzes most" ujramer, es a sor AZONNAL az uj allapotot mutatja', async () => {

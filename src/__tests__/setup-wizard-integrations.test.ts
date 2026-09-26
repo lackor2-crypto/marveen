@@ -22,8 +22,6 @@ import { integrationRows } from '../web/system-health.js'
  * "forgot" is not one.
  */
 const EXEMPT: Record<string, string> = {
-  WORKBENCH_ANTHROPIC_API_KEY:
-    'Not a capability: the Workbench works on the logged-in Claude subscription by default; the key only moves billing to a separate account, and is offered next to the Workbench model choice.',
   CODE_BOT_TOKEN:
     'Configured in the Code bridge window, which has its own walk-through and its own self-check rows (code_bridge_*).',
   TOKEN_USAGE_RETENTION_DAYS: 'Not a credential: a retention period that happens to contain the word TOKEN.',

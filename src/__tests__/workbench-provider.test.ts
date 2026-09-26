@@ -4,7 +4,8 @@
 //   1. a nyilvantartas: uj szolgaltato hozzaadasa nem nyul az orchestratorhoz;
 //   2. "nincs beallitva szolgaltato" KIMONDOTT allapot (null), nem kivetel;
 //   3. a modell a CONFIGBOL jon, nincs beegetve;
-//   4. API-KULCS: a kulcs SEM a valaszba, SEM a hibauzenetbe nem szivarog ki;
+//   4. EGY UT (#404): nincs sajat API-kulcsos ut, egy regi tarolt kulcs sem
+//      kapcsol at fizetos hivasra;
 //   5. a CLI stream-json sorainak ertelmezese (ez viszi a valodi valaszt).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
@@ -142,7 +143,7 @@ describe('a beszelgetes atadasa', () => {
 // A valodi AnthropicProvider config-fuggo agai kulon modulban, mert a
 // `settings-store` modul-szintu allapotot tart.
 describe('AnthropicProvider -- config-fuggo viselkedes', () => {
-  it('kulcs nelkul es bejelentkezes nelkul: NEM elerheto, es kimondja miert', async () => {
+  it('bejelentkezes nelkul: NEM elerheto, es kimondja miert', async () => {
     vi.resetModules()
     vi.doMock('../settings-store.js', () => ({ getEffectiveSettingValue: () => '' }))
     vi.doMock('../web/claude-plans.js', () => ({ resolveAgentConfigDir: () => ({ configDir: '/nincs/ilyen/konyvtar' }) }))
@@ -154,7 +155,7 @@ describe('AnthropicProvider -- config-fuggo viselkedes', () => {
     // A stream sem dob: kimondott hibat ad.
     const chunks: AIChunk[] = []
     for await (const c of anthropicProvider.stream({ system: 's', messages: [{ role: 'user', content: 'x' }], lang: 'hu' })) chunks.push(c)
-    expect(chunks).toEqual([{ kind: 'error', code: 'not_configured', detail: 'no signed-in Claude account and no server-side API key' }])
+    expect(chunks).toEqual([{ kind: 'error', code: 'not_configured', detail: 'no signed-in Claude account' }])
     vi.doUnmock('../settings-store.js')
     vi.doUnmock('../web/claude-plans.js')
   })
@@ -175,49 +176,40 @@ describe('AnthropicProvider -- config-fuggo viselkedes', () => {
     vi.doUnmock('../settings-store.js')
   })
 
-  it('a szerveroldali kulcs LETEZESE latszik, maga a kulcs SOSE', async () => {
+  it('#404: nincs sajat API-kulcsos ut -- egy regi tarolt kulcs sem kapcsol at fizetos hivasra', async () => {
     vi.resetModules()
-    const SECRET = 'sk-ant-titkos-kulcs-amit-senki-nem-lathat'
+    const asked: string[] = []
+    // A valodi beallitas-tar ISMERETLEN kulcsra dob: ha a provider meg kerdezne
+    // a regi kulcsot, ez a teszt elbukik.
     vi.doMock('../settings-store.js', () => ({
-      getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_ANTHROPIC_API_KEY' ? SECRET : ''),
+      getEffectiveSettingValue: (k: string) => {
+        asked.push(k)
+        if (k === 'WORKBENCH_ANTHROPIC_API_KEY') throw new Error('Unknown setting key: ' + k)
+        return ''
+      },
     }))
+    vi.doMock('../web/claude-plans.js', () => ({ resolveAgentConfigDir: () => ({ configDir: '/nincs/ilyen/konyvtar-404' }) }))
+    vi.doMock('../workbench-agent/accounts.js', () => ({ workbenchAccounts: () => [] }))
     const mod = await import('../workbench-agent/provider-anthropic.js')
-    expect(mod.hasServerApiKey()).toBe(true)
-    const a = mod.anthropicProvider.availability()
-    expect(a.available).toBe(true)
-    // A kulcs SEM az allapotban, SEM a reszletben nem jelenik meg.
-    expect(JSON.stringify(a)).not.toContain(SECRET)
-    expect(JSON.stringify(a)).not.toContain('sk-ant')
-
-    // A hibauzenetbe sem szivaroghat ki: a szolgaltato elutasit, a kulcs nem latszik.
+    expect('hasServerApiKey' in mod).toBe(false)
+    expect('ANTHROPIC_API_URL' in mod).toBe(false)
     const origFetch = globalThis.fetch
-    globalThis.fetch = (async () => new Response('{"error":"nope"}', { status: 401 })) as typeof fetch
+    let fetched = 0
+    globalThis.fetch = (async () => { fetched++; return new Response('{}', { status: 200 }) }) as typeof fetch
     try {
+      const a = mod.anthropicProvider.availability()
+      expect(a).toMatchObject({ available: false, reason: 'not_configured', detail: 'no signed-in Claude account' })
+      expect(mod.anthropicProvider.accounts!()).toEqual([])
       const chunks: AIChunk[] = []
       for await (const c of mod.anthropicProvider.stream({ system: 's', messages: [{ role: 'user', content: 'x' }], lang: 'hu' })) chunks.push(c)
-      expect(JSON.stringify(chunks)).not.toContain(SECRET)
-      expect(chunks[0]).toMatchObject({ kind: 'error', code: 'failed' })
+      expect(chunks).toEqual([{ kind: 'error', code: 'not_configured', detail: 'no signed-in Claude account' }])
+      expect(fetched).toBe(0)
+      expect(asked).not.toContain('WORKBENCH_ANTHROPIC_API_KEY')
     } finally {
       globalThis.fetch = origFetch
+      vi.doUnmock('../settings-store.js')
+      vi.doUnmock('../web/claude-plans.js')
+      vi.doUnmock('../workbench-agent/accounts.js')
     }
-    vi.doUnmock('../settings-store.js')
-  })
-
-  it('a kulcsos uton a 429-et a szolgaltato SAJAT szava alapjan nevezzuk keret-hibanak', async () => {
-    vi.resetModules()
-    vi.doMock('../settings-store.js', () => ({
-      getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'kulcs' : ''),
-    }))
-    const mod = await import('../workbench-agent/provider-anthropic.js')
-    const origFetch = globalThis.fetch
-    globalThis.fetch = (async () => new Response('rate_limit_error', { status: 429 })) as typeof fetch
-    try {
-      const chunks: AIChunk[] = []
-      for await (const c of mod.anthropicProvider.stream({ system: 's', messages: [{ role: 'user', content: 'x' }], lang: 'hu' })) chunks.push(c)
-      expect(chunks[0]).toMatchObject({ kind: 'error', code: 'limit' })
-    } finally {
-      globalThis.fetch = origFetch
-    }
-    vi.doUnmock('../settings-store.js')
   })
 })

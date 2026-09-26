@@ -36,7 +36,9 @@ export interface AICallRequest {
   account?: string
 }
 
-/** Honnan ment a hivas: melyik fiok, vagy a szerveroldali API-kulcs. SOSE token/email. */
+/** Honnan ment a hivas: melyik fiok. SOSE token/email. Az `api_key` valtozat
+ *  a kikerult sajat-kulcsos utbol (#404) maradt: uj ilyen sor nem keletkezik,
+ *  de a regi beszelgetes-sorok igy olvashatok maradnak -- ezert NE vedd ki. */
 export type AIVia =
   | { kind: 'account'; account: string }
   | { kind: 'api_key' }

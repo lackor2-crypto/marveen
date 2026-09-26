@@ -169,12 +169,13 @@ describe('amit a felhasznalo lat', () => {
     expect(row.obtain_url).toMatch(/^https:\/\//)
   })
 
-  it('TITOK sosem kerul a bongeszobe -- csak az, hogy van-e beallitva', async () => {
-    const row = await describeCapability(getCapability('ai_agent')!, 'hu', true)
-    expect(row.setting!.key).toBe('WORKBENCH_ANTHROPIC_API_KEY')
-    expect(row.setting!.secret).toBe(true)
-    expect(row.setting!.value).toBe(null)
-    expect(typeof row.setting!.configured).toBe('boolean')
+  it('#404: a Munkapad-ugynoknek nincs beallitasa, es sehol nem kinal sajat API-kulcsot', async () => {
+    for (const lang of ['hu', 'en'] as const) {
+      const row = await describeCapability(getCapability('ai_agent')!, lang, true)
+      expect(row.setting).toBe(null)
+      expect(row.how_to.join(' ')).not.toMatch(/API-kulcs|API key/i)
+    }
+    expect(writableSettingKeys()).not.toContain('WORKBENCH_ANTHROPIC_API_KEY')
   })
 
   it('a PDF-elonezet alapfunkcio, es mindig mukodik (nincs mit telepiteni)', async () => {
