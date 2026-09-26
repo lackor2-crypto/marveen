@@ -46,6 +46,7 @@ import {
 import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
+import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -319,6 +320,30 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Mentve, új verzióként. A korábbi állapot megmaradt.',
     en: 'Saved as a new version. The earlier state is kept.',
   },
+  upload_too_large: {
+    hu: `Ez a fájl túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába a gépeden, és onnan vedd fel.`,
+    en: `This file is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder on your computer and add it from there.`,
+  },
+  upload_empty: {
+    hu: 'A feltöltött fájl üres volt (nulla bájt). Próbáld újra.',
+    en: 'The uploaded file was empty (zero bytes). Try again.',
+  },
+  upload_no_depot: {
+    hu: 'Nincs beállítva Raktár, ezért a fájl nem tud hova kerülni. Nyisd meg a Raktár oldalt, és válaszd ki a mappát.',
+    en: 'No Depot is configured, so the file has nowhere to go. Open the Depot page and pick the folder.',
+  },
+  upload_no_folder: {
+    hu: 'Ehhez a projekthez nincs mappa, ezért a fájl nem tud hova kerülni. Nyisd meg a projekt adatlapját, és adj neki mappát.',
+    en: 'This project has no folder, so the file has nowhere to go. Open the project page and give it a folder.',
+  },
+  upload_missing: {
+    hu: 'A projekt mappája nincs meg a lemezen. Nyisd meg a projektet, és nézd meg a mappáját.',
+    en: 'The project folder is missing from the disk. Open the project and check its folder.',
+  },
+  upload_unreachable: {
+    hu: 'A projekt mappáját most nem érem el (lehet, hogy a meghajtó nincs csatlakoztatva). Ez NEM azt jelenti, hogy eltűnt.',
+    en: 'The project folder cannot be reached right now (the drive may be disconnected). This does NOT mean it is gone.',
+  },
   capability_saved: {
     hu: 'Elmentve, és azonnal újra megmértem.',
     en: 'Saved, and measured again right away.',
@@ -484,6 +509,44 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, item: r.item, versions: [r.version] }, 201)
+    return true
+  }
+
+  // FAJLBOL UJ MUNKADARAB (#406, 3. pont): behuzas / feltoltes a feluletrol,
+  // telefonrol is. A nyers bajtok jonnek, a nev a query-ben (ekezetes nev sem
+  // torik el). A fajl a projekt mappajaba kerul, foglalt nevnel UJ nevet kap
+  // (sosem ir felul), es egy uj munkadarab szuletik, aminek ez a forrasa.
+  if (path === '/api/workbench/items/upload' && method === 'POST') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    const name = url.searchParams.get('name') || ''
+    const out = writeProjectFile(project, url.searchParams.get('sub'), name, data)
+    if (!out.ok) {
+      const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
+      return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
+    }
+    const r = createWorkItem({
+      project_id: project.id,
+      type: workItemTypeForFile(out.name, url.searchParams.get('type')),
+      title: titleFromFileName(out.name),
+      source_path: out.rel,
+      created_by: actor(ctx),
+    })
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, { ok: true, item: r.item, versions: [r.version], file: out, renamed: out.renamed, name: out.name }, 201)
     return true
   }
 

@@ -85,6 +85,9 @@
     // "nem tudtam lekerdezni" sose latsszon "nincs semmi"-nek.
     overview: null,
     overviewError: null,
+    // --- behuzas es feltoltes (#406, 3. pont) ---
+    // `upload === null` = nincs folyamatban; kulonben {done, total}.
+    upload: null,
   }
 
   /** A mentett elrendezes. Ha a bongeszo nem enged tarolni (privat mod, regi
@@ -285,14 +288,138 @@
           + '</button></li>'
       }).join('') + '</ul>'
     }
-    return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items">'
+    return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
       + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
       + body
       + (archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
-        : WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
+        : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
+          + uploadZoneHtml())
       + '</section>'
+  }
+
+  // ---- behuzas es feltoltes (#406, 3. pont) ----------------------------------
+  //
+  // Harom ut vezet ugyanoda: (1) fajl ráhúzása a Munkapadra, (2) a "Fajlok
+  // kivalasztasa" gomb -- telefonon ez nyitja a galeriat / kamerat --, es
+  // (3) beillesztes (Ctrl+V) a vagolaprol. A fajl a PROJEKT mappajaba kerul,
+  // sosem ir felul semmit (foglalt nevnel uj nevet kap).
+  //
+  // HOVA: a munkadarab-listara (vagy barhova mashova) ejtve UJ munkadarab lesz
+  // belole; a megnyitott munkadarabra ejtve abba kerul -- a kep uj RESZ lesz,
+  // mas fajl uj VERZIO.
+
+  function uploadZoneHtml() {
+    var busy = WB.upload
+    return '<div class="wb-drop">'
+      + '<p class="wb-drop-text">' + esc(busy
+        ? t('workbench.upload.progress', { done: busy.done, total: busy.total })
+        : t('workbench.upload.drop_new')) + '</p>'
+      + '<label class="btn-secondary wb-part-upload" for="wbUploadNew">' + esc(t('workbench.upload.pick')) + '</label>'
+      + '<input type="file" id="wbUploadNew" class="wb-file-input" multiple>'
+      + '<p class="wb-hint">' + esc(t('workbench.upload.hint')) + '</p>'
+      + '</div>'
+  }
+
+  /** Nyers bajtok a szervernek; a valasz mindig {ok, data, message}. A
+   *  hibanal a SZERVER mondata megy tovabb (a gepi kod csak tartalek). */
+  function postFile(url, file) {
+    return fetch(url, { method: 'POST', body: file }).then(function (res) {
+      return res.json().catch(function () { return null }).then(function (data) {
+        if (!res.ok) return { ok: false, data: data, message: (data && data.message) || t('workbench.err.http', { status: res.status }) }
+        return { ok: true, data: data }
+      })
+    }).catch(function () { return { ok: false, message: t('workbench.err.network') } })
+  }
+
+  function isImageFile(f) {
+    if (f && typeof f.type === 'string' && f.type.indexOf('image/') === 0) return true
+    return /\.(png|jpe?g|gif|webp|bmp|avif|heic|heif)$/i.test((f && f.name) || '')
+  }
+
+  /** `target === 'item'`: a megnyitott munkadarabba (kep -> resz, mas -> uj
+   *  verzio). Kulonben minden fajlbol UJ munkadarab. Egymas utan megy, hogy a
+   *  szamlalo pontos legyen, es egy hiba ne vigye el a tobbit. */
+  function uploadFiles(fileList, target) {
+    var files = []
+    for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
+    if (!files.length || WB.upload || !WB.projectId) return Promise.resolve()
+    if (archived()) { window.showToast(t('workbench.archived_hint')); return Promise.resolve() }
+    var intoItem = target === 'item' && WB.selectedId ? WB.selectedId : null
+    var projectId = WB.projectId
+    var lang = encodeURIComponent(window._lang || 'hu')
+    WB.upload = { done: 0, total: files.length }
+    render()
+    var created = []
+    var errors = []
+    var chain = Promise.resolve()
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        var name = encodeURIComponent(f.name || 'fajl')
+        var type = encodeURIComponent(f.type || '')
+        var url
+        if (intoItem) {
+          url = '/api/workbench/items/' + encodeURIComponent(intoItem)
+            + (isImageFile(f) ? '/parts/image' : '/document')
+            + '?name=' + name + '&type=' + type + '&lang=' + lang
+        } else {
+          url = '/api/workbench/items/upload?project=' + encodeURIComponent(projectId)
+            + '&name=' + name + '&type=' + type + '&lang=' + lang
+        }
+        return postFile(url, f).then(function (r) {
+          if (WB.upload) WB.upload.done++
+          if (!r.ok) errors.push((f.name ? f.name + ': ' : '') + r.message)
+          else if (!intoItem && r.data && r.data.item) created.push(r.data.item)
+          if (WB.projectId === projectId) render()
+        })
+      })
+    })
+    return chain.then(function () {
+      WB.upload = null
+      if (WB.projectId !== projectId) return
+      var ok = files.length - errors.length
+      if (errors.length) window.showToast(errors.join(' \u2014 '))
+      if (ok) {
+        window.showToast(intoItem
+          ? t('workbench.upload.done_item', { n: ok })
+          : t('workbench.upload.done_new', { n: ok }))
+      }
+      if (intoItem) {
+        if (WB.selectedId === intoItem) loadDetail(intoItem)
+        load(projectId)
+      } else {
+        load(projectId)
+        // Egy fajl = egy uj munkadarab: azt nyitjuk meg, hogy latsszon.
+        if (created.length === 1) selectItem(created[0].id)
+        else render()
+      }
+    })
+  }
+
+  function hasFiles(e) {
+    var dt = e && e.dataTransfer
+    if (!dt) return false
+    if (dt.types) {
+      for (var i = 0; i < dt.types.length; i++) if (dt.types[i] === 'Files') return true
+    }
+    return !!(dt.files && dt.files.length)
+  }
+
+  function inWorkbench(e) {
+    return !!(e && e.target && typeof e.target.closest === 'function' && e.target.closest('.wb-root'))
+  }
+
+  function dropTarget(e) {
+    var zone = e && e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drop]') : null
+    var kind = zone && typeof zone.getAttribute === 'function' ? zone.getAttribute('data-wb-drop') : null
+    return kind === 'item' && WB.selectedId ? 'item' : 'new'
+  }
+
+  function setDragging(on) {
+    var el = root()
+    var box = el && typeof el.querySelector === 'function' ? el.querySelector('.wb-root') : null
+    if (box && box.classList) box.classList.toggle('wb-dragging', !!on)
   }
 
   function newFormHtml() {
@@ -1408,11 +1535,15 @@
       inner = '<div class="wb-editor-head"><h3>' + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
+        + (archived() ? '' : '<p class="wb-hint wb-drop-item-hint">' + esc(t(WB.upload
+          ? 'workbench.upload.busy'
+          : 'workbench.upload.drop_item')) + '</p>')
         + previewHtml()
         + canvasHtml()
         + partsHtml()
     }
-    return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor">'
+    var dropAttr = WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="item"' : ''
+    return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor"' + dropAttr + '>'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.editor')) + '</h2>'
       + switcherHtml()
       + inner + '</section>'
@@ -2400,6 +2531,7 @@
     WB.partBusy = false
     WB.overview = null
     WB.overviewError = null
+    WB.upload = null
     render()
     load(projectId)
     loadChatStatus()
@@ -2625,6 +2757,12 @@
       selectItem(e.target.value)
       return
     }
+    if (e.target.id === 'wbUploadNew') {
+      var picked = e.target.files
+      if (picked && picked.length) uploadFiles(picked, 'new')
+      try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      return
+    }
     if (e.target.id === 'wbDocUpload') {
       var docs = e.target.files
       if (docs && docs.length) uploadDocumentVersion(docs[0])
@@ -2640,6 +2778,36 @@
       WB.previewVersion = e.target.value || null
       loadPreview(WB.selectedId, WB.previewVersion)
     }
+  })
+
+  // Behuzas: a bongeszo alapbol MEGNYITNA a fajlt (elhagyva a Munkapadot) --
+  // ezt csak a Munkapadon belul akadalyozzuk meg, mashol nem szolunk bele.
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || !hasFiles(e) || !inWorkbench(e)) return
+    e.preventDefault()
+    if (e.dataTransfer) { try { e.dataTransfer.dropEffect = 'copy' } catch (_e) { /* nem baj */ } }
+    setDragging(true)
+  })
+  document.addEventListener('dragleave', function (e) {
+    if (!WB.open) return
+    // Csak ha tenyleg kiment a Munkapadrol (a gyerek-elemek kozott is jon dragleave).
+    if (!e.relatedTarget || !inWorkbench({ target: e.relatedTarget })) setDragging(false)
+  })
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || !inWorkbench(e)) return
+    setDragging(false)
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    uploadFiles(e.dataTransfer.files, dropTarget(e))
+  })
+  // Beillesztes (Ctrl+V): kepernyokep, masolt fajl. Szoveg beillesztesebe
+  // nem szolunk bele -- csak ha a vagolapon FAJL van.
+  document.addEventListener('paste', function (e) {
+    if (!WB.open) return
+    var files = e && e.clipboardData && e.clipboardData.files
+    if (!files || !files.length) return
+    e.preventDefault()
+    uploadFiles(files, WB.selectedId && WB.detail ? 'item' : 'new')
   })
 
   document.addEventListener('submit', function (e) {
