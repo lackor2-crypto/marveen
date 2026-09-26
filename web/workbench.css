@@ -578,3 +578,15 @@
 .wb-approval p { margin: 0 0 6px; }
 .wb-approval-reason { width: 100%; box-sizing: border-box; margin: 4px 0; }
 .wb-approval-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* --- Dontesnaplo (#406, 10. pont) ----------------------------------------- */
+.wb-dec-form { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.wb-dec-form textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.wb-dec-list { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.wb-dec-row { padding: 8px 0; border-bottom: 1px solid var(--border, #d0d7de); }
+.wb-dec-row:last-child { border-bottom: 0; }
+.wb-dec-text { white-space: pre-wrap; word-break: break-word; }
+.wb-dec-meta { font-size: 12px; margin-top: 2px; }
+.wb-dec-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.wb-dec-revoked .wb-dec-text { text-decoration: line-through; opacity: .65; }
+@media (max-width: 700px) { .wb-dec-form textarea { font-size: 16px; } }

@@ -50,6 +50,7 @@ import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.j
 import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
+import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
@@ -145,6 +146,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   approval_reason_too_long: {
     hu: 'Az indoklás túl hosszú (legfeljebb 1000 karakter).',
     en: 'The note is too long (1000 characters at most).',
+  },
+  decision_text_required: {
+    hu: 'Írd be, miben állapodtatok meg (például: „a logó kék marad”).',
+    en: 'Type what was agreed (for example: "the logo stays blue").',
+  },
+  decision_text_too_long: {
+    hu: 'A döntés túl hosszú (legfeljebb 500 karakter). Írd röviden, egy-két mondatban.',
+    en: 'The decision is too long (500 characters at most). Keep it to a sentence or two.',
+  },
+  decision_too_many: {
+    hu: 'Ebben a projektben már 200 érvényes döntés van. Vonj vissza néhány régit, mielőtt újat írsz.',
+    en: 'This project already has 200 decisions in force. Withdraw some old ones before adding a new one.',
+  },
+  decision_not_found: {
+    hu: 'Ez a döntés nem található (lehet, hogy közben törölték). Frissítsd az oldalt.',
+    en: 'This decision was not found (it may have been removed meanwhile). Reload the page.',
+  },
+  decision_item_not_in_project: {
+    hu: 'A megadott munkadarab nem ehhez a projekthez tartozik.',
+    en: 'The given work item does not belong to this project.',
   },
   search_query_short: {
     hu: 'Írj be legalább 2 betűt a kereséshez.',
@@ -549,6 +570,56 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = await searchProject(project, url.searchParams.get('q'))
     if (!r.ok) return fail(res, 400, r.code === 'query_short' ? 'search_query_short' : 'search_query_long', lang)
     json(res, { search: r.result })
+    return true
+  }
+
+  // DONTESNAPLO (#406, 10. pont): amiben a projektben megallapodtak.
+  // Visszavonni lehet (a sor atuzva megmarad), torolni nem.
+  if (path === '/api/workbench/decisions' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    json(res, {
+      decisions: listDecisions(project.id, { includeRevoked: true }),
+      max_chars: DECISION_MAX_CHARS,
+      max_active: DECISIONS_MAX_ACTIVE,
+    })
+    return true
+  }
+  if (path === '/api/workbench/decisions' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = typeof body['project'] === 'string' ? body['project'].trim() : ''
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = addDecision({
+      project_id: project.id,
+      text: body['text'],
+      work_item_id: typeof body['work_item_id'] === 'string' && body['work_item_id'] ? body['work_item_id'] : null,
+      by: actor(ctx),
+      source: 'owner',
+    })
+    if (!r.ok) return fail(res, r.code === 'too_many' ? 409 : 400, 'decision_' + r.code, lang)
+    json(res, { decision: r.decision })
+    return true
+  }
+  const decMatch = path.match(/^\/api\/workbench\/decisions\/([^/]+)$/)
+  if (decMatch && method === 'PATCH') {
+    const d = getDecision(decodeURIComponent(decMatch[1]))
+    if (!d) return fail(res, 404, 'decision_not_found', lang)
+    const project = getProject(d.project_id)
+    if (project && project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    let r = null as ReturnType<typeof updateDecision> | null
+    if ('text' in body) r = updateDecision(d.id, body['text'])
+    if ((!r || r.ok) && typeof body['revoked'] === 'boolean') r = setDecisionRevoked(d.id, body['revoked'])
+    if (!r) return fail(res, 400, 'decision_text_required', lang)
+    if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : r.code === 'too_many' ? 409 : 400, 'decision_' + r.code, lang)
+    json(res, { decision: r.decision })
     return true
   }
 

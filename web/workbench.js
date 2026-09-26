@@ -104,6 +104,14 @@
     searchBusy: false,
     // --- jovahagyas munkadarabra (#406, 9. pont) ---
     approvalBusy: false,
+    // --- dontesnaplo (#406, 10. pont) ---
+    // `decisions === null` = meg nem toltottuk be; a hiba KULON all, hogy a
+    // "nem tudtam betolteni" sose latsszon "meg nincs dontes"-nek.
+    decOpen: false,
+    decisions: null,
+    decError: null,
+    decBusy: false,
+    decEdit: null,
     // --- projekt-attekinto (#406, 2. pont) ---
     // `overview === null` = MEG NEM kerdeztuk meg; a hiba KULON all, hogy a
     // "nem tudtam lekerdezni" sose latsszon "nincs semmi"-nek.
@@ -2704,6 +2712,125 @@
     })
   }
 
+  // ---- dontesnaplo (#406, 10. pont) -----------------------------------------
+  //
+  // Amiben a projektben megallapodtak ("a logo kek marad"). A tulajdonos itt
+  // irja be; a Munkapad-agens a beszelgetesbol rogzit, es minden forduloban
+  // megkapja. Torles nincs: a visszavont dontes athuzva latszik, visszaallithato.
+
+  function loadDecisions() {
+    var pid = WB.projectId
+    if (!pid) return
+    WB.decError = null
+    return api('GET', '/api/workbench/decisions?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.projectId !== pid) return
+      if (!r.ok) { WB.decError = r.message; WB.decisions = null; render(); return }
+      WB.decisions = (r.data && r.data.decisions) || []
+      render()
+    })
+  }
+
+  function decRowHtml(d) {
+    var revoked = d.revoked_at != null
+    var ro = archived() || WB.decBusy ? ' disabled' : ''
+    var who = d.source === 'agent' ? t('workbench.dec.by_agent') : (d.created_by ? t('workbench.dec.by', { name: d.created_by }) : '')
+    var item = null
+    if (d.work_item_id) item = (WB.items || []).filter(function (i) { return i.id === d.work_item_id })[0] || null
+    if (WB.decEdit === d.id) {
+      return '<li class="wb-dec-row">'
+        + '<form id="wbDecEditForm" class="wb-dec-form">'
+        + '<textarea id="wbDecEditText" rows="2" maxlength="500" aria-label="' + escA(t('workbench.dec.edit')) + '">' + esc(d.text) + '</textarea>'
+        + '<div class="wb-dec-btns">'
+        + '<button type="submit" class="btn-primary"' + ro + '>' + esc(t('workbench.dec.save')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="dec-cancel">' + esc(t('workbench.dec.cancel')) + '</button>'
+        + '</div></form></li>'
+    }
+    return '<li class="wb-dec-row' + (revoked ? ' wb-dec-revoked' : '') + '">'
+      + '<div class="wb-dec-text">' + esc(d.text) + '</div>'
+      + '<div class="wb-dec-meta wb-muted">' + esc(when(d.created_at)) + (who ? ' · ' + esc(who) : '')
+      + (item ? ' · <button type="button" class="wb-tl-link" data-wb-item="' + escA(item.id) + '">' + esc(item.title) + '</button>' : '')
+      + (revoked ? ' · ' + esc(t('workbench.dec.revoked_at', { when: when(d.revoked_at) })) : '')
+      + '</div>'
+      + (archived() ? '' : '<div class="wb-dec-btns">'
+        + (revoked
+          ? '<button type="button" class="btn-secondary" data-wb-act="dec-restore" data-wb-dec="' + escA(d.id) + '"' + ro + '>' + esc(t('workbench.dec.restore')) + '</button>'
+          : '<button type="button" class="btn-secondary" data-wb-act="dec-edit" data-wb-dec="' + escA(d.id) + '"' + ro + '>' + esc(t('workbench.dec.edit')) + '</button>'
+            + '<button type="button" class="btn-secondary" data-wb-act="dec-revoke" data-wb-dec="' + escA(d.id) + '"' + ro + '>' + esc(t('workbench.dec.revoke')) + '</button>')
+        + '</div>')
+      + '</li>'
+  }
+
+  function decisionsPanelHtml() {
+    if (!WB.decOpen) return ''
+    var body = ''
+    if (WB.decError) body = '<p class="wb-error">' + esc(WB.decError) + '</p>'
+    else if (WB.decisions === null) body = '<p class="wb-hint">' + esc(t('workbench.dec.loading')) + '</p>'
+    else if (!WB.decisions.length) body = '<p class="wb-hint">' + esc(t('workbench.dec.empty')) + '</p>'
+    else {
+      var active = WB.decisions.filter(function (d) { return d.revoked_at == null })
+      var old = WB.decisions.filter(function (d) { return d.revoked_at != null })
+      body = (active.length
+        ? '<ul class="wb-dec-list">' + active.map(decRowHtml).join('') + '</ul>'
+        : '<p class="wb-hint">' + esc(t('workbench.dec.none_active')) + '</p>')
+        + (old.length ? '<h3 class="wb-search-group">' + esc(t('workbench.dec.revoked_head', { n: old.length })) + '</h3>'
+          + '<ul class="wb-dec-list">' + old.map(decRowHtml).join('') + '</ul>' : '')
+    }
+    var form = archived() ? '' : '<form id="wbDecForm" class="wb-dec-form">'
+      + '<textarea id="wbDecText" rows="2" maxlength="500"'
+      + ' placeholder="' + escA(t('workbench.dec.placeholder')) + '" aria-label="' + escA(t('workbench.dec.add')) + '"></textarea>'
+      + '<div class="wb-dec-btns"><button type="submit" class="btn-primary"' + (WB.decBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.dec.add')) + '</button></div>'
+      + '</form>'
+    return '<section class="wb-caps-panel wb-dec-panel" id="wbDecPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.dec.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="dec-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.dec.intro')) + '</p>'
+      + form
+      + body
+      + '</section>'
+  }
+
+  /** Egy dontes-muvelet: a valasz sora a listaban kicserelodik. */
+  function decRequest(method, url, body, toastKey) {
+    if (WB.decBusy) return
+    var pid = WB.projectId
+    WB.decBusy = true
+    render()
+    api(method, url, body).then(function (r) {
+      WB.decBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      var d = r.data && r.data.decision
+      if (d) {
+        var list = (WB.decisions || []).filter(function (x) { return x.id !== d.id })
+        list.unshift(d)
+        list.sort(function (a, b) { return b.created_at - a.created_at })
+        WB.decisions = list
+      }
+      if (toastKey === 'add') { var el = document.getElementById('wbDecText'); if (el) el.value = '' }
+      WB.decEdit = null
+      window.showToast(t('workbench.dec.toast.' + toastKey))
+      render()
+    })
+  }
+
+  function addDecisionFromForm() {
+    var el = document.getElementById('wbDecText')
+    var text = el && typeof el.value === 'string' ? el.value.trim() : ''
+    if (!text) { window.showToast(t('workbench.dec.empty_text')); return }
+    decRequest('POST', '/api/workbench/decisions', { project: WB.projectId, text: text }, 'add')
+  }
+
+  function saveDecisionEdit() {
+    var el = document.getElementById('wbDecEditText')
+    var text = el && typeof el.value === 'string' ? el.value.trim() : ''
+    if (!WB.decEdit) return
+    if (!text) { window.showToast(t('workbench.dec.empty_text')); return }
+    decRequest('PATCH', '/api/workbench/decisions/' + encodeURIComponent(WB.decEdit), { text: text }, 'edit')
+  }
+
   // ---- projekt-idovonal (#406, 7. pont) --------------------------------------
   //
   // A projekt minden esemenye egy gorgetheto savban, a legfrissebb felul. A
@@ -2843,12 +2970,14 @@
       + esc(t(WB.layout === 'split' ? 'workbench.layout.to_classic' : 'workbench.layout.to_split')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="search-open" aria-pressed="' + !!WB.searchOpen + '">' + esc(t('workbench.search.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml()
       + searchPanelHtml()
       + timelinePanelHtml()
+      + decisionsPanelHtml()
       + overviewHtml()
       + panelTabsHtml()
       + layoutHtml()
@@ -3152,6 +3281,11 @@
     WB.search = null
     WB.searchError = null
     WB.searchBusy = false
+    WB.decOpen = false
+    WB.decisions = null
+    WB.decError = null
+    WB.decBusy = false
+    WB.decEdit = null
     render()
     load(projectId)
     loadChatStatus()
@@ -3218,6 +3352,14 @@
     else if (a === 'approval-withdraw') approvalAction('withdraw')
     else if (a === 'approval-approve') approvalAction('approve')
     else if (a === 'approval-reject') approvalAction('reject')
+    else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
+    else if (a === 'dec-close') { WB.decOpen = false; WB.decEdit = null; render() }
+    else if (a === 'dec-edit') { WB.decEdit = act.getAttribute('data-wb-dec'); render() }
+    else if (a === 'dec-cancel') { WB.decEdit = null; render() }
+    else if (a === 'dec-revoke') {
+      if (window.confirm(t('workbench.dec.revoke_confirm'))) decRequest('PATCH', '/api/workbench/decisions/' + encodeURIComponent(act.getAttribute('data-wb-dec')), { revoked: true }, 'revoke')
+    }
+    else if (a === 'dec-restore') decRequest('PATCH', '/api/workbench/decisions/' + encodeURIComponent(act.getAttribute('data-wb-dec')), { revoked: false }, 'restore')
     else if (a === 'search-open') { WB.searchOpen = !WB.searchOpen; render(); if (WB.searchOpen) { var si = document.getElementById('wbSearchInput'); if (si && si.focus) si.focus() } }
     else if (a === 'search-close') { WB.searchOpen = false; render() }
     else if (a === 'cap-test') testCap(act.getAttribute('data-wb-cap'))
@@ -3492,6 +3634,8 @@
     if (e.target && e.target.id === 'wbPartForm') { e.preventDefault(); savePart(WB.partEdit) }
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
     if (e.target && e.target.id === 'wbSearchForm') { e.preventDefault(); runSearch() }
+    if (e.target && e.target.id === 'wbDecForm') { e.preventDefault(); addDecisionFromForm() }
+    if (e.target && e.target.id === 'wbDecEditForm') { e.preventDefault(); saveDecisionEdit() }
   })
 
   /** Alaphelyzet RAJZOLAS NELKUL: az oldal-betolto hivja, amikor a Projektek

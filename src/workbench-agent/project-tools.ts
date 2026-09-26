@@ -27,6 +27,7 @@ import { ideaProjectMap, researchObjectId } from '../project-scope.js'
 import { withCrossLink } from '../kanban-related.js'
 import { agentConfigRoot } from '../web/agent-config.js'
 import type { ToolResult } from './execute.js'
+import { addDecision, listDecisions, DECISION_MAX_CHARS } from '../workbench-decisions.js'
 
 export const IDEA_LIST_MAX = 50
 export const COMMENT_MAX_CHARS = 4000
@@ -163,4 +164,36 @@ export function kanbanRelate(project: ProjectRow, input: Record<string, unknown>
     if (upd !== (cur?.description ?? '')) updateKanbanCard(o.id, { description: upd })
   }
   return { ok: true, data: { card: own.card.id, seq: own.card.seq, linked: others.map((o) => `#${o.seq}`) } }
+}
+
+// ---- dontesnaplo (#406, 10. pont) ----------------------------------------------------
+
+export function decisionList(project: ProjectRow): ToolResult {
+  const rows = listDecisions(project.id, { includeRevoked: true })
+  if (!rows.length) return { ok: true, data: { count: 0, decisions: [], note: 'no decision has been recorded in this project yet' } }
+  return {
+    ok: true,
+    data: {
+      count: rows.filter((d) => d.revoked_at == null).length,
+      decisions: rows.slice(0, 100).map((d) => ({ id: d.id, text: d.text, workItem: d.work_item_id, withdrawn: d.revoked_at != null, at: d.created_at })),
+    },
+  }
+}
+
+export function decisionRecord(project: ProjectRow, input: Record<string, unknown>): ToolResult {
+  const r = addDecision({
+    project_id: project.id,
+    text: input.text,
+    work_item_id: str(input.workItem ?? input.work_item_id) || null,
+    by: 'agent',
+    source: 'agent',
+  })
+  if (!r.ok) {
+    const detail = r.code === 'text_required' ? 'text is required'
+      : r.code === 'text_too_long' ? `the text is longer than ${DECISION_MAX_CHARS} characters; shorten it`
+      : r.code === 'too_many' ? 'this project already has the maximum number of decisions in force; the owner has to withdraw old ones first'
+      : 'the given work item does not belong to this project'
+    return { ok: false, code: r.code === 'text_required' || r.code === 'text_too_long' ? 'bad_input' : r.code, detail }
+  }
+  return { ok: true, data: { id: r.decision.id, text: r.decision.text, project: project.id, projectName: project.name } }
 }
