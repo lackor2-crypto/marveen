@@ -5667,6 +5667,12 @@ window._i18n.hu = {
   "workbench.archived_hint": "Ez a projekt archivált, ezért nem készül bele új munkadarab. Hozd vissza a projektet, ha dolgozni akarsz benne.",
   "workbench.err.not_loaded": "A Munkapad most nem töltődött be. Frissítsd az oldalt (Ctrl+Shift+R), és próbáld újra.",
   "workbench.err.http": "A kérés nem sikerült ({status}).",
+  "workbench.items.switch_hint_split": "Kattints egy munkadarabra: az lesz az aktuális, és fent jobbra, a beszélgetés mellett nyílik meg.",
+  "workbench.layout.to_classic": "Három panel",
+  "workbench.layout.to_split": "Osztott nézet",
+  "workbench.layout.hint": "Osztott nézet: balra a beszélgetés, jobbra élőben a munkadarab. Három panel: lista, munkadarab és részletek egymás mellett, alul a beszélgetés. A választás ebben a böngészőben megmarad.",
+  "workbench.split.none": "Itt élőben látod a munkadarabot, miközben balra az ágenssel beszélgetsz. Válassz egyet, vagy kezdj újat.",
+  "workbench.split.more": "…és még {n} darab lent a listában.",
   // #396 Settings -> Backup (web/backup.js)
   "settings.module.backup": "Mentés",
   "fbk.title": "Mentés és visszaállítás",

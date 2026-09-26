@@ -437,3 +437,31 @@
 .wb-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .wb-switch-label { font-size: 0.85rem; opacity: 0.8; }
 .wb-switch-select { flex: 1 1 160px; min-width: 0; max-width: 100%; }
+
+/* --- Osztott nezet (#406, 1. pont) ------------------------------------------
+ * Bal oldalt a chat, jobb oldalt az ELO munkadarab -- a szakmaban bevett
+ * "chat + artifact" elrendezes. Asztalin a ket oszlop egymas mellett all, es a
+ * jobb oldal ragad (sticky), hogy a chat gorgetese kozben is latsszon, mi
+ * valtozik. Telefonon egymas ala kerulnek: felul a munkadarab, alatta a chat. */
+.wb-split {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
+  gap: 12px;
+  align-items: start;
+}
+.wb-split-chat .wb-chat { display: flex; flex-direction: column; min-height: 420px; }
+.wb-split-chat .wb-chat-log { max-height: 62vh; min-height: 200px; }
+.wb-split-work .wb-panel { min-height: 420px; }
+@media (min-width: 901px) {
+  .wb-split-work { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow-y: auto; }
+}
+.wb-grid-aside { grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr); }
+.wb-split-pick { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 900px) {
+  .wb-split { grid-template-columns: 1fr; }
+  .wb-split-work { order: -1; }
+  .wb-split-chat .wb-chat { min-height: 0; }
+  .wb-split-chat .wb-chat-log { max-height: 50vh; }
+  .wb-split-work .wb-panel { min-height: 0; }
+  .wb-grid-aside { grid-template-columns: 1fr; }
+}
