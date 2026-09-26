@@ -510,6 +510,14 @@ export function getProvider(type: ChannelProviderType): ChannelProvider {
   return markedProviders[type]
 }
 
+/** The name the owner knows the channel by -- for screen text, never an id. */
+const PROVIDER_DISPLAY_NAMES: Record<ChannelProviderType, string> = {
+  telegram: 'Telegram', slack: 'Slack', discord: 'Discord', googlechat: 'Google Chat', teams: 'Microsoft Teams',
+}
+export function providerDisplayName(type: ChannelProviderType): string {
+  return PROVIDER_DISPLAY_NAMES[type] ?? 'Telegram'
+}
+
 export function getProviderType(envValue: string | undefined): ChannelProviderType {
   if (envValue === 'slack') return 'slack'
   if (envValue === 'discord') return 'discord'

@@ -6,8 +6,10 @@
 // a code, receive it where only the owner reads, type it, set a new password.
 //
 // What "verified channel" means here -- and why nothing else qualifies:
-//   - telegram: the install's OWNER chat (the same one security alerts go to).
-//     The dashboard sends it itself over the Bot API; no agent session needed.
+//   - telegram: the install's OWNER chat on whichever provider the installer
+//     chose (Telegram, Slack, Discord, ...; the id stays 'telegram' for API
+//     compatibility, the screen says the real name). The same chat security
+//     alerts go to; the dashboard sends it itself, no agent session needed.
 //   - email: a mailbox the signed-in user CONNECTED in Iroda -> Settings (its
 //     IMAP/SMTP password proves it is theirs) and then CHOSE as the recovery
 //     mailbox. The code is sent from that mailbox to its own address. An
@@ -33,7 +35,7 @@
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { getDb, getDashboardUser, logConfigChange, type DashboardUser } from '../db.js'
-import { ownerChannelReady, sendOwnerChannelChecked } from '../notify.js'
+import { ownerChannelReady, sendOwnerChannelChecked, ownerChannelInfo } from '../notify.js'
 import { logger } from '../logger.js'
 
 export const CODE_TTL_MS = 10 * 60 * 1000
@@ -68,16 +70,29 @@ type TelegramSend = (text: string) => Promise<'sent' | 'no_channel'>
 // mocks notify.js without these two exports still loads this module.
 const defaultSend: TelegramSend = (text) => sendOwnerChannelChecked(text)
 const defaultReady = (): boolean => ownerChannelReady()
+type ChannelInfo = { provider: string; name: string }
+const defaultInfo = (): ChannelInfo => {
+  try { return ownerChannelInfo() } catch { return { provider: 'telegram', name: 'Telegram' } }
+}
 let telegramSend: TelegramSend = defaultSend
 let telegramReady: () => boolean = defaultReady
-export function _setRecoveryDeps(d: { telegramSend?: TelegramSend; telegramReady?: () => boolean; mail?: MailPort | null } = {}): void {
+let channelInfo: () => ChannelInfo = defaultInfo
+export function _setRecoveryDeps(d: { telegramSend?: TelegramSend; telegramReady?: () => boolean; mail?: MailPort | null; channelInfo?: () => ChannelInfo } = {}): void {
   telegramSend = d.telegramSend ?? defaultSend
   telegramReady = d.telegramReady ?? defaultReady
+  channelInfo = d.channelInfo ?? defaultInfo
   if ('mail' in d) mailPort = d.mail ?? null
 }
 
 /**
- * A browser login may only be created once the owner's Telegram channel
+ * The owner's chat channel as the screen should name it. The installer picks
+ * Telegram, Slack or Discord (install-linux.sh), so no text may say
+ * "Telegram" on its own (#412, owner TG 6620).
+ */
+export function recoveryChannelInfo(): ChannelInfo { return channelInfo() }
+
+/**
+ * A browser login may only be created once the owner's chat channel
  * demonstrably delivers (owner, 2026-09-26, TG 6617): the forgotten-password
  * code goes there, and a password with no way back locks the owner out. So
  * "connected" is proven by a real test message, not by the config being set.
@@ -136,6 +151,8 @@ export function recoveryMailbox(userId: number): { id: string; address: string }
 
 export function recoverySettings(userId: number): {
   telegram_ready: boolean
+  channel_provider: string
+  channel_name: string
   email_accounts: { id: string; address: string }[]
   email_account: string | null
   email_account_missing: boolean
@@ -146,6 +163,8 @@ export function recoverySettings(userId: number): {
   const chosen = row?.email_account ?? null
   return {
     telegram_ready: telegramReady(),
+    channel_provider: channelInfo().provider,
+    channel_name: channelInfo().name,
     email_accounts: accounts,
     email_account: chosen && accounts.some((a) => a.id === chosen) ? chosen : null,
     // Chosen once, then removed in Iroda -> Settings: say so instead of
@@ -253,16 +272,16 @@ const MSG = {
     body: (code: string, user: string, min: number) =>
       `Marveen jelszó-visszaállítás\n\nA kódod: ${code}\n\nFelhasználó: ${user}. A kód ${min} percig érvényes, és egyszer használható.\n\nHa nem te kérted, ne add meg senkinek, és szólj: valaki a belépési oldalon a te nevedre kért kódot. A jelszavad addig nem változik, amíg a kódot be nem írják.`,
     done: (user: string, ch: string) =>
-      `🔑 Marveen: "${user}" jelszavát most állították át egy ${ch} kapott kóddal. Minden más bejelentkezés kilépett. Ha nem te voltál, azonnal szólj.`,
-    via: { telegram: 'Telegramon', email: 'e-mailben' } as Record<RecoveryChannelId, string>,
+      `🔑 Marveen: "${user}" jelszavát most állították át egy kóddal, ami ide ment: ${ch}. Minden más bejelentkezés kilépett. Ha nem te voltál, azonnal szólj.`,
+    via: (id: RecoveryChannelId, name: string) => (id === 'email' ? 'e-mail' : name),
   },
   en: {
     subject: 'Marveen: sign-in code',
     body: (code: string, user: string, min: number) =>
       `Marveen password reset\n\nYour code: ${code}\n\nUser: ${user}. The code is valid for ${min} minutes and works once.\n\nIf you did not ask for it, do not share it and tell someone: a code was requested for your name on the sign-in page. Your password does not change unless the code is typed in.`,
     done: (user: string, ch: string) =>
-      `🔑 Marveen: the password of "${user}" was just reset with a code sent ${ch}. Every other sign-in was signed out. If this was not you, act now.`,
-    via: { telegram: 'on Telegram', email: 'by e-mail' } as Record<RecoveryChannelId, string>,
+      `🔑 Marveen: the password of "${user}" was just reset with a code sent to ${ch}. Every other sign-in was signed out. If this was not you, act now.`,
+    via: (id: RecoveryChannelId, name: string) => (id === 'email' ? 'e-mail' : name),
   },
 }
 
@@ -369,5 +388,5 @@ export function ticketExpiry(ticket: string): number | null {
 
 export function recoveryDoneNotice(username: string, channel: RecoveryChannelId, lang: Lang): string {
   const m = MSG[lang]
-  return m.done(username, m.via[channel])
+  return m.done(username, m.via(channel, channelInfo().name))
 }

@@ -69,6 +69,7 @@ import {
   setRecoveryMailbox,
   recoveryDoneNotice,
   probeOwnerChannel,
+  recoveryChannelInfo,
   type Lang,
 } from '../password-recovery.js'
 import type { RouteContext } from './types.js'
@@ -298,7 +299,8 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
   // fetch wrapper reads any /api 401 as "signed out" (#410).
   if (path === '/api/auth/recovery/channels' && method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' })
-    res.end(JSON.stringify({ channels: recoveryChannels() }))
+    const ch = recoveryChannelInfo()
+    res.end(JSON.stringify({ channels: recoveryChannels(), channel_provider: ch.provider, channel_name: ch.name }))
     return true
   }
 
@@ -562,18 +564,27 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
       return true
     }
     // No password without a working way back (#412, owner TG 6617): the
-    // forgotten-password code travels on the owner's Telegram, so that channel
-    // must demonstrably deliver BEFORE a password exists. 400, not 401 (#410).
+    // forgotten-password code travels on the owner's chat channel (Telegram,
+    // Slack, Discord -- whatever the installer chose, TG 6620), so it must
+    // demonstrably deliver BEFORE a password exists. 400, not 401 (#410).
     const lang = reqLang(req)
     const probe = await probeOwnerChannel(username, lang)
     if (!probe.ok) {
+      const ch = recoveryChannelInfo()
+      // Where it is connected differs: Telegram has its own wizard steps,
+      // every other provider is set on the main agent's Channel tab.
+      const how = ch.provider === 'telegram'
+        ? L(lang, 'A Beállítások -> Beállítás varázsló „Telegram bot token” és „Telegram párosítás” lépése köti be.',
+            'Settings -> Setup wizard does it ("Telegram bot token" and "Telegram pairing").')
+        : L(lang, `Az Ügynökök oldalon a fő ügynök kártyáján, a Csatorna fülön kötheted be a ${ch.name} csatornát.`,
+            `Connect ${ch.name} on the Agents page: the main agent's card, Channel tab.`)
       const message = probe.reason === 'no_channel'
         ? L(lang,
-            'Előbb kösd be a Marveen Telegramját a telefonodon, mert az elfelejtett jelszó kódja oda érkezik. A Beállítások -> Beállítás varázsló „Telegram bot token” és „Telegram párosítás” lépése köti be.',
-            'First connect Marveen\'s Telegram on your phone: the forgotten-password code arrives there. Settings -> Setup wizard does it ("Telegram bot token" and "Telegram pairing").')
+            `Előbb kösd be a Marveen ${ch.name} csatornáját a telefonodon, mert az elfelejtett jelszó kódja oda érkezik. ${how}`,
+            `First connect Marveen's ${ch.name} on your phone: the forgotten-password code arrives there. ${how}`)
         : L(lang,
-            `A próbaüzenet nem ment ki a Telegramra, ezért most nem állítható be jelszó (a hiba: ${probe.detail ?? 'ismeretlen'}). Nézd meg a Beállítás varázslóban a Telegram lépéseket, aztán próbáld újra.`,
-            `The test message did not reach Telegram, so no password can be set now (the error: ${probe.detail ?? 'unknown'}). Check the Telegram steps in the Setup wizard, then try again.`)
+            `A próbaüzenet nem ment ki a ${ch.name} csatornára, ezért most nem állítható be jelszó (a hiba: ${probe.detail ?? 'ismeretlen'}). ${how} Utána próbáld újra.`,
+            `The test message did not reach ${ch.name}, so no password can be set now (the error: ${probe.detail ?? 'unknown'}). ${how} Then try again.`)
       json(res, { error: 'channel_required', reason: probe.reason, message }, 400)
       return true
     }
