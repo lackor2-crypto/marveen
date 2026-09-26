@@ -48,6 +48,7 @@ import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
+import { searchProject } from '../../workbench-search.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -118,6 +119,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   project_archived: {
     hu: 'Ez a projekt archiválva van, ezért csak olvasható. Ha dolgozni akarsz benne, előbb állítsd vissza a Projektek oldalon.',
     en: 'This project is archived, so it is read-only. To work in it, restore it first on the Projects page.',
+  },
+  search_query_short: {
+    hu: 'Írj be legalább 2 betűt a kereséshez.',
+    en: 'Type at least 2 characters to search.',
+  },
+  search_query_long: {
+    hu: 'A keresett szöveg túl hosszú (legfeljebb 200 karakter).',
+    en: 'The search text is too long (200 characters at most).',
   },
   project_not_found: {
     hu: 'Ez a projekt nem található (lehet, hogy közben törölték).',
@@ -489,6 +498,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         limit: clampTimelineLimit(url.searchParams.get('limit')),
       }),
     })
+    return true
+  }
+
+  // KERESES A PROJEKT EGESZEBEN (#406, 8. pont): cimek, szovegek,
+  // kepalairasok, beszelgetesek, kartyak, otletek, fajlnevek. Csak olvas.
+  if (path === '/api/workbench/search' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const r = await searchProject(project, url.searchParams.get('q'))
+    if (!r.ok) return fail(res, 400, r.code === 'query_short' ? 'search_query_short' : 'search_query_long', lang)
+    json(res, { search: r.result })
     return true
   }
 

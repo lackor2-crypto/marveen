@@ -90,6 +90,13 @@
     tlMore: false,
     tlNext: null,
     tlBusy: false,
+    // --- kereses a projektben (#406, 8. pont) ---
+    // `search === null` = meg nem kerestunk; a hiba KULON all.
+    searchOpen: false,
+    searchQ: '',
+    search: null,
+    searchError: null,
+    searchBusy: false,
     // --- projekt-attekinto (#406, 2. pont) ---
     // `overview === null` = MEG NEM kerdeztuk meg; a hiba KULON all, hogy a
     // "nem tudtam lekerdezni" sose latsszon "nincs semmi"-nek.
@@ -2212,6 +2219,102 @@
     }).join('') + '</div>'
   }
 
+  // ---- kereses a projekt egeszeben (#406, 8. pont) ---------------------------
+  //
+  // Egy mezo, a talalatok forrasonkent csoportositva. A forras, amibe a szerver
+  // NEM tudott belenezni, kulon mondatot kap -- a "nincs talalat" csak akkor
+  // hangzik el, ha minden forrast tenyleg megnezett.
+
+  function markHtml(h) {
+    var s = String(h.snippet || '')
+    var a = Math.max(0, Math.min(s.length, h.mark_start | 0))
+    var b = Math.max(a, Math.min(s.length, h.mark_end | 0))
+    return esc(s.slice(0, a)) + '<mark>' + esc(s.slice(a, b)) + '</mark>' + esc(s.slice(b))
+  }
+
+  function searchHitHtml(h) {
+    var label = ''
+    if (h.source === 'cards' && h.card_seq != null) label = '#' + h.card_seq + ' ' + (h.title || '')
+    else if (h.source === 'files') label = h.path || h.title || ''
+    else if (h.source === 'messages') label = t(h.role === 'user' ? 'workbench.search.role.user' : 'workbench.search.role.assistant')
+      + (h.item_title ? ' · ' + h.item_title : '')
+    else label = h.title || ''
+    var head = h.item_id
+      ? '<button type="button" class="wb-tl-link" data-wb-item="' + escA(h.item_id) + '">' + esc(label) + '</button>'
+      : '<strong>' + esc(label) + '</strong>'
+    return '<li class="wb-search-hit">' + head
+      + (h.at ? ' <span class="wb-tl-when">' + esc(when(h.at)) + '</span>' : '')
+      + '<div class="wb-search-snip">' + markHtml(h) + '</div></li>'
+  }
+
+  function searchResultHtml() {
+    var r = WB.search
+    if (!r) return ''
+    var out = ''
+    var unseen = (r.sources || []).filter(function (s) { return s.state === 'error' })
+    if (unseen.length) {
+      out += '<p class="wb-error">' + esc(t('workbench.search.partial', {
+        sources: unseen.map(function (s) { return t('workbench.search.source.' + s.source) }).join(', '),
+      })) + '</p>'
+    }
+    var any = false
+    ;(r.sources || []).forEach(function (s) {
+      if (s.state !== 'ok' || !s.total) return
+      any = true
+      var hits = (r.hits || []).filter(function (h) { return h.source === s.source })
+      out += '<h3 class="wb-search-group">' + esc(t('workbench.search.source.' + s.source)) + ' (' + s.total + ')</h3>'
+      if (s.total > hits.length) out += '<p class="wb-hint">' + esc(t('workbench.search.first_n', { n: hits.length, total: s.total })) + '</p>'
+      out += '<ul class="wb-search-hits">' + hits.map(searchHitHtml).join('') + '</ul>'
+    })
+    var files = (r.sources || []).filter(function (s) { return s.source === 'files' })[0]
+    if (files && files.state === 'ok' && files.partial) out += '<p class="wb-hint">' + esc(t('workbench.search.files_partial')) + '</p>'
+    if (files && files.state === 'none') out += '<p class="wb-hint">' + esc(t('workbench.search.no_folder')) + '</p>'
+    if (!any && !unseen.length) out += '<p class="wb-hint">' + esc(t('workbench.search.none', { q: r.q })) + '</p>'
+    return out
+  }
+
+  function searchPanelHtml() {
+    if (!WB.searchOpen) return ''
+    var body = ''
+    if (WB.searchError) body = '<p class="wb-error">' + esc(WB.searchError) + '</p>'
+    else if (WB.searchBusy) body = '<p class="wb-hint">' + esc(t('workbench.search.busy')) + '</p>'
+    else body = searchResultHtml()
+    return '<section class="wb-caps-panel wb-search-panel" id="wbSearchPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.search.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="search-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.search.intro')) + '</p>'
+      + '<form class="wb-search-form" id="wbSearchForm">'
+      + '<input type="search" id="wbSearchInput" value="' + escA(WB.searchQ) + '"'
+      + ' placeholder="' + escA(t('workbench.search.placeholder')) + '" aria-label="' + escA(t('workbench.search.title')) + '">'
+      + '<button type="submit" class="btn-primary"' + (WB.searchBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.search.go')) + '</button>'
+      + '</form>'
+      + body
+      + '</section>'
+  }
+
+  function runSearch() {
+    var el = document.getElementById('wbSearchInput')
+    var q = el && typeof el.value === 'string' ? el.value.trim() : WB.searchQ
+    WB.searchQ = q
+    if (q.length < 2) { WB.searchError = t('workbench.search.too_short'); WB.search = null; render(); return }
+    if (!WB.projectId || WB.searchBusy) return
+    var pid = WB.projectId
+    WB.searchBusy = true
+    WB.searchError = null
+    WB.search = null
+    render()
+    api('GET', '/api/workbench/search?project=' + encodeURIComponent(pid) + '&q=' + encodeURIComponent(q)).then(function (r) {
+      WB.searchBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { WB.searchError = r.message || t('workbench.search.error'); render(); return }
+      WB.search = (r.data && r.data.search) || null
+      render()
+    })
+  }
+
   // ---- projekt-idovonal (#406, 7. pont) --------------------------------------
   //
   // A projekt minden esemenye egy gorgetheto savban, a legfrissebb felul. A
@@ -2349,11 +2452,13 @@
       + '<button type="button" class="btn-secondary" data-wb-act="layout-toggle" aria-pressed="' + (WB.layout === 'split') + '"'
       + ' title="' + escA(t('workbench.layout.hint')) + '">'
       + esc(t(WB.layout === 'split' ? 'workbench.layout.to_classic' : 'workbench.layout.to_split')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="search-open" aria-pressed="' + !!WB.searchOpen + '">' + esc(t('workbench.search.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml()
+      + searchPanelHtml()
       + timelinePanelHtml()
       + overviewHtml()
       + panelTabsHtml()
@@ -2643,6 +2748,11 @@
     WB.tlMore = false
     WB.tlNext = null
     WB.tlBusy = false
+    WB.searchOpen = false
+    WB.searchQ = ''
+    WB.search = null
+    WB.searchError = null
+    WB.searchBusy = false
     render()
     load(projectId)
     loadChatStatus()
@@ -2699,6 +2809,8 @@
     else if (a === 'tl-close') { WB.tlOpen = false; render() }
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
+    else if (a === 'search-open') { WB.searchOpen = !WB.searchOpen; render(); if (WB.searchOpen) { var si = document.getElementById('wbSearchInput'); if (si && si.focus) si.focus() } }
+    else if (a === 'search-close') { WB.searchOpen = false; render() }
     else if (a === 'cap-test') testCap(act.getAttribute('data-wb-cap'))
     else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'canvas-start') { if (!archived()) startCanvas() }
@@ -2931,6 +3043,7 @@
     if (e.target && e.target.id === 'wbPartNewForm') { e.preventDefault(); addTextPart() }
     if (e.target && e.target.id === 'wbPartForm') { e.preventDefault(); savePart(WB.partEdit) }
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
+    if (e.target && e.target.id === 'wbSearchForm') { e.preventDefault(); runSearch() }
   })
 
   /** Alaphelyzet RAJZOLAS NELKUL: az oldal-betolto hivja, amikor a Projektek

@@ -532,3 +532,12 @@
   .wb-tl-row { grid-template-columns: 1fr; gap: 2px; }
   .wb-tl-dot { display: none; }
 }
+
+/* --- kereses a projektben (#406, 8. pont) ---------------------------------- */
+.wb-search-form { display: flex; gap: 8px; margin: 8px 0; }
+.wb-search-form input { flex: 1 1 auto; min-width: 0; }
+.wb-search-group { font-size: 14px; margin: 12px 0 4px; }
+.wb-search-hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
+.wb-search-hit { border-bottom: 1px solid var(--border, #d0d7de); padding-bottom: 4px; word-break: break-word; }
+.wb-search-snip { font-size: 13px; opacity: .9; }
+.wb-search-snip mark { background: var(--highlight, #fde68a); color: inherit; padding: 0 1px; }
