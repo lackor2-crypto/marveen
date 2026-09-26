@@ -4479,6 +4479,7 @@ window._i18n.hu = {
   'auth.card.err_generic':        'A művelet nem sikerült.',
   'mem.load_more':                'Továbbiak betöltése (eddig {n} látszik)',
   'mem.load_failed':              'Az emlékeket nem sikerült betölteni.',
+  'mem.search_relaxed':           'Egyik emlékben sincs meg az összes keresett szó, ezért azokat mutatom, amelyekben legalább egy szerepel.',
   'auth.card.err_current_wrong':  'A jelenlegi jelszó nem stimmel. Írd be újra.',
   'auth.card.signed_in_as':       'Belépve mint {user}.',
   'auth.card.current_password':   'Jelenlegi jelszó',

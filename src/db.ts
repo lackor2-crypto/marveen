@@ -1331,7 +1331,7 @@ export function saveMemory(
 // search terms. We also cap the number and length of tokens to bound query
 // cost (the sanitizer previously allowed an arbitrary-length prefix expansion
 // that could make a single request scan the entire index).
-export function buildFtsMatchExpression(query: string): string {
+export function buildFtsMatchExpression(query: string, join: 'and' | 'or' = 'and'): string {
   const MAX_TOKENS = 20
   const MAX_TOKEN_LEN = 64
   const sanitized = query
@@ -1347,7 +1347,31 @@ export function buildFtsMatchExpression(query: string): string {
     .filter((t) => t.length > 0)
     .slice(0, MAX_TOKENS)
     .map((t) => t.slice(0, MAX_TOKEN_LEN) + '*')
-  return tokens.join(' ')
+  return tokens.join(join === 'or' ? ' OR ' : ' ')
+}
+
+// -- Relaxed retry (#413, rebuilt from upstream eb33ee35 + e9dba111) --
+//
+// A space between FTS5 terms is an implicit AND, so every word of a naturally
+// phrased question had to occur in one memory: "meddig tart a felmondasi ido"
+// found nothing while "felmondasi ido" found the right memory first. When the
+// strict query finds nothing and there are at least two terms, the search runs
+// once more with OR. That changes which rows can come back, so it is SAID:
+// lastSearchRelaxed() reports it for the call that just ran (the search
+// functions are synchronous, so the flag cannot leak into another request).
+let lastRelaxed = false
+export function lastSearchRelaxed(): boolean { return lastRelaxed }
+function ftsWithRelax<T>(query: string, run: (terms: string) => T[]): T[] {
+  lastRelaxed = false
+  const strict = buildFtsMatchExpression(query, 'and')
+  if (!strict) return []
+  const rows = run(strict)
+  if (rows.length > 0) return rows
+  const loose = buildFtsMatchExpression(query, 'or')
+  if (!loose.includes(' OR ')) return rows
+  const relaxedRows = run(loose)
+  if (relaxedRows.length > 0) lastRelaxed = true
+  return relaxedRows
 }
 
 // -- Recency-weighted retrieval (Roitman 17.4.2) --
@@ -1404,10 +1428,8 @@ function withoutRank<T extends { rank: number }>(rows: T[]): Omit<T, 'rank'>[] {
 }
 
 export function searchMemories(query: string, chatId: string, limit = 3): Memory[] {
-  const terms = buildFtsMatchExpression(query)
-  if (!terms) return []
   try {
-    const candidates = db
+    const candidates = ftsWithRelax(query, (terms) => db
       .prepare(
         `SELECT m.*, f.rank AS rank FROM memories m
          JOIN memories_fts f ON m.id = f.rowid
@@ -1415,7 +1437,7 @@ export function searchMemories(query: string, chatId: string, limit = 3): Memory
          ORDER BY rank
          LIMIT ?`
       )
-      .all(terms, chatId, limit * RECENCY_OVERSAMPLE) as (Memory & { rank: number })[]
+      .all(terms, chatId, limit * RECENCY_OVERSAMPLE) as (Memory & { rank: number })[])
     return withoutRank(reRankByRecency(candidates, limit)) as Memory[]
   } catch {
     return []
@@ -1567,15 +1589,14 @@ export function getAgentMemories(agentId: string, limit: number = 20, category?:
 }
 
 export function searchAgentMemories(agentId: string, query: string, limit: number = 10): Memory[] {
-  const terms = buildFtsMatchExpression(query)
-  if (!terms) return []
+  if (!buildFtsMatchExpression(query)) return []
   try {
-    const candidates = db.prepare(
+    const candidates = ftsWithRelax(query, (terms) => db.prepare(
       `SELECT m.*, f.rank AS rank FROM memories m
        JOIN memories_fts f ON m.id = f.rowid
        WHERE f.memories_fts MATCH ? AND (m.agent_id = ? OR m.category = 'shared')
        ORDER BY rank LIMIT ?`
-    ).all(terms, agentId, limit * RECENCY_OVERSAMPLE) as (Memory & { rank: number })[]
+    ).all(terms, agentId, limit * RECENCY_OVERSAMPLE) as (Memory & { rank: number })[])
     return withoutRank(reRankByRecency(candidates, limit)) as Memory[]
   } catch {
     return db.prepare(
@@ -2958,11 +2979,13 @@ function vectorSearch(agentId: string, queryEmbedding: number[], limit: number =
   return scored.slice(0, limit).map(s => s.memory)
 }
 
-export async function hybridSearch(agentId: string, query: string, limit: number = 10): Promise<Memory[]> {
+export async function hybridSearch(agentId: string, query: string, limit: number = 10, meta?: { relaxed?: boolean }): Promise<Memory[]> {
   const k = 60 // RRF constant
 
-  // FTS5 results
+  // FTS5 results. The relaxed flag is read HERE, synchronously, before the
+  // embedding await lets another request run a search of its own (#413).
   const ftsResults = searchAgentMemories(agentId, query, limit * 2)
+  if (meta) meta.relaxed = lastSearchRelaxed()
 
   // Vector results
   const queryEmbedding = await generateEmbedding(query)
