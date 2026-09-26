@@ -522,8 +522,8 @@
       + body + '</div>'
   }
 
-  /** Egy pillantasra: nyitott, jovahagyasra var, friss kesz, utoljara valtozott
-   *  fajl. Minden szam MERT: ha egy forras nem valaszolt, azt kimondjuk, es a
+  /** Egy pillantasra, a kanban oszlopneveivel: Tervezett, Folyamatban,
+   *  Jovahagyasra var, Kesz. Minden szam MERT: ha egy forras nem valaszolt, azt kimondjuk, es a
    *  helyere nem irunk nullat. */
   function overviewHtml() {
     if (WB.overviewError) {
@@ -533,6 +533,13 @@
     // Minden jovahagyas KULON kis kartya: sorszam + cim + datum, ahogy a
     // kanban-tablan (Boss, 2026-09-26, TG 6535: "ez a kettő olyan, mintha egy
     // lenne"). Kartya nelkuli jegynel a leiras elso sora a cim.
+    function ovCardsHtml(list) {
+      if (!list || !list.length) return ''
+      return '<ul class="wb-ov-list wb-ov-approvals">' + list.map(function (c) {
+        return '<li class="wb-ov-approval"><span class="wb-ov-apv-title"><span class="wb-ov-apv-seq">#' + esc(String(c.seq)) + '</span> ' + esc(c.title) + '</span>'
+          + (c.updated_at ? '<span class="wb-ov-apv-when">' + esc(when(c.updated_at)) + '</span>' : '') + '</li>'
+      }).join('') + '</ul>'
+    }
     function ovApprovalHtml(a) {
       var head = a.card_seq
         ? '<span class="wb-ov-apv-seq">#' + esc(String(a.card_seq)) + '</span> ' + esc(a.card_title || a.description)
@@ -545,41 +552,58 @@
     var o = WB.overview
     if (!o) return '<section class="wb-ov"><p class="wb-muted">' + esc(t('workbench.ov.loading')) + '</p></section>'
 
+    // A kanban-tabla SAJAT oszlopai (Boss, 2026-09-26, TG 6538/6545): ugyanaz
+    // a tabla, ugyanazokkal a nevekkel. Minden csempen a projekt kartyai (kis
+    // kartyakent, sorszammal) es a hozza illo munkadarabok.
     var cards = o.cards || {}
-    var openBody = ovItemsHtml(o.open && o.open.items)
-      + (cards.open === null
-        ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.cards_unknown', { message: cards.error || '' })) + '</p>'
-        : '<p class="wb-hint">' + esc(t('workbench.ov.cards_open', { n: cards.open || 0 })) + '</p>')
-      + (o.open && o.open.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.open_none')) + '</p>')
+    var cols = o.columns || {}
+    var work = o.work || {}
+    var blind = cards.open === null
+    var blindHint = blind ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.cards_unknown', { message: cards.error || '' })) + '</p>' : ''
+    function colOf(k) { return cols[k] || { count: 0, cards: [] } }
+    function num(n) { return n === null || n === undefined ? null : n }
+    function sum(a, b) { return a === null ? null : a + (b || 0) }
 
+    var pl = colOf('planned')
+    var plDraft = work.draft || { count: 0, items: [] }
+    var plCount = sum(num(pl.count), plDraft.count)
+    var plBody = ovCardsHtml(pl.cards) + ovItemsHtml(plDraft.items) + blindHint
+      + (plCount === 0 ? '<p class="wb-hint">' + esc(t('workbench.ov.planned_none')) + '</p>' : '')
+
+    var ip = colOf('in_progress')
+    var ipWork = work.in_progress || { count: 0, items: [] }
+    var ipCount = sum(num(ip.count), ipWork.count)
+    var ipBody = ovCardsHtml(ip.cards) + ovItemsHtml(ipWork.items)
+      + (ipCount === 0 ? '<p class="wb-hint">' + esc(t('workbench.ov.progress_none')) + '</p>' : '')
+
+    // Jovahagyasra var: a kanban oszlop kartyai + a kartya NELKULI jegyek
+    // (pl. Munkapad fajl-iras) + az atnezesre varo munkadarabok. Egy kartyara
+    // szolo jegy nem jelenik meg meg egyszer, ha a kartya mar ott all.
+    var wt = colOf('waiting')
     var ap = o.approvals || {}
+    var seen = {}
+    ;(wt.cards || []).forEach(function (c) { seen[c.seq] = true })
+    var extraAp = (ap.items || []).filter(function (a) { return !(a.card_seq && seen[a.card_seq]) })
     var reviewCount = (o.review && o.review.count) || 0
-    var waitBody = ovItemsHtml(o.review && o.review.items)
-      + (ap.count === null
-        ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.approvals_unknown', { message: ap.error || '' })) + '</p>'
-        : (ap.items && ap.items.length
-          ? '<ul class="wb-ov-list wb-ov-approvals">' + ap.items.map(ovApprovalHtml).join('') + '</ul>'
-          : ''))
-      + (reviewCount || ap.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.wait_none')) + '</p>')
+    var wtCount = ap.count === null ? null : sum(num(wt.count), extraAp.length + reviewCount)
+    var wtBody = ovCardsHtml(wt.cards)
+      + (extraAp.length ? '<ul class="wb-ov-list wb-ov-approvals">' + extraAp.map(ovApprovalHtml).join('') + '</ul>' : '')
+      + ovItemsHtml(o.review && o.review.items)
+      + (ap.count === null ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.approvals_unknown', { message: ap.error || '' })) + '</p>' : '')
+      + (wtCount === 0 ? '<p class="wb-hint">' + esc(t('workbench.ov.wait_none')) + '</p>' : '')
       + (ap.count ? '<p><button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button></p>' : '')
-    var waitCount = ap.count === null ? null : reviewCount + (ap.count || 0)
 
+    var dn = colOf('done')
     var rd = o.recent_done || {}
-    var doneBody = ovItemsHtml(rd.items)
-      + (rd.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.done_none', { days: rd.days || 14 })) + '</p>')
-
-    var lf = o.last_file
-    var fileBody = lf
-      ? '<p class="wb-ov-file">' + esc(lf.name) + '</p>'
-        + '<p class="wb-hint">' + esc(t('workbench.ov.file_in', { when: when(lf.at) })) + ' '
-        + '<button type="button" class="wb-linklike" data-wb-item="' + escA(lf.item_id) + '">' + esc(lf.item_title) + '</button></p>'
-      : '<p class="wb-hint">' + esc(t('workbench.ov.file_none')) + '</p>'
+    var dnCount = sum(num(dn.count), rd.count || 0)
+    var dnBody = ovCardsHtml(dn.cards) + ovItemsHtml(rd.items)
+      + (dnCount === 0 ? '<p class="wb-hint">' + esc(t('workbench.ov.done_none', { days: rd.days || 14 })) + '</p>' : '')
 
     return '<section class="wb-ov" aria-label="' + escA(t('workbench.ov.title')) + '">'
-      + ovTile('wb-ov-open', t('workbench.ov.open'), (o.open && o.open.count) || 0, openBody)
-      + ovTile('wb-ov-wait' + (waitCount ? ' wb-ov-attn' : ''), t('workbench.ov.wait'), waitCount, waitBody)
-      + ovTile('wb-ov-done', t('workbench.ov.done', { days: rd.days || 14 }), rd.count || 0, doneBody)
-      + ovTile('wb-ov-file-tile', t('workbench.ov.file'), null, fileBody)
+      + ovTile('wb-ov-planned', t('kanban.col.planned'), plCount, plBody)
+      + ovTile('wb-ov-progress', t('kanban.col.in_progress'), ipCount, ipBody)
+      + ovTile('wb-ov-wait' + (wtCount ? ' wb-ov-attn' : ''), t('kanban.col.waiting'), wtCount, wtBody)
+      + ovTile('wb-ov-done', t('workbench.ov.done_col', { days: rd.days || 14 }), dnCount, dnBody)
       + '</section>'
   }
 
