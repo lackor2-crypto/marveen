@@ -374,6 +374,10 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const body = await readBody(req)
     const { author, content } = JSON.parse(body.toString())
     if (!author || !content) { json(res, { error: 'Szerző és tartalom kötelező' }, 400); return true }
+    // #404: egy elgepelt azonositora (pl. `cd19e75c-`) a komment eddig
+    // "sikeresen" letrejott, de egy nem letezo kartyahoz -- a tablan sehol nem
+    // latszott, a kuldo pedig azt hitte, megvan. A breakdown-ut mar igy vedekezik.
+    if (!getKanbanCard(cardId)) { json(res, { error: 'Kártya nem található' }, 404); return true }
     // Code-side kanban-ref enforcement: rewrite `#<hex8>` references that map
     // to a real card into the human-facing `#<seq>` form before persistence
     // (#75 Cuzcoo dispatch). Random hex / non-matching tokens pass through.
