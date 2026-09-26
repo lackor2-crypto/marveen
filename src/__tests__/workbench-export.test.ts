@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, listPendingApprovals, getDb } from '../db.js'
+import { _setSendDeps, type Mail } from '../workbench-export.js'
 import { createProject, updateProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, addWorkItemPart } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
@@ -16,6 +17,11 @@ describe('a szerver', () => {
   let exportsDir = ''
   let pid = ''
   let itemId = ''
+  // A kuldo cserelve: valodi level SOHA nem megy ki a tesztbol.
+  const AGENT = { kind: 'token' }
+  let sent: Mail[] = []
+  let mailerResult: { ok: true; messageId: string } | { ok: false; error: string } = { ok: true, messageId: 'gm-123' }
+  let ready: string | null = null
 
   beforeEach(() => {
     initDatabase(':memory:')
@@ -32,12 +38,17 @@ describe('a szerver', () => {
     const w = createWorkItem({ project_id: pid, title: 'Nyári <poszt>', type: 'composite' })
     if (!w.ok) throw new Error('munkadarab')
     itemId = w.item.id
+    sent = []
+    mailerResult = { ok: true, messageId: 'gm-123' }
+    ready = null
+    _setSendDeps({ mailerReady: () => ready, mailer: async (m) => { sent.push(m); return mailerResult } })
     writeFileSync(join(depot, 'Projektek', 'teszt', 'foto.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     addWorkItemPart({ work_item_id: itemId, kind: 'text', text: 'Első bekezdés <b>nem html</b>\n\nMásodik' })
     addWorkItemPart({ work_item_id: itemId, kind: 'image', asset_path: 'Projektek/teszt/foto.png', caption: 'A fotó' })
   })
 
   afterEach(() => {
+    _setSendDeps()
     rmSync(depot, { recursive: true, force: true })
     delete process.env['MARVEEN_DEPOT']
     delete process.env['MARVEEN_WORKBENCH_EXPORTS']
@@ -77,10 +88,11 @@ describe('a szerver', () => {
     expect((await callWorkbench(`/api/workbench/items/${itemId}/export.html`, 'GET')).status).toBe(200)
   })
 
-  it('KULDES: SEMMIT nem kuld -- egy fuggo email_send jegy szuletik a fo agensnek, a melleklet a store-ba kerul', async () => {
+  it('KULDES ugynoktol (token): SEMMIT nem kuld -- egy fuggo email_send jegy szuletik a fo agensnek, a melleklet a store-ba kerul', async () => {
     const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', {
       to: 'ugyfel@pelda.hu', subject: '', message: 'Szia, küldöm a posztot.', attachment: 'html',
-    })
+    }, undefined, AGENT)
+    expect(sent).toHaveLength(0)
     expect(r.status).toBe(201)
     expect(r.body.status).toBe('pending')
     expect(r.body.message).toMatch(/jóváhagyásra vár/i)
@@ -111,7 +123,7 @@ describe('a szerver', () => {
     writeFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.pdf'), '%PDF-1.4')
     const d = createWorkItem({ project_id: pid, title: 'Ajánlat', type: 'document', source_path: 'Projektek/teszt/ajanlat.pdf' })
     if (!d.ok) throw new Error('d')
-    const r = await callWorkbench(`/api/workbench/items/${d.item.id}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'source' })
+    const r = await callWorkbench(`/api/workbench/items/${d.item.id}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'source' }, undefined, AGENT)
     expect(r.status).toBe(201)
     expect(r.body.attachment).toEqual({ name: 'ajanlat.pdf', kind: 'source' })
     // Forras nelkuli munkadarabnal az "eredeti fajl" nem valaszthato -- emberi mondattal.
@@ -120,10 +132,65 @@ describe('a szerver', () => {
     expect(bad.body.error).toBe('send_no_source')
   })
 
+  it('KULDES a tulajdonostol (session): AZONNAL kimegy, jegy NELKUL, a valaszban a kuldo azonositoja', async () => {
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', {
+      to: 'ugyfel@pelda.hu', subject: 'Poszt', message: 'Szia, küldöm.', attachment: 'html',
+    })
+    expect(r.status).toBe(201)
+    expect(r.body).toMatchObject({ ok: true, status: 'sent', message_id: 'gm-123' })
+    expect(r.body.message).toMatch(/Elküldve/)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ to: 'ugyfel@pelda.hu', subject: 'Poszt', body: 'Szia, küldöm.' })
+    expect(readFileSync(sent[0].attachmentPath, 'utf-8')).toContain('Első bekezdés')
+    expect(listPendingApprovals()).toHaveLength(0)
+    const note = getDb().prepare("SELECT content FROM agent_messages WHERE content LIKE '[APPROVAL_REQUEST]%'").get()
+    expect(note).toBeUndefined()
+  })
+
+  it('KULDES a tulajdonostol: ures uzenetnel semleges kiserosor, nem alairas', async () => {
+    await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'html' })
+    expect(sent[0].body).toMatch(/^Csatolva: /)
+    await callWorkbench(`/api/workbench/items/${itemId}/send-request?lang=en`, 'POST', { to: 'a@b.hu', attachment: 'html' }, { 'accept-language': 'en' })
+    expect(sent).toHaveLength(2)
+    expect(sent[1].body).toMatch(/^Attached: /)
+  })
+
+  it('KULDES a tulajdonostol, kuldo hiba: a TENYLEGES hiba jon vissza, nem "elkuldve", es jegy sem szuletik', async () => {
+    mailerResult = { ok: false, error: 'HIBA 403: insufficient scope' }
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' })
+    expect(r.status).toBe(502)
+    expect(r.body.error).toBe('send_failed')
+    expect(r.body.detail).toBe('HIBA 403: insufficient scope')
+    expect(r.body.message).toMatch(/NEM ment ki/)
+    expect(listPendingApprovals()).toHaveLength(0)
+  })
+
+  it('KULDES a tulajdonostol, friss telepites (nincs bekotott fiok): emberi mondat, semmi nem megy ki, mellekletet sem ir', async () => {
+    ready = 'no_account'
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('send_no_mail_account')
+    expect(r.body.message).toMatch(/Fiókok/)
+    expect(sent).toHaveLength(0)
+    expect(existsSync(exportsDir)).toBe(false)
+    expect(listPendingApprovals()).toHaveLength(0)
+  })
+
+  it('KULDES federacios tarstol vagy eszkozkulccsal: jovahagyasra megy, nem azonnal', async () => {
+    for (const auth of [{ kind: 'federation', peer: 'tars' }, { kind: 'device', device: 'telefon', deviceId: 1 }]) {
+      const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' }, undefined, auth)
+      expect(r.status).toBe(201)
+      expect(r.body.status).toBe('pending')
+    }
+    expect(sent).toHaveLength(0)
+    expect(listPendingApprovals()).toHaveLength(2)
+  })
+
   it('rossz cim, tobb cimzett, archivalt projekt: nem szuletik jegy', async () => {
     for (const to of ['', 'nem-email', 'a@b.hu, c@d.hu']) {
       const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to })
       expect(r.status).toBe(400)
+      expect(sent).toHaveLength(0)
       expect(r.body.error).toBe('send_bad_to')
     }
     setProjectArchived(pid, true)
@@ -144,6 +211,7 @@ describe('a felulet', () => {
       if (url.includes('/send-request') && init?.method === 'POST') {
         const body = JSON.parse(String(init.body))
         if (body.to === 'rossz') return { status: 400, body: { error: 'send_bad_to', message: 'Adj meg egy érvényes email-címet.' } }
+        if (body.to === 'most@pelda.hu') return { status: 201, body: { ok: true, status: 'sent', message_id: 'gm-9', message: 'Elküldve.' } }
         return { status: 201, body: { ok: true, approval_id: 'ap1', status: 'pending', message: 'A küldés jóváhagyásra vár.' } }
       }
       if (url.includes('/api/approvals/ap1')) return { status: 200, body: { id: 'ap1', status: opts.approvalStatus || 'pending' } }
@@ -202,6 +270,17 @@ describe('a felulet', () => {
     h.click({ 'data-wb-act': 'send-refresh' })
     await vi.waitFor(() => expect(h.html()).toContain('workbench.exp.send_status.approved'))
     expect(h.fetchCalls.some((c) => c.url.includes('/api/approvals/ap1'))).toBe(true)
+  })
+
+  it('KULDES azonnal (tulajdonos): "elkuldve" a kuldo azonositojaval, jovahagyas-lekerdezes nincs', async () => {
+    const h = setup()
+    await openExport(h)
+    h.inputs.wbSendTo = { value: 'most@pelda.hu', focus() {} }
+    h.click({ 'data-wb-act': 'send-request' })
+    await vi.waitFor(() => expect(h.html()).toContain('workbench.exp.send_status.sent'))
+    expect(h.html()).not.toContain('data-wb-act="send-refresh"')
+    expect(h.toasts.join(' ')).toContain('Elküldve.')
+    expect(h.fetchCalls.some((c) => c.url.includes('/api/approvals/'))).toBe(false)
   })
 
   it('ures cimnel es szerver-hibanal a mondat a helyen marad, a beirt adat megmarad', async () => {

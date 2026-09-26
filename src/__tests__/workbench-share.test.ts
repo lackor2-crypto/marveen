@@ -216,6 +216,47 @@ describe('betekinto link: API', () => {
   })
 })
 
+describe('betekinto link: tulajdonos-kattintas vs ugynok (tulajdonos dontese, 2026-09-27)', () => {
+  beforeEach(setup)
+  const body = () => ({ kind: 'item', project: pid, item_id: itemId, days: 7 })
+
+  it('2-es szinten a tulajdonos munkamenete AZONNAL el, jegy nelkul', async () => {
+    level = 2
+    const c = await callWorkbench('/api/workbench/shares', 'POST', body())
+    expect(c.status).toBe(200)
+    expect(c.body.state).toBe('active')
+    expect(getShare(c.body.share.id)?.approval_id).toBeNull()
+    expect(getDb().prepare("SELECT COUNT(*) AS n FROM approvals WHERE category = 'permission_change'").get()).toEqual({ n: 0 })
+  })
+
+  it('2-es szinten ugynok / federacio / eszkoz: jovahagyasi jegy, a link nem el', async () => {
+    level = 2
+    for (const auth of [{ kind: 'token' }, { kind: 'federation', peer: 'tars' }, { kind: 'device', device: 'telefon', deviceId: 1 }]) {
+      const c = await callWorkbench('/api/workbench/shares', 'POST', body(), undefined, auth)
+      expect(c.status).toBe(200)
+      expect(c.body.state).toBe('pending')
+      expect(resolveShareToken(shareToken(c.body.share.id))).toBeNull()
+    }
+  })
+
+  it('fuggo ugynok-jegy mellett a tulajdonos kattintasa elesiti a linket, a jegy visszavonva', async () => {
+    level = 2
+    const p = await callWorkbench('/api/workbench/shares', 'POST', body(), undefined, { kind: 'token' })
+    const apId = getShare(p.body.share.id)?.approval_id as string
+    const o = await callWorkbench('/api/workbench/shares', 'POST', body())
+    expect(o.body.state).toBe('active')
+    expect(o.body.share.id).toBe(p.body.share.id)
+    expect(getApproval(apId)?.status).toBe('withdrawn')
+    expect(resolveShareToken(shareToken(o.body.share.id))?.id).toBe(o.body.share.id)
+  })
+
+  it('1-es ("csak jelez") szint a tulajdonosra is all: 403, nincs link', async () => {
+    level = 1
+    expect((await callWorkbench('/api/workbench/shares', 'POST', body())).status).toBe(403)
+    expect(listProjectShares(pid)).toHaveLength(0)
+  })
+})
+
 describe('betekinto link: a felulet', () => {
   const PLAN = { items: [{ id: 'w1', title: 'Ajánlat', type: 'note', status: 'done' }], all_count: 1, done_count: 1, files: 1, total_bytes: 100, too_large: false }
 

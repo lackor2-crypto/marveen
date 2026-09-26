@@ -65,7 +65,7 @@ import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import { planHandoff, buildHandoffZip, isHandoffScope, HANDOFF_MAX_BYTES } from '../../workbench-handoff.js'
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
-import { buildExportPage, requestSendApproval, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
+import { buildExportPage, requestSendApproval, sendNow, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -543,6 +543,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A mellékletet nem tudtam elkészíteni. A pontos hibát a részletek mutatják.',
     en: 'The attachment could not be prepared. The details show the exact error.',
   },
+  send_sent: {
+    hu: 'Elküldve. A levél a bekötött Google-fiókodról ment ki.',
+    en: 'Sent. The email went out from your connected Google account.',
+  },
+  send_no_mail_account: {
+    hu: 'Nincs bekötött Google-fiók, amiről a levél kimehetne, ezért semmi nem ment ki. Kösd be a fiókodat a Beállítások → Fiókok oldalon (Google, levélküldési joggal), és próbáld újra.',
+    en: 'There is no connected Google account to send from, so nothing went out. Connect your account under Settings → Accounts (Google, with permission to send email) and try again.',
+  },
+  send_failed: {
+    hu: 'A levél NEM ment ki. A pontos hibát a részletek mutatják.',
+    en: 'The email did NOT go out. The details show the exact error.',
+  },
   send_requested: {
     hu: 'A küldés jóváhagyásra vár. Semmi nem ment ki: jóváhagyás után a fő ágens küldi el, elutasításnál nem történik semmi.',
     en: 'The send is waiting for approval. Nothing has gone out: after approval the main agent sends it, on rejection nothing happens.',
@@ -761,6 +773,12 @@ async function readJson(req: RouteContext['req']): Promise<Record<string, unknow
 
 /** Ki hozta letre. A felulet mogott mindig egy bejelentkezett munkamenet all;
  *  token/federacios hivonal marad a nyers fajta -- semmi beegetett nev. */
+/** A tulajdonos sajat kattintasa: bejelentkezett dashboard-munkamenet. Ugynok
+ *  (token), federacios tars, eszkozkulcs NEM az -- azok jovahagyasra mennek. */
+function isOwnerClick(ctx: RouteContext): boolean {
+  return ctx.auth?.kind === 'session'
+}
+
 function actor(ctx: RouteContext): string | null {
   const a = ctx.auth
   if (!a) return null
@@ -1034,7 +1052,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
   // BETEKINTO LINK (#406, 18. pont): letrehozas a `permission_change` kapun
-  // at, visszavonas azonnal. A nyilvanos lap a `workbench-share-view.ts`-ben.
+  // at -- a tulajdonos sajat kattintasa azonnal el (kiveve az 1-es "csak
+  // jelez" szintet) --, visszavonas azonnal. A nyilvanos lap a `workbench-share-view.ts`-ben.
   if (path === '/api/workbench/shares' && method === 'GET') {
     const project = getProject(String(url.searchParams.get('project') || ''))
     if (!project) return fail(res, 404, 'share_project_not_found', lang)
@@ -1047,7 +1066,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     const r = requestShare({
       kind: body['kind'], project_id: body['project'], work_item_id: body['item_id'], scope: body['scope'], days: body['days'],
-      lang: lang === 'en' ? 'en' : 'hu', actor: actor(ctx),
+      lang: lang === 'en' ? 'en' : 'hu', actor: actor(ctx), owner: isOwnerClick(ctx),
     })
     if (!r.ok) {
       if (r.code === 'project_archived') return fail(res, 409, 'project_archived', lang)
@@ -1517,16 +1536,27 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
   }
 
-  // KULDES (#406, 6. pont): SOSE kuld ki semmit maga -- a MEGLEVO jovahagyasi
-  // kapun at `email_send` jegyet nyit a fo agensnek. Kifele csak a
-  // tulajdonos igen-je utan megy barmi.
+  // KULDES (#406, 6. pont; tulajdonos dontese 2026-09-27): a tulajdonos SAJAT
+  // kattintasa (bejelentkezett munkamenet) AZONNAL kuld; minden mas hivo
+  // (token, federacio, eszkoz, agens) a MEGLEVO jovahagyasi kapun at
+  // `email_send` jegyet nyit. A valasztast itt a szerver teszi meg.
   if (segs.length === 2 && segs[1] === 'send-request' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const r = requestSendApproval(item, {
+    const input = {
       to: body['to'], subject: body['subject'], message: body['message'],
       attachment: body['attachment'], version: body['version'], actor: actor(ctx), lang,
-    })
+    }
+    if (isOwnerClick(ctx)) {
+      const s = await sendNow(item, input)
+      if (!s.ok) {
+        const status = s.code === 'send_write_failed' ? 500 : s.code === 'send_no_mail_account' ? 409 : s.code === 'send_failed' ? 502 : 400
+        return failDetail(res, status, s.code, lang, s.detail || null)
+      }
+      json(res, { ok: true, status: 'sent', message_id: s.message_id, attachment: { name: s.attachment.name, kind: s.attachment.kind }, message: msg('send_sent', lang) }, 201)
+      return true
+    }
+    const r = requestSendApproval(item, input)
     if (!r.ok) return failDetail(res, r.code === 'send_write_failed' ? 500 : 400, r.code, lang, r.detail || null)
     json(res, { ok: true, approval_id: r.approval_id, status: 'pending', attachment: { name: r.attachment.name, kind: r.attachment.kind }, message: msg('send_requested', lang) }, 201)
     return true
