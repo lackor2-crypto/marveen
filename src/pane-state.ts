@@ -1784,9 +1784,26 @@ export interface ToolCallProgressSignature {
 
 const TOOL_CALL_PROGRESS_RX = /(?:✻\s*)?(Worked|Brewed|Baked|Cooking|Simmered|Sauteed|Sauted)\s+for\s+(\d+)s/i
 
+// #405: newer activity BELOW a "<verb> for Ns" footer proves that footer is the
+// residual of an earlier, completed turn -- not a frozen current one. Measured
+// 2026-09-26 02:18:02 and 2026-09-25 23:56:29: the main session was mid-turn
+// (tool calls at 02:17:36-02:18:00, again at 02:19:33 in the audit log), the
+// pane showed an old "Worked for Ns" in the scrollback above the live work,
+// and that never-advancing residual read as a 180 s freeze -> respawn-pane ->
+// a false "plugin dead" service restart. Newer activity = an assistant line
+// ("● ..."), a tool result ("⎿ ..."), or a live spinner ("✽ Verbing… (7m 39s").
+// The 2026-06-02 wedge shape (footer, then only the unanswered "❯ prompt")
+// has none of these, so it is still caught.
+// The prompt glyph is excluded, so a user prompt that happens to contain
+// "… (" can't hide a wedge.
+const ACTIVITY_AFTER_FOOTER_RX = /^\s*(?:●|⎿)|^\s*[^\s❯>]\s*\S+…\s*\(/m
+
 export function stuckToolCallSignature(pane: string): ToolCallProgressSignature | null {
-  const m = pane.match(TOOL_CALL_PROGRESS_RX)
+  const rx = new RegExp(TOOL_CALL_PROGRESS_RX.source, 'gi')
+  let m: RegExpExecArray | null = null
+  for (let x = rx.exec(pane); x; x = rx.exec(pane)) m = x
   if (!m) return null
+  if (ACTIVITY_AFTER_FOOTER_RX.test(pane.slice(m.index + m[0].length))) return null
   const tag = m[1]!.toLowerCase()
   const seconds = parseInt(m[2]!, 10)
   if (!Number.isFinite(seconds) || seconds < 0) return null
