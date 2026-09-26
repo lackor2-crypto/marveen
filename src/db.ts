@@ -2312,6 +2312,14 @@ export function getPendingMessages(toAgent?: string): AgentMessage[] {
 // UPDATE would flip such a row failed->delivered after the fact. If the row
 // is no longer pending, this returns false and the caller must not record a
 // result either.
+/** Current status of one message, or null when the row is gone (#413, rebuilt
+ *  from upstream 9fb22e5d). One indexed primary-key lookup of one column on
+ *  purpose: the content column can hold thousands of characters. */
+export function getMessageStatus(id: number): string | null {
+  const row = db.prepare('SELECT status FROM agent_messages WHERE id = ?').get(id) as { status: string } | undefined
+  return row ? row.status : null
+}
+
 export function markMessageDelivered(id: number): boolean {
   const now = Math.floor(Date.now() / 1000)
   return db.prepare("UPDATE agent_messages SET status = 'delivered', delivered_at = ? WHERE id = ? AND status = 'pending'").run(now, id).changes > 0
