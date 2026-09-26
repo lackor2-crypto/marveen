@@ -465,3 +465,34 @@
   .wb-split-work .wb-panel { min-height: 0; }
   .wb-grid-aside { grid-template-columns: 1fr; }
 }
+
+/* --- Projekt-attekinto (#406, 2. pont) --------------------------------------
+ * Negy csempe egy sorban (telefonon ketto-ketto): nyitott, jovahagyasra var,
+ * friss kesz, utoljara valtozott fajl. A "var" csempe csak akkor kap
+ * kiemelest, ha tenyleg var valami. */
+.wb-ov {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.wb-ov-tile {
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 0;
+  background: var(--card-bg, transparent);
+}
+.wb-ov-attn { border-left: 4px solid var(--warning, #b45309); }
+.wb-ov-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; }
+.wb-ov-num { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+.wb-ov-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 0.88rem; }
+.wb-ov-list .wb-linklike, .wb-ov-tile .wb-linklike { text-align: left; word-break: break-word; }
+.wb-ov-approval { word-break: break-word; opacity: 0.9; }
+.wb-ov-file { margin: 4px 0 0; font-weight: 600; word-break: break-all; }
+@media (max-width: 900px) {
+  .wb-ov { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .wb-ov-num { font-size: 1.3rem; }
+}
+/* Szovegszeru gomb (verzio-visszaallitas, attekinto-linkek). */
+.wb-linklike { background: none; border: 0; padding: 0; color: var(--accent, #2563eb); cursor: pointer; font: inherit; text-decoration: underline; }
+.wb-linklike[disabled] { opacity: 0.5; cursor: default; }
