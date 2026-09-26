@@ -25,6 +25,7 @@ import { himalayaBin } from '../himalaya-bin.js'
 import { getSecret } from '../vault.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
+import { registerRecoveryMailPort } from '../password-recovery.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
 // files) -- mirrors the ~/.local/share/marveen-voice/ convention (the binary
@@ -167,6 +168,26 @@ function isKnownAccount(id: string | null): boolean {
 function accountEmail(id: string): string {
   return getAccounts().find(a => a.id === id)?.label ?? ''
 }
+
+// Forgotten-password codes (#412) go out through the owner's OWN connected
+// mailbox, to that same address: a mailbox whose IMAP/SMTP password the owner
+// entered is proven theirs, a typed address is not. Only accounts whose login
+// is an actual address qualify.
+registerRecoveryMailPort({
+  accounts: () => getAccounts()
+    .filter(a => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.label))
+    .map(a => ({ id: a.id, address: a.label })),
+  send: async (accountId, subject, text) => {
+    const address = accountEmail(accountId)
+    if (!address) return { ok: false, detail: 'unknown account' }
+    let sent = 'Sent'
+    try { sent = await mailboxFor(accountId, 'sent') } catch { /* default name */ }
+    const r = await himalaya(['-a', accountId, 'message', 'compose', '--from', address, '-t', address, '--body', text, '--send', '--save', sent, '-s', subject])
+    if (!r.ok) return { ok: false, detail: himalayaErrorText(r) }
+    invalidateEnvelopeCache(accountId, sent)
+    return { ok: true }
+  },
+})
 
 // === Iroda "Beallitasok" -> IMAP/SMTP account settings =====================
 // Researched first (Boss's standing rule, 2026-08-06): a same-machine key

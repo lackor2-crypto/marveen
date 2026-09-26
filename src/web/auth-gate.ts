@@ -91,6 +91,10 @@ export function isFederationWireEndpoint(path: string, method: string): boolean 
 export function requiresAuth(path: string, method: string): boolean {
   if (path === '/api/auth/status' && method === 'GET') return false
   if (path === '/api/auth/login' && method === 'POST') return false
+  // Forgotten password (#412): the owner is by definition not signed in yet.
+  // Settings for it stay gated (/api/auth/recovery/settings).
+  if (path === '/api/auth/recovery/channels' && method === 'GET') return false
+  if (method === 'POST' && (path === '/api/auth/recovery/request' || path === '/api/auth/recovery/verify' || path === '/api/auth/recovery/complete')) return false
   if (method === 'GET' && (path === '/api/marveen/avatar' || /^\/api\/agents\/[^/]+\/avatar$/.test(path))) return false
   // Pairing carries its own credential -- the short code the user reads off the
   // dashboard -- so it cannot require one of the others. The preflight carries
