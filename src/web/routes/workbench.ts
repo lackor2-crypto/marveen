@@ -50,6 +50,7 @@ import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { saveEditedImage } from '../../workbench-image-edit.js'
+import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
@@ -633,6 +634,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   image_edit_stale: {
     hu: 'Közben új verzió készült ebből a képből, ezért nem írom felül. Zárd be a szerkesztőt, nyisd meg újra, és csináld meg rajta újra a módosítást.',
     en: 'A newer version of this image was made in the meantime, so it will not be overwritten. Close the editor, open it again and redo the change on it.',
+  },
+  post_bad_platform: {
+    hu: 'Ismeretlen platform-méret. Válassz egyet a poszt-előnézet listájából.',
+    en: 'Unknown platform size. Choose one from the post preview list.',
+  },
+  post_not_image: {
+    hu: 'A mentendő tartalom nem PNG vagy JPEG kép, ezért nem mentem el.',
+    en: 'The content to save is not a PNG or JPEG image, so it was not saved.',
+  },
+  post_wrong_size: {
+    hu: 'A kép mérete nem egyezik a választott platforméval, ezért nem mentem el. Próbáld újra a poszt-előnézetből.',
+    en: 'The image size does not match the chosen platform, so it was not saved. Try again from the post preview.',
+  },
+  post_too_large: {
+    hu: 'A kép túl nagy a mentéshez (legfeljebb 30 MB). Próbáld JPG-ben.',
+    en: 'The image is too large to save (at most 30 MB). Try JPG.',
+  },
+  post_empty: {
+    hu: 'A mentendő kép üres volt. Próbáld újra.',
+    en: 'The image to save was empty. Try again.',
   },
   image_edit_not_image: {
     hu: 'A mentendő tartalom nem PNG, JPEG vagy WebP kép, ezért nem mentem el.',
@@ -1568,6 +1589,33 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
       file: r.file, renamed: r.file.renamed, name: r.file.name,
     }, 201)
+    return true
+  }
+
+  // POSZT PLATFORM-KEPEK (#406, TG 6642/6653): a bongeszoben pontos meretre
+  // vagott kep UJ fajlkent a projekt mappajaba; a betekinto link ezt kinalja.
+  if (segs.length === 2 && segs[1] === 'post-files' && method === 'GET') {
+    const files = listPostFiles(item.id).map((f) => ({
+      id: f.id, platform: f.platform, name: f.name, rel: f.rel, bytes: f.bytes, created_at: f.created_at, available: f.available,
+    }))
+    json(res, { ok: true, files })
+    return true
+  }
+  if (segs.length === 2 && segs[1] === 'post-files' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > POST_FILE_MAX_BYTES) return fail(res, 413, 'post_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: POST_FILE_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'post_too_large', lang)
+      throw e
+    }
+    const r = savePostFile(item, project, url.searchParams.get('platform'), data, actor(ctx))
+    if (!r.ok) return fail(res, r.code === 'write_failed' ? 500 : r.code === 'post_too_large' ? 413 : 400, r.code, lang)
+    json(res, { ok: true, name: r.name, file: { id: r.file.id, platform: r.file.platform, rel: r.file.rel, bytes: r.file.bytes } }, 201)
     return true
   }
 
