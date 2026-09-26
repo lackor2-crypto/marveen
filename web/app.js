@@ -11035,6 +11035,14 @@ async function _loadMemoriesPage(append) {
     }
     _prjMemoryMap = map
     renderMemories(memories, append)
+    // #413: the strict search (every word) found nothing, the any-word retry
+    // did -- say it, or the list looks like an exact hit.
+    if (!append && q && res.headers.get('X-Search-Relaxed') === '1') {
+      const note = document.createElement('div')
+      note.className = 'mem-relaxed-note'
+      note.textContent = t('mem.search_relaxed')
+      memList.insertBefore(note, memList.firstChild)
+    }
     _memNextOffset += memories.length
     _renderMemMore(pageable && memories.length === MEM_PAGE)
   } catch (err) {

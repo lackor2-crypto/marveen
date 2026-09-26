@@ -4401,6 +4401,7 @@ window._i18n.en = {
   'auth.card.err_generic':        'The operation failed.',
   'mem.load_more':                'Load more (showing {n} so far)',
   'mem.load_failed':              'The memories could not be loaded.',
+  'mem.search_relaxed':           'No memory contains every word you searched for, so these contain at least one of them.',
   'auth.card.err_current_wrong':  'The current password is not right. Type it again.',
   'auth.card.signed_in_as':       'Signed in as {user}.',
   'auth.card.current_password':   'Current password',

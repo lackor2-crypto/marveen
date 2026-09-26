@@ -1,4 +1,4 @@
-import {
+import { lastSearchRelaxed,
   saveAgentMemory, getAgentMemories, searchAgentMemories, getMemoryStats, updateMemory,
   hybridSearch, clearMemoryCache,
   searchMemories, getMemoriesForChat, getDb, touchMemoriesAccessed,
@@ -89,6 +89,9 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
     const fetchLimit = scopeMap ? Math.max(limit, 2000) : limit
 
     let results: Memory[]
+    // Set by the FTS branches when the strict (all words) query found nothing
+    // and the any-word retry did (#413): the answer must say so.
+    let relaxed = false
     if (scopeMap && projectScope !== 'none' && !q) {
       const ids = Object.keys(scopeMap).filter((id) => inScope(Number(id))).map(Number)
       results = ids.length
@@ -96,9 +99,12 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
           .all(...ids, ...(agentId ? [agentId] : []), limit) as Memory[]
         : []
     } else if (q && mode === 'hybrid') {
-      results = await hybridSearch(agentId || MAIN_AGENT_ID, q, fetchLimit)
+      const meta: { relaxed?: boolean } = {}
+      results = await hybridSearch(agentId || MAIN_AGENT_ID, q, fetchLimit, meta)
+      relaxed = meta.relaxed === true
     } else if (q && agentId) {
       results = searchAgentMemories(agentId, q, fetchLimit)
+      relaxed = lastSearchRelaxed()
       if (results.length === 0) {
         const db2 = getDb()
         results = db2.prepare("SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND (content LIKE ? OR keywords LIKE ?) ORDER BY accessed_at DESC LIMIT ?")
@@ -106,6 +112,7 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
       }
     } else if (q) {
       results = searchMemories(q, ALLOWED_CHAT_ID, fetchLimit)
+      relaxed = lastSearchRelaxed()
       if (results.length === 0) {
         const db2 = getDb()
         results = db2.prepare('SELECT * FROM memories WHERE content LIKE ? ORDER BY accessed_at DESC LIMIT ?').all(`%${q}%`, fetchLimit) as Memory[]
@@ -141,6 +148,9 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
       created_label: new Date(m.created_at * 1000).toLocaleString('hu-HU', { timeZone: APP_TZ }),
       accessed_label: new Date(m.accessed_at * 1000).toLocaleString('hu-HU', { timeZone: APP_TZ }),
     }))
+    // The body stays a bare array (every existing caller reads it that way);
+    // the relaxation travels in a header the dashboard shows as a sentence.
+    if (relaxed) res.setHeader('X-Search-Relaxed', '1')
     jsonMaybeGzip(req, res, formatted)
     return true
   }
