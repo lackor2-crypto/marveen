@@ -54,6 +54,8 @@ import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeli
 import { searchProject } from '../../workbench-search.js'
 import { ensureLastWeekSummary, listWeeklySummaries, currentWeekSummary } from '../../workbench-weekly.js'
 import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTodos, todosToIcs, TODO_TEXT_MAX } from '../../workbench-todos.js'
+import { getReminderStatus, setReminderSettings } from '../../workbench-todo-reminder.js'
+import { sendOwnerChannelChecked } from '../../notify.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -206,6 +208,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   todo_no_due: {
     hu: 'Ennek a teendőnek nincs határideje, így a naptárba sincs mit betenni. Adj meg előbb egy napot.',
     en: 'This to-do has no due date, so there is nothing to put in the calendar. Set a day first.',
+  },
+  todo_reminder_bad_time: {
+    hu: 'Az időpont nem érvényes. Válassz egy időt, például 18:00.',
+    en: 'The time is not valid. Pick a time, for example 18:00.',
+  },
+  todo_reminder_bad_days_before: {
+    hu: 'Válassz a listából: aznap, 1, 2 vagy 3 nappal, vagy egy héttel előtte.',
+    en: 'Pick from the list: on the day, 1, 2 or 3 days, or one week before.',
+  },
+  todo_reminder_no_channel: {
+    hu: 'Nincs bekötött csatorna (például Telegram), ahova az emlékeztető kimehetne. Bekötni az Ügynökök oldalon lehet: nyisd meg a fő ügynököt, ott a „Telegram bot bekötése” rész.',
+    en: 'No channel (for example Telegram) is connected for the reminder to go to. You can connect one on the Agents page: open the main agent, see the "Connect Telegram bot" part.',
+  },
+  todo_reminder_send_failed: {
+    hu: 'A próba-üzenet nem ment ki. A csatorna ezt válaszolta:',
+    en: 'The test message did not go out. The channel replied:',
   },
   todo_none_due: {
     hu: 'Ebben a projektben nincs nyitott, határidős teendő, így a naptárba sincs mit betenni.',
@@ -836,6 +854,36 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     json(res, { todos: listProjectTodos(project.id), max_chars: TODO_TEXT_MAX })
+    return true
+  }
+  // TEENDO-EMLEKEZTETO (#406, otlet a5ecabbe): beallitas + allapot + proba.
+  // Csak a tulajdonos SAJAT csatornajara megy, masnak soha.
+  if (path === '/api/workbench/todo-reminder' && method === 'GET') {
+    json(res, { reminder: getReminderStatus() })
+    return true
+  }
+  if (path === '/api/workbench/todo-reminder' && method === 'PUT') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const r = setReminderSettings({
+      enabled: typeof body['enabled'] === 'boolean' ? body['enabled'] : undefined,
+      days_before: 'days_before' in body ? body['days_before'] : undefined,
+      time: 'time' in body ? body['time'] : undefined,
+    })
+    if (!r.ok) return fail(res, 400, 'todo_reminder_' + r.code, lang)
+    json(res, { reminder: getReminderStatus() })
+    return true
+  }
+  if (path === '/api/workbench/todo-reminder/test' && method === 'POST') {
+    const text = lang === 'en'
+      ? 'Test: this is where Marveen will remind you of the Workbench to-dos before their due date.'
+      : 'Próba: ide fog szólni a Marveen a Munkapad teendőiről a határidő előtt.'
+    let outcome: 'sent' | 'no_channel'
+    try { outcome = await sendOwnerChannelChecked(text) } catch (err) {
+      return failDetail(res, 502, 'todo_reminder_send_failed', lang, (err instanceof Error ? err.message : String(err)).slice(0, 200))
+    }
+    if (outcome === 'no_channel') return fail(res, 409, 'todo_reminder_no_channel', lang)
+    json(res, { ok: true })
     return true
   }
   if (path === '/api/workbench/todos' && method === 'POST') {

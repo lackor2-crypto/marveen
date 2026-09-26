@@ -127,6 +127,9 @@
     tdError: null,
     tdBusy: false,
     tdOpen: false,
+    tdRem: null,
+    tdRemError: null,
+    tdRemBusy: false,
     // --- dontesnaplo (#406, 10. pont) ---
     // `decisions === null` = meg nem toltottuk be; a hiba KULON all, hogy a
     // "nem tudtam betolteni" sose latsszon "meg nincs dontes"-nek.
@@ -322,6 +325,81 @@
     return '<details class="wb-td-box" open><summary>' + esc(t('workbench.td.title_item')) + '</summary>' + form + body + '</details>'
   }
 
+  // ---- teendo-emlekezteto (#406, otlet a5ecabbe) ------------------------------
+  // Csak a tulajdonos SAJAT csatornajara megy. A panel megmondja, ha nincs hova.
+
+  function loadReminder() {
+    return api('GET', '/api/workbench/todo-reminder').then(function (r) {
+      if (!r.ok) { WB.tdRemError = r.message; WB.tdRem = null; render(); return }
+      WB.tdRemError = null
+      WB.tdRem = (r.data && r.data.reminder) || null
+      render()
+    })
+  }
+
+  function tdTimeText(sec) {
+    try { return new Date(sec * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch (_e) { return String(sec) }
+  }
+
+  function reminderBoxHtml() {
+    if (WB.tdRemError) {
+      return '<div class="wb-td-rem"><p class="wb-error">' + esc(WB.tdRemError) + '</p>'
+        + '<button type="button" class="btn-secondary" data-wb-act="td-rem-retry">' + esc(t('workbench.tpl.retry')) + '</button></div>'
+    }
+    var rm = WB.tdRem
+    if (!rm) return '<div class="wb-td-rem"><p class="wb-hint">' + esc(t('workbench.td.rem.loading')) + '</p></div>'
+    var ro = archived() || WB.tdRemBusy ? ' disabled' : ''
+    var days = [0, 1, 2, 3, 7].map(function (n) {
+      return '<option value="' + n + '"' + (rm.days_before === n ? ' selected' : '') + '>' + esc(t('workbench.td.rem.days_' + n)) + '</option>'
+    }).join('')
+    var status
+    if (rm.channel !== 'ok') status = '<p class="wb-hint wb-td-rem-warn">' + esc(t('workbench.td.rem.no_channel')) + '</p>'
+    else if (rm.last_error) status = '<p class="wb-error">' + esc(t('workbench.td.rem.last_error', { when: tdTimeText(rm.last_error_at || 0) })) + ' ' + esc(rm.last_error) + '</p>'
+    else if (rm.last_sent_at) status = '<p class="wb-hint">' + esc(t('workbench.td.rem.last_sent', { when: tdTimeText(rm.last_sent_at) })) + '</p>'
+    else status = '<p class="wb-hint">' + esc(t('workbench.td.rem.never_sent')) + '</p>'
+    return '<details class="wb-td-rem"' + (rm.channel !== 'ok' ? ' open' : '') + '><summary>'
+      + esc(rm.enabled ? t('workbench.td.rem.summary_on', { time: rm.time, when: t('workbench.td.rem.days_' + rm.days_before) }) : t('workbench.td.rem.summary_off'))
+      + '</summary>'
+      + '<p class="wb-hint">' + esc(t('workbench.td.rem.intro')) + '</p>'
+      + '<div class="wb-td-form">'
+      + '<label class="wb-td-date-label"><input type="checkbox" id="wbTdRemOn"' + (rm.enabled ? ' checked' : '') + ro + '> ' + esc(t('workbench.td.rem.enabled')) + '</label>'
+      + '<label class="wb-td-date-label">' + esc(t('workbench.td.rem.when')) + ' <select class="wb-input" id="wbTdRemDays"' + ro + '>' + days + '</select></label>'
+      + '<label class="wb-td-date-label">' + esc(t('workbench.td.rem.at')) + ' <input class="wb-input" id="wbTdRemTime" type="time" value="' + escA(rm.time) + '"' + ro + '></label>'
+      + '<button type="button" class="btn-primary" data-wb-act="td-rem-save"' + ro + '>' + esc(t('workbench.td.rem.save')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="td-rem-test"' + (WB.tdRemBusy ? ' disabled' : '') + '>' + esc(t('workbench.td.rem.test')) + '</button>'
+      + '</div>'
+      + status
+      + '</details>'
+  }
+
+  function reminderRequest(method, url, body, okKey) {
+    if (WB.tdRemBusy) return
+    WB.tdRemBusy = true
+    render()
+    return api(method, url, body).then(function (r) {
+      WB.tdRemBusy = false
+      if (!r.ok) {
+        var detail = r.data && r.data.detail ? ' ' + r.data.detail : ''
+        window.showToast(r.message + detail)
+        render()
+        return loadReminder()
+      }
+      window.showToast(t(okKey))
+      if (r.data && r.data.reminder) { WB.tdRem = r.data.reminder; render(); return }
+      return loadReminder()
+    })
+  }
+
+  function saveReminderFromForm() {
+    var on = document.getElementById('wbTdRemOn')
+    var days = document.getElementById('wbTdRemDays')
+    var time = document.getElementById('wbTdRemTime')
+    var body = { enabled: !!(on && on.checked) }
+    if (days && days.value !== undefined && days.value !== '') body.days_before = Number(days.value)
+    if (time && time.value) body.time = time.value
+    reminderRequest('PUT', '/api/workbench/todo-reminder', body, 'workbench.td.rem.saved')
+  }
+
   /** Eszkozsor-panel: a projekt MINDEN teendoje, lejart / ma / kozelgo / hatarido nelkul / kesz. */
   function todosPanelHtml() {
     if (!WB.tdOpen) return ''
@@ -355,6 +433,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="td-close">' + esc(t('workbench.caps.close')) + '</button>'
       + '</div>'
       + '<p class="wb-hint">' + esc(t('workbench.td.intro')) + '</p>'
+      + reminderBoxHtml()
       + body
       + '</section>'
   }
@@ -4832,7 +4911,14 @@
     else if (a === 'ho-close') { WB.hoOpen = false; render() }
     else if (a === 'ho-refresh') loadHandoff()
     else if (a === 'ho-scope') { var sc = act.getAttribute('data-wb-scope'); if (sc === 'done' || sc === 'all') { WB.hoScope = sc; loadHandoff() } }
-    else if (a === 'td-open') { WB.tdOpen = !WB.tdOpen; render(); if (WB.tdOpen && WB.todos === null) loadTodos() }
+    else if (a === 'td-open') {
+      WB.tdOpen = !WB.tdOpen; render()
+      if (WB.tdOpen && WB.todos === null) loadTodos()
+      if (WB.tdOpen && !WB.tdRem) loadReminder()
+    }
+    else if (a === 'td-rem-retry') { WB.tdRemError = null; WB.tdRem = null; render(); loadReminder() }
+    else if (a === 'td-rem-save') saveReminderFromForm()
+    else if (a === 'td-rem-test') reminderRequest('POST', '/api/workbench/todo-reminder/test', {}, 'workbench.td.rem.test_ok')
     else if (a === 'td-close') { WB.tdOpen = false; render() }
     else if (a === 'td-retry') { WB.tdError = null; WB.todos = null; render(); loadTodos() }
     else if (a === 'td-item') { var tid = act.getAttribute('data-wb-item-id'); if (tid) selectItem(tid) }
