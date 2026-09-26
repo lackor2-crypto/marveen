@@ -67,7 +67,10 @@ export async function inspectBackup(o: {
     let integrity = 'none'
     let backupCounts: Record<string, number> = {}
     if (dbLogical) {
-      const info = inspectDatabaseFile(join(stagingDir, dbLogical))
+      let info
+      try { info = inspectDatabaseFile(join(stagingDir, dbLogical)) } catch (e: any) {
+        throw new InspectError('db_integrity', `database in the backup cannot be opened: ${e?.message || e}`)
+      }
       integrity = info.integrity
       backupCounts = info.counts
       if (info.integrity !== 'ok') throw new InspectError('db_integrity', `database in the backup is damaged: ${info.integrity}`)

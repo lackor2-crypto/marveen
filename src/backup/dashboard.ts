@@ -6,7 +6,8 @@ import { APP_TZ, STORE_DIR } from '../config.js'
 import { getDb } from '../db.js'
 import { logger } from '../logger.js'
 import { startBackupScheduler } from './scheduler.js'
-import { runBackup } from './service.js'
+import { join } from 'node:path'
+import { runBackup, spawnVerify, localBackupDir } from './service.js'
 
 export function startDashboardBackup(): () => void {
   return startBackupScheduler({
@@ -18,6 +19,8 @@ export function startDashboardBackup(): () => void {
       if (r.ok) logger.info({ file: r.name, size: r.size, replicas: r.replicas }, 'Scheduled full backup done')
       else logger.warn({ error: r.error, detail: r.detail }, 'Scheduled full backup failed')
     },
+    verify: (name) => { void spawnVerify(['verify', join(localBackupDir(STORE_DIR), name), '--record']) },
+    offsite: () => { void spawnVerify(['verify-offsite']) },
     log: (msg, extra) => logger.warn(extra ?? {}, msg),
   })
 }

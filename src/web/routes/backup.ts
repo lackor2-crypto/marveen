@@ -25,7 +25,7 @@ import { countDashboardUsers, getDashboardUser, getDb } from '../../db.js'
 import { verifyPassword } from '../password-hash.js'
 import type { RouteContext } from './types.js'
 import { BACKUP_NAME_RE, type BackupStage } from '../../backup/create.js'
-import { runBackup, listBackupsIn, localBackupDir } from '../../backup/service.js'
+import { runBackup, listBackupsIn, localBackupDir, spawnVerify } from '../../backup/service.js'
 import { readState } from '../../backup/state.js'
 import {
   readConfig, writeConfig, resolveDestinations, listDestination, realDeps, defaultCloudFolder,
@@ -135,6 +135,9 @@ function startJob(): Job {
   try { db = getDb() } catch { /* CLI-less test: the file path is used */ }
   runImpl({ kind: 'manual', db, onStage: (s) => { job.stage = s } })
     .then((r) => {
+      // Phase 6: every manual backup is verified in the background (a child
+      // process: the trial restore runs the DB migrations).
+      if (r.ok && r.file) void spawnVerify(['verify', r.file, '--record'])
       job.result = {
         ok: r.ok, name: r.name, size: r.size, error: r.error, detail: r.detail,
         replicas: r.replicas, warnings: r.warnings, durationMs: r.durationMs,

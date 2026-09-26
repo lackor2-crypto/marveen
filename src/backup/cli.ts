@@ -2,18 +2,17 @@
  * Terminal / systemd entry point of the full backup (#396).
  *
  *   node dist/backup/cli.js create [--kind scheduled|manual]
- *   node dist/backup/cli.js verify <file> [--key <recovery key>]
+ *   node dist/backup/cli.js verify <file> [--key <recovery key>] [--record]
+ *   node dist/backup/cli.js verify-offsite
  *   node dist/backup/cli.js list
  *
  * scripts/backup.sh (the 6-hourly unit) calls `create --kind scheduled`.
  * Exit codes: 0 ok, 1 failure, 2 usage, 75 skipped (locked / restore running).
  */
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync, mkdirSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { readHeader, BackupDecryptError, type BackupKind } from './crypto.js'
-import { extractBackup, checkManifestHashes } from './extract.js'
-import { inspectDatabaseFile } from './db-snapshot.js'
 import { findKeyById } from './key-store.js'
 import { runBackup, storeDir, listBackupsIn, localBackupDir } from './service.js'
 
@@ -49,41 +48,82 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (cmd === 'verify') {
     const file = argv[1]
-    if (!file) { console.error('usage: verify <file> [--key <recovery key>]'); return 2 }
-    const store = await storeDir()
-    let key = arg(argv, '--key')
-    if (!key) {
-      const { header } = readHeader(file)
-      key = findKeyById(store, header.keyId)?.key
-      if (!key) { console.error(`backup: no stored key with id ${header.keyId}; pass --key`); return 2 }
-    }
-    const base = join(store, 'tmp')
-    mkdirSync(base, { recursive: true, mode: 0o700 })
-    const dir = mkdtempSync(join(base, 'restore-stage-'))
-    try {
-      const { manifest } = await extractBackup(file, key, dir)
-      const h = checkManifestHashes(dir, manifest)
-      if (h.missing.length || h.mismatched.length) {
-        console.error(`backup: verify FAILED: ${h.missing.length} missing, ${h.mismatched.length} damaged file(s)`)
-        return 1
-      }
-      const dbPath = manifest.categories.database?.[0]
-      if (dbPath) {
-        const info = inspectDatabaseFile(join(dir, dbPath))
-        if (info.integrity !== 'ok') { console.error(`backup: verify FAILED: database integrity: ${info.integrity}`); return 1 }
-      }
-      console.log(`backup: verify ok (${manifest.files.length} files, created ${manifest.createdAt})`)
-      return 0
-    } catch (err) {
-      if (err instanceof BackupDecryptError) { console.error(`backup: verify FAILED (${err.code}): ${err.message}`); return 1 }
-      throw err
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+    if (!file) { console.error('usage: verify <file> [--key <recovery key>] [--record]'); return 2 }
+    return verifyCmd(file, arg(argv, '--key'), argv.includes('--record'))
   }
+  if (cmd === 'verify-offsite') return verifyOffsiteCmd()
   if (cmd === 'restore') return restoreCmd(argv)
   console.error('usage: cli.js create [--kind scheduled|manual] | verify <file> [--key K] | list | restore <file> --unit <dashboard.service> [--key K] [--exclude a,b] [--yes]')
   return 2
+}
+
+/** The app's own migrations against a restored DB copy (safe here: a child process). */
+async function migrateCopy(dbFile: string): Promise<void> {
+  const { initDatabase, getDb } = await import('../db.js')
+  initDatabase(dbFile)
+  getDb().close()
+}
+
+/**
+ * Full verify (decrypt, hashes, DB integrity, trial restore + migrations,
+ * counts). With --record the result lands in store/backup-state.json, which
+ * the list shows as verified / failed.
+ */
+async function verifyCmd(file: string, typedKey: string | undefined, record: boolean): Promise<number> {
+  const store = await storeDir()
+  let key = typedKey
+  let name = ''
+  try {
+    const { header } = readHeader(file)
+    name = basename(file)
+    if (!key) key = findKeyById(store, header.keyId)?.key
+    if (!key) { console.error(`backup: no stored key with id ${header.keyId}; pass --key`); return 2 }
+  } catch (err) {
+    if (err instanceof BackupDecryptError) { console.error(`backup: verify FAILED (${err.code})`); return 1 }
+    throw err
+  }
+  const { verifyBackup } = await import('./verify.js')
+  const { updateState } = await import('./state.js')
+  const r = await verifyBackup({ file, recoveryKey: key, scratchBase: join(store, 'tmp'), migrate: migrateCopy })
+  const ok = r.ok
+  const reason = r.reason
+  if (record) {
+    updateState(store, (s) => {
+      s.lastVerify = { at: Date.now(), ok, name, reason: ok ? undefined : `${r.stage}: ${reason}` }
+      const b = (s.backups ??= {})[name]
+      if (b) { b.verified = ok; b.verifiedAt = Date.now(); b.verifyReason = ok ? undefined : `${r.stage}: ${reason}` }
+    })
+  }
+  console.log(ok ? `backup: verify ok (${r.files} files, trial restore + migrations passed)` : `backup: verify FAILED at ${r.stage}: ${reason}`)
+  return ok ? 0 : 1
+}
+
+/** Once a month: download the newest cloud copy and verify THAT (catches a silently truncated upload). */
+async function verifyOffsiteCmd(): Promise<number> {
+  const store = await storeDir()
+  const { readConfig, resolveDestinations, listDestination, realDeps } = await import('./destinations.js')
+  const { updateState } = await import('./state.js')
+  const deps = await realDeps(store)
+  const d = resolveDestinations(readConfig(store), deps).find((x) => x.id === 'cloud')
+  if (!d || !d.enabled) { console.log('backup: no cloud destination, nothing to verify off-site'); return 0 }
+  const l = await listDestination(d, deps)
+  if (!l.ok) { console.error(`backup: off-site listing failed (${l.reason})`); return 1 }
+  const newest = [...l.files].sort((a, b) => b.name.localeCompare(a.name))[0]
+  if (!newest) { console.log('backup: the cloud folder has no backup yet'); return 0 }
+  const api = d.kind === 'mega' ? deps.mega : deps.gdrive
+  const tmp = join(store, 'tmp')
+  mkdirSync(tmp, { recursive: true, mode: 0o700 })
+  const file = join(tmp, `offsite-${newest.name}`)
+  try {
+    await api!.download!(d.account!, d.folderName!, newest.ref, file)
+    const code = await verifyCmd(file, undefined, false)
+    updateState(store, (s) => { s.lastOffsiteVerify = { at: Date.now(), ok: code === 0, name: newest.name, ...(code === 0 ? {} : { reason: 'verify failed' }) } })
+    return code
+  } catch (e: any) {
+    updateState(store, (s) => { s.lastOffsiteVerify = { at: Date.now(), ok: false, name: newest.name, reason: 'download failed', detail: String(e?.message || e).slice(0, 300) } })
+    console.error(`backup: off-site download failed: ${e?.message || e}`)
+    return 1
+  } finally { rmSync(file, { force: true }) }
 }
 
 /**

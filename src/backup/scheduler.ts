@@ -37,7 +37,37 @@ export interface SchedulerDeps {
   storeDir: string
   tz: string
   run: () => Promise<unknown>
+  /** Start a verify of the newest local backup (a child process). */
+  verify?: (name: string) => void
+  /** Start the monthly off-site verify (a child process). */
+  offsite?: () => void
   log?: (msg: string, extra?: Record<string, unknown>) => void
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000
+
+/** Weekly verify of the newest backup, monthly off-site verify (Phase 6). */
+export function verifyTick(d: SchedulerDeps, now = Date.now()): { verify: boolean; offsite: boolean } {
+  const st = readState(d.storeDir)
+  const out = { verify: false, offsite: false }
+  if (d.verify && st.lastSuccessName) {
+    const last = Math.max(st.lastVerify?.at ?? 0, st.lastVerifyStartedAt ?? 0)
+    if (now - last > WEEK_MS) {
+      updateState(d.storeDir, (s) => { s.lastVerifyStartedAt = now })
+      d.verify(st.lastSuccessName)
+      out.verify = true
+    }
+  }
+  if (d.offsite && st.replicas?.cloud?.ok) {
+    const last = Math.max(st.lastOffsiteVerify?.at ?? 0, st.lastOffsiteStartedAt ?? 0)
+    if (now - last > MONTH_MS) {
+      updateState(d.storeDir, (s) => { s.lastOffsiteStartedAt = now })
+      d.offsite()
+      out.offsite = true
+    }
+  }
+  return out
 }
 
 /** One tick; exported for tests. Returns true when it started a run. */
@@ -60,7 +90,10 @@ export function startBackupScheduler(d: SchedulerDeps): () => void {
   const tick = () => {
     if (busy) return
     busy = true
-    schedulerTick(d).catch(() => { /* logged inside */ }).finally(() => { busy = false })
+    schedulerTick(d)
+      .then(() => { try { verifyTick(d) } catch (err) { d.log?.('verify tick failed', { err: String(err) }) } })
+      .catch(() => { /* logged inside */ })
+      .finally(() => { busy = false })
   }
   const first = setTimeout(tick, 60_000)
   const iv = setInterval(tick, TICK_MS)
