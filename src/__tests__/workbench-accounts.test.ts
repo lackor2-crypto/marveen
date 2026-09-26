@@ -19,6 +19,11 @@ describe('workbenchAccounts', () => {
     expect(workbenchAccounts(now)).toEqual(['b'])
   })
 
+  it('a meretlen keretu fiok a mert fiokok MOGE kerul, nem ele', () => {
+    setWorkbenchAccountListerForTest(() => [acc('meretlen', null, null), acc('mert', 40, 0)])
+    expect(workbenchAccounts(now)).toEqual(['mert', 'meretlen'])
+  })
+
   it('a lista-hiba nem dob: ures lista', () => {
     setWorkbenchAccountListerForTest(() => { throw new Error('x') })
     expect(workbenchAccounts(now)).toEqual([])

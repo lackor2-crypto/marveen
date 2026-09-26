@@ -30,7 +30,7 @@ export type SessionStatus = typeof SESSION_STATUSES[number]
 export const MESSAGE_ROLES = ['user', 'assistant', 'system'] as const
 export type MessageRole = typeof MESSAGE_ROLES[number]
 
-export const TOOL_CALL_STATUSES = ['running', 'ok', 'error', 'needs_approval', 'blocked'] as const
+export const TOOL_CALL_STATUSES = ['running', 'ok', 'error', 'needs_approval', 'blocked', 'rejected'] as const
 export type ToolCallStatus = typeof TOOL_CALL_STATUSES[number]
 
 export interface AgentSessionRow {
@@ -236,6 +236,29 @@ export function listToolCalls(sessionId: string): AgentToolCallRow[] {
   const v = String(sessionId || '').trim()
   if (!v) return []
   return getDb().prepare('SELECT * FROM workbench_agent_tool_calls WHERE session_id = ? ORDER BY started_at, rowid').all(v) as AgentToolCallRow[]
+}
+
+/**
+ * A jovahagyasra varo tool-hivasok (#404 H2). `sessionId` nelkul az egesz
+ * telepitesen -- a jovahagyas-dontes nem tudja, melyik beszelgeteshez tartozik.
+ */
+export function listAwaitingApprovalCalls(sessionId?: string | null): AgentToolCallRow[] {
+  ensureAgentTables()
+  const v = String(sessionId || '').trim()
+  return (v
+    ? getDb().prepare("SELECT * FROM workbench_agent_tool_calls WHERE status = 'needs_approval' AND approval_id IS NOT NULL AND session_id = ? ORDER BY started_at, rowid").all(v)
+    : getDb().prepare("SELECT * FROM workbench_agent_tool_calls WHERE status = 'needs_approval' AND approval_id IS NOT NULL ORDER BY started_at, rowid LIMIT 200").all()
+  ) as AgentToolCallRow[]
+}
+
+/**
+ * Egy jovahagyasra varo sor ATOMI lefoglalasa a futtatashoz: ket egyideju
+ * dontes-feldolgozo kozul csak az egyik nyer, igy egy "igen" egy futas.
+ */
+export function claimAwaitingCall(id: string): boolean {
+  ensureAgentTables()
+  const r = getDb().prepare("UPDATE workbench_agent_tool_calls SET status = 'running' WHERE id = ? AND status = 'needs_approval'").run(id)
+  return r.changes === 1
 }
 
 /** Egy jovahagyas-jegy mar egy SIKERES futast fedezett-e (egyszer hasznalhato). */

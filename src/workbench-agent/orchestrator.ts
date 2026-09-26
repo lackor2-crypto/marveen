@@ -41,6 +41,7 @@ import {
   type AgentSessionRow,
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
+import { settleWorkbenchApprovals } from './approved-runner.js'
 import { getRemaining, record, reserve } from './usage-manager.js'
 
 /** Hany tool-kor lehet egy forduloban. A tizedik kor mar nem terv, hanem kor. */
@@ -284,6 +285,9 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     }
 
     const ctx = buildContext(project, workItem, lang)
+    // #404 H2: a kozben eldontott jovahagyasok eredmenye MEG ez elott a
+    // fordulo elott a beszelgetesbe kerul, hogy a modell is lassa.
+    await settleWorkbenchApprovals(session.id).catch(() => 0)
     const history = historyMessages(listAgentMessages(session.id))
     // A kontextus-blokk az ELSO user-uzenet ele kerul, hogy a modell a
     // tenyeket a keressel egyutt lassa.
@@ -447,7 +451,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
           auditWorkbench({ agent: input.actor, tool: tool.name, op: 'approval-request', target: workItem?.id || project.id, cwd: project.id })
           yield { type: 'tool', name: tool.name, status: 'needs_approval', detail: m, approvalId }
           messages.push({ role: 'assistant', content: full })
-          messages.push({ role: 'user', content: `TOOL RESULT (${tool.name}): waiting for the owner's approval. Tell the owner in plain words that you filed an approval request; do not retry now.` })
+          messages.push({ role: 'user', content: `TOOL RESULT (${tool.name}): waiting for the owner's approval. Once approved it runs BY ITSELF with exactly this input, and the result is added to this chat. Tell the owner in plain words that you filed an approval request; do not call this tool again for the same step.` })
           continue
         }
       }

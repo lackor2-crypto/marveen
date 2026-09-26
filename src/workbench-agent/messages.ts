@@ -83,12 +83,24 @@ export const MESSAGES = {
     en: 'There is no such tool: {tool}. The agent may only use the allowed tools.',
   },
   tool_needs_approval: {
-    hu: 'Ehhez a lépéshez ({tool}) a jóváhagyásod kell. Felvettem a Jóváhagyások közé — ott tudod engedélyezni vagy elutasítani.',
-    en: 'This step ({tool}) needs your approval. I filed it under Approvals — you can allow or reject it there.',
+    hu: 'Ehhez a lépéshez ({tool}) a jóváhagyásod kell. Felvettem a Jóváhagyások közé — ott tudod engedélyezni vagy elutasítani. Ha engedélyezed, magától lefut, és az eredményt ide írom.',
+    en: 'This step ({tool}) needs your approval. I filed it under Approvals — you can allow or reject it there. If you allow it, it runs by itself and I post the result here.',
   },
   tool_blocked: {
     hu: 'Ezt a lépést ({tool}) a beállításaid nem engedik önállóan, és jóváhagyást sem kérhetek rá. Az Önállóság oldalon tudod feloldani.',
     en: 'Your settings do not allow this step ({tool}) on its own, and I cannot even ask for approval. You can unlock it on the Autonomy page.',
+  },
+  tool_ran_after_approval: {
+    hu: 'Jóváhagyva, és lefutott: {tool}{target}.',
+    en: 'Approved, and it ran: {tool}{target}.',
+  },
+  tool_failed_after_approval: {
+    hu: 'Jóváhagyva, de nem sikerült lefuttatni ({tool}{target}): {detail}',
+    en: 'Approved, but it could not run ({tool}{target}): {detail}',
+  },
+  tool_approval_rejected: {
+    hu: 'Ezt a lépést ({tool}{target}) nem hagytad jóvá, ezért nem futott le.',
+    en: 'You did not approve this step ({tool}{target}), so it did not run.',
   },
   tool_failed: {
     hu: 'Az eszköz ({tool}) nem futott le: {detail}',
