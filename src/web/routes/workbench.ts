@@ -38,7 +38,7 @@ import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG } from '../../config.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, listWorkItems,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -601,6 +601,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     })
     if (!r.ok) return fail(res, 404, r.code, lang)
     json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id) }, 201)
+    return true
+  }
+
+  // EGY VERZIO RESZEI (#406, 5. pont): a verziok egymas melletti
+  // osszehasonlitasahoz. Csak olvas; masik munkadarab verziojara 409 (nem
+  // "ures lista" -- az osszekeveres kulon valaszt erdemel).
+  if (segs.length === 4 && segs[1] === 'versions' && segs[3] === 'parts' && method === 'GET') {
+    const v = getWorkItemVersion(segs[2] || '')
+    if (!v) return fail(res, 404, 'version_not_found', lang)
+    if (v.work_item_id !== item.id) return fail(res, 409, 'version_mismatch', lang)
+    const isCurrent = v.id === item.current_version_id
+    json(res, {
+      version: v,
+      // A mostani verzio "elo" reszei a verziozas elotti sorokat is fogjak.
+      parts: listWorkItemParts(item.id, isCurrent ? null : v.id),
+    })
     return true
   }
 

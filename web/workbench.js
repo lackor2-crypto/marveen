@@ -76,6 +76,9 @@
     versionBusy: false,
     // --- kozvetlen szovegszerkesztes (#406, 4. pont) ---
     textEdit: null,
+    // --- verziok egymas mellett (#406, 5. pont) ---
+    // null = nincs nyitva; kulonben {itemId, left, right, pos, sides}.
+    compare: null,
     // --- osztott nezet (#406, 1. pont) ---
     // 'split' = bal oldalt a chat, jobb oldalt az ELO munkadarab (a szakmaban
     // bevett "chat + artifact" elrendezes); 'classic' = a harom panel, alatta a
@@ -241,6 +244,7 @@
   function loadDetail(id) {
     WB.detail = null
     WB.textEdit = null
+    if (WB.compare && WB.compare.itemId !== id) WB.compare = null
     WB.preview = null
     WB.previewVersion = null
     WB.versionBusy = false
@@ -1590,6 +1594,258 @@
     return list + more + add
   }
 
+  // ---- verziok egymas mellett + egygombos visszavonas (#406, 5. pont) --------
+  //
+  // VISSZAVONAS: a mostani elotti verzio allapota lesz UJ verziokent (a
+  // visszaallitas nem torol semmit, ezert nem kell megerositeni -- ez a szakmai
+  // gyakorlat: a visszavonhato lepes nem kerdez). A "visszavonas visszavonasa"
+  // ugyanez: a lista legfelso verzioja ott marad.
+  //
+  // OSSZEHASONLITAS: ket verzio egymas mellett. Kepnel/rajznal egy csuszka
+  // huzza szet a ket kepet (elotte / utana); szovegnel a torolt es az uj szavak
+  // kiemelve. Telefonon a ket oszlop egymas ala kerul, a csuszka ujjal is megy.
+
+  function versionsSorted() {
+    var list = ((WB.detail && WB.detail.versions) || []).slice()
+    list.sort(function (a, b) { return b.version_no - a.version_no })
+    return list
+  }
+
+  function currentVersion() {
+    var it = WB.detail && WB.detail.item
+    var found = null
+    versionsSorted().forEach(function (v) { if (it && v.id === it.current_version_id) found = v })
+    return found
+  }
+
+  /** A mostani ELOTTI verzio (sorszam szerint) -- a visszavonas celja. */
+  function undoTarget() {
+    var cur = currentVersion()
+    if (!cur) return null
+    var best = null
+    versionsSorted().forEach(function (v) {
+      if (v.version_no < cur.version_no && (!best || v.version_no > best.version_no)) best = v
+    })
+    return best
+  }
+
+  function versionBarHtml() {
+    var versions = versionsSorted()
+    if (versions.length < 2) return ''
+    var target = undoTarget()
+    var ro = archived() || WB.versionBusy
+    return '<div class="wb-vbar">'
+      + (ro || !target ? '' : '<button type="button" class="btn-secondary btn-compact" data-wb-act="version-undo"'
+        + ' title="' + escA(t('workbench.cmp.undo_hint', { n: target.version_no })) + '">'
+        + esc(t('workbench.cmp.undo', { n: target.version_no })) + '</button>')
+      + (WB.compare && WB.compare.itemId === WB.selectedId
+        ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="compare-close">' + esc(t('workbench.cmp.close')) + '</button>'
+        : '<button type="button" class="btn-secondary btn-compact" data-wb-act="compare-open">' + esc(t('workbench.cmp.open')) + '</button>')
+      + '</div>'
+  }
+
+  function undoVersion() {
+    var target = undoTarget()
+    if (!target || !WB.selectedId || WB.versionBusy || archived()) return
+    var cur = currentVersion()
+    WB.versionBusy = true
+    render()
+    api('POST', versionsUrl('/' + encodeURIComponent(target.id) + '/restore'), {}).then(function (r) {
+      WB.versionBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (WB.compare) WB.compare = null
+      applyVersions(r.data)
+      window.showToast(t('workbench.cmp.undone', {
+        from: cur ? cur.version_no : '', to: target.version_no,
+        n: r.data && r.data.version ? r.data.version.version_no : '',
+      }))
+    })
+  }
+
+  function openCompare() {
+    var versions = versionsSorted()
+    if (versions.length < 2 || !WB.selectedId) return
+    var right = currentVersion() || versions[0]
+    var left = undoTarget() || versions[1]
+    WB.compare = { itemId: WB.selectedId, left: left.id, right: right.id, pos: 50, sides: {} }
+    render()
+    loadCompareSide(left.id)
+    loadCompareSide(right.id)
+  }
+
+  /** Egy verzio adata az osszehasonlitashoz: az elonezet (mit mutat) + a
+   *  reszei. A ketto kulon keres: ha az egyik elbukik, azt KULON mondjuk. */
+  function loadCompareSide(vid) {
+    var cmp = WB.compare
+    if (!cmp || !vid || cmp.sides[vid]) return
+    var itemId = cmp.itemId
+    var side = { preview: null, parts: null, error: null }
+    cmp.sides[vid] = side
+    var base = '/api/workbench/items/' + encodeURIComponent(itemId)
+    var still = function () { return WB.compare === cmp && WB.selectedId === itemId }
+    api('GET', base + '/preview?version=' + encodeURIComponent(vid)).then(function (r) {
+      if (!still()) return
+      if (r.ok) side.preview = r.data
+      else side.error = r.message
+      render()
+    })
+    api('GET', base + '/versions/' + encodeURIComponent(vid) + '/parts').then(function (r) {
+      if (!still()) return
+      if (r.ok) side.parts = (r.data && r.data.parts) || []
+      else side.error = r.message
+      render()
+    })
+  }
+
+  function versionLabel(vid) {
+    var found = null
+    versionsSorted().forEach(function (v) { if (v.id === vid) found = v })
+    return found ? t('workbench.versions.line', { n: found.version_no, when: when(found.created_at) }) : '-'
+  }
+
+  function compareSelectHtml(id, value) {
+    return '<select class="wb-input wb-cmp-select" id="' + id + '">' + versionsSorted().map(function (v) {
+      return '<option value="' + escA(v.id) + '"' + (v.id === value ? ' selected' : '') + '>'
+        + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) })) + '</option>'
+    }).join('') + '</select>'
+  }
+
+  /** Kep (vagy rajz) cime egy verziohoz; `null`, ha a verzio nem kep. */
+  function compareImageUrl(side, vid) {
+    var p = side && side.preview
+    if (!p || !p.available) return null
+    if (p.kind === 'image' && p.url) return p.url
+    if (p.kind === 'canvas') {
+      return '/api/workbench/items/' + encodeURIComponent(WB.compare.itemId) + '/canvas.svg?version='
+        + encodeURIComponent(vid) + '&lang=' + encodeURIComponent(window._lang || 'hu')
+    }
+    return null
+  }
+
+  /** Szo-szintu kulonbseg (LCS). Tul hosszu szovegnel nem szamolunk (a
+   *  bongeszo ne akadjon meg): akkor a ket szoveg kiemeles nelkul all. */
+  function diffTokens(a, b) {
+    var x = String(a || '').split(/(\s+)/)
+    var y = String(b || '').split(/(\s+)/)
+    if (x.length * y.length > 400000) return null
+    var n = x.length
+    var m = y.length
+    var dp = []
+    for (var i = 0; i <= n; i++) { dp.push(new Array(m + 1).fill(0)) }
+    for (var i2 = n - 1; i2 >= 0; i2--) {
+      for (var j2 = m - 1; j2 >= 0; j2--) {
+        dp[i2][j2] = x[i2] === y[j2] ? dp[i2 + 1][j2 + 1] + 1 : Math.max(dp[i2 + 1][j2], dp[i2][j2 + 1])
+      }
+    }
+    var left = []
+    var right = []
+    var p = 0
+    var q = 0
+    while (p < n && q < m) {
+      if (x[p] === y[q]) { left.push(esc(x[p])); right.push(esc(y[q])); p++; q++ }
+      else if (dp[p + 1][q] >= dp[p][q + 1]) { left.push(/^\s+$/.test(x[p]) ? esc(x[p]) : '<del class="wb-cmp-del">' + esc(x[p]) + '</del>'); p++ }
+      else { right.push(/^\s+$/.test(y[q]) ? esc(y[q]) : '<ins class="wb-cmp-ins">' + esc(y[q]) + '</ins>'); q++ }
+    }
+    for (; p < n; p++) left.push(/^\s+$/.test(x[p]) ? esc(x[p]) : '<del class="wb-cmp-del">' + esc(x[p]) + '</del>')
+    for (; q < m; q++) right.push(/^\s+$/.test(y[q]) ? esc(y[q]) : '<ins class="wb-cmp-ins">' + esc(y[q]) + '</ins>')
+    return { left: left.join(''), right: right.join('') }
+  }
+
+  /** Egy verzio szoveges tartalma: a szoveg-reszek egymas utan, vagy a
+   *  szovegfajl. `null` = nincs benne szoveg. */
+  function compareText(side) {
+    if (!side) return null
+    var p = side.preview
+    if (p && p.available && p.kind === 'text') return String(p.text || '')
+    var texts = (side.parts || []).filter(function (x) { return x.kind === 'text' }).map(function (x) { return x.text || '' })
+    return texts.length ? texts.join('\n\n') : null
+  }
+
+  function compareImagesOf(side) {
+    return (side && side.parts ? side.parts : []).filter(function (x) { return x.kind === 'image' })
+  }
+
+  function compareBodyHtml() {
+    var cmp = WB.compare
+    var L = cmp.sides[cmp.left]
+    var R = cmp.sides[cmp.right]
+    var errors = [L, R].filter(function (sd) { return sd && sd.error }).map(function (sd) { return sd.error })
+    if (errors.length) return '<p class="wb-preview-bad">' + esc(t('workbench.cmp.error', { message: errors[0] })) + '</p>'
+    if (!L || !R || !L.preview || !R.preview || L.parts === null || R.parts === null) {
+      return '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    }
+    if (cmp.left === cmp.right) return '<p class="wb-muted">' + esc(t('workbench.cmp.same')) + '</p>'
+    var out = ''
+    // KEP / RAJZ: csuszka. Alul az UJ (jobb), folotte a REGI (bal), a regi
+    // annyira latszik, amennyire a csuszka all.
+    var li = compareImageUrl(L, cmp.left)
+    var ri = compareImageUrl(R, cmp.right)
+    if (li && ri) {
+      out += '<div class="wb-cmp-slide">'
+        + '<img class="wb-cmp-img" src="' + escA(ri) + '" alt="' + escA(versionLabel(cmp.right)) + '">'
+        + '<img class="wb-cmp-img wb-cmp-top" id="wbCmpTop" src="' + escA(li) + '" alt="' + escA(versionLabel(cmp.left)) + '"'
+        + ' style="clip-path: inset(0 ' + (100 - cmp.pos) + '% 0 0)">'
+        + '<div class="wb-cmp-line" id="wbCmpLine" style="left: ' + cmp.pos + '%"></div>'
+        + '</div>'
+        + '<label class="wb-label" for="wbCmpSlider">' + esc(t('workbench.cmp.slider')) + '</label>'
+        + '<input type="range" class="wb-cmp-range" id="wbCmpSlider" min="0" max="100" step="1" value="' + cmp.pos + '">'
+    }
+    // SZOVEG: egymas mellett, a valtozas kiemelve.
+    var lt = compareText(L)
+    var rt = compareText(R)
+    if (lt !== null || rt !== null) {
+      var d = diffTokens(lt || '', rt || '')
+      out += '<div class="wb-cmp-cols">'
+        + '<div class="wb-cmp-col"><div class="wb-cmp-col-head">' + esc(t('workbench.cmp.before')) + ' — ' + esc(versionLabel(cmp.left)) + '</div>'
+        + '<div class="wb-cmp-text">' + (d ? d.left : esc(lt || '')) + '</div></div>'
+        + '<div class="wb-cmp-col"><div class="wb-cmp-col-head">' + esc(t('workbench.cmp.after')) + ' — ' + esc(versionLabel(cmp.right)) + '</div>'
+        + '<div class="wb-cmp-text">' + (d ? d.right : esc(rt || '')) + '</div></div>'
+        + '</div>'
+        + (d ? '' : '<p class="wb-hint">' + esc(t('workbench.cmp.too_long')) + '</p>')
+        + (lt === rt ? '<p class="wb-hint">' + esc(t('workbench.cmp.text_same')) + '</p>' : '')
+    }
+    // KEP-RESZEK egymas mellett (a vegyes munkadarab kepei).
+    var lims = compareImagesOf(L)
+    var rims = compareImagesOf(R)
+    if (lims.length || rims.length) {
+      var col = function (list) {
+        return list.length ? list.map(function (x) {
+          return '<img class="wb-cmp-thumb" src="' + escA(partImageSrc(x)) + '" alt="' + escA(x.caption || t('workbench.parts.image_alt')) + '">'
+        }).join('') : '<p class="wb-muted">' + esc(t('workbench.cmp.no_images')) + '</p>'
+      }
+      out += '<div class="wb-cmp-cols">'
+        + '<div class="wb-cmp-col">' + col(lims) + '</div>'
+        + '<div class="wb-cmp-col">' + col(rims) + '</div></div>'
+    }
+    if (!out) {
+      // Pl. PDF, video: itt nem tudjuk egymasra tenni, de mindkettot meg lehet nyitni.
+      var link = function (sd) {
+        var p = sd.preview
+        var u = p && p.available && p.url ? p.url : (p && p.rel ? '/api/life/file?rel=' + encodeURIComponent(p.rel) : null)
+        return u ? '<a href="' + escA(u) + '" target="_blank" rel="noopener">' + esc((p && p.name) || t('workbench.preview.open_new_tab')) + '</a>'
+          : '<span class="wb-muted">' + esc((p && p.message) || t('workbench.preview.none')) + '</span>'
+      }
+      out = '<p class="wb-muted">' + esc(t('workbench.cmp.unsupported')) + '</p>'
+        + '<div class="wb-cmp-cols"><div class="wb-cmp-col">' + link(L) + '</div><div class="wb-cmp-col">' + link(R) + '</div></div>'
+    }
+    return out
+  }
+
+  function compareHtml() {
+    var cmp = WB.compare
+    var ro = archived() || WB.versionBusy
+    var cur = currentVersion()
+    return '<div class="wb-cmp">'
+      + '<div class="wb-cmp-head">'
+      + '<div><label class="wb-label" for="wbCmpLeft">' + esc(t('workbench.cmp.before')) + '</label>' + compareSelectHtml('wbCmpLeft', cmp.left) + '</div>'
+      + '<div><label class="wb-label" for="wbCmpRight">' + esc(t('workbench.cmp.after')) + '</label>' + compareSelectHtml('wbCmpRight', cmp.right) + '</div>'
+      + '</div>'
+      + compareBodyHtml()
+      + (ro || (cur && cur.id === cmp.left) ? '' : '<p><button type="button" class="btn-secondary" data-wb-act="version-restore" data-wb-version="' + escA(cmp.left) + '">'
+        + esc(t('workbench.cmp.restore_left')) + '</button></p>')
+      + '</div>'
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
@@ -1602,12 +1858,15 @@
       inner = '<div class="wb-editor-head"><h3>' + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
-        + (archived() ? '' : '<p class="wb-hint wb-drop-item-hint">' + esc(t(WB.upload
-          ? 'workbench.upload.busy'
-          : 'workbench.upload.drop_item')) + '</p>')
-        + previewHtml()
-        + canvasHtml()
-        + partsHtml()
+        + versionBarHtml()
+        + (WB.compare && WB.compare.itemId === WB.selectedId
+          ? compareHtml()
+          : (archived() ? '' : '<p class="wb-hint wb-drop-item-hint">' + esc(t(WB.upload
+            ? 'workbench.upload.busy'
+            : 'workbench.upload.drop_item')) + '</p>')
+            + previewHtml()
+            + canvasHtml()
+            + partsHtml())
     }
     var dropAttr = WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="item"' : ''
     return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor"' + dropAttr + '>'
@@ -2379,6 +2638,8 @@
 
   function applyVersions(data) {
     if (!WB.detail || !data) return
+    // Uj verzio lett: a regi osszehasonlitas mar nem a mostanirol szol.
+    WB.compare = null
     if (data.versions) WB.detail.versions = data.versions
     if (data.item) WB.detail.item = data.item
     if (data.parts) WB.detail.parts = data.parts
@@ -2643,6 +2904,9 @@
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
+    else if (a === 'version-undo') undoVersion()
+    else if (a === 'compare-open') openCompare()
+    else if (a === 'compare-close') { WB.compare = null; render() }
     else if (a === 'text-edit') openTextEdit()
     else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
@@ -2825,6 +3089,16 @@
   // eredeti szoveget, es a begepelt munka elveszne.
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target) return
+    if (e.target.id === 'wbCmpSlider' && WB.compare) {
+      var pos = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+      WB.compare.pos = pos
+      // Csak a ket stilus valtozik -- a kepet nem rajzoljuk ujra huzas kozben.
+      var top = document.getElementById('wbCmpTop')
+      if (top && top.style) top.style.clipPath = 'inset(0 ' + (100 - pos) + '% 0 0)'
+      var line = document.getElementById('wbCmpLine')
+      if (line && line.style) line.style.left = pos + '%'
+      return
+    }
     if (e.target.id === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = e.target.value
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
@@ -2854,6 +3128,13 @@
     if (!WB.open || !e.target) return
     if (e.target.id === 'wbSwitch') {
       selectItem(e.target.value)
+      return
+    }
+    if ((e.target.id === 'wbCmpLeft' || e.target.id === 'wbCmpRight') && WB.compare) {
+      if (e.target.id === 'wbCmpLeft') WB.compare.left = e.target.value
+      else WB.compare.right = e.target.value
+      render()
+      loadCompareSide(e.target.value)
       return
     }
     if (e.target.id === 'wbUploadNew') {
