@@ -452,3 +452,70 @@ describe('ismeretlen cel', () => {
     expect(evs[0]).toMatchObject({ type: 'error', code: 'work_item_not_found' })
   })
 })
+
+// ---------------------------------------------------------------------------
+// #402 (2. resz): a Munkapad magatol valt a keretes fiokra.
+// ---------------------------------------------------------------------------
+function accountProvider(accounts: string[], limited: string[]): AIProvider & { seen: (string | undefined)[] } {
+  const seen: (string | undefined)[] = []
+  return {
+    id: 'fiokos',
+    seen,
+    model: () => 'm',
+    availability: () => ({ available: true }),
+    accounts: () => accounts,
+    async *stream(req: AICallRequest): AsyncIterable<AIChunk> {
+      seen.push(req.account)
+      if (req.account && limited.includes(req.account)) {
+        yield { kind: 'error', code: 'limit', detail: 'usage limit reached' }
+        return
+      }
+      yield { kind: 'text', text: `válasz ${req.account}` }
+      yield { kind: 'done', model: 'm', via: { kind: 'account', account: String(req.account) } }
+    },
+  }
+}
+
+describe('fiokvaltas (#402)', () => {
+  it("'limit' valaszra a kovetkezo fiok valaszol, es a valasz azt a fiokot mutatja", async () => {
+    const p = accountProvider(['elso', 'masodik'], ['elso'])
+    const evs = await turn('Szia', p)
+    expect(p.seen).toEqual(['elso', 'masodik'])
+    expect(textOf(evs)).toBe('válasz masodik')
+    expect(evs.find((e) => e.type === 'notice')).toBeUndefined()
+    const done = evs.find((e) => e.type === 'done') as any
+    expect(done.via).toEqual({ kind: 'account', account: 'masodik' })
+  })
+
+  it('ha minden fiok limites, EGY emberi keret-mondat jon', async () => {
+    const p = accountProvider(['elso', 'masodik'], ['elso', 'masodik'])
+    const evs = await turn('Szia', p)
+    expect(p.seen).toEqual(['elso', 'masodik'])
+    const notices = evs.filter((e) => e.type === 'notice') as any[]
+    expect(notices).toHaveLength(1)
+    expect(notices[0].code).toBe('limit_critical')
+  })
+
+  it('a kapu a VALASZTOTT fiok 5 oras keretet nezi: a kritikus fiokot meg sem hivja', async () => {
+    setUsageSnapshotReader((agent) => ({
+      fiveHour: { usedPct: agent === 'tele' ? 99 : 20, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now(),
+    }))
+    const p = accountProvider(['tele', 'szabad'], [])
+    const evs = await turn('Szia', p)
+    expect(p.seen).toEqual(['szabad'])
+    expect(textOf(evs)).toBe('válasz szabad')
+  })
+
+  it('kimondott fiok: csak az, nincs csere', async () => {
+    const p = accountProvider(['elso', 'masodik'], ['elso'])
+    const evs = await collect(runTurn({ projectId, workItemId, message: 'Szia', lang: 'hu', actor: 'x', account: 'elso' }, p))
+    expect(p.seen).toEqual(['elso'])
+    expect((evs.find((e) => e.type === 'notice') as any).code).toBe('limit_critical')
+  })
+
+  it('fiok-lista nelkul a szolgaltato alapertelmezettje megy (API-kulcs / fo fiok)', async () => {
+    const p = accountProvider([], [])
+    await turn('Szia', p)
+    expect(p.seen).toEqual([undefined])
+  })
+})

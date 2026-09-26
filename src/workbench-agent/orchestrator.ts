@@ -117,8 +117,8 @@ export function mayBeToolCall(soFar: string): boolean {
   return s === '' || s.startsWith('{') || '{'.startsWith(s.slice(0, 1))
 }
 
-function usageNotice(lang: Lang): { code: string; message: string } | null {
-  const r = getRemaining()
+function usageNotice(lang: Lang, account?: string): { code: string; message: string } | null {
+  const r = getRemaining(account)
   if (r.allowed) return null
   if (r.reason === 'too_many_in_flight') {
     return { code: 'too_many_in_flight', message: msg('too_many_in_flight', lang, { n: r.usage.inFlight }) }
@@ -293,63 +293,105 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
 
     let lastModel: string | null = null
     let lastVia: AIVia | null = null
+    // Az a fiok, amelyik ebben a korben mar valaszolt: a kovetkezo korben
+    // elol marad, hogy egy beszelgetes ne ugraljon fiokok kozott.
+    let stickyAccount: string | undefined
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      // --- a kozos keret kapuja (spec 0.2) --------------------------------
-      const blocked = usageNotice(lang)
-      if (blocked) {
-        addAgentMessage(session.id, 'system', blocked.message)
-        yield { type: 'notice', code: blocked.code, message: blocked.message }
-        yield { type: 'done', model: lastModel, via: lastVia }
-        return
+      // --- melyik fiokkal (#402) ------------------------------------------
+      // Kimondott fiok: csak az. Kulonben a szolgaltato sorrendje (a legtobb
+      // 5 oras kerettel rendelkezo elol); ha nincs lista, a szolgaltato
+      // alapertelmezettje (`undefined` = fo fiok vagy API-kulcs).
+      let candidates: (string | undefined)[] = input.account ? [input.account] : (provider.accounts?.() || [])
+      if (stickyAccount && candidates.includes(stickyAccount)) {
+        candidates = [stickyAccount, ...candidates.filter((a) => a !== stickyAccount)]
       }
-      const res = reserve()
-      if (!res.ok) {
-        const m = res.reason === 'too_many_in_flight'
-          ? msg('too_many_in_flight', lang, { n: res.usage.inFlight })
-          : msg('limit_critical', lang, { pct: res.usage.usedPct === null ? '?' : Math.round(res.usage.usedPct), reset: msg('limit_reset_unknown', lang) })
-        addAgentMessage(session.id, 'system', m)
-        yield { type: 'notice', code: res.reason, message: m }
-        yield { type: 'done', model: lastModel, via: lastVia }
-        return
-      }
+      if (!candidates.length) candidates = [undefined]
 
-      const startedAt = Date.now()
       let full = ''
       let emitted = 0
       let failure: { code: string; message: string } | null = null
-      let outcome: 'ok' | 'error' | 'limit' = 'ok'
+      let blockedAll: { code: string; message: string } | null = null
+      let called = false
 
-      try {
-        for await (const chunk of provider.stream({ system: ctx.system, messages, lang, signal: input.signal, account: input.account })) {
-          if (chunk.kind === 'text') {
-            full += chunk.text
-            // Amig tool-hivas is lehet belole, nem kuldunk ki semmit.
-            if (!mayBeToolCall(full)) {
-              const pending = full.slice(emitted)
-              if (pending) { emitted = full.length; yield { type: 'text', text: pending } }
-            }
-          } else if (chunk.kind === 'done') {
-            lastModel = chunk.model
-            lastVia = chunk.via ?? null
-          } else {
-            outcome = chunk.code === 'limit' ? 'limit' : 'error'
-            failure = chunk.code === 'limit'
-              ? { code: 'limit_critical', message: msg('limit_critical', lang, { pct: '100', reset: msg('limit_reset_unknown', lang) }) }
-              : chunk.code === 'not_configured'
-                ? { code: 'no_provider', message: msg('no_provider', lang) }
-                : chunk.code === 'no_answer'
-                  ? { code: 'provider_no_answer', message: msg('provider_no_answer', lang) }
-                  : { code: 'provider_failed', message: msg('provider_failed', lang, { detail: chunk.detail }) }
-          }
+      for (let ai = 0; ai < candidates.length; ai++) {
+        const account = candidates[ai]
+        const isLast = ai === candidates.length - 1
+        // --- a kozos keret kapuja (spec 0.2): a VALASZTOTT fiok 5 oras kerete
+        const blocked = usageNotice(lang, account)
+        if (blocked) {
+          blockedAll = blocked
+          // A levegoben levo hivasok szama nem fiokfuggo: masik fiok sem segit.
+          if (blocked.code === 'too_many_in_flight') break
+          continue
         }
-      } catch (e) {
-        outcome = 'error'
-        failure = { code: 'provider_failed', message: msg('provider_failed', lang, { detail: e instanceof Error ? e.message : String(e) }) }
-      } finally {
-        record(res.reservation.id, {
-          agent: input.actor, model: provider.model(), outcome, durationMs: Date.now() - startedAt,
-        })
+        const res = reserve(account)
+        if (!res.ok) {
+          blockedAll = {
+            code: res.reason,
+            message: res.reason === 'too_many_in_flight'
+              ? msg('too_many_in_flight', lang, { n: res.usage.inFlight })
+              : msg('limit_critical', lang, { pct: res.usage.usedPct === null ? '?' : Math.round(res.usage.usedPct), reset: msg('limit_reset_unknown', lang) }),
+          }
+          if (res.reason === 'too_many_in_flight') break
+          continue
+        }
+
+        called = true
+        const startedAt = Date.now()
+        full = ''
+        emitted = 0
+        failure = null
+        let outcome: 'ok' | 'error' | 'limit' = 'ok'
+
+        try {
+          for await (const chunk of provider.stream({ system: ctx.system, messages, lang, signal: input.signal, account })) {
+            if (chunk.kind === 'text') {
+              full += chunk.text
+              // Amig tool-hivas is lehet belole, nem kuldunk ki semmit.
+              if (!mayBeToolCall(full)) {
+                const pending = full.slice(emitted)
+                if (pending) { emitted = full.length; yield { type: 'text', text: pending } }
+              }
+            } else if (chunk.kind === 'done') {
+              lastModel = chunk.model
+              lastVia = chunk.via ?? null
+            } else {
+              outcome = chunk.code === 'limit' ? 'limit' : 'error'
+              failure = chunk.code === 'limit'
+                ? { code: 'limit_critical', message: msg('limit_critical', lang, { pct: '100', reset: msg('limit_reset_unknown', lang) }) }
+                : chunk.code === 'not_configured'
+                  ? { code: 'no_provider', message: msg('no_provider', lang) }
+                  : chunk.code === 'no_answer'
+                    ? { code: 'provider_no_answer', message: msg('provider_no_answer', lang) }
+                    : { code: 'provider_failed', message: msg('provider_failed', lang, { detail: chunk.detail }) }
+            }
+          }
+        } catch (e) {
+          outcome = 'error'
+          failure = { code: 'provider_failed', message: msg('provider_failed', lang, { detail: e instanceof Error ? e.message : String(e) }) }
+        } finally {
+          record(res.reservation.id, {
+            agent: input.actor, model: provider.model(), outcome, durationMs: Date.now() - startedAt,
+          })
+        }
+
+        // A fiok kerete elfogyott, es a user meg semmit nem latott: a
+        // kovetkezo fiok probalja (#402). Kiment szoveg utan nincs csere --
+        // egy felbeszakadt valaszt nem kezdunk ujra masik hangon.
+        if (outcome === 'limit' && emitted === 0 && !isLast) {
+          logger.info({ account, next: candidates[ai + 1] }, 'workbench: account hit its limit, trying the next one')
+          continue
+        }
+        if (!failure && account) stickyAccount = account
+        break
+      }
+
+      if (!called && blockedAll) {
+        addAgentMessage(session.id, 'system', blockedAll.message)
+        yield { type: 'notice', code: blockedAll.code, message: blockedAll.message }
+        yield { type: 'done', model: lastModel, via: lastVia }
+        return
       }
 
       if (failure) {

@@ -5497,6 +5497,7 @@ window._i18n.en = {
   "workbench.chat.target_item": "This conversation belongs to this work item: {title}",
   "workbench.chat.status_loading": "Reading the state...",
   "workbench.chat.provider_on": "Model: {model}",
+  "workbench.chat.provider_on_account": "Model: {model} · account: {account} (most quota left)",
   "workbench.chat.via_account": "Account: {account} · model: {model}",
   "workbench.chat.via_api_key": "Server-side API key · model: {model}",
   "workbench.chat.provider_off": "No AI provider is configured.",
