@@ -1,6 +1,7 @@
 import https from 'node:https'
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { logger } from './logger.js'
 import { formatForTelegram, splitMessage } from './format.js'
@@ -517,17 +518,50 @@ export function getProviderType(envValue: string | undefined): ChannelProviderTy
   return 'telegram'
 }
 
-export function channelStateDir(provider: ChannelProviderType, agentDir?: string): string {
-  const base = agentDir
-    ? join(agentDir, '.claude', 'channels')
-    : join(homedir(), '.claude', 'channels')
-  const subdir =
-    provider === 'slack' ? 'slack'
+/** The install root (same computation as config.ts PROJECT_ROOT; importing
+ *  config here would be circular -- config.ts imports this module). */
+const INSTALL_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+function channelSubdir(provider: ChannelProviderType): string {
+  return provider === 'slack' ? 'slack'
     : provider === 'discord' ? 'discord'
     : provider === 'googlechat' ? 'googlechat'
     : provider === 'teams' ? 'teams'
     : 'telegram'
-  return join(base, subdir)
+}
+
+const hasState = (dir: string): boolean =>
+  existsSync(join(dir, '.env')) || existsSync(join(dir, 'access.json'))
+
+/**
+ * Where a channel keeps its state (.env token, access.json pairing, bot.pid).
+ *
+ * With `agentDir`: that sub-agent's own dir. Without it: the MAIN agent's dir,
+ * resolved the way scripts/channels.sh does since #915 -- the install-scoped
+ * `<install>/.claude/channels/<provider>` is where the live bot runs
+ * (TELEGRAM_STATE_DIR); the shared `~/.claude/channels/<provider>` is only the
+ * pre-migration location. Returning the shared path unconditionally made the
+ * Overview self-check say "Telegram pairing not set up" on a paired install
+ * (owner report TG 6547, 2026-09-26): after the migration that dir is empty.
+ *
+ * Order: install-scoped if it holds state; else the legacy dir if IT holds
+ * state (an install channels.sh has not migrated yet); else install-scoped --
+ * a fresh install, where channels.sh will look.
+ */
+export function channelStateDir(provider: ChannelProviderType, agentDir?: string, installRoot: string = INSTALL_ROOT): string {
+  const sub = channelSubdir(provider)
+  if (agentDir) return join(agentDir, '.claude', 'channels', sub)
+  const installDir = join(installRoot, '.claude', 'channels', sub)
+  if (hasState(installDir)) return installDir
+  const legacyDir = join(homedir(), '.claude', 'channels', sub)
+  if (hasState(legacyDir)) return legacyDir
+  return installDir
+}
+
+/** The pre-#915 shared location, for code that must look at it on purpose
+ *  (seeding or migrating FROM it). */
+export function legacyChannelStateDir(provider: ChannelProviderType): string {
+  return join(homedir(), '.claude', 'channels', channelSubdir(provider))
 }
 
 export function readChannelToken(provider: ChannelProviderType, envFilePath: string): string | null {
