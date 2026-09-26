@@ -163,7 +163,9 @@ export function requestToolApproval(params: {
     agent_id: MAIN_AGENT_ID,
     category: params.category,
     action_description: description,
-    action_payload: JSON.stringify({ source: 'workbench', tool: params.tool, project: params.projectId, workItem: params.workItemId, input: params.input }),
+    // #406 bugkereses 5.: a KERO is a jegyben marad -- a jovahagyas utani futas
+    // (approved-runner) az o nevében fut, nem a fo agensében.
+    action_payload: JSON.stringify({ source: 'workbench', tool: params.tool, project: params.projectId, workItem: params.workItemId, input: params.input, actor: params.actor || null }),
   })
   try {
     createAgentMessage('system', MAIN_AGENT_ID, [

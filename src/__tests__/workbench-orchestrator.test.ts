@@ -258,7 +258,7 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
     expect(pending[0].action_description).toContain('kérte: teszt-felhasznalo')
     expect(pending[0].category).toBe('marveen_selfdev')
     const payload = JSON.parse(pending[0].action_payload || '{}')
-    expect(payload).toMatchObject({ source: 'workbench', tool: 'workItem.create', project: projectId })
+    expect(payload).toMatchObject({ source: 'workbench', tool: 'workItem.create', project: projectId, actor: 'teszt-felhasznalo' })
 
     // A tool tenylegesen NEM futott le: uj munkadarab nem keletkezett.
     const session = openSessionForWorkItem(projectId, workItemId, 'hu')

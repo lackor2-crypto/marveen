@@ -3,9 +3,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const ran: { name: string; input: Record<string, unknown> }[] = []
+const actors: (string | null | undefined)[] = []
 vi.mock('../workbench-agent/execute.js', () => ({
-  runTool: async (name: string, input: Record<string, unknown>) => {
+  runTool: async (name: string, input: Record<string, unknown>, ctx: { actor?: string | null }) => {
     ran.push({ name, input })
+    actors.push(ctx.actor)
     if (input.fail) return { ok: false, code: 'failed', detail: 'lemez tele' }
     return { ok: true, data: { written: input.path } }
   },
@@ -13,7 +15,7 @@ vi.mock('../workbench-agent/execute.js', () => ({
 
 import { initDatabase, createApproval, resolveApproval } from '../db.js'
 import { createProject } from '../projects.js'
-import { settleWorkbenchApprovals, targetOf } from '../workbench-agent/approved-runner.js'
+import { requesterOf, settleWorkbenchApprovals, targetOf } from '../workbench-agent/approved-runner.js'
 import {
   createAgentSession, finishToolCall, isApprovalConsumed, listAgentMessages, listToolCalls, projectSessionKey, startToolCall,
 } from '../workbench-agent/sessions.js'
@@ -31,6 +33,7 @@ function awaiting(input: Record<string, unknown>, id: string): string {
 beforeEach(() => {
   initDatabase(':memory:')
   ran.length = 0
+  actors.length = 0
   const p = createProject({ name: 'Teszt' })
   if (!p.ok) throw new Error('projekt')
   projectId = p.project.id
@@ -94,6 +97,20 @@ describe('settleWorkbenchApprovals', () => {
     await settleWorkbenchApprovals()
     expect(ran).toHaveLength(0)
     expect(listToolCalls(sessionId).find((r) => r.id === rowId)?.status).toBe('error')
+  })
+
+  // #406 bugkereses 5.: a jovahagyas utani futas a KERO nevében megy (pl. a
+  // kanban-komment szerzoje), nem a fo agensében.
+  it('a jovahagyas utani futas a kero actorjat kapja; regi jegynel null', async () => {
+    createApproval({ id: 'ap-7', agent_id: 'main', category: 'workbench_file_write', action_description: 'x', action_payload: JSON.stringify({ source: 'workbench', actor: 'lackor3' }) })
+    const row = startToolCall(sessionId, 'file.write', { path: 'f.txt' })
+    finishToolCall(row.id, 'needs_approval', { approvalId: 'ap-7' }, 'ap-7')
+    resolveApproval('ap-7', 'approved', 'owner')
+    await settleWorkbenchApprovals()
+    expect(actors).toEqual(['lackor3'])
+    expect(requesterOf(null)).toBe(null)
+    expect(requesterOf('{"actor":"  "}')).toBe(null)
+    expect(requesterOf('nem json')).toBe(null)
   })
 
   it('a cel emberi nyelven', () => {
