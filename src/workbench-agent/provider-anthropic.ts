@@ -31,7 +31,7 @@ import { MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { tryResolveFromPath } from '../platform.js'
 import { resolveAgentConfigDir } from '../web/claude-plans.js'
-import type { AIAvailability, AICallRequest, AIChunk, AIProvider } from './provider.js'
+import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from './provider.js'
 
 /** Egy valasz felso hatara. Egy interaktiv beszelgetes-fordulo, nem konyv. */
 const CALL_TIMEOUT_MS = 180_000
@@ -125,7 +125,7 @@ let spawner: Spawner = spawn
 /** Csak teszthez: a gyerekfolyamat-inditas cserelese. `null` visszaallitja. */
 export function setSpawnerForTest(s: Spawner | null): void { spawner = s || spawn }
 
-async function* streamViaCli(req: AICallRequest, configDir: string, model: string): AsyncIterable<AIChunk> {
+async function* streamViaCli(req: AICallRequest, configDir: string, model: string, via: AIVia): AsyncIterable<AIChunk> {
   const bin = tryResolveFromPath('claude')
   if (!bin) {
     yield { kind: 'error', code: 'not_configured', detail: 'claude CLI not found on PATH' }
@@ -178,7 +178,7 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
     clearTimeout(timer)
     req.signal?.removeEventListener('abort', onAbort)
     try { rmSync(cwd, { recursive: true, force: true }) } catch { /* mar nincs */ }
-    if (sawText) push({ kind: 'done', model })
+    if (sawText) push({ kind: 'done', model, via })
     // SOSE talalgatjuk az okot: ami a stderr-ben all, azt adjuk tovabb.
     else push({ kind: 'error', code: 'no_answer', detail: stderr.trim().slice(0, 500) || 'the provider produced no output' })
     finish()
@@ -252,7 +252,7 @@ async function* streamViaApiKey(req: AICallRequest, model: string): AsyncIterabl
       if (ev?.text) { sawText = true; yield { kind: 'text', text: ev.text } }
     }
   }
-  if (sawText) yield { kind: 'done', model }
+  if (sawText) yield { kind: 'done', model, via: { kind: 'api_key' } }
   else yield { kind: 'error', code: 'no_answer', detail: 'the provider produced no text' }
 }
 
@@ -272,12 +272,13 @@ export const anthropicProvider: AIProvider = {
   stream(req: AICallRequest): AsyncIterable<AIChunk> {
     const model = workbenchModel()
     if (hasServerApiKey()) return streamViaApiKey(req, model)
-    const dir = loggedInConfigDir()
+    const account = String(req.account || '').trim() || MAIN_AGENT_ID
+    const dir = loggedInConfigDir(account)
     if (!dir) {
       return (async function* () {
         yield { kind: 'error', code: 'not_configured', detail: 'no signed-in Claude account and no server-side API key' } as AIChunk
       })()
     }
-    return streamViaCli(req, dir, model)
+    return streamViaCli(req, dir, model, { kind: 'account', account })
   },
 }

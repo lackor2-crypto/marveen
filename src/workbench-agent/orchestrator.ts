@@ -34,7 +34,7 @@ import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
 import { runTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
-import { pickAIProvider, type AIMessage, type AIProvider } from './provider.js'
+import { pickAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
   addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
   projectSessionKey, startToolCall,
@@ -54,7 +54,7 @@ export type OrchestratorEvent =
   | { type: 'tool'; name: string; status: 'running' | 'ok' | 'error' | 'needs_approval' | 'blocked'; detail?: string; approvalId?: string }
   /** Ember-nyelvu kozlendo, ami NEM a modelltol jon (keret, szolgaltato, korlat). */
   | { type: 'notice'; code: string; message: string }
-  | { type: 'done'; model: string | null }
+  | { type: 'done'; model: string | null; via?: AIVia | null }
   | { type: 'error'; code: string; message: string }
 
 export interface TurnInput {
@@ -65,6 +65,8 @@ export interface TurnInput {
   /** Ki kuldi -- az auditba es az approval `agent_id`-jebe ez kerul. */
   actor: string
   signal?: AbortSignal
+  /** Melyik agens fiokjaval menjen (#402). Ures = a szolgaltato alapertelmezettje. */
+  account?: string
 }
 
 export type TurnFailure =
@@ -290,6 +292,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       : [{ role: 'user', content: `${ctx.contextText}\n\n${input.message.trim()}` }]
 
     let lastModel: string | null = null
+    let lastVia: AIVia | null = null
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       // --- a kozos keret kapuja (spec 0.2) --------------------------------
@@ -297,7 +300,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       if (blocked) {
         addAgentMessage(session.id, 'system', blocked.message)
         yield { type: 'notice', code: blocked.code, message: blocked.message }
-        yield { type: 'done', model: lastModel }
+        yield { type: 'done', model: lastModel, via: lastVia }
         return
       }
       const res = reserve()
@@ -307,7 +310,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
           : msg('limit_critical', lang, { pct: res.usage.usedPct === null ? '?' : Math.round(res.usage.usedPct), reset: msg('limit_reset_unknown', lang) })
         addAgentMessage(session.id, 'system', m)
         yield { type: 'notice', code: res.reason, message: m }
-        yield { type: 'done', model: lastModel }
+        yield { type: 'done', model: lastModel, via: lastVia }
         return
       }
 
@@ -318,7 +321,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       let outcome: 'ok' | 'error' | 'limit' = 'ok'
 
       try {
-        for await (const chunk of provider.stream({ system: ctx.system, messages, lang, signal: input.signal })) {
+        for await (const chunk of provider.stream({ system: ctx.system, messages, lang, signal: input.signal, account: input.account })) {
           if (chunk.kind === 'text') {
             full += chunk.text
             // Amig tool-hivas is lehet belole, nem kuldunk ki semmit.
@@ -328,6 +331,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
             }
           } else if (chunk.kind === 'done') {
             lastModel = chunk.model
+            lastVia = chunk.via ?? null
           } else {
             outcome = chunk.code === 'limit' ? 'limit' : 'error'
             failure = chunk.code === 'limit'
@@ -351,7 +355,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       if (failure) {
         addAgentMessage(session.id, 'system', failure.message)
         yield { type: 'notice', code: failure.code, message: failure.message }
-        yield { type: 'done', model: lastModel }
+        yield { type: 'done', model: lastModel, via: lastVia }
         return
       }
 
@@ -360,9 +364,9 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         // Prozai valasz: ami meg nem ment ki (mert tool-hivasnak nezett), most megy.
         const pending = full.slice(emitted)
         if (pending) yield { type: 'text', text: pending }
-        addAgentMessage(session.id, 'assistant', full)
+        addAgentMessage(session.id, 'assistant', full, { model: lastModel, via: lastVia })
         auditWorkbench({ agent: input.actor, tool: 'workbench.chat', op: 'agent-answer', target: workItem?.id || project.id, cwd: project.id })
-        yield { type: 'done', model: lastModel }
+        yield { type: 'done', model: lastModel, via: lastVia }
         return
       }
 
@@ -432,7 +436,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     const m = msg('provider_no_answer', lang)
     addAgentMessage(session.id, 'system', m)
     yield { type: 'notice', code: 'max_rounds', message: m }
-    yield { type: 'done', model: lastModel }
+    yield { type: 'done', model: lastModel, via: lastVia }
   } finally {
     running.delete(key)
   }

@@ -422,6 +422,28 @@ describe('agent-chat (3. fazis)', () => {
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('szia, itt vagyok'))
   })
 
+  it('#402: visszatolteskor is latszik, melyik fiokkal es modellel ment a valasz', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        return { status: 200, body: { session: { id: 's1' }, messages: [
+          { role: 'user', content: 'szia' },
+          { role: 'assistant', content: 'elso valasz', model: 'modell-a', via_kind: 'account', via_account: 'fiok-agens' },
+          { role: 'assistant', content: 'masodik valasz', model: 'modell-b', via_kind: 'api_key', via_account: null },
+          { role: 'assistant', content: 'regi valasz' },
+        ], toolCalls: [] } }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('regi valasz'))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('⟦workbench.chat.via_account:{"account":"fiok-agens","model":"modell-a"}⟧')
+    expect(html).toContain('⟦workbench.chat.via_api_key:{"model":"modell-b"}⟧')
+    // A regi, meta nelkuli sornal nem talalunk ki semmit.
+    expect((html.match(/wb-turn-via/g) || []).length).toBe(2)
+  })
+
   it('a MERETLEN keret nem nulla szazalek, es a hianyzo szolgaltato kiirodik', async () => {
     h.respond((url) => {
       if (url.indexOf('/api/workbench/agent/status') >= 0) {
@@ -444,7 +466,7 @@ describe('agent-chat (3. fazis)', () => {
     h.inputs.wbChatInput = { value: 'csinálj egy posztot', focus() {} }
     h.respond((url) => {
       if (url.indexOf('/api/workbench/agent/message') >= 0) {
-        return { status: 200, body: sse([{ type: 'session', sessionId: 's1' }, { type: 'text', text: 'Rendben, ' }, { type: 'text', text: 'megcsinálom.' }, { type: 'done', model: 'claude-sonnet-5' }]) }
+        return { status: 200, body: sse([{ type: 'session', sessionId: 's1' }, { type: 'text', text: 'Rendben, ' }, { type: 'text', text: 'megcsinálom.' }, { type: 'done', model: 'claude-sonnet-5', via: { kind: 'account', account: 'fo-agens' } }]) }
       }
       if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
       if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
@@ -460,6 +482,8 @@ describe('agent-chat (3. fazis)', () => {
     expect(body.message).toBe('csinálj egy posztot')
     // A sajat uzenet is ott marad a naploban.
     expect(h.rootEl.innerHTML).toContain('csinálj egy posztot')
+    // #402: a streamelt valasz alatt is ott a fiok + modell.
+    expect(h.rootEl.innerHTML).toContain('⟦workbench.chat.via_account:{"account":"fo-agens","model":"claude-sonnet-5"}⟧')
   })
 
   it('a jovahagyasra varo tool-hivas LATSZIK, a jegy azonositojaval', async () => {
