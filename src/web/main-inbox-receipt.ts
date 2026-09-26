@@ -41,6 +41,7 @@ import { logger } from '../logger.js'
 import { PROJECT_ROOT, APP_LANG, MAIN_INBOX_RECEIPT, MAIN_INBOX_RECEIPT_GRACE_SEC } from '../config.js'
 import { mainChannelsRunState } from './agent-process.js'
 import type { AgentRunState } from './ssh-tmux.js'
+import { channelStateDir } from '../channel-provider.js'
 
 /** Same wording as the sub-agent path (scripts/channel-inbound-tee.mjs), so the
  *  owner sees one receipt style across the whole fleet. */
@@ -350,7 +351,13 @@ export function startMainInboxReceipt(): NodeJS.Timeout | null {
   const state = createReceiptState()
   const deps: ReceiptDeps = {
     transcriptDir: transcriptDirFor(PROJECT_ROOT),
-    stateDir: join(homedir(), '.claude', 'channels', 'telegram'),
+    // #915 / card #407: the main agent's channel dir the way channels.sh
+    // resolves it (install-scoped once migrated) -- the same dir the tee writes
+    // its seen-arrival markers into (TELEGRAM_STATE_DIR). A fixed
+    // ~/.claude/channels/telegram was empty after the migration, so no token
+    // was found and the receipt silently never went out. Resolved on every
+    // read: channels.sh can migrate the dir after the dashboard started.
+    get stateDir() { return channelStateDir('telegram') },
     apiBase: process.env['TELEGRAM_API_BASE'] || 'https://api.telegram.org',
     graceMs: MAIN_INBOX_RECEIPT_GRACE_SEC * 1000,
     lang: APP_LANG,

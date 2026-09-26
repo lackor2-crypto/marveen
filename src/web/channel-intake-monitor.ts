@@ -35,6 +35,7 @@ import { agentDir, listAgentNames } from './agent-config.js'
 import { isAgentRunning } from './agent-process.js'
 import { readLastIngestionTimestamp, readLastIngestionTimestampAcross, mainTranscriptDirs } from './inbound-probe.js'
 import { sendRoutineAlert } from './routine-alert.js'
+import { channelStateDir } from '../channel-provider.js'
 
 const MINUTE_MS = 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -200,12 +201,15 @@ export function resetIntakeObservations(): void {
 }
 
 /**
- * The main agent's channel lives under the global ~/.claude install; every
- * sub-agent has its own copy under its agent dir (mirrors telegram.ts).
+ * The main agent's channel dir is the one channelStateDir() resolves (#915:
+ * install-scoped once channels.sh migrated it, the legacy ~/.claude path only
+ * while unmigrated -- a fixed ~/.claude path found no token after the
+ * migration, card #407); every sub-agent has its own copy under its agent dir
+ * (mirrors telegram.ts).
  */
 export function channelEnvPathFor(agentName: string): string {
-  const root = agentName === MAIN_AGENT_ID ? homedir() : agentDir(agentName)
-  return join(root, '.claude', 'channels', 'telegram', '.env')
+  if (agentName === MAIN_AGENT_ID) return join(channelStateDir('telegram'), '.env')
+  return join(agentDir(agentName), '.claude', 'channels', 'telegram', '.env')
 }
 
 function readTelegramToken(agentName: string): string | null {

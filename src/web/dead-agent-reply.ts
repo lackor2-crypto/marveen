@@ -56,6 +56,7 @@ import { AGENTS_BASE_DIR, listAgentNames, readAgentDisplayName } from './agent-c
 import { agentRunState, mainChannelsRunState } from './agent-process.js'
 import type { AgentRunState } from './ssh-tmux.js'
 import { probeLatestPendingChat, TelegramApiError } from '../channel-coordinator/telegram-client.js'
+import { channelStateDir } from '../channel-provider.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 
 const TICK_MS = 5000
@@ -159,8 +160,11 @@ export function decideAfterSendFailure(params: {
  * the chat. An agent with no channel of its own cannot be messaged, so there is
  * nothing to answer: null, and the caller skips it.
  *
- * The main agent is the one legitimate owner of the shared dir: it runs the
- * native `claude --channels` poller, whose state lives there.
+ * The main agent's dir is `mainDir`: the one its native `claude --channels`
+ * poller runs out of, resolved by channelStateDir() (#915 -- install-scoped
+ * once channels.sh migrated it, the legacy shared dir only while unmigrated).
+ * A fixed `~/.claude/channels/telegram` here was empty after the migration, so
+ * the main agent's "not alive" reply never went out (card #407).
  *
  * Pure (hasEnv is injected) so the ownership rule is testable without a home
  * directory, and host-agnostic: every path comes from the install's own config.
@@ -168,15 +172,13 @@ export function decideAfterSendFailure(params: {
 export function resolveOwnTelegramStateDir(params: {
   agent: string
   mainAgentId: string
+  mainDir: string
   agentsBaseDir: string
   home: string
   hasEnv: (dir: string) => boolean
 }): string | null {
-  const { agent, mainAgentId, agentsBaseDir, home, hasEnv } = params
-  if (agent === mainAgentId) {
-    const dir = join(home, '.claude', 'channels', 'telegram')
-    return hasEnv(dir) ? dir : null
-  }
+  const { agent, mainAgentId, mainDir, agentsBaseDir, home, hasEnv } = params
+  if (agent === mainAgentId) return hasEnv(mainDir) ? mainDir : null
   const own = [
     join(agentsBaseDir, agent, '.claude', 'channels', 'telegram'),
     join(home, '.claude', 'channels', `telegram-${agent}`),
@@ -188,6 +190,7 @@ function ownTelegramStateDir(name: string): string | null {
   return resolveOwnTelegramStateDir({
     agent: name,
     mainAgentId: MAIN_AGENT_ID,
+    mainDir: channelStateDir('telegram'),
     agentsBaseDir: AGENTS_BASE_DIR,
     home: homedir(),
     hasEnv: (dir) => existsSync(join(dir, '.env')),

@@ -1,5 +1,4 @@
 import { join, isAbsolute } from 'node:path'
-import { homedir } from 'node:os'
 import { checkTaskMcpRequirements } from './schedule-mcp-precheck.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { runBash } from './run-bash.js'
@@ -903,12 +902,16 @@ export async function runScheduledTaskNow(
 // catch-up summary). Since the channels migration the token lives in the
 // telegram plugin's env, not marveen/.env (2026-07-08: every scheduler alert
 // was silently suppressed on such hosts), so both locations are tried -- same
-// fallback order as scripts/notify.sh.
+// fallback order as scripts/notify.sh. The plugin's env is the main agent's
+// channel dir as channelStateDir() resolves it (#915: install-scoped once
+// migrated); a fixed ~/.claude/channels/telegram is empty after the migration,
+// and onboarding never writes the token into marveen/.env -- so on a fresh
+// install every scheduler alert was silent (card #407).
 function resolveSchedulerAlertToken(): string | undefined {
   const envContent = readFileOr(join(PROJECT_ROOT, '.env'), '')
   const token = envContent.match(/TELEGRAM_BOT_TOKEN=(.+)/)?.[1]?.trim()
   if (token) return token
-  const channelEnv = readFileOr(join(homedir(), '.claude', 'channels', 'telegram', '.env'), '')
+  const channelEnv = readFileOr(join(channelStateDir('telegram'), '.env'), '')
   return channelEnv.match(/TELEGRAM_BOT_TOKEN=(.+)/)?.[1]?.trim()
 }
 

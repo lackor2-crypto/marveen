@@ -286,19 +286,20 @@ describe('decideAfterSendFailure (tiszta ujraprobalasi szabaly)', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveOwnTelegramStateDir (kie a token -- tiszta szabaly)', () => {
+  const MAIN_DIR = '/install/.claude/channels/telegram'
   const has = (dirs: string[]) => (d: string) => dirs.includes(d)
 
   it('sub-agens: a SAJAT csatorna-mappaja', () => {
     const own = '/base/gypsy/.claude/channels/telegram'
     expect(resolveOwnTelegramStateDir({
-      agent: 'gypsy', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([own]),
+      agent: 'gypsy', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([own]),
     })).toBe(own)
   })
 
   it('sub-agens: a home-alias mappa is a sajatja', () => {
     const alias = '/home/x/.claude/channels/telegram-gypsy'
     expect(resolveOwnTelegramStateDir({
-      agent: 'gypsy', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([alias]),
+      agent: 'gypsy', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([alias]),
     })).toBe(alias)
   })
 
@@ -309,20 +310,38 @@ describe('resolveOwnTelegramStateDir (kie a token -- tiszta szabaly)', () => {
     // egy "<sub-agens> nem el" uzenet.
     const shared = '/home/x/.claude/channels/telegram'
     expect(resolveOwnTelegramStateDir({
-      agent: 'gypsy', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([shared]),
+      agent: 'gypsy', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([shared]),
     })).toBeNull()
   })
 
-  it('fo agens: a kozos mappa AZ ove (a natv --channels poller allapota)', () => {
-    const shared = '/home/x/.claude/channels/telegram'
+  it('fo agens: a channelStateDir() altal feloldott mappa AZ ove (a natv --channels poller allapota)', () => {
     expect(resolveOwnTelegramStateDir({
-      agent: 'marvin', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([shared]),
-    })).toBe(shared)
+      agent: 'marvin', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([MAIN_DIR]),
+    })).toBe(MAIN_DIR)
+  })
+
+  it('fo agens #407: csak a feloldott mappat nezi, a fix regi ~/.claude utat nem', () => {
+    // channels.sh (#915) a fo agens allapotat a <telepites>/.claude/channels/telegram
+    // mappaba koltoztette; a regi ~/.claude/channels/telegram ures maradt, es a
+    // fix ut miatt a fo agens "nem elek most" valasza sosem ment ki.
+    const legacy = '/home/x/.claude/channels/telegram'
+    expect(resolveOwnTelegramStateDir({
+      agent: 'marvin', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([MAIN_DIR]),
+    })).toBe(MAIN_DIR)
+    expect(resolveOwnTelegramStateDir({
+      agent: 'marvin', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([legacy]),
+    })).toBeNull()
+  })
+
+  it('sub-agens: a fo agens feloldott mappaja SEM az ove', () => {
+    expect(resolveOwnTelegramStateDir({
+      agent: 'gypsy', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: has([MAIN_DIR]),
+    })).toBeNull()
   })
 
   it('fo agens .env nelkul (friss telepites): null, nem talalgat', () => {
     expect(resolveOwnTelegramStateDir({
-      agent: 'marvin', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: () => false,
+      agent: 'marvin', mainAgentId: 'marvin', mainDir: MAIN_DIR, agentsBaseDir: '/base', home: '/home/x', hasEnv: () => false,
     })).toBeNull()
   })
 })
