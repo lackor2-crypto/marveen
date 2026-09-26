@@ -478,7 +478,10 @@ const _netStatus = (() => {
   // actually happened.
   function showLoginOverlay(status) {
     if (document.getElementById('mv-login-overlay')) return
-    const tr = (k, fallback) => (typeof window.t === 'function' ? window.t(k) : fallback) || fallback
+    const tr = (k, fallback, p) => {
+      const out = (typeof window.t === 'function' ? window.t(k, p) : fallback) || fallback
+      return p ? out.replace(/\{(\w+)\}/g, (m, x) => (p[x] != null ? p[x] : m)) : out
+    }
     const eyeSvg = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line class="mv-eye-slash" x1="3" y1="3" x2="21" y2="21"/></svg>'
     const passField = (id, placeholder) =>
       '<div class="mv-pass-wrap">' +
@@ -614,12 +617,18 @@ const _netStatus = (() => {
     const rcOk = overlay.querySelector('#mv-rc-ok')
     const rcSend = overlay.querySelector('#mv-rc-send')
     let rcTicket = ''
+    // The owner's chat is whatever the installer chose (Telegram, Slack,
+    // Discord, ...): the id stays 'telegram', the text says the real name.
+    let rcCh = { provider: 'telegram', name: 'Telegram' }
+    const rcHow = () => (rcCh.provider === 'telegram'
+      ? tr('auth.recovery.how_telegram', 'Settings -> Setup wizard -> "Telegram bot token" and "Telegram pairing".')
+      : tr('auth.recovery.how_other', "Agents -> the main agent's card -> Channel tab."))
     const RC_HINT = {
-      telegram: () => tr('auth.recovery.telegram_off', 'No Telegram is connected yet. Once inside: Settings -> Setup wizard -> "Telegram bot token" and "Telegram pairing".'),
+      telegram: () => tr('auth.recovery.telegram_off', '{channel} is not connected yet. Once inside: {how}', { channel: rcCh.name, how: rcHow() }),
       email: () => tr('auth.recovery.email_off', 'No mailbox is chosen for this yet. Once inside: Settings -> Security -> "Where the code goes". The mailbox itself is connected in Iroda -> Settings -> "Email settings".'),
     }
     const RC_LABEL = {
-      telegram: () => tr('auth.recovery.ch_telegram', 'Telegram (your own Marveen chat)'),
+      telegram: () => tr('auth.recovery.ch_telegram', '{channel} (your own Marveen chat)', { channel: rcCh.name }),
       email: () => tr('auth.recovery.ch_email', 'E-mail (the mailbox you chose in Settings)'),
     }
     async function loadRecoveryChannels() {
@@ -627,7 +636,11 @@ const _netStatus = (() => {
       let channels = null
       try {
         const r = await originalFetch('/api/auth/recovery/channels')
-        if (r.ok) channels = (await r.json()).channels
+        if (r.ok) {
+          const d = await r.json()
+          channels = d.channels
+          if (d.channel_name) rcCh = { provider: String(d.channel_provider || 'telegram'), name: String(d.channel_name) }
+        }
       } catch { /* shown below */ }
       if (!Array.isArray(channels)) {
         // Could not ask -- that is not the same as "nothing connected".
@@ -21218,9 +21231,11 @@ async function renderOverviewConnections() {
         // lepesere visz: ott all a lista es a bemasolhato telepito-sor.
         : h.id.startsWith('system_deps_')
         ? 'openSystemDepsStep()'
-        // A password with no channel: the fix is the wizard's Telegram step (#412).
+        // A password with no channel: go where THIS install's provider is
+        // connected (#412, TG 6620) -- Telegram's wizard step, or the main
+        // agent's Channel tab for Slack/Discord/...
         : h.id === 'password_no_channel'
-        ? "openWizardItem('telegram-token')"
+        ? `openOwnerChannelSetup('${/^[a-z]+$/.test(String((h.params && h.params.provider) || '')) ? h.params.provider : 'telegram'}')`
         // Egy hianyzo kulso szolgaltatas sora a varazslo SAJAT lepesere visz.
         : (h.id === 'integration_missing' && h.params && /^[a-z0-9-]+$/.test(String(h.params.item || '')))
         ? `openWizardItem('${h.params.item}')`
@@ -25983,14 +25998,32 @@ const AUTH_MIN_PASSWORD_LENGTH = 10
 
 function passwordTooShort(pw) { return (pw || '').length < AUTH_MIN_PASSWORD_LENGTH }
 
+// The owner's chat channel as the installer chose it (#412, TG 6620): the
+// texts say its real name, and the "connect it" button goes where THAT
+// provider is connected -- Telegram has wizard steps, the others live on the
+// main agent's Channel tab. Updated from /api/auth/recovery/* answers.
+const ownerChannelLabel = { provider: 'telegram', name: 'Telegram' }
+function setOwnerChannelLabel(provider, name) {
+  if (name) { ownerChannelLabel.provider = String(provider || 'telegram'); ownerChannelLabel.name = String(name) }
+}
+function ownerChannelHow(provider) {
+  return provider === 'telegram' ? t('auth.recovery.how_telegram') : t('auth.recovery.how_other')
+}
+async function openOwnerChannelSetup(provider) {
+  if (!provider || provider === 'telegram') return openWizardItem('telegram-token')
+  await openMarveenDetail()
+  switchAgentTab('channel')
+}
+
 function renderCreateLoginForm(body) {
   body.innerHTML =
     `<p class="auth-muted">${t('auth.card.setup_desc')}</p>` +
     // A password needs a way back (#412, owner TG 6617): the forgotten-password
-    // code arrives on Telegram, so say so BEFORE the owner types anything.
+    // code arrives on the owner's chat channel, so say so BEFORE the owner
+    // types anything. The channel name is filled in once the server answers.
     `<div class="auth-channel-need" id="authChannelNeed" hidden>` +
-      `<p>${t('auth.card.channel_needed')}</p>` +
-      `<button class="btn-secondary btn-compact" id="authChannelWizardBtn">${t('auth.card.channel_wizard')}</button>` +
+      `<p id="authChannelNeedText">${t('auth.card.channel_needed', { channel: ownerChannelLabel.name })}</p>` +
+      `<button class="btn-secondary btn-compact" id="authChannelWizardBtn">${t('auth.card.channel_wizard', { channel: ownerChannelLabel.name })}</button>` +
     `</div>` +
     `<div class="auth-form">` +
       `<input id="authNewUser" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="${t('auth.login.username')}">` +
@@ -26022,10 +26055,15 @@ function renderCreateLoginForm(body) {
       }
     } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
   })
-  document.getElementById('authChannelWizardBtn').addEventListener('click', () => openWizardItem('telegram-token'))
+  document.getElementById('authChannelWizardBtn').addEventListener('click', () => openOwnerChannelSetup(ownerChannelLabel.provider))
   // Ask ahead. Not being able to ask is not "no channel": then stay quiet and
   // let the server's own answer on Create speak.
   fetch('/api/auth/recovery/channels').then((r) => (r.ok ? r.json() : null)).then((d) => {
+    if (d && d.channel_name) setOwnerChannelLabel(d.channel_provider, d.channel_name)
+    const txt = document.getElementById('authChannelNeedText')
+    const btn = document.getElementById('authChannelWizardBtn')
+    if (txt) txt.textContent = t('auth.card.channel_needed', { channel: ownerChannelLabel.name })
+    if (btn) btn.textContent = t('auth.card.channel_wizard', { channel: ownerChannelLabel.name })
     const tg = d && Array.isArray(d.channels) ? d.channels.find((c) => c.id === 'telegram') : null
     const box = document.getElementById('authChannelNeed')
     if (box && tg && !tg.available) box.hidden = false
@@ -26099,9 +26137,11 @@ async function renderRecoverySettings() {
     if (r.ok) s = await r.json()
   } catch { /* shown below */ }
   if (!s) { el.textContent = t('auth.recovery.settings_unknown'); return }
+  setOwnerChannelLabel(s.channel_provider, s.channel_name)
+  const chP = { channel: escapeHtml(ownerChannelLabel.name), how: ownerChannelHow(ownerChannelLabel.provider) }
   const tg = s.telegram_ready
-    ? `<p class="auth-recovery-row ok">✓ ${t('auth.recovery.settings_tg_on')}</p>`
-    : `<p class="auth-recovery-row">${t('auth.recovery.settings_tg_off')}</p>`
+    ? `<p class="auth-recovery-row ok">✓ ${t('auth.recovery.settings_tg_on', chP)}</p>`
+    : `<p class="auth-recovery-row">${t('auth.recovery.settings_tg_off', chP)}</p>`
   let mail
   if (!s.email_accounts.length) {
     mail = `<p class="auth-recovery-row">${t('auth.recovery.settings_no_mailbox')}</p>`

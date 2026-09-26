@@ -1,5 +1,5 @@
 import { CHANNEL_PROVIDER, CHANNEL_TOKEN, CHANNEL_CHAT_ID } from './config.js'
-import { getProvider } from './channel-provider.js'
+import { getProvider, providerDisplayName, type ChannelProviderType } from './channel-provider.js'
 import { normalizeChatId, resolveOwnerChatId } from './owner-chat.js'
 import { logger } from './logger.js'
 import { markIfTestRun } from './test-run-marker.js'
@@ -84,6 +84,11 @@ export async function notifyChannel(text: string): Promise<void> {
 /** Is there a channel the owner reads? (token + a real owner chat id) */
 export function ownerChannelReady(): boolean {
   return Boolean(CHANNEL_TOKEN && ownerChatId())
+}
+
+/** Which channel the owner's chat is on, and its screen name (Telegram, Slack, ...). */
+export function ownerChannelInfo(): { provider: ChannelProviderType; name: string } {
+  return { provider: CHANNEL_PROVIDER, name: providerDisplayName(CHANNEL_PROVIDER) }
 }
 
 /**

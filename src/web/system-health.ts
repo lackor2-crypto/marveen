@@ -84,7 +84,7 @@ import { integrationStates } from './setup-wizard-values.js'
 import type { SetupItemState } from './setup-wizard-registry.js'
 import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
 import { getDb, countDashboardUsers } from '../db.js'
-import { ownerChannelReady } from '../notify.js'
+import { ownerChannelReady, ownerChannelInfo } from '../notify.js'
 import { computeBackupHealth } from '../backup/health.js'
 import { stateExists } from '../backup/state.js'
 import { readConfig as readBackupConfig, resolveDestinations } from '../backup/destinations.js'
@@ -2167,7 +2167,7 @@ export function skillScopeReviewRows(
 
 /**
  * A password with no way back (#412, owner TG 6617). New logins can only be
- * created once the owner's Telegram delivers, but an install that set its
+ * created once the owner's chat channel delivers, but an install that set its
  * password before that rule exists: nobody is locked out, the row just says
  * that a forgotten password now has no code path (only the access token).
  * Yellow, never red -- everything works, it is a missing safety net.
@@ -2179,13 +2179,19 @@ export function skillScopeReviewRows(
 export function passwordChannelRows(
   users: () => number = () => countDashboardUsers(false),
   channel: () => boolean = ownerChannelReady,
+  info: () => { provider: string; name: string } = () => ownerChannelInfo(),
 ): HealthRow[] {
   let n: number
   try { n = users() } catch { return [] }
   if (n === 0) return []
   let ready: boolean
   try { ready = channel() } catch { ready = false }
-  return ready ? [] : [{ id: 'password_no_channel', status: 'warn' }]
+  if (ready) return []
+  // The row names the install's real channel (Telegram, Slack, ...), and the
+  // provider decides where the click leads (TG 6620).
+  let ch: { provider: string; name: string }
+  try { ch = info() } catch { ch = { provider: 'telegram', name: 'Telegram' } }
+  return [{ id: 'password_no_channel', status: 'warn', params: { channel: ch.name, provider: ch.provider } }]
 }
 
 /**

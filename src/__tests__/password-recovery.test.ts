@@ -43,10 +43,10 @@ function mkRes(): MockRes {
     end(data) { if (data !== undefined) this.body += data },
   }
 }
-async function call(method: string, path: string, opts: { body?: unknown; auth?: RouteContext['auth']; ip?: string } = {}) {
+async function call(method: string, path: string, opts: { body?: unknown; auth?: RouteContext['auth']; ip?: string; headers?: Record<string, string> } = {}) {
   const payload = opts.body === undefined ? [] : [Buffer.from(JSON.stringify(opts.body))]
   const req = Readable.from(payload) as unknown as http.IncomingMessage & Record<string, unknown>
-  req.headers = opts.ip ? { 'x-forwarded-for': opts.ip } : {}
+  req.headers = { ...(opts.ip ? { 'x-forwarded-for': opts.ip } : {}), ...(opts.headers ?? {}) }
   const res = mkRes()
   const ctx: RouteContext = {
     req: req as http.IncomingMessage, res: res as unknown as http.ServerResponse,
@@ -99,7 +99,7 @@ describe('channel list', () => {
   it('fresh install: nothing connected -> both rows present, neither available', async () => {
     _setRecoveryDeps({ telegramReady: () => false, mail: null })
     const r = await call('GET', '/api/auth/recovery/channels')
-    expect(r.json()).toEqual({ channels: [{ id: 'telegram', available: false }, { id: 'email', available: false }] })
+    expect(r.json()).toMatchObject({ channels: [{ id: 'telegram', available: false }, { id: 'email', available: false }] })
   })
   it('e-mail becomes available only once a connected mailbox is chosen, and never lists an address', async () => {
     const mail: MailPort = { accounts: () => [{ id: 'acc1', address: 'owner@example.org' }], send: async () => ({ ok: true }) }
@@ -273,7 +273,60 @@ describe('Overview self-check: a password with no code channel', () => {
     const { passwordChannelRows } = await import('../web/system-health.js')
     expect(passwordChannelRows(() => 0, () => false)).toEqual([])
     expect(passwordChannelRows(() => 1, () => true)).toEqual([])
-    expect(passwordChannelRows(() => 1, () => false)).toEqual([{ id: 'password_no_channel', status: 'warn' }])
+    expect(passwordChannelRows(() => 1, () => false, () => ({ provider: 'telegram', name: 'Telegram' })))
+      .toEqual([{ id: 'password_no_channel', status: 'warn', params: { channel: 'Telegram', provider: 'telegram' } }])
     expect(passwordChannelRows(() => { throw new Error('db gone') }, () => false)).toEqual([])
+  })
+})
+
+// Owner TG 6620: the installer picks Telegram, Slack or Discord. On a Slack
+// install nothing on the screen or in the messages may say "Telegram".
+describe('the channel is named as the installer chose it (Slack install)', () => {
+  const slack = () => ({ provider: 'slack', name: 'Slack' })
+  it('the channel list and the settings carry the real name', async () => {
+    _setRecoveryDeps({ telegramReady: () => true, telegramSend: async (t) => { sent.push(t); return 'sent' }, mail: null, channelInfo: slack })
+    const r = await call('GET', '/api/auth/recovery/channels')
+    expect(r.json()).toMatchObject({ channel_provider: 'slack', channel_name: 'Slack' })
+    const user = getDashboardUser('boss')!
+    const s = await call('GET', '/api/auth/recovery/settings', { auth: { kind: 'session', user: 'boss', userId: user.id } as RouteContext['auth'] })
+    expect(s.json()).toMatchObject({ channel_provider: 'slack', channel_name: 'Slack' })
+  })
+  it('channel_required says Slack and points to the Channel tab, never Telegram (both languages, both reasons)', async () => {
+    for (const send of [async () => 'no_channel' as const, async () => { throw new Error('invalid_auth') }]) {
+      _setRecoveryDeps({ telegramSend: send, channelInfo: slack })
+      for (const lang of ['hu', 'en']) {
+        const req = await call('POST', '/api/auth/users', { auth: { kind: 'token' }, body: { username: 'newbie', password: 'a-long-enough-pass' }, headers: { 'x-ui-lang': lang } })
+        expect(req.status).toBe(400)
+        const msg = req.json().message as string
+        expect(msg).toContain('Slack')
+        expect(msg).not.toMatch(/telegram/i)
+      }
+    }
+  })
+  it('the "password was reset" notice names the channel, not Telegram', async () => {
+    const { recoveryDoneNotice } = await import('../web/password-recovery.js')
+    _setRecoveryDeps({ channelInfo: slack })
+    for (const lang of ['hu', 'en'] as const) {
+      const n = recoveryDoneNotice('boss', 'telegram', lang)
+      expect(n).toContain('Slack')
+      expect(n).not.toMatch(/telegram/i)
+    }
+  })
+  it('the Overview row names Slack and tells the screen which provider to open', async () => {
+    const { passwordChannelRows } = await import('../web/system-health.js')
+    expect(passwordChannelRows(() => 1, () => false, slack)[0]!.params).toEqual({ channel: 'Slack', provider: 'slack' })
+  })
+  it('screen texts: only the Telegram-specific "how" line may say Telegram (hu + en)', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    for (const f of ['web/lang/hu.js', 'web/lang/en.js']) {
+      const src = readFileSync(join(process.cwd(), f), 'utf8')
+      const keys = [...src.matchAll(/^\s*'((?:auth\.recovery|auth\.card\.channel|health\.password_no_channel)[\w.]*)':\s*'((?:[^'\\]|\\.)*)'/gm)]
+      expect(keys.length).toBeGreaterThan(10)
+      for (const [, key, text] of keys) {
+        if (key === 'auth.recovery.how_telegram') continue
+        expect(text, key).not.toMatch(/telegram/i)
+      }
+    }
   })
 })
