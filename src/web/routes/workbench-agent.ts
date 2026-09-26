@@ -18,6 +18,7 @@ import { getProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
 import { msg, type Lang } from '../../workbench-agent/messages.js'
+import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
 import { runTurn, validateTurn, MESSAGE_MAX_CHARS } from '../../workbench-agent/orchestrator.js'
@@ -179,6 +180,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       const project = getProject(projectId)
       if (!project) return fail(res, 404, 'project_not_found', lang)
       const session = openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
+      await settleWorkbenchApprovals(session.id).catch(() => 0)
       json(res, {
         session,
         messages: listAgentMessages(session.id),
@@ -190,6 +192,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const item = getWorkItem(workItemId)
     if (!item) return fail(res, 404, 'work_item_not_found', lang, msg('work_item_not_found', lang))
     const session = openSessionForWorkItem(item.project_id, item.id, lang)
+    await settleWorkbenchApprovals(session.id).catch(() => 0)
     json(res, {
       session,
       messages: listAgentMessages(session.id),

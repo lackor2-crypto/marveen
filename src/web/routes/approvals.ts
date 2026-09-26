@@ -673,6 +673,12 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // Ez az "attol a pillanattol" fele -- a sopres kulonben csak a kovetkezo
     // fordulóban (max. 30 mp) venne eszre, es addig meg kimehetne egy nudge.
     stopVerificationsForApproval(idMatch[1], `approval_resolved:${status}`)
+    // #404 H2: egy Munkapad-lepes jovahagyasa utan a lepes MOST fut le a
+    // tarolt bemenettel (elutasitasnal a beszelgetes ertesul). Dinamikus
+    // import: az approvals route ne huzza be a Munkapad teljes lancat.
+    void import('../../workbench-agent/approved-runner.js')
+      .then((m) => m.settleWorkbenchApprovals())
+      .catch((err) => logger.warn({ err }, 'workbench approval settle failed'))
     // Kártya 62c63a5e (#108): a verify-result ág már régóta rámásolja a
     // reviewer-agent leletét a kapcsolódó kártyára, de maga a záró döntés
     // (ez az endpoint) eddig semmit nem írt oda -- a resolutionReason csak

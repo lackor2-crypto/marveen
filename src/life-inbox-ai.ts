@@ -80,8 +80,11 @@ export function orderClaudeAccounts(cands: ClaudeAccount[], now: number = Date.n
       return tierForPct(c.fiveHourPct) !== 'critical'
     })
     .sort((a, b) => {
-      const ap = a.fiveHourPct ?? -1
-      const bp = b.fiveHourPct ?? -1
+      // An unmeasured account is not an empty one: it goes BEHIND every
+      // measured account, never in front of a known low one (#404).
+      const ap = a.fiveHourPct ?? Number.POSITIVE_INFINITY
+      const bp = b.fiveHourPct ?? Number.POSITIVE_INFINITY
+      if (ap === bp && ap === Number.POSITIVE_INFINITY) return rankModelTier(b.model) - rankModelTier(a.model) || a.agent.localeCompare(b.agent)
       if (ap !== bp) return ap - bp
       return rankModelTier(b.model) - rankModelTier(a.model) || a.agent.localeCompare(b.agent)
     })

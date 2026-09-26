@@ -263,7 +263,7 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
 
   // A tulajdonos "igen"-je utan a kovetkezo keres tenylegesen fusson le -- es
   // ne a kozben szuletett tobbi jegy szamatol fuggjon, hogy eszrevesszuk-e.
-  it('a mar JOVAHAGYOTT jegy utan a tool lefut, ujabb kerdes nelkul', async () => {
+  it('a mar JOVAHAGYOTT jegy utan a tool MAGATOL lefut a tarolt bemenettel (#404 H2)', async () => {
     setAutonomyLoaderForTest(configWith(2))
     await turn('Csinálj egy új ajánlatot', fakeProvider([
       '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}',
@@ -278,14 +278,14 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
       resolveApproval(id, 'approved', 'teszt')
     }
 
-    const evs = await turn('Akkor csináld meg', fakeProvider([
-      '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}',
-      'Kész, létrehoztam.',
-    ]))
-    expect((evs.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('ok')
+    // A kovetkezo fordulo elejen lefut -- a modellnek NEM kell ujra kernie.
+    await turn('Na?', fakeProvider(['Kész, létrehoztam.']))
+    expect(listWorkItems(projectId).map((i) => i.title)).toContain('Új ajánlat')
     expect(listWorkItems(projectId)).toHaveLength(2)
-    // Ujabb kerdes NEM szuletett.
     expect(listApprovals({ status: 'pending', limit: 10 })).toHaveLength(0)
+    // A csevego tudja, hogy lefutott.
+    const s = openSessionForWorkItem(projectId, workItemId, 'hu')
+    expect(listAgentMessages(s.id).some((m) => /Jóváhagyva, és lefutott: workItem.create/.test(m.content))).toBe(true)
   })
 
   // #336 atvizsgalas: egy "igen" eddig a projekt MINDEN kesobbi azonos nevu
@@ -303,7 +303,8 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
       'Kértem rá jóváhagyást.',
     ]))
     expect((evs.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('needs_approval')
-    expect(listWorkItems(projectId)).toHaveLength(1)
+    // Az elso (jovahagyott) lefutott a fordulo elejen, a masik NEM.
+    expect(listWorkItems(projectId).map((i) => i.title)).not.toContain('Egészen más')
   })
 
   it('a jovahagyas EGYSZER hasznalhato: a masodik azonos keres ujra kerdez', async () => {
@@ -312,14 +313,12 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
     await turn('Csinálj egy új ajánlatot', fakeProvider([create, 'Kértem rá jóváhagyást.']))
     resolveApproval(listApprovals({ status: 'pending', limit: 10 })[0].id, 'approved', 'teszt')
 
-    // Kulcs-sorrend nem szamit: ugyanaz a bemenet.
-    const ok = await turn('Akkor csináld meg', fakeProvider([
-      '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}', 'Kész.',
-    ]))
-    expect((ok.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('ok')
+    // A jovahagyas utan a fordulo elejen EGYSZER lefut.
+    await turn('Akkor csináld meg', fakeProvider(['Kész.']))
     expect(listWorkItems(projectId)).toHaveLength(2)
 
-    const again = await turn('Még egyszer', fakeProvider([create, 'Kértem rá jóváhagyást.']))
+    // Ugyanaz a keres (mas kulcs-sorrenddel) ujra: a jegy elhasznalodott, ujra kerdez.
+    const again = await turn('Még egyszer', fakeProvider(['{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}', 'Kértem rá jóváhagyást.']))
     expect((again.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('needs_approval')
     expect(listWorkItems(projectId)).toHaveLength(2)
   })
