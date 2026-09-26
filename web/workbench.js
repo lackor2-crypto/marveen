@@ -920,7 +920,7 @@
     var from = page * TABLE_PAGE
     var to = Math.min(rows.length, from + TABLE_PAGE)
     var ro = tableEditable() ? '' : ' readonly'
-    var html = '<div class="wb-table-scroll"><table class="wb-grid"><thead><tr><th class="wb-grid-corner"></th>'
+    var html = '<div class="wb-table-scroll"><table class="wb-tgrid"><thead><tr><th class="wb-tgrid-corner"></th>'
     for (var c = 0; c < nCols; c++) html += '<th scope="col">' + colLetter(c) + '</th>'
     html += '</tr></thead><tbody>'
     for (var r = from; r < to; r++) {

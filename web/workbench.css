@@ -636,12 +636,12 @@
 .wb-table { display: flex; flex-direction: column; gap: 8px; }
 .wb-table-tabs, .wb-table-tools, .wb-table-pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .wb-table-scroll { overflow: auto; max-height: 60vh; border: 1px solid var(--border, #d0d7de); border-radius: 6px; -webkit-overflow-scrolling: touch; }
-.wb-grid { border-collapse: collapse; font-size: 13px; }
-.wb-grid th { position: sticky; background: var(--bg-secondary, #f3f4f6); font-weight: 600; padding: 2px 6px; border: 1px solid var(--border, #d0d7de); white-space: nowrap; z-index: 1; }
-.wb-grid thead th { top: 0; }
-.wb-grid tbody th { left: 0; text-align: right; opacity: .8; }
-.wb-grid .wb-grid-corner { left: 0; z-index: 2; }
-.wb-grid td { padding: 0; border: 1px solid var(--border, #d0d7de); }
+.wb-tgrid { border-collapse: collapse; font-size: 13px; }
+.wb-tgrid th { position: sticky; background: var(--bg-secondary, #f3f4f6); font-weight: 600; padding: 2px 6px; border: 1px solid var(--border, #d0d7de); white-space: nowrap; z-index: 1; }
+.wb-tgrid thead th { top: 0; }
+.wb-tgrid tbody th { left: 0; text-align: right; opacity: .8; }
+.wb-tgrid .wb-tgrid-corner { left: 0; z-index: 2; }
+.wb-tgrid td { padding: 0; border: 1px solid var(--border, #d0d7de); }
 .wb-cell { width: 9em; min-width: 6em; box-sizing: border-box; border: 0; padding: 3px 5px; font: inherit; background: transparent; color: inherit; }
 .wb-cell:focus { outline: 2px solid var(--accent, #3b82f6); outline-offset: -2px; background: var(--bg-primary, #fff); }
 .wb-cell[readonly] { cursor: default; }
