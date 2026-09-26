@@ -1,8 +1,10 @@
 /**
  * MUNKAPAD PROJEKT-ATTEKINTO (kanban #406, 2. pont).
  *
- * A Munkapad tetejen egy pillantasra: mi van NYITVA, mi VAR JOVAHAGYASRA, mi
- * lett FRISSEN KESZ, es melyik FAJL valtozott utoljara. Csak OLVAS.
+ * A Munkapad tetejen egy pillantasra, a kanban-tabla SAJAT oszlopneveivel
+ * (Boss, 2026-09-26, TG 6538/6545): Tervezett, Folyamatban, Jovahagyasra var,
+ * Kesz. Minden csempen a projekt kanban-kartyai ES a munkadarabok egyutt.
+ * Csak OLVAS.
  *
  * A NULLA KET DOLGOT JELENTHET: "nincs ilyen" vagy "nem lattam oda". Ezert
  * minden forras (munkadarabok, kanban-kartyak, jovahagyasok) KULON kerdezodik
@@ -28,6 +30,17 @@ export interface OverviewItem {
   updated_at: number
 }
 
+/** Egy kanban-kartya a csempen: sorszam + cim, ahogy a tablan. */
+export interface OverviewCard {
+  id: string
+  seq: number
+  title: string
+  updated_at: number
+}
+
+/** A kanban oszlopai ennel a projektnel. `count: null` = nem lattam oda. */
+export interface OverviewColumn { count: number | null; cards: OverviewCard[] }
+
 export interface OverviewApproval {
   id: string
   category: string
@@ -49,6 +62,11 @@ export interface WorkbenchOverview {
    *  jovahagyas-jegyei. A jegyek szama `null`, ha nem tudtam lekerdezni. */
   review: { count: number; items: OverviewItem[] }
   approvals: { count: number | null; items: OverviewApproval[]; error: string | null }
+  /** A projekt kanban-kartyai oszloponkent (a Tesztelés a Folyamatbanba
+   *  szamit; a Kesz csak az utolso RECENT_DONE_DAYS nap). */
+  columns: { planned: OverviewColumn; in_progress: OverviewColumn; waiting: OverviewColumn; done: OverviewColumn }
+  /** Munkadarabok allapot szerint a Tervezett / Folyamatban csempehez. */
+  work: { draft: { count: number; items: OverviewItem[] }; in_progress: { count: number; items: OverviewItem[] } }
   /** Az utobbi napokban kesz lett munkadarabok. */
   recent_done: { count: number; items: OverviewItem[]; days: number }
   /** Az utoljara valtozott fajl (a munkadarabok verzioiban/reszeiben). */
@@ -102,6 +120,38 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
     cards.error = errText(e)
   }
 
+  const emptyCol = (): OverviewColumn => ({ count: 0, cards: [] })
+  const columns: WorkbenchOverview['columns'] = { planned: emptyCol(), in_progress: emptyCol(), waiting: emptyCol(), done: emptyCol() }
+  if (cards.open === null) {
+    for (const k of Object.keys(columns) as Array<keyof typeof columns>) columns[k].count = null
+  } else if (hasTable('kanban_cards')) {
+    try {
+      const all = db.prepare(
+        'SELECT id, rowid AS seq, title, status, updated_at FROM kanban_cards WHERE project = ? AND archived_at IS NULL ORDER BY updated_at DESC',
+      ).all(pid) as Array<OverviewCard & { status: string }>
+      const put = (col: OverviewColumn, c: OverviewCard & { status: string }): void => {
+        col.count = (col.count || 0) + 1
+        if (col.cards.length < OVERVIEW_LIST_MAX) col.cards.push({ id: c.id, seq: Number(c.seq), title: String(c.title || ''), updated_at: c.updated_at })
+      }
+      for (const c of all) {
+        if (c.status === 'planned') put(columns.planned, c)
+        else if (c.status === 'in_progress' || c.status === 'testing') put(columns.in_progress, c)
+        else if (c.status === 'waiting') put(columns.waiting, c)
+        else if (c.status === 'done' && c.updated_at >= since) put(columns.done, c)
+      }
+    } catch (e) {
+      for (const k of Object.keys(columns) as Array<keyof typeof columns>) columns[k].count = null
+      cards.open = null
+      cards.error = errText(e)
+    }
+  }
+  const drafts = rows.filter((r) => r.status === 'draft')
+  const running = rows.filter((r) => r.status === 'in_progress')
+  const work: WorkbenchOverview['work'] = {
+    draft: { count: drafts.length, items: drafts.slice(0, OVERVIEW_LIST_MAX) },
+    in_progress: { count: running.length, items: running.slice(0, OVERVIEW_LIST_MAX) },
+  }
+
   const approvals: WorkbenchOverview['approvals'] = { count: 0, items: [], error: null }
   try {
     const mine = listPendingApprovals().filter((a) => approvalBelongs(a, pid, cardIds))
@@ -152,6 +202,8 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
     cards,
     review: { count: review.length, items: review.slice(0, OVERVIEW_LIST_MAX) },
     approvals,
+    columns,
+    work,
     recent_done: { count: done.length, items: done.slice(0, OVERVIEW_LIST_MAX), days: RECENT_DONE_DAYS },
     last_file: last ? { name: basename(last.rel), rel: last.rel, item_id: last.item_id, item_title: last.item_title, at: last.at } : null,
   }

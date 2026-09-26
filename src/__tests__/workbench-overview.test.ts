@@ -77,6 +77,9 @@ describe('attekinto: a szerver merese', () => {
     expect(typeof ap2.card_seq).toBe('number')
     const ap1 = o.approvals.items.find((a) => a.id === 'ap1')!
     expect(ap1.card_seq).toBeNull()
+    expect(o.columns.in_progress.count).toBe(1)
+    expect(o.columns.in_progress.cards[0].title).toBe('Projekt kártya')
+    expect(o.columns.planned.count).toBe(0)
   })
 
   it('utoljara valtozott fajl: a legfrissebb verzio-forras vagy kep-resz', () => {
@@ -121,22 +124,44 @@ describe('attekinto: a felulet', () => {
     h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
   }
 
-  it('a negy csempe a Munkapad TETEJEN all, a szamokkal es a kattinthato munkadarabokkal', async () => {
+  it('a negy csempe a Munkapad TETEJEN all, a KANBAN oszlopneveivel, kartyakkal es munkadarabokkal', async () => {
     const h = workbenchHarness()
-    open(h, OV)
+    open(h, { ...OV,
+      columns: {
+        planned: { count: 1, cards: [{ id: 'k1', seq: 501, title: 'Terv kártya', updated_at: 1 }] },
+        in_progress: { count: 0, cards: [] },
+        waiting: { count: 0, cards: [] },
+        done: { count: 0, cards: [] },
+      },
+      work: { draft: { count: 1, items: [{ id: 'w1', title: 'Ajánlat', status: 'draft', updated_at: 1 }] }, in_progress: { count: 0, items: [] } },
+    })
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
     const html = h.html()
     expect(html.indexOf('class="wb-ov"')).toBeLessThan(html.indexOf('wb-split'))
-    expect(html).toContain('workbench.ov.open')
-    expect(html).toContain('workbench.ov.wait')
-    expect(html).toContain('workbench.ov.done')
-    expect(html).toContain('workbench.ov.file')
-    expect(html).toContain('<div class="wb-ov-num">2</div>')
-    // Var: 1 atnezesre varo munkadarab + 1 jegy = 2, es kiemelve.
+    // Boss, 2026-09-26: ugyanaz a tabla, ugyanazok a nevek.
+    for (const k of ['kanban.col.planned', 'kanban.col.in_progress', 'kanban.col.waiting', 'workbench.ov.done_col']) expect(html).toContain(k)
+    expect(html.match(/class="wb-ov-tile /g)!.length).toBe(4)
+    expect(html).not.toContain('wb-ov-file-tile')
+    // Tervezett: 1 kartya + 1 vazlat munkadarab = 2.
+    expect(html).toMatch(/wb-ov-planned[^]*?<div class="wb-ov-num">2<\/div>[^]*?#501<\/span> Terv kártya/)
+    // Jovahagyasra var: 1 kartya nelkuli jegy + 1 atnezesre varo munkadarab = 2, kiemelve.
     expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<div class="wb-ov-num">2<\/div>/)
-    expect(html).toContain('logo.png')
     expect(html).toContain('data-wb-act="goto-approvals"')
     expect(html).toContain('data-wb-item="w2"')
+  })
+
+  it('a jovahagyasra varo kartya nem jelenik meg ketszer (oszlop + jegy)', async () => {
+    const h = workbenchHarness()
+    open(h, { ...OV,
+      approvals: { count: 1, error: null, items: [{ id: 'a1', category: 'kanban_done', description: 'Kártya #404', requested_at: 1, card_seq: 404, card_title: 'Munkapad' }] },
+      review: { count: 0, items: [] },
+      columns: { planned: { count: 0, cards: [] }, in_progress: { count: 0, cards: [] }, waiting: { count: 1, cards: [{ id: 'k4', seq: 404, title: 'Munkapad', updated_at: 1 }] }, done: { count: 0, cards: [] } },
+      work: { draft: { count: 0, items: [] }, in_progress: { count: 0, items: [] } },
+    })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
+    const html = h.html()
+    expect(html.match(/#404<\/span>/g)!.length).toBe(1)
+    expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<div class="wb-ov-num">1<\/div>/)
   })
 
   it('ket jovahagyas KET kulon kis kartya: sorszam, cim, datum -- nem egy szovegfolyam', async () => {
@@ -164,12 +189,15 @@ describe('attekinto: a felulet', () => {
 
   it('FRISS TELEPITES: ures projektben baratsagos mondatok, nem hiba', async () => {
     const h = workbenchHarness()
-    open(h, { open: { count: 0, items: [] }, cards: { open: 0, error: null }, review: { count: 0, items: [] }, approvals: { count: 0, items: [], error: null }, recent_done: { count: 0, items: [], days: 14 }, last_file: null })
+    const col = { count: 0, cards: [] }
+    open(h, { open: { count: 0, items: [] }, cards: { open: 0, error: null }, review: { count: 0, items: [] }, approvals: { count: 0, items: [], error: null }, recent_done: { count: 0, items: [], days: 14 }, last_file: null,
+      columns: { planned: col, in_progress: col, waiting: col, done: col }, work: { draft: { count: 0, items: [] }, in_progress: { count: 0, items: [] } } })
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
     const html = h.html()
-    expect(html).toContain('workbench.ov.open_none')
+    expect(html).toContain('workbench.ov.planned_none')
+    expect(html).toContain('workbench.ov.progress_none')
     expect(html).toContain('workbench.ov.wait_none')
-    expect(html).toContain('workbench.ov.file_none')
+    expect(html).toContain('workbench.ov.done_none')
     expect(html).not.toContain('wb-ov-attn')
     expect(html).not.toContain('wb-preview-bad')
   })
