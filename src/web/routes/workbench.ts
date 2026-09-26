@@ -575,6 +575,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez egy régebbi verzió: megnézni lehet, szerkeszteni a legfrissebbet lehet.',
     en: 'This is an older version: you can look at it; editing works on the latest one.',
   },
+  version_stale: {
+    hu: 'Közben új verzió készült ebből a munkadarabból, ezért nem írom felül. Másold ki, amit írtál, nyisd meg újra a munkadarabot, és csináld meg rajta újra a módosítást.',
+    en: 'A newer version of this work item was made in the meantime, so it will not be overwritten. Copy what you wrote, open the work item again and redo the change on it.',
+  },
   image_edit_stale: {
     hu: 'Közben új verzió készült ebből a képből, ezért nem írom felül. Zárd be a szerkesztőt, nyisd meg újra, és csináld meg rajta újra a módosítást.',
     en: 'A newer version of this image was made in the meantime, so it will not be overwritten. Close the editor, open it again and redo the change on it.',
@@ -595,6 +599,23 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Elmentve, és azonnal újra megmértem.',
     en: 'Saved, and measured again right away.',
   },
+}
+
+/** Kozben keszult-e ujabb verzio? (#406 bugkereses 6+7.) A route elejen
+ *  betoltott `item` az `await readJson/readBody` ELOTTI pillanatkep: ket
+ *  egyszerre mento ful kozul a masodik azzal meg atmenne, es az elso modositasa
+ *  csendben kiesne. Ezert az await UTAN a DB-bol ujraolvassuk. Az ellenorzes
+ *  es a mentes kozott nincs tobb await, tehat nincs kozbeekelodes. */
+function versionIsStale(itemId: string, base: unknown): boolean {
+  const fresh = getWorkItem(itemId)
+  return !fresh || String(base ?? '') !== (fresh.current_version_id || '')
+}
+
+/** Ahol a `base_version` nem kotelezo: ha a kliens kuldi, szamon kerjuk; ha
+ *  nem (regebbi felulet, API-hivo), a korabbi viselkedes marad. */
+function optionalBaseIsStale(itemId: string, base: unknown): boolean {
+  if (base == null || base === '') return false
+  return versionIsStale(itemId, base)
 }
 
 /** Gepi kod -> EMBERI mondat. Ismeretlen kodnal a kodot adjuk vissza, hogy
@@ -1349,7 +1370,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const base = String(body['base_version'] ?? '')
-    if (!base || base !== (item.current_version_id || '')) return fail(res, 409, 'table_stale', lang)
+    if (!base || versionIsStale(item.id, base)) return fail(res, 409, 'table_stale', lang)
     const norm = normalizeSheets(body['sheets'])
     if (!norm.ok) return fail(res, 400, norm.code, lang)
     const src = loadTableSource(item.id)
@@ -1385,7 +1406,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       throw e
     }
     if (!data.length) return fail(res, 400, 'upload_empty', lang)
-    const r = saveEditedImage(item, project, data, { baseVersion: url.searchParams.get('base_version'), created_by: actor(ctx) })
+    const fresh = getWorkItem(item.id)
+    if (!fresh) return fail(res, 404, 'not_found', lang)
+    const r = saveEditedImage(fresh, project, data, { baseVersion: url.searchParams.get('base_version'), created_by: actor(ctx) })
     if (!r.ok) {
       const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
       const status = r.code === 'image_edit_stale' ? 409 : r.code === 'write_failed' ? 500 : 400
@@ -1416,6 +1439,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       throw e
     }
     if (!data.length) return fail(res, 400, 'empty_file', lang)
+    if (optionalBaseIsStale(item.id, url.searchParams.get('base_version'))) return fail(res, 409, 'version_stale', lang)
     const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)
     const r = createWorkItemVersion(item.id, {
@@ -1488,6 +1512,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const parsed = parseCanvas('canvas' in body ? body['canvas'] : body)
     if (!parsed.ok) return failDetail(res, 400, parsed.code, lang, parsed.detail)
+    if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
     const saved = saveCanvas(item, parsed.doc, {
       prompt: body['prompt'], createdBy: actor(ctx), sub: body['sub'], name: body['name'],
     })
@@ -1532,6 +1557,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     if (typeof body['text'] !== 'string') return fail(res, 400, 'text_required', lang)
+    if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
     const p = buildPreview(item.id)
     if (!p.available || p.kind !== 'text' || !p.rel) return fail(res, 400, 'text_source_unsupported', lang)
     if (p.truncated) return fail(res, 400, 'text_source_truncated', lang)
