@@ -30,6 +30,7 @@ const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'kanban.relate': { hu: 'kanban kártyák összekötése', en: 'link kanban cards' },
   'idea.create': { hu: 'új ötlet az Ötletládába', en: 'new idea in the Idea box' },
   'research.save': { hu: 'kutatási jegyzet mentése', en: 'save a research note' },
+  'web.search': { hu: 'webkeresés', en: 'web search' },
 }
 
 /** Az eszkoz emberi neve; ismeretlennel a gepi nev marad (nem talalunk ki). */

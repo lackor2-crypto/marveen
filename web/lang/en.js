@@ -5537,6 +5537,7 @@ window._i18n.en = {
   "workbench.tool.research.save": "Saving a research note",
   "workbench.tool.kanban.comment": "Commenting on a card",
   "workbench.tool.kanban.relate": "Linking cards",
+  "workbench.tool.web.search": "Searching the web",
   "workbench.tool.project.get": "Loading the project",
   "workbench.tool.project.getContext": "Reviewing the project",
   "workbench.tool.project.listFiles": "Listing files",

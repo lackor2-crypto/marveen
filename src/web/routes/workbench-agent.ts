@@ -139,6 +139,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       WORKBENCH_MODEL: String(getEffectiveSettingValue('WORKBENCH_MODEL') ?? ''),
       // Csak a TENY, sosem az ertek -- se nyersen, se maszkolva.
       keyConfigured: String(getEffectiveSettingValue('WORKBENCH_ANTHROPIC_API_KEY') ?? '').trim().length > 0,
+      // #404: a webkereses kulcsa -- szinten csak a TENY.
+      webSearchKeyConfigured: String(getEffectiveSettingValue('BRAVE_SEARCH_API_KEY') ?? '').trim().length > 0,
     })
     return true
   }
@@ -146,7 +148,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
   if (path === '/api/workbench/agent/config' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang, msg('bad_json', lang))
-    const ALLOWED = ['WORKBENCH_MODEL', 'WORKBENCH_ANTHROPIC_API_KEY']
+    const ALLOWED = ['WORKBENCH_MODEL', 'WORKBENCH_ANTHROPIC_API_KEY', 'BRAVE_SEARCH_API_KEY']
+    const SECRET_KEYS = new Set(['WORKBENCH_ANTHROPIC_API_KEY', 'BRAVE_SEARCH_API_KEY'])
     const saved: string[] = []
     for (const key of ALLOWED) {
       if (!(key in body)) continue
@@ -154,7 +157,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       // Az erintetlen titkos mezo URESEN posztol vissza (a felulet sosem kapja
       // meg a meglevo kulcsot, tehat nem is tudja visszakuldeni). Ez NEM
       // torlesi szandek -- a torles kimondott: `null`.
-      if (key === 'WORKBENCH_ANTHROPIC_API_KEY' && raw === '') continue
+      if (SECRET_KEYS.has(key) && raw === '') continue
       const out = setOverride(key, raw === null ? '' : raw)
       if (!out.ok) return fail(res, 400, 'config_invalid', lang, out.error)
       saved.push(key)

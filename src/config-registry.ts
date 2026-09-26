@@ -579,6 +579,17 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: true,
     requiresRestart: false,
   },
+  // #404: a Munkapad webkeresese. Titok, ezert csak a kepesseg-vegponton at
+  // irhato (Munkapad > "Mi mukodik ezen a gepen?" > Webkereses).
+  {
+    key: 'BRAVE_SEARCH_API_KEY',
+    type: 'string',
+    default: '',
+    description: 'NEM KÖTELEZŐ. Brave Search API-kulcs a Munkapad webkereséséhez. Üresen hagyva a Munkapad ügynöke nem keres a weben (minden más működik), és ezt emberi mondattal meg is mondja. Kulcsot itt szerzel: https://brave.com/search/api/ -- a kulcs kizárólag a szerveren tárolódik, sosem kerül a böngészőbe vagy a beszélgetésbe.',
+    module: 'munkapad',
+    secret: true,
+    requiresRestart: false,
+  },
   // Boss, 2026-08-16: "a beallitas agent alatt a sonett 5 van beallitva.
   // marvinnak. akkor miert meg mindig a haiku van?"
   //
