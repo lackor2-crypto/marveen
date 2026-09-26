@@ -5575,6 +5575,7 @@ window._i18n.hu = {
   "workbench.chat.target_item": "Ez a beszélgetés ehhez a munkadarabhoz tartozik: {title}",
   "workbench.chat.status_loading": "Állapot lekérése...",
   "workbench.chat.provider_on": "Modell: {model}",
+  "workbench.chat.provider_on_account": "Modell: {model} · fiók: {account} (a legtöbb szabad kerettel)",
   "workbench.chat.via_account": "Fiók: {account} · modell: {model}",
   "workbench.chat.via_api_key": "Szerveroldali API-kulcs · modell: {model}",
   "workbench.chat.provider_off": "Nincs beállítva AI-szolgáltató.",

@@ -91,11 +91,15 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
   // --- allapot: van-e szolgaltato, hol all a kozos keret --------------------
   if (path === '/api/workbench/agent/status' && method === 'GET') {
     const provider = pickAIProvider()
-    const remaining = getRemaining()
+    // A keret annak a fioknak a kerete, amelyikkel a kovetkezo valasz
+    // MENNE (#402) -- nem mindig a fo agense.
+    let account: string | null = null
+    try { account = provider?.accounts?.()[0] || null } catch { account = null }
+    const remaining = getRemaining(account || undefined)
     const u = remaining.usage
     json(res, {
       provider: provider
-        ? { id: provider.id, model: provider.model(), available: true }
+        ? { id: provider.id, model: provider.model(), account, available: true }
         // A ket eset KULONBOZIK: nincs beallitva vs nem latunk oda.
         : { id: null, model: null, available: false, message: msg('no_provider', lang) },
       usage: {

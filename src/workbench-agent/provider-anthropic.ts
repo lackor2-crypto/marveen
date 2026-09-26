@@ -31,6 +31,7 @@ import { MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { tryResolveFromPath } from '../platform.js'
 import { resolveAgentConfigDir } from '../web/claude-plans.js'
+import { workbenchAccounts } from './accounts.js'
 import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from './provider.js'
 
 /** Egy valasz felso hatara. Egy interaktiv beszelgetes-fordulo, nem konyv. */
@@ -264,7 +265,7 @@ export const anthropicProvider: AIProvider = {
   availability(): AIAvailability {
     if (hasServerApiKey()) return { available: true, detail: 'server-side API key' }
     const dir = loggedInConfigDir()
-    if (dir) return { available: true, detail: 'signed-in Claude account' }
+    if (dir || workbenchAccounts().length) return { available: true, detail: 'signed-in Claude account' }
     // A ket allapot KULONBOZIK, es mindkettot kimondjuk.
     return { available: false, reason: 'not_configured', detail: 'no signed-in Claude account and no server-side API key' }
   },
@@ -280,5 +281,10 @@ export const anthropicProvider: AIProvider = {
       })()
     }
     return streamViaCli(req, dir, model, { kind: 'account', account })
+  },
+
+  // API-kulcs mellett nincs fiokvaltas: a kulcs egy szamla.
+  accounts(): string[] {
+    return hasServerApiKey() ? [] : workbenchAccounts()
   },
 }

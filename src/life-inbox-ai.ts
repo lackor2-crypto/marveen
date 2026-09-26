@@ -88,7 +88,12 @@ export function orderClaudeAccounts(cands: ClaudeAccount[], now: number = Date.n
     .filter((c) => (seen.has(c.configDir) ? false : (seen.add(c.configDir), true)))
 }
 
-function listClaudeAccounts(): ClaudeAccount[] {
+/**
+ * Every signed-in Claude account on this install, UNORDERED, with its live
+ * 5-hour / 7-day usage. The Munkapad agent (#402) orders it with its own rule,
+ * so the gathering lives here once.
+ */
+export function listClaudeAccountCandidates(): ClaudeAccount[] {
   const out: ClaudeAccount[] = []
   for (const agent of [MAIN_AGENT_ID, ...listAgentNames()]) {
     try {
@@ -103,7 +108,11 @@ function listClaudeAccounts(): ClaudeAccount[] {
       })
     } catch { /* one broken agent config must not hide the others */ }
   }
-  return orderClaudeAccounts(out)
+  return out
+}
+
+function listClaudeAccounts(): ClaudeAccount[] {
+  return orderClaudeAccounts(listClaudeAccountCandidates())
 }
 
 // ---------------------------------------------------------------------------

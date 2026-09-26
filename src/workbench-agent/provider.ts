@@ -75,6 +75,12 @@ export interface AIProvider {
   availability(): AIAvailability
   /** A hivas. Darabonkent ad vissza szoveget (streaming). */
   stream(req: AICallRequest): AsyncIterable<AIChunk>
+  /**
+   * A kiprobalhato elofizeteses fiokok, a legjobb elol (#402). Ures lista vagy
+   * hianyzo metodus = a szolgaltato nem fiokokkal dolgozik (API-kulcs, helyi
+   * modell): a hivo a `stream()` alapertelmezettjet hasznalja.
+   */
+  accounts?(): string[]
 }
 
 const providers = new Map<string, AIProvider>()

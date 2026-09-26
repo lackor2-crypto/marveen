@@ -1420,7 +1420,9 @@
     var s = WB.chatStatus
     var bits = []
     if (s.provider && s.provider.available) {
-      bits.push(esc(t('workbench.chat.provider_on', { model: s.provider.model || '-' })))
+      bits.push(esc(s.provider.account
+        ? t('workbench.chat.provider_on_account', { model: s.provider.model || '-', account: s.provider.account })
+        : t('workbench.chat.provider_on', { model: s.provider.model || '-' })))
     } else {
       bits.push('<span class="wb-chat-state-bad">' + esc((s.provider && s.provider.message) || t('workbench.chat.provider_off')) + '</span>')
     }
