@@ -25,6 +25,8 @@ export interface BackupState {
   lastScheduledDay?: string
   replicas?: Partial<Record<DestinationId, ReplicaState>>
   lastVerify?: { at: number; ok: boolean; name: string; reason?: string; detail?: string }
+  lastVerifyStartedAt?: number
+  lastOffsiteStartedAt?: number
   lastOffsiteVerify?: { at: number; ok: boolean; name: string; reason?: string; detail?: string }
   backups?: Record<string, KnownBackup>
 }

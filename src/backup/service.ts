@@ -4,7 +4,8 @@
  * engine. The engine modules themselves take everything as arguments so tests
  * run on temp roots.
  */
-import { readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import { BACKUP_NAME_RE, type BackupStage } from './create.js'
@@ -46,4 +47,19 @@ export function listBackupsIn(dir: string): LocalBackupEntry[] {
       return { name, file, size: st.size, mtimeMs: st.mtimeMs }
     })
     .sort((a, b) => b.name.localeCompare(a.name))
+}
+
+/**
+ * Verify in a CHILD process (#396 Phase 6): the trial restore runs the DB
+ * migrations through src/db.ts's single global handle, which must never be the
+ * dashboard's own. The child records the result in store/backup-state.json.
+ */
+export async function spawnVerify(args: string[]): Promise<boolean> {
+  const { PROJECT_ROOT } = await import('../config.js')
+  const cli = join(PROJECT_ROOT, 'dist', 'backup', 'cli.js')
+  if (!existsSync(cli)) return false
+  const child = spawn(process.execPath, [cli, ...args], { detached: true, stdio: 'ignore' })
+  child.on('error', () => { /* reported by the missing state update */ })
+  child.unref()
+  return true
 }

@@ -47,6 +47,11 @@ export function backupHealthRow(i: HealthInput): HealthRow {
     return { id: 'backup_failed', status: 'bad', params: { code: i.state.lastRun.error ?? '?' } }
   }
   if (i.state.lastVerify && !i.state.lastVerify.ok) return { id: 'backup_verify_failed', status: 'bad' }
+  // The downloaded cloud copy did not verify: the off-site copy is not good.
+  // (A download that could not even start is a reachability matter, not this.)
+  if (i.state.lastOffsiteVerify && !i.state.lastOffsiteVerify.ok && i.state.lastOffsiteVerify.reason === 'verify failed') {
+    return { id: 'backup_verify_failed', status: 'bad' }
+  }
   if (i.now - last >= DEAD_MS) return { id: 'backup_stale', status: 'bad', params: { h: hours } }
   if (i.now - last >= STALE_MS) return { id: 'backup_stale', status: 'warn', params: { h: hours } }
 
