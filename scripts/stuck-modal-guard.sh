@@ -310,7 +310,25 @@ run_guard() {
     fi
   fi
 
-  local RESPAWN_CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin\" && ${CFG_ENV}$CLAUDE_Q --dangerously-skip-permissions ${MODEL_FLAG}--channels $PLUGIN_Q"
+  # #915 / kanban #405: carry the install-scoped *_STATE_DIR channels.sh exports.
+  # respawn-pane starts claude from the tmux server env, not the old pane's
+  # shell, so without it the plugin falls back to $CLAUDE_CONFIG_DIR/channels/,
+  # writes bot.pid there, and the channels.sh watchdog restarts the service
+  # 180s later over a "dead" plugin. Same mapping as channel-watchdog.sh.
+  local _sprov="${RESPAWN_PLUGIN#plugin:}"; _sprov="${_sprov%%@*}"
+  local _senv
+  case "$_sprov" in
+    slack)      _senv="SLACK_STATE_DIR" ;;
+    whatsapp)   _senv="WHATSAPP_STATE_DIR" ;;
+    teams)      _senv="TEAMS_STATE_DIR" ;;
+    discord)    _senv="DISCORD_STATE_DIR" ;;
+    googlechat) _senv="GOOGLECHAT_STATE_DIR" ;;
+    *)          _senv="TELEGRAM_STATE_DIR" ;;
+  esac
+  local STATE_DIR_ENV=""
+  [ -f "$INSTALL_DIR/.claude/channels/$_sprov/.env" ] && STATE_DIR_ENV="export ${_senv}='$INSTALL_DIR/.claude/channels/$_sprov' && "
+
+  local RESPAWN_CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin\" && ${STATE_DIR_ENV}${CFG_ENV}$CLAUDE_Q --dangerously-skip-permissions ${MODEL_FLAG}--channels $PLUGIN_Q"
 
   log "stuck modal not cleared by Escape -- respawn-pane $SESSION (respawn #$((count+1)))"
   # G: alert ONLY after the respawn-pane actually succeeds, so a failed respawn

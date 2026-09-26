@@ -45,6 +45,7 @@ import {
 import { MAIN_CHANNELS_SESSION, MAIN_CHANNELS_PLIST } from './main-agent.js'
 import { notifyChannel } from '../notify.js'
 import { getProvider, channelStateDir, readChannelToken, type ChannelProviderType } from '../channel-provider.js'
+import { CHANNEL_STATE_ENV_VAR } from './mcp-probe-env.js'
 import { attemptChannelMcpReconnect } from './channel-mcp-reconnect.js'
 import { readLastIngestionTimestamp, TRANSCRIPT_DIR } from './inbound-probe.js'
 import { decideDownAgentAction, AGENT_MAX_RESTART_ATTEMPTS, parseEtimeToSeconds } from './agent-restart-policy.js'
@@ -588,6 +589,15 @@ function resolveMainRespawnConfig(): { dir: string; mode: 'explicit' | 'isolated
 // NOTE: inbound from `--channels` also goes through the allowlist at
 // /etc/claude-code/managed-settings.json (allowedChannelPlugins); a plugin not
 // listed there has its MCP notifications silently dropped. See channels.sh.
+/**
+ * The main session's channel state-dir export, exactly what channels.sh sets
+ * (`MAIN_CHAN_DIR="$INSTALL_DIR/.claude/channels/$CHANNEL_PROVIDER"`, #915).
+ * Every respawn path must pass it -- see `stateDirEnv` below (kanban #405).
+ */
+export function mainChannelStateDirEnv(type: ChannelProviderType): { name: string; dir: string } {
+  return { name: CHANNEL_STATE_ENV_VAR[type], dir: channelStateDir(type, PROJECT_ROOT) }
+}
+
 export function buildMainSessionRespawnCmd(opts: {
   claudePath: string
   pluginId: string
@@ -632,9 +642,21 @@ export function buildMainSessionRespawnCmd(opts: {
    * non-primary channel after a recovery respawn -- see that helper's comment.
    */
   extraPluginIds?: string[]
+  /**
+   * The channel plugin's state dir (`TELEGRAM_STATE_DIR=<install>/.claude/channels/telegram`)
+   * -- parity with channels.sh STATE_DIR_ENV (#915). `respawn-pane` starts the
+   * new claude from the tmux server env, NOT from the old pane's shell, so
+   * without this export the respawned plugin falls back to
+   * `$CLAUDE_CONFIG_DIR/channels/<provider>`: it writes bot.pid and the inbox
+   * there, the channels.sh watchdog reads the install dir, sees a dead pid and
+   * restarts the whole service 180s later (kanban #405, 2026-09-25 23:56 ->
+   * 23:59 and 2026-09-26 02:18 -> 02:21). null/undefined => no export.
+   */
+  stateDirEnv?: { name: string; dir: string } | null
 }): string {
   return [
     'export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
+    ...(opts.stateDirEnv ? [`&& export ${opts.stateDirEnv.name}='${opts.stateDirEnv.dir}'`] : []),
     // MCP startup-batch tuning (parity with channels.sh + startAgentProcess):
     // the --channels plugin is a stdio MCP server; the main session runs the
     // most MCP servers (filesystem/playwright/chrome + claude.ai connectors +
@@ -708,6 +730,7 @@ export function respawnMainSessionFresh(): void {
     isolatedConfigDir: respawnCfg?.dir ?? null,
     isolatedConfigMode: respawnCfg?.mode,
     fleetToken: hasFleetOauthToken(),
+    stateDirEnv: mainChannelStateDirEnv(provider.type),
   })
   execFileSync(TMUX(), ['respawn-pane', '-k', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), claudeCmd], { timeout: 15000 })
   // Stamp IMMEDIATELY after the respawn, before the scheduling follow-ups.
@@ -750,9 +773,10 @@ export async function resumeMarveenSession(): Promise<boolean> {
     }
 
     // Also reap DETACHED main-session claudes. reapChannelOrphans (env-scan)
-    // cannot see the main session: channels.sh launches it without a
-    // *_STATE_DIR export, so neither the claude nor its bun poller match the
-    // env needle, and bot.pid is never written. A --continue respawn that did
+    // cannot reliably see the main session: before #915 channels.sh launched it
+    // without a *_STATE_DIR export (and before #405 this respawn path did not
+    // export it either), so its claude/bun poller did not match the env
+    // needle. A --continue respawn that did
     // not tear down the prior claude leaves it detached (reparented to the tmux
     // server) with a live poller hammering the shared token. Pane attribution
     // spares the live session (this pane) and kills only the leftovers.
@@ -783,6 +807,7 @@ export async function resumeMarveenSession(): Promise<boolean> {
       isolatedConfigDir: respawnCfg?.dir ?? null,
       isolatedConfigMode: respawnCfg?.mode,
       fleetToken: hasFleetOauthToken(),
+      stateDirEnv: mainChannelStateDirEnv(provider.type),
     })
     execFileSync(TMUX(), ['respawn-pane', '-k', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), claudeCmd], { timeout: 15000 })
 
@@ -998,6 +1023,7 @@ function respawnMarveenSessionFresh(): boolean {
       isolatedConfigDir: respawnCfg?.dir ?? null,
       isolatedConfigMode: respawnCfg?.mode,
       fleetToken: hasFleetOauthToken(),
+      stateDirEnv: mainChannelStateDirEnv(provider.type),
     })
     execFileSync(TMUX(), ['respawn-pane', '-k', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), claudeCmd], { timeout: 15000 })
     logger.warn({ provider: provider.type }, 'Hard restart: marveen session respawned fresh (no --continue)')

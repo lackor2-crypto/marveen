@@ -1401,11 +1401,10 @@ respawn_log() {
   unset _lines _trimmed
 }
 
-# Watchdog-sajat pane_pid, egyszer felderitve a session eletciklusara (a
-# tmux pane pid-je nem valtozik amig a pane el, es a `while has-session` fent
-# amugy is kileptet ha a session eltunik). A ${SESSION}-hoz tartozo claude
-# process pid-je -- ugyanaz a lekerdezes mint a post-init unlock Check 1-e
-# feljebb.
+# Watchdog-sajat pane_pid kezdoerteke. A ${SESSION}-hoz tartozo claude process
+# pid-je -- ugyanaz a lekerdezes mint a post-init unlock Check 1-e feljebb. NEM
+# allando: a dashboard pane-ujrainditasos helyreallitasa ugyanabban a pane-ben
+# uj claude-ot indit, ezert a ciklus minden korben ujraolvassa (kanban #405).
 _watchdog_claude_pid="$($TMUX list-panes -t "=$SESSION:" -F '#{pane_pid}' 2>/dev/null | head -1)"
 
 # Várakozás amíg a session él
@@ -1448,6 +1447,14 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
   # installs never saw this because there was only ever one plugin process to
   # find, and it happened to be the right one.
   if [ "$_plugin_alive" != "true" ]; then
+    # Re-read the pane leader every time (kanban #405): a dashboard recovery
+    # (tmux pane respawn) swaps the claude process under the SAME pane, so
+    # the pid captured once before the loop points at the dead predecessor and
+    # the live plugin is never found -> false "plugin dead" -> service restart
+    # (2026-09-25 23:56 -> 23:59, 2026-09-26 02:18 -> 02:21).
+    _cur_pane_pid="$($TMUX list-panes -t "=$SESSION:" -F '#{pane_pid}' 2>/dev/null | head -1)"
+    [ -n "$_cur_pane_pid" ] && _watchdog_claude_pid="$_cur_pane_pid"
+    unset _cur_pane_pid
     if [ -n "$_watchdog_claude_pid" ] && /usr/bin/pgrep -P "$_watchdog_claude_pid" bun >/dev/null 2>&1; then
       _plugin_alive=true
     fi
