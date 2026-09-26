@@ -26,6 +26,10 @@ const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'file.delete': { hu: 'fájl törlése (a Kukába)', en: 'delete a file (to the Trash)' },
   'canvas.edit': { hu: 'a vászon szerkesztése', en: 'edit the canvas' },
   'kanban.create': { hu: 'új kanban kártya nyitása', en: 'open a new kanban card' },
+  'kanban.comment': { hu: 'komment egy kanban kártyára', en: 'comment on a kanban card' },
+  'kanban.relate': { hu: 'kanban kártyák összekötése', en: 'link kanban cards' },
+  'idea.create': { hu: 'új ötlet az Ötletládába', en: 'new idea in the Idea box' },
+  'research.save': { hu: 'kutatási jegyzet mentése', en: 'save a research note' },
 }
 
 /** Az eszkoz emberi neve; ismeretlennel a gepi nev marad (nem talalunk ki). */

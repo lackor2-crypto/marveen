@@ -32,6 +32,8 @@ import { readCanvas, saveCanvas } from '../workbench-canvas-store.js'
 import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
+import { MAIN_AGENT_ID } from '../config.js'
+import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave } from './project-tools.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -42,6 +44,8 @@ export interface ToolContext {
   projectId: string
   workItemId: string | null
   lang: 'hu' | 'en'
+  /** Ki kerte a dashboardon (a kanban-komment szerzoje). Nelkule a fo agens. */
+  actor?: string | null
 }
 
 export type ToolResult =
@@ -595,6 +599,13 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       }
       return { ok: true, data: { id: out.id, project: project.id, projectName: project.name, labels: out.labels, linked: out.linked } }
     }
+
+    // #404 H5: a projekt tobbi feluleve (Otletlada, Kutatas, meglevo kartyak).
+    case 'idea.list': return ideaList(project)
+    case 'idea.create': return ideaCreate(project, input)
+    case 'research.save': return researchSave(project, input)
+    case 'kanban.comment': return kanbanComment(project, input, ctx.actor || MAIN_AGENT_ID)
+    case 'kanban.relate': return kanbanRelate(project, input)
 
     default:
       return { ok: false, code: 'tool_unknown', detail: `there is no tool named ${name}` }
