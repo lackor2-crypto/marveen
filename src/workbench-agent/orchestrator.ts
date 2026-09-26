@@ -470,7 +470,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       // A felhasznalt jegyet a futas soraba irjuk: igy egy "igen" EGY futast
       // enged (isApprovalConsumed), nem a kovetkezoket is.
       const usedApproval = decision.kind === 'approval' ? approvedApprovalFor(tool.name, project.id, session.id, call.input) : null
-      const result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang })
+      const result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang, actor: input.actor })
       if (result.ok) {
         finishToolCall(row.id, 'ok', result.data, usedApproval)
         auditWorkbench({ agent: input.actor, tool: tool.name, op: tool.destructive ? 'write' : 'read', target: workItem?.id || project.id, cwd: project.id })

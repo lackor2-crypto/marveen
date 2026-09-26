@@ -206,6 +206,39 @@ export const TOOLS: ToolDef[] = [
     input: 'title: the card title; labels: a list with at least one label name or id (e.g. ["some_label"]) -- if you do not know the labels, leave it out: the project default is used, or the error lists the labels to choose from; description (optional); priority (optional): low, normal, high or urgent; related (optional): the ids of cards this one relates to, or an empty list if there is none; separate_project (optional): only if it relates to an open card but is truly a separate project, why (at least 15 characters)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
+  // #404 H5 -- a projekt tobbi felulete. Az iras-eszkozok a Marveen SAJAT
+  // adatat irjak (otlet, kutatas-jegyzet, kartya-komment/-kapcsolat), ezert a
+  // `marveen_selfdev` kategoriaba esnek, mint a `kanban.create`.
+  {
+    name: 'idea.list',
+    description: 'List the ideas of THIS project in the Idea box.',
+    input: '(no input)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'idea.create',
+    description: 'Put a new idea into the Idea box. It is always filed under THIS project. Use it for "later / maybe" thoughts; real tasks go on the kanban board.',
+    input: 'title: the idea in one line; description (optional); category (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'research.save',
+    description: 'Save background research (collected facts, notes, sources) as a markdown note on the Research page, filed under THIS project. It never overwrites: a taken name gets a free one.',
+    input: 'title: the title of the note; text: the content in markdown',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'kanban.comment',
+    description: 'Write a comment on an existing kanban card of THIS project (progress, a finding, a question). Continuing an open card is done this way, not with a new card.',
+    input: 'card: the card number (#123) or id; text: the comment',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'kanban.relate',
+    description: 'Link a kanban card of THIS project to other cards: the link is written into the description of BOTH cards.',
+    input: 'card: the card number (#123) or id; related: a list of the cards to link (numbers or ids)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
 ]
 
 export const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]))
