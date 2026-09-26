@@ -13,9 +13,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getKanbanCard, createLabel } from '../db.js'
 import { createProject, updateProject, type ProjectRow, getProject, setProjectArchived } from '../projects.js'
-import { createWorkItem, getWorkItem, listWorkItems } from '../workbench.js'
+import { createWorkItem, getWorkItem, listWorkItems, listWorkItemParts, removeWorkItemPart } from '../workbench.js'
 import { TOOLS, getTool, decideTool, toolsForPrompt, setAutonomyLoaderForTest } from '../workbench-agent/tools.js'
-import { executeTool, FILE_READ_MAX_CHARS } from '../workbench-agent/execute.js'
+import { executeTool, runTool, FILE_READ_MAX_CHARS } from '../workbench-agent/execute.js'
 import { buildContext, historyMessages, MAX_CONTEXT_CHARS, MAX_HISTORY_TURNS } from '../workbench-agent/context.js'
 import type { AgentMessageRow } from '../workbench-agent/sessions.js'
 
@@ -219,6 +219,19 @@ describe('archivalt projekt -- az ugynok sem ir bele', () => {
     if (!setProjectArchived(projectId, true)) throw new Error('archivalas')
     for (const t of TOOLS.filter((x) => x.autonomyCategory !== null)) {
       const r = executeTool(t.name, {}, ctx())
+      expect(r.ok, t.name).toBe(false)
+      if (!r.ok) expect(r.code, t.name).toBe('project_archived')
+    }
+  })
+})
+
+// #406 bugkereses 8.: a lassu eszkozok (runTool sajat aga) is ugyanazon az
+// archivalt-kapun mennek at -- egy uj async eszkoz se kerulhesse meg.
+describe('archivalt projekt -- a runTool is ugyanazt a kaput hasznalja', () => {
+  it('minden jogosultsag-koteles tool elutasitva a runTool-on at is', async () => {
+    if (!setProjectArchived(projectId, true)) throw new Error('archivalas')
+    for (const t of TOOLS.filter((x) => x.autonomyCategory !== null)) {
+      const r = await runTool(t.name, {}, ctx())
       expect(r.ok, t.name).toBe(false)
       if (!r.ok) expect(r.code, t.name).toBe('project_archived')
     }
@@ -683,6 +696,23 @@ describe('projekt- es verzio-eszkozok (6. fazis)', () => {
     expect(d.added).toEqual([])
     expect(d.removed).toEqual([])
     expect(String(d.note)).toContain('exactly the same')
+  })
+
+  // #406 bugkereses 9.: halmazkent szamolva egy [A, A] -> [A] valtozas "nincs
+  // kulonbseg" lett. Darabra kell szamolni.
+  it('workItem.compareVersions: az ismetlodo resz torlese is latszik (multiset)', () => {
+    const add = () => executeTool('workItem.addPart', { id: workItemId, kind: 'text', text: 'Ugyanaz a bekezdés' }, ctx())
+    expect(add().ok).toBe(true)
+    expect(add().ok).toBe(true)
+    const v1 = getWorkItem(workItemId)!.current_version_id as string
+    const v2 = data(executeTool('workItem.createVersion', { id: workItemId }, ctx())).version as { id: string }
+    const parts = listWorkItemParts(workItemId)
+    expect(parts).toHaveLength(2)
+    expect(removeWorkItemPart(parts[1].id, workItemId).ok).toBe(true)
+    const d = data(executeTool('workItem.compareVersions', { id: workItemId, from: v1, to: v2.id }, ctx()))
+    expect(d.added).toEqual([])
+    expect(d.removed).toHaveLength(1)
+    expect((d.removed as { text: string }[])[0].text).toBe('Ugyanaz a bekezdés')
   })
 
   it('workItem.compareVersions: ismeretlen verzional MEGMONDJA, MELYIK hianyzik', () => {

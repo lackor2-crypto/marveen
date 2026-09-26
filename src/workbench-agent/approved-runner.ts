@@ -37,6 +37,15 @@ export function targetOf(input: Record<string, unknown>): string {
   return ''
 }
 
+/** Ki kerte a lepest (#406 bugkereses 5.) -- a jegy payloadjabol. Regi jegyben
+ *  nincs benne: akkor null, es a lepes a korabbi alapertelmezessel fut. */
+export function requesterOf(payload: string | null | undefined): string | null {
+  try {
+    const a = JSON.parse(payload || '{}')?.actor
+    return typeof a === 'string' && a.trim() ? a.trim() : null
+  } catch { return null }
+}
+
 let settling: Promise<number> | null = null
 
 /**
@@ -79,7 +88,7 @@ async function settleOnce(sessionId?: string | null): Promise<number> {
       }
       let result
       try {
-        result = await runTool(row.tool_name, input, { projectId: session.project_id, workItemId, lang })
+        result = await runTool(row.tool_name, input, { projectId: session.project_id, workItemId, lang, actor: requesterOf(approval.action_payload) })
       } catch (e) {
         result = { ok: false as const, code: 'failed', detail: e instanceof Error ? e.message : String(e) }
       }

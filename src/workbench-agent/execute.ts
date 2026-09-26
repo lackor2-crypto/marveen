@@ -138,14 +138,16 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
  *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
  *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-  if (name === 'web.search') {
-    if (!getProject(ctx.projectId)) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
-    return webSearch(input, ctx.lang)
-  }
-  if (name !== 'document.toPdf') return executeTool(name, input, ctx)
+  if (name !== 'web.search' && name !== 'document.toPdf') return executeTool(name, input, ctx)
 
+  // #406 bugkereses 8.: a lassu eszkozok is UGYANAZON a kapun mennek at, mint
+  // az executeTool -- kulonben egy uj async eszkoz csendben kikerulne.
   const project = getProject(ctx.projectId)
   if (!project) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
+  const archived = archivedGate(name, project)
+  if (archived) return archived
+  if (name === 'web.search') return webSearch(input, ctx.lang)
+
   const ref = projectFileRef(project, input.path)
   if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
   const st = mustBeFile(ref.abs)
@@ -178,15 +180,24 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
   }
 }
 
+/** Az archivalt projekt CSAK OLVASHATO: minden jogosultsag-koteles eszkoz
+ *  (van autonomia-kategoriaja) elutasitva. Egy helyen, hogy a runTool es az
+ *  executeTool ne terhessen el. */
+function archivedGate(name: string, project: ProjectRow): ToolResult | null {
+  const def = getTool(name)
+  if (def && def.autonomyCategory !== null && project.archived_at != null) {
+    return { ok: false, code: 'project_archived', detail: 'the project is archived, so it is read-only; the owner can restore it on the Projects page first' }
+  }
+  return null
+}
+
 export function executeTool(name: string, input: Record<string, unknown>, ctx: ToolContext): ToolResult {
   const project = getProject(ctx.projectId)
   if (!project) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
   // Az archivalt projekt CSAK OLVASHATO -- a felulet is igy mutatja, es a
   // REST-utak is elutasitjak. Az ugynok iro toolja eddig ezt megkerulte.
-  const def = getTool(name)
-  if (def && def.autonomyCategory !== null && project.archived_at != null) {
-    return { ok: false, code: 'project_archived', detail: 'the project is archived, so it is read-only; the owner can restore it on the Projects page first' }
-  }
+  const archived = archivedGate(name, project)
+  if (archived) return archived
 
   switch (name) {
     case 'project.get':
@@ -587,10 +598,20 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       const b = snapshot(toV)
       const sig = (p: { kind: string; text: string | null; asset_path: string | null; caption: string | null }) =>
         `${p.kind}|${p.text || ''}|${p.asset_path || ''}|${p.caption || ''}`
-      const aSigs = a.map(sig)
-      const bSigs = b.map(sig)
-      const added = b.filter((_, i) => !aSigs.includes(bSigs[i]))
-      const removed = a.filter((_, i) => !bSigs.includes(aSigs[i]))
+      // #406 bugkereses 9.: MULTISET-kulonbseg. Halmazkent egy [A, A] -> [A]
+      // valtozas "semmi nem valtozott" lett; itt darabra szamolunk.
+      const minus = <T extends Parameters<typeof sig>[0]>(from: T[], other: T[]): T[] => {
+        const left = new Map<string, number>()
+        for (const p of other) left.set(sig(p), (left.get(sig(p)) || 0) + 1)
+        return from.filter((p) => {
+          const k = sig(p)
+          const n = left.get(k) || 0
+          if (n > 0) { left.set(k, n - 1); return false }
+          return true
+        })
+      }
+      const added = minus(b, a)
+      const removed = minus(a, b)
       return {
         ok: true,
         data: {
