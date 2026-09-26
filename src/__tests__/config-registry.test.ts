@@ -45,7 +45,6 @@ describe('config-registry', () => {
     const OWNER_ROUTE: Record<string, string> = {
       CODE_BOT_TOKEN: 'code.ts',
       WORKBENCH_ANTHROPIC_API_KEY: 'workbench-agent.ts',
-      BRAVE_SEARCH_API_KEY: 'workbench-agent.ts',
     }
     const secrets = SETTINGS_REGISTRY.filter((s) => s.secret)
     expect(secrets.length).toBeGreaterThan(0)

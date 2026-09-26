@@ -19,10 +19,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import { logger } from '../../logger.js'
-import { readEnvFile } from '../../env.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { json, readBody } from '../http-helpers.js'
-import { buildSetupSummary, writableEnvKeys } from '../setup-wizard-registry.js'
+import { buildSetupSummary, overrideStoredKeys, writableEnvKeys } from '../setup-wizard-registry.js'
+import { setOverride } from '../../settings-store.js'
+import { wizardValues } from '../setup-wizard-values.js'
 import { claudeAuthPresent, channelConfigured, paired } from './onboarding.js'
 import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
@@ -76,7 +77,7 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
 
   // GET /api/setup-wizard -- the whole picture: every capability and its state.
   if (path === '/api/setup-wizard' && method === 'GET') {
-    const env = readEnvFile()
+    const env = wizardValues()
     const ext = externalState()
     const summary = buildSetupSummary(env, ext)
     // The channel token is an env key AND provider state; if either says
@@ -155,6 +156,8 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     // This endpoint edits the file holding every credential the install owns,
     // so an unknown key is refused rather than passed through.
     const allowed = writableEnvKeys()
+    const overrideKeys = overrideStoredKeys()
+    let envWritten = 0
     const written: string[] = []
     const rejected: string[] = []
     for (const [key, raw] of Object.entries(values)) {
@@ -164,8 +167,16 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
       // A newline or '=' would forge additional .env lines out of one field.
       if (/[\n\r\0]/.test(value)) { rejected.push(key); continue }
       if (!value) continue // empty = "leave it alone", not "erase it"
+      if (overrideKeys.has(key)) {
+        // Same store the owning screen writes; live at once, no restart.
+        const out = setOverride(key, value)
+        if (!out.ok) { rejected.push(key); continue }
+        written.push(key)
+        continue
+      }
       setEnvKey(key, value)
       written.push(key)
+      envWritten++
     }
 
     if (rejected.length > 0) {
@@ -178,7 +189,7 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     // Nothing re-reads .env in place: a running process captured its config at
     // start. Say so plainly instead of letting the operator wonder why the
     // setting "did not take".
-    json(res, { written, rejected, restartRequired: written.length > 0 })
+    json(res, { written, rejected, restartRequired: envWritten > 0 })
     return true
   }
 
