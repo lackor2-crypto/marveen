@@ -204,6 +204,12 @@
 .wb-chat-row { display: flex; gap: 8px; align-items: flex-end; }
 .wb-chat-row .wb-input { flex: 1 1 auto; }
 .wb-chat-input { resize: vertical; min-height: 44px; font-family: inherit; }
+/* A chat mindket elrendezesben keskeny: asztalon egy ~270px-es oszlop,
+ * telefonon ~360px. Egymas mellett a Kuldes gomb a szovegmezot 110-160px-re
+ * nyomta, a helyorzo harom sorra tort -- ezert a mezo teljes szelessegben all,
+ * a gomb alatta jobbra (Munkapad szemrevetelezes, 2026-09-26). */
+.wb-grid-chat .wb-chat-row, .wb-split-chat .wb-chat-row { flex-direction: column; align-items: stretch; }
+.wb-grid-chat .wb-chat-row > button, .wb-split-chat .wb-chat-row > button { align-self: flex-end; }
 
 /* MOBIL: egymas ala nem fer el harom panel ugy, hogy barmelyik hasznalhato
  * legyen, ezert telefonon egyszerre EGY panel latszik, es a fulek valtanak
