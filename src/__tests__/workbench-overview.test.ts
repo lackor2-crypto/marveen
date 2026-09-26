@@ -70,6 +70,13 @@ describe('attekinto: a szerver merese', () => {
     expect(o.approvals.count).toBe(2)
     expect(o.approvals.items.map((a) => a.id).sort()).toEqual(['ap1', 'ap2'])
     expect(o.cards.open).toBe(1)
+    // Boss, 2026-09-26: each approval is drawn as its own card -- it carries
+    // the card's number and title; a card-less ticket has none.
+    const ap2 = o.approvals.items.find((a) => a.id === 'ap2')!
+    expect(ap2.card_title).toBe('Projekt kártya')
+    expect(typeof ap2.card_seq).toBe('number')
+    const ap1 = o.approvals.items.find((a) => a.id === 'ap1')!
+    expect(ap1.card_seq).toBeNull()
   })
 
   it('utoljara valtozott fajl: a legfrissebb verzio-forras vagy kep-resz', () => {
@@ -130,6 +137,21 @@ describe('attekinto: a felulet', () => {
     expect(html).toContain('logo.png')
     expect(html).toContain('data-wb-act="goto-approvals"')
     expect(html).toContain('data-wb-item="w2"')
+  })
+
+  it('ket jovahagyas KET kulon kis kartya: sorszam, cim, datum -- nem egy szovegfolyam', async () => {
+    const h = workbenchHarness()
+    open(h, { ...OV, approvals: { count: 2, error: null, items: [
+      { id: 'a1', category: 'kanban_done', description: 'Kártya #404 (kanban-azonosító: cd19e75c): hosszú', requested_at: 1, card_seq: 404, card_title: 'Munkapad-ágens eszközei' },
+      { id: 'a2', category: 'kanban_done', description: 'Kártya #398: Raktár', requested_at: 1, card_seq: 398, card_title: 'Raktár a MEGA-n' },
+    ] } })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-ov-approvals'))
+    const html = h.html()
+    expect(html.match(/<li class="wb-ov-approval">/g)!.length).toBe(2)
+    expect(html).toContain('<span class="wb-ov-apv-seq">#404</span> Munkapad-ágens eszközei')
+    expect(html).toContain('<span class="wb-ov-apv-seq">#398</span> Raktár a MEGA-n')
+    expect(html).toContain('workbench.ov.apv_when')
+    expect(html).not.toContain('kanban-azonosító: cd19e75c')
   })
 
   it('a csempe munkadarabjara kattintva az nyilik meg', async () => {

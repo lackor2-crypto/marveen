@@ -5946,6 +5946,7 @@ window._i18n.en = {
   "workbench.ov.wait_none": "Nothing is waiting for your approval right now.",
   "workbench.ov.approvals_unknown": "The approvals could not be fetched: {message}",
   "workbench.ov.goto_approvals": "Open approvals",
+  "workbench.ov.apv_when": "Requested: {when}",
   "workbench.ov.done": "Recently done ({days} days)",
   "workbench.ov.done_none": "No work item was finished in the last {days} days.",
   "workbench.ov.file": "Last changed file",

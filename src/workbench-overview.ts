@@ -33,6 +33,11 @@ export interface OverviewApproval {
   category: string
   description: string
   requested_at: number
+  /** The kanban card the approval is about, so the tile can show it as its
+   *  own small card (#number + title) instead of a run of text. `null` when
+   *  the approval names no card or the card is gone. */
+  card_seq: number | null
+  card_title: string | null
 }
 
 export interface WorkbenchOverview {
@@ -101,13 +106,28 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
   try {
     const mine = listPendingApprovals().filter((a) => approvalBelongs(a, pid, cardIds))
     approvals.count = mine.length
-    approvals.items = mine.slice(0, OVERVIEW_LIST_MAX).map((a) => ({
-      id: a.id,
-      category: a.category,
-      // A leiras elso sora eleg a csempere; a teljes szoveg a Jovahagyasok oldalon all.
-      description: String(a.action_description || '').split('\n')[0].slice(0, 200),
-      requested_at: a.requested_at,
-    }))
+    // Boss, 2026-09-26 (TG 6535): the tile ran the approvals together as one
+    // block of text, so two cards read like one. Each approval now carries its
+    // card's number and title, and the page draws it as its own small card.
+    const cardStmt = hasTable('kanban_cards')
+      ? db.prepare('SELECT rowid AS seq, title FROM kanban_cards WHERE id = ? OR id LIKE ? ORDER BY length(id) LIMIT 1')
+      : null
+    approvals.items = mine.slice(0, OVERVIEW_LIST_MAX).map((a) => {
+      const ref = approvalCardId(a.action_payload, a.action_description || '')
+      let card: { seq: number; title: string } | undefined
+      if (ref && cardStmt) {
+        try { card = cardStmt.get(ref, `${ref}%`) as { seq: number; title: string } | undefined } catch { card = undefined }
+      }
+      return {
+        id: a.id,
+        category: a.category,
+        // A leiras elso sora eleg a csempere; a teljes szoveg a Jovahagyasok oldalon all.
+        description: String(a.action_description || '').split('\n')[0].slice(0, 200),
+        requested_at: a.requested_at,
+        card_seq: card ? Number(card.seq) : null,
+        card_title: card ? String(card.title || '') : null,
+      }
+    })
   } catch (e) {
     approvals.count = null
     approvals.error = errText(e)
