@@ -12,7 +12,10 @@
  *   - Lejar (1 / 7 / 30 nap), es barmikor visszavonhato.
  *   - A link LETREHOZASA hozzaferes-adas: a `permission_change` autonomia-
  *     kategoria szintje dont (3 = azonnal el, 2 = jovahagyasi jegy, 1 = nem
- *     adunk ki). A VISSZAVONAS jogot vesz el, az mindig azonnali.
+ *     adunk ki). A TULAJDONOS SAJAT KATTINTASA (bejelentkezett munkamenet,
+ *     `owner: true` -- ezt az utvonal donti el) a 2-es szinten is azonnal el
+ *     (tulajdonos dontese, 2026-09-27); az 1-es szint ra is all. A
+ *     VISSZAVONAS jogot vesz el, az mindig azonnali.
  *
  * A token nem all az adatbazisban: `<id>.<HMAC(kulcs, id)>`, a kulcs egy
  * egyszer generalt veletlen ertek. Igy a tulajdonos a linket kesobb is
@@ -20,7 +23,7 @@
  */
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { MAIN_AGENT_ID } from './config.js'
-import { createAgentMessage, createApproval, getApproval, getDb } from './db.js'
+import { createAgentMessage, createApproval, getApproval, getDb, resolveApproval } from './db.js'
 import { loadAutonomyConfig, effectiveLevel } from './autonomy.js'
 import { logger } from './logger.js'
 import { getProject } from './projects.js'
@@ -220,6 +223,8 @@ function activate(id: string, days: number): void {
 export function requestShare(input: {
   kind: unknown; project_id: unknown; work_item_id?: unknown; scope?: unknown; days?: unknown
   lang: Lang; actor: string | null
+  /** A tulajdonos sajat kattintasa (session). Csak az utvonal allithatja. */
+  owner?: boolean
 }): CreateShareResult {
   ensureShareTable()
   const kind = input.kind === 'item' || input.kind === 'handoff' ? input.kind : null
@@ -253,14 +258,20 @@ export function requestShare(input: {
   const open = db.prepare(`SELECT * FROM work_item_shares WHERE status = 'pending' AND kind = ? AND project_id = ?
     AND IFNULL(work_item_id, '') = ? AND IFNULL(scope, '') = ? AND days = ?`).get(kind, project.id, itemId ?? '', scope ?? '', days) as ShareRow | undefined
   if (open && open.approval_id && getApproval(open.approval_id)?.status === 'pending') {
-    return { ok: true, state: 'pending', share: open }
+    if (input.owner !== true) return { ok: true, state: 'pending', share: open }
+    // A tulajdonos most maga kattintott ugyanarra: a fuggo jegy okafogyott --
+    // a link el, a jegy 'withdrawn' (nem marad fuggo tetel a Jovahagyasokban).
+    const pendingId = open.approval_id
+    activate(open.id, open.days)
+    try { resolveApproval(pendingId, 'withdrawn', input.actor || 'owner', null, 'owner clicked the same share directly') } catch { /* a link akkor is el */ }
+    return { ok: true, state: 'active', share: getShare(open.id) as ShareRow }
   }
 
   const id = randomUUID().replace(/-/g, '')
   db.prepare(`INSERT INTO work_item_shares (id, kind, project_id, work_item_id, scope, days, lang, status, created_by, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`).run(id, kind, project.id, itemId, scope, days, input.lang, input.actor, nowSec())
 
-  if (level >= 3) {
+  if (level >= 3 || input.owner === true) {
     activate(id, days)
     return { ok: true, state: 'active', share: getShare(id) as ShareRow }
   }

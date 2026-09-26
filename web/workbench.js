@@ -3526,6 +3526,13 @@
     var st = sendState()
     var head = '<h4 class="wb-exp-title">' + esc(t('workbench.exp.send_title')) + '</h4>'
       + '<p class="wb-hint">' + esc(t('workbench.exp.send_gate')) + '</p>'
+    if (st && st.result && st.result.status === 'sent') {
+      // A tulajdonos kattintasa azonnal kiment: a Gmail-azonosito a bizonyitek.
+      return head + '<div class="wb-exp-sent wb-exp-sent-sent">'
+        + '<p>' + esc(t('workbench.exp.send_status.sent', { id: st.result.message_id || '' })) + '</p>'
+        + '<p><button type="button" class="wb-linklike" data-wb-act="send-new">' + esc(t('workbench.exp.send_new')) + '</button></p>'
+        + '</div>'
+    }
     if (st && st.result) {
       var status = st.result.status || 'pending'
       return head + '<div class="wb-exp-sent wb-exp-sent-' + escA(status) + '">'
@@ -3595,9 +3602,12 @@
         render()
         return
       }
-      WB.send = { itemId: itemId, draft: draft, result: { approval_id: r.data.approval_id, status: r.data.status || 'pending' } }
+      var sent = r.data && r.data.status === 'sent'
+      WB.send = { itemId: itemId, draft: draft, result: sent
+        ? { status: 'sent', message_id: r.data.message_id || '' }
+        : { approval_id: r.data.approval_id, status: r.data.status || 'pending' } }
       render()
-      window.showToast((r.data && r.data.message) || t('workbench.exp.send_status.pending'))
+      window.showToast((r.data && r.data.message) || t(sent ? 'workbench.exp.send_status.sent' : 'workbench.exp.send_status.pending', { id: sent ? (r.data.message_id || '') : '' }))
       load(WB.projectId)
     })
   }
@@ -3605,7 +3615,7 @@
   /** A jegy allapota a Jovahagyasok forrasabol -- sosem emlekezetbol. */
   function refreshSendStatus() {
     var st = sendState()
-    if (!st || !st.result) return
+    if (!st || !st.result || !st.result.approval_id) return
     api('GET', '/api/approvals/' + encodeURIComponent(st.result.approval_id)).then(function (r) {
       if (WB.send !== st) return
       if (!r.ok) { st.statusError = r.message; render(); return }

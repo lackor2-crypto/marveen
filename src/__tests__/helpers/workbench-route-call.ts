@@ -13,7 +13,8 @@ export interface CallResult {
   headers: Record<string, string>
 }
 
-export async function callWorkbench(path: string, method: string, body?: unknown, headers?: Record<string, string>): Promise<CallResult> {
+/** `auth`: alapbol a tulajdonos munkamenete; ugynok-hivast `{ kind: 'token' }`-nel lehet merni. */
+export async function callWorkbench(path: string, method: string, body?: unknown, headers?: Record<string, string>, auth: Record<string, unknown> = { kind: 'session', user: 'teszt' }): Promise<CallResult> {
   const chunks: Buffer[] = []
   const out = { status: 200, headers: {} as Record<string, string> }
   const res: any = new Writable({
@@ -30,7 +31,7 @@ export async function callWorkbench(path: string, method: string, body?: unknown
   const req: any = Readable.from([raw])
   req.headers = { 'content-type': 'application/json', 'content-length': String(raw.length), ...(headers || {}) }
   const url = new URL(`http://localhost:3420${path}`)
-  const ctx = { req, res, path: url.pathname, method, url, auth: { kind: 'session' as const, user: 'teszt' } } as unknown as RouteContext
+  const ctx = { req, res, path: url.pathname, method, url, auth } as unknown as RouteContext
   const handled = await tryHandleWorkbench(ctx)
   if (handled) await done
   const buf = Buffer.concat(chunks)
