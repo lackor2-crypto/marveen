@@ -6,7 +6,8 @@
 # secret, setting, agent, memory, skill and schedule, packed and encrypted
 # with the recovery key from store/.backup-key into store/backups/.
 # The same engine runs from the dashboard (Settings -> Backup) and from here
-# (the 6-hourly unit installed by scripts/install-guard-units.sh).
+# (by hand; the daily scheduled backup runs inside the dashboard -- the old
+# 6-hourly unit from scripts/install-guard-units.sh was retired in #411).
 #
 # Fallback: when dist/backup/cli.js is missing (a broken or not-yet-run build)
 # the old plain tar.gz path runs instead, so a broken build never stops
