@@ -51,6 +51,7 @@ export function appShellVersion(webDir: string): string {
     assetVersion(webDir, 'lang/en.js'),
     assetVersion(webDir, 'workbench.js'),
     assetVersion(webDir, 'workbench.css'),
+    assetVersion(webDir, 'backup.js'),
   ].join('-')
 }
 
@@ -95,7 +96,7 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
     // ETag (same scheme as serveFile) so a cache never hands a gzipped body to
     // a client that did not ask for one.
     const wantGzip = acceptsGzip(req)
-    const baseTag = `${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}-${assetVersion(webDir, 'workbench.js')}-${assetVersion(webDir, 'workbench.css')}`
+    const baseTag = `${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}-${assetVersion(webDir, 'workbench.js')}-${assetVersion(webDir, 'workbench.css')}-${assetVersion(webDir, 'backup.js')}`
     const etag = wantGzip ? `"${baseTag}-gz"` : `"${baseTag}"`
     if (etagMatches(req.headers['if-none-match'], etag)) {
       res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' })
@@ -129,6 +130,11 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
       .replace(
         /(<script\s+src=")\/workbench\.js(")/,
         `$1/workbench.js?v=${assetVersion(webDir, 'workbench.js')}$2`,
+      )
+      // #396: a Mentes lap sajat szkriptje -- ugyanaz a ?v= cache-bustolas.
+      .replace(
+        /(<script\s+src=")\/backup\.js(")/,
+        `$1/backup.js?v=${assetVersion(webDir, 'backup.js')}$2`,
       )
       .replace(
         /(<link\s+rel="stylesheet"\s+href=")\/workbench\.css(")/,
@@ -198,6 +204,11 @@ export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promis
   // AI Munkapad (#336): sajat, verziozott eszkozei -- ugyanaz a hosszu max-age.
   if (path === '/workbench.js') { serveFile(req, res, join(webDir, 'workbench.js'), { cacheSeconds: 86400 }); return true }
   if (path === '/workbench.css') { serveFile(req, res, join(webDir, 'workbench.css'), { cacheSeconds: 86400 }); return true }
+  // #396: a Beallitasok -> Mentes lap kodja. Enelkul a fajl 404-et adott, a
+  // window.renderBackupPanel sosem jott letre, es a Mentes lap URES maradt --
+  // az onellenorzes "mentes kulcsa" sora is egy ures oldalra vitt (Boss, TG
+  // 6550, 2026-09-26).
+  if (path === '/backup.js') { serveFile(req, res, join(webDir, 'backup.js'), { cacheSeconds: 86400 }); return true }
   // Felülíró réteg (kártya #67): gitignore-olt, opcionális fájlok. Csak akkor
   // kerülnek 200-at adva kiszolgálásra, ha ténylegesen léteznek -- fresh
   // installon (nincs custom.css/js) ez a két ág 404-et ad, de az index.html
