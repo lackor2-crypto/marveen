@@ -6024,6 +6024,7 @@ window._i18n.hu = {
   "workbench.ov.wait_none": "Most semmi nem vár a jóváhagyásodra.",
   "workbench.ov.approvals_unknown": "A jóváhagyásokat nem tudtam lekérdezni: {message}",
   "workbench.ov.goto_approvals": "Jóváhagyások megnyitása",
+  "workbench.ov.apv_when": "Kérve: {when}",
   "workbench.ov.done": "Friss kész ({days} nap)",
   "workbench.ov.done_none": "Az elmúlt {days} napban nem lett kész munkadarab.",
   "workbench.ov.file": "Utoljára változott fájl",

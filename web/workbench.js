@@ -530,6 +530,18 @@
       return '<section class="wb-ov" aria-label="' + escA(t('workbench.ov.title')) + '">'
         + '<p class="wb-preview-bad">' + esc(t('workbench.ov.error', { message: WB.overviewError })) + '</p></section>'
     }
+    // Minden jovahagyas KULON kis kartya: sorszam + cim + datum, ahogy a
+    // kanban-tablan (Boss, 2026-09-26, TG 6535: "ez a kettő olyan, mintha egy
+    // lenne"). Kartya nelkuli jegynel a leiras elso sora a cim.
+    function ovApprovalHtml(a) {
+      var head = a.card_seq
+        ? '<span class="wb-ov-apv-seq">#' + esc(String(a.card_seq)) + '</span> ' + esc(a.card_title || a.description)
+        : esc(a.description)
+      return '<li class="wb-ov-approval">'
+        + '<span class="wb-ov-apv-title">' + head + '</span>'
+        + (a.requested_at ? '<span class="wb-ov-apv-when">' + esc(t('workbench.ov.apv_when', { when: when(a.requested_at) })) + '</span>' : '')
+        + '</li>'
+    }
     var o = WB.overview
     if (!o) return '<section class="wb-ov"><p class="wb-muted">' + esc(t('workbench.ov.loading')) + '</p></section>'
 
@@ -546,7 +558,7 @@
       + (ap.count === null
         ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.approvals_unknown', { message: ap.error || '' })) + '</p>'
         : (ap.items && ap.items.length
-          ? '<ul class="wb-ov-list">' + ap.items.map(function (a) { return '<li class="wb-ov-approval">' + esc(a.description) + '</li>' }).join('') + '</ul>'
+          ? '<ul class="wb-ov-list wb-ov-approvals">' + ap.items.map(ovApprovalHtml).join('') + '</ul>'
           : ''))
       + (reviewCount || ap.count ? '' : '<p class="wb-hint">' + esc(t('workbench.ov.wait_none')) + '</p>')
       + (ap.count ? '<p><button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button></p>' : '')
