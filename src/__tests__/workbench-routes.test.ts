@@ -883,12 +883,10 @@ describe('Munkapad: kepesseg-kezelo (8. fazis)', () => {
     expect(String(r.body.capability.detail)).toContain('WORKBENCH_FFMPEG_PATH=/nincs/ilyen/ffmpeg')
   })
 
-  it('TITOKNAL az ures mezo NEM torol: azt jelenti, hogy nem nyultal hozza', async () => {
-    const r = await call('/api/workbench/capabilities/ai_agent/setting', 'POST', { value: '' })
-    expect(r.status).toBe(200)
-    expect(r.body.saved).toBe(false)
-    // A kulcs SOSE megy vissza a bongeszobe.
-    expect(r.body.capability.setting.value).toBe(null)
+  it('#404: a Munkapad-ugynokhoz nem irhato beallitas (sajat API-kulcs nincs)', async () => {
+    const r = await call('/api/workbench/capabilities/ai_agent/setting', 'POST', { value: 'sk-ant-regi' })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('capability_no_setting')
   })
 
   it('ismeretlen kepesseg: 404 emberi mondattal, nem ures valasz', async () => {

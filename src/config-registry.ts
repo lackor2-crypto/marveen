@@ -570,15 +570,6 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
   },
-  {
-    key: 'WORKBENCH_ANTHROPIC_API_KEY',
-    type: 'string',
-    default: '',
-    description: 'NEM KÖTELEZŐ. Fizetős Anthropic API-kulcs a Munkapadhoz. Üresen hagyva (ez az alapértelmezés) a Munkapad a gépen bejelentkezett Claude-előfizetést használja, ugyanúgy, mint a többi ügynök — így a közös 5 órás keretből gazdálkodik. Kulcsot CSAK akkor adj meg, ha kifejezetten az előfizetéstől függetlenül, külön számlára akarod futtatni. A kulcs kizárólag a szerveren tárolódik: sosem kerül a böngészőbe, a beszélgetésbe vagy egy munkadarabba.',
-    module: 'munkapad',
-    secret: true,
-    requiresRestart: false,
-  },
   // Boss, 2026-08-16: "a beallitas agent alatt a sonett 5 van beallitva.
   // marvinnak. akkor miert meg mindig a haiku van?"
   //

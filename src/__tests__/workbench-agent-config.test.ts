@@ -45,41 +45,27 @@ function call(path: string, method: string, body?: unknown) {
 describe('workbench agent config endpoint', () => {
   beforeEach(() => { initDatabase(':memory:'); store.clear() })
 
-  it('friss telepitesen: nincs kulcs, es ezt KIMONDJA (nem hallgat)', async () => {
+  it('friss telepitesen: csak a modell, kulcs-mezo nincs (#404)', async () => {
     const out = await call('/api/workbench/agent/config', 'GET')
     expect(out.status).toBe(200)
-    expect(out.body.keyConfigured).toBe(false)
-    expect(out.body.WORKBENCH_MODEL).toBe('')
+    expect(out.body).toEqual({ WORKBENCH_MODEL: '' })
   })
 
-  it('a kulcs beallithato a feluletrol, de az erteke SOSE jon vissza', async () => {
-    const saved = await call('/api/workbench/agent/config', 'POST', { WORKBENCH_ANTHROPIC_API_KEY: 'sk-titkos-ertek' })
+  it('a modell beallithato a feluletrol', async () => {
+    const saved = await call('/api/workbench/agent/config', 'POST', { WORKBENCH_MODEL: 'claude-sonnet-5' })
     expect(saved.status).toBe(200)
-    expect(saved.body.saved).toContain('WORKBENCH_ANTHROPIC_API_KEY')
-    // A mentes valasza sem visszhangozza a kulcsot.
-    expect(saved.raw).not.toContain('sk-titkos-ertek')
-
+    expect(saved.body.saved).toEqual(['WORKBENCH_MODEL'])
     const out = await call('/api/workbench/agent/config', 'GET')
-    expect(out.body.keyConfigured).toBe(true)
-    // SEM nyersen, SEM maszkolva, SEM reszletben.
-    expect(out.raw).not.toContain('sk-titkos-ertek')
-    expect(JSON.stringify(out.body)).not.toContain('sk-titkos')
-  })
-
-  it('az ERINTETLEN (ures) mezo nem torli a mar beallitott kulcsot', async () => {
-    await call('/api/workbench/agent/config', 'POST', { WORKBENCH_ANTHROPIC_API_KEY: 'sk-megvan' })
-    // A felulet a modellt allitja at; a kulcs-mezo uresen posztol vissza.
-    await call('/api/workbench/agent/config', 'POST', { WORKBENCH_MODEL: 'claude-sonnet-5', WORKBENCH_ANTHROPIC_API_KEY: '' })
-    const out = await call('/api/workbench/agent/config', 'GET')
-    expect(out.body.keyConfigured).toBe(true)
     expect(out.body.WORKBENCH_MODEL).toBe('claude-sonnet-5')
   })
 
-  it('a torles KIMONDOTT szandek: null toroli a kulcsot', async () => {
-    await call('/api/workbench/agent/config', 'POST', { WORKBENCH_ANTHROPIC_API_KEY: 'sk-megvan' })
-    await call('/api/workbench/agent/config', 'POST', { WORKBENCH_ANTHROPIC_API_KEY: null })
-    const out = await call('/api/workbench/agent/config', 'GET')
-    expect(out.body.keyConfigured).toBe(false)
+  it('#404: a regi API-kulcs mezot nem menti el -- csak kulccsal 400, modell mellett figyelmen kivul', async () => {
+    const only = await call('/api/workbench/agent/config', 'POST', { WORKBENCH_ANTHROPIC_API_KEY: 'sk-regi' })
+    expect(only.status).toBe(400)
+    expect(only.body.error).toBe('no_known_settings')
+    const both = await call('/api/workbench/agent/config', 'POST', { WORKBENCH_MODEL: 'm', WORKBENCH_ANTHROPIC_API_KEY: 'sk-regi' })
+    expect(both.body.saved).toEqual(['WORKBENCH_MODEL'])
+    expect(store.has('WORKBENCH_ANTHROPIC_API_KEY')).toBe(false)
   })
 
   it('ismeretlen mezore ember-nyelvu hibat ad, nem csendes sikert', async () => {

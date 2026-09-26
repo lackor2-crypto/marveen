@@ -1,20 +1,18 @@
 /**
  * ANTHROPIC PROVIDER (kanban #336, 2. fazis, spec 7 + 0.2 + 20).
  *
- * KET UT, EBBEN A SORRENDBEN:
+ * EGY UT: A TULAJDONOS SAJAT ELOFIZETESE (`claude -p`, a fiok OAuth-loginjaval).
+ * Ez az, ami a spec 0.2-t egyaltalan ertelmesse teszi: a kozos 5 oras keretet
+ * CSAK az elofizetes-alapu hivas fogyasztja, tehat csak ezt van ertelme egy
+ * kozos UsageManagerrel kapuzni. A telepites kimondott szabalya is ez
+ * (`life-inbox-ai.ts`: "Never a paid API").
  *
- *   1. A TULAJDONOS SAJAT ELOFIZETESE (`claude -p`, a fiok OAuth-loginjaval).
- *      Ez az alapertelmezett, es ez az, ami a spec 0.2-t egyaltalan
- *      ertelmesse teszi: a kozos 5 oras keretet CSAK az elofizetes-alapu
- *      hivas fogyasztja, tehat csak ezt van ertelme egy kozos UsageManagerrel
- *      kapuzni. A telepites kimondott szabalya is ez (`life-inbox-ai.ts`:
- *      "Never a paid API"), ezert nem irtam felul.
- *
- *   2. SZERVEROLDALI API-KULCS, ha a tulajdonos KIFEJEZETTEN beallit egyet
- *      (`WORKBENCH_ANTHROPIC_API_KEY`). A spec 20. szakasza ezt engedi, de
- *      csak szerveroldalrol: a kulcs sosem megy a frontendbe, a chatbe vagy a
- *      manifestbe -- ebbol a modulbol nem is lehet kiolvasni, csak hasznalni.
- *      Alapertelmezesben URES, tehat egy friss telepites az 1. uton megy.
+ * A korabbi masodik ut (sajat Anthropic API-kulcs, `WORKBENCH_ANTHROPIC_API_KEY`)
+ * a tulajdonos dontesere (#404, TG 6527 "1A") TELJESEN kikerult: nincs
+ * beallitas, nincs mezo, nincs fizetos hivas. Egy korabban eltarolt kulcsot a
+ * beallitas-tar ismeretlen kulcskent figyelmen kivul hagy. A `via: api_key`
+ * tipus (provider.ts) es a megjelenitese MARAD: a regi beszelgetes-sorok igy
+ * olvashatok maradnak, uj ilyen sor nem keletkezik.
  *
  * MODELL: configbol (`WORKBENCH_MODEL`, alapbol a telepites sajat
  * alapertelmezett modellje). Semmi beegetett modell-id.
@@ -48,11 +46,6 @@ const STRIPPED_ENV = [
 export function workbenchModel(): string {
   const v = String(getEffectiveSettingValue('WORKBENCH_MODEL') ?? '').trim()
   return v || DEFAULT_AGENT_MODEL
-}
-
-/** Van-e szerveroldali API-kulcs. A KULCSOT SOSE adjuk vissza, csak azt, hogy van-e. */
-export function hasServerApiKey(): boolean {
-  return String(getEffectiveSettingValue('WORKBENCH_ANTHROPIC_API_KEY') ?? '').trim().length > 0
 }
 
 /** A fo agens Claude-configkonyvtara, ha van bejelentkezes. `null`, ha nincs. */
@@ -197,94 +190,30 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
   }
 }
 
-export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-const ANTHROPIC_VERSION = '2023-06-01'
-
-/** A szerveroldali kulcsos ut. CSAK akkor fut, ha a tulajdonos beallitott kulcsot. */
-async function* streamViaApiKey(req: AICallRequest, model: string): AsyncIterable<AIChunk> {
-  const key = String(getEffectiveSettingValue('WORKBENCH_ANTHROPIC_API_KEY') ?? '').trim()
-  if (!key) { yield { kind: 'error', code: 'not_configured', detail: 'no server-side API key' }; return }
-  let res: Response
-  try {
-    res = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': ANTHROPIC_VERSION,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: req.system,
-        stream: true,
-        messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
-      }),
-      signal: req.signal,
-    })
-  } catch (e) {
-    yield { kind: 'error', code: 'failed', detail: e instanceof Error ? e.message : String(e) }
-    return
-  }
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    // A szolgaltato sajat szava donti el, hogy keret-hibarol van-e szo.
-    const limit = res.status === 429 || /rate_limit|usage limit/i.test(body)
-    yield { kind: 'error', code: limit ? 'limit' : 'failed', detail: `HTTP ${res.status} ${body.slice(0, 300)}` }
-    return
-  }
-  const reader = res.body?.getReader()
-  if (!reader) { yield { kind: 'error', code: 'no_answer', detail: 'empty response body' }; return }
-  const dec = new TextDecoder()
-  let buf = ''
-  let sawText = false
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += dec.decode(value, { stream: true })
-    let nl: number
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim()
-      buf = buf.slice(nl + 1)
-      if (!line.startsWith('data:')) continue
-      const payload = line.slice(5).trim()
-      if (!payload || payload === '[DONE]') continue
-      const ev = textFromStreamLine(payload)
-      if (ev?.text) { sawText = true; yield { kind: 'text', text: ev.text } }
-    }
-  }
-  if (sawText) yield { kind: 'done', model, via: { kind: 'api_key' } }
-  else yield { kind: 'error', code: 'no_answer', detail: 'the provider produced no text' }
-}
-
 export const anthropicProvider: AIProvider = {
   id: 'anthropic',
 
   model(): string { return workbenchModel() },
 
   availability(): AIAvailability {
-    if (hasServerApiKey()) return { available: true, detail: 'server-side API key' }
     const dir = loggedInConfigDir()
     if (dir || workbenchAccounts().length) return { available: true, detail: 'signed-in Claude account' }
-    // A ket allapot KULONBOZIK, es mindkettot kimondjuk.
-    return { available: false, reason: 'not_configured', detail: 'no signed-in Claude account and no server-side API key' }
+    return { available: false, reason: 'not_configured', detail: 'no signed-in Claude account' }
   },
 
   stream(req: AICallRequest): AsyncIterable<AIChunk> {
     const model = workbenchModel()
-    if (hasServerApiKey()) return streamViaApiKey(req, model)
     const account = String(req.account || '').trim() || MAIN_AGENT_ID
     const dir = loggedInConfigDir(account)
     if (!dir) {
       return (async function* () {
-        yield { kind: 'error', code: 'not_configured', detail: 'no signed-in Claude account and no server-side API key' } as AIChunk
+        yield { kind: 'error', code: 'not_configured', detail: 'no signed-in Claude account' } as AIChunk
       })()
     }
     return streamViaCli(req, dir, model, { kind: 'account', account })
   },
 
-  // API-kulcs mellett nincs fiokvaltas: a kulcs egy szamla.
   accounts(): string[] {
-    return hasServerApiKey() ? [] : workbenchAccounts()
+    return workbenchAccounts()
   },
 }

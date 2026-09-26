@@ -3386,16 +3386,12 @@
     return '<span class="wb-chat-state">' + bits.join(' · ') + '</span>'
   }
 
-  /** A kulcs/modell beallitasa UGYANEBBOL a feluletbol -- terminal nelkul. */
+  /** A modell beallitasa UGYANEBBOL a feluletbol -- terminal nelkul. Sajat
+   *  API-kulcs mezo nincs (#404): egyetlen ut a bejelentkezett elofizetes. */
   function chatSetupHtml() {
-    var cfg = WB.chatConfig || { WORKBENCH_MODEL: '', keyConfigured: false }
+    var cfg = WB.chatConfig || { WORKBENCH_MODEL: '' }
     return '<form class="wb-chat-setup" id="wbChatSetup">'
       + '<p class="wb-hint">' + esc(t('workbench.chat.setup_intro')) + '</p>'
-      + '<label class="wb-label" for="wbChatKey">' + esc(t('workbench.chat.setup_key_label')) + '</label>'
-      + '<input class="wb-input" id="wbChatKey" type="password" autocomplete="off" placeholder="'
-      + escA(cfg.keyConfigured ? t('workbench.chat.setup_key_set') : t('workbench.chat.setup_key_placeholder')) + '">'
-      + '<p class="wb-hint">' + esc(t('workbench.chat.setup_key_hint')) + ' '
-      + '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a></p>'
       + '<label class="wb-label" for="wbChatModel">' + esc(t('workbench.chat.setup_model_label')) + '</label>'
       + '<input class="wb-input" id="wbChatModel" type="text" autocomplete="off" value="' + escA(cfg.WORKBENCH_MODEL || '') + '" placeholder="'
       + escA(t('workbench.chat.setup_model_placeholder')) + '">'
@@ -3737,11 +3733,8 @@
 
   function saveChatSetup() {
     if (WB.chatSetupBusy) return
-    var keyEl = document.getElementById('wbChatKey')
     var modelEl = document.getElementById('wbChatModel')
     var body = {}
-    // URES kulcs-mezo NEM torles: a felulet sosem kapja meg a meglevo kulcsot.
-    if (keyEl && String(keyEl.value || '').trim()) body.WORKBENCH_ANTHROPIC_API_KEY = String(keyEl.value).trim()
     if (modelEl) body.WORKBENCH_MODEL = String(modelEl.value || '').trim()
     if (!Object.keys(body).length) { WB.chatSetupOpen = false; renderChat(); return }
     WB.chatSetupBusy = true

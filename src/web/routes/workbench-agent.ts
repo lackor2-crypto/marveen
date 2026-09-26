@@ -125,43 +125,28 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     return true
   }
 
-  // --- modell + API-kulcs a feluletrol --------------------------------------
+  // --- modell a feluletrol ----------------------------------------------------
   //
-  // MIERT KULON VEGPONT, es nem az altalanos /api/settings: a
-  // `WORKBENCH_ANTHROPIC_API_KEY` titkos (`secret: true`), az altalanos
-  // beallitas-vegpont pedig a titkos kulcsokat KI IS HAGYJA a listabol es
-  // VISSZA IS UTASITJA irasra. Dedikalt, NEM-VISSZHANGZO ut nelkul a kulcsot
-  // csak kezzel, fajlbol lehetne beallitani -- vagyis a "titkos" jelolestol
-  // valna konfiguralhatatlanna. Ugyanaz a minta, mint a CODE_BOT_TOKEN-e:
-  // a GET csak azt mondja meg, VAN-E kulcs, az erteket soha.
+  // Csak a modell allithato. A sajat Anthropic API-kulcs utja a tulajdonos
+  // dontesere (#404) kikerult: a Munkapad kizarolag a bejelentkezett
+  // Claude-elofizetest hasznalja. Egy POST-ban kuldott regi
+  // `WORKBENCH_ANTHROPIC_API_KEY` mezot nem mentunk el (nem ismert beallitas).
   if (path === '/api/workbench/agent/config' && method === 'GET') {
-    json(res, {
-      WORKBENCH_MODEL: String(getEffectiveSettingValue('WORKBENCH_MODEL') ?? ''),
-      // Csak a TENY, sosem az ertek -- se nyersen, se maszkolva.
-      keyConfigured: String(getEffectiveSettingValue('WORKBENCH_ANTHROPIC_API_KEY') ?? '').trim().length > 0,
-    })
+    json(res, { WORKBENCH_MODEL: String(getEffectiveSettingValue('WORKBENCH_MODEL') ?? '') })
     return true
   }
 
   if (path === '/api/workbench/agent/config' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang, msg('bad_json', lang))
-    const ALLOWED = ['WORKBENCH_MODEL', 'WORKBENCH_ANTHROPIC_API_KEY']
-    const SECRET_KEYS = new Set(['WORKBENCH_ANTHROPIC_API_KEY'])
     const saved: string[] = []
-    for (const key of ALLOWED) {
-      if (!(key in body)) continue
-      const raw = body[key]
-      // Az erintetlen titkos mezo URESEN posztol vissza (a felulet sosem kapja
-      // meg a meglevo kulcsot, tehat nem is tudja visszakuldeni). Ez NEM
-      // torlesi szandek -- a torles kimondott: `null`.
-      if (SECRET_KEYS.has(key) && raw === '') continue
-      const out = setOverride(key, raw === null ? '' : raw)
+    if ('WORKBENCH_MODEL' in body) {
+      const raw = body['WORKBENCH_MODEL']
+      const out = setOverride('WORKBENCH_MODEL', raw === null ? '' : raw)
       if (!out.ok) return fail(res, 400, 'config_invalid', lang, out.error)
-      saved.push(key)
+      saved.push('WORKBENCH_MODEL')
     }
     if (saved.length === 0) return fail(res, 400, 'no_known_settings', lang)
-    // A mentett KULCSOT sosem logoljuk -- csak azt, hogy melyik mezo valtozott.
     json(res, { saved })
     return true
   }

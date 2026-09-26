@@ -260,16 +260,15 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
       hu: [
         'Alapesetben nem kell semmit tenned: a gépen bejelentkezett Claude-előfizetést használja, ugyanabból az 5 órás keretből, mint a többi ügynök.',
         'Ha „nincs beállítva” áll itt, akkor ezen a gépen nincs bejelentkezett Claude-fiók: jelentkezz be a Beállítások → Varázsló → Claude bejelentkezés lépésben. Terminál nem kell hozzá.',
-        'Külön, előfizetéstől független számlázáshoz a Beállítások / Munkapad oldalon megadható egy saját API-kulcs. Ez nem kötelező, és a kulcs sosem kerül a böngészőbe.',
       ],
       en: [
         'Normally there is nothing to do: it uses the Claude subscription signed in on this machine, from the same 5-hour budget as the other agents.',
         'If this says "not configured", there is no signed-in Claude account on this machine: sign in under Settings → Wizard → Claude sign-in. No terminal needed.',
-        'For separate, subscription-independent billing you can enter your own API key on the Settings / Workbench page. It is optional, and the key never reaches the browser.',
       ],
     },
     obtain_url: null,
-    setting_key: 'WORKBENCH_ANTHROPIC_API_KEY',
+    // Nincs setting_key: egyetlen ut a bejelentkezett elofizetes (#404, a
+    // sajat API-kulcs utja kikerult).
     testable: true,
     async measure() {
       ensureWorkbenchAgent()
@@ -415,18 +414,15 @@ function settingOf(key: string): CapabilitySetting | null {
       hu: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'A LibreOffice teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Az FFmpeg teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server címe (üresen: nem használjuk)'
-        : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'Saját Anthropic API-kulcs (üresen: a bejelentkezett előfizetés)'
         : key,
       en: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'Full path to LibreOffice (empty: found automatically)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Full path to FFmpeg (empty: found automatically)'
         : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server address (empty: not used)'
-        : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'Your own Anthropic API key (empty: the signed-in subscription)'
         : key,
     },
     placeholder: key === 'WORKBENCH_LIBREOFFICE_PATH' ? '/usr/bin/soffice'
       : key === 'WORKBENCH_FFMPEG_PATH' ? '/usr/bin/ffmpeg'
       : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'http://localhost:8080'
-      : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'sk-ant-...'
       : '',
   }
 }
