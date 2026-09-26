@@ -90,6 +90,10 @@ export const MESSAGES = {
     hu: 'Ezt a lépést ({tool}) a beállításaid nem engedik önállóan, és jóváhagyást sem kérhetek rá. Az Önállóság oldalon tudod feloldani.',
     en: 'Your settings do not allow this step ({tool}) on its own, and I cannot even ask for approval. You can unlock it on the Autonomy page.',
   },
+  tool_approved_run_in_progress: {
+    hu: 'Ez a jóváhagyott lépés ({tool}) már magától fut — nem indítom el még egyszer. Az eredményt ide írom.',
+    en: 'This approved step ({tool}) is already running by itself — I will not start it a second time. I will post the result here.',
+  },
   tool_ran_after_approval: {
     hu: 'Jóváhagyva, és lefutott: {tool}{target}.',
     en: 'Approved, and it ran: {tool}{target}.',

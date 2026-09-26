@@ -37,7 +37,7 @@ import { runTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import { pickAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
-  addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
+  addAgentMessage, claimAwaitingCallsForApproval, finishToolCall, isApprovalRunInProgress, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
   projectSessionKey, startToolCall,
   type AgentSessionRow,
 } from './sessions.js'
@@ -452,8 +452,26 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         messages.push({ role: 'user', content: `TOOL RESULT (${tool.name}): blocked by the owner's autonomy settings. Tell the owner in plain words; do not retry.` })
         continue
       }
+      // A felhasznalt jegyet a futas soraba irjuk: igy egy "igen" EGY futast
+      // enged (isApprovalConsumed), nem a kovetkezoket is.
+      let usedApproval: string | null = null
+      let claimedOriginals: string[] = []
       if (decision.kind === 'approval') {
         const already = approvedApprovalFor(tool.name, project.id, session.id, call.input)
+        if (already) {
+          // #406 bugkereses 2.: az eredeti varakozo sort MI foglaljuk le, hogy
+          // a jovahagyas-feldolgozo ne futtassa le masodszor. Ha o mar viszi,
+          // nem futtatjuk parhuzamosan -- az eredmeny magatol a beszelgetesbe kerul.
+          claimedOriginals = claimAwaitingCallsForApproval(already)
+          if (!claimedOriginals.length && isApprovalRunInProgress(already)) {
+            finishToolCall(row.id, 'error', { code: 'approved_run_in_progress', approvalId: already })
+            yield { type: 'tool', name: tool.name, status: 'error', detail: msg('tool_approved_run_in_progress', lang, { tool: tool.name }) }
+            messages.push({ role: 'assistant', content: full })
+            messages.push({ role: 'user', content: `TOOL RESULT (${tool.name}): this approved step is already running by itself; its result will be added to this chat. Do not call it again.` })
+            continue
+          }
+          usedApproval = already
+        }
         if (!already) {
           const approvalId = requestToolApproval({
             tool: tool.name, category: decision.category, actor: input.actor,
@@ -469,9 +487,6 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         }
       }
 
-      // A felhasznalt jegyet a futas soraba irjuk: igy egy "igen" EGY futast
-      // enged (isApprovalConsumed), nem a kovetkezoket is.
-      const usedApproval = decision.kind === 'approval' ? approvedApprovalFor(tool.name, project.id, session.id, call.input) : null
       // #406 bugkereses 4.: egy dobo eszkoz (EACCES, EISDIR) eddig 'running'-ban
       // hagyta a sort, es a modell nem kapott TOOL RESULT-ot -- mint az
       // approved-runnerben, a kivetel is rendes hibaeredmeny lesz.
@@ -480,6 +495,11 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang, actor: input.actor })
       } catch (e) {
         result = { ok: false as const, code: 'failed', detail: e instanceof Error ? e.message : String(e) }
+      }
+      // A lefoglalt eredeti sor(ok) is lezarulnak, ne maradjanak 'running'-ban.
+      for (const id of claimedOriginals) {
+        if (result.ok) finishToolCall(id, 'ok', { ran_in: row.id }, usedApproval)
+        else finishToolCall(id, 'error', { code: result.code, detail: result.detail, ran_in: row.id }, usedApproval)
       }
       if (result.ok) {
         finishToolCall(row.id, 'ok', result.data, usedApproval)

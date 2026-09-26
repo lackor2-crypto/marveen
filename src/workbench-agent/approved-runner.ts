@@ -23,7 +23,7 @@ import { auditWorkbench } from './audit.js'
 import { runTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import {
-  addAgentMessage, claimAwaitingCall, finishToolCall, getAgentSession, listAwaitingApprovalCalls, projectSessionKey,
+  addAgentMessage, claimAwaitingCall, finishToolCall, getAgentSession, isApprovalConsumed, listAwaitingApprovalCalls, projectSessionKey,
 } from './sessions.js'
 
 const REJECTED = new Set(['rejected', 'timeout', 'withdrawn', 'expired'])
@@ -67,6 +67,16 @@ async function settleOnce(sessionId?: string | null): Promise<number> {
 
     if (approval.status === 'approved') {
       if (!claimAwaitingCall(row.id)) continue
+      // #406 bugkereses 2.: ha a jegyet kozben mar egy SIKERES futas
+      // felhasznalta (a beszelgetes maga futtatta), ez a sor nem fut ujra --
+      // egy "igen" egy futas. Ha nem tudjuk megnezni, szinten nem futtatjuk.
+      let consumed = true
+      try { consumed = isApprovalConsumed(row.approval_id as string) } catch { consumed = true }
+      if (consumed) {
+        finishToolCall(row.id, 'error', { code: 'approval_already_used' }, row.approval_id)
+        logger.info({ id: row.id, approval: row.approval_id }, 'workbench: approved step already ran, not running it twice')
+        continue
+      }
       let result
       try {
         result = await runTool(row.tool_name, input, { projectId: session.project_id, workItemId, lang })

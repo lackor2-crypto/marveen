@@ -261,6 +261,29 @@ export function claimAwaitingCall(id: string): boolean {
   return r.changes === 1
 }
 
+/**
+ * #406 bugkereses 2.: ha a beszelgetes maga futtat egy mar jovahagyott lepest
+ * (a modell ujrakerte a fordulo kozben), az EREDETI varakozo sort is le kell
+ * foglalnia -- kulonben a jovahagyas-feldolgozo (approved-runner) utana
+ * ugyanazt a lepest masodszor is lefuttatja. Visszaadja a lefoglalt sorokat.
+ */
+export function claimAwaitingCallsForApproval(approvalId: string): string[] {
+  ensureAgentTables()
+  const v = String(approvalId || '').trim()
+  if (!v) return []
+  const ids = getDb().prepare("SELECT id FROM workbench_agent_tool_calls WHERE approval_id = ? AND status = 'needs_approval'")
+    .all(v) as { id: string }[]
+  return ids.map((r) => r.id).filter((id) => claimAwaitingCall(id))
+}
+
+/** Fut-e eppen egy jovahagyas-jegyre lefoglalt lepes (a feldolgozo mar viszi). */
+export function isApprovalRunInProgress(approvalId: string): boolean {
+  ensureAgentTables()
+  const v = String(approvalId || '').trim()
+  if (!v) return false
+  return !!getDb().prepare("SELECT 1 FROM workbench_agent_tool_calls WHERE approval_id = ? AND status = 'running' LIMIT 1").get(v)
+}
+
 /** Egy jovahagyas-jegy mar egy SIKERES futast fedezett-e (egyszer hasznalhato). */
 export function isApprovalConsumed(approvalId: string): boolean {
   ensureAgentTables()
