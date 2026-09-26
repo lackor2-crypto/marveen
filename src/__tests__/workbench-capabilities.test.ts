@@ -202,3 +202,20 @@ describe('runVersion idotullepes: az egesz folyamatcsoport leall', () => {
     expect(left).toBe('')
   })
 })
+
+// Boss, 2026-09-26 (TG 6523): a working agent showed "A pontos hibaüzenet:
+// signed-in Claude account" under "Működik", and its help sent the owner to a
+// terminal ("claude login"). A detail on an ok row is not an error, and a
+// fresh-install owner signs in from the wizard, not from a shell.
+describe('capability card wording', () => {
+  it('labels the detail as an error only when the capability is not ok', async () => {
+    const { readFileSync } = await import('node:fs')
+    const js = readFileSync(join(process.cwd(), 'web', 'workbench.js'), 'utf8')
+    const line = js.split('\n').find(l => l.includes("t('workbench.caps.detail')"))!
+    expect(line).toContain("cap.state !== 'ok'")
+  })
+
+  it('never sends the owner to a terminal to sign in', () => {
+    for (const c of CAPABILITIES) expect([...c.how_to.hu, ...c.how_to.en].join(' '), c.key).not.toMatch(/claude login/)
+  })
+})
