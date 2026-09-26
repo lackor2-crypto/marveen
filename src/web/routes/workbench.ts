@@ -50,6 +50,7 @@ import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { saveEditedImage } from '../../workbench-image-edit.js'
+import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
@@ -641,6 +642,42 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a munkadarabnak a forrása nem kép, ezért itt nem szerkeszthető képként.',
     en: 'The source of this work item is not an image, so it cannot be edited as an image here.',
   },
+  video_stale: {
+    hu: 'Közben új verzió készült ebből a videóból, ezért nem mentem el. Nyisd meg újra a munkadarabot, és próbáld újra.',
+    en: 'A newer version of this video was made in the meantime, so it was not saved. Open the work item again and try again.',
+  },
+  video_not_video: {
+    hu: 'Ennek a munkadarabnak a forrása nem videó, ezért itt nem vágható.',
+    en: 'The source of this work item is not a video, so it cannot be cut here.',
+  },
+  video_bad_time: {
+    hu: 'Az időpont nem jó. Írd be így: 0:05 (perc:másodperc) vagy 5 (másodperc); a vége legyen később, mint az eleje.',
+    en: 'The time is not right. Type it like 0:05 (minutes:seconds) or 5 (seconds); the end must come after the start.',
+  },
+  video_no_ffmpeg: {
+    hu: 'A vágáshoz és a képkocka mentéséhez az FFmpeg nevű ingyenes program kell, és ezen a gépen nincs meg. A lejátszás enélkül is működik. A Képességek panelen leírom, hogyan teheted fel.',
+    en: 'Cutting and saving a frame need a free program called FFmpeg, and this computer does not have it. Playback works without it. The Capabilities panel explains how to install it.',
+  },
+  video_ffmpeg_check_failed: {
+    hu: 'Az FFmpeg-et nem tudtam elindítani, ezért most nem tudok vágni. Nézd meg a Képességek panelen, mi a baj vele.',
+    en: 'FFmpeg could not be started, so cutting is not possible right now. Check the Capabilities panel to see what is wrong with it.',
+  },
+  video_busy: {
+    hu: 'Ezen a videón már fut egy vágás. Várd meg, amíg elkészül.',
+    en: 'A cut is already running on this video. Wait until it finishes.',
+  },
+  video_failed: {
+    hu: 'Az FFmpeg nem tudta elkészíteni a fájlt, ezért nem készült új verzió. A pontos hibaüzenet lent látszik.',
+    en: 'FFmpeg could not make the file, so no new version was made. The exact error is shown below.',
+  },
+  video_timeout: {
+    hu: 'A vágás túl sokáig tartott, ezért leállítottam; nem készült új verzió. Próbálj rövidebb részt vágni.',
+    en: 'The cut took too long, so it was stopped; no new version was made. Try cutting a shorter part.',
+  },
+  video_no_output: {
+    hu: 'Nem készült fájl. Lehet, hogy az időpont a videó vége után van.',
+    en: 'No file was made. The time may be after the end of the video.',
+  },
   table_title_required: {
     hu: 'Adj nevet az új táblázatnak.',
     en: 'Give the new table a name.',
@@ -1005,6 +1042,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!had) return fail(res, 404, 'share_not_found', lang)
     revokeShare(had.id)
     json(res, { shares: listProjectShares(had.project_id) })
+    return true
+  }
+  // VIDEOMUNKA (#406, 19. pont): van-e FFmpeg. A lejatszashoz nem kell.
+  if (path === '/api/workbench/video-status' && method === 'GET') {
+    const st = await videoToolStatus()
+    json(res, { video: { state: st.state, message: st.state === 'ok' ? null : msg(st.state === 'check_failed' ? 'video_ffmpeg_check_failed' : 'video_no_ffmpeg', lang), detail: st.detail } })
     return true
   }
   // GOOGLE NAPTAR (#406, 14. pont B): csak a tulajdonos kattintasara,
@@ -1525,6 +1568,33 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
       file: r.file, renamed: r.file.renamed, name: r.file.name,
     }, 201)
+    return true
+  }
+
+  // VIDEOMUNKA (#406, 19. pont): vagas -> UJ fajl + UJ verzio; kepkocka ->
+  // UJ PNG + UJ kep munkadarab. Soha nem ir felul.
+  if (segs.length === 2 && (segs[1] === 'video-trim' || segs[1] === 'video-frame') && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const fresh = getWorkItem(item.id)
+    if (!fresh) return fail(res, 404, 'not_found', lang)
+    const r = segs[1] === 'video-trim'
+      ? await trimVideo(fresh, project, { start: body['start'], end: body['end'], baseVersion: body['base_version'], created_by: actor(ctx) })
+      : await saveVideoFrame(fresh, project, { at: body['at'], baseVersion: body['base_version'], lang: lang === 'en' ? 'en' : 'hu', created_by: actor(ctx) })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      const status = r.code === 'video_stale' || r.code === 'video_busy' ? 409
+        : r.code === 'video_no_ffmpeg' || r.code === 'video_ffmpeg_check_failed' ? 503
+        : r.code === 'video_failed' || r.code === 'video_timeout' || r.code === 'write_failed' ? 500 : 400
+      return failDetail(res, status, code, lang, r.detail || null)
+    }
+    if ('version' in r) {
+      json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id), file: r.file, name: r.file.name }, 201)
+    } else {
+      json(res, { ok: true, new_item: r.item, file: r.file, name: r.file.name }, 201)
+    }
     return true
   }
 

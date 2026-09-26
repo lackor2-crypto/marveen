@@ -17,6 +17,10 @@
 
   var WB = {
     open: false,
+    // VIDEOMUNKA (#406, 19. pont): FFmpeg-allapot es a mostani video vagas-urlapja.
+    vidStatus: null,
+    vidLoading: false,
+    vid: null,
     projectId: null,
     project: null,
     items: null,
@@ -699,6 +703,7 @@
     WB.detail = null
     WB.textEdit = null
     if (WB.img && WB.img.itemId !== id) WB.img = null
+    if (WB.vid && WB.vid.itemId !== id) WB.vid = null
     if (WB.compare && WB.compare.itemId !== id) WB.compare = null
     WB.preview = null
     WB.previewVersion = null
@@ -1163,7 +1168,8 @@
         + '<img class="wb-preview-image" src="' + escA(p.url) + '" alt="' + escA(p.name || t('workbench.preview.title')) + '">'
     }
     if (p.kind === 'video') {
-      return '<video class="wb-preview-video" src="' + escA(p.url) + '" controls></video>'
+      return '<video class="wb-preview-video" id="wbVideo" src="' + escA(p.url) + '" controls preload="metadata" playsinline></video>'
+        + videoToolsHtml(p)
     }
     if (p.kind === 'audio') {
       return '<audio class="wb-preview-audio" src="' + escA(p.url) + '" controls></audio>'
@@ -1183,6 +1189,155 @@
         + (!archived() && !current ? '<p class="wb-hint">' + esc(t('workbench.edit.text_old_version')) + '</p>' : '')
     }
     return ''
+  }
+
+  // ---- VIDEOMUNKA (#406, 19. pont) -------------------------------------------
+  // Lejatszas a bongeszo sajat lejatszojaval; vagas es kepkocka FFmpeg-gel a
+  // szerveren. Minden mentes UJ fajl: a vagas a video UJ verzioja, a kepkocka
+  // UJ kep munkadarab. FFmpeg nelkul emberi mondat + ut a Kepessegek panelre.
+
+  function videoRestore(keep) {
+    var v = document.getElementById('wbVideo')
+    if (!v || !v.getAttribute || v.getAttribute('src') !== keep.src) return
+    var go = function () { try { v.currentTime = keep.at } catch (_e) { /* meg nem toltott be */ } }
+    go()
+    if (typeof v.addEventListener === 'function') v.addEventListener('loadedmetadata', go, { once: true })
+  }
+
+  function vidCanEdit(p) {
+    var current = !WB.previewVersion || (WB.detail && WB.detail.item && WB.previewVersion === WB.detail.item.current_version_id)
+    return !!(p && p.available && p.kind === 'video' && !archived() && current && WB.detail && WB.detail.item)
+  }
+
+  function vidState() {
+    if (!WB.vid || WB.vid.itemId !== WB.selectedId) WB.vid = { itemId: WB.selectedId, start: '', end: '', busy: null, error: null, detail: null }
+    return WB.vid
+  }
+
+  function loadVideoStatus() {
+    if (WB.vidLoading) return
+    WB.vidLoading = true
+    api('GET', '/api/workbench/video-status').then(function (r) {
+      WB.vidLoading = false
+      WB.vidStatus = r.ok && r.data && r.data.video ? r.data.video : { state: 'check_failed', message: r.message || t('workbench.vid.status_failed') }
+      render()
+    }).catch(function () {
+      WB.vidLoading = false
+      WB.vidStatus = { state: 'check_failed', message: t('workbench.vid.status_failed') }
+      render()
+    })
+  }
+
+  /** 65.4 -> "1:05.4" (a mezobe; tizedmasodperc pontossaggal). */
+  function vidFmt(sec) {
+    var s = Math.max(0, Math.round(sec * 10) / 10)
+    var m = Math.floor(s / 60)
+    var r = s - m * 60
+    var rs = (r < 10 ? '0' : '') + (Math.round(r * 10) / 10).toFixed(1).replace(/\.0$/, '')
+    return m + ':' + rs
+  }
+
+  function videoToolsHtml(p) {
+    if (!vidCanEdit(p)) return ''
+    if (!WB.vidStatus) {
+      loadVideoStatus()
+      return '<p class="wb-hint">' + esc(t('workbench.loading')) + '</p>'
+    }
+    if (WB.vidStatus.state !== 'ok') {
+      // EXTRA kepesseg: a hianya nem vészjelzes, csak egy mondat es egy ut.
+      return '<div class="wb-vid-tools"><p class="wb-hint">' + esc(WB.vidStatus.message || t('workbench.vid.status_failed')) + '</p>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button></div>'
+    }
+    var st = vidState()
+    var busy = !!st.busy
+    var dis = busy ? ' disabled' : ''
+    var row = function (which, id, label, mark) {
+      return '<div class="wb-vid-row"><label class="wb-label" for="' + id + '">' + esc(t(label)) + '</label>'
+        + '<input class="wb-input wb-vid-time" id="' + id + '" type="text" inputmode="decimal" placeholder="0:00" value="' + escA(st[which]) + '"' + dis + '>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="vid-mark" data-wb-which="' + which + '"' + dis + '>' + esc(t(mark)) + '</button></div>'
+    }
+    return '<div class="wb-vid-tools" role="region" aria-label="' + escA(t('workbench.vid.title')) + '">'
+      + '<h4 class="wb-exp-title">' + esc(t('workbench.vid.trim_title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.vid.trim_hint')) + '</p>'
+      + row('start', 'wbVidStart', 'workbench.vid.start', 'workbench.vid.mark_start')
+      + row('end', 'wbVidEnd', 'workbench.vid.end', 'workbench.vid.mark_end')
+      + '<p><button type="button" class="btn-primary" data-wb-act="vid-trim"' + dis + '>'
+      + esc(t(st.busy === 'trim' ? 'workbench.vid.trimming' : 'workbench.vid.trim')) + '</button></p>'
+      + '<h4 class="wb-exp-title">' + esc(t('workbench.vid.frame_title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.vid.frame_hint')) + '</p>'
+      + '<p><button type="button" class="btn-secondary" data-wb-act="vid-frame"' + dis + '>'
+      + esc(t(st.busy === 'frame' ? 'workbench.vid.framing' : 'workbench.vid.frame')) + '</button></p>'
+      + (st.error ? '<div class="info-box depo-bad">' + esc(st.error) + (st.detail ? '<br><small>' + esc(st.detail) + '</small>' : '') + '</div>' : '')
+      + '</div>'
+  }
+
+  /** A lejatszo mostani helye (masodperc), vagy null, ha nincs lejatszo. */
+  function vidNow() {
+    var v = document.getElementById('wbVideo')
+    return v && typeof v.currentTime === 'number' && isFinite(v.currentTime) ? v.currentTime : null
+  }
+
+  /** A begepelt ertekeket az allapotba (az ujrarajzolas ne torolje oket). */
+  function vidReadInputs(st) {
+    var a = document.getElementById('wbVidStart')
+    var b = document.getElementById('wbVidEnd')
+    if (a && typeof a.value === 'string') st.start = a.value.trim()
+    if (b && typeof b.value === 'string') st.end = b.value.trim()
+  }
+
+  function vidMark(which) {
+    var st = vidState()
+    vidReadInputs(st)
+    var now = vidNow()
+    if (now === null) return
+    st[which] = vidFmt(now)
+    // Nem rajzolunk ujra: a mezot kozvetlenul irjuk, a lejatszo ott marad, ahol van.
+    var el = document.getElementById(which === 'start' ? 'wbVidStart' : 'wbVidEnd')
+    if (el) el.value = st[which]
+    else render()
+  }
+
+  function vidSave(kind) {
+    var st = vidState()
+    if (st.busy || !WB.selectedId || !WB.detail || !WB.detail.item) return
+    vidReadInputs(st)
+    var body = { base_version: WB.detail.item.current_version_id }
+    if (kind === 'trim') {
+      if (!st.start && !st.end) { window.showToast(t('workbench.vid.need_times')); return }
+      body.start = st.start || '0'
+      body.end = st.end
+    } else {
+      var now = vidNow()
+      body.at = now === null ? (st.start || '0') : now
+    }
+    var itemId = WB.selectedId
+    st.busy = kind
+    st.error = null
+    st.detail = null
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/video-' + kind, body).then(function (r) {
+      var s2 = WB.vid && WB.vid.itemId === itemId ? WB.vid : null
+      if (s2) s2.busy = null
+      if (!r.ok) {
+        if (s2) { s2.error = r.message; s2.detail = (r.data && r.data.detail) || null }
+        render()
+        return
+      }
+      if (kind === 'trim') {
+        if (s2) { s2.start = ''; s2.end = '' }
+        window.showToast(t('workbench.vid.trim_saved', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
+        if (WB.selectedId === itemId) applyVersions(r.data)
+        else render()
+      } else {
+        window.showToast(t('workbench.vid.frame_saved', { name: (r.data && r.data.name) || '' }))
+        render()
+        load(WB.projectId)
+      }
+    }).catch(function () {
+      var s2 = WB.vid && WB.vid.itemId === itemId ? WB.vid : null
+      if (s2) { s2.busy = null; s2.error = t('workbench.err.network') }
+      render()
+    })
   }
 
   function textEditHtml() {
@@ -4909,6 +5064,11 @@
     // Csak amig a mezo nyitva van: mentes/megse utan a regi elem meg a DOM-ban
     // all, es a kiuritett piszkozatot kulonben visszairnank.
     if (WB.partNewOpen && newPart && typeof newPart.value === 'string') WB.partNewDraft = newPart.value
+    // A video lejatszasi helye: az ujrarajzolas uj <video> elemet tesz a
+    // helyere, es kulonben a nulladik masodpercre ugrana (pl. "Eleje innen" utan).
+    var oldVid = document.getElementById('wbVideo')
+    var vidKeep = oldVid && typeof oldVid.currentTime === 'number' && oldVid.currentTime > 0 && oldVid.getAttribute
+      ? { src: oldVid.getAttribute('src'), at: oldVid.currentTime } : null
     el.innerHTML = '<div class="wb-root">'
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
@@ -4943,6 +5103,7 @@
     // A PDF-nezegeto csomopontja tulelte az ujrarajzolast: visszatesszuk a
     // helyere (vagy uj dokumentumnal elinditjuk a betoltest).
     pdfMount()
+    if (vidKeep) videoRestore(vidKeep)
     if (keepCell) {
       var cell = document.getElementById(keepCell)
       if (cell && typeof cell.focus === 'function') {
@@ -5315,6 +5476,9 @@
     else if (a === 'img-open') openImageEditor()
     else if (a === 'img-close') imgClose()
     else if (a === 'img-save') imgSave()
+    else if (a === 'vid-mark') { var vw = act.getAttribute('data-wb-which'); if (vw === 'start' || vw === 'end') vidMark(vw) }
+    else if (a === 'vid-trim') vidSave('trim')
+    else if (a === 'vid-frame') vidSave('frame')
     else if (a === 'img-reset' && imgState()) {
       var ist = imgState()
       ist.rot = 0; ist.flip = false; ist.aspect = 'free'
@@ -5817,6 +5981,8 @@
     WB.previewVersion = null
     WB.table = null
     WB.img = null
+    WB.vid = null
+    WB.vidStatus = null
     if (WB.dict) { try { WB.dict.rec.stop() } catch (_e) { /* mar all */ } }
     WB.dict = null
     ttsStop()

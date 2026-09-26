@@ -772,3 +772,9 @@
 .wb-share-row { margin: 6px 0; word-break: break-word; }
 .wb-share-link { display: flex; gap: 6px; margin-top: 4px; }
 .wb-share-link .wb-input { flex: 1 1 auto; min-width: 0; font-size: 12px; }
+
+/* Videomunka (#406, 19. pont) */
+.wb-vid-tools { margin-top: 12px; }
+.wb-vid-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.wb-vid-row .wb-label { min-width: 48px; margin: 0; }
+.wb-vid-time { width: 7em; min-width: 0; }
