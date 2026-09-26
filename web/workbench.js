@@ -493,7 +493,11 @@
       + '<button type="submit" class="btn-primary" data-wb-act="create"' + (WB.busy ? ' disabled' : '') + '>'
       + esc(WB.busy ? t('workbench.new.creating') : t('workbench.new.create')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="cancel-new">' + esc(t('common.cancel')) + '</button>'
-      + '</div></form>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.table.new_hint')) + '</p>'
+      + '<div class="wb-form-actions"><button type="button" class="btn-secondary" data-wb-act="create-table"' + (WB.busy ? ' disabled' : '') + '>'
+      + esc(t('workbench.table.new')) + '</button></div>'
+      + '</form>'
   }
 
   // ---- sablonok (#406, 11. pont) --------------------------------------------
@@ -801,6 +805,280 @@
     })
   }
 
+  // ---- TABLAZAT-SZERKESZTES (#406, 15. pont) --------------------------------
+  //
+  // Az .xlsx / .csv munkadarab racskent: a cellak helyben irhatok, a mentes UJ
+  // fajlt es UJ verziot csinal (a szerver foltozza az eredetit, a formazas
+  // marad). A racs tartalma az ALLAPOTBAN el (minden gepeles oda megy), igy egy
+  // kozben erkezo ujrarajzolas (chat, attekinto) nem torli a begepelt cellat,
+  // es a fokuszt is visszatesszuk ugyanarra a cellara.
+
+  var TABLE_PAGE = 100
+
+  function isTableName(name) { return /\.(xlsx|xlsm|csv|tsv)$/i.test(String(name || '')) }
+
+  function tableOpen() { return !!(WB.table && WB.table.itemId === WB.selectedId) }
+
+  function tableEditable() {
+    var tb = WB.table
+    return !!(tb && tb.data && tb.data.current && !archived())
+  }
+
+  function tableSheet() {
+    var tb = WB.table
+    return tb && tb.sheets ? tb.sheets[tb.sheet] || null : null
+  }
+
+  function tableButtonHtml(p) {
+    if (!p || !p.rel || !isTableName(p.name)) return ''
+    if (!p.available && p.reason !== 'needs_conversion') return ''
+    return '<p><button type="button" class="btn-primary" data-wb-act="table-open"' + (WB.table && WB.table.loading ? ' disabled' : '') + '>'
+      + esc(t(archived() ? 'workbench.table.open_readonly' : 'workbench.table.open')) + '</button></p>'
+  }
+
+  function openTable(itemId, versionId) {
+    if (!itemId) return
+    WB.table = { itemId: itemId, loading: true, busy: false, data: null, sheets: null, sheet: 0, page: 0, sel: { r: 0, c: 0 }, dirty: false, error: null }
+    render()
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/table' + (versionId ? '?version=' + encodeURIComponent(versionId) : '')
+    api('GET', url).then(function (r) {
+      if (!WB.table || WB.table.itemId !== itemId) return
+      WB.table.loading = false
+      if (!r.ok) {
+        WB.table.error = { message: r.message, detail: r.data && r.data.detail }
+        render()
+        return
+      }
+      WB.table.data = r.data
+      // Munkapeldany: a szerver valaszat nem irjuk at, igy latszik, mi valtozott.
+      WB.table.sheets = (r.data.sheets || []).map(function (s) {
+        return { name: s.name, rows: (s.rows || []).map(function (row) { return row.slice() }) }
+      })
+      if (!WB.table.sheets.length) WB.table.sheets = [{ name: '', rows: [['']] }]
+      render()
+    })
+  }
+
+  function closeTable() {
+    if (WB.table && WB.table.dirty && !window.confirm(t('workbench.table.discard_confirm'))) return
+    WB.table = null
+    render()
+  }
+
+  function tableCols(rows) {
+    var n = 0
+    for (var i = 0; i < rows.length; i++) if (rows[i].length > n) n = rows[i].length
+    return n
+  }
+
+  function colLetter(i) {
+    var n = i + 1
+    var s = ''
+    while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26) }
+    return s
+  }
+
+  function tableTabsHtml() {
+    var tb = WB.table
+    if (!tb.sheets || tb.sheets.length < 2) return ''
+    return '<div class="wb-table-tabs" role="tablist">' + tb.sheets.map(function (s, i) {
+      return '<button type="button" role="tab" class="' + (i === tb.sheet ? 'btn-primary' : 'btn-secondary') + '"'
+        + ' aria-selected="' + (i === tb.sheet) + '" data-wb-act="table-sheet" data-wb-sheet="' + i + '">' + esc(s.name || String(i + 1)) + '</button>'
+    }).join('') + '</div>'
+  }
+
+  function tableToolsHtml() {
+    if (!tableEditable()) return ''
+    var csv = WB.table.data.format === 'csv'
+    var b = function (act, key) {
+      return '<button type="button" class="btn-secondary" data-wb-act="' + act + '">' + esc(t(key)) + '</button>'
+    }
+    if (csv) {
+      return '<div class="wb-table-tools">'
+        + b('table-row-add', 'workbench.table.row_insert')
+        + b('table-row-del', 'workbench.table.row_delete')
+        + b('table-col-add', 'workbench.table.col_insert')
+        + b('table-col-del', 'workbench.table.col_delete')
+        + '</div>'
+    }
+    return '<div class="wb-table-tools">'
+      + b('table-row-add', 'workbench.table.row_append')
+      + b('table-row-del', 'workbench.table.row_remove_last')
+      + b('table-col-add', 'workbench.table.col_append')
+      + b('table-col-del', 'workbench.table.col_remove_last')
+      + '</div>'
+  }
+
+  function tableGridHtml() {
+    var sh = tableSheet()
+    if (!sh) return ''
+    var rows = sh.rows
+    var nCols = tableCols(rows)
+    var pages = Math.max(1, Math.ceil(rows.length / TABLE_PAGE))
+    var page = Math.min(WB.table.page, pages - 1)
+    WB.table.page = page
+    var from = page * TABLE_PAGE
+    var to = Math.min(rows.length, from + TABLE_PAGE)
+    var ro = tableEditable() ? '' : ' readonly'
+    var html = '<div class="wb-table-scroll"><table class="wb-grid"><thead><tr><th class="wb-grid-corner"></th>'
+    for (var c = 0; c < nCols; c++) html += '<th scope="col">' + colLetter(c) + '</th>'
+    html += '</tr></thead><tbody>'
+    for (var r = from; r < to; r++) {
+      html += '<tr><th scope="row">' + (r + 1) + '</th>'
+      for (var c2 = 0; c2 < nCols; c2++) {
+        var v = rows[r][c2] == null ? '' : rows[r][c2]
+        html += '<td><input class="wb-cell" type="text" id="wbCell_' + r + '_' + c2 + '" value="' + escA(v) + '"'
+          + ' aria-label="' + escA(colLetter(c2) + (r + 1)) + '"' + ro + '></td>'
+      }
+      html += '</tr>'
+    }
+    html += '</tbody></table></div>'
+    if (pages > 1) {
+      html += '<div class="wb-table-pager">'
+        + '<button type="button" class="btn-secondary" data-wb-act="table-page-prev"' + (page === 0 ? ' disabled' : '') + '>' + esc(t('workbench.table.page_prev')) + '</button>'
+        + '<span class="wb-muted">' + esc(t('workbench.table.page_info', { from: from + 1, to: to, total: rows.length })) + '</span>'
+        + '<button type="button" class="btn-secondary" data-wb-act="table-page-next"' + (page >= pages - 1 ? ' disabled' : '') + '>' + esc(t('workbench.table.page_next')) + '</button>'
+        + '</div>'
+    }
+    return html
+  }
+
+  function tableHtml() {
+    var tb = WB.table
+    if (tb.loading) return '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    var close = '<button type="button" class="btn-secondary" data-wb-act="table-close">' + esc(t('workbench.table.close')) + '</button>'
+    if (tb.error) {
+      return '<div class="wb-table"><p class="wb-preview-bad">' + esc(tb.error.message || '') + '</p>'
+        + (tb.error.detail ? '<p class="wb-hint">' + esc(tb.error.detail) + '</p>' : '')
+        + '<div class="wb-form-actions">' + close + '</div></div>'
+    }
+    var d = tb.data
+    var hints = []
+    if (!d.current) hints.push(t('workbench.table.old_version'))
+    else if (archived()) hints.push(t('workbench.table.readonly_archived'))
+    else {
+      hints.push(t('workbench.table.hint_save'))
+      hints.push(t(d.format === 'csv' ? 'workbench.table.hint_csv' : 'workbench.table.hint_xlsx'))
+      hints.push(t('workbench.table.hint_formula'))
+      if (d.format === 'xlsx') hints.push(t('workbench.table.hint_dates'))
+    }
+    return '<div class="wb-table">'
+      + tableTabsHtml() + tableToolsHtml() + tableGridHtml()
+      + '<div class="wb-form-actions">'
+      + (tableEditable()
+        ? '<button type="button" class="btn-primary" data-wb-act="table-save"' + (tb.busy ? ' disabled' : '') + '>'
+          + esc(tb.busy ? t('workbench.parts.saving') : t('workbench.table.save')) + '</button>'
+        : '')
+      + close + '</div>'
+      + hints.map(function (h) { return '<p class="wb-hint">' + esc(h) + '</p>' }).join('')
+      + '</div>'
+  }
+
+  /** Egy cella tartalma az allapotba (gepeles kozben, ujrarajzolas NELKUL). */
+  function tableCellInput(id, value) {
+    var m = /^wbCell_(\d+)_(\d+)$/.exec(String(id || ''))
+    var sh = tableSheet()
+    if (!m || !sh || !tableEditable()) return false
+    var r = Number(m[1])
+    var c = Number(m[2])
+    if (!sh.rows[r]) return false
+    sh.rows[r][c] = String(value == null ? '' : value)
+    WB.table.sel = { r: r, c: c }
+    WB.table.dirty = true
+    return true
+  }
+
+  function rowHasContent(row) {
+    for (var i = 0; i < row.length; i++) if (row[i] !== '' && row[i] != null) return true
+    return false
+  }
+
+  function tableStructure(what) {
+    var sh = tableSheet()
+    if (!sh || !tableEditable()) return
+    var rows = sh.rows
+    var nCols = Math.max(1, tableCols(rows))
+    var csv = WB.table.data.format === 'csv'
+    var sel = WB.table.sel
+    var i
+    if (what === 'row-add') {
+      var blank = []
+      for (i = 0; i < nCols; i++) blank.push('')
+      var at = csv ? Math.min(rows.length, sel.r + 1) : rows.length
+      rows.splice(at, 0, blank)
+      WB.table.sel = { r: at, c: sel.c }
+      WB.table.page = Math.floor(at / TABLE_PAGE)
+    } else if (what === 'row-del') {
+      if (rows.length <= 1) return
+      var rIdx = csv ? Math.min(sel.r, rows.length - 1) : rows.length - 1
+      if (rowHasContent(rows[rIdx]) && !window.confirm(t('workbench.table.row_delete_confirm', { n: rIdx + 1 }))) return
+      rows.splice(rIdx, 1)
+      WB.table.sel = { r: Math.max(0, Math.min(rIdx, rows.length - 1)), c: sel.c }
+    } else if (what === 'col-add') {
+      var cAt = csv ? Math.min(nCols, sel.c + 1) : nCols
+      for (i = 0; i < rows.length; i++) {
+        while (rows[i].length < nCols) rows[i].push('')
+        rows[i].splice(cAt, 0, '')
+      }
+      WB.table.sel = { r: sel.r, c: cAt }
+    } else if (what === 'col-del') {
+      if (nCols <= 1) return
+      var cIdx = csv ? Math.min(sel.c, nCols - 1) : nCols - 1
+      var used = false
+      for (i = 0; i < rows.length; i++) if (rows[i][cIdx]) used = true
+      if (used && !window.confirm(t('workbench.table.col_delete_confirm', { c: colLetter(cIdx) }))) return
+      for (i = 0; i < rows.length; i++) rows[i].splice(cIdx, 1)
+      WB.table.sel = { r: sel.r, c: Math.max(0, Math.min(cIdx, nCols - 2)) }
+    }
+    WB.table.dirty = true
+    render()
+  }
+
+  function saveTable() {
+    var tb = WB.table
+    if (!tb || tb.busy || !tableEditable() || !WB.selectedId) return
+    var itemId = WB.selectedId
+    tb.busy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/table', {
+      base_version: tb.data.version_id,
+      sheets: tb.sheets,
+      delimiter: tb.data.delimiter,
+    }).then(function (r) {
+      if (!WB.table || WB.table.itemId !== itemId) return
+      WB.table.busy = false
+      if (!r.ok) {
+        render()
+        window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+        return
+      }
+      WB.table = null
+      applyVersions(r.data)
+      window.showToast(t('workbench.table.saved', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
+    })
+  }
+
+  function createTable() {
+    var titleEl = document.getElementById('wbNewTitle')
+    if (!titleEl || WB.busy || archived()) return
+    var title = String(titleEl.value || '').trim()
+    if (!title) { window.showToast(t('workbench.table.title_required')); return }
+    WB.busy = true
+    render()
+    api('POST', '/api/workbench/items/new-table', { project_id: WB.projectId, title: title }).then(function (r) {
+      WB.busy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.formOpen = false
+      WB.selectedId = r.data.item.id
+      WB.panel = 'editor'
+      WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
+      window.showToast(t('workbench.table.created', { name: r.data.name || '' }))
+      load(WB.projectId)
+      loadDetail(r.data.item.id)
+      openTable(r.data.item.id, null)
+    })
+  }
+
   function previewHtml() {
     var p = WB.preview
     if (!p) return '<div class="wb-preview"><p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
@@ -809,11 +1087,14 @@
     var head = '<div class="wb-preview-head"><h4>' + esc(t('workbench.preview.title')) + '</h4>'
       + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
       + previewVersionPickerHtml() + '</div>'
+    // TABLAZAT (#406, 15. pont): nyitva a racs -> az van a helyen.
+    if (tableOpen()) return '<div class="wb-preview">' + head + tableHtml() + '</div>'
+    var tableBtn = tableButtonHtml(p)
     if (!p.available && p.reason === 'needs_conversion') {
       // NEM HIBA, hanem TEENDO: ebbol a dokumentumbol tudunk elonezetet
       // csinalni. A gomb mellett ott a letoltes is -- ha a gepen nincs meg a
       // LibreOffice, a felhasznalo attol meg hozzafer a sajat fajljahoz.
-      return '<div class="wb-preview">' + head
+      return '<div class="wb-preview">' + head + tableBtn
         + '<p class="wb-muted">' + esc(p.message || t('workbench.preview.none')) + '</p>'
         + '<p><button type="button" class="btn-primary" data-wb-act="preview-convert"' + (WB.convertBusy ? ' disabled' : '') + '>'
         + esc(WB.convertBusy ? t('workbench.preview.converting') : t('workbench.preview.convert')) + '</button></p>'
@@ -841,7 +1122,7 @@
         + (p.detail ? '<p class="wb-hint">' + esc(p.detail) + '</p>' : '')
         + '</div>'
     }
-    return '<div class="wb-preview">' + head + previewBodyHtml(p) + '</div>'
+    return '<div class="wb-preview">' + head + tableBtn + previewBodyHtml(p) + '</div>'
   }
 
 
@@ -3482,6 +3763,11 @@
   function render() {
     var el = root()
     if (!el || !WB.open) return
+    // A tablazat egy cellajaban all a kurzor: az ujrarajzolas utan ugyanoda
+    // tesszuk vissza (a chat streamelese kozben is lehessen gepelni).
+    var active = document.activeElement
+    var keepCell = active && /^wbCell_/.test(String(active.id || '')) ? active.id : null
+    var caret = keepCell && typeof active.selectionStart === 'number' ? active.selectionStart : null
     el.innerHTML = '<div class="wb-root">'
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
@@ -3514,6 +3800,13 @@
     // A PDF-nezegeto csomopontja tulelte az ujrarajzolast: visszatesszuk a
     // helyere (vagy uj dokumentumnal elinditjuk a betoltest).
     pdfMount()
+    if (keepCell) {
+      var cell = document.getElementById(keepCell)
+      if (cell && typeof cell.focus === 'function') {
+        cell.focus()
+        if (caret != null && typeof cell.setSelectionRange === 'function') { try { cell.setSelectionRange(caret, caret) } catch (_e) { /* nem baj */ } }
+      }
+    }
   }
 
   // ---- muveletek ------------------------------------------------------------
@@ -3862,6 +4155,17 @@
     else if (a === 'compare-open') openCompare()
     else if (a === 'compare-close') { WB.compare = null; render() }
     else if (a === 'text-edit') openTextEdit()
+    else if (a === 'table-open') openTable(WB.selectedId, WB.previewVersion)
+    else if (a === 'table-close') closeTable()
+    else if (a === 'table-save') saveTable()
+    else if (a === 'table-sheet' && WB.table) { WB.table.sheet = Number(act.getAttribute('data-wb-sheet')) || 0; WB.table.page = 0; WB.table.sel = { r: 0, c: 0 }; render() }
+    else if (a === 'table-page-prev' && WB.table) { WB.table.page = Math.max(0, WB.table.page - 1); render() }
+    else if (a === 'table-page-next' && WB.table) { WB.table.page = WB.table.page + 1; render() }
+    else if (a === 'table-row-add') tableStructure('row-add')
+    else if (a === 'table-row-del') tableStructure('row-del')
+    else if (a === 'table-col-add') tableStructure('col-add')
+    else if (a === 'table-col-del') tableStructure('col-del')
+    else if (a === 'create-table') { e.preventDefault(); createTable() }
     else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
@@ -4087,6 +4391,7 @@
       ss.draft = readSendDraft()
       return
     }
+    if (WB.table && tableCellInput(e.target.id, e.target.value)) return
     if (e.target.id === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = e.target.value
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
@@ -4096,11 +4401,37 @@
   document.addEventListener('keydown', function (e) {
     if (!WB.open || !e.target || !(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 's') return
     var id = e.target.id
+    if (/^wbCell_/.test(String(id || '')) && WB.table) {
+      if (typeof e.preventDefault === 'function') e.preventDefault()
+      saveTable()
+      return
+    }
     if (id !== 'wbTextEdit' && id !== 'wbPartText' && id !== 'wbPartNewText') return
     if (typeof e.preventDefault === 'function') e.preventDefault()
     if (id === 'wbTextEdit') saveTextEdit()
     else if (id === 'wbPartText' && WB.partEdit) savePart(WB.partEdit)
     else if (id === 'wbPartNewText') addTextPart()
+  })
+
+  // Tablazat: Enter = a lenti cella (mint az Excelben), Shift+Enter = a fenti.
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !e.target || !WB.table || e.key !== 'Enter') return
+    var m = /^wbCell_(\d+)_(\d+)$/.exec(String(e.target.id || ''))
+    if (!m) return
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    var sh = tableSheet()
+    var r = Number(m[1]) + (e.shiftKey ? -1 : 1)
+    if (!sh || r < 0 || r >= sh.rows.length) return
+    WB.table.sel = { r: r, c: Number(m[2]) }
+    var next = document.getElementById('wbCell_' + r + '_' + m[2])
+    if (!next) { WB.table.page = Math.floor(r / TABLE_PAGE); render(); next = document.getElementById('wbCell_' + r + '_' + m[2]) }
+    if (next && typeof next.focus === 'function') next.focus()
+  })
+
+  document.addEventListener('focusin', function (e) {
+    if (!WB.open || !WB.table || !e.target) return
+    var m = /^wbCell_(\d+)_(\d+)$/.exec(String(e.target.id || ''))
+    if (m) WB.table.sel = { r: Number(m[1]), c: Number(m[2]) }
   })
 
   document.addEventListener('keydown', function (e) {
@@ -4221,6 +4552,7 @@
     WB.partBusy = false
     WB.preview = null
     WB.previewVersion = null
+    WB.table = null
     WB.overview = null
     WB.overviewError = null
   }

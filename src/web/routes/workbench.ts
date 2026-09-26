@@ -47,7 +47,8 @@ import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
-import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
+import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
+import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
 import { ensureLastWeekSummary, listWeeklySummaries, currentWeekSummary } from '../../workbench-weekly.js'
@@ -466,6 +467,54 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A projekt mappáját most nem érem el (lehet, hogy a meghajtó nincs csatlakoztatva). Ez NEM azt jelenti, hogy eltűnt.',
     en: 'The project folder cannot be reached right now (the drive may be disconnected). This does NOT mean it is gone.',
   },
+  table_unsupported: {
+    hu: 'Ezt a fájlt nem tudom táblázatként szerkeszteni. Táblázatként az .xlsx, .xlsm, .csv és .tsv fájl nyitható meg; a régi .xls-t nyisd meg Excelben, és mentsd .xlsx-ként.',
+    en: 'This file cannot be edited as a table. The .xlsx, .xlsm, .csv and .tsv files open as a table; open an old .xls in Excel and save it as .xlsx.',
+  },
+  table_bad_file: {
+    hu: 'A fájl nem olvasható táblázatként: nem ép Excel-munkafüzet (lehet, hogy sérült, jelszóval védett vagy csak a kiterjesztése .xlsx).',
+    en: 'The file cannot be read as a table: it is not a valid Excel workbook (it may be damaged, password-protected, or only named .xlsx).',
+  },
+  table_no_sheets: {
+    hu: 'Ebben a munkafüzetben nincs szerkeszthető munkalap (csak diagramlap, vagy üres).',
+    en: 'This workbook has no editable worksheet (only chart sheets, or empty).',
+  },
+  table_too_big: {
+    hu: `Ez a táblázat túl nagy a Munkapadon való szerkesztéshez (legfeljebb ${TABLE_MAX_ROWS} sor, ${TABLE_MAX_COLS} oszlop, ${TABLE_MAX_CELLS} cella). Töltsd le, szerkeszd Excelben, és töltsd vissza új verzióként.`,
+    en: `This table is too large to edit on the Workbench (at most ${TABLE_MAX_ROWS} rows, ${TABLE_MAX_COLS} columns, ${TABLE_MAX_CELLS} cells). Download it, edit it in Excel and upload it back as a new version.`,
+  },
+  table_not_utf8: {
+    hu: 'A CSV-fájl nem UTF-8 kódolású (valószínűleg régi Windowsos Excel-mentés), ezért az ékezetek elromlanának. Nyisd meg Excelben, és mentsd "CSV UTF-8" formátumban.',
+    en: 'The CSV file is not UTF-8 encoded (probably an old Windows Excel export), so accented letters would break. Open it in Excel and save it as "CSV UTF-8".',
+  },
+  table_bad_input: {
+    hu: 'A mentendő táblázat hiányos vagy hibás. Frissítsd az oldalt, és próbáld újra.',
+    en: 'The table to save is incomplete or malformed. Reload the page and try again.',
+  },
+  table_cell_too_long: {
+    hu: 'Az egyik cellában túl hosszú a szöveg (egy cellába legfeljebb 32767 karakter fér).',
+    en: 'One of the cells holds too much text (a cell can hold at most 32767 characters).',
+  },
+  table_sheets_changed: {
+    hu: 'A munkafüzet lapjai közben megváltoztak, ezért nem mentem el -- különben rossz lapra írnám. Nyisd meg újra a táblázatot.',
+    en: 'The workbook sheets changed in the meantime, so it was not saved -- it would write to the wrong sheet. Open the table again.',
+  },
+  table_no_change: {
+    hu: 'Nem változott semmi, ezért nem készült új verzió.',
+    en: 'Nothing changed, so no new version was made.',
+  },
+  table_stale: {
+    hu: 'Közben új verzió készült ebből a munkadarabból, ezért nem írom felül. A módosításaidat másold ki, nyisd meg újra a táblázatot, és vidd át.',
+    en: 'A newer version of this work item was made in the meantime, so it will not be overwritten. Copy your changes, open the table again and apply them.',
+  },
+  table_old_version: {
+    hu: 'Ez egy régebbi verzió: megnézni lehet, szerkeszteni a legfrissebbet lehet.',
+    en: 'This is an older version: you can look at it; editing works on the latest one.',
+  },
+  table_title_required: {
+    hu: 'Adj nevet az új táblázatnak.',
+    en: 'Give the new table a name.',
+  },
   capability_saved: {
     hu: 'Elmentve, és azonnal újra megmértem.',
     en: 'Saved, and measured again right away.',
@@ -776,6 +825,30 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // UJ TABLAZAT (#406, 15. pont): egy ures .xlsx a projekt mappajaba, es egy
+  // uj munkadarab ra. Friss telepitesen igy a feluletrol is lehet tablazattal
+  // kezdeni -- nem kell hozza sem Excel, sem feltoltes.
+  if (path === '/api/workbench/items/new-table' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const pid = String(body['project_id'] ?? '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const title = String(body['title'] ?? '').trim()
+    if (!title) return fail(res, 400, 'table_title_required', lang)
+    const out = writeProjectFile(project, null, `${title.replace(/\.xlsx$/i, '')}.xlsx`, blankXlsx(lang === 'en' ? 'Sheet1' : 'Munka1'))
+    if (!out.ok) {
+      const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
+      return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
+    }
+    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, created_by: actor(ctx) })
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, { ok: true, item: r.item, versions: [r.version], file: out, renamed: out.renamed, name: out.name }, 201)
+    return true
+  }
+
   // FAJLBOL UJ MUNKADARAB (#406, 3. pont): behuzas / feltoltes a feluletrol,
   // telefonrol is. A nyers bajtok jonnek, a nev a query-ben (ekezetes nev sem
   // torik el). A fajl a projekt mappajaba kerul, foglalt nevnel UJ nevet kap
@@ -1004,6 +1077,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // TABLAZAT (#406, 15. pont): a munkadarab .xlsx / .csv fajlja racskent.
+  // OLVASAS, ezert archivalt projektben is megy (csak mentes nincs).
+  if (segs.length === 2 && segs[1] === 'table' && method === 'GET') {
+    const src = loadTableSource(item.id, url.searchParams.get('version'))
+    if (!src.ok) return failDetail(res, src.code === 'not_found' ? 404 : 400, src.code, lang, src.detail || null)
+    const tb = readTable(src.source.data, src.source.name)
+    if (!tb.ok) return failDetail(res, 400, tb.code, lang, tb.detail || null)
+    json(res, {
+      ...tb.table,
+      name: src.source.name, rel: src.source.rel,
+      version_id: src.source.version_id, version_no: src.source.version_no, current: src.source.current,
+      limits: { rows: TABLE_MAX_ROWS, cols: TABLE_MAX_COLS, cells: TABLE_MAX_CELLS },
+    })
+    return true
+  }
+
   // EXPORT (#406, 6. pont): a munkadarab nyomtathato, onallo lapja -- a
   // bongeszo "Mentes PDF-kent" utja ebbol PDF-et csinal. OLVASAS, ezert
   // archivalt projektben is megy.
@@ -1042,6 +1131,35 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     })
     if (!r.ok) return failDetail(res, r.code === 'send_write_failed' ? 500 : 400, r.code, lang, r.detail || null)
     json(res, { ok: true, approval_id: r.approval_id, status: 'pending', attachment: { name: r.attachment.name, kind: r.attachment.kind }, message: msg('send_requested', lang) }, 201)
+    return true
+  }
+
+  // TABLAZAT MENTESE (#406, 15. pont): UJ fajl a regi melle + UJ verzio. Csak
+  // a mostani verziora, es csak ha kozben nem lett ujabb (`base_version`) --
+  // kulonben egy masik mentes csendben elveszne.
+  if (segs.length === 2 && segs[1] === 'table' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const base = String(body['base_version'] ?? '')
+    if (!base || base !== (item.current_version_id || '')) return fail(res, 409, 'table_stale', lang)
+    const norm = normalizeSheets(body['sheets'])
+    if (!norm.ok) return fail(res, 400, norm.code, lang)
+    const src = loadTableSource(item.id)
+    if (!src.ok) return failDetail(res, 400, src.code, lang, src.detail || null)
+    const delimiter = typeof body['delimiter'] === 'string' ? body['delimiter'] : undefined
+    const out = writeTable(src.source.data, src.source.name, norm.sheets, { delimiter, lang })
+    if (!out.ok) return failDetail(res, out.code === 'table_no_change' ? 409 : 400, out.code, lang, out.detail || null)
+    const r = saveBytesAsNewVersion(item, project, src.source.rel, out.data, { created_by: actor(ctx), prompt: body['prompt'], edit: 'table' })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
+    }
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      file: r.file, renamed: r.file.renamed, name: r.file.name,
+    }, 201)
     return true
   }
 

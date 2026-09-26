@@ -112,13 +112,22 @@ export function saveTextSourceAsNewVersion(
   opts: { created_by?: string | null; prompt?: unknown } = {},
 ): TextSaveResult {
   if (text.length > TEXT_SOURCE_MAX) return { ok: false, code: 'text_source_too_long' }
-  const out = writeProjectFile(project, subFolderOf(project, rel), baseNameForNextVersion(rel), Buffer.from(text, 'utf-8'))
+  return saveBytesAsNewVersion(item, project, rel, Buffer.from(text, 'utf-8'), { ...opts, edit: 'text_source' })
+}
+
+/** Barmilyen fajl-forras uj tartalma (pl. egy tablazat, #406 15. pont):
+ *  UJ fajl a regi melle, azonos mappaba, + UJ verzio ra. */
+export function saveBytesAsNewVersion(
+  item: WorkItemRow, project: ProjectRow, rel: string, data: Buffer,
+  opts: { created_by?: string | null; prompt?: unknown; edit: string },
+): TextSaveResult {
+  const out = writeProjectFile(project, subFolderOf(project, rel), baseNameForNextVersion(rel), data)
   if (!out.ok) return { ok: false, code: out.code, detail: out.message || null }
   const v = createWorkItemVersion(item.id, {
     source_path: out.rel,
     created_by: opts.created_by ?? null,
     prompt: opts.prompt,
-    metadata_json: JSON.stringify({ edit: 'text_source' }),
+    metadata_json: JSON.stringify({ edit: opts.edit }),
   })
   if (!v.ok) return { ok: false, code: v.code }
   return { ok: true, item: v.item, version: v.version, file: out }
