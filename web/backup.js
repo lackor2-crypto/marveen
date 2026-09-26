@@ -306,6 +306,12 @@
 
   async function fetchKit() {
     var pwEl = document.getElementById('bkKitPw')
+    // With a dashboard login the field is there and the password is required:
+    // say so here instead of asking the server with an empty field (#410).
+    if (pwEl && !pwEl.value) {
+      if (typeof pwEl.focus === 'function') pwEl.focus()
+      throw new Error(tr('fbk.kit.pw_needed'))
+    }
     var body = { password: pwEl ? pwEl.value : '' }
     S.kit = await api('POST', '/api/backup/kit', body)
     return S.kit

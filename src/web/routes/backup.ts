@@ -232,9 +232,13 @@ async function kitAuth(ctx: RouteContext, body: any): Promise<boolean | 'answere
   // With a login, the bearer token (which every agent holds) is not enough.
   if (kind !== 'session' || !ctx.auth?.user) { fail(ctx, 403, 'kit_forbidden'); return 'answered' }
   const pw = typeof body?.password === 'string' ? body.password : ''
-  if (!pw) { fail(ctx, 401, 'password_required'); return 'answered' }
+  // 403, NOT 401 (#410): the session is valid, only the password typed now is
+  // missing or wrong. The dashboard treats every /api 401 as "signed out" and
+  // drops the session -- the owner was logged out by the Show / Download
+  // buttons of the emergency kit (TG 6587, 2026-09-26).
+  if (!pw) { fail(ctx, 403, 'password_required'); return 'answered' }
   const user = getDashboardUser(ctx.auth.user)
-  if (!user || !(await verifyPassword(pw, user.password_hash))) { fail(ctx, 401, 'password_wrong'); return 'answered' }
+  if (!user || !(await verifyPassword(pw, user.password_hash))) { fail(ctx, 403, 'password_wrong'); return 'answered' }
   return true
 }
 

@@ -233,7 +233,8 @@ async function start(ctx: RouteContext): Promise<boolean> {
   if (!b || typeof b.previewId !== 'string') return fail(ctx, 400, 'bad_request')
   const exclude = (Array.isArray(b.exclude) ? b.exclude : []).filter((c: unknown) => OPTIONAL_CATEGORIES.includes(c as BackupCategory)) as BackupCategory[]
   const confirmed = await confirmStart(ctx, b)
-  if (confirmed !== 'ok') return fail(ctx, 401, confirmed)
+  // 403, not 401 (#410): a wrong re-typed password must not sign the owner out.
+  if (confirmed !== 'ok') return fail(ctx, 403, confirmed)
   const avail = restartAvailability()
   let db: any = null
   try { db = getDb() } catch { db = null }

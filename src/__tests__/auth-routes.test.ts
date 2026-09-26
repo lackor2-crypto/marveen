@@ -213,7 +213,9 @@ describe('POST /api/auth/password', () => {
       auth: { kind: 'session', user: 'alice' },
       body: { current_password: 'nope', new_password: 'brand-new-pass' },
     })
-    expect(wrong.res.statusCode).toBe(401)
+    // 403, not 401 (#410): the session is valid; a 401 signs the owner out.
+    expect(wrong.res.statusCode).toBe(403)
+    expect(wrong.json().code).toBe('current_password_wrong')
     const ok = await call('POST', '/api/auth/password', {
       auth: { kind: 'session', user: 'alice' },
       body: { current_password: GOOD_PW, new_password: 'brand-new-pass' },
