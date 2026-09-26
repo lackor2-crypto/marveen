@@ -259,12 +259,12 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     how_to: {
       hu: [
         'Alapesetben nem kell semmit tenned: a gépen bejelentkezett Claude-előfizetést használja, ugyanabból az 5 órás keretből, mint a többi ügynök.',
-        'Ha "nincs beállítva" áll itt, akkor ezen a gépen nincs bejelentkezett Claude-fiók: futtasd le a bejelentkezést (claude login) abban a felhasználói fiókban, amelyikben a Marveen fut.',
+        'Ha „nincs beállítva” áll itt, akkor ezen a gépen nincs bejelentkezett Claude-fiók: jelentkezz be a Beállítások → Varázsló → Claude bejelentkezés lépésben. Terminál nem kell hozzá.',
         'Külön, előfizetéstől független számlázáshoz a Beállítások / Munkapad oldalon megadható egy saját API-kulcs. Ez nem kötelező, és a kulcs sosem kerül a böngészőbe.',
       ],
       en: [
         'Normally there is nothing to do: it uses the Claude subscription signed in on this machine, from the same 5-hour budget as the other agents.',
-        'If this says "not configured", there is no signed-in Claude account on this machine: run the login (claude login) as the user Marveen runs as.',
+        'If this says "not configured", there is no signed-in Claude account on this machine: sign in under Settings → Wizard → Claude sign-in. No terminal needed.',
         'For separate, subscription-independent billing you can enter your own API key on the Settings / Workbench page. It is optional, and the key never reaches the browser.',
       ],
     },

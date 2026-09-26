@@ -3802,8 +3802,10 @@
       + '<p class="wb-cap-msg">' + esc(cap.message) + '</p>'
       // A VALODI hibauzenet: kiirjuk, de nem helyette, hanem az emberi mondat
       // MELLE -- igy a felhasznalo tudja, mi a teendo, a hibakereso meg azt,
-      // mi tortent pontosan.
-      + (cap.detail ? '<p class="wb-cap-detail"><span>' + esc(t('workbench.caps.detail')) + '</span> <code>' + esc(cap.detail) + '</code></p>' : '')
+      // mi tortent pontosan. CSAK hibas allapotnal: egy mukodo kepesseg
+      // reszlete nem hibauzenet (Boss, 2026-09-26: "Mukodik" mellett "A pontos
+      // hibauzenet: signed-in Claude account" allt).
+      + (cap.detail && cap.state !== 'ok' ? '<p class="wb-cap-detail"><span>' + esc(t('workbench.caps.detail')) + '</span> <code>' + esc(cap.detail) + '</code></p>' : '')
       + (steps ? '<p class="wb-cap-howto">' + esc(t('workbench.caps.howto')) + '</p><ol class="wb-cap-steps">' + steps + '</ol>' : '')
       + (cap.obtain_url ? '<p><a href="' + escA(cap.obtain_url) + '" target="_blank" rel="noopener">' + esc(t('workbench.caps.obtain')) + '</a></p>' : '')
       + capSettingHtml(cap)
