@@ -27,6 +27,14 @@ describe('channel-watchdog crash-context capture', () => {
     expect(script).toContain('bot.pid')
   })
 
+  it('#407: a bot.pid-et a #915 szerinti fo-agens mappabol olvassa, nem a fix regi utrol', () => {
+    // A migracio utan a ~/.claude/channels/<provider> ures -- a fix ut minden
+    // respawnnal hamis "DEAD" poller-bizonyitekot irt a naploba.
+    expect(script).not.toMatch(/_wd_botpid_file="\$HOME\/\.claude\/channels/)
+    expect(script).toContain('_wd_chan_dir="$MAIN_CHAN_DIR"')
+    expect(script).toContain('_wd_botpid_file="$_wd_chan_dir/bot.pid"')
+  })
+
   it('a mentes a destruktiv respawn-pane -k ELOTT tortenik', () => {
     const capturePos = script.indexOf('channel-poller-crash-context.log')
     // A TENYLEGES respawn-hivas (nem a kommentben emlitett) -- ez a destruktiv lepes.

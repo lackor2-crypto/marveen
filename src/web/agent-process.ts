@@ -503,7 +503,7 @@ export function ensureMainAgentChannelState(configDir: string, provider?: string
     const providerType = getProviderType(provider)
     const stateSub = getProvider(providerType).stateDir
     const targetDir = join(configDir, 'channels', stateSub)
-    const sharedDir = channelStateDir(providerType) // ~/.claude/channels/<sub>
+    const sharedDir = channelStateDir(providerType) // main agent dir, #915-resolved (install-scoped once migrated)
 
     // Never seed the shared dir onto itself (configDir === ~/.claude): its .env
     // already exists so the guards below no-op, but skip the work explicitly.

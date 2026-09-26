@@ -259,7 +259,12 @@ fi
 # ~60 sor pane. Fail-open: barmelyik lepes hibaja sem allitja meg a respawnt.
 {
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') watchdog respawn ($reason) -- pane content before -k: ==="
-  _wd_botpid_file="$HOME/.claude/channels/$CHANNEL_PROVIDER/bot.pid"
+  # #915 / card #407: the main bot's bot.pid lives in the install-scoped dir
+  # once channels.sh migrated it; the legacy shared path only serves an
+  # unmigrated install. The fixed legacy path always read "DEAD" after the move.
+  _wd_chan_dir="$MAIN_CHAN_DIR"
+  [ -f "$_wd_chan_dir/.env" ] || _wd_chan_dir="$HOME/.claude/channels/$CHANNEL_PROVIDER"
+  _wd_botpid_file="$_wd_chan_dir/bot.pid"
   _wd_botpid="$(cat "$_wd_botpid_file" 2>/dev/null | tr -d '[:space:]')"
   if [ -n "$_wd_botpid" ] && [ "$_wd_botpid" -gt 1 ] 2>/dev/null && kill -0 "$_wd_botpid" 2>/dev/null; then
     echo "poller-evidence: bot.pid=$_wd_botpid ALIVE (a fo bot pollere fut -- a liveness-proba tevedhetett, nem a plugin halt meg)"
@@ -272,7 +277,7 @@ fi
   echo "poller-evidence: osszes $CHANNEL_PROVIDER poller a gepen (fleet is): ${_wd_pollers:-?}"
   "$TMUX_BIN" capture-pane -t "=$SESSION:" -p -S -60 2>/dev/null || true
   echo
-  unset _wd_botpid_file _wd_botpid _wd_pollers
+  unset _wd_chan_dir _wd_botpid_file _wd_botpid _wd_pollers
 } >> "$STORE/channel-poller-crash-context.log" 2>/dev/null || true
 
 log "$reason and session up -- respawn-pane $SESSION (respawn #$((count+1)))"
