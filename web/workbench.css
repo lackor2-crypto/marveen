@@ -599,3 +599,17 @@
 .wb-dec-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .wb-dec-revoked .wb-dec-text { text-decoration: line-through; opacity: .65; }
 @media (max-width: 700px) { .wb-dec-form textarea { font-size: 16px; } }
+/* --- Export + kuldes (#406, 6. pont) ---------------------------------------- */
+.wb-exp { border: 1px solid var(--border, #d0d7de); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.wb-exp-title { margin: 4px 0 0; font-size: 0.95rem; }
+.wb-exp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wb-exp-row a.btn-secondary, .wb-exp-row a.btn-primary { text-decoration: none; display: inline-flex; align-items: center; }
+.wb-exp-send { max-width: 560px; }
+.wb-exp-sent { border-left: 4px solid var(--warning, #b45309); padding: 6px 10px; border-radius: 4px; }
+.wb-exp-sent-approved { border-left-color: var(--success, #16a34a); }
+.wb-exp-sent-rejected, .wb-exp-sent-timeout, .wb-exp-sent-withdrawn { border-left-color: var(--border, #9ca3af); }
+.wb-exp-sent p { margin: 0 0 6px; }
+@media (max-width: 900px) {
+  .wb-exp-row { flex-direction: column; align-items: stretch; }
+  .wb-exp-send .wb-input { font-size: 16px; }
+}

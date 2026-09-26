@@ -53,6 +53,7 @@ import { searchProject } from '../../workbench-search.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
+import { buildExportPage, requestSendApproval, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -385,6 +386,30 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   canvas_saved: {
     hu: 'Mentve, új verzióként. A korábbi állapot megmaradt.',
     en: 'Saved as a new version. The earlier state is kept.',
+  },
+  send_bad_to: {
+    hu: 'Adj meg egy érvényes email-címet a címzettnek (például: nev@pelda.hu). Egyszerre egy címzett.',
+    en: 'Give a valid email address for the recipient (for example: name@example.com). One recipient at a time.',
+  },
+  send_subject_too_long: {
+    hu: `A tárgy túl hosszú (legfeljebb ${SEND_SUBJECT_MAX} karakter).`,
+    en: `The subject is too long (${SEND_SUBJECT_MAX} characters at most).`,
+  },
+  send_message_too_long: {
+    hu: `Az üzenet túl hosszú (legfeljebb ${SEND_MESSAGE_MAX} karakter).`,
+    en: `The message is too long (${SEND_MESSAGE_MAX} characters at most).`,
+  },
+  send_no_source: {
+    hu: 'Ennek a munkadarabnak nincs elérhető eredeti fájlja, amit csatolni lehetne. Válaszd a nyomtatható lapot mellékletnek.',
+    en: 'This work item has no reachable original file to attach. Pick the printable page as the attachment.',
+  },
+  send_write_failed: {
+    hu: 'A mellékletet nem tudtam elkészíteni. A pontos hibát a részletek mutatják.',
+    en: 'The attachment could not be prepared. The details show the exact error.',
+  },
+  send_requested: {
+    hu: 'A küldés jóváhagyásra vár. Semmi nem ment ki: jóváhagyás után a fő ágens küldi el, elutasításnál nem történik semmi.',
+    en: 'The send is waiting for approval. Nothing has gone out: after approval the main agent sends it, on rejection nothing happens.',
   },
   text_source_unsupported: {
     hu: 'Ennek a munkadarabnak a forrása nem szövegfájl, ezért itt nem írható át. Dokumentumnál töltsd le, szerkeszd a gépeden, és töltsd vissza.',
@@ -918,12 +943,45 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // EXPORT (#406, 6. pont): a munkadarab nyomtathato, onallo lapja -- a
+  // bongeszo "Mentes PDF-kent" utja ebbol PDF-et csinal. OLVASAS, ezert
+  // archivalt projektben is megy.
+  if (segs.length === 2 && segs[1] === 'export.html' && method === 'GET') {
+    const download = url.searchParams.get('download') === '1'
+    const page = buildExportPage(item, url.searchParams.get('version'), lang, {
+      toolbar: !download, autoPrint: !download && url.searchParams.get('print') === '1',
+    })
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': String(Buffer.byteLength(page.html, 'utf-8')),
+      'Cache-Control': 'private, no-store',
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(page.fileName)}`,
+    })
+    res.end(page.html)
+    return true
+  }
+
   // Archivalt projekt = CSAK OLVASHATO. Az olvasas (GET) marad, minden iras
   // ugyanazt az EMBERI mondatot kapja -- a felulet el is rejti a gombokat, de a
   // szabalyt a szerver tartja be, nem a kepernyo.
   if (method !== 'GET') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+  }
+
+  // KULDES (#406, 6. pont): SOSE kuld ki semmit maga -- a MEGLEVO jovahagyasi
+  // kapun at `email_send` jegyet nyit a fo agensnek. Kifele csak a
+  // tulajdonos igen-je utan megy barmi.
+  if (segs.length === 2 && segs[1] === 'send-request' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = requestSendApproval(item, {
+      to: body['to'], subject: body['subject'], message: body['message'],
+      attachment: body['attachment'], version: body['version'], actor: actor(ctx), lang,
+    })
+    if (!r.ok) return failDetail(res, r.code === 'send_write_failed' ? 500 : 400, r.code, lang, r.detail || null)
+    json(res, { ok: true, approval_id: r.approval_id, status: 'pending', attachment: { name: r.attachment.name, kind: r.attachment.kind }, message: msg('send_requested', lang) }, 201)
+    return true
   }
 
   // DOKUMENTUM FELTOLTESE (7. fazis, spec 8: "letoltes / modositas /

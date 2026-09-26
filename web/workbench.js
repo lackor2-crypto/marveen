@@ -85,6 +85,10 @@
     // --- verziok egymas mellett (#406, 5. pont) ---
     // null = nincs nyitva; kulonben {itemId, left, right, pos, sides}.
     compare: null,
+    // --- export + kuldes (#406, 6. pont) ---
+    exportOpen: null,
+    send: null,
+    pngBusy: false,
     // --- osztott nezet (#406, 1. pont) ---
     // 'split' = bal oldalt a chat, jobb oldalt az ELO munkadarab (a szakmaban
     // bevett "chat + artifact" elrendezes); 'classic' = a harom panel, alatta a
@@ -1724,7 +1728,9 @@
 
   function versionBarHtml() {
     var versions = versionsSorted()
-    if (versions.length < 2) return ''
+    var exportBtn = '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '"'
+      + ' aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
+    if (versions.length < 2) return '<div class="wb-vbar">' + exportBtn + '</div>' + (exportIsOpen() ? exportPanelHtml() : '')
     var target = undoTarget()
     var ro = archived() || WB.versionBusy
     return '<div class="wb-vbar">'
@@ -1734,7 +1740,268 @@
       + (WB.compare && WB.compare.itemId === WB.selectedId
         ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="compare-close">' + esc(t('workbench.cmp.close')) + '</button>'
         : '<button type="button" class="btn-secondary btn-compact" data-wb-act="compare-open">' + esc(t('workbench.cmp.open')) + '</button>')
+      + exportBtn
       + '</div>'
+      + (exportIsOpen() ? exportPanelHtml() : '')
+  }
+
+  // ---- export PDF / kep + kuldes a jovahagyasi kapun at (#406, 6. pont) -----
+  //
+  // PDF: a munkadarab nyomtathato lapja uj lapon nyilik, es a bongeszo
+  // "Mentes PDF-kent" utja keszit belole PDF-et -- kulso program nelkul,
+  // telefonon is (Megosztas -> Nyomtatas). KEP: a bongeszo rajzolja PNG-be.
+  // KULDES: a Munkapad SOHA nem kuld ki semmit maga; a gomb a meglevo
+  // jovahagyasi kapun at jegyet nyit, es kifele csak a tulajdonos igen-je
+  // utan megy barmi (a fo agens kuldi).
+
+  function exportIsOpen() { return !!(WB.exportOpen && WB.exportOpen === WB.selectedId) }
+
+  function itemUrl(tail) {
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + tail
+  }
+
+  function exportPageUrl(extra) {
+    return itemUrl('/export.html') + '?lang=' + encodeURIComponent(window._lang || 'hu')
+      + (WB.previewVersion ? '&version=' + encodeURIComponent(WB.previewVersion) : '')
+      + (extra || '')
+  }
+
+  /** Mibol lehet kepet (PNG) csinalni: a kep maga, a rajz, vagy a reszek. */
+  function pngSource() {
+    var p = WB.preview
+    if (!p) return null
+    if (p.available && p.kind === 'image') return 'image'
+    if (p.kind === 'canvas') return 'canvas'
+    if (p.available && (p.kind === 'parts' || p.kind === 'text')) return 'blocks'
+    if (!p.available && p.reason === 'no_source' && partsOf().length) return 'blocks'
+    return null
+  }
+
+  function exportPanelHtml() {
+    var p = WB.preview || {}
+    var png = pngSource()
+    var rows = []
+    rows.push('<div class="wb-exp-row"><button type="button" class="btn-primary" data-wb-act="export-print">' + esc(t('workbench.exp.pdf')) + '</button>'
+      + '<span class="wb-hint">' + esc(t('workbench.exp.pdf_hint')) + '</span></div>')
+    if (p.kind === 'office' && p.url) {
+      rows.push('<div class="wb-exp-row"><a class="btn-secondary" href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">' + esc(t('workbench.exp.office_pdf')) + '</a></div>')
+    }
+    rows.push('<div class="wb-exp-row">'
+      + (png ? '<button type="button" class="btn-secondary" data-wb-act="export-png"' + (WB.pngBusy ? ' disabled' : '') + '>'
+        + esc(WB.pngBusy ? t('workbench.exp.png_busy') : t('workbench.exp.png')) + '</button>' : '')
+      + '<a class="btn-secondary" href="' + escA(exportPageUrl('&download=1')) + '" download>' + esc(t('workbench.exp.html')) + '</a>'
+      + (p.rel ? '<a class="btn-secondary" href="/api/life/file?rel=' + escA(encodeURIComponent(p.rel)) + '&download=1" target="_blank" rel="noopener">'
+        + esc(t('workbench.exp.source')) + '</a>' : '')
+      + '</div>')
+    if (!png) rows.push('<p class="wb-hint">' + esc(t('workbench.exp.png_none')) + '</p>')
+    return '<div class="wb-exp" role="region" aria-label="' + escA(t('workbench.exp.open')) + '">'
+      + '<h4 class="wb-exp-title">' + esc(t('workbench.exp.title')) + '</h4>'
+      + rows.join('')
+      + sendHtml()
+      + '</div>'
+  }
+
+  function sendState() {
+    var st = WB.send
+    return st && st.itemId === WB.selectedId ? st : null
+  }
+
+  function sendHtml() {
+    var st = sendState()
+    var head = '<h4 class="wb-exp-title">' + esc(t('workbench.exp.send_title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.exp.send_gate')) + '</p>'
+    if (st && st.result) {
+      var status = st.result.status || 'pending'
+      return head + '<div class="wb-exp-sent wb-exp-sent-' + escA(status) + '">'
+        + '<p>' + esc(t('workbench.exp.send_status.' + (['pending', 'approved', 'rejected', 'timeout', 'withdrawn'].indexOf(status) >= 0 ? status : 'other'), { status: status })) + '</p>'
+        + (st.statusError ? '<p class="wb-preview-bad">' + esc(t('workbench.exp.send_status_unknown', { message: st.statusError })) + '</p>' : '')
+        + '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="send-refresh">' + esc(t('workbench.exp.send_refresh')) + '</button> '
+        + '<button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button> '
+        + '<button type="button" class="wb-linklike" data-wb-act="send-new">' + esc(t('workbench.exp.send_new')) + '</button></p>'
+        + '</div>'
+    }
+    if (archived()) return head + '<p class="wb-muted">' + esc(t('workbench.archived_hint')) + '</p>'
+    var p = WB.preview || {}
+    var d = (st && st.draft) || {}
+    var busy = st && st.busy
+    return head + '<form class="wb-form wb-exp-send" id="wbSendForm">'
+      + '<label class="wb-label" for="wbSendTo">' + esc(t('workbench.exp.send_to')) + '</label>'
+      + '<input class="wb-input" id="wbSendTo" type="email" inputmode="email" autocomplete="email" placeholder="' + escA(t('workbench.exp.send_to_ph')) + '" value="' + escA(d.to || '') + '">'
+      + '<label class="wb-label" for="wbSendSubject">' + esc(t('workbench.exp.send_subject')) + '</label>'
+      + '<input class="wb-input" id="wbSendSubject" type="text" maxlength="200" value="' + escA(d.subject != null ? d.subject : ((WB.detail && WB.detail.item && WB.detail.item.title) || '')) + '">'
+      + '<label class="wb-label" for="wbSendMessage">' + esc(t('workbench.exp.send_message')) + '</label>'
+      + '<textarea class="wb-input" id="wbSendMessage" rows="3" maxlength="5000">' + esc(d.message || '') + '</textarea>'
+      + '<label class="wb-label" for="wbSendAttach">' + esc(t('workbench.exp.send_attach')) + '</label>'
+      + '<select class="wb-input" id="wbSendAttach">'
+      + '<option value="html"' + (d.attachment !== 'source' ? ' selected' : '') + '>' + esc(t('workbench.exp.attach_html')) + '</option>'
+      + (p.rel ? '<option value="source"' + (d.attachment === 'source' ? ' selected' : '') + '>' + esc(t('workbench.exp.attach_source', { name: p.name || '' })) + '</option>' : '')
+      + '</select>'
+      + (st && st.error ? '<p class="wb-preview-bad">' + esc(st.error) + '</p>' : '')
+      + '<div class="wb-form-actions"><button type="submit" class="btn-primary" data-wb-act="send-request"' + (busy ? ' disabled' : '') + '>'
+      + esc(busy ? t('workbench.exp.send_busy') : t('workbench.exp.send_submit')) + '</button></div>'
+      + '</form>'
+  }
+
+  function fieldVal(id) {
+    var el = document.getElementById(id)
+    return el && typeof el.value === 'string' ? el.value : ''
+  }
+
+  function readSendDraft() {
+    return {
+      to: fieldVal('wbSendTo').trim(),
+      subject: fieldVal('wbSendSubject'),
+      message: fieldVal('wbSendMessage'),
+      attachment: fieldVal('wbSendAttach') || 'html',
+    }
+  }
+
+  function sendRequest() {
+    if (!WB.selectedId || archived()) return
+    var cur = sendState()
+    if (cur && cur.busy) return
+    var itemId = WB.selectedId
+    var draft = readSendDraft()
+    if (!draft.to) {
+      WB.send = { itemId: itemId, draft: draft, error: t('workbench.exp.send_to_missing') }
+      render()
+      return
+    }
+    WB.send = { itemId: itemId, draft: draft, busy: true }
+    render()
+    api('POST', itemUrl('/send-request'), {
+      to: draft.to, subject: draft.subject, message: draft.message, attachment: draft.attachment,
+      version: WB.previewVersion || null,
+    }).then(function (r) {
+      if (!WB.send || WB.send.itemId !== itemId) return
+      if (!r.ok) {
+        WB.send = { itemId: itemId, draft: draft, error: r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '') }
+        render()
+        return
+      }
+      WB.send = { itemId: itemId, draft: draft, result: { approval_id: r.data.approval_id, status: r.data.status || 'pending' } }
+      render()
+      window.showToast((r.data && r.data.message) || t('workbench.exp.send_status.pending'))
+      load(WB.projectId)
+    })
+  }
+
+  /** A jegy allapota a Jovahagyasok forrasabol -- sosem emlekezetbol. */
+  function refreshSendStatus() {
+    var st = sendState()
+    if (!st || !st.result) return
+    api('GET', '/api/approvals/' + encodeURIComponent(st.result.approval_id)).then(function (r) {
+      if (WB.send !== st) return
+      if (!r.ok) { st.statusError = r.message; render(); return }
+      st.statusError = null
+      var a = r.data && (r.data.approval || r.data)
+      if (a && a.status) st.result.status = a.status
+      render()
+    })
+  }
+
+  function openPrint() {
+    if (!WB.selectedId) return
+    // Uj lap: ott a bongeszo sajat nyomtatasa (Mentes PDF-kent) megy, telefonon
+    // is. Ha a felugro ablakot a bongeszo letiltja, a lap LINKKENT ott marad.
+    var w = typeof window.open === 'function' ? window.open(exportPageUrl('&print=1'), '_blank', 'noopener') : null
+    if (!w) window.showToast(t('workbench.exp.popup_blocked'))
+  }
+
+  function downloadBlob(blob, name) {
+    if (!blob || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return false
+    var a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(function () { URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a) }, 1000)
+    return true
+  }
+
+  function loadImg(src) {
+    return new Promise(function (resolve, reject) {
+      var im = new Image()
+      im.onload = function () { resolve(im) }
+      im.onerror = function () { reject(new Error(src)) }
+      im.src = src
+    })
+  }
+
+  function wrapLines(ctx, text, maxW) {
+    var out = []
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/)
+      var line = ''
+      words.forEach(function (w) {
+        var test = line ? line + ' ' + w : w
+        if (ctx.measureText(test).width > maxW && line) { out.push(line); line = w } else line = test
+      })
+      out.push(line)
+    })
+    return out
+  }
+
+  /** A munkadarab kepe PNG-ben. A kep-fajtanal az eredeti fajl jon (nincs
+   *  minosegromlas); a rajzot es a vegyes tartalmat a bongeszo rajzolja ki. */
+  function exportPng() {
+    var src = pngSource()
+    if (!src || WB.pngBusy || !WB.detail) return
+    var title = (WB.detail.item && WB.detail.item.title) || 'munkadarab'
+    var p = WB.preview
+    if (src === 'image') {
+      window.open('/api/life/file?rel=' + encodeURIComponent(p.rel) + '&download=1', '_blank', 'noopener')
+      return
+    }
+    WB.pngBusy = true
+    render()
+    var done = function (ok, msg) {
+      WB.pngBusy = false
+      render()
+      window.showToast(ok ? t('workbench.exp.png_done') : t('workbench.exp.png_failed', { message: msg || '' }))
+    }
+    var width = 1080
+    var pad = 48
+    var blocks
+    if (src === 'canvas') {
+      blocks = [{ img: canvasSvgUrl(WB.selectedId, false) }]
+    } else if (p && p.available && p.kind === 'text') {
+      blocks = [{ text: p.text || '' }]
+    } else {
+      blocks = partsOf().map(function (x) { return x.kind === 'image' ? { img: partImageSrc(x), caption: x.caption } : { text: x.text || '' } })
+    }
+    Promise.all(blocks.map(function (b) { return b.img ? loadImg(b.img).then(function (im) { b.el = im; return b }) : Promise.resolve(b) })).then(function () {
+      var cv = document.createElement('canvas')
+      var ctx = cv.getContext('2d')
+      ctx.font = '32px sans-serif'
+      var inner = width - pad * 2
+      var h = pad
+      blocks.forEach(function (b) {
+        if (b.el) { b.h = Math.round(b.el.naturalHeight * Math.min(1, inner / (b.el.naturalWidth || inner))); b.w = Math.round(b.el.naturalWidth * (b.h / (b.el.naturalHeight || 1))); h += b.h + (b.caption ? 44 : 0) + 24 }
+        else { b.lines = wrapLines(ctx, b.text, inner); h += b.lines.length * 44 + 24 }
+      })
+      cv.width = width
+      cv.height = Math.max(h + pad - 24, 200)
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, cv.width, cv.height)
+      ctx.fillStyle = '#111111'
+      ctx.font = '32px sans-serif'
+      ctx.textBaseline = 'top'
+      var y = pad
+      blocks.forEach(function (b) {
+        if (b.el) {
+          ctx.drawImage(b.el, pad + Math.round((inner - b.w) / 2), y, b.w, b.h)
+          y += b.h
+          if (b.caption) { ctx.font = 'italic 28px sans-serif'; ctx.fillText(b.caption, pad, y + 8); ctx.font = '32px sans-serif'; y += 44 }
+        } else {
+          b.lines.forEach(function (ln) { ctx.fillText(ln, pad, y); y += 44 })
+        }
+        y += 24
+      })
+      cv.toBlob(function (blob) {
+        done(downloadBlob(blob, title.replace(/[\\/:*?"<>|]+/g, ' ').trim() + '.png'))
+      }, 'image/png')
+    }).catch(function (e) { done(false, e && e.message) })
   }
 
   function undoVersion() {
@@ -3388,6 +3655,13 @@
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
+    else if (a === 'export-open') { WB.exportOpen = WB.selectedId; render() }
+    else if (a === 'export-close') { WB.exportOpen = null; render() }
+    else if (a === 'export-print') openPrint()
+    else if (a === 'export-png') exportPng()
+    else if (a === 'send-request') { e.preventDefault(); sendRequest() }
+    else if (a === 'send-refresh') refreshSendStatus()
+    else if (a === 'send-new') { WB.send = null; render() }
     else if (a === 'version-undo') undoVersion()
     else if (a === 'compare-open') openCompare()
     else if (a === 'compare-close') { WB.compare = null; render() }
@@ -3603,6 +3877,12 @@
       if (line && line.style) line.style.left = pos + '%'
       return
     }
+    if ((e.target.id === 'wbSendTo' || e.target.id === 'wbSendSubject' || e.target.id === 'wbSendMessage') && WB.selectedId) {
+      var ss = sendState()
+      if (!ss || ss.result) { ss = { itemId: WB.selectedId, draft: {} }; WB.send = ss }
+      ss.draft = readSendDraft()
+      return
+    }
     if (e.target.id === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = e.target.value
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
@@ -3698,6 +3978,7 @@
     if (!WB.open) return
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
     if (e.target && e.target.id === 'wbTextEditForm') { e.preventDefault(); saveTextEdit() }
+    if (e.target && e.target.id === 'wbSendForm') { e.preventDefault(); sendRequest() }
     if (e.target && e.target.id === 'wbPartNewForm') { e.preventDefault(); addTextPart() }
     if (e.target && e.target.id === 'wbPartForm') { e.preventDefault(); savePart(WB.partEdit) }
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
