@@ -126,6 +126,7 @@
     todos: null,
     tdError: null,
     tdBusy: false,
+    pinBusy: false,
     tdOpen: false,
     tdRem: null,
     tdRemError: null,
@@ -208,6 +209,28 @@
       loadTodos(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
       if (WB.selectedId && !WB.items.some(function (i) { return i.id === WB.selectedId })) WB.selectedId = null
+      render()
+    })
+  }
+
+  // ---- kituzes (#406, 21bcb1f4) ---------------------------------------------
+  //
+  // A sorrendet a szerver adja vissza (friss lista), a felulet nem rendez maga.
+
+  function togglePin(id) {
+    if (WB.pinBusy || archived()) return
+    var it = (WB.items || []).filter(function (x) { return x.id === id })[0]
+    if (!it) return
+    var pinned = it.pinned_at == null
+    var pid = WB.projectId
+    WB.pinBusy = true
+    render()
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/pin', { pinned: pinned }).then(function (r) {
+      WB.pinBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
+      window.showToast(t(pinned ? 'workbench.pin.added' : 'workbench.pin.removed'))
       render()
     })
   }
@@ -611,7 +634,15 @@
     } else {
       body = '<ul class="wb-items">' + WB.items.map(function (it, i) {
         var on = it.id === WB.selectedId
-        return '<li><button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
+        // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
+        // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
+        var pinned = it.pinned_at != null
+        var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
+        return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + '">'
+          + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
+          + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
+          + (pinned ? '★' : '☆') + '</button>'
+          + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
           + '<span class="wb-item-title">' + esc((i + 1) + '. ' + it.title) + '</span>'
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
           + '</button></li>'
@@ -4833,6 +4864,7 @@
     if (!act) return
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
+    else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
     else if (a === 'export-open') { WB.exportOpen = WB.selectedId; render() }
     else if (a === 'export-close') { WB.exportOpen = null; render() }

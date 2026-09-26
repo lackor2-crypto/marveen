@@ -66,6 +66,9 @@ export interface WorkItemRow {
   created_at: number
   updated_at: number
   created_by: string | null
+  /** Kituzve (csillag) ekkor; NULL = nincs kituzve. A kituzottek a lista
+   *  tetejen allnak, a kituzes sorrendjeben (#406, 21bcb1f4). */
+  pinned_at: number | null
 }
 
 export interface WorkItemVersionRow {
@@ -142,6 +145,8 @@ export function ensureWorkbenchTables(): void {
   // a reszeket hozna vissza, a forrasfajlt nem.
   const vCols = new Set((db.prepare('PRAGMA table_info(work_item_versions)').all() as { name: string }[]).map((c) => c.name))
   if (!vCols.has('source_path')) db.exec('ALTER TABLE work_item_versions ADD COLUMN source_path TEXT')
+  const iCols = new Set((db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).map((c) => c.name))
+  if (!iCols.has('pinned_at')) db.exec('ALTER TABLE work_items ADD COLUMN pinned_at INTEGER')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, updated_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')
@@ -245,15 +250,33 @@ export function getWorkItemVersion(id: string): WorkItemVersionRow | undefined {
   return getDb().prepare('SELECT * FROM work_item_versions WHERE id = ?').get(v) as WorkItemVersionRow | undefined
 }
 
-/** Egy projekt munkadarabjai, a legutobb valtozott elol. Ismeretlen projektre
- *  ures lista -- a hivo dolga eldonteni, letezik-e a projekt. */
+/** Egy projekt munkadarabjai: elol a kituzottek (a legutobb kituzott elol, hogy
+ *  egy szerkesztes ne ugraltassa oket), utana a legutobb valtozott elol.
+ *  Ismeretlen projektre ures lista -- a hivo dolga eldonteni, letezik-e a projekt. */
 export function listWorkItems(projectId: string): WorkItemRow[] {
   ensureWorkbenchTables()
   const pid = String(projectId || '').trim()
   if (!pid) return []
   return getDb()
-    .prepare('SELECT * FROM work_items WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC')
+    .prepare('SELECT * FROM work_items WHERE project_id = ? ORDER BY (pinned_at IS NULL), pinned_at DESC, updated_at DESC, created_at DESC')
     .all(pid) as WorkItemRow[]
+}
+
+/**
+ * Kituzes / levetel (csillag). A munkadarab `updated_at`-jet SZANDEKOSAN nem
+ * erinti: a csillag nem szerkesztes, es ha az lenne, a levett darab a lista
+ * tetejere ugrana. Ismetelt kituzes nem modositja az eredeti idopontot, igy a
+ * kituzottek sorrendje stabil marad.
+ */
+export function setWorkItemPinned(id: string, pinned: boolean, now: number = Date.now()): WorkItemRow | undefined {
+  const item = getWorkItem(id)
+  if (!item) return undefined
+  if (pinned && item.pinned_at == null) {
+    getDb().prepare('UPDATE work_items SET pinned_at = ? WHERE id = ?').run(Math.floor(now), item.id)
+  } else if (!pinned && item.pinned_at != null) {
+    getDb().prepare('UPDATE work_items SET pinned_at = NULL WHERE id = ?').run(item.id)
+  }
+  return getWorkItem(item.id)
 }
 
 /** Egy munkadarab verzioi, a legfrissebb elol. */
