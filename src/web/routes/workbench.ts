@@ -51,6 +51,7 @@ import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '.
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
+import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
@@ -166,6 +167,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   decision_item_not_in_project: {
     hu: 'A megadott munkadarab nem ehhez a projekthez tartozik.',
     en: 'The given work item does not belong to this project.',
+  },
+  template_not_found: {
+    hu: 'Ilyen sablon nincs. Frissítsd az oldalt, és válassz a listából.',
+    en: 'There is no such template. Reload the page and pick one from the list.',
+  },
+  template_failed: {
+    hu: 'A sablonból nem sikerült elkészíteni a munkadarabot, ezért semmi nem jött létre. Próbáld újra.',
+    en: 'The work item could not be made from the template, so nothing was created. Please try again.',
   },
   search_query_short: {
     hu: 'Írj be legalább 2 betűt a kereséshez.',
@@ -620,6 +629,26 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r) return fail(res, 400, 'decision_text_required', lang)
     if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : r.code === 'too_many' ? 409 : 400, 'decision_' + r.code, lang)
     json(res, { decision: r.decision })
+    return true
+  }
+
+  // SABLONOK (#406, 11. pont): egy kattintassal uj munkadarab, elore kitoltott
+  // szerkezettel. A sablonok a kodban elnek, friss telepitesen is ott vannak.
+  if (path === '/api/workbench/templates' && method === 'GET') {
+    json(res, { templates: listTemplates(lang) })
+    return true
+  }
+  if (path === '/api/workbench/templates/use' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = typeof body['project_id'] === 'string' ? body['project_id'].trim() : ''
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = createFromTemplate(project, body['template'], { title: body['title'], lang, created_by: actor(ctx) })
+    if (!r.ok) return fail(res, r.code === 'template_not_found' ? 404 : r.code === 'template_failed' ? 500 : 400, r.code, lang)
+    json(res, { ok: true, item: r.item, versions: [r.version], parts: r.parts, template: r.template }, 201)
     return true
   }
 

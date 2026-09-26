@@ -35,6 +35,7 @@ import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord } from './project-tools.js'
 import { webSearch } from './web-search.js'
+import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -251,6 +252,15 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       })
       if (!r.ok) return { ok: false, code: r.code, detail: `the work item was not created: ${r.code}` }
       return { ok: true, data: { item: r.item, version: r.version } }
+    }
+
+    case 'workItem.fromTemplate': {
+      const r = createFromTemplate(project, input.template, { title: input.title, lang: ctx.lang, created_by: 'workbench-agent' })
+      if (!r.ok) {
+        const known = WORKBENCH_TEMPLATES.map((t) => t.id).join(', ')
+        return { ok: false, code: r.code, detail: r.code === 'template_not_found' ? `no such template; use one of: ${known}` : `the work item was not created: ${r.detail ?? r.code}` }
+      }
+      return { ok: true, data: { item: r.item, version: r.version, parts: r.parts.map((p) => ({ id: p.id, text: p.text })) } }
     }
 
     case 'workItem.update': {

@@ -14,6 +14,7 @@ import type { Lang } from './messages.js'
 
 const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'workItem.create': { hu: 'új munkadarab létrehozása', en: 'create a new work item' },
+  'workItem.fromTemplate': { hu: 'új munkadarab sablonból', en: 'new work item from a template' },
   'workItem.update': { hu: 'munkadarab módosítása', en: 'change a work item' },
   'workItem.addPart': { hu: 'rész hozzáadása a munkadarabhoz', en: 'add a part to the work item' },
   'workItem.createVersion': { hu: 'új verzió mentése', en: 'save a new version' },
