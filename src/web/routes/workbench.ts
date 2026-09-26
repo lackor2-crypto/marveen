@@ -47,6 +47,7 @@ import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
+import { editAsNewVersion, saveTextSourceAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
@@ -319,6 +320,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   canvas_saved: {
     hu: 'Mentve, új verzióként. A korábbi állapot megmaradt.',
     en: 'Saved as a new version. The earlier state is kept.',
+  },
+  text_source_unsupported: {
+    hu: 'Ennek a munkadarabnak a forrása nem szövegfájl, ezért itt nem írható át. Dokumentumnál töltsd le, szerkeszd a gépeden, és töltsd vissza.',
+    en: 'The source of this work item is not a text file, so it cannot be rewritten here. For a document, download it, edit it on your computer and upload it again.',
+  },
+  text_source_truncated: {
+    hu: `Ez a szövegfájl túl hosszú ahhoz, hogy itt biztonságosan átírjam (az előnézet csak az elejét mutatja, legfeljebb ${TEXT_SOURCE_MAX} karaktert írok). Nyisd meg a saját programoddal.`,
+    en: `This text file is too long to rewrite here safely (the preview only shows its beginning; at most ${TEXT_SOURCE_MAX} characters are written). Open it with your own program.`,
+  },
+  text_source_too_long: {
+    hu: `A szöveg túl hosszú (legfeljebb ${TEXT_SOURCE_MAX} karakter).`,
+    en: `The text is too long (${TEXT_SOURCE_MAX} characters at most).`,
   },
   upload_too_large: {
     hu: `Ez a fájl túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába a gépeden, és onnan vedd fel.`,
@@ -832,13 +845,50 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // SZOVEGFAJL KOZVETLEN SZERKESZTESE (#406, 4. pont): az uj tartalom UJ
+  // fajlba kerul a projekt mappajaban, es UJ verzio mutat ra -- a regi fajl es
+  // a regi verzio erintetlen. Csak akkor, ha a munkadarab MOSTANI forrasa
+  // szovegfajl, es az egeszet latjuk (levagott elonezetet nem irunk vissza:
+  // az a fajl vegenek elvesztese lenne).
+  if (segs.length === 2 && segs[1] === 'text' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    if (typeof body['text'] !== 'string') return fail(res, 400, 'text_required', lang)
+    const p = buildPreview(item.id)
+    if (!p.available || p.kind !== 'text' || !p.rel) return fail(res, 400, 'text_source_unsupported', lang)
+    if (p.truncated) return fail(res, 400, 'text_source_truncated', lang)
+    const r = saveTextSourceAsNewVersion(item, project, p.rel, body['text'] as string, { created_by: actor(ctx), prompt: body['prompt'] })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
+    }
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      file: r.file, renamed: r.file.renamed, name: r.file.name,
+    }, 201)
+    return true
+  }
+
   if (segs[1] !== 'parts') return false
+
+  // MINDEN MENTES UJ VERZIO (#406, 4. pont): a felulet `?new_version=1`-gyel
+  // kuldi a resz-muveleteket, es akkor a valtoztatas egy UJ verzioba kerul (a
+  // regi valtozatlan marad). A parameter nelkuli hivas a regi, helyben iro
+  // viselkedes -- az agens eszkozei es a regebbi hivok ezt varjak.
+  const versioned = url.searchParams.get('new_version') === '1'
+  const withVersion = <R extends { ok: boolean }>(kind: string, pid: string | null, fn: (mapped: string | null) => R) =>
+    editAsNewVersion(item.id, { created_by: actor(ctx), kind }, pid, fn)
+  const versionExtras = (r: { ok: true; version: unknown; item: unknown }) => ({
+    version: r.version, item: r.item, versions: listWorkItemVersionsView(item.id),
+  })
 
   // Uj resz: szoveg-blokk, vagy egy MAR meglevo kep utja a Raktarban.
   if (segs.length === 2 && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const r = addWorkItemPart({
+    const add = () => addWorkItemPart({
       work_item_id: item.id,
       kind: body.kind,
       text: body.text,
@@ -848,6 +898,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       caption: body.caption,
       created_by: actor(ctx),
     })
+    if (versioned) {
+      const v = withVersion('part_add', null, add)
+      if (!v.ok) return fail(res, v.code === 'not_found' ? 404 : 400, v.code, lang)
+      json(res, { ok: true, part: v.part, parts: listWorkItemParts(item.id), ...versionExtras(v) }, 201)
+      return true
+    }
+    const r = add()
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id) }, 201)
     return true
@@ -872,7 +929,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // A hibakodot a FAJLRENDSZER mondja meg (nincs Raktar / nincs mappa / nem
     // erem el / git-tarolo) -- nem talalgatjuk, mindegyiknek sajat mondata van.
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)
-    const r = addWorkItemPart({
+    const addImage = () => addWorkItemPart({
       work_item_id: item.id,
       kind: 'image',
       asset_path: out.rel,
@@ -881,6 +938,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       caption: url.searchParams.get('caption'),
       created_by: actor(ctx),
     })
+    if (versioned) {
+      const v = withVersion('part_add_image', null, addImage)
+      if (!v.ok) return fail(res, v.code === 'not_found' ? 404 : 400, v.code, lang)
+      json(res, { ok: true, part: v.part, parts: listWorkItemParts(item.id), file: out, ...versionExtras(v) }, 201)
+      return true
+    }
+    const r = addImage()
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id), file: out }, 201)
     return true
@@ -891,6 +955,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 3 && (method === 'PATCH' || method === 'PUT')) {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
+    if (versioned) {
+      const v = withVersion('part_update', partId, (mapped) => updateWorkItemPart(mapped || '', { text: body.text, caption: body.caption }, item.id))
+      if (!v.ok) return fail(res, v.code === 'part_not_found' || v.code === 'not_found' ? 404 : 400, v.code, lang)
+      json(res, { ok: true, part: v.part, parts: listWorkItemParts(item.id), ...versionExtras(v) })
+      return true
+    }
     const r = updateWorkItemPart(partId, { text: body.text, caption: body.caption }, item.id)
     if (!r.ok) return fail(res, r.code === 'part_not_found' ? 404 : 400, r.code, lang)
     json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id) })
@@ -898,6 +968,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   }
 
   if (segs.length === 3 && method === 'DELETE') {
+    if (versioned) {
+      const v = withVersion('part_remove', partId, (mapped) => removeWorkItemPart(mapped || '', item.id))
+      if (!v.ok) return fail(res, 404, v.code, lang)
+      json(res, { ok: true, removed: v.part, parts: listWorkItemParts(item.id), ...versionExtras(v) })
+      return true
+    }
     const r = removeWorkItemPart(partId, item.id)
     if (!r.ok) return fail(res, 404, r.code, lang)
     json(res, { ok: true, removed: r.part, parts: listWorkItemParts(item.id) })
@@ -909,6 +985,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const dir = String(body.dir ?? '')
     if (dir !== 'up' && dir !== 'down') return fail(res, 400, 'bad_move', lang)
+    if (versioned) {
+      const v = withVersion('part_move', partId, (mapped) => moveWorkItemPart(mapped || '', dir, item.id))
+      if (!v.ok) return fail(res, 404, v.code, lang)
+      json(res, { ok: true, parts: v.parts, ...versionExtras(v) })
+      return true
+    }
     const r = moveWorkItemPart(partId, dir, item.id)
     if (!r.ok) return fail(res, 404, r.code, lang)
     json(res, { ok: true, parts: r.parts })
