@@ -85,6 +85,16 @@
     // chat. A valasztas a bongeszoben marad meg (nincs szerver-oldali allapot).
     layout: readLayout(),
     liveTimer: null,
+    // --- projekt-idovonal (#406, 7. pont) ---
+    // `tl === null` = meg nem kerdeztuk meg; ures tomb = megkerdeztuk, es
+    // tenyleg nincs esemeny. A `tlSources` a forrasok, amikbe NEM lattunk bele.
+    tlOpen: false,
+    tl: null,
+    tlError: null,
+    tlSources: [],
+    tlMore: false,
+    tlNext: null,
+    tlBusy: false,
     // --- projekt-attekinto (#406, 2. pont) ---
     // `overview === null` = MEG NEM kerdeztuk meg; a hiba KULON all, hogy a
     // "nem tudtam lekerdezni" sose latsszon "nincs semmi"-nek.
@@ -2528,6 +2538,98 @@
     }).join('') + '</div>'
   }
 
+  // ---- projekt-idovonal (#406, 7. pont) --------------------------------------
+  //
+  // A projekt minden esemenye egy gorgetheto savban, a legfrissebb felul. A
+  // szerver csak adatot ad (`kind` + cim/verzio/fajlnev); a mondatot itt rakjuk
+  // ossze, ket nyelven. Munkadarabhoz tartozo sor kattinthato: megnyitja azt.
+
+  function tlText(ev) {
+    return t('workbench.tl.kind.' + ev.kind, {
+      item: ev.item_title || t('workbench.tl.unknown_item'),
+      n: ev.version_no != null ? ev.version_no : '',
+      from: ev.from_version_no != null ? ev.from_version_no : '',
+      file: ev.file_name || '',
+      card: ev.card_seq != null ? '#' + ev.card_seq : '',
+      title: ev.card_title || '',
+      what: ev.approval_description || '',
+    })
+  }
+
+  function tlRowHtml(ev) {
+    var text = esc(tlText(ev))
+    var body = ev.item_id
+      ? '<button type="button" class="wb-tl-link" data-wb-item="' + escA(ev.item_id) + '">' + text + '</button>'
+      : '<span>' + text + '</span>'
+    return '<li class="wb-tl-row wb-tl-' + escA(ev.kind) + '">'
+      + '<span class="wb-tl-when">' + esc(when(ev.at)) + '</span>'
+      + '<span class="wb-tl-dot" aria-hidden="true"></span>'
+      + body
+      + '</li>'
+  }
+
+  function timelinePanelHtml() {
+    if (!WB.tlOpen) return ''
+    var body = ''
+    if (WB.tlError) body += '<p class="wb-error">' + esc(WB.tlError) + '</p>'
+    // Ha egy forras nem olvashato, KIMONDJUK: abbol most semmi nem latszik.
+    // Ez nem ugyanaz, mint hogy nem tortent semmi.
+    if (WB.tlSources && WB.tlSources.length) {
+      body += '<p class="wb-error">' + esc(t('workbench.tl.partial', {
+        sources: WB.tlSources.map(function (s) { return t('workbench.tl.source.' + s.source) }).join(', '),
+      })) + '</p>'
+    }
+    if (WB.tl === null) {
+      if (!WB.tlError) body += '<p class="wb-hint">' + esc(t('workbench.tl.loading')) + '</p>'
+    } else if (!WB.tl.length) {
+      body += '<p class="wb-hint">' + esc(t('workbench.tl.empty')) + '</p>'
+    } else {
+      body += '<ol class="wb-tl">' + WB.tl.map(tlRowHtml).join('') + '</ol>'
+      if (WB.tlMore) {
+        body += '<button type="button" class="btn-secondary wb-tl-more" data-wb-act="tl-more"' + (WB.tlBusy ? ' disabled' : '') + '>'
+          + esc(t(WB.tlBusy ? 'workbench.tl.loading' : 'workbench.tl.more')) + '</button>'
+      }
+    }
+    return '<section class="wb-caps-panel wb-tl-panel" id="wbTimelinePanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.tl.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="tl-refresh">' + esc(t('common.refresh')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="tl-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.tl.intro')) + '</p>'
+      + body
+      + '</section>'
+  }
+
+  /** `more` = a meglevo lista ala a regebbiek; kulonben elolrol. */
+  function loadTimeline(more) {
+    if (!WB.projectId || WB.tlBusy) return
+    var pid = WB.projectId
+    var url = '/api/workbench/timeline?project=' + encodeURIComponent(pid)
+    if (more && WB.tlNext) url += '&before=' + encodeURIComponent(WB.tlNext)
+    WB.tlBusy = true
+    WB.tlError = null
+    if (!more) { WB.tl = null; WB.tlSources = [] }
+    render()
+    api('GET', url).then(function (r) {
+      WB.tlBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) {
+        // "Nem lattunk oda", nem "nincs esemeny".
+        WB.tlError = r.message || t('workbench.tl.error')
+        if (!more) WB.tl = null
+        render()
+        return
+      }
+      var tl = (r.data && r.data.timeline) || { events: [], more: false, next_before: null, errors: [] }
+      WB.tl = (more && WB.tl ? WB.tl : []).concat(tl.events || [])
+      WB.tlMore = !!tl.more
+      WB.tlNext = tl.next_before || null
+      WB.tlSources = tl.errors || []
+      render()
+    })
+  }
+
   /** A ket elrendezes. Mindkettoben UGYANAZOK a panelek allnak (semmi nem
    *  vesz el valtaskor), csak mas a helyuk. Osztott nezetben a chat bal
    *  oldalt, az elo munkadarab jobb oldalt all; a lista es a reszletek alattuk.
@@ -2573,10 +2675,12 @@
       + '<button type="button" class="btn-secondary" data-wb-act="layout-toggle" aria-pressed="' + (WB.layout === 'split') + '"'
       + ' title="' + escA(t('workbench.layout.hint')) + '">'
       + esc(t(WB.layout === 'split' ? 'workbench.layout.to_classic' : 'workbench.layout.to_split')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml()
+      + timelinePanelHtml()
       + overviewHtml()
       + panelTabsHtml()
       + layoutHtml()
@@ -2868,6 +2972,13 @@
     WB.overview = null
     WB.overviewError = null
     WB.upload = null
+    WB.tlOpen = false
+    WB.tl = null
+    WB.tlError = null
+    WB.tlSources = []
+    WB.tlMore = false
+    WB.tlNext = null
+    WB.tlBusy = false
     render()
     load(projectId)
     loadChatStatus()
@@ -2926,6 +3037,10 @@
     else if (a === 'caps-open') { WB.capsOpen = true; if (WB.caps === null) loadCaps(false); else render() }
     else if (a === 'caps-close') { WB.capsOpen = false; render() }
     else if (a === 'caps-refresh') loadCaps(true)
+    else if (a === 'tl-open') { WB.tlOpen = !WB.tlOpen; if (WB.tlOpen && WB.tl === null) loadTimeline(false); else render() }
+    else if (a === 'tl-close') { WB.tlOpen = false; render() }
+    else if (a === 'tl-refresh') loadTimeline(false)
+    else if (a === 'tl-more') loadTimeline(true)
     else if (a === 'cap-test') testCap(act.getAttribute('data-wb-cap'))
     else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'canvas-start') { if (!archived()) startCanvas() }
