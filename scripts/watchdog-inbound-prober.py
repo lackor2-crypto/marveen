@@ -108,9 +108,10 @@ async def main() -> None:
     # --- .env config ---
     env = read_env(ENV_FILE)
     allowed_chat_id_raw = env.get("ALLOWED_CHAT_ID", "").strip()
-    if not allowed_chat_id_raw:
+    # CHATID0: "0" is the installer placeholder, not a chat -- same as absent.
+    if not allowed_chat_id_raw or allowed_chat_id_raw == "0":
         print(
-            "inbound-prober: ALLOWED_CHAT_ID absent in .env -- exiting as safe no-op",
+            "inbound-prober: ALLOWED_CHAT_ID absent (or the 0 placeholder) in .env -- exiting as safe no-op",
             file=sys.stderr,
         )
         sys.exit(0)

@@ -12,7 +12,10 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
-CHAT_ID=$(grep '^ALLOWED_CHAT_ID=' "$ENV_FILE" | cut -d= -f2-)
+# CHATID0: the owner chat resolves like src/owner-chat.ts -- .env first, the
+# "0" placeholder skipped, then the channel access.json allowlist.
+. "$SCRIPT_DIR/lib/owner-chat.sh"
+CHAT_ID="$(resolve_owner_chat_id "$PROJECT_DIR")"
 MAIN_AGENT_ID=$(grep '^MAIN_AGENT_ID=' "$ENV_FILE" | head -1 | cut -d= -f2-)
 MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
 
@@ -21,10 +24,9 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-# CHATID0: "0" is the installer placeholder, not a chat. Without this the
-# FALLBACK channel fails exactly where it is needed most -- it fires when the
-# plugin is down, and on a placeholder install it would post to chat_id=0.
-if [ -z "$CHAT_ID" ] || [ "$CHAT_ID" = "0" ]; then
+# CHATID0: "0" is the installer placeholder, not a chat (the resolver never
+# returns it). An empty id means no owner chat anywhere: say so, do not post.
+if [ -z "$CHAT_ID" ]; then
   echo "Hiba: ALLOWED_CHAT_ID nincs beallitva"
   exit 1
 fi
