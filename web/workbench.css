@@ -661,6 +661,9 @@
 .wb-td-check { flex: 0 0 auto; width: 28px; height: 28px; border: 2px solid var(--border, #8c959f); border-radius: 6px; background: transparent; cursor: pointer; font-weight: 700; line-height: 1; }
 .wb-td-done .wb-td-text { text-decoration: line-through; opacity: .65; }
 .wb-td-due { font-size: 12px; opacity: .8; }
+.wb-td-rem { margin: 6px 0 10px; }
+.wb-td-rem summary { cursor: pointer; font-size: 13px; }
+.wb-td-rem-warn { font-style: italic; }
 .wb-td-repeat { font-size: 12px; opacity: .8; white-space: nowrap; }
 .wb-td-overdue .wb-td-due { color: var(--danger, #cf222e); font-weight: 600; opacity: 1; }
 .wb-td-today .wb-td-due { color: var(--warning, #9a6700); font-weight: 600; opacity: 1; }

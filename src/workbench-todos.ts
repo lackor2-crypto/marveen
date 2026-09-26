@@ -43,6 +43,8 @@ export interface TodoRow {
   /** Az ebbol kipipalaskor letrejott KOVETKEZO teendo -- hogy egy ujrapipalas
    *  ne szuljon masodikat. */
   next_id: string | null
+  /** Melyik hataridore ment mar ki emlekezteto (otlet a5ecabbe). */
+  reminded_for?: string | null
 }
 
 export const TODO_REPEATS = ['weekly', 'monthly'] as const
@@ -85,6 +87,9 @@ export function ensureTodoTable(): void {
   if (!cols.has('repeat')) db.exec('ALTER TABLE work_item_todos ADD COLUMN repeat TEXT')
   if (!cols.has('repeat_day')) db.exec('ALTER TABLE work_item_todos ADD COLUMN repeat_day INTEGER')
   if (!cols.has('next_id')) db.exec('ALTER TABLE work_item_todos ADD COLUMN next_id TEXT')
+  // Emlekezteto (otlet a5ecabbe): melyik HATARIDORE ment mar ki. Ha a hatarido
+  // valtozik, az emlekezteto ujra elesedik.
+  if (!cols.has('reminded_for')) db.exec('ALTER TABLE work_item_todos ADD COLUMN reminded_for TEXT')
   tablesDb = db
 }
 

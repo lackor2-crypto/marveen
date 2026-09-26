@@ -81,6 +81,29 @@ export async function notifyChannel(text: string): Promise<void> {
   }
 }
 
+/** Is there a channel the owner reads? (token + a real owner chat id) */
+export function ownerChannelReady(): boolean {
+  return Boolean(CHANNEL_TOKEN && ownerChatId())
+}
+
+/**
+ * Like notifyChannel, but the caller LEARNS the outcome: 'no_channel' when this
+ * install has nowhere to send, a thrown error when the provider rejected the
+ * message. For senders that stamp "already sent" -- stamping after a swallowed
+ * failure would drop the message for good (the rejected send looks exactly
+ * like a delivered one). Plain text: no parse mode, so user-typed text needs
+ * no escaping.
+ */
+export async function sendOwnerChannelChecked(text: string): Promise<'sent' | 'no_channel'> {
+  const chatId = ownerChatId()
+  if (!CHANNEL_TOKEN || !chatId) return 'no_channel'
+  const provider = getProvider(CHANNEL_PROVIDER)
+  for (const chunk of provider.splitMessage(markIfTestRun(text))) {
+    await provider.sendMessage(CHANNEL_TOKEN, chatId, chunk)
+  }
+  return 'sent'
+}
+
 // Backward-compatible alias
 export const notifyTelegram = notifyChannel
 
