@@ -505,7 +505,15 @@ const _netStatus = (() => {
         '<p class="mv-auth-desc">' + tr('auth.login.desc', 'Enter your dashboard username and password.') + '</p>' +
         forcedHtml +
         '<input id="mv-login-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + tr('auth.login.username', 'Username') + '">' +
-        '<input id="mv-login-pass" type="password" autocomplete="current-password" placeholder="' + tr('auth.login.password', 'Password') + '">' +
+        // The eye shows the typed password (owner, TG 6597, 2026-09-26: on a
+        // phone keyboard a typo is invisible otherwise).
+        '<div class="mv-pass-wrap">' +
+          '<input id="mv-login-pass" type="password" autocomplete="current-password" placeholder="' + tr('auth.login.password', 'Password') + '">' +
+          '<button type="button" class="mv-pass-eye" id="mv-login-eye" aria-pressed="false" aria-controls="mv-login-pass"' +
+            ' title="' + tr('auth.login.show_password', 'Show password') + '" aria-label="' + tr('auth.login.show_password', 'Show password') + '">' +
+            '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line class="mv-eye-slash" x1="3" y1="3" x2="21" y2="21"/></svg>' +
+          '</button>' +
+        '</div>' +
         '<button type="submit" id="mv-login-submit">' + tr('auth.login.submit', 'Sign in') + '</button>' +
         '<div class="mv-auth-err" id="mv-login-err"></div>' +
         // The way back in when the password is gone. Hidden behind one click so
@@ -537,6 +545,16 @@ const _netStatus = (() => {
     const errEl = overlay.querySelector('#mv-login-err')
     const submitEl = overlay.querySelector('#mv-login-submit')
     const recoverEl = overlay.querySelector('#mv-login-recover')
+    const eyeEl = overlay.querySelector('#mv-login-eye')
+    eyeEl.addEventListener('click', () => {
+      const show = passEl.type === 'password'
+      passEl.type = show ? 'text' : 'password'
+      eyeEl.setAttribute('aria-pressed', show ? 'true' : 'false')
+      const label = show ? tr('auth.login.hide_password', 'Hide password') : tr('auth.login.show_password', 'Show password')
+      eyeEl.title = label
+      eyeEl.setAttribute('aria-label', label)
+      passEl.focus()
+    })
     overlay.querySelector('#mv-login-forgot').addEventListener('click', () => {
       recoverEl.hidden = !recoverEl.hidden
       if (!recoverEl.hidden) overlay.querySelector('#mv-login-token').focus()

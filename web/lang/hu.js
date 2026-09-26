@@ -4390,6 +4390,8 @@ window._i18n.hu = {
   'auth.login.desc':              'Add meg a dashboard felhasználóneved és jelszavad.',
   'auth.login.username':          'Felhasználónév',
   'auth.login.password':          'Jelszó',
+  'auth.login.show_password':     'Jelszó megmutatása',
+  'auth.login.hide_password':     'Jelszó elrejtése',
   'auth.login.submit':            'Belépés',
   'auth.login.err_empty':         'Adj meg felhasználónevet és jelszót.',
   'auth.login.err_invalid':       'Hibás belépési adatok.',
