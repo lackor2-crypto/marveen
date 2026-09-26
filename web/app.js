@@ -10980,8 +10980,21 @@ async function loadMemStats() {
 }
 
 let _prjMemoryMap = {}
+// Paging of the plain list (#413, upstream 09a4712e rebuilt): the page showed
+// the 50 most recent memories and nothing past them -- 1249 on the reference
+// install. A search or a project filter ranks differently and does not page.
+const MEM_PAGE = 50
+let _memNextOffset = 0
 
 async function loadMemories() {
+  return _loadMemoriesPage(false)
+}
+
+async function loadMoreMemories() {
+  return _loadMemoriesPage(true)
+}
+
+async function _loadMemoriesPage(append) {
   if (currentMemTier === 'log' || currentMemTier === 'graph') return
   const q = memSearchInput.value.trim()
   const agent = document.getElementById('memAgentFilter').value
@@ -10993,23 +11006,47 @@ async function loadMemories() {
   }
   if (agent) params.set('agent', agent)
   if (currentMemTier) params.set('tier', currentMemTier)
-  params.set('limit', '50')
+  params.set('limit', String(MEM_PAGE))
   if (_prjScope.memories) params.set('project', _prjScope.memories)
-  _prjScopeBar('memories', loadMemories)
+  const pageable = !q && !_prjScope.memories
+  if (!append) _memNextOffset = 0
+  if (append && pageable) params.set('offset', String(_memNextOffset))
+  if (!append) _prjScopeBar('memories', loadMemories)
 
   try {
     const [res, map] = await Promise.all([fetch(`/api/memories?${params}`), _prjScopeMapLoad('memory')])
     const memories = await res.json()
+    if (!res.ok || !Array.isArray(memories)) {
+      showToast((memories && memories.message) || t('mem.load_failed'), { type: 'error' })
+      return
+    }
     _prjMemoryMap = map
-    renderMemories(memories)
+    renderMemories(memories, append)
+    _memNextOffset += memories.length
+    _renderMemMore(pageable && memories.length === MEM_PAGE)
   } catch (err) {
     console.error('Memória betöltés hiba:', err)
   }
 }
 
-function renderMemories(memories) {
-  memList.innerHTML = ''
-  memEmpty.hidden = memories.length > 0
+function _renderMemMore(show) {
+  const old = document.getElementById('memMoreBtn')
+  if (old) old.remove()
+  if (!show) return
+  const btn = document.createElement('button')
+  btn.id = 'memMoreBtn'
+  btn.type = 'button'
+  btn.className = 'btn-secondary mem-more-btn'
+  btn.textContent = t('mem.load_more', { n: _memNextOffset })
+  btn.addEventListener('click', () => { btn.disabled = true; loadMoreMemories() })
+  memList.appendChild(btn)
+}
+
+function renderMemories(memories, append) {
+  if (!append) memList.innerHTML = ''
+  const oldMore = document.getElementById('memMoreBtn')
+  if (oldMore) oldMore.remove()
+  memEmpty.hidden = append || memories.length > 0
 
   for (const mem of memories) {
     const item = document.createElement('div')

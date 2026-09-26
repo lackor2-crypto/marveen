@@ -4475,6 +4475,8 @@ window._i18n.hu = {
   'auth.card.err_mismatch':       'A jelszavak nem egyeznek.',
   'auth.card.err_too_short':      'A jelszó legalább {n} karakter legyen.',
   'auth.card.err_generic':        'A művelet nem sikerült.',
+  'mem.load_more':                'Továbbiak betöltése (eddig {n} látszik)',
+  'mem.load_failed':              'Az emlékeket nem sikerült betölteni.',
   'auth.card.err_current_wrong':  'A jelenlegi jelszó nem stimmel. Írd be újra.',
   'auth.card.signed_in_as':       'Belépve mint {user}.',
   'auth.card.current_password':   'Jelenlegi jelszó',

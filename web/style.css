@@ -12924,3 +12924,6 @@ span.intezo-tree-tw { cursor: default; }
 .auth-channel-need { border: 1px solid var(--warning, #d9a441); border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 13px; }
 .auth-channel-need[hidden] { display: none; }
 .auth-channel-need p { margin: 0 0 8px; }
+
+/* Memory list paging (#413): the "load more" button under the list. */
+.mem-more-btn { display: block; width: 100%; margin: 12px 0 4px; padding: 10px; }
