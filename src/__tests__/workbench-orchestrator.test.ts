@@ -329,6 +329,35 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
     expect(listWorkItems(projectId)).toHaveLength(2)
   })
 
+  // #406 bugkereses 2.: a tulajdonos a FORDULO KOZBEN hagyja jova, es a modell
+  // ugyanazt a lepest ujra kiri. Eddig a beszelgetes lefuttatta, az eredeti
+  // varakozo sort viszont nem foglalta le -- a jovahagyas-feldolgozo utana
+  // masodszor is lefuttatta (ket munkadarab / "x (2).md").
+  it('fordulo kozbeni jovahagyas + ujrahivas: pontosan EGY futas (#406)', async () => {
+    setAutonomyLoaderForTest(configWith(2))
+    const create = '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}'
+    const base = fakeProvider([create, create, 'Kész.'])
+    let calls = 0
+    const p: AIProvider = {
+      ...base,
+      async *stream(req: AICallRequest): AsyncIterable<AIChunk> {
+        // A masodik modell-hivas elott a tulajdonos jovahagy.
+        if (++calls === 2) resolveApproval(listApprovals({ status: 'pending', limit: 10 })[0].id, 'approved', 'teszt')
+        yield* base.stream(req)
+      },
+    }
+    await turn('Csinálj egy új ajánlatot', p)
+    expect(listWorkItems(projectId)).toHaveLength(2)
+    // A dontes-vegpont (approvals.ts) es a kovetkezo fordulo is lefuttatja a feldolgozot.
+    const { settleWorkbenchApprovals } = await import('../workbench-agent/approved-runner.js')
+    await settleWorkbenchApprovals()
+    await turn('Na?', fakeProvider(['Rendben.']))
+    expect(listWorkItems(projectId)).toHaveLength(2)
+    const s = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const rows = listToolCalls(s.id).filter((r) => r.tool_name === 'workItem.create')
+    expect(rows.some((r) => r.status === 'needs_approval' || r.status === 'running')).toBe(false)
+  })
+
   it('3-as szinten a tool onalloan fut, jegy nelkul', async () => {
     setAutonomyLoaderForTest(configWith(3))
     const p = fakeProvider([

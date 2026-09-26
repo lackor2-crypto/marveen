@@ -84,6 +84,18 @@ describe('settleWorkbenchApprovals', () => {
     expect(isApprovalConsumed('ap-5')).toBe(false)
   })
 
+  // #406 bugkereses 2.: ha a jegyet mar egy sikeres futas felhasznalta (a
+  // beszelgetes maga futtatta), a varakozo sor nem fut le masodszor.
+  it('mar felhasznalt jegy varakozo sora NEM fut ujra', async () => {
+    const rowId = awaiting({ path: 'e.txt' }, 'ap-6')
+    resolveApproval('ap-6', 'approved', 'owner')
+    const other = startToolCall(sessionId, 'file.write', { path: 'e.txt' })
+    finishToolCall(other.id, 'ok', { written: 'e.txt' }, 'ap-6')
+    await settleWorkbenchApprovals()
+    expect(ran).toHaveLength(0)
+    expect(listToolCalls(sessionId).find((r) => r.id === rowId)?.status).toBe('error')
+  })
+
   it('a cel emberi nyelven', () => {
     expect(targetOf({ path: 'x.md' })).toBe(' — x.md')
     expect(targetOf({})).toBe('')
