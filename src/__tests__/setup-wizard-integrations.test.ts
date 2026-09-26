@@ -2,8 +2,8 @@
  * Every paid/keyed third-party service must reach the setup wizard AND the
  * Overview self-check -- not only the screen that happens to use it.
  *
- * #404, Boss 2026-09-26: the Brave web-search key was settable only on the
- * Workbench page, so a fresh install was never walked to it and the self-check
+ * #404, Boss 2026-09-26: the (since removed) Brave web-search key was settable
+ * only on the Workbench page, so a fresh install was never walked to it and the self-check
  * never asked about it. "figyelj mindenre, hogyha telepit itt a projekten belul
  * itt valamit, vagy fejlesztodik a projekt, azert az onellenorzes ezt mind
  * figyelje, meg a varazslo" -- and the same will hold for the image, video and
@@ -13,7 +13,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest'
 import { SETTINGS_REGISTRY } from '../config-registry.js'
-import { SETUP_ITEMS, overrideStoredKeys, writableEnvKeys } from '../web/setup-wizard-registry.js'
+import { SETUP_ITEMS, overrideStoredKeys, writableEnvKeys, type SetupItemState } from '../web/setup-wizard-registry.js'
 import { wizardValues, integrationStates } from '../web/setup-wizard-values.js'
 import { integrationRows } from '../web/system-health.js'
 
@@ -72,9 +72,9 @@ describe('keyed services reach the setup wizard', () => {
   })
 
   it('walks the owner through every integration: steps, links, both languages', () => {
-    const integrations = SETUP_ITEMS.filter(i => i.group === 'integrations')
-    expect(integrations.length).toBeGreaterThan(0)
-    for (const item of integrations) {
+    // Empty today (the Workbench web search needs no key since #404); the
+    // check bites the moment an image / video / voice service is added.
+    for (const item of SETUP_ITEMS.filter(i => i.group === 'integrations')) {
       expect(item.tier, item.id).toBe('extra')
       expect(item.required, item.id).toBe(false)
       expect((item.stepKeys || []).length, `${item.id} steps`).toBeGreaterThan(0)
@@ -88,49 +88,49 @@ describe('keyed services reach the setup wizard', () => {
     }
   })
 
-  it('names the Brave web search honestly: no "free plan" claim', () => {
-    const item = SETUP_ITEMS.find(i => i.id === 'web-search')!
-    expect(item.envKey).toBe('BRAVE_SEARCH_API_KEY')
-    expect(hu[item.helpKey]).not.toMatch(/van ingyenes csomag/i)
-    expect(en[item.helpKey]).not.toMatch(/there is a free plan/i)
+  it('no longer asks for a Brave key anywhere', () => {
+    expect(SETTINGS_REGISTRY.some(d => d.key === 'BRAVE_SEARCH_API_KEY')).toBe(false)
+    expect(SETUP_ITEMS.some(i => i.envKey === 'BRAVE_SEARCH_API_KEY')).toBe(false)
   })
+})
+
+const K = new Set(['SOME_SERVICE_API_KEY'])
+const fakeItem = (configured: boolean): SetupItemState => ({
+  id: 'some-service', group: 'integrations', kind: 'secret', envKey: 'SOME_SERVICE_API_KEY',
+  labelKey: 'x', descKey: 'x', helpKey: 'x', required: false, tier: 'extra', configured,
 })
 
 describe('wizard values', () => {
   it('takes an override-stored key from the override store', () => {
-    const v = wizardValues({}, { BRAVE_SEARCH_API_KEY: 'BSAkey' })
-    expect(v.BRAVE_SEARCH_API_KEY).toBe('BSAkey')
+    expect(wizardValues({}, { SOME_SERVICE_API_KEY: 'k' }, K).SOME_SERVICE_API_KEY).toBe('k')
   })
 
   it('lets an emptied override win over a stale .env value', () => {
-    const v = wizardValues({ BRAVE_SEARCH_API_KEY: 'old' }, { BRAVE_SEARCH_API_KEY: '' })
-    expect(v.BRAVE_SEARCH_API_KEY).toBe('')
+    expect(wizardValues({ SOME_SERVICE_API_KEY: 'old' }, { SOME_SERVICE_API_KEY: '' }, K).SOME_SERVICE_API_KEY).toBe('')
   })
 
   it('falls back to .env when no override is set', () => {
-    const v = wizardValues({ BRAVE_SEARCH_API_KEY: 'fromenv' }, {})
-    expect(v.BRAVE_SEARCH_API_KEY).toBe('fromenv')
+    expect(wizardValues({ SOME_SERVICE_API_KEY: 'fromenv' }, {}, K).SOME_SERVICE_API_KEY).toBe('fromenv')
   })
 
-  it('never hands a secret value back, only whether it is set', () => {
-    const [ws] = integrationStates({ BRAVE_SEARCH_API_KEY: 'BSAsecret' }).filter(i => i.id === 'web-search')
-    expect(ws.configured).toBe(true)
-    expect(JSON.stringify(ws)).not.toContain('BSAsecret')
+  it('leaves keys that are not override-stored alone', () => {
+    expect(wizardValues({ OTHER: 'env' }, { OTHER: 'ov' }, K).OTHER).toBe('env')
   })
 })
 
 describe('self-check rows for integrations', () => {
   it('reports a missing integration as a neutral warning, never as red', () => {
-    const rows = integrationRows(() => integrationStates({}))
-    const ws = rows.find(r => r.params?.item === 'web-search')!
-    expect(ws.id).toBe('integration_missing')
-    expect(ws.status).toBe('warn')
-    expect(rows.every(r => r.status !== 'bad')).toBe(true)
+    const [r] = integrationRows(() => [fakeItem(false)])
+    expect(r).toMatchObject({ id: 'integration_missing', status: 'warn', params: { item: 'some-service' } })
   })
 
   it('reports a set key as ok', () => {
-    const rows = integrationRows(() => integrationStates({ BRAVE_SEARCH_API_KEY: 'x' }))
-    expect(rows.find(r => r.params?.item === 'web-search')!.status).toBe('ok')
+    expect(integrationRows(() => [fakeItem(true)])[0].status).toBe('ok')
+  })
+
+  it('stays silent when there is nothing to integrate', () => {
+    expect(integrationRows(() => [])).toEqual([])
+    expect(integrationStates({})).toEqual(SETUP_ITEMS.filter(i => i.group === 'integrations').map(() => expect.anything()))
   })
 
   it('says it could not see, instead of "not set up", when reading fails', () => {

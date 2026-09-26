@@ -15,7 +15,10 @@ scope: global
 **A valós eset.** A Munkapad webkeresésének kulcsa csak a Munkapad oldalán volt
 beállítható. A telepítő varázsló nem tudott róla, az önellenőrzés nem kérdezte,
 és a súgó szövege („van ingyenes csomag") elavult, mire kiderült. Egy friss
-telepítésen senki nem vezette volna végig a felhasználót.
+telepítésen senki nem vezette volna végig a felhasználót. A vége az lett, hogy a
+Brave kikerült, és a keresés a Claude saját webkeresőjével megy, kulcs nélkül:
+**mielőtt fizetős kulcsot kötsz be, nézd meg, nem tudja-e ugyanezt a meglévő
+Claude-előfizetés** (webkeresés, fájlolvasás stb.).
 
 ## A három kötelező pont (egy munkában, nem „majd")
 

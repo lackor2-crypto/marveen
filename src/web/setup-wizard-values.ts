@@ -2,7 +2,7 @@
 // Overview self-check so the two can never give different answers.
 //
 // Mostly the .env file -- but a wizard item stored as a settings override
-// (`store: 'override'`, e.g. the Workbench web-search key, #404) is read from
+// (`store: 'override'`) is read from
 // the override store, because that is where its owning screen writes it and an
 // override wins over .env. Reading only .env would call a key saved on the
 // Workbench page "missing".
@@ -14,9 +14,10 @@ import { buildSetupSummary, overrideStoredKeys, SETUP_ITEMS, type SetupItemState
 export function wizardValues(
   env: Record<string, string> = readEnvFile(),
   overrides: Record<string, string | number> = getOverrides(),
+  keys: Set<string> = overrideStoredKeys(),
 ): Record<string, string> {
   const out = { ...env }
-  for (const key of overrideStoredKeys()) {
+  for (const key of keys) {
     if (key in overrides) out[key] = String(overrides[key] ?? '')
   }
   return out

@@ -277,26 +277,11 @@ export const SETUP_ITEMS: SetupItem[] = [
     exampleKey: 'wizard.item.ollama_example',
     required: false, tier: 'extra', placeholder: 'http://localhost:11434',
   },
-  {
-    // #404: the Workbench web search. Before this entry the key could only be
-    // set on the Workbench page, so a fresh install was never walked to it and
-    // the Overview self-check never asked about it. The value is a
-    // settings-registry key: the route stores it as an override, the same
-    // place the Workbench form writes, so the two can never disagree.
-    id: 'web-search', group: 'integrations', kind: 'secret', envKey: 'BRAVE_SEARCH_API_KEY', store: 'override',
-    labelKey: 'wizard.item.web_search', descKey: 'wizard.item.web_search_desc',
-    helpKey: 'wizard.item.web_search_help',
-    stepKeys: [
-      'wizard.item.web_search_step1', 'wizard.item.web_search_step2',
-      'wizard.item.web_search_step3', 'wizard.item.web_search_step4',
-    ],
-    links: [
-      { url: 'https://brave.com/search/api/', labelKey: 'wizard.link.brave_api' },
-      { url: 'https://api-dashboard.search.brave.com/', labelKey: 'wizard.link.brave_dashboard' },
-    ],
-    exampleKey: 'wizard.item.web_search_example',
-    required: false, tier: 'extra', placeholder: 'BSA...',
-  },
+  // Optional keyed third-party services go here with group 'integrations'
+  // (image, video, voice generation, ...): the Overview self-check then gets
+  // a row for each on its own (integrationRows). See the
+  // bake-in-wizard-selfcheck skill. The Workbench web search needs no entry:
+  // it runs on the signed-in Claude subscription, with no key (#404).
 ]
 
 /** The wizard's view of one capability, with this install's state filled in. */

@@ -29,7 +29,7 @@ import { getEffectiveSettingValue } from './settings-store.js'
 import { getSettingDefinition } from './config-registry.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { listAIProviders } from './workbench-agent/provider.js'
-import { activeWebSearchProvider, BRAVE_KEY_URL, WEB_SEARCH_KEY_SETTING, lastWebSearchProbe, probeWebSearch } from './workbench-agent/web-search.js'
+import { activeWebSearchProvider, lastWebSearchProbe, probeWebSearch } from './workbench-agent/web-search.js'
 
 export type CapabilityState =
   /** Mukodik, meg is mertuk. */
@@ -293,9 +293,10 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
       return { state: 'not_configured', detail, version: null, path: null }
     },
   },
-  // #404: webkereses. A kulcs a FELULETROL irhato (titok: csak az latszik,
-  // hogy van-e). Az "Ellenorzes most" egy valodi, egytalalatos keresessel mer,
-  // mert csak igy derul ki, hogy a kulcs JO-e -- a sima "be van irva" hazudna.
+  // #404: webkereses a Claude SAJAT keresojevel, a bejelentkezett
+  // elofizetesrol -- nincs kulcs, nincs mit beallitani (a Brave-et a
+  // tulajdonos 2026-09-26-an kivetette). Az "Ellenorzes most" egy valodi,
+  // egytalalatos keresessel mer: csak igy derul ki, hogy tenyleg mukodik.
   {
     key: 'web_search',
     tier: 'extra',
@@ -310,30 +311,27 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     },
     how_to: {
       hu: [
-        'Nyisd meg a Brave Search API oldalát (a link lent van), és regisztrálj. Teljesen ingyenes csomag nincs, de minden hónapban 5 dollár ingyenes keretet ad (nagyjából 1000 keresés); ehhez bankkártyát kell megadni, és csak a kereten felüli keresést számlázzák ki.',
-        'A bejelentkezés után az „API Keys” részen hozz létre egy kulcsot, és másold ki. Hosszú betű-szám sor, például: BSAxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        'Illeszd be alább a mezőbe, és nyomd meg a Mentést.',
-        'Nyomd meg az „Ellenőrzés most” gombot: egy próbakereséssel megnézi, hogy a kulcs működik-e.',
+        'Nem kell hozzá kulcs és bankkártya: a keresés a bejelentkezett Claude-előfizetésedet használja, és a közös 5 órás keretből megy.',
+        'Ha „nincs beállítva” áll itt, jelentkezz be a Claude-fiókoddal a Beállítások → Varázsló → Claude bejelentkezés lépésben.',
+        'Nyomd meg az „Ellenőrzés most” gombot: egy próbakereséssel megnézi, hogy a keresés tényleg működik-e (kb. 20 másodperc).',
       ],
       en: [
-        'Open the Brave Search API page (the link is below) and sign up. There is no fully free plan, but it gives 5 dollars of free credit every month (roughly 1000 searches); you need to add a bank card, and only searches above the credit are billed.',
-        'After signing in, create a key under "API Keys" and copy it. It is a long string of letters and numbers, for example: BSAxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        'Paste it into the field below and press Save.',
-        'Press "Check now": it runs one test search to see whether the key works.',
+        'No key and no bank card needed: search uses your signed-in Claude subscription and counts toward the shared 5-hour limit.',
+        'If this says "not set up", sign in with your Claude account under Settings → Wizard → Claude sign-in.',
+        'Press "Check now": it runs one test search to see whether search really works (about 20 seconds).',
       ],
     },
-    obtain_url: BRAVE_KEY_URL,
-    setting_key: WEB_SEARCH_KEY_SETTING,
+    obtain_url: null,
     testable: true,
     async measure(force) {
       const p = activeWebSearchProvider()
-      if (!p.configured()) return { state: 'not_configured', detail: null, version: null, path: null }
+      if (!p.configured()) return { state: 'not_configured', detail: 'no signed-in Claude account', version: null, path: null }
       if (!force) {
         // Nem egetunk keresest minden oldalbetoltesnel: a legutobbi VALODI
-        // meres all, ha ugyanarra a kulcsra szolt; ha meg nem mertunk, kimondjuk.
+        // meres all; ha meg nem mertunk, kimondjuk.
         const last = lastWebSearchProbe()
         if (last) return last
-        return { state: 'ok', detail: 'key saved, not tested yet -- press "Check now"', version: null, path: p.id }
+        return { state: 'ok', detail: 'signed in, not tested yet -- press "Check now"', version: null, path: p.id }
       }
       return probeWebSearch()
     },
@@ -418,20 +416,17 @@ function settingOf(key: string): CapabilitySetting | null {
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Az FFmpeg teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server címe (üresen: nem használjuk)'
         : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'Saját Anthropic API-kulcs (üresen: a bejelentkezett előfizetés)'
-        : key === 'BRAVE_SEARCH_API_KEY' ? 'Brave Search API-kulcs (üresen: nincs webkeresés)'
         : key,
       en: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'Full path to LibreOffice (empty: found automatically)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Full path to FFmpeg (empty: found automatically)'
         : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'ONLYOFFICE Document Server address (empty: not used)'
         : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'Your own Anthropic API key (empty: the signed-in subscription)'
-        : key === 'BRAVE_SEARCH_API_KEY' ? 'Brave Search API key (empty: no web search)'
         : key,
     },
     placeholder: key === 'WORKBENCH_LIBREOFFICE_PATH' ? '/usr/bin/soffice'
       : key === 'WORKBENCH_FFMPEG_PATH' ? '/usr/bin/ffmpeg'
       : key === 'WORKBENCH_ONLYOFFICE_URL' ? 'http://localhost:8080'
       : key === 'WORKBENCH_ANTHROPIC_API_KEY' ? 'sk-ant-...'
-      : key === 'BRAVE_SEARCH_API_KEY' ? 'BSA...'
       : '',
   }
 }
