@@ -12906,3 +12906,21 @@ span.intezo-tree-tw { cursor: default; }
 .bk-steps { margin: 8px 0 0 18px; padding: 0; font-size: 13px; }
 .bk-steps li { margin-bottom: 6px; }
 @media (max-width: 720px) { .bk-wizard { padding: 0; } .bk-wizard-card { border-radius: 0; min-height: 100%; } }
+
+/* Forgotten password -> one-time code (#412) */
+.mv-auth-code { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.mv-auth-code [hidden], #mv-rc-step2[hidden], #mv-rc-step3[hidden] { display: none; }
+#mv-rc-step2, #mv-rc-step3 { display: flex; flex-direction: column; gap: 8px; }
+.mv-rc-channels { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.mv-rc-row { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; line-height: 1.4; }
+.mv-auth-card .mv-rc-row input[type="radio"] { width: auto; flex: 0 0 auto; margin: 3px 0 0; padding: 0; }
+.mv-rc-row small { display: block; color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.mv-rc-off { cursor: default; opacity: 0.75; }
+.mv-rc-ok { font-size: 13px; color: var(--success, #3fa56b); }
+.mv-rc-ok:empty, #mv-rc-err:empty { display: none; }
+.mv-auth-recover-alt { margin-top: 4px; }
+.auth-recovery-row { margin: 4px 0; font-size: 13px; }
+.auth-recovery-row.ok { color: var(--success, #3fa56b); }
+.auth-channel-need { border: 1px solid var(--warning, #d9a441); border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 13px; }
+.auth-channel-need[hidden] { display: none; }
+.auth-channel-need p { margin: 0 0 8px; }

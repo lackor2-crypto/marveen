@@ -83,7 +83,8 @@ import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
 import { integrationStates } from './setup-wizard-values.js'
 import type { SetupItemState } from './setup-wizard-registry.js'
 import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
-import { getDb } from '../db.js'
+import { getDb, countDashboardUsers } from '../db.js'
+import { ownerChannelReady } from '../notify.js'
 import { computeBackupHealth } from '../backup/health.js'
 import { stateExists } from '../backup/state.js'
 import { readConfig as readBackupConfig, resolveDestinations } from '../backup/destinations.js'
@@ -2165,6 +2166,29 @@ export function skillScopeReviewRows(
 
 
 /**
+ * A password with no way back (#412, owner TG 6617). New logins can only be
+ * created once the owner's Telegram delivers, but an install that set its
+ * password before that rule exists: nobody is locked out, the row just says
+ * that a forgotten password now has no code path (only the access token).
+ * Yellow, never red -- everything works, it is a missing safety net.
+ *
+ * No login at all is the quiet, correct fresh-install case. An unreadable
+ * user table is "could not look", not "fine": then no row, because the DB
+ * rows elsewhere already speak for a broken database.
+ */
+export function passwordChannelRows(
+  users: () => number = () => countDashboardUsers(false),
+  channel: () => boolean = ownerChannelReady,
+): HealthRow[] {
+  let n: number
+  try { n = users() } catch { return [] }
+  if (n === 0) return []
+  let ready: boolean
+  try { ready = channel() } catch { ready = false }
+  return ready ? [] : [{ id: 'password_no_channel', status: 'warn' }]
+}
+
+/**
  * A VÁLASZTOTT KULCS-HELY ELTŰNT -- a legnémább hiba ezen a területen.
  *
  * Egy szolgáltatáshoz több kulcs is tartozhat (`zai-coding-key`,
@@ -2338,6 +2362,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...codeBridgeRows(now),
     ...skillSeedRows(),
     ...skillScopeReviewRows(),
+    ...passwordChannelRows(),
     ...voiceRows(),
     ...integrationRows(),
     ...systemDepRows(),

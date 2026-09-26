@@ -20,7 +20,7 @@
 
 import type http from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { readBody, json } from '../http-helpers.js'
+import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { parseCookies, SESSION_COOKIE_NAME } from '../auth-gate.js'
 import {
@@ -59,11 +59,35 @@ import {
   getRecentConfigChanges,
 } from '../../db.js'
 import { notifySecurityEvent } from '../../notify.js'
+import {
+  recoveryChannels,
+  requestCode,
+  verifyCode,
+  consumeTicket,
+  returnTicket,
+  recoverySettings,
+  setRecoveryMailbox,
+  recoveryDoneNotice,
+  probeOwnerChannel,
+  type Lang,
+} from '../password-recovery.js'
 import type { RouteContext } from './types.js'
 
 const LOGIN_BODY_MAX_BYTES = 8 * 1024
 const USERNAME_RE = /^[a-zA-Z0-9._-]{1,64}$/
 const INVALID_CREDENTIALS = { error: 'Invalid credentials' }
+
+// Rate-limit key for the public recovery endpoints. Behind Tailscale Serve the
+// socket is loopback, so the forwarded client address is the meaningful one.
+function clientKey(req: http.IncomingMessage): string {
+  const xf = req.headers['x-forwarded-for']
+  const first = (Array.isArray(xf) ? xf[0] : xf)?.split(',')[0]?.trim()
+  return first || req.socket?.remoteAddress || 'unknown'
+}
+
+function langOf(body: Record<string, unknown>): Lang {
+  return body.lang === 'en' ? 'en' : 'hu'
+}
 
 // Set Secure only when the request arrived over https (Tailscale Serve sets
 // x-forwarded-proto). The primary transport is plain http://127.0.0.1 where an
@@ -140,9 +164,11 @@ function forcedLogout(req: http.IncomingMessage, auth: RouteContext['auth']):
   if (auth?.kind === 'session') return null
   const presented = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]
   if (!presented) return null
-  let row: { new_value: string | null; created_at: number } | undefined
+  let row: { key: string; new_value: string | null; created_at: number } | undefined
   try {
-    row = getRecentConfigChanges(200).find(r => r.key === 'security.break_glass_password_reset')
+    // Both ways of setting a password without the old one sign every other
+    // browser out: the token break-glass and the forgotten-password code (#412).
+    row = getRecentConfigChanges(200).find(r => r.key === 'security.break_glass_password_reset' || r.key === 'security.password_recovery_reset')
   } catch {
     // No readable audit log is not evidence that nothing happened -- say
     // nothing rather than claim the logout was ordinary.
@@ -150,7 +176,8 @@ function forcedLogout(req: http.IncomingMessage, auth: RouteContext['auth']):
   }
   if (!row) return null
   if (Math.floor(Date.now() / 1000) - row.created_at > FORCED_LOGOUT_WINDOW_S) return null
-  return { reason: 'break_glass_password_reset', username: row.new_value, at: row.created_at }
+  const reason = row.key === 'security.password_recovery_reset' ? 'password_recovery_reset' : 'break_glass_password_reset'
+  return { reason, username: row.new_value, at: row.created_at }
 }
 
 function statusPayload(auth: RouteContext['auth'], req: http.IncomingMessage) {
@@ -263,6 +290,103 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
     )
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': sessionCookie(token, req), 'Cache-Control': 'private, no-store' })
     res.end(JSON.stringify({ ok: true, user: user.username }))
+    return true
+  }
+
+  // ---- Forgotten password (#412) -----------------------------------------
+  // Public (see requiresAuth). None of these answers 401: the dashboard's
+  // fetch wrapper reads any /api 401 as "signed out" (#410).
+  if (path === '/api/auth/recovery/channels' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' })
+    res.end(JSON.stringify({ channels: recoveryChannels() }))
+    return true
+  }
+
+  if (path === '/api/auth/recovery/request' && method === 'POST') {
+    let body: Record<string, unknown>
+    try { body = await parseJsonBody(req) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
+    const r = requestCode({ username: str(body.username), channel: str(body.channel), client: clientKey(req), lang: langOf(body) })
+    if (r.status === 'rate_limited') {
+      res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(r.retryAfterS), 'Cache-Control': 'private, no-store' })
+      res.end(JSON.stringify({ error: 'rate_limited', retry_after_s: r.retryAfterS }))
+      return true
+    }
+    if (r.status === 'bad_input') { json(res, { error: 'bad_input' }, 400); return true }
+    if (r.status === 'channel_unavailable') { json(res, { error: 'channel_unavailable' }, 400); return true }
+    // Same answer whether or not the user exists; the send is not awaited so
+    // the response time does not tell either.
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' })
+    res.end(JSON.stringify({ ok: true }))
+    return true
+  }
+
+  if (path === '/api/auth/recovery/verify' && method === 'POST') {
+    let body: Record<string, unknown>
+    try { body = await parseJsonBody(req) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
+    const r = verifyCode({ username: str(body.username), code: str(body.code), client: clientKey(req) })
+    if (r.status === 'rate_limited') {
+      res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(r.retryAfterS), 'Cache-Control': 'private, no-store' })
+      res.end(JSON.stringify({ error: 'rate_limited', retry_after_s: r.retryAfterS }))
+      return true
+    }
+    if (r.status === 'invalid') {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' })
+      res.end(JSON.stringify({ error: 'code_invalid' }))
+      return true
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' })
+    res.end(JSON.stringify({ ok: true, ticket: r.ticket, expires_in_s: r.expiresInSec }))
+    return true
+  }
+
+  if (path === '/api/auth/recovery/complete' && method === 'POST') {
+    let body: Record<string, unknown>
+    try { body = await parseJsonBody(req) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
+    const ticket = str(body.ticket)
+    const newPassword = str(body.new_password)
+    const now = Date.now()
+    const rec = ticket ? consumeTicket(ticket, now) : null
+    if (!rec) { json(res, { error: 'ticket_invalid' }, 400); return true }
+    try {
+      assertPasswordPolicy(newPassword)
+    } catch (err) {
+      // A too-short password is fixable on the spot: keep the ticket alive.
+      returnTicket(ticket, rec, now + 10 * 60 * 1000)
+      json(res, { error: 'password_policy', message: err instanceof PasswordPolicyError ? err.message : 'Invalid password' }, 400)
+      return true
+    }
+    const user = getDashboardUser(rec.username)
+    if (!user || user.disabled || user.id !== rec.userId) { json(res, { error: 'ticket_invalid' }, 400); return true }
+    const hash = await hashPassword(newPassword)
+    updateDashboardUserPassword(user.id, hash)
+    // Every other browser is signed out -- including one an attacker may hold.
+    revokeAllForUser(user.id)
+    logConfigChange('security.password_recovery_reset', null, user.username, `recovery:${rec.channel}`)
+    logger.warn({ username: user.username, channel: rec.channel }, 'password reset via recovery code')
+    void notifySecurityEvent(recoveryDoneNotice(user.username, rec.channel, langOf(body)))
+    const token = createSession(
+      { userId: user.id, username: user.username },
+      { userAgent: str(req.headers['user-agent']) || null, remoteNote: isHttps(req) ? 'https' : 'loopback' },
+    )
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': sessionCookie(token, req), 'Cache-Control': 'private, no-store' })
+    res.end(JSON.stringify({ ok: true, user: user.username }))
+    return true
+  }
+
+  // Which mailbox receives the code. Session-only: the mailbox must be one the
+  // signed-in owner connected (Iroda -> Settings), never a typed address.
+  if (path === '/api/auth/recovery/settings' && (method === 'GET' || method === 'POST')) {
+    if (auth?.kind !== 'session' || !auth.user) { json(res, { error: 'Session required' }, 400); return true }
+    const user = getDashboardUser(auth.user)
+    if (!user) { json(res, { error: 'User not found' }, 404); return true }
+    if (method === 'POST') {
+      let body: Record<string, unknown>
+      try { body = await parseJsonBody(req) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
+      const acc = str(body.email_account).trim()
+      if (setRecoveryMailbox(user.id, acc || null) === 'unknown_account') { json(res, { error: 'unknown_account' }, 400); return true }
+      logConfigChange('security.recovery_email_account', null, acc || '(none)', auth.user)
+    }
+    json(res, recoverySettings(user.id))
     return true
   }
 
@@ -435,6 +559,22 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
       assertPasswordPolicy(password)
     } catch (err) {
       json(res, { error: err instanceof PasswordPolicyError ? err.message : 'Invalid password' }, 400)
+      return true
+    }
+    // No password without a working way back (#412, owner TG 6617): the
+    // forgotten-password code travels on the owner's Telegram, so that channel
+    // must demonstrably deliver BEFORE a password exists. 400, not 401 (#410).
+    const lang = reqLang(req)
+    const probe = await probeOwnerChannel(username, lang)
+    if (!probe.ok) {
+      const message = probe.reason === 'no_channel'
+        ? L(lang,
+            'Előbb kösd be a Marveen Telegramját a telefonodon, mert az elfelejtett jelszó kódja oda érkezik. A Beállítások -> Beállítás varázsló „Telegram bot token” és „Telegram párosítás” lépése köti be.',
+            'First connect Marveen\'s Telegram on your phone: the forgotten-password code arrives there. Settings -> Setup wizard does it ("Telegram bot token" and "Telegram pairing").')
+        : L(lang,
+            `A próbaüzenet nem ment ki a Telegramra, ezért most nem állítható be jelszó (a hiba: ${probe.detail ?? 'ismeretlen'}). Nézd meg a Beállítás varázslóban a Telegram lépéseket, aztán próbáld újra.`,
+            `The test message did not reach Telegram, so no password can be set now (the error: ${probe.detail ?? 'unknown'}). Check the Telegram steps in the Setup wizard, then try again.`)
+      json(res, { error: 'channel_required', reason: probe.reason, message }, 400)
       return true
     }
     const hash = await hashPassword(password)

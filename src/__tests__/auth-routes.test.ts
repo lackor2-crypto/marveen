@@ -18,6 +18,9 @@ vi.mock('../notify.js', () => ({
   notifyChannel: vi.fn(async () => {}),
   notifyTelegram: vi.fn(async () => {}),
   notifySecurityEvent: vi.fn(async () => {}),
+  // Creating a login needs a delivering owner channel (#412).
+  ownerChannelReady: vi.fn(() => true),
+  sendOwnerChannelChecked: vi.fn(async () => 'sent'),
 }))
 
 

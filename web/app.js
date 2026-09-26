@@ -479,6 +479,13 @@ const _netStatus = (() => {
   function showLoginOverlay(status) {
     if (document.getElementById('mv-login-overlay')) return
     const tr = (k, fallback) => (typeof window.t === 'function' ? window.t(k) : fallback) || fallback
+    const eyeSvg = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line class="mv-eye-slash" x1="3" y1="3" x2="21" y2="21"/></svg>'
+    const passField = (id, placeholder) =>
+      '<div class="mv-pass-wrap">' +
+        '<input id="' + id + '" type="password" autocomplete="new-password" placeholder="' + placeholder + '">' +
+        '<button type="button" class="mv-pass-eye" data-eye-for="' + id + '" aria-pressed="false" aria-controls="' + id + '"' +
+          ' title="' + tr('auth.login.show_password', 'Show password') + '" aria-label="' + tr('auth.login.show_password', 'Show password') + '">' + eyeSvg + '</button>' +
+      '</div>'
     const forced = status && status.forced_logout
     let forcedHtml = ''
     if (forced) {
@@ -488,7 +495,9 @@ const _netStatus = (() => {
       const who = forced.username || tr('auth.forced.unknown_user', 'a user')
       const body = forced.reason === 'break_glass_password_reset'
         ? tr('auth.forced.break_glass', 'The password was reset with the access token, so every session was signed out.')
-        : tr('auth.forced.generic', 'Your session was ended on the server.')
+        : forced.reason === 'password_recovery_reset'
+          ? tr('auth.forced.recovery', 'The password was reset with a one-time code (forgotten password), so every other session was signed out.')
+          : tr('auth.forced.generic', 'Your session was ended on the server.')
       forcedHtml = '<div class="mv-auth-forced" id="mv-login-forced">' +
         '<strong>' + tr('auth.forced.title', 'You were signed out') + '</strong>' +
         '<p>' + body + '</p>' +
@@ -524,6 +533,28 @@ const _netStatus = (() => {
         '<button type="button" class="mv-auth-link" id="mv-login-forgot">' +
           tr('auth.login.forgot', "I don't know my password") + '</button>' +
         '<div class="mv-auth-recover" id="mv-login-recover" hidden>' +
+          // One-time code to the owner's own channel (#412). The token path
+          // below stays as the fallback for an install with no channel yet.
+          '<div class="mv-auth-code" id="mv-rc">' +
+            '<strong>' + tr('auth.recovery.title', 'Get a one-time code') + '</strong>' +
+            '<p>' + tr('auth.recovery.desc', 'We send a 6-digit code to a place only you read. Choose where:') + '</p>' +
+            '<div class="mv-rc-channels" id="mv-rc-channels" role="radiogroup">' + tr('auth.recovery.loading', 'Loading...') + '</div>' +
+            '<input id="mv-rc-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + tr('auth.login.username', 'Username') + '">' +
+            '<button type="button" id="mv-rc-send">' + tr('auth.recovery.send', 'Send the code') + '</button>' +
+            '<div class="mv-auth-err" id="mv-rc-err"></div>' +
+            '<div class="mv-rc-ok" id="mv-rc-ok"></div>' +
+            '<div id="mv-rc-step2" hidden>' +
+              '<input id="mv-rc-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="' + tr('auth.recovery.code_placeholder', '6-digit code') + '">' +
+              '<button type="button" id="mv-rc-verify">' + tr('auth.recovery.verify', 'Check the code') + '</button>' +
+            '</div>' +
+            '<div id="mv-rc-step3" hidden>' +
+              '<p>' + tr('auth.recovery.new_desc', 'The code is right. Now set a new password (at least 10 characters). After this every other device is signed out.') + '</p>' +
+              passField('mv-rc-pass1', tr('auth.card.new_password', 'New password')) +
+              passField('mv-rc-pass2', tr('auth.card.repeat_password', 'Repeat password')) +
+              '<button type="button" id="mv-rc-save">' + tr('auth.recovery.save', 'Save the new password and sign in') + '</button>' +
+            '</div>' +
+          '</div>' +
+          '<p class="mv-auth-recover-alt"><strong>' + tr('auth.recovery.token_alt', 'Or: with the access token') + '</strong></p>' +
           '<p>' + tr('auth.recover.desc', 'You can get in with the access token instead of the password, and set a new password once inside.') + '</p>' +
           '<ol>' +
             '<li>' + tr('auth.recover.step_phone', 'On your phone (where the dashboard is already open): Settings -> Security -> mobile login QR. The token is in that code.') + '</li>' +
@@ -555,9 +586,153 @@ const _netStatus = (() => {
       eyeEl.setAttribute('aria-label', label)
       passEl.focus()
     })
+    overlay.querySelectorAll('[data-eye-for]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const input = overlay.querySelector('#' + btn.getAttribute('data-eye-for'))
+        const show = input.type === 'password'
+        input.type = show ? 'text' : 'password'
+        btn.setAttribute('aria-pressed', show ? 'true' : 'false')
+        const label = show ? tr('auth.login.hide_password', 'Hide password') : tr('auth.login.show_password', 'Show password')
+        btn.title = label
+        btn.setAttribute('aria-label', label)
+        input.focus()
+      })
+    })
+    let recoveryLoaded = false
     overlay.querySelector('#mv-login-forgot').addEventListener('click', () => {
       recoverEl.hidden = !recoverEl.hidden
-      if (!recoverEl.hidden) overlay.querySelector('#mv-login-token').focus()
+      if (recoverEl.hidden) return
+      const rcUser = overlay.querySelector('#mv-rc-user')
+      if (!rcUser.value) rcUser.value = (userEl.value || '').trim()
+      if (!recoveryLoaded) { recoveryLoaded = true; loadRecoveryChannels() }
+      rcUser.focus()
+    })
+
+    // ---- one-time code (#412) ----
+    const rcLang = () => { try { return localStorage.getItem('marveen.lang') === 'en' ? 'en' : 'hu' } catch { return 'hu' } }
+    const rcErr = overlay.querySelector('#mv-rc-err')
+    const rcOk = overlay.querySelector('#mv-rc-ok')
+    const rcSend = overlay.querySelector('#mv-rc-send')
+    let rcTicket = ''
+    const RC_HINT = {
+      telegram: () => tr('auth.recovery.telegram_off', 'No Telegram is connected yet. Once inside: Settings -> Setup wizard -> "Telegram bot token" and "Telegram pairing".'),
+      email: () => tr('auth.recovery.email_off', 'No mailbox is chosen for this yet. Once inside: Settings -> Security -> "Where the code goes". The mailbox itself is connected in Iroda -> Settings -> "Email settings".'),
+    }
+    const RC_LABEL = {
+      telegram: () => tr('auth.recovery.ch_telegram', 'Telegram (your own Marveen chat)'),
+      email: () => tr('auth.recovery.ch_email', 'E-mail (the mailbox you chose in Settings)'),
+    }
+    async function loadRecoveryChannels() {
+      const box = overlay.querySelector('#mv-rc-channels')
+      let channels = null
+      try {
+        const r = await originalFetch('/api/auth/recovery/channels')
+        if (r.ok) channels = (await r.json()).channels
+      } catch { /* shown below */ }
+      if (!Array.isArray(channels)) {
+        // Could not ask -- that is not the same as "nothing connected".
+        box.textContent = tr('auth.recovery.channels_unknown', 'Could not check where a code can be sent. Try again, or use the access token below.')
+        rcSend.disabled = true
+        return
+      }
+      let firstFree = null
+      box.innerHTML = channels.map((c) => {
+        const label = RC_LABEL[c.id] ? RC_LABEL[c.id]() : c.id
+        if (c.available && !firstFree) firstFree = c.id
+        return '<label class="mv-rc-row' + (c.available ? '' : ' mv-rc-off') + '">' +
+          '<input type="radio" name="mv-rc-ch" value="' + c.id + '"' + (c.available ? '' : ' disabled') + '>' +
+          '<span>' + label + (c.available ? '' : '<small>' + (RC_HINT[c.id] ? RC_HINT[c.id]() : '') + '</small>') + '</span></label>'
+      }).join('')
+      if (firstFree) {
+        box.querySelector('input[value="' + firstFree + '"]').checked = true
+      } else {
+        rcSend.disabled = true
+        rcErr.textContent = tr('auth.recovery.none', 'No channel is connected yet, so no code can be sent. Use the access token below.')
+      }
+    }
+    rcSend.addEventListener('click', async () => {
+      rcErr.textContent = ''; rcOk.textContent = ''
+      const username = (overlay.querySelector('#mv-rc-user').value || '').trim()
+      const chEl = overlay.querySelector('input[name="mv-rc-ch"]:checked')
+      if (!username) { rcErr.textContent = tr('auth.recovery.err_user', 'Type your username.'); return }
+      if (!chEl) { rcErr.textContent = tr('auth.recovery.err_channel', 'Choose where the code should go.'); return }
+      rcSend.disabled = true
+      try {
+        const r = await originalFetch('/api/auth/recovery/request', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, channel: chEl.value, lang: rcLang() }),
+        })
+        if (r.ok) {
+          rcOk.textContent = tr('auth.recovery.sent', 'If this username exists, the code is on its way. It is valid for 10 minutes.')
+          overlay.querySelector('#mv-rc-step2').hidden = false
+          overlay.querySelector('#mv-rc-code').focus()
+        } else if (r.status === 429) {
+          let retry = 0
+          try { retry = (await r.json()).retry_after_s || 0 } catch { /* ignore */ }
+          rcErr.textContent = tr('auth.recovery.err_wait', 'A code was just requested. Wait a little and try again.') + (retry ? ' (' + retry + 's)' : '')
+        } else {
+          rcErr.textContent = tr('auth.recovery.err_send', 'The code could not be requested. Choose another channel or use the access token below.')
+        }
+      } catch {
+        rcErr.textContent = tr('auth.login.err_network', 'Network error.')
+      } finally {
+        rcSend.disabled = false
+      }
+    })
+    overlay.querySelector('#mv-rc-verify').addEventListener('click', async () => {
+      rcErr.textContent = ''; rcOk.textContent = ''
+      const username = (overlay.querySelector('#mv-rc-user').value || '').trim()
+      const code = (overlay.querySelector('#mv-rc-code').value || '').replace(/\s+/g, '')
+      if (!/^\d{6}$/.test(code)) { rcErr.textContent = tr('auth.recovery.err_code_format', 'The code is 6 digits.'); return }
+      const btn = overlay.querySelector('#mv-rc-verify')
+      btn.disabled = true
+      try {
+        const r = await originalFetch('/api/auth/recovery/verify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, code }),
+        })
+        const data = await r.json().catch(() => ({}))
+        if (r.ok && data.ticket) {
+          rcTicket = data.ticket
+          overlay.querySelector('#mv-rc-step2').hidden = true
+          overlay.querySelector('#mv-rc-step3').hidden = false
+          overlay.querySelector('#mv-rc-pass1').focus()
+        } else if (r.status === 429) {
+          rcErr.textContent = tr('auth.recovery.err_wait_code', 'Too many wrong codes from here. Wait an hour, or use the access token below.')
+        } else {
+          rcErr.textContent = tr('auth.recovery.err_code', 'This code is not right, or it has expired. After 5 wrong tries it stops working: then ask for a new one.')
+        }
+      } catch {
+        rcErr.textContent = tr('auth.login.err_network', 'Network error.')
+      } finally {
+        btn.disabled = false
+      }
+    })
+    overlay.querySelector('#mv-rc-save').addEventListener('click', async () => {
+      rcErr.textContent = ''; rcOk.textContent = ''
+      const p1 = overlay.querySelector('#mv-rc-pass1').value || ''
+      const p2 = overlay.querySelector('#mv-rc-pass2').value || ''
+      if (p1.length < 10) { rcErr.textContent = tr('auth.card.err_too_short', 'The password must be at least {n} characters.').replace('{n}', '10'); return }
+      if (p1 !== p2) { rcErr.textContent = tr('auth.card.err_mismatch', 'The passwords do not match.'); return }
+      const btn = overlay.querySelector('#mv-rc-save')
+      btn.disabled = true
+      try {
+        const r = await originalFetch('/api/auth/recovery/complete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticket: rcTicket, new_password: p1, lang: rcLang() }),
+        })
+        const data = await r.json().catch(() => ({}))
+        if (r.ok) { window.location.reload(); return }
+        if (data.error === 'password_policy') {
+          rcErr.textContent = tr('auth.card.err_too_short', 'The password must be at least {n} characters.').replace('{n}', '10')
+        } else {
+          rcErr.textContent = tr('auth.recovery.err_ticket', 'Too much time passed since the code was checked. Ask for a new code.')
+          overlay.querySelector('#mv-rc-step3').hidden = true
+        }
+      } catch {
+        rcErr.textContent = tr('auth.login.err_network', 'Network error.')
+      } finally {
+        btn.disabled = false
+      }
     })
     const tokenBtn = overlay.querySelector('#mv-login-token-btn')
     tokenBtn.addEventListener('click', async () => {
@@ -21006,6 +21181,9 @@ async function renderOverviewConnections() {
         // lepesere visz: ott all a lista es a bemasolhato telepito-sor.
         : h.id.startsWith('system_deps_')
         ? 'openSystemDepsStep()'
+        // A password with no channel: the fix is the wizard's Telegram step (#412).
+        : h.id === 'password_no_channel'
+        ? "openWizardItem('telegram-token')"
         // Egy hianyzo kulso szolgaltatas sora a varazslo SAJAT lepesere visz.
         : (h.id === 'integration_missing' && h.params && /^[a-z0-9-]+$/.test(String(h.params.item || '')))
         ? `openWizardItem('${h.params.item}')`
@@ -25771,6 +25949,12 @@ function passwordTooShort(pw) { return (pw || '').length < AUTH_MIN_PASSWORD_LEN
 function renderCreateLoginForm(body) {
   body.innerHTML =
     `<p class="auth-muted">${t('auth.card.setup_desc')}</p>` +
+    // A password needs a way back (#412, owner TG 6617): the forgotten-password
+    // code arrives on Telegram, so say so BEFORE the owner types anything.
+    `<div class="auth-channel-need" id="authChannelNeed" hidden>` +
+      `<p>${t('auth.card.channel_needed')}</p>` +
+      `<button class="btn-secondary btn-compact" id="authChannelWizardBtn">${t('auth.card.channel_wizard')}</button>` +
+    `</div>` +
     `<div class="auth-form">` +
       `<input id="authNewUser" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="${t('auth.login.username')}">` +
       `<input id="authNewPass" type="password" autocomplete="new-password" placeholder="${t('auth.card.new_password')}">` +
@@ -25794,9 +25978,21 @@ function renderCreateLoginForm(body) {
       })
       const data = await r.json().catch(() => ({}))
       if (r.ok) { msg.classList.add('ok'); msg.textContent = t('auth.card.created'); renderAuthCard(); initAuthBanner() }
-      else { msg.classList.add('err'); msg.textContent = data.error || t('auth.card.err_generic') }
+      else {
+        msg.classList.add('err')
+        msg.textContent = data.message || data.error || t('auth.card.err_generic')
+        if (data.error === 'channel_required') document.getElementById('authChannelNeed').hidden = false
+      }
     } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
   })
+  document.getElementById('authChannelWizardBtn').addEventListener('click', () => openWizardItem('telegram-token'))
+  // Ask ahead. Not being able to ask is not "no channel": then stay quiet and
+  // let the server's own answer on Create speak.
+  fetch('/api/auth/recovery/channels').then((r) => (r.ok ? r.json() : null)).then((d) => {
+    const tg = d && Array.isArray(d.channels) ? d.channels.find((c) => c.id === 'telegram') : null
+    const box = document.getElementById('authChannelNeed')
+    if (box && tg && !tg.available) box.hidden = false
+  }).catch(() => {})
 }
 
 function renderSessionPanel(body, status) {
@@ -25810,6 +26006,11 @@ function renderSessionPanel(body, status) {
       `<div class="auth-form-msg" id="authChgMsg"></div>` +
     `</div>` +
     `<div class="auth-sessions" id="authSessions"></div>` +
+    `<div class="auth-reset" id="authRecoveryBox">` +
+      `<div class="auth-sessions-title">${t('auth.recovery.settings_title')}</div>` +
+      `<p class="auth-muted">${t('auth.recovery.settings_desc')}</p>` +
+      `<div id="authRecoveryBody" class="auth-muted">${t('auth.recovery.loading')}</div>` +
+    `</div>` +
     `<div class="auth-actions">` +
       `<button class="btn-secondary btn-compact" id="authLogoutAllBtn">${t('auth.card.logout_all')}</button>` +
       `<button class="btn-secondary btn-compact" id="authLogoutBtn">${t('auth.card.logout')}</button>` +
@@ -25845,6 +26046,56 @@ function renderSessionPanel(body, status) {
     window.location.reload()
   })
   renderAuthSessions()
+  renderRecoverySettings()
+}
+
+// Where a forgotten-password code goes (#412). Telegram is whatever the
+// install's owner chat is; the e-mail row can only pick a mailbox that was
+// CONNECTED in Iroda -> Settings (its password proves it is yours) -- a typed
+// address is never accepted.
+async function renderRecoverySettings() {
+  const el = document.getElementById('authRecoveryBody')
+  if (!el) return
+  let s = null
+  try {
+    const r = await fetch('/api/auth/recovery/settings')
+    if (r.ok) s = await r.json()
+  } catch { /* shown below */ }
+  if (!s) { el.textContent = t('auth.recovery.settings_unknown'); return }
+  const tg = s.telegram_ready
+    ? `<p class="auth-recovery-row ok">✓ ${t('auth.recovery.settings_tg_on')}</p>`
+    : `<p class="auth-recovery-row">${t('auth.recovery.settings_tg_off')}</p>`
+  let mail
+  if (!s.email_accounts.length) {
+    mail = `<p class="auth-recovery-row">${t('auth.recovery.settings_no_mailbox')}</p>`
+  } else {
+    const opts = [`<option value="">${t('auth.recovery.settings_mail_none')}</option>`]
+      .concat(s.email_accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === s.email_account ? ' selected' : ''}>${escapeHtml(a.address)}</option>`))
+      .join('')
+    mail = `<div class="auth-form">` +
+      `<label class="auth-muted" for="authRecoveryMail">${t('auth.recovery.settings_mail_label')}</label>` +
+      `<select id="authRecoveryMail">${opts}</select>` +
+      `<button class="btn-primary" id="authRecoverySave">${t('auth.recovery.settings_save')}</button>` +
+      `<div class="auth-form-msg" id="authRecoveryMsg"></div>` +
+    `</div>`
+  }
+  const missing = s.email_account_missing ? `<p class="auth-recovery-row">${t('auth.recovery.settings_mail_missing')}</p>` : ''
+  el.className = ''
+  el.innerHTML = tg + missing + mail
+  const btn = document.getElementById('authRecoverySave')
+  if (!btn) return
+  btn.addEventListener('click', async () => {
+    const msg = document.getElementById('authRecoveryMsg')
+    msg.className = 'auth-form-msg'
+    try {
+      const r = await fetch('/api/auth/recovery/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_account: document.getElementById('authRecoveryMail').value }),
+      })
+      if (r.ok) { msg.classList.add('ok'); msg.textContent = t('auth.recovery.settings_saved') }
+      else { msg.classList.add('err'); msg.textContent = t('auth.recovery.settings_err') }
+    } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
+  })
 }
 
 async function renderAuthSessions() {
