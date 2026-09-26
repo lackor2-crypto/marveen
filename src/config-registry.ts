@@ -561,15 +561,6 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
   },
-  {
-    key: 'WORKBENCH_ONLYOFFICE_URL',
-    type: 'string',
-    default: '',
-    description: 'NEM KÖTELEZŐ. Egy ONLYOFFICE Document Server címe, ha a Word-dokumentumokat közvetlenül a böngészőben akarod szerkeszteni. Üresen hagyva (ez az alapértelmezés) a Munkapad a letöltés -> szerkesztés a saját gépeden -> visszatöltés utat kínálja, ami ugyanúgy új verziót készít. Példa: http://localhost:8080',
-    module: 'munkapad',
-    secret: false,
-    requiresRestart: false,
-  },
   // Boss, 2026-08-16: "a beallitas agent alatt a sonett 5 van beallitva.
   // marvinnak. akkor miert meg mindig a haiku van?"
   //

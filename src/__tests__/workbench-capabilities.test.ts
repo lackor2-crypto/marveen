@@ -67,9 +67,17 @@ describe('a lista maga', () => {
 
   it('amihez ut vagy cim kell, ahhoz van FELULETROL irhato beallitas', () => {
     // Friss telepites: terminal es .env-szerkesztes nelkul is beallithato.
-    for (const key of ['office_to_pdf', 'video_render', 'office_embedded_edit']) {
+    for (const key of ['office_to_pdf', 'video_render']) {
       expect(getCapability(key)!.setting_key, key).toBeTruthy()
     }
+  })
+
+  it('a bongeszos Word-szerkesztes (ONLYOFFICE) nem kepesseg, es nincs hozza beallitas', () => {
+    // #404, a tulajdonos dontese (TG 6532): a letoltes -> szerkesztes ->
+    // visszatoltes ut marad, a kulon kiszolgalot igenylo ut kiment.
+    expect(getCapability('office_embedded_edit')).toBeUndefined()
+    expect(getSettingDefinition('WORKBENCH_ONLYOFFICE_URL')).toBeFalsy()
+    expect(writableSettingKeys()).not.toContain('WORKBENCH_ONLYOFFICE_URL')
   })
 })
 
