@@ -68,14 +68,30 @@ export function rcloneBin(): string | null {
   return null
 }
 
-export const defaultRunner: Runner = (bin, args, input) =>
-  new Promise((resolve) => {
-    const child = execFile(bin, args, { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0
-      resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || (err && !stdout ? err.message : '')) })
+/** Kilepokod, ha az rclone-t az idotullepes allitotta le (mint a `timeout` parancsnal). */
+export const RCLONE_TIMEOUT_CODE = 124
+
+/**
+ * Runner adott idotullepessel. Ha a folyamatot az ido allitja le, a kod
+ * `RCLONE_TIMEOUT_CODE` -- a hivo igy kulon tudja mondani, hogy "nem jott
+ * valasz idoben", es nem kell a hibaszovegbol kitalalnia.
+ */
+export function makeRunner(timeoutMs: number): Runner {
+  return (bin, args, input) =>
+    new Promise((resolve) => {
+      const child = execFile(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err && (err as any).killed) {
+          resolve({ code: RCLONE_TIMEOUT_CODE, stdout: String(stdout || ''), stderr: `rclone timeout after ${Math.round(timeoutMs / 1000)}s` })
+          return
+        }
+        const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0
+        resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || (err && !stdout ? err.message : '')) })
+      })
+      if (input !== undefined) { child.stdin?.end(input) }
     })
-    if (input !== undefined) { child.stdin?.end(input) }
-  })
+}
+
+export const defaultRunner: Runner = makeRunner(60_000)
 
 export async function rcloneStatus(run: Runner = defaultRunner): Promise<{ installed: boolean; path: string | null; version: string | null }> {
   const bin = rcloneBin()
@@ -270,4 +286,89 @@ export async function measureMegaQuota(name: string, run: Runner = defaultRunner
 
 export function megaAccountNames(): string[] {
   return readMegaAccounts().map((a) => a.name)
+}
+
+// --- Fiok tartalmanak bongeszese (#398) --------------------------------------
+// A Raktar -> MEGA oldal a fiok tartalmat helyben mutatja, mint a Drive. Csak
+// OLVAS (`rclone lsjson`, egy szint): fajlhoz nem nyul, es nem tolt le semmit.
+
+/** Egy mappa listazasanak felso hatara. Ennyi utan "nem jott valasz". */
+export const MEGA_LIST_TIMEOUT_MS = 45_000
+
+export interface MegaEntry {
+  name: string
+  /** A fiok gyokerehez viszonyitott ut, `/` elvalasztassal. */
+  path: string
+  isDir: boolean
+  /** Bajt; mappanal `null` (az rclone -1-et ad). */
+  size: number | null
+  modTime: string | null
+}
+
+export type MegaListResult =
+  | { ok: true; path: string; items: MegaEntry[] }
+  | { ok: false; error: string; detail?: string }
+
+/**
+ * A kert ut a fiokon belul, tisztitva. `null` = elutasitva: `..`/`.` szakasz,
+ * vezerlokarakter, tul hosszu -- a bongeszo sose lephessen ki a fiok
+ * gyokerebol, es ne csempeszhessen rclone-kapcsolot az argumentumba (az ut
+ * mindig a `remote:` utan all, sosem kezdodik `-`-szal az argumentum).
+ */
+export function normalizeMegaPath(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return ''
+  if (typeof raw !== 'string') return null
+  if (raw.length > 1024 || /[\u0000-\u001f\u007f]/.test(raw)) return null
+  const parts = raw.split('/').filter((p) => p !== '')
+  if (parts.some((p) => p === '.' || p === '..')) return null
+  return parts.join('/')
+}
+
+function parseLsjson(stdout: string, base: string): MegaEntry[] | null {
+  let j: unknown
+  try { j = JSON.parse(stdout) } catch { return null }
+  if (!Array.isArray(j)) return null
+  const items: MegaEntry[] = []
+  for (const e of j as any[]) {
+    if (!e || typeof e.Name !== 'string') continue
+    const isDir = e.IsDir === true
+    items.push({
+      name: e.Name,
+      path: base ? `${base}/${e.Name}` : e.Name,
+      isDir,
+      size: !isDir && typeof e.Size === 'number' && e.Size >= 0 ? e.Size : null,
+      modTime: typeof e.ModTime === 'string' ? e.ModTime : null,
+    })
+  }
+  // Mappak elol, utana nev szerint -- mint a Drive-lista.
+  items.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) : a.isDir ? -1 : 1))
+  return items
+}
+
+/**
+ * Egy mappa tartalma a MEGA fiokon. Az ures lista CSAK sikeres listazasbol
+ * johet: minden mas (nincs rclone, belepes elbukott, idotullepes, nincs ilyen
+ * mappa) kulon hibakodot kap, a MEGA/rclone sajat szovegevel.
+ */
+export async function listMegaDir(
+  name: string,
+  rawPath: unknown,
+  run: Runner = makeRunner(MEGA_LIST_TIMEOUT_MS),
+): Promise<MegaListResult> {
+  const acc = readMegaAccounts().find((a) => a.name === name)
+  if (!acc) return { ok: false, error: 'not_found' }
+  const path = normalizeMegaPath(rawPath)
+  if (path === null) return { ok: false, error: 'bad_path' }
+  const bin = rcloneBin()
+  if (!bin) return { ok: false, error: 'rclone_missing' }
+  const r = await run(bin, ['lsjson', `${acc.remote}:${path}`, '--config', rcloneConfigPath()])
+  if (r.code === RCLONE_TIMEOUT_CODE) return { ok: false, error: 'timeout', detail: r.stderr }
+  if (r.code !== 0) {
+    const e = explainMegaError(r.stderr || r.stdout)
+    if (/directory not found/i.test(e.raw)) return { ok: false, error: 'dir_not_found', detail: e.raw }
+    return { ok: false, error: e.code, detail: e.raw }
+  }
+  const items = parseLsjson(r.stdout, path)
+  if (!items) return { ok: false, error: 'bad_output', detail: r.stdout.slice(0, 200) }
+  return { ok: true, path, items }
 }
