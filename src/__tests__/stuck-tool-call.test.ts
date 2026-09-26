@@ -52,6 +52,28 @@ describe('stuckToolCallSignature', () => {
     expect(stuckToolCallSignature('✻ Worked for 31s')).toEqual({ tag: 'worked', seconds: 31 })
   })
 
+  // #405: a residual footer of an EARLIER turn, with live work below it, is
+  // not a freeze. Shape measured on the main pane 2026-09-26.
+  it('ignores a residual footer when newer activity follows it', () => {
+    const busy = [
+      '✻ Worked for 42s',
+      '',
+      '❯ na ezt is javitsd akkor',
+      '● Megnézem.',
+      '  ⎿  $ grep -n stuck src/pane-state.ts',
+      '✽ Combobulating… (7m 39s · ↓ 12.4k tokens)',
+      '❯ ',
+    ].join('\n')
+    expect(stuckToolCallSignature(busy)).toBeNull()
+    expect(stuckToolCallSignature('✻ Worked for 42s\n● kész válasz\n❯ ')).toBeNull()
+    expect(stuckToolCallSignature('✻ Worked for 42s\n  ⎿  tool output\n❯ ')).toBeNull()
+  })
+
+  it('uses the LAST footer, and still sees the wedge shape after an old one', () => {
+    const pane = ['✻ Worked for 5s', '● régi válasz', '✻ Worked for 31s', '', '❯ Maradjon, jó így.'].join('\n')
+    expect(stuckToolCallSignature(pane)).toEqual({ tag: 'worked', seconds: 31 })
+  })
+
   it('returns null when no progress line is present', () => {
     expect(stuckToolCallSignature('❯ idle prompt\nbypass permissions on')).toBeNull()
     expect(stuckToolCallSignature('')).toBeNull()
