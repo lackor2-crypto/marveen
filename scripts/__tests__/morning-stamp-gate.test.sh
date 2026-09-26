@@ -51,6 +51,7 @@ run_case() {
   dir="$(mktemp -d "$TMP/inst.XXXXXX")"
   mkdir -p "$dir/scripts" "$dir/store" "$dir/bin"
   cp "$REPO/scripts/morning-briefing.sh" "$dir/scripts/"
+  cp -r "$REPO/scripts/lib" "$dir/scripts/"
   printf 'ALLOWED_CHAT_ID=1234\n' > "$dir/.env"
   # The stub sees the same argv a real claude would, so it recovers the
   # sentinel the same way an obedient run does: from the prompt text.

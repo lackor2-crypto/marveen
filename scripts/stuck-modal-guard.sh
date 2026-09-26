@@ -130,8 +130,9 @@ alert_owner() {
   # Token + owner chat id both from config, never hardcoded.
   # `tr -d '\r '` strips a trailing CR (CRLF-edited .env) / stray spaces.
   token="$(grep -E '^TELEGRAM_BOT_TOKEN=' "$TG_ENV" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r ')"
-  chat="$(grep -E '^ALLOWED_CHAT_ID=' "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r ')"
-  [ -z "$chat" ] && chat="$(grep -E '^TELEGRAM_CHAT_ID=' "$TG_ENV" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r ')"
+  # CHATID0: .env, then the channel env, then access.json; never the "0" placeholder.
+  . "$(cd "$(dirname "$0")" && pwd)/lib/owner-chat.sh"
+  chat="$(resolve_owner_chat_id "$INSTALL_DIR" "$TG_ENV")"
   if [ -z "$token" ] || [ -z "$chat" ]; then
     log "ALERT (no bot token or owner chat id configured): $msg"; return 1
   fi

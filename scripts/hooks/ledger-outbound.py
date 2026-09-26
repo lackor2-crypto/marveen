@@ -28,7 +28,9 @@ REPLY_TOOL_RX = re.compile(r"^mcp__plugin_[A-Za-z0-9_]+__reply$")
 
 def _owner_chat():
     v = os.environ.get("LEDGER_OWNER_CHAT") or os.environ.get("ALLOWED_CHAT_ID")
-    return v.strip() if v else ""
+    v = v.strip() if v else ""
+    # CHATID0: "0" is the installer placeholder, not a chat.
+    return "" if v == "0" else v
 
 
 def _id_from_text(text):

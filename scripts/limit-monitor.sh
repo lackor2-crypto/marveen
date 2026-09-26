@@ -42,11 +42,14 @@ SESSION="${MAIN_AGENT_ID}-channels"
 BOT_NAME="$(env_val BOT_NAME)"
 BOT_NAME="${BOT_NAME:-$MAIN_AGENT_ID}"
 
-CHAT_ID="$(env_val ALLOWED_CHAT_ID)"
+# CHATID0: resolved like src/owner-chat.ts -- the "0" placeholder is skipped and
+# the channel access.json allowlist answers for a later-paired install.
+. "$INSTALL_DIR/scripts/lib/owner-chat.sh"
+CHAT_ID="$(resolve_owner_chat_id "$INSTALL_DIR")"
 if [ -z "$CHAT_ID" ]; then
   # No owner chat configured: there is nobody to alert, and guessing one would
   # send a quota warning to a stranger. Stay silent rather than misdeliver.
-  log "no ALLOWED_CHAT_ID in .env, monitor cannot alert -- exiting"
+  log "no ALLOWED_CHAT_ID in .env (and no paired channel), monitor cannot alert -- exiting"
   exit 0
 fi
 

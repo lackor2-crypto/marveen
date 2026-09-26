@@ -26,7 +26,15 @@ if [ -f "$INSTALL_DIR/.env" ]; then
   export $(grep -v '^#' "$INSTALL_DIR/.env" | xargs)
 fi
 
-CHAT_ID="${ALLOWED_CHAT_ID:-0}"
+# CHATID0: the "0" placeholder is not a chat -- the reply tool rejects it
+# ("chat 0 is not allowlisted"). Resolve like src/owner-chat.ts: .env first,
+# then the channel access.json allowlist of a later-paired install.
+. "$INSTALL_DIR/scripts/lib/owner-chat.sh"
+CHAT_ID="$(resolve_owner_chat_id "$INSTALL_DIR")"
+if [ -z "$CHAT_ID" ]; then
+  echo "=== Reggeli napindító $(date) -- SKIP: nincs gazda-chat (ALLOWED_CHAT_ID ures/0 es nincs parositott csatorna) ===" >> "$LOG"
+  exit 0
+fi
 CALENDAR_ID="${HEARTBEAT_CALENDAR_ID:-primary}"
 
 # Same-day dedup guard: the briefing must go out at most once per calendar
