@@ -48,6 +48,7 @@ import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
+import { saveEditedImage } from '../../workbench-image-edit.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
@@ -543,6 +544,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   table_old_version: {
     hu: 'Ez egy régebbi verzió: megnézni lehet, szerkeszteni a legfrissebbet lehet.',
     en: 'This is an older version: you can look at it; editing works on the latest one.',
+  },
+  image_edit_stale: {
+    hu: 'Közben új verzió készült ebből a képből, ezért nem írom felül. Zárd be a szerkesztőt, nyisd meg újra, és csináld meg rajta újra a módosítást.',
+    en: 'A newer version of this image was made in the meantime, so it will not be overwritten. Close the editor, open it again and redo the change on it.',
+  },
+  image_edit_not_image: {
+    hu: 'A mentendő tartalom nem PNG, JPEG vagy WebP kép, ezért nem mentem el.',
+    en: 'The content to save is not a PNG, JPEG or WebP image, so it was not saved.',
+  },
+  image_edit_unsupported: {
+    hu: 'Ennek a munkadarabnak a forrása nem kép, ezért itt nem szerkeszthető képként.',
+    en: 'The source of this work item is not an image, so it cannot be edited as an image here.',
   },
   table_title_required: {
     hu: 'Adj nevet az új táblázatnak.',
@@ -1273,6 +1286,35 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) {
       const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
+    }
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      file: r.file, renamed: r.file.renamed, name: r.file.name,
+    }, 201)
+    return true
+  }
+
+  // KEPSZERKESZTES MENTESE (#406, 16. pont): a bongeszoben kesz kep (nyers
+  // bajtok) UJ fajlba a regi melle + UJ verzio. `base_version`: kozben nem
+  // lehetett ujabb verzio.
+  if (segs.length === 2 && segs[1] === 'image-edit' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    const r = saveEditedImage(item, project, data, { baseVersion: url.searchParams.get('base_version'), created_by: actor(ctx) })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      const status = r.code === 'image_edit_stale' ? 409 : r.code === 'write_failed' ? 500 : 400
+      return failDetail(res, status, code, lang, r.detail || null)
     }
     json(res, {
       ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),

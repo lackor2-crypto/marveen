@@ -667,3 +667,31 @@
   .wb-td-check { width: 36px; height: 36px; }
   .wb-td-form .wb-input { font-size: 16px; }
 }
+
+/* --- Kepszerkesztes egerrel (#406, 16. pont) -------------------------------- */
+.wb-img { display: flex; flex-direction: column; gap: 8px; }
+.wb-img-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wb-img-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wb-img-col h5 { margin: 6px 0 0; font-size: 0.9rem; }
+.wb-img-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0; touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+.wb-img-stage img { max-width: 100%; max-height: 55vh; display: block; }
+.wb-img-crop { position: absolute; box-sizing: border-box; border: 2px solid #fff; outline: 1px solid rgba(0, 0, 0, .6); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .45); cursor: move; touch-action: none; }
+.wb-img-h { position: absolute; width: 18px; height: 18px; background: #fff; border: 1px solid #333; border-radius: 3px; touch-action: none; }
+/* A fogantyuk a keret BELSEJEBEN allnak: a szinpad levagja, ami kilogna, es
+   a teljes kepnel a sarok-fogantyu kulonben felig lathatatlan lenne. */
+.wb-img-h-nw { left: 0; top: 0; cursor: nwse-resize; }
+.wb-img-h-ne { right: 0; top: 0; cursor: nesw-resize; }
+.wb-img-h-sw { left: 0; bottom: 0; cursor: nesw-resize; }
+.wb-img-h-se { right: 0; bottom: 0; cursor: nwse-resize; }
+.wb-img-result { line-height: 0; background: repeating-conic-gradient(#d0d7de 0% 25%, #fff 0% 50%) 50% / 16px 16px; border-radius: 4px; }
+.wb-img-result img { max-width: 100%; max-height: 55vh; display: block; margin: 0 auto; }
+.wb-img-picking img { cursor: crosshair; outline: 2px dashed var(--accent, #3b82f6); }
+.wb-img-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wb-img-num { display: inline-flex; flex-direction: column; font-size: 12px; gap: 2px; }
+.wb-img-num input[type="number"] { width: 6.5em; }
+.wb-img-check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+@media (max-width: 900px) {
+  .wb-img-cols { grid-template-columns: 1fr; }
+  .wb-img-h { width: 28px; height: 28px; }
+  .wb-img .wb-input { font-size: 16px; }
+}

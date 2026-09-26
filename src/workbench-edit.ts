@@ -119,9 +119,9 @@ export function saveTextSourceAsNewVersion(
  *  UJ fajl a regi melle, azonos mappaba, + UJ verzio ra. */
 export function saveBytesAsNewVersion(
   item: WorkItemRow, project: ProjectRow, rel: string, data: Buffer,
-  opts: { created_by?: string | null; prompt?: unknown; edit: string },
+  opts: { created_by?: string | null; prompt?: unknown; edit: string; fileName?: string },
 ): TextSaveResult {
-  const out = writeProjectFile(project, subFolderOf(project, rel), baseNameForNextVersion(rel), data)
+  const out = writeProjectFile(project, subFolderOf(project, rel), baseNameForNextVersion(opts.fileName || rel), data)
   if (!out.ok) return { ok: false, code: out.code, detail: out.message || null }
   const v = createWorkItemVersion(item.id, {
     source_path: out.rel,
