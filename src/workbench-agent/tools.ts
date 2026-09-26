@@ -266,7 +266,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'workItem.addTodo',
     description: 'Add a small to-do with an optional due date to a work item (for example: "review the text by Friday"). It shows up in the work item and in the project to-do list, and the owner can put it in their calendar with one click. You do not know today\'s date: for a weekday say dueWeekday, for "in N days" say dueInDays, and the server works out the day; the result tells you the date it chose.',
-    input: 'workItem: the id of the work item; text: the to-do in one short sentence (at most 300 characters); due (optional): YYYY-MM-DD; or dueWeekday (optional): monday..sunday, the nearest such day, today included; or dueInDays (optional): a whole number of days from today',
+    input: 'workItem: the id of the work item; text: the to-do in one short sentence (at most 300 characters); due (optional): YYYY-MM-DD; or dueWeekday (optional): monday..sunday, the nearest such day, today included; or dueInDays (optional): a whole number of days from today; repeat (optional): weekly or monthly -- after it is ticked off the next one appears by itself (needs a due date; monthly keeps the day of the month)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   // #404: webkereses. A kifejezes kimegy a keresoszolgaltatonak, de a vilagban

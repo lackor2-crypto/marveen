@@ -254,6 +254,21 @@
         : t('workbench.td.due', { date: d })
   }
 
+  /** Egy YYYY-MM-DD nap a felulet nyelven, a megadott formaban. */
+  function tdDateText(ymd, opts) {
+    try {
+      var a = ymd.split('-')
+      return new Date(+a[0], +a[1] - 1, +a[2]).toLocaleDateString(undefined, opts)
+    } catch (_e) { return ymd }
+  }
+
+  /** Ismetlodes (otlet 11dfd5a9): "↻ hetente (hetfo)" / "↻ havonta, 1-jen". */
+  function tdRepeatLabel(td) {
+    if (!td.repeat || !td.due_date) return ''
+    if (td.repeat === 'weekly') return t('workbench.td.repeat_weekly_label', { weekday: tdDateText(td.due_date, { weekday: 'long' }) })
+    return t('workbench.td.repeat_monthly_label', { day: td.repeat_day || +td.due_date.slice(8, 10) })
+  }
+
   function tdRowHtml(td, withItem) {
     var ro = archived() || WB.tdBusy ? ' disabled' : ''
     var done = td.done_at != null
@@ -266,9 +281,12 @@
       + ' aria-label="' + escA(t(done ? 'workbench.td.undo' : 'workbench.td.tick')) + '"' + ro + '>' + (done ? '✓' : '') + '</button>'
       + '<div class="wb-td-body"><span class="wb-td-text">' + esc(td.text) + '</span>'
       + (td.due_date ? ' <span class="wb-td-due">' + esc(tdDueLabel(td)) + '</span>' : '')
+      + (td.repeat && td.due_date ? ' <span class="wb-td-repeat">' + esc(tdRepeatLabel(td)) + '</span>' : '')
       + (withItem ? ' <button type="button" class="wb-linklike" data-wb-act="td-item" data-wb-item-id="' + escA(td.work_item_id) + '">'
         + esc(td.item_title || '') + '</button>' : '')
       + ics
+      + (td.repeat && !done && !archived() ? ' <button type="button" class="wb-linklike" data-wb-act="td-norepeat" data-wb-todo="' + escA(td.id) + '"' + ro + '>'
+        + esc(t('workbench.td.repeat_stop')) + '</button>' : '')
       + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="td-delete" data-wb-todo="' + escA(td.id) + '"' + ro + '>'
         + esc(t('workbench.td.delete')) + '</button>')
       + '</div></li>'
@@ -293,6 +311,12 @@
       + ' aria-label="' + escA(t('workbench.td.text_label')) + '">'
       + '<label class="wb-td-date-label">' + esc(t('workbench.td.due_label'))
       + ' <input class="wb-input" id="wbTdDue" type="date"></label>'
+      + '<label class="wb-td-date-label">' + esc(t('workbench.td.repeat_label'))
+      + ' <select class="wb-input" id="wbTdRepeat">'
+      + '<option value="">' + esc(t('workbench.td.repeat_none')) + '</option>'
+      + '<option value="weekly">' + esc(t('workbench.td.repeat_weekly')) + '</option>'
+      + '<option value="monthly">' + esc(t('workbench.td.repeat_monthly')) + '</option>'
+      + '</select></label>'
       + '<button type="submit" class="btn-primary"' + (WB.tdBusy ? ' disabled' : '') + '>' + esc(t('workbench.td.add')) + '</button>'
       + '</form>'
     return '<details class="wb-td-box" open><summary>' + esc(t('workbench.td.title_item')) + '</summary>' + form + body + '</details>'
@@ -344,8 +368,16 @@
       WB.tdBusy = false
       if (WB.projectId !== pid) return
       if (!r.ok) { window.showToast(r.message); render(); return }
-      if (toastKey === 'add') { var el = document.getElementById('wbTdText'); if (el) el.value = ''; var d = document.getElementById('wbTdDue'); if (d) d.value = '' }
-      window.showToast(t('workbench.td.toast.' + toastKey))
+      if (toastKey === 'add') {
+        var el = document.getElementById('wbTdText'); if (el) el.value = ''
+        var d = document.getElementById('wbTdDue'); if (d) d.value = ''
+        var rp = document.getElementById('wbTdRepeat'); if (rp) rp.value = ''
+      }
+      // Ismetlodo teendo kipipalasa: megmondjuk, mikorra jott a kovetkezo.
+      var nx = toastKey === 'done' && r.data && r.data.next
+      window.showToast(nx && nx.due_date
+        ? t('workbench.td.toast.done_next', { date: tdDateText(nx.due_date, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) })
+        : t('workbench.td.toast.' + toastKey))
       return loadTodos(pid)
     })
   }
@@ -356,7 +388,10 @@
     var text = el && typeof el.value === 'string' ? el.value.trim() : ''
     if (!text) { window.showToast(t('workbench.td.empty_text')); return }
     var due = document.getElementById('wbTdDue')
-    tdRequest('POST', '/api/workbench/todos', { item_id: WB.detail.item.id, text: text, due_date: (due && due.value) || '' }, 'add')
+    var rp = document.getElementById('wbTdRepeat')
+    var repeat = (rp && rp.value) || ''
+    if (repeat && !(due && due.value)) { window.showToast(t('workbench.td.repeat_needs_due')); return }
+    tdRequest('POST', '/api/workbench/todos', { item_id: WB.detail.item.id, text: text, due_date: (due && due.value) || '', repeat: repeat }, 'add')
   }
 
   // ---- projekt-attekinto (#406, 2. pont) -------------------------------------
@@ -4801,11 +4836,12 @@
     else if (a === 'td-close') { WB.tdOpen = false; render() }
     else if (a === 'td-retry') { WB.tdError = null; WB.todos = null; render(); loadTodos() }
     else if (a === 'td-item') { var tid = act.getAttribute('data-wb-item-id'); if (tid) selectItem(tid) }
-    else if (a === 'td-toggle' || a === 'td-delete') {
+    else if (a === 'td-toggle' || a === 'td-delete' || a === 'td-norepeat') {
       var tdId = act.getAttribute('data-wb-todo')
       var cur = (WB.todos || []).filter(function (x) { return x.id === tdId })[0]
       if (!cur) return
-      if (a === 'td-toggle') tdRequest('PATCH', '/api/workbench/todos/' + encodeURIComponent(tdId), { done: cur.done_at == null }, cur.done_at == null ? 'done' : 'undone')
+      if (a === 'td-norepeat') tdRequest('PATCH', '/api/workbench/todos/' + encodeURIComponent(tdId), { repeat: '' }, 'norepeat')
+      else if (a === 'td-toggle') tdRequest('PATCH', '/api/workbench/todos/' + encodeURIComponent(tdId), { done: cur.done_at == null }, cur.done_at == null ? 'done' : 'undone')
       else if (window.confirm(t('workbench.td.delete_confirm', { text: cur.text }))) tdRequest('DELETE', '/api/workbench/todos/' + encodeURIComponent(tdId), undefined, 'deleted')
     }
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }

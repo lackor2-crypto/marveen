@@ -184,8 +184,16 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'The due date is not a valid day. Pick a day from the calendar, or leave it empty.',
   },
   todo_too_many: {
-    hu: 'Ezen a munkadarabon már 100 teendő van. Pipáld ki vagy töröld a régieket, mielőtt újat veszel fel.',
-    en: 'This work item already has 100 to-dos. Tick off or remove old ones before adding a new one.',
+    hu: 'Ezen a munkadarabon már 100 nyitott teendő van. Pipáld ki vagy töröld a régieket, mielőtt újat veszel fel.',
+    en: 'This work item already has 100 open to-dos. Tick off or remove old ones before adding a new one.',
+  },
+  todo_bad_repeat: {
+    hu: 'Az ismétlődés csak „nem ismétlődik”, „hetente” vagy „havonta” lehet.',
+    en: 'Repeat can only be "does not repeat", "weekly" or "monthly".',
+  },
+  todo_repeat_needs_due: {
+    hu: 'Az ismétlődéshez adj meg egy határidőt: abból tudja a Marveen, melyik napon jön a következő.',
+    en: 'To repeat, set a due date: that is how Marveen knows which day the next one comes.',
   },
   todo_not_found: {
     hu: 'Ez a teendő nem található (lehet, hogy közben törölték). Frissítsd az oldalt.',
@@ -837,7 +845,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!it) return fail(res, 404, 'todo_item_not_found', lang)
     const project = getProject(it.project_id)
     if (project && project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = addTodo({ work_item_id: it.id, text: body['text'], due_date: body['due_date'], by: actor(ctx), source: 'owner' })
+    const r = addTodo({ work_item_id: it.id, text: body['text'], due_date: body['due_date'], repeat: body['repeat'], by: actor(ctx), source: 'owner' })
     if (!r.ok) return fail(res, r.code === 'too_many' ? 409 : r.code === 'item_not_found' ? 404 : 400, 'todo_' + r.code, lang)
     json(res, { todo: r.todo, todos: listItemTodos(it.id) })
     return true
@@ -892,9 +900,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       text: 'text' in body ? body['text'] : undefined,
       due_date: 'due_date' in body ? (body['due_date'] ?? '') : undefined,
       done: typeof body['done'] === 'boolean' ? body['done'] : undefined,
+      repeat: 'repeat' in body ? (body['repeat'] ?? '') : undefined,
     })
     if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : 400, 'todo_' + r.code, lang)
-    json(res, { todo: r.todo, todos: listItemTodos(td.work_item_id) })
+    json(res, { todo: r.todo, next: r.next, todos: listItemTodos(td.work_item_id) })
     return true
   }
 

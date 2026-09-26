@@ -6,8 +6,9 @@ import { createProject, setProjectArchived } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import {
   addTodo, updateTodo, deleteTodo, listItemTodos, listProjectTodos, cleanDueDate,
-  todosToIcs, resolveAgentDue, TODOS_PER_ITEM_MAX, TODO_TEXT_MAX,
+  todosToIcs, resolveAgentDue, TODOS_PER_ITEM_MAX, TODO_TEXT_MAX, nextDueDate, cleanRepeat, getTodo,
 } from '../workbench-todos.js'
+import { getDb } from '../db.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -206,5 +207,164 @@ describe('teendok: a felulet', () => {
     await vi.waitFor(() => expect(h.html()).toContain('Belső hiba'))
     expect(h.html()).toContain('data-wb-act="td-retry"')
     expect(h.html()).not.toContain('workbench.td.empty_project')
+  })
+})
+
+// Otlet 11dfd5a9: "minden hetfon" / "minden honap 1-jen" -- kipipalas utan
+// magatol jon a kovetkezo.
+describe('ismetlodo teendok', () => {
+  beforeEach(setup)
+  const at = (ymd: string) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(y, m - 1, d, 12) }
+
+  it('kovetkezo nap: hetente +7, havonta ugyanaz a nap, rovid honapban az utolso', () => {
+    expect(nextDueDate('2026-10-05', 'weekly', null, at('2026-10-05'))).toBe('2026-10-12')
+    expect(nextDueDate('2026-12-28', 'weekly', null, at('2026-12-28'))).toBe('2027-01-04')
+    expect(nextDueDate('2026-10-01', 'monthly', 1, at('2026-10-01'))).toBe('2026-11-01')
+    expect(nextDueDate('2026-01-31', 'monthly', 31, at('2026-01-31'))).toBe('2026-02-28')
+    // februar utan a 31-es horgony visszater a 31-re, nem ragad 28-on
+    expect(nextDueDate('2026-02-28', 'monthly', 31, at('2026-02-28'))).toBe('2026-03-31')
+    expect(nextDueDate('2028-01-31', 'monthly', 31, at('2028-01-31'))).toBe('2028-02-29')
+  })
+
+  it('keson kipipalva nem szul mar lejart kovetkezot', () => {
+    expect(nextDueDate('2026-09-07', 'weekly', null, at('2026-09-26'))).toBe('2026-09-28')
+    expect(nextDueDate('2026-06-01', 'monthly', 1, at('2026-09-26'))).toBe('2026-10-01')
+    // korai pipa: a kovetkezo a mostani utan jon, nem ugyanarra a napra
+    expect(nextDueDate('2026-10-05', 'weekly', null, at('2026-09-26'))).toBe('2026-10-12')
+  })
+
+  it('bemenet: ismeretlen ertek es hatarido nelkuli ismetlodes kulon koddal', () => {
+    expect(cleanRepeat('none')).toEqual({ ok: true, repeat: null })
+    expect(cleanRepeat('weekly')).toEqual({ ok: true, repeat: 'weekly' })
+    expect(cleanRepeat('daily').ok).toBe(false)
+    expect(addTodo({ work_item_id: itemId, text: 'a', due_date: '2026-10-05', repeat: 'daily', by: 'o', source: 'owner' })).toMatchObject({ ok: false, code: 'bad_repeat' })
+    expect(addTodo({ work_item_id: itemId, text: 'a', due_date: null, repeat: 'weekly', by: 'o', source: 'owner' })).toMatchObject({ ok: false, code: 'repeat_needs_due' })
+    const r = addTodo({ work_item_id: itemId, text: 'a', due_date: '2026-10-05', repeat: 'weekly', by: 'o', source: 'owner' })
+    if (!r.ok) throw new Error(r.code)
+    expect(updateTodo(r.todo.id, { due_date: '' })).toMatchObject({ ok: false, code: 'repeat_needs_due' })
+  })
+
+  it('kipipalas: pontosan egy kovetkezo; visszavetel: az erintetlen kovetkezo eltunik', () => {
+    const r = addTodo({ work_item_id: itemId, text: 'Heti jelentés', due_date: '2026-10-05', repeat: 'weekly', by: 'o', source: 'owner' })
+    if (!r.ok) throw new Error(r.code)
+    const d = updateTodo(r.todo.id, { done: true }, at('2026-10-05'))
+    if (!d.ok || !d.next) throw new Error('nincs kovetkezo')
+    expect(d.next).toMatchObject({ text: 'Heti jelentés', due_date: '2026-10-12', repeat: 'weekly', done_at: null })
+    // ujra-pipa (mar kesz) nem szul masodikat
+    const again = updateTodo(r.todo.id, { done: true }, at('2026-10-05'))
+    expect(again.ok && again.next).toBe(null)
+    expect(listItemTodos(itemId).filter((x) => x.done_at == null)).toHaveLength(1)
+    // visszavetel: az erintetlen kovetkezo torlodik
+    const u = updateTodo(r.todo.id, { done: false }, at('2026-10-05'))
+    expect(u.ok && u.todo.next_id).toBe(null)
+    expect(getTodo(d.next.id)).toBeUndefined()
+    // ujra kipipalva: ujra pontosan egy
+    const d2 = updateTodo(r.todo.id, { done: true }, at('2026-10-05'))
+    expect(d2.ok && d2.next).toBeTruthy()
+    expect(listItemTodos(itemId)).toHaveLength(2)
+  })
+
+  it('visszavetel nem torli a kovetkezot, amihez a tulajdonos mar hozzanyult', () => {
+    const r = addTodo({ work_item_id: itemId, text: 'Havi számla', due_date: '2026-10-01', repeat: 'monthly', by: 'o', source: 'owner' })
+    if (!r.ok) throw new Error(r.code)
+    const d = updateTodo(r.todo.id, { done: true }, at('2026-10-01'))
+    if (!d.ok || !d.next) throw new Error('nincs kovetkezo')
+    updateTodo(d.next.id, { text: 'Havi számla + melléklet' }, new Date(at('2026-10-01').getTime() + 5000))
+    updateTodo(r.todo.id, { done: false }, at('2026-10-02'))
+    expect(getTodo(d.next.id)).toMatchObject({ text: 'Havi számla + melléklet' })
+    // ujra kipipalva: a megmaradt kovetkezo mellett NEM jon masodik
+    const again = updateTodo(r.todo.id, { done: true }, at('2026-10-02'))
+    expect(again.ok && again.next).toBe(null)
+    expect(listItemTodos(itemId)).toHaveLength(2)
+  })
+
+  it('"ne ismetlodjon": a kipipalas utan nem jon kovetkezo; havi nap a hataridovel valtozik', () => {
+    const r = addTodo({ work_item_id: itemId, text: 'a', due_date: '2026-10-15', repeat: 'monthly', by: 'o', source: 'owner' })
+    if (!r.ok) throw new Error(r.code)
+    expect(r.todo.repeat_day).toBe(15)
+    const moved = updateTodo(r.todo.id, { due_date: '2026-10-20' })
+    expect(moved.ok && moved.todo.repeat_day).toBe(20)
+    const stop = updateTodo(r.todo.id, { repeat: '' })
+    expect(stop.ok && stop.todo).toMatchObject({ repeat: null, repeat_day: null })
+    const d = updateTodo(r.todo.id, { done: true })
+    expect(d.ok && d.next).toBe(null)
+  })
+
+  it('a felso korlat csak a NYITOTT teendoket szamolja -- egy heti teendo ket ev utan sem akad el', () => {
+    for (let i = 0; i < TODOS_PER_ITEM_MAX; i++) {
+      const x = addTodo({ work_item_id: itemId, text: 't' + i, due_date: null, by: 'o', source: 'owner' })
+      if (x.ok && i % 2 === 0) updateTodo(x.todo.id, { done: true })
+    }
+    expect(addTodo({ work_item_id: itemId, text: 'uj', due_date: null, by: 'o', source: 'owner' }).ok).toBe(true)
+  })
+
+  it('regi tabla (oszlopok nelkul) is megkapja az uj oszlopokat', () => {
+    initDatabase(':memory:')
+    getDb().exec(`CREATE TABLE work_item_todos (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, project_id TEXT NOT NULL,
+      text TEXT NOT NULL, due_date TEXT, done_at INTEGER, created_by TEXT, source TEXT, created_at INTEGER, updated_at INTEGER)`)
+    const p = createProject({ name: 'Régi' })
+    if (!p.ok) throw new Error('p')
+    const it = createWorkItem({ project_id: p.project.id, title: 'x', type: 'document' })
+    if (!it.ok) throw new Error('it')
+    const r = addTodo({ work_item_id: it.item.id, text: 'a', due_date: '2026-10-05', repeat: 'weekly', by: 'o', source: 'owner' })
+    expect(r.ok && r.todo.repeat).toBe('weekly')
+    expect(getTodo(r.ok ? r.todo.id : '')).toMatchObject({ repeat: 'weekly' })
+  })
+
+  it('vegpontok: felvetel ismetlodessel, kipipalas visszaadja a kovetkezot, emberi hibamondat', async () => {
+    const bad = await callWorkbench('/api/workbench/todos', 'POST', { item_id: itemId, text: 'a', repeat: 'weekly' })
+    expect(bad.status).toBe(400)
+    expect(bad.body).toMatchObject({ error: 'todo_repeat_needs_due' })
+    expect(typeof (bad.body as { message: string }).message).toBe('string')
+    const ok = await callWorkbench('/api/workbench/todos', 'POST', { item_id: itemId, text: 'Heti', due_date: '2026-10-05', repeat: 'weekly' })
+    expect(ok.status).toBe(200)
+    const id = (ok.body as { todo: { id: string; repeat: string } }).todo.id
+    expect((ok.body as { todo: { repeat: string } }).todo.repeat).toBe('weekly')
+    const done = await callWorkbench(`/api/workbench/todos/${id}`, 'PATCH', { done: true })
+    const next = (done.body as { next: { due_date: string } | null }).next
+    expect(next && next.due_date > '2026-10-05').toBe(true)
+    expect((done.body as { todos: unknown[] }).todos).toHaveLength(2)
+    const stop = await callWorkbench(`/api/workbench/todos/${next ? (next as unknown as { id: string }).id : ''}`, 'PATCH', { repeat: null })
+    expect((stop.body as { todo: { repeat: string | null } }).todo.repeat).toBe(null)
+  })
+
+  it('agens-eszkoz: ismetlodest is fel tud venni, hatarido nelkul kimondja a hibat', () => {
+    const tool = getTool('workItem.addTodo')
+    expect(tool && tool.input).toContain('repeat')
+    const ok = executeTool('workItem.addTodo', { workItem: itemId, text: 'Heti mentés', dueInDays: 1, repeat: 'weekly' }, { projectId: pid, workItemId: null, lang: 'hu' as const })
+    expect(ok).toMatchObject({ ok: true, data: { repeat: 'weekly' } })
+    const bad = executeTool('workItem.addTodo', { workItem: itemId, text: 'x', repeat: 'weekly' }, { projectId: pid, workItemId: null, lang: 'hu' as const })
+    expect(bad).toMatchObject({ ok: false, code: 'bad_input' })
+  })
+})
+
+describe('ismetlodo teendok: a felulet', () => {
+  function openItem(todos: unknown[], patchReply?: unknown) {
+    const h = workbenchHarness()
+    h.respond((url, init) => {
+      if (url.includes('/api/workbench/todos/') && init && init.method === 'PATCH') return { status: 200, body: patchReply }
+      if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    h.click({ 'data-wb-act': 'td-open' })
+    return h
+  }
+  const row = { id: 'r1', work_item_id: 'w1', project_id: 'p1', text: 'Heti jelentés', due_date: '2026-10-05', done_at: null, item_title: 'Ajánlat', repeat: 'weekly', repeat_day: null }
+
+  it('a sor mutatja az ismetlodest es a "ne ismetlodjon" gombot, forditva', async () => {
+    const h = openItem([row, { ...row, id: 'r2', text: 'Havi', repeat: 'monthly', repeat_day: 31, due_date: '2026-10-31' }])
+    await vi.waitFor(() => expect(h.html()).toContain('Heti jelentés'))
+    expect(h.html()).toContain('workbench.td.repeat_weekly_label')
+    expect(h.html()).toContain('workbench.td.repeat_monthly_label')
+    expect(h.html()).toContain('data-wb-act="td-norepeat"')
+    expect(untranslatedHungarian(h.html(), ['Kovács weboldal', 'Ajánlat', 'Heti jelentés', 'Havi'])).toBe('')
+  })
+
+  it('kipipalas: a toast megmondja, mikor jon a kovetkezo', async () => {
+    const h = openItem([row], { todo: { ...row, done_at: 1 }, next: { ...row, id: 'r9', due_date: '2026-10-12' }, todos: [] })
+    await vi.waitFor(() => expect(h.html()).toContain('Heti jelentés'))
+    h.click({ 'data-wb-act': 'td-toggle', 'data-wb-todo': 'r1' })
+    await vi.waitFor(() => expect(h.toasts.join('|')).toContain('workbench.td.toast.done_next'))
   })
 })
