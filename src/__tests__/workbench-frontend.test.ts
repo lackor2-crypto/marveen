@@ -510,6 +510,77 @@ describe('agent-chat (3. fazis)', () => {
     expect(html).not.toContain('workbench.chat.tool_running')
   })
 
+  // #406 0. pont: folyamatjelzo. Boss: latszodjon, mit csinal MOST az agens,
+  // es a nyers {"tool":...} JSON soha ne keruljon a kepernyore.
+  it('folyamatjelzo: tetlen -> kesz, az eszkoz EMBERI nevevel', async () => {
+    await openChat()
+    expect(h.rootEl.innerHTML).toContain('id="wbChatActivity"')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.act_idle')
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([
+          { type: 'tool', name: 'file.read', status: 'running' },
+          { type: 'tool', name: 'file.read', status: 'ok' },
+          { type: 'text', text: 'Megvan.' },
+          { type: 'done', model: 'm' },
+        ]) }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.inputs.wbChatInput = { value: 'olvasd el', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.act_done'))
+    // Kozben a "Gondolkodik" allapot latszott (nem csak a vegeredmeny).
+    expect(h.renders.some((r) => r.indexOf('workbench.chat.act_thinking') >= 0)).toBe(true)
+    expect(h.rootEl.innerHTML).toContain('workbench.tool.file.read')
+  })
+
+  it('folyamatjelzo: eredmeny nelkuli valasznal "Nem jott valasz", nem orok "Gondolkodik"', async () => {
+    await openChat()
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 200, body: sse([{ type: 'done', model: 'm' }]) }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.inputs.wbChatInput = { value: 'hahó', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.act_no_answer'))
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.no_answer')
+  })
+
+  it('a regi, csak-eszkozhivas elozmeny-sor nem nyers JSON-kent jelenik meg', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        return { status: 200, body: { session: { id: 's1' }, messages: [
+          { role: 'user', content: 'nézd meg' },
+          { role: 'assistant', content: '{"tool":"project.getContext","args":{}}' },
+        ], toolCalls: [] } }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.tool.project.getContext'))
+    expect(h.rootEl.innerHTML).not.toContain('{&quot;tool&quot;')
+    expect(h.rootEl.innerHTML).not.toContain('{"tool"')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.tool_history')
+  })
+
+  it('minden szerveroldali eszkoznek van emberi neve mindket nyelven', async () => {
+    const { TOOLS } = await import('../workbench-agent/tools.js')
+    const w = globalThis as unknown as { window?: Record<string, unknown> }
+    w.window ||= {}
+    await import(/* @vite-ignore */ '../../web/lang/hu.js' as string)
+    await import(/* @vite-ignore */ '../../web/lang/en.js' as string)
+    const i18n = (w.window as { _i18n: Record<string, Record<string, string>> })._i18n
+    const keys = TOOLS.map((tool) => 'workbench.tool.' + tool.name)
+    expect(keys.filter((k) => !(k in i18n.hu))).toEqual([])
+    expect(keys.filter((k) => !(k in i18n.en))).toEqual([])
+  })
+
   it('ha az agens munkadarabot hozott letre, a LISTA is frissul', async () => {
     await openChat()
     var listazas = 0

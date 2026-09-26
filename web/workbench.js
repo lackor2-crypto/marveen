@@ -1395,8 +1395,15 @@
       st.error = null
       st.sessionId = r.data.session ? r.data.session.id : null
       var regi = (r.data.messages || []).filter(function (m) { return m.role !== 'tool' }).map(function (m) {
+        // Regi (a #401 elotti) sor, ami csak nyers eszkozhivas-JSON volt: a
+        // gepi szoveg helyett emberi eszkoz-sor (#406). Az eredmenyt nem
+        // tudjuk, ezert nem is allitunk rola semmit.
+        var raw = m.role !== 'user' ? splitRawToolText(m.content) : null
         return {
-          role: m.role === 'user' ? 'user' : 'agent', text: m.content || '', tools: [], notices: [], error: null, done: true,
+          role: m.role === 'user' ? 'user' : 'agent',
+          text: raw ? '' : (m.content || ''),
+          tools: raw ? raw.map(function (n) { return { name: n, status: 'history', detail: '', approvalId: '' } }) : [],
+          notices: [], error: null, done: true,
           model: m.model || null,
           via: m.via_kind === 'api_key' ? { kind: 'api_key' }
             : m.via_kind === 'account' && m.via_account ? { kind: 'account', account: m.via_account } : null,
@@ -1459,11 +1466,99 @@
       + '</div></form>'
   }
 
+  /** Az eszkoz EMBERI neve (#406). Ismeretlen (uj) eszkoznel a gepi nev marad
+   *  -- inkabb latszodjon valami, mint semmi. */
+  function toolLabel(name) {
+    var key = 'workbench.tool.' + String(name || '')
+    var s = t(key)
+    return s && s !== key ? s : String(name || '')
+  }
+
+  /** Csak-eszkozhivas elozmeny-sor (a #401 elotti, nyers `{"tool":...}` szoveg)
+   *  -> eszkoz-sorok. A nyers JSON soha nem kerul a kepernyore (#406, msg #15). */
+  var RAW_TOOL_RX = /^\s*(\{"tool"\s*:[\s\S]*\})\s*$/
+  function splitRawToolText(text) {
+    var s = String(text || '')
+    if (!RAW_TOOL_RX.test(s)) return null
+    var names = []
+    var rx = /"tool"\s*:\s*"([^"]+)"/g
+    var m
+    while ((m = rx.exec(s))) { if (names.indexOf(m[1]) < 0) names.push(m[1]) }
+    return names.length ? names : null
+  }
+
+  /** Mit csinal MOST az agens (#406): Gondolkodik / Dolgozik (melyik eszkoz) /
+   *  Valaszol / Jovahagyasra var / Kesz / Hiba / Nem jott valasz / Tetlen.
+   *  A forras a stream TENYLEGES esemenyei -- nem becsles. */
+  var CHAT_STALL_MS = 45000
+  function chatActivity(now) {
+    var st = chatState()
+    var last = null
+    for (var i = st.turns.length - 1; i >= 0; i--) { if (st.turns[i].role === 'agent') { last = st.turns[i]; break } }
+    if (WB.chatStreaming && last) {
+      var a = WB.chatActivityClock || {}
+      var n = typeof now === 'number' ? now : Date.now()
+      var sec = a.startedAt ? Math.max(0, Math.round((n - a.startedAt) / 1000)) : 0
+      var silent = a.lastEventAt ? n - a.lastEventAt : 0
+      var run = null
+      var wait = null
+      for (var j = last.tools.length - 1; j >= 0; j--) {
+        if (!run && last.tools[j].status === 'running') run = last.tools[j]
+        if (!wait && last.tools[j].status === 'needs_approval') wait = last.tools[j]
+      }
+      var label = run ? t('workbench.chat.act_tool', { tool: toolLabel(run.name) })
+        : last.text ? t('workbench.chat.act_writing')
+        : t('workbench.chat.act_thinking')
+      var kind = 'busy'
+      if (!run && wait) { label = t('workbench.chat.act_waiting_approval', { tool: toolLabel(wait.name) }); kind = 'wait' }
+      var extra = t('workbench.chat.act_elapsed', { s: sec })
+      if (silent >= CHAT_STALL_MS) {
+        extra = t('workbench.chat.act_stalled', { s: Math.round(silent / 1000) })
+        kind = 'stalled'
+      }
+      return { kind: kind, label: label, extra: extra }
+    }
+    if (!last) return { kind: 'idle', label: t('workbench.chat.act_idle'), extra: '' }
+    if (last.error) return { kind: 'bad', label: t('workbench.chat.act_error'), extra: '' }
+    if (last.aborted) return { kind: 'idle', label: t('workbench.chat.act_stopped'), extra: '' }
+    if (turnIsEmpty(last)) return { kind: 'bad', label: t('workbench.chat.act_no_answer'), extra: '' }
+    return { kind: 'done', label: t('workbench.chat.act_done'), extra: '' }
+  }
+
+  function turnIsEmpty(turn) {
+    return !turn.text && !(turn.tools && turn.tools.length) && !(turn.notices && turn.notices.length) && !turn.error
+  }
+
+  function chatActivityHtml() {
+    var a = chatActivity()
+    return '<div class="wb-chat-activity wb-chat-activity-' + a.kind + '" id="wbChatActivity" role="status" aria-live="polite">'
+      + '<span class="wb-chat-activity-dot" aria-hidden="true"></span>'
+      + '<span class="wb-chat-activity-label">' + esc(a.label) + '</span>'
+      + (a.extra ? ' <span class="wb-muted wb-chat-activity-extra">' + esc(a.extra) + '</span>' : '')
+      + '</div>'
+  }
+
+  /** Masodpercenkenti frissites streameles kozben -- CSAK a jelzo sort irja
+   *  at, a naplot es a beviteli mezot nem (fokusz, gorgetes marad). */
+  function startChatActivityTicker() {
+    stopChatActivityTicker()
+    if (typeof setInterval !== 'function') return
+    WB.chatActivityTimer = setInterval(function () {
+      if (!WB.chatStreaming) { stopChatActivityTicker(); return }
+      var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatActivity') : null
+      if (el && typeof el.outerHTML === 'string') el.outerHTML = chatActivityHtml()
+    }, 1000)
+  }
+  function stopChatActivityTicker() {
+    if (WB.chatActivityTimer && typeof clearInterval === 'function') clearInterval(WB.chatActivityTimer)
+    WB.chatActivityTimer = null
+  }
+
   function toolLineHtml(tool) {
     var cls = tool.status === 'error' || tool.status === 'blocked' ? ' wb-tool-bad'
       : tool.status === 'needs_approval' ? ' wb-tool-wait' : ''
     return '<div class="wb-tool' + cls + '">'
-      + '<span class="wb-tool-name">' + esc(tool.name) + '</span> '
+      + '<span class="wb-tool-name" title="' + escA(tool.name) + '">' + esc(toolLabel(tool.name)) + '</span> '
       + esc(t('workbench.chat.tool_' + tool.status))
       + (tool.detail ? ' <span class="wb-muted">' + esc(tool.detail) + '</span>' : '')
       + (tool.approvalId ? ' <span class="wb-muted">' + esc(t('workbench.chat.approval_id', { id: tool.approvalId })) + '</span>' : '')
@@ -1491,7 +1586,11 @@
     }
     if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
     if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
-    if (!body && turn.role === 'agent') body = '<div class="wb-turn-text wb-muted">' + esc(t('workbench.chat.thinking')) + '</div>'
+    if (!body && turn.role === 'agent') {
+      body = turn.done
+        ? '<div class="wb-turn-notice">' + esc(t('workbench.chat.no_answer')) + '</div>'
+        : '<div class="wb-turn-text wb-muted">' + esc(t('workbench.chat.thinking')) + '</div>'
+    }
     body += turnViaHtml(turn)
     return '<div class="wb-turn wb-turn-' + (turn.role === 'user' ? 'user' : 'agent') + '">'
       + '<div class="wb-turn-who">' + esc(who) + '</div>' + body + '</div>'
@@ -1519,6 +1618,7 @@
       + '</div>'
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
       + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
+      + chatActivityHtml()
       + '<div class="wb-chat-row">'
       + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
       + escA(t('workbench.chat.placeholder')) + '">' + esc(WB.chatDraft) + '</textarea>'
@@ -1558,6 +1658,7 @@
   /** Egy SSE-keret (`event: x\ndata: {...}`) feldolgozasa. */
   function applyChatEvent(turn, ev) {
     if (!ev || !ev.type) return
+    if (WB.chatActivityClock) WB.chatActivityClock.lastEventAt = Date.now()
     if (ev.type === 'session') { chatState().sessionId = ev.sessionId; return }
     if (ev.type === 'text') { turn.text += ev.text || ''; return }
     if (ev.type === 'tool') {
@@ -1585,6 +1686,7 @@
   }
 
   function finishChatTurn(turn) {
+    stopChatActivityTicker()
     WB.chatStreaming = false
     WB.chatAbort = null
     if (!turn.done) turn.done = true
@@ -1618,6 +1720,8 @@
     st.turns.push(turn)
     WB.chatDraft = ''
     WB.chatStreaming = true
+    WB.chatActivityClock = { startedAt: Date.now(), lastEventAt: Date.now() }
+    startChatActivityTicker()
     renderChat()
 
     var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text }

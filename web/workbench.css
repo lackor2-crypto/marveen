@@ -156,6 +156,15 @@
 .wb-tool-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .wb-tool-bad { color: var(--danger, #d33); }
 .wb-tool-wait { color: var(--warning, #b45309); }
+.wb-chat-activity { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; margin: 0 0 6px; flex-wrap: wrap; }
+.wb-chat-activity-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted, #9ca3af); flex: 0 0 auto; }
+.wb-chat-activity-busy .wb-chat-activity-dot { background: var(--success, #16a34a); animation: wbPulse 1.2s ease-in-out infinite; }
+.wb-chat-activity-wait .wb-chat-activity-dot { background: var(--warning, #b45309); }
+.wb-chat-activity-stalled .wb-chat-activity-dot { background: var(--warning, #b45309); animation: wbPulse 2.4s ease-in-out infinite; }
+.wb-chat-activity-bad .wb-chat-activity-dot { background: var(--danger, #d33); }
+.wb-chat-activity-done .wb-chat-activity-dot { background: var(--success, #16a34a); }
+@keyframes wbPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .wb-chat-activity-dot { animation: none !important; } }
 .wb-chat-row { display: flex; gap: 8px; align-items: flex-end; }
 .wb-chat-row .wb-input { flex: 1 1 auto; }
 .wb-chat-input { resize: vertical; min-height: 44px; font-family: inherit; }
