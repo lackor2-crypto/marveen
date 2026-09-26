@@ -33,7 +33,7 @@ import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
-import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave } from './project-tools.js'
+import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord } from './project-tools.js'
 import { webSearch } from './web-search.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
@@ -611,6 +611,8 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'research.save': return researchSave(project, input)
     case 'kanban.comment': return kanbanComment(project, input, ctx.actor || MAIN_AGENT_ID)
     case 'kanban.relate': return kanbanRelate(project, input)
+    case 'decision.list': return decisionList(project)
+    case 'decision.record': return decisionRecord(project, input)
 
     default:
       return { ok: false, code: 'tool_unknown', detail: `there is no tool named ${name}` }

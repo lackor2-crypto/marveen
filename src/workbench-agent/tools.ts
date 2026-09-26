@@ -239,6 +239,20 @@ export const TOOLS: ToolDef[] = [
     input: 'card: the card number (#123) or id; related: a list of the cards to link (numbers or ids)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
+  // #406, 10. pont: dontesnaplo. A Munkapad sajat adata, visszavonhato
+  // (a sor megmarad) -- ugyanaz a kategoria, mint az otlet.
+  {
+    name: 'decision.list',
+    description: 'List the decisions recorded in THIS project (what was agreed earlier), including withdrawn ones.',
+    input: '(no input)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'decision.record',
+    description: 'Record a decision that was agreed in the conversation, so it is not forgotten later (for example: "the logo stays blue"). One short sentence. It is always filed under THIS project.',
+    input: 'text: the decision in one or two sentences (at most 500 characters); workItem (optional): the id of the work item it is about',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
   // #404: webkereses. A kifejezes kimegy a keresoszolgaltatonak, de a vilagban
   // semmit nem valtoztat -- ezert sajat, csak-olvaso kategoria (`web_research`),
   // amit a tulajdonos az Autonomia lapon kulon le tud venni.

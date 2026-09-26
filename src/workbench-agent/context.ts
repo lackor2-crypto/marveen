@@ -17,6 +17,7 @@ import type { WorkItemRow } from '../workbench.js'
 import { projectContext } from '../project-context.js'
 import { listWorkItems, listWorkItemVersions } from '../workbench.js'
 import { recentFiles } from '../project-overview.js'
+import { decisionsForContext } from '../workbench-decisions.js'
 import { toolsForPrompt } from './tools.js'
 import type { AIMessage } from './provider.js'
 import type { AgentMessageRow } from './sessions.js'
@@ -36,6 +37,7 @@ HARD RULES:
 - You may only act through the listed tools. Never claim you did something a tool did not report back as done.
 - Never print, repeat or ask for API keys, tokens or passwords.
 - Answer in the requested language, in plain sentences the owner (not a programmer) understands.
+- Follow the recorded DECISIONS of the project. When the owner and you agree on something that should hold later (a colour, a wording, a deadline, a rule), record it with decision.record and say so.
 
 WHAT GOES WHERE:
 - A CODE FIX or a development task is NOT a work item. Open a kanban card for it (kanban.create). The card is bound to this project automatically.
@@ -85,6 +87,14 @@ export function buildContext(
   // 1. A projekt mert kontextusa -- a MEGLEVO fuggveny, nem uj meres.
   const pc = projectContext(project.id, lang)
   add('project', pc ? pc.text : `Project: ${project.name}\n(no measured context available for this project right now)`)
+
+  // 1b. Dontesnaplo (#406, 10. pont): amiben mar megallapodtak. Olvashatatlan
+  // tabla NEM "nincs dontes": azt kulon kimondjuk.
+  let decisions: string
+  try { decisions = decisionsForContext(project.id) } catch {
+    decisions = 'Decisions agreed in this project: cannot be read right now. This does NOT mean there are none.'
+  }
+  add('decisions', decisions)
 
   // 2. Munkadarabok -- rovid lista, felso hatarral.
   const items = listWorkItems(project.id)
