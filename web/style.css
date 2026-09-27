@@ -12252,6 +12252,14 @@ details.upstream-box > summary > h4 {
 /* #398: a fiok tartalma helyben, a Drive-lista osztalyaival. A mappa neve
    gomb (billentyuzettel is belephetsz), a fajle csak felirat. */
 #megadepotBrowser { margin-top: 4px; }
+.megadepot-browser-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin: 4px 0 8px; }
+.megadepot-account-title { margin: 0; font-size: 16px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.megadepot-browser-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.megadepot-trash-note { margin-top: 12px; }
+@media (max-width: 600px) {
+  .megadepot-browser-tools { width: 100%; }
+  .megadepot-browser-tools > * { flex: 1 1 auto; justify-content: center; }
+}
 .megadepot-accounts-title { margin: 28px 0 10px; font-size: 15px; font-weight: 600; }
 #megadepotBrowser[hidden], #megadepotAccountSelect[hidden], #megadepotError[hidden] { display: none; }
 #megadepotMulti { margin-top: 8px; }

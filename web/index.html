@@ -3685,8 +3685,31 @@
       </div>
       <div class="info-box" id="megadepotStateBox" hidden></div>
 
-      <!-- #398: a fiok tartalma helyben, mint a Drive oldalon. Csak olvas. -->
+      <!-- #398: a fiok tartalma helyben, mint a Drive oldalon.
+           #424: bal felul a fiok emailje, mellette feltoltes / uj mappa /
+           frissites; soronkent letoltes / atnevezes / athelyezes / kuka. -->
       <div id="megadepotBrowser" hidden>
+        <div class="megadepot-browser-head">
+          <h2 class="megadepot-account-title">
+            <span class="conn-note" data-i18n="megadepot.account_label">MEGA-fiók:</span>
+            <span id="megadepotAccountTitle"></span>
+          </h2>
+          <span class="megadepot-browser-tools">
+            <label class="btn-secondary btn-compact" for="megadepotUploadInput" style="cursor:pointer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span data-i18n="drive.upload_btn">Feltöltés</span>
+            </label>
+            <input type="file" id="megadepotUploadInput" multiple hidden>
+            <button class="btn-secondary btn-compact" id="megadepotNewFolderBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+              <span data-i18n="drive.new_folder_btn">Új mappa</span>
+            </button>
+            <button class="btn-secondary btn-compact" id="megadepotRefreshBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <span data-i18n="drive.refresh_btn">Frissítés</span>
+            </button>
+          </span>
+        </div>
         <div class="drive-breadcrumb" id="megadepotBreadcrumb"></div>
         <div id="megadepotBrowseList" class="drive-list"></div>
         <div id="megadepotEmpty" class="vault-empty" hidden>
@@ -3700,6 +3723,8 @@
         <span id="megadepotMultiChips" class="megadepot-chips"></span>
       </div>
       <div class="drive-multi" id="megadepotMulti" hidden></div>
+      <input type="file" id="megadepotMultiUploadInput" multiple hidden>
+      <div class="info-box megadepot-trash-note" id="megadepotTrashNote" hidden data-i18n="megadepot.trash_note">A törölt fájl a MEGA kukájába kerül, nem végleges: a mega.nz weboldalon a Kukából visszaállítható.</div>
       <!-- Fiokonkent a tarhely es az Intezo-gomb (#391) -- a tartalom alatt,
            mert a bongeszo az elsodleges (#398). -->
       <div id="megadepotList"></div>
