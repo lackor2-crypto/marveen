@@ -1693,12 +1693,6 @@
       "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
-    "src/__tests__/memory-embedding-staleness.test.ts": {
-      "blob": "a024658abd20bb85bba3a9c86561f490ac835457",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/memory-frontmatter-gate.test.ts": {
       "blob": "df08d5e0f2617de467e737f664cf846f9a7cc3e3",
       "kind": "decided",
