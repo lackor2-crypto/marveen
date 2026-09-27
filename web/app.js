@@ -25285,7 +25285,12 @@ function _renderApprovalsTable() {
           const requestedDate = a.requested_at ? new Date(a.requested_at * 1000) : null
           const sameDay = requestedDate && resolvedDate.toDateString() === requestedDate.toDateString()
           const resolvedStr = resolvedDate.toLocaleString('hu-HU', sameDay ? { timeStyle: 'short' } : { dateStyle: 'short', timeStyle: 'short' })
-          return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}<br><span style="font-size:11px;opacity:0.7">${escapeHtml(resolvedStr)}</span>${reasonHtml}</span>`
+          // #430: an approval clicked by mistake can be taken back (the
+          // server decides which rows qualify -- see approvalUndoBlock).
+          const undoHtml = a.undoable
+            ? `<br><button class="btn-secondary btn-compact approvals-undo" data-id="${escapeAttr(a.id)}" title="${escapeAttr(t('approvals.btn.undo_title'))}" style="font-size:11px;margin-top:4px">${t('approvals.btn.undo')}</button>`
+            : ''
+          return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}<br><span style="font-size:11px;opacity:0.7">${escapeHtml(resolvedStr)}</span>${reasonHtml}</span>${undoHtml}`
         })()
     const rowId = String(a.id)
     const isExpanded = _approvalsExpanded.has(rowId)
@@ -25351,6 +25356,14 @@ function _renderApprovalsTable() {
         if (reason === null) return
       }
       _resolveApproval(btn.dataset.id, decision, reason)
+    })
+  })
+
+  tbody.querySelectorAll('.approvals-undo').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (!window.confirm(t('approvals.undo.confirm'))) return
+      _undoApproval(btn.dataset.id, btn)
     })
   })
 
@@ -25920,6 +25933,36 @@ async function _resolveApproval(id, decision, reason) {
     _renderApprovalsStats()
     _renderApprovalsTable()
   } catch (err) {
+    showToast(t('approvals.toast.error', { msg: String(err.message || err) }))
+  }
+}
+
+// #430 (owner 2026-09-27: "egy visszagomb a jóváhagyásokban mindenféleképpen
+// kell"): take back an approved kanban_done decision. The server moves the
+// card back to Waiting and opens a fresh pending request for it; a refusal
+// comes back as a code that is shown as a sentence, never as the code.
+const APPROVAL_UNDO_ERRORS = ['not_found', 'not_approved', 'not_kanban', 'no_card', 'card_not_done', 'not_latest']
+async function _undoApproval(id, btn) {
+  if (btn) btn.disabled = true
+  try {
+    const res = await fetch(`/api/approvals/${encodeURIComponent(id)}/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actor: 'dashboard' }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      const code = data && data.error
+      showToast(APPROVAL_UNDO_ERRORS.includes(code)
+        ? t('approvals.undo.err.' + code)
+        : t('approvals.toast.error', { msg: code || ('HTTP ' + res.status) }))
+      if (btn) btn.disabled = false
+      return
+    }
+    showToast(t('approvals.toast.undone'))
+    await loadApprovalsPage()
+  } catch (err) {
+    if (btn) btn.disabled = false
     showToast(t('approvals.toast.error', { msg: String(err.message || err) }))
   }
 }
