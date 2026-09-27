@@ -16,6 +16,7 @@
  */
 import { listClaudeAccountCandidates, orderClaudeAccounts, type ClaudeAccount } from '../life-inbox-ai.js'
 import { tierForPct } from '../rate-limit-status.js'
+import { rankModelTier } from '../web/smartest-worker.js'
 
 type Lister = () => ClaudeAccount[]
 let lister: Lister = listClaudeAccountCandidates
@@ -62,7 +63,12 @@ export interface WorkbenchAccountStatus {
 export function workbenchAccountStatuses(): WorkbenchAccountStatus[] {
   let cands: ClaudeAccount[] = []
   try { cands = lister() } catch { cands = [] }
-  const rows: WorkbenchAccountStatus[] = cands.map((c) => {
+  // CSAK Claude-fiokok. A Munkapad providere a `claude -p`-t inditja, tehat egy
+  // nem-Claude fiok (ingyenes glm/laguna/nemotron OpenRouter-modell) itt nem
+  // hasznalhato -- ugyanaz a szures, mint az auto-valasztasban (orderClaudeAccounts:
+  // rankModelTier >= 200). Enelkul a valaszto olyan fiokot kinalna, amivel a
+  // hivas elhasalna.
+  const rows: WorkbenchAccountStatus[] = cands.filter((c) => rankModelTier(c.model) >= 200).map((c) => {
     const weeklyDead = c.sevenDayPct != null && c.sevenDayPct >= 100
     const fiveCritical = c.fiveHourPct != null && tierForPct(c.fiveHourPct) === 'critical'
     const noMeasure = c.fiveHourPct == null && (c.sevenDayPct == null)
