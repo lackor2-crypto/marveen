@@ -15,12 +15,13 @@ import { SETTINGS_REGISTRY } from '../config-registry.js'
 const pane = (...lines: string[]) => lines.join('\n') + '\n'
 
 describe('classifyPane: a turn in flight', () => {
-  it('mirrors the spinner detail line verbatim', () => {
-    expect(classifyPane(pane('> valami kérdés', '✽ Incubating… (55s · ↓ 2.6k tokens)', '  ⎿  esc to interrupt')))
-      .toEqual({ kind: 'live', text: 'Incubating… (55s · ↓ 2.6k tokens)' })
+  it('mirrors the spinner detail line, in the install language (owner 2026-09-27: no English on Telegram)', () => {
+    const p = pane('> valami kérdés', '✽ Incubating… (55s · ↓ 2.6k tokens)', '  ⎿  esc to interrupt')
+    expect(classifyPane(p)).toEqual({ kind: 'live', text: 'dolgozom… (55s · ↓ 2.6k token)' })
+    expect(classifyPane(p, 'en')).toEqual({ kind: 'live', text: 'Incubating… (55s · ↓ 2.6k tokens)' })
   })
   it('falls back to the counter without a detail frame', () => {
-    expect(classifyPane(pane('> kérdés', 'esc to interrupt · 2 shells'))).toEqual({ kind: 'live', text: 'dolgozom… (2 shells)' })
+    expect(classifyPane(pane('> kérdés', 'esc to interrupt · 2 shells'))).toEqual({ kind: 'live', text: 'dolgozom… (2 parancs)' })
   })
   it('working with nothing else on screen, in both languages', () => {
     expect(classifyPane(pane('esc to interrupt'))).toEqual({ kind: 'live', text: 'dolgozom…' })
@@ -35,19 +36,19 @@ describe('classifyPane: a turn in flight', () => {
 describe('classifyPane: background work', () => {
   it('shells with the tasks panel visible', () => {
     expect(classifyPane(pane('> kész', 'bypass permissions on · 2 shells · ctrl+t to hide tasks · ↓ to manage')))
-      .toEqual({ kind: 'background', text: 'háttérfolyamat fut (2 shells)' })
+      .toEqual({ kind: 'background', text: 'háttérfolyamat fut (2 parancs)' })
   })
   it('shells with the tasks panel hidden', () => {
-    expect(classifyPane(pane('bypass permissions on · 1 shell · ↓ to manage'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (1 shell)' })
+    expect(classifyPane(pane('bypass permissions on · 1 shell · ↓ to manage'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (1 parancs)' })
   })
   it('monitor and sub-agents', () => {
-    expect(classifyPane(pane('bypass permissions on · 1 monitor · ← for agents · ↓ to manage'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (1 monitor)' })
+    expect(classifyPane(pane('bypass permissions on · 1 monitor · ← for agents · ↓ to manage'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (1 figyelő)' })
   })
   it('the shape a live pane renders', () => {
-    expect(classifyPane(pane('  ⏵⏵ bypass permissions on (shift+tab to cycle) · 2 shells · ↓ to manage'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (2 shells)' })
+    expect(classifyPane(pane('  ⏵⏵ bypass permissions on (shift+tab to cycle) · 2 shells · ↓ to manage'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (2 parancs)' })
   })
   it('a footer truncated by a narrow pane', () => {
-    expect(classifyPane(pane('  ⏵⏵ bypass permissions on (shift+tab to cycle) · 3 shells · ctrl+t to hi…'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (3 shells)' })
+    expect(classifyPane(pane('  ⏵⏵ bypass permissions on (shift+tab to cycle) · 3 shells · ctrl+t to hi…'))).toEqual({ kind: 'background', text: 'háttérfolyamat fut (3 parancs)' })
   })
   it('reports every counter, in English too', () => {
     expect(classifyPane(pane('bypass permissions on · 3 shells · 1 monitor · ↓ to manage'), 'en')).toEqual({ kind: 'background', text: 'background work running (3 shells, 1 monitor)' })
@@ -85,13 +86,14 @@ describe('classifyPane: the shape current Claude Code renders (measured on this 
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
   )
   it('is a live turn with its real status line', () => {
-    expect(classifyPane(live)).toEqual({ kind: 'live', text: 'Churning… (4m 33s · ↓ 23.5k tokens)' })
+    expect(classifyPane(live)).toEqual({ kind: 'live', text: 'dolgozom… (4m 33s · ↓ 23.5k token)' })
+    expect(classifyPane(live, 'en')).toEqual({ kind: 'live', text: 'Churning… (4m 33s · ↓ 23.5k tokens)' })
   })
   it('a tool-call or reply line with "(digit" never becomes the status (lackor2-bot review)', () => {
     const p = pane('● Bash(100 fájl átnézése)', '⏺ Kész (3 fájl)', '· Rendben (2 lépés)', 'esc to interrupt')
     expect(classifyPane(p)).toEqual({ kind: 'live', text: 'dolgozom…' })
     const withSpinner = pane('⏺ Bash(100 fájl)', '✻ Pondering… (12s · ↓ 1k tokens)', 'esc to interrupt')
-    expect(classifyPane(withSpinner)).toEqual({ kind: 'live', text: 'Pondering… (12s · ↓ 1k tokens)' })
+    expect(classifyPane(withSpinner)).toEqual({ kind: 'live', text: 'dolgozom… (12s · ↓ 1k token)' })
   })
   it('the same pane after the turn ended is idle, not background', () => {
     const idle = pane(
@@ -115,7 +117,7 @@ describe('riding on our placeholder', () => {
     expect(placeholderLiveText('x', null)).toBeNull()
   })
   it('background text only for background work', () => {
-    expect(backgroundText({ kind: 'background', text: 'háttérfolyamat fut (1 shell)' })).toBe('⏳ háttérfolyamat fut (1 shell)')
+    expect(backgroundText({ kind: 'background', text: 'háttérfolyamat fut (1 parancs)' })).toBe('⏳ háttérfolyamat fut (1 parancs)')
     expect(backgroundText({ kind: 'live', text: 'x' })).toBeNull()
   })
   it('edits only on a change and not faster than the throttle', () => {
@@ -138,6 +140,16 @@ describe('verbose thoughts', () => {
       'not json',
     ]
     expect(extractThoughts(lines)).toEqual(['Megnézem a naplót.'])
+  })
+  it('never posts an English narration block to a Hungarian owner (2026-09-27)', () => {
+    const lines = [
+      asst([{ type: 'text', text: 'Now let me check the runner and fix the test.' }]),
+      asst([{ type: 'text', text: 'Megnézem a `src/web/progress-mirror-runner.ts` fájlt.' }]),
+      asst([{ type: 'text', text: '#429 kész' }]),
+      asst([{ type: 'text', text: 'The cause is clear: the mirror posts the terminal text.' }]),
+    ]
+    expect(extractThoughts(lines)).toEqual(['Megnézem a `src/web/progress-mirror-runner.ts` fájlt.', '#429 kész'])
+    expect(extractThoughts(lines, 'en')).toHaveLength(4)
   })
   it('truncates long thoughts', () => {
     expect(thoughtMessage('a'.repeat(700))).toBe('▸ ' + 'a'.repeat(600) + '…')

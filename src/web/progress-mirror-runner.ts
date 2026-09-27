@@ -190,7 +190,7 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
         }
       }
       if (mode === 'verbose' && p.transcript_path) {
-        for (const th of extractThoughts(newTranscriptLines(p.transcript_path))) {
+        for (const th of extractThoughts(newTranscriptLines(p.transcript_path), lang)) {
           await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })
         }
       }

@@ -59,6 +59,70 @@ export function langOf(raw: unknown): Lang {
 }
 
 /**
+ * The spinner line is Claude Code's own English ("Churning… (4m 33s · ↓ 23.5k
+ * tokens)"). The owner's chat speaks the install language only (owner,
+ * 2026-09-27: "angolul ne írjatok a Telegramra"), so the random verb becomes
+ * our own word and the counter keeps its numbers.
+ */
+// "2 shells" / "1 task" / "monitor" from the footer, in the owner's words.
+export function localizeCounter(text: string, lang: Lang): string {
+  if (lang === 'en') return text
+  return text
+    .replace(/(\d+) shells?\b/g, '$1 parancs')
+    .replace(/(\d+) tasks?\b/g, '$1 feladat')
+    .replace(/(\d+) monitors?\b/g, '$1 figyelő')
+    .replace(/\bmonitor\b/g, 'figyelő')
+}
+
+export function localizeStatus(text: string, lang: Lang): string {
+  if (lang === 'en') return text
+  return text
+    .replace(/^\p{L}[\p{L}'’-]*…/u, TEXT.hu.working)
+    .replace(/\besc to interrupt\b/gi, '')
+    .replace(/\bstill running\b/gi, 'még fut')
+    .replace(/\bthinking\b/gi, 'gondolkodik')
+    .replace(/\btokens?\b/gi, 'token')
+    .replace(/\bfor (\d+s)\b/g, '$1')
+    .replace(/\s*·\s*\)/g, ')')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+const EN_WORDS = new Set(('the and is are was were to of in on for with this that these those it its '
+  + 'i i\'m i\'ll i\'ve we let\'s now next then will be been being have has had do does did not '
+  + 'check checking need needs should would could can from into by as at an or but so if all '
+  + 'here there what which who why how file files test tests run running fix done first').split(' '))
+const HU_WORDS = new Set(('a az és hogy nem is van volt egy ez azt ezt meg már csak de ha mert '
+  + 'kell lesz vagy még most itt ott amit ami mit mi nincs vannak sem is kész kártya').split(' '))
+
+/**
+ * Whether a transcript text block is in the owner's language. The agents'
+ * terminal narration is often English, and verbose mode used to post it as
+ * is -- which is what made every agent "speak English" on Telegram after the
+ * mirror went live (owner, 2026-09-27). Code, paths and URLs are ignored; a
+ * block counts as foreign only when its English function words outnumber the
+ * Hungarian ones, so a short "#429 kész" or a bare number still passes.
+ */
+export function inOwnerLanguage(text: string, lang: Lang): boolean {
+  if (lang === 'en') return true
+  const prose = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\S*[\/\\]\S*/g, ' ')
+    .toLowerCase()
+  const words = prose.match(/[\p{L}']+/gu) ?? []
+  let en = 0
+  let hu = 0
+  for (const w of words) {
+    if (/[áéíóöőúüű]/.test(w) || HU_WORDS.has(w)) hu++
+    else if (EN_WORDS.has(w)) en++
+  }
+  return en <= hu
+}
+
+/**
  * What the agent's pane is doing, or null when it is idle.
  *
  * 'live' = a turn is in flight (the bottom bar carries "esc to interrupt" for
@@ -78,15 +142,15 @@ export function classifyPane(pane: string | null | undefined, lang: Lang = 'hu')
       const m = STATUS_RE.exec(region[i].trim())
       if (!m) continue
       const text = m[2].trim()
-      if (STATUS_DETAIL_RE.test(text)) return { kind: 'live', text }
+      if (STATUS_DETAIL_RE.test(text)) return { kind: 'live', text: localizeStatus(text, lang) }
     }
     const busy = /(\d+ shells?|\d+ tasks?|monitor)/.exec(lines.slice(-6).join('\n'))
-    return { kind: 'live', text: busy ? `${TEXT[lang].working} (${busy[1]})` : TEXT[lang].working }
+    return { kind: 'live', text: busy ? `${TEXT[lang].working} (${localizeCounter(busy[1], lang)})` : TEXT[lang].working }
   }
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!BG_FOOTER_RE.test(lines[i])) continue
     const counters = lines[i].match(BG_COUNTER_RE)
-    return counters ? { kind: 'background', text: `${TEXT[lang].background} (${counters.join(', ')})` } : null
+    return counters ? { kind: 'background', text: `${TEXT[lang].background} (${localizeCounter(counters.join(', '), lang)})` } : null
   }
   return null
 }
@@ -123,7 +187,7 @@ const norm = (t: unknown) => String(t ?? '').split(/\s+/).filter(Boolean).join('
  * minus anything that also went out as a real Telegram reply in the same span
  * (the owner would otherwise get the same paragraph twice).
  */
-export function extractThoughts(jsonlLines: string[]): string[] {
+export function extractThoughts(jsonlLines: string[], lang: Lang = 'hu'): string[] {
   const out: string[] = []
   const sent: string[] = []
   for (const line of jsonlLines) {
@@ -140,7 +204,9 @@ export function extractThoughts(jsonlLines: string[]): string[] {
       }
     }
   }
-  return out.filter(t => !sent.some(s => s && (norm(t) === s || norm(t).startsWith(s.slice(0, 120)))))
+  return out
+    .filter(t => !sent.some(s => s && (norm(t) === s || norm(t).startsWith(s.slice(0, 120)))))
+    .filter(t => inOwnerLanguage(t, lang))
 }
 
 export function thoughtMessage(text: string, max = 600): string {

@@ -20,7 +20,7 @@ import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
-import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureStatusLine } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -922,6 +922,11 @@ export function startWebServer(port = 3420): http.Server {
         const cardRef = ensureCardReferenceSection(agentName)
         if (cardRef === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (cardRef === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es a "tulajdonosnak a sajat nyelven" szabaly (kanban #416): a
+        // haladas-tukor a terminal-szoveget is kiviszi a csatornara.
+        const ownerLang = ensureOwnerLanguageSection(agentName)
+        if (ownerLang === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (ownerLang === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -938,6 +943,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalCompletionReportRule()
       ensureGlobalKanbanWaitingMoveRule()
       ensureGlobalCardReferenceRule()
+      ensureGlobalOwnerLanguageRule()
       // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).
       // Amit a telepites configja nem ismer, azt a rendszer "nincs jog"-nak
       // veszi -- helyesen --, DE akkor a tulajdonos a Beallitasok / Onallosag
