@@ -396,3 +396,36 @@ export function decideGuard(
     }
   }
 }
+
+/**
+ * Below this MEASURED context fraction a PERCENTAGE-shaped saturation banner is
+ * not believable. Rebuilt from upstream d964aab4: when a model id reaches the
+ * CLI without the [1m] marker the CLI sizes its status line to 200k and prints
+ * "100% context used" at ~179k while the session keeps working; believing it
+ * executes a WORKING agent mid-turn (upstream measured 318 such restarts in
+ * nine days at a median measured context of 19%, none above 90%). Genuine
+ * CLI-flagged saturation measured 0.89-1.07, so 0.5 sits in the empty band,
+ * asymmetric towards believing the banner. A standalone constant, not derived
+ * from cfg.actPct: lowering actPct must never widen the stand-down band.
+ */
+export const SATURATION_CREDIBLE_MIN_PCT = 0.5
+
+/**
+ * Does the measurement support the pane's saturation banner?
+ * - hard-error banner ("Context limit reached", ...) => always credible: it is
+ *   painted only after a turn failed at the real limit (see pane-state.ts).
+ * - pct null (unreadable transcript) => credible: no evidence against it, and
+ *   that is the case the net was built for.
+ * - otherwise a real measurement below SATURATION_CREDIBLE_MIN_PCT overrules a
+ *   percentage claim.
+ */
+export function saturationBannerCredible(
+  paneSaturated: boolean,
+  bannerIsHardError: boolean,
+  pct: number | null,
+): boolean {
+  if (!paneSaturated) return false
+  if (bannerIsHardError) return true
+  if (pct === null) return true
+  return pct >= SATURATION_CREDIBLE_MIN_PCT
+}

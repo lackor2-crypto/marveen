@@ -2675,6 +2675,31 @@ export function getDispatchedPendingStats(
 }
 
 /**
+ * The message id of the newest inbound that has no outbound after it, or null
+ * when nothing is open. Same rule as hasOpenInboundQuestion, but it hands back
+ * WHICH message, so the restart gate can ask whether the ledger drain already
+ * showed it to the agent (openQuestionBlocks). '' for an open question whose
+ * row carries no message id: unknown must read as unseen.
+ * Rebuilt from upstream 4fb9fbcb (LEDGERACK905).
+ */
+export function openInboundQuestionMessageId(agentId: string): string | null {
+  const row = db.prepare(
+    `SELECT id, created_at, message_id FROM conversation_log
+       WHERE agent_id = ? AND direction = 'in'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(agentId) as { id: number; created_at: number; message_id: string | null } | undefined
+  if (!row) return null
+  const laterOut = db.prepare(
+    `SELECT 1 FROM conversation_log
+       WHERE agent_id = ? AND direction = 'out'
+         AND (created_at > ? OR (created_at = ? AND id > ?))
+       LIMIT 1`,
+  ).get(agentId, row.created_at, row.created_at, row.id)
+  if (laterOut) return null
+  return row.message_id == null ? '' : String(row.message_id)
+}
+
+/**
  * True when the agent's last inbound channel message has no later outbound
  * (unanswered question). Used by the context-restart gate.
  */

@@ -14,6 +14,7 @@ import {
   parkedInputText,
   stripGhostSuggestion,
   paneShowsContextSaturation,
+  paneShowsContextSaturationHardError,
   idleConsideringDimGhost,
   detectsFirstRunGate,
   detectsModelConsentDialog,
@@ -2388,6 +2389,50 @@ export function captureParkedInputView(session: string, host: string | null = nu
 // design: Claude Code's auto-compact only runs when a new turn starts, and
 // this refusal is exactly what prevents a new turn -- so a saturated session
 // never self-heals and MUST be restarted from outside.
+// --- Saturation-banner override (context-guard -> dispatch) ----------------
+// Rebuilt from upstream d964aab4. The refusal below is safe only because the
+// context guard's saturation net restarts the pane we will not prompt, so the
+// two must agree on what "saturated" means. The guard sweep is the only place
+// holding both the banner and the transcript measurement; when the measurement
+// contradicts a PERCENTAGE-shaped banner it stands the net down and calls in
+// here, because refusing from then on would silence a working agent nothing is
+// going to restart. In-process and TTL-bounded: if the guard stops, or the
+// session genuinely fills up, the entry lapses and this gate refuses again.
+// Fail-closed: an empty map (fresh dashboard) is the old behaviour.
+const saturationOverrideUntil = new Map<string, number>()
+
+/** Called by the context-guard runner when the measurement contradicts the banner. */
+export function noteSaturationBannerUntrusted(session: string, untilMs: number): void {
+  saturationOverrideUntil.set(session, untilMs)
+}
+
+/** Called by the same runner on every sweep that LOOKED at the pane and found
+ *  the banner absent or credible. */
+export function clearSaturationBannerOverride(session: string): void {
+  saturationOverrideUntil.delete(session)
+}
+
+/** May we believe this session's pane saturation banner? */
+export function saturationBannerTrusted(session: string): boolean {
+  const until = saturationOverrideUntil.get(session)
+  if (until === undefined) return true
+  if (Date.now() >= until) {
+    saturationOverrideUntil.delete(session)
+    return true
+  }
+  return false
+}
+
+/** Does this capture refuse dispatch? The one question every injector asks.
+ *  The hard-error class is settled on the capture itself, AHEAD of the
+ *  session-keyed override: a mis-tagged agent that later wedges for real must
+ *  not inherit a still-valid override entry. */
+export function saturationRefusesDispatch(capture: string, session: string): boolean {
+  if (!paneShowsContextSaturation(capture)) return false
+  if (paneShowsContextSaturationHardError(capture)) return true
+  return saturationBannerTrusted(session)
+}
+
 export async function isSessionReadyForPrompt(session: string, host: string | null = null): Promise<boolean> {
   // Dim-ghost tolerant idle read: CC >=2.1.202 paints a dim placeholder into
   // the empty input box, which a plain capture reads as parked text. Only when
@@ -2398,7 +2443,7 @@ export async function isSessionReadyForPrompt(session: string, host: string | nu
     idleConsideringDimGhost(plain, detectPaneState(plain) === 'typing' ? captureParkedInputView(session, host) : null)
   const first = capturePane(session, host)
   if (first == null) return false
-  if (paneShowsContextSaturation(first)) {
+  if (saturationRefusesDispatch(first, session)) {
     logger.warn({ session }, 'dispatch: refusing prompt — session shows context saturation (100% context)')
     return false
   }
@@ -2408,7 +2453,7 @@ export async function isSessionReadyForPrompt(session: string, host: string | nu
 
   const second = capturePane(session, host)
   if (second == null) return false
-  if (paneShowsContextSaturation(second)) {
+  if (saturationRefusesDispatch(second, session)) {
     logger.warn({ session }, 'dispatch: refusing prompt — session shows context saturation (100% context)')
     return false
   }
