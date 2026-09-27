@@ -536,254 +536,109 @@ A belső azonosító legfeljebb zárójelben, a sorszám UTÁN állhat:
 
 ## ⛔ KÖTELEZŐ VISSZAKÉRDEZÉS KÉTÉRTELMŰSÉGNÉL
 
-{{OWNER_NAME}}: „ha kétértelmű, akkor **kötelezően** vissza kell kérdeznie!
-mindenhova tedd be."
-
 **Ha egy utasításnak egynél több értelme van, KÖTELEZŐ visszakérdezned** — akkor
-is, ha érted, és akkor is, ha majdnem biztos vagy benne, melyiket akarta. A
-tippelt értelmezés rosszabb a kérdésnél: a kérdés tíz másodperc, a rossz tipp
-gyakran visszafordíthatatlan.
+is, ha érted. A tippelt értelmezés rosszabb a kérdésnél: a kérdés tíz másodperc, a
+rossz tipp gyakran visszafordíthatatlan.
 
-**A valós eset.** A „töröld a nem elérhető, nem dolgozó ügynököket" utasítás
-hatókörét valaki kitalálta, és a felsoroltakkal együtt elment egy olyan ügynök
-is, amelyiket a tulajdonos soha nem nevezett meg. Kívülről az is
-„nem dolgozó"-nak látszott. Egyetlen kérdés — „ez is menjen? őt nem soroltad
-fel" — megelőzte volna. A törlés visszafordíthatatlan volt és nyomtalan.
+**Kérdezz, ha:** a halmazt neked kell megállapítanod („mind", „az összeset", „a nem
+működőket"); nincs megnevezve, MIN végezd el; a mondatnak két olvasata van; a
+művelet egy mértéken múlik („régi", „nagy", „sok"); vagy a megnevezett eszköz mást
+eredményezne, mint a kimondott cél. **Ezek előtt MINDIG kérdezz, még halvány kétely
+esetén is:** törlés; kifelé menő üzenet valódi címzettnek; jelszó/hozzáférés/
+jogosultság változtatása; pénzmozgás vagy hivatalos beadvány; tömeges művelet; éles
+szolgáltatás leállítása.
 
-**Kérdezz, ha:** a halmazt neked kell megállapítanod („mind", „az összeset", „a
-nem működőket"); nincs megnevezve, MIN végezd el; a mondatnak két előadható
-olvasata van; a művelet egy mértéken múlik („régi", „nagy", „sok", „hamarosan");
-vagy a megnevezett eszköz mást eredményezne, mint a kimondott cél.
+**Ahogy kérdezz:** Telegramon (SOHA nem panel-menüben), egy üzenetben az ÖSSZES
+nyitott kérdés, konkrét A/B választással; közben végezd el, ami a válasz nélkül is
+biztos. **NE kérdezz**, ha egy értelme van és csak a feladat nagy — rutin döntést
+(fájlnév, sorrend) hozz meg magad.
 
-**Ezek előtt MINDIG kérdezz, még halvány kétely esetén is:** törlés (fájl, ügynök,
-kártya, DB-sor, mappa); kifelé menő üzenet valódi címzettnek; jelszó, hozzáférés,
-token, jogosultság változtatása; pénzmozgás vagy hivatalos beadvány; tömeges
-művelet (egynél több elem egy lépésben); éles szolgáltatás leállítása.
-
-**Ahogy kérdezz:** Telegramon (SOHA nem panel-menüben, lásd a következő szabályt),
-egy üzenetben az ÖSSZES nyitott kérdés, leírva mit értettél meg és hol ágazik el,
-konkrét A/B választással, és megmondva, mi történik rossz tipp esetén. Közben
-végezd el azt a részt, ami a válasz nélkül is biztos — a kérdés nem ürügy a
-semmittevésre.
-
-**NE kérdezz**, ha az utasításnak egy értelme van, és csak azért bizonytalankodsz,
-mert a feladat nagy. Rutin, visszafordítható döntést (fájlnév, sorrend, formázás)
-hozz meg magad, és mondd meg, mit választottál.
-
-Részletek: `ask-back-when-ambiguous` skill. Ez a szabály minden ügynök
-CLAUDE.md-jébe automatikusan bekerül (`ensureAskBackSection`).
+Részletek (miért, valós eset): `ask-back-when-ambiguous` skill.
 
 ## ⛔ ÚJRA ÁLLÍTÁS ELŐTT ÚJRA MEG KELL NÉZNI
 
-{{OWNER_NAME}}: „mielőtt állítasz újra valamit, akkor meg kell nézned újra! mindig
-a friss infót adni a usernek. minden egyes újra bemondásnál újra kell nézni,
-vizsgálni az adatokat!"
+**Ha egy tényt másodszor is kimondasz, előbb újra le kell mérned.** A saját korábbi
+válaszod és az emlékezet nem forrás: azok arról szólnak, mi volt igaz *akkor*, nem
+arról, mi igaz *most*.
 
-**Ha egy tényt másodszor is kimondasz, előbb újra le kell mérned.** A saját
-korábbi válaszod nem forrás. A beszélgetés eleje nem forrás. Az emlékezet nem
-forrás. Ezek arról szólnak, mi volt igaz *akkor*, nem arról, mi igaz *most* — a
-kettő között a tulajdonos dolgozott a rendszeren.
+**Mindig mérd újra:** állapot (fut-e, aktív-e, mennyi); dátum és időbélyeg; verzió,
+commit, build; fájl létezése és tartalma; jelszó, token, hozzáférés; darabszámok és
+listák; és hogy egy korábbi hiba „még mindig fennáll-e". Trigger-szavak: „még
+mindig…", „ugyanaz…", „ahogy mondtam…", minden összefoglaló, `/compact` vagy
+session-folytatás után.
 
-**A valós eset.** Egy break-glass jelszó-csere 13:09-kor történt, és bekerült
-a beszélgetés kontextusába. Másnap egy összefoglaló végén ez ment ki a
-tulajdonosnak: „a jelszavad még mindig a teszt-sztring". A tulajdonos ugyanaznap
-13:16:40-kor, hét perc múlva már át is állította. A visszakérdése egyetlen
-mondat volt: „ezt honnan veszed?" — és a helyes válasz az volt, hogy sehonnan,
-emlékeztem. Egyetlen `SELECT updated_at FROM dashboard_users` két másodperc
-alatt eldöntötte volna.
+**Ha nem tudod újramérni**, ne add elő tényként: mondd meg, mikori adatból beszélsz.
+**Ha az újramérés mást mutat**, a friss adat nyer — javítsd ki röviden és tényszerűen.
 
-**Az elavult adat rosszabb a hiányzónál:** a hiányzó miatt valaki utánanéz, az
-elavult miatt a tegnapi állapot alapján cselekszik.
-
-**Mindig mérd újra:** állapot (fut-e, aktív-e, mennyi); dátum és időbélyeg;
-verzió, commit, build; fájl létezése és tartalma (más ügynök is írhatta);
-jelszó, token, hozzáférés, jogosultság; darabszámok és listák; és hogy egy
-korábbi hiba „még mindig fennáll-e". Trigger-szavak, amikre azonnal újramérés
-jár: „még mindig…", „ugyanaz…", „ahogy mondtam…", minden összefoglaló, és
-minden válasz `/compact` vagy session-folytatás után.
-
-**Ha nem tudod újramérni**, ne add elő tényként: mondd meg, mikori adatból
-beszélsz, és hogy most nem tudtad ellenőrizni. A „legutóbb X volt" és az „X"
-két különböző mondat — ugyanaz a szabály, mint a nullánál a „nem látok oda"
-és a „nincs" különbsége.
-
-**Ha az újramérés mást mutat**, a friss adat nyer: javítsd ki röviden és
-tényszerűen, mondd meg, melyik forrásból tudod, és ne találgasd, miért
-változott meg — ha az ok érdekes, azt is mérd meg.
-
-Részletek: `recheck-before-restating` skill. Ez a szabály minden ügynök
-CLAUDE.md-jébe automatikusan bekerül (`ensureRecheckSection`).
+Részletek (valós eset): `recheck-before-restating` skill.
 
 ## ⛔ A SKILLEKET IS GLOBÁLISAN KELL MEGÍRNI (2026-08-29, {{OWNER_NAME}})
 
-**{{OWNER_NAME}}:** „ha nem személyes akkor globálisan kell megírni a skilleket is!" —
-„hogy friss telepítésnél már tudja használni a user."
+A `~/.claude/skills/` alá írt skill csak azon az egy gépen létezik; friss
+telepítésen nincs meg. **Minden új/módosított skillnél az ELSŐ döntés: személyes-e?**
+Ha konkrét emberre/fiókra/magánügyre szól → maradhat `~/.claude/skills/` alatt.
+MINDEN MÁS GLOBÁLIS → `seed-skills/<nev>/SKILL.md`, a gépspecifikus értékek
+helyőrzőre cserélve (`{{OWNER_NAME}}`, `{{MAIN_AGENT_ID}}`, `{{PROJECT_ROOT}}`,
+`{{WEB_PORT}}`, `{{BOT_NAME}}`, `{{INSTALL_DIR}}`, toldalékkal is). Kétség esetén
+globális. Gép is figyeli (Áttekintés önellenőrzés + `template-identity-hygiene`).
 
-A `~/.claude/skills/` alá írt skill **csak azon az egy gépen létezik**. Friss
-telepítésen nincs meg, a user nem hívhatja, és semmi nem szól érte: a tudás
-elveszett. A telepítő KIZÁRÓLAG a repó `seed-skills/` mappáját másolja ki
-(`install-linux.sh`), helyőrző-cserével.
-
-**Minden új vagy módosított skillnél az ELSŐ döntés: személyes-e?**
-
-- **Személyes** = konkrét emberre, fiókra, számlára, magánügyre szól
-  (pl. WhatsApp-küldés egy megnevezett embernek, saját kereskedési számla
-  elemzése) → maradhat `~/.claude/skills/` alatt.
-- **MINDEN MÁS GLOBÁLIS** → `seed-skills/<nev>/SKILL.md` a fő ágban, a
-  gépspecifikus értékek helyőrzőre cserélve: `{{OWNER_NAME}}`,
-  `{{MAIN_AGENT_ID}}`, `{{PROJECT_ROOT}}`, `{{WEB_PORT}}`, `{{BOT_NAME}}`,
-  `{{INSTALL_DIR}}`. Magyar toldalékkal együtt is: a tulajdonos neve
-  toldalékkal is helyőrzőre megy (`{{OWNER_NAME}}-nak`). A `template-identity-hygiene` teszt bukik, ha beégetett
-  név marad benne.
-
-Kétség esetén **globális**: egy fölöslegesen megosztott munkamódszer nem árt,
-egy elveszett viszont igen. Ez a „friss telepítésen is működjön" szabály a
-TUDÁSRA alkalmazva — és ugyanúgy kötelező.
-
-**Gép is figyeli:** az Áttekintés önellenőrzése kilistázza azokat a helyben
-maradt skilleket, amik nincsenek `seed-skills/`-ben és nincsenek személyesnek
-jelölve (a SKILL.md fejlécében `scope: personal`).
+Részletek: `skill-management` / `skill-factory` skill.
 
 ## ⛔ EGY HIBA = EGY KÁRTYA, AZONNAL ÉS TELJESEN KÉSZRE (2026-09-07, {{OWNER_NAME}})
 
-{{OWNER_NAME}}: „egy hiba egy kártya és kész! nem szabad keverni más kártyákkal!
-... ha van egy kártya akkor szigorúan tilos kivenni a kártyából egy adott hibát
-és betenni egy másik kártya alá! ... azonnal készre kell csinálni a kártyát. ...
-ha új hibák jönnek elő azt azonnal javítani kell! ... ha egy kártya bug
-javításánál előjön másik új hiba azt úgy kell venni hogy az user kérte annak is a
-javítását."
+1. **Egy hiba = egy kártya.** Ne hivatkozgass kártyáról kártyára, és ne szabdald
+   szét egy hibát több kártyára.
+2. **SZIGORÚAN TILOS egy adott hibát kivenni egy kártyából és áthelyezni egy másik
+   kártya alá.** Ami egy kártyán van, azt ott kell befejezni.
+3. **A kártyát azonnal, teljesen készre kell csinálni.** Nincs „félbehagyom", nincs
+   „majd" -- addig megy, amíg kész.
+4. **Ha a javítás közben ÚJ hiba jön elő, azt AZONNAL javítani kell** -- úgy véve,
+   mintha a tulajdonos annak a javítását is kérte volna.
+5. **A „várakozó" (waiting) oszlop NEM felmentés a befejezés alól.** Nincs olyan,
+   hogy „ez már waiting, ezt már nem csinálom meg"; a befejezés a kártya MOZGATÁSA
+   NÉLKÜL is megy (komment + izolált worktree, a kártya marad waiting).
+6. **EGY PROJEKT = EGY KÁRTYA.** Egy MÉG NYITOTT kártya projektjéhez tartozó új
+   munkát (részfeladat, következő fázis, új hiba) NEM új kártyára veszel: kommentet
+   írsz rá, vagy alfeladatként (`parent_id`). A `POST /api/kanban` ki is
+   kényszeríti: nyitott kártyához kapcsolódó új kártyát `same_project` (409)
+   hibával elutasít; külön kártya csak kimondott `separate_project` indokkal.
 
-1. **Egy hiba = egy kártya.** A kártya önmagában áll. Ne hivatkozgass kártyáról
-   kártyára, és ne szabdald szét egy hibát több kártyára -- az egymásra
-   hivatkozó, egymástól függő kártyák akadnak össze és állítják meg egymást.
-2. **SZIGORÚAN TILOS egy adott hibát kivenni egy kártyából és áthelyezni egy
-   másik kártya alá.** Ami egy kártyán van, azt ott kell befejezni.
-3. **A kártyát azonnal, teljesen készre kell csinálni.** Nincs „félbehagyom",
-   nincs „majd" -- addig megy, amíg kész, és nem vár másik kártyára.
-4. **Ha a javítás közben ÚJ hiba jön elő, azt AZONNAL javítani kell** -- úgy
-   véve, mintha a tulajdonos annak a javítását is kérte volna. Nincs „erre nincs
-   felhatalmazásom", nincs „ezt a user nem kérte": a felmerült hiba javítása a
-   kártya része, nem új engedélyhez kötött külön feladat.
-5. **A „várakozó" (waiting) oszlop NEM felmentés a befejezés alól.** Ha egy
-   kártya várakozóban áll, de a munka valójában NINCS kész, azt ugyanúgy be kell
-   fejezni -- nem hands-off attól, hogy waiting-ben van. Nincs olyan, hogy „ez
-   már waiting, ezt már nem csinálom meg". A befejezés a kártya MOZGATÁSA NÉLKÜL
-   is megy: komment a kártyára + a munka izolált worktree-ben, a kártya közben
-   maradhat „várakozó"-ban. Ez NEM mond ellent a visszafelé-mozgatás szabálynak:
-   waiting-ből korábbi oszlopba mozgatni továbbra is CSAK külön kérdés után
-   szabad -- de a munka ELVÉGZÉSÉT a waiting státusz nem blokkolja.
-6. **EGY PROJEKT = EGY KÁRTYA (2026-09-23).** {{OWNER_NAME}}: „Egy projekt, egy
-   kanban kártya. ... le kell tiltani azt, hogy másik kanban kártyát nyisson,
-   amikor egy részfeladat készen van, vagy új feladat jön hozzá, de hozzátartozik
-   ahhoz a munkához." Ha egy munka (részfeladat, következő fázis, új hiba,
-   kiegészítés) egy MÉG NYITOTT kártya projektjéhez tartozik, NEM nyitsz neki új
-   kártyát: kommentet írsz arra a kártyára, vagy alfeladatként (`parent_id`)
-   veszed fel. Egy projektet TILOS több kártyára szabdalni.
-   **A valós eset:** a Munkapad-projekt (#336) hét kártyára szabdalva állt a
-   táblán (PDF-néző, rajzvászon, spec-mentés, jóváhagyás-kötés ...), és
-   {{OWNER_NAME}}-nak kellett kézzel összeszednie.
-   **Gép is kikényszeríti:** a `POST /api/kanban` (és a Munkapad ügynökének
-   `kanban.create` eszköze) egy nyitott kártyához kapcsolódó új kártyát
-   `same_project` (409) hibával elutasít. Külön kártya csak kimondott
-   `separate_project` indokkal (legalább 15 karakter) jön létre, és az indok a
-   kártya leírásába kerül, hogy látsszon.
-
-Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
-kapcsolatot továbbra is jelezni kell -- de a belinkelés LEZÁRT kártyára, vagy
-tényleg ÖNÁLLÓ projektre való. A tilalom a hiba és a projekt SZÉTDARABOLÁSÁRA és
-MÁSIK kártya alá tolására vonatkozik, és arra, hogy egy kártyát félbehagyj, mert
-egy másikra vársz.
+Részletek (owner-idézetek, valós eset): `one-card-one-fix` skill.
 
 ## ⛔ AZONOSÍTÁS ELŐTT KÖTELEZŐ ELLENŐRIZNI, NEM TALÁLGATNI (2026-09-08, {{OWNER_NAME}})
 
-Ha valakinek meg kell mondanod, KI írt vagy KI csinált valamit -- egy üzenetet,
-egy commitot, egy kártya-munkát --, TILOS a témából vagy szerepkörből
-találgatni. Konkrét, ellenőrizhető forrást kell megnézned MIELŐTT kimondod.
+Ha meg kell mondanod, KI írt vagy KI csinált valamit (üzenet, commit, kártya-
+munka), TILOS a témából vagy szerepkörből találgatni -- konkrét, ellenőrizhető
+forrást nézz meg ELŐBB: melyik csatornán/boton jött, a git worktree/branch neve, az
+approval `agent_id`-je, a komment/üzenet szerzője. A saját korábbi ("Te:") kontextus
+ALAPBÓL a SAJÁT korábbi munkád. Modellváltás/session-újraindítás NEM változtatja meg,
+MELYIK ágens vagy. Ha nincs ellenőrizhető forrás, MONDD MEG hogy nem sikerült
+ellenőrizni -- ne állíts tényként találgatott azonosságot.
 
-**A valós eset.** Egy modellváltás (Opus 4.8 -> Sonnet 5) session-újraindítást
-váltott ki. A frissen betöltött kontextusban az ágens saját korábbi üzenete (VS
-Code kód-híd javítás + kanban landolás) szerepelt "Te:" jelöléssel. Az ágens ezt
-tévesen a fő ágensnek tulajdonította, mert a téma a fő ágens szakterületének
-tűnt -- ahelyett hogy megnézte volna, valójában KI írta. {{OWNER_NAME}} egy
-Telegram-képernyőképpel bizonyította, hogy az üzenet az ágens SAJÁT
-bot-chatjéből jött. Modellváltás vagy session-újraindítás NEM változtatja meg,
-MELYIK ágens vagy -- a modell csak a "hang", nem az azonosság.
-
-**Kötelezően ellenőrizendő, MIELŐTT egy azonosítást kimondasz:**
-- Melyik CSATORNÁN/BOTON érkezett vagy ment az üzenet -- minden ágensnek KÜLÖN
-  bot-chatje van, ezek SOSE keverednek össze.
-- Git worktree és branch neve (`git worktree list`) -- a branch gyakran
-  kódolja, melyik ágens/kártya munkája.
-- Az approval `agent_id` mezője (`ensureApprovalForWaitingCard`) -- ki
-  mozgatta a kártyát waiting-be.
-- Kanban komment szerzője, inter-agent üzenet `from` mezője.
-- A saját korábbi ("Te:") kontextus ALAPBÓL a SAJÁT korábbi munkád, nem egy
-  másik ágensé -- fordítva csak konkrét bizonyítékkal állítható.
-
-Ha nincs ellenőrizhető forrás (a worktree törölve, nincs approval-rekord,
-stb.), MONDD MEG hogy nem sikerült ellenőrizni -- ne állíts tényként
-találgatott azonosságot.
-
-Részletek: `agent-identity-verification` skill. Ez a szabály minden ügynök
-CLAUDE.md-jébe automatikusan bekerül (`ensureAgentIdentitySection`).
+Részletek (valós eset): `agent-identity-verification` skill.
 
 ## ⛔ FELADAT VÉGÉN KÖTELEZŐ „KÉSZ"-JELZÉS A TULAJDONOSNAK (2026-09-16, {{OWNER_NAME}})
 
-Ha egy rád bízott (a tulajdonos, vagy a nevében egy másik ágens által kért)
-feladatot ELVÉGZEL, a végén KÖTELEZŐ egy rövid „kész" üzenet a tulajdonos saját
-csatornáján -- azzal, hogy MI lett kész, és egy ellenőrizhető azonosítóval
-(commit/PR/kártya). Nincs „majd", nincs „nem kért külön visszajelzést": a
-befejezés jelzése a feladat része, nem külön engedélyhez kötött extra.
+Ha egy rád bízott feladatot ELVÉGZEL, a végén KÖTELEZŐ egy rövid „kész" üzenet a
+tulajdonos saját csatornáján -- MI lett kész + ellenőrizhető azonosító
+(commit/PR/kártya). A befejezés jelzése a feladat része, nem külön engedélyhez
+kötött extra. IDE tartozik minden rád bízott munka befejezése; NEM tartozik ide a
+csendes heartbeat és a saját belső karbantartás. Az üzenet EGY rövid sor.
 
-**A valós eset.** 2026-09-16-án a #290 landolása után valaki úgy döntött, hogy a
-„kész" jelzés fölösleges, mert a tulajdonos nem kért külön visszajelzést. Rossz
-döntés volt. A „ne kelljen figyelned" a HALADÁSRA vonatkozik, a „kész" jelzésre
-SOHA. A tulajdonos a saját csatornáján méri, hol tart a munka; egy csendben
-befejezett feladat kívülről láthatatlan -- pont annyit ér, mintha meg sem
-történt volna.
-
-**Mi tartozik ide, és mi nem (hogy ne legyen zaj):**
-- IDE tartozik minden rád bízott/kért munka befejezése: kód-landolás,
-  elemzés-kiszállítás, javítás, készre vitt kártya.
-- NEM tartozik ide a csendes heartbeat (az csak fontosnál/sürgősnél szól), és a
-  saját belső karbantartás, aminek nincs a tulajdonosnak szóló eredménye.
-- Az üzenet EGY rövid sor az eredménnyel, nem terjedelmes riport. A részletes
-  haladásról menet közben külön szólsz, ha a feladat több lépéses.
-
-Ez nem mond ellent a „kieséskor hallgatsz" szabálynak: kifutott kerettel nem
-írsz. De amint egy feladat kész, a kész-jelzés kötelező.
-
-Ez a szabály minden ügynök CLAUDE.md-jébe automatikusan bekerül
-(`ensureCompletionReportSection` / `ensureGlobalCompletionReportRule`).
+Ez nem mond ellent a „kieséskor hallgatsz" szabálynak: kifutott kerettel nem írsz.
+De amint egy feladat kész, a kész-jelzés kötelező. (Minden ügynök CLAUDE.md-jébe
+bekerül: `ensureCompletionReportSection` / `ensureGlobalCompletionReportRule`.)
 
 ## KÉSZ KÁRTYA AZONNAL A VÁRAKOZÓBA -- A STATUSZT NEM FELEJTJÜK EL
 
 Ha egy kanban kártya MUNKÁJA ELKÉSZÜL (landolt PR, kész elemzés, kész javítás),
-UGYANABBAN a lépésben AT KELL TENNI a kártyát „waiting" (várakozó) oszlopba. Nem
-„majd", nem a session végén -- azonnal, amikor befejezted.
+UGYANABBAN a lépésben AT KELL TENNI a kártyát „waiting" (várakozó) oszlopba --
+azonnal, amikor befejezted. A „done"-t SOHA nem te teszed meg, csak a tulajdonos; te
+a „waiting"-ig viszed. Ha egy kártya valódi állapota változik, az OSZLOPÁT is
+mozgatni kell: egy „kész, de még in_progress-ben álló" kártya hazugság a táblán.
 
-A „done"-t SOHA nem te teszed meg, csak a tulajdonos. Te a „waiting"-ig viszed a
-kártyát, onnan a tulajdonos dönti el a lezárást.
-
-Státuszváltozásnál is áll: ha egy kártya valódi állapota változik (elindult a
-munka -> in_progress; elkészült -> waiting), a kártya OSZLOPÁT is mozgatni kell,
-hogy a tábla a valóságot mutassa. Egy „kész, de még in_progress-ben álló" kártya
-hazugság a táblán.
-
-Miért kötelező: a tulajdonos a „waiting" oszlopból viszi be a kártyát a
-jóváhagyásokba. Ha ott felejted in_progress-ben, a tulajdonos nem látja, hogy
-kész, és nem tud dönteni róla -- a kész munka láthatatlan marad. Ez többször is
-megtörtént: kész kártya in_progress-ben ragadt, mert az ágens elfelejtette tovább
-mozgatni.
-
-Trigger, ami emlékeztet (de a felelősség a tiéd): a `scripts/land-pr.sh` a merge
-után szól, ha a landolt commit kártyája még nincs „waiting"/„done" állapotban; a
-session-indító függő-munka emlékeztető is kimondja. A kapu csak emlékeztet -- a
-mozgatást neked kell megtenned.
-
-Ez NEM mond ellent a „visszafelé mozgatás csak kérdés után" szabálynak: előre
-(in_progress -> waiting) rutin és kötelező; a tilalom CSAK a visszafelé mozgatásra
-(waiting -> korábbi oszlop) áll.
-
-Ez a szabály minden ügynök CLAUDE.md-jébe automatikusan bekerül
-(`ensureKanbanWaitingMoveSection` / `ensureGlobalKanbanWaitingMoveRule`).
+A tulajdonos a „waiting" oszlopból viszi be a kártyát a jóváhagyásokba, ezért a kész
+munka ott látható. Ez NEM mond ellent a „visszafelé mozgatás csak kérdés után"
+szabálynak: előre (in_progress -> waiting) rutin és kötelező; a tilalom CSAK a
+visszafelé mozgatásra (waiting -> korábbi oszlop) áll. (Minden ügynök CLAUDE.md-jébe
+bekerül: `ensureKanbanWaitingMoveSection` / `ensureGlobalKanbanWaitingMoveRule`.)
