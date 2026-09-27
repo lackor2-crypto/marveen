@@ -30,8 +30,9 @@ import {
   type GuardState,
   type GuardInputs,
   saturationBannerCredible,
-  dailyHandoffDue,
+  dailyHandoffTick,
   DAILY_HANDOFF_REASON_PREFIX,
+  type DailyHandoffStamp,
 } from '../context-guard.js'
 
 // Fleet context guard (kanban #81): acts BEFORE a session drowns in its own
@@ -63,13 +64,14 @@ const bannerMismatchLogged = new Set<string>()
 const guardStates = new Map<string, GuardState>()
 const remoteSkipLogged = new Set<string>()
 
-// agent name -> when the daily-handoff tier last fired (ms), #417. Seeded on
-// first sight WITHOUT firing, so a slot that already passed before the
-// dashboard started does not start a handoff cycle at boot -- the same seed
-// rule as the nightly auto-restart. In-memory: a dashboard restart re-seeds
-// and at worst skips one slot (the safe direction: a missed daily handoff
-// costs a day of context, a spurious one ends a live conversation).
-const lastDailyHandoff = new Map<string, number>()
+// agent name -> when the daily-handoff tier last fired, #417. Seeded WITHOUT
+// firing on the first idle sweep the tier is armed and the agent running, and
+// forgotten while either is not (dailyHandoffTick), so neither a dashboard boot
+// nor arming the tier fires for a slot that already passed. In-memory: a
+// dashboard restart re-seeds and at worst skips one slot (the safe direction:
+// a missed daily handoff costs a day of context, a spurious one ends a live
+// conversation).
+const lastDailyHandoff = new Map<string, DailyHandoffStamp>()
 // Agents whose CURRENT handoff cycle was started by the daily tier, so the
 // resume prompt says "scheduled restart", not "your context filled up".
 const dailyCycle = new Set<string>()
@@ -288,6 +290,11 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     clearSaturationBannerOverride(session)
     bannerMismatchLogged.delete(name)
   }
+  const daily = dailyHandoffTick(
+    cfg, lastDailyHandoff.get(name) ?? null, nowMs, localMidnightMs(nowMs), running, state.phase === 'idle',
+  )
+  if (daily.stamp) lastDailyHandoff.set(name, daily.stamp)
+  else lastDailyHandoff.delete(name)
   const inputs: GuardInputs = {
     nowMs,
     running,
@@ -299,14 +306,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     sessionReady,
     handoffMtime: needPct ? handoffMtime(name) : null,
     paneSaturated: paneSaturatedTrusted,
-    // Seed-on-first-sight: an agent not yet seen by this process is recorded
-    // as served NOW, so the tier is never due on the first sweep.
-    dailyHandoffDue: (() => {
-      if (!running || state.phase !== 'idle') return false
-      const last = lastDailyHandoff.get(name)
-      if (last === undefined) { lastDailyHandoff.set(name, nowMs); return false }
-      return dailyHandoffDue(cfg, localMidnightMs(nowMs), last, nowMs)
-    })(),
+    dailyHandoffDue: daily.due,
   }
 
   const decision = decideGuard(state, inputs, cfg)
@@ -315,7 +315,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   // machine is already in await-handoff and its timeout restarts anyway -- the
   // slot really was consumed. Marking later would re-fire every sweep.
   if (decision.reason.startsWith(DAILY_HANDOFF_REASON_PREFIX)) {
-    lastDailyHandoff.set(name, nowMs)
+    lastDailyHandoff.set(name, { atMs: nowMs, time: cfg.dailyHandoffTime })
     dailyCycle.add(name)
   } else if (decision.action === 'request-handoff') {
     dailyCycle.delete(name)

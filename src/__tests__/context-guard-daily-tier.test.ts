@@ -9,6 +9,7 @@ import {
   decideGuard,
   dailyHandoffArmed,
   dailyHandoffDue,
+  dailyHandoffTick,
   DAILY_HANDOFF_REASON_PREFIX,
   DEFAULT_CONTEXT_GUARD,
   INITIAL_GUARD_STATE,
@@ -72,6 +73,72 @@ describe('dailyHandoffArmed / dailyHandoffDue', () => {
   it('localMidnightMs is the start of the local day', () => {
     const now = new Date(2026, 8, 27, 14, 5).getTime()
     expect(localMidnightMs(now)).toBe(new Date(2026, 8, 27).getTime())
+  })
+})
+
+describe('dailyHandoffTick -- the stamp only lives while the tier can fire', () => {
+  // Local wall clock, like the runner: Saturday 2026-09-26 .. Monday 09-28.
+  const at = (d: number, h: number, m = 0) => new Date(2026, 8, d, h, m).getTime()
+  const OFF: ContextGuardConfig = { ...DEFAULT_CONTEXT_GUARD } // saturation net on, daily off
+  const ON: ContextGuardConfig = { ...DEFAULT_CONTEXT_GUARD, dailyHandoffEnabled: true, dailyHandoffTime: '03:00' }
+  type Stamp = Parameters<typeof dailyHandoffTick>[1]
+  // Drives the tick the way the runner does: the returned stamp is the next input.
+  function sweeper() {
+    let stamp: Stamp = null
+    return (cfg: ContextGuardConfig, now: number, running = true, idle = true) => {
+      const r = dailyHandoffTick(cfg, stamp, now, localMidnightMs(now), running, idle)
+      stamp = r.stamp
+      return r.due
+    }
+  }
+
+  it('arming after today\'s slot does NOT fire -- the dashboard ran since before the slot', () => {
+    const sweep = sweeper()
+    expect(sweep(OFF, at(26, 20))).toBe(false) // dashboard up Saturday 20:00, tier off
+    expect(sweep(OFF, at(27, 3, 30))).toBe(false)
+    expect(sweep(ON, at(27, 14))).toBe(false) // Boss arms it Sunday 14:00 (slot 03:00 passed)
+    expect(sweep(ON, at(27, 14, 1))).toBe(false)
+    expect(sweep(ON, at(27, 23, 59))).toBe(false)
+    expect(sweep(ON, at(28, 2, 59))).toBe(false)
+    expect(sweep(ON, at(28, 3, 0))).toBe(true) // first real slot: Monday 03:00
+  })
+  it('does not seed while the tier is off, so the old stamp cannot survive a disarm', () => {
+    const r = dailyHandoffTick(OFF, null, at(26, 20), localMidnightMs(at(26, 20)), true, true)
+    expect(r).toEqual({ due: false, stamp: null })
+    const stale = { atMs: at(26, 20), time: '03:00' }
+    expect(dailyHandoffTick(OFF, stale, at(27, 14), localMidnightMs(at(27, 14)), true, true).stamp).toBeNull()
+    // Enabled without a usable time is not armed either.
+    const noTime = { ...ON, dailyHandoffTime: null }
+    expect(dailyHandoffTick(noTime, stale, at(27, 14), localMidnightMs(at(27, 14)), true, true).stamp).toBeNull()
+  })
+  it('fires once per slot while armed and running', () => {
+    const sweep = sweeper()
+    expect(sweep(ON, at(26, 20))).toBe(false) // seed
+    expect(sweep(ON, at(27, 3, 0))).toBe(true)
+  })
+  it('an agent started after the slot does not fire for it', () => {
+    const sweep = sweeper()
+    expect(sweep(ON, at(26, 20))).toBe(false) // seeded while running
+    expect(sweep(ON, at(26, 22), false)).toBe(false) // stopped Saturday 22:00
+    expect(sweep(ON, at(27, 3, 0), false)).toBe(false)
+    expect(sweep(ON, at(27, 14))).toBe(false) // started Sunday 14:00: re-seed
+    expect(sweep(ON, at(27, 14, 1))).toBe(false)
+    expect(sweep(ON, at(28, 3, 0))).toBe(true)
+  })
+  it('moving the time to a slot already past today does not fire now', () => {
+    const sweep = sweeper()
+    expect(sweep(ON, at(27, 1))).toBe(false)
+    expect(sweep(ON, at(27, 3, 0))).toBe(true)
+    const moved = { ...ON, dailyHandoffTime: '13:00' }
+    expect(sweep(moved, at(27, 14))).toBe(false)
+    expect(sweep(moved, at(27, 14, 1))).toBe(false)
+    expect(sweep(moved, at(28, 13, 0))).toBe(true)
+  })
+  it('a non-idle sweep neither seeds nor fires, and keeps a valid stamp', () => {
+    const stamp = { atMs: at(26, 20), time: '03:00' }
+    const busy = dailyHandoffTick(ON, stamp, at(27, 4), localMidnightMs(at(27, 4)), true, false)
+    expect(busy).toEqual({ due: false, stamp })
+    expect(dailyHandoffTick(ON, null, at(27, 4), localMidnightMs(at(27, 4)), true, false).stamp).toBeNull()
   })
 })
 
@@ -141,8 +208,11 @@ describe('wiring', () => {
   it('the guard runner early return lists the daily tier', () => {
     expect(guardRunner).toMatch(/if \(!cfg\.enabled && !cfg\.saturationRestart && !cfg\.dailyHandoffEnabled\)/)
   })
-  it('the guard runner seeds on first sight and marks the slot at decision time', () => {
-    expect(guardRunner).toMatch(/lastDailyHandoff\.set\(name, nowMs\); return false/)
+  it('the guard runner keeps the stamp through dailyHandoffTick and marks the slot at decision time', () => {
+    expect(guardRunner).toMatch(/const daily = dailyHandoffTick\(/)
+    expect(guardRunner).toMatch(/dailyHandoffDue: daily\.due,/)
+    // No second seeding path that could outlive a disarmed tier.
+    expect(guardRunner.match(/lastDailyHandoff\.set\(/g)).toHaveLength(2)
     expect(guardRunner).toMatch(/startsWith\(DAILY_HANDOFF_REASON_PREFIX\)\) \{\s*lastDailyHandoff\.set/)
   })
   it('the auto-restart runner stands aside for an ARMED tier and a mid-sequence guard', () => {
@@ -161,6 +231,12 @@ describe('wiring', () => {
       expect(lang).toContain(`'agents.toast.daily_handoff_saved'`)
     }
     expect(src('web/app.js')).not.toMatch(/handoff: false/)
+  })
+  it('switching agents resets the time field, not only the checkbox', () => {
+    const fn = src('web/app.js').match(/async function loadDailyHandoffUI[\s\S]*?\n\}\n/)?.[0] ?? ''
+    expect(fn).toMatch(/en\.checked = false\s*\n\s*tm\.value = tm\.defaultValue/)
+    expect(fn).toMatch(/tm\.value = cg\.dailyHandoffTime \|\| tm\.defaultValue/)
+    expect(fn).not.toMatch(/if \(cg\.dailyHandoffTime\) tm\.value/)
   })
 })
 
