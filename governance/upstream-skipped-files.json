@@ -2199,8 +2199,8 @@
     },
     "src/__tests__/tmux-stderr-attribution.test.ts": {
       "blob": "51bffac2ead7a29d3f5af1fab1279a36bb4a6c31",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
+      "kind": "decided",
+      "reason": "fix rebuilt (upstream db261a7b) with companion tmux-stderr-sites.test.ts; the upstream copy pins upstream's call shapes (tmuxBin, un-wrapped targets) and its leak scan counts our other call sites",
       "card": "#375"
     },
     "src/__tests__/token-prune-lag.test.ts": {

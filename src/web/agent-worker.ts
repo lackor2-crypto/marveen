@@ -5,6 +5,7 @@ import { homedir, userInfo } from 'node:os'
 import { createHash } from 'node:crypto'
 import { resolveFromPath, tryResolveFromPath, makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
+import { tmuxStderr } from './tmux-stderr.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, DEFAULT_AGENT_MODEL } from '../config.js'
 import {
   capturePane,
@@ -619,7 +620,9 @@ function restartWorkerSession(ctx: WorkerCtx): void {
     logger.warn({ session: ctx.session }, 'agent-worker: WEB_ONLY mode -- refusing to restart (kill) a worker session')
     return
   }
-  try { execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(ctx.session)], { timeout: 5000 }) } catch { /* not running */ }
+  // TMUXWINDOWATTR920 (#413, rebuilt from upstream db261a7b): stderr piped;
+  // "not running" is the expected case here, so it is logged at debug.
+  try { execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(ctx.session)], { timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }) } catch (err) { logger.debug({ site: 'agent-worker.restart', session: ctx.session, tmux: tmuxStderr(err) }, 'tmux kill-session: not running') }
   try { startWorkerSessionFor(ctx) } catch (err) { logger.warn({ err, session: ctx.session }, 'agent-worker: restart failed') }
 }
 
