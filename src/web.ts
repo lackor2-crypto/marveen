@@ -67,6 +67,8 @@ import { tryHandleAgentConversation } from './web/routes/agent-conversation.js'
 import { tryHandleAgentTaskState } from './web/routes/agent-taskstate.js'
 import { sweepOrphanTaskStates } from './web/agent-taskstate.js'
 import { tryHandleDailyLog } from './web/routes/daily-log.js'
+import { tryHandlePrLedger } from './web/routes/pr-ledger.js'
+import { startPrLedgerRunner } from './web/pr-ledger-runner.js'
 import { tryHandleMemories } from './web/routes/memories.js'
 import { tryHandleReflect } from './web/routes/reflect.js'
 import { tryHandleMigrate } from './web/routes/migrate.js'
@@ -266,6 +268,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleMessages(routeCtx)) return
       if (await tryHandleFederation(routeCtx)) return
       if (await tryHandleDailyLog(routeCtx)) return
+      if (await tryHandlePrLedger(routeCtx)) return
       if (await tryHandleMemories(routeCtx)) return
       if (await tryHandleReflect(routeCtx)) return
       if (await tryHandleMigrate(routeCtx)) return
@@ -591,6 +594,10 @@ export function startWebServer(port = 3420): http.Server {
   // #416: live Telegram progress mirror (TELEGRAM_PROGRESS_MODE).
   const progressMirrorInterval = webOnly ? undefined : startProgressMirrorRunner()
   if (!webOnly) logger.info(`Progress mirror started (${PROGRESS_MIRROR_INTERVAL_MS / 1000}s poll)`)
+
+  // #418: daily PR-throughput ledger (owner + GitHub key from the UI).
+  const prLedgerInterval = webOnly ? undefined : startPrLedgerRunner()
+  if (!webOnly) logger.info('PR ledger runner started (1h poll, collects daily)')
 
   const autoRestartInterval = webOnly ? undefined : startAutoRestartRunner()
   if (!webOnly) logger.info('Auto-restart runner started (60s poll, 40s offset)')
@@ -1034,6 +1041,7 @@ export function startWebServer(port = 3420): http.Server {
     if (federationPollerInterval) clearInterval(federationPollerInterval)
     if (capabilityRunnerInterval) clearInterval(capabilityRunnerInterval)
     if (progressMirrorInterval) clearInterval(progressMirrorInterval)
+    if (prLedgerInterval) clearInterval(prLedgerInterval)
     clearInterval(tokenCollectInterval)
     return origClose(cb)
   }

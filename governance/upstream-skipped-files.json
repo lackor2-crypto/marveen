@@ -412,14 +412,14 @@
     "scripts/pr-ledger-collect.mjs": {
       "blob": "c7a7e40a7057582fced739586bff28b8a2e7b2dd",
       "kind": "decided",
-      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
-      "card": "#413"
+      "reason": "Rebuilt in #418 onto our code (upstream 3877c61d, PRLEDGER907): src/pr-ledger.ts + src/web/pr-ledger-runner.ts + src/web/routes/pr-ledger.ts, one schema in src/db.ts, owner from PR_LEDGER_OWNER / origin (never hard-coded), GitHub via the dashboard's own accounts instead of the gh CLI, Updates-page UI (HU+EN). The upstream file itself is not taken.",
+      "card": "#418"
     },
     "scripts/pr-ledger-lib.mjs": {
       "blob": "76ea2c4079fec97e794521521a68a12b2d916e26",
       "kind": "decided",
-      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
-      "card": "#413"
+      "reason": "Rebuilt in #418 onto our code (upstream 3877c61d, PRLEDGER907): src/pr-ledger.ts + src/web/pr-ledger-runner.ts + src/web/routes/pr-ledger.ts, one schema in src/db.ts, owner from PR_LEDGER_OWNER / origin (never hard-coded), GitHub via the dashboard's own accounts instead of the gh CLI, Updates-page UI (HU+EN). The upstream file itself is not taken.",
+      "card": "#418"
     },
     "scripts/progress-mode.sh": {
       "blob": "4caad0c75613aa12968280487f3c37b2e80f1ed7",
@@ -1828,8 +1828,8 @@
     "src/__tests__/pr-ledger.test.ts": {
       "blob": "64ccc6d6f91f56572cede369aaed4f21659bfc75",
       "kind": "decided",
-      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
-      "card": "#413"
+      "reason": "Rebuilt in #418 onto our code (upstream 3877c61d, PRLEDGER907): src/pr-ledger.ts + src/web/pr-ledger-runner.ts + src/web/routes/pr-ledger.ts, one schema in src/db.ts, owner from PR_LEDGER_OWNER / origin (never hard-coded), GitHub via the dashboard's own accounts instead of the gh CLI, Updates-page UI (HU+EN). The upstream file itself is not taken.",
+      "card": "#418"
     },
     "src/__tests__/process-lock.test.ts": {
       "blob": "ec2f0bb254c11a419f6dc2f1296ba996b03bd29e",
@@ -2614,8 +2614,8 @@
     "src/web/routes/pr-ledger.ts": {
       "blob": "ed52ccc80e1015a41a335c302faa0cb6b49347c6",
       "kind": "decided",
-      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
-      "card": "#413"
+      "reason": "Rebuilt in #418 onto our code (upstream 3877c61d, PRLEDGER907): src/pr-ledger.ts + src/web/pr-ledger-runner.ts + src/web/routes/pr-ledger.ts, one schema in src/db.ts, owner from PR_LEDGER_OWNER / origin (never hard-coded), GitHub via the dashboard's own accounts instead of the gh CLI, Updates-page UI (HU+EN). The upstream file itself is not taken.",
+      "card": "#418"
     },
     "src/web/routes/research.ts": {
       "blob": "1da1ceb6fd4c76a82a77c23d1d4ddddab48d0f3b",

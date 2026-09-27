@@ -282,6 +282,32 @@ export function initDatabase(dbPathOverride?: string): void {
     }
   }
 
+  // --- PR-throughput ledger (#418, rebuilt from upstream 3877c61d) ---------
+  // One row per CLOSED pull request across one GitHub owner's repositories;
+  // src/web/pr-ledger-runner.ts upserts daily and re-derives is_live, because
+  // a release retroactively makes earlier develop merges live. Never deleted.
+  // Single writer: unlike upstream there is no standalone collector with a
+  // second copy of this CREATE.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pr_ledger (
+      repo TEXT NOT NULL,
+      number INTEGER NOT NULL,
+      closed_date TEXT NOT NULL,
+      base_branch TEXT NOT NULL,
+      author TEXT,
+      additions INTEGER,
+      deletions INTEGER,
+      files INTEGER,
+      state TEXT NOT NULL,
+      title TEXT,
+      is_live INTEGER NOT NULL DEFAULT 0,
+      live_since TEXT,
+      measured_at INTEGER NOT NULL,
+      UNIQUE(repo, number)
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_pr_ledger_date ON pr_ledger(closed_date)`)
+
   // Migration: hot/warm/cold/shared tier system with an enforced CHECK.
   // Rebuilds the table whenever its current schema doesn't include the
   // canonical CHECK -- covers both the legacy ('user_pref'...) and the
@@ -4385,3 +4411,71 @@ export function listOtelTraces(limit = 50): OtelTraceSummary[] {
   `).all(limit) as OtelTraceSummary[]
 }
 
+// --- PR-throughput ledger (#418) ---------------------------------------------
+
+export interface PrLedgerRow {
+  repo: string
+  number: number
+  closed_date: string
+  base_branch: string
+  author: string | null
+  additions: number | null
+  deletions: number | null
+  files: number | null
+  state: 'merged' | 'closed'
+  title: string | null
+  is_live: number
+  live_since: string | null
+  measured_at: number
+}
+
+const PR_LEDGER_UPSERT_FULL = `
+  INSERT INTO pr_ledger (repo, number, closed_date, base_branch, author, additions, deletions, files, state, title, is_live, live_since, measured_at)
+  VALUES (@repo, @number, @closed_date, @base_branch, @author, @additions, @deletions, @files, @state, @title, @is_live, @live_since, @measured_at)
+  ON CONFLICT(repo, number) DO UPDATE SET
+    closed_date=excluded.closed_date, base_branch=excluded.base_branch,
+    author=excluded.author, additions=excluded.additions, deletions=excluded.deletions,
+    files=excluded.files, state=excluded.state, title=excluded.title,
+    is_live=excluded.is_live, live_since=excluded.live_since, measured_at=excluded.measured_at
+`
+
+// When the unreleased set of a repo could NOT be measured, its develop rows
+// must not be re-derived from an empty set (that would flip every waiting
+// develop merge to live). The stored is_live/live_since stay; a brand-new row
+// enters as not-live and the next healthy run corrects it.
+const PR_LEDGER_UPSERT_PRESERVE_LIVE = `
+  INSERT INTO pr_ledger (repo, number, closed_date, base_branch, author, additions, deletions, files, state, title, is_live, live_since, measured_at)
+  VALUES (@repo, @number, @closed_date, @base_branch, @author, @additions, @deletions, @files, @state, @title, 0, NULL, @measured_at)
+  ON CONFLICT(repo, number) DO UPDATE SET
+    closed_date=excluded.closed_date, base_branch=excluded.base_branch,
+    author=excluded.author, additions=excluded.additions, deletions=excluded.deletions,
+    files=excluded.files, state=excluded.state, title=excluded.title,
+    measured_at=excluded.measured_at
+`
+
+/** Upsert one repo's rows in one transaction. `preserveLive` rows keep their stored is_live. */
+export function upsertPrLedgerRows(rows: Array<{ row: PrLedgerRow; preserveLive: boolean }>): number {
+  const full = db.prepare(PR_LEDGER_UPSERT_FULL)
+  const keep = db.prepare(PR_LEDGER_UPSERT_PRESERVE_LIVE)
+  const tx = db.transaction((items: Array<{ row: PrLedgerRow; preserveLive: boolean }>) => {
+    for (const it of items) (it.preserveLive ? keep : full).run(it.row)
+  })
+  tx(rows)
+  return rows.length
+}
+
+/**
+ * Window query: inclusive [from, to] on closed_date (YYYY-MM-DD), optional
+ * repo filter. The summary comes from the SAME rows, so the numbers and the
+ * list cannot disagree. `totalRows` is the whole table, so the caller can
+ * tell "nothing collected yet" from "nothing closed in this window".
+ */
+export function listPrLedger(from: string, to: string, repo?: string): { rows: PrLedgerRow[]; totalRows: number; repos: string[] } {
+  const rows = (repo
+    ? db.prepare('SELECT * FROM pr_ledger WHERE closed_date BETWEEN ? AND ? AND repo = ? ORDER BY closed_date DESC, repo, number DESC').all(from, to, repo)
+    : db.prepare('SELECT * FROM pr_ledger WHERE closed_date BETWEEN ? AND ? ORDER BY closed_date DESC, repo, number DESC').all(from, to)
+  ) as PrLedgerRow[]
+  const totalRows = (db.prepare('SELECT COUNT(*) AS c FROM pr_ledger').get() as { c: number }).c
+  const repos = (db.prepare('SELECT DISTINCT repo FROM pr_ledger ORDER BY repo').all() as Array<{ repo: string }>).map(r => r.repo)
+  return { rows, totalRows, repos }
+}

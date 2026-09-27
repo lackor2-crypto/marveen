@@ -3898,6 +3898,23 @@
         <p class="updates-remotes-intro" data-i18n="updates.remotes.intro">Ezekből a git-tárolókból frissül ez a telepítés. A címek a gitből jönnek, és itt átállíthatók.</p>
         <div id="updatesRemotesBody" class="updates-remotes-body"></div>
       </div>
+
+      <!-- #418 PR-mérleg: lezárt pull requestek egy időszakban (upstream 3877c61d
+           újraírva). Kinek a repói: Beállítások / PR_LEDGER_OWNER, üresen az
+           origin gazdája; a GitHub-kulcs a Fiókok oldalról jön. -->
+      <div class="updates-prl" id="updatesPrLedger">
+        <h3 data-i18n="updates.prl.title">PR-mérleg</h3>
+        <p class="updates-remotes-intro" data-i18n="updates.prl.intro"></p>
+        <div class="updates-prl-controls">
+          <label><span data-i18n="updates.prl.from">Ettől</span> <input type="date" id="prlFrom" class="input-sm"></label>
+          <label><span data-i18n="updates.prl.to">Eddig</span> <input type="date" id="prlTo" class="input-sm"></label>
+          <button class="btn-secondary btn-compact" id="prlShowBtn" data-i18n="updates.prl.show">Mutasd</button>
+          <button class="btn-secondary btn-compact" id="prlCollectBtn" data-i18n="updates.prl.collect">Adatgyűjtés most</button>
+        </div>
+        <div id="prlStatus" class="updates-prl-status"></div>
+        <div id="prlNumbers" class="updates-prl-numbers"></div>
+        <div id="prlRows" class="updates-prl-rows"></div>
+      </div>
     </div>
 
     <!-- Costs page (CostOps v0.1, PR #524) -->

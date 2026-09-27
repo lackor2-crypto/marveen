@@ -598,6 +598,20 @@ nav { display: flex; gap: 4px; }
 /* Frissítési források (git remote-ok): honnan frissül ez a telepítés, és
    melyik eredeti projektből jönnek a beolvasztható változások. */
 .updates-remotes { margin-top: 28px; }
+.updates-prl { margin-top: 28px; }
+.updates-prl-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.updates-prl-controls label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.updates-prl-status { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-bottom: 10px; }
+.updates-prl-status .error-text { color: var(--danger, #c0392b); }
+.updates-prl-status a, .updates-prl-status button { margin-right: 10px; }
+.updates-prl-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.updates-prl-num { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.updates-prl-num b { display: block; font-size: 20px; }
+.updates-prl-num span { font-size: 12px; color: var(--text-muted); }
+.updates-prl-rows { overflow-x: auto; }
+.updates-prl-rows table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.updates-prl-rows td, .updates-prl-rows th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+@media (max-width: 600px) { .updates-prl-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .updates-remotes-intro {
   margin: 4px 0 12px;
   font-size: 13px;

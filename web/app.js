@@ -23220,6 +23220,7 @@ async function loadUpdates() {
   }
   renderDiagnoseOffer()
   loadUpdateRemotes()
+  loadPrLedger()
 }
 
 // A kiszolgalo HIBAKODJAI emberi mondatta. Ismeretlen kod eseten a NYERS
@@ -23285,6 +23286,159 @@ async function runDiagnose() {
 // es INNEN allithato -- friss telepitesen is, terminal es API-hivas nelkul.
 // Aki minket forkol, a SAJAT forrasat latja itt; aki csak telepit, ures
 // `upstream`-et, es az Attekintesen nincs is Upstream szinkron doboza.
+
+// === #418 PR-merleg (upstream 3877c61d ujrairva) ===
+// A NULLA HAROM DOLGOT JELENTHET: "nincs beallitva" (nincs gazda / nincs
+// kulcs), "meg nem gyujtottunk", vagy "gyujtottunk, de ebben az idoszakban
+// semmi nem zarult le". A szerver a harmat kulon mondja meg (config +
+// lastRun + totalRows), es a felulet mindegyikre mas mondatot ir.
+const PRL_MAX_ROWS = 200
+let _prlPollTimer = null
+
+function _prlDay(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function _prlEnsureRange() {
+  const from = document.getElementById('prlFrom')
+  const to = document.getElementById('prlTo')
+  if (!from || !to) return null
+  if (!to.value) to.value = _prlDay(new Date())
+  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 30); from.value = _prlDay(d) }
+  return { from: from.value, to: to.value }
+}
+
+function _prlGoSettings() {
+  try { localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, 'system') } catch { /* storage blocked */ }
+  switchPage('settings')
+}
+
+function _prlRenderStatus(st) {
+  const box = document.getElementById('prlStatus')
+  if (!box) return { canShow: false }
+  const esc = escapeHtmlUpdates
+  const cfg = (st && st.config) || {}
+  const last = st && st.lastRun
+  const parts = []
+  const setup = (msg, links) => `<p>${esc(msg)}</p><p>${links}</p>`
+  if (!cfg.owner) {
+    const msg = cfg.ownerSource === 'invalid-setting' ? t('updates.prl.invalid_owner') : t('updates.prl.no_owner')
+    box.innerHTML = setup(msg, `<button class="btn-secondary btn-compact" data-prl-go="settings">${esc(t('updates.prl.go_settings'))}</button>`)
+    return { canShow: !!(last && last.ok) }
+  }
+  parts.push(`<div>${esc(t(cfg.ownerSource === 'setting' ? 'updates.prl.owner.setting' : 'updates.prl.owner.origin', { owner: cfg.owner }))}</div>`)
+  if (!cfg.account) {
+    box.innerHTML = parts.join('') + setup(t('updates.prl.no_key', { owner: cfg.owner }),
+      `<a href="https://github.com/settings/tokens/new?scopes=repo&description=Marveen" target="_blank" rel="noopener">${esc(t('updates.prl.link_tokens'))}</a>`
+      + `<button class="btn-secondary btn-compact" data-prl-go="accounts">${esc(t('updates.prl.go_accounts'))}</button>`)
+    return { canShow: !!(last && last.ok) }
+  }
+  parts.push(`<div>${esc(t('updates.prl.key_account', { account: cfg.account }))}</div>`)
+  if (st.running) parts.push(`<div>${esc(t('updates.prl.running'))}</div>`)
+  else if (!last) parts.push(`<div>${esc(t('updates.prl.never'))}</div>`)
+  if (last) {
+    const time = new Date(last.finishedAt).toLocaleString()
+    if (last.ok) {
+      parts.push(`<div>${esc(t('updates.prl.last_ok', { time, repos: last.reposScanned }))}</div>`)
+      if (last.degraded && last.degraded.length) {
+        parts.push(`<div class="error-text">${esc(t('updates.prl.degraded', { list: last.degraded.join(', ') }))}</div>`)
+      }
+    } else {
+      parts.push(`<div class="error-text">${esc(t('updates.prl.last_err', { time }))}</div><pre class="updates-remote-gitmsg">${esc(last.error || '')}</pre>`)
+    }
+  }
+  box.innerHTML = parts.join('')
+  return { canShow: true }
+}
+
+function _prlRenderData(data) {
+  const nums = document.getElementById('prlNumbers')
+  const rowsBox = document.getElementById('prlRows')
+  if (!nums || !rowsBox) return
+  const esc = escapeHtmlUpdates
+  const s = data.summary || { closed: 0, merged: 0, rejected: 0, live: 0 }
+  nums.innerHTML = ['closed', 'merged', 'rejected', 'live']
+    .map(k => `<div class="updates-prl-num"><b>${Number(s[k]) || 0}</b><span>${esc(t('updates.prl.num.' + k))}</span></div>`).join('')
+  const rows = data.rows || []
+  if (!rows.length) {
+    // totalRows 0 = meg nincs semmi gyujtve: azt a statusz-sor mar kimondta,
+    // ide nem irunk "nem zarult le semmi"-t, mert az hazugsag lenne.
+    rowsBox.innerHTML = data.totalRows ? `<p>${esc(t('updates.prl.empty_window'))}</p>` : ''
+    return
+  }
+  const head = ['date', 'repo', 'title', 'state'].map(k => `<th>${esc(t('updates.prl.col.' + k))}</th>`).join('')
+  const body = rows.slice(0, PRL_MAX_ROWS).map(r => {
+    const state = t('updates.prl.state.' + (r.state === 'merged' ? 'merged' : 'closed'))
+    const live = r.state === 'merged' ? ` · ${t(r.is_live ? 'updates.prl.live.yes' : 'updates.prl.live.no')}` : ''
+    return `<tr><td>${esc(r.closed_date)}</td><td>${esc(r.repo)} #${Number(r.number)}</td><td>${esc(r.title || '')}</td><td>${esc(state + live)}</td></tr>`
+  }).join('')
+  const more = rows.length > PRL_MAX_ROWS ? `<p>${esc(t('updates.prl.more', { n: rows.length - PRL_MAX_ROWS }))}</p>` : ''
+  rowsBox.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${more}`
+}
+
+async function loadPrLedger() {
+  const box = document.getElementById('prlStatus')
+  if (!box) return
+  _prlWire()
+  const range = _prlEnsureRange()
+  let st = null
+  try {
+    st = await (await fetch('/api/pr-ledger/status')).json()
+  } catch {
+    box.innerHTML = `<p class="error-text">${escapeHtmlUpdates(t('updates.prl.load_err'))}</p>`
+    return
+  }
+  const { canShow } = _prlRenderStatus(st)
+  if (!canShow || !range) {
+    document.getElementById('prlNumbers').innerHTML = ''
+    document.getElementById('prlRows').innerHTML = ''
+  } else if (range.from > range.to) {
+    document.getElementById('prlRows').innerHTML = `<p class="error-text">${escapeHtmlUpdates(t('updates.prl.bad_range'))}</p>`
+  } else {
+    try {
+      const r = await fetch(`/api/pr-ledger?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)
+      const data = await r.json()
+      if (!r.ok) throw new Error(data && data.message || String(r.status))
+      _prlRenderData(data)
+    } catch {
+      document.getElementById('prlRows').innerHTML = `<p class="error-text">${escapeHtmlUpdates(t('updates.prl.load_err'))}</p>`
+    }
+  }
+  // Futo gyujtes alatt 5 mp-enkent ujranezzuk, amig a lap latszik.
+  clearTimeout(_prlPollTimer)
+  if (st && st.running) {
+    _prlPollTimer = setTimeout(() => {
+      const page = document.getElementById('updatesPage')
+      if (page && !page.hidden) loadPrLedger()
+    }, 5000)
+  }
+}
+
+let _prlWired = false
+function _prlWire() {
+  if (_prlWired) return
+  _prlWired = true
+  const show = document.getElementById('prlShowBtn')
+  if (show) show.addEventListener('click', () => loadPrLedger())
+  const collect = document.getElementById('prlCollectBtn')
+  if (collect) collect.addEventListener('click', async () => {
+    collect.disabled = true
+    try {
+      const r = await fetch('/api/pr-ledger/refresh', { method: 'POST' })
+      if (r.ok) showToast(t('updates.prl.started'))
+    } catch { /* a statusz-sor mondja ki, mi van */ }
+    collect.disabled = false
+    loadPrLedger()
+  })
+  const box = document.getElementById('prlStatus')
+  if (box) box.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-prl-go]')
+    if (!btn) return
+    if (btn.getAttribute('data-prl-go') === 'settings') _prlGoSettings()
+    else switchPage('accounts')
+  })
+}
 
 async function loadUpdateRemotes() {
   const body = document.getElementById('updatesRemotesBody')
