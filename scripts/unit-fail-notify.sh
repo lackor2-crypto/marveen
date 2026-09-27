@@ -27,8 +27,12 @@ ENV_FILE="${TELEGRAM_ENV:-$TG_CHAN_DIR/.env}"
 CHAT_ID="${MARVEEN_ALERT_CHAT_ID:-}"
 
 now_local="$(date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || echo now)"
-msg="Marveen app-crash: a(z) ${UNIT} unit FAILED állapotba került (${now_local}).
-(Ez alkalmazás/service szintű hiba, NEM host/VM restart. A host-restartot a host-restart-watchdog jelzi külön.)"
+# shellcheck source=lib/owner-lang.sh
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
+msg="$(ol "Marveen app-crash: a(z) ${UNIT} unit FAILED állapotba került (${now_local}).
+(Ez alkalmazás/service szintű hiba, NEM host/VM restart. A host-restartot a host-restart-watchdog jelzi külön.)" \
+"Marveen app crash: the ${UNIT} unit went into the FAILED state (${now_local}).
+(This is an application/service level error, NOT a host/VM restart. A host restart is reported separately by host-restart-watchdog.)")"
 
 token=""
 if [[ -f "$ENV_FILE" ]]; then

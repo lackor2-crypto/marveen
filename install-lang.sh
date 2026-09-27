@@ -31,6 +31,11 @@ _t() {
     hu:section_7) echo "[7/7] Automatikus indítás beállítása..." ;;
     en:section_checks) echo "Verification..." ;;
     hu:section_checks) echo "Ellenőrzés..." ;;
+    # ── Owner language line in CLAUDE.md / SOUL.md (templates) ────────
+    # Boss, 2026-09-27: an English fresh install must never get Hungarian on
+    # Telegram. {{OWNER_NAME}} is substituted after this line is inserted.
+    en:owner_language_line) echo "With {{OWNER_NAME}}: English only -- every message, Telegram included" ;;
+    hu:owner_language_line) echo "{{OWNER_NAME}}-val magyarul" ;;
     # ── Interactive prompts ───────────────────────────────────────────
     en:prompt_open_claude) echo "  Open Claude Code to diagnose the error? (y/n) [n]: " ;;
     hu:prompt_open_claude) echo "  Megnyissam Claude Code-ot a hiba diagnosztizálásához? (i/n) [n]: " ;;

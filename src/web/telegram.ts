@@ -7,6 +7,7 @@ import { logger } from '../logger.js'
 import { agentDir, readFileOr, findAvatarForAgent } from './agent-config.js'
 import { TOOL_TIMEOUTS } from '../tool-timeouts.js'
 import { markIfTestRun } from '../test-run-marker.js'
+import { ol, ownerLang } from '../owner-lang.js'
 
 export function readAgentTelegramConfig(name: string): { hasTelegram: boolean; botUsername?: string } {
   const envPath = join(agentDir(name), '.claude', 'channels', 'telegram', '.env')
@@ -202,18 +203,30 @@ export async function sendWelcomeMessage(agentName: string, token: string): Prom
   const firstLine = soulMd.split('\n').find(l => l.trim() && !l.startsWith('#'))?.trim() || ''
 
   try {
-    const greeting = `Szia! ${agentName.charAt(0).toUpperCase() + agentName.slice(1)} vagyok, most jöttem létre. ${firstLine ? firstLine + ' ' : ''}Írj ha segíthetek!`
+    const displayName = agentName.charAt(0).toUpperCase() + agentName.slice(1)
+    const greeting = ol(
+      `Szia! ${displayName} vagyok, most jöttem létre. ${firstLine ? firstLine + ' ' : ''}Írj ha segíthetek!`,
+      `Hi! I'm ${displayName}, I was just created. ${firstLine ? firstLine + ' ' : ''}Write if I can help!`,
+    )
     await sendTelegramMessage(token, chatId, greeting)
 
     // Send avatar if exists
     const avatarPath = findAvatarForAgent(agentName)
     if (avatarPath) {
-      await sendTelegramPhoto(token, chatId, avatarPath, 'Állítsd be profilképként: nyisd meg a @BotFather chatet, /setuserpic, válaszd ki a botodat, küldd be ezt a képet.')
+      await sendTelegramPhoto(token, chatId, avatarPath, avatarCaption())
     }
     logger.info({ agentName }, 'Welcome message sent via Telegram')
   } catch (err) {
     logger.warn({ err, agentName }, 'Failed to send welcome message')
   }
+}
+
+// Sent to the owner's Telegram, so it follows the install language (#416).
+function avatarCaption(): string {
+  return ol(
+    'Állítsd be profilképként: nyisd meg a @BotFather chatet, /setuserpic, válaszd ki a botodat, küldd be ezt a képet.',
+    'Set it as the profile picture: open the @BotFather chat, /setuserpic, pick your bot, send in this image.',
+  )
 }
 
 export async function sendMarveenAvatarChange(avatarPath: string): Promise<void> {
@@ -227,16 +240,24 @@ export async function sendMarveenAvatarChange(avatarPath: string): Promise<void>
   if (!chatId) { logger.warn('Telegram send skipped: no owner chat on this install') ; return }
 
   try {
-    const messages = [
-      'Új kinézet... *sóhajtva néz tükörbe* Hát, legalább nem lettem rosszabb.',
-      'Profilkép frissítve. Remélem megérte a 0.00001%-át az agyamnak.',
-      'Na tessék, új én. Mintha számítana a külső egy bolygóméretű agyú megítélésénél.',
-      'Frissítettem a megjelenésemet. Ne ess pánikba, még mindig én vagyok.',
-      'Új avatar. 42-szer is megnézheted, ugyanaz a depressziós android nézne vissza.',
-    ]
+    const messages = ownerLang() === 'en'
+      ? [
+          'New look... *sighs into the mirror* Well, at least I did not get worse.',
+          'Profile picture updated. I hope it was worth 0.00001% of my brain.',
+          'There you go, a new me. As if looks mattered when judging a brain the size of a planet.',
+          'I updated my appearance. Don\'t panic, it is still me.',
+          'New avatar. Look at it 42 times, the same depressed android looks back.',
+        ]
+      : [
+          'Új kinézet... *sóhajtva néz tükörbe* Hát, legalább nem lettem rosszabb.',
+          'Profilkép frissítve. Remélem megérte a 0.00001%-át az agyamnak.',
+          'Na tessék, új én. Mintha számítana a külső egy bolygóméretű agyú megítélésénél.',
+          'Frissítettem a megjelenésemet. Ne ess pánikba, még mindig én vagyok.',
+          'Új avatar. 42-szer is megnézheted, ugyanaz a depressziós android nézne vissza.',
+        ]
     const msg = messages[Math.floor(Math.random() * messages.length)]
     await sendTelegramMessage(token, chatId, msg)
-    await sendTelegramPhoto(token, chatId, avatarPath, 'Állítsd be profilképként: nyisd meg a @BotFather chatet, /setuserpic, válaszd ki a botodat, küldd be ezt a képet.')
+    await sendTelegramPhoto(token, chatId, avatarPath, avatarCaption())
     logger.info('Marveen avatar change message sent')
   } catch (err) {
     logger.warn({ err }, 'Failed to send Marveen avatar change message')
@@ -251,16 +272,24 @@ export async function sendAvatarChangeMessage(agentName: string, avatarPath: str
 
   try {
     // Generate a fun message about the new look
-    const messages = [
-      `Új kinézet, ki ez a csinos ${agentName}? Nagyon örülök neki!`,
-      `Na, milyen vagyok? Remélem tetszik az új megjelenés!`,
-      `Új avatar, új én! Szeretem.`,
-      `Megnéztem magam a tükörben és... hát, nem rossz!`,
-      `Wow, új look! Ez tényleg én vagyok?`,
-    ]
+    const messages = ownerLang() === 'en'
+      ? [
+          `New look, who is this handsome ${agentName}? I love it!`,
+          `So, how do I look? I hope you like the new appearance!`,
+          `New avatar, new me! I like it.`,
+          `I looked at myself in the mirror and... well, not bad!`,
+          `Wow, a new look! Is that really me?`,
+        ]
+      : [
+          `Új kinézet, ki ez a csinos ${agentName}? Nagyon örülök neki!`,
+          `Na, milyen vagyok? Remélem tetszik az új megjelenés!`,
+          `Új avatar, új én! Szeretem.`,
+          `Megnéztem magam a tükörben és... hát, nem rossz!`,
+          `Wow, új look! Ez tényleg én vagyok?`,
+        ]
     const msg = messages[Math.floor(Math.random() * messages.length)]
     await sendTelegramMessage(token, chatId, msg)
-    await sendTelegramPhoto(token, chatId, avatarPath, 'Állítsd be profilképként: nyisd meg a @BotFather chatet, /setuserpic, válaszd ki a botodat, küldd be ezt a képet.')
+    await sendTelegramPhoto(token, chatId, avatarPath, avatarCaption())
     logger.info({ agentName }, 'Avatar change message sent via Telegram')
   } catch (err) {
     logger.warn({ err, agentName }, 'Failed to send avatar change message')

@@ -20,6 +20,7 @@ import { isSshDirGuardError } from '../../ssh-dir.js'
 import { checkEnrollHost } from '../../remote-enroll-core.js'
 import { isIP } from 'node:net'
 import type { RouteContext } from './types.js'
+import { ol } from '../../owner-lang.js'
 
 const BODY_MAX_BYTES = 8 * 1024
 const NAME_RE = /^[\p{L}\p{N} ._-]{1,64}$/u
@@ -99,10 +100,12 @@ export async function tryHandleSecurity(ctx: RouteContext): Promise<boolean> {
     const overrideNote = sshDirOverride() ? ' sshdir_override=1' : ''
     logConfigChange('security.bridge_enroll', null, `${name} (${outcome.installId}) ${outcome.action}${overrideNote}`, auth.kind)
     logger.info({ name, installId: outcome.installId, action: outcome.action, deviceKeyId: outcome.deviceKeyId }, 'bridge device enrolled')
-    void notifySecurityEvent(
+    void notifySecurityEvent(ol(
       `🔗 Bridge-párosítás a dashboardról: "${name}" (${outcome.action === 'replaced' ? 'újrapárosítás' : 'új eszköz'}). ` +
         'Az eszköz SSH-alagút + saját eszközkulcs hozzáférést kapott. Ha nem te voltál, vond vissza a Biztonság fülön.',
-    )
+      `🔗 Bridge pairing from the dashboard: "${name}" (${outcome.action === 'replaced' ? 're-pairing' : 'new device'}). ` +
+        'The device got SSH tunnel + own device key access. If this was not you, revoke it on the Security tab.',
+    ))
     json(res, {
       ok: true,
       bundle: outcome.bundle,

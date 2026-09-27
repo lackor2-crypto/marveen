@@ -85,7 +85,13 @@ if age > max_age:
 # Two levels are enough -- the heads-up, and the moment it is actually gone.
 levels = sorted({100.0, warn}, reverse=True)
 
-labels = {"five_hour": "5 oras keret", "seven_day": "heti keret"}
+# Owner-facing words follow the install language (#416); the caller passes it
+# as QUOTA_LANG (limit-monitor.sh: owner_lang). Anything not "en" stays Hungarian.
+en = os.environ.get("QUOTA_LANG", "").strip().lower().startswith("en")
+labels = ({"five_hour": "5-hour quota", "seven_day": "weekly quota"} if en
+          else {"five_hour": "5 oras keret", "seven_day": "heti keret"})
+used_fmt = "%s: %d%% used" if en else "%s: %d%% elhasznalva"
+reset_fmt = " (resets: %s)" if en else " (nullazodik: %s)"
 labels_short = {"five_hour": "five_hour", "seven_day": "seven_day"}
 hits = []
 expired = []
@@ -122,8 +128,8 @@ if not hits:
 key = "|".join("%s:%s:%s" % (k, lv, rs) for k, _p, _w, rs, lv in hits)
 lines = []
 for k, p, w, _rs, _lv in hits:
-    line = "%s: %d%% elhasznalva" % (labels[k], p)
+    line = used_fmt % (labels[k], p)
     if w:
-        line += " (nullazodik: %s)" % w
+        line += reset_fmt % w
     lines.append(line)
 print("HIT\t%s\t%s" % (key, " / ".join(lines)))

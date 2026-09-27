@@ -44,7 +44,7 @@ Standalone: scans every agent's per-agent telegram state dir. No marveen src
 dependency; only Python stdlib + the `tmux` binary. Bot API base is overridable
 via TELEGRAM_API_BASE (tests point it at a local stub).
 """
-import datetime, os, glob, json, time, subprocess, urllib.request
+import datetime, os, sys, glob, json, time, subprocess, urllib.request
 
 # State dirs to scan: per-agent dirs under the fleet, plus the default dir.
 #
@@ -103,8 +103,37 @@ TURN_ANCHOR_SLACK_SEC = 120
 # Far below WEDGED_SEC because the hung-reply signal is precise. Env-tunable so
 # a live install can adjust without a code change.
 DEFAULT_WEDGED_UP_SEC = 180
-ERROR_TEXT = ("⚠️ Valami elakadt, és erre nem érkezett válasz. "
-              "Lehet, hogy újra kell indítani az ügynököt, vagy próbáld újra kicsit később.")
+ERROR_TEXTS = {
+    "hu": ("⚠️ Valami elakadt, és erre nem érkezett válasz. "
+           "Lehet, hogy újra kell indítani az ügynököt, vagy próbáld újra kicsit később."),
+    "en": ("⚠️ Something got stuck and no answer came for this. "
+           "The agent may need a restart, or try again a bit later."),
+}
+ERROR_TEXT = ERROR_TEXTS["hu"]
+
+# The owner's language follows the INSTALL language (#416): an English install
+# must never get a Hungarian placeholder rewrite. Fail-open to Hungarian when
+# the sibling lib or the install root cannot be found.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from rate_limit_status_lib import install_lang, find_project_root
+except Exception:
+    def install_lang(project_root):
+        return "hu"
+    def find_project_root(cwd):
+        return None
+
+
+def error_text(progress_dir=None):
+    """ERROR_TEXT in the install language. The progress dir usually sits under
+    the install (agents/<name>/.claude/...); the main agent's may not, so the
+    script's own install (scripts/hooks/../..) is the second place to look."""
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for start in (progress_dir, here):
+        root = find_project_root(start) if start else None
+        if root:
+            return ERROR_TEXTS.get(install_lang(root), ERROR_TEXT)
+    return ERROR_TEXT
 
 
 def _env_int(name, default):
@@ -364,7 +393,8 @@ def deliver(tok, chat_id, message_id, answer, progress_dir):
     # No recoverable answer -> generic error, keep the (edited) placeholder.
     try:
         api(tok, "editMessageText",
-            {"chat_id": chat_id, "message_id": message_id, "text": ERROR_TEXT})
+            {"chat_id": chat_id, "message_id": message_id,
+             "text": error_text(progress_dir)})
     except Exception as e:
         log(progress_dir, f"error edit failed (mid={message_id}): {e}")
     return "generic-error"

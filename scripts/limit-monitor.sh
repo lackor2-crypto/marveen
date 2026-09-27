@@ -22,6 +22,8 @@
 
 set -u
 INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Owner-facing text follows the install language (#416): ol "hu" "en".
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 STORE="$INSTALL_DIR/store"
 STATE="$STORE/.limit-monitor-state"
 LOG="$STORE/limit-monitor.log"
@@ -120,7 +122,7 @@ if [ -s "$QUOTA_FILE" ] && command -v python3 >/dev/null 2>&1; then
     # empty, and the `case` below has no empty branch -- so the measured quota
     # path could drop out of a round without a single word in the log.
     QUOTA_ERR="$STORE/.quota-check.stderr"
-    QUOTA_OUT="$(QUOTA_FILE="$QUOTA_FILE" QUOTA_WARN_PCT="$QUOTA_WARN_PCT" QUOTA_MAX_AGE_SEC="${QUOTA_MAX_AGE_SEC:-}" python3 "$QUOTA_CHECK" 2>"$QUOTA_ERR")"
+    QUOTA_OUT="$(QUOTA_LANG="$(owner_lang)" QUOTA_FILE="$QUOTA_FILE" QUOTA_WARN_PCT="$QUOTA_WARN_PCT" QUOTA_MAX_AGE_SEC="${QUOTA_MAX_AGE_SEC:-}" python3 "$QUOTA_CHECK" 2>"$QUOTA_ERR")"
     if [ -s "$QUOTA_ERR" ]; then
       log "quota-check.py uzenete: $(tr '\n' ' ' < "$QUOTA_ERR")"
     fi
@@ -145,11 +147,15 @@ if [ -s "$QUOTA_FILE" ] && command -v python3 >/dev/null 2>&1; then
         # The stamp is written AFTER a confirmed delivery, never before: a failed
         # alert buried by its own suppression stamp is lost forever, and the next
         # tick would report "quota signal unchanged, already alerted".
-        if send_alert "‼️ CLAUDE KERET ($BOT_NAME monitor)
+        if send_alert "$(ol "‼️ CLAUDE KERET ($BOT_NAME monitor)
 
 $QTEXT
 
-Ezt Claude nelkul mertem, a status line altal kiadott szamokbol. Ha elfogy, az agensek nem tudnak valaszolni a keret nullazodasaig." "quota:$QKEY"; then
+Ezt Claude nelkul mertem, a status line altal kiadott szamokbol. Ha elfogy, az agensek nem tudnak valaszolni a keret nullazodasaig." "‼️ CLAUDE QUOTA ($BOT_NAME monitor)
+
+$QTEXT
+
+Measured without Claude, from the numbers the status line reports. If it runs out, the agents cannot answer until the quota resets.")" "quota:$QKEY"; then
           printf '%s' "$QKEY" > "$QSTATE"
         else
           log "quota alert NOT delivered, stamp withheld -- the next tick retries: $QKEY"
@@ -216,12 +222,17 @@ esac
 
 # (2) Fallback path: text signals in the logs and the live panes.
 SNIP="$(printf '%s' "$CANDIDATE" | head -3)"
-MSG="⚠️ LIMIT-FIGYELMEZTETÉS ($BOT_NAME monitor)
+MSG="$(ol "⚠️ LIMIT-FIGYELMEZTETÉS ($BOT_NAME monitor)
 A logokban/sessionben limit-jel jelent meg:
 
 $SNIP
 
-Lehet hogy közeledünk vagy elértük a Claude előfizetés keretét. Ha kell, ritkítom a heartbeatet vagy szünetet tartok. Nézd meg a sessiont ha tudod."
+Lehet hogy közeledünk vagy elértük a Claude előfizetés keretét. Ha kell, ritkítom a heartbeatet vagy szünetet tartok. Nézd meg a sessiont ha tudod." "⚠️ LIMIT WARNING ($BOT_NAME monitor)
+A limit signal showed up in the logs/session:
+
+$SNIP
+
+We may be close to, or at, the Claude subscription quota. If needed I will space out the heartbeat or pause. Take a look at the session if you can.")"
 # Both alert paths now share ONE contract via send_alert(): honest send, and the
 # dedupe stamp written ONLY after a confirmed delivery, so a failed alert retries
 # on the next timer tick instead of vanishing behind its own suppression stamp.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -127,7 +127,7 @@ describe('channel-inbound-tee arrival receipt', () => {
         const fs = require('node:fs');
         fs.writeSync(1, ${JSON.stringify(line + '\n')});
       `
-      const result = await runWrapper(dir, childCode, { TELEGRAM_API_BASE: stub.base })
+      const result = await runWrapper(dir, childCode, { TELEGRAM_API_BASE: stub.base, MARVEEN_LANG: 'hu' })
       expect(result.code).toBe(0)
       expect(result.stderr).toBe('')
 
@@ -147,6 +147,47 @@ describe('channel-inbound-tee arrival receipt', () => {
       ])
     } finally {
       rmSync(dir, { recursive: true, force: true })
+      await stub.close()
+    }
+  })
+
+  // Boss, 2026-09-27: an English fresh install must never get Hungarian on
+  // Telegram -- the receipt follows the install language, not a literal.
+  it('writes the receipt in English on an English install (MARVEEN_LANG)', async () => {
+    const stub = await stubTelegram()
+    const dir = mkdtempSync(join(tmpdir(), 'channel-inbound-tee-en-'))
+    try {
+      writeFileSync(join(dir, '.env'), 'TELEGRAM_BOT_TOKEN=123:abc\n')
+      const line = notificationLine({ chat_id: 'c1', message_id: 'm1', user: 'u1' })
+      const childCode = `require('node:fs').writeSync(1, ${JSON.stringify(line + '\n')});`
+      const result = await runWrapper(dir, childCode, { TELEGRAM_API_BASE: stub.base, MARVEEN_LANG: 'en' })
+      expect(result.code).toBe(0)
+      expect(stub.calls).toHaveLength(1)
+      expect(String(stub.calls[0].body.text)).toContain('Received')
+      expect(String(stub.calls[0].body.text)).not.toMatch(/Megkaptam|[áéíóöőúüű]/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      await stub.close()
+    }
+  })
+
+  it('reads the install language from the .lang file of the install root when no env is set', async () => {
+    const stub = await stubTelegram()
+    const root = mkdtempSync(join(tmpdir(), 'channel-inbound-tee-root-'))
+    const dir = join(root, 'agents', 'nova', '.claude', 'channels', 'telegram')
+    try {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(root, '.env'), 'MAIN_AGENT_ID=nova\n')
+      writeFileSync(join(root, '.lang'), 'en\n')
+      writeFileSync(join(dir, '.env'), 'TELEGRAM_BOT_TOKEN=123:abc\n')
+      const line = notificationLine({ chat_id: 'c1', message_id: 'm1', user: 'u1' })
+      const childCode = `require('node:fs').writeSync(1, ${JSON.stringify(line + '\n')});`
+      const result = await runWrapper(dir, childCode, { TELEGRAM_API_BASE: stub.base, MARVEEN_LANG: '' })
+      expect(result.code).toBe(0)
+      expect(stub.calls).toHaveLength(1)
+      expect(String(stub.calls[0].body.text)).toContain('Received')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
       await stub.close()
     }
   })

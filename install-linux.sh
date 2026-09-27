@@ -1308,7 +1308,8 @@ esac
 
 # CLAUDE.md generalasa template-bol
 if [ -f "$INSTALL_DIR/templates/CLAUDE.md.template" ]; then
-  sed -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
+  sed -e "s/{{OWNER_LANGUAGE_LINE}}/$(_t owner_language_line)/g" \
+    -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
     -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
     -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
     -e "s/{{CHAT_ID}}/$CHAT_ID/g" \
@@ -1323,7 +1324,8 @@ fi
 
 # SOUL.md generalasa template-bol (personality definition for the main agent).
 if [ -f "$INSTALL_DIR/templates/SOUL.md.template" ] && [ ! -f "$INSTALL_DIR/SOUL.md" ]; then
-  sed -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
+  sed -e "s/{{OWNER_LANGUAGE_LINE}}/$(_t owner_language_line)/g" \
+      -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
       -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
       "$INSTALL_DIR/templates/SOUL.md.template" > "$INSTALL_DIR/SOUL.md"
   ok "SOUL.md generalva"

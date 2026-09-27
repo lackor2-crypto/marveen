@@ -1,5 +1,6 @@
 import { logger } from '../logger.js'
 import { notifyChannel } from '../notify.js'
+import { ol } from '../owner-lang.js'
 
 // Self-healing recoveries are the fleet's normal operating noise: a session
 // died, the supervisor rebuilt it, nothing was lost. The owner still wants to
@@ -36,7 +37,10 @@ export function decideRoutineAlert(
 export function routineAlertSuffix(repeats: number, cooldownMs: number): string {
   if (repeats <= 0) return ''
   const minutes = Math.round(cooldownMs / 60000)
-  return `\n\n(Az elmult ${minutes} percben ${repeats + 1} ilyen volt. Ha nem all le magatol, nezz ra.)`
+  return ol(
+    `\n\n(Az elmult ${minutes} percben ${repeats + 1} ilyen volt. Ha nem all le magatol, nezz ra.)`,
+    `\n\n(${repeats + 1} of these in the last ${minutes} minutes. If it does not stop by itself, take a look.)`,
+  )
 }
 
 const states = new Map<string, RoutineAlertState>()

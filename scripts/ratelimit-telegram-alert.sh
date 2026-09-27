@@ -28,6 +28,8 @@ STORE="$INSTALL_DIR/store"
 LOG="$STORE/ratelimit-alert.log"
 STATE="$STORE/.ratelimit-alert-state.json"
 NOTIFY="$INSTALL_DIR/scripts/notify.sh"
+# Owner-facing text follows the install language (#416).
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 
 log(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 env_val(){ grep -E "^$1=" "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"' "; }
@@ -40,17 +42,18 @@ SNAPSHOT="$STORE/rate-limit-status/${MAIN_AGENT_ID}.json"
 # oldal csak a fajlutvonalakat adja at. STALE_AFTER_MS ugyanaz mint amit
 # src/rate-limit-status.ts hasznal (30 perc): egy regi, allo pillanatkepre
 # ne riasszunk (az agens lehet csak tetlen/leallt, nem kifutoban van).
-python3 - "$SNAPSHOT" "$STATE" "$LOG" "$NOTIFY" <<'PY'
+OWNER_LANG="$(owner_lang)" python3 - "$SNAPSHOT" "$STATE" "$LOG" "$NOTIFY" <<'PY'
 import json, os, subprocess, sys, time
 
 snapshot_path, state_path, log_path, notify_path = sys.argv[1:5]
 STALE_AFTER_MS = 30 * 60_000
+EN = os.environ.get('OWNER_LANG', '') == 'en'
 # Sorrend szandekos: elobb a sulyosabbat probaljuk, hogy egy 99%-os
 # atugrast (pl. egy nagy tool-hivas kozben 88% -> 99%) ne csak "90%"-kent
 # jelentsunk -- igy legalabb a legsulyosabb szintet biztosan megkapja Boss.
 THRESHOLDS = [
-    (99, 'urgent', "\U0001F6A8 VESZJELZES"),
-    (90, 'caution', "⚠️ Figyelmeztetes"),
+    (99, 'urgent', "\U0001F6A8 ALARM" if EN else "\U0001F6A8 VESZJELZES"),
+    (90, 'caution', "⚠️ Warning" if EN else "⚠️ Figyelmeztetes"),
 ]
 
 def log(msg):
@@ -73,7 +76,8 @@ try:
 except Exception:
     state = {}
 
-WINDOW_LABELS = {'fiveHour': '5 orás', 'sevenDay': 'heti'}
+WINDOW_LABELS = ({'fiveHour': '5-hour', 'sevenDay': 'weekly'} if EN
+                 else {'fiveHour': '5 orás', 'sevenDay': 'heti'})
 changed = False
 
 for window_key, label in WINDOW_LABELS.items():
@@ -95,14 +99,21 @@ for window_key, label in WINDOW_LABELS.items():
             break  # mar kuldtunk erre (vagy sulyosabbra) a jelen ablakhoz
         reset_txt = ""
         if resets_at:
-            reset_txt = " Ujraindul kb.: " + time.strftime(
+            reset_txt = (" Resets around: " if EN else " Ujraindul kb.: ") + time.strftime(
                 '%H:%M', time.localtime(resets_at / 1000)
             )
-        text = (
-            f"{prefix}: a {label} keretem {pct}%-on all.{reset_txt} "
-            f"Ha ez tovabb fogy, a session automatikusan ujraindul/varakozik -- "
-            f"nem kell semmit tenned, csak jelzem elore, hogy tudd miert csendesedem el."
-        )
+        if EN:
+            text = (
+                f"{prefix}: my {label} quota is at {pct}%.{reset_txt} "
+                f"If it keeps draining, the session restarts/waits by itself -- "
+                f"nothing to do, I am just telling you ahead so you know why I go quiet."
+            )
+        else:
+            text = (
+                f"{prefix}: a {label} keretem {pct}%-on all.{reset_txt} "
+                f"Ha ez tovabb fogy, a session automatikusan ujraindul/varakozik -- "
+                f"nem kell semmit tenned, csak jelzem elore, hogy tudd miert csendesedem el."
+            )
         try:
             subprocess.run([notify_path, text], check=False,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

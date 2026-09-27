@@ -35,6 +35,7 @@ function stageTree(scriptNames: string[]): { root: string; bin: string } {
   for (const s of scriptNames) cpSync(join(ROOT, 'scripts', s), join(scripts, s))
   cpSync(join(ROOT, 'scripts', 'lib', 'send-telegram.sh'), join(scripts, 'lib', 'send-telegram.sh'))
   cpSync(join(ROOT, 'scripts', 'lib', 'owner-chat.sh'), join(scripts, 'lib', 'owner-chat.sh'))
+  cpSync(join(ROOT, 'scripts', 'lib', 'owner-lang.sh'), join(scripts, 'lib', 'owner-lang.sh'))
   // limit-monitor's dedupe hash comes from the shared helper (MD5SUMHIANY826).
   cpSync(join(ROOT, 'scripts', 'lib', 'content-hash.sh'), join(scripts, 'lib', 'content-hash.sh'))
   const bin = join(stage, 'bin')

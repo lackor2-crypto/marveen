@@ -1,3 +1,5 @@
+import { ol } from './owner-lang.js'
+
 // Fleet parity: every agent must get every capability, not just the main one.
 //
 // Why this module exists (Boss, 2026-08-11, after the third occurrence):
@@ -142,8 +144,14 @@ export function findParityDrift(mainScripts: Set<string>, templateScripts: Set<s
 export function describeParityDrift(drift: ParityDrift[]): string {
   return drift
     .map(d => d.direction === 'main-only'
-      ? `${d.script}: csak a fo agensnel fut, a tobbi agens nem kapja meg (tedd be a templates/settings.json.template-be, vagy vedd fel MAIN_ONLY_HOOKS-ba indoklassal)`
-      : `${d.script}: a sablonban van, de a fo agensnel nem fut (kosd be a fo agensnel is, vagy vedd fel SUBAGENT_ONLY_HOOKS-ba indoklassal)`)
+      ? ol(
+        `${d.script}: csak a fo agensnel fut, a tobbi agens nem kapja meg (tedd be a templates/settings.json.template-be, vagy vedd fel MAIN_ONLY_HOOKS-ba indoklassal)`,
+        `${d.script}: runs only on the main agent, the other agents do not get it (put it into templates/settings.json.template, or add it to MAIN_ONLY_HOOKS with a reason)`,
+      )
+      : ol(
+        `${d.script}: a sablonban van, de a fo agensnel nem fut (kosd be a fo agensnel is, vagy vedd fel SUBAGENT_ONLY_HOOKS-ba indoklassal)`,
+        `${d.script}: it is in the template, but does not run on the main agent (wire it into the main agent too, or add it to SUBAGENT_ONLY_HOOKS with a reason)`,
+      ))
     .join('; ')
 }
 
@@ -194,7 +202,10 @@ export function summarizeSkillLibraryParity(input: {
       examined: null,
       // Ez a legfontosabb ag: nem "nincs elteres", hanem "mindenki kimarad,
       // csak eppen nincs mihez hasonlitani".
-      reason: 'a kozos skill-konyvtar nem letezik, tehat nincs mihez hasonlitani (friss telepites: a seed-skillek meg nincsenek kirenderelve)',
+      reason: ol(
+        'a kozos skill-konyvtar nem letezik, tehat nincs mihez hasonlitani (friss telepites: a seed-skillek meg nincsenek kirenderelve)',
+        'the shared skill library does not exist, so there is nothing to compare against (fresh install: the seed skills are not rendered yet)',
+      ),
     }
   }
   if (input.sharedLibraryError) {
@@ -202,7 +213,10 @@ export function summarizeSkillLibraryParity(input: {
       verdict: 'not_measured',
       missing: [],
       examined: null,
-      reason: `a kozos skill-konyvtar nem olvashato: ${input.sharedLibraryError}`,
+      reason: ol(
+        `a kozos skill-konyvtar nem olvashato: ${input.sharedLibraryError}`,
+        `the shared skill library is not readable: ${input.sharedLibraryError}`,
+      ),
     }
   }
   if (input.agents === null) {
@@ -210,7 +224,10 @@ export function summarizeSkillLibraryParity(input: {
       verdict: 'not_measured',
       missing: [],
       examined: null,
-      reason: `az agens-lista nem olvashato: ${input.agentsError || 'ismeretlen hiba'}`,
+      reason: ol(
+        `az agens-lista nem olvashato: ${input.agentsError || 'ismeretlen hiba'}`,
+        `the agent list is not readable: ${input.agentsError || 'unknown error'}`,
+      ),
     }
   }
   // Nulla agens EGY telepitesen legitim allapot (meg nincs sub-agens), es ettol
@@ -227,9 +244,9 @@ export function summarizeSkillLibraryParity(input: {
 
 /** Egy emberi mondat a verdiktbol -- a naplohoz es a tulajdonosnak szolo uzenethez. */
 export function describeSkillLibraryParity(p: SkillLibraryParity): string {
-  if (p.verdict === 'gaps') return `kozos skill-konyvtar hianyzik: ${p.missing.join(', ')}`
-  if (p.verdict === 'not_measured') return `a kozos skill-konyvtar paritasat NEM tudtam megmerni -- ${p.reason}`
+  if (p.verdict === 'gaps') return ol(`kozos skill-konyvtar hianyzik: ${p.missing.join(', ')}`, `shared skill library missing: ${p.missing.join(', ')}`)
+  if (p.verdict === 'not_measured') return ol(`a kozos skill-konyvtar paritasat NEM tudtam megmerni -- ${p.reason}`, `I could NOT measure the shared skill library parity -- ${p.reason}`)
   return p.examined === 0
-    ? 'a kozos skill-konyvtar rendben (nincs sub-agens, akit meg kellene nezni)'
-    : `a kozos skill-konyvtar rendben (${p.examined} agens megnezve)`
+    ? ol('a kozos skill-konyvtar rendben (nincs sub-agens, akit meg kellene nezni)', 'the shared skill library is fine (no sub-agent to check)')
+    : ol(`a kozos skill-konyvtar rendben (${p.examined} agens megnezve)`, `the shared skill library is fine (${p.examined} agents checked)`)
 }

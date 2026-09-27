@@ -30,6 +30,8 @@ STORE="$INSTALL_DIR/store"
 LOG="$STORE/modal-guard.log"
 STATE="$STORE/.modal-guard-seen"
 NOTIFY="$INSTALL_DIR/scripts/notify.sh"
+# shellcheck source=lib/owner-lang.sh
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 
 log(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 env_val(){ grep -E "^$1=" "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"' "; }
@@ -87,11 +89,16 @@ fi
 log "a menu meg mindig fent van -> tovabbitom Telegramra es feloldom"
 
 if [ -x "$NOTIFY" ]; then
-  bash "$NOTIFY" "❓ $BOT_NAME egy VALASZTOS KERDESEN allt meg a paneljeben, ami Telegramra nem ment ki -- ezert nem valaszolt semmire. A kerdes:
+  bash "$NOTIFY" "$(ol "❓ $BOT_NAME egy VALASZTOS KERDESEN allt meg a paneljeben, ami Telegramra nem ment ki -- ezert nem valaszolt semmire. A kerdes:
 
 $QUESTION
 
-A menut feloldottam, $BOT_NAME dolgozik tovabb. Ha donteni akarsz, valaszolj ide egy mondatban (pl. \"az elso\" / \"a pontosat\")." >/dev/null 2>&1 \
+A menut feloldottam, $BOT_NAME dolgozik tovabb. Ha donteni akarsz, valaszolj ide egy mondatban (pl. \"az elso\" / \"a pontosat\")." \
+"❓ $BOT_NAME stopped on a MULTIPLE-CHOICE QUESTION in its panel, which did not go out to Telegram -- so it answered nothing. The question:
+
+$QUESTION
+
+I closed the menu, $BOT_NAME keeps working. If you want to decide, answer here in one sentence (e.g. \"the first one\" / \"the precise one\").")" >/dev/null 2>&1 \
     && log "kerdes elkuldve Telegramra" || log "a Telegram-ertesites nem ment el"
 fi
 
@@ -99,7 +106,8 @@ tmux send-keys -t "$SESSION" Escape 2>/dev/null
 sleep 3
 
 # Megmondjuk a fo agensnek, mi tortent es mit csinaljon maskepp.
-MSG="A panelben feltett valasztos kerdesedet feloldottam, mert az BLOKKOLTA az egesz munkamenetet: a tulajdonos Telegramon van, oda a menu NEM megy ki, tehat o nem is latta a kerdest -- csak azt latta, hogy nem valaszolsz. A kerdest tovabbitottam neki Telegramon. Mostantol ha dontes kell tole, KERDEZD MEG A CSATORNADON (reply tool) szamozott lehetosegekkel, es addig folytasd azt, ami e nelkul is haladhat. Panel-menut ne nyiss."
+MSG="$(ol "A panelben feltett valasztos kerdesedet feloldottam, mert az BLOKKOLTA az egesz munkamenetet: a tulajdonos Telegramon van, oda a menu NEM megy ki, tehat o nem is latta a kerdest -- csak azt latta, hogy nem valaszolsz. A kerdest tovabbitottam neki Telegramon. Mostantol ha dontes kell tole, KERDEZD MEG A CSATORNADON (reply tool) szamozott lehetosegekkel, es addig folytasd azt, ami e nelkul is haladhat. Panel-menut ne nyiss." \
+  "I closed the multiple-choice question you asked in the panel, because it BLOCKED the whole session: the owner is on Telegram, the menu does NOT go out there, so they never saw the question -- they only saw that you do not answer. I forwarded the question to them on Telegram. From now on, when you need a decision from them, ASK ON YOUR CHANNEL (reply tool) with numbered options, and meanwhile continue whatever can progress without it. Do not open a panel menu.")"
 tmux send-keys -t "$SESSION" -l "$MSG" 2>/dev/null
 sleep 1
 tmux send-keys -t "$SESSION" Enter 2>/dev/null

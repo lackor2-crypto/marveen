@@ -49,6 +49,8 @@ else
 fi
 
 INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Owner-facing text follows the install language (#416): ol "hu" "en".
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 SCRATCH_DIR="${DISK_GUARD_SCRATCH_DIR:-/tmp}"
 STATE_DIR="${DISK_GUARD_STATE_DIR:-$INSTALL_DIR/store}"
 ALERT_STAMP="$STATE_DIR/.disk-guard-alerted"
@@ -181,7 +183,7 @@ main() {
       # Cooldown stamp ONLY on confirmed delivery: a stamp written after a
       # failed send suppressed the retry for an hour -- exactly when a full
       # disk was already wedging the primary channel (NOTIFYVAKSWEEP826).
-      if alert_owner "🔴 Disk space critical: ${DISK_PATH} is at ${usage}% after reaping ${removed} scratch item(s). Manual cleanup needed -- a full disk can wedge the channel session (deafness)."; then
+      if alert_owner "$(ol "🔴 Kritikusan kevés a lemezhely: ${DISK_PATH} ${usage}%-on áll, pedig ${removed} ideiglenes elemet már töröltem. Kézi takarítás kell -- a megtelt lemez megakaszthatja a csatornát (nem jönnek át az üzenetek)." "🔴 Disk space critical: ${DISK_PATH} is at ${usage}% after reaping ${removed} scratch item(s). Manual cleanup needed -- a full disk can wedge the channel session (deafness).")"; then
         echo "$now" > "$ALERT_STAMP" 2>/dev/null || true
       else
         log "alert not delivered -- cooldown stamp NOT written, will retry next tick"

@@ -9,6 +9,8 @@
 set -euo pipefail
 
 INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Owner-facing text follows the install language (#416): ol "hu" "en".
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 cd "$INSTALL_DIR"
 
 # Upstream repo and the PRs to watch are both derived, not hardcoded: a fork
@@ -92,7 +94,7 @@ if [ -z "$PRS" ]; then
   fi
 fi
 if [ "$LIST_RC" -ne 0 ]; then
-  MSG="github-pr-monitor: the PR list query FAILED on $REPO (rc=$LIST_RC). The monitor is watching NOTHING until this is fixed. ${LIST_ERR:-no stderr}"
+  MSG="$(ol "github-pr-monitor: a PR-lista lekérdezése NEM SIKERÜLT itt: $REPO (rc=$LIST_RC). A figyelő SEMMIT nem lát, amíg ez nincs megjavítva. ${LIST_ERR:-nincs hibaüzenet}" "github-pr-monitor: the PR list query FAILED on $REPO (rc=$LIST_RC). The monitor is watching NOTHING until this is fixed. ${LIST_ERR:-no stderr}")"
   echo "$MSG" >&2
   # Alert the owner, at most once per AUTH_ALERT_COOLDOWN -- an alerting script
   # that cannot see anything has to say so on the channel, not only in a log.
@@ -112,7 +114,7 @@ if [ -z "${PRS// /}" ]; then
   # cannot see (measured 2026-09-04 against a deliberately nonexistent slug), so
   # "nothing to watch" would silently cover a broken configuration.
   if ! gh repo view "$REPO" --json name >/dev/null 2>&1; then
-    MSG="github-pr-monitor: repo $REPO is NOT reachable (gh repo view failed), so the empty PR list means nothing. The monitor is watching NOTHING."
+    MSG="$(ol "github-pr-monitor: a(z) $REPO tároló NEM elérhető (a gh repo view hibát adott), így az üres PR-lista semmit nem jelent. A figyelő SEMMIT nem lát." "github-pr-monitor: repo $REPO is NOT reachable (gh repo view failed), so the empty PR list means nothing. The monitor is watching NOTHING.")"
     echo "$MSG" >&2
     AUTH_STAMP="store/.github-pr-monitor-auth-alert"
     NOW="$(date +%s)"
@@ -168,14 +170,14 @@ while IFS=$'\t' read -r pr sig; do
   old="$(awk -F'\t' -v p="$pr" '$1 == p { sub(/^[^\t]*\t/, ""); print; exit }' "$STATE_FILE" 2>/dev/null)"
   if [ -n "$old" ] && [ "$old" != "$sig" ]; then
     IFS='|' read -r st rd nrev ncom last <<< "$sig"
-    CHANGES="${CHANGES}- PR #${pr}: state=${st}, review=${rd}, reviews=${nrev}, comments=${ncom}${last:+, utolso: ${last}}
+    CHANGES="${CHANGES}- PR #${pr}: state=${st}, review=${rd}, reviews=${nrev}, comments=${ncom}${last:+, $(ol "utolsó" "last"): ${last}}
 "
   fi
 done <<< "$CUR"
 
 PERSIST=1
 if [ -n "$CHANGES" ]; then
-  if send_telegram "GitHub PR valtozas (reagalt valaki?):
+  if send_telegram "$(ol "GitHub PR-változás (reagált valaki?):" "GitHub PR change (did someone react?):")
 ${CHANGES}
 https://github.com/${REPO}/pulls"; then
     echo "change detected, alerted"

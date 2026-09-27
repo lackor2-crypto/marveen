@@ -51,6 +51,7 @@ import { getEffectiveSettingValue } from '../settings-store.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { isSessionReadyForPrompt, sendPromptToSession, sessionExistsOnHost } from './agent-process.js'
 import { sendAlert } from './channel-monitor.js'
+import { ol } from '../owner-lang.js'
 
 export const INBOX_NUDGE_INITIAL_DELAY_MS = 55_000 // free slot (taken: 5/10/20/25/30/35/40/45/50/90s)
 export const INBOX_NUDGE_INTERVAL_MS = 20_000
@@ -207,11 +208,14 @@ async function tick(): Promise<void> {
     if (!pre.proceed) {
       if (pre.staleAlert) {
         logger.warn({ inboxNudge: true, oldestId: oldest?.id, staleNudges: MAX_STALE_NUDGES }, 'inbox nudge: drain did not claim after repeated nudges; stopping and alerting owner')
-        sendAlert(
+        sendAlert(ol(
           `⚠️ A fő-ügynök inbox auto-drain ${MAX_STALE_NUDGES} noszogatás után sem vette át a függő üzenetet (#${oldest?.id}). ` +
           'Valószínű okok: a UserPromptSubmit drain-hook nincs bekötve a session cwd-jéhez (inbox-drain.py), telepítési útvonal-eltérés, ' +
           'vagy a channels-session beragadt. Kézi ellenőrzés kell; a noszogatás szünetel, amíg ez az üzenet függőben van.',
-        )
+          `⚠️ The main agent's inbox auto-drain did not take over the pending message (#${oldest?.id}) even after ${MAX_STALE_NUDGES} nudges. ` +
+          'Likely causes: the UserPromptSubmit drain hook is not wired to the session cwd (inbox-drain.py), an install path mismatch, ' +
+          'or the channels session is stuck. Manual check needed; nudging is paused while this message is pending.',
+        ))
       }
       if (pre.budgetLog) {
         logger.warn({ inboxNudge: true, pending: pending.length, budget: MAX_NUDGES_PER_HOUR }, 'inbox nudge: hourly budget exhausted; falling back to baseline drain cadence')

@@ -73,6 +73,7 @@ import {
   type Lang,
 } from '../password-recovery.js'
 import type { RouteContext } from './types.js'
+import { ol } from '../../owner-lang.js'
 
 const LOGIN_BODY_MAX_BYTES = 8 * 1024
 const USERNAME_RE = /^[a-zA-Z0-9._-]{1,64}$/
@@ -520,7 +521,10 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
       // silent when none is configured).
       logConfigChange('security.break_glass_password_reset', null, user.username, 'token')
       logger.warn({ username: user.username }, 'break-glass password reset via bearer token')
-      void notifySecurityEvent(`🔑 Break-glass jelszó-reset a dashboardon: "${user.username}" jelszavát a hozzáférési tokennel állították át. Ha nem te voltál, futtasd: npm run dashboard-user -- security:reset`)
+      void notifySecurityEvent(ol(
+        `🔑 Break-glass jelszó-reset a dashboardon: "${user.username}" jelszavát a hozzáférési tokennel állították át. Ha nem te voltál, futtasd: npm run dashboard-user -- security:reset`,
+        `🔑 Break-glass password reset on the dashboard: the password of "${user.username}" was reset with the access token. If it was not you, run: npm run dashboard-user -- security:reset`,
+      ))
     }
     json(res, { ok: true })
     return true

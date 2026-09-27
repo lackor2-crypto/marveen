@@ -54,6 +54,8 @@ fi
 # MAIN_AGENT_ID which falls back to "marveen"; the main agent MUST be core so
 # a memory-pressure band never throttles the operator's primary bot.
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Owner-facing text follows the install language (#416): ol "hu" "en".
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 _env_val() { [[ -f "$INSTALL_DIR/.env" ]] && grep -E "^$1=" "$INSTALL_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"'"'"'\r'; }
 MAIN_AGENT_ID="$(_env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
 
@@ -255,11 +257,11 @@ band="ok"
 if (( used_pct >= HARD_PCT )); then
   band="hard"
   set_safe_mode
-  send_alert hard "Marveen memória-kapu: HARD PAUSE. Használt memória ${used_pct}% (elérhető ${avail_mb} MB), a ${HARD_PCT}% küszöb felett. Új agent-indítás LEÁLLÍTVA (futók érintetlenek). Nézd a párhuzamos agent-számot."
+  send_alert hard "$(ol "Marveen memória-kapu: HARD PAUSE. Használt memória ${used_pct}% (elérhető ${avail_mb} MB), a ${HARD_PCT}% küszöb felett. Új agent-indítás LEÁLLÍTVA (futók érintetlenek). Nézd a párhuzamos agent-számot." "Marveen memory gate: HARD PAUSE. Memory used ${used_pct}% (${avail_mb} MB available), above the ${HARD_PCT}% threshold. New agent starts STOPPED (running ones untouched). Check the number of parallel agents.")"
 elif (( used_pct >= WARN_PCT )); then
   band="warn"
   set_safe_mode
-  send_alert warn "Marveen memória-kapu: SAFE-MODE. Használt memória ${used_pct}% (elérhető ${avail_mb} MB), a ${WARN_PCT}% küszöb felett. Csak core agentek indulhatnak, a többi indítás visszafogva."
+  send_alert warn "$(ol "Marveen memória-kapu: SAFE-MODE. Használt memória ${used_pct}% (elérhető ${avail_mb} MB), a ${WARN_PCT}% küszöb felett. Csak core agentek indulhatnak, a többi indítás visszafogva." "Marveen memory gate: SAFE-MODE. Memory used ${used_pct}% (${avail_mb} MB available), above the ${WARN_PCT}% threshold. Only core agents may start, other starts are held back.")"
 else
   clear_safe_mode
 fi
@@ -300,7 +302,7 @@ case "$MODE" in
     done < <(shed_candidates)
 
     if [[ -z "$best" ]]; then
-      send_alert shed "Marveen memória-kapu: a memória ${used_pct}%-on áll (elérhető ${avail_mb} MB), de nincs tétlen agens amit le lehetne állítani -- minden futó agens dolgozik. Kézi döntés kell, mielőtt a gép elfogy."
+      send_alert shed "$(ol "Marveen memória-kapu: a memória ${used_pct}%-on áll (elérhető ${avail_mb} MB), de nincs tétlen agens amit le lehetne állítani -- minden futó agens dolgozik. Kézi döntés kell, mielőtt a gép elfogy." "Marveen memory gate: memory is at ${used_pct}% (${avail_mb} MB available), but there is no idle agent to stop -- every running agent is working. A manual decision is needed before the machine runs out.")"
       echo "no-idle-candidate: $status_line"; exit 0
     fi
 
@@ -318,7 +320,7 @@ case "$MODE" in
     if [[ "$stop_code" == "200" ]]; then
       echo "$(date '+%Y-%m-%d %H:%M:%S') ${best} rss=${best_mb}MB used=${used_pct}% avail=${avail_mb}MB" \
         >>"$PARK_LOG" 2>/dev/null || true
-      send_alert shed "Marveen memória-kapu: a memória ${used_pct}%-ra ment fel (elérhető ${avail_mb} MB), ezért leállítottam a(z) ${best} agenst. Tétlen volt, nem veszett el munka, és kb. ${best_mb} MB szabadult fel. Ha kell, a dashboard Ügynökök oldalán visszaindíthatod."
+      send_alert shed "$(ol "Marveen memória-kapu: a memória ${used_pct}%-ra ment fel (elérhető ${avail_mb} MB), ezért leállítottam a(z) ${best} agenst. Tétlen volt, nem veszett el munka, és kb. ${best_mb} MB szabadult fel. Ha kell, a dashboard Ügynökök oldalán visszaindíthatod." "Marveen memory gate: memory rose to ${used_pct}% (${avail_mb} MB available), so I stopped the ${best} agent. It was idle, no work was lost, and about ${best_mb} MB was freed. If needed, restart it on the dashboard Agents page.")"
       echo "shed ${best} (${best_mb}MB): $status_line"; exit 0
     fi
     log "stop request for ${best} failed (HTTP ${stop_code:-?})"
@@ -340,7 +342,7 @@ case "$MODE" in
       echo "block non-core (${band}): $agent | $status_line"; exit 10
     fi
     if (( running >= AGENT_CAP )); then
-      send_alert cap "Marveen memória-kapu: agent-cap elérve (${running}/${AGENT_CAP}). Új nem-core agent-indítás visszafogva, amíg csökken a szám."
+      send_alert cap "$(ol "Marveen memória-kapu: agent-cap elérve (${running}/${AGENT_CAP}). Új nem-core agent-indítás visszafogva, amíg csökken a szám." "Marveen memory gate: agent cap reached (${running}/${AGENT_CAP}). New non-core agent starts are held back until the number drops.")"
       echo "block non-core (cap ${running}/${AGENT_CAP}): $agent | $status_line"; exit 10
     fi
     echo "allow: $agent | $status_line"; exit 0
