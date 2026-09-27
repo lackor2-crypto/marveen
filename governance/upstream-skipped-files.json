@@ -93,15 +93,15 @@
     },
     "scripts/__tests__/channel-process-gate.test.py": {
       "blob": "9a393c1c46c005973775f028670795393a326192",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. Tests a gate hook that is not shipped here.",
+      "card": "#413"
     },
     "scripts/__tests__/email-approval-gate.test.py": {
       "blob": "2f4403e48a996ecf31c7c5bbbe79445a92e6ceaa",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. Tests a gate hook that is not shipped here.",
+      "card": "#413"
     },
     "scripts/__tests__/install-telegram-progress-hook.test.sh": {
       "blob": "1cbcfd7f1036d4fe8748ad1f89a86c2f37b1f555",
@@ -207,9 +207,9 @@
     },
     "scripts/digest-provenance-gate.mjs": {
       "blob": "478358e43cbac5b34935cbc159281ec6b1faf89e",
-      "kind": "deferred",
-      "reason": "Left out (owner decision A (2026-09-24)): imports kanban-write-gate.mjs (removed in this fork) and is wired only from agent-scaffold.ts (C-31).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. This gate is not shipped or wired in this fork.",
+      "card": "#413"
     },
     "scripts/doctor.sh": {
       "blob": "5cb9d3ec34866e0ea0ff107652c64fb38679443c",
@@ -219,9 +219,9 @@
     },
     "scripts/email-send-gate.mjs": {
       "blob": "27e5fdad5886f86935de69b230416f5445802bca",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. This gate is not shipped or wired in this fork.",
+      "card": "#413"
     },
     "scripts/fleet-memory-gate.sh": {
       "blob": "57247cd74f61235d5e8441523830280bbac2d1bb",
@@ -249,9 +249,9 @@
     },
     "scripts/hooks/channel-process-gate.py": {
       "blob": "da1d9844ebb9cf244c2459e98495b091f8136a67",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. This gate is not shipped or wired in this fork.",
+      "card": "#413"
     },
     "scripts/hooks/egress-gate.mjs": {
       "blob": "644f54bea5833a05bd0f65ad67b6f50088a533fe",
@@ -261,9 +261,9 @@
     },
     "scripts/hooks/email-approval-gate.py": {
       "blob": "c1be41d0ae8aee461516cad6d90611ef36203c86",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. This gate is not shipped or wired in this fork.",
+      "card": "#413"
     },
     "scripts/hooks/ledger-capture.py": {
       "blob": "5998af1f5d0cf4fb1b2ceafb64ecb0e0a5ecaa94",
@@ -303,9 +303,9 @@
     },
     "scripts/hooks/outgoing-copy-gate.py": {
       "blob": "da2c1bc73c4c1423de77a456d75a4af168812eb6",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. This gate is not shipped or wired in this fork.",
+      "card": "#413"
     },
     "scripts/hooks/telegram-ack.py": {
       "blob": "7b502a8cef7ef0b5205cad647895a73db625824d",
@@ -633,9 +633,9 @@
     },
     "src/__tests__/agent-tool-deny.test.ts": {
       "blob": "2fc2bb6efe27090fd3de195af9b066018f46c87c",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. per-agent toolDeny (1abd45cf) restricts what an agent may run; agent equality rule.",
+      "card": "#413"
     },
     "src/__tests__/api-messages-freshness.test.ts": {
       "blob": "1a7c16690c0c6f90e7b189226afe9e16a4d4353b",
@@ -669,9 +669,9 @@
     },
     "src/__tests__/bash-egress-deny.test.ts": {
       "blob": "f0864873e973a4384ea6e7de2ad5bfe555514b4b",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. extends the egress gate to shell URL-fetch verbs (e19a6411), a new block on every agent.",
+      "card": "#413"
     },
     "src/__tests__/bridge-pairing-i18n.test.ts": {
       "blob": "5da8970e4ff27f4d9b1fef46b179ed26e9063ea0",
@@ -897,9 +897,9 @@
     },
     "src/__tests__/copy-gate-main-agent-coverage.test.ts": {
       "blob": "99409f04f122f13d6e8c9fbc7208e9ce788ba5d0",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. outgoing-copy gate coverage; the gate is not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/count-newer-from-sender.test.ts": {
       "blob": "0e4087acc4c955c2726aaed18b742da08b43568f",
@@ -927,9 +927,9 @@
     },
     "src/__tests__/digest-provenance-gate.test.ts": {
       "blob": "74af92e81018e0332113c2ea1d43a74f22a9c563",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. digest-provenance gate (a61473f6), not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/egress-gate-port-validation.test.ts": {
       "blob": "7627eda8b44b25fea0463c9762ba5ebe79291d52",
@@ -951,27 +951,27 @@
     },
     "src/__tests__/email-extract-parity.test.ts": {
       "blob": "b3c5d96084d087e915752f134c1a3326f9076871",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. parity of the email-send gate's extractor; the gate is not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/email-gate-matcher-drift.test.ts": {
       "blob": "8cdd8f60cc4201c19df06f332d6b0866147ff716",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. email-send gate matcher; the gate is not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/email-send-gate-scope.test.ts": {
       "blob": "f25f8e6e915d6a3583ee74af388ecee7ea2a5b76",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. email-send gate; not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/email-send-gate.test.ts": {
       "blob": "d3612d2f723cbd382f7bcd81de222ebc1342e08a",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. email-send gate; not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/email-thread-reply-gate.test.ts": {
       "blob": "cd2027b12f8d35edd29be25730ba10c31331fb63",
@@ -1455,9 +1455,9 @@
     },
     "src/__tests__/hook-exit-code-invariant.test.ts": {
       "blob": "43be6cf2258a568023230a987728f10373a384d2",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. asserts the fail-closed exit codes of the upstream gate hooks, which are not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/hook-registration-completeness.test.ts": {
       "blob": "25987aef7e58f34a50c1d72fd598bcba73a76933",
@@ -1599,9 +1599,9 @@
     },
     "src/__tests__/kanban-title-gate-trigger.test.ts": {
       "blob": "367aa7b11a1f51c7b4fb7ecad7b944d66279e319",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. kanban title gate trigger (40d76f9a) rewrites/blocks writes, a new gate.",
+      "card": "#413"
     },
     "src/__tests__/kanban-update-audit.test.ts": {
       "blob": "ae5bb557a4d3eaf8e168997398811b220104c056",
@@ -1797,21 +1797,21 @@
     },
     "src/__tests__/outgoing-copy-gate-rules-policy.test.ts": {
       "blob": "eec8b274580c026883f25c55b771d172945a8596",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. outgoing-copy gate; not wired here.",
+      "card": "#413"
     },
     "src/__tests__/outgoing-copy-gate-scope.test.ts": {
       "blob": "bf426210f2f419ef05254a7abae2afbcc747f9e7",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. outgoing-copy gate; not wired here.",
+      "card": "#413"
     },
     "src/__tests__/outgoing-copy-gate-tokens.test.ts": {
       "blob": "6385c3cb248ac39f5a1eef6ece6a17f5eb5b7766",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. outgoing-copy gate; not wired here.",
+      "card": "#413"
     },
     "src/__tests__/pane-busy-blank-tail.test.ts": {
       "blob": "70805e0a1a4c5a4ef4e36fa6a182d8a1de47e27d",
@@ -1887,9 +1887,9 @@
     },
     "src/__tests__/provenance-gate.test.ts": {
       "blob": "1c036411b22bbdd8691b70b1761b42f686adb501",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. provenance gate hook; present but deliberately not wired here.",
+      "card": "#413"
     },
     "src/__tests__/quarantine-allowlist-render.test.ts": {
       "blob": "a9908f54184ab15f145d9f57e908813cab5d3e61",
@@ -1911,9 +1911,9 @@
     },
     "src/__tests__/quota-gate-wiring.test.ts": {
       "blob": "b769fd11d2d139fcd0ed38e6904b2812efd755ff",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. holds back heartbeats when the shared window runs dry (33f12e4c); Boss rule: only the 5h frame counts, no automatic hold-back.",
+      "card": "#413"
     },
     "src/__tests__/recovery-brief-every-fresh-door.test.ts": {
       "blob": "e6a6cf07ad558912ade89fd7f43701e419548451",
@@ -2073,9 +2073,9 @@
     },
     "src/__tests__/send-invocation-conformance.test.ts": {
       "blob": "dd25918213e9de17ad15c12a8d005b5983948599",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. conformance of the upstream mail gates; not shipped here.",
+      "card": "#413"
     },
     "src/__tests__/send-prompt-force-send-gate.test.ts": {
       "blob": "1f28b02e390885569eb617fa3091ed1401781b92",
@@ -2163,15 +2163,15 @@
     },
     "src/__tests__/system-directive-auth-section.test.ts": {
       "blob": "80d65e4651601d320447bf188d53548a5ef5f8ba",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. system-directive authentication gate (41097033), only meaningful with the provenance gate, which is not wired here.",
+      "card": "#413"
     },
     "src/__tests__/system-directive-verify-endpoint.test.ts": {
       "blob": "21984b77fbb49566cfe3067ebe7e7109c6e6247f",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. system-directive authentication gate (41097033), only meaningful with the provenance gate, which is not wired here.",
+      "card": "#413"
     },
     "src/__tests__/system-sender-allowlist.test.ts": {
       "blob": "d759e19881002f405faf10dc746c275c39868cf5",
