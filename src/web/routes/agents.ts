@@ -51,7 +51,7 @@ import {
   KNOWN_VOICE_MODELS,
   type AuthMode,
 } from '../agent-config.js'
-import { readClaudePlans, resolveAgentConfigDir } from '../claude-plans.js'
+import { readClaudePlans, resolveAgentConfigDir, resolveAgentConfigDirForRead } from '../claude-plans.js'
 import { claudeLoginForAgent } from '../default-login-dependents.js'
 import {
   readAgentTeam,
@@ -663,7 +663,7 @@ async function getAgentSummary(name: string, sessionStarts?: Map<string, number>
     : null
 
   const contextReading = running
-    ? readContextReadingFromProjectDir(dir, resolveAgentConfigDir(name).configDir ?? undefined)
+    ? readContextReadingFromProjectDir(dir, resolveAgentConfigDirForRead(name) ?? undefined)
     : { tokens: null, state: 'unknown' as const }
 
   return {
@@ -675,7 +675,7 @@ async function getAgentSummary(name: string, sessionStarts?: Map<string, number>
     modelProfile: typeof agentModelConfig.modelProfile === 'string' ? agentModelConfig.modelProfile : null,
     modelSource: modelResolution.source,
     modelProfileError: modelResolution.error ?? null,
-    activeModel: running ? readActiveModelFromProjectDir(dir, runningSince ?? undefined, resolveAgentConfigDir(name).configDir ?? undefined) : null,
+    activeModel: running ? readActiveModelFromProjectDir(dir, runningSince ?? undefined, resolveAgentConfigDirForRead(name) ?? undefined) : null,
     runningSince,
     authMode,
     securityProfile: readAgentSecurityProfile(name),
@@ -924,7 +924,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const compactionOf = (name: string, isMain: boolean): { compacting: boolean; contextTokens: number | null } => {
       if (!isCompactionInFlight(name)) return { compacting: false, contextTokens: null }
       const dir = isMain ? PROJECT_ROOT : agentDir(name)
-      const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+      const cfgDir = resolveAgentConfigDirForRead(name) ?? undefined
       const tokens = readContextReadingFromProjectDir(dir, cfgDir).tokens
       return { compacting: settleCompaction(name, tokens), contextTokens: tokens }
     }
@@ -1178,7 +1178,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       const personaMd = existsSync(personaPath) ? readFileSync(personaPath, 'utf-8') : ''
       const personaText = [claudeMd, personaMd].filter(Boolean).join('\n')
       const currentModel = readAgentModel(name)
-      const contextTokens = readContextTokensFromProjectDir(dir) ?? 0
+      const contextTokens = readContextTokensFromProjectDir(dir, resolveAgentConfigDirForRead(name) ?? undefined) ?? 0
 
       const kanban = kanbanMap.get(name)
       const signals: AgentSignals = {
@@ -1449,7 +1449,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       // the card reads idle for the whole of it (Boss, 2026-08-12).
       if (action === 'compact') {
         const dir = isMain ? PROJECT_ROOT : agentDir(name)
-        const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+        const cfgDir = resolveAgentConfigDirForRead(name) ?? undefined
         const readTokens = () => readContextReadingFromProjectDir(dir, cfgDir).tokens
         markCompactionStarted(name, readTokens())
         // One /compact is not a promise about the result. Boss asked for the
@@ -1499,7 +1499,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     if (!cfg.enabled) { json(res, { ok: true, action: 'none', reason: 'gate-disabled' }); return true }
     if (isCompactionInFlight(name)) { json(res, { ok: true, action: 'none', reason: 'compaction-already-running' }); return true }
     const dir = isMain ? PROJECT_ROOT : agentDir(name)
-    const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+    const cfgDir = resolveAgentConfigDirForRead(name) ?? undefined
     const readTokens = () => readContextReadingFromProjectDir(dir, cfgDir).tokens
     const tokens = readTokens()
     if (tokens === null) { json(res, { ok: true, action: 'none', reason: 'context-unmeasurable' }); return true }

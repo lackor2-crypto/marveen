@@ -13,7 +13,7 @@ import { COMPACT_COMMAND } from '../context-compaction-instructions.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { withSessionSendLock } from './session-send-lock.js'
 import { getHardGuardPhase } from './context-guard-runner.js'
-import { resolveAgentConfigDir } from './claude-plans.js'
+import { resolveAgentConfigDirForRead } from './claude-plans.js'
 import { readGateConfig, readGateRunState, readGateStatus, writeGateRunState, writeGateStatus } from './context-restart-gate-store.js'
 import {
   getDispatchedPendingStats,
@@ -428,7 +428,8 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   // happened: lackor3 sat at 300207 tokens against a 100000 threshold with the
   // gate enabled, and every sweep for months reported null. The hard guard
   // (context-guard-runner) always passed it; this runner never did.
-  const configDir = name === MAIN_AGENT_ID ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+  // The main agent is NOT exempt: its channels session runs on its own root too.
+  const configDir = resolveAgentConfigDirForRead(name) ?? undefined
   const contextReading = readContextReadingFromProjectDir(workingDir, configDir)
   const contextTokens = contextReading.tokens
 
