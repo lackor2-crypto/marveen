@@ -79,7 +79,7 @@ import {
   agentChannelDir,
 } from '../channel-invites.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
-import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from '../main-agent.js'
+import { isMainChannelsAgent, MAIN_CHANNELS_SESSION, withoutMainAgent } from '../main-agent.js'
 import {
   getProvider,
   channelStateDir,
@@ -959,7 +959,9 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       })
     }
 
-    for (const name of listAgentNames()) {
+    // The main agent is listed separately above; an agents/<main-id> dir (it
+    // exists on some installs) must not add it again as an isMain:false worker.
+    for (const name of withoutMainAgent(listAgentNames())) {
       // Remote agents: resolve run state + pane through the short-TTL caches so
       // this 3s-polled endpoint never blocks the event loop on an ssh timeout.
       const host = readAgentRemoteHost(name)
@@ -1170,7 +1172,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       } catch { return 0 }
     }
 
-    const names = listAgentNames()
+    const names = withoutMainAgent(listAgentNames())
     const results = [MAIN_AGENT_ID, ...names].map(name => {
       const dir = agentDir(name)
       const claudeMd = readFileOr(join(dir, 'CLAUDE.md'), '')
@@ -1277,7 +1279,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     // is a placeholder is the response's job to say, not the greeting's: the
     // other agents are being told who joined, not how well it went.
     try {
-      const runningAgents = listAgentNames().filter(a => a !== name && isAgentRunning(a))
+      const runningAgents = withoutMainAgent(listAgentNames()).filter(a => a !== name && isAgentRunning(a))
       for (const target of [MAIN_AGENT_ID, ...runningAgents]) {
         createAgentMessage('system', target, `Uj csapattag erkezett: ${name}. Leirasa: ${description}. Udv neki ha legkozelebb beszeltek!`)
       }
