@@ -52,6 +52,7 @@ GUARDS=(
   "dashboard-health|scripts/dashboard-health-guard.sh|every:60|linux|dashboard health guard (restart if it stops answering)"
   "channel-watchdog|scripts/channel-watchdog.sh|every:300|linux|channels watchdog (independent of the dashboard)"
   "channel-keepalive-probe|scripts/channel-keepalive-probe.sh|every:180|all|token-free channel keepalive probe"
+  "modal-guard|bash scripts/modal-question-guard.sh|every:60|all|forward a blocking panel-menu question to the owner and release it"
   "memgate-shed|scripts/fleet-memory-gate.sh --shed|every:60|linux|memory gate (park an idle agent under hard memory pressure)"
   "telegram-progress-watchdog|python3 scripts/hooks/telegram_progress_watchdog.py|every:60|all|Telegram progress-indicator watchdog"
   "ratelimit-alert|bash scripts/ratelimit-telegram-alert.sh|every:60|all|rate-limit alert to the owner (90%/99%)"

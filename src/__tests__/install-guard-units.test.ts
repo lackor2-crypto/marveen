@@ -31,6 +31,17 @@ describe('install-guard-units.sh', () => {
     }
   })
 
+  it('a panel-menu orszem (modal-guard) is bent van, hordozhatoan (#358)', () => {
+    expect(guards().map((g) => g.name)).toContain('modal-guard')
+    const g = readFileSync(join(ROOT, 'scripts', 'modal-question-guard.sh'), 'utf8')
+    // Korabban csak store/-ban elt, fix /home/boss uttal es "Marvin" nevvel.
+    expect(g).not.toMatch(/\/home\/[a-z]/)
+    expect(g).not.toMatch(/Marvin/)
+    // md5sum nincs macOS-en.
+    expect(g).not.toMatch(/\bmd5sum\b/)
+    expect(g).toMatch(/INSTALL_DIR="\$\(cd "\$\(dirname/)
+  })
+
   it('mindket telepito meghivja', () => {
     for (const f of ['install-linux.sh', 'install-macos.sh']) {
       expect(readFileSync(join(ROOT, f), 'utf8'), f).toMatch(/scripts\/install-guard-units\.sh/)
