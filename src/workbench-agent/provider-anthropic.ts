@@ -29,6 +29,7 @@ import { MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { tryResolveFromPath } from '../platform.js'
 import { resolveAgentConfigDir } from '../web/claude-plans.js'
+import { detectsUsageLimit } from '../model-fallback.js'
 import { workbenchAccounts } from './accounts.js'
 import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from './provider.js'
 
@@ -103,6 +104,60 @@ export function makeCliTextFilter(): (ev: { text?: string; whole?: boolean }) =>
   }
 }
 
+/**
+ * A HETI/5-ORAS LIMIT-BANNER NEM VALASZ (kanban #426).
+ *
+ * A mert eset (2026-09-27, Boss + kepernyokep): egy fiok, aminek a HETI kerete
+ * elfogyott, a `claude -p` stream-jeben nem `is_error result`-kent, hanem
+ * ASSZISZTENS SZOVEGKENT kuldi vissza a bannert ("You've hit your weekly limit
+ * - resets Sep 28, 9pm"). A Munkapad ezt VALASZKENT jelenitette meg (az "Agens"
+ * buborekban, felolvaso gombbal), es mivel emitted>0 lett, az orchestrator
+ * fiokvalto fallbackja (`outcome==limit && emitted==0`) sosem tuzelt -- a
+ * lackor3 heti limitjenel megallt, ahelyett hogy a lackor2-vel folytatta volna.
+ *
+ * Ez a kapu a KEZDO szoveget visszatartja addig, amig el nem donti, hogy az a
+ * limit-banner-e (`detectsUsageLimit`, ugyanaz a NARROW minta, amit a flotta
+ * pane-figyeloje hasznal) vagy valodi valasz. Ha banner: `limit`-et jelez (a
+ * szoveget NEM engedi ki) -> az orchestrator masik ELO fiokra valt. Ha valodi
+ * valasz: `holdMax` karakter utan (vagy a folyam vegen) kiengedi, es onnantol
+ * darabonkent tovabbfolyik. A visszatartas EGYSZERI, csak a valasz elejere hat.
+ *
+ * `holdMax` bosegesen a leghosszabb ismert banner folott van, de eleg kicsi
+ * ahhoz, hogy egy valodi valasz elso megjeleneset ne kesleltesse erezhetoen.
+ */
+export interface UsageLimitTextGate {
+  /** Egy (mar dedupolt) szovegdarab. `emit` = ez most kimehet; `limit` = a
+   *  darab a limit-bannerbe tartozik, ne menjen ki, a hivo valtson fiokot. */
+  feed(text: string): { emit?: string; limit?: boolean }
+  /** A folyam vege: a meg vissza nem engedett (nem-banner) szoveg, vagy null. */
+  flush(): string | null
+  /** Kiderult-e, hogy a valasz limit-banner. */
+  readonly limited: boolean
+}
+
+export function makeUsageLimitTextGate(holdMax = 200): UsageLimitTextGate {
+  let held = ''
+  let decided: null | 'text' | 'limit' = null
+  return {
+    feed(text: string) {
+      if (decided === 'limit') return {}
+      if (decided === 'text') return { emit: text }
+      held += text
+      if (detectsUsageLimit(held)) { decided = 'limit'; held = ''; return { limit: true } }
+      if (held.length >= holdMax) { decided = 'text'; const out = held; held = ''; return { emit: out } }
+      return {}
+    },
+    flush() {
+      if (decided !== null) return null
+      const out = held
+      held = ''
+      decided = 'text'
+      return out || null
+    },
+    get limited() { return decided === 'limit' },
+  }
+}
+
 /** A promptba fuzott beszelgetes: a CLI egy bemenetet kap. */
 export function renderConversation(req: AICallRequest): string {
   const lines: string[] = []
@@ -141,6 +196,10 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
   let finished = false
   let sawText = false
   let stderr = ''
+  // #426: az elso szoveget a limit-banner-kapun engedjuk at. Ha banner, a
+  // `limit` mar kiment es a kesobbi zaro sor nem irhat felul egy masik okot.
+  let pushedTerminal = false
+  const limitGate = makeUsageLimitTextGate()
 
   const push = (c: AIChunk): void => { queue.push(c); resolveWait?.(); resolveWait = null }
   const finish = (): void => { finished = true; resolveWait?.(); resolveWait = null }
@@ -161,9 +220,23 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
       if (!ev) continue
       if (ev.text) {
         const text = pickText(ev)
-        if (text) { sawText = true; push({ kind: 'text', text }) }
-      } else if (ev.limit) push({ kind: 'error', code: 'limit', detail: 'the provider reported its usage limit' })
-      else if (ev.error) push({ kind: 'error', code: 'failed', detail: ev.error })
+        if (!text) continue
+        const g = limitGate.feed(text)
+        if (g.limit) {
+          // A banner NEM megy ki valaszkent: limitet jelzunk, hogy az
+          // orchestrator masik ELO fiokra valtson (#426).
+          pushedTerminal = true
+          push({ kind: 'error', code: 'limit', detail: 'the account reported its usage limit' })
+        } else if (g.emit) { sawText = true; push({ kind: 'text', text: g.emit }) }
+      } else if (ev.limit) {
+        if (!limitGate.limited) { pushedTerminal = true; push({ kind: 'error', code: 'limit', detail: 'the provider reported its usage limit' }) }
+      } else if (ev.error) {
+        // Egy addig visszatartott (nem-banner) reszlet ne vesszen el.
+        const tail = limitGate.flush()
+        if (tail) { sawText = true; push({ kind: 'text', text: tail }) }
+        pushedTerminal = true
+        push({ kind: 'error', code: 'failed', detail: ev.error })
+      }
     }
   })
   child.stderr?.on('data', (d: Buffer) => { if (stderr.length < 2000) stderr += d.toString('utf-8') })
@@ -172,9 +245,14 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
     clearTimeout(timer)
     req.signal?.removeEventListener('abort', onAbort)
     try { rmSync(cwd, { recursive: true, force: true }) } catch { /* mar nincs */ }
+    // A meg vissza nem engedett (nem-banner) valasz a folyam vegen kimegy.
+    const tail = limitGate.flush()
+    if (tail) { sawText = true; push({ kind: 'text', text: tail }) }
     if (sawText) push({ kind: 'done', model, via })
-    // SOSE talalgatjuk az okot: ami a stderr-ben all, azt adjuk tovabb.
-    else push({ kind: 'error', code: 'no_answer', detail: stderr.trim().slice(0, 500) || 'the provider produced no output' })
+    // SOSE talalgatjuk az okot: ami a stderr-ben all, azt adjuk tovabb. Ha mar
+    // kuldtunk zaro chunkot (limit/hiba), nem irunk fol egy masodikat -- egy
+    // trailing 'no_answer' felulirna a limitet, es elmaradna a fiokvaltas.
+    else if (!pushedTerminal) push({ kind: 'error', code: 'no_answer', detail: stderr.trim().slice(0, 500) || 'the provider produced no output' })
     finish()
   })
   child.stdin?.end(renderConversation(req))

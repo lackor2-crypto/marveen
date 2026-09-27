@@ -12,7 +12,7 @@ import {
   clearAIProvidersForTest, listAIProviders, pickAIProvider, registerAIProvider,
   type AIChunk, type AIProvider,
 } from '../workbench-agent/provider.js'
-import { textFromStreamLine, renderConversation, makeCliTextFilter } from '../workbench-agent/provider-anthropic.js'
+import { textFromStreamLine, renderConversation, makeCliTextFilter, makeUsageLimitTextGate } from '../workbench-agent/provider-anthropic.js'
 
 function stub(id: string, available: boolean): AIProvider {
   return {
@@ -211,5 +211,54 @@ describe('AnthropicProvider -- config-fuggo viselkedes', () => {
       vi.doUnmock('../web/claude-plans.js')
       vi.doUnmock('../workbench-agent/accounts.js')
     }
+  })
+})
+
+// #426: a heti/5-oras limit-banner NEM valasz -- limitkent kell jelezni, hogy
+// az orchestrator masik ELO fiokra valtson, ne a bannert mutassa valaszkent.
+describe('limit-banner kapu (#426)', () => {
+  it('a darabonkent erkezo heti-limit banner limitet jelez, es a szoveget NEM engedi ki', () => {
+    const g = makeUsageLimitTextGate()
+    // Ahogy a claude -p stream-json darabonkent kuldi.
+    const pieces = ["You've", ' hit', ' your', ' weekly', ' limit', ' - resets Sep 28, 9pm']
+    const results = pieces.map((p) => g.feed(p))
+    // Egyik darab sem mehetett ki valaszkent.
+    expect(results.every((r) => r.emit === undefined)).toBe(true)
+    // Valamelyik darabnal eldolt, hogy limit.
+    expect(results.some((r) => r.limit === true)).toBe(true)
+    expect(g.limited).toBe(true)
+    // A vege sem szivarogtat ki szoveget.
+    expect(g.flush()).toBeNull()
+  })
+
+  it('egy egeszben erkezo banner (whole message) is limitet jelez', () => {
+    const g = makeUsageLimitTextGate()
+    const r = g.feed("You've hit your weekly limit - resets Sep 28, 9pm (Europe/Budapest)")
+    expect(r.limit).toBe(true)
+    expect(r.emit).toBeUndefined()
+    expect(g.limited).toBe(true)
+  })
+
+  it('valodi valasz: a kezdo visszatartas utan kimegy, majd darabonkent tovabbfolyik', () => {
+    const g = makeUsageLimitTextGate(40)
+    const out: string[] = []
+    // Rovid darabok, amig el nem eri a holdMax-ot.
+    for (const p of ['Kezdem ', 'a valaszt ', 'reszletesen, ', 'mert fontos ', 'a temaban.']) {
+      const r = g.feed(p)
+      if (r.emit) out.push(r.emit)
+      expect(r.limit).toBeFalsy()
+    }
+    // Volt kiengedett szoveg (a holdMax-nal), es a maradek a flush-ban jon.
+    const tail = g.flush()
+    const all = out.join('') + (tail || '')
+    expect(all).toBe('Kezdem a valaszt reszletesen, mert fontos a temaban.')
+    expect(g.limited).toBe(false)
+  })
+
+  it('rovid, nem-banner valasz: a folyam vegen a flush adja ki', () => {
+    const g = makeUsageLimitTextGate()
+    expect(g.feed('Ok, kesz.')).toEqual({})
+    expect(g.flush()).toBe('Ok, kesz.')
+    expect(g.limited).toBe(false)
   })
 })
