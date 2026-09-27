@@ -10,6 +10,8 @@ describe('mentesi kulcs vezerloi (#414)', () => {
   it('a vezerlok a veszhelyzeti lapnal ES a Halado reszben is megvannak', () => {
     expect(js).toContain("keyControlsHtml('kit')")
     expect(js).toContain("keyControlsHtml('adv')")
+    // Nyitott (kulcs nelkuli) modban is: a kulcs attol meg letezik.
+    expect(js).not.toMatch(/open \? '' : '<div class="bk-kit-key-controls">/)
   })
   it('a ket peldany mezoi nem utkoznek: a gomb data-kc szerint olvas', () => {
     expect(js).toMatch(/id="bkOwnPw-' \+ where/)
