@@ -3380,6 +3380,7 @@ window._i18n.hu = {
   'settings.desc.HEARTBEAT_START_HOUR':        'A heartbeat aktív időablakának kezdete (helyi idő, 0-22). Előtte nem küld értesítést.',
   'settings.desc.HEARTBEAT_END_HOUR':          'A heartbeat aktív időablakának vége (helyi idő, 1-24). Ettől nem küld értesítést.',
   'settings.desc.HEARTBEAT_AGENT_ENABLED':     'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva.',
+  'settings.desc.TELEGRAM_PROGRESS_MODE':      'Mennyit láss Telegramon az ágensek munkájából. silent = csak a megszokott „Dolgozom rajta…” üzenet; indicator = ugyanez, de élőben mutatja, mit csinál az ágens (eltelt idő, tokenek), és egy csendes „⏳ háttérfolyamat fut” üzenetet, amíg a háttérben még fut valami; verbose = mindez, plusz a gondolatmenet lépései csendes, megmaradó üzenetekben. Minden ágensre egyszerre érvényes, újraindítás nélkül.',
   'settings.desc.IDEA_BREAKDOWN_MAX_SUBTASKS': 'Az "Kanbanra (AI)" ötlet-bontás során generált részfeladatok maximális száma.',
   'settings.desc.IDEA_STALE_DAYS':             'Ennyi napnyi mozdulatlanság után kap "Elavult" jelzést egy "új" státuszú ötlet.',
   'settings.desc.AUDIT_LOG_RETENTION_DAYS':    'Az audit napló (config-változások, ötletláda-audit, store-fájl események) megőrzési ideje napokban. Régebbi bejegyzések a napi sweepkor törlődnek.',

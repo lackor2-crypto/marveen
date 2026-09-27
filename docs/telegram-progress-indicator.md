@@ -102,3 +102,39 @@ in `~/.claude/settings.json`, then unload the watchdog
 (`launchctl unload ~/Library/LaunchAgents/com.marveen.telegram-progress-watchdog.plist`
 on macOS, or `systemctl --user disable --now marveen-telegram-progress-watchdog.timer`
 on Linux).
+
+## Live mirror (#416)
+
+While a Telegram turn runs, the dashboard edits the placeholder in place so it
+also carries the agent's live status line, the same one the terminal shows:
+
+```
+✍️ Dolgozom rajta…
+✻ Churning… (4m 33s · ↓ 23.5k tokens)
+```
+
+Rebuilt from upstream `scripts/telegram-live-progress.py` (d3c5fdf5), but it
+rides on the placeholder above instead of running a second message and a
+systemd daemon. Creating, clearing and error-converting the placeholder stay
+with the hooks and the watchdog. The mirror only edits a placeholder whose
+`progress/<sid>.json` file still exists, so it never writes over the watchdog's
+error (the watchdog renames the file first).
+
+It runs in `src/web/progress-mirror-runner.ts`, polling every 3 s with at most
+one edit per message every 4 s, for the main agent and every Telegram sub-agent.
+The busy/idle verdict comes from `detectPaneState` in `src/pane-state.ts`.
+
+The mode is set on the dashboard, under Settings → Channels →
+`TELEGRAM_PROGRESS_MODE`. It applies to the whole fleet and needs no restart.
+
+| mode | what the owner sees |
+|---|---|
+| `silent` | only the usual placeholder |
+| `indicator` (default) | the placeholder with the live status line, plus one silent `⏳ háttérfolyamat fut (2 shells)` message while no turn is running but a background shell / monitor / sub-agent still is; that message is deleted when the work ends |
+| `verbose` | all of the above, plus the agent's visible reasoning as silent `▸ …` messages that stay (anything also sent as a real reply is left out) |
+
+The background message goes to the owner's chat, taken from `access.json`
+`allowFrom`, and only when exactly one chat is allowed. With several chats it
+would be a guess, so nothing is sent. Its message id is kept in
+`store/progress-mirror-state.json`, so a dashboard restart never leaves one
+behind.

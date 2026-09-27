@@ -512,6 +512,18 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     requiresRestart: true,
     restartTarget: 'main-agent',
   },
+  {
+    // #416, rebuilt from upstream d3c5fdf5: the live progress mirror
+    // (src/web/progress-mirror-runner.ts). Read on every tick, no restart.
+    key: 'TELEGRAM_PROGRESS_MODE',
+    type: 'string',
+    default: 'indicator',
+    valueSet: ['silent', 'indicator', 'verbose'],
+    description: 'Mennyit lásson a tulajdonos Telegramon a munkából. silent = csak a megszokott "Dolgozom rajta…" üzenet; indicator = ugyanez, de élőben mutatja, mit csinál az ágens (eltelt idő, tokenek), és egy csendes "⏳ háttérfolyamat fut" üzenetet, amíg a háttérben még fut valami; verbose = mindez, plusz a gondolatmenet lépései csendes, megmaradó üzenetekben. Minden ágensre egyszerre érvényes, újraindítás nélkül.',
+    module: 'channels',
+    secret: false,
+    requiresRestart: false,
+  },
   // --- System module ---
   {
     key: 'SCHEDULER_TZ',
