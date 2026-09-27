@@ -29,6 +29,44 @@ export const MESSAGES = {
     en: 'The provider call failed: {detail}',
   },
 
+  // --- teljes erteku agent a kod-hidon (#433, B opcio) ---------------------
+  code_bridge_handed_off: {
+    hu: 'Átadtam a teljes értékű ügynöknek (feladat {id}). Dolgozik rajta, a válasza itt jelenik meg, amint kész. A részletes lépések a Kód-híd nézetben is látszanak.',
+    en: 'Handed to the full agent (task {id}). It is working on it; the answer appears here when ready. The detailed steps are also visible in the Code Bridge view.',
+  },
+  code_bridge_running: {
+    hu: 'A teljes értékű ügynök most dolgozik a feladaton.',
+    en: 'The full agent is working on the task now.',
+  },
+  code_bridge_done_empty: {
+    hu: 'A teljes értékű ügynök befejezte, de nem adott vissza szöveges választ. Nézd meg a Kód-híd nézetet a részletekért.',
+    en: 'The full agent finished but returned no text answer. Check the Code Bridge view for details.',
+  },
+  code_bridge_error: {
+    hu: 'A teljes értékű ügynök hibába futott. Nézd meg a Kód-híd nézetet a részletekért, vagy próbáld újra.',
+    en: 'The full agent hit an error. Check the Code Bridge view for details, or try again.',
+  },
+  code_bridge_cancelled: {
+    hu: 'A feladat megszakadt, mielőtt a teljes értékű ügynök befejezte volna.',
+    en: 'The task was cancelled before the full agent finished.',
+  },
+  code_bridge_timeout: {
+    hu: 'A teljes értékű ügynök még nem végzett, ezért itt most nem várok tovább (feladat {id}). A munka a háttérben folytatódhat -- a Kód-híd nézetben követheted.',
+    en: 'The full agent has not finished yet, so I stop waiting here (task {id}). The work may continue in the background -- follow it in the Code Bridge view.',
+  },
+  code_bridge_lost: {
+    hu: 'A feladatot nem találom többé a sorban. Próbáld újra elküldeni az üzenetet.',
+    en: 'I can no longer find the task in the queue. Try sending the message again.',
+  },
+  code_bridge_enqueue_failed: {
+    hu: 'Nem sikerült átadni a teljes értékű ügynöknek: {detail}',
+    en: 'Could not hand the task to the full agent: {detail}',
+  },
+  code_bridge_no_worker: {
+    hu: 'A teljes értékű mód be van kapcsolva, de most nincs bejelentkezett Claude Code worker, ezért a megszokott projekt-asszisztens válaszol. Ahhoz, hogy a chatben a teljes értékű ügynökkel beszélj, köss be egy workert a Kód-híd oldalon (Beállítások / Kód-híd): töltsd le az indítót, futtasd a gépeden, és jelentkezz be a Claude-fiókoddal.',
+    en: 'Full mode is on, but there is no signed-in Claude Code worker right now, so the usual project assistant answers. To talk to the full agent in the chat, connect a worker on the Code Bridge page (Settings / Code Bridge): download the launcher, run it on your machine, and sign in with your Claude account.',
+  },
+
   // --- a kozos 5 oras keret ------------------------------------------------
   limit_critical: {
     hu: 'A közös 5 órás Claude-keret most betelt ({pct}%), ezért a Munkapad nem indít új hívást — különben elvenné a keretet a többi ágenstől. {reset}',
