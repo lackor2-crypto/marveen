@@ -1,0 +1,63 @@
+/**
+ * A MUNKAPAD CHAT KET HATTERE (kanban #433, B opcio).
+ *
+ * Boss dontese (2026-09-27): a Munkapad chat moge egy VALODI, teljes erteku
+ * Claude Code session kerul a kod-hidon at, a szukitett workbench-agent
+ * helyett -- hogy helyben tudjon hibat felismerni ES javitani.
+ *
+ * De a kod-hid egy KULSO, bejelentkezett Claude Code workert igenyel. Ha az
+ * nem fut (pl. friss telepites, worker meg nincs beparositva), a chat NEM
+ * halhat meg: ilyenkor a meglevo, projektmappara szukitett workbench-agent
+ * fut tovabb, es a felulet a `reason`-bol tudja, hogy setupra hivjon.
+ *
+ * Ez a modul CSAK a dontes. Szandekosan tiszta (nincs DB, nincs I/O), hogy
+ * onmagaban teszthelheto legyen; a hivo adja be a mert allapotot.
+ */
+
+export type WorkbenchBackend = 'code-bridge' | 'workbench-agent'
+
+export type BackendReason =
+  /** A teljes erteku mod fut: van online worker es be van kapcsolva. */
+  | 'ok'
+  /** A tulajdonos nem kapcsolta be a teljes modot -> a projekt-asszisztens fut. */
+  | 'disabled'
+  /** Be van kapcsolva, de nincs online kod-hid worker -> a felulet setupra hiv. */
+  | 'no_worker'
+
+export interface BackendDecisionInput {
+  /**
+   * Be van-e kapcsolva a teljes erteku mod (tulajdonosi beallitas). Alapbol
+   * false: a bekapcsolatlan rendszer a megszokott projekt-asszisztenst hasznalja,
+   * tehat a valtoztatas onmagaban semmit nem tor el.
+   */
+  fullAgentEnabled: boolean
+  /**
+   * Van-e legalabb egy FRISSEN latott (nem elavult) kod-hid worker.
+   * A hivo a `codeBridgeHealth().workerOnline`-t adja be -- SOSE beegetve.
+   */
+  workerOnline: boolean
+}
+
+export interface BackendDecision {
+  backend: WorkbenchBackend
+  reason: BackendReason
+  /** A felulet ebbol tudja, hogy a "koss be workert" setupra kell-e hivnia. */
+  needsWorkerSetup: boolean
+}
+
+/**
+ * Melyik hatter szolgalja ki a Munkapad chat kovetkezo uzenetet.
+ *
+ * A sorrend szandekos: eloszor a kapcsolo (a tulajdonos donti el, akar-e teljes
+ * modot), utana a worker megléte. Igy egy bekapcsolt, de worker nelkuli allapot
+ * NEM nemul el: fallbackol a projekt-asszisztensre, es jelzi, hogy setup kell.
+ */
+export function decideWorkbenchBackend(input: BackendDecisionInput): BackendDecision {
+  if (!input.fullAgentEnabled) {
+    return { backend: 'workbench-agent', reason: 'disabled', needsWorkerSetup: false }
+  }
+  if (!input.workerOnline) {
+    return { backend: 'workbench-agent', reason: 'no_worker', needsWorkerSetup: true }
+  }
+  return { backend: 'code-bridge', reason: 'ok', needsWorkerSetup: false }
+}
