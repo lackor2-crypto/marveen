@@ -29,7 +29,7 @@ def main():
         return
 
     owner = ledger_lib.owner_name()
-    for direction, chat_id, text, ts in rows:
+    for direction, chat_id, text, ts, *_ in rows:
         who = owner if direction == "in" else "Marvin"
         print(f"[{ts}] {who}: {text}")
 

@@ -141,7 +141,7 @@ def _build_output(transcript, open_q, owner):
         "betöltött kontextusból folytass, ne kezdd elölről."
     ]
     if open_q:
-        chat_id, message_id, text, ts = open_q
+        chat_id, message_id, text, ts = open_q[:4]
         snippet = _snippet(text, _max_snippet())
         parts.append(
             f'NYITOTT KÉRDÉS (még NEM válaszoltad meg): {owner} utolsó üzenete '
@@ -210,7 +210,7 @@ def main():
 
     max_snippet = _max_snippet()
     transcript = []
-    for direction, chat_id, text, ts in rows:
+    for direction, chat_id, text, ts, *_ in rows:
         who = owner if direction == "in" else "Te"
         snippet = _snippet(text, max_snippet)
         transcript.append(f'  [{ts}] {who}: "{snippet}"')
