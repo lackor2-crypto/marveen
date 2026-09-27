@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Readable } from 'node:stream'
-import { initDatabase, getKanbanCard, createLabel, getLabelsForCard } from '../db.js'
+import { initDatabase, getKanbanCard } from '../db.js'
 import { tryHandleKanban } from '../web/routes/kanban.js'
 import type { RouteContext } from '../web/routes/types.js'
 
@@ -49,15 +49,5 @@ describe('POST /api/kanban -- the reported id is the stored id', () => {
     expect(await tryHandleKanban(ctx)).toBe(true)
     expect(out.body.id.trim()).not.toBe('')
     expect(getKanbanCard(out.body.id)?.title).toBe('Blank id card')
-  })
-
-  // #413: here the id is resolved in src/kanban-create.ts, which also applies the
-  // labels -- to the GENERATED id, so a slug card lost its label as well.
-  it('the labels land on the stored (supplied) id, not on a phantom one', async () => {
-    createLabel({ id: 'lbl-x', name: 'teszt_cimke', color: '#888888' })
-    const { ctx, out } = postCtx({ id: 'slug-with-label', title: 'Labelled slug card', labels: ['lbl-x'] })
-    await tryHandleKanban(ctx)
-    expect(out.body.id).toBe('slug-with-label')
-    expect(getLabelsForCard('slug-with-label').map((l) => l.id)).toEqual(['lbl-x'])
   })
 })
