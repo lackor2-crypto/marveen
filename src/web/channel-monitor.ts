@@ -85,6 +85,24 @@ function resolveAgentProvider(name: string): ChannelProviderType {
 
 const agentDownSince: Map<string, number> = new Map()
 const agentLastRestart: Map<string, number> = new Map()
+
+// The context guard's fresh restart (context-guard-runner.ts) claims the
+// reconcile grace window BEFORE it stops the agent, so reconcileDesiredAgents()
+// never sees it "down" mid-restart and relaunches it non-fresh (--continue),
+// which would resume exactly the saturated context the guard meant to drop.
+// Our stop+start is synchronous, so the upstream race (DANICTXHUROK906) cannot
+// interleave inside it; the claim still covers the seconds while the fresh
+// session is coming up. Rebuilt from upstream 6cc93947.
+export function markAgentRestartPending(name: string): void {
+  agentLastRestart.set(name, Date.now())
+}
+
+// The reconcile grace predicate, pulled out so it is testable without driving
+// the loop. True = a (re)start for `name` happened within the grace window.
+export function isWithinRestartGrace(name: string, nowMs: number = Date.now()): boolean {
+  const last = agentLastRestart.get(name)
+  return last != null && nowMs - last < AGENT_RESTART_GRACE_MS
+}
 // Agents already warned about a missing channel token, so the per-sweep probe
 // does not repeat the identical WARN every minute forever (observed 2026-07-20:
 // teamer, an agent with no channel token bound, emitted the same line ~1440x/day
@@ -1962,8 +1980,7 @@ async function reconcileDesiredAgents(): Promise<void> {
   try {
     for (const name of down) {
       if (isAgentRunning(name)) continue
-      const last = agentLastRestart.get(name)
-      if (last != null && Date.now() - last < AGENT_RESTART_GRACE_MS) continue
+      if (isWithinRestartGrace(name)) continue
       if (!memGateAllowsStart(name)) continue   // Commit 3 v1: safe-mode / memory gate
       logger.warn({ agent: name }, 'Desired agent not running -- auto-starting (reconcile)')
       try {
