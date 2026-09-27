@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { fleetSkillsDir } from './agent-scaffold.js'
 import { AGENTS_BASE_DIR, agentConfigRoot, listAgentNames } from './agent-config.js'
 import { summarizeSkillLibraryParity, type SkillLibraryParity } from '../agent-parity.js'
+import { ol } from '../owner-lang.js'
 
 /** Agents whose .claude/skills is not the shared library -- or the reason we
  *  could not tell. ensureAgentSkills() links it on every startup, so a name in
@@ -47,7 +48,10 @@ export function skillLibraryParity(): SkillLibraryParity {
   // first is a measured zero, the second is a blind one, and only the directory
   // itself can tell them apart.
   if (!existsSync(AGENTS_BASE_DIR)) {
-    agentsError = `az agens-konyvtar nem letezik ezen a checkouton (${AGENTS_BASE_DIR})`
+    agentsError = ol(
+      `az agens-konyvtar nem letezik ezen a checkouton (${AGENTS_BASE_DIR})`,
+      `the agents directory does not exist on this checkout (${AGENTS_BASE_DIR})`,
+    )
   } else {
     try {
       agents = listAgentNames()

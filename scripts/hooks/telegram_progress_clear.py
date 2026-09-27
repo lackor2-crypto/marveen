@@ -28,13 +28,39 @@ decision JSON when blocking. Token/state dir resolution mirrors the plugin
 """
 import sys, os, json, glob, re, urllib.request
 
-INSTRUCTION = (
-    "KÖTELEZŐ: erre a Telegram-üzenetre még NEM küldtél választ a Telegram "
-    "`reply` tool-lal (chat_id=%s). A CLI/transzkript szöveget a felhasználó a "
-    "Telegramon NEM látja — onnan nézve csak befagytál. Küldd el a válaszodat "
-    "MOST a `reply` tool-lal a megfelelő chat_id-vel. Ha tényleg nincs érdemi "
-    "válasz, akkor is küldj egy rövid visszaigazolást."
-)
+INSTRUCTIONS = {
+    "hu": (
+        "KÖTELEZŐ: erre a Telegram-üzenetre még NEM küldtél választ a Telegram "
+        "`reply` tool-lal (chat_id=%s). A CLI/transzkript szöveget a felhasználó a "
+        "Telegramon NEM látja — onnan nézve csak befagytál. Küldd el a válaszodat "
+        "MOST a `reply` tool-lal a megfelelő chat_id-vel. Ha tényleg nincs érdemi "
+        "válasz, akkor is küldj egy rövid visszaigazolást."
+    ),
+    "en": (
+        "REQUIRED: you have NOT answered this Telegram message with the Telegram "
+        "`reply` tool yet (chat_id=%s). The user does NOT see the CLI/transcript "
+        "text on Telegram -- from there you just look frozen. Send your answer "
+        "NOW with the `reply` tool and the right chat_id. If there is really no "
+        "substantive answer, still send a short acknowledgement."
+    ),
+}
+INSTRUCTION = INSTRUCTIONS["hu"]
+
+
+def instruction(cwd=None):
+    """The block reason in the install language (#416): the agent answers the
+    owner in the language it is nagged in, so an English install must get an
+    English nag. Fail-open to Hungarian."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from rate_limit_status_lib import install_lang, find_project_root
+        here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        root = find_project_root(cwd or os.getcwd()) or find_project_root(here)
+        if root:
+            return INSTRUCTIONS.get(install_lang(root), INSTRUCTION)
+    except Exception:
+        pass
+    return INSTRUCTION
 
 
 def state_dir():
@@ -228,7 +254,7 @@ def main():
             pass
         chats = ", ".join(sorted({str(p.get("chat_id")) for p in pend}))
         log(sd, f"[enforce] blocking stop, no reply sent sid={sid} chats={chats}")
-        print(json.dumps({"decision": "block", "reason": INSTRUCTION % chats}))
+        print(json.dumps({"decision": "block", "reason": instruction() % chats}))
         return
 
     # Already nudged once (or loop guard tripped) and STILL no reply -> guaranteed

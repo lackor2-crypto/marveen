@@ -36,11 +36,17 @@ except ImportError:
 # had its receipt edited to "Dolgozom rajta…" (Boss msg 5892). Fail-open: no
 # lib -> quota gate skipped, the normal working receipt is used.
 try:
-    from rate_limit_status_lib import quota_status_message_if_critical  # noqa: E402
+    from rate_limit_status_lib import (  # noqa: E402
+        quota_status_message_if_critical, install_lang, find_project_root,
+    )
     _HAS_RL = True
 except Exception:
     _HAS_RL = False
     def quota_status_message_if_critical(cwd, now_ms=None):
+        return None
+    def install_lang(project_root):
+        return "hu"
+    def find_project_root(cwd):
         return None
 
 
@@ -57,7 +63,20 @@ except Exception:
 #     for you" -- keys off exactly this pending-placeholder file, which for a
 #     sub-agent was never written by anyone. A sub-agent could therefore finish
 #     a turn in silence and nothing noticed.
-RECEIPT_WORKING_TEXT = "\u270d\ufe0f Dolgozom rajta\u2026"
+# Follows the INSTALL language (Boss, 2026-09-27: an English fresh install must
+# never get Hungarian on Telegram) -- same texts as telegram_progress.py.
+RECEIPT_WORKING_TEXTS = {"hu": "\u270d\ufe0f Dolgozom rajta\u2026", "en": "\u270d\ufe0f Working on it\u2026"}
+RECEIPT_WORKING_TEXT = RECEIPT_WORKING_TEXTS["hu"]
+
+
+def receipt_working_text(cwd):
+    """The working-receipt text in this install's language; Hungarian when the
+    install root cannot be found (the historical default, as readInstallLang)."""
+    try:
+        root = find_project_root(cwd) if cwd else None
+        return RECEIPT_WORKING_TEXTS.get(install_lang(root), RECEIPT_WORKING_TEXT)
+    except Exception:
+        return RECEIPT_WORKING_TEXT
 # One turn adopts at most this many receipts: a backlog of unanswered inbound
 # messages must not turn into an unbounded pile of edit calls.
 MAX_RECEIPTS = 20
@@ -103,7 +122,7 @@ def _adopt_receipts(state_dir, sid, transcript_path, cwd=""):
     reads strictly this agent's own snapshot (via cwd), so it never confuses one
     agent's quota for another's.
     """
-    working_text = RECEIPT_WORKING_TEXT
+    working_text = receipt_working_text(cwd)
     try:
         honest = quota_status_message_if_critical(cwd) if cwd else None
         if honest:
@@ -582,6 +601,28 @@ def self_test():
                 sent = calls[-1][1]["text"] if calls else ""
                 assert sent != RECEIPT_WORKING_TEXT, "out-of-quota agent still got 'Dolgozom rajta'"
                 assert "kifogytam" in sent, "receipt is not the honest out-of-quota status: %r" % sent
+
+            # Boss, 2026-09-27: an English install must never get Hungarian on
+            # Telegram -- the working receipt follows the install language.
+            with tempfile.TemporaryDirectory() as root:
+                os.environ.pop("MARVEEN_LANG", None)
+                with open(os.path.join(root, ".env"), "w", encoding="utf-8") as f:
+                    f.write("MAIN_AGENT_ID=marvin\nMARVEEN_LANG=en\n")
+                sub = os.path.join(root, "agents", "nova")
+                state4 = os.path.join(sub, ".claude", "channels", "telegram")
+                os.makedirs(os.path.join(state4, "progress"))
+                with open(os.path.join(state4, ".env"), "w", encoding="utf-8") as f:
+                    f.write("TELEGRAM_BOT_TOKEN=123:abc\n")
+                with open(os.path.join(state4, "progress", "arrival.jsonl"), "w", encoding="utf-8") as f:
+                    f.write(json.dumps({"chat_id": "ce", "message_id": 43}) + "\n")
+                os.environ["TELEGRAM_API_BASE"] = "http://127.0.0.1:%d" % srv.server_address[1]
+                try:
+                    _adopt_receipts(state4, "side", "", sub)
+                finally:
+                    os.environ.pop("TELEGRAM_API_BASE", None)
+                assert calls[-1][1]["text"] == RECEIPT_WORKING_TEXTS["en"], calls[-1]
+                assert receipt_working_text(sub) == RECEIPT_WORKING_TEXTS["en"]
+                assert receipt_working_text("") == RECEIPT_WORKING_TEXTS["hu"]
     finally:
         srv.shutdown()
 

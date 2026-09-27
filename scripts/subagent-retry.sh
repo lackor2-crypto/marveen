@@ -24,6 +24,8 @@ STATEDIR="$STORE/.subagent-retry"
 DESIRED="$STORE/agents-desired.json"
 MAX_PER_HOUR="${SUBAGENT_RETRY_MAX_PER_HOUR:-2}"
 NOTIFY="$INSTALL_DIR/scripts/notify.sh"
+# shellcheck source=lib/owner-lang.sh
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 
 mkdir -p "$STATEDIR" 2>/dev/null
 log(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
@@ -32,7 +34,8 @@ log(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
 AGENTS="$(python3 -c 'import json,sys;print("\n".join(json.load(open(sys.argv[1]))))' "$DESIRED" 2>/dev/null)"
 [ -n "$AGENTS" ] || exit 0
 
-RETRY_MSG="Az elozo probalkozasod szolgaltatoi hibara futott (nem a te hibad). Probald ujra a legutobbi feladatot ugyanugy. Ha ismet ugyanaz a hiba jon, ne probalkozz tovabb, csak jelezd egy mondatban, hogy mi a hiba."
+RETRY_MSG="$(ol "Az elozo probalkozasod szolgaltatoi hibara futott (nem a te hibad). Probald ujra a legutobbi feladatot ugyanugy. Ha ismet ugyanaz a hiba jon, ne probalkozz tovabb, csak jelezd egy mondatban, hogy mi a hiba." \
+  "Your previous attempt hit a provider error (not your fault). Retry the last task the same way. If the same error comes again, do not try further, just say in one sentence what the error is.")"
 
 notify_once(){ # $1=kulcs  $2=uzenet   -- ugyanarrol csak egyszer szolunk / 6 ora
   local key="$STATEDIR/.notified-$1" now last
@@ -65,7 +68,8 @@ for a in $AGENTS; do
   # eset: a Szakerto, mikozben eppen ezt a hibat vizsgalta. Az elo hiba mindig
   # a panel aljan van, mint a 3) pontnal.
   if printf '%s' "$pane" | tail -n 12 | grep -aqiE "pick a different model|may not have access to it|issue with the selected model"; then
-    notify_once "model-$a" "⚠️ A(z) $a sub-agens nem tud elindulni: a beallitott modell nem elerheto vagy nem alkalmas (nincs tool-calling). Ujraprobalas nem segit -- modellt kell cserelni a dashboardon."
+    notify_once "model-$a" "$(ol "⚠️ A(z) $a sub-agens nem tud elindulni: a beallitott modell nem elerheto vagy nem alkalmas (nincs tool-calling). Ujraprobalas nem segit -- modellt kell cserelni a dashboardon." \
+      "⚠️ The $a sub-agent cannot start: the configured model is not available or not suitable (no tool calling). Retrying does not help -- change the model on the dashboard.")"
     log "$a: TARTOS modell-hiba -- nem probalom ujra"
     continue
   fi
@@ -86,7 +90,8 @@ for a in $AGENTS; do
   if [ $(( now - wstart )) -ge 3600 ]; then wstart="$now"; count=0; fi
 
   if [ "$count" -ge "$MAX_PER_HOUR" ]; then
-    notify_once "budget-$a" "⚠️ A(z) $a sub-agens ebben az oraban mar $MAX_PER_HOUR ujraprobat elhasznalt, es tovabbra is szolgaltatoi hibara fut. Erdemes megnezni a modelljet."
+    notify_once "budget-$a" "$(ol "⚠️ A(z) $a sub-agens ebben az oraban mar $MAX_PER_HOUR ujraprobat elhasznalt, es tovabbra is szolgaltatoi hibara fut. Erdemes megnezni a modelljet." \
+      "⚠️ The $a sub-agent already used $MAX_PER_HOUR retries this hour and still hits provider errors. Worth checking its model.")"
     log "$a: elfogyott az ora-keret ($count/$MAX_PER_HOUR) -- varok"
     continue
   fi

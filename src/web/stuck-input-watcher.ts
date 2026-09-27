@@ -14,6 +14,7 @@ import {
   type StuckInputState,
   type StuckInputThresholds,
 } from '../pane-state.js'
+import { ol } from '../owner-lang.js'
 
 // RIASZTASZAJ819: the owner alert for a parked-past-max-attempts sub-agent
 // fired three times in one afternoon at an agent that was WORKING the whole
@@ -260,7 +261,10 @@ async function checkLocalSession(label: string, session: string, alertOnGiveUp: 
       })) {
         alertedSpells.add(session)
         logger.warn({ label, session, paneState }, 'stuck-input-watcher: sub-agent input still parked after max recovery attempts at a non-busy pane, alerting for manual restart')
-        sendAlert(`⚠️ A(z) ${label} agens bemenete beragadt és az auto-recovery (Enter + clear/re-inject) nem szabadította ki. Valószínűleg kézi restart kell: POST /api/agents/${label}/restart vagy a dashboardon.`)
+        sendAlert(ol(
+                    `⚠️ A(z) ${label} agens bemenete beragadt és az auto-recovery (Enter + clear/re-inject) nem szabadította ki. Valószínűleg kézi restart kell: POST /api/agents/${label}/restart vagy a dashboardon.`,
+                    `⚠️ The input of the ${label} agent is stuck and the auto-recovery (Enter + clear/re-inject) did not free it. A manual restart is probably needed: POST /api/agents/${label}/restart or on the dashboard.`,
+                  ))
       } else if (paneState === 'busy' && prev.attempts < LOCAL_FAST_THRESHOLDS.maxAttempts) {
         // Once per spell, at the crossing tick: say WHY no alert went out, so
         // a real wedge investigation finds the suppression instead of a hole.

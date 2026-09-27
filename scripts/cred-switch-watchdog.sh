@@ -56,6 +56,8 @@ CRED="$HOME/.claude/.credentials.json"
 COOLDOWN="${CRED_SWITCH_COOLDOWN:-600}"     # min seconds between restarts
 
 log(){ echo "$(date '+%F %T') $*" >> "$LOG"; }
+# Owner-facing text follows the install language (#416): ol "hu" "en".
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 
 # --- Ha EMBER kell hozza, azt EMBERNEK kell megmondani.
 #
@@ -253,11 +255,15 @@ PY
     # SZANDEKOSAN a fingerprint-kapun KIVUL: a naplo "mar leirtam egyszer"
     # allapota nem dontheti el, hogy Boss ertesult-e. A notify_owner sajat
     # 6 oras csendhatara adja a ritmust.
-    notify_owner "env-bad" "🔴 A fo agens nem tud dolgozni.
+    notify_owner "env-bad" "$(ol "🔴 A fo agens nem tud dolgozni.
 
 A .env fajlban a CLAUDE_CODE_OAUTH_TOKEN sor rossz erteket tartalmaz, ezert a Claude Code minden kerest visszautasit, es a rendes bejelentkezest is figyelmen kivul hagyja.
 
-Ujrainditas ezen nem segit. Szolj, es kiveszem azt a sort."
+Ujrainditas ezen nem segit. Szolj, es kiveszem azt a sort." "🔴 The main agent cannot work.
+
+The CLAUDE_CODE_OAUTH_TOKEN line in .env holds a wrong value, so Claude Code rejects every request and also ignores the normal login.
+
+A restart will not fix this. Tell me and I will remove that line.")"
   elif [ "$VERDICT" = "creds-dead" ]; then
     if [ "$AUTH_FP" != "$AUTH_PREV" ]; then
       echo "$AUTH_FP" > "$AUTH_STATE"
@@ -266,7 +272,7 @@ Ujrainditas ezen nem segit. Szolj, es kiveszem azt a sort."
     # Ugyanaz: a kimaradas amig tart, 6 oranket emlekeztet. 2026-08-20-an
     # ez a branch tudta 10:55:20 ota, hogy ember kell hozza, es csak a
     # naplojaba irta -- Boss 11:01-kor maga vette eszre.
-    notify_owner "creds-dead" "🔴 Kijelentkezett a Claude -- a FO agens megallt.
+    notify_owner "creds-dead" "$(ol "🔴 Kijelentkezett a Claude -- a FO agens megallt.
 
 (A sajat fiokos es a nem-Claude agensek ettol fuggetlenul dolgoznak tovabb. Ami all: a fo agens, vagyis a Telegram-valasz es az utemezett feladatok.)
 
@@ -274,7 +280,15 @@ Ujrainditas nem segit. Ket ut van:
 
 A) A felulten, terminal nelkul: Beallitasok -> Varazslo -> Claude bejelentkezes -> \"Bejelentkeztetes inditasa\". Vegigvezet, es a vegen magatol ujraindit.
 
-B) Vagy kezzel: Ubuntu ablak -> claude -> /login"
+B) Vagy kezzel: Ubuntu ablak -> claude -> /login" "🔴 Claude logged out -- the MAIN agent stopped.
+
+(Agents on their own account and the non-Claude agents keep working regardless. What stopped: the main agent, i.e. Telegram replies and scheduled tasks.)
+
+A restart will not help. Two ways out:
+
+A) On the dashboard, no terminal: Settings -> Wizard -> Claude login -> \"Start sign-in\". It walks you through and restarts by itself at the end.
+
+B) Or by hand: Ubuntu window -> claude -> /login")"
   elif [ "$AUTH_FP" != "$AUTH_PREV" ]; then
     # Anti-loop budget: a wedge that survives repeated restarts must go quiet
     # and wait for a human rather than restart Marvin forever.
@@ -288,11 +302,15 @@ B) Vagy kezzel: Ubuntu ablak -> claude -> /login"
     lastr="$(cat "$LAST_RESTART" 2>/dev/null | tr -dc '0-9')"; lastr="${lastr:-0}"
     if [ "$bcount" -ge "$AUTH_MAX_PER_HOUR" ]; then
       log "AUTH WEDGE ($VERDICT) but ${AUTH_MAX_PER_HOUR} auth-restarts already spent this hour -> standing down, human needed. Pane: ${AUTH_HIT:0:100}"
-      notify_owner "budget-spent" "🟠 A fo agens Claude-bejelentkezesevel valami nem stimmel.
+      notify_owner "budget-spent" "$(ol "🟠 A fo agens Claude-bejelentkezesevel valami nem stimmel.
 
 ${AUTH_MAX_PER_HOUR} ujrainditassal probaltam ebben az oraban, es egyik sem oldotta meg, ezert leallok -- kulonben a vegtelensegig ujraindulna.
 
-Ha nem valaszolok, ezt erdemes megprobalni: Beallitasok -> Varazslo -> Claude bejelentkezes, vagy Ubuntu ablak -> claude -> /login."
+Ha nem valaszolok, ezt erdemes megprobalni: Beallitasok -> Varazslo -> Claude bejelentkezes, vagy Ubuntu ablak -> claude -> /login." "🟠 Something is wrong with the main agent's Claude login.
+
+I tried ${AUTH_MAX_PER_HOUR} restarts this hour and none fixed it, so I am standing down -- otherwise it would restart forever.
+
+If I do not answer, try: Settings -> Wizard -> Claude login, or Ubuntu window -> claude -> /login.")"
       echo "$AUTH_FP" > "$AUTH_STATE"
     elif [ $(( now_a - lastr )) -lt "$COOLDOWN" ]; then
       log "AUTH WEDGE ($VERDICT) but within ${COOLDOWN}s cooldown of last restart -> waiting"

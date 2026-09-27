@@ -89,17 +89,23 @@ if compgen -G "$STATE_DIR/*.log" >/dev/null 2>&1; then
     if (( m < btime && m > last_alive )); then last_alive="$m"; fi
   done
 fi
-gap_txt="ismeretlen"
+# shellcheck source=lib/owner-lang.sh
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
+gap_txt="$(ol "ismeretlen" "unknown")"
 if (( last_alive > 0 )); then
   gap_min=$(( (btime - last_alive) / 60 ))
   last_txt="$(date -d "@$last_alive" '+%H:%M:%S' 2>/dev/null || echo '?')"
-  gap_txt="~${gap_min} perc (utolsó aktivitás ${last_txt} előtt)"
+  gap_txt="$(ol "~${gap_min} perc (utolsó aktivitás ${last_txt} előtt)" "~${gap_min} min (last activity before ${last_txt})")"
 fi
 
-msg="Marveen ${HOST_KIND} restarted.
+msg="$(ol "Marveen ${HOST_KIND} újraindult.
 Új boot: ${boot_local}
 Becsült kiesés: ${gap_txt}
-(Ez host/VM szintű restart, NEM app-crash. A dashboard/channels app-crash külön OnFailure-értesítést küld.)"
+(Ez host/VM szintű restart, NEM app-crash. A dashboard/channels app-crash külön OnFailure-értesítést küld.)" \
+"Marveen ${HOST_KIND} restarted.
+New boot: ${boot_local}
+Estimated downtime: ${gap_txt}
+(This is a host/VM level restart, NOT an app crash. A dashboard/channels app crash sends its own OnFailure notice.)")"
 
 log "host restart detected: prev btime=$prev new=$btime; sending Telegram"
 

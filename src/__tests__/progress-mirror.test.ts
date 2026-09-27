@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  classifyPane, placeholderLiveText, backgroundText, shouldEdit,
+  langOf, classifyPane, placeholderLiveText, backgroundText, shouldEdit,
   extractThoughts, thoughtMessage, parseProgressMode,
 } from '../progress-mirror.js'
 import { readPending } from '../web/progress-mirror-runner.js'
@@ -149,7 +149,30 @@ describe('verbose thoughts', () => {
       asst([{ type: 'text', text: 'The cause is clear: the mirror posts the terminal text.' }]),
     ]
     expect(extractThoughts(lines)).toEqual(['Megnézem a `src/web/progress-mirror-runner.ts` fájlt.', '#429 kész'])
-    expect(extractThoughts(lines, 'en')).toHaveLength(4)
+  })
+  it('never posts a Hungarian narration block to an English owner (2026-09-27)', () => {
+    const lines = [
+      asst([{ type: 'text', text: 'Now let me check the runner and fix the test.' }]),
+      asst([{ type: 'text', text: 'Megnézem a `src/web/progress-mirror-runner.ts` fájlt.' }]),
+      asst([{ type: 'text', text: '#429 kész' }]),
+      asst([{ type: 'text', text: 'The cause is clear: the mirror posts the terminal text.' }]),
+      asst([{ type: 'text', text: 'Done with #429.' }]),
+      asst([{ type: 'text', text: '42' }]),
+    ]
+    expect(extractThoughts(lines, 'en')).toEqual([
+      'Now let me check the runner and fix the test.',
+      'The cause is clear: the mirror posts the terminal text.',
+      'Done with #429.',
+      '42',
+    ])
+  })
+  it('reads an en-prefixed install language as English', () => {
+    expect(langOf('en')).toBe('en')
+    expect(langOf('en-US')).toBe('en')
+    expect(langOf(' EN ')).toBe('en')
+    expect(langOf('hu')).toBe('hu')
+    expect(langOf(undefined)).toBe('hu')
+    expect(langOf('')).toBe('hu')
   })
   it('truncates long thoughts', () => {
     expect(thoughtMessage('a'.repeat(700))).toBe('▸ ' + 'a'.repeat(600) + '…')

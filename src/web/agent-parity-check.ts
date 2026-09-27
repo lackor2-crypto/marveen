@@ -24,6 +24,7 @@ import {
   type ParityDrift, type SkillLibraryParity,
 } from '../agent-parity.js'
 import { skillLibraryParity } from './skill-library-parity.js'
+import { ol } from '../owner-lang.js'
 
 const TEMPLATE_PATH = join(PROJECT_ROOT, 'templates', 'settings.json.template')
 // Restarting is routine here, and an identical alert on every restart trains
@@ -99,10 +100,13 @@ export function checkAgentParity(): { drift: ParityDrift[]; skills: SkillLibrary
     const onlyUnmeasured = drift.length === 0 && skills.verdict === 'not_measured'
     sendAlert(
       (onlyUnmeasured
-        ? '⚠️ Agens-paritas: NEM tudtam megmerni, hogy minden agens ugyanazt kapja-e. '
-        : '⚠️ Agens-paritas: nem minden agens kapja meg ugyanazt. ')
+        ? ol('⚠️ Agens-paritas: NEM tudtam megmerni, hogy minden agens ugyanazt kapja-e. ',
+          '⚠️ Agent parity: I could NOT measure whether every agent gets the same. ')
+        : ol('⚠️ Agens-paritas: nem minden agens kapja meg ugyanazt. ',
+          '⚠️ Agent parity: not every agent gets the same. '))
       + parts.join('; ')
-      + '. Szabaly: ami az egyik agensnek jar, az mindnek jar (CLAUDE.md, agens-paritas).',
+      + ol('. Szabaly: ami az egyik agensnek jar, az mindnek jar (CLAUDE.md, agens-paritas).',
+        '. Rule: what one agent gets, every agent gets (CLAUDE.md, agent parity).'),
     )
     rememberAlert(sig)
   }

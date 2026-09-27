@@ -1,3 +1,4 @@
+import { ol, ownerLang, type OwnerLang } from './owner-lang.js'
 // Pure logic for the "someone left work uncommitted" guard (kanban 18bf8b2c,
 // point 4).
 //
@@ -128,28 +129,44 @@ function oraja(files: DirtyFile[], now: number): number {
   return Math.max(1, Math.round((now - files[0].modifiedAt) / 3_600_000))
 }
 
-function nevek(files: DirtyFile[]): string {
+function nevek(files: DirtyFile[], lang: OwnerLang): string {
   const names = files.slice(0, 6).map(f => f.path)
-  return names.join(', ') + (files.length > names.length ? ` (+${files.length - names.length} tovabbi)` : '')
+  const more = files.length - names.length
+  return names.join(', ') + (more > 0 ? ol(` (+${more} tovabbi)`, ` (+${more} more)`, lang) : '')
 }
 
-/** Egy-harom rovid sor a tulajdonos csatornajara. Null, ha nincs mit mondani. */
-export function describeMess(m: TreeMess, now: number): string | null {
+/** Egy-harom rovid sor a tulajdonos csatornajara. Null, ha nincs mit mondani.
+ *  The install language decides the text (owner, 2026-09-27). */
+export function describeMess(m: TreeMess, now: number, lang: OwnerLang = ownerLang()): string | null {
   if (messIsEmpty(m)) return null
   const sorok: string[] = []
   if (m.dirty.length) {
-    sorok.push(`📝 ${m.dirty.length} commitolatlan fajl all a repoban, a legregebbi ${oraja(m.dirty, now)} oraja: `
-      + nevek(m.dirty)
-      + '. Ha keszen van, commitold; ha nem, erdemes sajat worktree-ben folytatni (scripts/agent-worktree.sh).')
+    sorok.push(ol(
+      `📝 ${m.dirty.length} commitolatlan fajl all a repoban, a legregebbi ${oraja(m.dirty, now)} oraja: `
+        + nevek(m.dirty, lang)
+        + '. Ha keszen van, commitold; ha nem, erdemes sajat worktree-ben folytatni (scripts/agent-worktree.sh).',
+      `📝 ${m.dirty.length} uncommitted files in the repo, the oldest for ${oraja(m.dirty, now)} hours: `
+        + nevek(m.dirty, lang)
+        + '. If it is finished, commit it; if not, continue in its own worktree (scripts/agent-worktree.sh).',
+      lang))
   }
   if (m.stray.length) {
-    sorok.push(`🧹 ${m.stray.length} nem-kovetett fajl all a repoban, a legregebbi ${oraja(m.stray, now)} oraja: `
-      + nevek(m.stray)
-      + '. Ez nem kockazatban levo munka, hanem szemet: ha a fejlesztes keszen van, TOROLD -- ha a projekt resze, commitold.')
+    sorok.push(ol(
+      `🧹 ${m.stray.length} nem-kovetett fajl all a repoban, a legregebbi ${oraja(m.stray, now)} oraja: `
+        + nevek(m.stray, lang)
+        + '. Ez nem kockazatban levo munka, hanem szemet: ha a fejlesztes keszen van, TOROLD -- ha a projekt resze, commitold.',
+      `🧹 ${m.stray.length} untracked files in the repo, the oldest for ${oraja(m.stray, now)} hours: `
+        + nevek(m.stray, lang)
+        + '. This is not work at risk but litter: if the development is finished, DELETE it -- if it belongs to the project, commit it.',
+      lang))
   }
   if (m.unpushed && m.unpushed > 0) {
-    sorok.push(`⬆️ ${m.unpushed} commit nincs felpusholva${m.branch ? ` (${m.branch})` : ''}. `
-      + 'A munka vegen a push is a munka resze: pusholatlanul a kovetkezo agens felbehagyott munkat lat.')
+    sorok.push(ol(
+      `⬆️ ${m.unpushed} commit nincs felpusholva${m.branch ? ` (${m.branch})` : ''}. `
+        + 'A munka vegen a push is a munka resze: pusholatlanul a kovetkezo agens felbehagyott munkat lat.',
+      `⬆️ ${m.unpushed} commits are not pushed${m.branch ? ` (${m.branch})` : ''}. `
+        + 'Pushing is part of finishing the work: unpushed, the next agent sees abandoned work.',
+      lang))
   }
   return sorok.join('\n')
 }

@@ -38,7 +38,79 @@ const inboxPath = stateDir ? join(stateDir, 'inbox-pending.jsonl') : ''
 // working text when the turn actually picks it up, and the existing Stop /
 // PostToolUse hooks delete it when the answer goes out -- one message, three
 // states, no extra noise in the chat.
-const RECEIPT_TEXT = '\u{1F4E5} Megkaptam, sorban \u00e1ll\u2026'
+// Every line that reaches the owner's chat follows the INSTALL language
+// (Boss, 2026-09-27: an English fresh install must never get Hungarian on
+// Telegram). Same resolution as readInstallLang() in src/config.ts and
+// install_lang() in scripts/hooks/rate_limit_status_lib.py.
+const RECEIPT_TEXTS = {
+  hu: '\u{1F4E5} Megkaptam, sorban \u00e1ll\u2026',
+  en: '\u{1F4E5} Received, queued\u2026',
+}
+
+/** Raw language value -> 'en' / 'hu' / null ('en' prefix is English). */
+function normLang(raw) {
+  const v = String(raw ?? '').trim().toLowerCase()
+  if (!v) return null
+  return v.startsWith('en') ? 'en' : 'hu'
+}
+
+function readEnvValue(file, key) {
+  try {
+    const m = readFileSync(file, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'))
+    const v = m ? m[1].trim().replace(/^['"]|['"]$/g, '') : ''
+    return v || null
+  } catch {
+    return null
+  }
+}
+
+/** Walk upward for the install root: the .env that carries MAIN_AGENT_ID. */
+function findProjectRoot(start) {
+  if (!start) return null
+  let d = start
+  for (;;) {
+    const env = join(d, '.env')
+    try {
+      if (/^MAIN_AGENT_ID=/m.test(readFileSync(env, 'utf8'))) return d
+    } catch { /* no .env here */ }
+    const parent = dirname(d)
+    if (parent === d) return null
+    d = parent
+  }
+}
+
+/** 'hu' | 'en'. MARVEEN_LANG (environ > config-overrides.json > .env), then
+ *  the .lang file, defaulting to Hungarian -- exactly readInstallLang(). */
+function installLang(env = process.env, starts = [stateDir, process.cwd()]) {
+  const fromEnv = normLang(env.MARVEEN_LANG)
+  if (fromEnv) return fromEnv
+  let root = null
+  for (const s of starts) {
+    root = findProjectRoot(s)
+    if (root) break
+  }
+  if (!root) return 'hu'
+  try {
+    const v = JSON.parse(readFileSync(join(root, 'store', 'config-overrides.json'), 'utf8')).MARVEEN_LANG
+    const l = normLang(typeof v === 'string' ? v : '')
+    if (l) return l
+  } catch { /* no overrides */ }
+  const l = normLang(readEnvValue(join(root, '.env'), 'MARVEEN_LANG'))
+  if (l) return l
+  try {
+    return normLang(readFileSync(join(root, '.lang'), 'utf8')) ?? 'hu'
+  } catch {
+    return 'hu'
+  }
+}
+
+let cachedReceiptText
+function receiptText() {
+  if (cachedReceiptText === undefined) {
+    try { cachedReceiptText = RECEIPT_TEXTS[installLang()] } catch { cachedReceiptText = RECEIPT_TEXTS.hu }
+  }
+  return cachedReceiptText
+}
 const RECEIPT_TIMEOUT_MS = 8000
 // Overridable so the contract can be tested against a local stub instead of
 // Telegram, and so a self-hosted Bot API server keeps working.
@@ -105,7 +177,7 @@ async function postReceipt(token, chatId, srcMid) {
   const res = await fetch(`${API_BASE}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: RECEIPT_TEXT, disable_notification: true }),
+    body: JSON.stringify({ chat_id: chatId, text: receiptText(), disable_notification: true }),
     signal: AbortSignal.timeout(RECEIPT_TIMEOUT_MS),
   })
   const body = await res.json()

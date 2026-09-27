@@ -93,6 +93,7 @@ export function delay(ms: number): Promise<void> {
 }
 
 import { CHANNEL_PLUGIN_IDS } from './plugin-ids.js'
+import { ol } from '../owner-lang.js'
 export { CHANNEL_PLUGIN_IDS }
 
 // Pure: compute the enabledPlugins map for a sub-agent so that exactly its own
@@ -328,7 +329,10 @@ function maybeAlertSharedConfigCollision(name: string): void {
     'isolated-config: fleet OAuth token missing with multiple RUNNING same-provider channel sub-agents -- shared ~/.claude plugin-slot collision, bots may go deaf',
   )
   void notifyChannel(
-    `⚠️ Flotta-figyelmeztetes: hianyzik a fleet OAuth token (store/.claude-oauth-token), es ${count} AZONOS csatorna-providerü sub-agent fut egyszerre. Izolacio nelkul mind a kozos ~/.claude-ot hasznalja, igy a plugin-slot utkozhet es bot nemulhat el. Javitas: futtasd a \`claude setup-token\`-t, mentsd a store/.claude-oauth-token fajlba, majd inditsd ujra az agenseket.`,
+    ol(
+      `⚠️ Flotta-figyelmeztetes: hianyzik a fleet OAuth token (store/.claude-oauth-token), es ${count} AZONOS csatorna-providerü sub-agent fut egyszerre. Izolacio nelkul mind a kozos ~/.claude-ot hasznalja, igy a plugin-slot utkozhet es bot nemulhat el. Javitas: futtasd a \`claude setup-token\`-t, mentsd a store/.claude-oauth-token fajlba, majd inditsd ujra az agenseket.`,
+      `⚠️ Fleet warning: the fleet OAuth token is missing (store/.claude-oauth-token), and ${count} sub-agents with the SAME channel provider run at once. Without isolation they all use the shared ~/.claude, so the plugin slot can collide and a bot can go silent. Fix: run \`claude setup-token\`, save it into store/.claude-oauth-token, then restart the agents.`,
+    ),
   ).catch(() => { /* notifyChannel logs internally */ })
 }
 
@@ -2578,10 +2582,12 @@ export async function clearStaleParkedInput(session: string, host: string | null
     // incident did behind a lone WARN.
     if (!escalated && fails >= SUBAGENT_PARKED_ESCALATE_AFTER) {
       const preview = parked.slice(0, 80).replace(/[<>&]/g, ' ')
-      notifyChannel(
+      notifyChannel(ol(
         `⚠️ Egy sub-agent (${session}) input-mezojebe beragadt egy parkolt sor, ` +
         `az auto-tisztitas ${fails}x sikertelen -- lehet kezi beavatkozas kell. Reszlet: "${preview}"`,
-      ).catch(() => { /* notify is best-effort */ })
+        `⚠️ A parked line got stuck in the input field of a sub-agent (${session}), ` +
+        `the auto-cleanup failed ${fails}x -- manual action may be needed. Excerpt: "${preview}"`,
+      )).catch(() => { /* notify is best-effort */ })
       escalated = true
       logger.warn({ session, parked: parked.slice(0, 60), fails }, 'message-router: sub-agent parked input resisted clearing -- escalated to operator')
     }

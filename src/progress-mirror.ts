@@ -55,7 +55,9 @@ const TEXT = {
 
 export type Lang = keyof typeof TEXT
 export function langOf(raw: unknown): Lang {
-  return raw === 'en' ? 'en' : 'hu'
+  // Same rule as readInstallLang()'s consumers in the hooks (_norm_lang in
+  // rate_limit_status_lib.py): an 'en' prefix ("en", "en-US") is English.
+  return typeof raw === 'string' && raw.trim().toLowerCase().startsWith('en') ? 'en' : 'hu'
 }
 
 /**
@@ -103,9 +105,12 @@ const HU_WORDS = new Set(('a az és hogy nem is van volt egy ez azt ezt meg már
  * mirror went live (owner, 2026-09-27). Code, paths and URLs are ignored; a
  * block counts as foreign only when its English function words outnumber the
  * Hungarian ones, so a short "#429 kész" or a bare number still passes.
+ *
+ * Symmetric (owner, 2026-09-27: an English fresh install must never get
+ * Hungarian on Telegram): on an English install a block is dropped when its
+ * Hungarian words outnumber the English ones.
  */
 export function inOwnerLanguage(text: string, lang: Lang): boolean {
-  if (lang === 'en') return true
   const prose = text
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
@@ -119,7 +124,7 @@ export function inOwnerLanguage(text: string, lang: Lang): boolean {
     if (/[áéíóöőúüű]/.test(w) || HU_WORDS.has(w)) hu++
     else if (EN_WORDS.has(w)) en++
   }
-  return en <= hu
+  return lang === 'en' ? hu <= en : en <= hu
 }
 
 /**

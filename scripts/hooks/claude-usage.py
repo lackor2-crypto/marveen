@@ -61,15 +61,57 @@ CHANNEL_RX = re.compile(r'<channel\s+([^>]*)>(.*?)</channel>', re.DOTALL)
 USAGE_RX = re.compile(r'^/usage\s*$', re.IGNORECASE)
 TELEGRAM_SOURCE_RX = re.compile(r'\bsource="[^"]*telegram[^"]*"', re.IGNORECASE)
 
-WINDOW_LABELS = [
-    ("five_hour", "5 orás"),
-    ("seven_day", "heti"),
-    ("seven_day_opus", "Fable/Opus heti"),
-    ("seven_day_sonnet", "Sonnet heti"),
-]
+WINDOW_KEYS = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"]
 
-GENERIC_ERROR_REPLY = "Nem sikerult lekerdezni a keret-allapotot (a lekerdezo script hibara futott). Nezd meg a naplot: progress/usage-hook.log"
-MISSING_SCRIPT_REPLY = "Nem sikerult lekerdezni a keret-allapotot: a lekerdezo script nincs meg ezen a telepitesen (scripts/usage-collect.py). Nezd meg a naplot: progress/usage-hook.log"
+# Every text below goes to the owner's Telegram, so it follows the INSTALL
+# language (#416): an English install must never get a Hungarian reply.
+TEXTS = {
+    "hu": {
+        "labels": {"five_hour": "5 orás", "seven_day": "heti",
+                   "seven_day_opus": "Fable/Opus heti", "seven_day_sonnet": "Sonnet heti"},
+        "unknown": "ismeretlen",
+        "fetch_failed": "Nem sikerult lekerni a Claude keret-allapotot (forras: {src}).",
+        "header": "Claude keret-allapot:",
+        "line": "- {label}: {remaining:.0f}% van hatra ({used:.0f}% elhasznalva), megujul: {reset}",
+        "no_data": "(nincs elerheto adat)",
+        "generic_error": "Nem sikerult lekerdezni a keret-allapotot (a lekerdezo script hibara futott). Nezd meg a naplot: progress/usage-hook.log",
+        "missing_script": "Nem sikerult lekerdezni a keret-allapotot: a lekerdezo script nincs meg ezen a telepitesen (scripts/usage-collect.py). Nezd meg a naplot: progress/usage-hook.log",
+    },
+    "en": {
+        "labels": {"five_hour": "5-hour", "seven_day": "weekly",
+                   "seven_day_opus": "Fable/Opus weekly", "seven_day_sonnet": "Sonnet weekly"},
+        "unknown": "unknown",
+        "fetch_failed": "Could not fetch the Claude quota status (source: {src}).",
+        "header": "Claude quota status:",
+        "line": "- {label}: {remaining:.0f}% left ({used:.0f}% used), resets: {reset}",
+        "no_data": "(no data available)",
+        "generic_error": "Could not query the quota status (the query script failed). See the log: progress/usage-hook.log",
+        "missing_script": "Could not query the quota status: the query script is missing on this install (scripts/usage-collect.py). See the log: progress/usage-hook.log",
+    },
+}
+
+
+def owner_lang():
+    """The install language, resolved like readInstallLang() in src/config.ts.
+    Fail-open to Hungarian."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from rate_limit_status_lib import install_lang, find_project_root
+        # CLAUDE_PROJECT_DIR may be a sub-agent home (agents/<name>): walk up
+        # to the install that owns the .env / .lang.
+        return install_lang(find_project_root(REPO_ROOT) or REPO_ROOT)
+    except Exception:
+        return "hu"
+
+
+def tx(key, lang=None):
+    return TEXTS.get(lang or owner_lang(), TEXTS["hu"])[key]
+
+
+# Kept for callers/tests that import the old names; Hungarian as before.
+WINDOW_LABELS = [(k, TEXTS["hu"]["labels"][k]) for k in WINDOW_KEYS]
+GENERIC_ERROR_REPLY = TEXTS["hu"]["generic_error"]
+MISSING_SCRIPT_REPLY = TEXTS["hu"]["missing_script"]
 
 
 def state_dir():
@@ -119,33 +161,33 @@ def attr(attrs, name):
     return m.group(1) if m else None
 
 
-def fmt_reset(ts):
+def fmt_reset(ts, lang="hu"):
     if not ts:
-        return "ismeretlen"
+        return tx("unknown", lang)
     try:
         return time.strftime("%Y-%m-%d %H:%M", time.localtime(float(ts)))
     except Exception:
-        return "ismeretlen"
+        return tx("unknown", lang)
 
 
-def format_usage(snapshot):
+def format_usage(snapshot, lang=None):
+    lang = lang or owner_lang()
     c = snapshot.get("claude") or {}
     if not c.get("ok"):
-        return f"Nem sikerult lekerni a Claude keret-allapotot (forras: {c.get('source', 'ismeretlen')})."
+        return tx("fetch_failed", lang).format(src=c.get("source", tx("unknown", lang)))
     w = c.get("windows") or {}
-    lines = ["Claude keret-allapot:"]
-    for key, label in WINDOW_LABELS:
+    lines = [tx("header", lang)]
+    labels = tx("labels", lang)
+    for key in WINDOW_KEYS:
         win = w.get(key)
         if not win or win.get("used_percent") is None:
             continue
         used = win["used_percent"]
-        remaining = 100 - used
-        lines.append(
-            f"- {label}: {remaining:.0f}% van hatra ({used:.0f}% elhasznalva), "
-            f"megujul: {fmt_reset(win.get('resets_at'))}"
-        )
+        lines.append(tx("line", lang).format(
+            label=labels[key], remaining=100 - used, used=used,
+            reset=fmt_reset(win.get("resets_at"), lang)))
     if len(lines) == 1:
-        lines.append("(nincs elerheto adat)")
+        lines.append(tx("no_data", lang))
     return "\n".join(lines)
 
 
@@ -212,7 +254,7 @@ def main():
         # cause the owner can actually act on, and the old wording hid it.
         log(sd, f"usage-collect.py not found at {USAGE_SCRIPT}")
         try:
-            api(tok, "sendMessage", {"chat_id": chat_id, "text": MISSING_SCRIPT_REPLY})
+            api(tok, "sendMessage", {"chat_id": chat_id, "text": tx("missing_script")})
         except Exception as e:
             log(sd, f"sendMessage failed: {type(e).__name__}")
         clear_stray_placeholder(sd, tok, sid)
@@ -230,7 +272,7 @@ def main():
         # a urllib HTTPError/URLError string can carry the request URL, and
         # the request URL to the Telegram Bot API contains the bot token.
         # Exception TYPE only, generic fixed text to the chat.
-        reply = GENERIC_ERROR_REPLY
+        reply = tx("generic_error")
         log(sd, f"usage-collect failed: {type(e).__name__}")
 
     try:

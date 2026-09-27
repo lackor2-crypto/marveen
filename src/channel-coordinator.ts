@@ -46,6 +46,7 @@ import {
   closeIngestDb,
   type InsertResult,
 } from './channel-coordinator/ingest.js'
+import { ol } from './owner-lang.js'
 
 const SOURCE = 'telegram'
 const LONGPOLL_TIMEOUT_SEC = 30
@@ -301,7 +302,10 @@ function reconcilePending(): void {
 
 async function fatalExit(err: TelegramApiError): Promise<never> {
   logger.error({ msg: err.message }, 'channel-coordinator: fatal error, exiting')
-  sendAlert(`${BOT_NAME} channel-coordinator FATAL: ${err.message}. Inbound backfill leallt amig nem javitod.`)
+  sendAlert(ol(
+              `${BOT_NAME} channel-coordinator FATAL: ${err.message}. Inbound backfill leallt amig nem javitod.`,
+              `${BOT_NAME} channel-coordinator FATAL: ${err.message}. Inbound backfill stopped until you fix it.`,
+            ))
   await sleep(1500) // let notify.sh fire before exit
   process.exit(1)
 }

@@ -38,6 +38,8 @@
 set -u
 
 INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Owner-facing text follows the install language (#416): ol "hu" "en".
+. "$INSTALL_DIR/scripts/lib/owner-lang.sh"
 STORE="${STUCK_MODAL_STATE_DIR:-$INSTALL_DIR/store}"
 FIRSTSEEN_STAMP="$STORE/.stuck-modal-firstseen"
 RESPAWN_STAMP="$STORE/.channel-last-respawn"           # SHARED with channel-watchdog.sh
@@ -251,7 +253,9 @@ run_guard() {
       # Backoff stamp ONLY on confirmed delivery (NOTIFYVAKSWEEP826): this is
       # the "your messages may be lost, resend" alert -- burying its own
       # failure under an hour of backoff was the worst possible combination.
-      if alert_owner "🔴 The ${SESSION} session is stuck in a /mcp modal and ${count} auto-respawns did not clear it. Manual check needed: tmux attach -t ${SESSION}. Messages sent during the outage may be lost -- please resend."; then
+      local backoff_msg
+      backoff_msg="$(ol "🔴 A(z) ${SESSION} munkamenet beragadt egy /mcp ablakban, és ${count} automatikus újraindítás sem oldotta fel. Kézi ellenőrzés kell: tmux attach -t ${SESSION}. A kiesés alatt küldött üzenetek elveszhettek -- kérlek, küldd el őket újra." "🔴 The ${SESSION} session is stuck in a /mcp modal and ${count} auto-respawns did not clear it. Manual check needed: tmux attach -t ${SESSION}. Messages sent during the outage may be lost -- please resend.")"
+      if alert_owner "$backoff_msg"; then
         date +%s > "$BACKOFF_STAMP" 2>/dev/null || true
       else
         log "alert not delivered -- backoff stamp NOT written, will retry next tick"
@@ -339,7 +343,7 @@ run_guard() {
     echo $(( count + 1 )) > "$RESPAWN_COUNT_FILE" 2>/dev/null || true
     rm -f "$FIRSTSEEN_STAMP" 2>/dev/null || true
     log "respawn-pane issued"
-    alert_owner "⚠️ The ${SESSION} session was stuck in a /mcp modal -- auto-respawn #$((count+1)) issued. If you messaged during the outage and got no reply, please resend."
+    alert_owner "$(ol "⚠️ A(z) ${SESSION} munkamenet beragadt egy /mcp ablakban -- elindítottam a(z) $((count+1)). automatikus újraindítást. Ha a kiesés alatt írtál és nem kaptál választ, kérlek, küldd el újra." "⚠️ The ${SESSION} session was stuck in a /mcp modal -- auto-respawn #$((count+1)) issued. If you messaged during the outage and got no reply, please resend.")"
   else
     log "respawn-pane FAILED (or claude not on PATH) for $SESSION"
   fi

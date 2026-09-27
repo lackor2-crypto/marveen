@@ -49,6 +49,7 @@ import {
   type SessionVisibility,
   type TopicSessionDeps,
 } from './code-topic-session.js'
+import { ol } from '../owner-lang.js'
 
 export type CodeTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export type CodeTaskOrigin = 'telegram' | 'agent' | 'dashboard' | 'api'
@@ -2193,12 +2194,16 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
     reason === 'ok'
       ? null
       : reason === 'not-reported-yet'
-        ? 'A vegrehajto el, de a Marveen ujrainditasa ota meg nem kuldott jelentest -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes. Egy percen belul megjon.'
+        ? ol('A vegrehajto el, de a Marveen ujrainditasa ota meg nem kuldott jelentest -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes. Egy percen belul megjon.',
+            'The executor is alive but has not reported since Marveen restarted -- this list does NOT mean there is no open conversation. It arrives within a minute.')
         : reason === 'empty'
-        ? 'A vegrehajto el, de egyetlen beszelgetest sem talalt: nyiss meg egy projektet VS Code-ban, es irj bele valamit.'
+        ? ol('A vegrehajto el, de egyetlen beszelgetest sem talalt: nyiss meg egy projektet VS Code-ban, es irj bele valamit.',
+            'The executor is alive but found no conversation at all: open a project in VS Code and type something in it.')
         : reason === 'worker-never'
-          ? 'A vegrehajto (Windows worker) meg egyszer sem jelentkezett -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes.'
-          : 'A vegrehajto (Windows worker) nem valaszol, ezert ez a lista elavult lehet.'
+          ? ol('A vegrehajto (Windows worker) meg egyszer sem jelentkezett -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes.',
+              'The executor (Windows worker) has never checked in -- this list does NOT mean there is no open conversation.')
+          : ol('A vegrehajto (Windows worker) nem valaszol, ezert ez a lista elavult lehet.',
+              'The executor (Windows worker) is not answering, so this list may be stale.')
 
   return {
     projects,

@@ -36,6 +36,7 @@ import { isAgentRunning } from './agent-process.js'
 import { readLastIngestionTimestamp, readLastIngestionTimestampAcross, mainTranscriptDirs } from './inbound-probe.js'
 import { sendRoutineAlert } from './routine-alert.js'
 import { channelStateDir } from '../channel-provider.js'
+import { ol } from '../owner-lang.js'
 
 const MINUTE_MS = 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -175,12 +176,18 @@ export function decideIntakeVerdict(opts: {
 
 export function formatIntakeAlert(agentName: string, decision: IntakeDecision, probe: IntakeProbe, silentForMs: number | null): string {
   const silence =
-    silentForMs == null ? 'nem érkezett bejövő üzenet, amióta figyeljük'
-    : `${Math.floor(silentForMs / DAY_MS)} napja nem érkezett bejövő üzenet`
+    silentForMs == null ? ol('nem érkezett bejövő üzenet, amióta figyeljük', 'no inbound message since we started watching')
+    : ol(`${Math.floor(silentForMs / DAY_MS)} napja nem érkezett bejövő üzenet`, `no inbound message for ${Math.floor(silentForMs / DAY_MS)} days`)
   if (decision.verdict === 'token-invalid') {
-    return `🔇 ${agentName}: a Telegram elutasította a bot tokent (${probe.lastErrorMessage ?? 'nincs indoklás'}). A csatorna nem tud fogadni. ${silence}.`
+    return ol(
+      `🔇 ${agentName}: a Telegram elutasította a bot tokent (${probe.lastErrorMessage ?? 'nincs indoklás'}). A csatorna nem tud fogadni. ${silence}.`,
+      `🔇 ${agentName}: Telegram rejected the bot token (${probe.lastErrorMessage ?? 'no reason given'}). The channel cannot receive. ${silence}.`,
+    )
   }
-  return `🔇 ${agentName}: ${probe.pendingUpdates} bejövő üzenet áll a Telegram sorában, és senki nem veszi le. A plugin fut, de a poll-ciklusa halott. ${silence}.`
+  return ol(
+    `🔇 ${agentName}: ${probe.pendingUpdates} bejövő üzenet áll a Telegram sorában, és senki nem veszi le. A plugin fut, de a poll-ciklusa halott. ${silence}.`,
+    `🔇 ${agentName}: ${probe.pendingUpdates} inbound messages are waiting in the Telegram queue and nobody picks them up. The plugin runs, but its poll loop is dead. ${silence}.`,
+  )
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ import { sshDirOverride, resolveSshDir as resolveSshDirShared, isSshDirGuardErro
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import type { RouteContext } from './types.js'
+import { ol } from '../../owner-lang.js'
 
 const BODY_MAX_BYTES = 8 * 1024
 const PATH = '/api/bridge/service-ports'
@@ -239,15 +240,18 @@ export async function tryHandleBridgeServicePorts(ctx: RouteContext): Promise<bo
       // live session on revoke would be real work, tracked separately.
       const narrowingLatency =
         removed.length && auth!.kind !== 'device'
-          ? ' FIGYELEM: a szűkítés az eszköz KÖVETKEZŐ újrakapcsolódásakor lép életbe -- az élő kapcsolat addig a régi listát használja.'
+          ? ol(' FIGYELEM: a szűkítés az eszköz KÖVETKEZŐ újrakapcsolódásakor lép életbe -- az élő kapcsolat addig a régi listát használja.',
+            ' NOTE: the narrowing takes effect on the device\'s NEXT reconnect -- the live connection keeps the old list until then.')
           : ''
-      void notifySecurityEvent(
-        `🔌 Bridge port-lista változott (${auth!.kind === 'device' ? 'a Bridge-ből' : 'a dashboardról'}): ` +
-          (added.length ? `+ ${added.map(label).join(', ')} ` : '') +
-          (removed.length ? `- ${removed.join(', ')} ` : '') +
-          `-- az eszköz SSH-kulcsa mostantól ezekre a helyi portokra forwardolhat. Ha nem te voltál, vond vissza a párosítást a Biztonság fülön -- ez minden TOVÁBBI kapcsolódást megakadályoz; a már élő kapcsolat a saját megszakadásáig él.` +
-          narrowingLatency,
-      )
+      const portDiff =
+        (added.length ? `+ ${added.map(label).join(', ')} ` : '') +
+        (removed.length ? `- ${removed.join(', ')} ` : '')
+      void notifySecurityEvent(ol(
+        `🔌 Bridge port-lista változott (${auth!.kind === 'device' ? 'a Bridge-ből' : 'a dashboardról'}): ` + portDiff +
+          `-- az eszköz SSH-kulcsa mostantól ezekre a helyi portokra forwardolhat. Ha nem te voltál, vond vissza a párosítást a Biztonság fülön -- ez minden TOVÁBBI kapcsolódást megakadályoz; a már élő kapcsolat a saját megszakadásáig él.`,
+        `🔌 Bridge port list changed (${auth!.kind === 'device' ? 'from the Bridge' : 'from the dashboard'}): ` + portDiff +
+          `-- the device's SSH key may now forward to these local ports. If this was not you, revoke the pairing on the Security tab -- that blocks every FURTHER connection; a connection already live lasts until it drops.`,
+      ) + narrowingLatency)
     }
 
     json(res, {

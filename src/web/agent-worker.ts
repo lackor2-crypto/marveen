@@ -19,6 +19,7 @@ import { readClaudeCodeOauthJson } from './claude-credentials.js'
 import { detectPaneState } from '../pane-state.js'
 import { notifyChannel } from '../notify.js'
 import { exactTmuxTarget } from './tmux-target.js'
+import { ol } from '../owner-lang.js'
 
 // =============================================================================
 // Interactive-tmux agent worker (jun.15 subscription migration).
@@ -583,7 +584,10 @@ function alertWorkerStuck(ctx: WorkerCtx, paneTail: string): void {
   if (Date.now() - ctx.lastStuckAlert < WORKER_STUCK_ALERT_COOLDOWN_MS) return
   ctx.lastStuckAlert = Date.now()
   void notifyChannel(
-    `⚠️ Marveen worker [${ctx.session}]: a háttér-worker session nem áll készen (beragadt dialógus vagy ismeretlen képernyő). Önjavítás lefutott (Escape + restart), de a készenlét nem állt helyre. Érintett: ágens-generálás, capability-összefoglaló, heartbeat, digest. Nézz rá: tmux attach -t ${ctx.session}`,
+    ol(
+      `⚠️ Marveen worker [${ctx.session}]: a háttér-worker session nem áll készen (beragadt dialógus vagy ismeretlen képernyő). Önjavítás lefutott (Escape + restart), de a készenlét nem állt helyre. Érintett: ágens-generálás, capability-összefoglaló, heartbeat, digest. Nézz rá: tmux attach -t ${ctx.session}`,
+      `⚠️ Marveen worker [${ctx.session}]: the background worker session is not ready (a stuck dialog or an unknown screen). Self-repair ran (Escape + restart), but readiness did not come back. Affected: agent generation, capability summary, heartbeat, digest. Take a look: tmux attach -t ${ctx.session}`,
+    ),
   ).catch(() => { /* notifyChannel logs internally */ })
 }
 
