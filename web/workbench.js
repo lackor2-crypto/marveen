@@ -4269,6 +4269,30 @@
     return st.turns.map(turnHtml).join('')
   }
 
+  /** A fiokvalaszto (kanban #426): MINDEN bejelentkezett fiok, elo zold/piros
+   *  jelzessel; a felhasznalo elore valaszthat, mielott ir es kuld. Az elso
+   *  'Automatikus' -> a rendes auto-valasztas fut (fallbackkal). Egy konkret
+   *  fiok valasztasakor CSAK azzal megy (nincs fallback), ezert latszik, hogy
+   *  melyik elo. */
+  function chatAccountHtml() {
+    var accs = (WB.chatStatus && WB.chatStatus.accounts) || []
+    if (!accs.length) return ''
+    var cur = WB.chatAccount || 'auto'
+    var dot = function (s) { return s === 'online' ? '🟢' : s === 'limited' ? '🔴' : '⚪' }
+    var opts = ['<option value="auto"' + (cur === 'auto' ? ' selected' : '') + '>' + esc(t('workbench.chat.account_auto')) + '</option>']
+    for (var i = 0; i < accs.length; i++) {
+      var a = accs[i]
+      var suffix = a.status === 'limited' ? ' ' + t('workbench.chat.account_limited_suffix')
+        : a.status === 'unknown' ? ' ' + t('workbench.chat.account_unknown_suffix') : ''
+      var label = dot(a.status) + ' ' + a.agent + (a.model ? ' · ' + a.model : '') + suffix
+      opts.push('<option value="' + escA(a.agent) + '"' + (cur === a.agent ? ' selected' : '') + '>' + esc(label) + '</option>')
+    }
+    return '<div class="wb-chat-account-row">'
+      + '<label class="wb-chat-account-label" for="wbChatAccount">' + esc(t('workbench.chat.account_label')) + '</label>'
+      + '<select class="wb-input wb-chat-account" id="wbChatAccount" data-wb-act="chat-account">' + opts.join('') + '</select>'
+      + '</div>'
+  }
+
   function chatInnerHtml() {
     var streaming = WB.chatStreaming
     var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000
@@ -4277,6 +4301,7 @@
       + chatStatusHtml()
       + '<button type="button" class="btn-secondary wb-chat-setup-btn" data-wb-act="chat-setup">' + esc(t('workbench.chat.setup')) + '</button>'
       + '</div>'
+      + chatAccountHtml()
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
       + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
       + chatActivityHtml()
@@ -4388,7 +4413,7 @@
     startChatActivityTicker()
     renderChat()
 
-    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text }
+    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text, account: WB.chatAccount || 'auto' }
     var opts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -5708,6 +5733,15 @@
   }
 
   // ---- esemenyek (egy delegalt figyelo) -------------------------------------
+
+  // #426: a fiokvalaszto valtozasa. A select ertekbol allitjuk WB.chatAccount-ot;
+  // a kovetkezo kuldes ezt viszi. Nem kell ujrarajzolni -- a select maga mutatja.
+  document.addEventListener('change', function (e) {
+    if (!WB.open || !e.target || !e.target.closest) return
+    var sel = e.target.closest('[data-wb-act="chat-account"]')
+    if (!sel) return
+    WB.chatAccount = sel.value === 'auto' ? '' : sel.value
+  })
 
   document.addEventListener('click', function (e) {
     var openBtn = e.target.closest('[data-wb-open]')

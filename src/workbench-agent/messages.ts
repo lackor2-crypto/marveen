@@ -42,6 +42,18 @@ export const MESSAGES = {
     hu: 'Azt nem tudom, mikor áll vissza — a szolgáltató nem mondta meg.',
     en: 'I do not know when it comes back — the provider did not say.',
   },
+  // #426: a fiokok kerete a SZOLGALTATONAL fogyott el (heti/5 oras). Ez MAS,
+  // mint a kozos 5 oras kapu -- itt a fallback vegigment az osszes fiokon, es
+  // mind elutasitott. Az uzenet NE a "kozos 5 oras keret 100%"-ot mondja
+  // (Boss, 2026-09-27: "kulvara nem erdekel a 100%").
+  all_accounts_limited: {
+    hu: 'Most minden bejelentkezett fiók kerete kimerült a szolgáltatónál, ezért egyik sem tud válaszolni. Amint valamelyik visszaáll, próbáld újra — vagy válaszd ki a beállításnál, melyik fiókkal menjen.',
+    en: 'Every signed-in account is out of quota at the provider right now, so none of them can answer. As soon as one comes back, try again — or pick which account to use in the settings.',
+  },
+  chosen_account_limited: {
+    hu: 'A választott fiók ({account}) kerete most kimerült a szolgáltatónál. Válassz másik fiókot a beállításnál, vagy hagyd automatikuson, hogy magától egy élő fiókra váltson.',
+    en: 'The chosen account ({account}) is out of quota at the provider right now. Pick another account in the settings, or leave it on automatic so it switches to a live account by itself.',
+  },
   too_many_in_flight: {
     hu: 'Egyszerre túl sok Munkapad-hívás fut ({n}). Várd meg, amíg valamelyik befejeződik.',
     en: 'Too many Workbench calls are running at once ({n}). Wait until one of them finishes.',

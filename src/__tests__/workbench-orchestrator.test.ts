@@ -431,11 +431,13 @@ describe('friss telepites es keret-hatar', () => {
     expect(p.seen).toHaveLength(0)
   })
 
-  it('a szolgaltato sajat keret-hibaja is emberi mondat lesz', async () => {
+  it('a szolgaltato sajat keret-hibaja is emberi mondat lesz (#426: minden fiok limitelt)', async () => {
     const p = fakeProvider([], { fail: { kind: 'error', code: 'limit', detail: 'usage limit reached' } })
     const evs = await turn('Szia', p)
     const notice = evs.find((e) => e.type === 'notice') as any
-    expect(notice.code).toBe('limit_critical')
+    // #426: NEM a "kozos 5 oras keret 100%" -- a fiok kerete fogyott el.
+    expect(notice.code).toBe('all_accounts_limited')
+    expect(notice.message).not.toMatch(/5 órás/i)
   })
 
   it('a szolgaltato hibajanak OKA a valodi hibauzenetbol jon, nem talalgatasbol', async () => {
@@ -527,7 +529,7 @@ describe('fiokvaltas (#402)', () => {
     expect(p.seen).toEqual(['elso', 'masodik'])
     const notices = evs.filter((e) => e.type === 'notice') as any[]
     expect(notices).toHaveLength(1)
-    expect(notices[0].code).toBe('limit_critical')
+    expect(notices[0].code).toBe('all_accounts_limited')
   })
 
   it('a kapu a VALASZTOTT fiok 5 oras keretet nezi: a kritikus fiokot meg sem hivja', async () => {
@@ -544,7 +546,8 @@ describe('fiokvaltas (#402)', () => {
     const p = accountProvider(['elso', 'masodik'], ['elso'])
     const evs = await collect(runTurn({ projectId, workItemId, message: 'Szia', lang: 'hu', actor: 'x', account: 'elso' }, p))
     expect(p.seen).toEqual(['elso'])
-    expect((evs.find((e) => e.type === 'notice') as any).code).toBe('limit_critical')
+    // #426: kimondott (limitelt) fiok -> a valasztott fiokra utalo mondat.
+    expect((evs.find((e) => e.type === 'notice') as any).code).toBe('chosen_account_limited')
   })
 
   it('fiok-lista nelkul a szolgaltato alapertelmezettje megy (API-kulcs / fo fiok)', async () => {
