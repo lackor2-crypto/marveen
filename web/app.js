@@ -25946,11 +25946,14 @@ async function _resolveApproval(id, decision, reason) {
     const data = await res.json()
     if (!res.ok) { showToast(t('approvals.toast.error', { msg: data.error || ('HTTP ' + res.status) })); return }
     showToast(t(decision === 'approved' ? 'approvals.toast.approved' : 'approvals.toast.rejected'))
-    // Update in-place to avoid full reload flicker
-    const idx = _approvalsAll.findIndex(a => a.id === id)
-    if (idx !== -1) _approvalsAll[idx] = data
-    _renderApprovalsStats()
-    _renderApprovalsTable()
+    // Teljes ujratoltes, NEM helyben-csere: a PATCH valasza a nyers approval,
+    // amiben NINCS `undoable` es `verifications` -- azokat csak a GET lista
+    // szamolja ki. A helyben-csere emiatt eltuntette a frissen jovahagyott sor
+    // Visszavonas gombjat es az ellenorzes-jelzeset (Boss, 2026-09-27: "amit
+    // mostantol jovahagyok annak nincs visszavonasi gombja"). Egy dontes ezen
+    // felul MAS sorok undoable-jet is valtoztathatja (pl. not_latest), ezert a
+    // teljes lista frissitese a helyes. Ugyanezt teszi a Visszavonas is.
+    await loadApprovalsPage()
   } catch (err) {
     showToast(t('approvals.toast.error', { msg: String(err.message || err) }))
   }
