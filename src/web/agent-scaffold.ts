@@ -2,7 +2,7 @@ import { readRemovedDefaultTasks } from './scheduled-tasks-io.js'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmSync, watchFile, unwatchFile } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
-import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
+import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR, APP_LANG } from '../config.js'
 import { channelStateDir } from '../channel-provider.js'
 import { runAgent } from '../agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
@@ -3035,6 +3035,108 @@ export function ensureGlobalCardReferenceRule(): void {
 
   const updated = CARD_REFERENCE_BLOCK_RE.test(existing)
     ? existing.replace(CARD_REFERENCE_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+// --- Owner-language rule (kanban #416, owner 2026-09-27) --------------------
+//
+// Since the Telegram progress mirror went live in verbose mode, the agents'
+// visible terminal text reaches the owner's chat as "▸ ..." messages. That
+// text was English, so every agent suddenly "spoke English" on Telegram. The
+// mirror now drops foreign-language blocks (src/progress-mirror.ts); this rule
+// makes the agents write that text in the owner's language in the first place,
+// so the owner keeps seeing the progress instead of silence.
+const OWNER_LANGUAGE_BEGIN = '<!-- BEGIN GENERATED: owner-language-rule (auto-generated, do not edit by hand) -->'
+const OWNER_LANGUAGE_END = '<!-- END GENERATED: owner-language-rule -->'
+const OWNER_LANGUAGE_BLOCK_RE = new RegExp(
+  `${OWNER_LANGUAGE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${OWNER_LANGUAGE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+/** A "tulajdonos nyelven irunk" szabaly szovege. A telepites nyelvet
+ *  (APP_LANG) koveti, nem nevez meg tulajdonost. */
+export function buildOwnerLanguageBody(lang: string = APP_LANG): string {
+  if (lang === 'en') {
+    return [
+      '## WRITE TO THE OWNER IN ENGLISH ONLY -- THE TERMINAL TEXT TOO',
+      '',
+      'Every message to the owner is in English. Your visible text in the',
+      'terminal counts as well: the progress mirror forwards it to the',
+      'owner\'s chat. Code, commit messages and technical docs follow the',
+      'project\'s own rules.',
+    ].join('\n')
+  }
+  return [
+    '## A TULAJDONOSNAK KIZAROLAG MAGYARUL -- A TERMINAL-SZOVEG IS',
+    '',
+    'A tulajdonosnak minden uzenet magyarul megy. A terminalba irt lathato',
+    'szoveged is ide tartozik: a haladas-tukor (Telegram, "verbose" mod) ezt',
+    'tovabbitja a tulajdonos csatornajara "▸" kezdetu uzenetekben. Ezert a',
+    'munka kozbeni magyarazo mondataidat is magyarul ird ("Megnezem a',
+    'naplot.", nem "Let me check the log."). Kod, kommentek, commit-uzenet',
+    'es technikai dokumentacio tovabbra is angolul -- az nem a tulajdonosnak',
+    'szolo szoveg.',
+    '',
+    'Miert: a tulajdonos, 2026-09-27: "angolul ne irjatok a Telegramra",',
+    '"kizarolag csak magyarul". A haladas-tukor bekapcsolasa utan minden',
+    'agens angol mondatai kimentek a csatornara. A tukor mostantol kiszuri',
+    'az idegen nyelvu blokkot -- de amit kiszur, azt a tulajdonos nem latja,',
+    'tehat a magyar szoveg az, ami valoban eljut hozza.',
+  ].join('\n')
+}
+
+/** Beviszi a nyelvi szabalyt egy agens sajat CLAUDE.md-jebe. */
+export function ensureOwnerLanguageSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${OWNER_LANGUAGE_BEGIN}\n${buildOwnerLanguageBody()}\n${OWNER_LANGUAGE_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = OWNER_LANGUAGE_BLOCK_RE.test(existing)
+    ? existing.replace(OWNER_LANGUAGE_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalOwnerLanguageRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${OWNER_LANGUAGE_BEGIN}\n${buildOwnerLanguageBody()}\n${OWNER_LANGUAGE_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = OWNER_LANGUAGE_BLOCK_RE.test(existing)
+    ? existing.replace(OWNER_LANGUAGE_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'
