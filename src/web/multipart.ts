@@ -5,6 +5,10 @@ export interface ParsedForm {
   file?: { name: string; data: Buffer; mime: string }
 }
 
+function utf8(latin1: string): string {
+  return Buffer.from(latin1, 'binary').toString('utf8')
+}
+
 export function parseMultipart(buf: Buffer, contentType: string): ParsedForm {
   const boundaryMatch = contentType.match(/boundary=(.+)/)
   if (!boundaryMatch) return { fields: {} }
@@ -22,18 +26,21 @@ export function parseMultipart(buf: Buffer, contentType: string): ParsedForm {
 
     const nameMatch = headers.match(/name="([^"]+)"/)
     if (!nameMatch) continue
-    const fieldName = nameMatch[1]
+    const fieldName = utf8(nameMatch[1])
 
     const filenameMatch = headers.match(/filename="([^"]+)"/)
     if (filenameMatch) {
       const mimeMatch = headers.match(/Content-Type:\s*(.+)\r?\n?/i)
       result.file = {
-        name: filenameMatch[1],
+        // The part was split as latin1 so the file bytes survive intact; the
+        // header, though, is UTF-8 -- decode it back, or "fotók.jpg" arrives
+        // as "fotÃ³k.jpg" (#424).
+        name: utf8(filenameMatch[1]),
         data: Buffer.from(body, 'binary'),
         mime: mimeMatch?.[1]?.trim() || 'application/octet-stream',
       }
     } else {
-      result.fields[fieldName] = body
+      result.fields[fieldName] = utf8(body)
     }
   }
 

@@ -16,8 +16,8 @@
 // soha nem megy vissza a bongeszonek. Az `rclone obscure -` a standard
 // bemenetrol olvassa, a konfig `0600`-as fajlban all a store/ alatt.
 import { execFile } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { STORE_DIR } from './config.js'
 
@@ -371,4 +371,208 @@ export async function listMegaDir(
   const items = parseLsjson(r.stdout, path)
   if (!items) return { ok: false, error: 'bad_output', detail: r.stdout.slice(0, 200) }
   return { ok: true, path, items }
+}
+
+// --- Fiok tartalmanak kezelese (#424) ----------------------------------------
+// Boss (TG 6762/6763): a MEGA oldal "pontosan ugy nezzen ki, mint a Drive" --
+// soronkent letoltes / atnevezes / athelyezes / kuka, fejlecben feltoltes es
+// uj mappa. Minden muvelet rclone-nal, a fiok SAJAT gyokeren belul.
+//
+// Ket vedelem, ami a Drive-nal a Google API-bol jon, itt kezzel all:
+//   - SOHA nem ir felul: celnev-utkozesnel `exists`, es a hivo mondja ki;
+//     az rclone `moveto`/`copyto` magatol csendben felulirna.
+//   - A torles a MEGA KUKAJABA megy (`--mega-hard-delete=false`, kimondva,
+//     nem az alapertelmezesre bizva) -- a MEGA weben visszaallithato.
+
+/** Egy muvelet (mkdir, atnevezes, athelyezes, kuka) felso idohatara. */
+export const MEGA_OP_TIMEOUT_MS = 120_000
+/** Feltoltes felso idohatara (ingyenes fioknal lassu lehet). */
+export const MEGA_UPLOAD_TIMEOUT_MS = 10 * 60_000
+
+export type MegaOpResult = { ok: true; path: string } | { ok: false; error: string; detail?: string }
+
+/**
+ * Egyetlen nev (mappa vagy fajl), nem ut. `null` = elutasitva: ures, `/`,
+ * `.`/`..`, vezerlokarakter, tul hosszu. A MEGA barmilyen mas karaktert elfogad.
+ */
+export function normalizeMegaName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const n = raw.trim()
+  if (!n || n.length > 255 || n === '.' || n === '..') return null
+  if (n.includes('/') || /[\u0000-\u001f\u007f]/.test(n)) return null
+  return n
+}
+
+function joinMega(dir: string, name: string): string { return dir ? `${dir}/${name}` : name }
+function parentOf(path: string): string { const i = path.lastIndexOf('/'); return i === -1 ? '' : path.slice(0, i) }
+function baseOf(path: string): string { return path.slice(path.lastIndexOf('/') + 1) }
+
+type Ctx = { bin: string; remote: string }
+
+function ctxFor(name: string): Ctx | { error: string } {
+  const acc = readMegaAccounts().find((a) => a.name === name)
+  if (!acc) return { error: 'not_found' }
+  const bin = rcloneBin()
+  if (!bin) return { error: 'rclone_missing' }
+  return { bin, remote: acc.remote }
+}
+
+function failFrom(r: RunResult): { ok: false; error: string; detail?: string } {
+  if (r.code === RCLONE_TIMEOUT_CODE) return { ok: false, error: 'timeout', detail: r.stderr }
+  const e = explainMegaError(r.stderr || r.stdout)
+  if (/directory not found|object not found|file not found/i.test(e.raw)) return { ok: false, error: 'dir_not_found', detail: e.raw }
+  return { ok: false, error: e.code, detail: e.raw }
+}
+
+/**
+ * Letezik-e az ut, es mappa-e. `null` = nincs ilyen. A "nincs" CSAK az rclone
+ * kimondott not-found valaszabol johet; minden mas hiba hiba marad, nem "nincs"
+ * -- kulonben egy halozati hiba utan felulirnank egy meglevo fajlt.
+ */
+async function statMega(c: Ctx, path: string, run: Runner): Promise<{ ok: true; entry: { isDir: boolean } | null } | { ok: false; error: string; detail?: string }> {
+  if (!path) return { ok: true, entry: { isDir: true } }
+  const r = await run(c.bin, ['lsjson', '--stat', `${c.remote}:${path}`, '--config', rcloneConfigPath()])
+  if (r.code === 0) {
+    try {
+      const j = JSON.parse(r.stdout)
+      return { ok: true, entry: { isDir: j && j.IsDir === true } }
+    } catch {
+      return { ok: false, error: 'bad_output', detail: r.stdout.slice(0, 200) }
+    }
+  }
+  if (r.code !== RCLONE_TIMEOUT_CODE && /not found/i.test(r.stderr || r.stdout)) return { ok: true, entry: null }
+  return failFrom(r)
+}
+
+/** A cel nem letezhet (sose irunk felul). */
+async function ensureFree(c: Ctx, path: string, run: Runner): Promise<MegaOpResult | null> {
+  const st = await statMega(c, path, run)
+  if (!st.ok) return st
+  if (st.entry) return { ok: false, error: 'exists', detail: path }
+  return null
+}
+
+/** A szulo-mappanak leteznie kell, es mappanak kell lennie. */
+async function ensureDir(c: Ctx, path: string, run: Runner): Promise<MegaOpResult | null> {
+  const st = await statMega(c, path, run)
+  if (!st.ok) return st
+  if (!st.entry) return { ok: false, error: 'dir_not_found', detail: path }
+  if (!st.entry.isDir) return { ok: false, error: 'target_not_dir', detail: path }
+  return null
+}
+
+export async function megaMkdir(name: string, rawParent: unknown, rawFolder: unknown, run: Runner = makeRunner(MEGA_OP_TIMEOUT_MS)): Promise<MegaOpResult> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const parent = normalizeMegaPath(rawParent)
+  if (parent === null) return { ok: false, error: 'bad_path' }
+  const folder = normalizeMegaName(rawFolder)
+  if (folder === null) return { ok: false, error: 'bad_name' }
+  const dest = joinMega(parent, folder)
+  const pre = (await ensureDir(c, parent, run)) || (await ensureFree(c, dest, run))
+  if (pre) return pre
+  const r = await run(c.bin, ['mkdir', `${c.remote}:${dest}`, '--config', rcloneConfigPath()])
+  return r.code === 0 ? { ok: true, path: dest } : failFrom(r)
+}
+
+async function moveTo(c: Ctx, from: string, to: string, run: Runner): Promise<MegaOpResult> {
+  const r = await run(c.bin, ['moveto', `${c.remote}:${from}`, `${c.remote}:${to}`, '--config', rcloneConfigPath()])
+  return r.code === 0 ? { ok: true, path: to } : failFrom(r)
+}
+
+export async function megaRename(name: string, rawPath: unknown, rawNewName: unknown, run: Runner = makeRunner(MEGA_OP_TIMEOUT_MS)): Promise<MegaOpResult> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const path = normalizeMegaPath(rawPath)
+  if (path === null) return { ok: false, error: 'bad_path' }
+  if (!path) return { ok: false, error: 'root_protected' }
+  const newName = normalizeMegaName(rawNewName)
+  if (newName === null) return { ok: false, error: 'bad_name' }
+  const dest = joinMega(parentOf(path), newName)
+  if (dest === path) return { ok: true, path }
+  const src = await statMega(c, path, run)
+  if (!src.ok) return src
+  if (!src.entry) return { ok: false, error: 'dir_not_found', detail: path }
+  const pre = await ensureFree(c, dest, run)
+  if (pre) return pre
+  return moveTo(c, path, dest, run)
+}
+
+export async function megaMove(name: string, rawPath: unknown, rawTarget: unknown, run: Runner = makeRunner(MEGA_OP_TIMEOUT_MS)): Promise<MegaOpResult> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const path = normalizeMegaPath(rawPath)
+  const target = normalizeMegaPath(rawTarget)
+  if (path === null || target === null) return { ok: false, error: 'bad_path' }
+  if (!path) return { ok: false, error: 'root_protected' }
+  // Mappat onmagaba vagy a sajat almappajaba nem lehet tenni.
+  if (target === path || target.startsWith(path + '/')) return { ok: false, error: 'move_into_self' }
+  const dest = joinMega(target, baseOf(path))
+  if (dest === path) return { ok: true, path }
+  const src = await statMega(c, path, run)
+  if (!src.ok) return src
+  if (!src.entry) return { ok: false, error: 'dir_not_found', detail: path }
+  const pre = (await ensureDir(c, target, run)) || (await ensureFree(c, dest, run))
+  if (pre) return pre
+  return moveTo(c, path, dest, run)
+}
+
+/** A MEGA kukajaba, nem vegleges torles. A fiok gyokere nem torolheto. */
+export async function megaTrash(name: string, rawPath: unknown, run: Runner = makeRunner(MEGA_OP_TIMEOUT_MS)): Promise<MegaOpResult> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const path = normalizeMegaPath(rawPath)
+  if (path === null) return { ok: false, error: 'bad_path' }
+  if (!path) return { ok: false, error: 'root_protected' }
+  // A mappa-e dontest a MEGA adja, nem a bongeszo: egy elavult sor
+  // "fajl"-nak mondhatna egy kozben mappava lett utat.
+  const st = await statMega(c, path, run)
+  if (!st.ok) return st
+  if (!st.entry) return { ok: false, error: 'dir_not_found', detail: path }
+  const verb = st.entry.isDir ? 'purge' : 'deletefile'
+  const r = await run(c.bin, [verb, `${c.remote}:${path}`, '--mega-hard-delete=false', '--config', rcloneConfigPath()])
+  return r.code === 0 ? { ok: true, path } : failFrom(r)
+}
+
+/**
+ * Egy fajl feltoltese a fiok egy mappajaba. A tartalom egy 0600-as ideiglenes
+ * fajlon at megy (az rclone fajlt var), ami a vegen MINDIG torlodik.
+ */
+export async function megaUpload(name: string, rawDir: unknown, rawFileName: unknown, data: Buffer, run: Runner = makeRunner(MEGA_UPLOAD_TIMEOUT_MS)): Promise<MegaOpResult> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const dir = normalizeMegaPath(rawDir)
+  if (dir === null) return { ok: false, error: 'bad_path' }
+  const fileName = normalizeMegaName(rawFileName)
+  if (fileName === null) return { ok: false, error: 'bad_name' }
+  const dest = joinMega(dir, fileName)
+  const pre = (await ensureDir(c, dir, run)) || (await ensureFree(c, dest, run))
+  if (pre) return pre
+  const tmp = mkdtempSync(join(tmpdir(), 'marveen-mega-'))
+  try {
+    const local = join(tmp, 'upload')
+    writeFileSync(local, data, { mode: 0o600 })
+    const r = await run(c.bin, ['copyto', local, `${c.remote}:${dest}`, '--transfers', String(MEGA_TRANSFERS), '--config', rcloneConfigPath()])
+    return r.code === 0 ? { ok: true, path: dest } : failFrom(r)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
+/**
+ * A letoltes parancsa (`rclone cat`), amit a route folyamkent kuld tovabb.
+ * Itt csak az argumentum all ossze -- a futtatas a route dolga, mert a
+ * kimenetet nem szabad memoriaba gyujteni.
+ */
+export async function megaDownloadCommand(name: string, rawPath: unknown, run: Runner = makeRunner(MEGA_OP_TIMEOUT_MS)): Promise<{ ok: true; bin: string; args: string[]; fileName: string } | { ok: false; error: string; detail?: string }> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const path = normalizeMegaPath(rawPath)
+  if (path === null || !path) return { ok: false, error: 'bad_path' }
+  // `rclone cat` egy MAPPAN az osszes benne levo fajlt egymas utan ontene ki.
+  const st = await statMega(c, path, run)
+  if (!st.ok) return st
+  if (!st.entry) return { ok: false, error: 'dir_not_found', detail: path }
+  if (st.entry.isDir) return { ok: false, error: 'is_dir' }
+  return { ok: true, bin: c.bin, args: ['cat', `${c.remote}:${path}`, '--config', rcloneConfigPath()], fileName: baseOf(path) }
 }
