@@ -32331,8 +32331,8 @@ let _ideasAllStatuses = []
 let ideasPromoteId = null
 let ideaEditId = null
 let ideaDetailId = null
-const STATUS_COLORS = { new: 'var(--accent)', reviewed: '#f59e0b', kanban: '#22c55e', rejected: '#ef4444' }
-const STATUS_LABELS = { new: () => t('ideas.status.new'), reviewed: () => t('ideas.status.reviewed'), kanban: () => t('ideas.status.kanban'), rejected: () => t('ideas.status.rejected') }
+const STATUS_COLORS = { new: 'var(--accent)', reviewed: '#f59e0b', kanban: '#22c55e', rejected: '#ef4444', archived: 'var(--text-muted)' }
+const STATUS_LABELS = { new: () => t('ideas.status.new'), reviewed: () => t('ideas.status.reviewed'), kanban: () => t('ideas.status.kanban'), rejected: () => t('ideas.status.rejected'), archived: () => t('ideas.filter.status_archived') }
 
 async function loadIdeasPage() {
   const statusFilter = document.getElementById('ideaStatusFilter')?.value ?? 'active'
@@ -32348,12 +32348,15 @@ async function loadIdeasPage() {
   // counting the live ideas.
   const archiveParams = new URLSearchParams(params)
   archiveParams.set('archived', '1')
+  // The archive is always fetched: its header box shows the count too (Boss TG 6741).
   const [ideasRes, catsRes, archRes] = await Promise.all([
-    fetch('/api/ideas?' + params), fetch('/api/ideas/categories'),
-    statusFilter === 'archived' ? fetch('/api/ideas?' + archiveParams) : null,
+    fetch('/api/ideas?' + params), fetch('/api/ideas/categories'), fetch('/api/ideas?' + archiveParams),
   ])
   _ideasAllStatuses = await ideasRes.json()
-  ideas = archRes ? await archRes.json() : _ideasAllStatuses.filter(i => _ideaStatusMatches(statusFilter, i.status))
+  let archived = []
+  try { archived = archRes.ok ? await archRes.json() : [] } catch { archived = [] }
+  _ideasArchivedCount = Array.isArray(archived) ? archived.length : 0
+  ideas = statusFilter === 'archived' ? archived : _ideasAllStatuses.filter(i => _ideaStatusMatches(statusFilter, i.status))
   const cats = await catsRes.json()
   const catSel = document.getElementById('ideaCategoryFilter')
   if (catSel) {
@@ -32373,9 +32376,12 @@ function _ideaStatusMatches(filter, status) {
   return status === filter
 }
 
+let _ideasArchivedCount = 0
+
 function renderIdeasStats() {
   const counts = { new: 0, reviewed: 0, kanban: 0, rejected: 0 }
   for (const i of _ideasAllStatuses) counts[i.status] = (counts[i.status] || 0) + 1
+  counts.archived = _ideasArchivedCount
   const el = document.getElementById('ideasStats')
   if (!el) return
   // Each box is also the status filter (#385). Under the default "active"
