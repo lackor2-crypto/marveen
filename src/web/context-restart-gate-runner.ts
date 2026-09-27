@@ -18,7 +18,7 @@ import { readGateConfig, readGateRunState, readGateStatus, writeGateRunState, wr
 import {
   getDispatchedPendingStats,
   GATE_ALERT_ORIGIN_NOTE,
-  hasOpenInboundQuestion,
+  openInboundQuestionMessageId,
   createAgentMessage,
 } from '../db.js'
 import { exactTmuxTarget } from './tmux-target.js'
@@ -92,6 +92,39 @@ export function isInfrastructureChild(childAgeS: number, claudeAgeS: number): bo
   if (childAgeS < CHILD_MIN_AGE_S) return true
   if (childAgeS >= claudeAgeS - INFRA_AGE_DELTA_S) return true
   return false
+}
+
+/**
+ * The last inbound message the ledger drain surfaced for this agent, or null.
+ * scripts/hooks/ledger-live-drain.py writes the id into
+ * store/.ledger-drain-<agent> when it puts a lost inbound in front of the
+ * agent; the sanitisation mirrors its _statefile().
+ */
+function drainSurfacedMessageId(ledgerAgentId: string): string | null {
+  const safe = String(ledgerAgentId).replace(/[^A-Za-z0-9_-]/g, '_')
+  try {
+    const raw = readFileSync(join(PROJECT_ROOT, 'store', `.ledger-drain-${safe}`), 'utf-8').trim()
+    return raw || null
+  } catch { return null }
+}
+
+/**
+ * Does an unanswered inbound still justify holding the gate shut?
+ *
+ * Only until the agent has actually been SHOWN it. Before that a /clear could
+ * lose a question nobody has read; after it the agent knows, and whether to
+ * answer is its own call -- a bare "ok" rightly gets no answer, and it used to
+ * hold the gate shut with no age cap at all. No timer: block until surfaced.
+ * Rebuilt from upstream 4fb9fbcb (LEDGERACK905). Pure, so it tests without a
+ * database or a statefile.
+ */
+export function openQuestionBlocks(
+  openMessageId: string | null,
+  surfacedMessageId: string | null,
+): boolean {
+  if (openMessageId === null) return false      // nothing open
+  if (openMessageId === '') return true         // open, but unidentifiable: hold
+  return openMessageId !== surfacedMessageId    // held until the drain showed it
 }
 
 function sessionFor(name: string): string {
@@ -439,7 +472,11 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   })()
 
   const openQuestion = (() => {
-    try { return hasOpenInboundQuestion(agentIdForLedger(name)) }
+    try {
+      const ledgerId = agentIdForLedger(name)
+      return openQuestionBlocks(openInboundQuestionMessageId(ledgerId),
+                                drainSurfacedMessageId(ledgerId))
+    }
     catch { return false }
   })()
 
