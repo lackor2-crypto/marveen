@@ -204,30 +204,37 @@ function scrapeClaudeAccountUsage(accountId: string): { usedPct: number | null; 
   return { usedPct: null, model: null, resetsAt: null, stale: false }
 }
 
-function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string | null; resetsAt: number | null } {
-  // Either the "stop and wait for limit to reset" dialog or the plain
-  // "You've hit your session/weekly limit" banner means the window is fully
-  // exhausted (100%); neither repeats the "used X%" text the regex below
-  // needs.
-  //
-  // Only a SESSION-limit banner speaks for the five-hour window. "hit your
-  // weekly limit" used to match here too, so a weekly banner anywhere in the
-  // 2000 lines of scrollback pinned the FIVE-HOUR row to 100% and paired it
-  // with the WEEKLY reset time. Boss caught the contradiction on the widget
-  // (2026-08-10): "~100% · 23 óra 19 perc múlva" on a window that can never
-  // be more than five hours from resetting, while the statusline snapshot for
-  // the same agent said 8% used and ~5h to go. The weekly figure has its own
-  // row fed from that snapshot; it must not overwrite this one.
-  if (/Stop and wait for limit to reset|hit your session limit/i.test(pane)) {
-    return { usedPct: 100, model: null, resetsAt: parseResetsAt(pane) }
-  }
-  const usedMatch = [...pane.matchAll(/used (\d+)% of your session limit/g)].pop()
+/**
+ * The five-hour figure a pane shows NOW (#423). The scrollback holds history:
+ * a "hit your session limit" banner from before a reset, an old "used X%"
+ * line, and at the bottom our own statusline (scripts/hooks/statusline.py,
+ * "... | 5h 8% | 7d 1%"). Only the LAST signal in the pane speaks for the
+ * present. Measured 2026-09-27 11:23: after an early reset the old banner in
+ * the scrollback kept the row at 100% while the statusline below it said 8%.
+ */
+export function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string | null; resetsAt: number | null } {
   const modelMatch = pane.match(/([A-Za-z][A-Za-z0-9. ]*?)\s*[·•]\s*Claude (?:Pro|Team|Max)/)
-  return {
-    usedPct: usedMatch ? Number(usedMatch[1]) : null,
-    model: modelMatch ? modelMatch[1].trim() : null,
-    resetsAt: parseResetsAt(pane),
+  const model = modelMatch ? modelMatch[1].trim() : null
+  // Either the "stop and wait for limit to reset" dialog or the plain
+  // "You've hit your session limit" banner means the window is exhausted.
+  // Only a SESSION-limit banner speaks for the five-hour window: a weekly
+  // banner once pinned this row to 100% with the weekly reset time (Boss
+  // 2026-08-10, "~100% · 23 óra 19 perc múlva").
+  let best: { at: number; pct: number; banner: boolean } | null = null
+  const consider = (re: RegExp, pctOf: (m: RegExpMatchArray) => number, banner: boolean) => {
+    for (const m of pane.matchAll(re)) {
+      const at = m.index ?? -1
+      if (!best || at >= best.at) best = { at, pct: pctOf(m), banner }
+    }
   }
+  consider(/Stop and wait for limit to reset|hit your session limit/gi, () => 100, true)
+  consider(/used (\d+)% of your session limit/g, (m) => Number(m[1]), false)
+  consider(/\|\s*5h (\d+)%/g, (m) => Number(m[1]), false)
+  const pick = best as { at: number; pct: number; banner: boolean } | null
+  if (!pick) return { usedPct: null, model, resetsAt: parseResetsAt(pane) }
+  // The reset time belongs to a banner; read it from the text from the banner
+  // on, so an older banner's "resets ..." cannot answer for a newer reading.
+  return { usedPct: pick.pct, model, resetsAt: parseResetsAt(pick.banner ? pane.slice(pick.at) : pane) }
 }
 
 /**
