@@ -74,7 +74,10 @@ export function backupHealthRow(i: HealthInput): HealthRow {
 export function computeBackupHealth(o: { storeDir: string; destinations: Destination[]; newestLocalMs: number | null; freshInstall: boolean; now?: number }): HealthRow {
   const cfg = readConfig(o.storeDir)
   let kitConfirmed: boolean | null = null
-  try { const k = readKeyFile(o.storeDir); kitConfirmed = k ? k.current.confirmedAt != null : null } catch { kitConfirmed = false }
+  // Open backups (#414) need no key: an unsaved kit is not what to nag about then.
+  if (cfg.protection !== 'none') {
+    try { const k = readKeyFile(o.storeDir); kitConfirmed = k ? k.current.confirmedAt != null : null } catch { kitConfirmed = false }
+  }
   return backupHealthRow({
     now: o.now ?? Date.now(),
     state: readState(o.storeDir),

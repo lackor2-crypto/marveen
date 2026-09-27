@@ -15,7 +15,8 @@ import type { DestinationId } from './destinations.js'
 
 export interface ReplicaState { at: number; ok: boolean; reachable: boolean; reason?: string; detail?: string; name?: string }
 
-export interface KnownBackup { kind: BackupKind; keyId: string; createdAt: number; size?: number; verified?: boolean; verifiedAt?: number; verifyReason?: string }
+/** keyId null + open: made without a key (#414). */
+export interface KnownBackup { kind: BackupKind; keyId: string | null; open?: boolean; createdAt: number; size?: number; verified?: boolean; verifiedAt?: number; verifyReason?: string }
 
 export interface BackupState {
   lastRun?: { at: number; kind: BackupKind; ok: boolean; name?: string; error?: string; detail?: string; durationMs: number; warnings?: string[] }

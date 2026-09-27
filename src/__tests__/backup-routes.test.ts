@@ -172,6 +172,36 @@ describe('config + status', () => {
     expect(ok.body.config).toMatchObject({ schedule: { time: '04:15' }, cloud: { kind: 'gdrive', account: 'a@b.c', folderName: 'Mentesek' }, depot: { enabled: false } })
   })
 
+  it('protection (#414): "key" by default; "none" only by a person, with the password when a login exists', async () => {
+    expect((await call('/api/backup/status', 'GET')).body.config.protection).toBe('key')
+    expect((await call('/api/backup/config', 'PUT', { protection: 'maybe' })).status).toBe(400)
+    // with a login: a token (every agent holds it) cannot switch the key off
+    dbState.users = 1
+    const tok = await call('/api/backup/config?lang=en', 'PUT', { protection: 'none' })
+    expect(tok.status).toBe(403)
+    expect(tok.body.error).toBe('protection_forbidden')
+    expect(tok.body.message).toMatch(/person logged in/)
+    const session = { kind: 'session' as const, user: 'boss' }
+    const noPw = await call('/api/backup/config', 'PUT', { protection: 'none' }, session)
+    expect(noPw.status).toBe(403) // never 401 (#410)
+    expect(noPw.body.error).toBe('protection_password_required')
+    expect((await call('/api/backup/config', 'PUT', { protection: 'none', password: 'rossz' }, session)).body.error).toBe('password_wrong')
+    expect((await call('/api/backup/config', 'PUT', { protection: 'none' }, { kind: 'federation' })).status).toBe(403)
+    expect((await call('/api/backup/status', 'GET')).body.config.protection).toBe('key')
+    const ok = await call('/api/backup/config', 'PUT', { protection: 'none', password: 'Helyes-Jelszo-123' }, session)
+    expect(ok.status).toBe(200)
+    expect(ok.body.config.protection).toBe('none')
+    // other settings saved while open need no password; turning the key back on never does
+    expect((await call('/api/backup/config', 'PUT', { includeLogs: false })).status).toBe(200)
+    const back = await call('/api/backup/config', 'PUT', { protection: 'key' })
+    expect(back.status).toBe(200)
+    expect(back.body.config.protection).toBe('key')
+    // without a login the owner's browser holds the token: that is enough
+    dbState.users = 0
+    expect((await call('/api/backup/config', 'PUT', { protection: 'none' })).body.config.protection).toBe('none')
+    expect((await call('/api/backup/config', 'PUT', { protection: 'key' })).body.config.protection).toBe('key')
+  })
+
   it('status names the health, the login mode and the destinations', async () => {
     const r = await call('/api/backup/status', 'GET')
     expect(r.status).toBe(200)

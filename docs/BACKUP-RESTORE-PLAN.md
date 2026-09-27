@@ -267,6 +267,43 @@ offset  field
     their own header. The key registry (§6.1) keeps old key ids until no backup
     uses them.
 
+**Open backups -- format 2 (#414).** The owner can choose, in Settings ->
+Backup, *with a key* (protected, the default: everything above, still written
+as `format: 1`, so every Marveen that restores backups restores these) or
+*without a key* (open). Every backup follows that choice: the button, the daily
+run, the pre-restore copy (`store/backup-config.json` -> `protection: "key" |
+"none"`; a missing or damaged value is `key`). Switching to `none` is the same
+human-only step as reading the kit: a typed dashboard password when a login
+exists; switching back never needs one. An open file:
+
+```json
+{
+  "format": 2,
+  "protection": "none",
+  "createdAt": "...", "appVersion": "...", "appCommit": "...", "kind": "...",
+  "noncePrefix": "<b64 7B>",
+  "chunkSize": 65536
+}
+```
+
+- No `kdf`, `wrappedKey` or `keyId`; no key file is created for it.
+- Same framing as format 1, but each chunk is `plaintext || first 16 B of
+  sha256(sha256(header bytes) || nonce || plaintext)` with the same nonce
+  layout. So a damaged, reordered or cut file is still refused as `corrupt` /
+  `truncated` -- but there is **no secrecy and no authenticity**: anyone with
+  the file reads it, anyone who can write it can rewrite it. The page says
+  this in words before the choice is saved, keeps saying it while backups are
+  open, marks open backups in the list and in the restore preview.
+- The reader accepts exactly: format 1 without `protection` (or `"key"`), and
+  format 2 with `"none"`; a mismatch is `corrupt`. A Marveen from before #414
+  sees format 2 and answers "made by a newer Marveen, update first" instead of
+  failing on the missing key fields.
+- Restore asks for a key only for a protected file: the upload answers
+  `{ open, keyId, keyStored }` from the header, and an open file is opened
+  with no key (a typed one is ignored).
+- `store/.backup-key` stays out of every backup, open ones included
+  (inventory `STORE_EXCLUDE`).
+
 **Plaintext payload.** It is a gzip-compressed tar (`tar -czf`, with the same
 staging-dir approach as `backup.sh`, for bsdtar/GNU tar portability). Layout:
 

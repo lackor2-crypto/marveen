@@ -129,6 +129,37 @@ describe('upload + open', () => {
     } finally { writeFileSync(kf, saved) }
   })
 
+  it('the upload says whether the file needs a key (#414): this one is protected, its key is here', async () => {
+    const up = await call('/api/backup/restore/upload', 'POST', undefined, readFileSync(made.file!))
+    expect(up.body).toMatchObject({ open: false, keyStored: true })
+    expect(up.body.keyId).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  it('an open backup (#414) is opened with no key -- even with no key file at all', async () => {
+    const kf = join(store, '.backup-key')
+    const saved = readFileSync(kf)
+    rmSync(kf)
+    try {
+      const open = await createBackup({ kind: 'manual', ctx: A.ctx, recoveryKey: null, appVersion: '1.0.0', appCommit: 't' })
+      expect(open.ok).toBe(true)
+      const up = await call('/api/backup/restore/upload', 'POST', undefined, readFileSync(open.file!))
+      expect(up.body).toMatchObject({ open: true, keyId: null, keyStored: false })
+      const r = await call('/api/backup/restore/open', 'POST', { source: 'upload', uploadId: up.body.uploadId })
+      expect(r.status, JSON.stringify(r.body)).toBe(200)
+      expect(r.body).toMatchObject({ open: true, keyId: null })
+      expect(r.body.dbCounts.backup.kanban_cards).toBe(5)
+      await call('/api/backup/restore/cancel', 'POST', { previewId: r.body.previewId })
+      expect(existsSync(kf)).toBe(false)
+    } finally { writeFileSync(kf, saved) }
+  })
+
+  it('a protected backup opened from the list says it is not open', async () => {
+    const r = await call('/api/backup/restore/open', 'POST', { source: 'local', name: made.name })
+    expect(r.body).toMatchObject({ open: false })
+    expect(r.body.keyId).toMatch(/^[0-9a-f]{8}$/)
+    await call('/api/backup/restore/cancel', 'POST', { previewId: r.body.previewId })
+  })
+
   it('an unknown name is not found', async () => {
     expect((await call('/api/backup/restore/open', 'POST', { source: 'local', name: '../../etc/passwd' })).status).toBe(404)
   })

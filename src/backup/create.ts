@@ -1,5 +1,6 @@
 /**
- * Make one full, encrypted backup file (#396, plan §4 / Phase 1).
+ * Make one full, encrypted backup file (#396, plan §4 / Phase 1) -- or an open
+ * one without a key, when the owner chose that (#414, recoveryKey null).
  *
  *   1. lock (store/locks/backup.lock, stale after 2 h or a dead pid)
  *   2. staging dir (0700) under STORE_DIR/tmp -- never /tmp
@@ -7,7 +8,7 @@
  *   4. snapshot the DB with the Online Backup API
  *   5. bundle local-only git commits
  *   6. hash every file into manifest.json
- *   7. tar -czf - | encryptStream -> <outDir>/<name>.mbk.partial
+ *   7. tar -czf - | encryptStream -> <outDir>/<name>.mbk.partial (open: checksummed, not encrypted)
  *   8. fsync, rename to .mbk
  *   9. remove the staging dir (finally)
  *
@@ -33,7 +34,7 @@ const LOCK_STALE_MS = 2 * 60 * 60 * 1000
 const STAGING_STALE_MS = 60 * 60 * 1000
 export const STAGING_PREFIX = 'backup-stage-'
 
-export type BackupStage = 'collecting' | 'database' | 'encrypting' | 'copying' | 'done'
+export type BackupStage = 'collecting' | 'database' | 'encrypting' | 'packing' | 'copying' | 'done'
 
 export interface ManifestFile { path: string; size: number; sha256: string; mode: number }
 export interface ManifestLink { path: string; target: string }
@@ -72,7 +73,8 @@ export interface CreateBackupOptions {
   kind: BackupKind
   includeLogs?: boolean
   ctx: InventoryContext
-  recoveryKey: string
+  /** null: an OPEN backup, no key (#414). */
+  recoveryKey: string | null
   /** Where the .mbk lands. Default: <storeDir>/backups. */
   outDir?: string
   /** The dashboard's open handle; otherwise the DB file is opened read-only. */
@@ -327,7 +329,7 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 1), { mode: 0o600 })
 
     // -- 7. tar | encrypt -> .partial
-    stage('encrypting')
+    stage(opts.recoveryKey === null ? 'packing' : 'encrypting')
     const outDir = opts.outDir ?? join(ctx.storeDir, 'backups')
     mkdirSync(outDir, { recursive: true, mode: 0o700 })
     let name = backupFileName(now)

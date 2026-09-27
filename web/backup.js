@@ -3,9 +3,10 @@
  * Kulon fajl, szandekosan (fork-barat, mint a workbench.js): az app.js-ben
  * csak a ful letrehozasa all, a lap minden resze itt van.
  *
- * Felulrol lefele: allapot-sor, [Mentes most], vészhelyzeti lap (a kulcs),
- * hova megy a mentes, mikor, a mentesek listaja, halado beallitasok. Minden
- * mezonel ott all, MI ez, MIERT kell, es mi tortenik nelkule.
+ * Felulrol lefele: allapot-sor, [Mentes most], kulccsal vagy kulcs nelkul
+ * (#414), vészhelyzeti lap (a kulcs), hova megy a mentes, mikor, a mentesek
+ * listaja, halado beallitasok. Minden mezonel ott all, MI ez, MIERT kell, es
+ * mi tortenik nelkule.
  *
  * Az app.js-bol hasznalt globalisok: t, escapeHtml, escapeAttr, showToast,
  * switchPage. Minden szoveg a t()-n megy at (HU/EN), kulcs-elotag: `fbk.`
@@ -23,6 +24,8 @@
     kit: null,
     kitShown: false,
     kitOpen: false,
+    // "Without a key" was clicked, the warning is shown, not saved yet (#414).
+    protAsk: false,
     error: null,
     busy: false,
   }
@@ -115,13 +118,48 @@
       '</div>'
   }
 
+  function isOpen() { return !!(S.status && S.status.config && S.status.config.protection === 'none') }
+
+  // #414: with a key (protected, the default) or without (open). The choice is
+  // saved at once and every backup follows it -- the button, the daily run,
+  // the copy before a restore. "Without" first says, in words, what it means.
+  function protectionHtml() {
+    var open = isOpen()
+    var loginOn = !!S.status.loginOn
+    var chosenNone = open || S.protAsk
+    function opt(v, checked) {
+      return '<label class="bk-choice"><input type="radio" name="bkProt" data-bk="prot-' + v + '"' + (checked ? ' checked' : '') + '>' +
+        '<span><strong>' + h(tr('fbk.prot.' + v)) + '</strong><small>' + h(tr('fbk.prot.' + v + '_why')) + '</small></span></label>'
+    }
+    var ask = ''
+    if (S.protAsk && !open) {
+      ask = '<div class="bk-prot-ask">' +
+        '<div class="bk-row-desc bk-tone-warn-text">' + h(tr('fbk.prot.warning')) + '</div>' +
+        (loginOn ? '<label class="bk-field"><span>' + h(tr('fbk.prot.password')) + '</span><input type="password" class="input" id="bkProtPw" autocomplete="current-password"></label>' : '') +
+        '<div class="bk-row-actions">' +
+        '<button class="btn-primary btn-compact" data-bk="prot-confirm">' + h(tr('fbk.prot.confirm')) + '</button>' +
+        '<button class="btn-secondary btn-compact" data-bk="prot-cancel">' + h(tr('fbk.r.cancel')) + '</button>' +
+        '</div></div>'
+    }
+    return '<div class="bk-row' + (open ? ' bk-tone-warn' : '') + '"><div class="bk-row-info">' +
+      '<div class="bk-row-title">' + h(tr('fbk.prot.title')) + '</div>' +
+      '<div class="bk-row-desc">' + h(tr('fbk.prot.why')) + '</div>' +
+      opt('key', !chosenNone) + opt('none', chosenNone) + ask +
+      (open ? '<div class="bk-row-desc bk-tone-warn-text">' + h(tr('fbk.prot.open_now')) + '</div>' : '') +
+      '</div></div>'
+  }
+
   function kitHtml() {
     var k = S.status.key || {}
     var confirmed = !!k.confirmedAt
     var loginOn = !!S.status.loginOn
+    var open = isOpen()
+    // Open backups need no key: with none made yet there is nothing to keep.
+    if (open && !k.exists) return ''
+    var openNote = open ? '<div class="bk-row-meta">' + h(tr('fbk.kit.open_note')) + '</div>' : ''
     if (confirmed && !S.kitOpen) {
       return '<div class="bk-row"><div class="bk-row-info"><div class="bk-row-title">' + h(tr('fbk.kit.title')) + ' ✓</div>' +
-        '<div class="bk-row-desc">' + h(tr('fbk.kit.saved', { id: k.keyId || '' })) + '</div></div>' +
+        '<div class="bk-row-desc">' + h(tr('fbk.kit.saved', { id: k.keyId || '' })) + '</div>' + openNote + '</div>' +
         '<div class="bk-row-actions"><button class="btn-secondary btn-compact" data-bk="kit-open">' + h(tr('fbk.kit.show_again')) + '</button></div></div>'
     }
     var keyBox = ''
@@ -134,9 +172,9 @@
     var pw = loginOn && !S.kit
       ? '<label class="bk-field"><span>' + h(tr('fbk.kit.password')) + '</span><input type="password" class="input" id="bkKitPw" autocomplete="current-password"></label>'
       : ''
-    return '<div class="bk-row bk-kit' + (confirmed ? '' : ' bk-tone-warn') + '">' +
+    return '<div class="bk-row bk-kit' + (confirmed || open ? '' : ' bk-tone-warn') + '">' +
       '<div class="bk-row-info"><div class="bk-row-title">' + h(tr('fbk.kit.title')) + '</div>' +
-      '<div class="bk-row-desc">' + h(tr('fbk.kit.why')) + '</div>' +
+      '<div class="bk-row-desc">' + h(tr('fbk.kit.why')) + '</div>' + openNote +
       '<div class="bk-row-meta">' + h(tr('fbk.kit.where')) + '</div>' + pw + keyBox +
       '<label class="bk-check"><input type="checkbox" data-bk="kit-confirm"' + (confirmed ? ' checked disabled' : '') + (S.kit ? '' : ' disabled') + '> ' + h(tr('fbk.kit.confirm')) + '</label>' +
       (S.kit ? '' : '<div class="bk-row-meta">' + h(tr('fbk.kit.confirm_hint')) + '</div>') +
@@ -216,6 +254,7 @@
         : ''
       return '<div class="bk-item"><div class="bk-item-main"><strong>' + h(fmtTime(b.time)) + '</strong>' +
         (b.kind === 'pre-restore' ? ' <span class="bk-pill">' + h(tr('fbk.list.pre_restore')) + '</span>' : '') +
+        (b.open === true ? ' <span class="bk-pill bk-tone-warn-text">' + h(tr('fbk.list.open')) + '</span>' : '') +
         '<div class="bk-row-meta">' + h(fmtSize(b.size)) + ' · ' + h(where) + ' · ' + h(ver) + '</div></div>' +
         '<div class="bk-row-actions">' + dl +
         '<button class="btn-secondary btn-compact" data-bk="r-open" data-source="' + a(b.where.indexOf('local') >= 0 ? 'local' : b.where[0]) + '" data-name="' + a(b.name) + '">' + h(tr('fbk.list.restore')) + '</button>' +
@@ -254,7 +293,7 @@
     if (!S.status) { host.innerHTML = '<p class="bk-row-meta" style="padding:16px">' + h(tr('settings.loading')) + '</p>'; return }
     host.innerHTML = '<div class="bk">' +
       '<div class="settings-group-title">' + h(tr('fbk.title')) + '</div>' +
-      statusHtml() + runHtml() + kitHtml() +
+      statusHtml() + runHtml() + protectionHtml() + kitHtml() +
       '<div class="settings-group-title">' + h(tr('fbk.dest.title')) + '</div>' +
       (S.status.destinations || []).map(destRowHtml).join('') +
       scheduleHtml() + listHtml() +
@@ -389,6 +428,29 @@
       } else if (act === 'kit-download') {
         var kit = S.kit || await fetchKit()
         downloadText('marveen-backup-key-' + kit.current.keyId + '.txt', kitText(kit))
+        await load()
+      } else if (act === 'prot-none') {
+        if (!isOpen()) { S.protAsk = true; render() }
+      } else if (act === 'prot-cancel') {
+        S.protAsk = false; render()
+      } else if (act === 'prot-key') {
+        if (S.protAsk) { S.protAsk = false; render() }
+        else if (isOpen()) {
+          await api('PUT', '/api/backup/config', { protection: 'key' })
+          showToast(tr('fbk.prot.saved_key'), { type: 'success' })
+          await load()
+        }
+      } else if (act === 'prot-confirm') {
+        var ppw = document.getElementById('bkProtPw')
+        // With a dashboard login the password is required: say so here
+        // instead of asking the server with an empty field (#410).
+        if (ppw && !ppw.value) {
+          if (typeof ppw.focus === 'function') ppw.focus()
+          throw new Error(tr('fbk.prot.pw_needed'))
+        }
+        await api('PUT', '/api/backup/config', { protection: 'none', password: ppw ? ppw.value : '' })
+        S.protAsk = false
+        showToast(tr('fbk.prot.saved_none'), { type: 'success' })
         await load()
       } else if (act === 'depot-toggle') {
         await api('PUT', '/api/backup/config', { depot: { enabled: el.checked } })
@@ -533,6 +595,7 @@
       rh(head + '<div class="bk-row"><div class="bk-row-info">' +
         '<div class="bk-row-title">' + h(tr('fbk.restore.preview')) + '</div>' +
         '<div class="bk-row-meta">' + h(tr('fbk.r.made', { when: fmtTime(Date.parse(p.createdAt)) || p.createdAt, version: p.appVersion })) + '</div>' +
+        (p.open ? '<div class="bk-row-meta bk-tone-warn-text">' + h(tr('fbk.r.open_backup')) + '</div>' : '') +
         (compatBad ? '<div class="bk-error">' + h(tr('fbk.r.compat.' + p.compat.reason)) + '</div>' : '') +
         countRows(p) + catRows(p) + warnRows(p) +
         (p.needsLogin && p.needsLogin.length ? '<div class="bk-row-meta">' + h(tr('fbk.r.needs_login', { names: p.needsLogin.join(', ') })) + '</div>' : '') +
@@ -546,10 +609,14 @@
         '</div></div>')
       return
     }
-    // choose (+ key when needed)
-    var keyField = '<label class="bk-field"><span>' + h(R.keyId ? tr('fbk.r.key_for', { id: R.keyId }) : tr('fbk.r.key')) + '</span>' +
-      '<input class="input" id="bkRestoreKey" autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"></label>' +
-      '<div class="bk-row-meta">' + h(tr('fbk.r.key_hint')) + '</div>'
+    // choose (+ the key, only for a protected backup -- #414: an open one
+    // needs none; which one it is, the upload or the first open attempt says)
+    var needKey = !!R.keyId && !(R.src && R.src.open)
+    var keyField = needKey
+      ? '<label class="bk-field"><span>' + h(tr('fbk.r.key_for', { id: R.keyId })) + '</span>' +
+        '<input class="input" id="bkRestoreKey" autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"></label>' +
+        '<div class="bk-row-meta">' + h(tr(R.src && R.src.keyStored ? 'fbk.r.key_stored' : 'fbk.r.key_hint')) + '</div>'
+      : (R.src && R.src.open ? '<div class="bk-row-meta">' + h(tr('fbk.r.open_file')) + '</div>' : '')
     rh(head + '<div class="bk-row"><div class="bk-row-info">' +
       '<div class="bk-row-desc">' + h(tr('fbk.r.why')) + '</div>' +
       '<label class="bk-field"><span>' + h(tr('fbk.r.upload')) + '</span><input type="file" accept=".mbk" data-bk="r-file" class="input"></label>' +
@@ -592,7 +659,8 @@
       var data = null
       try { data = await res.json() } catch (e) { data = null }
       if (!res.ok) throw new Error((data && data.message) || tr('fbk.err.generic'))
-      R.src = { source: 'upload', uploadId: data.uploadId, fileName: f.name }
+      R.src = { source: 'upload', uploadId: data.uploadId, fileName: f.name, open: !!data.open, keyStored: !!data.keyStored }
+      R.keyId = data.open ? null : (data.keyId || null)
       renderRestore()
     } catch (e) { showToast(e.message, { type: 'error' }) }
   }

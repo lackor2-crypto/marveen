@@ -1,6 +1,6 @@
 // Restore from a backup (kanban #396, docs/BACKUP-RESTORE-PLAN.md Phase 5).
 //
-//   POST /api/backup/restore/upload          -- the .mbk as the raw body -> { uploadId }
+//   POST /api/backup/restore/upload          -- the .mbk as the raw body -> { uploadId, open, keyId, keyStored }
 //   POST /api/backup/restore/open            -- { source: local|depot|cloud|upload, name?, uploadId?, key? }
 //                                               -> the preview (nothing is changed yet)
 //   POST /api/backup/restore/start           -- { previewId, exclude[], username?, password? } ->
@@ -31,7 +31,8 @@ import { countDashboardUsers, getDashboardUser, getDb } from '../../db.js'
 import { verifyPassword } from '../password-hash.js'
 import { restartAvailability } from '../../self-restart.js'
 import type { RouteContext } from './types.js'
-import { readHeader, BackupDecryptError } from '../../backup/crypto.js'
+import { readHeader, headerKeyId, isOpenBackup, BackupDecryptError } from '../../backup/crypto.js'
+import { findKeyById } from '../../backup/key-store.js'
 import { runBackup, listBackupsIn, localBackupDir } from '../../backup/service.js'
 import { readConfig, resolveDestinations, listDestination, realDeps } from '../../backup/destinations.js'
 import { openPreview, startRestore, dropPreview, restoreStatus, ackRestoreResult, launchRunner, RestoreError } from '../../backup/restore-service.js'
@@ -108,12 +109,21 @@ async function upload(ctx: RouteContext): Promise<boolean> {
     ctx.req.on('error', () => resolve())
   })
   if (tooBig) { rmSync(file, { force: true }); return fail(ctx, 413, 'upload_too_big') }
-  try { readHeader(file) } catch (e) {
+  let keyId: string | null = null
+  let open = false
+  try {
+    const { header } = readHeader(file)
+    open = isOpenBackup(header)
+    keyId = headerKeyId(header)
+  } catch (e) {
     rmSync(file, { force: true })
     return fail(ctx, 400, e instanceof BackupDecryptError ? e.code : 'not_a_backup')
   }
   uploads.set(id, file)
-  json(ctx.res, { uploadId: id, size: total })
+  // The page asks for a key only when the file is protected (#414).
+  let keyStored = false
+  try { keyStored = !!keyId && !!findKeyById(STORE_DIR, keyId) } catch { keyStored = false }
+  json(ctx.res, { uploadId: id, size: total, open, keyId, keyStored })
   return true
 }
 
@@ -158,7 +168,8 @@ function previewPayload(id: string, ins: Inspection, confirm: StartConfirm) {
     bytes: ins.bytes,
     pathMoved: ins.pathRewrites.length > 0,
     agents: ins.manifest.agents,
-    keyId: ins.header.keyId,
+    keyId: headerKeyId(ins.header),
+    open: isOpenBackup(ins.header),
   }
 }
 
@@ -214,7 +225,7 @@ async function open(ctx: RouteContext): Promise<boolean> {
     if (e instanceof BackupDecryptError && e.code === 'wrong_key') {
       // Same as above: the file stays, only the key was wrong.
       let keyId = ''
-      try { keyId = readHeader(file).header.keyId } catch { /* the message still reads */ }
+      try { keyId = headerKeyId(readHeader(file).header) ?? '' } catch { /* the message still reads */ }
       let uploadId: string | undefined
       if (uploaded) { uploadId = randomBytes(8).toString('hex'); uploads.set(uploadId, file) }
       json(ctx.res, { error: 'wrong_key', message: M.wrong_key[uiLang(ctx)].replace('{keyId}', keyId), keyId, ...(uploadId ? { uploadId } : {}) }, 400)

@@ -14,7 +14,7 @@ import type Database from 'better-sqlite3'
 import { inspectBackup, type Inspection } from './inspect.js'
 import { buildRestorePlan, pauseStagedSchedules, writeOutcome, FLAG, RESULT, PENDING, heldPending, type RestoreOutcome } from './restore.js'
 import { findKeyById } from './key-store.js'
-import { readHeader } from './crypto.js'
+import { isOpenBackup, readHeader } from './crypto.js'
 import type { BackupCategory } from './inventory.js'
 import type { RestoreCtx } from './path-rewrite.js'
 import { lockPath } from './create.js'
@@ -55,10 +55,14 @@ export function getPreview(id: string): Preview | null {
   return previews.get(id) ?? null
 }
 
-/** The key: the one typed in, or the stored one with the header's key id. */
-export function resolveKey(storeDir: string, file: string, typed?: string | null): string {
-  if (typed && typed.trim()) return typed
+/**
+ * The key: none for an open backup (#414 -- a typed one is not needed and not
+ * used), else the one typed in, or the stored one with the header's key id.
+ */
+export function resolveKey(storeDir: string, file: string, typed?: string | null): string | null {
   const { header } = readHeader(file)
+  if (isOpenBackup(header)) return null
+  if (typed && typed.trim()) return typed
   const k = findKeyById(storeDir, header.keyId)
   if (!k) throw new RestoreError('key_needed', { keyId: header.keyId })
   return k.key

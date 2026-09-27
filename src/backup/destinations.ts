@@ -20,12 +20,16 @@ import { BACKUP_NAME_RE } from './create.js'
 
 export type DestinationId = 'local' | 'depot' | 'cloud'
 export type CloudKind = 'gdrive' | 'mega'
+/** 'key': protected with the recovery key (the default); 'none': open, no key (#414). */
+export type BackupProtection = 'key' | 'none'
 
 export interface BackupConfig {
   depot: { enabled: boolean | null }
   cloud: { kind: CloudKind | null; account: string | null; folderName: string | null }
   schedule: { enabled: boolean; time: string }
   includeLogs: boolean
+  /** Every backup follows it: the button, the daily run, the pre-restore copy. */
+  protection: BackupProtection
 }
 
 export const DEFAULT_SCHEDULE_TIME = '03:30'
@@ -36,6 +40,7 @@ export function defaultConfig(): BackupConfig {
     cloud: { kind: null, account: null, folderName: null },
     schedule: { enabled: true, time: DEFAULT_SCHEDULE_TIME },
     includeLogs: false,
+    protection: 'key',
   }
 }
 
@@ -58,6 +63,8 @@ export function readConfig(storeDir: string): BackupConfig {
     },
     schedule: { enabled: raw?.schedule?.enabled !== false, time },
     includeLogs: raw?.includeLogs === true,
+    // Only an explicit "none" opens it up: a missing or damaged value stays protected.
+    protection: raw?.protection === 'none' ? 'none' : 'key',
   }
 }
 

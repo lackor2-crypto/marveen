@@ -17,14 +17,28 @@
  * file -- header included -- fails authentication instead of decrypting to
  * something plausible.
  *
+ * Two formats, told apart by the header's `format` (#414):
+ *   1  PROTECTED -- the above; the recovery key opens it. Unchanged since #396,
+ *      so every Marveen that restores backups restores these.
+ *   2  OPEN (`"protection": "none"`) -- no key: the chunks are the plaintext
+ *      followed by a 16-byte SHA-256 checksum of (AAD || nonce || plaintext).
+ *      The same framing, so a damaged, reordered or cut file is still refused
+ *      as corrupt / truncated -- but anyone who has the file can read it, and
+ *      whoever can write it can change it. A Marveen from before #414 answers
+ *      "made by a newer Marveen, update first" instead of failing on the
+ *      missing key fields.
+ *
  * Node built-ins only: `age`/`restic` are not present on a fresh install.
  */
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, scryptSync } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto'
 import { closeSync, openSync, readSync } from 'node:fs'
 import { Transform, type TransformCallback } from 'node:stream'
 
 export const MAGIC = Buffer.from('MRVNBK01', 'ascii')
+/** A protected backup: the recovery key opens it (#396). */
 export const FORMAT = 1
+/** An open backup: no key (#414). */
+export const FORMAT_OPEN = 2
 export const DEFAULT_CHUNK = 64 * 1024
 const TAG = 16
 const MAX_HEADER = 64 * 1024
@@ -40,22 +54,43 @@ const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
 export type BackupKind = 'scheduled' | 'manual' | 'pre-restore'
 
-export interface BackupHeader {
+interface HeaderCommon {
   format: number
   createdAt: string
   appVersion: string
   appCommit: string
   kind: BackupKind
-  kdf: { alg: 'scrypt'; N: number; r: number; p: number; salt: string }
-  wrappedKey: { alg: 'A256GCM'; nonce: string; ct: string }
-  keyId: string
   noncePrefix: string
   chunkSize: number
 }
 
-export type HeaderBase = Pick<BackupHeader, 'createdAt' | 'appVersion' | 'appCommit' | 'kind'>
+/** Format 1: locked with a recovery key. */
+export interface KeyedHeader extends HeaderCommon {
+  protection?: 'key'
+  kdf: { alg: 'scrypt'; N: number; r: number; p: number; salt: string }
+  wrappedKey: { alg: 'A256GCM'; nonce: string; ct: string }
+  keyId: string
+}
 
-export type DecryptErrorCode = 'wrong_key' | 'corrupt' | 'truncated' | 'not_a_backup' | 'format_unknown'
+/** Format 2: open, no key. */
+export interface OpenHeader extends HeaderCommon {
+  protection: 'none'
+}
+
+export type BackupHeader = KeyedHeader | OpenHeader
+
+export function isOpenBackup(h: BackupHeader): h is OpenHeader {
+  return h.protection === 'none'
+}
+
+/** The key id of a protected backup; null for an open one. */
+export function headerKeyId(h: BackupHeader): string | null {
+  return isOpenBackup(h) ? null : h.keyId
+}
+
+export type HeaderBase = Pick<HeaderCommon, 'createdAt' | 'appVersion' | 'appCommit' | 'kind'>
+
+export type DecryptErrorCode = 'wrong_key' | 'key_needed' | 'corrupt' | 'truncated' | 'not_a_backup' | 'format_unknown'
 
 export class BackupDecryptError extends Error {
   code: DecryptErrorCode
@@ -92,7 +127,7 @@ export function keyIdOf(recoveryKey: string): string {
   return createHash('sha256').update(normalizeRecoveryKey(recoveryKey), 'utf8').digest('hex').slice(0, 8)
 }
 
-function deriveKek(recoveryKey: string, kdf: BackupHeader['kdf']): Buffer {
+function deriveKek(recoveryKey: string, kdf: KeyedHeader['kdf']): Buffer {
   if (kdf.alg !== 'scrypt' || !Number.isInteger(kdf.N) || kdf.N < MIN_KDF_N || kdf.N > MAX_KDF_N
       || (kdf.N & (kdf.N - 1)) !== 0 || kdf.r < 1 || kdf.r > 16 || kdf.p < 1 || kdf.p > 4) {
     throw new BackupDecryptError('format_unknown', 'Unsupported key-derivation parameters in the backup header.')
@@ -123,54 +158,100 @@ export interface EncryptOptions {
   chunkSize?: number
 }
 
+/** How one chunk record is made and checked: AES-GCM (protected) or a checksum (open). */
+interface Sealer {
+  seal(plain: Buffer, idx: number, last: boolean): Buffer
+  /** The plaintext, or null when the record does not check out at this position. */
+  open(rec: Buffer, idx: number, last: boolean): Buffer | null
+}
+
+function gcmSealer(dataKey: Buffer, prefix: Buffer, aad: Buffer): Sealer {
+  return {
+    seal(plain, idx, last) {
+      const c = createCipheriv('aes-256-gcm', dataKey, chunkNonce(prefix, idx, last))
+      c.setAAD(aad)
+      return Buffer.concat([c.update(plain), c.final(), c.getAuthTag()])
+    },
+    open(rec, idx, last) {
+      if (rec.length < TAG) return null
+      try {
+        const d = createDecipheriv('aes-256-gcm', dataKey, chunkNonce(prefix, idx, last))
+        d.setAAD(aad)
+        d.setAuthTag(rec.subarray(rec.length - TAG))
+        return Buffer.concat([d.update(rec.subarray(0, rec.length - TAG)), d.final()])
+      } catch { return null }
+    },
+  }
+}
+
+// An open backup: integrity against damage and truncation, no secrecy, no
+// protection against someone who rewrites the whole file.
+function checksumSealer(prefix: Buffer, aad: Buffer): Sealer {
+  const sum = (plain: Buffer, idx: number, last: boolean) =>
+    createHash('sha256').update(aad).update(chunkNonce(prefix, idx, last)).update(plain).digest().subarray(0, TAG)
+  return {
+    seal(plain, idx, last) { return Buffer.concat([plain, sum(plain, idx, last)]) },
+    open(rec, idx, last) {
+      if (rec.length < TAG) return null
+      const plain = rec.subarray(0, rec.length - TAG)
+      return timingSafeEqual(rec.subarray(rec.length - TAG), sum(plain, idx, last)) ? Buffer.from(plain) : null
+    },
+  }
+}
+
 /**
  * Build the header for a new backup and the Transform that turns plaintext into
  * the chunk sequence. Write `header` first, then pipe the payload through
- * `transform`.
+ * `transform`. `recoveryKey: null` makes an OPEN backup (format 2, no key).
  */
-export function encryptStream(recoveryKey: string, headerBase: HeaderBase, opts: EncryptOptions = {}): { header: Buffer; headerJson: BackupHeader; transform: Transform } {
+export function encryptStream(recoveryKey: string | null, headerBase: HeaderBase, opts: EncryptOptions = {}): { header: Buffer; headerJson: BackupHeader; transform: Transform } {
   const chunkSize = opts.chunkSize ?? DEFAULT_CHUNK
-  const kdf = { alg: 'scrypt' as const, N: opts.kdfN ?? DEFAULT_KDF_N, r: 8, p: 1, salt: randomBytes(16).toString('base64') }
-  const dataKey = randomBytes(32)
-  const kek = deriveKek(recoveryKey, kdf)
-  const wrapNonce = randomBytes(12)
-  const wc = createCipheriv('aes-256-gcm', kek, wrapNonce)
-  const wrapped = Buffer.concat([wc.update(dataKey), wc.final(), wc.getAuthTag()])
   const noncePrefix = randomBytes(7)
-  const headerJson: BackupHeader = {
-    format: FORMAT,
+  const common = {
     createdAt: headerBase.createdAt,
     appVersion: headerBase.appVersion,
     appCommit: headerBase.appCommit,
     kind: headerBase.kind,
-    kdf,
-    wrappedKey: { alg: 'A256GCM', nonce: wrapNonce.toString('base64'), ct: wrapped.toString('base64') },
-    keyId: keyIdOf(recoveryKey),
-    noncePrefix: noncePrefix.toString('base64'),
-    chunkSize,
+  }
+  let headerJson: BackupHeader
+  let dataKey: Buffer | null = null
+  if (recoveryKey === null) {
+    headerJson = { format: FORMAT_OPEN, protection: 'none', ...common, noncePrefix: noncePrefix.toString('base64'), chunkSize }
+  } else {
+    const kdf = { alg: 'scrypt' as const, N: opts.kdfN ?? DEFAULT_KDF_N, r: 8, p: 1, salt: randomBytes(16).toString('base64') }
+    dataKey = randomBytes(32)
+    const kek = deriveKek(recoveryKey, kdf)
+    const wrapNonce = randomBytes(12)
+    const wc = createCipheriv('aes-256-gcm', kek, wrapNonce)
+    const wrapped = Buffer.concat([wc.update(dataKey), wc.final(), wc.getAuthTag()])
+    headerJson = {
+      format: FORMAT,
+      ...common,
+      kdf,
+      wrappedKey: { alg: 'A256GCM', nonce: wrapNonce.toString('base64'), ct: wrapped.toString('base64') },
+      keyId: keyIdOf(recoveryKey),
+      noncePrefix: noncePrefix.toString('base64'),
+      chunkSize,
+    }
   }
   const header = serializeHeader(headerJson)
   const aad = createHash('sha256').update(header).digest()
+  const sealer = dataKey ? gcmSealer(dataKey, noncePrefix, aad) : checksumSealer(noncePrefix, aad)
 
   let counter = 0
   let pending = Buffer.alloc(0)
-  const seal = (plain: Buffer, last: boolean): Buffer => {
-    const c = createCipheriv('aes-256-gcm', dataKey, chunkNonce(noncePrefix, counter++, last))
-    c.setAAD(aad)
-    return Buffer.concat([c.update(plain), c.final(), c.getAuthTag()])
-  }
   const transform = new Transform({
     transform(chunk: Buffer, _enc, cb: TransformCallback) {
       pending = pending.length ? Buffer.concat([pending, chunk]) : Buffer.from(chunk)
       // Keep at least one byte back: only the flush knows which chunk is last.
       while (pending.length > chunkSize) {
-        this.push(seal(pending.subarray(0, chunkSize), false))
+        this.push(sealer.seal(pending.subarray(0, chunkSize), counter++, false))
         pending = pending.subarray(chunkSize)
       }
       cb()
     },
     flush(cb: TransformCallback) {
-      this.push(seal(pending, true))
+      this.push(sealer.seal(pending, counter++, true))
       pending = Buffer.alloc(0)
       cb()
     },
@@ -213,14 +294,20 @@ export function readHeader(src: Buffer | string): { header: BackupHeader; header
     throw new BackupDecryptError('corrupt', 'The backup header is damaged.')
   }
   if (typeof header?.format !== 'number') throw new BackupDecryptError('corrupt', 'The backup header is damaged.')
-  if (header.format !== FORMAT) {
+  if (header.format !== FORMAT && header.format !== FORMAT_OPEN) {
     throw new BackupDecryptError('format_unknown', `Backup format ${header.format} is newer than this Marveen understands.`)
+  }
+  // The format number and the protection field must agree: a protected
+  // backup never reads as an open one, nor the other way round.
+  const open = header.protection === 'none'
+  if (open !== (header.format === FORMAT_OPEN) || (!open && header.protection !== undefined && header.protection !== 'key')) {
+    throw new BackupDecryptError('corrupt', 'The backup header is damaged.')
   }
   return { header, headerBytes: Buffer.from(headerBytes), payloadOffset: 12 + len }
 }
 
 /** Unwrap the data key; a wrong recovery key fails here, before any payload. */
-export function unwrapDataKey(recoveryKey: string, header: BackupHeader): Buffer {
+export function unwrapDataKey(recoveryKey: string, header: KeyedHeader): Buffer {
   const kek = deriveKek(recoveryKey, header.kdf)
   const ct = Buffer.from(header.wrappedKey.ct, 'base64')
   if (ct.length !== 32 + TAG) throw new BackupDecryptError('corrupt', 'The backup header is damaged.')
@@ -236,37 +323,36 @@ export function unwrapDataKey(recoveryKey: string, header: BackupHeader): Buffer
 /**
  * Transform that turns the chunk sequence (everything after the header) back
  * into plaintext. Errors are BackupDecryptError with a code:
+ *   key_needed -- a protected backup and no key (thrown here, synchronously)
  *   wrong_key  -- the recovery key does not unwrap the data key (thrown here,
  *                 synchronously, before any data flows)
- *   corrupt    -- a chunk fails authentication
+ *   corrupt    -- a chunk fails authentication (open backup: its checksum)
  *   truncated  -- the stream ended without a final chunk
+ * An open backup needs no key: `recoveryKey` is ignored for it.
  */
-export function decryptStream(recoveryKey: string, header: BackupHeader, headerBytes: Buffer): Transform {
-  const dataKey = unwrapDataKey(recoveryKey, header)
+export function decryptStream(recoveryKey: string | null, header: BackupHeader, headerBytes: Buffer): Transform {
   const chunkSize = header.chunkSize
   if (!Number.isInteger(chunkSize) || chunkSize < 1024 || chunkSize > 16 * 1024 * 1024) {
     throw new BackupDecryptError('corrupt', 'The backup header is damaged.')
   }
-  const record = chunkSize + TAG
-  const prefix = Buffer.from(header.noncePrefix, 'base64')
+  const prefix = Buffer.from(header.noncePrefix ?? '', 'base64')
+  if (prefix.length !== 7) throw new BackupDecryptError('corrupt', 'The backup header is damaged.')
   const aad = createHash('sha256').update(headerBytes).digest()
+  let sealer: Sealer
+  if (isOpenBackup(header)) sealer = checksumSealer(prefix, aad)
+  else {
+    if (!recoveryKey) throw new BackupDecryptError('key_needed', `This backup is protected: it needs its recovery key (key id ${header.keyId}).`)
+    sealer = gcmSealer(unwrapDataKey(recoveryKey, header), prefix, aad)
+  }
+  const record = chunkSize + TAG
   let counter = 0
   let pending = Buffer.alloc(0)
-  const open = (rec: Buffer, idx: number, last: boolean): Buffer | null => {
-    if (rec.length < TAG) return null
-    try {
-      const d = createDecipheriv('aes-256-gcm', dataKey, chunkNonce(prefix, idx, last))
-      d.setAAD(aad)
-      d.setAuthTag(rec.subarray(rec.length - TAG))
-      return Buffer.concat([d.update(rec.subarray(0, rec.length - TAG)), d.final()])
-    } catch { return null }
-  }
   return new Transform({
     transform(chunk: Buffer, _enc, cb: TransformCallback) {
       pending = pending.length ? Buffer.concat([pending, chunk]) : Buffer.from(chunk)
       // A full record is only known to be non-final once more bytes follow it.
       while (pending.length > record) {
-        const plain = open(pending.subarray(0, record), counter, false)
+        const plain = sealer.open(pending.subarray(0, record), counter, false)
         if (!plain) return cb(new BackupDecryptError('corrupt', `The backup file is damaged (chunk ${counter}).`))
         counter++
         this.push(plain)
@@ -276,14 +362,14 @@ export function decryptStream(recoveryKey: string, header: BackupHeader, headerB
     },
     flush(cb: TransformCallback) {
       if (pending.length === 0) return cb(new BackupDecryptError('truncated', 'The backup file is cut short (no final chunk).'))
-      const plain = open(pending, counter, true)
+      const plain = sealer.open(pending, counter, true)
       if (plain) {
         this.push(plain)
         return cb()
       }
       // The last record authenticates as a MIDDLE chunk: the real final chunk
       // (and maybe more) is missing -- the file was cut at a chunk boundary.
-      if (pending.length === record && open(pending, counter, false)) {
+      if (pending.length === record && sealer.open(pending, counter, false)) {
         return cb(new BackupDecryptError('truncated', 'The backup file is cut short (final chunk missing).'))
       }
       // A short last record that authenticates neither way: the bytes are

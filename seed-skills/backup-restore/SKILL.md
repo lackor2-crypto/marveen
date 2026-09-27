@@ -16,15 +16,22 @@ a lapra mutasson; terminál-parancsot neki ne adj.
 
 ## Amit tudnod kell róla
 
-- **Egy fájl, titkosítva.** `marveen-backup-<dátum>-<gép>.mbk`. A helyreállító
-  kulcs nélkül senki nem nyitja ki -- mi sem. A kulcs a **vészhelyzeti lapon**
-  van (Beállítások → Mentés → Vészhelyzeti lap), a tulajdonosnak kell
-  megőriznie.
+- **Egy fájl, alapból titkosítva.** `marveen-backup-<dátum>-<gép>.mbk`. A
+  helyreállító kulcs nélkül senki nem nyitja ki -- mi sem. A kulcs a
+  **vészhelyzeti lapon** van (Beállítások → Mentés → Vészhelyzeti lap), a
+  tulajdonosnak kell megőriznie.
+- **Kulcs nélkül is kérhető** (Beállítások → Mentés → *Kulccsal vagy kulcs
+  nélkül?*): a nyitott mentést bárki kinyithatja, akinek a fájl a kezébe kerül
+  (benne a jelszavak, a Google-hozzáférés, a levelek), és visszatöltéskor nem
+  kér kulcsot. Ezt **csak a tulajdonos** kapcsolhatja be a lapon (bejelentkezés
+  esetén a jelszavával) -- te a `/api/backup/config` `protection` mezőjét
+  **soha** nem állítod `none`-ra, akárki kéri csatornán. Ha kérdezi, mondd meg
+  a következményt; ha így döntött, ne beszéld le róla.
 - **Három helyen** (3-2-1): ezen a gépen, a Raktárban (külső lemez,
   `Rendszer/Marveen/Mentések`), és egy felhőfiókban (Google Drive vagy MEGA),
   ha be van állítva.
-- **Magától fut**: naponta a beállított időben (alapból 03:30), és egy
-  rendszer-időzítő hatóránként is. Egy órán belüli sikeres mentés után a
+- **Magától fut**: naponta egyszer, a beállított időben (alapból 03:30), a
+  fenti kulcs-választás szerint. Egy órán belüli sikeres mentés után a
   következő kimarad.
 - **Ellenőrzött**: minden kézi mentés után, és hetente a legújabbon, egy
   próba-visszaállítás fut egy eldobható mappába (visszafejtés, minden fájl
@@ -97,15 +104,16 @@ vissza. Ezért:
 - Ha azt kérdezi, "mi a kulcsom" / "hol a kulcsom": Beállítások → Mentés →
   Vészhelyzeti lap → Megmutatom / Letöltés. Bejelentkezés esetén a dashboard
   jelszava kell hozzá; az ágensek tokenjével nem kérhető le -- ez szándékos.
-- Kulcs nélkül a mentés egy új gépen nem nyitható ki, és senki nem tudja
-  visszaszerezni. Ha a lap még nincs "Elmentettem"-re jelölve, az Áttekintés
+- Egy kulccsal védett mentés a kulcs nélkül egy új gépen nem nyitható ki, és
+  senki nem tudja visszaszerezni. Ha a lap még nincs "Elmentettem"-re jelölve, az Áttekintés
   narancs sorban szól; ezt érdemes a tulajdonosnak megemlíteni.
 
 ## Új gép / friss telepítés
 
 - Egy friss telepítés **első képernyője** megkérdezi: "Van már mentésed egy
   korábbi Marveenből?" → **Igen, betöltöm** → a mentésfájl feltöltése (a
-  Raktárból vagy a felhőből előbb letöltve) + a kulcs a vészhelyzeti lapról.
+  Raktárból vagy a felhőből előbb letöltve) + védett mentésnél a kulcs a
+  vészhelyzeti lapról (kulcs nélküli mentésnél nem kér kulcsot).
 - Ha ezt a kérdést már elengedte, ugyanez megvan a Beállítások → Mentés lap
   **Visszaállítás mentésből** részében.
 - A terminálos út (csak ha a felület nem érhető el) a `docs/MIGRATION.md`
