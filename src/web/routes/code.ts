@@ -1274,10 +1274,19 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // Claim is a POST: it mutates (running + lease + attempt count).
   if (path === '/api/code/tasks/claim' && method === 'POST') {
     if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
-    const body = await parseJsonBody<{ host?: string }>(ctx)
+    const body = await parseJsonBody<{ host?: string; workerVersion?: string }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
     const host = (body.host ?? '').trim() || 'unknown-worker'
-    recordCodeWorkerSeen(host, 'claim')
+    // #425: a claim MOST viszi a worker sajat verziojat, es igy azonnal frissul
+    // a nyilvantartas. Enelkul a verziot csak a felderites irta -- egy epp
+    // frissult worker addig "elavultnak" latszott (ezert visszatartva), amig
+    // egy teljes felderitesi kort le nem futott (~7,5 perc hidegcache-bol).
+    // A regi, verziot nem kuldo worker esetén ez `undefined`, tehat a tarolt
+    // verziot nem irja felul -- a viselkedes valtozatlan.
+    const claimVersion = typeof body.workerVersion === 'string' && body.workerVersion.trim()
+      ? body.workerVersion.trim()
+      : undefined
+    recordCodeWorkerSeen(host, 'claim', undefined, Date.now(), claimVersion)
     // #425: an OUTDATED worker gets no new task until it has updated itself.
     // It only updates on an empty claim, so with a busy queue a fix never
     // reached it (measured 2026-09-27: 8 queued tasks, the fixed script

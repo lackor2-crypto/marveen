@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-27.2'
+$script:WorkerVersion = '2026-09-27.3'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -306,7 +306,7 @@ function Test-WorkWaiting {
   }
   $claim = $null
   try {
-    $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId }
+    $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId; workerVersion = $script:WorkerVersion }
   } catch { return }
   if ($claim -and $claim.browseRequests) { Invoke-BrowseRequests -Requested $claim.browseRequests }
   if ($claim -and $claim.task) {
@@ -1294,7 +1294,7 @@ function Start-WorkerLoop {
         $claim = $script:PendingTask
         $script:PendingTask = $null
       } else {
-        $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId }
+        $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId; workerVersion = $script:WorkerVersion }
       }
       if ((-not $claim -or -not $claim.task) -and ((Get-Date) - $lastDiscover).TotalSeconds -ge $DiscoverSeconds) {
         $lastDiscover = Get-Date

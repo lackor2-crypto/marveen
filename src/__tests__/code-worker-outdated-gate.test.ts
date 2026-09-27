@@ -25,4 +25,22 @@ describe('outdated worker gate (#425)', () => {
     recordCodeWorkerSeen('HOST-NOVER', 'claim')
     expect(outdatedWorkerHeld('HOST-NOVER')).toBe(false)
   })
+
+  it('#425: a CLAIM-en jelentett friss verzio azonnal feloldja a visszatartast (nem kell felderites)', () => {
+    // A worker regi verziot jelentett, tehat vissza van tartva.
+    recordCodeWorkerSeen('HOST-UPD', 'discovery', 2, Date.now(), '2000-01-01.1')
+    expect(outdatedWorkerHeld('HOST-UPD')).toBe(true)
+    // Frissitette magat, es a KOVETKEZO claim mar a friss verziot viszi --
+    // felderitesi kor nelkul. Innentol nincs visszatartas: nem kell megvarni a
+    // ~7,5 perces beszelgetes-atnezest (kanban #425).
+    recordCodeWorkerSeen('HOST-UPD', 'claim', undefined, Date.now(), expectedWorkerVersion())
+    expect(outdatedWorkerHeld('HOST-UPD')).toBe(false)
+  })
+
+  it('#425: a verziot NEM jelento (regi) claim nem irja felul a tarolt verziot', () => {
+    recordCodeWorkerSeen('HOST-KEEP', 'discovery', 2, Date.now(), expectedWorkerVersion())
+    // Egy verzio nelkuli claim (regi worker) nem nullazza a mezot.
+    recordCodeWorkerSeen('HOST-KEEP', 'claim')
+    expect(outdatedWorkerHeld('HOST-KEEP')).toBe(false)
+  })
 })
