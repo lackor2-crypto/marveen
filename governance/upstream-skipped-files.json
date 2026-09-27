@@ -559,12 +559,6 @@
       "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
-    "src/__tests__/agent-delete-stops-session.test.ts": {
-      "blob": "bf216c2ecf43fe0896267823ca815c753fe5fc73",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/agent-identity-setup.test.ts": {
       "blob": "edbfb9669d7341cf44e430c2d31d61267431cce3",
       "kind": "decided",
