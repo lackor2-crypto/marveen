@@ -323,6 +323,42 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
     upsertCodeSession({ project: 'marvin', workspacePath: MARVIN.workspacePath, sessionId: MARVIN.sessionId })
     expect(getCodeSession('marvin')!.marvinOwned).toBe(true)
   })
+
+  // #427 (Boss, 2026-09-27): a Jovahagyasokbol kiadott ellenorzes/javitas
+  // (startFresh:true) MINDIG uj beszelgetest kap -- a kartya-alapu
+  // tema-folytatast is felulirja, hogy az ellenor ne lassa a fejleszto korabbi
+  // chatjet.
+  it('#427: startFresh:true a kartya-alapu tema-folytatast is FELULIRJA -> friss szal', () => {
+    seedThree()
+    createKanbanCard({ id: 'deadbeef', title: 'Ellenorizendo munka', status: 'waiting' })
+    // Korabbi feladat ezen a kartyan, a projekt bekotott (latszo) sessionjeben,
+    // lezarva -> ez lenne a tema-folytatas alanya.
+    const prior = enqueueCodeTask({ project: 'marvin', prompt: 'munka a deadbeef kartyan', sessionId: MARVIN.sessionId })
+    expect('task' in prior).toBe(true)
+    const pc = claimNextCodeTask('w')!
+    completeCodeTask(pc.id, { ok: true, result: 'kesz' })
+
+    // BASELINE: ugyanaz a kartya, startFresh NELKUL -> tema-folytatas (nem friss).
+    enqueueCodeTask({ project: 'marvin', prompt: 'ellenorzes a deadbeef kartyan' })
+    const base = claimNextCodeTask('w')!
+    expect(base.startFresh).toBe(false)
+    expect(base.sessionId).toBe(MARVIN.sessionId)
+    completeCodeTask(base.id, { ok: true, result: 'x' })
+
+    // #427: ugyanaz a kartya, DE startFresh:true -> a folytatast felulirja.
+    enqueueCodeTask({ project: 'marvin', prompt: 'ellenorzes a deadbeef kartyan', startFresh: true })
+    const fresh = claimNextCodeTask('w')!
+    expect(fresh.startFresh).toBe(true)
+  })
+
+  it('#427: startFresh cimzett (target) fulnel NEM ertelmezett -- a cimzes eros', () => {
+    seedThree()
+    const out = enqueueCodeTask({ project: 'marvin', prompt: 'valami', sessionId: MARVIN.sessionId, startFresh: true })
+    expect('task' in out).toBe(true)
+    const claimed = claimNextCodeTask('w')!
+    expect(claimed.targetSessionId).toBe(MARVIN.sessionId)
+    expect(claimed.startFresh).toBe(false)
+  })
 })
 
 describe('lease / liveness', () => {

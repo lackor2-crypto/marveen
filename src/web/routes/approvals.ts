@@ -824,6 +824,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
           }),
           origin: 'dashboard',
           requestedBy: agent,
+          // #427 (Boss, 2026-09-27): a Jovahagyasokbol kiadott ellenorzes/javitas
+          // mindig NULLAROL induljon -- ne folytassa a kartya korabbi chatjet, mert
+          // az tokent eszik es a fejleszto gondolatmenete rontja a fuggetlen atnezest.
+          startFresh: true,
         })
         if ('error' in enqueued) {
           // The pending row was already created; leave it resolved as a failure
