@@ -178,7 +178,8 @@
       '<div class="bk-row-meta">' + h(tr('fbk.kit.where')) + '</div>' + pw + keyBox +
       '<label class="bk-check"><input type="checkbox" data-bk="kit-confirm"' + (confirmed ? ' checked disabled' : '') + (S.kit ? '' : ' disabled') + '> ' + h(tr('fbk.kit.confirm')) + '</label>' +
       (S.kit ? '' : '<div class="bk-row-meta">' + h(tr('fbk.kit.confirm_hint')) + '</div>') +
-      (open ? '' : '<div class="bk-kit-key-controls">' + keyControlsHtml('kit') + '</div>') +
+      // Also in open mode: the key still exists and the next protected backup uses it.
+      '<div class="bk-kit-key-controls">' + keyControlsHtml('kit') + '</div>' +
       '</div>' +
       '<div class="bk-row-actions">' +
       '<button class="btn-secondary btn-compact" data-bk="kit-show">' + h(S.kitShown ? tr('fbk.kit.hide') : tr('fbk.kit.show')) + '</button>' +
