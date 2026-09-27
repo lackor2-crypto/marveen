@@ -1419,9 +1419,19 @@ export function saveMemory(
   topicKey?: string
 ): void {
   const now = Math.floor(Date.now() / 1000)
-  db.prepare(
+  const info = db.prepare(
     'INSERT INTO memories (chat_id, topic_key, content, sector, salience, created_at, accessed_at) VALUES (?, ?, ?, ?, 1.0, ?, ?)'
   ).run(chatId, topicKey ?? null, content, sector, now, now)
+  const id = Number(info.lastInsertRowid)
+
+  // Fire-and-forget embedding, same as saveAgentMemory. Without it the rows
+  // written through THIS path (the nightly "[Napi naplo ...]" digest) stayed
+  // unvectorised and fell out of semantic search. Rebuilt from upstream 5c9a9252.
+  generateEmbedding(content).then(emb => {
+    if (emb) {
+      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(emb), id)
+    }
+  }).catch(() => {})
 }
 
 // Build a safe FTS5 MATCH expression from a free-form user query.

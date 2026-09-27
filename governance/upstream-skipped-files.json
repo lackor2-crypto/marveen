@@ -897,9 +897,9 @@
     },
     "src/__tests__/db.test.ts": {
       "blob": "64d5ac066811e9864dfde08eadeb340de32e09c2",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): its useful fix (5c9a9252, saveMemory generates the embedding too) is rebuilt in src/db.ts and its two cases are copied into our db.test.ts. The rest of the upstream file pins 160bdbf9 (macOS context-restart-gate assumptions), held C-31 code this fork keeps.",
+      "card": "#413"
     },
     "src/__tests__/default-agent-model.test.ts": {
       "blob": "333eb5091fc55ed8a11f9b59a65c4aa22355a956",
