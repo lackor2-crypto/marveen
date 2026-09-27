@@ -4244,6 +4244,18 @@ export function resolveApproval(id: string, status: 'approved' | 'rejected' | 't
   `).run(status, now, resolvedBy, telegramMessageId ?? null, resolutionReason ?? null, id).changes > 0
 }
 
+// #430: an approved decision that the owner takes back ("Visszavonás" on the
+// Approvals page). The row keeps its history in resolution_reason and becomes
+// 'withdrawn'; only an 'approved' row can be taken back, so a double click or a
+// race with another tab changes nothing the second time.
+export function markApprovalDecisionUndone(id: string, undoneBy: string, reason: string): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  return db.prepare(`
+    UPDATE approvals SET status = 'withdrawn', resolved_at = ?, resolved_by = ?, resolution_reason = ?
+    WHERE id = ? AND status = 'approved'
+  `).run(now, undoneBy, reason, id).changes > 0
+}
+
 export function listApprovals(opts: {
   agent_id?: string
   category?: string

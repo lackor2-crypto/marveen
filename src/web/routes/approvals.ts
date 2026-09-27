@@ -7,7 +7,7 @@ import {
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
   createOrResetApprovalVerification, listApprovalVerifications, resolveApprovalVerification,
   cancelPendingVerifications,
-  listPendingApprovals, updateApprovalDescription,
+  listPendingApprovals, updateApprovalDescription, markApprovalDecisionUndone,
   type Approval,
 } from '../../db.js'
 import { logger } from '../../logger.js'
@@ -201,6 +201,63 @@ export function startApprovalTimeoutSweeper(): NodeJS.Timeout {
 }
 
 /** The pending approval already open for this card, if there is one. */
+/**
+ * #430 -- undo an accidental approval (Boss, 2026-09-27: "véletlenül rányomtam
+ * egy kártyának, hogy jóváhagyás ... nem tudom visszaállítani ... egy
+ * visszagomb a jóváhagyásokban mindenféleképpen kell").
+ *
+ * Only an approved `kanban_done` decision can be taken back, because only its
+ * effect is reversible: the card moved to done and can move back. Every other
+ * category may already have acted (an email sent, a file written), and a
+ * button that pretended to undo that would lie.
+ *
+ * Only the LATEST approved request of a card counts, and only while the card
+ * is still in done and not archived: once it has moved on, "undo" would drag
+ * it back from wherever someone put it since.
+ */
+export type ApprovalUndoBlock = 'not_found' | 'not_approved' | 'not_kanban' | 'no_card' | 'card_not_done' | 'not_latest'
+
+export function approvalUndoBlock(approval: Approval | undefined, all?: Approval[]): ApprovalUndoBlock | null {
+  if (!approval) return 'not_found'
+  if (approval.category !== 'kanban_done') return 'not_kanban'
+  if (approval.status !== 'approved') return 'not_approved'
+  const cardId = kanbanCardIdFromApproval(approval)
+  const card = cardId ? getKanbanCard(cardId) : undefined
+  if (!card) return 'no_card'
+  if (card.status !== 'done' || card.archived_at) return 'card_not_done'
+  const pool = all ?? listApprovals({ category: 'kanban_done', status: 'approved', limit: 500 })
+  const newer = pool.some(o => o.id !== approval.id && o.status === 'approved'
+    && o.category === 'kanban_done' && kanbanCardIdFromApproval(o) === cardId
+    && (o.resolved_at ?? 0) > (approval.resolved_at ?? 0))
+  return newer ? 'not_latest' : null
+}
+
+export function undoApprovedDecision(
+  id: string, actor: string,
+): { ok: true; approval: Approval; reopened: Approval | null } | { ok: false; block: ApprovalUndoBlock } {
+  const approval = getApproval(id)
+  const block = approvalUndoBlock(approval)
+  if (block || !approval) return { ok: false, block: block ?? 'not_found' }
+  const card = getKanbanCard(kanbanCardIdFromApproval(approval)!)!
+  const when = approval.resolved_at
+    ? new Date(approval.resolved_at * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+    : '?'
+  const reason = `Visszavonva: a ${when} jóváhagyást (${approval.resolved_by || '?'}) ${actor} visszavonta, `
+    + 'a kártya visszakerült a várakozóba, és új jóváhagyás-kérés nyílt rá.'
+  if (!markApprovalDecisionUndone(approval.id, actor, reason)) return { ok: false, block: 'not_approved' }
+  moveKanbanCard(card.id, 'waiting', card.sort_order, actor)
+  // Same text as the request that was taken back: the verification context
+  // (what was built, which PR) must not be lost to the default wording.
+  const reopened = ensureApprovalForWaitingCard(card.id, approval.agent_id, approval.action_description)
+  try {
+    addKanbanComment(card.id, actor, `↩️ Jóváhagyás visszavonva: a kártya a Kész oszlopból visszakerült a várakozóba, új jóváhagyás-kérés nyílt rá${reopened ? ` (${reopened.id.slice(0, 8)})` : ''}.`)
+  } catch (err) {
+    logger.warn({ err, cardId: card.id }, 'Failed to post approval undo as a kanban comment')
+  }
+  logger.info({ id, cardId: card.id, actor, reopened: reopened?.id }, 'Approval decision undone')
+  return { ok: true, approval: getApproval(id)!, reopened }
+}
+
 export function pendingApprovalForCard(cardId: string): Approval | undefined {
   return listPendingApprovals().find(a => {
     const id = approvalCardId(a.action_payload, a.action_description)
@@ -604,7 +661,14 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const items = listApprovals({ agent_id, category, status, limit })
     // Embed each approval's verification rows so the dashboard list can show
     // the green-check/red-X state without an extra round trip per row.
-    const withVerifications = items.map(a => ({ ...a, verifications: listApprovalVerifications(a.id) }))
+    // #430: which decided rows may show the "Visszavonás" button -- computed
+    // here, where the card state is known, not guessed by the page.
+    const undoPool = listApprovals({ category: 'kanban_done', status: 'approved', limit: 500 })
+    const withVerifications = items.map(a => ({
+      ...a,
+      verifications: listApprovalVerifications(a.id),
+      undoable: a.status === 'approved' && a.category === 'kanban_done' && approvalUndoBlock(a, undoPool) === null,
+    }))
     json(res, withVerifications)
     return true
   }
@@ -734,6 +798,28 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       }
     }
     json(res, approval)
+    return true
+  }
+
+  // POST /api/approvals/:id/undo -- #430: take back an approved kanban_done
+  // decision; the card goes back to waiting with a fresh pending request.
+  const undoMatch = path.match(/^\/api\/approvals\/([^/]+)\/undo$/)
+  if (undoMatch && method === 'POST') {
+    let body: { actor?: unknown } = {}
+    try {
+      const raw = (await readBody(req)).toString()
+      body = raw.trim() ? JSON.parse(raw) : {}
+    } catch {
+      json(res, { error: 'Invalid JSON' }, 400)
+      return true
+    }
+    const actor = typeof body.actor === 'string' && body.actor.trim() ? body.actor.trim() : 'dashboard'
+    const result = undoApprovedDecision(undoMatch[1], actor)
+    if (!result.ok) {
+      json(res, { error: result.block }, result.block === 'not_found' ? 404 : 409)
+      return true
+    }
+    json(res, { ok: true, approval: result.approval, reopened: result.reopened })
     return true
   }
 
