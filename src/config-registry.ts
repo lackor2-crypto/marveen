@@ -526,6 +526,18 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
   },
   // --- System module ---
   {
+    // #418, rebuilt from upstream 3877c61d: whose GitHub repositories the PR
+    // ledger (Updates page) measures. Empty = the owner of this install's own
+    // `origin` remote. Read on every run, no restart.
+    key: 'PR_LEDGER_OWNER',
+    type: 'string',
+    default: '',
+    description: 'Melyik GitHub-fiók vagy szervezet repóinak lezárt pull requestjeit számolja a Frissítések oldal „PR-mérleg” része (pl. a saját GitHub-felhasználóneved). Üresen hagyva annak a fióknak a repóit nézi, ahonnan ez a telepítés frissül (origin). A lekérdezéshez a Raktár oldalon felvett GitHub-fiók kulcsát használja. Újraindítás nélkül érvényes.',
+    module: 'system',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'SCHEDULER_TZ',
     type: 'string',
     default: '',
