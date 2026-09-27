@@ -4843,6 +4843,8 @@ window._i18n.en = {
   'autofill.load_failed':        'The list of browsers could not be loaded right now ({err}). That does not mean there are none -- only that I could not see.',
 
   // --- Git repositories (Depot) ---
+  'raktar.open_service':       'Open',
+  'raktar.open_service_title': 'The service\'s homepage in a new tab (to sign in)',
   'nav.gitrepos':                   'Git repositories',
   'nav.megadepot': "MEGA",
   'megadepot.page_title': "MEGA",

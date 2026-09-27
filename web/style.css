@@ -3573,6 +3573,10 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 /* Keep compact controls out of layout when JavaScript marks them hidden. */
 .btn-compact[hidden] { display: none; }
+/* #428: link-gomb (anchor) a Raktar aloldalak fejleceben -> a szolgaltatas
+   fooldala uj lapon. Az anchor alap-alahuzasat vesszuk le, a tobbit a
+   .btn-secondary.btn-compact adja. */
+.raktar-open-site, .raktar-open-site:hover { text-decoration: none; }
 
 .btn-secondary {
   padding: 10px 20px;
