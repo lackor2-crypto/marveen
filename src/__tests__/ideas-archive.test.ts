@@ -119,6 +119,11 @@ describe('felulet (#422)', () => {
     expect(en).toContain('"projects.scope.label": "Filter by project:"')
   })
 
+  it('a fejlec szamlaloi kozott ott az Archivalt doboz, ami az archivumra szur (Boss TG 6741)', () => {
+    expect(app).toMatch(/counts\.archived = _ideasArchivedCount/)
+    expect(app).toMatch(/archived: \(\) => t\('ideas\.filter\.status_archived'\)/)
+  })
+
   it('minden uj szoveg mindket nyelven megvan', () => {
     for (const k of ['ideas.filter.status_archived', 'ideas.btn.archive', 'ideas.btn.unarchive', 'ideas.btn.purge',
       'ideas.archive.hint', 'ideas.archive.empty', 'ideas.archive.purge_confirm', 'ideas.empty_in_project',
