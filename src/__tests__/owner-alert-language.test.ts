@@ -31,7 +31,8 @@ describe('owner alerts follow the install language', () => {
   it('no owner-notify call is handed a bare string literal', () => {
     const re = new RegExp(`\\b(${NOTIFY_FNS.join('|')})\\(\\s*[\`'"]`)
     const hits: string[] = []
-    for (const f of tsFiles(join(ROOT, 'src'))) {
+    // scripts/*.ts are owner-facing CLIs too (e.g. dashboard-user security:reset).
+    for (const f of [...tsFiles(join(ROOT, 'src')), ...tsFiles(join(ROOT, 'scripts'))]) {
       readFileSync(f, 'utf-8').split('\n').forEach((line, i) => {
         if (re.test(line)) hits.push(`${relative(ROOT, f)}:${i + 1}`)
       })
