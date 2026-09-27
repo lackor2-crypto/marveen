@@ -25,6 +25,21 @@ export interface ChannelProvider {
 
 // -- Telegram implementation --
 
+/** HTTP 200 + {"ok":false} is a rejected send. The error keeps the
+ *  "Telegram API <code>" shape so classifySendError sorts it transient or
+ *  permanent; no code -> status-free -> transient (retry). A malformed body is
+ *  NOT a failure: the message may well have been delivered. */
+function telegramOkFalse(body: string): Error | null {
+  try {
+    const parsed = JSON.parse(body) as { ok?: boolean; error_code?: number; description?: string }
+    if (parsed.ok !== false) return null
+    const code = typeof parsed.error_code === 'number' ? ` ${parsed.error_code}` : ''
+    return new Error(`Telegram API${code}: ok:false ${String(parsed.description ?? '').slice(0, 200)}`)
+  } catch {
+    return null
+  }
+}
+
 function telegramHttpPost(token: string, method: string, body: string, contentType: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -37,12 +52,24 @@ function telegramHttpPost(token: string, method: string, body: string, contentTy
         },
       },
       (res) => {
-        res.resume()
-        if (res.statusCode === 200) {
+        // Read the body even on HTTP 200: the Bot API can answer 200 with
+        // {"ok":false,...}, and discarding it turned a rejected send into a
+        // silent success. Success = transport OK AND "ok":true, the contract
+        // src/web/telegram.ts and the shell senders already keep.
+        // Rebuilt from upstream 1abd56ab (TSOKFALSE827), #413.
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+        res.on('end', () => {
+          const responseBody = Buffer.concat(chunks).toString('utf-8')
+          if (res.statusCode !== 200) {
+            reject(new Error(`Telegram API ${res.statusCode}: ${responseBody.slice(0, 200)}`))
+            return
+          }
+          const failure = telegramOkFalse(responseBody)
+          if (failure) { reject(failure); return }
           resolve()
-        } else {
-          reject(new Error(`Telegram API ${res.statusCode}`))
-        }
+        })
+        res.on('error', reject)
       }
     )
     req.on('error', reject)
@@ -81,10 +108,12 @@ const telegramProvider: ChannelProvider = {
       headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
       body,
     })
+    const text = await resp.text().catch(() => '')
     if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
       throw new Error(`Telegram sendPhoto ${resp.status}: ${text.slice(0, 200)}`)
     }
+    const failure = telegramOkFalse(text)
+    if (failure) throw failure
   },
 
   async validateToken(token) {
