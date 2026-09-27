@@ -4282,7 +4282,13 @@ export function listApprovals(opts: {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const limit = Math.min(opts.limit ?? 100, 500)
   params.push(limit)
-  return db.prepare(`SELECT * FROM approvals ${where} ORDER BY requested_at DESC LIMIT ?`).all(...params) as Approval[]
+  // A DONTOTT sorokat a DONTES ideje szerint rendezzuk (legfrissebb dontes
+  // felul), hogy a tulajdonos epp meghozott dontese a lista tetejere kerul.
+  // A pending soroknak nincs resolved_at-juk -> a COALESCE az erkezes idejere
+  // esik vissza, tehat a varakozo lista sorrendje valtozatlan marad.
+  // (Boss, 2026-09-27: "amit en a jovahagyasok alatt kattintok az mindig
+  // legfelulre kerul".)
+  return db.prepare(`SELECT * FROM approvals ${where} ORDER BY COALESCE(resolved_at, requested_at) DESC, rowid DESC LIMIT ?`).all(...params) as Approval[]
 }
 
 // Stamp trace context onto an agent_messages row that was created without one.
