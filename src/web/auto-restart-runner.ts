@@ -13,7 +13,10 @@ import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { respawnMainSessionFresh } from './channel-monitor.js'
 import { paneLooksIdle } from '../pane-state.js'
 import { readAutoRestartConfig } from './auto-restart-store.js'
-import { restartDue, dailyDueAtMs, parseHHMM, mainRestartMechanism, type AutoRestartConfig } from '../auto-restart.js'
+import { restartDue, dailyDueAtMs, localMidnightMs, parseHHMM, mainRestartMechanism, type AutoRestartConfig } from '../auto-restart.js'
+import { readContextGuardConfig } from './context-guard-store.js'
+import { getHardGuardPhase } from './context-guard-runner.js'
+import { dailyHandoffArmed } from '../context-guard.js'
 
 // Drives per-agent scheduled restarts (see src/auto-restart.ts for the why and
 // the pure due-logic). Mirrors the other watcher loops: a 60s sweep, started
@@ -35,11 +38,9 @@ const INTERVAL_MS = 60_000
 // dashboard restart re-seeds, at worst skipping one slot -- never double-fires.
 const lastRestart = new Map<string, number>()
 
-function localMidnightMs(nowMs: number): number {
-  const d = new Date(nowMs)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
-}
+// Agents whose stand-down for the guard's daily-handoff tier was already
+// logged: the condition is steady state, so log it once, not every minute.
+const guardOwnedLogged = new Set<string>()
 
 function computeDueAt(cfg: AutoRestartConfig, name: string, nowMs: number): number | null {
   if (cfg.dailyTime) {
@@ -118,6 +119,29 @@ function checkAgent(name: string, nowMs: number): void {
   // restart cycles running sessions on a schedule; it does not resurrect dead
   // ones, matching the prior local behavior).
   if (name !== MAIN_AGENT_ID && agentRunState(name) !== 'running') return
+
+  // ONE OWNER PER NIGHTLY RESTART (#417). When the context-guard's
+  // daily-handoff tier is ARMED for this agent, it runs the nightly cycle
+  // (handoff request -> restart -> resume prompt); a second restart from here
+  // would cut that sequence in half, most likely while the agent is writing
+  // the handoff. Armed, not merely enabled: standing aside for a tier with no
+  // usable time would silently delete the nightly restart.
+  if (dailyHandoffArmed(readContextGuardConfig(name))) {
+    if (!guardOwnedLogged.has(name)) {
+      guardOwnedLogged.add(name)
+      logger.info({ name }, 'auto-restart: context-guard daily-handoff tier armed, standing aside (it owns the nightly restart)')
+    }
+    return
+  }
+  guardOwnedLogged.delete(name)
+
+  // Never touch a pane the guard is mid-sequence on (any tier): it has a
+  // HANDOFF.md request out to the agent right now.
+  const guardPhase = getHardGuardPhase(name)
+  if (guardPhase === 'await-handoff' || guardPhase === 'await-ready') {
+    logger.debug({ name, guardPhase }, 'auto-restart: context-guard mid-sequence, deferring to next tick')
+    return
+  }
 
   // Seed on first sight so a daily slot that already elapsed before boot does
   // not fire now.

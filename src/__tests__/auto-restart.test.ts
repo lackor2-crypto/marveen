@@ -29,11 +29,11 @@ describe('normalizeAutoRestartConfig', () => {
   })
   it('keeps a valid daily config and clears interval (daily wins)', () => {
     const c = normalizeAutoRestartConfig({ enabled: true, mode: 'fresh', dailyTime: '03:00', intervalHours: 6, handoff: true })
-    expect(c).toEqual({ enabled: true, mode: 'fresh', dailyTime: '03:00', intervalHours: null, handoff: true })
+    expect(c).toEqual({ enabled: true, mode: 'fresh', dailyTime: '03:00', intervalHours: null })
   })
   it('keeps a valid interval config when no daily time', () => {
     const c = normalizeAutoRestartConfig({ enabled: true, mode: 'continue', intervalHours: 8 })
-    expect(c).toEqual({ enabled: true, mode: 'continue', dailyTime: null, intervalHours: 8, handoff: false })
+    expect(c).toEqual({ enabled: true, mode: 'continue', dailyTime: null, intervalHours: 8 })
   })
   it('drops an invalid dailyTime and non-positive interval', () => {
     const c = normalizeAutoRestartConfig({ enabled: true, dailyTime: '99:99', intervalHours: 0 })

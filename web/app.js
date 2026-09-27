@@ -4507,6 +4507,26 @@ function formatContextTokens(n) {
   return `≈${k < 10 ? k.toFixed(1) : Math.round(k)}k token`
 }
 
+// #417: daily-handoff tier of the context guard. Lives next to auto-restart
+// because, when armed, it owns the nightly restart of this agent.
+async function loadDailyHandoffUI(agent) {
+  const en = document.getElementById('dhEnabled')
+  const tm = document.getElementById('dhTime')
+  if (!en || !tm || !agent) return
+  const id = agent.autoRestartId || agent.name
+  en.checked = false
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(id)}/context-guard`)
+    if (!res.ok) return
+    const body = await res.json()
+    const cg = body.contextGuard || {}
+    // A slower response for a previously opened agent must not overwrite this one.
+    if (!currentAgent || (currentAgent.autoRestartId || currentAgent.name) !== id) return
+    en.checked = cg.dailyHandoffEnabled === true
+    if (cg.dailyHandoffTime) tm.value = cg.dailyHandoffTime
+  } catch { /* leave the defaults: off */ }
+}
+
 // Populate the auto-restart controls + context display from an agent payload.
 // Works for sub-agents (agent.name) and the main session (agent.autoRestartId).
 function setupAutoRestartUI(agent) {
@@ -4538,6 +4558,7 @@ function setupAutoRestartUI(agent) {
     dailyWrap.hidden = isInterval
   }
   syncSched()
+  loadDailyHandoffUI(agent)
   // Attach the show/hide listener once.
   if (schedKind.dataset.wired !== '1') {
     schedKind.addEventListener('change', syncSched)
@@ -8482,7 +8503,6 @@ document.getElementById('saveAutoRestartBtn').addEventListener('click', async ()
     mode: document.getElementById('arMode').value === 'fresh' ? 'fresh' : 'continue',
     dailyTime: schedKind === 'daily' ? document.getElementById('arDailyTime').value : null,
     intervalHours: schedKind === 'interval' ? Number(document.getElementById('arIntervalHours').value) : null,
-    handoff: false,
   }
   try {
     const res = await fetch(`/api/agents/${encodeURIComponent(id)}/auto-restart`, {
@@ -8494,6 +8514,27 @@ document.getElementById('saveAutoRestartBtn').addEventListener('click', async ()
     const body = await res.json()
     if (currentAgent) currentAgent.autoRestart = body.autoRestart
     showToast(t('agents.toast.auto_restart_saved'))
+  } catch { showToast(t('common.error_save')) }
+})
+
+document.getElementById('saveDailyHandoffBtn').addEventListener('click', async () => {
+  if (!currentAgent) return
+  const id = currentAgent.autoRestartId || currentAgent.name
+  const enabled = document.getElementById('dhEnabled').checked
+  const time = (document.getElementById('dhTime').value || '').trim()
+  if (enabled && !/^\d{1,2}:\d{2}$/.test(time)) { showToast(t('agents.settings.dh_bad_time')); return }
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(id)}/context-guard`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      // Partial body: the server merges it over the stored guard config.
+      body: JSON.stringify({ dailyHandoffEnabled: enabled, dailyHandoffTime: time || null }),
+    })
+    if (!res.ok) throw new Error()
+    const body = await res.json()
+    const cg = body.contextGuard || {}
+    if (enabled && !cg.dailyHandoffTime) { showToast(t('agents.settings.dh_bad_time')); return }
+    showToast(t('agents.toast.daily_handoff_saved'))
   } catch { showToast(t('common.error_save')) }
 })
 

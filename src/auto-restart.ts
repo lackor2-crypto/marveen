@@ -41,16 +41,22 @@ export interface AutoRestartConfig {
   /** Restart every N hours, or null. Exactly one of dailyTime/intervalHours is
    *  meaningful; dailyTime wins if both are somehow set. */
   intervalHours: number | null
-  /** Phase 2: run the handoff skill to persist context before a fresh restart. */
-  handoff: boolean
 }
+
+// There was a `handoff` field here ("Phase 2: run the handoff skill before a
+// fresh restart"). It was never wired -- nothing on the restart path read it --
+// so setting it looked like a fix and changed nothing. Removed in #417 (rebuilt
+// from upstream d3cdb375): handoffs have ONE owner, the context-guard's
+// await-handoff state machine, and the nightly handoff lives there as the
+// daily-handoff tier. The PUT route does not reject unknown keys, so an old
+// dashboard page that still sends `handoff: false` keeps saving; normalization
+// drops it.
 
 export const DEFAULT_AUTO_RESTART: AutoRestartConfig = {
   enabled: false,
   mode: 'continue',
   dailyTime: null,
   intervalHours: null,
-  handoff: false,
 }
 
 /** Parse 'HH:MM' (24h) into minutes since local midnight, or null if invalid. */
@@ -85,7 +91,6 @@ export function normalizeAutoRestartConfig(raw: unknown): AutoRestartConfig {
     mode,
     dailyTime,
     intervalHours,
-    handoff: o.handoff === true,
   }
 }
 
@@ -120,4 +125,16 @@ export function dailyDueAtMs(
   minutesSinceMidnight: number,
 ): number {
   return localMidnightMs + minutesSinceMidnight * 60_000
+}
+
+/**
+ * Start-of-local-day timestamp for the day containing `nowMs`. Shared by the
+ * two runners that schedule on a daily wall-clock slot -- the nightly
+ * auto-restart and the context-guard's daily-handoff tier -- so there is one
+ * definition of a day boundary, not two.
+ */
+export function localMidnightMs(nowMs: number): number {
+  const d = new Date(nowMs)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
 }
