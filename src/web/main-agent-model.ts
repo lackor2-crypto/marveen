@@ -41,6 +41,7 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, MAIN_AGENT_ID } from '../config.js'
 import { MODEL_ALIASES } from './agent-config.js'
 import { readActiveModelFromProjectDir } from './active-model.js'
+import { resolveAgentConfigDirForRead } from './claude-plans.js'
 import { readMainAgentRuntime } from './main-agent-runtime.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
 import { isStale } from '../rate-limit-status.js'
@@ -173,7 +174,7 @@ export function modelIdFromStatuslineLabel(label: string): string | null {
 export function mainAgentModelNow(): MainModelResolution {
   return resolveMainAgentModel({
     fromRuntime: () => readMainAgentRuntime().model,
-    fromTranscript: () => readActiveModelFromProjectDir(PROJECT_ROOT),
+    fromTranscript: () => readActiveModelFromProjectDir(PROJECT_ROOT, undefined, resolveAgentConfigDirForRead(MAIN_AGENT_ID) ?? undefined),
     fromStatusline: () => {
       const snap = readRateLimitSnapshot(MAIN_AGENT_ID)
       if (!snap || isStale(snap.updatedAt, Date.now())) return null

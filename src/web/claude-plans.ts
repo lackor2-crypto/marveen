@@ -33,6 +33,7 @@ import {
   expandAndValidateConfigDir,
   readAgentClaudeConfigDir,
   readAgentClaudePlan,
+  mainAgentEffectiveConfigDir,
   resolveMainAgentConfigDir,
 } from './agent-config.js'
 
@@ -300,6 +301,20 @@ function rawConfigDirOrMain(name: string): string | null {
 export function resolveAgentConfigDirForRead(name: string, projectRootOverride?: string): string | null {
   const configured = resolveAgentConfigDir(name).configDir
   if (configured) return configured
+  // The main agent has no agents/<name>/ dir; its isolated root is the
+  // launcher's .channels-config (MAIN_AGENT_ISOLATED_CONFIG). Every reader used
+  // to pass `undefined` for the main agent, i.e. the shared ~/.claude -- which
+  // the operator's own VS Code / Claude Code session also writes to.
+  // MEASURED 2026-09-27 03:13: the main channels session ran with
+  // CLAUDE_CONFIG_DIR=~/.claude-marvin (transcript written 03:10), while the
+  // context guard and the restart gate read ~/.claude/projects/-home-...-marveen/,
+  // newest file 20 hours old. A confident stale number is worse than null:
+  // the gate thinks it can see. (Same defect upstream fixed as GATEVAK917 /
+  // GUARDCFGMASOLAT917, d5d323af + 10b4f331; rebuilt on our resolver.)
+  if (name === MAIN_AGENT_ID) {
+    const effective = mainAgentEffectiveConfigDir()
+    return effective === join(homedir(), '.claude') ? null : effective
+  }
   const isolated = join(projectRootOverride ?? PROJECT_ROOT, 'agents', name, '.claude-config')
   // `projects` is what a transcript reader is after. Requiring it (rather than
   // just the directory) keeps a half-provisioned dir from shadowing the shared

@@ -4,7 +4,8 @@ import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { hardRestartMarveenChannels, lastMainRespawnAt, MARVEEN_POST_RESPAWN_GRACE_MS } from './channel-monitor.js'
 import { shouldDeferForRecentRespawn } from './stuck-tool-call-watcher.js'
-import { listAgentNames, agentDir, readAgentModel, readAgentClaudeConfigDir, readAgentRemoteHost } from './agent-config.js'
+import { listAgentNames, agentDir, readAgentModel, readAgentRemoteHost } from './agent-config.js'
+import { resolveAgentConfigDirForRead } from './claude-plans.js'
 import {
   agentRunState,
   agentSessionName,
@@ -124,7 +125,9 @@ export function resumePrompt(name: string, handoffPath: string, hadHandoff: bool
 
 function measurePct(name: string, cfgLimit: number | null): number | null {
   const workingDir = workingDirFor(name)
-  const configDir = name === MAIN_AGENT_ID ? undefined : (readAgentClaudeConfigDir(name) ?? undefined)
+  // One transcript root for every reader, main agent included (see
+  // resolveAgentConfigDirForRead): the tokens AND the model come from it.
+  const configDir = resolveAgentConfigDirForRead(name) ?? undefined
   const tokens = readContextTokensFromProjectDir(workingDir, configDir)
   if (tokens === null || tokens <= 0) return null
   let limit: number
@@ -132,7 +135,7 @@ function measurePct(name: string, cfgLimit: number | null): number | null {
     limit = cfgLimit
   } else {
     const model = (name === MAIN_AGENT_ID
-      ? readActiveModelFromProjectDir(PROJECT_ROOT)
+      ? readActiveModelFromProjectDir(PROJECT_ROOT, undefined, configDir)
       : readAgentModel(name)) ?? ''
     // Calibrate against the persisted per-(agent, model) maximum, not just
     // the live reading: a fresh post-restart session must not un-learn a

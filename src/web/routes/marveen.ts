@@ -16,6 +16,7 @@ import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { readMainAgentRuntime } from '../main-agent-runtime.js'
 import { readConfiguredMainModel } from '../main-agent-model.js'
 import { readContextReadingFromProjectDir } from '../active-model.js'
+import { resolveAgentConfigDirForRead } from '../claude-plans.js'
 import { mainAgentModelNow } from '../main-agent-model.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
@@ -92,7 +93,7 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
     // Read ONCE: the same file was parsed twice for tokens and state, so the two
     // fields could in principle disagree, and adding a third would have made it
     // three reads of the same transcript on every poll.
-    const mainContextReading = readContextReadingFromProjectDir(PROJECT_ROOT)
+    const mainContextReading = readContextReadingFromProjectDir(PROJECT_ROOT, resolveAgentConfigDirForRead(MAIN_AGENT_ID) ?? undefined)
     json(res, {
       ...idCore,
       // Configured owner display name (OWNER_NAME). The dashboard chat view uses
