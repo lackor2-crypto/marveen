@@ -567,15 +567,15 @@
     },
     "src/__tests__/agent-local-base-url.test.ts": {
       "blob": "1c66815b11e78c048db39e3945a10337354dcb62",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/agent-provider-env.test.ts": {
       "blob": "aacb29a737147c706620717d63c6d81403281af7",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/agent-put-fields.test.ts": {
       "blob": "7d2231e2f0a4eedf341d4c31dd1451dd46d791c8",
@@ -603,9 +603,9 @@
     },
     "src/__tests__/agent-scaffold-inviolable-rules.test.ts": {
       "blob": "eabe5a2f80e86b299a4d0aa371f295f48d867f1e",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/agent-taskstate.test.ts": {
       "blob": "82dc411aa813d66c0800e7f8007dfdcd2a42e43f",
@@ -615,9 +615,9 @@
     },
     "src/__tests__/agent-terminal-tmux-target.test.ts": {
       "blob": "bc14fadc0b49494af9c06911bcb47ce49cec2173",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream UI / build / DB detail this fork does not ship (full-width layout contract, tmux target naming, built-commit stamp, token prune lag, and the unixepoch ban, which is moot because the bundled SQLite supports unixepoch). Taking it would change our logic for no defect here.",
+      "card": "#413"
     },
     "src/__tests__/agent-tool-deny.test.ts": {
       "blob": "2fc2bb6efe27090fd3de195af9b066018f46c87c",
@@ -627,9 +627,9 @@
     },
     "src/__tests__/api-messages-freshness.test.ts": {
       "blob": "1a7c16690c0c6f90e7b189226afe9e16a4d4353b",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/approvals-delivery.test.ts": {
       "blob": "5933db9c35f5200b9f925e2d654b720100d2e825",
@@ -663,21 +663,21 @@
     },
     "src/__tests__/bridge-pairing-i18n.test.ts": {
       "blob": "5da8970e4ff27f4d9b1fef46b179ed26e9063ea0",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/browser-content-notice.test.ts": {
       "blob": "0de2eef6469d3234d351b8e2fd91b947f2dd92dc",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/built-commit-stamp.test.ts": {
       "blob": "ba7c0bd12f2106612d937b4a23b49415b0e1bb9c",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream UI / build / DB detail this fork does not ship (full-width layout contract, tmux target naming, built-commit stamp, token prune lag, and the unixepoch ban, which is moot because the bundled SQLite supports unixepoch). Taking it would change our logic for no defect here.",
+      "card": "#413"
     },
     "src/__tests__/channel-deafness-recovery.test.ts": {
       "blob": "7a515fa2688345071a41418b003e7414cd942c2b",
@@ -687,9 +687,9 @@
     },
     "src/__tests__/channel-event-log.test.ts": {
       "blob": "b04e44955869ea1181e7a7010d33bd2b0234b100",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/channel-health-monitor.test.ts": {
       "blob": "70b7c434f031b3cd72448a92e82273929f66c3be",
@@ -711,9 +711,9 @@
     },
     "src/__tests__/channel-monitor-launchd-effect.test.ts": {
       "blob": "5c6777c1a13b9c7229ac89b82cc1cf6efea6a659",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream platform path this fork does not run: macOS launchd channel monitor / update.sh native-module node pin. Nothing in our code to rebuild.",
+      "card": "#413"
     },
     "src/__tests__/channel-monitor-resume-recovery.test.ts": {
       "blob": "e7850cae42ac213af8bcb18dfc9d8c72acae9370",
@@ -729,9 +729,9 @@
     },
     "src/__tests__/channel-monitor-subagent-overdue-guard.test.ts": {
       "blob": "ec0657ddef0f03b7fd3b18893a7b6f73d4da9426",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/channel-plugin-unlock.test.ts": {
       "blob": "1b9627a25100d2212ed72122dd8cf51f5974aa12",
@@ -741,9 +741,9 @@
     },
     "src/__tests__/channel-provider-unknown-value.test.ts": {
       "blob": "20816d1fd16e7cb60ac6882174ad72dd130c5931",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/channel-provider.test.ts": {
       "blob": "7930cfb9c0aa62155c7416f92a4f6e6e1710dc89",
@@ -759,15 +759,15 @@
     },
     "src/__tests__/channel-state-dir-915.test.ts": {
       "blob": "f4e8fa43b7aad88fe993ae6b3cfa41ba2f19ee07",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/channels-never-started-backoff.test.ts": {
       "blob": "fdf3ce7b9e5b29f87facbbd1dbc26c1276c3f2ac",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/channels-unit-restart-policy.test.ts": {
       "blob": "807e4fc7a4408f5e807e2f00567c42b231455bf3",
@@ -777,21 +777,21 @@
     },
     "src/__tests__/channels-watchdog-plugin-scope.test.ts": {
       "blob": "42dfa32b980317ac6ebb8951ed51cba32726f0fa",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/claude-plans-write.test.ts": {
       "blob": "40e7664c9b2b4330b2ef44457945a96aeb0d2faf",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/clear-continuity.test.ts": {
       "blob": "95524b23518a1a36f2fcf426d230806989924dc2",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/completion-notification.test.ts": {
       "blob": "2cacb7c852d3d7a99a5e2f33b3f2a5909a1a694d",
@@ -801,9 +801,9 @@
     },
     "src/__tests__/context-guard-cooldown-status.test.ts": {
       "blob": "2fb602e5960e952a346f46e429d6258459725eb8",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/context-guard-daily-tier.test.ts": {
       "blob": "b950c45a6a1835b8cf0f51cd21943e9a3f33f950",
@@ -885,15 +885,15 @@
     },
     "src/__tests__/count-newer-from-sender.test.ts": {
       "blob": "0e4087acc4c955c2726aaed18b742da08b43568f",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/db-no-unixepoch-on-writer-path.test.ts": {
       "blob": "068b1f9dc9ad8057121df02342caa88b5b66eff4",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream UI / build / DB detail this fork does not ship (full-width layout contract, tmux target naming, built-commit stamp, token prune lag, and the unixepoch ban, which is moot because the bundled SQLite supports unixepoch). Taking it would change our logic for no defect here.",
+      "card": "#413"
     },
     "src/__tests__/db.test.ts": {
       "blob": "64d5ac066811e9864dfde08eadeb340de32e09c2",
@@ -963,33 +963,33 @@
     },
     "src/__tests__/embed-model-split.test.ts": {
       "blob": "6ece4edc0a075984f5a6a9c1524012141409257a",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/external-respawn-detect.test.ts": {
       "blob": "eec586bda1f2b79d3d2ad3c450ca794949c12853",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/feedback-draft-modal.test.ts": {
       "blob": "018c94dfc8f04391e4320963d1db65b21db92c65",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/feedback-modal-positive-router.test.ts": {
       "blob": "878322f84088ed0b0108de328d5cff4951aa0b69",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/feedback-modal-positive-scheduler.test.ts": {
       "blob": "b25f0a4d0aae2b55c129e9743a62933a39e681e6",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/fixtures/attestation-vectors.json": {
       "blob": "a5d56f1cba9792deb373f8e7c1ac97cf25a1eaa4",
@@ -1323,15 +1323,15 @@
     },
     "src/__tests__/fleet-auth-section.test.ts": {
       "blob": "02e6bfe9c96e19dbdfc41de8fe80623de62c9d76",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/fleet-helper-search-carries-the-label.test.ts": {
       "blob": "27e2e678e110f3ad2c79fc3d98075508f03fa848",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/fleet-roster-section.test.ts": {
       "blob": "e90cf7702d908093b943b45d2ee891220af15ba9",
@@ -1341,21 +1341,21 @@
     },
     "src/__tests__/fts-or-fallback.test.ts": {
       "blob": "cb1e1ad7c85283cd15bc027a39fd1328c4011536",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/full-width-layout-css-contract.test.ts": {
       "blob": "fa3bc364b9bb40fe60700a379a71aa5a74d05baf",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream UI / build / DB detail this fork does not ship (full-width layout contract, tmux target naming, built-commit stamp, token prune lag, and the unixepoch ban, which is moot because the bundled SQLite supports unixepoch). Taking it would change our logic for no defect here.",
+      "card": "#413"
     },
     "src/__tests__/generated-curl-payload-quoting.test.ts": {
       "blob": "a50cd45f014ece2a31a3d0d73663a5ed9a8a7344",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/ghost-suggestion-strip.test.ts": {
       "blob": "ccf7722ab6904ed050f0407f7131a42ab3528638",
@@ -1377,51 +1377,51 @@
     },
     "src/__tests__/heartbeat-calendar-fail-open.test.ts": {
       "blob": "3cd314de98b303619afbe2753c1f228902d2bc88",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-db-size.test.ts": {
       "blob": "db39d97058e6f7d6a9998a021c79606d99acd588",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-hook-wiring.test.ts": {
       "blob": "1910c803583f7cd3484cfe843b233454d242fe42",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-hot-memory-count.test.ts": {
       "blob": "f62e4ae94d72e2b3256780fd9c36e6e5e8d2fcb1",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-metrics-inject.test.ts": {
       "blob": "6887e53def5d8adc3373db410e235ec2ebad8439",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-metrics-script.test.ts": {
       "blob": "30b488ac2792ecf981e4fb6dcf84b9ef6cb80841",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-summary-truncation-safe.test.ts": {
       "blob": "421a006551756ddd01d73223299e8760f3de077c",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/heartbeat-urgent-open-only.test.ts": {
       "blob": "b860371879d4e40fb118df83f44e44383e78c7bd",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
+      "card": "#413"
     },
     "src/__tests__/hook-command-quoting.test.ts": {
       "blob": "1048b1988e6c8554754900c62570d76d455f1057",
@@ -1431,9 +1431,9 @@
     },
     "src/__tests__/hook-cross-scope-dedupe.test.ts": {
       "blob": "2f3c60a9bc82acca4cbaa55fec57324c77298a1f",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/hook-exit-code-invariant.test.ts": {
       "blob": "43be6cf2258a568023230a987728f10373a384d2",
@@ -1455,21 +1455,21 @@
     },
     "src/__tests__/hookstripfleet-channel-hooks.test.ts": {
       "blob": "446bcb33e2599c9dc4a3cc283321e6df0626d820",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/ideas-stats-unfiltered.test.ts": {
       "blob": "b671cf51c443af4533caae6ddbc27b4bd86d39cd",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Behaviour already present in this fork: the upstream fix is implemented here in our own shape (the upstream test fails only on its mock set or naming, verified by running it with the missing mocks added). Nothing to rebuild; our test keeps pinning it.",
+      "card": "#413"
     },
     "src/__tests__/injected-prompt-registry.test.ts": {
       "blob": "6340b31667bb4d3c69e13e7660a6d0e99d9f9faa",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/installer-start-and-fallback.test.ts": {
       "blob": "9017ce4fcfe808b73fdcd1389ebf1c9eaf374f7e",
@@ -1497,33 +1497,33 @@
     },
     "src/__tests__/janitor-under-send-lane.test.ts": {
       "blob": "18c1952f96cbbd815f987112f2738ee5759a0247",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/kanban-archive-stale-updated-at.test.ts": {
       "blob": "4434a7cac1bea3e27348dd0fa638a371c6f7a1a6",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-blockers.test.ts": {
       "blob": "d98f3c0c8a2e9e6f28eff6b0cc866719d80007d8",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-card-method-not-allowed.test.ts": {
       "blob": "cf0f8a8b2a3fc6c515545bfdc61a2d1dd0aba4ef",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-comment-requires-card.test.ts": {
       "blob": "746fd1138b8ff18329fffa3cc7646eb813b987f7",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-dispatch-instructions.test.ts": {
       "blob": "a2fa813001ded68d91f6d6da567ca4e0a419f7a1",
@@ -1533,15 +1533,15 @@
     },
     "src/__tests__/kanban-dispatch-rearm.test.ts": {
       "blob": "d9a186a0af48c44c14299c284dbe0caf45d8feaa",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-dispatch-silent-noop.test.ts": {
       "blob": "745f718cc9cc16660d31c2ea966aaacb19fda9d0",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-dispatch.test.ts": {
       "blob": "f24dc9ca2e1fc9a08d7b092273b161c71cce3dff",
@@ -1551,9 +1551,9 @@
     },
     "src/__tests__/kanban-field-bump-updated-at.test.ts": {
       "blob": "0c169afd9a75bda02861e8a17fb879590fcfe19b",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-modal-overlay-click-data-loss.test.ts": {
       "blob": "3962a523601d711d1c63f0a0f5b338fe42b4d9ce",
@@ -1563,21 +1563,21 @@
     },
     "src/__tests__/kanban-parent-activity.test.ts": {
       "blob": "0e6f330278b65df2d6fbbfd8fdf2dcbedaf7357d",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-put-unknown-field.test.ts": {
       "blob": "6def5b63b8ffee6143a4316be867f179bd23a20d",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-timestamp-type-gate.test.ts": {
       "blob": "5a1ba248d95c5c17f8379f85e8e83ad8bcc7fbc0",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-title-gate-trigger.test.ts": {
       "blob": "367aa7b11a1f51c7b4fb7ecad7b944d66279e319",
@@ -1587,9 +1587,9 @@
     },
     "src/__tests__/kanban-update-audit.test.ts": {
       "blob": "ae5bb557a4d3eaf8e168997398811b220104c056",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/kanban-write-gate.test.ts": {
       "blob": "7bdb6ef9f6bba7fdcfac2ea41162c4c559283306",
@@ -1599,21 +1599,21 @@
     },
     "src/__tests__/ledger-agent-identity.test.ts": {
       "blob": "d94a0be0efe55a9e5ebb3dd7187e1ed2a4cb192b",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream scheduler features this fork does not ship (Slack-bound channel, main-agent-missing branch, task-run completion records, ledger drain / identity). Our schedule runner keeps its own shape (C-31, owner decision A 2026-09-24); the one real upstream fix here (missing retry) was rebuilt separately.",
+      "card": "#413"
     },
     "src/__tests__/ledger-live-drain-task-seed.test.ts": {
       "blob": "ea81587a51e650cc99bd6a0382507648425b68e8",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream scheduler features this fork does not ship (Slack-bound channel, main-agent-missing branch, task-run completion records, ledger drain / identity). Our schedule runner keeps its own shape (C-31, owner decision A 2026-09-24); the one real upstream fix here (missing retry) was rebuilt separately.",
+      "card": "#413"
     },
     "src/__tests__/main-agent-active-model-location.test.ts": {
       "blob": "e615095268591dc4ade41260cdfa7193ba291a56",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/main-agent-config-dir.test.ts": {
       "blob": "be181a01de24b8b88c1e35b800d34b3ca67bb963",
@@ -1629,63 +1629,63 @@
     },
     "src/__tests__/main-agent-rotated-config-dir.test.ts": {
       "blob": "3fbb116f55e1f5db6b4284821730a4d80e8d4a15",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/main-config-decision-rotation-precedence.test.ts": {
       "blob": "425908f23b13fd766f087a36864c66f776cd8965",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/main-config-guard-wiring.test.ts": {
       "blob": "ab1f3e62dae9aabf7de16261b40c1f863ef77944",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/main-model-env-precedence.test.ts": {
       "blob": "987d3d1a13a04337f399abfe02c4d6009ef4a6f3",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/main-model-resolution-parity.test.ts": {
       "blob": "4df553356e091ea0487e43384d7e31be1573fe6e",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/main-parked-escalation.test.ts": {
       "blob": "94224ae8cf35547837af3fc6486bb5a6c235a0f5",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/main-shared-config-guard.test.ts": {
       "blob": "9082bd2720b121f23ceb2345d42b8f5842f92b7a",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/mcp-list-channel-section.test.ts": {
       "blob": "1ca38e89d166538e01e770ed7c7fa807b80867a4",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/memories-import-categorize-model.test.ts": {
       "blob": "18ce12267383e0ac6dfe996cf4018b0de50eaeca",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/memories-search-has-a-floor.test.ts": {
       "blob": "a8c0fca43ac21a0e2e62fc738ffad9b9b5dc1c9a",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/memory-frontmatter-gate.test.ts": {
       "blob": "df08d5e0f2617de467e737f664cf846f9a7cc3e3",
@@ -1695,33 +1695,33 @@
     },
     "src/__tests__/memory-listing-carries-the-label.test.ts": {
       "blob": "9548a239fa8d29521584bbd832ccd72d674222c2",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/memory-search-label-backfill.test.ts": {
       "blob": "6d37ffa5163de300d5f5b227549593da6442ffe6",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/memory-search-recipe-reads-the-label.test.ts": {
       "blob": "d6eb761335dde01d81c2a74ec24509d28afcf969",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/memory-search-tier-goes-into-the-query.test.ts": {
       "blob": "a72bb28deed866a7c9224f90583fc423990762ea",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/memory-write-trace.test.ts": {
       "blob": "47290116995258d5b1d3e3673858d52475fbddae",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
+      "card": "#413"
     },
     "src/__tests__/message-router-tick-cap.test.ts": {
       "blob": "1de23311464f79e7e9c34ec98ecad71ffa8b0011",
@@ -1731,15 +1731,15 @@
     },
     "src/__tests__/messages-main-agent-no-false-warning.test.ts": {
       "blob": "4057a6872b7e3dcaa24ef2a9c2a777db69388914",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/minimax-model-selector.test.ts": {
       "blob": "ca008eeaf0447219cd3e84b75986d377d1ff98d8",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/model-fallback.test.ts": {
       "blob": "09bc3bf772d195be0980f4bec929eed4ecfadc67",
@@ -1749,9 +1749,9 @@
     },
     "src/__tests__/model-id-injection.test.ts": {
       "blob": "acad81b06d0afff74909ec566478f6b408877702",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/model-suggest.test.ts": {
       "blob": "b0014b2840c6239182369492038e1ec6dda2fbb9",
@@ -1761,15 +1761,15 @@
     },
     "src/__tests__/notify-chat-id-placeholder.test.ts": {
       "blob": "c447040c1215483d428b56ea8043dce3feab8411",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/onboarding-channel-live-wait.test.ts": {
       "blob": "554e150b1c0059038d837bd3502302ee0f17a5bb",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/outgoing-copy-gate-rules-policy.test.ts": {
       "blob": "eec8b274580c026883f25c55b771d172945a8596",
@@ -1791,9 +1791,9 @@
     },
     "src/__tests__/pane-busy-blank-tail.test.ts": {
       "blob": "70805e0a1a4c5a4ef4e36fa6a182d8a1de47e27d",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/pane-first-run-gate.test.ts": {
       "blob": "010e6987bf185cb3d95e6abe5f8152d617fa9911",
@@ -1809,21 +1809,21 @@
     },
     "src/__tests__/pane-writers-under-send-lock.test.ts": {
       "blob": "c56a4ac70f80679bb59c3745381d42111d1d5d46",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/parked-clear-sequence.test.ts": {
       "blob": "6a4c49c7c9bb6c83c3f7a2288470df35930c0660",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/parked-input-rescue.test.ts": {
       "blob": "159c4409aeecc6dbbf2350825c0f138f514c7fae",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/parked-machine-input.test.ts": {
       "blob": "ded1a517e9e2cf0b4c4557d70fd1e0bebc167028",
@@ -1833,9 +1833,9 @@
     },
     "src/__tests__/permission-footer-anywhere.test.ts": {
       "blob": "2893d549ec2bd80a805eec3e2540eeece90a6637",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/pr-ledger.test.ts": {
       "blob": "64ccc6d6f91f56572cede369aaed4f21659bfc75",
@@ -1881,9 +1881,9 @@
     },
     "src/__tests__/queued-messages-not-idle.test.ts": {
       "blob": "c083cdc007651a3d6519cdddcfe52c2ba3ff2bc4",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/quota-gate-wiring.test.ts": {
       "blob": "b769fd11d2d139fcd0ed38e6904b2812efd755ff",
@@ -1893,9 +1893,9 @@
     },
     "src/__tests__/recovery-brief-every-fresh-door.test.ts": {
       "blob": "e6a6cf07ad558912ade89fd7f43701e419548451",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/renderagents-no-main-duplicate.test.ts": {
       "blob": "059e1faa63f4d338a3fd7aa09972f574b664d714",
@@ -1923,45 +1923,45 @@
     },
     "src/__tests__/result-summary.test.ts": {
       "blob": "bcb5b951a00ffc71369e5e8cd5e1dfb8623ae90d",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/router-batch-inject.test.ts": {
       "blob": "538ad6e6e9268ecb2477c27556927b09fbb07c23",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/router-main-agent-wakeup.test.ts": {
       "blob": "712ace38d04fddc564e4b8a416549af297be5ca9",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/router-no-silent-reinject.test.ts": {
       "blob": "cc8b2834a0462164d0ee3fbcb0df995fe659406a",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Behaviour already present in this fork: the upstream fix is implemented here in our own shape (the upstream test fails only on its mock set or naming, verified by running it with the missing mocks added). Nothing to rebuild; our test keeps pinning it.",
+      "card": "#413"
     },
     "src/__tests__/router-status-reread.test.ts": {
       "blob": "da5ef68ac2c9f83b83f951363f52de9f611a9b51",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Behaviour already present in this fork: the upstream fix is implemented here in our own shape (the upstream test fails only on its mock set or naming, verified by running it with the missing mocks added). Nothing to rebuild; our test keeps pinning it.",
+      "card": "#413"
     },
     "src/__tests__/router-stuck-alert.test.ts": {
       "blob": "c7efe943f19520dd04d2b05cda96b67e128774c2",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/sched-overfull-parked-input.test.ts": {
       "blob": "8c8c4099b52d37a7e8bdc784589de68f611ce089",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/schedule-catchup.test.ts": {
       "blob": "6b6a931f6ad31c6dfe9cf1aff060886d67d8136f",
@@ -1971,15 +1971,15 @@
     },
     "src/__tests__/schedule-inflight-config-dir.test.ts": {
       "blob": "880adaba3254e9ccb16a841446f47760969d0400",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream provider / model / config-dir resolution (per-agent provider env, local base URL, embed-model split, main-config rotation and guard, model-id injection). This fork keeps its own model and config-root handling (C-31, owner decision A 2026-09-24; own API key and the shared main config stay ours); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/schedule-runner-bound-channel.test.ts": {
       "blob": "7f5f878ae7d8861a9ce452efeee7931fa9c7b15f",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream scheduler features this fork does not ship (Slack-bound channel, main-agent-missing branch, task-run completion records, ledger drain / identity). Our schedule runner keeps its own shape (C-31, owner decision A 2026-09-24); the one real upstream fix here (missing retry) was rebuilt separately.",
+      "card": "#413"
     },
     "src/__tests__/schedule-runner-bound-chatid.test.ts": {
       "blob": "faf84bad8f055b08752bd828066866793bb98b58",
@@ -1995,15 +1995,15 @@
     },
     "src/__tests__/schedule-runner-main-agent-missing.test.ts": {
       "blob": "93c3b08675941675dae157062fb006c19a3190be",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream scheduler features this fork does not ship (Slack-bound channel, main-agent-missing branch, task-run completion records, ledger drain / identity). Our schedule runner keeps its own shape (C-31, owner decision A 2026-09-24); the one real upstream fix here (missing retry) was rebuilt separately.",
+      "card": "#413"
     },
     "src/__tests__/schedule-runner-parked-janitor.test.ts": {
       "blob": "9624f7539f26c5514ecba3f7f5f20c523b9fa111",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/schedule-runner-precheck.test.ts": {
       "blob": "10848a7ff8e07a1d4496eeba0de7ef90d79a5d7f",
@@ -2031,9 +2031,9 @@
     },
     "src/__tests__/script-tests-runner.test.ts": {
       "blob": "2155f455a9384c7d679b22aa54ea3d25eead1ef3",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/secret-gate.test.ts": {
       "blob": "4d31c4693d72a0ec9c407b54c409d1570efbc0f6",
@@ -2055,21 +2055,21 @@
     },
     "src/__tests__/session-send-lock.test.ts": {
       "blob": "e0564f101fed813785acbb161c6c019acf9fae52",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/session-title-banner.test.ts": {
       "blob": "e63a28a19685c4461512fe91199a57a714fd48b1",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream pane / parked-input / send-lock machinery (injected-prompt registry, parked janitor and rescue, send lane, permission-footer detection, title banner, feedback modals). None of it exists in this fork, which keeps its own pane handling (C-31, owner decision A 2026-09-24); it is a new gate layer, not a fix to our code.",
+      "card": "#413"
     },
     "src/__tests__/shipped-recipes-no-sqlite-cli.test.ts": {
       "blob": "d3ae584627136e761fed2243e18c3057e5ef5057",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/skill-cli-core.test.ts": {
       "blob": "52f1bbc1958633cd49d76466f93836a6931d94db",
@@ -2097,21 +2097,21 @@
     },
     "src/__tests__/skill-usage-hook-registration.test.ts": {
       "blob": "dc19f733e11137b40a01a3089502c80ed3403c0a",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/skills-path-trap-section.test.ts": {
       "blob": "b900de0f46248be641616a3bfb4bd0354cdbbaa5",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/slack-half-configured-onboarding.test.ts": {
       "blob": "2ed95094cc38e15449b18721da807eb188f92710",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
+      "card": "#413"
     },
     "src/__tests__/ssh-tmux.test.ts": {
       "blob": "fbe9a18271bdd9499e0b41e7a1739a5d35b52e1b",
@@ -2145,21 +2145,21 @@
     },
     "src/__tests__/system-sender-allowlist.test.ts": {
       "blob": "d759e19881002f405faf10dc746c275c39868cf5",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream reserved system-sender allowlist on /api/messages. That is a restriction on agent-to-agent messaging this fork does not ship (agent equality, owner 2026-08-27).",
+      "card": "#413"
     },
     "src/__tests__/system-sender-reserved.test.ts": {
       "blob": "36cb22884a536346b0b972c960458465e7406fc3",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream reserved system-sender allowlist on /api/messages. That is a restriction on agent-to-agent messaging this fork does not ship (agent equality, owner 2026-08-27).",
+      "card": "#413"
     },
     "src/__tests__/task-run-completion.test.ts": {
       "blob": "6395d565cc3ee14e275ca05ff15fd73176fbd916",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream scheduler features this fork does not ship (Slack-bound channel, main-agent-missing branch, task-run completion records, ledger drain / identity). Our schedule runner keeps its own shape (C-31, owner decision A 2026-09-24); the one real upstream fix here (missing retry) was rebuilt separately.",
+      "card": "#413"
     },
     "src/__tests__/template-identity-hygiene.test.ts": {
       "blob": "54d86bce1aa82ccdf2361e4d7c9d5c11256c4f15",
@@ -2175,9 +2175,9 @@
     },
     "src/__tests__/token-prune-lag.test.ts": {
       "blob": "2291117eb61bbc973d7796b45d0c1c481740e911",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream UI / build / DB detail this fork does not ship (full-width layout contract, tmux target naming, built-commit stamp, token prune lag, and the unixepoch ban, which is moot because the bundled SQLite supports unixepoch). Taking it would change our logic for no defect here.",
+      "card": "#413"
     },
     "src/__tests__/token-usage.test.ts": {
       "blob": "387783047a9631c41b9cb4ad9c202a39ae73e8e3",
@@ -2187,15 +2187,15 @@
     },
     "src/__tests__/tool-log-capture-failure-event.test.ts": {
       "blob": "ac47e1d2a61f53762999a653def70a8836a5358b",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/tool-log-hook-registration.test.ts": {
       "blob": "c81e299aeef30ca18b9cf4ffa9970efbd81e694e",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/update-checker-branch.test.ts": {
       "blob": "517c85905023c900f85dc33d6027ee427d339279",
@@ -2205,27 +2205,27 @@
     },
     "src/__tests__/update-native-module-loadcheck.test.ts": {
       "blob": "780f7912bd3328b6f669184e537caee7c85d98bd",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins an upstream platform path this fork does not run: macOS launchd channel monitor / update.sh native-module node pin. Nothing in our code to rebuild.",
+      "card": "#413"
     },
     "src/__tests__/vault-master-key.test.ts": {
       "blob": "244fe5426132a337f8af8aa0c74804b25b0a7781",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Behaviour already present in this fork: the upstream fix is implemented here in our own shape (the upstream test fails only on its mock set or naming, verified by running it with the missing mocks added). Nothing to rebuild; our test keeps pinning it.",
+      "card": "#413"
     },
     "src/__tests__/vault-read-audit.test.ts": {
       "blob": "95c6c0743aee690468c2b1c887b8663534568a9c",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Behaviour already present in this fork: the upstream fix is implemented here in our own shape (the upstream test fails only on its mock set or naming, verified by running it with the missing mocks added). Nothing to rebuild; our test keeps pinning it.",
+      "card": "#413"
     },
     "src/__tests__/voice-channel-hanna.test.ts": {
       "blob": "5e9adcfaae491e754f87801f053eb0120af69042",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/__tests__/welcome-screen-recovery.test.ts": {
       "blob": "fe11f74f7dcaa455b2440cb81b9fa98056873431",
@@ -2235,9 +2235,9 @@
     },
     "src/__tests__/worksource-wiring.test.ts": {
       "blob": "aef9bb6d98c822efdbb906c693a47cb6ac8af129",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): Pins the upstream message-router redesign (batch inject, main-agent wakeup, stuck alert, freshness window, sender counting, result summary, voice channel, work-source wiring). This fork keeps its own router (C-31, owner decision A 2026-09-24); taking it would change our logic.",
+      "card": "#413"
     },
     "src/auto-restart.ts": {
       "blob": "839eac8dc278d6005170f61acf1fcbf789cbf0eb",
