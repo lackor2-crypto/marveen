@@ -4921,6 +4921,8 @@ window._i18n.hu = {
   'autofill.load_failed':        'A böngészők listáját most nem sikerült lekérdezni ({err}). Ez nem azt jelenti, hogy nincs egy sem — csak azt, hogy most nem láttam oda.',
 
   // --- Git tarolok (Raktar) ---
+  'raktar.open_service':       'Megnyitás',
+  'raktar.open_service_title': 'A szolgáltatás főoldala új lapon (bejelentkezéshez)',
   'nav.gitrepos':                   'Git tárolók',
   'nav.megadepot': "MEGA",
   'megadepot.page_title': "MEGA",
