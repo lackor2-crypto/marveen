@@ -2035,12 +2035,6 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
-    "src/__tests__/scheduled-task-deletion-tombstone.test.ts": {
-      "blob": "1d31c43a7dd2620b353bd6179561f23e7041e6c0",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/script-tests-runner.test.ts": {
       "blob": "2155f455a9384c7d679b22aa54ea3d25eead1ef3",
       "kind": "deferred",

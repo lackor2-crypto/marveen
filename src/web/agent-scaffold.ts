@@ -1,3 +1,4 @@
+import { readRemovedDefaultTasks } from './scheduled-tasks-io.js'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
@@ -990,11 +991,17 @@ export function ensureDefaultScheduledTasks(): void {
   if (!existsSync(repoTasks)) return
   const destRoot = join(homedir(), '.claude', 'scheduled-tasks')
   mkdirSync(destRoot, { recursive: true })
+  // A default the operator deleted is tombstoned in .removed-defaults by the
+  // DELETE route; the shell seed loops already honour it, and this seeder runs
+  // on EVERY dashboard start, so without the check a deleted default came back
+  // on the next restart. (Rebuilt from upstream #796.)
+  const removed = readRemovedDefaultTasks()
 
   for (const taskName of readdirSync(repoTasks)) {
     const src = join(repoTasks, taskName)
     const dest = join(destRoot, taskName)
     if (!statSync(src).isDirectory()) continue
+    if (removed.has(taskName) && !existsSync(dest)) continue
     if (existsSync(dest)) { healTaskConfigPlaceholders(join(dest, 'task-config.json')); continue }
     mkdirSync(dest, { recursive: true })
     for (const file of readdirSync(src)) {
