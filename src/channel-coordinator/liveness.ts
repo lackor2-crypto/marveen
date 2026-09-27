@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
+import { tmuxStderr } from '../web/tmux-stderr.js'
 import { PROJECT_ROOT } from '../config.js'
 import { channelStateDir, type ChannelProviderType } from '../channel-provider.js'
 import { agentDir } from '../web/agent-config.js'
@@ -34,7 +35,16 @@ export const RESPAWN_STAMP_FILE = join(PROJECT_ROOT, 'store', '.channel-last-res
 
 export function getClaudePidForSession(session: string): number | null {
   try {
-    const out = execFileSync(TMUX(), ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'], { timeout: 3000, encoding: 'utf-8' })
+    // TMUXWINDOWATTR920 (#413, rebuilt from upstream db261a7b): stderr piped. A
+    // stopped agent's session is absent on every poll, so tmux's line goes to
+    // debug with the site instead of undated onto dashboard.error.log.
+    let out: string
+    try {
+      out = execFileSync(TMUX(), ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'], { timeout: 3000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (err) {
+      logger.debug({ site: 'liveness.getClaudePidForSession', session, tmux: tmuxStderr(err) }, 'tmux list-panes: session absent')
+      return null
+    }
     const panePid = parseInt(out.trim().split('\n')[0], 10)
     if (!panePid) return null
     const cmd = execFileSync('/bin/ps', ['-p', String(panePid), '-o', 'comm='], { timeout: 3000, encoding: 'utf-8' }).trim()

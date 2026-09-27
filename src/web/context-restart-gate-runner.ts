@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { logger } from '../logger.js'
+import { tmuxStderr } from './tmux-stderr.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { listAgentNames } from './agent-config.js'
 import { agentSessionName, capturePane } from './agent-process.js'
@@ -176,11 +177,16 @@ function capturePaneOrNull(session: string): string | null {
 
 function getPanePid(session: string): number | null {
   try {
+    // TMUXWINDOWATTR920 (#413, rebuilt from upstream db261a7b): stderr piped and
+    // logged with the call site instead of leaking undated onto the error log.
     const raw = execFileSync(TMUX, ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'],
-      { timeout: 3000, encoding: 'utf-8' })
+      { timeout: 3000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
     const pid = parseInt(raw.split('\n')[0]?.trim() ?? '', 10)
     return Number.isFinite(pid) && pid > 0 ? pid : null
-  } catch { return null }
+  } catch (err) {
+    logger.warn({ site: 'context-restart-gate-runner.getPanePid', session, tmux: tmuxStderr(err) }, 'tmux list-panes failed')
+    return null
+  }
 }
 
 function getChildPids(parentPid: number): number[] {

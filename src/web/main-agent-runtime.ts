@@ -31,6 +31,8 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { exactTmuxTarget } from './tmux-target.js'
+import { tmuxStderr } from './tmux-stderr.js'
+import { logger } from '../logger.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 
 const TMUX = 'tmux'
@@ -126,11 +128,15 @@ function ps(pid: number, field: string): string | null {
 function findClaudePid(session: string): number | null {
   let panePid: number | null = null
   try {
+    // TMUXWINDOWATTR920 (#413, rebuilt from upstream db261a7b): stderr piped.
     const raw = execFileSync(TMUX, ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'],
-      { timeout: 3000, encoding: 'utf-8' })
+      { timeout: 3000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
     const p = parseInt(raw.split('\n')[0]?.trim() ?? '', 10)
     panePid = Number.isFinite(p) && p > 0 ? p : null
-  } catch { return null }
+  } catch (err) {
+    logger.debug({ site: 'main-agent-runtime.findClaudePid', session, tmux: tmuxStderr(err) }, 'tmux list-panes: session absent')
+    return null
+  }
   if (panePid === null) return null
 
   if (ps(panePid, 'comm=') === 'claude') return panePid
