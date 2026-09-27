@@ -12912,6 +12912,8 @@ span.intezo-tree-tw { cursor: default; }
 .bk-prot-ask .bk-row-actions { justify-content: flex-start; margin-top: 10px; }
 .bk-key { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 6px; }
 .bk-key code { font-size: 16px; letter-spacing: 0.04em; overflow-wrap: anywhere; user-select: all; }
+.bk-kit-key-controls { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.bk-key-actions { margin-top: 8px; justify-content: flex-start; }
 .bk-pill { font-size: 11px; border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; color: var(--text-muted); white-space: nowrap; }
 .bk-advanced summary { cursor: pointer; font-size: 13px; color: var(--text-muted); margin: 14px 0 8px; }
 .bk-error { color: var(--danger); }

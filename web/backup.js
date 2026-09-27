@@ -178,6 +178,7 @@
       '<div class="bk-row-meta">' + h(tr('fbk.kit.where')) + '</div>' + pw + keyBox +
       '<label class="bk-check"><input type="checkbox" data-bk="kit-confirm"' + (confirmed ? ' checked disabled' : '') + (S.kit ? '' : ' disabled') + '> ' + h(tr('fbk.kit.confirm')) + '</label>' +
       (S.kit ? '' : '<div class="bk-row-meta">' + h(tr('fbk.kit.confirm_hint')) + '</div>') +
+      (open ? '' : '<div class="bk-kit-key-controls">' + keyControlsHtml('kit') + '</div>') +
       '</div>' +
       '<div class="bk-row-actions">' +
       '<button class="btn-secondary btn-compact" data-bk="kit-show">' + h(S.kitShown ? tr('fbk.kit.hide') : tr('fbk.kit.show')) + '</button>' +
@@ -266,21 +267,28 @@
       '<div class="bk-list">' + rows + empty + '</div>'
   }
 
+  // New key / own password. Shown both under the emergency sheet, where the key
+  // itself is (Boss TG 6748: "tedd fel oda, ahol a kulcs van"), and in Advanced.
+  // `where` keeps the two copies' inputs apart.
+  function keyControlsHtml(where) {
+    var loginOn = !!S.status.loginOn
+    return '<div class="bk-row-title">' + h(tr('fbk.adv.key_title')) + '</div>' +
+      '<div class="bk-row-desc">' + h(tr('fbk.adv.key_why')) + '</div>' +
+      '<label class="bk-field"><span>' + h(tr('fbk.adv.own')) + '</span><input type="password" class="input" id="bkOwnPw-' + where + '" autocomplete="new-password"></label>' +
+      (loginOn ? '<label class="bk-field"><span>' + h(tr('fbk.kit.password')) + '</span><input type="password" class="input" id="bkRotPw-' + where + '" autocomplete="current-password"></label>' : '') +
+      '<div class="bk-row-actions bk-key-actions">' +
+      '<button class="btn-secondary btn-compact" data-bk="own-save" data-kc="' + where + '">' + h(tr('fbk.adv.own_save')) + '</button>' +
+      '<button class="btn-secondary btn-compact" data-bk="rotate" data-kc="' + where + '">' + h(tr('fbk.adv.rotate')) + '</button>' +
+      '</div>'
+  }
+
   function advancedHtml() {
     var cfg = S.status.config
-    var loginOn = !!S.status.loginOn
     return '<details class="bk-advanced"><summary>' + h(tr('fbk.adv.title')) + '</summary>' +
       '<div class="bk-row"><div class="bk-row-info"><label class="bk-check"><input type="checkbox" id="bkLogs"' + (cfg.includeLogs ? ' checked' : '') + '> ' + h(tr('fbk.adv.logs')) + '</label>' +
       '<div class="bk-row-meta">' + h(tr('fbk.adv.logs_why')) + '</div></div>' +
       '<div class="bk-row-actions"><button class="btn-secondary btn-compact" data-bk="logs-save">' + h(tr('fbk.save')) + '</button></div></div>' +
-      '<div class="bk-row"><div class="bk-row-info"><div class="bk-row-title">' + h(tr('fbk.adv.key_title')) + '</div>' +
-      '<div class="bk-row-desc">' + h(tr('fbk.adv.key_why')) + '</div>' +
-      '<label class="bk-field"><span>' + h(tr('fbk.adv.own')) + '</span><input type="password" class="input" id="bkOwnPw" autocomplete="new-password"></label>' +
-      (loginOn ? '<label class="bk-field"><span>' + h(tr('fbk.kit.password')) + '</span><input type="password" class="input" id="bkRotPw" autocomplete="current-password"></label>' : '') +
-      '</div><div class="bk-row-actions">' +
-      '<button class="btn-secondary btn-compact" data-bk="own-save">' + h(tr('fbk.adv.own_save')) + '</button>' +
-      '<button class="btn-secondary btn-compact" data-bk="rotate">' + h(tr('fbk.adv.rotate')) + '</button>' +
-      '</div></div></details>'
+      '<div class="bk-row"><div class="bk-row-info">' + keyControlsHtml('adv') + '</div></div></details>'
   }
 
   function render() {
@@ -472,8 +480,9 @@
         await load()
       } else if (act === 'own-save' || act === 'rotate') {
         if (!window.confirm(tr(act === 'rotate' ? 'fbk.adv.rotate_confirm' : 'fbk.adv.own_confirm'))) return
-        var body = { password: (document.getElementById('bkRotPw') || {}).value || '' }
-        if (act === 'own-save') body.ownPassword = (document.getElementById('bkOwnPw') || {}).value || ''
+        var kc = el.getAttribute('data-kc') || 'adv'
+        var body = { password: (document.getElementById('bkRotPw-' + kc) || {}).value || '' }
+        if (act === 'own-save') body.ownPassword = (document.getElementById('bkOwnPw-' + kc) || {}).value || ''
         await api('POST', '/api/backup/key/rotate', body)
         S.kit = null; S.kitShown = false; S.kitOpen = true
         showToast(tr('fbk.adv.rotated'), { type: 'success' })
