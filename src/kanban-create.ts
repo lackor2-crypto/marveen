@@ -52,6 +52,8 @@ export type CreateCardOutcome =
 export interface ProjectCandidate { id: string; name: string }
 
 export interface CreateCardRequest {
+  /** Optional caller-chosen id (slug); blank = generated. */
+  id?: unknown
   title?: unknown
   description?: unknown
   status?: unknown
@@ -139,7 +141,14 @@ export function sameProjectMessage(cards: CardCandidate[]): string {
  * hivo (HTTP utvonal vagy agent-tool) donti el, hogyan mondja el a hibat.
  */
 export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome {
-  const id = randomUUID().slice(0, 8)
+  // Rebuilt from upstream e3cf63a9 (#413): a caller may supply its own id (a
+  // readable slug). Resolve it HERE, once: the `{ id, ...cardFields }` spread
+  // below let the supplied id win in the stored row while this function
+  // returned -- and applied the labels to -- the generated one, so the reported
+  // id pointed at no card and the labels landed on nothing, with HTTP 200.
+  // A blank or whitespace-only id falls back to a generated one.
+  const suppliedId = typeof data.id === 'string' ? data.id.trim() : ''
+  const id = suppliedId || randomUUID().slice(0, 8)
   const parentId = data.parent_id === undefined || data.parent_id === null ? null : String(data.parent_id)
 
   // Cimke nelkul kert kartya egy projektben: a projekt alapertelmezett cimkeje.
@@ -212,7 +221,7 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
   }
   cardFields.description = withCrossLink(description, relatedCards)
 
-  createKanbanCard({ id, ...(cardFields as unknown as { title: string }) })
+  createKanbanCard({ ...(cardFields as unknown as { title: string }), id })
   applyCardLabels(id, labels.labelIds)
 
   // A masik irany: a hivatkozas a MASIK kartyaba is bekerul -- az egyiranyu
