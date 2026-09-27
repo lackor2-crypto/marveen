@@ -400,9 +400,12 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
   {
     key: 'HEARTBEAT_AGENT_ENABLED',
     type: 'string',
-    default: '1',
+    // OFF by default, matching config.ts: an unset key resolves to false there
+    // (deliberate opt-in). The registry advertised '1', so the settings UI showed
+    // the feature as enabled while it never booted. Rebuilt from upstream 1ac8a40a.
+    default: '0',
     valueSet: ['0', '1'],
-    description: 'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva.',
+    description: 'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva. Alapértelmezés: kikapcsolva.',
     module: 'heartbeat',
     secret: false,
     requiresRestart: true,
