@@ -40,7 +40,7 @@ import {
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   sameWorkspace, workspaceKey,
-  recordCodeWorkerSeen, codeBridgeHealth, codeTaskCountsByProject, WORKER_STALE_MS, listCodeTabs,
+  recordCodeWorkerSeen, getCodeWorkerVersion, codeBridgeHealth, codeTaskCountsByProject, WORKER_STALE_MS, listCodeTabs,
   requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation, findRunningTaskByRunSession,
   requestFolderBrowse, takeFolderBrowseRequests, recordFolderBrowseResult, getFolderBrowse,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
@@ -214,6 +214,23 @@ export function isRepoWorktreePath(localPath: string): boolean {
 // Ures = ervenyes valasztas: nincs `--model`, a CLI sajat valasztasa marad.
 function effectiveDispatchModel(): string {
   return String(getEffectiveSettingValue('CODE_MODEL') ?? '').trim()
+}
+
+// #425: hold new tasks back from a worker that reported an older script
+// version, so the empty claim makes it update itself. Per host, in memory: a
+// dashboard restart only restarts the grace window.
+const OUTDATED_GATE_MS = 10 * 60_000
+const outdatedSince = new Map<string, number>()
+export function outdatedWorkerHeld(host: string, now = Date.now()): boolean {
+  const expect = expectedWorkerVersion()
+  const have = getCodeWorkerVersion(host)
+  if (expect === null || have === null || have === expect) { outdatedSince.delete(host); return false }
+  const since = outdatedSince.get(host) ?? now
+  if (!outdatedSince.has(host)) {
+    outdatedSince.set(host, now)
+    logger.warn({ host, have, expect }, 'code-bridge: outdated worker -- no new task until it updates itself')
+  }
+  return now - since < OUTDATED_GATE_MS
 }
 
 export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
@@ -1261,6 +1278,17 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
     const host = (body.host ?? '').trim() || 'unknown-worker'
     recordCodeWorkerSeen(host, 'claim')
+    // #425: an OUTDATED worker gets no new task until it has updated itself.
+    // It only updates on an empty claim, so with a busy queue a fix never
+    // reached it (measured 2026-09-27: 8 queued tasks, the fixed script
+    // landed, the running copy kept the old loop that idles 7 min per task).
+    // Grace: if it still reports the old version after OUTDATED_GATE_MS (the
+    // update failed), tasks flow again -- a stalled queue is worse.
+    if (outdatedWorkerHeld(host)) {
+      const expectOnly = expectedWorkerVersion()
+      json(res, { task: null, ...(expectOnly === null ? {} : { expectedWorkerVersion: expectOnly }) })
+      return true
+    }
     const task = claimNextCodeTask(host)
     // A VART verzio minden valaszban ott van, mert a worker maga nem tudhatja,
     // hogy elavult: a sajat verziojat eddig csak KULDTE. Enelkul a csere

@@ -1538,6 +1538,15 @@ export const WORKER_STALE_MS = 5 * 60 * 1000
  *  result). Presence is a side effect of doing the job, never a separate
  *  "I am alive" call the worker could forget to make while failing at
  *  everything else. */
+/** The script version this host last reported in a discovery round (null = never
+ *  reported one, or an old worker that does not send it). */
+export function getCodeWorkerVersion(host: string): string | null {
+  ensureTables()
+  const id = (host || 'windows').trim().slice(0, 120) || 'windows'
+  const row = getDb().prepare('SELECT worker_version FROM code_workers WHERE host = ?').get(id) as { worker_version: string | null } | undefined
+  return row?.worker_version ?? null
+}
+
 export function recordCodeWorkerSeen(
   host: string,
   action: string,
