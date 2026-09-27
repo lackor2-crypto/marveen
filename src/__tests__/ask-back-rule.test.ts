@@ -47,7 +47,7 @@ describe('ensureAskBackSection', () => {
     // And the incident is spelled out, not just the principle -- a rule stated
     // as advice gets read as advice. The generated block names no agent and no
     // owner (host-agnostic rule): it describes what happened, not who it was.
-    expect(out).toContain('toroljed a nem mukodo agenseket')
+    expect(out).toContain('MINDIG kerdezz')
     expect(out).not.toContain('Gypsy')
   })
 
@@ -149,7 +149,7 @@ describe('ensureGlobalAskBackRule', () => {
     ensureGlobalAskBackRule()
     const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
     expect(out).toContain('KOTELEZO VISSZAKERDEZES')
-    expect(out).toContain('toroljed a nem mukodo agenseket')
+    expect(out).toContain('MINDIG kerdezz')
   })
 
   it("keeps the operator's own rules and adds the block once", () => {
@@ -196,7 +196,7 @@ describe('ensureRecheckSection', () => {
     expect(out).toContain('KOTELEZO VISSZAKERDEZES')
     expect(out).toContain('Sajat tartalom.')
     // A rule stated as a principle reads as advice; the cost has to be next to it.
-    expect(out).toContain('dashboard_users.updated_at')
+    expect(out).toContain('recheck-before-restating')
     // Host-agnostic: the generated block names no agent and no owner.
     expect(out).not.toContain('Gypsy')
     expect(out).not.toContain('testpassword')
