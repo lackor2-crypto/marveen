@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-19.1'
+$script:WorkerVersion = '2026-09-27.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -197,6 +197,78 @@ function Get-ProjectsSources {
 # can make. The transcript carries `{"type":"ai-title","aiTitle":"..."}` -- the
 # very caption VS Code prints on the tab -- and the first user message is the
 # fallback for a conversation too young to have been titled yet.
+# ---- #425: discovery must never stop the executor ------------------------
+#
+# Measured 2026-09-27 (worker.log + powershell.exe timing): a discovery pass
+# took ~7 minutes, and the loop ran it BEFORE asking for work. Between two
+# tasks the executor therefore sat idle 7-8 minutes (10:45:09 -> 10:54:46,
+# 11:08:50 -> 11:16:54, ...), and since it neither claimed nor heartbeat in
+# that time, the dashboard called it offline. Get-OpenSessionIds alone took
+# 37.9 s: 470 leftover session files in the WSL ~/.claude/sessions, each read
+# over the \\wsl.localhost share on every pass.
+#
+# Two fixes live here:
+#  - a per-file cache: a file whose size and mtime did not change is not read
+#    again (session json, transcript head, transcript tail);
+#  - Test-WorkWaiting: discovery asks for work every $ClaimDuringDiscoverySec.
+#    A claimed task is parked in $script:PendingTask and discovery stops at
+#    once; the loop runs the task before anything else.
+$script:FileCache = @{}
+$script:PendingTask = $null
+$script:LastDiscoveryClaim = Get-Date
+$script:ClaimDuringDiscoverySec = 15
+$script:DiscoveryInterrupted = 'MARVIN-DISCOVERY-INTERRUPTED'
+# While a task runs, discovery (it also runs from the task's wait loop) must
+# not claim a second task -- it keeps THIS task's lease alive instead.
+$script:InTaskId = $null
+$script:InTaskRunSessionId = $null
+$script:AliveFile = Join-Path $script:StateDir 'alive.txt'
+$script:LastAlive = [DateTime]::MinValue
+# A worker that wrote no sign of life for this long is taken over by the next
+# scheduled start (see the entry section).
+$script:StallTakeoverSec = 180
+
+# Sign of life on disk, at most every 10 s: "<pid> <utc ticks>". The next
+# scheduled start reads it to tell a busy worker from a stuck one.
+function Update-Alive {
+  if (((Get-Date) - $script:LastAlive).TotalSeconds -lt 10) { return }
+  $script:LastAlive = Get-Date
+  try { [System.IO.File]::WriteAllText($script:AliveFile, ('{0} {1}' -f $PID, (Get-Date).ToUniversalTime().Ticks)) } catch { }
+}
+
+function Get-CachedFileValue {
+  param($File, [string]$Kind, [scriptblock]$Compute)
+  $key = $Kind + '|' + $File.FullName
+  $stamp = '{0}|{1}' -f $File.Length, $File.LastWriteTimeUtc.Ticks
+  $hit = $script:FileCache[$key]
+  if ($hit -and $hit.Stamp -eq $stamp) { return $hit.Value }
+  $value = & $Compute
+  $script:FileCache[$key] = @{ Stamp = $stamp; Value = $value }
+  return $value
+}
+
+function Test-WorkWaiting {
+  Update-Alive
+  if ($null -ne $script:PendingTask) { throw $script:DiscoveryInterrupted }
+  if (((Get-Date) - $script:LastDiscoveryClaim).TotalSeconds -lt $script:ClaimDuringDiscoverySec) { return }
+  $script:LastDiscoveryClaim = Get-Date
+  if ($null -ne $script:InTaskId) {
+    try {
+      Invoke-Bridge -Path ('/api/code/tasks/' + $script:InTaskId + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $script:InTaskRunSessionId } | Out-Null
+    } catch { }
+    return
+  }
+  $claim = $null
+  try {
+    $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId }
+  } catch { return }
+  if ($claim -and $claim.browseRequests) { Invoke-BrowseRequests -Requested $claim.browseRequests }
+  if ($claim -and $claim.task) {
+    $script:PendingTask = $claim
+    throw $script:DiscoveryInterrupted
+  }
+}
+
 function Read-TranscriptInfo {
   param([string]$Path, [int]$MaxLines = 200)
   $info = @{ cwd = $null; title = $null }
@@ -429,10 +501,8 @@ function Get-OpenSessionIds {
   if (Test-Path -LiteralPath $dir) {
     $sawAny = $true
     foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
-      try {
-        $o = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-      } catch { continue }
-      if (-not $o.sessionId -or -not $o.pid) { continue }
+      $o = Get-CachedFileValue $f 'session' { try { Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $null } }
+      if (-not $o -or -not $o.sessionId -or -not $o.pid) { continue }
       # A PID ujrahasznosulhat, ezert a folyamat nevet is nezzuk: a Claude Code
       # node.exe vagy claude.exe alatt fut. Ennel tobbet ez a fajl nem arul el.
       $p = Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue
@@ -456,10 +526,9 @@ function Get-OpenSessionIds {
     try {
       foreach ($sdir in (Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue)) {
         foreach ($f in @(Get-ChildItem -LiteralPath $sdir.FullName -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
-          try {
-            $o = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-          } catch { continue }
-          if (-not $o.sessionId -or -not $o.pid) { continue }
+          Test-WorkWaiting
+          $o = Get-CachedFileValue $f 'session' { try { Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $null } }
+          if (-not $o -or -not $o.sessionId -or -not $o.pid) { continue }
           $lpid = [int]$o.pid
           if (-not $running.ContainsKey($lpid)) { continue }
           # Ugyanaz a nev-ellenorzes, mint Windowson: a PID ujrahasznosul.
@@ -598,6 +667,7 @@ function Get-LocalSessions {
   $projectsDir = $source.Path
   $distro = $source.Distro
   foreach ($dir in (Get-ChildItem -Path $projectsDir -Directory -ErrorAction SilentlyContinue)) {
+    Test-WorkWaiting
     # A transcript under ~2 KB is an aborted/empty session -- registering it as
     # "the project's session" would throw away the real conversation history.
     $files = @(Get-ChildItem -Path $dir.FullName -Filter '*.jsonl' -File -ErrorAction SilentlyContinue |
@@ -640,7 +710,7 @@ function Get-LocalSessions {
         if ($kept -ge $script:MaxTabsPerWorkspace) { break }
         if ($f.LastWriteTimeUtc -lt $cutoff) { break }
       }
-      $info = Read-TranscriptInfo -Path $f.FullName
+      $info = Get-CachedFileValue $f 'info' { Read-TranscriptInfo -Path $f.FullName }
       if (-not $info.cwd) { continue }
       # A WSL-ben futo Claude Code a SAJAT (POSIX) cwd-jet irja a transcriptbe
       # -- ezt kell UNC-alakra hoznunk, MIELOTT barmit ellenoriznenk vagy
@@ -665,7 +735,7 @@ function Get-LocalSessions {
           $sidDistro = $open[$sid].Distro
         }
       }
-      $usage = Read-TranscriptUsage -Path $f.FullName
+      $usage = Get-CachedFileValue $f 'usage' { Read-TranscriptUsage -Path $f.FullName }
       [void]$out.Add(@{
         workspacePath = $reportedWorkspace
         sessionId     = $sid
@@ -998,8 +1068,11 @@ function Invoke-CodeTask {
   # ugyanolyan surun, mint a fo ciklusban.
   $lastPublish = (Get-Date).AddSeconds(10 - $DiscoverSeconds)
   $timedOut = $false
+  $script:InTaskId = $Task.id
+  $script:InTaskRunSessionId = $runSessionId
   while (-not $proc.HasExited) {
     Start-Sleep -Seconds 2
+    Update-Alive
     if (((Get-Date) - $lastBeat).TotalSeconds -ge 60) {
       $lastBeat = Get-Date
       try {
@@ -1019,6 +1092,8 @@ function Invoke-CodeTask {
       break
     }
   }
+  $script:InTaskId = $null
+  $script:InTaskRunSessionId = $null
   try { $proc.WaitForExit(15000) | Out-Null } catch { }
 
   $durationMs = [int]((Get-Date) - $started).TotalMilliseconds
@@ -1163,13 +1238,29 @@ function Invoke-SelfUpdate {
 function Start-WorkerLoop {
   $lastDiscover = [DateTime]::MinValue
   while ($true) {
+    Update-Alive
     try {
-      if (((Get-Date) - $lastDiscover).TotalSeconds -ge $DiscoverSeconds) {
-        $lastDiscover = Get-Date
-        Publish-Sessions
+      # #425: work FIRST. A task parked by discovery runs now; otherwise ask.
+      # Discovery only runs when there is nothing to do, and it keeps asking
+      # for work itself (Test-WorkWaiting), so a task never waits behind it.
+      $claim = $null
+      if ($null -ne $script:PendingTask) {
+        $claim = $script:PendingTask
+        $script:PendingTask = $null
+      } else {
+        $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId }
       }
-
-      $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId }
+      if ((-not $claim -or -not $claim.task) -and ((Get-Date) - $lastDiscover).TotalSeconds -ge $DiscoverSeconds) {
+        $lastDiscover = Get-Date
+        $script:LastDiscoveryClaim = Get-Date
+        try {
+          Publish-Sessions
+        } catch {
+          if ([string]$_.Exception.Message -ne $script:DiscoveryInterrupted) { throw }
+          Write-Log 'discovery paused: a task arrived, running it first'
+          continue
+        }
+      }
       # A csere pillanata: van kapcsolat a hiddal, es epp NINCS futo feladat.
       # Ha most cserelunk, semmi nem szakad felbe. Ha van task, a frissites var
       # a kovetkezo ures korre -- harom masodperc mulva ujra itt vagyunk.
@@ -1253,8 +1344,28 @@ if ($DiscoverOnly) {
 # szivverésbol -- a dashboard `code_bridge_dead` jelzese a WORKER_STALE_MS
 # alapjan meri. A csend itt tehat "minden rendben", nem "nem latok oda".
 $mutex = New-Object System.Threading.Mutex($false, 'Global\MarvinCodeWorker')
-if (-not $mutex.WaitOne(0)) {
-  return
+$script:HaveMutex = $false
+try { $script:HaveMutex = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $script:HaveMutex = $true }
+if (-not $script:HaveMutex) {
+  # #425: a running worker that wrote no sign of life for $StallTakeoverSec is
+  # stuck, not busy (a busy one writes every 10 s, also during a task). Take
+  # over instead of leaving the machine without a working executor until
+  # someone notices. Only OUR worker is stopped: the PID must be alive and its
+  # command line must name this script.
+  try {
+    $parts = ([System.IO.File]::ReadAllText($script:AliveFile)).Trim().Split(' ')
+    $oldPid = [int]$parts[0]
+    $age = ((Get-Date).ToUniversalTime() - [DateTime]::new([int64]$parts[1], [DateTimeKind]::Utc)).TotalSeconds
+    if ($age -gt $script:StallTakeoverSec -and $oldPid -ne $PID) {
+      $cim = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $oldPid) -ErrorAction SilentlyContinue
+      if ($cim -and [string]$cim.CommandLine -match 'marvin-code-worker') {
+        Write-Log ("worker {0} wrote no sign of life for {1:n0}s -- stopping it and taking over" -f $oldPid, $age) 'WARN'
+        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+        try { $script:HaveMutex = $mutex.WaitOne(15000) } catch [System.Threading.AbandonedMutexException] { $script:HaveMutex = $true }
+      }
+    }
+  } catch { }
+  if (-not $script:HaveMutex) { return }
 }
 $script:RestartAfterExit = $false
 try {

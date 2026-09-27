@@ -24865,6 +24865,7 @@ async function loadApprovalsPage() {
     const res = await fetch('/api/approvals?limit=500')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     _approvalsAll = await res.json()
+    _approvalsCodeWorkerNote()
     _prjScopeBar('approvals', loadApprovalsPage)
     _prjApprovalMap = _prjScope.approvals ? await _prjScopeMapLoad('approval', _approvalsAll.map((a) => a.id)) : {}
     _syncApprovalFilterOptions()
@@ -24885,6 +24886,7 @@ async function loadApprovalsPage() {
           const r = await fetch('/api/approvals?limit=500')
           if (!r.ok) return
           _approvalsAll = await r.json()
+          _approvalsCodeWorkerNote()
           _syncApprovalFilterOptions()
           _renderApprovalsTable()
           if (!_approvalsHasPendingVerification()) {
@@ -25078,6 +25080,34 @@ function _renderApprovalsTable() {
 // review the change and POST its pass/fail back to
 // /api/approvals/:id/verify-result -- the table cell then shows per-agent
 // status and an overall green check (all pass) or red X (any fail).
+// #425 (Boss TG 6724): a review handed to the VS Code executor sits as an
+// hourglass forever when the executor is not running -- nothing on this page
+// said so. When any such review is still pending, ask the bridge whether its
+// executor is alive and say it here, with what to do. "Could not ask" is its
+// own sentence: it is not the same as "stopped".
+async function _approvalsCodeWorkerNote() {
+  const el = document.getElementById('approvalsCodeWorkerNote')
+  if (!el) return
+  const waiting = (_approvalsAll || []).some((a) => (a.verifications || []).some((v) => v.status === 'pending' && String(v.agent || '').startsWith('code:')))
+  if (!waiting) { el.hidden = true; return }
+  let h = null
+  try {
+    const r = await fetch('/api/code/health')
+    if (r.ok) h = await r.json()
+  } catch { h = null }
+  if (!h) {
+    el.textContent = t('approvals.verify.code_worker_unknown')
+    el.hidden = false
+    return
+  }
+  if (h.workerOnline) { el.hidden = true; return }
+  const min = h.lastSeenAt ? Math.max(1, Math.round((Date.now() - h.lastSeenAt) / 60000)) : null
+  el.textContent = min === null
+    ? t('approvals.verify.code_worker_never', { queued: h.queued ?? 0 })
+    : t('approvals.verify.code_worker_stalled', { min, queued: h.queued ?? 0 })
+  el.hidden = false
+}
+
 function _approvalVerifyCellHtml(a) {
   const verifications = a.verifications || []
   if (verifications.length === 0) {
