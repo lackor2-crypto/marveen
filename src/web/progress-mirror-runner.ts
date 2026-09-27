@@ -76,7 +76,7 @@ function saveState(): void {
 }
 
 export function progressMirrorMode(): ProgressMode {
-  try { return parseProgressMode(getEffectiveSettingValue('TELEGRAM_PROGRESS_MODE')) } catch { return 'indicator' }
+  try { return parseProgressMode(getEffectiveSettingValue('TELEGRAM_PROGRESS_MODE')) } catch { return 'verbose' }
 }
 
 function telegramTargets(): Target[] {
