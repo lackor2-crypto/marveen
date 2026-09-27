@@ -2059,6 +2059,9 @@ export interface KanbanCard {
   created_at: number
   updated_at: number
   archived_at: number | null
+  // Only in listKanbanCards(): unix seconds the card last entered "done"
+  // (null for cards in other columns).
+  done_at?: number | null
   // Set the first time the card is moved to in_progress and the assigned agent
   // is woken (kanban -> agent dispatch). NULL = never dispatched; the once-only
   // guard so re-dragging a card does not re-prompt the agent.
@@ -2081,7 +2084,16 @@ export function listKanbanCards(): KanbanCard[] {
     "UPDATE kanban_cards SET archived_at = ? WHERE status = 'done' AND archived_at IS NULL AND updated_at < ?"
   ).run(Math.floor(Date.now() / 1000), archiveCutoff)
   return db
-    .prepare('SELECT rowid AS seq, * FROM kanban_cards WHERE archived_at IS NULL ORDER BY sort_order ASC')
+    .prepare(
+      // done_at: when the card last entered "done" (latest status event), so
+      // the Done column can list the most recently finished card first. Cards
+      // finished before status events existed fall back to updated_at.
+      `SELECT rowid AS seq, *,
+         CASE WHEN status = 'done' THEN COALESCE(
+           (SELECT MAX(e.created_at) FROM kanban_card_events e
+             WHERE e.card_id = kanban_cards.id AND e.to_status = 'done'),
+           updated_at) END AS done_at
+       FROM kanban_cards WHERE archived_at IS NULL ORDER BY sort_order ASC`)
     .all() as KanbanCard[]
 }
 

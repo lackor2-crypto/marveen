@@ -2287,7 +2287,7 @@ function renderKanban() {
     for (const [status, cards] of Object.entries(grouped)) {
       const col = document.querySelector(`#kanbanBoard .kanban-col-body[data-status="${status}"]`)
       col.innerHTML = ''
-      cards.sort(kanbanUrgencySort)
+      cards.sort(kanbanColumnSort(status))
 
       for (const card of cards) {
         const embeddedChildren = kanbanCards
@@ -2361,6 +2361,20 @@ function kanbanUrgencySort(a, b) {
   const rankB = prioB === -1 ? KANBAN_PRIORITY_ORDER.length : prioB
   if (rankA !== rankB) return rankA - rankB
   return a.sort_order - b.sort_order
+}
+
+// The Done column is a history, not a to-do list: the card finished most
+// recently goes on top (done_at from the server, updated_at as fallback).
+// Every other column keeps the urgency order.
+function kanbanDoneRecencySort(a, b) {
+  const ta = a.done_at ?? a.updated_at ?? 0
+  const tb = b.done_at ?? b.updated_at ?? 0
+  if (ta !== tb) return tb - ta
+  return (b.seq ?? 0) - (a.seq ?? 0)
+}
+
+function kanbanColumnSort(status) {
+  return status === 'done' ? kanbanDoneRecencySort : kanbanUrgencySort
 }
 
 // Which swimlane a card belongs to under the current grouping. Returns a
@@ -2452,7 +2466,7 @@ function renderSwimlaneBoard(grouped, embeddedSubtaskIds) {
       colBody.className = 'kanban-col-body kanban-swimlane-col-body'
       colBody.dataset.status = def.status
 
-      const cards = laneCardsByStatus[def.status].sort(kanbanUrgencySort)
+      const cards = laneCardsByStatus[def.status].sort(kanbanColumnSort(def.status))
       for (const card of cards) {
         const embeddedChildren = kanbanCards
           .filter(c => c.parent_id === card.id && embeddedSubtaskIds.has(c.id))
