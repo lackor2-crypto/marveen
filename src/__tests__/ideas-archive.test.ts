@@ -89,6 +89,16 @@ describe('Otletlada archivalas (#422)', () => {
   })
 })
 
+describe('ures kategoria (#422)', () => {
+  it('ures kategoriaval felvett otlet az alap kategoriat kapja; a PUT nem uriti ki', async () => {
+    const a = await call('POST', '/api/ideas', { title: 'X', category: '  ' })
+    const row = () => getDb().prepare('SELECT category FROM idea_box WHERE id = ?').get(a.body.id) as { category: string }
+    expect(row().category).toBe('Egyéb')
+    await call('PUT', `/api/ideas/${a.body.id}`, { category: '' })
+    expect(row().category).toBe('Egyéb')
+  })
+})
+
 describe('felulet (#422)', () => {
   const root = join(__dirname, '..', '..')
   const app = readFileSync(join(root, 'web/app.js'), 'utf-8')

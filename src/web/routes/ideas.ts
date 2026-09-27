@@ -108,7 +108,8 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
         id,
         title: data.title,
         description: data.description ?? null,
-        category: data.category ?? 'Egyéb',
+        // An empty category would show up as a blank filter option (#422).
+        category: (typeof data.category === 'string' && data.category.trim()) || 'Egyéb',
         status: 'new',
         source: data.source ?? 'manual',
         kanban_id: null,
@@ -146,6 +147,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       if (!Number.isFinite(v) || v < 1 || v > 5) { json(res, { error: 'effort must be 1-5 or null' }, 400); return true }
       data.effort = v
     }
+    if (typeof data.category === 'string' && !data.category.trim()) delete data.category
     const current = getIdea(id)
     if (!current) { json(res, { error: 'Ötlet nem található' }, 404); return true }
     if (updateIdea(id, data)) {
