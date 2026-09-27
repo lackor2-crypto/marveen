@@ -422,9 +422,17 @@ echo ""
 echo "(f) Multi-agent scope"
 
 DB_M="$TMPDIR_BASE/m.db"
-emit_inbound 100 1 "FO_AGENS_UZENET" "$INSTALL_DIR"             | run_hook ledger-capture.py "$DB_M"
-emit_inbound 200 1 "DIA_UZENET"      "$INSTALL_DIR/agents/dia"  | run_hook ledger-capture.py "$DB_M"
-emit_session "$INSTALL_DIR/agents/dia" | run_hook ledger-replay.py "$DB_M" > "$TMPDIR_BASE/m.json"
+# #413: the capture hook files a row only under a REAL agent (known_agent_id:
+# agents/<id>/ must exist). agents/ is not in git, so on CI or in a worktree
+# there is no agents/dia and the DIA row was silently dropped. Run this case
+# from a throwaway install copy that HAS the agent dir, instead of creating
+# one inside the repo.
+SCOPE_INSTALL="$TMPDIR_BASE/scope-install"
+mkdir -p "$SCOPE_INSTALL/scripts" "$SCOPE_INSTALL/agents/dia"
+cp -r "$HOOKS_DIR" "$SCOPE_INSTALL/scripts/hooks"
+emit_inbound 100 1 "FO_AGENS_UZENET" "$SCOPE_INSTALL"             | HOOKS_DIR="$SCOPE_INSTALL/scripts/hooks" run_hook ledger-capture.py "$DB_M"
+emit_inbound 200 1 "DIA_UZENET"      "$SCOPE_INSTALL/agents/dia"  | HOOKS_DIR="$SCOPE_INSTALL/scripts/hooks" run_hook ledger-capture.py "$DB_M"
+emit_session "$SCOPE_INSTALL/agents/dia" | HOOKS_DIR="$SCOPE_INSTALL/scripts/hooks" run_hook ledger-replay.py "$DB_M" > "$TMPDIR_BASE/m.json"
 M_CTX="$(ctx_of "$TMPDIR_BASE/m.json")"
 if printf '%s' "$M_CTX" | grep -q "DIA_UZENET"; then
     pass "scope: dia session replays its own chat"
