@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { logger } from './logger.js'
 import { formatForTelegram, splitMessage } from './format.js'
 import { markIfTestRun } from './test-run-marker.js'
+import { TOOL_TIMEOUTS } from './tool-timeouts.js'
 
 export type ChannelProviderType = 'telegram' | 'slack' | 'discord' | 'googlechat' | 'teams'
 
@@ -50,6 +51,11 @@ function telegramHttpPost(token: string, method: string, body: string, contentTy
           'Content-Type': contentType,
           'Content-Length': Buffer.byteLength(body),
         },
+        // Every send carries a deadline: the scheduler's pending-retry alert
+        // stamps alert_sent_at BEFORE the send and clears it only on a thrown
+        // error, so a socket that never answers pinned the stamp and silenced
+        // that alert for good. (Rebuilt from upstream.)
+        timeout: TOOL_TIMEOUTS['telegram'],
       },
       (res) => {
         // Read the body even on HTTP 200: the Bot API can answer 200 with
@@ -73,6 +79,9 @@ function telegramHttpPost(token: string, method: string, body: string, contentTy
       }
     )
     req.on('error', reject)
+    // `timeout` only emits the event; destroying the request surfaces it
+    // through the 'error' handler above as a rejection.
+    req.on('timeout', () => req.destroy(new Error(`Telegram ${method} timed out after ${TOOL_TIMEOUTS['telegram']}ms`)))
     req.write(body)
     req.end()
   })
@@ -182,6 +191,7 @@ const slackProvider: ChannelProvider = {
         unfurl_links: false,
         unfurl_media: false,
       }),
+      signal: AbortSignal.timeout(TOOL_TIMEOUTS['slack']),
     })
     if (!resp.ok) {
       throw new Error(`Slack API HTTP ${resp.status}`)
@@ -286,6 +296,7 @@ const discordProvider: ChannelProvider = {
         'Authorization': `Bot ${token}`,
       },
       body: JSON.stringify({ content: text }),
+      signal: AbortSignal.timeout(TOOL_TIMEOUTS['discord']),
     })
     if (!resp.ok) {
       const body = await resp.text().catch(() => '')

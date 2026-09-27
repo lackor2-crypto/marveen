@@ -751,12 +751,6 @@
       "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
       "card": "#375"
     },
-    "src/__tests__/channel-provider-send-timeout.test.ts": {
-      "blob": "51197f76f5461c373dc458f0f06d3c2d0286ac79",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/channel-provider-unknown-value.test.ts": {
       "blob": "20816d1fd16e7cb60ac6882174ad72dd130c5931",
       "kind": "deferred",
