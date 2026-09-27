@@ -225,6 +225,37 @@ describe('tool-kor', () => {
     expect(followUp).toContain('TOOL RESULT (file.read): error')
     expect(followUp).toContain('Do not invent the answer')
   })
+
+  it('egy hosszu fajl vegiglapozasa UTAN is marad kor a valaszra (#432/#433 regresszio)', async () => {
+    // Merve (2026-09-28): egy 25k karakteres dokumentum vegiglapozasa 4 file.read-et
+    // igenyelt, es a regi 4-es keret elfogyott a valasz ELOTT -> max_rounds, ami
+    // provider-hibanak latszott. 5 lapozas + valasz csak akkor fer bele, ha a keret
+    // eleg nagy.
+    const p = fakeProvider([
+      '{"tool":"file.read","input":{"path":"terv.md","offset":0}}',
+      '{"tool":"file.read","input":{"path":"terv.md","offset":8000}}',
+      '{"tool":"file.read","input":{"path":"terv.md","offset":16000}}',
+      '{"tool":"file.read","input":{"path":"terv.md","offset":24000}}',
+      '{"tool":"file.read","input":{"path":"terv.md","offset":32000}}',
+      'Kész, végigolvastam: az utolsó fejezet a "34. Végső cél".',
+    ])
+    const evs = await turn('Olvasd el teljesen a tervet és mondd meg az utolsó fejezetet', p)
+    // A valasz megjott, NEM max_rounds-ba futott.
+    expect(textOf(evs)).toContain('34. Végső cél')
+    expect(evs.some((e) => e.type === 'notice' && (e as any).code === 'max_rounds')).toBe(false)
+    expect(evs.at(-1)).toMatchObject({ type: 'done' })
+  })
+
+  it('ha tenyleg kifut a korokbol, az uzenet NEM provider-hiba, hanem a lepes-keret (sajat mondat)', async () => {
+    // Csupa tool-hivas, sosem ad vegso szoveget -> eleri a keretet.
+    const p = fakeProvider(Array.from({ length: 20 }, () => '{"tool":"file.read","input":{"path":"nincs.txt"}}'))
+    const evs = await turn('Olvass a vegtelensegig', p)
+    const notice = evs.find((e) => e.type === 'notice' && (e as any).code === 'max_rounds') as any
+    expect(notice).toBeTruthy()
+    // A lepes-keret sajat mondata, NEM a provider_no_answer szoveg.
+    expect(notice.message).toContain('lépés')
+    expect(notice.message).not.toContain('szolgáltató most nem adott')
+  })
 })
 
 describe('jovahagyas -- a MEGLEVO rendszeren at', () => {

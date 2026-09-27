@@ -28,6 +28,10 @@ export const MESSAGES = {
     hu: 'A szolgáltató hívása nem sikerült: {detail}',
     en: 'The provider call failed: {detail}',
   },
+  max_rounds_reached: {
+    hu: 'Ez a kérés sok lépést igényelt (pl. egy hosszú fájl végiglapozását), és elértem a lépés-keretet, mielőtt a végső választ meg tudtam volna fogalmazni. Kérdezz szűkebben (pl. egy adott szakaszra), vagy kérd meg, hogy csak a lényeget nézze -- akkor egy fordulóban belefér.',
+    en: 'This request took many steps (for example paging through a long file) and I hit the step budget before I could write the final answer. Ask something narrower (e.g. one section), or ask for just the essentials, and it will fit in one turn.',
+  },
 
   // --- teljes erteku agent a kod-hidon (#433, B opcio) ---------------------
   code_bridge_handed_off: {
