@@ -6053,6 +6053,8 @@ window._i18n.en = {
   "workbench.chat.setup_model_label": "Model (optional)",
   "workbench.chat.setup_model_placeholder": "claude-sonnet-5",
   "workbench.chat.setup_model_hint": "If you leave it empty, Marveen uses the default.",
+  "workbench.chat.fullmode_hint": "Full-value agent: in this chat the project-scoped assistant answers right now. If you want a full Claude Code agent (recognizes and fixes bugs on the spot), turn it on in the Marvin settings; your choice persists across logout too.",
+  "workbench.chat.fullmode_open": "Set up full-value mode in Marvin settings →",
   "workbench.chat.setup_save": "Save",
   "workbench.chat.setup_saving": "Saving...",
   "workbench.chat.setup_saved": "Saved. You can talk to the agent now.",

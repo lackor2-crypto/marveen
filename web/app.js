@@ -1051,6 +1051,16 @@ function runLater(fn, timeout = 1500) {
   setTimeout(once, timeout)
 }
 
+// Mely-hivatkozas a Munkapad chatbol a Beallitasok -> AI Munkapad fulre, ahol a
+// teljes erteku mod (WORKBENCH_FULL_AGENT) kapcsolhato. A ful-kulcs itt, egy
+// helyen; a mentett kulcsbol a loadSettings a helyes fulre all, plusz explicit
+// is aktivaljuk. window-on, mert a workbench.js kulon script.
+window.openWorkbenchSettings = function openWorkbenchSettings() {
+  try { localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, 'munkapad') } catch (_e) { /* storage blocked */ }
+  switchPage('settings')
+  try { activateSettingsTab('munkapad') } catch (_e) { /* a ful a mentett kulcsbol is aktivalodik */ }
+}
+
 function switchPage(pageId) {
   // 'team' is merged into 'agents'; any internal call still passing 'team' redirects.
   if (pageId === 'team') { _agentsActiveView = 'tree'; pageId = 'agents' }

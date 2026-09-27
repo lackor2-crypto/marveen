@@ -6131,6 +6131,8 @@ window._i18n.hu = {
   "workbench.chat.setup_model_label": "Modell (nem kötelező)",
   "workbench.chat.setup_model_placeholder": "claude-sonnet-5",
   "workbench.chat.setup_model_hint": "Ha üresen hagyod, a Marveen az alapértelmezettet használja.",
+  "workbench.chat.fullmode_hint": "Teljes értékű ágens: itt a chatben most a projektmappára szűkített asszisztens válaszol. Ha teljes értékű Claude Code ügynököt szeretnél (helyben felismer és ki is javít hibát), azt a Marvin beállításokban kapcsolhatod be, és a választásod megmarad kijelentkezés után is.",
+  "workbench.chat.fullmode_open": "Teljes értékű mód beállítása a Marvin beállításokban →",
   "workbench.chat.setup_save": "Mentés",
   "workbench.chat.setup_saving": "Mentés...",
   "workbench.chat.setup_saved": "Elmentve. Most már tudsz beszélgetni az ágenssel.",
