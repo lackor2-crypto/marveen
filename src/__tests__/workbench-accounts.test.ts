@@ -50,6 +50,16 @@ describe('workbenchAccountStatuses', () => {
     expect(workbenchAccountStatuses().length).toBe(2)
   })
 
+  it('CSAK Claude-fiok: a nem-Claude (ingyenes glm/laguna/nemotron) modell kimarad', () => {
+    setWorkbenchAccountListerForTest(() => [
+      acc('claude', 20, 0, 'claude-opus-5-5'),
+      acc('glm', 10, 0, 'z-ai/glm-5v-turbo'),
+      acc('laguna', 5, 0, 'poolside/laguna-xs-2.1:free'),
+    ])
+    expect(workbenchAccountStatuses().map((r) => r.agent)).toEqual(['claude'])
+    expect(isKnownWorkbenchAccount('glm')).toBe(false)
+  })
+
   it('isKnownWorkbenchAccount: csak a valos fiok igaz', () => {
     setWorkbenchAccountListerForTest(() => [acc('valodi', 10, 0)])
     expect(isKnownWorkbenchAccount('valodi')).toBe(true)
