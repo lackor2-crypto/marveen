@@ -28,7 +28,12 @@ export type PaneActivity = { kind: 'live' | 'background'; text: string }
 // `· Churning… (4m 33s · ↓ 23.5k tokens)`. Upstream matched a fixed glyph set,
 // which misses the `·` shape this host renders, so any single non-letter glyph
 // is accepted and the counter shape decides. Box chrome (❯ │ ⎿ ─) never counts.
-const STATUS_RE = /^([^\p{L}\p{N}\s❯>│⎿─])\s+(.+)$/u
+// Neither do the message bullets (⏺ ●): they head tool calls and replies
+// ("⏺ Bash(100 ...)", "⏺ Kész (3 fájl)"), which would otherwise pass the
+// "(digit" test. And the text must open with the spinner's own shape, one
+// word and an ellipsis ("Churning…"), so no other glyph-led line can leak into
+// the owner's chat (lackor2-bot review of #416).
+const STATUS_RE = /^([^\p{L}\p{N}\s❯>│⎿─⏺●])\s+(\p{L}[\p{L}'’-]*….*)$/u
 const STATUS_DETAIL_RE = /\(\d|for \d+s|still running/
 // Same window pane-state.ts scans for its busy signals: a stale counter from a
 // finished turn higher up in the scrollback is not the live one.

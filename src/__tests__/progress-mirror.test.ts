@@ -87,6 +87,12 @@ describe('classifyPane: the shape current Claude Code renders (measured on this 
   it('is a live turn with its real status line', () => {
     expect(classifyPane(live)).toEqual({ kind: 'live', text: 'Churning… (4m 33s · ↓ 23.5k tokens)' })
   })
+  it('a tool-call or reply line with "(digit" never becomes the status (lackor2-bot review)', () => {
+    const p = pane('● Bash(100 fájl átnézése)', '⏺ Kész (3 fájl)', '· Rendben (2 lépés)', 'esc to interrupt')
+    expect(classifyPane(p)).toEqual({ kind: 'live', text: 'dolgozom…' })
+    const withSpinner = pane('⏺ Bash(100 fájl)', '✻ Pondering… (12s · ↓ 1k tokens)', 'esc to interrupt')
+    expect(classifyPane(withSpinner)).toEqual({ kind: 'live', text: 'Pondering… (12s · ↓ 1k tokens)' })
+  })
   it('the same pane after the turn ended is idle, not background', () => {
     const idle = pane(
       '✻ Churned for 4m 40s',
