@@ -3637,6 +3637,8 @@ window._i18n.en = {
   'tasks.modal.advanced_label':  'Advanced settings',
   'tasks.modal.skip_if_busy':    'Skip if agent is busy',
   'tasks.modal.force_send':      'Always send (even if busy)',
+  'tasks.modal.inject_metrics': 'Attach measured data (calendar, kanban, memory, database)',
+  'tasks.modal.inject_metrics_hint': 'When on, Marveen measures these itself before every run and puts the finished numbers next to the task. The agent does not have to query them, so it cannot get them wrong. If a measurement fails, that is written out too. For the calendar, first pick a calendar on the Settings / Heartbeat tab.',
   'tasks.modal.stuck_after_label': 'Alert if it runs longer than this many minutes',
   'tasks.modal.stuck_after_ph':  '5',
   'tasks.modal.stuck_after_hint': 'Empty means 5 minutes. If this task normally takes longer, raise it — otherwise every run sends you a "possible hang" message on Telegram. At most 360 minutes (6 hours): above that the system stops tracking the run, so the alert would silently turn itself off.',

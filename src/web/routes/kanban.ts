@@ -11,6 +11,8 @@ import {
   addLabelToCard, removeLabelFromCard, getLabelsForAllCards, getLabelsForCard,
   listArchivedKanbanCards,
   revertIdeaFromKanban,
+  getHeartbeatKanbanSummary, countNewHotMemories, countPlannedKanbanCards,
+  getDbFileSizeMb, getTokenPruneLag, type TokenPruneLag,
 } from '../../db.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
 import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS } from '../../config.js'
@@ -122,6 +124,52 @@ function kanbanPutAcceptedKeys(): Set<string> {
   return new Set<string>([...KANBAN_WRITABLE_FIELDS, ...cols, 'seq', 'last_status_at', 'labels', 'blockers', 'actor'])
 }
 
+// #419 (rebuilt from upstream HBKANBANDRIFT819): the heartbeat-summary payload,
+// shaped so a TRUNCATED read still carries the truth: `counts` is the first
+// key (a reader that loses the tail loses list items, never the numbers),
+// titles are cut server-side, and the waiting LIST is capped while
+// counts.waiting always carries the full total.
+export const HEARTBEAT_SUMMARY_TITLE_MAX = 160
+export const HEARTBEAT_SUMMARY_WAITING_CAP = 8
+
+type HeartbeatSummaryCard = {
+  id: string; title: string; status: string; priority: string;
+  assignee?: string | null; updated_at?: number | null;
+}
+
+export function buildHeartbeatSummaryResponse(
+  summary: { urgent: HeartbeatSummaryCard[]; in_progress: HeartbeatSummaryCard[]; waiting: HeartbeatSummaryCard[] },
+  newHotMemories1h: number,
+  plannedCount: number,
+  dbSizeMb: number | null,
+  tokenPrune: TokenPruneLag,
+) {
+  const trunc = (t: string) =>
+    t.length > HEARTBEAT_SUMMARY_TITLE_MAX ? t.slice(0, HEARTBEAT_SUMMARY_TITLE_MAX) + '…' : t
+  const slim = (c: HeartbeatSummaryCard) => ({
+    id: c.id, title: trunc(c.title), status: c.status, priority: c.priority, assignee: c.assignee ?? null,
+  })
+  const waitingRecent = [...summary.waiting]
+    .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0))
+    .slice(0, HEARTBEAT_SUMMARY_WAITING_CAP)
+  return {
+    counts: {
+      urgent: summary.urgent.length,
+      in_progress: summary.in_progress.length,
+      waiting: summary.waiting.length,
+      planned: plannedCount,
+      // Counted for the MAIN agent, server-side: nothing for a round to rewrite.
+      new_hot_memories_1h: newHotMemories1h,
+      // null = could not measure; never a fake 0.
+      db_size_mb: dbSizeMb,
+    },
+    token_prune: tokenPrune,
+    urgent: summary.urgent.map(slim),
+    waiting: waitingRecent.map(slim),
+    waiting_shown: Math.min(summary.waiting.length, HEARTBEAT_SUMMARY_WAITING_CAP),
+  }
+}
+
 export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
 
@@ -132,6 +180,11 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const labelsByCard = getLabelsForAllCards()
     const cards = listKanbanCards().map((card) => ({ ...card, labels: labelsByCard.get(card.id) ?? [] }))
     jsonMaybeGzip(req, res, cards)
+    return true
+  }
+
+  if (path === '/api/kanban/heartbeat-summary' && method === 'GET') {
+    json(res, buildHeartbeatSummaryResponse(getHeartbeatKanbanSummary(), countNewHotMemories(MAIN_AGENT_ID), countPlannedKanbanCards(), getDbFileSizeMb(), getTokenPruneLag()))
     return true
   }
 

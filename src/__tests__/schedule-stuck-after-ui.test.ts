@@ -120,7 +120,8 @@ describe('az Utemezesek urlap', () => {
 
   it('mentesnel az ures mezo 0-kent megy ki (= torles), nem marad ki', () => {
     expect(app).toMatch(/stuckRaw === '' \? 0 : Number\(stuckRaw\)/)
-    expect(app).toMatch(/const advanced = \{ skipIfBusy, forceSend, stuckAfterMinutes \}/)
+    // The field must be IN the advanced object; #419 added injectMetrics after it.
+    expect(app).toMatch(/const advanced = \{ skipIfBusy, forceSend, stuckAfterMinutes(, injectMetrics)? \}/)
   })
 
   it('a kliens is hatarol, hogy ne nyers 400-at lasson a felhasznalo', () => {

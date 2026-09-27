@@ -158,7 +158,7 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       throw err
     }
     const data = JSON.parse(body.toString()) as {
-      name: string; description: string; prompt: string; schedule: string; agent?: string; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; stuckAfterMinutes?: number
+      name: string; description: string; prompt: string; schedule: string; agent?: string; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; stuckAfterMinutes?: number; injectMetrics?: boolean
     }
     const stuckErr = validateStuckAfterMinutes(data.stuckAfterMinutes)
     if (stuckErr) { json(res, { error: stuckErr }, 400); return true }
@@ -197,6 +197,8 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       // 5-tel jott letre. A writeScheduledTask a 0-t "torold a kulcsot"-kent
       // kezeli, igy az ures mezo tovabbra sem ir semmit a configba.
       stuckAfterMinutes: data.stuckAfterMinutes,
+      // #419: heartbeat-only switch; the runner ignores it on other types.
+      injectMetrics: data.injectMetrics === true,
     })
     logger.info({ name, schedule: data.schedule }, 'Scheduled task created')
     json(res, { ok: true, name })
@@ -221,7 +223,7 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       throw err
     }
     const data = JSON.parse(body.toString()) as {
-      description?: string; prompt?: string; schedule?: string; agent?: string; enabled?: boolean; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; stuckAfterMinutes?: number
+      description?: string; prompt?: string; schedule?: string; agent?: string; enabled?: boolean; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; stuckAfterMinutes?: number; injectMetrics?: boolean
     }
     const stuckErr = validateStuckAfterMinutes(data.stuckAfterMinutes)
     if (stuckErr) { json(res, { error: stuckErr }, 400); return true }
@@ -233,6 +235,11 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
     }
     if (data.schedule !== undefined && !isValidCronShape(data.schedule)) {
       json(res, { error: 'Invalid cron expression' }, 400)
+      return true
+    }
+    // #419: only a real boolean may reach task-config.json.
+    if (data.injectMetrics !== undefined && typeof data.injectMetrics !== 'boolean') {
+      json(res, { error: 'injectMetrics must be true or false' }, 400)
       return true
     }
     writeScheduledTask(name, data)

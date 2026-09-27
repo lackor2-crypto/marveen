@@ -1,5 +1,6 @@
 import { join, isAbsolute } from 'node:path'
 import { checkTaskMcpRequirements } from './schedule-mcp-precheck.js'
+import { collectHeartbeatMetricsBlock } from './heartbeat-metrics-inject.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { runBash } from './run-bash.js'
 import { atomicWriteFileSync } from './atomic-write.js'
@@ -693,9 +694,19 @@ async function attemptFireTask(
     // Use the scheduled-task framing instead: tags are still scrubbed (so a
     // poisoned body cannot smuggle a fake security tag) but the preamble marks
     // it as a task-to-execute with the standard escalate-if-dangerous guard.
+    //
+    // #419 (upstream HBMETRICSWIRE910): a heartbeat task flagged injectMetrics
+    // gets the on-disk instrument's output appended NOW, pre-rendered. Inside
+    // the scrubbed body on purpose (it carries free-text kanban titles).
+    // collectHeartbeatMetricsBlock never throws and never returns empty: an
+    // instrument failure arrives as a muszer-hiba block, a result to deliver.
+    const metricsBlock = task.type === 'heartbeat' && task.injectMetrics
+      ? await collectHeartbeatMetricsBlock()
+      : null
+    const promptWithMetrics = metricsBlock ? `${task.prompt}\n\n${metricsBlock}` : task.prompt
     const taskBody = preCheckPrefix
-      ? `[Pre-check eredmeny]\n${preCheckPrefix}\n\n[Feladat]\n${task.prompt}`
-      : task.prompt
+      ? `[Pre-check eredmeny]\n${preCheckPrefix}\n\n[Feladat]\n${promptWithMetrics}`
+      : promptWithMetrics
     const fullPrompt =
       SCHEDULED_TASK_PREAMBLE + '\n' +
       prefix.trimEnd() + '\n\n' +

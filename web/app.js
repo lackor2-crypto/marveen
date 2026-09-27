@@ -9841,6 +9841,7 @@ scheduleModalOverlay.addEventListener('click', (e) => { if (e.target === schedul
 document.getElementById('scheduleType').addEventListener('change', () => {
   const isHeartbeat = document.getElementById('scheduleType').value === 'heartbeat'
   document.getElementById('heartbeatTemplateGroup').hidden = !isHeartbeat
+  document.getElementById('heartbeatMetricsGroup').hidden = !isHeartbeat
   if (isHeartbeat && !document.getElementById('schedulePrompt').value.trim()) {
     // Set default heartbeat schedule to every 15 min
     scheduleFrequency.value = 'custom'
@@ -9862,7 +9863,8 @@ fetch('/api/network-info').then(r => r.ok ? r.json() : {}).then(info => {
 const HEARTBEAT_TEMPLATES = {
   calendar: {
     desc: () => t('tasks.heartbeat.tpl.calendar'),
-    prompt: 'Ellenorizd a naptaramat (list-events a mai napra). Ha van meeting 1 oran belul, szolj Telegramon es 10 perccel a meeting elott is emlekeztetess. Ha nincs kozelgo esemeny, ne irj semmit.',
+    metrics: true,
+    prompt: 'Ellenorizd a naptaramat: a mert adatok blokkjanak Calendar szekcioja mar tartalmazza a kovetkezo 2 ora esemenyeit, azt hasznald. Ha van meeting 1 oran belul, szolj Telegramon es 10 perccel a meeting elott is emlekeztetess. Ha nincs kozelgo esemeny, ne irj semmit.',
     schedule: '*/15 * * * *',
   },
   email: {
@@ -9872,12 +9874,14 @@ const HEARTBEAT_TEMPLATES = {
   },
   kanban: {
     desc: () => t('tasks.heartbeat.tpl.kanban'),
+    metrics: true,
     prompt: () => `Ellenorizd a kanban tablat (curl -s http://localhost:${__serverPort}/api/kanban). Ha van olyan kartya aminek ma jar le a hatrideje vagy urgent prioritasu es meg nincs done, szolj Telegramon. Ha minden rendben, ne irj semmit.`,
     schedule: '0 */2 * * *',
   },
   full: {
     desc: () => t('tasks.heartbeat.tpl.full'),
-    prompt: 'Ellenorizd: 1) Naptar - van-e meeting 1 oran belul? 2) Email - jott-e surgos level az elmult oraban? 3) Kanban - van-e mai hataridovel kartya? Ha BARMIT talalsz ami fontos, szolj Telegramon tomoren. Ha minden csendes, ne irj semmit.',
+    metrics: true,
+    prompt: 'Ellenorizd (a naptar- es kanban-szamokat a csatolt mert adatok blokkjabol vedd, ne kerdezd le ujra): 1) Naptar - van-e meeting 1 oran belul? 2) Email - jott-e surgos level az elmult oraban? 3) Kanban - van-e mai hataridovel kartya? Ha BARMIT talalsz ami fontos, szolj Telegramon tomoren. Ha minden csendes, ne irj semmit.',
     schedule: '*/15 * * * *',
   },
 }
@@ -9888,6 +9892,7 @@ document.getElementById('heartbeatTemplate').addEventListener('change', () => {
   document.getElementById('scheduleDesc').value = typeof tpl.desc === 'function' ? tpl.desc() : tpl.desc
   document.getElementById('schedulePrompt').value = typeof tpl.prompt === 'function' ? tpl.prompt() : tpl.prompt
   document.getElementById('scheduleCustomCron').value = tpl.schedule
+  if (tpl.metrics) document.getElementById('scheduleInjectMetrics').checked = true
   scheduleFrequency.value = 'custom'
   customScheduleGroup.hidden = false
   scheduleTimeGroup.hidden = true
@@ -9935,6 +9940,8 @@ function resetScheduleForm() {
   document.getElementById('scheduleEditName').value = ''
   document.getElementById('scheduleType').value = 'task'
   document.getElementById('heartbeatTemplateGroup').hidden = true
+  document.getElementById('heartbeatMetricsGroup').hidden = true
+  document.getElementById('scheduleInjectMetrics').checked = false
   document.getElementById('heartbeatTemplate').value = ''
   saveScheduleBtn.disabled = false
   saveScheduleBtn.querySelector('.btn-text').hidden = false
@@ -10592,6 +10599,8 @@ function openEditSchedule(task) {
     const typeEl = document.getElementById('scheduleType')
     typeEl.value = (task.type === 'heartbeat') ? 'heartbeat' : 'task'
     document.getElementById('heartbeatTemplateGroup').hidden = typeEl.value !== 'heartbeat'
+    document.getElementById('heartbeatMetricsGroup').hidden = typeEl.value !== 'heartbeat'
+    document.getElementById('scheduleInjectMetrics').checked = !!task.injectMetrics
 
     // Set agent
     const agentSel = document.getElementById('scheduleAgent')
@@ -10721,7 +10730,9 @@ saveScheduleBtn.addEventListener('click', async () => {
   // Ures mezo -> 0 -> a backend torli a felulirast (marad az alapertelmezett 5 perc).
   const stuckRaw = document.getElementById('scheduleStuckAfter').value.trim()
   const stuckAfterMinutes = stuckRaw === '' ? 0 : Number(stuckRaw)
-  const advanced = { skipIfBusy, forceSend, stuckAfterMinutes }
+  // #419: only meaningful for a heartbeat; always sent so unticking persists.
+  const injectMetrics = type === 'heartbeat' && document.getElementById('scheduleInjectMetrics').checked
+  const advanced = { skipIfBusy, forceSend, stuckAfterMinutes, injectMetrics }
   if (targetSession) advanced.targetSession = targetSession
 
   if (!name) { document.getElementById('scheduleName').focus(); return }

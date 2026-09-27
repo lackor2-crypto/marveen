@@ -2057,6 +2057,8 @@ window._i18n.hu = {
   'tasks.modal.advanced_label':  'Haladó beállítások',
   'tasks.modal.skip_if_busy':    'Kihagyás, ha az ügynök foglalt',
   'tasks.modal.force_send':      'Mindig küldje (a foglaltság ellenére is)',
+  'tasks.modal.inject_metrics': 'Mért adatok csatolása (naptár, kanban, memória, adatbázis)',
+  'tasks.modal.inject_metrics_hint': 'Bekapcsolva a Marveen minden futás előtt maga méri meg ezeket, és a kész számokat a feladat mellé teszi. Az ágensnek így nem kell lekérdeznie őket, és nem is tévesztheti el. Ha egy mérés nem sikerül, azt is kiírja. A naptárhoz előbb válassz naptárat a Beállítások / Heartbeat lapon.',
   'tasks.modal.stuck_after_label': 'Riasztás, ha ennyi percnél tovább fut',
   'tasks.modal.stuck_after_ph':  '5',
   'tasks.modal.stuck_after_hint': 'Üresen hagyva 5 perc. Ha a feladat rendszerint tovább tart, emeld meg — különben minden futásnál kapsz egy „lehetséges beakadás” üzenetet a Telegramon. Legfeljebb 360 perc (6 óra): fölötte a rendszer már nem figyeli, tehát a riasztás észrevétlenül kikapcsolna.',

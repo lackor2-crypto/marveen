@@ -14,7 +14,7 @@ import { execFileSync, execSync } from 'node:child_process'
 import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
-import { initDatabase, runEmbeddingBackfill } from './db.js'
+import { initDatabase, runEmbeddingBackfill, DECAY_SWEEP_INTERVAL_MS } from './db.js'
 import { recoverInterruptedRestore } from './backup/restore.js'
 import { migrateLegacyAliases } from './web/code-bridge-store.js'
 import { readBrokerConfig, writeBrokerConfig } from './web/context-broker-store.js'
@@ -537,7 +537,7 @@ async function main(): Promise<void> {
 
   // Memory decay (24h cycle)
   runDecaySweep()
-  decayInterval = setInterval(runDecaySweep, 24 * 60 * 60 * 1000)
+  decayInterval = setInterval(runDecaySweep, DECAY_SWEEP_INTERVAL_MS)
   logger.info('Memoria leepulesi ciklus beallitva (24 oras)')
 
   // Daily digest at 23:00. Timer handles kept so shutdown can drop them.

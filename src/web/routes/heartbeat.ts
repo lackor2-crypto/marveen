@@ -24,6 +24,10 @@ import { json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import type { RouteContext } from './types.js'
 
+// #419: the fresh-install state. Exported so the metrics renderer tells
+// "no calendar chosen yet" (not an error) from "the query failed".
+export const HEARTBEAT_CALENDAR_NOT_CONFIGURED = 'HEARTBEAT_CALENDAR_ID is not configured'
+
 export const HEARTBEAT_CALENDAR_WINDOW_MS = 2 * 60 * 60 * 1000
 
 export async function tryHandleHeartbeat(ctx: RouteContext): Promise<boolean> {
@@ -31,7 +35,7 @@ export async function tryHandleHeartbeat(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/heartbeat/calendar' && method === 'GET') {
     if (!HEARTBEAT_CALENDAR_ID) {
-      json(res, { ok: false, error: 'HEARTBEAT_CALENDAR_ID is not configured' })
+      json(res, { ok: false, error: HEARTBEAT_CALENDAR_NOT_CONFIGURED })
       return true
     }
     const now = new Date()

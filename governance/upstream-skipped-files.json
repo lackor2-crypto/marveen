@@ -1390,20 +1390,20 @@
     "src/__tests__/heartbeat-metrics-inject.test.ts": {
       "blob": "6887e53def5d8adc3373db410e235ec2ebad8439",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
-      "card": "#413"
+      "reason": "Rebuilt in #419 onto our code (upstream 2c9d22ea/ee73d6bf/e02b5977/34d5f57b/de60db9e/e45e4d87): the schedule runner injects the measured block into heartbeat tasks that opt in (Schedules page switch, HU+EN), numbers served by /api/kanban/heartbeat-summary, calendar via /api/heartbeat/calendar; covered by src/__tests__/heartbeat-metrics.test.ts. Upstream gates (929fb400, 34fa5f4a) are not taken. The upstream file itself is not taken.",
+      "card": "#419"
     },
     "src/__tests__/heartbeat-metrics-script.test.ts": {
       "blob": "30b488ac2792ecf981e4fb6dcf84b9ef6cb80841",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
-      "card": "#413"
+      "reason": "Rebuilt in #419 onto our code (upstream 2c9d22ea/ee73d6bf/e02b5977/34d5f57b/de60db9e/e45e4d87): the schedule runner injects the measured block into heartbeat tasks that opt in (Schedules page switch, HU+EN), numbers served by /api/kanban/heartbeat-summary, calendar via /api/heartbeat/calendar; covered by src/__tests__/heartbeat-metrics.test.ts. Upstream gates (929fb400, 34fa5f4a) are not taken. The upstream file itself is not taken.",
+      "card": "#419"
     },
     "src/__tests__/heartbeat-summary-truncation-safe.test.ts": {
       "blob": "421a006551756ddd01d73223299e8760f3de077c",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Targets the upstream native heartbeat scheduler, which is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts pins that initHeartbeat has no call site). Rebuilding the fix would change dead code only; our heartbeat runs as the scheduled-task prompt.",
-      "card": "#413"
+      "reason": "Rebuilt in #419 onto our code (upstream 2c9d22ea/ee73d6bf/e02b5977/34d5f57b/de60db9e/e45e4d87): the schedule runner injects the measured block into heartbeat tasks that opt in (Schedules page switch, HU+EN), numbers served by /api/kanban/heartbeat-summary, calendar via /api/heartbeat/calendar; covered by src/__tests__/heartbeat-metrics.test.ts. Upstream gates (929fb400, 34fa5f4a) are not taken. The upstream file itself is not taken.",
+      "card": "#419"
     },
     "src/__tests__/heartbeat-urgent-open-only.test.ts": {
       "blob": "b860371879d4e40fb118df83f44e44383e78c7bd",
@@ -2164,8 +2164,8 @@
     "src/__tests__/token-prune-lag.test.ts": {
       "blob": "2291117eb61bbc973d7796b45d0c1c481740e911",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins an upstream UI / build / DB detail this fork does not ship (full-width layout contract, tmux target naming, built-commit stamp, token prune lag, and the unixepoch ban, which is moot because the bundled SQLite supports unixepoch). Taking it would change our logic for no defect here.",
-      "card": "#413"
+      "reason": "Rebuilt in #419 onto our code (upstream 2c9d22ea/ee73d6bf/e02b5977/34d5f57b/de60db9e/e45e4d87): the schedule runner injects the measured block into heartbeat tasks that opt in (Schedules page switch, HU+EN), numbers served by /api/kanban/heartbeat-summary, calendar via /api/heartbeat/calendar; covered by src/__tests__/heartbeat-metrics.test.ts. Upstream gates (929fb400, 34fa5f4a) are not taken. The upstream file itself is not taken.",
+      "card": "#419"
     },
     "src/__tests__/token-usage.test.ts": {
       "blob": "387783047a9631c41b9cb4ad9c202a39ae73e8e3",
@@ -2470,8 +2470,8 @@
     "src/web/heartbeat-metrics-inject.ts": {
       "blob": "ce9c172486ffa598f206bae84dc4c76c0c1ade19",
       "kind": "decided",
-      "reason": "Decided (#413): new upstream module for the native heartbeat metrics block; the native heartbeat is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts), so it is not shipped.",
-      "card": "#413"
+      "reason": "Rebuilt in #419 onto our code (upstream 2c9d22ea/ee73d6bf/e02b5977/34d5f57b/de60db9e/e45e4d87): the schedule runner injects the measured block into heartbeat tasks that opt in (Schedules page switch, HU+EN), numbers served by /api/kanban/heartbeat-summary, calendar via /api/heartbeat/calendar; covered by src/__tests__/heartbeat-metrics.test.ts. Upstream gates (929fb400, 34fa5f4a) are not taken. The upstream file itself is not taken.",
+      "card": "#419"
     },
     "src/web/hook-registration-guard.ts": {
       "blob": "b28c9bfc04f2ae9cfd4e3d5a6f1aec5da6f71914",
