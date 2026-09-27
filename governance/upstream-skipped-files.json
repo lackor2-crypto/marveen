@@ -574,8 +574,8 @@
     "src/__tests__/agent-put-fields.test.ts": {
       "blob": "7d2231e2f0a4eedf341d4c31dd1451dd46d791c8",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (38c690f8 feat(context-guard): idle-flush tier for heavy sessions that; d3cdb375 feat(context-guard): daily-handoff trigger tier, and drop th). Card #413.",
-      "card": "#413"
+      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (38c690f8 feat(context-guard): idle-flush tier for heavy sessions that; d3cdb375 feat(context-guard): daily-handoff trigger tier, and drop th). Card #413. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
+      "card": "#417"
     },
     "src/__tests__/agent-scaffold-claude-md-prompt.test.ts": {
       "blob": "6d7426d1b2c6c27c66d9515bdab1b3ab0306ff8a",
@@ -640,8 +640,8 @@
     "src/__tests__/auto-restart.test.ts": {
       "blob": "8b7bd6a8ec3f68e30e8f4cf4d8683dbefc8b5313",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream open-question restart deferral (ed62c7b6, d9eaad38) and the daily-handoff tier (d3cdb375): a new gate on the restart path and a context-guard feature, both out by the owner's rule.",
-      "card": "#413"
+      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream open-question restart deferral (ed62c7b6, d9eaad38) and the daily-handoff tier (d3cdb375): a new gate on the restart path and a context-guard feature, both out by the owner's rule. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
+      "card": "#417"
     },
     "src/__tests__/autonomy-section.test.ts": {
       "blob": "dd420b3044f5ba5949e1ea60e5b9ff95cccf4930",
@@ -802,8 +802,8 @@
     "src/__tests__/context-guard-daily-tier.test.ts": {
       "blob": "b950c45a6a1835b8cf0f51cd21943e9a3f33f950",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (d3cdb375 feat(context-guard): daily-handoff trigger tier, and drop th; df5e4462 fix(context-guard): bound the stale-handoff refresh loop (GU). Card #413.",
-      "card": "#413"
+      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (d3cdb375 feat(context-guard): daily-handoff trigger tier, and drop th; df5e4462 fix(context-guard): bound the stale-handoff refresh loop (GU). Card #413. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
+      "card": "#417"
     },
     "src/__tests__/context-guard-handoff-prompt-tone.test.ts": {
       "blob": "f3b12797419d6f743cb13cba332a5d10464e0536",
@@ -2230,8 +2230,8 @@
     "src/auto-restart.ts": {
       "blob": "839eac8dc278d6005170f61acf1fcbf789cbf0eb",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): ed62c7b6 / d9eaad38 add an open-question deferral gate to scheduled restarts (new gate = out); d3cdb375 is a context-guard feature. Not taken.",
-      "card": "#413"
+      "reason": "Decided (#413, mixed file sorted by hand): ed62c7b6 / d9eaad38 add an open-question deferral gate to scheduled restarts (new gate = out); d3cdb375 is a context-guard feature. Not taken. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
+      "card": "#417"
     },
     "src/channel-coordinator/liveness.ts": {
       "blob": "5d89c1812fa078f838d4448ca8126d0df76a5392",
@@ -2260,8 +2260,8 @@
     "src/context-guard.ts": {
       "blob": "737ed020b74360dac7d4c23eda5e5fcd42fb7c0d",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): d964aab4 is rebuilt (#452); df5e4462 bounds a stale-handoff refresh loop this fork's guard does not have; d3cdb375 (daily handoff) and d5a45f7c (MiniMax) are features. Nothing more to take.",
-      "card": "#413"
+      "reason": "Decided (#413, mixed file sorted by hand): d964aab4 is rebuilt (#452); df5e4462 bounds a stale-handoff refresh loop this fork's guard does not have; d3cdb375 (daily handoff) and d5a45f7c (MiniMax) are features. Nothing more to take. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
+      "card": "#417"
     },
     "src/context-restart-gate.ts": {
       "blob": "b2d4bc1a970bc88b0e7f43607712947fa1216212",

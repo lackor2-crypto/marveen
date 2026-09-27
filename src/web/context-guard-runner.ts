@@ -21,6 +21,7 @@ import { detectPaneState, paneShowsContextSaturation, paneShowsContextSaturation
 import { readContextTokensFromProjectDir, readActiveModelFromProjectDir } from './active-model.js'
 import { readContextGuardConfig } from './context-guard-store.js'
 import { createAgentMessage } from '../db.js'
+import { localMidnightMs } from '../auto-restart.js'
 import {
   decideGuard,
   contextLimitForModel,
@@ -29,6 +30,8 @@ import {
   type GuardState,
   type GuardInputs,
   saturationBannerCredible,
+  dailyHandoffDue,
+  DAILY_HANDOFF_REASON_PREFIX,
 } from '../context-guard.js'
 
 // Fleet context guard (kanban #81): acts BEFORE a session drowns in its own
@@ -59,6 +62,17 @@ const bannerMismatchLogged = new Set<string>()
 // request, and cooldown prevents restart loops within a run.
 const guardStates = new Map<string, GuardState>()
 const remoteSkipLogged = new Set<string>()
+
+// agent name -> when the daily-handoff tier last fired (ms), #417. Seeded on
+// first sight WITHOUT firing, so a slot that already passed before the
+// dashboard started does not start a handoff cycle at boot -- the same seed
+// rule as the nightly auto-restart. In-memory: a dashboard restart re-seeds
+// and at worst skips one slot (the safe direction: a missed daily handoff
+// costs a day of context, a spurious one ends a live conversation).
+const lastDailyHandoff = new Map<string, number>()
+// Agents whose CURRENT handoff cycle was started by the daily tier, so the
+// resume prompt says "scheduled restart", not "your context filled up".
+const dailyCycle = new Set<string>()
 
 // Per-agent observed-context high-water mark, persisted across dashboard
 // restarts. calibrateLimit alone is memoryless: the moment the guard
@@ -120,9 +134,27 @@ export function handoffPrompt(pctRound: number, handoffPath: string): string {
   )
 }
 
-export function resumePrompt(name: string, handoffPath: string, hadHandoff: boolean): string {
-  const base =
-    `[CONTEXT-GUARD] Friss kontextussal indultál, mert az előző session kontextusa megtelt (auto-handoff). `
+/**
+ * Handoff request of the daily tier (#417). Its own wording: the session is
+ * not critical (the act tier would have fired), it is simply a day old, and
+ * the only true claim is that what is not written down will not survive the
+ * scheduled restart.
+ */
+export function dailyHandoffPrompt(atTime: string, handoffPath: string): string {
+  return (
+    `[CONTEXT-GUARD] Ütemezett napi újraindítás (${atTime}) -- nem vészhelyzet és nem hiba. ` +
+    `A sessionöd hamarosan friss kontextussal indul újra, és ami nincs leírva, az nem éli túl. ` +
+    `EGYETLEN dolgod ebben a körben: írj HANDOFF.md-t a /handoff skill struktúrája szerint ide: ${handoffPath} ` +
+    `(Goal / Current Progress / What Worked / What Didn't Work / Next Steps, konkrét fájl-útvonalakkal és kanban kártya-azonosítókkal). ` +
+    `Ha nincs félbehagyott feladatod, írd bele hogy nincs -- az is teljes értékű válasz. ` +
+    `Utána ÁLLJ MEG; a rendszer újraindít és a HANDOFF.md-ből folytatod.`
+  )
+}
+
+export function resumePrompt(name: string, handoffPath: string, hadHandoff: boolean, scheduled = false): string {
+  const base = scheduled
+    ? `[CONTEXT-GUARD] Friss kontextussal indultál az ütemezett napi újraindítás miatt (napi átadás). `
+    : `[CONTEXT-GUARD] Friss kontextussal indultál, mert az előző session kontextusa megtelt (auto-handoff). `
   const source = hadHandoff
     ? `Első lépés: olvasd be ${handoffPath} -- ez az előző session átadója. `
     : `HANDOFF.md nem készült el időben, ezért az élő forrásokból dolgozz. `
@@ -190,11 +222,14 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   const cfg = readContextGuardConfig(name)
   const state = guardStates.get(name) ?? INITIAL_GUARD_STATE
 
-  // Fully disarmed only when BOTH the proactive tiers and the always-on
-  // saturation net are off; the net alone keeps the sweep alive so a
-  // 100%-context pane (which dispatch refuses to prompt) still gets rescued.
-  if (!cfg.enabled && !cfg.saturationRestart) {
+  // Fully disarmed only when EVERY tier and the always-on saturation net are
+  // off; the net alone keeps the sweep alive so a 100%-context pane (which
+  // dispatch refuses to prompt) still gets rescued. The daily tier must be in
+  // this list too, or a daily-only agent would be skipped before decideGuard
+  // ever saw it.
+  if (!cfg.enabled && !cfg.saturationRestart && !cfg.dailyHandoffEnabled) {
     guardStates.delete(name)
+    lastDailyHandoff.delete(name)
     return
   }
 
@@ -264,9 +299,27 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     sessionReady,
     handoffMtime: needPct ? handoffMtime(name) : null,
     paneSaturated: paneSaturatedTrusted,
+    // Seed-on-first-sight: an agent not yet seen by this process is recorded
+    // as served NOW, so the tier is never due on the first sweep.
+    dailyHandoffDue: (() => {
+      if (!running || state.phase !== 'idle') return false
+      const last = lastDailyHandoff.get(name)
+      if (last === undefined) { lastDailyHandoff.set(name, nowMs); return false }
+      return dailyHandoffDue(cfg, localMidnightMs(nowMs), last, nowMs)
+    })(),
   }
 
   const decision = decideGuard(state, inputs, cfg)
+
+  // Mark the slot served at DECISION time: if the prompt fails to send, the
+  // machine is already in await-handoff and its timeout restarts anyway -- the
+  // slot really was consumed. Marking later would re-fire every sweep.
+  if (decision.reason.startsWith(DAILY_HANDOFF_REASON_PREFIX)) {
+    lastDailyHandoff.set(name, nowMs)
+    dailyCycle.add(name)
+  } else if (decision.action === 'request-handoff') {
+    dailyCycle.delete(name)
+  }
 
   // Post-respawn grace for the main session. Making the Linux restart path work
   // (above) also makes it repeatable: measured on 2026-07-26, the saturation net
@@ -314,7 +367,14 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   try {
     switch (decision.action) {
       case 'request-handoff':
-        await sendPromptToSession(session, handoffPrompt(pctRound ?? 0, handoffPathFor(name)))
+        await sendPromptToSession(
+          session,
+          decision.reason.startsWith(DAILY_HANDOFF_REASON_PREFIX)
+            // pct is null for a daily-only agent: the percentage prompt would
+            // announce "~0% -- critical" to a perfectly healthy session.
+            ? dailyHandoffPrompt(cfg.dailyHandoffTime ?? '', handoffPathFor(name))
+            : handoffPrompt(pctRound ?? 0, handoffPathFor(name)),
+        )
         break
       case 'restart': {
         // A forced restart must never be silent: the supervisor has to know
@@ -365,7 +425,8 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
       }
       case 'inject-resume': {
         const hadHandoff = inputs.handoffMtime !== null || handoffMtime(name) !== null
-        await sendPromptToSession(session, resumePrompt(name, handoffPathFor(name), hadHandoff))
+        const scheduled = dailyCycle.delete(name)
+        await sendPromptToSession(session, resumePrompt(name, handoffPathFor(name), hadHandoff, scheduled))
         break
       }
     }

@@ -4509,6 +4509,20 @@
             </small>
             <button class="btn-secondary btn-compact agent-save-section" id="saveAutoRestartBtn" style="margin-top:10px" data-i18n="common.btn.save">Mentés</button>
           </div>
+          <!-- #417: daily handoff (context-guard tier, rebuilt from upstream d3cdb375) -->
+          <div class="form-group" id="dailyHandoffGroup">
+            <label data-i18n="agents.settings.dh_label">Napi átadás újraindítás előtt</label>
+            <p style="margin:4px 0 10px;font-size:12.5px;line-height:1.5;color:var(--text-muted)" data-i18n="agents.settings.dh_desc"></p>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer">
+              <input type="checkbox" id="dhEnabled"> <span data-i18n="agents.settings.auto_restart_enabled">Bekapcsolva</span>
+            </label>
+            <div class="form-group" style="margin-bottom:0">
+              <label for="dhTime" style="font-size:12px;color:var(--text-muted)" data-i18n="agents.settings.ar_time_label">Időpont</label>
+              <input type="time" id="dhTime" value="03:00">
+            </div>
+            <small id="dhHint" style="display:block;margin-top:8px;color:var(--text-muted);font-size:12px;line-height:1.5" data-i18n="agents.settings.dh_hint"></small>
+            <button class="btn-secondary btn-compact agent-save-section" id="saveDailyHandoffBtn" style="margin-top:10px" data-i18n="common.btn.save">Mentés</button>
+          </div>
           <div class="form-group" id="memoryIsolationGroup">
             <label data-i18n="agents.settings.memory_isolation_label">Memória-izoláció</label>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal">

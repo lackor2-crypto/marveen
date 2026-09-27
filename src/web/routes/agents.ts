@@ -1844,7 +1844,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
   // GET/PUT /api/agents/:name/context-guard -- per-agent context-guard config
   // (kanban #81). Default-off (opt-in): a GET for an agent with no store entry
-  // returns the disabled defaults. PUT normalizes server-side like auto-restart.
+  // returns the disabled defaults. PUT merges the body over the stored config
+  // (partial update) and normalizes server-side like auto-restart.
   const contextGuardMatch = path.match(/^\/api\/agents\/([^/]+)\/context-guard$/)
   if (contextGuardMatch && (method === 'GET' || method === 'PUT')) {
     const name = decodeURIComponent(contextGuardMatch[1])
@@ -1857,7 +1858,13 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     let data: unknown
     try { data = JSON.parse(body.toString()) } catch { json(res, { error: 'invalid JSON' }, 400); return true }
     setStoreWriteActor('dashboard')
-    const saved = writeContextGuardConfig(name, data)
+    // Partial update (#417): the agent page saves only the daily-handoff
+    // fields, and a whole-object replace would silently reset every other
+    // guard setting (thresholds, saturation net) to its default.
+    const merged = (data && typeof data === 'object' && !Array.isArray(data))
+      ? { ...readContextGuardConfig(name), ...(data as Record<string, unknown>) }
+      : data
+    const saved = writeContextGuardConfig(name, merged)
     json(res, { ok: true, contextGuard: saved })
     return true
   }

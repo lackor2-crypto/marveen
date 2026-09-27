@@ -19,6 +19,11 @@
 //
 // This module is dependency-free (no clock, tmux, or fs) so the state machine
 // is unit-testable. The I/O lives in src/web/context-guard-runner.ts.
+//
+// The daily-handoff tier (#417, rebuilt from upstream d3cdb375) reuses the
+// auto-restart module's PURE due-helpers rather than restating the schedule
+// arithmetic; they touch no clock or fs, so the property above still holds.
+import { parseHHMM, dailyDueAtMs, restartDue } from './auto-restart.js'
 
 export interface ContextGuardConfig {
   /** Master toggle for the PROACTIVE tiers (actPct handoff / hardPct restart).
@@ -46,6 +51,17 @@ export interface ContextGuardConfig {
   cooldownMinutes: number
   /** How long to wait for HANDOFF.md before force-restarting anyway. */
   handoffTimeoutMinutes: number
+  /** Daily-handoff tier (#417): at a fixed local time, ask the agent for a
+   *  HANDOFF.md, then fresh-restart it and inject the resume prompt -- the
+   *  scheduled counterpart of the context-driven tiers, so a nightly restart
+   *  no longer drops a day of context on the floor. Independent of `enabled`,
+   *  default FALSE (opt-in). */
+  dailyHandoffEnabled: boolean
+  /** Local wall-clock time (HH:MM) the daily tier fires at; null = unset.
+   *  Unset/unparseable disarms the tier (see dailyHandoffArmed), so the
+   *  nightly auto-restart keeps running instead of standing aside for a tier
+   *  that can never fire. */
+  dailyHandoffTime: string | null
 }
 
 export const DEFAULT_CONTEXT_GUARD: ContextGuardConfig = {
@@ -62,6 +78,10 @@ export const DEFAULT_CONTEXT_GUARD: ContextGuardConfig = {
   // positively busy (see decideGuard), so this timeout only disciplines an
   // IDLE agent that ignored the handoff request.
   handoffTimeoutMinutes: 20,
+  dailyHandoffEnabled: false,
+  // No default time: a default would be a schedule nobody chose. The UI
+  // pre-fills a suggestion, but the stored value is only what was saved.
+  dailyHandoffTime: null,
 }
 
 /** Coerce arbitrary parsed JSON into a safe, fully-populated config. */
@@ -86,6 +106,11 @@ export function normalizeContextGuardConfig(raw: unknown): ContextGuardConfig {
     limitTokens,
     cooldownMinutes: mins(o.cooldownMinutes, DEFAULT_CONTEXT_GUARD.cooldownMinutes),
     handoffTimeoutMinutes: mins(o.handoffTimeoutMinutes, DEFAULT_CONTEXT_GUARD.handoffTimeoutMinutes),
+    dailyHandoffEnabled: o.dailyHandoffEnabled === true, // default-off (opt-in)
+    // Same shape as the auto-restart dailyTime: a value that does not parse as
+    // HH:MM becomes null, so a typo disarms the tier instead of scheduling it
+    // at an unreadable time.
+    dailyHandoffTime: parseHHMM(o.dailyHandoffTime) !== null ? (o.dailyHandoffTime as string).trim() : null,
   }
 }
 
@@ -226,6 +251,47 @@ export interface GuardInputs {
   handoffMtime: number | null
   /** Pane footer shows context saturation ("100% context used" & co). */
   paneSaturated: boolean
+  /** The configured daily-handoff slot has come round and is unserved.
+   *  Computed by the runner with dailyHandoffDue() (needs a local midnight
+   *  and the last-served stamp, neither of which belongs in this clock-free
+   *  decision function). Optional: absent = false. */
+  dailyHandoffDue?: boolean
+}
+
+/**
+ * Reason prefix of the scheduled daily handoff. The runner matches it to pick
+ * the prompt: this session is not near its limit, it is simply a day old, and
+ * the act tier's "your context is critical" wording would be false.
+ */
+export const DAILY_HANDOFF_REASON_PREFIX = 'daily-handoff'
+
+/**
+ * Whether the daily tier can actually fire for this config.
+ *
+ * ONE predicate, two readers: the tier itself, and the auto-restart runner
+ * deciding whether to stand aside. An auto-restart that stood down for a tier
+ * that cannot fire would silently delete the nightly restart, so "enabled" is
+ * not enough -- an absent or unparseable time disarms it.
+ */
+export function dailyHandoffArmed(cfg: ContextGuardConfig): boolean {
+  return cfg.dailyHandoffEnabled && parseHHMM(cfg.dailyHandoffTime) !== null
+}
+
+/**
+ * Is the configured daily slot due and unserved? `lastRunMs` = the last time
+ * the tier fired for the agent (null = never). Delegates to restartDue, so
+ * "due" means exactly what it means for the nightly auto-restart.
+ */
+export function dailyHandoffDue(
+  cfg: ContextGuardConfig,
+  localMidnightMs: number,
+  lastRunMs: number | null,
+  nowMs: number,
+): boolean {
+  if (!dailyHandoffArmed(cfg)) return false
+  const mins = parseHHMM(cfg.dailyHandoffTime)
+  if (mins === null) return false
+  return restartDue(lastRunMs, nowMs, dailyDueAtMs(localMidnightMs, mins))
 }
 
 export type GuardActionType = 'none' | 'request-handoff' | 'restart' | 'inject-resume'
@@ -250,6 +316,20 @@ function cooldown(nowMs: number, cfg: ContextGuardConfig, reason: string): Guard
       handoffMtimeAtRequest: null,
       deadlineMs: 0,
       cooldownUntilMs: nowMs + cfg.cooldownMinutes * 60_000,
+      saturatedStreak: 0,
+    },
+  }
+}
+
+function handoffRequest(nowMs: number, inputs: GuardInputs, cfg: ContextGuardConfig, reason: string): GuardDecision {
+  return {
+    action: 'request-handoff',
+    reason,
+    nextState: {
+      phase: 'await-handoff',
+      handoffMtimeAtRequest: inputs.handoffMtime,
+      deadlineMs: nowMs + cfg.handoffTimeoutMinutes * 60_000,
+      cooldownUntilMs: 0,
       saturatedStreak: 0,
     },
   }
@@ -282,7 +362,10 @@ export function decideGuard(
   const none = (reason: string, next: GuardState = state): GuardDecision =>
     ({ action: 'none', reason, nextState: next })
 
-  if (!cfg.enabled && !cfg.saturationRestart) return none('disabled', INITIAL_GUARD_STATE)
+  // Every tier that can act must appear here (and in the await-handoff
+  // stand-down, and in the runner's early return): a missing one would drop an
+  // agent whose ONLY armed tier it is.
+  if (!cfg.enabled && !cfg.saturationRestart && !cfg.dailyHandoffEnabled) return none('disabled', INITIAL_GUARD_STATE)
 
   switch (state.phase) {
     case 'cooldown': {
@@ -303,8 +386,17 @@ export function decideGuard(
         return none('pane saturated, awaiting confirmation sweep', { ...state, saturatedStreak: streak })
       }
       const cleared = state.saturatedStreak > 0 ? { ...state, saturatedStreak: 0 } : state
-      if (!cfg.enabled) return none('proactive guard disabled (saturation net armed)', cleared)
-      if (inputs.pct === null) return none('context unmeasurable', cleared)
+      const dailyDue = cfg.dailyHandoffEnabled && inputs.dailyHandoffDue === true
+      const daily = (): GuardDecision => handoffRequest(
+        nowMs, inputs, cfg, `${DAILY_HANDOFF_REASON_PREFIX} (scheduled ${cfg.dailyHandoffTime})`,
+      )
+      // The daily tier ranks LAST: the measured tiers below (about to break,
+      // near the limit) are better reasons to state than "it is 03:00". It is
+      // deliberately NOT gated on paneIdle -- it has a slot to keep; a busy
+      // agent answers the request after its turn, and await-handoff already
+      // refuses to cut a live turn.
+      if (!cfg.enabled) return dailyDue ? daily() : none('proactive guard disabled (saturation net armed)', cleared)
+      if (inputs.pct === null) return dailyDue ? daily() : none('context unmeasurable', cleared)
       if (inputs.pct >= cfg.hardPct) {
         // Deep in the danger zone: the pane may already be wedged behind an
         // error/modal, so do not spend a turn asking for a handoff. But a
@@ -320,24 +412,20 @@ export function decideGuard(
         return restartDecision(nowMs, `hard threshold (${Math.round(inputs.pct * 100)}% >= ${Math.round(cfg.hardPct * 100)}%)`)
       }
       if (inputs.pct >= cfg.actPct) {
-        return {
-          action: 'request-handoff',
-          reason: `act threshold (${Math.round(inputs.pct * 100)}% >= ${Math.round(cfg.actPct * 100)}%)`,
-          nextState: {
-            phase: 'await-handoff',
-            handoffMtimeAtRequest: inputs.handoffMtime,
-            deadlineMs: nowMs + cfg.handoffTimeoutMinutes * 60_000,
-            cooldownUntilMs: 0,
-            saturatedStreak: 0,
-          },
-        }
+        return handoffRequest(
+          nowMs, inputs, cfg,
+          `act threshold (${Math.round(inputs.pct * 100)}% >= ${Math.round(cfg.actPct * 100)}%)`,
+        )
       }
+      if (dailyDue) return daily()
       return none('below threshold', cleared)
     }
 
     case 'await-handoff': {
-      if (!cfg.enabled) {
+      if (!cfg.enabled && !cfg.dailyHandoffEnabled) {
         // Operator disabled the proactive guard mid-sequence; stand down.
+        // Every tier that can ENTER this phase has to appear here, or a
+        // daily-only agent would stand down on the sweep after it started.
         return cooldown(nowMs, cfg, 'guard disabled during await-handoff')
       }
       if (!inputs.running) {
