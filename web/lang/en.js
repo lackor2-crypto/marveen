@@ -3070,7 +3070,7 @@ window._i18n.en = {
   'agents.settings.ar_time_label':        'Time',
   'agents.settings.dh_label':             'Daily handoff before restart',
   'agents.settings.dh_desc':              'When enabled, at the time you set the agent first writes a handoff note (HANDOFF.md) about what it is working on and what comes next, then restarts with a fresh context and continues from the note. So the nightly restart no longer forgets unfinished work. When off, nothing changes.',
-  'agents.settings.dh_hint':              'When enabled, this runs the nightly restart for this agent and the auto restart above steps aside, so it never restarts twice. It never cuts running work: the agent writes the note when its turn ends.',
+  'agents.settings.dh_hint':              'When enabled, this runs the nightly restart for this agent and the auto restart above steps aside, so it never restarts twice. Note: at the set time it interrupts running work too. The agent finishes the step in progress, writes the note, restarts, and continues from the note. So pick a time when it is usually idle.',
   'agents.settings.dh_bad_time':          'Set a time (hour:minute), otherwise the daily handoff will not run.',
   'agents.toast.daily_handoff_saved':     'Daily handoff setting saved',
   'agents.settings.auth_mode_label':      'Authentication mode',

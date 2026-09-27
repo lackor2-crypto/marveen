@@ -1952,7 +1952,7 @@ window._i18n.hu = {
   'agents.settings.ar_time_label':        'Időpont',
   'agents.settings.dh_label':             'Napi átadás újraindítás előtt',
   'agents.settings.dh_desc':              'Ha bekapcsolod, a megadott időpontban az ágens előbb leírja egy átadó jegyzetbe (HANDOFF.md), min dolgozik és mi a következő lépés, aztán friss kontextussal újraindul, és a jegyzetből folytatja. Így az éjszakai újraindítás nem felejti el a félbehagyott munkát. Kikapcsolva minden a régiben marad.',
-  'agents.settings.dh_hint':              'Bekapcsolva ez végzi az éjszakai újraindítást ennél az ágensnél, a fenti automatikus újraindítás ilyenkor félreáll, hogy ne induljon kétszer. Futó munkát nem szakít meg: az ágens a kör végén írja meg a jegyzetet.',
+  'agents.settings.dh_hint':              'Bekapcsolva ez végzi az éjszakai újraindítást ennél az ágensnél, a fenti automatikus újraindítás ilyenkor félreáll, hogy ne induljon kétszer. Figyelem: a megadott időpontban a futó munkát is megszakítja. Az ágens befejezi az éppen zajló lépést, megírja a jegyzetet, aztán újraindul, és a jegyzetből folytatja. Ezért olyan időpontot válassz, amikor általában nem dolgozik.',
   'agents.settings.dh_bad_time':          'Adj meg egy időpontot (óra:perc), különben a napi átadás nem indul el.',
   'agents.toast.daily_handoff_saved':     'Napi átadás beállítás mentve',
   'agents.settings.auth_mode_label':      'Hitelesítési mód',

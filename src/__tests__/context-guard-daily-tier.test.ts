@@ -163,3 +163,10 @@ describe('wiring', () => {
     expect(src('web/app.js')).not.toMatch(/handoff: false/)
   })
 })
+
+describe('the UI tells the truth about interrupting work', () => {
+  it('the hint warns that an armed tier interrupts running work (HU+EN)', () => {
+    expect(src('web/lang/hu.js')).toMatch(/'agents\.settings\.dh_hint':[^\n]*futó munkát is megszakítja/)
+    expect(src('web/lang/en.js')).toMatch(/'agents\.settings\.dh_hint':[^\n]*interrupts running work/)
+  })
+})
