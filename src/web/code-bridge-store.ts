@@ -820,6 +820,11 @@ export interface EnqueueInput {
   /** A kartya-utkozes (kanban 8382d142) felulbiralasa: a hivo LATTA a masik
    *  kiadast, es tudatosan kuldi megis. Naploba kerul. */
   force?: boolean
+  /** #427: KENYSZERITETT uj beszelgetes. A Jovahagyasokbol kiadott
+   *  ellenorzes/javitas mindig NULLAROL indul (ures kontextus), fuggetlenul a
+   *  kartya korabbi chatjetol -- a tema-folytatast a claim ilyenkor atugorja.
+   *  Cimzett fulnel (`sessionId`) nincs ertelme, ott a cimzes eros. */
+  startFresh?: boolean
 }
 
 /** Amit a kiadas melle MONDANI kell, de nem allitja meg: mar landolt munka a
@@ -957,8 +962,8 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
   const now = Date.now()
   getDb()
     .prepare(
-      `INSERT INTO code_tasks (id, project, prompt, status, origin, requested_by, chat_id, target_session_id, created_at, card_ref)
-       VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO code_tasks (id, project, prompt, status, origin, requested_by, chat_id, target_session_id, created_at, card_ref, start_fresh)
+       VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -970,6 +975,9 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
       targetSessionId,
       now,
       verdict.refs[0]?.cardId ?? null,
+      // #427: a kenyszeritett uj beszelgetes csak cimzes NELKUL ertelmes (cimzett
+      // fulnel a cimzes eros). A claim ezt kesobb ugyis a valos ertekre irja.
+      input.startFresh && !targetSessionId ? 1 : 0,
     )
   return warning ? { task: getCodeTask(id)!, warning } : { task: getCodeTask(id)! }
 }
@@ -1110,11 +1118,19 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       // (2026-09-11, uzenet 821) szerint a "ugyanaz a tema"-t a KANBAN KARTYA
       // AZONOSITOJA donti el, kartya nelkul pedig MINDIG uj beszelgetes indul.
       // A dontes maga mellekhatas-mentesen a code-topic-session.ts-ben el.
-      const topic = decideTopicSession(
-        { cardRef: task.cardRef, project: task.project, taskId: task.id },
-        liveTopicSessionDeps(session),
-      )
-      if (topic.kind === 'fresh' && topic.why === 'cannot_see') {
+      // #427: a Jovahagyasokbol kiadott ellenorzes/javitas KIFEJEZETTEN uj
+      // beszelgetest kap (az enqueue start_fresh=1-et irt). Ilyenkor a
+      // tema-folytatast at is ugorjuk -- az ellenor/javito ne lassa a fejleszto
+      // korabbi gondolatmenetet, es ne egyen ra tokent. Cimzett fulnel nincs
+      // forced-fresh (a cimzes eros), ezert a `!task.targetSessionId` feltetel.
+      const forcedFresh = Boolean(task.startFresh) && !task.targetSessionId
+      const topic = forcedFresh
+        ? null
+        : decideTopicSession(
+          { cardRef: task.cardRef, project: task.project, taskId: task.id },
+          liveTopicSessionDeps(session),
+        )
+      if (topic && topic.kind === 'fresh' && topic.why === 'cannot_see') {
         // A NULLA KET DOLGOT JELENT: nem azt mondjuk ki, hogy a szal nincs meg,
         // hanem azt, hogy nem lattunk oda -- es uj beszelgetest nyitunk, mert az
         // sosem rossz cimzett. Ez a sor az egyetlen nyoma, ezert kimondja.
@@ -1126,7 +1142,7 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       // A megcimzett ful ERŐSEBB mindennel: aki egy konkret fulet valasztott,
       // annak a feladata nem csuszhat at sem a tema-folytatasba, sem abba, ami
       // kozben a legfrissebb lett.
-      const runIn = task.targetSessionId ?? (topic.kind === 'reuse' ? topic.sessionId : session.sessionId)
+      const runIn = task.targetSessionId ?? (topic && topic.kind === 'reuse' ? topic.sessionId : session.sessionId)
       // Kartya 032aa826 ota: cimzes NELKUL a projekt "aktualis" beszelgetese a
       // felderites altal legutobb latott ful -- ez lehet olyan is, amit a tulaj
       // EPP KEZZEL hasznal (pl. MetaTrader programozas), es a dispatch
@@ -1134,7 +1150,7 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       // ahhoz, hogy ne friss beszelgetes induljon, TEMA-egyezes kell (ugyanaz a
       // kartya, meg nem lezart, meg lathato szalban). Kulonben a worker friss,
       // ures beszelgetest indit (lasd marvin-code-worker.ps1 Invoke-CodeTask).
-      const startFresh = !task.targetSessionId && topic.kind !== 'reuse'
+      const startFresh = !task.targetSessionId && (forcedFresh || topic === null || topic.kind !== 'reuse')
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
