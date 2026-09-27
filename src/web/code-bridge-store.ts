@@ -1566,13 +1566,20 @@ export function recordCodeWorkerSeen(
        -- Only a discovery round knows the session count; a claim/heartbeat must
        -- not blank out what the last discovery reported.
        sessions_reported = COALESCE(excluded.sessions_reported, code_workers.sessions_reported),
-       -- A verziot CSAK a felderitesi kor irja: az visz verziot. A claim
-       -- 3 masodpercenkent fut, es ha az is irna, NULL-t tenne a helyere --
-       -- merve 2026-08-23: a mezo ezert maradt ures a friss workernel is.
-       -- A felderites viszont FELULIR (a COALESCE elrejtene, ha valaki egy
-       -- regi peldanyt allit vissza), es a verziotlan regi peldany ott is
-       -- NULL-t ir, tehat az elavultsag latszik.
-       worker_version = CASE WHEN @isDiscovery = 1 THEN excluded.worker_version ELSE code_workers.worker_version END`,
+       -- A verziot a felderites FELULIR (meg NULL-lal is: igy latszik, ha valaki
+       -- egy regi, verziotlan peldanyt allit vissza). A claim/heartbeat CSAK
+       -- akkor irja, ha tenyleg kuldott verziot -- kulonben a 3 masodperces
+       -- claim NULL-t tenne a friss worker helyere is (merve 2026-08-23).
+       --
+       -- #425 (2026-09-27): a claim MOSTANTOL viszi a worker verziojat, ezert az
+       -- ON CONFLICT ag itt frissiti. Enelkul egy epp frissult worker addig
+       -- "elavultnak" latszott, amig egy TELJES felderitesi kort le nem futott
+       -- (110 beszelgetes a WSL-hatarrol olvasva, ~7,5 perc hidegcache-bol), es
+       -- kozben a hid nem adott neki munkat -- pontosan a Boss latta holt ido.
+       worker_version = CASE
+         WHEN @isDiscovery = 1 THEN excluded.worker_version
+         WHEN @version IS NOT NULL THEN @version
+         ELSE code_workers.worker_version END`,
   ).run({
     host: id,
     now,
