@@ -517,9 +517,11 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     // (src/web/progress-mirror-runner.ts). Read on every tick, no restart.
     key: 'TELEGRAM_PROGRESS_MODE',
     type: 'string',
-    default: 'indicator',
+    // Owner 2026-09-27: verbose by default. It costs no model tokens: the
+    // dashboard reads the transcript and the bot posts the text.
+    default: 'verbose',
     valueSet: ['silent', 'indicator', 'verbose'],
-    description: 'Mennyit lásson a tulajdonos Telegramon a munkából. silent = csak a megszokott "Dolgozom rajta…" üzenet; indicator = ugyanez, de élőben mutatja, mit csinál az ágens (eltelt idő, tokenek), és egy csendes "⏳ háttérfolyamat fut" üzenetet, amíg a háttérben még fut valami; verbose = mindez, plusz a gondolatmenet lépései csendes, megmaradó üzenetekben. Minden ágensre egyszerre érvényes, újraindítás nélkül.',
+    description: 'Mennyit lásson a tulajdonos Telegramon a munkából. silent = csak a megszokott "Dolgozom rajta…" üzenet; indicator = ugyanez, de élőben mutatja, mit csinál az ágens (eltelt idő, tokenek), és egy csendes "⏳ háttérfolyamat fut" üzenetet, amíg a háttérben még fut valami; verbose (alapértelmezett) = mindez, plusz a gondolatmenet lépései csendes, megmaradó üzenetekben. Egyik mód sem kerül modell-tokenbe: a dashboard olvassa az ágens naplóját. Minden ágensre egyszerre érvényes, újraindítás nélkül.',
     module: 'channels',
     secret: false,
     requiresRestart: false,

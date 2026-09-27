@@ -18,7 +18,7 @@ export const PROGRESS_MODES: readonly ProgressMode[] = ['silent', 'indicator', '
 
 export function parseProgressMode(raw: unknown): ProgressMode {
   const v = String(raw ?? '').trim().toLowerCase()
-  return (PROGRESS_MODES as readonly string[]).includes(v) ? (v as ProgressMode) : 'indicator'
+  return (PROGRESS_MODES as readonly string[]).includes(v) ? (v as ProgressMode) : 'verbose'
 }
 
 export type PaneActivity = { kind: 'live' | 'background'; text: string }

@@ -139,16 +139,16 @@ describe('verbose thoughts', () => {
 })
 
 describe('mode setting', () => {
-  it('unknown values fall back to indicator', () => {
+  it('unknown values fall back to verbose (the default)', () => {
     expect(parseProgressMode('VERBOSE')).toBe('verbose')
     expect(parseProgressMode('silent')).toBe('silent')
-    expect(parseProgressMode('bogus')).toBe('indicator')
-    expect(parseProgressMode(undefined)).toBe('indicator')
+    expect(parseProgressMode('bogus')).toBe('verbose')
+    expect(parseProgressMode(undefined)).toBe('verbose')
   })
   it('is registered for the settings page, live (no restart)', () => {
     const def = SETTINGS_REGISTRY.find(d => d.key === 'TELEGRAM_PROGRESS_MODE')
     expect(def?.valueSet).toEqual(['silent', 'indicator', 'verbose'])
-    expect(def?.default).toBe('indicator')
+    expect(def?.default).toBe('verbose')
     expect(def?.requiresRestart).toBe(false)
   })
 })
