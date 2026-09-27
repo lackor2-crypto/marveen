@@ -761,6 +761,9 @@ export function initDatabase(dbPathOverride?: string): void {
   // impact/effort scoring -- added after initial release; safe ALTER on existing DBs
   try { db.exec('ALTER TABLE idea_box ADD COLUMN impact INTEGER') } catch { /* already exists */ }
   try { db.exec('ALTER TABLE idea_box ADD COLUMN effort INTEGER') } catch { /* already exists */ }
+  // #422: archive instead of delete. An archived idea leaves every list; only
+  // from the archive can it be deleted for good.
+  try { db.exec('ALTER TABLE idea_box ADD COLUMN archived_at INTEGER') } catch { /* already exists */ }
 
   // --- Idea Comments ---
   db.exec(`
@@ -3414,12 +3417,14 @@ export interface IdeaBoxRow {
   kanban_id: string | null
   impact: number | null
   effort: number | null
+  archived_at?: number | null
   created_at: number
   updated_at: number
 }
 
-export function listIdeas(opts?: { status?: string; category?: string }): IdeaBoxRow[] {
-  let q = 'SELECT * FROM idea_box WHERE 1=1'
+/** `archived`: false (default) = only live ideas, true = only the archive. */
+export function listIdeas(opts?: { status?: string; category?: string; archived?: boolean }): IdeaBoxRow[] {
+  let q = `SELECT * FROM idea_box WHERE archived_at IS ${opts?.archived ? 'NOT NULL' : 'NULL'}`
   const params: string[] = []
   if (opts?.status) { q += ' AND status = ?'; params.push(opts.status) }
   if (opts?.category) { q += ' AND category = ?'; params.push(opts.category) }
@@ -3452,6 +3457,13 @@ export function updateIdea(id: string, patch: Partial<Pick<IdeaBoxRow, 'title' |
 
 export function deleteIdea(id: string): boolean {
   return db.prepare('DELETE FROM idea_box WHERE id = ?').run(id).changes > 0
+}
+
+/** #422: archive (true) or bring back (false). False when the idea does not exist. */
+export function setIdeaArchived(id: string, archived: boolean): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  return db.prepare('UPDATE idea_box SET archived_at = ?, updated_at = ? WHERE id = ?')
+    .run(archived ? now : null, now, id).changes > 0
 }
 
 export function listIdeaCategories(): string[] {

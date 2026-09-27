@@ -1624,9 +1624,10 @@
               <option value="active" selected data-i18n="ideas.filter.status_active">Aktív (új + átnézett)</option>
               <option value="new" data-i18n="ideas.filter.status_new">Új</option>
               <option value="reviewed" data-i18n="ideas.filter.status_reviewed">Átnézve</option>
-              <option value="kanban">Kanbanban</option>
+              <option value="kanban" data-i18n="ideas.filter.status_kanban">Kanbanban</option>
               <option value="rejected" data-i18n="ideas.filter.status_rejected">Elutasítva</option>
-              <option value="">Mind</option>
+              <option value="" data-i18n="ideas.filter.status_all">Mind</option>
+              <option value="archived" data-i18n="ideas.filter.status_archived">Archivált</option>
             </select>
             <button class="btn-primary btn-compact" id="ideaNewBtn" data-i18n="ideas.btn.new">+ Új ötlet</button>
           </div>
@@ -1713,6 +1714,7 @@
             <button class="modal-close" id="ideaDetailClose">&times;</button>
           </div>
           <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;overflow-y:auto;flex:1;min-height:0">
+            <div id="ideaDetailProject"></div>
             <div id="ideaDetailDesc" style="font-size:14px;color:var(--text);white-space:pre-wrap"></div>
             <!-- Inline impact/effort scoring -->
             <div id="ideaDetailScoring" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg-input);border-radius:var(--radius-sm)">

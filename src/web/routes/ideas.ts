@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { MAIN_AGENT_ID, BOT_NAME } from '../../config.js'
-import { listIdeas, createIdea, updateIdea, deleteIdea, listIdeaCategories, createKanbanCard, getDb, getIdeaComments, addIdeaComment, logIdeaStatusChange, getIdeaStatusLog } from '../../db.js'
+import { listIdeas, createIdea, updateIdea, deleteIdea, setIdeaArchived, listIdeaCategories, createKanbanCard, getDb, getIdeaComments, addIdeaComment, logIdeaStatusChange, getIdeaStatusLog } from '../../db.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
@@ -58,7 +58,9 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     // (Iroda -> Projektek, src/project-scope.ts). Minden otlet megkapja a projektjet.
     const projectFilter = url.searchParams.get('project') || ''
     const byProject = ideaProjectMap()
-    const ideas = listIdeas({ status, category })
+    // ?archived=1 -> the archive (#422); without it archived ideas never show.
+    const archived = url.searchParams.get('archived') === '1'
+    const ideas = listIdeas({ status, category, archived })
       .map(i => ({ ...i, project: byProject.get(i.id) ?? null }))
       .filter(i => !projectFilter || (projectFilter === 'none' ? !i.project : i.project === projectFilter))
     const staleCutoff = Math.floor(Date.now() / 1000) - IDEA_STALE_DAYS * 86400
@@ -157,9 +159,31 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // #422: a live idea is archived, never deleted straight away. Deleting for
+  // good is only possible from the archive, so a mis-click loses nothing.
   if (ideaMatch && method === 'DELETE') {
     const id = decodeURIComponent(ideaMatch[1])
+    const lang = reqLang(req)
+    const current = getIdea(id)
+    if (!current) { json(res, { error: 'Ötlet nem található' }, 404); return true }
+    if (!current.archived_at) {
+      json(res, {
+        error: 'not_archived',
+        message: L(lang,
+          'Ezt az ötletet előbb archiválni kell. Véglegesen törölni csak az Archivált nézetből lehet.',
+          'Archive this idea first. It can only be deleted for good from the Archived view.'),
+      }, 409)
+      return true
+    }
     if (deleteIdea(id)) { json(res, { ok: true }); return true }
+    json(res, { error: 'Ötlet nem található' }, 404)
+    return true
+  }
+
+  const archiveMatch = path.match(/^\/api\/ideas\/([^/]+)\/(archive|unarchive)$/)
+  if (archiveMatch && method === 'POST') {
+    const id = decodeURIComponent(archiveMatch[1])
+    if (setIdeaArchived(id, archiveMatch[2] === 'archive')) { json(res, { ok: true }); return true }
     json(res, { error: 'Ötlet nem található' }, 404)
     return true
   }

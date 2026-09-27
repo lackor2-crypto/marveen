@@ -25516,7 +25516,8 @@ function _debateConsensusBadge(session) {
 function _renderDebateSessionList(sessions) {
   const listEl = document.getElementById('debateSessionList')
   if (!sessions.length) {
-    listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('debate.empty')}</p>`
+    const scopedD = _prjScope.debate && _prjScope.debate !== 'none'
+    listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${escapeHtml(t(scopedD ? 'debate.empty_in_project' : 'debate.empty'))}</p>`
     return
   }
   listEl.innerHTML = sessions.map(s => `
@@ -32189,9 +32190,16 @@ async function loadIdeasPage() {
   if (categoryFilter) params.set('category', categoryFilter)
   if (_prjScope.ideas) params.set('project', _prjScope.ideas)
   _prjScopeBar('ideas', loadIdeasPage)
-  const [ideasRes, catsRes] = await Promise.all([fetch('/api/ideas?' + params), fetch('/api/ideas/categories')])
+  // 'archived' = the archive (#422), fetched on its own: the header boxes keep
+  // counting the live ideas.
+  const archiveParams = new URLSearchParams(params)
+  archiveParams.set('archived', '1')
+  const [ideasRes, catsRes, archRes] = await Promise.all([
+    fetch('/api/ideas?' + params), fetch('/api/ideas/categories'),
+    statusFilter === 'archived' ? fetch('/api/ideas?' + archiveParams) : null,
+  ])
   _ideasAllStatuses = await ideasRes.json()
-  ideas = _ideasAllStatuses.filter(i => _ideaStatusMatches(statusFilter, i.status))
+  ideas = archRes ? await archRes.json() : _ideasAllStatuses.filter(i => _ideaStatusMatches(statusFilter, i.status))
   const cats = await catsRes.json()
   const catSel = document.getElementById('ideaCategoryFilter')
   if (catSel) {
@@ -32237,13 +32245,21 @@ function renderIdeasStats() {
 function renderIdeasList() {
   const el = document.getElementById('ideasList')
   if (!el) return
-  if (!ideas.length) { el.innerHTML = `<div style="color:var(--text-muted);padding:32px;text-align:center">${t('ideas.empty')}</div>`; return }
+  if (!ideas.length) {
+    const archiveView = document.getElementById('ideaStatusFilter')?.value === 'archived'
+    const scoped = _prjScope.ideas && _prjScope.ideas !== 'none'
+    const msg = archiveView ? t('ideas.archive.empty') : scoped ? t('ideas.empty_in_project') : t('ideas.empty')
+    el.innerHTML = `<div style="color:var(--text-muted);padding:32px;text-align:center">${escapeHtml(msg)}</div>`
+    return
+  }
+  const archiveHint = document.getElementById('ideaStatusFilter')?.value === 'archived'
+    ? `<div class="prj-muted" style="font-size:12px;margin:0 0 8px">${escapeHtml(t('ideas.archive.hint'))}</div>` : ''
   const byCategory = {}
   for (const idea of ideas) {
     if (!byCategory[idea.category]) byCategory[idea.category] = []
     byCategory[idea.category].push(idea)
   }
-  el.innerHTML = Object.entries(byCategory).map(([cat, items]) => `
+  el.innerHTML = archiveHint + Object.entries(byCategory).map(([cat, items]) => `
     <div style="margin-bottom:8px">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:4px 0 6px">${escapeHtml(cat)}</div>
       ${items.map(renderIdeaCard).join('')}
@@ -32275,12 +32291,14 @@ function renderIdeaCard(idea) {
         ${desc}
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+        ${idea.archived_at ? `<button class="btn-secondary btn-compact" onclick="unarchiveIdeaItem('${idea.id}')" style="font-size:11px">${t('ideas.btn.unarchive')}</button>
+        <button class="btn-secondary btn-compact" onclick="purgeIdeaItem('${idea.id}')" style="font-size:11px;color:#ef4444">${t('ideas.btn.purge')}</button>` : `
         ${idea.status !== 'reviewed' && idea.status !== 'kanban' ? `<button class="btn-secondary btn-compact" onclick="setIdeaStatus('${idea.id}','reviewed')" style="font-size:11px">${t('ideas.btn.reviewed')}</button>` : ''}
         ${idea.status !== 'rejected' ? `<button class="btn-secondary btn-compact" onclick="setIdeaStatus('${idea.id}','rejected')" style="font-size:11px;color:#ef4444">${t('ideas.btn.rejected')}</button>` : ''}
         ${idea.status === 'reviewed' || idea.status === 'rejected' ? `<button class="btn-secondary btn-compact" onclick="setIdeaStatus('${idea.id}','new')" style="font-size:11px">${t('ideas.btn.reopen')}</button>` : ''}
         <button class="btn-secondary btn-compact" onclick="openIdeaEdit('${idea.id}')" style="font-size:11px">${t('ideas.btn.edit')}</button>
         ${idea.status !== 'kanban' && idea.status !== 'rejected' ? `<button class="btn-primary btn-compact" onclick="openIdeaBreakdown('${idea.id}')" style="font-size:11px">${t('ideas.btn.kanban_ai')}</button>` : ''}
-        <button class="btn-secondary btn-compact" onclick="deleteIdeaItem('${idea.id}')" style="font-size:11px;color:#ef4444">${t('ideas.btn.delete')}</button>
+        <button class="btn-secondary btn-compact" onclick="archiveIdeaItem('${idea.id}')" style="font-size:11px" title="${escapeAttr(t('ideas.btn.archive_title'))}">${t('ideas.btn.archive')}</button>`}
       </div>
     </div>
   </div>`
@@ -32382,9 +32400,28 @@ async function saveIdea() {
   loadIdeasPage()
 }
 
-async function deleteIdeaItem(id) {
-  if (!confirm(t('kanban.confirm.delete'))) return
-  await fetch(`/api/ideas/${id}`, { method: 'DELETE' })
+// #422: a live idea is only archived (nothing is lost); deleting for good is
+// possible from the Archived view only, and the server enforces the same.
+async function _ideaArchiveCall(id, action) {
+  try {
+    const r = await fetch(`/api/ideas/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
+    if (!r.ok) { showToast(t('ideas.archive.failed')); return }
+    showToast(t(action === 'archive' ? 'ideas.archive.done' : 'ideas.archive.restored'))
+  } catch { showToast(t('ideas.archive.failed')); return }
+  loadIdeasPage()
+}
+function archiveIdeaItem(id) { return _ideaArchiveCall(id, 'archive') }
+function unarchiveIdeaItem(id) { return _ideaArchiveCall(id, 'unarchive') }
+
+async function purgeIdeaItem(id) {
+  if (!confirm(t('ideas.archive.purge_confirm'))) return
+  let body = {}
+  try {
+    const r = await fetch(`/api/ideas/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    body = await r.json().catch(() => ({}))
+    if (!r.ok) { showToast(body.message || t('ideas.archive.failed')); return }
+  } catch { showToast(t('ideas.archive.failed')); return }
+  showToast(t('ideas.archive.purged'))
   loadIdeasPage()
 }
 
@@ -32394,9 +32431,16 @@ async function openIdeaDetail(id) {
   const idea = ideas.find(i => i.id === id)
   if (!idea) return
   ideaDetailId = id
-  const statusLabel = STATUS_LABELS[idea.status] || idea.status
+  const statusLabelRaw = STATUS_LABELS[idea.status]
+  const statusLabel = typeof statusLabelRaw === 'function' ? statusLabelRaw() : (statusLabelRaw || idea.status)
   document.getElementById('ideaDetailTitle').textContent = idea.title
   document.getElementById('ideaDetailMeta').textContent = `${idea.category} · ${statusLabel}`
+  // #422: the same "which project does this belong to" picker as on Research.
+  const prjBox = document.getElementById('ideaDetailProject')
+  if (prjBox) {
+    if (!window._projectNames) await refreshProjectNames()
+    prjBox.innerHTML = idea.archived_at ? '' : _prjAssignRowHtml('idea', id, idea.project)
+  }
   document.getElementById('ideaDetailDesc').innerHTML = linkifyKanbanRefs(idea.description || t('ideas.no_description'))
   document.getElementById('ideaDetailImpact').value = idea.impact ?? ''
   document.getElementById('ideaDetailEffort').value = idea.effort ?? ''
@@ -34338,7 +34382,9 @@ async function loadResearch() {
     return
   }
   if (!groups.length) {
-    listEl.innerHTML = '<p class="muted">' + t('research.empty_list') + '</p>'
+    // #422: a project filter with nothing in it says so, instead of the bare "no research".
+    const scopedR = _prjScope.research && _prjScope.research !== 'none'
+    listEl.innerHTML = '<p class="muted">' + escapeHtml(t(scopedR ? 'research.empty_in_project' : 'research.empty_list')) + '</p>'
     if (contentEl) contentEl.innerHTML = '<p class="muted">' + t('research.empty_content') + '</p>'
     return
   }
@@ -47820,9 +47866,12 @@ function _prjOpenRequest(kind, pid) {
 
 /** "Projekt: [valaszto]" sor egy vitaztatas vagy hatteranyag fole. */
 function _prjAssignRowHtml(type, objectId, current) {
+  // #422: this picker MOVES the item; the page-top one only filters. Distinct
+  // wording + a hint, so the two same-looking selects are not confused.
   return `<div class="prj-assign-row" data-prj-assign-type="${escapeAttr(type)}" data-prj-assign-id="${escapeAttr(objectId)}" data-prj-assign-cur="${escapeAttr(current || '')}">
-    <label>${escapeHtml(t('common.project'))}:</label>
+    <label>${escapeHtml(t('projects.assign.label'))}</label>
     <select class="input">${_prjProjectOptionsHtml(current || '', { none: true })}</select>
+    <span class="prj-muted prj-assign-hint">${escapeHtml(t('projects.assign.hint'))}</span>
   </div>`
 }
 
@@ -47848,6 +47897,11 @@ document.addEventListener('change', async (e) => {
   if (type === 'schedule') { _prjScheduleMap[id] = next ? [next] : undefined; if (_prjScope.tasks) loadSchedules() }
   else if (type === 'memory') { _prjMemoryMap[id] = next ? [next] : undefined; if (_prjScope.memories) loadMemories() }
   else if (type === 'skill') { _prjSkillMap[id] = next ? [next] : undefined; if (_prjScope.skills) renderGlobalSkillsGrid() }
+  else if (type === 'idea') {
+    const it = (ideas || []).find((i) => i.id === id)
+    if (it) it.project = next || null
+    if (!document.getElementById('ideasPage')?.hidden) loadIdeasPage()
+  }
   // A projekt oldalan (vita / hatteranyag ablakabol) a fulek szama es listaja is frissul.
   if ((type === 'debate' || type === 'research') && _prj.current && !document.getElementById('projectsPage')?.hidden) {
     _prj.counts = null
