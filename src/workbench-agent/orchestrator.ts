@@ -45,8 +45,17 @@ import { decideTool, getTool } from './tools.js'
 import { settleWorkbenchApprovals } from './approved-runner.js'
 import { getRemaining, record, reserve } from './usage-manager.js'
 
-/** Hany tool-kor lehet egy forduloban. A tizedik kor mar nem terv, hanem kor. */
-export const MAX_TOOL_ROUNDS = 4
+/**
+ * Hany tool-kor lehet egy forduloban. A tizedik kor mar nem terv, hanem kor.
+ *
+ * Miert 10 (es nem 4): egy hosszu fajl vegigolvasasa lapozassal (file.read
+ * `offset`/`nextOffset`, #432) TOBB kort fogyaszt -- oldalankent egyet -- es a
+ * 4-es keret elfogyott a valasz ELOTT. Merve (2026-09-28): egy 25 649 karakteres
+ * terv-dokumentum 3-4 lapozast igenyelt, majd max_rounds-ba futott, mielott az
+ * agens valaszolni tudott volna. 10 kor eleg a lapozashoz PLUSZ a valaszhoz, es
+ * meg mindig megfogja a vegtelen tool-hurkot.
+ */
+export const MAX_TOOL_ROUNDS = 10
 /** Egy felhasznaloi uzenet felso hatara. */
 export const MESSAGE_MAX_CHARS = 8000
 
@@ -528,8 +537,10 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       }
     }
 
-    // Kifutottunk a korokbol: ez nem hallgatas, kimondjuk.
-    const m = msg('provider_no_answer', lang)
+    // Kifutottunk a korokbol: ez nem hallgatas, es NEM provider-hiba -- a sajat
+    // lepes-keretunk telt be. A sajat mondata legyen, kulonben (mint 2026-09-28)
+    // provider-hibanak latszik, holott a modell dolgozott, csak sok lepes kellett.
+    const m = msg('max_rounds_reached', lang)
     addAgentMessage(session.id, 'system', m)
     yield { type: 'notice', code: 'max_rounds', message: m }
     yield { type: 'done', model: lastModel, via: lastVia }
