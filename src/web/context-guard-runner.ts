@@ -13,9 +13,11 @@ import {
   capturePane,
   sendPromptToSession,
   isSessionReadyForPrompt,
+  noteSaturationBannerUntrusted,
+  clearSaturationBannerOverride,
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
-import { detectPaneState, paneShowsContextSaturation } from '../pane-state.js'
+import { detectPaneState, paneShowsContextSaturation, paneShowsContextSaturationHardError } from '../pane-state.js'
 import { readContextTokensFromProjectDir, readActiveModelFromProjectDir } from './active-model.js'
 import { readContextGuardConfig } from './context-guard-store.js'
 import { createAgentMessage } from '../db.js'
@@ -26,6 +28,7 @@ import {
   INITIAL_GUARD_STATE,
   type GuardState,
   type GuardInputs,
+  saturationBannerCredible,
 } from '../context-guard.js'
 
 // Fleet context guard (kanban #81): acts BEFORE a session drowns in its own
@@ -42,6 +45,14 @@ import {
 
 const INITIAL_DELAY_MS = 270_000
 const INTERVAL_MS = 300_000
+// How long a stand-down of a contradicted saturation banner also silences the
+// dispatch refusal (agent-process.saturationRefusesDispatch). Three sweeps, so
+// one skipped or slow sweep never flips the refusal back on while the banner is
+// still demonstrably wrong; a guard that stopped sweeping lets it lapse.
+const SATURATION_OVERRIDE_TTL_MS = 3 * INTERVAL_MS
+// Agents whose banner/measurement mismatch was already logged, so a
+// mis-scaled status line WARNs once instead of every five minutes.
+const bannerMismatchLogged = new Set<string>()
 
 // agent name -> guard state. In-memory: a dashboard restart re-arms every
 // agent at 'idle', which is safe -- the worst case is a repeated handoff
@@ -207,17 +218,47 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   // (error banner, modal, unknown surface) is treated as NOT busy, so a
   // wedged pane still gets the restart that is its only way out.
   const paneState = pane !== null ? detectPaneState(pane) : 'unknown'
+  // Rebuilt from upstream d964aab4: a PERCENTAGE-shaped saturation banner
+  // ("100% context used") is checked against the transcript before the net
+  // believes it -- a status line sized for the wrong window claims 100% while
+  // the session is at a fraction of it, and the net would restart a working
+  // agent mid-turn. The hard-error class is painted only after a turn failed
+  // at the real limit, so it needs no probe and none is paid for.
+  const paneSaturatedRaw = pane !== null ? paneShowsContextSaturation(pane) : false
+  const bannerIsHardError = pane !== null && paneSaturatedRaw
+    ? paneShowsContextSaturationHardError(pane)
+    : false
+  const needCredibilityProbe = paneSaturatedRaw && !bannerIsHardError
+  const measuredPct = running && needPct && (cfg.enabled || needCredibilityProbe)
+    ? measurePct(name, cfg.limitTokens)
+    : null
+  const paneSaturatedTrusted = saturationBannerCredible(paneSaturatedRaw, bannerIsHardError, measuredPct)
+  if (paneSaturatedRaw && !paneSaturatedTrusted) {
+    // Tell the dispatch gate too: it refuses on the same banner, and refusing
+    // for an agent this net will not restart would silence it for good.
+    noteSaturationBannerUntrusted(session, nowMs + SATURATION_OVERRIDE_TTL_MS)
+    if (!bannerMismatchLogged.has(name)) {
+      bannerMismatchLogged.add(name)
+      logger.warn(
+        { name, measuredPct },
+        'context-guard: pane claims context saturation but the transcript measures far below it -- standing the saturation net down (status line sized for the wrong window?)',
+      )
+    }
+  } else if (pane !== null) {
+    clearSaturationBannerOverride(session)
+    bannerMismatchLogged.delete(name)
+  }
   const inputs: GuardInputs = {
     nowMs,
     running,
-    // The saturation net decides from the pane alone; only the proactive
-    // tiers need the (transcript-reading) pct probe.
-    pct: running && needPct && cfg.enabled ? measurePct(name, cfg.limitTokens) : null,
+    // The proactive tiers act on pct only when enabled; the credibility probe
+    // above may have measured it for the saturation net alone.
+    pct: cfg.enabled ? measuredPct : null,
     paneIdle: paneState === 'idle',
     paneBusy: paneState === 'busy',
     sessionReady,
     handoffMtime: needPct ? handoffMtime(name) : null,
-    paneSaturated: pane !== null ? paneShowsContextSaturation(pane) : false,
+    paneSaturated: paneSaturatedTrusted,
   }
 
   const decision = decideGuard(state, inputs, cfg)
@@ -260,7 +301,10 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   if (decision.action === 'none') return
 
   const pctRound = inputs.pct !== null ? Math.round(inputs.pct * 100) : null
-  logger.info({ name, action: decision.action, reason: decision.reason, pct: pctRound }, 'context-guard: acting')
+  logger.info(
+    { name, action: decision.action, reason: decision.reason, pct: pctRound, bannerRaw: paneSaturatedRaw, bannerTrusted: paneSaturatedTrusted, measuredPct },
+    'context-guard: acting',
+  )
 
   try {
     switch (decision.action) {

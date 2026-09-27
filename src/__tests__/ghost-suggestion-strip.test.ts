@@ -180,6 +180,11 @@ describe('isSessionReadyForPrompt wiring (dim-ghost tolerant idle)', () => {
     // context-saturation is scanned on the PLAIN capture (a dim banner cannot be
     // masked -> the refusal stays robust):
     expect(fn).toContain('capturePane(session, host)')
-    expect(fn).toMatch(/paneShowsContextSaturation\((?:first|second)\)/)
+    // Both samples go through the one predicate that also holds the
+    // banner-vs-measurement override (#413, rebuilt from upstream d964aab4);
+    // the raw scan ignores both the override and the hard-error arm.
+    expect(fn).toMatch(/saturationRefusesDispatch\(first, session\)/)
+    expect(fn).toMatch(/saturationRefusesDispatch\(second, session\)/)
+    expect(fn).not.toMatch(/paneShowsContextSaturation\((?:first|second)\)/)
   })
 })

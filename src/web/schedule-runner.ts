@@ -47,6 +47,7 @@ import {
   capturePane,
   sendEnterToSession,
   clearStaleParkedInput,
+  saturationRefusesDispatch,
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import {
@@ -57,7 +58,7 @@ import {
 } from './agent-availability.js'
 import { sendTelegramMessage } from './telegram.js'
 import { runCommandTask } from './command-task.js'
-import { paneShowsContextSaturation, detectsFirstRunGate, detectPaneState, type PaneState } from '../pane-state.js'
+import { detectsFirstRunGate, detectPaneState, type PaneState } from '../pane-state.js'
 
 // How many bare-Enter attempts the post-send resubmit tries before escalating
 // to a clear + re-inject, and the hard cap after which it gives up.
@@ -602,7 +603,7 @@ async function attemptFireTask(
     // retry lands on the first tick after the session has been rescued. All
     // other busy states keep the bypass.
     const pane = capturePane(session, host)
-    if (pane != null && paneShowsContextSaturation(pane)) {
+    if (pane != null && saturationRefusesDispatch(pane, session)) {
       logger.warn({ task: task.name, agent: agentName, session }, 'forceSend target session is context-saturated (100%) -- deferring to retry queue instead of injecting into a wedged session')
       return 'busy'
     }

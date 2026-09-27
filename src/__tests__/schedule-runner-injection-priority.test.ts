@@ -58,11 +58,15 @@ describe('taskInjectionRank: forceSend outranks tasks outranks heartbeats', () =
 })
 
 describe('forceSend defers on context saturation instead of injecting', () => {
-  it('checks paneShowsContextSaturation inside the forceSend branch and returns busy', () => {
+  it('asks saturationRefusesDispatch inside the forceSend branch and returns busy', () => {
     const idx = SRC.indexOf('if (task.forceSend) {')
     expect(idx).toBeGreaterThan(0)
     const branch = SRC.slice(idx, idx + 1800)
-    expect(branch).toMatch(/paneShowsContextSaturation/)
+    // Same verdict the guard net and the dispatch gate read (#413, d964aab4):
+    // left on the raw banner, forceSend would queue forever while the guard
+    // (corrected verdict false) never restarts the agent.
+    expect(branch).toMatch(/saturationRefusesDispatch\(pane, session\)/)
+    expect(branch).not.toMatch(/paneShowsContextSaturation\(pane\)/)
     expect(branch).toMatch(/return 'busy'/)
   })
 

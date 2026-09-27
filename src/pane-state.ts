@@ -2015,11 +2015,40 @@ export function decideStuckToolCallRecovery(
 // itself); still tail-scoped, so a scrollback quote of the same phrase does
 // not trip it.
 const CTX_SAT_FOOTER_REGION_LINES = 8
-const CTX_SAT_RX = /100% context used|context (?:is |limit reached|window )?full\b|context limit|auto-?compact required/i
+//
+// TWO shapes of banner land here, and only ONE of them can be wrong about the
+// pane (rebuilt from upstream d964aab4). The PERCENTAGE claim ("100% context
+// used") is computed by the CLI from ITS OWN denominator, sized from the model
+// id it was launched with: a 1M model whose id reaches the CLI without the
+// [1m] marker gets a 200k status line and prints "100% context used" at ~179k
+// while the session keeps working. A measurement CAN disprove that one.
+// The HARD-ERROR banners ("Context limit reached", "context ... full",
+// "auto-compact required") are painted only after a turn actually failed at
+// the real limit, so no measurement may overrule them.
+// paneShowsContextSaturation() still matches both; both regexes are built
+// from the same two sources, so the union cannot drift from its parts.
+const CTX_SAT_PCT_CLAIM_SOURCE = '100% context used'
+const CTX_SAT_HARD_ERROR_SOURCE =
+  'context (?:is |limit reached|window )?full\\b|context limit|auto-?compact required'
+const CTX_SAT_RX = new RegExp(`${CTX_SAT_PCT_CLAIM_SOURCE}|${CTX_SAT_HARD_ERROR_SOURCE}`, 'i')
+const CTX_SAT_HARD_ERROR_RX = new RegExp(CTX_SAT_HARD_ERROR_SOURCE, 'i')
+
+function ctxSatFooterRegion(capture: string): string | null {
+  if (!capture || !capture.trim()) return null
+  const lines = capture.split('\n')
+  return lines.slice(-CTX_SAT_FOOTER_REGION_LINES).join('\n')
+}
 
 export function paneShowsContextSaturation(capture: string): boolean {
-  if (!capture || !capture.trim()) return false
-  const lines = capture.split('\n')
-  const footerRegion = lines.slice(-CTX_SAT_FOOTER_REGION_LINES).join('\n')
-  return CTX_SAT_RX.test(footerRegion)
+  const footerRegion = ctxSatFooterRegion(capture)
+  return footerRegion !== null && CTX_SAT_RX.test(footerRegion)
+}
+
+/** The saturation banners whose truth does NOT come from the CLI's status-line
+ *  denominator: painted only after a turn actually failed at the real limit.
+ *  A caller reconciling the banner against a measurement must treat these as
+ *  final. */
+export function paneShowsContextSaturationHardError(capture: string): boolean {
+  const footerRegion = ctxSatFooterRegion(capture)
+  return footerRegion !== null && CTX_SAT_HARD_ERROR_RX.test(footerRegion)
 }
