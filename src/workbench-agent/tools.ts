@@ -58,8 +58,8 @@ export interface ToolDef extends ToolMeta {
 export const TOOLS: ToolDef[] = [
   {
     name: 'file.read',
-    description: 'Read a text file that belongs to the project folder. Returns the beginning of the file.',
-    input: 'path: the file path relative to the project folder',
+    description: 'Read a text file that belongs to the project folder. Long files come back in parts: when the result has truncated=true it also gives nextOffset -- call file.read again with that offset to get the next part, and repeat until truncated is false. Do not judge a file from its first part only.',
+    input: 'path: the file path relative to the project folder; offset (optional): byte position to continue from -- pass the nextOffset returned by the previous read to fetch the next part of a long file (default 0, the start)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
