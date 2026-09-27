@@ -303,6 +303,51 @@ describe('file.read -- a projektmappa hatara', () => {
     }
   })
 
+  it('a levagott valasz megmondja, HONNAN folytassa (nextOffset)', () => {
+    // Valos eset: 29k karakteres MD-t a modell csak az elejeig latta, mert nem
+    // volt mod a folytatasra. Most a nextOffset a kovetkezo blokk byte-kezdete.
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'hosszu.txt'), 'a'.repeat(FILE_READ_MAX_CHARS + 500), 'utf-8')
+    const r = executeTool('file.read', { path: 'hosszu.txt' }, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).truncated).toBe(true)
+      expect((r.data as any).nextOffset).toBe(FILE_READ_MAX_CHARS) // 1 byte / ASCII karakter
+    }
+  })
+
+  it('lapozassal a TELJES hosszu fajl elolvashato, es a vege null nextOffset', () => {
+    // 3 blokknyi + maradek, ekezetes karakterrel (2 byte/karakter), hogy a
+    // byte-alapu lapozas UTF-8 hataron is helyes legyen.
+    const full = 'á'.repeat(FILE_READ_MAX_CHARS * 3 + 137)
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'konyv.txt'), full, 'utf-8')
+    let assembled = ''
+    let offset: number | null = 0
+    let rounds = 0
+    while (offset != null) {
+      const r: ReturnType<typeof executeTool> = executeTool('file.read', { path: 'konyv.txt', offset }, ctx())
+      expect(r.ok).toBe(true)
+      if (!r.ok) break
+      const d = r.data as any
+      assembled += d.text
+      expect(d.text).not.toContain('�')
+      offset = d.nextOffset
+      if (++rounds > 20) throw new Error('vegtelen lapozas -- a nextOffset nem halad')
+    }
+    expect(assembled).toBe(full) // veszteseg- es atfedes-mentes ujraosszerakas
+    expect(rounds).toBe(4)
+  })
+
+  it('offseten tul olvasva ures szoveget es lezaro nextOffset=null-t ad', () => {
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'rovid.txt'), 'x'.repeat(10), 'utf-8')
+    const r = executeTool('file.read', { path: 'rovid.txt', offset: 10 }, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).text).toBe('')
+      expect((r.data as any).truncated).toBe(false)
+      expect((r.data as any).nextOffset).toBeNull()
+    }
+  })
+
   it('mappat nem olvas fajlkent', () => {
     mkdirSync(join(depot, 'Projektek', 'teszt', 'almappa'), { recursive: true })
     const r = executeTool('file.read', { path: 'almappa' }, ctx())

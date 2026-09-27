@@ -58,6 +58,16 @@ function asString(v: unknown): string {
   return v === undefined || v === null ? '' : String(v).trim()
 }
 
+/** Szam-input laza olvasasa (a modell stringkent is kuldheti). Nem-szamra 0. */
+function asNumber(v: unknown): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v.trim())
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
 /** A mappa-allapot kodja emberi mondatta -- "nem latok oda" vs "nincs semmi". */
 function folderStateDetail(state: string): string {
   switch (state) {
@@ -235,25 +245,51 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
       const st = mustBeFile(ref.abs)
       if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
-      // Csak a szukseges eleje kerul memoriaba: egy tobb GB-os fajl egesze
-      // eddig beolvasodott, hogy utana 8000 karakterre vagjuk.
+      // Honnan olvassunk: a lapozashoz byte-eltolas. Enelkul egy 8000
+      // karakternel hosszabb fajl tobbi resze SOHA nem volt elerheto (valos
+      // eset: 29k karakteres MD, csak az 1-5. fejezet jott vissza, a 6.-tol
+      // semmi). A blokk vege a `nextOffset`, azzal kell ujra hivni.
+      const start = Math.max(0, Math.floor(asNumber(input.offset)))
+      // Csak a szukseges resz kerul memoriaba: egy tobb GB-os fajl egesze eddig
+      // sem olvasodott be, csak a blokk.
       let text: string
-      let partial = false
       try {
         const cap = FILE_READ_MAX_CHARS * 4 + 4
-        const buf = Buffer.alloc(Math.min(cap, Math.max(0, st.size)))
+        const remaining = Math.max(0, st.size - start)
+        const buf = Buffer.alloc(Math.min(cap, remaining))
         const fd = openSync(ref.abs, 'r')
         let n = 0
-        try { n = readSync(fd, buf, 0, buf.length, 0) } finally { closeSync(fd) }
+        try { n = readSync(fd, buf, 0, buf.length, start) } finally { closeSync(fd) }
         text = buf.subarray(0, n).toString('utf-8')
-        partial = st.size > n
-        if (partial && text.endsWith('\uFFFD')) text = text.replace(/\uFFFD+$/, '')
+        // Ha a blokk nem er a fajl vegeig, az utolso karakter lehet elvagott
+        // tobb-bajtos UTF-8; a csonkot levagjuk, hogy a kovetkezo lapozas ott
+        // folytassa, ahol egy ep karakter kezdodik.
+        const reachedEof = start + n >= st.size
+        if (!reachedEof && text.endsWith('\uFFFD')) text = text.replace(/\uFFFD+$/, '')
       } catch (e) {
         // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
         return { ok: false, code: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
       }
-      const truncated = text.length > FILE_READ_MAX_CHARS || partial
-      return { ok: true, data: { path: asString(input.path), size: st.size, truncated, text: truncated ? text.slice(0, FILE_READ_MAX_CHARS) : text } }
+      // Egy blokkban legfeljebb ennyi karakter. A vegen ne vagjunk kette egy
+      // surrogate-part (emoji), kulonben a byte-hossz elcsuszna.
+      let capped = text.length > FILE_READ_MAX_CHARS ? text.slice(0, FILE_READ_MAX_CHARS) : text
+      const lastUnit = capped.charCodeAt(capped.length - 1)
+      if (capped.length && lastUnit >= 0xd800 && lastUnit <= 0xdbff) capped = capped.slice(0, -1)
+      // A tenylegesen atadott szoveg byte-hossza mondja meg, hol folytassuk.
+      const nextOffset = start + Buffer.byteLength(capped, 'utf-8')
+      const hasMore = nextOffset < st.size
+      return {
+        ok: true,
+        data: {
+          path: asString(input.path),
+          size: st.size,
+          offset: start,
+          truncated: hasMore,
+          // A modell ebbol tudja, hogy VAN meg, es honnan folytassa a file.read-et.
+          nextOffset: hasMore ? nextOffset : null,
+          text: capped,
+        },
+      }
     }
 
     case 'workItem.open': {
