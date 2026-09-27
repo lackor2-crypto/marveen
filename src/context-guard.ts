@@ -294,6 +294,43 @@ export function dailyHandoffDue(
   return restartDue(lastRunMs, nowMs, dailyDueAtMs(localMidnightMs, mins))
 }
 
+/** Last-served stamp of the daily tier for one agent, and the slot time it was
+ *  taken for: a stamp taken for another time does not carry over. */
+export interface DailyHandoffStamp {
+  atMs: number
+  time: string | null
+}
+
+/**
+ * One sweep of the daily tier's bookkeeping. Returns whether the slot is due
+ * and the stamp to keep (null = forget it).
+ *
+ * The stamp only means something while the tier could have fired, so it is
+ * FORGOTTEN whenever it could not -- tier not armed, agent not running, or the
+ * time moved -- and the next idle sweep re-seeds it at NOW without firing.
+ * Arming the tier, starting the agent or moving the time therefore never fires
+ * for a slot that passed while it could not act. (The seed used to be taken on
+ * the dashboard's first sweep regardless of the tier -- the saturation net
+ * keeps every agent in the sweep -- so arming it after today's slot fired a
+ * handoff and a restart within a minute, mid-work.)
+ */
+export function dailyHandoffTick(
+  cfg: ContextGuardConfig,
+  stamp: DailyHandoffStamp | null,
+  nowMs: number,
+  localMidnightMs: number,
+  running: boolean,
+  idle: boolean,
+): { due: boolean; stamp: DailyHandoffStamp | null } {
+  if (!dailyHandoffArmed(cfg) || !running) return { due: false, stamp: null }
+  const kept = stamp !== null && stamp.time === cfg.dailyHandoffTime ? stamp : null
+  // Only an idle machine can start a cycle; seeding waits for it too, so a
+  // session fresh out of a guard restart does not count as a day old.
+  if (!idle) return { due: false, stamp: kept }
+  if (kept === null) return { due: false, stamp: { atMs: nowMs, time: cfg.dailyHandoffTime } }
+  return { due: dailyHandoffDue(cfg, localMidnightMs, kept.atMs, nowMs), stamp: kept }
+}
+
 export type GuardActionType = 'none' | 'request-handoff' | 'restart' | 'inject-resume'
 
 export interface GuardDecision {

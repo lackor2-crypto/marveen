@@ -4544,7 +4544,10 @@ async function loadDailyHandoffUI(agent) {
   const tm = document.getElementById('dhTime')
   if (!en || !tm || !agent) return
   const id = agent.autoRestartId || agent.name
+  // Reset BOTH controls first: the panel is shared, so an agent with no stored
+  // time would otherwise show the previously opened agent's time.
   en.checked = false
+  tm.value = tm.defaultValue
   try {
     const res = await fetch(`/api/agents/${encodeURIComponent(id)}/context-guard`)
     if (!res.ok) return
@@ -4553,8 +4556,8 @@ async function loadDailyHandoffUI(agent) {
     // A slower response for a previously opened agent must not overwrite this one.
     if (!currentAgent || (currentAgent.autoRestartId || currentAgent.name) !== id) return
     en.checked = cg.dailyHandoffEnabled === true
-    if (cg.dailyHandoffTime) tm.value = cg.dailyHandoffTime
-  } catch { /* leave the defaults: off */ }
+    tm.value = cg.dailyHandoffTime || tm.defaultValue
+  } catch { /* leave the defaults: off, default time */ }
 }
 
 // Populate the auto-restart controls + context display from an agent payload.
