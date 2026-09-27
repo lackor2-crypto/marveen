@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
-  listKanbanCards, createKanbanCard, updateKanbanCard,
+  listKanbanCards, createKanbanCard, updateKanbanCard, KANBAN_WRITABLE_FIELDS,
   deleteKanbanCard, moveKanbanCard, archiveKanbanCard, unarchiveKanbanCard,
   getKanbanComments, addKanbanComment, getKanbanCardEvents, listKanbanProjects,
   getKanbanCard, getChildCards, getDb,
@@ -112,6 +112,14 @@ function fireKanbanDispatch(id: string, actor?: string | null): void {
   } catch (err) {
     logger.warn({ err, id }, 'Kanban dispatch failed (card move still succeeded)')
   }
+}
+
+// Keys a PUT /api/kanban/:id body may carry: the writable fields, every real
+// column (read-only ones are ignored by updateKanbanCard), the GET-embedded
+// arrays and `actor`. Read from the live schema so a new column never 400s.
+function kanbanPutAcceptedKeys(): Set<string> {
+  const cols = (getDb().prepare('PRAGMA table_info(kanban_cards)').all() as { name: string }[]).map((c) => c.name)
+  return new Set<string>([...KANBAN_WRITABLE_FIELDS, ...cols, 'seq', 'last_status_at', 'labels', 'blockers', 'actor'])
 }
 
 export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
@@ -275,6 +283,25 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const id = decodeURIComponent(kanbanCardMatch[1])
     const body = await readBody(req)
     const data = JSON.parse(body.toString())
+    // Rebuilt from upstream 48b90ba6 (#413): an unknown key (e.g. a
+    // `description_append` that is not a column) was dropped silently while the
+    // PUT answered 200 -- a closing note lost with a success reply. Refuse it,
+    // naming what IS accepted. Accepted-and-ignored: every real column (the
+    // dashboard PUTs a whole `{...card}` from SELECT *, so the list is read from
+    // the table itself and a later migration cannot turn UI edits into 400s),
+    // the GET-embedded arrays, and `actor` (who moved it -- approvals).
+    const known = kanbanPutAcceptedKeys()
+    const unknown = Object.keys(data ?? {}).filter((k) => !known.has(k))
+    if (unknown.length > 0) {
+      const accepted = KANBAN_WRITABLE_FIELDS.join(', ')
+      json(res, {
+        error: 'unknown_field',
+        fields: unknown,
+        accepted: [...KANBAN_WRITABLE_FIELDS],
+        message: `Ismeretlen mező a kártya-módosításban: ${unknown.join(', ')} -- a kártya NEM változott. Írható mezők: ${accepted}. / Unknown field(s) in the card update: ${unknown.join(', ')} -- the card was NOT changed. Writable fields: ${accepted}.`,
+      }, 400)
+      return true
+    }
     if (data.project !== undefined) data.project = resolveProjectRef(data.project)
     if (updateKanbanCard(id, data)) {
       if (data.status === 'waiting') ensureApprovalForWaitingCard(id, data.actor)

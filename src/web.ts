@@ -142,6 +142,7 @@ import { tryHandleFleet } from './web/routes/fleet.js'
 import { tryHandleVaultSshKeys } from './web/routes/vault-ssh-keys.js'
 import { tryHandleBrowser } from './web/routes/browser.js'
 import type { RouteContext } from './web/routes/types.js'
+import { isMalformedBodyError } from './web/malformed-body.js'
 
 const WEB_DIR = join(PROJECT_ROOT, 'web')
 
@@ -336,7 +337,24 @@ export function startWebServer(port = 3420): http.Server {
       res.writeHead(404)
       res.end('Not found')
     } catch (err) {
-      logger.error({ err }, 'Web szerver hiba')
+      // Rebuilt from upstream 436f40fd (#413). src/web/malformed-body.ts was
+      // already here, but nothing called it: a caller's broken JSON body (a raw
+      // newline or unclosed quote in `content`) still answered 500 "Szerver
+      // hiba" with no route in the log, and `curl -s` exits 0 on that. A
+      // malformed body is a CLIENT error: 400, a sentence saying what to fix,
+      // and a log line naming method, path and size.
+      if (isMalformedBodyError(err)) {
+        logger.warn(
+          { method, path, bytes: req.headers['content-length'] ?? '?', reason: (err as Error).message },
+          'Malformed JSON body -- the request was NOT executed',
+        )
+        json(res, {
+          error: 'bad_json_body',
+          message: 'Hibás JSON törzs, a kérés nem hajtódott végre: a szöveges mezőkben a sortörést és az idézőjelet escape-elni kell. / Malformed JSON body, the request was not executed: escape newlines and quotes inside text fields.',
+        }, 400)
+        return
+      }
+      logger.error({ err, method, path }, 'Web szerver hiba')
       json(res, { error: 'Szerver hiba' }, 500)
     }
   })
