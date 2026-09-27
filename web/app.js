@@ -32204,7 +32204,9 @@ async function loadIdeasPage() {
   const catSel = document.getElementById('ideaCategoryFilter')
   if (catSel) {
     const prev = catSel.value
-    catSel.innerHTML = `<option value="">${t('ideas.filter.all_categories')}</option>` + cats.map(c => `<option value="${escapeHtml(c)}" ${c === prev ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')
+    // An idea saved with an empty category must not become a second, blank
+    // "all" option that then shows as the selected one (#422).
+    catSel.innerHTML = `<option value="">${t('ideas.filter.all_categories')}</option>` + cats.filter(Boolean).map(c => `<option value="${escapeHtml(c)}" ${c === prev ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')
   }
   renderIdeasStats()
   renderIdeasList()
@@ -32261,7 +32263,7 @@ function renderIdeasList() {
   }
   el.innerHTML = archiveHint + Object.entries(byCategory).map(([cat, items]) => `
     <div style="margin-bottom:8px">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:4px 0 6px">${escapeHtml(cat)}</div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:4px 0 6px">${escapeHtml(cat || t('ideas.category.other'))}</div>
       ${items.map(renderIdeaCard).join('')}
     </div>`).join('')
 }
