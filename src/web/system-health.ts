@@ -89,6 +89,7 @@ import { computeBackupHealth } from '../backup/health.js'
 import { stateExists } from '../backup/state.js'
 import { readConfig as readBackupConfig, resolveDestinations } from '../backup/destinations.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
+import { dashboardTokenGuardRows } from './dashboard-token-guard.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
 import { readMegaAccounts, readMegaQuota, rcloneBin, type MegaAccount, type MegaQuota } from '../mega.js'
@@ -2366,6 +2367,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...googleLiveRows(now),
     ...googleDuplicateRows(),
     ...codeBridgeRows(now),
+    ...dashboardTokenGuardRows(now),
     ...skillSeedRows(),
     ...skillScopeReviewRows(),
     ...passwordChannelRows(),

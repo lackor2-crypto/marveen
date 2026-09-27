@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-27.1'
+$script:WorkerVersion = '2026-09-27.2'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -89,14 +89,15 @@ function Get-BridgeToken {
   throw "No dashboard token: pass -Token, set MARVEEN_DASHBOARD_TOKEN, or make $TokenPath readable"
 }
 
-function Invoke-Bridge {
+function Send-BridgeRequest {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [string]$Method = 'GET',
     $Body = $null,
-    [string]$RawBody = $null
+    [string]$RawBody = $null,
+    [Parameter(Mandatory = $true)][string]$Bearer
   )
-  $headers = @{ Authorization = 'Bearer ' + $script:BridgeToken }
+  $headers = @{ Authorization = 'Bearer ' + $Bearer }
   $uri = $BaseUrl.TrimEnd('/') + $Path
   if ($RawBody -or $null -ne $Body) {
     # RawBody is for shapes ConvertTo-Json cannot be trusted with (see
@@ -108,6 +109,51 @@ function Invoke-Bridge {
     return Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -Body $bytes -ContentType 'application/json; charset=utf-8' -TimeoutSec 120
   }
   return Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -TimeoutSec 120
+}
+
+# The HTTP status of a failed Invoke-RestMethod, or 0 when there was no answer
+# (refused, timeout). PS 5.1 carries it on a WebException's HttpWebResponse,
+# PS 7 on an HttpResponseException's HttpResponseMessage; both expose
+# .Response.StatusCode, which casts to the number.
+function Get-BridgeHttpStatus {
+  param($ErrorRecord)
+  try {
+    $resp = $ErrorRecord.Exception.Response
+    if ($null -ne $resp -and $null -ne $resp.StatusCode) { return [int]$resp.StatusCode }
+  } catch { }
+  return 0
+}
+
+# 401 = the dashboard no longer accepts the token this process read at start.
+# Kartya #415 (2026-09-27): the token was replaced under a running worker, and
+# every heartbeat and result POST bounced until the lease expired and the task
+# went back to the queue -- at 03:05 the bridge stood still for the same reason.
+# The token lives in a file this worker can read again, so on 401 it does, and
+# tries ONCE more with the fresh value. The fresh value is kept only if that
+# retry gets through: a file caught mid-damage must not replace a token that
+# still works (the next 401 reads the file again anyway).
+function Invoke-Bridge {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Method = 'GET',
+    $Body = $null,
+    [string]$RawBody = $null
+  )
+  try {
+    return Send-BridgeRequest -Path $Path -Method $Method -Body $Body -RawBody $RawBody -Bearer $script:BridgeToken
+  } catch {
+    $first = $_
+    if ((Get-BridgeHttpStatus $first) -ne 401) { throw }
+    $fresh = ''
+    try { $fresh = [string](Get-BridgeToken) } catch { $fresh = '' }
+    # Nothing new to try: the same token would earn the same 401.
+    if (-not $fresh -or $fresh -eq $script:BridgeToken) { throw $first }
+    Write-Log ('401 a hidtol ({0}) -- a token-fajlban mas token all, egyszer ujraprobalom azzal' -f $Path) 'WARN'
+    $answer = Send-BridgeRequest -Path $Path -Method $Method -Body $Body -RawBody $RawBody -Bearer $fresh
+    $script:BridgeToken = $fresh
+    Write-Log 'az uj tokennel sikerult, mostantol azt hasznalom' 'WARN'
+    return $answer
+  }
 }
 
 # ---- session discovery ---------------------------------------------------

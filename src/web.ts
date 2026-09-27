@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { execSync, execFileSync } from 'node:child_process'
 import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID, STORE_DIR, APP_LANG, currentBrandName } from './config.js'
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
+import { startDashboardTokenGuard, stopDashboardTokenGuard } from './web/dashboard-token-guard.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
 import { autoPurgeTrash, migrateLegacyTrash } from './life-explorer.js'
@@ -161,6 +162,8 @@ export function startWebServer(port = 3420): http.Server {
   ensureDirs()
 
   const DASHBOARD_TOKEN = loadOrCreateDashboardToken()
+  // #415: while we run, the file must hold the token we enforce -- agents read it.
+  startDashboardTokenGuard(DASHBOARD_TOKEN)
   const allowedOrigins = new Set([
     `http://localhost:${port}`,
     `http://127.0.0.1:${port}`,
@@ -1045,6 +1048,7 @@ export function startWebServer(port = 3420): http.Server {
     if (progressMirrorInterval) clearInterval(progressMirrorInterval)
     if (prLedgerInterval) clearInterval(prLedgerInterval)
     clearInterval(tokenCollectInterval)
+    stopDashboardTokenGuard()
     return origClose(cb)
   }
 
