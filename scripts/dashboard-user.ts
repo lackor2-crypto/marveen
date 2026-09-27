@@ -28,6 +28,7 @@ import { hashPassword, assertPasswordPolicy, PasswordPolicyError } from '../src/
 import { revokeAllForUser } from '../src/web/auth-sessions.js'
 import { securityReset } from '../src/web/security-reset.js'
 import { notifySecurityEvent } from '../src/notify.js'
+import { ol } from '../src/owner-lang.js'
 
 function usage(): never {
   process.stderr.write(
@@ -129,7 +130,10 @@ async function main(): Promise<void> {
       // Same audit + channel ping as the HTTP break-glass: a password reset
       // that skipped the current-password proof must always leave a trace.
       logConfigChange('security.break_glass_password_reset', null, user.username, 'cli')
-      await notifySecurityEvent(`🔑 Jelszó-reset a dashboard CLI-ből (break-glass): "${user.username}". Ha nem te voltál, a gépen fut valami a nevedben.`)
+      await notifySecurityEvent(ol(
+        `🔑 Jelszó-reset a dashboard CLI-ből (break-glass): "${user.username}". Ha nem te voltál, a gépen fut valami a nevedben.`,
+        `🔑 Password reset from the dashboard CLI (break-glass): "${user.username}". If this was not you, something on this machine is acting in your name.`,
+      ))
       process.stdout.write(`Password reset for "${username}"; all their sessions were revoked.\n`)
       break
     }
@@ -161,7 +165,10 @@ async function main(): Promise<void> {
     }
     case 'security:reset': {
       const r = securityReset('cli')
-      await notifySecurityEvent(`🚨 Biztonsági reset futott a dashboard CLI-ből: ${r.deviceKeysRevoked} eszközkulcs visszavonva, ${r.sessionsCleared} böngésző-munkamenet törölve. A hozzáférési token és a jelszavak változatlanok.`)
+      await notifySecurityEvent(ol(
+        `🚨 Biztonsági reset futott a dashboard CLI-ből: ${r.deviceKeysRevoked} eszközkulcs visszavonva, ${r.sessionsCleared} böngésző-munkamenet törölve. A hozzáférési token és a jelszavak változatlanok.`,
+        `🚨 Security reset ran from the dashboard CLI: ${r.deviceKeysRevoked} device key(s) revoked, ${r.sessionsCleared} browser session(s) cleared. The access token and passwords are unchanged.`,
+      ))
       process.stdout.write(
         `Security reset done: ${r.deviceKeysRevoked} device key(s) revoked, ${r.sessionsCleared} browser session(s) cleared.\n` +
         'Passwords and the dashboard token are untouched. Devices must be re-enrolled with new keys.\n',
