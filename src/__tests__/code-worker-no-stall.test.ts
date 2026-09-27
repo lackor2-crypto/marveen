@@ -21,6 +21,14 @@ describe('code worker #425', () => {
     expect(loop).toContain('$script:PendingTask')
   })
 
+  it('-DiscoverOnly alatt a felderites NEM ker munkat (nem hagy lefoglalt, gazdatlan feladatot)', () => {
+    const fn = ps.slice(ps.indexOf('function Test-WorkWaiting'), ps.indexOf('function Read-TranscriptInfo'))
+    const guard = fn.indexOf('if ($DiscoverOnly) { return }')
+    expect(guard).toBeGreaterThan(-1)
+    expect(guard).toBeLessThan(fn.indexOf("'/api/code/tasks/claim'"))
+    expect(guard).toBeLessThan(fn.indexOf('throw $script:DiscoveryInterrupted'))
+  })
+
   it('a felderites kozben is ker munkat, feladat alatt pedig a feladat szivveret kuldi', () => {
     const fn = ps.slice(ps.indexOf('function Test-WorkWaiting'), ps.indexOf('function Read-TranscriptInfo'))
     expect(fn).toContain("/heartbeat'")

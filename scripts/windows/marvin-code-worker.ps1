@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-27.3'
+$script:WorkerVersion = '2026-09-27.4'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -295,6 +295,12 @@ function Get-CachedFileValue {
 
 function Test-WorkWaiting {
   Update-Alive
+  # -DiscoverOnly promises "discover, take no task" (docs/code-bridge.md). It
+  # runs before the one-worker mutex, next to the real worker, and nothing on
+  # its path catches the discovery interrupt: a claim here would lease a task,
+  # die with the interrupt, and leave the task stuck for LEASE_MS at the cost
+  # of one of its attempts (#425 verification).
+  if ($DiscoverOnly) { return }
   if ($null -ne $script:PendingTask) { throw $script:DiscoveryInterrupted }
   if (((Get-Date) - $script:LastDiscoveryClaim).TotalSeconds -lt $script:ClaimDuringDiscoverySec) { return }
   $script:LastDiscoveryClaim = Get-Date
