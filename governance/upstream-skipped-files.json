@@ -1543,12 +1543,6 @@
       "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
     },
-    "src/__tests__/kanban-create-id-echo.test.ts": {
-      "blob": "aa8dadce81d6863817090ca049e88945eb0c28e3",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/kanban-dispatch-instructions.test.ts": {
       "blob": "a2fa813001ded68d91f6d6da567ca4e0a419f7a1",
       "kind": "decided",
@@ -1725,12 +1719,6 @@
     },
     "src/__tests__/memory-listing-carries-the-label.test.ts": {
       "blob": "9548a239fa8d29521584bbd832ccd72d674222c2",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
-    "src/__tests__/memory-offset-paging.test.ts": {
-      "blob": "7d3566eb08120867515f65104fcb3bd27cec35fb",
       "kind": "deferred",
       "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
@@ -2199,12 +2187,6 @@
     },
     "src/__tests__/task-run-completion.test.ts": {
       "blob": "6395d565cc3ee14e275ca05ff15fd73176fbd916",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
-    "src/__tests__/telegram-send-okfalse.test.ts": {
-      "blob": "8222d5ca1df251c96dce7295b1b40d04b76bfae0",
       "kind": "deferred",
       "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
       "card": "#375"
