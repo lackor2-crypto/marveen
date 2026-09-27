@@ -3,9 +3,9 @@
   "files": {
     ".claude/settings.json": {
       "blob": "458362ebbf183b582b88d7533ae06695afde6ddf",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     ".env.example": {
       "blob": "8a3ff2b4a7c32ce178b49d28fd1d4b9317a07e54",
@@ -21,9 +21,9 @@
     },
     ".gitignore": {
       "blob": "56cb3ac316b8a2ec0db176854e6c1ec91fb1ed30",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "README.md": {
       "blob": "2ec43e13eae82bc3a70e169d4917989c6f7a2269",
@@ -75,15 +75,15 @@
     },
     "package-lock.json": {
       "blob": "873217a2ea50d23dce25511c702c010e4ca6fc5f",
-      "kind": "deferred",
-      "reason": "Lockfile of package.json, which is in C-31 (owner decision A, 2026-09-24): follows it.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): lockfile of package.json, which stays ours (C-31); it follows it. The upstream dependency advisories were cleared in our shape (#447).",
+      "card": "#413"
     },
     "package.json": {
       "blob": "f8e8153101835187343a1eb1f289725c438cec6a",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "scheduled-tasks/dream-engine/SKILL.md": {
       "blob": "a1ae06a0765f03c2a1e281fee12934d6243fc26d",
@@ -111,15 +111,15 @@
     },
     "scripts/__tests__/kartya-ertesites-felado.test.py": {
       "blob": "5c3bcfb2f9845dbdd133d4cf56d31ae1ba042682",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream fleet card tool (kartya-es-ertesites.py) is an upstream feature this fork does not ship; our agents use the kanban API.",
+      "card": "#413"
     },
     "scripts/__tests__/kartya-mezomozgatas.test.py": {
       "blob": "ec3233236c211c2ac28e317a24442fbb2dac3b32",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream fleet card tool (kartya-es-ertesites.py) is an upstream feature this fork does not ship; our agents use the kanban API.",
+      "card": "#413"
     },
     "scripts/__tests__/memory-index-gate-linkcheck.test.sh": {
       "blob": "5df09673120e2888af877e22256e5cee1174a95d",
@@ -345,9 +345,9 @@
     },
     "scripts/install-channel-image-hook.sh": {
       "blob": "b30cb769a08c93e7a34680c88974a196e37eb4fd",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "scripts/install-git-guard-hook.sh": {
       "blob": "c2965cc0766cf993ab5d8e39ed5b6014d452e528",
@@ -357,9 +357,9 @@
     },
     "scripts/install-telegram-progress-hook.sh": {
       "blob": "9642c56a3b1151a176f03fda3e358d67ca6d2942",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): b73b0812 (watchdog root self-location) is already present here (telegram_progress_watchdog.py _derive_fleet_root); 76fa2a61 moves fleet hooks to a repo-shipped project scope, which our ensureAgentHooks design replaces. Not taken.",
+      "card": "#413"
     },
     "scripts/kanban-write-gate.mjs": {
       "blob": "90e84882b31309d73c11ee3881d0044b380ef032",
@@ -369,9 +369,9 @@
     },
     "scripts/kartya-es-ertesites.py": {
       "blob": "d1032f0e200ffbe96b3e81608d28758ff45cbb91",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream fleet card tool with its own accent / sender / owner-notice gates (9fb74981 and follow-ups): an upstream feature plus new gates; this fork uses the kanban API.",
+      "card": "#413"
     },
     "scripts/limit-monitor.sh": {
       "blob": "79e50fcfaff81bec887de66150100c28a239a326",
@@ -381,9 +381,9 @@
     },
     "scripts/main-agent-isolated-config.mjs": {
       "blob": "398be23c492c74eda6eda9051f356dea32d6fde3",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): resolveMainAgentRotatedConfigDir from agent-process.ts; the rest merged.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "scripts/memoria_heartbeat_gate.py": {
       "blob": "b4dfcd4af6a83c812751564ccb6dac3c41bec6e2",
@@ -411,15 +411,15 @@
     },
     "scripts/pr-ledger-collect.mjs": {
       "blob": "c7a7e40a7057582fced739586bff28b8a2e7b2dd",
-      "kind": "deferred",
-      "reason": "Left out with routes/pr-ledger.ts (owner decision A (2026-09-24)): the PR ledger builds on db.ts (C-31).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
+      "card": "#413"
     },
     "scripts/pr-ledger-lib.mjs": {
       "blob": "76ea2c4079fec97e794521521a68a12b2d916e26",
-      "kind": "deferred",
-      "reason": "Left out with routes/pr-ledger.ts (owner decision A (2026-09-24)): the PR ledger builds on db.ts (C-31).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
+      "card": "#413"
     },
     "scripts/progress-mode.sh": {
       "blob": "4caad0c75613aa12968280487f3c37b2e80f1ed7",
@@ -447,9 +447,9 @@
     },
     "scripts/skill.ts": {
       "blob": "e2dea2f12fb8dc9f01447c9e37c46a2009156b49",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream 'marveen skill' CLI (enroll / scan-gated upload, MIO platform) is an upstream feature this fork does not ship.",
+      "card": "#413"
     },
     "scripts/start.sh": {
       "blob": "67edd340c70b91662f3a057c42686c53b7ca7c1f",
@@ -471,9 +471,9 @@
     },
     "scripts/telegram-live-progress.py": {
       "blob": "3a8fa9b2ec6bfc47251e39c8e956da83d327a153",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream Telegram progress mirror (d3c5fdf5, 2997022b) is an upstream feature this fork does not ship.",
+      "card": "#413"
     },
     "scripts/test_garmin_run_gate.py": {
       "blob": "b526e61ba0332b2559557f0f2644c8923944933e",
@@ -531,15 +531,15 @@
     },
     "seed-skills/fleet-helper/SKILL.md": {
       "blob": "fe30ae966b3a04b65d73acebacbfdcb550c4ddd4",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): 7a9d429a (mdv2b escaper + gate pre-check) is an upstream helper feature; not shipped.",
+      "card": "#413"
     },
     "seed-skills/fleet-helper/scripts/fleet.py": {
       "blob": "652f2af7de66f0a05cd40e1c51e412bbc5d5e1c5",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): 7a9d429a (mdv2b escaper) and 3c363812 (memory-search relaxation label, a memory feature this fork does not ship); not taken.",
+      "card": "#413"
     },
     "seed-skills/fleet-hygiene/SKILL.md": {
       "blob": "e1caf21fbdecd0171f8fac1611b65c1daf942e3e",
@@ -627,9 +627,9 @@
     },
     "src/__tests__/approvals-delivery.test.ts": {
       "blob": "5933db9c35f5200b9f925e2d654b720100d2e825",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins 219ffa9d, the upstream email-send level switch on the main agent (a new email gate); this fork keeps its own approvals flow.",
+      "card": "#413"
     },
     "src/__tests__/approvals.test.ts": {
       "blob": "3fabdcec7e32771b978620c4e856860f2d6f14cd",
@@ -639,9 +639,9 @@
     },
     "src/__tests__/auto-restart.test.ts": {
       "blob": "8b7bd6a8ec3f68e30e8f4cf4d8683dbefc8b5313",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream open-question restart deferral (ed62c7b6, d9eaad38) and the daily-handoff tier (d3cdb375): a new gate on the restart path and a context-guard feature, both out by the owner's rule.",
+      "card": "#413"
     },
     "src/__tests__/autonomy-section.test.ts": {
       "blob": "dd420b3044f5ba5949e1ea60e5b9ff95cccf4930",
@@ -675,9 +675,9 @@
     },
     "src/__tests__/channel-deafness-recovery.test.ts": {
       "blob": "7a515fa2688345071a41418b003e7414cd942c2b",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): tests the channel-monitor.ts buildMainSessionRespawnCmd({config}) API.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/__tests__/channel-event-log.test.ts": {
       "blob": "b04e44955869ea1181e7a7010d33bd2b0234b100",
@@ -813,9 +813,9 @@
     },
     "src/__tests__/context-guard-hidden-worker.test.ts": {
       "blob": "30231d37e6d80e3196224bf103645bb4ab27c2bc",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream context-guard shape for the heartbeat worker; context-guard gates are out by the owner's rule and the worker is dormant here.",
+      "card": "#413"
     },
     "src/__tests__/context-guard-main-transcript-root.test.ts": {
       "blob": "d962b0affae243a121ecd60561c3c1f51f6df898",
@@ -837,9 +837,9 @@
     },
     "src/__tests__/context-guard-resume-prompt.test.ts": {
       "blob": "1393303733b31b260063a219558f9a8f39d809a9",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream context-guard resume prompt (daily-handoff tier); context-guard feature, out by the owner's rule.",
+      "card": "#413"
     },
     "src/__tests__/context-guard-saturation-mismatch.test.ts": {
       "blob": "df15aedeb0042dab4c855eda9d713233bff79d83",
@@ -849,9 +849,9 @@
     },
     "src/__tests__/context-guard.test.ts": {
       "blob": "c6ef2e8db76c1747f14bc8ca394aaea2250e9535",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream context-guard shape (daily-handoff tier, stale-handoff budget, MiniMax windows); the one fix that applies here (d964aab4) is rebuilt and pinned by our own test (#452).",
+      "card": "#413"
     },
     "src/__tests__/context-restart-gate-main-transcript-root.test.ts": {
       "blob": "bcf8b1cd2ef5cbd55830874fffa6ab3144db20aa",
@@ -861,9 +861,9 @@
     },
     "src/__tests__/context-restart-gate.test.ts": {
       "blob": "fa4791c32bdebcd711a9f2a28af089e2c5cd3a80",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/__tests__/conversation-ledger-schema.test.ts": {
       "blob": "ee53800ea2b0d98b6d9b52ecaf90602a1aef4d34",
@@ -1431,9 +1431,9 @@
     },
     "src/__tests__/hook-registration-completeness.test.ts": {
       "blob": "25987aef7e58f34a50c1d72fd598bcba73a76933",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream hook set (project-scope hooks 76fa2a61, browser notice, ledger / mio preChecks, email extract); this fork registers hooks through ensureAgentHooks and does not ship those hooks.",
+      "card": "#413"
     },
     "src/__tests__/hook-scope-main-refusal.test.ts": {
       "blob": "13d233d578005621148e40f52ccf3ade7c46e9cf",
@@ -1467,9 +1467,9 @@
     },
     "src/__tests__/isolated-channel-config.test.ts": {
       "blob": "95a2575f8ed72a1c0e8714aa1098653c0be98f36",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins upstream own_team auth mode (b5739368), agent-owned OS user (6bc41156) and project-scope hooks (76fa2a61); not shipped.",
+      "card": "#413"
     },
     "src/__tests__/isolated-config-hook-strip.test.ts": {
       "blob": "5d9deaab2d08d5d3dda6034937aa4132119e4709",
@@ -1713,9 +1713,9 @@
     },
     "src/__tests__/message-router-tick-cap.test.ts": {
       "blob": "1de23311464f79e7e9c34ec98ecad71ffa8b0011",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): mocks readAgentWorksourceChannel; message-router.ts stays ours.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/__tests__/messages-main-agent-no-false-warning.test.ts": {
       "blob": "4057a6872b7e3dcaa24ef2a9c2a777db69388914",
@@ -1743,9 +1743,9 @@
     },
     "src/__tests__/model-suggest.test.ts": {
       "blob": "b0014b2840c6239182369492038e1ec6dda2fbb9",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): tests the upstream model-suggest.ts (see there).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/__tests__/notify-chat-id-placeholder.test.ts": {
       "blob": "c447040c1215483d428b56ea8043dce3feab8411",
@@ -1785,15 +1785,15 @@
     },
     "src/__tests__/pane-first-run-gate.test.ts": {
       "blob": "010e6987bf185cb3d95e6abe5f8152d617fa9911",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): tests upstream pane-gate code in agent-process.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/__tests__/pane-state.test.ts": {
       "blob": "e8a534605744578a265e083912c51065651cfb55",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/__tests__/pane-writers-under-send-lock.test.ts": {
       "blob": "c56a4ac70f80679bb59c3745381d42111d1d5d46",
@@ -1827,9 +1827,9 @@
     },
     "src/__tests__/pr-ledger.test.ts": {
       "blob": "64ccc6d6f91f56572cede369aaed4f21659bfc75",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
+      "card": "#413"
     },
     "src/__tests__/process-lock.test.ts": {
       "blob": "ec2f0bb254c11a419f6dc2f1296ba996b03bd29e",
@@ -1839,9 +1839,9 @@
     },
     "src/__tests__/project-settings-hook-anchor.test.ts": {
       "blob": "f37775bca5daba6deb0ca9ae951c2559973b3d8c",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): pins upstream project-scope hook registration (76fa2a61) and hooks this fork does not ship (memory frontmatter gate, tool-log failure).",
+      "card": "#413"
     },
     "src/__tests__/prompt-injection-defense.test.ts": {
       "blob": "1d529dce336617f432f32004ef13dd82c393f345",
@@ -2229,9 +2229,9 @@
     },
     "src/auto-restart.ts": {
       "blob": "839eac8dc278d6005170f61acf1fcbf789cbf0eb",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): ed62c7b6 / d9eaad38 add an open-question deferral gate to scheduled restarts (new gate = out); d3cdb375 is a context-guard feature. Not taken.",
+      "card": "#413"
     },
     "src/channel-coordinator/liveness.ts": {
       "blob": "5d89c1812fa078f838d4448ca8126d0df76a5392",
@@ -2247,45 +2247,45 @@
     },
     "src/config-registry.ts": {
       "blob": "ee82a3de50d82d24651228866165c18635dec620",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/config.ts": {
       "blob": "5edbaa99bdc369bea50b27f54c0f983a91630a45",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/context-guard.ts": {
       "blob": "737ed020b74360dac7d4c23eda5e5fcd42fb7c0d",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): d964aab4 is rebuilt (#452); df5e4462 bounds a stale-handoff refresh loop this fork's guard does not have; d3cdb375 (daily handoff) and d5a45f7c (MiniMax) are features. Nothing more to take.",
+      "card": "#413"
     },
     "src/context-restart-gate.ts": {
       "blob": "b2d4bc1a970bc88b0e7f43607712947fa1216212",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/db.ts": {
       "blob": "4c62e262e2d6ecebaebfd93527ed4fccd57a5215",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/heartbeat.ts": {
       "blob": "4b78d9e034d72b1973793c0bef61d4185e575055",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): getMainParkedState from agent-process.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/index.ts": {
       "blob": "926fe81ed7c9a09ae6a1e44eeae46cf3fc459ba7",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): DECAY_SWEEP_INTERVAL_MS from db.ts; only the ProcessLockContext fields (selfProjectRoot, getProcessCwd) were ported.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/kanban-dispatch.ts": {
       "blob": "7fffc38f78b99573fb88fd797ac67b3593ffb872",
@@ -2295,9 +2295,9 @@
     },
     "src/memory.ts": {
       "blob": "ce2755bc7da33474381233c06862848ddcd634c6",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): new db.ts signatures.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/model-fallback.ts": {
       "blob": "93ea8f17a6c9608003f047c1c9b5f8defe0f1da8",
@@ -2313,9 +2313,9 @@
     },
     "src/pane-state.ts": {
       "blob": "52c868de627a2e791345180051b215f22c74b8ac",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/skill-cli-core.ts": {
       "blob": "8fe3b8f27caf416ae473a36a048aeb1244c2d9cd",
@@ -2325,9 +2325,9 @@
     },
     "src/skill-cli-fs.ts": {
       "blob": "64f27b96cd55239f8d9d7c0b25f58a584b67e5ef",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): part of the upstream 'marveen skill' CLI (MIO platform), not shipped.",
+      "card": "#413"
     },
     "src/skill-scan.ts": {
       "blob": "2bd960f0126e22b99e72c94a188a156e5e592ca4",
@@ -2343,21 +2343,21 @@
     },
     "src/web.ts": {
       "blob": "3ae469a731a60ca1e6a46318fb22296304db16d2",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/active-model.ts": {
       "blob": "33899f4ba5045f00c4e9e1e820d9bcc5295aed74",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): bd93dae9 fixes the in-flight sawTurn probe of upstream's schedule runner; this fork's schedule runner has no sawTurn probe, and the main agent's own config root is read everywhere since #451. Not applicable.",
+      "card": "#413"
     },
     "src/web/agent-config.ts": {
       "blob": "d08920a20fad7964c5b8a836f238cf61aea6ca97",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream features only (per-agent toolDeny 1abd45cf, worksource 8f96248d, fable aliases a18c0f83, agent-owned OS user 6bc41156); not shipped.",
+      "card": "#413"
     },
     "src/web/agent-message-wrap.ts": {
       "blob": "d001ce9ca991b7e88651e30c7ea5df41d46b4732",
@@ -2367,9 +2367,9 @@
     },
     "src/web/agent-process.ts": {
       "blob": "42490bddd71300c905498b94f8c05ca0b17f08d5",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/agent-put-fields.ts": {
       "blob": "69ce01fdd32899cf93f68071e045d4c32e10e0ae",
@@ -2379,9 +2379,9 @@
     },
     "src/web/agent-scaffold.ts": {
       "blob": "60e2755b187a761987fdb0c9bf19684f6e974510",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/agent-taskstate.ts": {
       "blob": "625d03282bb75b554ce23822f67cc4e51b0706c1",
@@ -2391,15 +2391,15 @@
     },
     "src/web/agent-worker.ts": {
       "blob": "33142b2fbb1abff84038086b9c56549057604c37",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): lockMode from agent-process.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/auto-restart-runner.ts": {
       "blob": "12cb41d9bbc0c3b519545028f8bdc6d7ae31319b",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): 0db93a44's lastRestart-on-failure fix is already present here; the rest is the open-question deferral gate and the daily-handoff tier (out). Not taken.",
+      "card": "#413"
     },
     "src/web/channel-mcp-reconnect.ts": {
       "blob": "633a2552f141560971a56b442fb03fee4e8787b5",
@@ -2409,9 +2409,9 @@
     },
     "src/web/channel-monitor.ts": {
       "blob": "8cdeac8b13699522556c15179a04fabca51328fa",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/channel-plugin-unlock.ts": {
       "blob": "1a5ca263586e3f67cdbdeeb5e3ad7647d97e341d",
@@ -2433,15 +2433,15 @@
     },
     "src/web/command-task.ts": {
       "blob": "1ba336bf924d349ac10eac7d0e5fa6adae882827",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): markTaskRunCompleted and appendTaskRun():number live in db.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/context-guard-runner.ts": {
       "blob": "e160c72ed35d45a17ead0f03ae0f1995894d519c",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/context-guard-store.ts": {
       "blob": "0593a081cc624a6e8770cd630e85da9c3402b929",
@@ -2451,33 +2451,33 @@
     },
     "src/web/context-restart-gate-runner.ts": {
       "blob": "86515bbefb24118f2906a3288a0b4701c43f5141",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/context-restart-gate-store.ts": {
       "blob": "f00ecccbc027deb26ec68be562168e870600f48c",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/heartbeat-agent-scaffold.ts": {
       "blob": "d21fef6b856c207b1023d1f1376bf94ea3beb721",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413, mixed file sorted by hand): upstream heartbeat sub-agent features (metrics block, calendar instrument, kanban write gate, AGENT_API_ORIGIN); the heartbeat sub-agent is off by default here and these are features / gates. Not taken.",
+      "card": "#413"
     },
     "src/web/heartbeat-metrics-inject.ts": {
       "blob": "ce9c172486ffa598f206bae84dc4c76c0c1ade19",
-      "kind": "deferred",
-      "reason": "New upstream module built on C-31 (AGENT_API_ORIGIN in config.ts) -- left out with it (owner decision A (2026-09-24)).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): new upstream module for the native heartbeat metrics block; the native heartbeat is dormant in this fork (heartbeat-native-scheduler-dormant.test.ts), so it is not shipped.",
+      "card": "#413"
     },
     "src/web/hook-registration-guard.ts": {
       "blob": "b28c9bfc04f2ae9cfd4e3d5a6f1aec5da6f71914",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/http-helpers.ts": {
       "blob": "4d416c1fef8dc667b5921ca4ad849ecf9ed1ab3f",
@@ -2487,15 +2487,15 @@
     },
     "src/web/inbox-nudge-watcher.ts": {
       "blob": "16ea8433849e794c5e68f413615b853ecbee20f3",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): clearFeedbackModalAndRecheck from agent-process.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/main-config-decision.ts": {
       "blob": "80073a822f0a6e34f8c73949dc1ba4e2c5d79f38",
-      "kind": "deferred",
-      "reason": "New upstream module built on C-31 (agent-process.ts) -- left out with it (owner decision A (2026-09-24)).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): new upstream module for the main-agent config rotation decision; this fork keeps its own main config root handling (#290, #451), not shipped.",
+      "card": "#413"
     },
     "src/web/main-transcript-root.ts": {
       "blob": "5f7bd1b29c37c5ae422477e2b46f323b07030a1c",
@@ -2505,15 +2505,15 @@
     },
     "src/web/message-router.ts": {
       "blob": "2350380c18889ba448f00127059bd118dea288d9",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): worksource/batch-inject delivery needs readAgentWorksourceChannel (agent-config.ts, deferred) and clearFeedbackModalAndRecheck (agent-process.ts).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/model-suggest.ts": {
       "blob": "2af4e076711e2c2754d18f3fd563d9f8401674e4",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): upstream drops the tokenAvgInputPerCall signal that routes/agents.ts sends; DISTRIBUTION_DEFAULT from config-registry.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/profiles.ts": {
       "blob": "e3321e5087ea2d07884252b45aef7c8811e89a42",
@@ -2535,9 +2535,9 @@
     },
     "src/web/routes/agent-terminal.ts": {
       "blob": "cf57ba1065272a7bde9723865d5709faaf05ed21",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): per-user tmux routing needs tmuxInvocationFor from agent-process.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/agents-skills.ts": {
       "blob": "23a380b7d40b5cd70885d9205c6fb4cc1fe9dbfe",
@@ -2547,15 +2547,15 @@
     },
     "src/web/routes/agents.ts": {
       "blob": "94101d8787f0206a215e711b20f1910fc4596cb6",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/approvals.ts": {
       "blob": "5837e95738dbf8af083a9cac0e4ac81c45ec5ac8",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/connectors.ts": {
       "blob": "d821fb73ea84e929cb77ca158e7bbf78e2de6cd0",
@@ -2565,33 +2565,33 @@
     },
     "src/web/routes/ideas.ts": {
       "blob": "06d261823e57a4b4ab9e434ca07aa3f579c7d1c4",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): idea scope (work/personal) needs listIdeas/createIdea scope in db.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/kanban.ts": {
       "blob": "0bfd8f56b457337d15222b17024fe28574f60c6a",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): blockers, KANBAN_WRITABLE_FIELDS, heartbeat summary in db.ts; only the actor self-move pass-through was ported.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/marveen.ts": {
       "blob": "56e36a5fc5dfa53ca0cf33e19cc264a3918169a5",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/memories.ts": {
       "blob": "c31bc1c428716eafb8e07b8a4bfd382c8845ba69",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): hybrid trace / tier-in-search / offset need db.ts signatures.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/messages.ts": {
       "blob": "082d5e466521dde82cb4a7c1e5a11c240e983af2",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/routes/migrate.ts": {
       "blob": "33ae87c9e6cfdf3f251d99c4df4e95cc6a7e82d6",
@@ -2613,9 +2613,9 @@
     },
     "src/web/routes/pr-ledger.ts": {
       "blob": "ed52ccc80e1015a41a335c302faa0cb6b49347c6",
-      "kind": "deferred",
-      "reason": "New upstream module built on C-31 (listPrLedger in db.ts) -- left out with it (owner decision A (2026-09-24)).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): upstream PR-throughput ledger (3877c61d, PRLEDGER907) is a new feature built on C-31 db code; this fork does not ship it. No defect of ours to fix.",
+      "card": "#413"
     },
     "src/web/routes/research.ts": {
       "blob": "1da1ceb6fd4c76a82a77c23d1d4ddddab48d0f3b",
@@ -2655,9 +2655,9 @@
     },
     "src/web/schedule-runner.ts": {
       "blob": "6486e1a363182d22992daadb9fea90ab6a63428d",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/scheduled-tasks-io.ts": {
       "blob": "355b771c82fd51e9e32c2137ddd61b3c1fd41f20",
@@ -2673,15 +2673,15 @@
     },
     "src/web/stuck-tool-call-watcher.ts": {
       "blob": "80f56ab7a9fa84b1f431db27a7eb240aa873e53c",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): readTranscriptMtimeFromProjectDir from active-model.ts (deferred).",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/telegram-inbox-wake.ts": {
       "blob": "c2a97316f2bda1537711fd1dbdf44e5a48753533",
-      "kind": "deferred",
-      "reason": "Kept at ours because the upstream version needs C-31 code (owner decision A (2026-09-24)): clearFeedbackModalAndRecheck from agent-process.ts.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "src/web/token-usage.ts": {
       "blob": "82ebcf785cd0d988b2f8146b6049ad078fe521c0",
@@ -2715,9 +2715,9 @@
     },
     "templates/settings.json.template": {
       "blob": "7500c488547154e25b81d1be0f2e1e948ce8f8cf",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "update.sh": {
       "blob": "a75de2c593c13b6f15b39b9b4dc86ef29514f6f9",
@@ -2727,27 +2727,27 @@
     },
     "web/app.js": {
       "blob": "dba935621dc310c2a95c4308f0bee6240a193194",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "web/index.html": {
       "blob": "b4f142158c1c6f8e3c215274836eeb8c6d6c72f4",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "web/lang/en.js": {
       "blob": "6d8de35454f4152c92c956cded28cca14a395943",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "web/lang/hu.js": {
       "blob": "151a2c8cac7fbe6bf0c4f62fa628ec084a113156",
-      "kind": "deferred",
-      "reason": "C-31: kept at ours by owner decision A (2026-09-24); the upstream version is not taken for now.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
+      "card": "#413"
     },
     "web/style.css": {
       "blob": "fe0979cde94488243665adebb5771c974b977c9d",
