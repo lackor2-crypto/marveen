@@ -1970,11 +1970,26 @@ export function createKanbanCard(card: {
   )
 }
 
+// The columns updateKanbanCard actually writes. Exported so PUT /api/kanban/:id
+// can validate a body against exactly this set: a key outside it was silently
+// dropped by the spread below while the write still answered 200 (rebuilt from
+// upstream 48b90ba6, #413).
+export const KANBAN_WRITABLE_FIELDS = [
+  'title', 'description', 'status', 'assignee', 'priority', 'project',
+  'parent_id', 'due_date', 'sort_order', 'archived_at',
+] as const
+
 export function updateKanbanCard(id: string, fields: Partial<Omit<KanbanCard, 'id' | 'created_at'>>): boolean {
   const card = getKanbanCard(id)
   if (!card) return false
   const now = Math.floor(Date.now() / 1000)
   const f = { ...card, ...fields, updated_at: now }
+  // Bump updated_at ONLY when a writable column really changes. A no-op write
+  // used to stamp updated_at=now and report success, which made a card whose
+  // real update was lost look freshly touched -- hiding the "stale, go look"
+  // signal. A no-op is not a failure: the card exists, so return true.
+  const realChange = KANBAN_WRITABLE_FIELDS.some((k) => (f as Record<string, unknown>)[k] !== (card as unknown as Record<string, unknown>)[k])
+  if (!realChange) return true
   return db.prepare(
     `UPDATE kanban_cards SET title=?, description=?, status=?, assignee=?, priority=?, project=?, parent_id=?, due_date=?, sort_order=?, updated_at=?, archived_at=?
      WHERE id=?`
