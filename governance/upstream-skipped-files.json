@@ -2814,6 +2814,120 @@
       "kind": "decided",
       "reason": "Merged by hand (#375): the upstream change is combined with ours.",
       "card": "#375"
+    },
+    "scripts/__tests__/conversation-ledger.test.sh": {
+      "blob": "14788745a8add658d1632d009a34048c35487e69",
+      "kind": "decided",
+      "reason": "Rewritten here (#413, PR #445): case (f) runs from a throwaway install with agents/dia, so it passes on CI/worktrees; upstream's version stays red here.",
+      "card": "#413"
+    },
+    "scripts/disk-space-guard.sh": {
+      "blob": "e9b335119e44f6cc7813d20509d7eed03c2b8d8e",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it.",
+      "card": "#413"
+    },
+    "scripts/github-pr-monitor.sh": {
+      "blob": "aca5a51b633457795328412d522db3d02778e8d7",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it.",
+      "card": "#413"
+    },
+    "scripts/morning-briefing.sh": {
+      "blob": "f603036e0ac706ef1ae0c4e6c75e394bac6bd1ec",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. Also skips with a log line when no owner chat exists.",
+      "card": "#413"
+    },
+    "scripts/watchdog-inbound-prober.py": {
+      "blob": "b1d45ed9e0de03571e4f56bc557c8ba836c6a03e",
+      "kind": "decided",
+      "reason": "Ours is newer (#413, PR #444): the prober also treats the ALLOWED_CHAT_ID=0 placeholder as absent; upstream only checks empty.",
+      "card": "#413"
+    },
+    ".github/workflows/test.yml": {
+      "blob": "2970438ae4ca0491e3c4984cc2fd39771862a039",
+      "kind": "decided",
+      "reason": "Ours is a superset (#413): keeps the ffmpeg install (#375, photo thumbnail tests) and the owner-chat-resolve shell test (PR #444); the mio-orszem precheck test stays out because its hook is excluded (hard-coded /Users path).",
+      "card": "#413"
+    },
+    "docs/MIGRATION.md": {
+      "blob": "4d60b245ac36631b13a46ad4f936e885112c500b",
+      "kind": "decided",
+      "reason": "Rewritten here (#396, PR #407): the runbook documents OUR UI-driven .mbk backup/restore flow; upstream's text describes their backup.sh tarball, which is not our process.",
+      "card": "#413"
+    },
+    "scripts/__tests__/limit-monitor-signals.test.sh": {
+      "blob": "776e7c1671aa93573b42737813ca168d32de638a",
+      "kind": "decided",
+      "reason": "Ours is newer (#413, PR #445): the case install also copies scripts/lib/owner-chat.sh; without it all 26 cases fail here.",
+      "card": "#413"
+    },
+    "scripts/__tests__/morning-stamp-gate.test.sh": {
+      "blob": "32d060c25f86d6152e8e4a000467d0f73aa263e9",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): mktemp per case (upstream's $RANDOM dirs collided on CI 2026-09-25) and copies scripts/lib for the owner-chat resolver.",
+      "card": "#413"
+    },
+    "scripts/notify.sh": {
+      "blob": "0b349a43558d33de521f07390ce86d60f40ce92a",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it.",
+      "card": "#413"
+    },
+    "seed-scheduled-tasks/nap-zaro/SKILL.md": {
+      "blob": "5cfbfc622b658da667dbb57a8c7991b35fa12b69",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the start-of-day timestamp uses python instead of `date -d`, which BSD date lacks (upstream aced2af8 already absorbed otherwise).",
+      "card": "#413"
+    },
+    "src/__tests__/notify-delivery-honesty.test.ts": {
+      "blob": "fbeb2e331581d5e843d70b55ecc08ca5f5f9c04b",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. The test stages owner-chat.sh.",
+      "card": "#413"
+    },
+    "src/__tests__/profile-rule-syntax.test.ts": {
+      "blob": "11f78e374183c041ea0d8a9af07e0a49d90cf8f3",
+      "kind": "decided",
+      "reason": "Fork divergence (#358): the profiles point at scripts/agent-msg.sh; upstream's agent-post.sh does not exist here.",
+      "card": "#413"
+    },
+    "src/__tests__/send-honesty-round2.test.ts": {
+      "blob": "56455209457402d22da703198fc2da62488bce25",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. The test stages owner-chat.sh.",
+      "card": "#413"
+    },
+    "src/__tests__/send-honesty-sweep.test.ts": {
+      "blob": "afc17a2222a86a7645343f837618ebe74516dacc",
+      "kind": "decided",
+      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. The test stages owner-chat.sh.",
+      "card": "#413"
+    },
+    "src/web/channel-intake-monitor.ts": {
+      "blob": "d868306f0f0dc39f1d487f43f4d5c6e4d84a05ee",
+      "kind": "decided",
+      "reason": "Ours is newer (#407): the main agent's channel .env comes from channelStateDir() (install-scoped after the #915 migration); upstream's fixed ~/.claude path finds no token after migration.",
+      "card": "#413"
+    },
+    "src/web/stuck-input-watcher.ts": {
+      "blob": "968f8dc341764da1c8808f50ba42fc62f0058aa9",
+      "kind": "decided",
+      "reason": "Ours is newer (#390): one prefetched tmux capture per sweep, re-captured before the Enter; upstream captures per pane.",
+      "card": "#413"
+    },
+    "templates/profiles/marketer.json": {
+      "blob": "bf0141ac6869fc14ee035b8cc8fd10989336b745",
+      "kind": "decided",
+      "reason": "Fork divergence (#358): inter-agent helper is scripts/agent-msg.sh; upstream's agent-post.sh does not exist here.",
+      "card": "#413"
+    },
+    "templates/profiles/researcher.json": {
+      "blob": "60049340306090649ba1581279651ea59b888d2b",
+      "kind": "decided",
+      "reason": "Fork divergence (#358): inter-agent helper is scripts/agent-msg.sh; upstream's agent-post.sh does not exist here.",
+      "card": "#413"
     }
   }
 }
