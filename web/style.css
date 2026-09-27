@@ -12968,6 +12968,11 @@ span.intezo-tree-tw { cursor: default; }
 .mv-auth-code { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .mv-auth-code [hidden], #mv-rc-step2[hidden], #mv-rc-step3[hidden] { display: none; }
 #mv-rc-step2, #mv-rc-step3 { display: flex; flex-direction: column; gap: 8px; }
+/* The sign-in fields and each recovery step are separate <form>s (Enter must
+   submit the step on screen); they keep the card's column rhythm. */
+.mv-auth-form { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+.mv-auth-form.mv-rc-form { gap: 8px; }
+.mv-auth-form[hidden] { display: none; }
 .mv-rc-channels { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .mv-rc-row { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; line-height: 1.4; }
 .mv-auth-card .mv-rc-row input[type="radio"] { width: auto; flex: 0 0 auto; margin: 3px 0 0; padding: 0; }

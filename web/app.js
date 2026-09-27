@@ -511,11 +511,17 @@ const _netStatus = (() => {
     const overlay = document.createElement('div')
     overlay.id = 'mv-login-overlay'
     overlay.className = 'mv-auth-overlay'
+    // The sign-in <form> holds ONLY the two fields and their button. The
+    // recovery steps below are their own forms: inside this one, Enter/Go in
+    // the code or new-password field ran the Sign in submit instead of the
+    // step the owner was on (#412 check: "Enter a username and password", or
+    // a real failed login counted against the brake with the old password).
     overlay.innerHTML =
-      '<form class="mv-auth-card" id="mv-login-form">' +
+      '<div class="mv-auth-card">' +
         '<h2>' + tr('auth.login.title', 'Sign in') + '</h2>' +
         '<p class="mv-auth-desc">' + tr('auth.login.desc', 'Enter your dashboard username and password.') + '</p>' +
         forcedHtml +
+        '<form class="mv-auth-form" id="mv-login-form">' +
         '<input id="mv-login-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + tr('auth.login.username', 'Username') + '">' +
         // The eye shows the typed password (owner, TG 6597, 2026-09-26: on a
         // phone keyboard a typo is invisible otherwise).
@@ -527,6 +533,7 @@ const _netStatus = (() => {
           '</button>' +
         '</div>' +
         '<button type="submit" id="mv-login-submit">' + tr('auth.login.submit', 'Sign in') + '</button>' +
+        '</form>' +
         '<div class="mv-auth-err" id="mv-login-err"></div>' +
         // The way back in when the password is gone. Hidden behind one click so
         // the ordinary login stays a two-field screen, but ALWAYS present: an
@@ -541,21 +548,24 @@ const _netStatus = (() => {
           '<div class="mv-auth-code" id="mv-rc">' +
             '<strong>' + tr('auth.recovery.title', 'Get a one-time code') + '</strong>' +
             '<p>' + tr('auth.recovery.desc', 'We send a 6-digit code to a place only you read. Choose where:') + '</p>' +
-            '<div class="mv-rc-channels" id="mv-rc-channels" role="radiogroup">' + tr('auth.recovery.loading', 'Loading...') + '</div>' +
-            '<input id="mv-rc-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + tr('auth.login.username', 'Username') + '">' +
-            '<button type="button" id="mv-rc-send">' + tr('auth.recovery.send', 'Send the code') + '</button>' +
+            // One form per step, so Enter/Go submits the step on screen.
+            '<form class="mv-auth-form mv-rc-form" id="mv-rc-step1">' +
+              '<div class="mv-rc-channels" id="mv-rc-channels" role="radiogroup">' + tr('auth.recovery.loading', 'Loading...') + '</div>' +
+              '<input id="mv-rc-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + tr('auth.login.username', 'Username') + '">' +
+              '<button type="submit" id="mv-rc-send">' + tr('auth.recovery.send', 'Send the code') + '</button>' +
+            '</form>' +
             '<div class="mv-auth-err" id="mv-rc-err"></div>' +
             '<div class="mv-rc-ok" id="mv-rc-ok"></div>' +
-            '<div id="mv-rc-step2" hidden>' +
+            '<form class="mv-auth-form mv-rc-form" id="mv-rc-step2" hidden>' +
               '<input id="mv-rc-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="' + tr('auth.recovery.code_placeholder', '6-digit code') + '">' +
-              '<button type="button" id="mv-rc-verify">' + tr('auth.recovery.verify', 'Check the code') + '</button>' +
-            '</div>' +
-            '<div id="mv-rc-step3" hidden>' +
+              '<button type="submit" id="mv-rc-verify">' + tr('auth.recovery.verify', 'Check the code') + '</button>' +
+            '</form>' +
+            '<form class="mv-auth-form mv-rc-form" id="mv-rc-step3" hidden>' +
               '<p>' + tr('auth.recovery.new_desc', 'The code is right. Now set a new password (at least 10 characters). After this every other device is signed out.') + '</p>' +
               passField('mv-rc-pass1', tr('auth.card.new_password', 'New password')) +
               passField('mv-rc-pass2', tr('auth.card.repeat_password', 'Repeat password')) +
-              '<button type="button" id="mv-rc-save">' + tr('auth.recovery.save', 'Save the new password and sign in') + '</button>' +
-            '</div>' +
+              '<button type="submit" id="mv-rc-save">' + tr('auth.recovery.save', 'Save the new password and sign in') + '</button>' +
+            '</form>' +
           '</div>' +
           '<p class="mv-auth-recover-alt"><strong>' + tr('auth.recovery.token_alt', 'Or: with the access token') + '</strong></p>' +
           '<p>' + tr('auth.recover.desc', 'You can get in with the access token instead of the password, and set a new password once inside.') + '</p>' +
@@ -571,7 +581,7 @@ const _netStatus = (() => {
           '<p class="mv-auth-recover-cli">' + tr('auth.recover.cli', 'No token either? Run this in a terminal in the install folder:') +
             '<code>npm run dashboard-user -- reset-password &lt;username&gt;</code></p>' +
         '</div>' +
-      '</form>'
+      '</div>'
     document.body.appendChild(overlay)
     const form = overlay.querySelector('#mv-login-form')
     const userEl = overlay.querySelector('#mv-login-user')
@@ -663,7 +673,9 @@ const _netStatus = (() => {
         rcErr.textContent = tr('auth.recovery.none', 'No channel is connected yet, so no code can be sent. Use the access token below.')
       }
     }
-    rcSend.addEventListener('click', async () => {
+    overlay.querySelector('#mv-rc-step1').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      if (rcSend.disabled) return
       rcErr.textContent = ''; rcOk.textContent = ''
       const username = (overlay.querySelector('#mv-rc-user').value || '').trim()
       const chEl = overlay.querySelector('input[name="mv-rc-ch"]:checked')
@@ -692,7 +704,9 @@ const _netStatus = (() => {
         rcSend.disabled = false
       }
     })
-    overlay.querySelector('#mv-rc-verify').addEventListener('click', async () => {
+    overlay.querySelector('#mv-rc-step2').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      if (overlay.querySelector('#mv-rc-verify').disabled) return
       rcErr.textContent = ''; rcOk.textContent = ''
       const username = (overlay.querySelector('#mv-rc-user').value || '').trim()
       const code = (overlay.querySelector('#mv-rc-code').value || '').replace(/\s+/g, '')
@@ -720,7 +734,9 @@ const _netStatus = (() => {
         btn.disabled = false
       }
     })
-    overlay.querySelector('#mv-rc-save').addEventListener('click', async () => {
+    overlay.querySelector('#mv-rc-step3').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      if (overlay.querySelector('#mv-rc-save').disabled) return
       rcErr.textContent = ''; rcOk.textContent = ''
       const p1 = overlay.querySelector('#mv-rc-pass1').value || ''
       const p2 = overlay.querySelector('#mv-rc-pass2').value || ''
