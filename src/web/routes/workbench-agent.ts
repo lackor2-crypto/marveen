@@ -23,6 +23,9 @@ import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
 import { workbenchAccountStatuses, isKnownWorkbenchAccount } from '../../workbench-agent/accounts.js'
 import { runTurn, validateTurn, MESSAGE_MAX_CHARS } from '../../workbench-agent/orchestrator.js'
+import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
+import { runCodeBridgeTurn } from '../../workbench-agent/code-bridge-turn.js'
+import { codeBridgeHealth, enqueueCodeTask, getCodeTask } from '../code-bridge-store.js'
 import {
   ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey,
 } from '../../workbench-agent/sessions.js'
@@ -246,10 +249,55 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) } catch { stop() }
     }
 
+    // #433 (B opcio): a teljes erteku mod eldontese. A kapcsolo ALAPBOL ki:
+    // ilyenkor a megszokott projekt-asszisztens fut, semmi nem valtozik. Ha be
+    // van kapcsolva ES van online kod-hid worker -> a valodi Claude Code
+    // sessionhoz iranyitunk; ha be van kapcsolva, de nincs worker, a chat NEM
+    // hal meg: setup-jelzest kuldunk, es tovabb fut a megszokott asszisztens.
+    const fullAgentEnabled = String(getEffectiveSettingValue('WORKBENCH_FULL_AGENT')) === '1'
+    const workerOnline = fullAgentEnabled ? codeBridgeHealth().workerOnline : false
+    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline })
+
     try {
-      for await (const ev of runTurn({ ...input, signal: ac.signal })) {
-        send(ev.type, ev)
-        if (closed) break
+      if (decision.backend === 'code-bridge') {
+        for await (const ev of runCodeBridgeTurn(
+          {
+            projectRef: project.name || project.id,
+            message: input.message,
+            lang,
+            requestedBy: input.actor ?? null,
+            chatId: null,
+            signal: ac.signal,
+          },
+          {
+            enqueue: (i) => {
+              const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'dashboard', requestedBy: i.requestedBy, chatId: i.chatId })
+              return 'error' in r ? { ok: false, message: r.error } : { ok: true, id: r.task.id }
+            },
+            getTask: (id) => {
+              const t = getCodeTask(id)
+              return t ? { status: t.status, result: t.result, summary: t.summary, error: t.error } : null
+            },
+            now: () => Date.now(),
+            sleep: (ms, signal) => new Promise<void>((resolve) => {
+              const to = setTimeout(resolve, ms)
+              signal?.addEventListener('abort', () => { clearTimeout(to); resolve() }, { once: true })
+            }),
+          },
+        )) {
+          send(ev.type, ev)
+          if (closed) break
+        }
+      } else {
+        // Bekapcsolt teljes mod worker nelkul: eloszor a setup-jelzes, aztan a
+        // megszokott asszisztens valaszol (sose halott chat).
+        if (decision.needsWorkerSetup) {
+          send('notice', { type: 'notice', code: 'code_bridge_no_worker', message: msg('code_bridge_no_worker', lang) })
+        }
+        for await (const ev of runTurn({ ...input, signal: ac.signal })) {
+          send(ev.type, ev)
+          if (closed) break
+        }
       }
     } catch (e) {
       // SOSE talalgatjuk az okot: a tenyleges hiba megy ki.

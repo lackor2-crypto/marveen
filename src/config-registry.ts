@@ -573,6 +573,15 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     valueSet: ['', ...CLAUDE_MODEL_IDS],
   },
   {
+    key: 'WORKBENCH_FULL_AGENT',
+    type: 'boolean',
+    default: '0',
+    description: 'Teljes értékű Munkapad-ágens. Bekapcsolva a Munkapad chatben nem a projektmappára szűkített asszisztens válaszol, hanem egy VALÓDI, teljes értékű Claude Code session a kód-hídon át -- ugyanaz, amivel a flotta kódol, tehát helyben fel is ismer és ki is javít hibát. Ehhez egy bejelentkezett Claude Code worker kell (Kód-híd). Ha nincs bekötött worker, a chat nem áll le: a megszokott asszisztens válaszol, és a felület megmutatja, hogyan köss be egy workert. Kikapcsolva minden marad a régiben.',
+    module: 'munkapad',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'WORKBENCH_LIBREOFFICE_PATH',
     type: 'string',
     default: '',
