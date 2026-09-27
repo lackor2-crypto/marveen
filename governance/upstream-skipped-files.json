@@ -2031,9 +2031,9 @@
     },
     "src/__tests__/schedule-runner-retry-missing.test.ts": {
       "blob": "7b58ba08dc106f16f7edb86bd87ef7c68606e4ff",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Fix rebuilt in our schedule-runner (a 'missing' target keeps the pending retry, transition logged once as missing-retrying). This upstream file stays out only because its module mocks lack our exports (claimScheduleOwnership, platformSatisfied); the same cases run in schedule-runner-retry-missing-kept.test.ts.",
+      "card": "#413"
     },
     "src/__tests__/schedule-task-timeout.test.ts": {
       "blob": "ffe7183b2976dcfcaf9539e2ad53bf7644e29151",

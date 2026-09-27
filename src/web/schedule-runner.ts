@@ -1307,9 +1307,19 @@ export function startScheduleRunner(): NodeJS.Timeout {
 
       const view = toPendingRetryView(row, now)
       const result = await attemptFireTask(taskDef, fireAgent, now, retryPc.prefix)
-      if (result === 'fired' || result === 'missing') {
+      if (result === 'fired') {
         deletePendingTaskRetry(row.task_name, fireAgent)
         continue
+      }
+      // 'missing' used to DELETE the retry row here -- a silent abandonment
+      // that contradicts the never-abandon policy above. It bites when the
+      // target session vanishes during a restart and auto-start fails once: a
+      // queued daily task was dropped with only a debug log. Keep the row; the
+      // alert path below surfaces a long-stuck one. Only the TRANSITION into
+      // missing is logged, so a stuck-missing task does not write a run row
+      // every tick. (Rebuilt from upstream.)
+      if (result === 'missing' && row.last_reason !== 'missing') {
+        appendTaskRun(row.task_name, fireAgent, 'missing-retrying')
       }
       // Still busy or errored: refresh the retry row and alert ONCE if
       // the age crossed the threshold. `updatePendingTaskRetry` returns
