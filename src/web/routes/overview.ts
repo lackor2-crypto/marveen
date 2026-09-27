@@ -232,9 +232,13 @@ export function scrapeFreshUsage(pane: string): { usedPct: number | null; model:
   consider(/\|\s*5h (\d+)%/g, (m) => Number(m[1]), false)
   const pick = best as { at: number; pct: number; banner: boolean } | null
   if (!pick) return { usedPct: null, model, resetsAt: parseResetsAt(pane) }
-  // The reset time belongs to a banner; read it from the text from the banner
-  // on, so an older banner's "resets ..." cannot answer for a newer reading.
-  return { usedPct: pick.pct, model, resetsAt: parseResetsAt(pick.banner ? pane.slice(pick.at) : pane) }
+  // The reset time is read only from the winning signal on, whatever kind it
+  // is. An older banner's "resets 12pm" above a fresh statusline belongs to a
+  // window that is over: paired with the new figure it rolled to tomorrow once
+  // noon had passed, and sanityCheckFiveHour then threw the fresh figure away
+  // (the row vanished). No reset text after the winner -> null, which the
+  // sanity check lets through with the figure intact.
+  return { usedPct: pick.pct, model, resetsAt: parseResetsAt(pane.slice(pick.at)) }
 }
 
 /**
