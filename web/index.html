@@ -5021,6 +5021,12 @@
             </select>
           </div>
         </div>
+        <div class="form-group" id="heartbeatMetricsGroup" hidden>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+            <input type="checkbox" id="scheduleInjectMetrics"> <span data-i18n="tasks.modal.inject_metrics">Mért adatok csatolása (naptár, kanban, memória, adatbázis)</span>
+          </label>
+          <div class="hint" data-i18n="tasks.modal.inject_metrics_hint">Bekapcsolva a Marveen minden futás előtt maga méri meg ezeket, és a kész számokat a feladat mellé teszi. Az ágensnek így nem kell lekérdeznie őket, és nem is tévesztheti el. Ha egy mérés nem sikerül, azt is kiírja. A naptárhoz előbb válassz naptárat a Beállítások / Heartbeat lapon.</div>
+        </div>
         <div class="form-group">
           <label for="scheduleDesc" data-i18n="common.description">Leírás <span class="hint">(rövid)</span></label>
           <input type="text" id="scheduleDesc" placeholder="Mit csinál ez a feladat" data-i18n-placeholder="schedules.modal.desc_ph">

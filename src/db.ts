@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync, chmodSync, openSync, closeSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, chmodSync, openSync, closeSync, statSync } from 'node:fs'
 import { STORE_DIR, DB_FILENAME, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from './config.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
@@ -8,6 +8,10 @@ import { TOOL_TIMEOUTS, OLLAMA_EMBED_FAILFAST } from './tool-timeouts.js'
 import { EMBED_MODEL } from './embedding-model.js'
 
 let db: Database.Database
+
+// The file the live handle was opened on; null for ':memory:'. Read by
+// getDbFileSizeMb() so the size is measured on the SAME file, never re-derived.
+let openedDbPath: string | null = null
 
 // Lock the DB file and its sidecars (WAL, SHM, rollback journal) down to
 // owner-only. better-sqlite3 opens the main file with the process umask
@@ -50,6 +54,7 @@ export function initDatabase(dbPathOverride?: string): void {
     try { db.close() } catch { /* already closed */ }
   }
   const dbPath = useOverride ? dbPathOverride! : join(STORE_DIR, DB_FILENAME)
+  openedDbPath = isMemory ? null : dbPath
   // Step 1: close the TOCTOU window on fresh installs. openSync with 'wx'
   // + 0o600 creates the file ONLY if it doesn't exist and sets the strict
   // mode atomically. better-sqlite3 then opens the existing file rather
@@ -2429,6 +2434,43 @@ export function getHeartbeatKanbanSummary(): HeartbeatKanbanSummary {
   return { urgent, in_progress, waiting }
 }
 
+// #419 (rebuilt from upstream de60db9e / 34d5f57b / HBKANBANDRIFT819): the
+// heartbeat metrics are computed HERE and served on
+// /api/kanban/heartbeat-summary, so a heartbeat round copies numbers instead
+// of composing its own queries (upstream measured that drift four times).
+
+export const HEARTBEAT_PLANNED_COUNT_SQL =
+  "SELECT COUNT(*) AS n FROM kanban_cards WHERE archived_at IS NULL AND status = 'planned'"
+
+export function countPlannedKanbanCards(): number {
+  const row = db.prepare(HEARTBEAT_PLANNED_COUNT_SQL).get() as { n: number } | undefined
+  return row?.n ?? 0
+}
+
+/** Exported so a test runs the SHIPPED statement, not a re-typed one. */
+export const HEARTBEAT_NEW_HOT_MEMORIES_SQL =
+  "SELECT COUNT(*) AS n FROM memories WHERE agent_id = ? AND category = 'hot' AND created_at > unixepoch() - 3600"
+
+export function countNewHotMemories(agentId: string): number {
+  const row = db.prepare(HEARTBEAT_NEW_HOT_MEMORIES_SQL).get(agentId) as { n: number } | undefined
+  return row?.n ?? 0
+}
+
+/**
+ * DB file size in MB, or null (never 0) when it cannot be measured
+ * (':memory:', stat failure). A false 0 on a growth signal looks like calm;
+ * null renders as "no data".
+ */
+export function getDbFileSizeMb(): number | null {
+  if (!openedDbPath) return null
+  try {
+    return Math.round((statSync(openedDbPath).size / (1024 * 1024)) * 10) / 10
+  } catch (err) {
+    logger.warn({ err, dbPath: openedDbPath }, 'DB size stat failed; serving null, not 0')
+    return null
+  }
+}
+
 // --- Agent Messages ---
 
 export interface AgentMessage {
@@ -3946,6 +3988,56 @@ export function pruneTokenUsage(): number {
   const cutoff = Math.floor(Date.now() / 1000) - retentionDays * 86400
   const info = db.prepare('DELETE FROM token_usage WHERE timestamp < ?').run(cutoff)
   return info.changes
+}
+
+// #419 (rebuilt from upstream e45e4d87 / HBDBKUSZOB823): is the daily
+// token_usage prune keeping up? Rows below `now - retention` are deleted, so
+// the oldest surviving row's overshoot past that cutoff IS the time since the
+// last successful sweep -- no separate bookkeeping to go stale. The tolerance
+// is two sweep cycles (one late sweep is jitter, two is a stopped sweep).
+// 'empty' = no rows yet (fresh install): neither healthy nor broken.
+export const DECAY_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000
+export const TOKEN_PRUNE_OLDEST_SQL = 'SELECT MIN(timestamp) AS oldest FROM token_usage'
+export const TOKEN_PRUNE_TOLERANCE_CYCLES = 2
+
+export interface TokenPruneLag {
+  state: 'ok' | 'stale' | 'empty'
+  retention_days: number
+  tolerance_hours: number
+  /** Hours the oldest row overshoots the cutoff = time since the last sweep. */
+  lag_hours: number | null
+  oldest_age_days: number | null
+}
+
+export function classifyTokenPruneLag(
+  oldestTimestamp: number | null,
+  retentionDays: number,
+  nowSeconds: number,
+  toleranceHours: number,
+): TokenPruneLag {
+  if (oldestTimestamp == null) {
+    return { state: 'empty', retention_days: retentionDays, tolerance_hours: toleranceHours, lag_hours: null, oldest_age_days: null }
+  }
+  const ageSeconds = nowSeconds - oldestTimestamp
+  const lagHours = (ageSeconds - retentionDays * 86400) / 3600
+  return {
+    // A negative lag (nothing aged past the cutoff yet) is healthy.
+    state: lagHours > toleranceHours ? 'stale' : 'ok',
+    retention_days: retentionDays,
+    tolerance_hours: toleranceHours,
+    lag_hours: Math.round(lagHours * 100) / 100,
+    oldest_age_days: Math.round((ageSeconds / 86400) * 100) / 100,
+  }
+}
+
+export function getTokenPruneLag(): TokenPruneLag {
+  const row = db.prepare(TOKEN_PRUNE_OLDEST_SQL).get() as { oldest: number | null } | undefined
+  return classifyTokenPruneLag(
+    row?.oldest ?? null,
+    Number(getEffectiveSettingValue('TOKEN_USAGE_RETENTION_DAYS')),
+    Math.floor(Date.now() / 1000),
+    (TOKEN_PRUNE_TOLERANCE_CYCLES * DECAY_SWEEP_INTERVAL_MS) / 3_600_000,
+  )
 }
 
 // --- Vault SSH Keys (shared key pool) ---
