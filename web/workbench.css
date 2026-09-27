@@ -173,6 +173,10 @@
 .wb-chat-state-bad { color: var(--danger, #d33); }
 .wb-chat-setup-btn { margin-left: auto; }
 .wb-chat-setup { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+/* #426: fiokvalaszto sor -- cimke + select, telefonon is tordelheto. */
+.wb-chat-account-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.wb-chat-account-label { font-size: 0.8rem; color: var(--muted, #6b7280); flex: 0 0 auto; }
+.wb-chat-account { flex: 1 1 auto; min-width: 12ch; max-width: 100%; }
 .wb-chat-log {
   max-height: 320px;
   overflow-y: auto;

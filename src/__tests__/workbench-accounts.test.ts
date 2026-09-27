@@ -1,6 +1,6 @@
 // #402: a Munkapad fiok-sorrendje. CSAK az 5 oras keret szamit, a heti nem.
 import { describe, it, expect, afterEach } from 'vitest'
-import { workbenchAccounts, setWorkbenchAccountListerForTest } from '../workbench-agent/accounts.js'
+import { workbenchAccounts, workbenchAccountStatuses, isKnownWorkbenchAccount, setWorkbenchAccountListerForTest } from '../workbench-agent/accounts.js'
 
 const now = Date.now()
 const acc = (agent: string, five: number | null, seven: number | null, model = 'claude-opus-5-5') =>
@@ -27,5 +27,37 @@ describe('workbenchAccounts', () => {
   it('a lista-hiba nem dob: ures lista', () => {
     setWorkbenchAccountListerForTest(() => { throw new Error('x') })
     expect(workbenchAccounts(now)).toEqual([])
+  })
+})
+
+// #426: a valaszto-lista MINDEN fiokot mutat, elo allapottal (zold/piros/szurke).
+describe('workbenchAccountStatuses', () => {
+  it('online / limited (heti 100% VAGY 5 oras kritikus) / unknown (nincs meres)', () => {
+    setWorkbenchAccountListerForTest(() => [
+      acc('online5h', 20, 10),
+      acc('weeklydead', 0, 100),
+      acc('fivecrit', 98, 0),
+      acc('nomeasure', null, null),
+    ])
+    const byId: Record<string, string> = {}
+    for (const r of workbenchAccountStatuses()) byId[r.agent] = r.status
+    expect(byId).toEqual({ online5h: 'online', weeklydead: 'limited', fivecrit: 'limited', nomeasure: 'unknown' })
+  })
+
+  it('az ELO (zold) fiokok elol, a limitelt hatul -- de EGY sem esik ki', () => {
+    setWorkbenchAccountListerForTest(() => [acc('dead', 0, 100), acc('live', 50, 0)])
+    expect(workbenchAccountStatuses().map((r) => r.agent)).toEqual(['live', 'dead'])
+    expect(workbenchAccountStatuses().length).toBe(2)
+  })
+
+  it('isKnownWorkbenchAccount: csak a valos fiok igaz', () => {
+    setWorkbenchAccountListerForTest(() => [acc('valodi', 10, 0)])
+    expect(isKnownWorkbenchAccount('valodi')).toBe(true)
+    expect(isKnownWorkbenchAccount('elgepelt')).toBe(false)
+  })
+
+  it('a lista-hiba nem dob: ures lista', () => {
+    setWorkbenchAccountListerForTest(() => { throw new Error('x') })
+    expect(workbenchAccountStatuses()).toEqual([])
   })
 })

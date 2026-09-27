@@ -21,6 +21,7 @@ import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
+import { workbenchAccountStatuses, isKnownWorkbenchAccount } from '../../workbench-agent/accounts.js'
 import { runTurn, validateTurn, MESSAGE_MAX_CHARS } from '../../workbench-agent/orchestrator.js'
 import {
   ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey,
@@ -116,6 +117,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       },
       allowed: remaining.allowed,
       blockedReason: remaining.reason,
+      // #426: MINDEN bejelentkezett fiok, elo zold/piros allapottal -- a
+      // feluleti fiokvalasztohoz. Az elso a jelenlegi 'auto' valasztasa.
+      accounts: workbenchAccountStatuses(),
       tools: TOOLS.map((t) => ({
         name: t.name, destructive: t.destructive, reversible: t.reversible,
         external_effect: t.external_effect, autonomyCategory: t.autonomyCategory,
@@ -199,12 +203,22 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       ? null
       : String(body.work_item_id).trim() || null
 
+    // #426: a felhasznalo valaszthat KONKRET fiokot; egy ismeretlen nevet nem
+    // engedunk a hivasba (ures / 'auto' / ismeretlen -> a rendes auto-valasztas
+    // fut a fallbackkal). Igy egy elgepelt vagy elavult nev nem nemitja el a
+    // Munkapadot.
+    const wantAccount = String(body.account ?? '').trim()
+    const account = wantAccount && wantAccount !== 'auto' && isKnownWorkbenchAccount(wantAccount)
+      ? wantAccount
+      : undefined
+
     const input = {
       projectId: project.id,
       workItemId,
       message: String(body.message ?? ''),
       lang,
       actor: actor(ctx),
+      account,
     }
     // A streamelés MEGKEZDESE ELOTT rendes HTTP-hiba, hogy a felulet a
     // megszokott modon tudja kiirni.

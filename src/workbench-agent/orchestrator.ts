@@ -377,8 +377,15 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
               lastVia = chunk.via ?? null
             } else {
               outcome = chunk.code === 'limit' ? 'limit' : 'error'
+              // #426: ha a SZOLGALTATO utasitotta el limittel, ez a fiok
+              // kerete fogyott el -- nem a kozos 5 oras kapu. Ha volt fallback,
+              // ez a `failure` ugyis felulirodik a kovetkezo fiokkal; csak
+              // akkor latszik, ha MINDEN fiok limitelt (auto), vagy ha a
+              // felhasznalo EGY konkret, limitelt fiokot valasztott.
               failure = chunk.code === 'limit'
-                ? { code: 'limit_critical', message: msg('limit_critical', lang, { pct: '100', reset: msg('limit_reset_unknown', lang) }) }
+                ? input.account
+                  ? { code: 'chosen_account_limited', message: msg('chosen_account_limited', lang, { account: input.account }) }
+                  : { code: 'all_accounts_limited', message: msg('all_accounts_limited', lang) }
                 : chunk.code === 'not_configured'
                   ? { code: 'no_provider', message: msg('no_provider', lang) }
                   : chunk.code === 'no_answer'
