@@ -21455,34 +21455,127 @@ async function renderOverviewConnections() {
 // kulon dobozban allnak, mert azokat a Boss szerint "valoszinu kellenek. mind",
 // a fejlesztesek kulon, mert azok kozott lesz olyan, amit nem akar.
 let upstreamChangesCache = null
-// 'valtozas' = mit csinaltak (a commit az egyseg, 112 tetel)
-// 'fajl'     = melyik fajl valtozott (191 tetel: 22 utkozo + 169 tiszta)
-// 'kapu'     = az elv-kapu kizart es dontesre varo tetelei, indokkal
+// #421 ful-rend (Boss elfogadta). Egy ful = egy kerdes, es a fajl-fulek szamai
+// a felso osszegzo sorbol visszaolvashatok (bent + kizarva + dontesre var =
+// osszes fajl):
+// 'valtozas' = mit csinaltak naluk (az egyseg a commit)
+// 'behuzva'  = fajlok, amik nalunk beture ugyanazok
+// 'kihagyva' = kizarva: a kihagyott fajlok ES az elv miatt kizart valtozasok
+// 'dontes'   = ami meg dontesre var (a cel: nulla)
+// 'fajl'     = fajlkereso, mindegyik fajl a sorsaval
 let upstreamChangesView = 'valtozas'
 // #379: az Attekintes utolso upstream-meresenek magyarazo mondata (osszes
 // erintett / mar behuzva / kihagyva). A doboz kint mar csak a ket teendo-szamot
 // mutatja, a Reszletek ablak ket uj fule innen veszi a teljes kepet.
 let lastUpstreamSyncExplain = null
 
-function upstreamChangeRow(c) {
+// `model` (upstreamSplitModel) megleteben a sor a SORSAT mutatja jelvenykent
+// (bent van / kizarva / reszben bent / dontesre var); nelkule -- a meres meg nem
+// bontotta fajlokra -- a regi elv-kapu jelvenyt. A kettot nem mutatjuk egyutt:
+// a kapu "dontesre var"-ja egy mar eldontott valtozas mellett pont az a
+// felreertes volt, ami miatt a #421 keszult. `extra` a sor aljara kerul (indok).
+function upstreamChangeRow(c, model, extra) {
+  const fate = upstreamChangeFate(c, model)
   const meta = [
     c.date,
     c.scope ? `${c.type}(${c.scope})` : c.type,
     c.pr ? `#${c.pr}` : '',
     t('upstream.changes.files', { n: c.files.length }),
+    fate && fate.kind === 'reszben' ? t('upstream.fate.split_counts', { b: fate.bent, k: fate.kiz }) : '',
   ].filter(Boolean).join(' · ')
   const conflict = c.touchesConflict
     ? `<span class="upstream-change-conflict">${escapeHtml(t('upstream.changes.conflict'))}</span>`
     : ''
+  const badge = fate ? upstreamFateBadge(c, fate) : upstreamGateBadge(c.gate)
   // A magyar szoveg a fo mondat; az eredeti angol tárgysor alatta all kicsiben,
   // hogy a forditas ellenorizheto legyen, ne kelljen elhinni.
   const hu = c.hu ? escapeHtml(c.hu) : `<em>${escapeHtml(t('upstream.changes.nohu'))}</em>`
   return `
     <div class="upstream-change">
-      <div class="upstream-change-text">${hu} ${conflict} ${upstreamGateBadge(c.gate)}</div>
+      <div class="upstream-change-text">${hu} ${conflict} ${badge}</div>
       <div class="upstream-change-meta">${escapeHtml(meta)}</div>
       <div class="upstream-change-en" title="${escapeHtml(c.files.join('\n'))}">${escapeHtml(c.subject)}</div>
+      ${extra || ''}
     </div>`
+}
+
+/**
+ * #421: a fajlok SORSA a meresbol -- ez a kozos forras, amibol a felso
+ * osszegzo sor, a fulek szamai es a sorok jelvenyei elnek, hogy ne mondhassanak
+ * mast egymasnak.
+ *
+ *   bent     = a fajl nalunk beture ugyanaz, mint naluk (split.absorbed)
+ *   kizarva  = dontottunk rola, nem hozzuk be ugy, ahogy van (split.skipped,
+ *              forrasa governance/upstream-skipped-files.json)
+ *   nyitott  = egyik sem: meg dontesre var
+ *
+ * A dontes forrasa a MERES, nem az elv-kapu. A kapu commitonkent, a targysorbol
+ * es a diffbol itel, a fajlonkenti donteseket nem latja -- ezert allt 29 tetel
+ * "dontesre var" alatt, holott mind a 29 MINDEN fajljarol mar dontottunk
+ * (merve 2026-09-27: a 29 valtozas fajljai kivetel nelkul a kihagyott-listan).
+ *
+ * null = a meres nem bontotta fajlokra (nincs pillanatkep, vagy a #379 elotti):
+ * ez NEM ugyanaz, mint "nincs semmi".
+ */
+function upstreamSplitModel(data) {
+  const split = data && data.split
+  if (!split || !Array.isArray(split.absorbed) || !Array.isArray(split.skipped)) return null
+  const bentSet = new Set(split.absorbed)
+  const skippedBy = new Map()
+  for (const f of split.skipped) if (f && f.path && !bentSet.has(f.path)) skippedBy.set(f.path, f)
+  // A fajlok a MERT elteresbol (a lista `files` mezeje, git diff BASE..UPSTREAM)
+  // jonnek. Ha a lista regi es nincs benne fajl-nezet, a ket meres-lista
+  // uniojat mutatjuk -- ilyenkor a "dontesre var" szam nem ismert, es ezt
+  // kimondjuk, nem nullat irunk.
+  const hasFiles = !!(data.available && Array.isArray(data.files) && data.files.length)
+  const paths = hasFiles
+    ? data.files.map(f => f.path)
+    : Array.from(new Set([...split.absorbed, ...skippedBy.keys()]))
+  const fate = new Map()
+  for (const p of paths) fate.set(p, bentSet.has(p) ? 'bent' : skippedBy.has(p) ? 'kizarva' : 'nyitott')
+  const counts = { total: paths.length, bent: 0, kizarva: 0, nyitott: 0 }
+  for (const s of fate.values()) counts[s]++
+  return {
+    hasFiles,
+    fate,
+    skippedBy,
+    counts,
+    // Egy commit olyan fajlt is erinthet, ami a mert elteresben mar nincs benne
+    // (az upstream kesobb visszacsinalta): az nem sors-kerdes, kimarad.
+    fateOf: p => fate.get(p) || (hasFiles ? null : 'nyitott'),
+  }
+}
+
+/** Egy valtozas (commit) sorsa a fajljai sorsabol. */
+function upstreamChangeFate(c, model) {
+  if (!model) return null
+  let bent = 0, kiz = 0, open = 0
+  for (const f of c.files || []) {
+    const s = model.fateOf(f)
+    if (s === 'bent') bent++
+    else if (s === 'kizarva') kiz++
+    else if (s === 'nyitott') open++
+  }
+  const kind = open ? 'nyitott'
+    : bent + kiz === 0 ? 'nincs'
+      : kiz === 0 ? 'bent'
+        : bent === 0 ? 'kizarva' : 'reszben'
+  return { kind, bent, kiz, open }
+}
+
+function upstreamGateWhy(g) {
+  if (!g) return ''
+  const lang = window._lang === 'en' ? 'en' : 'hu'
+  return [g.title && g.title[lang], g.reason && g.reason[lang]].filter(Boolean).join(' -- ')
+}
+
+function upstreamFateBadge(c, fate) {
+  // Osszefesulo (merge) commit: nem sorol fel fajlt, tehat nincs sajat sorsa.
+  const key = fate.kind === 'nincs' && !(c.files || []).length ? 'merge' : fate.kind
+  const label = t('upstream.fate.' + key)
+  const tip = [t('upstream.fate.' + key + '_tip', { b: fate.bent, k: fate.kiz, o: fate.open }), upstreamGateWhy(c.gate)]
+    .filter(Boolean).join('\n')
+  return `<span class="upstream-fate-badge upstream-fate-${key}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`
 }
 
 // Az elv-kapu dontese egy valtozasrol (src/upstream-principle-gate.ts). A
@@ -21510,13 +21603,16 @@ function upstreamGateSummary(run) {
 // hogy azok mik?" -- itt all mind, a fajl felol nezve: mi a fajl, utkozik-e, es
 // melyik valtozasok nyultak hozza (ugyanazzal a magyar mondattal, amit a masik
 // nezet mutat, tehat a ketto nem mondhat mast).
-function upstreamFileRow(f, huBySha) {
+function upstreamFileRow(f, huBySha, note) {
   // Sajat szoveg, nem a valtozas-nezete: ott a COMMIT 'utkozo fajlt erint', itt
   // viszont a fajl MAGA az utkozo. A kozos kulcstol '.gitignore utkozo fajlt
   // erint' lett volna -- ertelmetlen mondat a sajat nevere mutato fajl mellett.
   const conflict = f.conflict
     ? `<span class="upstream-change-conflict">${escapeHtml(t('upstream.files.conflict_badge'))}</span>`
     : ''
+  // #421: a kizart fajl indoka kibontva az elso sor -- a kereso a Fajlok
+  // fulon is megmondja, MIERT nem hoztuk be.
+  const noteHtml = note ? `<div class="upstream-gate-why">${escapeHtml(note)}</div>` : ''
   const shas = f.shas || []
   // Nem sorolunk fel tizenot mondatot egy sokat piszkalt fajlnal: az elso
   // harom mutatja, mirol van szo, a tobbi szamkent all ott.
@@ -21529,11 +21625,11 @@ function upstreamFileRow(f, huBySha) {
   // ami miatt az egesz lista keszult. A mondat viszont CSAK ekkor igaz: ha van
   // commitja, csak eppen nincs hozza magyar szoveg (a forditas kesobb keszul
   // el), akkor hallgatni kell rola -- hazudni nem.
-  const inner = shas.length === 0
+  const inner = noteHtml + (shas.length === 0
     ? `<div class="upstream-file-merge">${escapeHtml(t('upstream.files.merge_only'))}</div>`
     : lines
       ? `<ul class="upstream-file-changes">${lines}${rest > 0 ? `<li class="upstream-file-more">${escapeHtml(t('upstream.files.more', { n: rest }))}</li>` : ''}</ul>`
-      : ''
+      : '')
   // Boss, 2026-08-23: "ossze kellene zarni! tul sok helyet foglalnak" -- a
   // fajlok a magyarazo mondataikkal egyutt kepernyonyi szalagga nyultak.
   // Osszecsukva a FAJLNEV marad kint (az kell a keresehez es a szemnek), a
@@ -21568,37 +21664,67 @@ function renderUpstreamFiles(data, filter, body, intro) {
     for (const c of (data.groups[kind] || [])) huBySha[c.sha] = c.hu || c.subject
   }
   const q = (filter || '').trim().toLowerCase()
+  const model = upstreamSplitModel(data)
+  const reasonOf = f => {
+    const s = model && model.skippedBy.get(f.path)
+    return s ? (s.reason || t('upstream.skipped.no_reason')) : ''
+  }
   const match = f => !q
     || f.path.toLowerCase().includes(q)
     || (f.shas || []).some(s => (huBySha[s] || '').toLowerCase().includes(q))
+    || reasonOf(f).toLowerCase().includes(q)
   const rows = files.filter(match)
-  const utkozo = rows.filter(f => f.conflict)
-  const tiszta = rows.filter(f => !f.conflict)
   let html = ''
-  // Az UTKOZO doboz nyitva marad: az a nehany fajl, amivel dolgod van. A
-  // TISZTA doboz alapbol csukva -- ott 150+ sor all, es epp az foglalta a fel
-  // oldalt. A darabszam a cimsorban van, tehat csukva sem tunik ugy, mintha
-  // nem lenne benne semmi. Keresesnel mindketto nyitva: a talalatot latni kell.
+  // Keresesnel minden doboz nyitva: a talalatot latni kell.
   const openAll = q ? ' open' : ''
-  if (utkozo.length) {
-    html += `<details class="upstream-box upstream-box-conflict" open>
+  if (model) {
+    // #421: a fajlok a SORSUK szerint allnak, nem aszerint, hogy "tisztan
+    // athuzhato-e": a lista szerint 799 fajl volt "tiszta", mikozben a meres
+    // szerint 322 mar bent volt, 477-rol pedig dontottunk, hogy kimarad. A
+    // dontesre varo doboz nyitva all (azzal van dolgod), a masik ketto csukva.
+    for (const [kind, labelKey, cls, open] of [
+      ['nyitott', 'upstream.files.group_open', 'upstream-box-gate-discuss', ' open'],
+      ['bent', 'upstream.files.group_bent', 'upstream-box-clean', openAll],
+      ['kizarva', 'upstream.files.group_kizarva', 'upstream-box-gate-exclude', openAll],
+    ]) {
+      const items = rows.filter(f => model.fate.get(f.path) === kind)
+      if (!items.length) continue
+      html += `<details class="upstream-box ${cls}"${open}>
+      <summary><h4>${escapeHtml(t(labelKey, { n: items.length }))}</h4></summary>
+      ${items.map(f => upstreamFileRow(f, huBySha, reasonOf(f))).join('')}</details>`
+    }
+  } else {
+    // A meres meg nem bontotta fajlokra: marad az utkozo / tobbi bontas. Az
+    // UTKOZO doboz nyitva (az a nehany fajl, amivel dolgod van), a masik csukva.
+    const utkozo = rows.filter(f => f.conflict)
+    const tiszta = rows.filter(f => !f.conflict)
+    if (utkozo.length) {
+      html += `<details class="upstream-box upstream-box-conflict" open>
       <summary><h4>${escapeHtml(t('upstream.files.conflicting', { n: utkozo.length }))}</h4></summary>
       ${utkozo.map(f => upstreamFileRow(f, huBySha)).join('')}</details>`
-  }
-  if (tiszta.length) {
-    html += `<details class="upstream-box upstream-box-clean"${openAll}>
+    }
+    if (tiszta.length) {
+      html += `<details class="upstream-box upstream-box-clean"${openAll}>
       <summary><h4>${escapeHtml(t('upstream.files.clean', { n: tiszta.length }))}</h4></summary>
       ${tiszta.map(f => upstreamFileRow(f, huBySha)).join('')}</details>`
+    }
   }
   body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
   if (intro) {
-    const fc = data.fileCounts || { total: files.length, conflict: 0, clean: files.length }
-    intro.textContent = t('upstream.files.intro', { n: fc.total, u: fc.conflict, c: fc.clean })
+    // A lista `fileCounts.clean` mezejet (a "nem utkozo" fajlok szama) nem
+    // mutatjuk: "tisztan athuzhato"-kent olvasva hamis volt.
+    const conflicts = files.filter(f => f.conflict).length
+    intro.textContent = [
+      t('upstream.files.intro', { c: data.total || 0, n: files.length }),
+      conflicts ? t('upstream.files.conflict_note', { u: conflicts }) : '',
+    ].filter(Boolean).join(' ')
   }
 }
 
 // #379: a Reszletek ablak ket uj fulenek bevezetoje: a teljes kep (osszes
 // erintett fajl es a bontasa), ami korabban kint allt az Attekintes dobozan.
+// #421 ota a felso osszegzo sor tartaleka: ha a valtozas-lista nem ad fajl-
+// listat, a meres sajat mondata all ott.
 function upstreamSplitIntro(own) {
   const ex = lastUpstreamSyncExplain
   const tmp = document.createElement('div')
@@ -21619,13 +21745,15 @@ function upstreamSplitPathRow(path, extra) {
  * elinditotta az ujramerest (regi pillanatkep -> egyszeri automatikus meres),
  * azt mondjuk ki, es a vegen a lista magatol betoltodik.
  */
-function upstreamSplitUnmeasuredHtml(data) {
+function upstreamSplitUnmeasuredHtml(data, textKey) {
   const split = data && data.split
   if ((split && split.remeasuring) || _upstreamMeasureRunning) {
     if (!_upstreamMeasureRunning) _pollUpstreamMeasure(Date.now())
     return `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.remeasuring'))}</p>`
   }
-  return `<p class="upstream-changes-empty">${escapeHtml(t('upstream.split.unmeasured'))}</p>`
+  // #421: ugyanez a gomb all a Valtozasok ful alatt is, ha meg egyaltalan nincs
+  // lista (friss telepites) -- ott a mondat mas, a teendo ugyanaz.
+  return `<p class="upstream-changes-empty">${escapeHtml(t(textKey || 'upstream.split.unmeasured'))}</p>`
     + `<p class="upstream-changes-empty"><button type="button" class="btn btn-secondary" id="upstreamSplitRemeasureBtn" onclick="startUpstreamSplitRemeasure()">${escapeHtml(t('upstream.split.remeasure_btn'))}</button></p>`
 }
 
@@ -21640,47 +21768,143 @@ async function startUpstreamSplitRemeasure() {
   renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
 }
 
+// A fajl-fulek kozos kereso-szuroje: fajlnev, indok, vagy a fajlhoz nyult
+// valtozas magyar mondata.
+function upstreamQuery(filter) {
+  return (filter || '').trim().toLowerCase()
+}
+
+function upstreamChangeMatches(c, q) {
+  return !q
+    || (c.hu || '').toLowerCase().includes(q)
+    || (c.subject || '').toLowerCase().includes(q)
+    || (c.files || []).some(f => f.toLowerCase().includes(q))
+}
+
+function upstreamAllChanges(data) {
+  // A csoportok kulcsait a szerver adja (ld. renderUpstreamFiles).
+  const groups = (data && data.groups) || {}
+  return Object.keys(groups).flatMap(k => groups[k] || [])
+}
+
+// Egy elv-kapu altal jelolt valtozas sora, az indokkal LATHATOAN (nem csak a
+// jelveny sugojaban -- a felhasznalo nem fog egerrel vadaszni ra), es azzal,
+// hogy mi lett a fajljaival.
+function upstreamGateChangeRow(c, model, fate) {
+  const g = c.gate || {}
+  const where = g.evidence && g.evidence !== 'subject' ? g.evidence : ''
+  const lines = [
+    `<div class="upstream-gate-why">${escapeHtml(upstreamGateWhy(g))}</div>`,
+    where ? `<div class="upstream-gate-where">${escapeHtml(t('upstream.gate.where', { where }))}</div>` : '',
+  ]
+  if (fate && g.verdict === 'discuss' && fate.kind !== 'nyitott') {
+    lines.push(`<div class="upstream-gate-decided">${escapeHtml(t('upstream.kizarva.discuss_decided', { b: fate.bent, k: fate.kiz }))}</div>`)
+  } else if (fate && fate.kind !== 'nyitott') {
+    lines.push(`<div class="upstream-gate-decided">${escapeHtml(t('upstream.kizarva.gate_files', { b: fate.bent, k: fate.kiz }))}</div>`)
+  }
+  return upstreamChangeRow(c, model, lines.join(''))
+}
+
 function renderUpstreamAbsorbed(data, filter, body, intro) {
-  const list = data && data.split ? data.split.absorbed : null
+  const model = upstreamSplitModel(data)
   // null = a meres nem bontotta fajlokra (regi pillanatkep, olvashatatlan
   // kihagyas-lista) -- ez NEM ugyanaz, mint az ures lista.
-  if (!Array.isArray(list)) {
+  if (!model) {
     body.innerHTML = upstreamSplitUnmeasuredHtml(data)
-    if (intro) intro.textContent = upstreamSplitIntro('')
+    if (intro) intro.textContent = t('upstream.explain.bent')
     return
   }
-  if (intro) intro.textContent = upstreamSplitIntro(t('upstream.absorbed.intro', { n: list.length }))
+  const list = Array.from(model.fate.keys()).filter(p => model.fate.get(p) === 'bent')
+  if (intro) intro.textContent = [t('upstream.explain.bent'), t('upstream.absorbed.intro', { n: list.length })].join(' ')
   if (!list.length) {
     body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.absorbed.none'))}</p>`
     return
   }
-  const q = (filter || '').trim().toLowerCase()
+  const q = upstreamQuery(filter)
   const rows = list.filter(f => !q || f.toLowerCase().includes(q))
-  body.innerHTML = rows.length
+  let html = rows.length
     ? `<section class="upstream-box upstream-box-clean">${rows.map(f => upstreamSplitPathRow(f)).join('')}</section>`
-    : `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
+    : ''
+  // Az elv-kapu jelolt valtozasai, amik mar teljesen bent vannak: a kerdes
+  // okafogyott, de a jelolest nem hallgatjuk el.
+  const run = data.principleGate
+  if (run && run.ok) {
+    const gated = upstreamAllChanges(data).filter(c => c.gate
+      && (c.gate.verdict === 'exclude' || c.gate.verdict === 'discuss')
+      && upstreamChangeMatches(c, q)
+      && upstreamChangeFate(c, model).kind === 'bent')
+    if (gated.length) {
+      html += `
+      <section class="upstream-box upstream-box-gate-discuss">
+        <h4>${escapeHtml(t('upstream.absorbed.group_gate', { n: gated.length }))}</h4>
+        ${gated.map(c => upstreamGateChangeRow(c, model, upstreamChangeFate(c, model))).join('')}
+      </section>`
+    }
+  }
+  body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
 }
 
+// A "Kizarva" ful (#421): a "Szandekosan kihagyva" es az "Elv miatt kizarva"
+// EGY helyen, mindegyik tetel alatt az indokkal. Ide kerulnek az elv-kapu
+// "dontesre var" tetelei is, ha a fajljaikrol azota mar dontottunk -- a kapu
+// ezt nem latja, a meres igen.
 function renderUpstreamSkipped(data, filter, body, intro) {
-  const list = data && data.split ? data.split.skipped : null
-  if (!Array.isArray(list)) {
+  const model = upstreamSplitModel(data)
+  if (!model) {
     body.innerHTML = upstreamSplitUnmeasuredHtml(data)
-    if (intro) intro.textContent = upstreamSplitIntro('')
+    if (intro) intro.textContent = t('upstream.explain.kizarva')
     return
   }
+  const list = Array.from(model.fate.keys())
+    .filter(p => model.fate.get(p) === 'kizarva')
+    .map(p => model.skippedBy.get(p))
+  const run = data.principleGate
+  const gateOk = !!(run && run.ok)
+  const gatedAll = gateOk
+    ? upstreamAllChanges(data).filter(c => {
+      if (!c.gate || (c.gate.verdict !== 'exclude' && c.gate.verdict !== 'discuss')) return false
+      const kind = upstreamChangeFate(c, model).kind
+      // A mar teljesen bent levo a Bent van fulon all; a MEG NYITOTT kerdes a
+      // Dontesre var fulon. Az elv miatt kizart akkor is itt all, ha van meg
+      // eldontetlen fajlja: a kapu dontese maga a kizaras.
+      if (kind === 'bent') return false
+      return c.gate.verdict === 'exclude' || kind !== 'nyitott'
+    })
+    : []
   const deferredAll = list.filter(f => f.kind === 'deferred').length
-  if (intro) intro.textContent = upstreamSplitIntro(t('upstream.skipped.intro', { n: list.length, d: deferredAll }))
+  if (intro) {
+    intro.textContent = [
+      t('upstream.explain.kizarva'),
+      // "ebbol 0 csak halasztva" zaj: ha nincs halasztott, azt mondjuk ki.
+      deferredAll
+        ? t('upstream.skipped.intro', { n: list.length, d: deferredAll })
+        : t('upstream.skipped.intro_final', { n: list.length }),
+      gatedAll.length ? t('upstream.kizarva.gate_intro', { c: gatedAll.length }) : '',
+    ].filter(Boolean).join(' ')
+  }
   // Friss telepites: nincs kihagyas-lista, tehat nincs kihagyott fajl. Ez
   // nyugodt mondat, nem hiba.
-  if (!list.length) {
+  if (!list.length && !gatedAll.length) {
     body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.skipped.none'))}</p>`
     return
   }
-  const q = (filter || '').trim().toLowerCase()
+  const q = upstreamQuery(filter)
+  let html = ''
+  const gated = gatedAll.filter(c => upstreamChangeMatches(c, q))
+  if (gated.length) {
+    html += `
+      <section class="upstream-box upstream-box-gate-exclude">
+        <h4>${escapeHtml(t('upstream.kizarva.group_gate', { n: gated.length }))}</h4>
+        ${gated.map(c => upstreamGateChangeRow(c, model, upstreamChangeFate(c, model))).join('')}
+      </section>`
+  } else if (!gateOk && !q) {
+    // A kapu nem futott / elhasalt: a hiany nem azt jelenti, hogy nincs elv
+    // miatt kizart valtozas.
+    html += `<p class="upstream-changes-empty">${escapeHtml(upstreamGateSummary(run))}</p>`
+  }
   const match = f => !q || f.path.toLowerCase().includes(q) || (f.reason || '').toLowerCase().includes(q)
   const row = f => upstreamSplitPathRow(f.path,
     `<div class="upstream-gate-why">${escapeHtml(f.reason || t('upstream.skipped.no_reason'))}</div>`)
-  let html = ''
   for (const [kind, labelKey, cls] of [
     ['deferred', 'upstream.skipped.group_deferred', 'upstream-box-gate-discuss'],
     ['decided', 'upstream.skipped.group_decided', 'upstream-box-gate-exclude'],
@@ -21696,26 +21920,117 @@ function renderUpstreamSkipped(data, filter, body, intro) {
   body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
 }
 
+// A "Dontesre var" ful (#421): ami se nincs bent, se nem zartuk ki. A cel:
+// nulla. Az elv-kapu MEG NYITOTT kerdesei felul, a kapu indokaval; alattuk a
+// tobbi eldontetlen fajl. A szam fajlban all, ugyanaz, mint a felso osszegzo
+// sor utolso tagja.
+function renderUpstreamDecide(data, filter, body, intro) {
+  const model = upstreamSplitModel(data)
+  if (intro) intro.textContent = t('upstream.explain.dontes')
+  if (!model) {
+    body.innerHTML = upstreamSplitUnmeasuredHtml(data)
+    return
+  }
+  // Fajl-lista nelkul nem tudjuk, mi az eldontetlen: ezt kimondjuk, nem nullat
+  // irunk ("nem lattam oda" != "nincs semmi").
+  if (!model.hasFiles) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.decide.unknown'))}</p>`
+    return
+  }
+  const open = new Set(Array.from(model.fate.keys()).filter(p => model.fate.get(p) === 'nyitott'))
+  if (intro) {
+    intro.textContent = [t('upstream.explain.dontes'), t('upstream.decide.intro', { n: open.size })].join(' ')
+  }
+  if (!open.size) {
+    body.innerHTML = `<p class="upstream-changes-empty upstream-decide-none">${escapeHtml(t('upstream.decide.none'))}</p>`
+    return
+  }
+  const q = upstreamQuery(filter)
+  const run = data.principleGate
+  const gateOk = !!(run && run.ok)
+  const huBySha = {}
+  for (const c of upstreamAllChanges(data)) huBySha[c.sha] = c.hu || c.subject
+  const fileBy = new Map((data.files || []).map(f => [f.path, f]))
+  let html = ''
+  if (!gateOk) {
+    html += `<p class="upstream-changes-empty">${escapeHtml(upstreamGateSummary(run))}</p>`
+  }
+  // Az elv-kapu nyitott kerdesei: a valtozas, az indok, es a MEG eldontetlen
+  // fajljai.
+  const covered = new Set()
+  const questions = gateOk
+    ? upstreamAllChanges(data).filter(c => c.gate && c.gate.verdict === 'discuss'
+      && upstreamChangeFate(c, model).kind === 'nyitott')
+    : []
+  const shownQ = []
+  for (const c of questions) {
+    const openFiles = (c.files || []).filter(f => open.has(f))
+    for (const f of openFiles) covered.add(f)
+    if (!upstreamChangeMatches(c, q)) continue
+    const list = `<div class="upstream-gate-where">${escapeHtml(t('upstream.decide.open_files', { files: openFiles.join(', ') }))}</div>`
+    shownQ.push(upstreamChangeRow(c, model,
+      `<div class="upstream-gate-why">${escapeHtml(upstreamGateWhy(c.gate))}</div>${list}`))
+  }
+  if (shownQ.length) {
+    html += `
+      <section class="upstream-box upstream-box-gate-discuss">
+        <h4>${escapeHtml(t('upstream.decide.group_gate', { n: shownQ.length }))}</h4>
+        ${shownQ.join('')}
+      </section>`
+  }
+  const rest = Array.from(open).filter(p => !covered.has(p))
+    .map(p => fileBy.get(p) || { path: p, conflict: false, shas: [] })
+    .filter(f => !q || f.path.toLowerCase().includes(q)
+      || (f.shas || []).some(s => (huBySha[s] || '').toLowerCase().includes(q)))
+  if (rest.length) {
+    html += `
+      <section class="upstream-box upstream-box-gate-discuss">
+        <h4>${escapeHtml(t('upstream.decide.group_files', { n: rest.length }))}</h4>
+        ${rest.map(f => upstreamFileRow(f, huBySha)).join('')}
+      </section>`
+  }
+  body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
+}
+
+// A felso osszegzo sor (#421, Boss elfogadta): "799 fajl = 322 bent + 477
+// kizarva + 0 dontesre var", ELO szamokbol, ugyanabbol a modellbol, amibol a
+// fulek. Ha a meres nem bontotta fajlokra, nem talalunk ki szamot: a meres sajat
+// mondata all ott, vagy kimondjuk, hogy nincs meres.
+function renderUpstreamSummary(data) {
+  const el = document.getElementById('upstreamChangesSummary')
+  if (!el) return
+  const model = upstreamSplitModel(data)
+  if (model && model.hasFiles) {
+    el.textContent = t('upstream.summary.line', {
+      n: model.counts.total, b: model.counts.bent, k: model.counts.kizarva, o: model.counts.nyitott,
+    })
+  } else if (model) {
+    el.textContent = t('upstream.summary.nofiles', { b: model.counts.bent, k: model.counts.kizarva })
+  } else {
+    el.textContent = upstreamSplitIntro('') || t('upstream.summary.unmeasured')
+  }
+}
+
 function renderUpstreamChanges(data, filter) {
   const body = document.getElementById('upstreamChangesBody')
   const intro = document.getElementById('upstreamChangesIntro')
   if (!body) return
-  // #379: a ket uj ful a divergencia-meresbol el, nem a teteles listabol --
+  renderUpstreamSummary(data)
+  // #379: a ket fajl-ful a divergencia-meresbol el, nem a teteles listabol --
   // lista nelkul is megmutathato.
   if (upstreamChangesView === 'behuzva') { renderUpstreamAbsorbed(data, filter, body, intro); return }
   if (upstreamChangesView === 'kihagyva') { renderUpstreamSkipped(data, filter, body, intro); return }
+  if (upstreamChangesView === 'dontes') { renderUpstreamDecide(data, filter, body, intro); return }
   if (!data || !data.available) {
-    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.none'))}</p>`
-    if (intro) intro.textContent = ''
+    // Friss telepites: meg nincs lista. A gomb itt helyben elkesziti -- nem
+    // "szolj, es legyartom", mert egy uj telepitesen nincs kinek szolni.
+    body.innerHTML = upstreamSplitUnmeasuredHtml(data, 'upstream.changes.none')
+    if (intro) intro.textContent = upstreamChangesView === 'fajl' ? t('upstream.explain.fajl') : t('upstream.explain.valtozas')
     return
   }
   if (upstreamChangesView === 'fajl') { renderUpstreamFiles(data, filter, body, intro); return }
-  if (upstreamChangesView === 'kapu') { renderUpstreamGate(data, filter, body, intro); return }
-  const q = (filter || '').trim().toLowerCase()
-  const match = c => !q
-    || (c.hu || '').toLowerCase().includes(q)
-    || (c.subject || '').toLowerCase().includes(q)
-    || (c.files || []).some(f => f.toLowerCase().includes(q))
+  const q = upstreamQuery(filter)
+  const model = upstreamSplitModel(data)
   const boxes = [
     ['javitas', 'upstream.changes.fixes', 'upstream-box-fix'],
     ['fejlesztes', 'upstream.changes.feats', 'upstream-box-feat'],
@@ -21723,77 +22038,39 @@ function renderUpstreamChanges(data, filter) {
   ]
   let html = ''
   for (const [key, labelKey, cls] of boxes) {
-    const items = (data.groups[key] || []).filter(match)
+    const items = (data.groups[key] || []).filter(c => upstreamChangeMatches(c, q))
     if (!items.length) continue
     html += `
       <section class="upstream-box ${cls}">
         <h4>${escapeHtml(t(labelKey, { n: items.length }))}</h4>
-        ${items.map(upstreamChangeRow).join('')}
+        ${items.map(c => upstreamChangeRow(c, model)).join('')}
       </section>`
   }
   body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
   if (intro) {
-    // Az egyseg itt is ki van mondva, mert pont ez volt a felreertes forrasa.
-    intro.textContent = t('upstream.changes.intro', {
-      n: data.total,
-      f: data.counts.javitas,
-      u: data.counts.fejlesztes,
-      e: data.counts.egyeb,
-      local: data.localRef || '?',
-      upstream: data.upstreamRef || '?',
-    }) + ' ' + upstreamGateSummary(data.principleGate)
+    // Az egyseg itt is ki van mondva, mert pont ez volt a felreertes forrasa:
+    // az 521 az upstream SAJAT listaja, nem az, amit mi behuztunk.
+    const parts = [
+      t('upstream.explain.valtozas'),
+      t('upstream.changes.intro', {
+        n: data.total,
+        f: data.counts.javitas,
+        u: data.counts.fejlesztes,
+        e: data.counts.egyeb,
+        local: data.localRef || '?',
+        upstream: data.upstreamRef || '?',
+      }),
+    ]
+    if (model) {
+      // A sorsok osszege ugyanaz a szam, mint a ful szama (commitban).
+      const n = { bent: 0, kizarva: 0, reszben: 0, nyitott: 0, nincs: 0 }
+      for (const c of upstreamAllChanges(data)) n[upstreamChangeFate(c, model).kind]++
+      parts.push(t('upstream.changes.fates', { b: n.bent, k: n.kizarva, r: n.reszben, o: n.nyitott, m: n.nincs }))
+    } else {
+      parts.push(upstreamGateSummary(data.principleGate))
+    }
+    intro.textContent = parts.join(' ')
   }
-}
-
-// A "kapu" nezet: ami kimarad es ami rad var, egy helyen, a LATHATO indokkal
-// (nem csak a jelveny sugojaban -- a felhasznalo nem fog egerrel vadaszni ra).
-// Az ures lista itt harom kulon dolgot jelenthet, es mindharom kulon mondat:
-// a kapu meg nem futott erre a listara / nem sikerult atnezni / tenyleg nincs.
-function renderUpstreamGate(data, filter, body, intro) {
-  const run = data.principleGate
-  if (intro) {
-    intro.textContent = run && run.ok
-      ? t('upstream.gate.summary_view', { x: run.exclude, d: run.discuss })
-      : upstreamGateSummary(run)
-  }
-  if (!run || !run.ok) {
-    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(upstreamGateSummary(run))}</p>`
-    return
-  }
-  const q = (filter || '').trim().toLowerCase()
-  const all = ['javitas', 'fejlesztes', 'egyeb'].flatMap(k => (data.groups && data.groups[k]) || [])
-  const match = c => !q
-    || (c.hu || '').toLowerCase().includes(q)
-    || (c.subject || '').toLowerCase().includes(q)
-    || (c.files || []).some(f => f.toLowerCase().includes(q))
-  const lang = window._lang === 'en' ? 'en' : 'hu'
-  const row = c => {
-    const g = c.gate || {}
-    const why = [g.title && g.title[lang], g.reason && g.reason[lang]].filter(Boolean).join(' -- ')
-    const where = g.evidence && g.evidence !== 'subject' ? g.evidence : ''
-    return upstreamChangeRow(c).replace(/<\/div>\s*$/, '')
-      + `<div class="upstream-gate-why">${escapeHtml(why)}</div>`
-      + (where ? `<div class="upstream-gate-where">${escapeHtml(t('upstream.gate.where', { where }))}</div>` : '')
-      + '</div>'
-  }
-  let html = ''
-  for (const [verdict, labelKey, cls] of [
-    ['exclude', 'upstream.gate.group_exclude', 'upstream-box-gate-exclude'],
-    ['discuss', 'upstream.gate.group_discuss', 'upstream-box-gate-discuss'],
-  ]) {
-    const items = all.filter(c => c.gate && c.gate.verdict === verdict && match(c))
-    if (!items.length) continue
-    html += `
-      <section class="upstream-box ${cls}">
-        <h4>${escapeHtml(t(labelKey, { n: items.length }))}</h4>
-        ${items.map(row).join('')}
-      </section>`
-  }
-  if (!html) {
-    const none = run.exclude + run.discuss === 0 ? 'upstream.gate.none' : 'upstream.changes.nomatch'
-    html = `<p class="upstream-changes-empty">${escapeHtml(t(none))}</p>`
-  }
-  body.innerHTML = html
 }
 
 async function openUpstreamChanges() {
@@ -21816,54 +22093,46 @@ async function openUpstreamChanges() {
   renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
 }
 
+// A fulek es a nezetek parja, a KEPERNYON latszo sorrendben (#421).
+const UPSTREAM_VIEW_TABS = [
+  ['upstreamViewChanges', 'valtozas'],
+  ['upstreamViewAbsorbed', 'behuzva'],
+  ['upstreamViewSkipped', 'kihagyva'],
+  ['upstreamViewDecide', 'dontes'],
+  ['upstreamViewFiles', 'fajl'],
+]
+
 /** Nezetvaltas a listan belul. A szuro szandekosan MEGMARAD: aki rakeresett
  *  valamire, az valoszinuleg ugyanarra kivancsi a masik nezetben is. */
 function setUpstreamChangesView(view) {
   upstreamChangesView = view
-  const tabChanges = document.getElementById('upstreamViewChanges')
-  const tabFiles = document.getElementById('upstreamViewFiles')
-  if (tabChanges) tabChanges.classList.toggle('active', view === 'valtozas')
-  if (tabFiles) tabFiles.classList.toggle('active', view === 'fajl')
-  const tabGate = document.getElementById('upstreamViewGate')
-  if (tabGate) tabGate.classList.toggle('active', view === 'kapu')
-  const tabAbsorbed = document.getElementById('upstreamViewAbsorbed')
-  if (tabAbsorbed) tabAbsorbed.classList.toggle('active', view === 'behuzva')
-  const tabSkipped = document.getElementById('upstreamViewSkipped')
-  if (tabSkipped) tabSkipped.classList.toggle('active', view === 'kihagyva')
+  for (const [id, v] of UPSTREAM_VIEW_TABS) {
+    const tab = document.getElementById(id)
+    if (tab) tab.classList.toggle('active', view === v)
+  }
   const filterEl = document.getElementById('upstreamChangesFilter')
   renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
 }
 
-/** A ket fulre a SZAMOK is kikerulnek, mert pont a szamok ertelmezese volt a
- *  felreertes forrasa: 112 valtozas -- 191 fajl, ket kulon mertekegyseg. */
+/** A fulekre a SZAMOK is kikerulnek, mert pont a szamok ertelmezese volt a
+ *  felreertes forrasa. #421: a fajl-fulek szama FAJL, es a felso osszegzo
+ *  sorbol visszaolvashato (bent + kizarva + dontesre var = osszes fajl); a
+ *  Valtozasok ful szama commit. A szam csak akkor all a fulon, ha a meres
+ *  tenyleg fajlokra bontott: a "nem mertuk" nem nulla. */
 function labelUpstreamViewTabs(data) {
-  const tabChanges = document.getElementById('upstreamViewChanges')
-  const tabFiles = document.getElementById('upstreamViewFiles')
-  const fc = (data && data.fileCounts) || null
-  if (tabChanges) tabChanges.textContent = t('upstream.view.changes', { n: (data && data.total) || 0 })
-  if (tabFiles) tabFiles.textContent = t('upstream.view.files', { n: fc ? fc.total : 0 })
-  const tabGate = document.getElementById('upstreamViewGate')
-  const run = data && data.principleGate
-  if (tabGate) {
-    tabGate.textContent = run && run.ok
-      ? t('upstream.view.gate', { x: run.exclude, d: run.discuss })
-      : t('upstream.view.gate_unknown')
-  }
-  // #379: a szam csak akkor all a fulon, ha a meres tenyleg fajlokra bontott;
-  // a "nem mertuk" nem nulla.
-  const split = (data && data.split) || {}
-  const tabAbsorbed = document.getElementById('upstreamViewAbsorbed')
-  if (tabAbsorbed) {
-    tabAbsorbed.textContent = Array.isArray(split.absorbed)
-      ? t('upstream.view.absorbed', { n: split.absorbed.length })
-      : t('upstream.view.absorbed_unknown')
-  }
-  const tabSkipped = document.getElementById('upstreamViewSkipped')
-  if (tabSkipped) {
-    tabSkipped.textContent = Array.isArray(split.skipped)
-      ? t('upstream.view.skipped', { n: split.skipped.length })
-      : t('upstream.view.skipped_unknown')
-  }
+  const model = upstreamSplitModel(data)
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text }
+  set('upstreamViewChanges', t('upstream.view.changes', { n: (data && data.total) || 0 }))
+  set('upstreamViewFiles', t('upstream.view.files', { n: (data && Array.isArray(data.files)) ? data.files.length : 0 }))
+  set('upstreamViewAbsorbed', model
+    ? t('upstream.view.absorbed', { n: model.counts.bent })
+    : t('upstream.view.absorbed_unknown'))
+  set('upstreamViewSkipped', model
+    ? t('upstream.view.skipped', { n: model.counts.kizarva })
+    : t('upstream.view.skipped_unknown'))
+  set('upstreamViewDecide', model && model.hasFiles
+    ? t('upstream.view.decide', { n: model.counts.nyitott })
+    : t('upstream.view.decide_unknown'))
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -21888,16 +22157,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (filterEl) {
     filterEl.addEventListener('input', () => renderUpstreamChanges(upstreamChangesCache, filterEl.value))
   }
-  const tabChanges = document.getElementById('upstreamViewChanges')
-  const tabFiles = document.getElementById('upstreamViewFiles')
-  if (tabChanges) tabChanges.addEventListener('click', () => setUpstreamChangesView('valtozas'))
-  if (tabFiles) tabFiles.addEventListener('click', () => setUpstreamChangesView('fajl'))
-  const tabGate = document.getElementById('upstreamViewGate')
-  if (tabGate) tabGate.addEventListener('click', () => setUpstreamChangesView('kapu'))
-  const tabAbsorbed = document.getElementById('upstreamViewAbsorbed')
-  if (tabAbsorbed) tabAbsorbed.addEventListener('click', () => setUpstreamChangesView('behuzva'))
-  const tabSkipped = document.getElementById('upstreamViewSkipped')
-  if (tabSkipped) tabSkipped.addEventListener('click', () => setUpstreamChangesView('kihagyva'))
+  for (const [id, view] of UPSTREAM_VIEW_TABS) {
+    const tab = document.getElementById(id)
+    if (tab) tab.addEventListener('click', () => setUpstreamChangesView(view))
+  }
 })
 
 // === Onellenorzes -> vegigvezeto ===========================================

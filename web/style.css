@@ -11575,8 +11575,12 @@ body {
   .app-updated-bar { flex-direction: column; gap: 8px; text-align: center; }
 }
 
-/* Ket nezet ugyanarra az elteresre: valtozas szerint (commit) es fajl szerint. */
-.upstream-view-tabs { display: flex; gap: 6px; margin: 12px 0 4px; }
+/* Ket nezet ugyanarra az elteresre: valtozas szerint (commit) es fajl szerint.
+   #421: a fulek TORDELODNEK. Egy sorban az ot ful szelesebb, mint egy telefon
+   (vagy egy keskeny ablak), a modal-body pedig overflow:hidden -- a sor vegen
+   allo "Szandekosan kihagyva" ful kilogott a kepbol, es oldalra huzni sem
+   lehetett (Boss, TG 6847). */
+.upstream-view-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
 .upstream-view-tab {
   padding: 6px 14px; font-size: 13px; cursor: pointer;
   border: 1px solid var(--border); border-radius: 8px;
@@ -11601,6 +11605,23 @@ body {
 .upstream-file-changes li { font-size: 13px; line-height: 1.45; color: var(--text-muted); }
 .upstream-file-more { list-style: none; margin-left: -18px; opacity: .7; font-style: italic; }
 .upstream-file-merge { margin-top: 4px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+/* #421: a felso osszegzo sor (fajlban: bent + kizarva + dontesre var) es a
+   sorok SORS-jelvenye -- ugyanabbol a mert modellbol, mint a fulek szamai. */
+.upstream-changes-summary {
+  flex: none; margin: 4px 0 0; font-size: 15px; font-weight: 600; color: var(--text);
+}
+.upstream-changes-modal .upstream-tab-explain { margin: 6px 0 0; }
+.upstream-fate-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  border-radius: 10px; font-size: 11px; font-weight: 600; cursor: help;
+  background: var(--bg-card-hover); color: var(--text-muted);
+}
+.upstream-fate-bent { background: var(--success-soft); color: var(--success); }
+.upstream-fate-kizarva { background: var(--danger-soft); color: var(--danger); }
+.upstream-fate-reszben { background: var(--info-soft); color: var(--info); }
+.upstream-fate-nyitott { background: var(--warning-soft); color: var(--warning); }
+.upstream-gate-decided { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+.upstream-decide-none { color: var(--success); }
 
 /* Osszecsukhato fajl-lista (Boss, 2026-08-23: "tul sok helyet foglalnak").
    A `details/summary` maga vegzi a nyitast-csukast -- nincs hozza JS, tehat

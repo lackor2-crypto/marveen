@@ -5957,18 +5957,22 @@
         <button class="modal-close" id="upstreamChangesClose">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="modal-desc" id="upstreamChangesIntro"></p>
-        <!-- Ket nezet ugyanarra az elteresre. A valtozas-nezet egysege a
-             commit (mit csinaltak), a fajl-nezete a fajl (Boss: "hol vanak
-             leirva mind a 169 tetel hogy azok mik?"). A ketto ugyanabbol a
-             merésbol keszul, ezert nem mondhatnak mast. -->
+        <!-- #421: EGY osszegzo sor a fulek folott, fajlban merve ("799 fajl =
+             322 bent + 477 kizarva + 0 dontesre var"). A fulek szamai ebbol
+             a sorbol olvashatok vissza; a Valtozasok ful mas egyseg (commit). -->
+        <p class="upstream-changes-summary" id="upstreamChangesSummary"></p>
+        <!-- Ful-rend (#421, Boss elfogadta): mit csinaltak -> mi van bent ->
+             mit zartunk ki -> mi var dontesre -> fajlkereso. A valtozas-nezet
+             egysege a commit, a tobbie a fajl; mindegyik ful ALATT ott a sajat
+             magyarazo mondata (upstreamChangesIntro). -->
         <div class="upstream-view-tabs" id="upstreamViewTabs">
           <button type="button" class="upstream-view-tab active" id="upstreamViewChanges"></button>
-          <button type="button" class="upstream-view-tab" id="upstreamViewFiles"></button>
-          <button type="button" class="upstream-view-tab" id="upstreamViewGate"></button>
           <button type="button" class="upstream-view-tab" id="upstreamViewAbsorbed"></button>
           <button type="button" class="upstream-view-tab" id="upstreamViewSkipped"></button>
+          <button type="button" class="upstream-view-tab" id="upstreamViewDecide"></button>
+          <button type="button" class="upstream-view-tab" id="upstreamViewFiles"></button>
         </div>
+        <p class="modal-desc upstream-tab-explain" id="upstreamChangesIntro"></p>
         <input type="search" class="upstream-changes-filter" id="upstreamChangesFilter" placeholder="Keresés a listában…">
         <div id="upstreamChangesBody"></div>
       </div>

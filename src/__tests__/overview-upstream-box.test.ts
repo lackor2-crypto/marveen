@@ -195,35 +195,52 @@ describe('Attekinto: upstream-szinkron doboz', () => {
   })
 })
 
-// Harmadik gomb (Boss, 2026-09-18, B valtozat): a kizart ES a dontesre varo
-// tetelek egy helyen. Az indok itt LATHATO szoveg, nem jelveny-sugo -- a
-// felhasznalo nem fog egerrel vadaszni ra.
-describe('upstream elv-kapu gomb es nezet', () => {
+// Harmadik gomb (Boss, 2026-09-18, B valtozat), atrendezve a #421-ben: a kulon
+// "Kizart es dontesre varo" ful megszunt. Az elv-kapu jelolt tetelei a SORSUK
+// szerint allnak -- a Kizarva fulon (ami mar eldolt) vagy a Dontesre var fulon
+// (ami meg nyitott) --, az indok itt is LATHATO szoveg, nem jelveny-sugo.
+describe('upstream elv-kapu tetelek a sors-fuleken (#421)', () => {
   const html = readFileSync(join(WEB, 'index.html'), 'utf8')
-  const start = app.indexOf('function renderUpstreamGate(')
-  const view = app.slice(start, app.indexOf('\nfunction ', start + 1))
+  const body = (name: string): string => {
+    const start = app.indexOf(`function ${name}(`)
+    expect(start, `${name} nincs a web/app.js-ben`).toBeGreaterThan(-1)
+    return app.slice(start, app.indexOf('\nfunction ', start + 1))
+  }
 
-  it('EGY gomb nyitja a listat; a kapu-nezet a harmadik ful, nem kulon gomb', () => {
-    // Boss, 2026-09-24: a kulon "Kizart es dontesre varo" gomb ugyanazt a
-    // haromfules ablakot nyitotta, mint a tetelesen lista gombja.
+  it('EGY gomb nyitja a listat; kulon kapu-ful nincs', () => {
     expect(html).not.toContain('overviewUpstreamGateBtn')
     expect(app).not.toContain('openUpstreamGate')
-    expect(html).toContain('id="upstreamViewGate"')
+    expect(html).not.toContain('id="upstreamViewGate"')
+    expect(app).not.toContain('function renderUpstreamGate(')
     expect(html.match(/<button[^>]*upstream-changes-btn/g) || []).toHaveLength(1)
   })
 
-  it('mindket csoportot mutatja, az indokkal lathatoan', () => {
-    expect(view).toContain("'exclude'")
-    expect(view).toContain("'discuss'")
-    expect(view).toContain('upstream-gate-why')
+  it('a kapu jelolt tetelei az indokkal lathatoan allnak, a sorsuk szerinti fulon', () => {
+    const row = body('upstreamGateChangeRow')
+    expect(row).toContain('upstream-gate-why')
+    expect(row).toContain('upstreamGateWhy(g)')
+    const kiz = body('renderUpstreamSkipped')
+    expect(kiz).toContain("'exclude'")
+    expect(kiz).toContain("'discuss'")
+    expect(kiz).toContain('upstreamGateChangeRow')
+    const dont = body('renderUpstreamDecide')
+    expect(dont).toContain("c.gate.verdict === 'discuss'")
+    expect(dont).toContain('upstream-gate-why')
   })
 
-  it('a harom ures allapot kulon mondat: nem futott / nem sikerult / tenyleg nincs', () => {
-    expect(view).toMatch(/if \(!run \|\| !run\.ok\)/)
-    expect(view).toContain('upstream.gate.none')
-    for (const k of ['upstream.changes.open', 'upstream.gate.group_exclude', 'upstream.gate.group_discuss',
-      'upstream.gate.none', 'upstream.gate.where', 'upstream.gate.summary_view', 'upstream.view.gate', 'upstream.view.gate_unknown']) {
+  it('az ures allapot kulon mondat: a kapu nem futott / nem sikerult / tenyleg nincs dontesre varo', () => {
+    // A kapu hibaja vagy hianya nem "nincs kizart": a kapu sajat mondata all ott.
+    expect(body('renderUpstreamSkipped')).toMatch(/!gateOk && !q[\s\S]*upstreamGateSummary\(run\)/)
+    expect(body('renderUpstreamDecide')).toMatch(/if \(!gateOk\)[\s\S]*upstreamGateSummary\(run\)/)
+    expect(body('renderUpstreamDecide')).toContain('upstream.decide.none')
+    expect(body('renderUpstreamDecide')).toContain('upstream.decide.unknown')
+    for (const k of ['upstream.changes.open', 'upstream.gate.where', 'upstream.gate.summary',
+      'upstream.gate.notrun', 'upstream.gate.failed', 'upstream.decide.none', 'upstream.decide.unknown']) {
       for (const lang of [hu, en]) expect(lang).toContain(`'${k}'`)
+    }
+    // A megszunt kapu-ful szovegei nem maradnak arvan a nyelvi fajlokban.
+    for (const gone of ['upstream.view.gate', 'upstream.view.gate_unknown', 'upstream.gate.summary_view']) {
+      for (const lang of [hu, en]) expect(lang).not.toContain(`'${gone}'`)
     }
   })
 })
@@ -267,8 +284,10 @@ describe('Reszletek ablak: Mar behuzva / Szandekosan kihagyva ful (#379)', () =>
   it('a ket ful ott van az ablakban, es kattinthato', () => {
     expect(html).toContain('id="upstreamViewAbsorbed"')
     expect(html).toContain('id="upstreamViewSkipped"')
-    expect(app).toContain("setUpstreamChangesView('behuzva')")
-    expect(app).toContain("setUpstreamChangesView('kihagyva')")
+    // #421: a fulek kattintasat egy kozos tablazat koti be (UPSTREAM_VIEW_TABS).
+    expect(app).toContain("['upstreamViewAbsorbed', 'behuzva']")
+    expect(app).toContain("['upstreamViewSkipped', 'kihagyva']")
+    expect(app).toMatch(/for \(const \[id, view\] of UPSTREAM_VIEW_TABS\)[\s\S]{0,160}setUpstreamChangesView\(view\)/)
   })
 
   it('kint mar nincs osszeg, behuzott es kihagyott szam', () => {
