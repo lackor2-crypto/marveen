@@ -99,6 +99,16 @@ async function runLoginSteps(session: string, steps: LoginStep[]): Promise<void>
   }
 }
 
+/**
+ * Audit-log preview of a literal key injection: length and a 4-character head,
+ * never the payload. Whitespace in the head is flattened so a newline cannot
+ * split the log line.
+ */
+export function maskKeysPreview(keys: string): string {
+  const head = keys.slice(0, 4).replace(/\s/g, ' ')
+  return `keys:len=${keys.length} head=${JSON.stringify(head)}${keys.length > 4 ? '…(maszkolva)' : ''}`
+}
+
 export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean> {
   const { res, path, method, url } = ctx
 
@@ -228,12 +238,12 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
       json(res, { error: 'Provide {keys:string} or an allow-listed {special}' }, 400)
       return true
     }
-    // AUDIT every accepted injection. Preview reflects the SANITIZED payload
-    // actually sent (truncated so a long paste does not bloat the log, but
-    // present so a forged prompt is traceable).
+    // AUDIT every accepted injection. The typed text itself never reaches the
+    // log: pasted login codes and vault tokens went through here verbatim.
+    // Length + the first 4 characters keep a forged prompt traceable.
     const preview = parsed.special
       ? `special:${parsed.special}`
-      : `keys:${JSON.stringify((literalKeys ?? '').slice(0, 120))}${(literalKeys ?? '').length > 120 ? '…' : ''}`
+      : maskKeysPreview(literalKeys ?? '')
     logger.info({ name, remote, xff, ua, preview }, 'agent-terminal: KEYS INJECTION ACCEPTED')
     try {
       await tmux(args)

@@ -619,12 +619,6 @@
       "reason": "Our own test, rewritten upstream; restored to our version.",
       "card": "#375"
     },
-    "src/__tests__/agent-terminal-mask-keys.test.ts": {
-      "blob": "2befa8a3bbbcc011eb1126fd1533b2c9f06ba5cf",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/agent-terminal-tmux-target.test.ts": {
       "blob": "bc14fadc0b49494af9c06911bcb47ce49cec2173",
       "kind": "deferred",
