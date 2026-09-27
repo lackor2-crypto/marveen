@@ -1941,8 +1941,8 @@
     },
     "src/__tests__/restart-race-lock.test.ts": {
       "blob": "2fe574d6b7d911924916c64c009cafa4a18d1767",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "kind": "decided",
+      "reason": "f78bfe63: the result half (a failed rescue restart is not filed as done) rebuilt with companion context-guard-rescue-failure-rollback.test.ts; the in-flight lock half is not needed because our restartAgentProcess is synchronous (no supervisor runs inside the stop window), and the upstream copy pins an async restart plus the c98b5146 rescue alert we do not ship",
       "card": "#375"
     },
     "src/__tests__/result-summary.test.ts": {

@@ -177,7 +177,12 @@ function performRestart(name: string): void {
   } else {
     // Claim the reconcile grace BEFORE the stop (see markAgentRestartPending).
     markAgentRestartPending(name)
-    restartAgentProcess(name, { fresh: true })
+    // #413, rebuilt from upstream f78bfe63: the result was discarded, so a
+    // failed stop or start (e.g. the stop could not tear the session down) was
+    // filed as a completed rescue while the pane still held the saturated
+    // session. Throw like the main branch does; the caller rolls back.
+    const res = restartAgentProcess(name, { fresh: true })
+    if (!res.ok) throw new Error(res.error ?? 'agent restart failed')
   }
 }
 
@@ -328,7 +333,21 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         } catch (err) {
           logger.warn({ err, name }, 'context-guard: pre-restart pane snapshot failed')
         }
-        performRestart(name)
+        try {
+          performRestart(name)
+        } catch (err) {
+          // #413, rebuilt from upstream f78bfe63: guardStates was advanced to
+          // the post-restart phase BEFORE this switch, so a failed rescue would
+          // otherwise be filed as a completed one -- the guard would wait for a
+          // session it never started, inject a resume prompt into the old
+          // saturated pane, then sit out its cooldown. Roll back so the next
+          // sweep re-measures and retries, and never claim the restart on the
+          // message queue. (Before, the main-agent failure surfaced only as a
+          // debug line from the sweep's catch.)
+          guardStates.set(name, INITIAL_GUARD_STATE)
+          logger.error({ err, name, reason: decision.reason }, 'context-guard: rescue restart FAILED -- state rolled back for retry')
+          break
+        }
         try {
           createAgentMessage(
             name,
