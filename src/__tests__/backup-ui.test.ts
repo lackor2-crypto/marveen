@@ -50,7 +50,10 @@ function harness(responses: Record<string, unknown>) {
     },
     fetch: async (url: string, init: any = {}) => {
       const path = url.split('?')[0]
-      calls.push({ method: init.method || 'GET', url: path, body: init.body ? JSON.parse(init.body) : undefined })
+      let body: unknown
+      // a file upload sends the file itself, not JSON
+      try { body = init.body ? JSON.parse(init.body) : undefined } catch { body = init.body }
+      calls.push({ method: init.method || 'GET', url: path, body })
       const key = `${init.method || 'GET'} ${path}`
       const r: any = responses[key] ?? { ok: true }
       if (r && r.__status) return { ok: false, status: r.__status, json: async () => r.body }
@@ -59,7 +62,7 @@ function harness(responses: Record<string, unknown>) {
   }
   win.window = win
   vm.runInNewContext(SRC, win)
-  return { win, host, calls, toasts, created, click: (attrs: Record<string, string>) => listeners.click?.({
+  return { win, host, calls, toasts, created, change: (target: any) => listeners.change?.({ target }), click: (attrs: Record<string, string>) => listeners.click?.({
     target: { closest: (sel: string) => (sel === '[data-bk]' ? { getAttribute: (a: string) => attrs[a] ?? null, checked: attrs.checked === '1' } : null) },
     preventDefault() {},
   }) }
@@ -69,7 +72,7 @@ const STATUS = {
   health: { id: 'backup_none_yet', status: 'ok', params: { time: '03:30' } },
   loginOn: true,
   state: { lastRun: null, lastSuccessAt: null, lastSuccessName: null, replicas: {}, lastVerify: null },
-  config: { depot: { enabled: null }, cloud: { kind: null, account: null, folderName: null }, schedule: { enabled: true, time: '03:30' }, includeLogs: false },
+  config: { depot: { enabled: null }, cloud: { kind: null, account: null, folderName: null }, schedule: { enabled: true, time: '03:30' }, includeLogs: false, protection: 'key' },
   destinations: [
     { id: 'local', kind: 'local', enabled: true, where: '/x/store/backups' },
     { id: 'depot', kind: 'depot', enabled: true, where: '/mnt/f/Marveen/Rendszer/Marveen/Mentések' },
@@ -91,7 +94,8 @@ describe('Settings -> Backup page', () => {
   it('every fbk.* key it uses exists in both languages', () => {
     const used = new Set([...SRC.matchAll(/'(fbk\.[a-z0-9_.]+[a-z0-9_])'/g)].map((m) => m[1]))
     // dynamic families: stage / dest / reason
-    for (const s of ['starting', 'collecting', 'database', 'encrypting', 'copying', 'done']) used.add(`fbk.stage.${s}`)
+    for (const s of ['starting', 'collecting', 'database', 'encrypting', 'packing', 'copying', 'done']) used.add(`fbk.stage.${s}`)
+    for (const v of ['key', 'none']) { used.add(`fbk.prot.${v}`); used.add(`fbk.prot.${v}_why`) }
     for (const d of ['local', 'depot', 'cloud']) { used.add(`fbk.dest.${d}`); used.add(`fbk.dest.${d}_why`); used.add(`fbk.dest.${d}_off`) }
     for (const r of ['depot_unreachable', 'copy_failed', 'cloud_auth', 'cloud_offline', 'cloud_failed', 'cloud_unavailable', 'list_failed', 'failed', 'not_configured', 'disabled']) used.add(`fbk.reason.${r}`)
     for (const k of ['1', '2', '3', '4']) used.add(`fbk.kittxt.how${k}`)
@@ -141,6 +145,154 @@ describe('Settings -> Backup page', () => {
     await flush()
     expect(H.calls.some((c) => c.method === 'POST' && c.url === '/api/backup/run')).toBe(true)
     expect(H.host.innerHTML).toContain('[fbk.stage.starting]')
+  })
+
+  it('#414: with a key is the default; "without" first says what it means, then needs the password', async () => {
+    const H = harness({
+      'GET /api/backup/status': STATUS,
+      'GET /api/backup/list': { backups: [], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'PUT /api/backup/config': { ok: true },
+    })
+    const fields: Record<string, any> = {}
+    H.win.document.getElementById = (id: string) => fields[id] ?? null
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    let html = H.host.innerHTML
+    expect(html).toContain('[fbk.prot.title]')
+    expect(html).toMatch(/data-bk="prot-key" checked/)
+    expect(html).not.toMatch(/data-bk="prot-none" checked/)
+    expect(html).not.toContain('[fbk.prot.warning]')
+    // the choice sits right under "Back up now", above the kit
+    expect(html.indexOf('data-bk="run"')).toBeLessThan(html.indexOf('[fbk.prot.title]'))
+    expect(html.indexOf('[fbk.prot.title]')).toBeLessThan(html.indexOf('[fbk.kit.title]'))
+
+    await H.click({ 'data-bk': 'prot-none' })
+    html = H.host.innerHTML
+    expect(html).toContain('[fbk.prot.warning]')
+    expect(html).toContain('id="bkProtPw"') // login on
+    expect(html).toMatch(/data-bk="prot-none" checked/)
+    expect(H.calls.some((c) => c.method === 'PUT')).toBe(false)
+
+    fields.bkProtPw = { value: '', focus() {} }
+    await H.click({ 'data-bk': 'prot-confirm' })
+    expect(H.toasts).toContain('[fbk.prot.pw_needed]')
+    expect(H.calls.some((c) => c.method === 'PUT')).toBe(false)
+
+    fields.bkProtPw = { value: 'titok', focus() {} }
+    await H.click({ 'data-bk': 'prot-confirm' })
+    await flush()
+    expect(H.calls.find((c) => c.method === 'PUT')!.body).toEqual({ protection: 'none', password: 'titok' })
+    expect(H.toasts).toContain('[fbk.prot.saved_none]')
+  })
+
+  it('#414: "Cancel" drops the warning without saving', async () => {
+    const H = harness({ 'GET /api/backup/status': STATUS, 'GET /api/backup/list': { backups: [], sources: {} }, 'GET /api/backup/cloud-accounts': { accounts: [] } })
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    await H.click({ 'data-bk': 'prot-none' })
+    await H.click({ 'data-bk': 'prot-cancel' })
+    expect(H.host.innerHTML).not.toContain('[fbk.prot.warning]')
+    expect(H.host.innerHTML).toMatch(/data-bk="prot-key" checked/)
+    expect(H.calls.some((c) => c.method === 'PUT')).toBe(false)
+  })
+
+  it('#414: while backups are open the page keeps saying so, the list marks them, no kit without a key', async () => {
+    const name = 'marveen-backup-20260927-033000-host.mbk'
+    const H = harness({
+      'GET /api/backup/status': { ...STATUS, config: { ...STATUS.config, protection: 'none' }, key: { exists: false } },
+      'GET /api/backup/list': { backups: [{ name, size: 10, time: 1, where: ['local'], kind: 'scheduled', verified: null, open: true }], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'PUT /api/backup/config': { ok: true },
+    })
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    const html = H.host.innerHTML
+    expect(html).toContain('[fbk.prot.open_now]')
+    expect(html).toMatch(/data-bk="prot-none" checked/)
+    expect(html).toContain('[fbk.list.open]')
+    expect(html).not.toContain('[fbk.kit.title]')
+    // switching the key back on is one click, no password
+    await H.click({ 'data-bk': 'prot-key' })
+    await flush()
+    expect(H.calls.find((c) => c.method === 'PUT')!.body).toEqual({ protection: 'key' })
+  })
+
+  it('#414: open, but a key from before exists -- the kit stays, without the warning tone', async () => {
+    const H = harness({
+      'GET /api/backup/status': { ...STATUS, config: { ...STATUS.config, protection: 'none' }, key: { exists: true, keyId: 'ab12cd34', confirmedAt: null } },
+      'GET /api/backup/list': { backups: [], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+    })
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    expect(H.host.innerHTML).toContain('[fbk.kit.title]')
+    expect(H.host.innerHTML).toContain('[fbk.kit.open_note]')
+    expect(H.host.innerHTML).not.toContain('bk-kit bk-tone-warn')
+  })
+
+  it('#414 restore: the key is asked only for a protected file', async () => {
+    const H = harness({
+      'GET /api/backup/status': STATUS,
+      'GET /api/backup/list': { backups: [], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'GET /api/backup/restore/status': { running: false, result: null, channelsHeld: false },
+      'POST /api/backup/restore/upload': { uploadId: 'u1', size: 10, open: true, keyId: null, keyStored: false },
+    })
+    const restoreHost: any = { innerHTML: '' }
+    H.win.document.getElementById = (id: string) => (id === 'bkRestoreHost' ? restoreHost : null)
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    // nothing chosen yet: no key field
+    expect(restoreHost.innerHTML).toContain('data-bk="r-file"')
+    expect(restoreHost.innerHTML).not.toContain('id="bkRestoreKey"')
+    const file = { getAttribute: (x: string) => (x === 'data-bk' ? 'r-file' : null), files: [{ name: 'open.mbk' }] }
+    await H.change(file)
+    await flush()
+    expect(restoreHost.innerHTML).not.toContain('id="bkRestoreKey"')
+    expect(restoreHost.innerHTML).toContain('[fbk.r.open_file]')
+    expect(restoreHost.innerHTML).toContain('data-bk="r-preview"')
+
+    // a protected file: the key field, naming its key id
+    const H2 = harness({
+      'GET /api/backup/status': STATUS,
+      'GET /api/backup/list': { backups: [], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'GET /api/backup/restore/status': { running: false, result: null, channelsHeld: false },
+      'POST /api/backup/restore/upload': { uploadId: 'u2', size: 10, open: false, keyId: 'ab12cd34', keyStored: false },
+    })
+    const rh2: any = { innerHTML: '' }
+    H2.win.document.getElementById = (id: string) => (id === 'bkRestoreHost' ? rh2 : null)
+    H2.win.renderBackupPanel(H2.host)
+    await flush(); await flush()
+    await H2.change({ getAttribute: (x: string) => (x === 'data-bk' ? 'r-file' : null), files: [{ name: 'locked.mbk' }] })
+    await flush()
+    expect(rh2.innerHTML).toContain('id="bkRestoreKey"')
+    expect(rh2.innerHTML).toContain('[fbk.r.key_for ab12cd34]')
+    expect(rh2.innerHTML).toContain('[fbk.r.key_hint]')
+  })
+
+  it('#414 restore: an open backup says so in the preview', async () => {
+    const name = 'marveen-backup-20260925-212011-host.mbk'
+    const H = harness({
+      'GET /api/backup/status': STATUS,
+      'GET /api/backup/list': { backups: [{ name, size: 10, time: 1, where: ['local'], kind: 'manual', verified: null, open: true }], sources: {} },
+      'GET /api/backup/cloud-accounts': { accounts: [] },
+      'GET /api/backup/restore/status': { running: false, result: null, channelsHeld: false },
+      'POST /api/backup/restore/open': {
+        previewId: 'p1', createdAt: 'x', appVersion: '1.29.0', compat: { ok: true }, categories: [], optional: [],
+        dbCounts: { backup: {}, current: {} }, warnings: [], needsLogin: [], freshInstall: true, bytes: { enough: true }, agents: [], keyId: null, open: true,
+      },
+    })
+    const restoreHost: any = { innerHTML: '' }
+    H.win.document.getElementById = (id: string) => (id === 'bkRestoreHost' ? restoreHost : null)
+    H.win.renderBackupPanel(H.host)
+    await flush(); await flush()
+    await H.click({ 'data-bk': 'r-open', 'data-source': 'local', 'data-name': name })
+    await flush()
+    expect(H.calls.find((c) => c.url === '/api/backup/restore/open')!.body.key).toBeUndefined()
+    expect(restoreHost.innerHTML).toContain('[fbk.r.open_backup]')
+    expect(restoreHost.innerHTML).toContain('data-bk="r-start"')
   })
 
   it('restore: a list row opens the preview, the preview offers the start', async () => {

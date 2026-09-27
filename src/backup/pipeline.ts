@@ -29,7 +29,8 @@ export interface RunResult extends BackupResult {
 export interface RunOptions {
   kind: BackupKind
   ctx: InventoryContext
-  recoveryKey: string
+  /** null: an open backup, no key (#414). */
+  recoveryKey: string | null
   deps: DestinationDeps
   db?: Database.Database | null
   onStage?: (s: BackupStage) => void
@@ -61,7 +62,9 @@ export async function runFullBackup(o: RunOptions): Promise<RunResult> {
     if (r.ok && r.name) {
       s.lastSuccessAt = now()
       s.lastSuccessName = r.name
-      ;(s.backups ??= {})[r.name] = { kind: o.kind, keyId: keyIdOf(o.recoveryKey), createdAt: now(), size: r.size }
+      ;(s.backups ??= {})[r.name] = o.recoveryKey === null
+        ? { kind: o.kind, keyId: null, open: true, createdAt: now(), size: r.size }
+        : { kind: o.kind, keyId: keyIdOf(o.recoveryKey), createdAt: now(), size: r.size }
     }
   })
   if (!r.ok || !r.file || !r.name) return r
@@ -112,7 +115,7 @@ export async function pruneAll(o: Pick<RunOptions, 'ctx' | 'deps'>, justMade?: s
     const inUse = new Set<string>()
     const st = readState(storeDir)
     const gone = new Set(Object.values(out).flat() as string[])
-    for (const [name, b] of Object.entries(st.backups ?? {})) if (!gone.has(name)) inUse.add(b.keyId)
+    for (const [name, b] of Object.entries(st.backups ?? {})) if (!gone.has(name) && b.keyId) inUse.add(b.keyId)
     // Only with a real record to judge by: a lost/empty state file must never
     // make old keys disappear (the backups made with them may still exist).
     if (Object.keys(st.backups ?? {}).length > 0) prunePreviousKeys(storeDir, inUse)

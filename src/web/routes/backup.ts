@@ -9,7 +9,9 @@
 //                                           dashboard password when login is on
 //   POST /api/backup/kit/confirm         -- "I saved it"
 //   POST /api/backup/key/rotate          -- new generated key, or own password
-//   PUT  /api/backup/config              -- destinations / time / logs
+//   PUT  /api/backup/config              -- destinations / time / logs / protection
+//                                           (protection "none" = open backups:
+//                                           the same human-only check as the kit)
 //   GET  /api/backup/cloud-accounts      -- connected Google + MEGA accounts
 //
 // Every error is { error: <code>, message: <human sentence in the request's
@@ -75,6 +77,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   no_key: {
     hu: 'Még nincs mentési kulcs. Az első mentés létrehozza.',
     en: 'There is no backup key yet. The first backup creates it.',
+  },
+  protection_password_required: {
+    hu: 'A kulcs nélküli mentés bekapcsolásához add meg a dashboard jelszavadat.',
+    en: 'Enter your dashboard password to switch to backups without a key.',
+  },
+  protection_forbidden: {
+    hu: 'Kulcs nélküli mentésre csak bejelentkezett ember állíthatja át a dashboardon, ágens vagy távoli gép nem.',
+    en: 'Only a person logged in to the dashboard can switch to backups without a key -- not an agent or a remote machine.',
   },
   password_too_short: {
     hu: 'A saját jelszó legyen legalább 12 karakter -- ez nyitja a mentést egy új gépen.',
@@ -189,7 +199,7 @@ async function list(ctx: RouteContext): Promise<boolean> {
   const cfg = readConfig(STORE_DIR)
   const deps = await realDeps(STORE_DIR)
   const known = readState(STORE_DIR).backups ?? {}
-  const rows = new Map<string, { name: string; size: number; time: number; where: string[]; kind: string | null; verified: boolean | null }>()
+  const rows = new Map<string, { name: string; size: number; time: number; where: string[]; kind: string | null; verified: boolean | null; open: boolean | null }>()
   const sources: Record<string, { ok: boolean; reachable?: boolean; reason?: string; count?: number }> = {}
   for (const d of resolveDestinations(cfg, deps)) {
     if (!d.enabled) { sources[d.id] = { ok: false, reachable: false, reason: d.off }; continue }
@@ -197,7 +207,8 @@ async function list(ctx: RouteContext): Promise<boolean> {
     if (!l.ok) { sources[d.id] = { ok: false, reachable: l.reachable, reason: l.reason }; continue }
     sources[d.id] = { ok: true, count: l.files.length }
     for (const f of l.files) {
-      const r = rows.get(f.name) ?? { name: f.name, size: f.size, time: timeFromName(f.name), where: [], kind: known[f.name]?.kind ?? null, verified: known[f.name]?.verified ?? null }
+      const k = known[f.name]
+      const r = rows.get(f.name) ?? { name: f.name, size: f.size, time: timeFromName(f.name), where: [], kind: k?.kind ?? null, verified: k?.verified ?? null, open: k ? k.open === true : null }
       r.where.push(d.id)
       if (d.id === 'local') r.size = f.size
       rows.set(f.name, r)
@@ -222,21 +233,26 @@ function download(ctx: RouteContext, name: string): boolean {
   return true
 }
 
-/** Who may read or change the recovery key. */
-async function kitAuth(ctx: RouteContext, body: any): Promise<boolean | 'answered'> {
+/**
+ * Who may read or change the recovery key -- and switch backups to "no key"
+ * (#414): that hands the secrets to whoever gets a backup file, so it is the
+ * same human-only step as reading the key.
+ */
+async function kitAuth(ctx: RouteContext, body: any, purpose: 'kit' | 'protection' = 'kit'): Promise<boolean | 'answered'> {
+  const forbidden = purpose === 'protection' ? 'protection_forbidden' : 'kit_forbidden'
   const kind = ctx.auth?.kind
-  if (kind && kind !== 'session' && kind !== 'token') { fail(ctx, 403, 'kit_forbidden'); return 'answered' }
+  if (kind && kind !== 'session' && kind !== 'token') { fail(ctx, 403, forbidden); return 'answered' }
   let loginOn = false
   try { loginOn = countDashboardUsers() > 0 } catch { loginOn = false }
   if (!loginOn) return true
   // With a login, the bearer token (which every agent holds) is not enough.
-  if (kind !== 'session' || !ctx.auth?.user) { fail(ctx, 403, 'kit_forbidden'); return 'answered' }
+  if (kind !== 'session' || !ctx.auth?.user) { fail(ctx, 403, forbidden); return 'answered' }
   const pw = typeof body?.password === 'string' ? body.password : ''
   // 403, NOT 401 (#410): the session is valid, only the password typed now is
   // missing or wrong. The dashboard treats every /api 401 as "signed out" and
   // drops the session -- the owner was logged out by the Show / Download
   // buttons of the emergency kit (TG 6587, 2026-09-26).
-  if (!pw) { fail(ctx, 403, 'password_required'); return 'answered' }
+  if (!pw) { fail(ctx, 403, purpose === 'protection' ? 'protection_password_required' : 'password_required'); return 'answered' }
   const user = getDashboardUser(ctx.auth.user)
   if (!user || !(await verifyPassword(pw, user.password_hash))) { fail(ctx, 403, 'password_wrong'); return 'answered' }
   return true
@@ -270,6 +286,10 @@ function applyConfigPatch(cur: BackupConfig, p: any): BackupConfig | string {
     if ('enabled' in p.schedule) next.schedule.enabled = p.schedule.enabled !== false
   }
   if ('includeLogs' in (p ?? {})) next.includeLogs = p.includeLogs === true
+  if ('protection' in (p ?? {})) {
+    if (p.protection !== 'key' && p.protection !== 'none') return 'protection'
+    next.protection = p.protection
+  }
   return next
 }
 
@@ -359,8 +379,15 @@ export async function tryHandleBackup(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/backup/config' && method === 'PUT') {
     const body = await readJson(ctx)
     if (!body || typeof body !== 'object') return fail(ctx, 400, 'bad_request')
-    const next = applyConfigPatch(readConfig(STORE_DIR), body)
+    const cur = readConfig(STORE_DIR)
+    const next = applyConfigPatch(cur, body)
     if (typeof next === 'string') return fail(ctx, 400, 'bad_config', { detail: next })
+    // Turning the key off is the one change here that needs the human (#414);
+    // turning it back on never does.
+    if (next.protection === 'none' && cur.protection !== 'none') {
+      const ok = await kitAuth(ctx, body, 'protection')
+      if (ok === 'answered') return true
+    }
     writeConfig(STORE_DIR, next)
     json(ctx.res, { ok: true, config: next })
     return true

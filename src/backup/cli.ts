@@ -12,7 +12,7 @@
 import { rmSync, mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { readHeader, BackupDecryptError, type BackupKind } from './crypto.js'
+import { readHeader, isOpenBackup, BackupDecryptError, type BackupKind } from './crypto.js'
 import { findKeyById } from './key-store.js'
 import { runBackup, storeDir, listBackupsIn, localBackupDir } from './service.js'
 
@@ -33,7 +33,8 @@ export async function main(argv: string[]): Promise<number> {
       console.error(`backup: FAILED (${r.error})${r.detail ? `: ${r.detail}` : ''}`)
       return r.error === 'locked' || r.error === 'restore_in_progress' ? 75 : 1
     }
-    console.log(`backup: wrote ${r.file} (${r.size} bytes, ${r.durationMs} ms)`)
+    const open = isOpenBackup(readHeader(r.file!).header)
+    console.log(`backup: wrote ${r.file} (${r.size} bytes, ${r.durationMs} ms${open ? ', OPEN: no key, anyone with the file can read it' : ''})`)
     for (const x of r.replicas ?? []) {
       if (x.dest === 'local') continue
       console.log(`backup: copy to ${x.dest}: ${x.ok ? 'ok' : `NOT DONE (${x.reason}${x.detail ? `: ${x.detail}` : ''})`}`)
@@ -71,13 +72,17 @@ async function migrateCopy(dbFile: string): Promise<void> {
  */
 async function verifyCmd(file: string, typedKey: string | undefined, record: boolean): Promise<number> {
   const store = await storeDir()
-  let key = typedKey
+  let key: string | null | undefined = typedKey
   let name = ''
   try {
     const { header } = readHeader(file)
     name = basename(file)
-    if (!key) key = findKeyById(store, header.keyId)?.key
-    if (!key) { console.error(`backup: no stored key with id ${header.keyId}; pass --key`); return 2 }
+    // An open backup (#414) needs no key.
+    if (isOpenBackup(header)) key = null
+    else {
+      if (!key) key = findKeyById(store, header.keyId)?.key
+      if (!key) { console.error(`backup: no stored key with id ${header.keyId}; pass --key`); return 2 }
+    }
   } catch (err) {
     if (err instanceof BackupDecryptError) { console.error(`backup: verify FAILED (${err.code})`); return 1 }
     throw err

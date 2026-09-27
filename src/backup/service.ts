@@ -11,7 +11,7 @@ import type Database from 'better-sqlite3'
 import { BACKUP_NAME_RE, type BackupStage } from './create.js'
 import { defaultInventoryContext } from './inventory.js'
 import { getOrCreateKey } from './key-store.js'
-import { realDeps } from './destinations.js'
+import { readConfig, realDeps } from './destinations.js'
 import { runFullBackup, type RunResult } from './pipeline.js'
 import type { BackupKind } from './crypto.js'
 
@@ -23,11 +23,20 @@ export function localBackupDir(store: string): string {
   return join(store, 'backups')
 }
 
+/**
+ * The key the next backup is made with -- the owner's choice in Settings ->
+ * Backup (#414): the stored recovery key (created on first use), or null for an
+ * open backup. An open backup never creates a key file.
+ */
+export function backupKeyFor(store: string): string | null {
+  if (readConfig(store).protection === 'none') return null
+  return getOrCreateKey(store).key
+}
+
 export async function runBackup(opts: { kind: BackupKind; db?: Database.Database | null; onStage?: (s: BackupStage) => void }): Promise<RunResult> {
   const ctx = await defaultInventoryContext()
-  const key = getOrCreateKey(ctx.storeDir)
   const deps = await realDeps(ctx.storeDir)
-  return runFullBackup({ kind: opts.kind, ctx, recoveryKey: key.key, deps, db: opts.db ?? null, onStage: opts.onStage })
+  return runFullBackup({ kind: opts.kind, ctx, recoveryKey: backupKeyFor(ctx.storeDir), deps, db: opts.db ?? null, onStage: opts.onStage })
 }
 
 export interface LocalBackupEntry { name: string; file: string; size: number; mtimeMs: number }

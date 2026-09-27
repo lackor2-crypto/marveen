@@ -27,7 +27,8 @@ export interface VerifyResult {
 
 export async function verifyBackup(o: {
   file: string
-  recoveryKey: string
+  /** null: an open backup (#414), no key needed. */
+  recoveryKey: string | null
   /** Where the scratch dirs go (under store/tmp on a real install). */
   scratchBase: string
   /** Run the app's migrations against a DB file (child process only). */

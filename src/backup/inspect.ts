@@ -48,7 +48,8 @@ export class InspectError extends Error {
 
 export async function inspectBackup(o: {
   file: string
-  recoveryKey: string
+  /** null: an open backup (#414), no key needed. */
+  recoveryKey: string | null
   ctx: RestoreCtx
   appVersion: string
   /** The running DB (dashboard handle) or its path; null on a fresh machine with none. */

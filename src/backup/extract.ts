@@ -5,7 +5,9 @@
  *
  * The archive is authenticated before tar ever sees a byte of it (AES-GCM per
  * chunk, header bound through the AAD), so only someone holding the recovery
- * key can produce an archive this unpacks.
+ * key can produce an archive this unpacks. An OPEN backup (#414, no key) is
+ * only checked for damage and truncation: whoever can write that file can
+ * change what it restores -- the price of "no key", said on the page.
  */
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -15,9 +17,10 @@ import { pipeline } from 'node:stream/promises'
 import { BackupDecryptError, decryptStream, readHeader, type BackupHeader } from './crypto.js'
 import type { BackupManifest } from './create.js'
 
-export async function extractBackup(file: string, recoveryKey: string, destDir: string): Promise<{ header: BackupHeader; manifest: BackupManifest }> {
+/** `recoveryKey` is null for an open backup (it is ignored for one anyway). */
+export async function extractBackup(file: string, recoveryKey: string | null, destDir: string): Promise<{ header: BackupHeader; manifest: BackupManifest }> {
   const { header, headerBytes, payloadOffset } = readHeader(file)
-  // Throws wrong_key synchronously, before tar is started.
+  // Throws key_needed / wrong_key synchronously, before tar is started.
   const dec = decryptStream(recoveryKey, header, headerBytes)
   mkdirSync(destDir, { recursive: true, mode: 0o700 })
   await new Promise<void>((resolve, reject) => {

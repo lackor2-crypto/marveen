@@ -63,13 +63,17 @@ recovery key on the emergency kit opens it, nothing else does).
    once the background verify (a trial restore) has passed.
 2. **Emergency kit.** Settings → Backup → Emergency kit → *Download (.txt)* (or *Show it*)
    and keep the key somewhere safe (password manager, printed). **Without it
-   the backup cannot be opened on the new machine** — nobody can recover it.
+   a protected backup cannot be opened on the new machine** — nobody can
+   recover it. (If you chose *Without a key (open)* under *With a key or
+   without?*, the file needs no key — and anyone who gets the file can read
+   your passwords, Google access and emails in it.)
 3. **Get the file to the new machine.** Either:
    - it is already in the depot (`Rendszer/Marveen/Mentések`) or in the cloud
      folder, if those destinations are on (Settings → Backup → *Where the backup goes*);
    - or *Download* it from the backups list.
-   The file is encrypted, so any channel is fine for the file itself. The key
-   travels separately.
+   A protected file is encrypted, so any channel is fine for the file itself;
+   the key travels separately. An open file is not encrypted: move it only
+   over a channel you would trust with your passwords.
 4. **Keep the old machine running for now.** Stop it only in step 4 below.
 
 ---
@@ -82,8 +86,9 @@ recovery key on the emergency kit opens it, nothing else does).
 2. Open the dashboard. A fresh install asks first:
    **"Do you have a backup from an earlier Marveen?"** → **Yes, restore it**.
    (If you already answered *No*: Settings → Backup → *Restore from a backup*.)
-3. **Choose the file** (upload the `.mbk`) and **type the recovery key** from the
-   emergency kit. A wrong key says so and names the key id; nothing changes.
+3. **Choose the file** (upload the `.mbk`). For a protected backup the page then
+   asks for the **recovery key** from the emergency kit; an open backup needs
+   none. A wrong key says so and names the key id; nothing changes.
 4. **Preview — "What will happen".** Counts before → after (cards, memories,
    projects, approvals), per category what is new, overwritten or held back,
    settings that still point to the old machine, and which accounts will need a
@@ -172,7 +177,8 @@ node dist/backup/cli.js restore <file.mbk> --unit <dashboard.service> [--key K] 
 - `--unit` is the dashboard's systemd user service
   (`systemctl --user list-units --type=service` lists them).
 - The key: without `--key` the key stored on this machine is used when its key
-  id matches the file; on a new machine pass the emergency-kit key.
+  id matches the file; on a new machine pass the emergency-kit key. An open
+  backup (made *without a key*) needs no `--key`.
 - After a terminal restore the channels are paused exactly as in the UI;
   confirm on Settings → Backup once the old machine is off.
 
