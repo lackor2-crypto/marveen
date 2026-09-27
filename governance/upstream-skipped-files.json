@@ -255,9 +255,9 @@
     },
     "scripts/hooks/egress-gate.mjs": {
       "blob": "644f54bea5833a05bd0f65ad67b6f50088a533fe",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Decided (#413): the upstream fixes are rebuilt here (WEB_PORT digits-only validation, the grant-latency note is covered by the reader watcher). Not taken: e19a6411 (shell URL-fetch verbs denied for every agent = new restriction), 47d352b8 (reader posture switch / quarantine_domains = upstream feature), 2a4de1b6 (SELFTEST_ prefix: our gate never logs allowed requests, so there are no phantom traffic lines to mark).",
+      "card": "#413"
     },
     "scripts/hooks/email-approval-gate.py": {
       "blob": "c1be41d0ae8aee461516cad6d90611ef36203c86",
@@ -913,17 +913,11 @@
       "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. digest-provenance gate (a61473f6), not shipped here.",
       "card": "#413"
     },
-    "src/__tests__/egress-gate-port-validation.test.ts": {
-      "blob": "7627eda8b44b25fea0463c9762ba5ebe79291d52",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
-    },
     "src/__tests__/egress-gate.test.ts": {
       "blob": "ed87c7eabab4e55cb9c20c9a5e45fafcc5949b1e",
-      "kind": "deferred",
-      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): pins the upstream egress posture switch and the shell URL-fetch deny (e19a6411, 47d352b8), which this fork does not ship (new restriction / feature). The port-injection fix it shares is pinned by the adopted egress-gate-port-validation.test.ts.",
+      "card": "#413"
     },
     "src/__tests__/email-approval-gate.test.ts": {
       "blob": "ae40109872a2b6fd20dd4e1fa2cb6611ad621440",
@@ -1875,9 +1869,9 @@
     },
     "src/__tests__/quarantine-reader-render-path.test.ts": {
       "blob": "3bcb9a850165d4442438cc4c50d75c7605f41ff8",
-      "kind": "deferred",
-      "reason": "Upstream test of code kept at ours (C-31 / held files, owner decision A (2026-09-24)): passes on upstream 787e37e6, fails against our versions.",
-      "card": "#375"
+      "kind": "decided",
+      "reason": "Upstream test, decided (#413): the fix (main agent's reader copy in PROJECT scope + a watcher that re-renders on egress-allowlist.json change) is rebuilt here from 10e120ef/c2bce828; our companion quarantine-reader-render-path-fork.test.ts pins it. The upstream file differs only in its legacy-cleanup cases: this fork does not delete the old ~/.claude/agents copy.",
+      "card": "#413"
     },
     "src/__tests__/queued-messages-not-idle.test.ts": {
       "blob": "c083cdc007651a3d6519cdddcfe52c2ba3ff2bc4",

@@ -1,5 +1,5 @@
 import { readRemovedDefaultTasks } from './scheduled-tasks-io.js'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmSync, watchFile, unwatchFile } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
@@ -908,30 +908,70 @@ export function ensureGovernanceGatesRemoved(name: string): boolean {
 // disappeared on 2026-07-30. Now the owner's domains are an INPUT to the
 // render, so a re-render preserves the decision instead of erasing it.
 // Returns true if the file was written, false if already up-to-date.
-export function ensureQuarantineReader(name: string): boolean {
-  const tplPath = join(PROJECT_ROOT, 'templates', 'sub-agents', 'quarantine-reader.md')
+export function ensureQuarantineReader(
+  name: string,
+  paths?: { tplPath?: string; destDir?: string; storeDir?: string },
+): boolean {
+  const tplPath = paths?.tplPath ?? join(PROJECT_ROOT, 'templates', 'sub-agents', 'quarantine-reader.md')
   if (!existsSync(tplPath)) return false
-  let destDir: string
-  if (name === MAIN_AGENT_ID) {
-    destDir = join(homedir(), '.claude', 'agents')
-  } else {
-    destDir = join(agentDir(name), '.claude', 'agents')
-  }
+  const destDir = paths?.destDir ?? quarantineReaderDestDir(name)
   mkdirSync(destDir, { recursive: true })
   const destPath = join(destDir, 'quarantine-reader.md')
   let rendered: string
   try {
-    rendered = renderQuarantineReader(readFileSync(tplPath, 'utf-8'), ownerAllowedDomains())
+    rendered = renderQuarantineReader(readFileSync(tplPath, 'utf-8'), ownerAllowedDomains(paths?.storeDir))
   } catch {
     return false
   }
+  let upToDate = false
   if (existsSync(destPath)) {
     try {
-      if (readFileSync(destPath, 'utf-8') === rendered) return false
-    } catch { /* fall through to re-write */ }
+      upToDate = readFileSync(destPath, 'utf-8') === rendered
+    } catch { /* unreadable -> treat as stale, re-write below */ }
   }
-  writeFileSync(destPath, rendered)
-  return true
+  if (!upToDate) writeFileSync(destPath, rendered)
+  // The old user-scope copy (~/.claude/agents) is left alone on purpose: the
+  // project-scoped copy wins for the main agent, and the owner's interactive
+  // sessions outside the repo may still use the user-scope one. (Upstream
+  // deletes it; this fork does not delete files it did not just write.)
+  return !upToDate
+}
+
+// Where an agent's deployed quarantine-reader definition lives: PROJECT scope
+// for EVERY agent, the main agent included. The runtime reads a project-scoped
+// agent definition from disk at each sub-agent spawn, but caches a user-scoped
+// (~/.claude/agents) one at session start -- so a domain the owner granted only
+// reached the main agent's reader after a full session restart, and the stale
+// prompt copy refused it without a network call (nothing in egress-blocked.log).
+// Rebuilt from upstream 10e120ef / c2bce828 (EGRESSRENDER824).
+export function quarantineReaderDestDir(name: string): string {
+  if (name === MAIN_AGENT_ID) return join(PROJECT_ROOT, '.claude', 'agents')
+  return join(agentDir(name), '.claude', 'agents')
+}
+
+// A grant typed into store/egress-allowlist.json reached the egress-gate HOOK
+// at once (it reads the JSON live) but the reader PROMPT copies only at the
+// next scaffold. This watcher re-renders every deployed copy on a JSON change.
+// fs.watchFile (mtime polling): survives atomic replaces, needs no debounce.
+// `opts` is for tests only. Returns a stop function.
+export function watchEgressAllowlistForReaderRender(
+  listAgents: () => string[],
+  onRendered?: (agents: string[]) => void,
+  opts?: { storeDir?: string; intervalMs?: number; ensure?: (name: string) => boolean },
+): () => void {
+  const allowlistPath = join(opts?.storeDir ?? STORE_DIR, 'egress-allowlist.json')
+  const ensure = opts?.ensure ?? ((name: string) => ensureQuarantineReader(name))
+  const listener = () => {
+    const rendered: string[] = []
+    for (const name of [MAIN_AGENT_ID, ...listAgents()]) {
+      try {
+        if (ensure(name)) rendered.push(name)
+      } catch { /* per-agent best effort: one bad dir must not stop the rest */ }
+    }
+    if (rendered.length) onRendered?.(rendered)
+  }
+  watchFile(allowlistPath, { interval: opts?.intervalMs ?? 5000 }, listener)
+  return () => unwatchFile(allowlistPath, listener)
 }
 
 // Copy the repo's `scheduled-tasks/<task>/task-config.json` to the
