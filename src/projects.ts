@@ -141,6 +141,13 @@ export function ensureProjectTables(): void {
 /** Letezik-e a tabla. A projekt-nezet mas modulok tablaibol olvas (jovahagyas,
  *  kod-hid, foglalas), es ezek egy friss telepitesen meg nem feltetlenul
  *  jottek letre -- ilyenkor "nincs meg adat", nem hiba. */
+/** #422: an archived idea is out of every project list. Older databases
+ *  (tests, a fresh store before the migration) have no column: nothing is archived. */
+function liveIdeaSql(alias = ''): string {
+  const cols = getDb().prepare('PRAGMA table_info(idea_box)').all() as { name: string }[]
+  return cols.some((c) => c.name === 'archived_at') ? `AND ${alias}archived_at IS NULL` : ''
+}
+
 export function hasTable(name: string): boolean {
   const row = getDb().prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(name)
   return !!row
@@ -609,7 +616,7 @@ export function listProjectIdeas(projectId: string): ProjectIdea[] {
   const linked = new Set(listProjectLinks(projectId, 'idea').map((l) => l.object_id))
   const rows = getDb().prepare(
     `SELECT id, title, description, category, status, kanban_id, created_at, updated_at
-       FROM idea_box WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY updated_at DESC`,
+       FROM idea_box WHERE id IN (${ids.map(() => '?').join(',')}) ${liveIdeaSql()} ORDER BY updated_at DESC`,
   ).all(...ids) as Omit<ProjectIdea, 'via'>[]
   return rows.map((r) => ({ ...r, via: linked.has(r.id) ? 'link' : 'card' }))
 }
@@ -641,7 +648,7 @@ export function projectIdeaCandidates(limit = 200): IdeaCandidate[] {
     : ''
   return getDb().prepare(
     `SELECT i.id, i.title, i.status, i.category, i.updated_at FROM idea_box i
-      WHERE i.status != 'rejected'
+      WHERE i.status != 'rejected' ${liveIdeaSql('i.')}
         AND NOT EXISTS (SELECT 1 FROM project_links l WHERE l.object_type = 'idea' AND l.object_id = i.id)
         ${viaCard}
       ORDER BY i.updated_at DESC LIMIT ?`,
