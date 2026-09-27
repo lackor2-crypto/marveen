@@ -1723,10 +1723,19 @@ export function updateMemory(id: number, content: string, category?: string, age
   // parameter is optional and means "reassign to this agent", so it is absent
   // on the ordinary edit -- it cannot be used to decide whose cache went
   // stale. Only the row itself knows that.
-  const before = db.prepare('SELECT agent_id, category FROM memories WHERE id = ?').get(id) as
-    { agent_id: string | null; category: string | null } | undefined
+  const before = db.prepare('SELECT agent_id, category, content, keywords FROM memories WHERE id = ?').get(id) as
+    { agent_id: string | null; category: string | null; content: string | null; keywords: string | null } | undefined
   const sets: string[] = ['content = ?', 'accessed_at = ?']
   const params: unknown[] = [content, now]
+  // The stored embedding was generated from the OLD text (content + ' ' +
+  // keywords), so an edit silently leaves a vector describing text that is no
+  // longer there, and hybrid search keeps ranking with it. Dropping it to NULL
+  // hands the row back to backfillEmbeddings (WHERE embedding IS NULL), without
+  // putting an Ollama call in the path of a DB write. Compared against the
+  // stored values: the PUT route resends an unchanged body on a category-only
+  // edit, which must not re-embed. (Rebuilt from upstream.)
+  const keywordsChanged = keywords !== undefined && (before?.keywords ?? null) !== keywords
+  if (before && (before.content !== content || keywordsChanged)) sets.push('embedding = NULL')
   if (category) { sets.push('category = ?'); params.push(category) }
   if (agentId) { sets.push('agent_id = ?'); params.push(agentId) }
   if (keywords !== undefined) { sets.push('keywords = ?'); params.push(keywords) }
