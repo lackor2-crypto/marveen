@@ -856,7 +856,7 @@
     "src/__tests__/context-guard-reconcile-race.test.ts": {
       "blob": "968d5392770d3c2985e4ecaee943c3320acc0edb",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (6cc93947 fix(context-guard): a guard restart must win the race agains). Card #413.",
+      "reason": "fix rebuilt (upstream 6cc93947) with companion context-guard-reconcile-grace.test.ts; the upstream copy pins an async performRestart, ours is sync",
       "card": "#413"
     },
     "src/__tests__/context-guard-resume-prompt.test.ts": {
@@ -868,7 +868,7 @@
     "src/__tests__/context-guard-saturation-mismatch.test.ts": {
       "blob": "df15aedeb0042dab4c855eda9d713233bff79d83",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (d964aab4 fix(context-guard): stop the saturation net killing agents o). Card #413.",
+      "reason": "fix rebuilt (upstream d964aab4) with companion context-guard-saturation-credible.test.ts; the upstream copy also pins the measureIdleMs probe of an idle-tier feature this fork does not ship",
       "card": "#413"
     },
     "src/__tests__/context-guard.test.ts": {
