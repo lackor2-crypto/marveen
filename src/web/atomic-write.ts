@@ -1,4 +1,4 @@
-import { writeFileSync, chmodSync, renameSync } from 'node:fs'
+import { writeFileSync, chmodSync, renameSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 
 // Atomic write: write to a sibling tmp file and rename over the target, so a
@@ -18,9 +18,18 @@ export function atomicWriteFileSync(
   // (VAULTMODE818). The chmod stays as a belt-and-suspenders: writeFileSync's
   // mode is still reduced by the umask, so for modes with bits the umask would
   // strip the explicit chmod enforces the exact value.
-  writeFileSync(tmp, data, opts.mode !== undefined ? { mode: opts.mode } : undefined)
-  if (opts.mode !== undefined) {
-    try { chmodSync(tmp, opts.mode) } catch { /* best-effort */ }
+  try {
+    writeFileSync(tmp, data, opts.mode !== undefined ? { mode: opts.mode } : undefined)
+    if (opts.mode !== undefined) {
+      try { chmodSync(tmp, opts.mode) } catch { /* best-effort */ }
+    }
+    renameSync(tmp, path)
+  } catch (err) {
+    // A failed rename (a directory in the way, a read-only target) used to
+    // leave the tmp behind -- a full copy of what may be a secret, next to the
+    // target, one more on every retry (#415: the token guard retries each
+    // second). The caller gets the error; the directory gets nothing.
+    try { rmSync(tmp, { force: true }) } catch { /* best-effort */ }
+    throw err
   }
-  renameSync(tmp, path)
 }

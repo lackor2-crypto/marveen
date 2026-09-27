@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, statSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { readFileSync, statSync, rmSync, writeFileSync, chmodSync, mkdtempSync, mkdirSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
@@ -49,6 +49,21 @@ describe('atomic-write tmp-file creation mode', () => {
       expect(statSync(path).mode & 0o077).toBe(0) // no group/other bits
     } finally {
       rmSync(path, { force: true })
+    }
+  })
+})
+
+// #415: a rename that fails must not leave the tmp (a copy of the content) behind.
+describe('atomic-write failure leaves no tmp behind', () => {
+  it('a directory in the way: the error surfaces, the directory holds nothing new', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'atomic-fail-'))
+    try {
+      const target = join(dir, '.dashboard-token')
+      mkdirSync(target)
+      expect(() => atomicWriteFileSync(target, 'secret-bearing', { mode: 0o600 })).toThrow()
+      expect(readdirSync(dir)).toEqual(['.dashboard-token'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

@@ -464,6 +464,13 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 - **Attempt-korlát**: 3 sikertelen nekifutás után a feladat `failed`, és
   **hangosan** szól Telegramon -- nem hallgat el.
 - **Idegen heartbeat**: másik worker heartbeatje nem hosszabbít.
+- **Kicserélt token (401)**: a worker a tokent induláskor olvassa be. Ha a
+  dashboard 401-et ad, a worker újraolvassa a token-fájlt, és ha abban más
+  token áll, egyszer újrapróbálja vele (heartbeat, eredmény, claim egyaránt);
+  az új tokent csak akkor veszi át, ha azzal sikerült. Így egy futás közben
+  kicserélt token miatt nem jár le a bérlet, és nem kerül vissza a sorba egy
+  még futó feladat (#415). A token-fájlt a futó dashboard maga tartja a
+  memóriabeli értéken: ha valami átírja vagy törli, visszaírja, és szól.
 - **Elveszett leképezés**: ha a projekt sessionje eltűnt, a feladatot senki nem
   tudja kivenni. A híd 3 perc türelmi idő után (annyi, hogy egy újraindulás
   vagy egy kimaradt felderítési kör ne számítson) hibára viszi és **szól** róla.
