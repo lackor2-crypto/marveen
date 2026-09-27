@@ -287,7 +287,7 @@ describe('the self-check rows have their screen text in both languages', () => {
 describe('the dashboard actually runs the guard', () => {
   it('web.ts starts it on the token it enforces, and stops it on close', () => {
     const web = readFileSync(join(__dirname, '..', 'web.ts'), 'utf-8')
-    const load = web.indexOf('const DASHBOARD_TOKEN = loadOrCreateDashboardToken()')
+    const load = web.search(/const DASHBOARD_TOKEN\s*=\s*loadOrCreateDashboardToken\(\)/)
     const start = web.indexOf('startDashboardTokenGuard(DASHBOARD_TOKEN)')
     expect(load).toBeGreaterThan(0)
     expect(start).toBeGreaterThan(load)
