@@ -4119,6 +4119,10 @@
       + '<input class="wb-input" id="wbChatModel" type="text" autocomplete="off" value="' + escA(cfg.WORKBENCH_MODEL || '') + '" placeholder="'
       + escA(t('workbench.chat.setup_model_placeholder')) + '">'
       + '<p class="wb-hint">' + esc(t('workbench.chat.setup_model_hint')) + '</p>'
+      + '<div class="wb-fullmode-note">'
+      + '<p class="wb-hint">' + esc(t('workbench.chat.fullmode_hint')) + '</p>'
+      + '<button type="button" class="wb-linklike" data-wb-act="goto-fullmode">' + esc(t('workbench.chat.fullmode_open')) + '</button>'
+      + '</div>'
       + '<div class="wb-form-actions">'
       + '<button type="submit" class="btn-primary" data-wb-act="chat-setup-save"' + (WB.chatSetupBusy ? ' disabled' : '') + '>'
       + esc(WB.chatSetupBusy ? t('workbench.chat.setup_saving') : t('workbench.chat.setup_save')) + '</button>'
@@ -5763,6 +5767,7 @@
     if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
+    else if (a === 'goto-fullmode') { if (typeof window.openWorkbenchSettings === 'function') window.openWorkbenchSettings(); else if (typeof window.switchPage === 'function') window.switchPage('settings') }
     else if (a === 'export-open') { WB.exportOpen = WB.selectedId; render() }
     else if (a === 'share-days') { var sd = Number(act.getAttribute('data-wb-days')); if (sd === 1 || sd === 7 || sd === 30) { WB.shareDays = sd; render() } }
     else if (a === 'share-create') { var sk = act.getAttribute('data-wb-share-kind'); if (sk === 'item' || sk === 'handoff') shareCreate(sk) }
