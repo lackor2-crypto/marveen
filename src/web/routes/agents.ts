@@ -2980,6 +2980,16 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     // Half one: the directory is MOVED aside, not destroyed. A wrong delete
     // stays recoverable without reaching for a nightly backup (which, until
     // today, did not even carry agent-config.json).
+    // A running agent's session must be stopped BEFORE its directory moves.
+    // Left alive, the orphaned Claude Code session rewrites its own config dir,
+    // recreating a partial agents/<name>/ that makes the name "known" again: an
+    // empty draft showing running=true (upstream 2026-08-01 report). The stop
+    // reads the agent's config (remote host, channel) from the dir, so the
+    // order matters. A failed stop is logged, never allowed to block the delete.
+    if (isAgentRunning(name)) {
+      const stopRes = stopAgentProcess(name)
+      if (!stopRes.ok) logger.warn({ agent: name, err: stopRes.error }, 'agent delete: could not stop the running session first')
+    }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const trashRoot = join(STORE_DIR, 'deleted-agents')
     const trashDir = join(trashRoot, `${name}-${stamp}`)
