@@ -59,6 +59,7 @@ import { startFederationPoller } from './web/federation/poller.js'
 import { startCapabilitySummaryRunner } from './web/federation/capability-runner.js'
 import { tryHandleCode } from './web/routes/code.js'
 import { startCodeBridgeRunner } from './web/code-bridge-runner.js'
+import { startProgressMirrorRunner, PROGRESS_MIRROR_INTERVAL_MS } from './web/progress-mirror-runner.js'
 import { startCodeBotPoller } from './web/code-bridge-telegram.js'
 import { ensureFederationClaudeMdSection } from './web/federation/onboarding.js'
 import { tryHandleAgentTerminal } from './web/routes/agent-terminal.js'
@@ -587,6 +588,10 @@ export function startWebServer(port = 3420): http.Server {
     logger.info(`Limit-reset wake runner started (${LIMIT_WAKE_INTERVAL_MS / 1000}s poll, ${LIMIT_WAKE_INITIAL_DELAY_MS / 1000}s offset)`)
   }
 
+  // #416: live Telegram progress mirror (TELEGRAM_PROGRESS_MODE).
+  const progressMirrorInterval = webOnly ? undefined : startProgressMirrorRunner()
+  if (!webOnly) logger.info(`Progress mirror started (${PROGRESS_MIRROR_INTERVAL_MS / 1000}s poll)`)
+
   const autoRestartInterval = webOnly ? undefined : startAutoRestartRunner()
   if (!webOnly) logger.info('Auto-restart runner started (60s poll, 40s offset)')
 
@@ -1028,6 +1033,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(updateCheckerInterval)
     if (federationPollerInterval) clearInterval(federationPollerInterval)
     if (capabilityRunnerInterval) clearInterval(capabilityRunnerInterval)
+    if (progressMirrorInterval) clearInterval(progressMirrorInterval)
     clearInterval(tokenCollectInterval)
     return origClose(cb)
   }

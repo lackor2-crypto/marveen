@@ -46,8 +46,8 @@
     "docs/telegram-live-progress.md": {
       "blob": "b96738adb914e2020c3c1bb762df6dca51c0f385",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (d3c5fdf5 fix(fleet): Telegram progress mirror + four fixes from runni). Card #413.",
-      "card": "#413"
+      "reason": "Rebuilt (#416, owner TG 6695/6698): the progress mirror now runs inside the dashboard as src/web/progress-mirror-runner.ts + src/progress-mirror.ts, riding on our existing placeholder hooks instead of a separate systemd daemon; mode is the TELEGRAM_PROGRESS_MODE setting on the dashboard (fleet-wide, no restart). Documented in docs/telegram-progress-indicator.md (live mirror section).",
+      "card": "#416"
     },
     "docs/telegram-progress-indicator.md": {
       "blob": "584919777094df2a1b392c76ef8e179d58c89241",
@@ -154,8 +154,8 @@
     "scripts/__tests__/telegram-live-progress.test.py": {
       "blob": "ff0920a4adcf2942a6113a335f369dd293a5ee8c",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (d3c5fdf5 fix(fleet): Telegram progress mirror + four fixes from runni). Card #413.",
-      "card": "#413"
+      "reason": "Rebuilt (#416, owner TG 6695/6698): the progress mirror now runs inside the dashboard as src/web/progress-mirror-runner.ts + src/progress-mirror.ts, riding on our existing placeholder hooks instead of a separate systemd daemon; mode is the TELEGRAM_PROGRESS_MODE setting on the dashboard (fleet-wide, no restart). Its classify_pane cases are ported one to one into src/__tests__/progress-mirror.test.ts.",
+      "card": "#416"
     },
     "scripts/__tests__/telegram-watchdog-wedged.test.sh": {
       "blob": "27facd308d86db8fa8bda32590e6fefdb7ce1f18",
@@ -424,8 +424,8 @@
     "scripts/progress-mode.sh": {
       "blob": "4caad0c75613aa12968280487f3c37b2e80f1ed7",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (d3c5fdf5 fix(fleet): Telegram progress mirror + four fixes from runni). Card #413.",
-      "card": "#413"
+      "reason": "Rebuilt (#416, owner TG 6695/6698): the progress mirror now runs inside the dashboard as src/web/progress-mirror-runner.ts + src/progress-mirror.ts, riding on our existing placeholder hooks instead of a separate systemd daemon; mode is the TELEGRAM_PROGRESS_MODE setting on the dashboard (fleet-wide, no restart). The per-agent CLI switch (hard-coded /home/ubuntu path) is replaced by the dashboard setting.",
+      "card": "#416"
     },
     "scripts/recipient-ledger.mjs": {
       "blob": "15c19099568d047a6f9777253d295972dc335bf1",
@@ -472,8 +472,8 @@
     "scripts/telegram-live-progress.py": {
       "blob": "3a8fa9b2ec6bfc47251e39c8e956da83d327a153",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): upstream Telegram progress mirror (d3c5fdf5, 2997022b) is an upstream feature this fork does not ship.",
-      "card": "#413"
+      "reason": "Rebuilt (#416, owner TG 6695/6698): the progress mirror now runs inside the dashboard as src/web/progress-mirror-runner.ts + src/progress-mirror.ts, riding on our existing placeholder hooks instead of a separate systemd daemon; mode is the TELEGRAM_PROGRESS_MODE setting on the dashboard (fleet-wide, no restart). The Python daemon itself is not shipped.",
+      "card": "#416"
     },
     "scripts/test_garmin_run_gate.py": {
       "blob": "b526e61ba0332b2559557f0f2644c8923944933e",
