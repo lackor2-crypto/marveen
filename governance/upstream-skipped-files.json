@@ -2868,6 +2868,72 @@
       "kind": "decided",
       "reason": "Fork divergence (#358): inter-agent helper is scripts/agent-msg.sh; upstream's agent-post.sh does not exist here.",
       "card": "#413"
+    },
+    "scripts/host-restart-watchdog.sh": {
+      "blob": "15b661602f125c95d1d16555b969d657e741bc41",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream carries the #915 honest-send/state-scope change we already have; its text is Hungarian-only, ours follows the install language (#416). Taking it would drop the English notice.",
+      "card": "#440"
+    },
+    "scripts/unit-fail-notify.sh": {
+      "blob": "06c89d33f9b358734a09d4c78ace2eb5c5dca99a",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- same as host-restart-watchdog.sh: the upstream intent (#1084 honest send, #915 state scope) is already in ours; upstream is Hungarian-only, ours is bilingual (#416).",
+      "card": "#440"
+    },
+    "src/web/routes/security.ts": {
+      "blob": "762ec3bbc61624790c548eba963381ded8be68ff",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream ENROLL813/BRIDGEHU813 fixes are already in ours; the only remaining difference is our bilingual (#416) bridge-pairing notice, which upstream would revert to Hungarian-only.",
+      "card": "#440"
+    },
+    "src/web/telegram.ts": {
+      "blob": "3025e9dce586309ddd4d819898c288c886b76bc0",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream #915/#1097/#1026/#953 are already in ours; the remaining difference is our install-language welcome/avatar texts (#416), which upstream would revert to Hungarian-only.",
+      "card": "#440"
+    },
+    "scripts/hooks/claude-usage.py": {
+      "blob": "44716e0d1b3882471d24dc4aae11b42fc7b1d9b4",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream /usage command (#773, #915) is already in ours; ours adds install-language replies (#416). Upstream would revert to Hungarian-only.",
+      "card": "#440"
+    },
+    "scripts/lib/quota-check.py": {
+      "blob": "c6e2162c3d26fc862955b9c3214b1350b29fe41b",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream staleness ceiling (#1280) and heredoc fix (#1154) are already in ours; ours adds QUOTA_LANG (#416). Upstream would revert to Hungarian-only.",
+      "card": "#440"
+    },
+    "src/__tests__/atomic-write-tmp-mode.test.ts": {
+      "blob": "b54466909beb7848367af9a1d853758b929d02f4",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream 0600 tmp-mode test (VAULTMODE818) is already in ours; ours adds the #415 no-tmp-left-behind case. Upstream would drop it.",
+      "card": "#440"
+    },
+    "src/web/atomic-write.ts": {
+      "blob": "fca5b82647764d2196674eced57e5b21fe46835e",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream 0600 pin (VAULTMODE818) is already in ours; ours adds the #415 cleanup of the tmp copy on a failed rename (secret leak). Upstream would drop it.",
+      "card": "#440"
+    },
+    "src/web/routes/bridge-service-ports.ts": {
+      "blob": "7008724293d2b21e710c3806417b41d28e03e8e4",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream permitopen allowlist (#989) and ENROLL813 are already in ours; ours makes the security notice bilingual (#416). Upstream would revert to Hungarian-only.",
+      "card": "#440"
+    },
+    "src/web/routes/heartbeat.ts": {
+      "blob": "245bcd60238121150d1684dc63527365f12f6ec8",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream calendar-as-measurement (#1159) is already in ours; ours exports the not-configured constant for the fresh-install state (#419). Upstream would remove it.",
+      "card": "#440"
+    },
+    "src/web/routine-alert.ts": {
+      "blob": "486b5eae6418aff98b8d96c3b62a04f067a18d41",
+      "kind": "decided",
+      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream once-per-occurrence fix (#1186) is already in ours; ours makes the suffix bilingual (#416). Upstream would revert to Hungarian-only.",
+      "card": "#440"
     }
   }
 }
