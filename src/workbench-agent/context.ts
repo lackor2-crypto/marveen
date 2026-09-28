@@ -21,7 +21,7 @@ import { decisionsForContext } from '../workbench-decisions.js'
 import { toolsForPrompt } from './tools.js'
 import type { AIMessage } from './provider.js'
 import type { AgentMessageRow } from './sessions.js'
-import { listWorkItemAssets } from '../workbench-assets.js'
+import { listWorkItemAssetsSynced } from '../workbench-assets.js'
 
 /** Felso hatarok. Egy interaktiv fordulo, nem teljes archivum. */
 export const MAX_CONTEXT_CHARS = 12_000
@@ -73,7 +73,7 @@ function clamp(s: string, max: number): { text: string; cut: boolean } {
 /** A munkadarab anyagai egy sorban (#441): nev + tamogatasi allapot, korlatosan. */
 const MAX_ASSETS_IN_CONTEXT = 30
 function assetsLine(itemId: string): string {
-  const assets = listWorkItemAssets(itemId)
+  const assets = listWorkItemAssetsSynced(itemId)
   if (!assets.length) return 'materials: none attached yet'
   const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${a.present ? '' : ', MISSING from disk'}]`)
   const more = assets.length > shown.length ? ` ... and ${assets.length - shown.length} more (workItem.listAssets)` : ''

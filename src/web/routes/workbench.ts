@@ -83,7 +83,7 @@ import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
 import {
   makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset, listWorkItemAssets,
-  unlinkAsset, tidyWorkItemIntoFolder, ensureAssetTables,
+  unlinkAsset, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -1364,7 +1364,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       versions: listWorkItemVersionsView(item.id),
       parts: listWorkItemParts(item.id),
       part_kinds: WORK_ITEM_PART_KINDS,
-      assets: listWorkItemAssets(item.id),
+      assets: listWorkItemAssetsSynced(item.id),
       approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
@@ -1380,7 +1380,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   POST   .../tidy              -- az omlesztett forrasfajl a munkadarab mappajaba
   if (segs.length === 2 && segs[1] === 'assets' && method === 'GET') {
     ensureAssetTables()
-    json(res, { assets: listWorkItemAssets(item.id), folder: getWorkItem(item.id)?.folder ?? null })
+    json(res, { assets: listWorkItemAssetsSynced(item.id), folder: getWorkItem(item.id)?.folder ?? null })
     return true
   }
   if (segs.length === 2 && segs[1] === 'assets' && method === 'POST') {
@@ -1421,6 +1421,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     if (!unlinkAsset(item.id, segs[2] || '')) return fail(res, 404, 'asset_not_found', lang)
     json(res, { ok: true, assets: listWorkItemAssets(item.id) })
+    return true
+  }
+  // ATNEVEZES (#441, K-0.11): a munkadarab uj neve, es vele a mappaja is.
+  if (segs.length === 2 && segs[1] === 'rename' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = renameWorkItem(item, body['title'])
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: listWorkItemAssetsSynced(item.id) })
     return true
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {

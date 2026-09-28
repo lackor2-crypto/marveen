@@ -22,7 +22,7 @@ import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
 import { convertOfficeToPdf, isOfficeConvertible } from '../office-convert.js'
-import { listWorkItemAssets } from '../workbench-assets.js'
+import { listWorkItemAssetsSynced, renameWorkItemFolder } from '../workbench-assets.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
@@ -394,7 +394,11 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       getDb().prepare(
         'UPDATE work_items SET title = COALESCE(?, title), status = COALESCE(?, status), updated_at = ? WHERE id = ?',
       ).run(title, status, now, item.id)
-      return { ok: true, data: getWorkItem(item.id) as WorkItemRow }
+      // K-0.11 (#441): uj nev -> a munkadarab mappaja is atnevezodik (ha lehet;
+      // ha nem, a valasz megmondja, miert maradt a regi neven).
+      const folder = title !== null && title !== item.title ? renameWorkItemFolder(item, title) : null
+      const updated = getWorkItem(item.id) as WorkItemRow
+      return { ok: true, data: folder ? { ...updated, folder_rename: folder } : updated }
     }
 
     case 'workItem.listAssets': {
@@ -404,7 +408,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       if (!item || item.project_id !== project.id) {
         return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
       }
-      const assets = listWorkItemAssets(item.id)
+      const assets = listWorkItemAssetsSynced(item.id)
       return {
         ok: true,
         data: {
