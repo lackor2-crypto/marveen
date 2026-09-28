@@ -55,27 +55,45 @@ describe('POST /api/workbench/items/upload', () => {
     if (!up.ok) throw new Error('projektmappa: ' + up.code)
   }
 
-  it('a fajl a projekt mappajaba kerul, es uj munkadarab lesz belole, aminek ez a forrasa', async () => {
+  it('#441: a fajl a munkadarab SAJAT mappajaba kerul (a munkadarab nevevel), es uj munkadarab lesz belole, aminek ez a forrasa', async () => {
     useDepot()
     const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=${encodeURIComponent('nyári fotó.jpg')}&type=image/jpeg`, 'POST', Buffer.from('JPEGBYTES'))
     expect(r.status).toBe(201)
     expect(r.body.item.type).toBe('image')
     expect(r.body.item.title).toBe('nyári fotó')
-    expect(r.body.item.source_path).toBe('Projektek/teszt/nyári fotó.jpg')
-    expect(r.body.versions[0].source_path).toBe('Projektek/teszt/nyári fotó.jpg')
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'nyári fotó.jpg'), 'utf-8')).toBe('JPEGBYTES')
+    expect(r.body.folder).toBe('nyári fotó')
+    expect(r.body.item.folder).toBe('nyári fotó')
+    expect(r.body.item.source_path).toBe('Projektek/teszt/nyári fotó/nyári fotó.jpg')
+    expect(r.body.versions[0].source_path).toBe('Projektek/teszt/nyári fotó/nyári fotó.jpg')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'nyári fotó', 'nyári fotó.jpg'), 'utf-8')).toBe('JPEGBYTES')
     expect(listWorkItems(pid)).toHaveLength(1)
+    // A forrasfajl az anyagok kozott is ott van.
+    const d = await callWorkbench(`/api/workbench/items/${r.body.item.id}`, 'GET')
+    expect(d.body.assets.map((a: { name: string }) => a.name)).toEqual(['nyári fotó.jpg'])
   })
 
-  it('SOSE ir felul: foglalt nevnel uj nevet kap, es ezt ki is mondja', async () => {
+  it('SOSE ir felul es mas mappajat sem veszi at: ugyanaz a nev masodszorra `nev (2)` mappat kap', async () => {
     useDepot()
     writeFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.docx'), 'EREDETI')
-    const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=ajanlat.docx`, 'POST', Buffer.from('UJ'))
+    const a = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=ajanlat.docx`, 'POST', Buffer.from('UJ1'))
+    const b = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=ajanlat.docx`, 'POST', Buffer.from('UJ2'))
+    expect(a.body.folder).toBe('ajanlat')
+    expect(b.body.folder).toBe('ajanlat (2)')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.docx'), 'utf-8')).toBe('EREDETI')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat', 'ajanlat.docx'), 'utf-8')).toBe('UJ1')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat (2)', 'ajanlat.docx'), 'utf-8')).toBe('UJ2')
+  })
+
+  it('kifejezett almappa (`sub`) eseten a regi viselkedes marad: foglalt nevnel uj nevet kap, es ezt ki is mondja', async () => {
+    useDepot()
+    mkdirSync(join(depot, 'Projektek', 'teszt', 'Iratok'))
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'Iratok', 'ajanlat.docx'), 'EREDETI')
+    const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=ajanlat.docx&sub=Iratok`, 'POST', Buffer.from('UJ'))
     expect(r.status).toBe(201)
     expect(r.body.renamed).toBe(true)
-    expect(r.body.name).not.toBe('ajanlat.docx')
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.docx'), 'utf-8')).toBe('EREDETI')
-    expect(readdirSync(join(depot, 'Projektek', 'teszt'))).toHaveLength(2)
+    expect(r.body.folder).toBe(null)
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Iratok', 'ajanlat.docx'), 'utf-8')).toBe('EREDETI')
+    expect(readdirSync(join(depot, 'Projektek', 'teszt', 'Iratok'))).toHaveLength(2)
   })
 
   it('FRISS TELEPITES (nincs Raktar / nincs projektmappa): emberi mondat a teendovel, nem gepi kod', async () => {
@@ -120,6 +138,7 @@ describe('a felulet: huzas, gomb, beillesztes', () => {
         if (name === 'rossz.bin') return { status: 400, body: { error: 'upload_no_folder', message: 'Ehhez a projekthez nincs mappa.' } }
         return { status: 201, body: { ok: true, item: { id: 'n-' + name, title: name, type: 'image', status: 'draft' }, versions: [] } }
       }
+      if (url.includes('/assets')) return { status: 201, body: { ok: true, asset: { id: 'a1' }, assets: [] } }
       if (url.includes('/parts/image') || url.includes('/document')) return { status: 201, body: { ok: true, parts: [], item: ITEM, versions: [] } }
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
       if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: ITEM, versions: [], parts: [] } }
@@ -164,7 +183,7 @@ describe('a felulet: huzas, gomb, beillesztes', () => {
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/n-logo.png'))).toBe(true))
   })
 
-  it('HUZAS a listara: uj munkadarab; a megnyitott munkadarabra: kep -> resz, mas -> uj verzio', async () => {
+  it('HUZAS a listara: uj munkadarab; a megnyitott munkadarabra: kep -> resz, mas -> az ANYAGAI koze (#441, nem cserel verziot)', async () => {
     const h = setup()
     await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
     // Huzas kozben a bongeszo alapviselkedeset (fajl megnyitasa) meg kell akadalyozni.
@@ -184,7 +203,8 @@ describe('a felulet: huzas, gomb, beillesztes', () => {
     await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.upload.done_item'))
     const p = posts(h)
     expect(p.some((u) => u.includes('/items/w1/parts/image') && u.includes('name=kep.png'))).toBe(true)
-    expect(p.some((u) => u.includes('/items/w1/document') && u.includes('name=szerzodes.docx'))).toBe(true)
+    expect(p.some((u) => u.includes('/items/w1/assets') && u.includes('name=szerzodes.docx'))).toBe(true)
+    expect(p.some((u) => u.includes('/items/w1/document'))).toBe(false)
   })
 
   it('a Munkapadon KIVULI huzasba nem szol bele (a bongeszo tobbi oldala zavartalan)', async () => {

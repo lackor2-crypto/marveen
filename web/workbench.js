@@ -816,38 +816,58 @@
     return /\.(png|jpe?g|gif|webp|bmp|avif|heic|heif)$/i.test((f && f.name) || '')
   }
 
-  /** `target === 'item'`: a megnyitott munkadarabba (kep -> resz, mas -> uj
-   *  verzio). Kulonben minden fajlbol UJ munkadarab. Egymas utan megy, hogy a
-   *  szamlalo pontos legyen, es egy hiba ne vigye el a tobbit. */
+  /** `target === 'item'`: a megnyitott munkadarabba (kep -> resz, mas fajl ->
+   *  az ANYAGAI koze, #441 -- korabban uj verzio lett belole, es a munkadarab
+   *  fo fajlja csendben lecserelodott). `target === 'assets'`: minden fajl az
+   *  anyagok koze, a munkadarab sajat mappajaba. Kulonben minden fajlbol UJ
+   *  munkadarab, sajat mappaval. Egymas utan megy, hogy a szamlalo pontos
+   *  legyen, es egy hiba ne vigye el a tobbit. */
   function uploadFiles(fileList, target) {
     var files = []
     for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
     if (!files.length || WB.upload || !WB.projectId) return Promise.resolve()
     if (archived()) { window.showToast(t('workbench.archived_hint')); return Promise.resolve() }
-    var intoItem = target === 'item' && WB.selectedId ? WB.selectedId : null
+    var intoItem = (target === 'item' || target === 'assets') && WB.selectedId ? WB.selectedId : null
+    var assetsOnly = target === 'assets'
     var projectId = WB.projectId
     var lang = encodeURIComponent(window._lang || 'hu')
     WB.upload = { done: 0, total: files.length }
     render()
     var created = []
     var errors = []
+    var skipped = 0
+    var toAssets = 0
     var chain = Promise.resolve()
     files.forEach(function (f) {
       chain = chain.then(function () {
         var name = encodeURIComponent(f.name || 'fajl')
         var type = encodeURIComponent(f.type || '')
         var url
-        if (intoItem) {
+        var asAsset = intoItem && (assetsOnly || !isImageFile(f))
+        if (asAsset) {
+          url = '/api/workbench/items/' + encodeURIComponent(intoItem) + '/assets?name=' + name + '&lang=' + lang
+        } else if (intoItem) {
           url = '/api/workbench/items/' + encodeURIComponent(intoItem)
-            + (isImageFile(f) ? '/parts/image?new_version=1&' : '/document?')
-            + 'name=' + name + '&type=' + type + '&lang=' + lang
+            + '/parts/image?new_version=1&name=' + name + '&type=' + type + '&lang=' + lang
         } else {
           url = '/api/workbench/items/upload?project=' + encodeURIComponent(projectId)
             + '&name=' + name + '&type=' + type + '&lang=' + lang
         }
         return postFile(url, f).then(function (r) {
+          // Ugyanez a tartalom mar az anyagok kozott van (K-0.18): megkerdezzuk.
+          if (!r.ok && asAsset && r.data && r.data.error === 'asset_duplicate') {
+            var ex = r.data.existing && r.data.existing.name
+            if (window.confirm(t('workbench.assets.duplicate_confirm', { name: f.name || '', existing: ex || f.name || '' }))) {
+              return postFile(url + '&force=1', f)
+            }
+            return { ok: true, skipped: true }
+          }
+          return r
+        }).then(function (r) {
           if (WB.upload) WB.upload.done++
           if (!r.ok) errors.push((f.name ? f.name + ': ' : '') + r.message)
+          else if (r.skipped) skipped++
+          else if (asAsset) toAssets++
           else if (!intoItem && r.data && r.data.item) created.push(r.data.item)
           if (WB.projectId === projectId) render()
         })
@@ -856,12 +876,14 @@
     return chain.then(function () {
       WB.upload = null
       if (WB.projectId !== projectId) return
-      var ok = files.length - errors.length
+      var ok = files.length - errors.length - skipped
       if (errors.length) window.showToast(errors.join(' \u2014 '))
       if (ok) {
-        window.showToast(intoItem
-          ? t('workbench.upload.done_item', { n: ok })
-          : t('workbench.upload.done_new', { n: ok }))
+        window.showToast(!intoItem
+          ? t('workbench.upload.done_new', { n: ok })
+          : (toAssets === ok
+            ? t('workbench.assets.done', { n: ok })
+            : t('workbench.upload.done_item', { n: ok })))
       }
       if (intoItem) {
         if (WB.selectedId === intoItem) loadDetail(intoItem)
@@ -891,6 +913,7 @@
   function dropTarget(e) {
     var zone = e && e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drop]') : null
     var kind = zone && typeof zone.getAttribute === 'function' ? zone.getAttribute('data-wb-drop') : null
+    if (kind === 'assets' && WB.selectedId) return 'assets'
     return kind === 'item' && WB.selectedId ? 'item' : 'new'
   }
 
@@ -3966,6 +3989,87 @@
       + inner + '</section>'
   }
 
+  /** A chat 📎 gombja (#441): a fajl a megnyitott munkadarab ANYAGAI koze
+   *  kerul, nem lesz belole uj munkadarab. Munkadarab nelkul nincs gomb. */
+  function chatAttachHtml() {
+    if (!WB.selectedId || !WB.detail || archived()) return ''
+    return '<label class="btn-secondary wb-chat-attach" for="wbChatAssetUpload" title="' + escA(t('workbench.assets.attach_title')) + '"'
+      + ' aria-label="' + escA(t('workbench.assets.attach_title')) + '">\ud83d\udcce</label>'
+      + '<input type="file" id="wbChatAssetUpload" class="wb-file-input" multiple>'
+  }
+
+  function assetSupportLabel(sup) {
+    return t('workbench.assets.support.' + (sup || 'usable'))
+  }
+
+  /** ANYAGOK doboz (#441, v4 K-0.14 ... K-0.16): a munkadarab sajat mappaja es
+   *  a hozza csatolt fajlok, tamogatasi allapottal. Ide is lehet fajlt huzni. */
+  function assetsBlockHtml() {
+    var d = WB.detail
+    var it = d.item
+    var assets = d.assets || []
+    var ro = archived()
+    var folder = it.folder || ''
+    var src = it.source_path || ''
+    // Ha a fo fajl meg nem a munkadarab mappajaban all (regi, omlesztett fajl), felajanljuk a rendrakast.
+    var loose = src && (!folder || src.indexOf('/' + folder + '/') < 0)
+    var list = assets.length
+      ? '<ul class="wb-assets">' + assets.map(function (a) {
+        return '<li class="wb-asset">'
+          + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
+          + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(a.support) + '">' + esc(assetSupportLabel(a.support)) + '</span>'
+          + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
+          + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
+            + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
+          + '</li>'
+      }).join('') + '</ul>'
+      : '<p class="wb-muted">' + esc(t('workbench.assets.none')) + '</p>'
+    return '<div class="wb-ctx-block wb-assets-block"' + (ro ? '' : ' data-wb-drop="assets"') + '>'
+      + '<h3>' + esc(t('workbench.assets.title')) + (assets.length ? ' (' + assets.length + ')' : '') + '</h3>'
+      + '<p class="wb-muted">' + esc(folder
+        ? t('workbench.assets.folder', { folder: folder })
+        : t('workbench.assets.no_folder')) + '</p>'
+      + list
+      + (ro ? '' : '<p><label class="wb-btn" for="wbAssetUpload">\ud83d\udcce ' + esc(WB.upload
+        ? t('workbench.upload.busy')
+        : t('workbench.assets.add')) + '</label>'
+        + '<input type="file" id="wbAssetUpload" class="wb-file-input" multiple></p>'
+        + '<p class="wb-hint">' + esc(t('workbench.assets.hint')) + '</p>')
+      + (ro || !loose ? '' : '<p><button type="button" class="wb-btn" data-wb-act="asset-tidy"' + (WB.tidyBusy ? ' disabled' : '') + '>'
+        + esc(t('workbench.assets.tidy')) + '</button></p>'
+        + '<p class="wb-hint">' + esc(t('workbench.assets.tidy_hint')) + '</p>')
+      + '</div>'
+  }
+
+  function removeAsset(assetId) {
+    var id = WB.selectedId
+    if (!id || !assetId || archived()) return
+    if (!window.confirm(t('workbench.assets.remove_confirm'))) return
+    api('DELETE', '/api/workbench/items/' + encodeURIComponent(id) + '/assets/' + encodeURIComponent(assetId)).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      if (WB.selectedId === id && WB.detail) { WB.detail.assets = r.data.assets || []; render() }
+    })
+  }
+
+  function tidyItemFolder() {
+    var id = WB.selectedId
+    if (!id || archived() || WB.tidyBusy) return
+    if (!window.confirm(t('workbench.assets.tidy_confirm'))) return
+    WB.tidyBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/tidy', {}).then(function (r) {
+      WB.tidyBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      var moved = (r.data.moved || []).length
+      var shared = (r.data.skipped || []).filter(function (x) { return x.reason === 'shared' }).length
+      window.showToast(moved
+        ? t('workbench.assets.tidy_done', { n: moved, folder: r.data.folder })
+        : (shared ? t('workbench.assets.tidy_shared') : t('workbench.assets.tidy_nothing')))
+      if (WB.selectedId === id) loadDetail(id)
+      if (WB.projectId) load(WB.projectId)
+    })
+  }
+
   function contextPanelHtml() {
     var rows = []
     rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.project')) + '</h3>'
@@ -3976,6 +4080,7 @@
         + '<p>' + esc(it.title) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p></div>')
+      rows.push(assetsBlockHtml())
       var versions = WB.detail.versions || []
       var ro = archived() || WB.versionBusy
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + '</h3>'
@@ -4416,6 +4521,7 @@
       + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
       + escA(t('workbench.chat.placeholder')) + '">' + esc(WB.chatDraft) + '</textarea>'
       + '<div class="wb-chat-btns">'
+      + chatAttachHtml()
       + micButtonHtml('wbChatInput')
       + (streaming
         ? '<button type="button" class="btn-secondary" data-wb-act="chat-stop">' + esc(t('workbench.chat.stop')) + '</button>'
@@ -4431,7 +4537,7 @@
   }
 
   function chatBarHtml() {
-    return '<div class="wb-chat" id="wbChat">' + chatInnerHtml() + '</div>'
+    return '<div class="wb-chat" id="wbChat"' + (WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="assets"' : '') + '>' + chatInnerHtml() + '</div>'
   }
 
   /** A chat-naplo alapbol a legaljan all: mindig a legutolso uzenet latszik
@@ -6165,6 +6271,8 @@
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
+    else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
+    else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
@@ -6490,6 +6598,12 @@
       try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
       return
     }
+    if (e.target.id === 'wbAssetUpload' || e.target.id === 'wbChatAssetUpload') {
+      var att = e.target.files
+      if (att && att.length) uploadFiles(att, 'assets')
+      try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      return
+    }
     if (e.target.id === 'wbDocUpload') {
       var docs = e.target.files
       if (docs && docs.length) uploadDocumentVersion(docs[0])
@@ -6534,7 +6648,9 @@
     var files = e && e.clipboardData && e.clipboardData.files
     if (!files || !files.length) return
     e.preventDefault()
-    uploadFiles(files, WB.selectedId && WB.detail ? 'item' : 'new')
+    var inChat = false
+    try { inChat = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { inChat = false }
+    uploadFiles(files, WB.selectedId && WB.detail ? (inChat ? 'assets' : 'item') : 'new')
   })
 
   document.addEventListener('submit', function (e) {
