@@ -27,7 +27,7 @@ vi.mock('../web/claude-plans.js', async (orig) => {
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
-import { resetRunningForTest } from '../workbench-agent/orchestrator.js'
+import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } from '../workbench-agent/orchestrator.js'
 import { setUsageSnapshotReader, resetUsageManagerForTest } from '../workbench-agent/usage-manager.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
 import { clearAIProvidersForTest, registerAIProvider, type AIChunk, type AIProvider } from '../workbench-agent/provider.js'
@@ -293,5 +293,81 @@ describe('GET /api/workbench/agent/session', () => {
     const r = await call('/api/workbench/agent/session?project=nincsilyen', 'GET')
     expect(r.status).toBe(404)
     expect(r.body.error).toBe('project_not_found')
+  })
+})
+
+describe('#433: elkattintas, "mar fut", Leallitas (Boss, 2026-09-28)', () => {
+  // Valos eset: valasz kozben atkattintott egy masik oldalra, visszajott: a
+  // felulet szerint "nem fut semmi", az uj uzenetre megis "mar fut egy valasz"
+  // jott. Merve: a szerver a kapcsolat bontasakor NEM allt le (helyes), de a
+  // felulet nem tudhatta, hogy fut; a Leallitas pedig csak a bongeszoben allt le.
+
+  it('a session-lekeres megmondja, fut-e meg valasz (munkadarabhoz es projekthez is)', async () => {
+    let r = await call(`/api/workbench/agent/session?workItem=${workItemId}`, 'GET')
+    expect(r.body.running).toBe(false)
+    expect(claimTurn(turnKey(projectId, workItemId))).toBe(true)
+    r = await call(`/api/workbench/agent/session?workItem=${workItemId}`, 'GET')
+    expect(r.body.running).toBe(true)
+    // A projekt-szintu beszelgetes kulon zar.
+    r = await call(`/api/workbench/agent/session?project=${projectId}`, 'GET')
+    expect(r.body.running).toBe(false)
+    releaseTurn(turnKey(projectId, workItemId))
+  })
+
+  it('a bongeszo elmenetele NEM szakitja felbe a valaszt: vegigfut es a beszelgetesbe mentodik', async () => {
+    const { ctx, out } = ctxFor('/api/workbench/agent/message', 'POST', { project_id: projectId, work_item_id: workItemId, message: 'Írj hosszút' })
+    let fireClose: (() => void) | null = null
+    ;(ctx.res as any).on = (ev: string, fn: () => void) => { if (ev === 'close') fireClose = fn; return ctx.res }
+    registerAIProvider({
+      id: 'teszt', model: () => 'teszt-modell', availability: () => ({ available: true }),
+      async *stream() {
+        yield { kind: 'text', text: 'Első fele, ' } as AIChunk
+        fireClose?.() // a felhasznalo elkattintott
+        yield { kind: 'text', text: 'második fele.' } as AIChunk
+        yield { kind: 'done', model: 'teszt-modell' } as AIChunk
+      },
+    })
+    await tryHandleWorkbenchAgent(ctx)
+    // Az elmenetel utan mar nem irunk a lezart kapcsolatba...
+    expect(out.raw).not.toContain('második fele.')
+    // ...de a valasz TELJES egeszeben elkeszult es mentodott.
+    const r = await call(`/api/workbench/agent/session?workItem=${workItemId}`, 'GET')
+    expect(r.body.messages.map((m: any) => m.role)).toEqual(['user', 'assistant'])
+    expect(r.body.messages[1].content).toBe('Első fele, második fele.')
+    expect(r.body.running).toBe(false)
+  })
+
+  it('a Leallitas a SZERVEREN allitja le a valaszt, es a zar felszabadul', async () => {
+    let started!: () => void
+    const isStarted = new Promise<void>((res) => { started = res })
+    registerAIProvider({
+      id: 'teszt', model: () => 'teszt-modell', availability: () => ({ available: true }),
+      async *stream(req) {
+        yield { kind: 'text', text: 'Dolgozom...' } as AIChunk
+        started()
+        // Addig "gondolkodik", amig le nem allitjak.
+        await new Promise<void>((res) => { req.signal?.addEventListener('abort', () => res(), { once: true }) })
+      },
+    })
+    const running = call('/api/workbench/agent/message', 'POST', { project_id: projectId, work_item_id: workItemId, message: 'Hosszú munka' })
+    await isStarted
+    expect(isTurnRunning(turnKey(projectId, workItemId))).toBe(true)
+    const stop = await call('/api/workbench/agent/stop', 'POST', { project_id: projectId, work_item_id: workItemId })
+    expect(stop.status).toBe(200)
+    expect(stop.body.stopped).toBe(true)
+    await running
+    expect(isTurnRunning(turnKey(projectId, workItemId))).toBe(false)
+  })
+
+  it('Leallitas, amikor nem fut semmi: nem hiba, csak "nem volt mit"', async () => {
+    const r = await call('/api/workbench/agent/stop', 'POST', { project_id: projectId, work_item_id: null })
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ stopped: false, running: false })
+  })
+
+  it('Leallitas ismeretlen projektre: emberi 404', async () => {
+    const r = await call('/api/workbench/agent/stop', 'POST', { project_id: 'nincsilyen' })
+    expect(r.status).toBe(404)
+    expect(r.body.message).toBeTruthy()
   })
 })

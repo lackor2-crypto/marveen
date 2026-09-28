@@ -6025,6 +6025,8 @@ window._i18n.en = {
   "workbench.tool.workItem.update": "Updating a work item",
   "workbench.chat.thinking": "Thinking...",
   "workbench.chat.stopped": "You stopped the answer.",
+  "workbench.chat.queued": "Queued: it is sent by itself as soon as the previous answer is ready. No need to type it again.",
+  "workbench.chat.resumed_running": "The previous answer is still being made on the server (it keeps running even if you clicked away). I wait for it and it appears here as soon as it is ready. If you do not need it, stop it with the Stop button.",
   "workbench.chat.hello_project": "No work item is selected, but go ahead and write: the agent understands from here too, and can create the work item for you.",
   "workbench.chat.hello_item": "Tell the agent about this work item: what to change, what to produce.",
   "workbench.chat.target_project": "This conversation belongs to the project (no work item selected).",

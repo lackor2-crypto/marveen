@@ -28,6 +28,9 @@ export const MAX_WORK_ITEMS = 30
 export const MAX_FILES = 25
 export const MAX_HISTORY_TURNS = 12
 export const MAX_HISTORY_CHARS = 8_000
+/** Egy korabbi uzenetbol ennyi megy vissza a modellnek. */
+export const HISTORY_MESSAGE_MAX_CHARS = 4_000
+export const HISTORY_CUT_MARKER = '\n[... the rest of this earlier message is left out of THIS copy only, to save space. The whole text is stored and the owner saw it in the chat -- this marker is not a sign that the message broke off, so do not tell the owner it was cut off.]'
 
 export const SYSTEM_PROMPT = `You are the Workbench agent of a personal assistant system. You help the owner work on ONE project: documents, images, graphics, videos and notes ("work items").
 
@@ -153,7 +156,12 @@ export function historyMessages(rows: AgentMessageRow[]): AIMessage[] {
   let total = 0
   for (let i = tail.length - 1; i >= 0; i--) {
     const r = tail[i]
-    const c = r.content.length > 4000 ? r.content.slice(0, 4000) + '\n[...]' : r.content
+    // A jelzes kimondja, hogy CSAK itt rovidult: a puszta "[...]"-bol a modell
+    // azt hitte, a sajat valasza felbeszakadt, es ezt mondta a tulajdonosnak
+    // (2026-09-28: a 3833. karakternel kezdodo 6. pontnal "megszakadt").
+    const c = r.content.length > HISTORY_MESSAGE_MAX_CHARS
+      ? r.content.slice(0, HISTORY_MESSAGE_MAX_CHARS) + HISTORY_CUT_MARKER
+      : r.content
     if (total + c.length > MAX_HISTORY_CHARS && out.length) break
     out.unshift({ role: r.role === 'assistant' ? 'assistant' : 'user', content: c })
     total += c.length

@@ -106,6 +106,20 @@ export function validateTurn(input: TurnInput): TurnFailure | { ok: true } {
 /** Egy munkadarabhoz egyszerre egy fordulo fut. */
 const running = new Set<string>()
 export function isTurnRunning(key: string): boolean { return running.has(key) }
+/** A "fut mar" zar kulcsa: a munkadarabe, vagy munkadarab nelkul a projekte.
+ *  EGY helyen szamoljuk, hogy a teljes erteku mod, a felulet "fut-e meg"
+ *  kerdese es a Leallitas ugyanazt a zarat lassa. */
+export function turnKey(projectId: string, workItemId: string | null | undefined): string {
+  return workItemId ? `item:${workItemId}` : `project:${projectId}`
+}
+/** A zar lefoglalasa a projekt-asszisztensen KIVULI forduloknak (teljes
+ *  erteku mod). false = mar fut egy valasz. */
+export function claimTurn(key: string): boolean {
+  if (running.has(key)) return false
+  running.add(key)
+  return true
+}
+export function releaseTurn(key: string): void { running.delete(key) }
 
 /** A modell valasza tool-hivas-e. CSAK akkor, ha a TELJES valasz egy JSON
  *  objektum `tool` mezovel -- egy prozai valaszban emlitett JSON nem az. */
@@ -274,7 +288,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     return
   }
 
-  const key = workItem ? `item:${workItem.id}` : `project:${project.id}`
+  const key = turnKey(project.id, workItem?.id)
   if (running.has(key)) {
     yield { type: 'error', code: 'busy', message: msg('busy', lang) }
     return

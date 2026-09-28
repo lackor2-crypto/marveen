@@ -46,6 +46,7 @@
     chatStatusError: null,
     chatStreaming: false,
     chatAbort: null,
+    chatWatch: null,
     chatDraft: '',
     chatSetupOpen: false,
     chatSetupBusy: false,
@@ -4078,7 +4079,96 @@
       // nem torolheti le a kepernyorol a sajat mondatat es a valaszt.
       st.turns = regi.concat(st.turns)
       renderChat()
+      // Elnavigalas / ujratoltes utan (Boss, 2026-09-28): ha a valasz a
+      // szerveren meg KESZUL, azt mutatjuk es megvarjuk -- nem "semmi nem
+      // fut"-ot. Ha nem fut semmi, a kozben sorba allitott uzenet most megy el.
+      if (r.data.running && !WB.chatStreaming) enterChatWatch()
+      else flushChatQueue()
     })
+  }
+
+  // ---- a szerveren meg futo valasz figyelese -------------------------------
+  //
+  // A valasz a szerveren akkor is vegigfut, ha a felhasznalo kozben
+  // elkattintott (a bongeszo kapcsolata ilyenkor megszakad). Visszaterve a
+  // session-lekeres `running` mezoje mondja meg, hogy meg keszul; addig
+  // idonkent ujrakerdezzuk, es amint kesz, a kesz valaszt a szerverrol toltjuk be.
+  var CHAT_WATCH_MS = 3000
+
+  function chatSessionUrl() {
+    return WB.selectedId
+      ? '/api/workbench/agent/session?workItem=' + encodeURIComponent(WB.selectedId)
+      : '/api/workbench/agent/session?project=' + encodeURIComponent(WB.projectId)
+  }
+
+  function enterChatWatch() {
+    var st = chatState()
+    var placeholder = { role: 'agent', text: '', tools: [], notices: [t('workbench.chat.resumed_running')], error: null, done: false, watching: true }
+    // A keszulo valasz a sorba allitott uzenetek ELE kerul: az a korabbi kerdesre felel.
+    var at = st.turns.length
+    for (var i = 0; i < st.turns.length; i++) { if (st.turns[i].queued) { at = i; break } }
+    st.turns.splice(at, 0, placeholder)
+    WB.chatStreaming = true
+    WB.chatActivityClock = { startedAt: Date.now(), lastEventAt: Date.now() }
+    startChatActivityTicker()
+    renderChat()
+    scheduleChatWatch(chatKey())
+  }
+
+  function scheduleChatWatch(key) {
+    if (WB.chatWatch) clearTimeout(WB.chatWatch.timer)
+    WB.chatWatch = { key: key, timer: setTimeout(function () { pollChatWatch(key) }, CHAT_WATCH_MS) }
+  }
+
+  function endChatWatch() {
+    if (WB.chatWatch) clearTimeout(WB.chatWatch.timer)
+    WB.chatWatch = null
+    stopChatActivityTicker()
+    WB.chatStreaming = false
+  }
+
+  function pollChatWatch(key) {
+    if (!WB.open) { endChatWatch(); return }
+    if (chatKey() !== key) {
+      // Mas beszelgetesre valtott: ezt a figyelest elengedjuk, es a regi
+      // beszelgetes visszaterve ujratoltodik (a szerver mondja meg, mi lett).
+      var old = WB.chat[key]
+      if (old) { old.loaded = false; old.turns = old.turns.filter(function (x) { return x.queued }) }
+      endChatWatch()
+      renderChat()
+      return
+    }
+    api('GET', chatSessionUrl()).then(function (r) {
+      if (!WB.open || chatKey() !== key || !WB.chatWatch) return
+      if (!r.ok) { scheduleChatWatch(key); return } // atmeneti hiba: tovabb figyelunk
+      if (r.data && r.data.running) {
+        if (WB.chatActivityClock) WB.chatActivityClock.lastEventAt = Date.now()
+        scheduleChatWatch(key)
+        return
+      }
+      endChatWatch()
+      reloadChatHistory()
+    })
+  }
+
+  /** A naplo ujratoltese a szerverrol; a meg el nem kuldott (sorban allo)
+   *  uzenetek megmaradnak, es a betoltes utan elmennek. */
+  function reloadChatHistory() {
+    var st = chatState()
+    st.turns = st.turns.filter(function (x) { return x.queued })
+    st.loaded = false
+    st.loading = false
+    loadChatHistory()
+  }
+
+  /** A valasz kozben irt uzenet(ek) elkuldese, amint a futo valasz kesz. */
+  function flushChatQueue() {
+    if (WB.chatStreaming) return
+    var st = chatState()
+    var q = st.turns.filter(function (x) { return x.role === 'user' && x.queued })
+    if (!q.length) return
+    for (var i = 0; i < q.length; i++) q[i].queued = false
+    startChatTurn(q.map(function (x) { return x.text }).join('\n\n'))
   }
 
   function chatStatusHtml() {
@@ -4251,6 +4341,7 @@
     }
     if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
     if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
+    if (turn.queued) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.queued')) + '</div>'
     if (!body && turn.role === 'agent') {
       body = turn.done
         ? '<div class="wb-turn-notice">' + esc(t('workbench.chat.no_answer')) + '</div>'
@@ -4364,7 +4455,12 @@
       return
     }
     if (ev.type === 'notice') { turn.notices.push(ev.message || ev.code); return }
-    if (ev.type === 'error') { turn.error = ev.message || ev.code; return }
+    if (ev.type === 'error') {
+      // "Mar fut egy valasz": nem hiba a felhasznalonak -- az uzenet sorba all.
+      if (ev.code === 'busy') { turn.busy = true; return }
+      turn.error = ev.message || ev.code
+      return
+    }
     if (ev.type === 'done') { turn.done = true; turn.model = ev.model || null; turn.via = ev.via || null }
   }
 
@@ -4382,6 +4478,18 @@
     stopChatActivityTicker()
     WB.chatStreaming = false
     WB.chatAbort = null
+    if (turn.busy) {
+      // A szerveren meg fut egy korabbi valasz (pl. elkattintas utan): az
+      // uzenet NEM vesz el es NEM hibazik -- sorba all, es megvarjuk.
+      var st = chatState()
+      var at = st.turns.indexOf(turn)
+      if (at >= 0) st.turns.splice(at, 1)
+      for (var j = st.turns.length - 1; j >= 0; j--) {
+        if (st.turns[j].role === 'user') { st.turns[j].queued = true; break }
+      }
+      enterChatWatch()
+      return
+    }
     if (!turn.done) turn.done = true
     renderChat()
     // Ha az agens MUNKADARABOT hozott letre vagy valtoztatott (Boss 2. keres:
@@ -4397,10 +4505,11 @@
     }
     // A keret allapota a fordulo utan mar mas: ujramerjuk, nem emlekezetbol irjuk.
     loadChatStatus()
+    // A valasz kozben irt uzenet most megy el.
+    flushChatQueue()
   }
 
   function sendChat() {
-    if (WB.chatStreaming) return
     // A mezo TENYLEGES tartalma a forras -- az `input` esemenyre epiteni
     // onmagaban keves (beillesztes, IME, automatikus kitoltes utan elmaradhat).
     var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
@@ -4408,10 +4517,30 @@
     var text = String(WB.chatDraft || '').trim()
     if (!text) return
     var st = chatState()
+    if (WB.chatStreaming) {
+      // Valasz kozben irt uzenet (Boss, 2026-09-28: "amig fut a valasz, addig
+      // masik uzenetet nem tudok beirni?"): nem dobjuk el es nem hibazunk --
+      // sorba all, es a futo valasz utan magatol elmegy.
+      st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true })
+      WB.chatDraft = ''
+      if (el && typeof el.value === 'string') el.value = ''
+      renderChat()
+      return
+    }
     st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
+    WB.chatDraft = ''
+    if (el && typeof el.value === 'string') el.value = ''
+    startChatTurn(text)
+  }
+
+  /** Egy fordulo inditasa: a user-sor mar a naploban van. */
+  function startChatTurn(text) {
+    var st = chatState()
     var turn = { role: 'agent', text: '', tools: [], notices: [], error: null, done: false }
     st.turns.push(turn)
-    WB.chatDraft = ''
+    // A mezot NEM uritjuk itt: sorbol inditva a felhasznalo kozben mar ujat irhat.
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
+    if (el && typeof el.value === 'string') WB.chatDraft = el.value
     WB.chatStreaming = true
     WB.chatActivityClock = { startedAt: Date.now(), lastEventAt: Date.now() }
     startChatActivityTicker()
@@ -4473,8 +4602,17 @@
   }
 
   function stopChat() {
+    // A SZERVEREN is leallitjuk. Eddig csak a bongeszo olvasasa allt le, a
+    // valasz tovabb futott, es amig vegzett, minden uj uzenet "mar fut" hibat kapott.
+    if (WB.projectId) {
+      var key = chatKey()
+      api('POST', '/api/workbench/agent/stop', { project_id: WB.projectId, work_item_id: WB.selectedId || null }).then(function () {
+        // Figyelesnel azonnal ujrakerdezzuk, ne varjon a kovetkezo korig.
+        if (WB.chatWatch && WB.chatWatch.key === key) { clearTimeout(WB.chatWatch.timer); pollChatWatch(key) }
+      })
+    }
     if (WB.chatAbort && typeof WB.chatAbort.abort === 'function') WB.chatAbort.abort()
-    else { WB.chatStreaming = false; renderChat() }
+    else if (!WB.chatWatch) { WB.chatStreaming = false; renderChat() }
   }
 
   function openChatSetup() {
@@ -5686,6 +5824,9 @@
     WB.chatStatusError = null
     WB.chatStreaming = false
     WB.chatAbort = null
+    if (WB.chatWatch) clearTimeout(WB.chatWatch.timer)
+    WB.chatWatch = null
+    stopChatActivityTicker()
     WB.chatDraft = ''
     WB.chatSetupOpen = false
     WB.chatSetupBusy = false
@@ -6310,8 +6451,13 @@
     WB.chatStatus = null
     WB.chatStatusError = null
     WB.chatStreaming = false
+    // Csak a bongeszo olvasasa all le: a valasz a szerveren vegigfut es
+    // mentodik, visszaterve betoltjuk (a Leallitas gomb allitja le a szerveren).
     if (WB.chatAbort && typeof WB.chatAbort.abort === 'function') WB.chatAbort.abort()
     WB.chatAbort = null
+    if (WB.chatWatch) clearTimeout(WB.chatWatch.timer)
+    WB.chatWatch = null
+    stopChatActivityTicker()
     WB.chatDraft = ''
     WB.chatSetupOpen = false
     WB.chatSetupBusy = false

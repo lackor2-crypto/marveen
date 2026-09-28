@@ -9,7 +9,7 @@
 //   2. az uj munkadarab vegigmegy A FELULETROL (urlap -> POST -> lista);
 //   3. minden kepernyore kerulo szoveg a `t()`-n megy at (HU/EN), nincs
 //      kezzel odairt magyar mondat.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1890,5 +1890,112 @@ describe('munkadarabok kozti valtas (#359)', () => {
     h.click({ 'data-wb-item': 'w1' })
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<h3>Darab 1</h3>'))
     expect(h.rootEl.innerHTML).not.toContain('id="wbSwitch"')
+  })
+})
+
+describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 2026-09-28)', () => {
+  // Valos eset: valasz kozben atkattintott, visszajott -> "nem fut semmi", az
+  // uj uzenetre megis "mar fut egy valasz" hiba. A valasz a szerveren kozben
+  // elkeszult, de a felulet sosem toltotte be.
+  function sse(events: unknown[]): string {
+    return events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join('')
+  }
+  const STATUS = { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+  const posted = (path: string) => h.fetchCalls.filter((c) => c.url.indexOf(path) >= 0)
+
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }) })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('visszaterve a meg keszulo valasz latszik (nem "semmi nem fut"), es amint kesz, betoltodik', async () => {
+    let running = true
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        return { status: 200, body: { session: { id: 's1' }, running, toolCalls: [], messages: running
+          ? [{ role: 'user', content: 'véleményezd a tervet' }]
+          : [{ role: 'user', content: 'véleményezd a tervet' }, { role: 'assistant', content: 'KÉSZ VÉLEMÉNY' }] } }
+      }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    // Fut: az Allj gomb latszik, nem a Kuldes.
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-stop"')
+    running = false
+    await vi.advanceTimersByTimeAsync(3100)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('KÉSZ VÉLEMÉNY'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.resumed_running')
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-send"')
+  })
+
+  it('valasz kozben irt uzenet sorba all (nem hiba, nem vesz el), es a valasz utan magatol elmegy', async () => {
+    let running = true
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([{ type: 'session', sessionId: 's1' }, { type: 'text', text: 'Megkaptam a sorban állót.' }, { type: 'done', model: 'm' }]) }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    h.inputs.wbChatInput = { value: 'és még ezt is', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    expect(h.rootEl.innerHTML).toContain('és még ezt is')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.queued')
+    expect(posted('/api/workbench/agent/message')).toHaveLength(0)
+    // A mezo kiurult: a sorban allo szoveg nem marad benne (nem menne el ketszer).
+    expect(h.inputs.wbChatInput.value).toBe('')
+    running = false
+    await vi.advanceTimersByTimeAsync(3100)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Megkaptam a sorban állót.'))
+    const calls = posted('/api/workbench/agent/message')
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(String(calls[0].init?.body)).message).toBe('és még ezt is')
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.queued')
+  })
+
+  it('"mar fut egy valasz" nem piros hiba: az uzenet sorba all, megvarja a futot, es ujra elmegy', async () => {
+    let running = false
+    let posts = 0
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        posts++
+        if (posts === 1) {
+          running = true // egy korabbi valasz meg fut a szerveren
+          return { status: 200, body: sse([{ type: 'error', code: 'busy', message: 'Ehhez a munkadarabhoz már fut egy válasz.' }]) }
+        }
+        return { status: 200, body: sse([{ type: 'text', text: 'Második próbára ment.' }, { type: 'done', model: 'm' }]) }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+    h.inputs.wbChatInput = { value: 'kérdés', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.queued'))
+    expect(h.rootEl.innerHTML).not.toContain('már fut egy válasz')
+    running = false
+    await vi.advanceTimersByTimeAsync(3100)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Második próbára ment.'))
+    expect(posts).toBe(2)
+  })
+
+  it('az Allj gomb a SZERVEREN is leallit (POST /agent/stop), nem csak a bongeszoben', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/stop') >= 0) return { status: 200, body: { stopped: true, running: false } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running: true, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    h.click({ 'data-wb-act': 'chat-stop' })
+    await vi.waitFor(() => expect(posted('/api/workbench/agent/stop')).toHaveLength(1))
+    const body = JSON.parse(String(posted('/api/workbench/agent/stop')[0].init?.body))
+    expect(body).toEqual({ project_id: 'p1', work_item_id: null })
   })
 })
