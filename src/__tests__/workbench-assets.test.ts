@@ -317,6 +317,7 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
         return { status: 201, body: { ok: true, asset: { id: 'a9' }, assets: ASSETS } }
       }
       if (url.includes('/tidy')) return { status: 200, body: { ok: true, folder: 'Marvin Workbench terv', moved: [{ from: 'x', to: 'y' }], skipped: [] } }
+      if (url.includes('/api/workbench/agent/message')) return { status: 200, body: 'event: done\ndata: {"type":"done"}\n\n' }
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
       if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: ITEM, versions: [], parts: [], assets: ASSETS } }
       if (url.includes('/overview')) return { status: 200, body: { overview: null } }
@@ -356,6 +357,65 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     expect(p.filter((u) => u.includes('/items/w1/assets'))).toHaveLength(2)
     expect(p.some((u) => u.includes('/items/upload'))).toBe(false)
     expect(p.some((u) => u.includes('/parts/image'))).toBe(false)
+  })
+
+  // Boss, 2026-09-29: "csatoltam ket mellekletet, nem tortent semmi, nem tudom
+  // hol van" -- a feltoltes sikerult, de a chatben semmi nem latszott.
+  it('a csatolt fajlok a chatben, a beiro mezo felett latszanak, es a kovetkezo uzenettel az agens is megkapja oket', async () => {
+    const h = setup()
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
+    h.change('wbChatAssetUpload', [file('Passbild.png', 'image/png'), file('20260922_181305.jpg', 'image/jpeg')])
+    // Feltoltes kozben a chatben latszik az allapot.
+    expect(h.html()).toContain('workbench.chat.attached_uploading')
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.assets.done'))
+    const html = h.html()
+    expect(html).toMatch(/class="wb-attached-chip">📎 Passbild\.png/)
+    expect(html).toMatch(/class="wb-attached-chip">📎 20260922_181305\.jpg/)
+    expect(html).toContain('workbench.chat.attached_hint')
+    expect(html).toContain('data-wb-act="assets-show"')
+    // Szoveg nelkul is elkuldheto; a nevek az uzenetben mennek.
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/agent/message'))
+    const body = JSON.parse(String(call?.init?.body))
+    expect(body.work_item_id).toBe('w1')
+    expect(body.message).toContain('workbench.chat.attached_line')
+    expect(body.message).toContain('Passbild.png, 20260922_181305.jpg')
+    // Elkuldes utan a sor eltunik -- a fajlok az Anyagok kozott maradnak.
+    await vi.waitFor(() => expect(h.html()).not.toContain('wb-attached-chip'))
+  })
+
+  it('a csatolt fajlt ki lehet hagyni az uzenetbol (a fajl az anyagok kozott marad); szoveggel egyutt a szoveg utan jon', async () => {
+    const h = setup()
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
+    h.change('wbChatAssetUpload', [file('egy.pdf'), file('ketto.pdf')])
+    await vi.waitFor(() => expect(h.html()).toContain('📎 ketto.pdf'))
+    h.click({ 'data-wb-act': 'chat-attached-drop', 'data-wb-attached': '0' })
+    expect(h.html()).not.toContain('📎 egy.pdf')
+    expect(h.fetchCalls.some((c) => c.init && c.init.method === 'DELETE')).toBe(false)
+    h.inputs.wbChatInput = { value: 'nezd meg', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/agent/message'))
+    const message = JSON.parse(String(call?.init?.body)).message as string
+    expect(message.startsWith('nezd meg\n\n')).toBe(true)
+    expect(message).toContain('ketto.pdf')
+    expect(message).not.toContain('egy.pdf')
+  })
+
+  it('csatolt fajl nelkul ures uzenet nem megy el', async () => {
+    const h = setup()
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
+    expect(h.html()).not.toContain('wb-attached')
+    h.click({ 'data-wb-act': 'chat-send' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(false)
   })
 
   it('ugyanaz a tartalom: megkerdezi, es igennel `force=1`-gyel ujrakuldi', async () => {

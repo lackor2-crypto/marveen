@@ -164,6 +164,11 @@
 .wb-asset-sup-needs_processor, .wb-asset-sup-unsupported { opacity: 0.75; }
 .wb-chat-attach { cursor: pointer; }
 .wb-assets-block.wb-drop-hover, .wb-root.wb-dragging .wb-assets-block { outline: 2px dashed var(--accent, #3b82f6); outline-offset: 2px; }
+.wb-assets-block.wb-flash { outline: 2px solid var(--accent, #3b82f6); outline-offset: 2px; }
+/* A chatben csatolt fajlok a beiro mezo felett (#441). */
+.wb-attached { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.wb-attached .wb-hint { flex-basis: 100%; margin: 0; }
+.wb-attached-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 8px; border: 1px solid var(--border, #d0d7de); border-radius: 12px; font-size: 0.85rem; word-break: break-all; }
 
 /* AGENT-CHAT (3. fazis). Az `opacity` SZANDEKOSAN nincs itt: a chat nem
  * "hamarosan jon" allapotu doboz tobbe, hanem a Munkapad fo bemenete. */

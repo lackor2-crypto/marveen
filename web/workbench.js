@@ -49,6 +49,11 @@
     chatWatch: null,
     chatReconnect: null,
     chatDraft: '',
+    // A megnyitott munkadarabhoz most csatolt fajlok (#441), munkadarabonkent:
+    // a chat beiro mezoje felett latszanak, es a kovetkezo uzenettel az agens
+    // is megkapja oket. Boss, 2026-09-29: "csatoltam ket mellekletet, nem
+    // tortent semmi, nem tudom hol van".
+    chatAttached: {},
     chatSetupOpen: false,
     chatSetupBusy: false,
     chatConfig: null,
@@ -831,7 +836,7 @@
     var assetsOnly = target === 'assets'
     var projectId = WB.projectId
     var lang = encodeURIComponent(window._lang || 'hu')
-    WB.upload = { done: 0, total: files.length }
+    WB.upload = { done: 0, total: files.length, item: intoItem }
     render()
     var created = []
     var errors = []
@@ -867,7 +872,10 @@
           if (WB.upload) WB.upload.done++
           if (!r.ok) errors.push((f.name ? f.name + ': ' : '') + r.message)
           else if (r.skipped) skipped++
-          else if (asAsset) toAssets++
+          else if (asAsset) {
+            toAssets++
+            attachedList(intoItem).push({ name: (r.data && r.data.name) || f.name || '' })
+          }
           else if (!intoItem && r.data && r.data.item) created.push(r.data.item)
           if (WB.projectId === projectId) render()
         })
@@ -3998,6 +4006,59 @@
       + '<input type="file" id="wbChatAssetUpload" class="wb-file-input" multiple>'
   }
 
+  /** A munkadarabhoz most csatolt, meg el nem kuldott fajlok listaja. */
+  function attachedList(itemId) {
+    if (!WB.chatAttached[itemId]) WB.chatAttached[itemId] = []
+    return WB.chatAttached[itemId]
+  }
+
+  /** A CSATOLT FAJLOK SORA a beiro mezo felett (#441): a feltoltes allapota,
+   *  majd a fajlok nevei. Kulonben a csatolas utan a chatben semmi nem
+   *  latszott, az Anyagok doboz pedig osztott nezetben a kepernyo aljan all. */
+  function chatAttachedHtml() {
+    var id = WB.selectedId
+    if (!id || !WB.detail || archived()) return ''
+    var list = WB.chatAttached[id] || []
+    var up = WB.upload && WB.upload.item === id ? WB.upload : null
+    if (!list.length && !up) return ''
+    var chips = list.map(function (a, i) {
+      return '<span class="wb-attached-chip">📎 ' + esc(a.name)
+        + ' <button type="button" class="wb-linklike" data-wb-act="chat-attached-drop" data-wb-attached="' + i + '"'
+        + ' title="' + escA(t('workbench.chat.attached_drop_title')) + '" aria-label="' + escA(t('workbench.chat.attached_drop_title')) + '">×</button></span>'
+    }).join('')
+    return '<div class="wb-attached" role="status">'
+      + (up ? '<span class="wb-attached-chip wb-muted">' + esc(t('workbench.chat.attached_uploading', { done: up.done, total: up.total })) + '</span>' : '')
+      + chips
+      + (list.length
+        ? '<p class="wb-hint">' + esc(t('workbench.chat.attached_hint')) + ' '
+          + '<button type="button" class="wb-linklike" data-wb-act="assets-show">' + esc(t('workbench.chat.attached_show')) + '</button></p>'
+        : '')
+      + '</div>'
+  }
+
+  /** Az elkuldendo uzenet a csatolt fajlok soraval. Ha a nevekkel tul hosszu
+   *  lenne, csak a darabszam megy (a nevek az agens kontextusaban amugy is ott vannak). */
+  function withAttachedLine(text, list, max) {
+    if (!list || !list.length) return text
+    var sep = text ? '\n\n' : ''
+    var line = t('workbench.chat.attached_line', { names: list.map(function (a) { return a.name }).join(', ') })
+    if (max && (text + sep + line).length > max) line = t('workbench.chat.attached_line_count', { n: list.length })
+    return text + sep + line
+  }
+
+  /** "Megmutatom": az Anyagok doboz a kepernyon (telefonon a Kontextus fulon). */
+  function showAssetsBlock() {
+    WB.panel = 'context'
+    render()
+    var box = root() && typeof root().querySelector === 'function' ? root().querySelector('.wb-assets-block') : null
+    if (!box) return
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (box.classList) {
+      box.classList.add('wb-flash')
+      setTimeout(function () { if (box.classList) box.classList.remove('wb-flash') }, 2000)
+    }
+  }
+
   function assetSupportLabel(sup) {
     return t('workbench.assets.support.' + (sup || 'usable'))
   }
@@ -4563,6 +4624,7 @@
       + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
       + chatToolsHtml()
       + chatActivityHtml()
+      + chatAttachedHtml()
       + '<div class="wb-chat-row">'
       + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
       + escA(t('workbench.chat.placeholder')) + '">' + esc(WB.chatDraft) + '</textarea>'
@@ -4715,7 +4777,14 @@
     var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
     if (el && typeof el.value === 'string') WB.chatDraft = el.value
     var text = String(WB.chatDraft || '').trim()
-    if (!text) return
+    // A csatolt fajlok a kovetkezo uzenettel mennek (#441); szoveg nelkul is
+    // elkuldhetok, ahogy a szokasos chatekben.
+    var attached = WB.selectedId ? (WB.chatAttached[WB.selectedId] || []) : []
+    if (!text && !attached.length) return
+    if (attached.length) {
+      text = withAttachedLine(text, attached, (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000)
+      WB.chatAttached[WB.selectedId] = []
+    }
     var st = chatState()
     if (WB.chatStreaming) {
       // Valasz kozben irt uzenet (Boss, 2026-09-28: "amig fut a valasz, addig
@@ -6321,6 +6390,13 @@
     else if (a === 'version-new') newVersion()
     else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
     else if (a === 'asset-tidy') tidyItemFolder()
+    else if (a === 'assets-show') showAssetsBlock()
+    else if (a === 'chat-attached-drop') {
+      // Csak az uzenetbol marad ki -- a fajl az Anyagok kozott marad.
+      var dropList = WB.selectedId ? WB.chatAttached[WB.selectedId] : null
+      var dropAt = Number(act.getAttribute('data-wb-attached'))
+      if (dropList && dropAt >= 0 && dropAt < dropList.length) { dropList.splice(dropAt, 1); renderChat() }
+    }
     else if (a === 'item-rename') renameItem()
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
