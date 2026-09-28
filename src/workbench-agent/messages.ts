@@ -73,8 +73,8 @@ export const MESSAGES = {
     en: 'The task was cancelled before the full agent finished.',
   },
   code_bridge_timeout: {
-    hu: 'A teljes értékű ügynök még nem végzett, ezért itt most nem várok tovább (feladat {id}). A munka a háttérben folytatódhat -- a Kód-híd nézetben követheted.',
-    en: 'The full agent has not finished yet, so I stop waiting here (task {id}). The work may continue in the background -- follow it in the Code Bridge view.',
+    hu: 'A teljes értékű ügynök még dolgozik (feladat {id}). Amint végez, a válasza ide érkezik; addig az új üzeneteid sorba állnak, és utána mennek tovább.',
+    en: 'The full agent is still working (task {id}). Its answer will arrive here as soon as it finishes; until then your new messages wait in the queue and go on afterwards.',
   },
   code_bridge_lost: {
     hu: 'A feladatot nem találom többé a sorban. Próbáld újra elküldeni az üzenetet.',

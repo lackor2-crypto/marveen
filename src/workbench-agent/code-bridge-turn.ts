@@ -263,9 +263,11 @@ export async function* runCodeBridgeTurn(
       const m = msg('code_bridge_timeout', input.lang, { id: enq.id })
       record('system', m)
       void followInBackground(enq.id, deps, input.lang, record)
-      yield { type: 'tool', name: 'code-bridge', status: 'ok' }
+      // NEM mondjuk kesznek (Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz
+      // ha meg nincs keszen"): se zold pipa, se `done`. A folyam `done` nelkul
+      // zarul, a felulet a szervert kerdezi, ami a meg futo feladat miatt
+      // "fut"-ot mond -- a chat figyel tovabb, az uj uzenet sorba all.
       yield { type: 'notice', code: 'code_bridge_timeout', message: m }
-      yield { type: 'done', model: null }
       return
     }
 

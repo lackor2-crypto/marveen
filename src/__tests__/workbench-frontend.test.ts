@@ -2076,6 +2076,33 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     expect(h.rootEl.innerHTML).not.toContain('workbench.chat.stream_ended')
   })
 
+  // Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz ha meg nincs keszen".
+  // A kod-hid feladat a chat varakozasa utan a hatterben dolgozik tovabb: a
+  // folyam `done` nelkul zarul, es a chat NEM kesz, NEM "megszakadt" -- tovabb
+  // figyel, amig a szerver "fut"-ot mond.
+  it('a hatterben tovabb dolgozo kod-hid feladatnal a chat tovabb figyel (nem kesz, nem megszakadt)', async () => {
+    const frames = sse([
+      { type: 'session', sessionId: 's1' },
+      { type: 'tool', name: 'code-bridge', status: 'running' },
+      { type: 'notice', code: 'code_bridge_timeout', message: 'MÉG DOLGOZIK' },
+    ])
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 200, body: frames }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running: true, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+    h.inputs.wbChatInput = { value: 'dolgozz sokat', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.stream_ended')
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.stream_lost')
+    // Amig fut, a Kuldes sorba allit (nem uj kerest indit).
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.send_queue')
+  })
+
   it('valasz kozben irt uzenet sorba all (nem hiba, nem vesz el), es a valasz utan magatol elmegy', async () => {
     let running = true
     h.respond((url) => {

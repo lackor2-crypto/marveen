@@ -106,7 +106,10 @@ describe('runCodeBridgeTurn -- Munkapad chat a kod-hidon (#433, B opcio)', () =>
     expect(evs.at(-1)).toMatchObject({ type: 'done' })
   })
 
-  it('idotullepes: sokaig fut -> timeout notice + done (a hattérnek engedjuk)', async () => {
+  // Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz ha meg nincs keszen".
+  // A varakozas lejarta NEM kesz: se zold pipa, se `done` -- a felulet a
+  // szervert kerdezi, ami a meg futo feladat miatt "fut"-ot mond.
+  it('idotullepes: sokaig fut -> timeout notice, de NEM kesz (se done, se ok-pipa)', async () => {
     const clock = fakeClock(60_000) // minden poll +1 perc
     const tasks = fakeTasks([task('running')]) // sosem fejezodik be
     const evs = await collect(runCodeBridgeTurn(baseInput, {
@@ -114,7 +117,8 @@ describe('runCodeBridgeTurn -- Munkapad chat a kod-hidon (#433, B opcio)', () =>
       pollMs: 1, timeoutMs: 5 * 60_000,
     }))
     expect(evs.some((e) => e.type === 'notice' && (e as { code: string }).code === 'code_bridge_timeout')).toBe(true)
-    expect(evs.at(-1)).toMatchObject({ type: 'done' })
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+    expect(evs.some((e) => e.type === 'tool' && (e as { status: string }).status === 'ok')).toBe(false)
   })
 
   it('elveszett feladat: getTask null futas kozben -> error, nem vegtelen ciklus', async () => {

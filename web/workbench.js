@@ -4692,7 +4692,13 @@
       if (ev.status === 'ok' && String(ev.name || '').indexOf('workItem.') === 0) scheduleLiveRefresh()
       return
     }
-    if (ev.type === 'notice') { turn.notices.push(ev.message || ev.code); return }
+    if (ev.type === 'notice') {
+      turn.notices.push(ev.message || ev.code)
+      // A kod-hid feladat a hatterben dolgozik tovabb: a folyam `done` nelkul
+      // zarul, de ez nem megszakadt kapcsolat -- lasd `endChatStream`.
+      if (ev.code === 'code_bridge_timeout') turn.background = true
+      return
+    }
     if (ev.type === 'error') {
       // "Mar fut egy valasz": nem hiba a felhasznalonak -- az uzenet sorba all.
       if (ev.code === 'busy') { turn.busy = true; return }
@@ -4721,14 +4727,16 @@
    *  valasszal, ugyanazon az uton, mint egy megszakadt kapcsolatnal. */
   function endChatStream(turn) {
     if (turn.done || turn.error || turn.busy) { finishChatTurn(turn); return }
-    recoverChatTurn(turn, t('workbench.chat.stream_ended'), 0, 'workbench.chat.stream_lost')
+    // A valasz a hatterben keszul tovabb (#434): nem "megszakadt a kapcsolat",
+    // csak a szervert kerdezzuk -- az "fut"-ot mond, es a chat figyel tovabb.
+    recoverChatTurn(turn, turn.background ? null : t('workbench.chat.stream_ended'), 0, 'workbench.chat.stream_lost')
   }
 
   /** A megszakadt fordulo sorsat a szerver donti el (meg fut / elkeszult es
    *  mentve / elveszett) -- lasd `reconnectChat`. */
   function recoverChatTurn(turn, notice, delay, lostKey) {
     WB.chatAbort = null
-    turn.notices.push(notice)
+    if (notice) turn.notices.push(notice)
     renderChat()
     // `lostKey`: mit mondjunk, ha a szerveren sincs meg a valasz. Az okot nem
     // talalgatjuk -- a sima lezarulasnal nem allitjuk, hogy ujraindult volna.
