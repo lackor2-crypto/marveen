@@ -14,7 +14,10 @@
  * onmagaban teszthelheto legyen; a hivo adja be a mert allapotot.
  */
 
-export type WorkbenchBackend = 'code-bridge' | 'workbench-agent'
+/** `live-session` (#434, C opcio): allo, helyi Claude Code folyamat, elo
+ *  valasszal -- a teljes mod elso valasztasa, ha a gepen van `claude` CLI
+ *  es bejelentkezett fiok. A kod-hid ilyenkor csak tartalek. */
+export type WorkbenchBackend = 'live-session' | 'code-bridge' | 'workbench-agent'
 
 export type BackendReason =
   /** A teljes erteku mod fut: van online worker es be van kapcsolva. */
@@ -36,6 +39,12 @@ export interface BackendDecisionInput {
    * A hivo a `codeBridgeHealth().workerOnline`-t adja be -- SOSE beegetve.
    */
   workerOnline: boolean
+  /**
+   * Indithato-e helyben az allo munkamenet: van `claude` CLI a PATH-on ES
+   * bejelentkezett Claude-fiok. A hivo meri -- SOSE beegetve. Hianyzo mezo =
+   * false (a regi hivok viselkedese valtozatlan).
+   */
+  liveAvailable?: boolean
 }
 
 export interface BackendDecision {
@@ -55,6 +64,9 @@ export interface BackendDecision {
 export function decideWorkbenchBackend(input: BackendDecisionInput): BackendDecision {
   if (!input.fullAgentEnabled) {
     return { backend: 'workbench-agent', reason: 'disabled', needsWorkerSetup: false }
+  }
+  if (input.liveAvailable) {
+    return { backend: 'live-session', reason: 'ok', needsWorkerSetup: false }
   }
   if (!input.workerOnline) {
     return { backend: 'workbench-agent', reason: 'no_worker', needsWorkerSetup: true }

@@ -33,6 +33,12 @@ export const MESSAGES = {
     en: 'This request took many steps (for example paging through a long file) and I hit the step budget before I could write the final answer. Ask something narrower (e.g. one section), or ask for just the essentials, and it will fit in one turn.',
   },
 
+  // --- allo, elo munkamenet (#434, C opcio) ---------------------------------
+  live_session_failed: {
+    hu: 'A teljes értékű ügynök munkamenete megszakadt: {detail}. Írd újra az üzeneted -- a beszélgetés folytatódik.',
+    en: 'The full agent session stopped: {detail}. Send your message again -- the conversation continues.',
+  },
+
   // --- teljes erteku agent a kod-hidon (#433, B opcio) ---------------------
   code_bridge_handed_off: {
     hu: 'Átadtam a teljes értékű ügynöknek (feladat {id}). Dolgozik rajta, a válasza itt jelenik meg, amint kész. A részletes lépések a Kód-híd nézetben is látszanak.',

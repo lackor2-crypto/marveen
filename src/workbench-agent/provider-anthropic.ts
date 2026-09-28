@@ -37,7 +37,7 @@ import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from '
 const CALL_TIMEOUT_MS = 180_000
 
 /** Amit egy CLI-hivas kornyezetebol kiveszunk (fizetos/idegen vegpont ellen). */
-const STRIPPED_ENV = [
+export const STRIPPED_ENV = [
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'OPENROUTER_API_KEY',
