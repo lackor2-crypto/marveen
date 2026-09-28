@@ -145,6 +145,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/free-agent-read-only.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/free-agent-read-only.py; exit 0'",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
