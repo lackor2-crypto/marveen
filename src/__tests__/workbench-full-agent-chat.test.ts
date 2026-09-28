@@ -8,6 +8,9 @@ import { Readable } from 'node:stream'
 
 const enqueued: { project: string; prompt: string; origin?: string; chatId?: string | null }[] = []
 let workerOnline = true
+/** Melyik beszelgetesen dolgozik meg egy korabbi kod-hid feladat (a hatterben). */
+let bgChatId: string | null = null
+const cancelledIds: string[] = []
 let taskState: { status: string; result: string | null; summary: string | null; error: string | null } = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
 
 vi.mock('../settings-store.js', async (orig) => {
@@ -21,7 +24,8 @@ vi.mock('../web/code-bridge-store.js', async (orig) => {
     codeBridgeHealth: () => ({ workerOnline }) as unknown as ReturnType<typeof actual.codeBridgeHealth>,
     enqueueCodeTask: (i: { project: string; prompt: string; origin?: string; chatId?: string | null }) => { enqueued.push({ project: i.project, prompt: i.prompt, origin: i.origin, chatId: i.chatId }); return { task: { id: 'task-1' } } },
     getCodeTask: () => ({ id: 'task-1', ...taskState }),
-    cancelCodeTask: () => null,
+    cancelCodeTask: (id: string) => { cancelledIds.push(id); return null },
+    activeWorkbenchTaskForChat: (chatId: string) => (bgChatId === chatId ? { id: 'bg-1', status: 'running' } : null),
   }
 })
 
@@ -56,6 +60,19 @@ async function post(path: string, body: unknown): Promise<{ status: number; raw:
   return out
 }
 
+async function get(path: string): Promise<any> {
+  let raw = ''
+  const res: any = {
+    writeHead() { return res }, setHeader() { return res }, on() { return res },
+    write(c: string) { raw += c; return true }, end(c?: string) { if (c) raw += c },
+  }
+  const req: any = Readable.from([])
+  req.headers = {}
+  const url = new URL(`http://localhost:3420${path}`)
+  await tryHandleWorkbenchAgent({ req, res, path: url.pathname, method: 'GET', url, auth: { kind: 'session', user: 'teszt' } } as unknown as RouteContext)
+  return JSON.parse(raw)
+}
+
 let projectId = ''
 let workItemId = ''
 
@@ -68,6 +85,8 @@ beforeEach(() => {
   // indulhat -- kulonben egy valodi `claude` folyamat futna a teszt alatt.
   setWorkbenchLiveResolverForTest(() => null)
   enqueued.length = 0
+  bgChatId = null
+  cancelledIds.length = 0
   workerOnline = true
   resetWorkbenchBridgeLimitForTest()
   taskState = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
@@ -182,6 +201,32 @@ process.stdin.on('data', (d) => {
   }
 })
 `
+
+// Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz ha meg nincs keszen", es
+// "ha dolgozik akkor is kellene vennie az uj utasitasokat, csak varakozoba
+// kellene tennie". Valos eset: a chat 14,5 perc utan "kesz"-nek mutatta a meg
+// futo kod-hid feladatot, a kovetkezo uzenetet pedig a kartya-or elutasitotta.
+describe('#434: a hatterben meg dolgozo kod-hid feladat', () => {
+  it('a beszelgetes "fut"-nak latszik, amig a feladat nem zarult le', async () => {
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    expect((await get(`/api/workbench/agent/session?workItem=${workItemId}`)).running).toBe(false)
+    bgChatId = session.id
+    expect((await get(`/api/workbench/agent/session?workItem=${workItemId}`)).running).toBe(true)
+  })
+
+  it('az uj uzenet nem indit masodik feladatot es nem hibazik: `busy` -> a felulet sorba allitja', async () => {
+    bgChatId = openSessionForWorkItem(projectId, workItemId, 'hu').id
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'és még ezt is' })
+    expect(r.raw).toContain('"code":"busy"')
+    expect(enqueued).toHaveLength(0)
+  })
+
+  it('a Leallitas a hatterben dolgozo feladatot is lezarja', async () => {
+    bgChatId = openSessionForWorkItem(projectId, workItemId, 'hu').id
+    await post('/api/workbench/agent/stop', { project_id: projectId, work_item_id: workItemId })
+    expect(cancelledIds).toEqual(['bg-1'])
+  })
+})
 
 describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
   // Itt nincs online kod-hid: a helyi munkamenet az elso ut.

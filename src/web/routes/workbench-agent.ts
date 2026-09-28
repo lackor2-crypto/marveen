@@ -33,7 +33,7 @@ import { runCodeBridgeTurn, buildCodeBridgePrompt } from '../../workbench-agent/
 import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
 import { loggedInConfigDir, STRIPPED_ENV } from '../../workbench-agent/provider-anthropic.js'
 import { tryResolveFromPath } from '../../platform.js'
-import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask } from '../code-bridge-store.js'
+import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
 import {
   ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
@@ -163,6 +163,18 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
 /** A kod-hidas (teljes erteku) fordulo ennyit var a chatben; utana a hatterben
  *  figyeli tovabb, es a kesve erkezo valasz is a beszelgetesbe kerul. */
 const CODE_BRIDGE_CHAT_WAIT_MS = TURN_MAX_MS - 30_000
+
+/**
+ * Van-e meg dolgozo kod-hid feladat ezen a beszelgetesen (#434). A chat a
+ * kod-hid valaszat csak egy ideig varja kozvetlenul; utana a feladat tovabb fut
+ * a hatterben. Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz ha meg nincs
+ * keszen", es "ha dolgozik akkor is kellene vennie az uj utasitasokat, csak
+ * varakozoba kellene tennie" -- ezert amig a feladat nem zarult le, a
+ * beszelgetes "fut", az uj uzenet pedig sorba all (nem utasitjuk el).
+ */
+function bridgeStillWorking(sessionId: string): boolean {
+  return !!activeWorkbenchTaskForChat(sessionId)
+}
 /** Ilyen suruen megy egy SSE-megjegyzes a csendes chat-kapcsolaton. */
 export const SSE_PING_MS = 15_000
 
@@ -319,7 +331,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         toolCalls: listToolCalls(session.id),
         // Elnavigalas utan visszaterve a felulet ebbol tudja, hogy a valasz
         // meg KESZUL a szerveren (es megvarja), nem pedig elveszett.
-        running: isTurnRunning(turnKey(project.id, null)),
+        running: isTurnRunning(turnKey(project.id, null)) || bridgeStillWorking(session.id),
       })
       return true
     }
@@ -332,7 +344,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       session,
       messages: listAgentMessages(session.id),
       toolCalls: listToolCalls(session.id),
-      running: isTurnRunning(turnKey(item.project_id, item.id)),
+      running: isTurnRunning(turnKey(item.project_id, item.id)) || bridgeStillWorking(session.id),
     })
     return true
   }
@@ -352,7 +364,15 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const ac = turnControllers.get(key)
     if (ac) ac.abort()
     const liveStopped = livePool ? livePool.stop(key) : false
-    json(res, { stopped: !!ac || liveStopped, running: isTurnRunning(key) })
+    // A mar csak a hatterben dolgozo kod-hid feladatot is lezarjuk: a
+    // Leallitas azt allitja meg, amit a chat "fut"-nak mutat.
+    const stopSession = openSessionForWorkItem(project.id, workItemId ?? projectSessionKey(project.id), lang)
+    const bgTask = activeWorkbenchTaskForChat(stopSession.id)
+    if (bgTask) { try { cancelCodeTask(bgTask.id) } catch { /* a lezaras hibaja nem uj hiba */ } }
+    json(res, {
+      stopped: !!ac || liveStopped || !!bgTask,
+      running: isTurnRunning(key) || bridgeStillWorking(stopSession.id),
+    })
     return true
   }
 
@@ -504,7 +524,13 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     }
 
     try {
-      if (decision.backend === 'live-session' && liveSpec) {
+      const chatSession = openSessionForWorkItem(project.id, workItemId ?? projectSessionKey(project.id), lang)
+      if (bridgeStillWorking(chatSession.id)) {
+        // Az elozo uzenet kod-hid feladata meg dolgozik: az uj uzenet nem
+        // indit masodik vegrehajtot (es nem is utasitjuk el) -- a felulet a
+        // `busy`-bol sorba allitja, es a feladat vegen magatol elkuldi.
+        send('error', { type: 'error', code: 'busy', message: msg('busy', lang) })
+      } else if (decision.backend === 'live-session' && liveSpec) {
         if (!claimTurn(key)) {
           send('error', { type: 'error', code: 'busy', message: msg('busy', lang) })
         } else {

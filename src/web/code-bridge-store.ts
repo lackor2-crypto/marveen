@@ -993,6 +993,28 @@ export function getCodeTask(id: string): CodeTask | null {
   return row ? rowToTask(row) : null
 }
 
+/**
+ * The Workbench chat task that is still unfinished (queued or running) for one
+ * chat session, if any. The chat counts it as "still working": the Workbench
+ * shows the running state and queues new messages instead of reporting done.
+ */
+export function activeWorkbenchTaskForChat(chatId: string): CodeTask | null {
+  ensureTables()
+  let row: Record<string, unknown> | undefined
+  try {
+    row = getDb().prepare(
+      `SELECT * FROM code_tasks WHERE origin = 'workbench' AND chat_id = ? AND status IN ('queued', 'running')
+       ORDER BY created_at DESC LIMIT 1`,
+    ).get(chatId) as Record<string, unknown> | undefined
+  } catch (e) {
+    // A database swapped under the cached `ensured` flag (tests re-open an
+    // in-memory DB) has no code_tasks table yet: then no task was ever queued.
+    if (e instanceof Error && /no such table: code_tasks/.test(e.message)) return null
+    throw e
+  }
+  return row ? rowToTask(row) : null
+}
+
 /** Accepts the short id prefix the notification shows (first 8 chars). */
 export function getCodeTaskByPrefix(prefix: string): CodeTask | null {
   ensureTables()
