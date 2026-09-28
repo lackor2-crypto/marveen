@@ -192,13 +192,21 @@ const norm = (t: unknown) => String(t ?? '').split(/\s+/).filter(Boolean).join('
  * minus anything that also went out as a real Telegram reply in the same span
  * (the owner would otherwise get the same paragraph twice).
  */
-export function extractThoughts(jsonlLines: string[], lang: Lang = 'hu'): string[] {
+export function extractThoughts(jsonlLines: string[], lang: Lang = 'hu', sinceMs?: number): string[] {
   const out: string[] = []
   const sent: string[] = []
   for (const line of jsonlLines) {
     let d: any
     try { d = JSON.parse(line) } catch { continue }
     if (!d || d.type !== 'assistant') continue
+    // Text written before the owner's current turn began is history, not
+    // progress. The transcript is only read while a placeholder is out, so
+    // text from an idle stretch piles up unread and would otherwise go out
+    // with the NEXT message, hours late (owner, kanban #437).
+    if (sinceMs !== undefined) {
+      const ts = Date.parse(String(d.timestamp ?? ''))
+      if (!Number.isFinite(ts) || ts < sinceMs) continue
+    }
     const content = d.message?.content
     if (!Array.isArray(content)) continue
     for (const c of content) {

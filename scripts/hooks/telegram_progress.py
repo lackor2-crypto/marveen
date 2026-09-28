@@ -236,7 +236,11 @@ def main():
             resp = api(tok, "sendMessage", {"chat_id": chat_id, "text": placeholder, "disable_notification": True})
             pmid = resp.get("result", {}).get("message_id")
             if pmid:
-                entry = {"chat_id": chat_id, "message_id": pmid}
+                # created_at (epoch ms): the progress mirror only forwards
+                # transcript text written after this turn's placeholder, so a
+                # paragraph from an earlier, idle stretch is never sent late
+                # as fresh news (kanban #437).
+                entry = {"chat_id": chat_id, "message_id": pmid, "created_at": int(time.time() * 1000)}
                 if transcript_path:
                     entry["transcript_path"] = transcript_path
                 pending.append(entry)
