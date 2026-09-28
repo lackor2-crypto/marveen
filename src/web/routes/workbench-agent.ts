@@ -77,6 +77,14 @@ export function setWorkbenchLivePoolForTest(p: LiveSessionPool | null): void {
   livePool = p
 }
 
+/** Meddig nem a kod-hid az elso valasztas, mert a fiokja limitbe futott
+ *  (#434). Utana ujra probaljuk: a limit lejarhat, vagy a VS Code-ban mas
+ *  fiokkal jelentkeztek be. */
+let bridgeLimitedUntil = 0
+const BRIDGE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000
+/** Csak teszthez: a kod-hid limit-emlekenek torlese. */
+export function resetWorkbenchBridgeLimitForTest(): void { bridgeLimitedUntil = 0 }
+
 /** `skip`: a fordulo alatt mar limitbe futott fiokok config-konyvtarai (#434). */
 type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>) => LiveStartSpec | null
 let liveResolver: LiveResolver = (k, f, a, x) => liveSpecFor(k, f, a, x)
@@ -408,13 +416,17 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // sessionhoz iranyitunk; ha be van kapcsolva, de nincs worker, a chat NEM
     // hal meg: setup-jelzest kuldunk, es tovabb fut a megszokott asszisztens.
     const fullAgentEnabled = String(getEffectiveSettingValue('WORKBENCH_FULL_AGENT')) === '1'
-    // #434 (C opcio): a teljes mod elso utja az allo, helyi munkamenet.
+    // #434 (C opcio): az allo, helyi munkamenet -- elso ut, ha nincs online
+    // kod-hid, ha a kod-hid fiokja kimerult, vagy ha fiokot valasztottak.
     const liveFolder = fullAgentEnabled ? projectFileTarget(project, '') : null
     const liveSpec = fullAgentEnabled
       ? liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account)
       : null
-    const workerOnline = fullAgentEnabled && !liveSpec ? codeBridgeHealth().workerOnline : false
-    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline, liveAvailable: !!liveSpec })
+    const workerOnline = fullAgentEnabled ? codeBridgeHealth().workerOnline : false
+    // Boss (2026-09-28): ha van online kod-hid, az valaszoljon (a VS Code
+    // rendszere); kifejezetten valasztott fioknal a helyi munkamenet fut.
+    const bridgeFirst = !account && Date.now() >= bridgeLimitedUntil
+    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline, liveAvailable: !!liveSpec, bridgeFirst })
 
     // A csendes kapcsolat eletben tartasa (#433): a kod-hidas fordulo percekig
     // nem kuld semmit (csak az elejen es a vegen), es egy kozbeeso proxy vagy
@@ -425,6 +437,61 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       try { res.write(': ping\n\n') } catch { clientGone = true }
     }, SSE_PING_MS)
 
+    // Az allo, helyi munkamenet egy fordulója (#434). `prior`: a kod-hid
+    // fordulo elotti elozmeny -- a kerdest (es a limit-sort) a kod-hid mar
+    // beirta, igy az nem kerul be masodszor sem a naploba, sem a promptba.
+    const runLive = async (first: LiveStartSpec, prior?: ReturnType<typeof listAgentMessages>): Promise<void> => {
+      const item = workItemId ? getWorkItem(workItemId) : null
+      const session = item
+        ? openSessionForWorkItem(project.id, item.id, lang)
+        : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
+      send('session', { type: 'session', sessionId: session.id })
+      // Az elozmeny a mentes ELOTT keszul, kulonben az uj uzenet ketszer
+      // allna a promptban.
+      const history = prior ?? listAgentMessages(session.id)
+      const text = input.message.trim()
+      if (!prior) addAgentMessage(session.id, 'user', text)
+      let answer = ''
+      let failed = ''
+      // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
+      // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
+      // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
+      const limited = new Set<string>()
+      let spec: LiveStartSpec | null = first
+      while (spec) {
+        const cur: LiveStartSpec = spec
+        spec = null
+        for await (const ev of getLivePool().turn(
+          cur,
+          (fresh) => fresh
+            ? liveInstallNote() + buildCodeBridgePrompt({
+              projectName: project.name || project.id,
+              projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
+              workItem: item ? { title: item.title, type: item.type } : null,
+              history,
+              message: text,
+              lang,
+            })
+            : text,
+          lang,
+          ac.signal,
+        )) {
+          if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
+            limited.add(cur.configDir)
+            const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)
+            if (next && !limited.has(next.configDir)) { spec = next; break }
+          }
+          if (ev.type === 'text') answer += ev.text
+          if (ev.type === 'error') failed = ev.message
+          // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
+          // beszelgetesbe kerul, nem szakad felbe.
+          send(ev.type, ev)
+        }
+      }
+      if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
+      if (failed) addAgentMessage(session.id, 'system', failed)
+    }
+
     try {
       if (decision.backend === 'live-session' && liveSpec) {
         if (!claimTurn(key)) {
@@ -433,55 +500,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
           clearTimeout(turnCap)
           turnCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
           try {
-            const item = workItemId ? getWorkItem(workItemId) : null
-            const session = item
-              ? openSessionForWorkItem(project.id, item.id, lang)
-              : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
-            send('session', { type: 'session', sessionId: session.id })
-            // Az elozmeny a mentes ELOTT keszul, kulonben az uj uzenet ketszer
-            // allna a promptban.
-            const history = listAgentMessages(session.id)
-            const text = input.message.trim()
-            addAgentMessage(session.id, 'user', text)
-            let answer = ''
-            let failed = ''
-            // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
-            // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
-            // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
-            const limited = new Set<string>()
-            let spec: LiveStartSpec | null = liveSpec
-            while (spec) {
-              const cur: LiveStartSpec = spec
-              spec = null
-              for await (const ev of getLivePool().turn(
-                cur,
-                (fresh) => fresh
-                  ? liveInstallNote() + buildCodeBridgePrompt({
-                    projectName: project.name || project.id,
-                    projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
-                    workItem: item ? { title: item.title, type: item.type } : null,
-                    history,
-                    message: text,
-                    lang,
-                  })
-                  : text,
-                lang,
-                ac.signal,
-              )) {
-                if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
-                  limited.add(cur.configDir)
-                  const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)
-                  if (next && !limited.has(next.configDir)) { spec = next; break }
-                }
-                if (ev.type === 'text') answer += ev.text
-                if (ev.type === 'error') failed = ev.message
-                // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
-                // beszelgetesbe kerul, nem szakad felbe.
-                send(ev.type, ev)
-              }
-            }
-            if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
-            if (failed) addAgentMessage(session.id, 'system', failed)
+            await runLive(liveSpec)
           } finally {
             releaseTurn(key)
           }
@@ -498,13 +517,15 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               ? openSessionForWorkItem(project.id, item.id, lang)
               : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
             send('session', { type: 'session', sessionId: session.id })
+            let liveFallback: LiveStartSpec | null = null
             const turnStartSec = Math.floor(Date.now() / 1000)
             const folder = projectFileTarget(project, '')
+            const history = listAgentMessages(session.id)
             const prompt = buildCodeBridgePrompt({
               projectName: project.name || project.id,
               projectFolder: folder.ok ? folder.dirAbs : null,
               workItem: item ? { title: item.title, type: item.type } : null,
-              history: listAgentMessages(session.id),
+              history,
               message: input.message.trim(),
               lang,
             })
@@ -544,9 +565,25 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 cancel: (id) => { cancelCodeTask(id) },
               },
             )) {
+              // A kod-hid fiokja kimerult (#434): automatikus fioknal a helyi
+              // munkamenet folytatja egy masik fiokkal, ugyanebben a fordulóban;
+              // egy ideig a kovetkezo uzenetek is egyenesen oda mennek.
+              if (ev.type === 'error' && ev.code === 'code_bridge_limit') {
+                bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
+                const fallback = !account && !ac.signal.aborted
+                  ? liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account)
+                  : null
+                if (fallback) { liveFallback = fallback; break }
+              }
               // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
               // beszelgetesbe kerul, nem szakad felbe.
               send(ev.type, ev)
+            }
+            if (liveFallback) {
+              send('notice', { type: 'notice', code: 'code_bridge_limit_fallback', message: msg('code_bridge_limit_fallback', lang) })
+              clearTimeout(turnCap)
+              turnCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
+              await runLive(liveFallback, history)
             }
           } finally {
             releaseTurn(key)

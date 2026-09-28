@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable } from 'node:stream'
 
 const enqueued: { project: string; prompt: string; origin?: string; chatId?: string | null }[] = []
+let workerOnline = true
 let taskState: { status: string; result: string | null; summary: string | null; error: string | null } = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
 
 vi.mock('../settings-store.js', async (orig) => {
@@ -17,7 +18,7 @@ vi.mock('../web/code-bridge-store.js', async (orig) => {
   const actual = await orig<typeof import('../web/code-bridge-store.js')>()
   return {
     ...actual,
-    codeBridgeHealth: () => ({ workerOnline: true }) as unknown as ReturnType<typeof actual.codeBridgeHealth>,
+    codeBridgeHealth: () => ({ workerOnline }) as unknown as ReturnType<typeof actual.codeBridgeHealth>,
     enqueueCodeTask: (i: { project: string; prompt: string; origin?: string; chatId?: string | null }) => { enqueued.push({ project: i.project, prompt: i.prompt, origin: i.origin, chatId: i.chatId }); return { task: { id: 'task-1' } } },
     getCodeTask: () => ({ id: 'task-1', ...taskState }),
     cancelCodeTask: () => null,
@@ -31,7 +32,7 @@ import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } f
 import { openSessionForWorkItem, addAgentMessage, listAgentMessages } from '../workbench-agent/sessions.js'
 import { resetWorkbenchAgentForTest } from '../workbench-agent/index.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
-import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest } from '../web/routes/workbench-agent.js'
+import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest, resetWorkbenchBridgeLimitForTest } from '../web/routes/workbench-agent.js'
 import { LiveSessionPool, type SavedSession } from '../workbench-agent/live-session.js'
 import { spawn } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -67,6 +68,8 @@ beforeEach(() => {
   // indulhat -- kulonben egy valodi `claude` folyamat futna a teszt alatt.
   setWorkbenchLiveResolverForTest(() => null)
   enqueued.length = 0
+  workerOnline = true
+  resetWorkbenchBridgeLimitForTest()
   taskState = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
   const p = createProject({ name: 'Iroda fejlesztese' })
   if (!p.ok) throw new Error('projekt')
@@ -181,6 +184,8 @@ process.stdin.on('data', (d) => {
 `
 
 describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
+  // Itt nincs online kod-hid: a helyi munkamenet az elso ut.
+  beforeEach(() => { workerOnline = false })
   it('ket uzenet EGY folyamatba megy, elo esemenyekkel; az elozmeny csak az elsoben, a valasz a beszelgetesbe kerul', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wb-live-'))
     const script = join(dir, 'fake-claude.cjs')
@@ -264,3 +269,68 @@ process.stdin.on('data', (d) => {
   }
 })
 `
+
+describe('#434: online kod-hid az elso, a helyi munkamenet csak tartalek (Boss, 2026-09-28)', () => {
+  function livePool(dir: string, onSpawn: () => void): LiveSessionPool {
+    const script = join(dir, 'fake-claude.cjs')
+    writeFileSync(script, FAKE_CLI)
+    const pool = new LiveSessionPool({
+      spawn: (s) => { onSpawn(); return spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }) },
+      now: () => Date.now(),
+      loadIds: () => ({}),
+      saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg-other', cwd: dir, env: process.env, baseArgs: [script] }))
+    return pool
+  }
+
+  it('van online kod-hid ES helyi fiok is -> a kod-hid (VS Code) valaszol', async () => {
+    let spawns = 0
+    const pool = livePool(mkdtempSync(join(tmpdir(), 'wb-bf-')), () => { spawns++ })
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' })
+    expect(enqueued).toHaveLength(1)
+    expect(spawns).toBe(0)
+    expect(r.raw).toContain('Kész: végigolvastam.')
+    pool.stopAll()
+  })
+
+  it('a kod-hid fiokja limitbe fut -> ugyanabban a forduloban a helyi munkamenet valaszol, a kerdes egyszer kerul be; a kovetkezo uzenet egyenesen oda megy', async () => {
+    taskState = { status: 'done', result: "You've hit your weekly limit \u00b7 resets Oct 2, 9am (Europe/Budapest)", summary: null, error: null }
+    let spawns = 0
+    const pool = livePool(mkdtempSync(join(tmpdir(), 'wb-bf-lim-')), () => { spawns++ })
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const a = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'elso' })
+    expect(enqueued).toHaveLength(1)
+    expect(spawns).toBe(1)
+    expect(a.raw).toContain('code_bridge_limit_fallback')
+    expect(a.raw).toContain('valasz 1')
+    expect(a.raw).not.toContain('weekly limit')
+    const users = listAgentMessages(session.id).filter((m) => m.role === 'user').map((m) => m.content)
+    expect(users).toEqual(['elso'])
+    expect(listAgentMessages(session.id).some((m) => m.role === 'assistant' && /weekly limit/.test(m.content))).toBe(false)
+    // az elozmeny nem tartalmazza a mostani kerdest (nem kerul ketszer a promptba)
+    const firstLen = Number(/valasz 1 \((\d+) char\)/.exec(a.raw)?.[1])
+    expect(firstLen).toBeGreaterThan(0)
+    const b = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'masodik' })
+    expect(enqueued).toHaveLength(1) // nem ment ujra a kimerult kod-hidra
+    expect(b.raw).toContain('valasz 2 (7 char)')
+    pool.stopAll()
+  })
+
+  it('a kod-hid limit-hibaja (error statusz) is atvalt a helyi munkamenetre', async () => {
+    taskState = { status: 'error', result: null, summary: "You've hit your weekly limit", error: 'Claude Code reported an error' }
+    const pool = livePool(mkdtempSync(join(tmpdir(), 'wb-bf-err-')), () => {})
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' })
+    expect(r.raw).toContain('code_bridge_limit_fallback')
+    expect(r.raw).toContain('valasz 1')
+    pool.stopAll()
+  })
+
+  it('nincs helyi tartalek -> a kod-hid limit-oka latszik (nem nemul el)', async () => {
+    taskState = { status: 'done', result: "You've hit your weekly limit", summary: null, error: null }
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' })
+    expect(r.raw).toContain('"code":"code_bridge_limit"')
+    expect(r.raw).toContain('weekly limit')
+  })
+})

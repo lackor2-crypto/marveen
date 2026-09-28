@@ -15,8 +15,10 @@
  */
 
 /** `live-session` (#434, C opcio): allo, helyi Claude Code folyamat, elo
- *  valasszal -- a teljes mod elso valasztasa, ha a gepen van `claude` CLI
- *  es bejelentkezett fiok. A kod-hid ilyenkor csak tartalek. */
+ *  valasszal. Boss (2026-09-28): "ha lehet, akkor a VS Code-ot, a kodhidat
+ *  valassza, ha van online" -- ezert automatikus fiokvalasztasnal az online
+ *  kod-hid az ELSO; a helyi munkamenet akkor jon, ha nincs kod-hid, ha annak
+ *  a fiokja kimerult, vagy ha a tulajdonos kifejezetten fiokot valasztott. */
 export type WorkbenchBackend = 'live-session' | 'code-bridge' | 'workbench-agent'
 
 export type BackendReason =
@@ -45,6 +47,12 @@ export interface BackendDecisionInput {
    * false (a regi hivok viselkedese valtozatlan).
    */
   liveAvailable?: boolean
+  /**
+   * Az online kod-hid elozze-e a helyi munkamenetet. A hivo adja: igaz, ha a
+   * tulajdonos nem valasztott kifejezetten fiokot ES a kod-hid fiokja nem
+   * futott nemreg limitbe. Hianyzo mezo = false (a regi sorrend).
+   */
+  bridgeFirst?: boolean
 }
 
 export interface BackendDecision {
@@ -64,6 +72,9 @@ export interface BackendDecision {
 export function decideWorkbenchBackend(input: BackendDecisionInput): BackendDecision {
   if (!input.fullAgentEnabled) {
     return { backend: 'workbench-agent', reason: 'disabled', needsWorkerSetup: false }
+  }
+  if (input.workerOnline && input.bridgeFirst) {
+    return { backend: 'code-bridge', reason: 'ok', needsWorkerSetup: false }
   }
   if (input.liveAvailable) {
     return { backend: 'live-session', reason: 'ok', needsWorkerSetup: false }
