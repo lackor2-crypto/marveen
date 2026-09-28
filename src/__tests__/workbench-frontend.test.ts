@@ -29,7 +29,7 @@ interface Harness {
   fetchCalls: { url: string; init?: RequestInit }[]
   toasts: string[]
   inputs: Record<string, { value: string; focus: () => void }>
-  respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown; gate?: Promise<void> }) => void
+  respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown }) => void
   /** Huzas a vaszon egyik elemen: lenyomas -> mozgatas -> elengedes.
    *  A `grip` nelkul MOZGATAS, `grip`-pel (nw/ne/sw/se) ATMERETEZES.
    *  A visszaadott `box.style` az, amit a huzas KOZBEN latna a felhasznalo. */
@@ -112,7 +112,7 @@ function harness(): Harness {
   const inputs: Record<string, { value: string; focus: () => void }> = {}
   const toasts: string[] = []
   const fetchCalls: { url: string; init?: RequestInit }[] = []
-  let responder: (url: string, init?: RequestInit) => { status: number; body: unknown; gate?: Promise<void> } =
+  let responder: (url: string, init?: RequestInit) => { status: number; body: unknown } =
     () => ({ status: 200, body: {} })
 
   const doc = {
@@ -148,14 +148,12 @@ function harness(): Harness {
     const r = responder(url, init)
     // Ha a valasz SZOVEG, akkor SSE-folyam (agent-chat): a `text()` adja vissza.
     const isText = typeof r.body === 'string'
-    // `gate`: a valasz addig nem jon meg, amig a teszt el nem engedi -- igy
-    // merheto, mi tortenik, AMIG az agens meg dolgozik.
-    return (r.gate || Promise.resolve()).then(() => ({
+    return Promise.resolve({
       ok: r.status < 400,
       status: r.status,
       json: () => (isText ? Promise.reject(new Error('not json')) : Promise.resolve(r.body)),
       text: () => Promise.resolve(isText ? (r.body as string) : JSON.stringify(r.body)),
-    }))
+    })
   }
 
   // A modul IIFE: `document`, `window` es `fetch` a hatokoreben.
@@ -486,65 +484,6 @@ describe('agent-chat (3. fazis)', () => {
     expect(h.rootEl.innerHTML).toContain('csinálj egy posztot')
     // #402: a streamelt valasz alatt is ott a fiok + modell.
     expect(h.rootEl.innerHTML).toContain('⟦workbench.chat.via_account:{"account":"fo-agens","model":"claude-sonnet-5"}⟧')
-  })
-
-  // #434, Boss: "ugyanugy kell viselkedni ennek a chat ablaknak, mint a
-  // telegramnak" -- munka kozben is lehessen kuldeni, a kovetkezo sorba all.
-  it('munka kozben is kuldheto: a kovetkezo uzenet sorba all, es az elozo valasz utan megy', async () => {
-    await openChat()
-    let release: () => void = () => {}
-    const gate = new Promise<void>((r) => { release = r })
-    let n = 0
-    h.respond((url) => {
-      if (url.indexOf('/api/workbench/agent/message') >= 0) {
-        n++
-        if (n === 1) return { status: 200, gate, body: sse([{ type: 'text', text: 'Első válasz.' }, { type: 'done', model: 'm' }]) }
-        return { status: 200, body: sse([{ type: 'text', text: 'Második válasz.' }, { type: 'done', model: 'm' }]) }
-      }
-      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
-      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
-      return { status: 200, body: itemsBody([]) }
-    })
-    const msgCalls = () => h.fetchCalls.filter((c) => c.url.indexOf('/api/workbench/agent/message') >= 0)
-
-    h.inputs.wbChatInput = { value: 'első ötlet', focus() {} }
-    h.click({ 'data-wb-act': 'chat-send' })
-    // Munka kozben: az Allj OTT van, de a Kuldes gomb NEM tunt el.
-    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-stop"')
-    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-send"')
-    expect(h.rootEl.innerHTML).toContain('workbench.chat.send_queue')
-
-    h.inputs.wbChatInput = { value: 'második ötlet', focus() {} }
-    h.click({ 'data-wb-act': 'chat-send' })
-    h.inputs.wbChatInput = { value: 'harmadik ötlet', focus() {} }
-    h.click({ 'data-wb-act': 'chat-send' })
-    // Nem veszett el es nem ment ki idoelott: lathatoan sorban all.
-    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('második ötlet'))
-    expect(msgCalls().length).toBe(1)
-    expect(h.rootEl.innerHTML).toContain('⟦workbench.chat.queued:{"n":1}⟧')
-    expect(h.rootEl.innerHTML).toContain('⟦workbench.chat.queued:{"n":2}⟧')
-    expect(h.rootEl.innerHTML).toContain('⟦workbench.chat.act_queued:{"n":2}⟧')
-
-    // A harmadikat visszavonja, mielott sorra kerul.
-    const m = /data-wb-act="chat-unqueue" data-wb-queue="([^"]+)"/g
-    const ids: string[] = []
-    let x: RegExpExecArray | null
-    while ((x = m.exec(h.rootEl.innerHTML))) ids.push(x[1])
-    expect(ids.length).toBe(2)
-    h.click({ 'data-wb-act': 'chat-unqueue', 'data-wb-queue': ids[1] })
-    expect(h.rootEl.innerHTML).not.toContain('harmadik ötlet')
-
-    release()
-    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Második válasz.'))
-    // Pontosan ket uzenet ment ki, sorrendben; a visszavont nem.
-    expect(msgCalls().map((c) => JSON.parse(String(c.init?.body)).message)).toEqual(['első ötlet', 'második ötlet'])
-    const html = h.rootEl.innerHTML
-    // Minden valasz a SAJAT kerdese utan all.
-    expect(html.indexOf('első ötlet')).toBeLessThan(html.indexOf('Első válasz.'))
-    expect(html.indexOf('Első válasz.')).toBeLessThan(html.indexOf('második ötlet'))
-    expect(html.indexOf('második ötlet')).toBeLessThan(html.indexOf('Második válasz.'))
-    expect(html).not.toContain('workbench.chat.queued')
-    expect(html).not.toContain('data-wb-act="chat-stop"')
   })
 
   it('a jovahagyasra varo tool-hivas LATSZIK, a jegy azonositojaval', async () => {

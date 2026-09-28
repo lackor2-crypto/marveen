@@ -46,10 +46,6 @@
     chatStatusError: null,
     chatStreaming: false,
     chatAbort: null,
-    // Munka kozben kuldott uzenetek sora (#434): mint Telegramon, a kovetkezo
-    // uzenet nem vesz el, hanem sorba all, es az elozo valasz utan megy.
-    chatQueue: [],
-    chatQueueSeq: 0,
     chatDraft: '',
     chatSetupOpen: false,
     chatSetupBusy: false,
@@ -4184,7 +4180,6 @@
         extra = t('workbench.chat.act_stalled', { s: Math.round(silent / 1000) })
         kind = 'stalled'
       }
-      if (WB.chatQueue.length) extra += ' · ' + t('workbench.chat.act_queued', { n: WB.chatQueue.length })
       return { kind: kind, label: label, extra: extra }
     }
     if (!last) return { kind: 'idle', label: t('workbench.chat.act_idle'), extra: '' }
@@ -4256,11 +4251,6 @@
     }
     if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
     if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
-    if (turn.role === 'user' && turn.queuedId) {
-      body += '<div class="wb-turn-notice wb-turn-queued">' + esc(t('workbench.chat.queued', { n: chatQueuePos(turn.queuedId) }))
-        + ' <button type="button" class="btn-secondary btn-sm wb-chat-unqueue" data-wb-act="chat-unqueue" data-wb-queue="' + escA(turn.queuedId) + '">'
-        + esc(t('workbench.chat.unqueue')) + '</button></div>'
-    }
     if (!body && turn.role === 'agent') {
       body = turn.done
         ? '<div class="wb-turn-notice">' + esc(t('workbench.chat.no_answer')) + '</div>'
@@ -4326,10 +4316,7 @@
       + micButtonHtml('wbChatInput')
       + (streaming
         ? '<button type="button" class="btn-secondary" data-wb-act="chat-stop">' + esc(t('workbench.chat.stop')) + '</button>'
-        : '')
-      // A Kuldes gomb munka kozben SEM tunik el (#434): ilyenkor sorba allit.
-      + '<button type="button" class="btn-primary" data-wb-act="chat-send">'
-      + esc(streaming ? t('workbench.chat.send_queue') : t('workbench.chat.send')) + '</button>'
+        : '<button type="button" class="btn-primary" data-wb-act="chat-send">' + esc(t('workbench.chat.send')) + '</button>')
       + '</div></div>'
       + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail
         ? t('workbench.chat.target_item', { title: WB.detail.item.title })
@@ -4410,36 +4397,10 @@
     }
     // A keret allapota a fordulo utan mar mas: ujramerjuk, nem emlekezetbol irjuk.
     loadChatStatus()
-    // A sorban allo kovetkezo uzenet most megy (#434) -- az elozo valasz mar a
-    // beszelgetesben van, tehat az agens latja.
-    pumpChatQueue()
-  }
-
-  function chatQueuePos(id) {
-    for (var i = 0; i < WB.chatQueue.length; i++) { if (WB.chatQueue[i].id === id) return i + 1 }
-    return 0
-  }
-
-  function pumpChatQueue() {
-    if (WB.chatStreaming || !WB.chatQueue.length) return
-    var next = WB.chatQueue.shift()
-    next.userTurn.queuedId = null
-    startChatTurn(next)
-  }
-
-  /** Egy sorban allo uzenet visszavonasa, mielott sorra kerult. */
-  function unqueueChat(id) {
-    for (var i = 0; i < WB.chatQueue.length; i++) {
-      if (WB.chatQueue[i].id !== id) continue
-      var q = WB.chatQueue.splice(i, 1)[0]
-      var idx = q.st.turns.indexOf(q.userTurn)
-      if (idx >= 0) q.st.turns.splice(idx, 1)
-      break
-    }
-    renderChat()
   }
 
   function sendChat() {
+    if (WB.chatStreaming) return
     // A mezo TENYLEGES tartalma a forras -- az `input` esemenyre epiteni
     // onmagaban keves (beillesztes, IME, automatikus kitoltes utan elmaradhat).
     var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
@@ -4447,38 +4408,16 @@
     var text = String(WB.chatDraft || '').trim()
     if (!text) return
     var st = chatState()
-    var userTurn = { role: 'user', text: text, tools: [], notices: [], error: null, done: true }
-    st.turns.push(userTurn)
-    WB.chatDraft = ''
-    // A cel (projekt / munkadarab / fiok) a KULDES pillanatae: ha kozben mas
-    // munkadarabra valt, a sorban allo uzenet akkor is oda megy, ahova irtak.
-    var item = {
-      id: 'q' + (++WB.chatQueueSeq), text: text, st: st, userTurn: userTurn,
-      projectId: WB.projectId, workItemId: WB.selectedId || null, account: WB.chatAccount || 'auto',
-    }
-    if (WB.chatStreaming) {
-      userTurn.queuedId = item.id
-      WB.chatQueue.push(item)
-      renderChat()
-      return
-    }
-    startChatTurn(item)
-  }
-
-  function startChatTurn(item) {
-    var text = item.text
+    st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
     var turn = { role: 'agent', text: '', tools: [], notices: [], error: null, done: false }
-    // Az agens valasza KOZVETLENUL a sajat kerdese utan all, akkor is, ha
-    // mogotte mar ujabb, sorban allo uzenetek vannak.
-    var at = item.st.turns.indexOf(item.userTurn)
-    if (at >= 0) item.st.turns.splice(at + 1, 0, turn)
-    else item.st.turns.push(turn)
+    st.turns.push(turn)
+    WB.chatDraft = ''
     WB.chatStreaming = true
     WB.chatActivityClock = { startedAt: Date.now(), lastEventAt: Date.now() }
     startChatActivityTicker()
     renderChat()
 
-    var body = { project_id: item.projectId, work_item_id: item.workItemId, message: text, account: item.account }
+    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text, account: WB.chatAccount || 'auto' }
     var opts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -4535,7 +4474,7 @@
 
   function stopChat() {
     if (WB.chatAbort && typeof WB.chatAbort.abort === 'function') WB.chatAbort.abort()
-    else { WB.chatStreaming = false; renderChat(); pumpChatQueue() }
+    else { WB.chatStreaming = false; renderChat() }
   }
 
   function openChatSetup() {
@@ -5747,7 +5686,6 @@
     WB.chatStatusError = null
     WB.chatStreaming = false
     WB.chatAbort = null
-    WB.chatQueue = []
     WB.chatDraft = ''
     WB.chatSetupOpen = false
     WB.chatSetupBusy = false
@@ -5971,7 +5909,6 @@
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
-    else if (a === 'chat-unqueue') unqueueChat(act.getAttribute('data-wb-queue'))
     else if (a === 'chat-setup') openChatSetup()
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
     else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }
@@ -6373,9 +6310,6 @@
     WB.chatStatus = null
     WB.chatStatusError = null
     WB.chatStreaming = false
-    // A sort ELOBB uritjuk: a megszakitott fordulo lezarasa ne inditson el
-    // egy masik projektbe szant uzenetet.
-    WB.chatQueue = []
     if (WB.chatAbort && typeof WB.chatAbort.abort === 'function') WB.chatAbort.abort()
     WB.chatAbort = null
     WB.chatDraft = ''
