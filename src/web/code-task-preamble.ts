@@ -32,6 +32,7 @@
 
 import { PROJECT_ROOT, APP_LANG, WEB_PORT } from '../config.js'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
+import type { CodeTaskOrigin } from './code-bridge-store.js'
 
 /** What kind of host MARVEEN runs on. The caller measures it (detectHostKind);
  *  this module never guesses, because a wrong guess prints a path that cannot
@@ -69,6 +70,9 @@ export interface PreambleInput {
     reason: string | null
     wasLiveTree: boolean
   }
+  /** Where the task came from. A Workbench-chat task (#433) is answered in that
+   *  chat, not on Telegram -- points 5 and 6 then say so. */
+  origin?: CodeTaskOrigin
 }
 
 /**
@@ -229,11 +233,17 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
   // it (see code-bridge-notify.ts). The install language therefore has to be
   // stated here, at the only point where the text is still being written.
   // Boss, 2026-09-06: "ha angolra van allitva akor angolul".
+  // A Workbench-chat task (#433) is read in the Workbench chat, not on Telegram
+  // (code-bridge-notify.ts skips the ping for it) -- the preface must not
+  // send the executor's attention to a channel the answer never goes to.
+  const workbench = input.origin === 'workbench'
+  const whereHu = workbench ? 'a Munkapad chatjeben' : 'a Telegramon'
+  const whereEn = workbench ? 'in the Workbench chat' : 'in Telegram'
   out.push(hu
-    ? '5. A ZARO OSSZEFOGLALOT -- amit a tulajdonos a Telegramon fog olvasni -- MAGYARUL ird meg, ez ennek a'
+    ? `5. A ZARO OSSZEFOGLALOT -- amit a tulajdonos ${whereHu} fog olvasni -- MAGYARUL ird meg, ez ennek a`
       + ' telepitesnek a nyelve. A Marveen szo szerint idezi, forditani nem tudja. A kod, a kommentek, a commit-uzenetek'
       + ' es a nyers parancs-kimenetek maradnak ugy, ahogy vannak.'
-    : '5. Write the CLOSING SUMMARY -- the text the owner will read in Telegram -- in ENGLISH, this install\'s'
+    : `5. Write the CLOSING SUMMARY -- the text the owner will read ${whereEn} -- in ENGLISH, this install's`
       + ' language. Marveen quotes it verbatim and cannot translate it. Code, comments, commit messages and raw'
       + ' command output stay as they are.')
 
@@ -250,12 +260,16 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
   out.push(hu
     ? '6. A JELENTESED a task EREDMENYE (ez a fenti zaro osszefoglalo) + a landolt PR. NE probalj Telegram- vagy'
       + ' inter-agent uzenetet kuldeni, es NE ird a valasz elejere, hogy ezek "nem mukodnek": ez a session nem'
-      + ' flotta-agens (nincs Telegram MCP, nincs inter-agent csatorna), a tulajdonost a Marveen dashboard'
-      + ' ertesiti helyetted, amikor a task lezarul.'
+      + ' flotta-agens (nincs Telegram MCP, nincs inter-agent csatorna), '
+      + (workbench
+        ? 'a valaszodat a Marveen dashboard szo szerint a Munkapad chatjebe teszi, amikor a task lezarul.'
+        : 'a tulajdonost a Marveen dashboard ertesiti helyetted, amikor a task lezarul.')
     : '6. YOUR REPORT is the task RESULT (the closing summary above) plus the landed PR. Do NOT try to send Telegram'
       + ' or inter-agent messages, and do NOT prepend a note that they "do not work": this session is not a fleet'
-      + ' agent (no Telegram MCP, no inter-agent channel); the Marveen dashboard notifies the owner for you when the'
-      + ' task finishes.')
+      + ' agent (no Telegram MCP, no inter-agent channel); '
+      + (workbench
+        ? 'the Marveen dashboard puts your answer, word for word, into the Workbench chat when the task finishes.'
+        : 'the Marveen dashboard notifies the owner for you when the task finishes.'))
 
   out.push(cardLifecycleParagraph(root, input.webPort ?? WEB_PORT, hu))
 

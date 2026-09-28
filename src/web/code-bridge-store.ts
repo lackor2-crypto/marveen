@@ -52,7 +52,9 @@ import {
 import { ol } from '../owner-lang.js'
 
 export type CodeTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
-export type CodeTaskOrigin = 'telegram' | 'agent' | 'dashboard' | 'api'
+/** `workbench` = the Workbench (Munkapad) chat in full-agent mode (#433): the
+ *  answer is delivered INTO that chat, so no Telegram completion ping. */
+export type CodeTaskOrigin = 'telegram' | 'agent' | 'dashboard' | 'api' | 'workbench'
 
 export interface CodeSession {
   project: string
@@ -83,6 +85,8 @@ export interface CodeTask {
   status: CodeTaskStatus
   origin: CodeTaskOrigin
   requestedBy: string | null
+  /** Where the answer goes back: a Telegram chat id, or -- for origin
+   *  `workbench` -- the Workbench conversation (session) id. */
   chatId: string | null
   /** Ebben a beszelgetesben FUTOTT (a claim tolti ki). */
   sessionId: string | null

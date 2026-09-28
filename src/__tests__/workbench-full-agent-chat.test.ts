@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable } from 'node:stream'
 
-const enqueued: { project: string; prompt: string }[] = []
+const enqueued: { project: string; prompt: string; origin?: string; chatId?: string | null }[] = []
 let taskState: { status: string; result: string | null; summary: string | null; error: string | null } = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
 
 vi.mock('../settings-store.js', async (orig) => {
@@ -18,7 +18,7 @@ vi.mock('../web/code-bridge-store.js', async (orig) => {
   return {
     ...actual,
     codeBridgeHealth: () => ({ workerOnline: true }) as unknown as ReturnType<typeof actual.codeBridgeHealth>,
-    enqueueCodeTask: (i: { project: string; prompt: string }) => { enqueued.push({ project: i.project, prompt: i.prompt }); return { task: { id: 'task-1' } } },
+    enqueueCodeTask: (i: { project: string; prompt: string; origin?: string; chatId?: string | null }) => { enqueued.push({ project: i.project, prompt: i.prompt, origin: i.origin, chatId: i.chatId }); return { task: { id: 'task-1' } } },
     getCodeTask: () => ({ id: 'task-1', ...taskState }),
     cancelCodeTask: () => null,
   }
@@ -31,7 +31,7 @@ import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } f
 import { openSessionForWorkItem, addAgentMessage, listAgentMessages } from '../workbench-agent/sessions.js'
 import { resetWorkbenchAgentForTest } from '../workbench-agent/index.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
-import { tryHandleWorkbenchAgent } from '../web/routes/workbench-agent.js'
+import { tryHandleWorkbenchAgent, SSE_PING_MS } from '../web/routes/workbench-agent.js'
 import type { RouteContext } from '../web/routes/types.js'
 
 async function post(path: string, body: unknown): Promise<{ status: number; raw: string }> {
@@ -115,5 +115,36 @@ describe('Munkapad chat teljes erteku modban (kod-hid)', () => {
     expect(r.raw).toContain('"code":"busy"')
     expect(enqueued).toHaveLength(0)
     releaseTurn(turnKey(projectId, workItemId))
+  })
+
+  // Boss, 2026-09-28: "abba a csetbe kell nekem visszakapnom az uzenetet,
+  // ahonnan kerdeztem" -- a Munkapad-feladat SAJAT eredetet kap, hogy a
+  // befejezes-ertesito ne kuldje Telegramra (code-bridge-notify.ts).
+  it('a feladat "workbench" eredettel megy a kod-hidra (nem "dashboard")', async () => {
+    await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'szia' })
+    expect(enqueued).toHaveLength(1)
+    expect(enqueued[0].origin).toBe('workbench')
+    // A valasz ide megy vissza a feladat lezarasakor (ujrainditas utan is).
+    expect(enqueued[0].chatId).toBe(openSessionForWorkItem(projectId, workItemId, 'hu').id)
+  })
+
+  // A kod-hidas fordulo percekig csendes; a kozbeeso proxy / bongeszo a tetlen
+  // kapcsolatot lezarhatja, es a valasz nem er oda. SSE-megjegyzes tartja eletben.
+  it('a csendes kapcsolaton idonkent `: ping` megy, amig a valasz keszul', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    try {
+      taskState = { status: 'running', result: null, summary: null, error: null }
+      const pending = post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hosszú munka' })
+      await vi.advanceTimersByTimeAsync(SSE_PING_MS * 2 + 100)
+      taskState = { status: 'done', result: 'Kész a hosszú munka.', summary: null, error: null }
+      await vi.advanceTimersByTimeAsync(5000)
+      const r = await pending
+      expect(r.raw.match(/^: ping$/gm)?.length).toBeGreaterThanOrEqual(2)
+      expect(r.raw).toContain('Kész a hosszú munka.')
+      // A valasz utan nem megy tobb ping (a zaras utan nem irunk a kapcsolatba).
+      expect(r.raw.trimEnd().endsWith('}')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

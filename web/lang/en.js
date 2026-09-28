@@ -5980,6 +5980,8 @@ window._i18n.en = {
   "workbench.chat.unqueue": "Cancel",
   "workbench.chat.reconnecting": "The connection dropped (Marveen is probably restarting after an update). Waiting for it to come back, then checking what happened to the answer.",
   "workbench.chat.interrupted": "Marveen restarted before the answer was finished, so this answer was lost. Your message is kept, please send it again.",
+  "workbench.chat.stream_ended": "The connection closed before the answer arrived. Checking on the server what happened to it.",
+  "workbench.chat.stream_lost": "The connection closed before the answer arrived, and the server does not have the answer either. Your message is kept, please send it again.",
   "workbench.chat.you": "You",
   "workbench.chat.agent": "Agent",
   "workbench.chat.act_thinking": "Thinking…",

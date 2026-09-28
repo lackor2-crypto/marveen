@@ -29,7 +29,9 @@ interface Harness {
   fetchCalls: { url: string; init?: RequestInit }[]
   toasts: string[]
   inputs: Record<string, { value: string; focus: () => void }>
-  respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown }) => void
+  /** `chunks`: a valasz a VALODI olvaso-uton (`body.getReader()`) jon, ezekben
+   *  a darabokban -- ahogy a bongeszo egy SSE-folyamot kap. */
+  respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown; chunks?: string[] }) => void
   /** Huzas a vaszon egyik elemen: lenyomas -> mozgatas -> elengedes.
    *  A `grip` nelkul MOZGATAS, `grip`-pel (nw/ne/sw/se) ATMERETEZES.
    *  A visszaadott `box.style` az, amit a huzas KOZBEN latna a felhasznalo. */
@@ -112,7 +114,7 @@ function harness(): Harness {
   const inputs: Record<string, { value: string; focus: () => void }> = {}
   const toasts: string[] = []
   const fetchCalls: { url: string; init?: RequestInit }[] = []
-  let responder: (url: string, init?: RequestInit) => { status: number; body: unknown } =
+  let responder: (url: string, init?: RequestInit) => { status: number; body: unknown; chunks?: string[] } =
     () => ({ status: 200, body: {} })
 
   const doc = {
@@ -150,11 +152,16 @@ function harness(): Harness {
     if (r.status === 0) return Promise.reject(new TypeError('Failed to fetch'))
     // Ha a valasz SZOVEG, akkor SSE-folyam (agent-chat): a `text()` adja vissza.
     const isText = typeof r.body === 'string'
+    const chunks = r.chunks ? r.chunks.slice() : null
+    const enc = new TextEncoder()
     return Promise.resolve({
       ok: r.status < 400,
       status: r.status,
       json: () => (isText ? Promise.reject(new Error('not json')) : Promise.resolve(r.body)),
       text: () => Promise.resolve(isText ? (r.body as string) : JSON.stringify(r.body)),
+      body: chunks
+        ? { getReader: () => ({ read: () => Promise.resolve(chunks.length ? { done: false, value: enc.encode(chunks.shift()) } : { done: true, value: undefined }) }) }
+        : undefined,
     })
   }
 
@@ -1928,6 +1935,100 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('KÉSZ VÉLEMÉNY'))
     expect(h.rootEl.innerHTML).not.toContain('workbench.chat.resumed_running')
     expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-send"')
+  })
+
+  // Valos eset (Boss, 2026-09-28 19:01): a teljes erteku ugynok valasza a
+  // szerveren elkeszult es a beszelgetesbe mentodott (7825 karakter), a chat
+  // viszont csak "code-bridge ... Kesz"-t mutatott, szoveg nelkul. A folyam
+  // "done" NELKUL zarult le, es a felulet ezt kesznek vette.
+  describe('a folyam "kesz" nelkul zarul le (pl. egy proxy lezarja a csendes kapcsolatot)', () => {
+    const HANDED = [
+      { type: 'session', sessionId: 's1' },
+      { type: 'notice', code: 'code_bridge_handed_off', message: 'Átadtam a teljes értékű ügynöknek.' },
+      { type: 'tool', name: 'code-bridge', status: 'running' },
+    ]
+    function serve(state: { running: boolean; answered: boolean }, message: { status: number; body: unknown; chunks?: string[] }) {
+      h.respond((url) => {
+        if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+        if (url.indexOf('/api/workbench/agent/message') >= 0) return message
+        if (url.indexOf('/api/workbench/agent/session') >= 0) {
+          const messages = state.answered
+            ? [{ role: 'user', content: 'véleményezd a tervet' }, { role: 'assistant', content: 'A TELJES VÉLEMÉNY' }]
+            : [{ role: 'user', content: 'véleményezd a tervet' }]
+          return { status: 200, body: { session: { id: 's1' }, running: state.running, toolCalls: [], messages } }
+        }
+        return { status: 200, body: itemsBody([]) }
+      })
+    }
+    async function send(): Promise<void> {
+      h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+      h.inputs.wbChatInput = { value: 'véleményezd a tervet', focus() {} }
+      h.click({ 'data-wb-act': 'chat-send' })
+    }
+
+    it('nem mondja kesznek: a szerveren mar elmentett valaszt betolti a chatbe', async () => {
+      const state = { running: false, answered: false }
+      serve(state, { status: 200, body: sse(HANDED) })
+      await send()
+      // A szerver kozben vegzett (a kapcsolat mar nem elt, amikor a valasz jott).
+      state.answered = true
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A TELJES VÉLEMÉNY'))
+      // A "code-bridge fut..." nem ragad be "Kesz" jelzessel, a Kuldes gomb ujra el.
+      expect(h.rootEl.innerHTML).not.toContain('workbench.chat.tool_running')
+      expect(h.rootEl.innerHTML).toContain('workbench.chat.send⟧')
+    })
+
+    it('ha a valasz meg keszul, megvarja, es amint kesz, betolti', async () => {
+      const state = { running: false, answered: false }
+      serve(state, { status: 200, body: sse(HANDED) })
+      await send()
+      // Megnyitaskor meg nem futott semmi; a kuldes UTAN keszul a valasz.
+      state.running = true
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+      expect(h.rootEl.innerHTML).not.toContain('A TELJES VÉLEMÉNY')
+      state.running = false
+      state.answered = true
+      await vi.advanceTimersByTimeAsync(3100)
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A TELJES VÉLEMÉNY'))
+    })
+
+    it('a VALODI olvaso-uton is (darabokban erkezo folyam, `: ping` megjegyzesekkel)', async () => {
+      const state = { running: false, answered: false }
+      const frames = sse(HANDED)
+      serve(state, { status: 200, body: frames, chunks: [frames.slice(0, 40), frames.slice(40), ': ping\n\n', ': ping\n\n'] })
+      await send()
+      state.answered = true
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A TELJES VÉLEMÉNY'))
+    })
+
+    it('ha a szerveren sincs meg a valasz, kimondja -- de nem allitja, hogy a Marveen ujraindult', async () => {
+      const state = { running: false, answered: false }
+      serve(state, { status: 200, body: sse(HANDED) })
+      await send()
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.stream_lost'))
+      expect(h.rootEl.innerHTML).not.toContain('workbench.chat.interrupted')
+    })
+  })
+
+  it('a `: ping` megjegyzes a folyam kozepen nem esemeny: a valasz ugyanugy megjelenik', async () => {
+    const frames = sse([{ type: 'session', sessionId: 's1' }, { type: 'text', text: 'Pingek között is ideért.' }, { type: 'done', model: 'm' }])
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 200, body: frames, chunks: [': ping\n\n', frames, ': ping\n\n'] }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running: false, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+    h.inputs.wbChatInput = { value: 'szia', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Pingek között is ideért.'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.stream_ended')
   })
 
   it('valasz kozben irt uzenet sorba all (nem hiba, nem vesz el), es a valasz utan magatol elmegy', async () => {
