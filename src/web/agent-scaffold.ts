@@ -1899,7 +1899,8 @@ Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasznál
 Komplex feladatok után (5+ tool hívás, hiba utáni recovery, user korrekció, többlépéses workflow) automatikusan hozz létre SKILL.md fájlt:
 
 mkdir -p ~/.claude/skills/SKILL-NEV
-A SKILL.md tartalmazzon YAML frontmatter-t (name, description), majd szekciókat: Mikor használd, Eljárás, Buktatók, Ellenőrzés.
+A SKILL.md tartalmazzon YAML frontmatter-t (name, description, scope), majd szekciókat: Mikor használd, Eljárás, Buktatók, Ellenőrzés.
+A scope sor KÖTELEZŐ: scope: personal (konkrét emberre/fiókra/magánügyre szól, ezen a gépen marad) vagy scope: global (bárkinek hasznos, a rendszer átviszi a seed-skills/ alá). Scope nélküli SKILL.md írását a gép megállítja (skill-scope-gate.py); ha nem tudod eldönteni, kérdezd meg a tulajdonost, és addig ne hozd létre.
 
 ### Skill patch (runtime javítás)
 Ha egy meglévő skill használata közben jobb megoldást találsz:
