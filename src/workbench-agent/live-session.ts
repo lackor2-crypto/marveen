@@ -31,6 +31,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { OrchestratorEvent } from './orchestrator.js'
 import { msg, type Lang } from './messages.js'
+import { detectsUsageLimit } from '../model-fallback.js'
 
 /** Tetlen folyamatot ennyi ido utan leallitunk (a kovetkezo uzenet folytatja). */
 export const LIVE_IDLE_MS = 30 * 60 * 1000
@@ -186,6 +187,12 @@ interface Live {
   dead: boolean
   /** Uj folyamat: a prompt a beszelgetes-elozmennyel indul. */
   fresh: boolean
+}
+
+/** A fiok keretenek kifogyasa (`live_limit`) kulon kod: a hivo ilyenkor a
+ *  kovetkezo fiokkal probalhatja (#434). Minden mas hiba `live_failed`. */
+function failCode(detail: string): 'live_limit' | 'live_failed' {
+  return detectsUsageLimit(detail) ? 'live_limit' : 'live_failed'
 }
 
 export class LiveSessionPool {
@@ -345,14 +352,14 @@ export class LiveSessionPool {
       const fin = end as TurnEnd | null
       if (fin) {
         if (fin.ok) { yield { type: 'done', model: st.model, via: null }; return }
-        yield { type: 'error', code: 'live_failed', message: msg('live_session_failed', lang, { detail: fin.detail }) }
+        yield { type: 'error', code: failCode(fin.detail), message: msg('live_session_failed', lang, { detail: fin.detail }) }
         return
       }
       if (signal?.aborted) return
       // A folyamat a valasz elott elhalt. Folytatott munkamenetnel egyszer
       // ujrainditjuk elozmennyel (az eltett id elavult lehet).
       if (attempt === 0 && !sawAny && !wasFresh) { this.forgetId(spec.key); continue }
-      yield { type: 'error', code: 'live_failed', message: msg('live_session_failed', lang, { detail: String(exitDetail) }) }
+      yield { type: 'error', code: failCode(String(exitDetail)), message: msg('live_session_failed', lang, { detail: String(exitDetail) }) }
       return
     }
   }
