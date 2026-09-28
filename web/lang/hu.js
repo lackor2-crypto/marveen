@@ -6089,6 +6089,8 @@ window._i18n.hu = {
   "workbench.chat.act_stopped": "Leállítva",
   "workbench.chat.act_no_answer": "Nem jött válasz",
   "workbench.chat.no_answer": "Nem jött válasz. Próbáld újra, vagy fogalmazd meg másképp.",
+  "workbench.chat.tools_title": "Parancsfutások ({n}) – a legújabb alul",
+  "workbench.chat.tools_below": "{n} parancsfutás – lent, a Parancsfutások sávban látod.",
   "workbench.chat.tool_history": "(korábbi eszközhívás, az eredménye itt nem látszik)",
   "workbench.tool.canvas.edit": "Rajzvászon szerkesztése",
   "workbench.tool.canvas.get": "Rajzvászon megnyitása",

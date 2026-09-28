@@ -556,6 +556,41 @@ describe('agent-chat (3. fazis)', () => {
     expect(h.rootEl.innerHTML).toContain('workbench.tool.file.read')
   })
 
+  // Boss, 2026-09-29: a sok "Parancs futtatasa kesz" sor felfele tolta a
+  // valaszt. A chat ketté van osztva: felul a beszelgetes, alul az eszkozfutasok.
+  it('az eszkozfutasok a kulon also savban vannak, nem a beszelgetesben', async () => {
+    await openChat()
+    expect(h.rootEl.innerHTML).not.toContain('id="wbChatTools"')
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([
+          { type: 'tool', name: 'Bash', status: 'running' },
+          { type: 'tool', name: 'Bash', status: 'ok' },
+          { type: 'tool', name: 'Grep', status: 'ok' },
+          { type: 'text', text: 'Megvan a valasz.' },
+          { type: 'done', model: 'm' },
+        ]) }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.inputs.wbChatInput = { value: 'nezd meg', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.act_done'))
+    const html = h.rootEl.innerHTML
+    const logStart = html.indexOf('id="wbChatLog"')
+    const toolsStart = html.indexOf('id="wbChatTools"')
+    expect(logStart).toBeGreaterThan(-1)
+    expect(toolsStart).toBeGreaterThan(logStart)
+    const logPart = html.slice(logStart, toolsStart)
+    expect(logPart).toContain('Megvan a valasz.')
+    expect(logPart).not.toContain('workbench.tool.Bash')
+    expect(html.slice(toolsStart)).toContain('workbench.tool.Bash')
+    expect(html.slice(toolsStart)).toContain('workbench.tool.Grep')
+    expect(html).toContain('workbench.chat.tools_title')
+  })
+
   it('folyamatjelzo: eredmeny nelkuli valasznal "Nem jott valasz", nem orok "Gondolkodik"', async () => {
     await openChat()
     h.respond((url) => {

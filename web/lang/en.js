@@ -6011,6 +6011,8 @@ window._i18n.en = {
   "workbench.chat.act_stopped": "Stopped",
   "workbench.chat.act_no_answer": "No answer came back",
   "workbench.chat.no_answer": "No answer came back. Try again, or rephrase.",
+  "workbench.chat.tools_title": "Tool runs ({n}) – newest at the bottom",
+  "workbench.chat.tools_below": "{n} tool runs – see the Tool runs panel below.",
   "workbench.chat.tool_history": "(earlier tool call, its result is not shown here)",
   "workbench.tool.canvas.edit": "Editing the canvas",
   "workbench.tool.canvas.get": "Opening the canvas",
