@@ -15,7 +15,7 @@ import { initDatabase, getKanbanCard, createLabel } from '../db.js'
 import { createProject, updateProject, type ProjectRow, getProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItems, listWorkItemParts, removeWorkItemPart } from '../workbench.js'
 import { TOOLS, getTool, decideTool, toolsForPrompt, setAutonomyLoaderForTest } from '../workbench-agent/tools.js'
-import { executeTool, runTool, FILE_READ_MAX_CHARS } from '../workbench-agent/execute.js'
+import { executeTool, runTool, FILE_READ_MAX_CHARS, FILE_READ_MAX_JSON_CHARS, TOOL_RESULT_MAX_CHARS, toolResultForModel } from '../workbench-agent/execute.js'
 import { buildContext, historyMessages, MAX_CONTEXT_CHARS, MAX_HISTORY_TURNS } from '../workbench-agent/context.js'
 import type { AgentMessageRow } from '../workbench-agent/sessions.js'
 
@@ -335,6 +335,42 @@ describe('file.read -- a projektmappa hatara', () => {
     }
     expect(assembled).toBe(full) // veszteseg- es atfedes-mentes ujraosszerakas
     expect(rounds).toBe(4)
+  })
+
+  it('#432: az oldal JSON-kodolva is befer a modellnek adott keretbe, es a lapozas igy is hianytalan', () => {
+    // Merve (2026-09-28): a modell a tool-eredmenyt JSON-kent kapja, egy
+    // kerettel. A 8000 karakteres oldal a 6000-es keretbe nem fert bele, igy
+    // a modell minden oldal VEGET elvesztette (6-8., 16-20., 33. fejezet), mikozben
+    // a lapozas maga hianytalan volt. Idezojel, sortores, vezerlo karakter
+    // kodolva hosszabb -- pont ezekkel a legrosszabb.
+    const full = ('"idézet" \\ sor\n\ttab \u0001 ' + 'á'.repeat(40) + '\n').repeat(900)
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'csunya.md'), full, 'utf-8')
+    let assembled = ''
+    let offset: number | null = 0
+    let rounds = 0
+    while (offset != null) {
+      const r: ReturnType<typeof executeTool> = executeTool('file.read', { path: 'csunya.md', offset }, ctx())
+      expect(r.ok).toBe(true)
+      if (!r.ok) break
+      const d = r.data as any
+      expect(JSON.stringify(d.text).length).toBeLessThanOrEqual(FILE_READ_MAX_JSON_CHARS)
+      // A TELJES eredmeny (ut, meret, eltolas + szoveg) is a keret alatt marad.
+      expect(JSON.stringify(d).length).toBeLessThanOrEqual(TOOL_RESULT_MAX_CHARS)
+      expect(d.text.length).toBeGreaterThan(0)
+      assembled += d.text
+      offset = d.nextOffset
+      if (++rounds > 40) throw new Error('vegtelen lapozas -- a nextOffset nem halad')
+    }
+    expect(assembled).toBe(full)
+  })
+
+  it('#432: a keretnel hosszabb tool-eredmeny NEM vagodik nemán -- a modell megtudja', () => {
+    const small = { a: 1 }
+    expect(toolResultForModel(small)).toBe('{"a":1}')
+    const big = { text: 'x'.repeat(TOOL_RESULT_MAX_CHARS * 2) }
+    const s = toolResultForModel(big)
+    expect(s.startsWith(JSON.stringify(big).slice(0, TOOL_RESULT_MAX_CHARS))).toBe(true)
+    expect(s).toContain('NOT shown to you')
   })
 
   it('offseten tul olvasva ures szoveget es lezaro nextOffset=null-t ad', () => {
