@@ -520,6 +520,12 @@ export function runDeterministicReflection(input: ReflectInput, deps: ReflectDep
   return result
 }
 
+/** Daily-log line for a skill the reflection suggests but does not create. */
+export function buildSkillSuggestionLine(p: SkillProposal, now: Date = new Date()): string {
+  return `## ${stamp(now)} -- Skill-javaslat (reflexio): ${p.name}\n${firstLine(p.description)}\n` +
+    'Nem jott letre automatikusan. Ha kell, a Skillek lapon hozd letre, es valaszd ki, szemelyes vagy altalanos.'
+}
+
 function listExistingSkills(agent: string, rootFor: (a: string) => string): string[] {
   try {
     const root = rootFor(agent)
@@ -602,9 +608,17 @@ export async function runModelReflection(input: ReflectInput, deps: ReflectDeps)
       atomicWriteFileSync(file, patched)
       result.skill = `${accepted.name} (bővítve)`
     } else {
-      mkdirSync(dir, { recursive: true })
-      atomicWriteFileSync(file, renderSkillMd(accepted, input.agent, now))
-      result.skill = `${accepted.name} (új)`
+      // A NEW skill is only a suggestion (owner, 2026-09-28, kanban #438:
+      // "a reflexio egyaltalan ne hozzon letre skillt, csak javasoljon").
+      // A machine-made file could only carry `scope: review`, which parks it
+      // in the Overview self-check until someone classifies it -- the nag the
+      // owner asked to end. The proposal goes to the daily log instead; a
+      // human creates it on the Skills page, where a scope is required.
+      deps.appendLog(input.agent, buildSkillSuggestionLine(accepted, now))
+      result.skill = `${accepted.name} (javaslat)`
+      stampReflectState(input.agent, { lastSkillTs: now.getTime() }, statePath)
+      logger.info({ agent: input.agent, skill: accepted.name }, 'reflect: new skill suggested, not written')
+      return result
     }
     stampReflectState(input.agent, { lastSkillTs: now.getTime() }, statePath)
     logger.info({ agent: input.agent, skill: result.skill }, 'reflect: skill written')
