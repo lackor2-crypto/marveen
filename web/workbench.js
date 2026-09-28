@@ -4480,14 +4480,38 @@
     if (ev.type === 'done') { turn.done = true; turn.model = ev.model || null; turn.via = ev.via || null }
   }
 
+  /** true, ha a keret esemenyt hozott (a `: ping` megjegyzes nem hoz). */
   function parseSseChunk(turn, chunk) {
     var lines = String(chunk).split('\n')
     var data = ''
     for (var i = 0; i < lines.length; i++) {
       if (lines[i].indexOf('data:') === 0) data += lines[i].slice(5).trim()
     }
-    if (!data) return
-    try { applyChatEvent(turn, JSON.parse(data)) } catch (_e) { /* fel-keret: eldobjuk */ }
+    if (!data) return false
+    try { applyChatEvent(turn, JSON.parse(data)); return true } catch (_e) { return false /* fel-keret: eldobjuk */ }
+  }
+
+  /** A folyam vege. Ha a szerver kimondta, hogy kesz (vagy hibat mondott), a
+   *  fordulo lezarul. Ha NEM, a kapcsolat a valasz ELOTT zarult le (#433,
+   *  2026-09-28: a teljes erteku ugynok valasza a szerveren elkeszult es a
+   *  beszelgetesbe mentodott, a chat megis "Kesz"-t mutatott szoveg nelkul) --
+   *  ilyenkor nem mondjuk kesznek, hanem megkerdezzuk a szervert, mi lett a
+   *  valasszal, ugyanazon az uton, mint egy megszakadt kapcsolatnal. */
+  function endChatStream(turn) {
+    if (turn.done || turn.error || turn.busy) { finishChatTurn(turn); return }
+    recoverChatTurn(turn, t('workbench.chat.stream_ended'), 0, 'workbench.chat.stream_lost')
+  }
+
+  /** A megszakadt fordulo sorsat a szerver donti el (meg fut / elkeszult es
+   *  mentve / elveszett) -- lasd `reconnectChat`. */
+  function recoverChatTurn(turn, notice, delay, lostKey) {
+    WB.chatAbort = null
+    turn.notices.push(notice)
+    renderChat()
+    // `lostKey`: mit mondjunk, ha a szerveren sincs meg a valasz. Az okot nem
+    // talalgatjuk -- a sima lezarulasnal nem allitjuk, hogy ujraindult volna.
+    WB.chatReconnect = { turn: turn, key: chatKey(), tries: 0, lostKey: lostKey || 'workbench.chat.interrupted' }
+    setTimeout(function () { reconnectChat(turn) }, delay)
   }
 
   function finishChatTurn(turn) {
@@ -4587,12 +4611,14 @@
         var buf = ''
         var pump = function () {
           return reader.read().then(function (r) {
-            if (r.done) { if (buf.trim()) parseSseChunk(turn, buf); finishChatTurn(turn); return null }
+            if (r.done) { if (buf.trim()) parseSseChunk(turn, buf); endChatStream(turn); return null }
             buf += dec.decode(r.value, { stream: true })
             var parts = buf.split('\n\n')
             buf = parts.pop()
-            for (var i = 0; i < parts.length; i++) parseSseChunk(turn, parts[i])
-            renderChat()
+            var changed = false
+            for (var i = 0; i < parts.length; i++) { if (parseSseChunk(turn, parts[i])) changed = true }
+            // A `: ping` nem ujrarajzolas: az a gorgetest is a vegere rantana.
+            if (changed) renderChat()
             return pump()
           })
         }
@@ -4604,7 +4630,7 @@
         return res.text().then(function (txt) {
           var parts = String(txt).split('\n\n')
           for (var i = 0; i < parts.length; i++) parseSseChunk(turn, parts[i])
-          finishChatTurn(turn)
+          endChatStream(turn)
         })
       }
       turn.error = t('workbench.chat.no_stream')
@@ -4616,11 +4642,7 @@
       // ujraindulasa (#434, merve: deploy 12:12:05 -> "Nem erem el"). Nem
       // irunk rogton hibat: megvarjuk, hogy a szerver visszajojjon, es
       // megkerdezzuk, mi lett a valasszal.
-      WB.chatAbort = null
-      turn.notices.push(t('workbench.chat.reconnecting'))
-      renderChat()
-      WB.chatReconnect = { turn: turn, key: chatKey(), tries: 0 }
-      setTimeout(function () { reconnectChat(turn) }, CHAT_RECONNECT_MS)
+      recoverChatTurn(turn, t('workbench.chat.reconnecting'), CHAT_RECONNECT_MS)
     })
   }
 
@@ -4667,7 +4689,7 @@
         return
       }
       // A valasz elveszett (a szerver ujraindult, mielott befejezte volna).
-      turn.error = t('workbench.chat.interrupted')
+      turn.error = t(rc.lostKey || 'workbench.chat.interrupted')
       finishChatTurn(turn)
     })
   }

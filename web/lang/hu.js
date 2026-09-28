@@ -6058,6 +6058,8 @@ window._i18n.hu = {
   "workbench.chat.unqueue": "Mégse",
   "workbench.chat.reconnecting": "Megszakadt a kapcsolat (valószínűleg a Marveen frissítés miatt újraindul). Várok, amíg visszajön, és megnézem, mi lett a válasszal.",
   "workbench.chat.interrupted": "A Marveen újraindult, mielőtt a válasz elkészült volna, ezért ez a válasz elveszett. Az üzeneted megvan, küldd el újra.",
+  "workbench.chat.stream_ended": "A kapcsolat lezárult, mielőtt a válasz ideért. Megnézem a szerveren, mi lett vele.",
+  "workbench.chat.stream_lost": "A kapcsolat lezárult, mielőtt a válasz ideért, és a szerveren sincs meg a válasz. Az üzeneted megvan, küldd el újra.",
   "workbench.chat.you": "Te",
   "workbench.chat.agent": "Ágens",
   "workbench.chat.act_thinking": "Gondolkodik…",

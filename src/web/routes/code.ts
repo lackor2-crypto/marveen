@@ -1235,7 +1235,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
     if (!body.project || !body.prompt) { json(res, { error: 'project and prompt are required', errorKey: 'cb.err.project_and_prompt_required' }, 400); return true }
-    const origin = (['telegram', 'agent', 'dashboard', 'api'] as const).includes(body.origin as CodeTaskOrigin)
+    // 'workbench' is NOT accepted from outside: it silences the Telegram
+    // completion ping, and only the in-process Workbench chat delivers the answer.
+    const origin = (['telegram', 'agent', 'dashboard', 'api'] as readonly string[]).includes(String(body.origin))
       ? (body.origin as CodeTaskOrigin)
       : 'api'
     const out = enqueueCodeTask({
@@ -1395,6 +1397,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       prompt: withCodeTaskPreamble(task.prompt, {
         workspacePath: wt.workspacePath,
         hostKind: detectHostKind(),
+        origin: task.origin,
         worktree: {
           redirected: wt.redirected,
           branch: wt.branch,

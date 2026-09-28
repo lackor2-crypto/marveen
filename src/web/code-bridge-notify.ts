@@ -25,6 +25,7 @@ import { logger } from '../logger.js'
 import { formatDuration, type CodeTask } from './code-bridge-store.js'
 import { getApproval, getKanbanCard, listApprovalVerifications } from '../db.js'
 import { approvalCardId } from '../kanban-related.js'
+import { deliverCodeTaskToWorkbench } from '../workbench-agent/code-bridge-delivery.js'
 
 /** The bot that answers must be the bot that was asked: a /code command sent to
  *  the dedicated code bot is replied to by that same bot. Only a task with no
@@ -189,6 +190,20 @@ export function buildCompletionMessage(task: CodeTask, lang: NotifyLang = notify
 /** Fire-and-forget: a failed Telegram send must never fail the task itself --
  *  the result is already durable in the DB and /result can still fetch it. */
 export async function notifyCodeTaskFinished(task: CodeTask): Promise<void> {
+  // A Workbench-chat task answers IN that chat, not on Telegram (Boss,
+  // 2026-09-28, #433: "abba a csetbe kell nekem visszakapnom az uzenetet,
+  // ahonnan kerdeztem"). Written here too -- not only by the live chat turn --
+  // because this hook survives a dashboard restart mid-task. Only if the
+  // conversation cannot be found does the answer fall back to Telegram:
+  // it must never be lost.
+  if (task.origin === 'workbench') {
+    try {
+      if (deliverCodeTaskToWorkbench(task)) return
+      logger.warn({ task: task.id }, 'code-bridge: workbench conversation not found, falling back to Telegram')
+    } catch (err) {
+      logger.warn({ err, task: task.id }, 'code-bridge: workbench delivery failed, falling back to Telegram')
+    }
+  }
   try {
     const token = tokenForTask(task)
     if (!token) return

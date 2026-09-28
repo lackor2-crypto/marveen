@@ -32,6 +32,7 @@ import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask } from '
 import { projectFileTarget } from '../../project-files.js'
 import {
   ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
+  addAgentMessageOnce,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
@@ -41,6 +42,8 @@ const TURN_MAX_MS = 15 * 60 * 1000
 /** A kod-hidas (teljes erteku) fordulo ennyit var a chatben; utana a hatterben
  *  figyeli tovabb, es a kesve erkezo valasz is a beszelgetesbe kerul. */
 const CODE_BRIDGE_CHAT_WAIT_MS = TURN_MAX_MS - 30_000
+/** Ilyen suruen megy egy SSE-megjegyzes a csendes chat-kapcsolaton. */
+export const SSE_PING_MS = 15_000
 
 /**
  * A futo fordulok leallito-kapcsoloja, zar-kulcs szerint. A Leallitas gomb
@@ -305,6 +308,15 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const workerOnline = fullAgentEnabled ? codeBridgeHealth().workerOnline : false
     const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline })
 
+    // A csendes kapcsolat eletben tartasa (#433): a kod-hidas fordulo percekig
+    // nem kuld semmit (csak az elejen es a vegen), es egy kozbeeso proxy vagy
+    // a bongeszo a tetlen kapcsolatot lezarhatja -- a valasz akkor mar nem er
+    // oda. A `:` kezdetu sor SSE-megjegyzes: a felulet nem esemenykent kezeli.
+    const ping = setInterval(() => {
+      if (clientGone) return
+      try { res.write(': ping\n\n') } catch { clientGone = true }
+    }, SSE_PING_MS)
+
     try {
       if (decision.backend === 'code-bridge') {
         // Ugyanaz a "fut mar" zar, mint a projekt-asszisztensnel: igy a
@@ -318,6 +330,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               ? openSessionForWorkItem(project.id, item.id, lang)
               : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
             send('session', { type: 'session', sessionId: session.id })
+            const turnStartSec = Math.floor(Date.now() / 1000)
             const folder = projectFileTarget(project, '')
             const prompt = buildCodeBridgePrompt({
               projectName: project.name || project.id,
@@ -334,12 +347,13 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 prompt,
                 lang,
                 requestedBy: input.actor ?? null,
-                chatId: null,
+                // A valasz ide megy vissza -- ujrainditas utan is (code-bridge-delivery.ts).
+                chatId: session.id,
                 signal: ac.signal,
               },
               {
                 enqueue: (i) => {
-                  const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'dashboard', requestedBy: i.requestedBy, chatId: i.chatId })
+                  const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'workbench', requestedBy: i.requestedBy, chatId: i.chatId })
                   return 'error' in r ? { ok: false, message: r.error } : { ok: true, id: r.task.id }
                 },
                 getTask: (id) => {
@@ -352,7 +366,13 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                   signal?.addEventListener('abort', () => { clearTimeout(to); resolve() }, { once: true })
                 }),
                 timeoutMs: CODE_BRIDGE_CHAT_WAIT_MS,
-                record: (role, content) => { if (content.trim()) addAgentMessage(session.id, role, content) },
+                // A valaszt a feladat lezarasakor a szerver is beirja (ujrainditas
+                // ellen): ami mar bent van, az nem kerul be masodszor.
+                record: (role, content) => {
+                  if (!content.trim()) return
+                  if (role === 'user') addAgentMessage(session.id, role, content)
+                  else addAgentMessageOnce(session.id, role, content, turnStartSec)
+                },
                 cancel: (id) => { cancelCodeTask(id) },
               },
             )) {
@@ -380,6 +400,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       send('error', { type: 'error', code: 'internal', message: msg('provider_failed', lang, { detail: e instanceof Error ? e.message : String(e) }) })
     } finally {
       clearTimeout(turnCap)
+      clearInterval(ping)
       if (ownsController && turnControllers.get(key) === ac) turnControllers.delete(key)
     }
     if (!clientGone) { try { res.end() } catch { /* mar lezarult */ } }

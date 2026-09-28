@@ -205,6 +205,17 @@ export function addAgentMessage(sessionId: string, role: MessageRole, content: s
   return { id, session_id: sessionId, role, content, created_at: ts, model, via_kind: viaKind, via_account: viaAccount }
 }
 
+/** Ugyanaz a sor csak EGYSZER kerul be `sinceSec` ota (#433): a kod-hidas
+ *  valaszt ket ut is beirhatja -- az elo chat-fordulo ES a feladat lezarasakor
+ *  a szerver (az ujrainditast is tulelo ut). Amelyik masodiknak er oda, az
+ *  nem ir. null = mar bent volt. */
+export function addAgentMessageOnce(sessionId: string, role: MessageRole, content: string, sinceSec: number): AgentMessageRow | null {
+  ensureAgentTables()
+  const seen = getDb().prepare('SELECT 1 FROM workbench_agent_messages WHERE session_id = ? AND role = ? AND content = ? AND created_at >= ? LIMIT 1')
+    .get(sessionId, role, content, Math.floor(sinceSec))
+  return seen ? null : addAgentMessage(sessionId, role, content)
+}
+
 export function listAgentMessages(sessionId: string, limit = 200): AgentMessageRow[] {
   ensureAgentTables()
   const v = String(sessionId || '').trim()

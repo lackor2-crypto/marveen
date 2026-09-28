@@ -77,6 +77,9 @@ export interface CodeBridgeTurnInput {
   prompt?: string
   lang: Lang
   requestedBy: string | null
+  /** Ahova a valasz visszamegy: a Munkapad-beszelgetes azonositoja. A feladat
+   *  lezarasakor a szerver ebbe irja a valaszt (`deliverCodeTaskToWorkbench`)
+   *  -- akkor is, ha kozben ujraindult, es az elo fordulo mar nem el. */
   chatId?: string | null
   signal?: AbortSignal
 }
@@ -285,6 +288,17 @@ function* finishedEvents(
   yield { type: 'done', model: null }
 }
 
+/** Egy LEZARULT feladat vegeredmenyenek naplo-sora (valasz, hiba vagy
+ *  leallitas) -- ugyanaz a szoveg, amit az elo fordulo is beirna. */
+export function recordCodeBridgeOutcome(
+  task: CodeBridgeTaskView,
+  lang: Lang,
+  record: (role: 'user' | 'assistant' | 'system', content: string) => void,
+): void {
+  if (task.status !== 'done' && task.status !== 'error' && task.status !== 'cancelled') return
+  for (const _ of finishedEvents(task, lang, record)) { /* csak a naplo-sor kell */ }
+}
+
 /** A chat mar nem var, de a feladat vegeredmenye meg a beszelgetesbe kerul. */
 async function followInBackground(
   id: string,
@@ -300,7 +314,7 @@ async function followInBackground(
       const task = deps.getTask(id)
       if (!task) return
       if (task.status === 'done' || task.status === 'error' || task.status === 'cancelled') {
-        for (const _ of finishedEvents(task, lang, record)) { /* csak a naplo-sor kell */ }
+        recordCodeBridgeOutcome(task, lang, record)
         return
       }
     }
