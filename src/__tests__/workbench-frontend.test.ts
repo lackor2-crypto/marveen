@@ -411,6 +411,16 @@ describe('agent-chat (3. fazis)', () => {
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
   }
 
+  // Boss, 2026-09-28: "alapesetben lent legyen a csuszka", mindig a legutolso
+  // uzenet latsszon. A teljes ujrarajzolas (megnyitas, tetel-valtas) uj naplot
+  // tesz be, ami a tetejen allna, ha nem gorgetnenk le.
+  it('a chat-naplo megnyitaskor a legaljan all (a legutolso uzenet latszik)', async () => {
+    const log = { value: '', focus() {}, scrollTop: 0, scrollHeight: 900 }
+    ;(h.inputs as Record<string, unknown>).wbChatLog = log
+    await openChat()
+    expect(log.scrollTop).toBe(900)
+  })
+
   it('a projekt-szintu beszelgetest is VISSZAOLVASSA (nem csak a munkadarabet)', async () => {
     await openChat()
     // A NULLA ket dolgot jelenthet: ha nem kerdeznenk meg a szervert, egy mar
