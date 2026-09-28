@@ -2,7 +2,8 @@
 //
 //   GET  /api/workbench/agent/status?project=<id>   -- van-e szolgaltato, hol all a kozos keret
 //   POST /api/workbench/agent/message               -- uzenet kuldese, STREAMELT valasz (SSE)
-//   GET  /api/workbench/agent/session?workItem=<id> -- a beszelgetes eddigi uzenetei + tool-hivasai
+//   GET  /api/workbench/agent/session?workItem=<id> -- a beszelgetes eddigi uzenetei + tool-hivasai + fut-e valasz
+//   POST /api/workbench/agent/stop                  -- a futo valasz leallitasa (a szerveren is)
 //   GET  /api/workbench/agent/config                -- modell + VAN-E kulcs (a kulcs SOSE jon vissza)
 //   POST /api/workbench/agent/config                -- modell / kulcs beallitasa a feluletrol
 //
@@ -22,18 +23,32 @@ import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.
 import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
 import { workbenchAccountStatuses, isKnownWorkbenchAccount } from '../../workbench-agent/accounts.js'
-import { runTurn, validateTurn, MESSAGE_MAX_CHARS } from '../../workbench-agent/orchestrator.js'
-import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn } from '../../workbench-agent/code-bridge-turn.js'
-import { codeBridgeHealth, enqueueCodeTask, getCodeTask } from '../code-bridge-store.js'
 import {
-  ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey,
+  runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
+} from '../../workbench-agent/orchestrator.js'
+import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
+import { runCodeBridgeTurn, buildCodeBridgePrompt } from '../../workbench-agent/code-bridge-turn.js'
+import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask } from '../code-bridge-store.js'
+import { projectFileTarget } from '../../project-files.js'
+import {
+  ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */
 const TURN_MAX_MS = 15 * 60 * 1000
+/** A kod-hidas (teljes erteku) fordulo ennyit var a chatben; utana a hatterben
+ *  figyeli tovabb, es a kesve erkezo valasz is a beszelgetesbe kerul. */
+const CODE_BRIDGE_CHAT_WAIT_MS = TURN_MAX_MS - 30_000
+
+/**
+ * A futo fordulok leallito-kapcsoloja, zar-kulcs szerint. A Leallitas gomb
+ * ezen at allitja le a SZERVEREN is a valaszt -- eddig csak a bongeszo
+ * olvasasa allt le, a szerveren a fordulo tovabb futott, es amig vegzett,
+ * minden uj uzenet "mar fut egy valasz" hibat kapott.
+ */
+const turnControllers = new Map<string, AbortController>()
 
 function uiLang(url: URL): Lang {
   const v = url.searchParams.get('lang')
@@ -178,6 +193,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         session,
         messages: listAgentMessages(session.id),
         toolCalls: listToolCalls(session.id),
+        // Elnavigalas utan visszaterve a felulet ebbol tudja, hogy a valasz
+        // meg KESZUL a szerveren (es megvarja), nem pedig elveszett.
+        running: isTurnRunning(turnKey(project.id, null)),
       })
       return true
     }
@@ -190,7 +208,26 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       session,
       messages: listAgentMessages(session.id),
       toolCalls: listToolCalls(session.id),
+      running: isTurnRunning(turnKey(item.project_id, item.id)),
     })
+    return true
+  }
+
+  // --- a futo valasz leallitasa ----------------------------------------------
+  if (path === '/api/workbench/agent/stop' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang, msg('bad_json', lang))
+    const projectId = String(body.project_id ?? '').trim()
+    if (!projectId) return fail(res, 400, 'project_required', lang)
+    const project = getProject(projectId)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const workItemId = body.work_item_id === undefined || body.work_item_id === null
+      ? null
+      : String(body.work_item_id).trim() || null
+    const key = turnKey(project.id, workItemId)
+    const ac = turnControllers.get(key)
+    if (ac) ac.abort()
+    json(res, { stopped: !!ac, running: isTurnRunning(key) })
     return true
   }
 
@@ -236,17 +273,27 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     })
 
     const ac = new AbortController()
-    let closed = false
-    const stop = (): void => { if (!closed) { closed = true; ac.abort() } }
-    req.on('close', stop)
-    req.on('error', stop)
-    // Felso korlat egy fordulora: ha a szolgaltato kapcsolata megakad, de a
-    // bongeszo nyitva marad, a "fut mar" zar eddig orokre fogta a munkadarabot.
+    // A bongeszo elmenese (elnavigalas, ujratoltes) NEM allitja le a valaszt:
+    // a fordulo a szerveren vegigfut es a beszelgetesbe mentodik, visszaterve a
+    // felulet betolti (a session-lekeres `running` mezoje mondja meg, hogy meg
+    // keszul). Leallitani a Leallitas gomb (/stop) vagy a felso idokorlat tud.
+    // Merve (Node 22): a `req` 'close' a body beolvasasa utan mar NEM sul el;
+    // a kapcsolat bontasat a `res` 'close' jelzi -- azt csak arra hasznaljuk,
+    // hogy ne irjunk egy lezart kapcsolatba.
+    let clientGone = false
+    res.on('close', () => { clientGone = true })
+    // Felso korlat egy fordulora: ha a szolgaltato kapcsolata megakad, a
+    // "fut mar" zar ne foghassa orokre a munkadarabot.
     const turnCap = setTimeout(() => ac.abort(), TURN_MAX_MS)
+    const key = turnKey(project.id, workItemId)
+    // Csak a SAJAT fordulonk kapcsoloja kerul a nyilvantartasba: egy "mar fut"
+    // miatt elutasitott keres nem irhatja felul a futoet.
+    const ownsController = !turnControllers.has(key)
+    if (ownsController) turnControllers.set(key, ac)
 
     const send = (event: string, data: unknown): void => {
-      if (closed) return
-      try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) } catch { stop() }
+      if (clientGone) return
+      try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) } catch { clientGone = true }
     }
 
     // #433 (B opcio): a teljes erteku mod eldontese. A kapcsolo ALAPBOL ki:
@@ -260,33 +307,62 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
 
     try {
       if (decision.backend === 'code-bridge') {
-        for await (const ev of runCodeBridgeTurn(
-          {
-            projectRef: project.name || project.id,
-            message: input.message,
-            lang,
-            requestedBy: input.actor ?? null,
-            chatId: null,
-            signal: ac.signal,
-          },
-          {
-            enqueue: (i) => {
-              const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'dashboard', requestedBy: i.requestedBy, chatId: i.chatId })
-              return 'error' in r ? { ok: false, message: r.error } : { ok: true, id: r.task.id }
-            },
-            getTask: (id) => {
-              const t = getCodeTask(id)
-              return t ? { status: t.status, result: t.result, summary: t.summary, error: t.error } : null
-            },
-            now: () => Date.now(),
-            sleep: (ms, signal) => new Promise<void>((resolve) => {
-              const to = setTimeout(resolve, ms)
-              signal?.addEventListener('abort', () => { clearTimeout(to); resolve() }, { once: true })
-            }),
-          },
-        )) {
-          send(ev.type, ev)
-          if (closed) break
+        // Ugyanaz a "fut mar" zar, mint a projekt-asszisztensnel: igy a
+        // felulet visszaterve latja, hogy keszul a valasz, es a Leallitas is mukodik.
+        if (!claimTurn(key)) {
+          send('error', { type: 'error', code: 'busy', message: msg('busy', lang) })
+        } else {
+          try {
+            const item = workItemId ? getWorkItem(workItemId) : null
+            const session = item
+              ? openSessionForWorkItem(project.id, item.id, lang)
+              : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
+            send('session', { type: 'session', sessionId: session.id })
+            const folder = projectFileTarget(project, '')
+            const prompt = buildCodeBridgePrompt({
+              projectName: project.name || project.id,
+              projectFolder: folder.ok ? folder.dirAbs : null,
+              workItem: item ? { title: item.title, type: item.type } : null,
+              history: listAgentMessages(session.id),
+              message: input.message.trim(),
+              lang,
+            })
+            for await (const ev of runCodeBridgeTurn(
+              {
+                projectRef: project.name || project.id,
+                message: input.message,
+                prompt,
+                lang,
+                requestedBy: input.actor ?? null,
+                chatId: null,
+                signal: ac.signal,
+              },
+              {
+                enqueue: (i) => {
+                  const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'dashboard', requestedBy: i.requestedBy, chatId: i.chatId })
+                  return 'error' in r ? { ok: false, message: r.error } : { ok: true, id: r.task.id }
+                },
+                getTask: (id) => {
+                  const t = getCodeTask(id)
+                  return t ? { status: t.status, result: t.result, summary: t.summary, error: t.error } : null
+                },
+                now: () => Date.now(),
+                sleep: (ms, signal) => new Promise<void>((resolve) => {
+                  const to = setTimeout(resolve, ms)
+                  signal?.addEventListener('abort', () => { clearTimeout(to); resolve() }, { once: true })
+                }),
+                timeoutMs: CODE_BRIDGE_CHAT_WAIT_MS,
+                record: (role, content) => { if (content.trim()) addAgentMessage(session.id, role, content) },
+                cancel: (id) => { cancelCodeTask(id) },
+              },
+            )) {
+              // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
+              // beszelgetesbe kerul, nem szakad felbe.
+              send(ev.type, ev)
+            }
+          } finally {
+            releaseTurn(key)
+          }
         }
       } else {
         // Bekapcsolt teljes mod worker nelkul: eloszor a setup-jelzes, aztan a
@@ -295,16 +371,18 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
           send('notice', { type: 'notice', code: 'code_bridge_no_worker', message: msg('code_bridge_no_worker', lang) })
         }
         for await (const ev of runTurn({ ...input, signal: ac.signal })) {
+          // A kliens elmenetele utan is vegigolvassuk (lasd fent).
           send(ev.type, ev)
-          if (closed) break
         }
       }
     } catch (e) {
       // SOSE talalgatjuk az okot: a tenyleges hiba megy ki.
       send('error', { type: 'error', code: 'internal', message: msg('provider_failed', lang, { detail: e instanceof Error ? e.message : String(e) }) })
+    } finally {
+      clearTimeout(turnCap)
+      if (ownsController && turnControllers.get(key) === ac) turnControllers.delete(key)
     }
-    clearTimeout(turnCap)
-    if (!closed) { try { res.end() } catch { /* mar lezarult */ } }
+    if (!clientGone) { try { res.end() } catch { /* mar lezarult */ } }
     return true
   }
 

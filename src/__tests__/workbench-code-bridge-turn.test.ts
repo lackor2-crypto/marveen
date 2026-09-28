@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { runCodeBridgeTurn, type CodeBridgeTurnDeps, type CodeBridgeTaskView, type CodeBridgeStatus } from '../workbench-agent/code-bridge-turn.js'
+import { describe, it, expect, vi } from 'vitest'
+import {
+  runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeErrorDetail, CODE_BRIDGE_HISTORY_TURNS,
+  type CodeBridgeTurnDeps, type CodeBridgeTaskView, type CodeBridgeStatus,
+} from '../workbench-agent/code-bridge-turn.js'
 import type { OrchestratorEvent } from '../workbench-agent/orchestrator.js'
 
 /** A generator osszes esemenye egy tombbe. */
@@ -74,7 +77,7 @@ describe('runCodeBridgeTurn -- Munkapad chat a kod-hidon (#433, B opcio)', () =>
       enqueue: () => ({ ok: true, id: 't' }), getTask: tasks.getTask, now: clock.now, sleep: clock.sleep,
     }))
     const err = evs.find((e) => e.type === 'error') as Extract<OrchestratorEvent, { type: 'error' }> | undefined
-    expect(err?.message).toBe('tsc failed: 3 errors')
+    expect(err?.message).toContain('tsc failed: 3 errors')
     expect(evs.some((e) => e.type === 'done')).toBe(false) // error zar, nincs kulon done
   })
 
@@ -119,5 +122,112 @@ describe('runCodeBridgeTurn -- Munkapad chat a kod-hidon (#433, B opcio)', () =>
       enqueue: () => ({ ok: true, id: 't' }), getTask: () => null, now: clock.now, sleep: clock.sleep,
     }))
     expect(evs.some((e) => e.type === 'error' && (e as { code: string }).code === 'code_bridge_lost')).toBe(true)
+  })
+})
+
+describe('#433: a teljes erteku mod a BESZELGETES resze (2026-09-28, merve)', () => {
+  // Valos eset: a tulajdonos azt irta a chatbe, "na most meg tudod csinalni?",
+  // es a kod-hid CSAK ezt a mondatot kapta -- se elozmeny, se projekt, se
+  // munkadarab. A fordulo ráadásul nem kerult a beszelgetesbe, es a hiba oka
+  // ("session limit") helyett csak "Claude Code reported an error" latszott.
+
+  it('a feladat a beszelgetes vegevel, a projekttel es a mappaval indul, a vegen az UJ uzenettel', () => {
+    const prompt = buildCodeBridgePrompt({
+      projectName: 'Iroda fejlesztese',
+      projectFolder: '/mnt/f/Marveen/Projektek/Iroda',
+      workItem: { title: 'Vélemény az MD-tervről', type: 'document' },
+      history: [
+        { role: 'user', content: 'Véleményezd a Marvin_Workbench_implementacios_terv.md-t' },
+        { role: 'assistant', content: 'A 6-8. fejezetet nem láttam.' },
+        { role: 'system', content: 'belso rendszer-sor, nem kell' },
+      ],
+      message: 'na most meg tudod csinalni?',
+      lang: 'hu',
+    })
+    expect(prompt).toContain('Iroda fejlesztese')
+    expect(prompt).toContain('/mnt/f/Marveen/Projektek/Iroda')
+    expect(prompt).toContain('Vélemény az MD-tervről')
+    expect(prompt).toContain('OWNER: Véleményezd a Marvin_Workbench_implementacios_terv.md-t')
+    expect(prompt).toContain('ASSISTANT: A 6-8. fejezetet nem láttam.')
+    expect(prompt).not.toContain('belso rendszer-sor')
+    expect(prompt).toContain('Hungarian')
+    // Az uj uzenet a VEGEN all, az elozmeny utan.
+    expect(prompt.trimEnd().endsWith('na most meg tudod csinalni?')).toBe(true)
+    expect(prompt.indexOf('OWNER: Véleményezd')).toBeLessThan(prompt.indexOf('na most meg tudod'))
+  })
+
+  it('mappa es munkadarab nelkul is kimondja, hogy nincs (nem hallgat rola)', () => {
+    const prompt = buildCodeBridgePrompt({ projectName: 'P', projectFolder: null, workItem: null, history: [], message: 'szia', lang: 'en' })
+    expect(prompt).toContain('no folder set')
+    expect(prompt).toContain('project-level chat')
+    expect(prompt).toContain('No earlier messages')
+    expect(prompt).toContain('English')
+  })
+
+  it('hosszu elozmenyt korlatoz: a LEGUJABB fordulok maradnak, a levagott uzenet jelolve', () => {
+    const history = Array.from({ length: CODE_BRIDGE_HISTORY_TURNS + 5 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `uzenet-${i} ` + 'x'.repeat(i === CODE_BRIDGE_HISTORY_TURNS + 4 ? 9000 : 10) }))
+    const prompt = buildCodeBridgePrompt({ projectName: 'P', projectFolder: null, workItem: null, history, message: 'uj', lang: 'hu' })
+    expect(prompt).not.toContain('uzenet-0 ')
+    expect(prompt).toContain(`uzenet-${CODE_BRIDGE_HISTORY_TURNS + 4} `)
+    expect(prompt).toContain('shortened here only')
+  })
+
+  it('a kerdes es a valasz a beszelgetes-naploba kerul; a kod-hid a kontextusos feladatot kapja', async () => {
+    const clock = fakeClock(1000)
+    const recorded: [string, string][] = []
+    let enqueued = ''
+    const evs = await collect(runCodeBridgeTurn({ ...baseInput, prompt: 'KONTEXTUS + olvasd el a fajlt' }, {
+      enqueue: (i) => { enqueued = i.prompt; return { ok: true, id: 't' } },
+      getTask: fakeTasks([task('running'), task('done', { result: 'Kesz.' })]).getTask,
+      now: clock.now, sleep: clock.sleep,
+      record: (role, content) => { recorded.push([role, content]) },
+    }))
+    expect(enqueued).toBe('KONTEXTUS + olvasd el a fajlt')
+    expect(recorded).toEqual([['user', 'olvasd el a fajlt'], ['assistant', 'Kesz.']])
+    expect(evs.at(-1)).toMatchObject({ type: 'done' })
+  })
+
+  it('a hiba VALODI oka latszik (session limit), nem csak az altalanos "reported an error"', async () => {
+    const t = task('error', { error: 'Claude Code reported an error', result: "You've hit your session limit · resets 2:10am (Europe/Budapest)" })
+    expect(codeBridgeErrorDetail(t)).toBe("Claude Code reported an error: You've hit your session limit · resets 2:10am (Europe/Budapest)")
+    const clock = fakeClock(1000)
+    const recorded: [string, string][] = []
+    const evs = await collect(runCodeBridgeTurn(baseInput, {
+      enqueue: () => ({ ok: true, id: 't' }), getTask: fakeTasks([t]).getTask, now: clock.now, sleep: clock.sleep,
+      record: (role, content) => { recorded.push([role, content]) },
+    }))
+    const err = evs.find((e) => e.type === 'error') as Extract<OrchestratorEvent, { type: 'error' }>
+    expect(err.message).toContain('session limit')
+    expect(recorded.at(-1)?.[0]).toBe('system')
+    expect(recorded.at(-1)?.[1]).toContain('session limit')
+  })
+
+  it('Leallitas: a feladatot a sorban is lezarja, es a naploba is bekerul', async () => {
+    const clock = fakeClock(1000)
+    const ac = new AbortController()
+    ac.abort()
+    const cancelled: string[] = []
+    const recorded: string[] = []
+    await collect(runCodeBridgeTurn({ ...baseInput, signal: ac.signal }, {
+      enqueue: () => ({ ok: true, id: 'task-9' }), getTask: fakeTasks([task('running')]).getTask, now: clock.now, sleep: clock.sleep,
+      cancel: (id) => { cancelled.push(id) },
+      record: (role) => { recorded.push(role) },
+    }))
+    expect(cancelled).toEqual(['task-9'])
+    expect(recorded).toEqual(['user', 'system'])
+  })
+
+  it('a chat varakozasa utan kesve erkezo valasz IS a beszelgetesbe kerul (hatterben figyeli)', async () => {
+    const clock = fakeClock(60_000)
+    const recorded: [string, string][] = []
+    // Az elso 7 lekerdezes "fut", utana kesz: a chat 5 percnel mar nem var.
+    const states = [...Array.from({ length: 7 }, () => task('running')), task('done', { result: 'Kesve, de kesz.' })]
+    const evs = await collect(runCodeBridgeTurn(baseInput, {
+      enqueue: () => ({ ok: true, id: 't' }), getTask: fakeTasks(states).getTask, now: clock.now, sleep: clock.sleep,
+      pollMs: 1, timeoutMs: 5 * 60_000, backgroundMs: 60 * 60_000,
+      record: (role, content) => { recorded.push([role, content]) },
+    }))
+    expect(evs.some((e) => e.type === 'notice' && (e as { code: string }).code === 'code_bridge_timeout')).toBe(true)
+    await vi.waitFor(() => expect(recorded.some(([r, c]) => r === 'assistant' && c === 'Kesve, de kesz.')).toBe(true))
   })
 })

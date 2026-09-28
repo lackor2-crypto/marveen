@@ -50,6 +50,10 @@ export const MESSAGES = {
     hu: 'A teljes értékű ügynök hibába futott. Nézd meg a Kód-híd nézetet a részletekért, vagy próbáld újra.',
     en: 'The full agent hit an error. Check the Code Bridge view for details, or try again.',
   },
+  code_bridge_error_detail: {
+    hu: 'A teljes értékű ügynök hibára futott. A pontos ok: {detail}',
+    en: 'The full agent hit an error. The exact reason: {detail}',
+  },
   code_bridge_cancelled: {
     hu: 'A feladat megszakadt, mielőtt a teljes értékű ügynök befejezte volna.',
     en: 'The task was cancelled before the full agent finished.',

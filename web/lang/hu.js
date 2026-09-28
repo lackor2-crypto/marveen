@@ -6103,6 +6103,8 @@ window._i18n.hu = {
   "workbench.tool.workItem.update": "Munkadarab módosítása",
   "workbench.chat.thinking": "Gondolkodik...",
   "workbench.chat.stopped": "Megállítottad a választ.",
+  "workbench.chat.queued": "Sorban áll: amint az előző válasz elkészül, magától elküldöm. Nem kell újra beírnod.",
+  "workbench.chat.resumed_running": "Az előző válasz még készül a szerveren (akkor is fut, ha közben máshova kattintottál). Megvárom, és amint kész, itt megjelenik. Ha nem kell, az „Állj” gombbal megállíthatod.",
   "workbench.chat.hello_project": "Még nincs kiválasztva munkadarab, de nyugodtan írj: az ágens innen is ért, és ha kell, létre is hozza a munkadarabot.",
   "workbench.chat.hello_item": "Írj az ágensnek erről a munkadarabról: mit változtasson, mit készítsen el.",
   "workbench.chat.target_project": "Ez a beszélgetés a projekthez tartozik (nincs kiválasztott munkadarab).",
