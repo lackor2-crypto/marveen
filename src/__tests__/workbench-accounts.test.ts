@@ -9,9 +9,20 @@ const acc = (agent: string, five: number | null, seven: number | null, model = '
 afterEach(() => setWorkbenchAccountListerForTest(null))
 
 describe('workbenchAccounts', () => {
-  it('a legtobb 5 oras kerettel rendelkezo elol; a heti 100% NEM szur ki', () => {
+  it('a legtobb 5 oras kerettel rendelkezo elol; a heti 100% NEM szur ki, de a sor vegere kerul', () => {
     setWorkbenchAccountListerForTest(() => [acc('a', 60, 10), acc('b', 5, 100), acc('c', 30, 50)])
-    expect(workbenchAccounts(now)).toEqual(['b', 'c', 'a'])
+    expect(workbenchAccounts(now)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('#434: a 0%-os 5 oras, de heti limites fiok nem elozi meg a zold fiokokat', () => {
+    setWorkbenchAccountListerForTest(() => [acc('fo', 0, 100), acc('u', 4, 48), acc('l', 14, 2)])
+    expect(workbenchAccounts(now)).toEqual(['u', 'l', 'fo'])
+  })
+
+  it('elavult heti meres nem sorol hatra', () => {
+    const old = { ...acc('b', 5, 100), usageAt: now - 7 * 24 * 3600 * 1000 }
+    setWorkbenchAccountListerForTest(() => [acc('a', 60, 10), old])
+    expect(workbenchAccounts(now)).toEqual(['b', 'a'])
   })
 
   it('a kritikus 5 oras keretu fiok kimarad', () => {

@@ -77,11 +77,12 @@ export function setWorkbenchLivePoolForTest(p: LiveSessionPool | null): void {
   livePool = p
 }
 
-type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined) => LiveStartSpec | null
-let liveResolver: LiveResolver = (k, f, a) => liveSpecFor(k, f, a)
+/** `skip`: a fordulo alatt mar limitbe futott fiokok config-konyvtarai (#434). */
+type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>) => LiveStartSpec | null
+let liveResolver: LiveResolver = (k, f, a, x) => liveSpecFor(k, f, a, x)
 /** Csak teszthez: az allo munkamenet elerhetosegenek cserelese (null = valodi). */
 export function setWorkbenchLiveResolverForTest(r: LiveResolver | null): void {
-  liveResolver = r || ((k, f, a) => liveSpecFor(k, f, a))
+  liveResolver = r || ((k, f, a, x) => liveSpecFor(k, f, a, x))
 }
 
 /**
@@ -109,7 +110,7 @@ function liveCwd(projectFolder: string | null): string {
   return own
 }
 
-function liveSpecFor(key: string, projectFolder: string | null, account: string | undefined): LiveStartSpec | null {
+function liveSpecFor(key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>): LiveStartSpec | null {
   // Tesztben SOSE indul valodi `claude` (merve 2026-09-28: egy regi route-teszt
   // igy 6 valodi munkamenetet inditott); a teszt a sajat resolverevel dolgozik.
   if (process.env.VITEST) return null
@@ -117,7 +118,10 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
   if (!bin) return null
   const candidates = account ? [account] : [...workbenchAccounts(), MAIN_AGENT_ID]
   let configDir: string | null = null
-  for (const a of candidates) { configDir = loggedInConfigDir(a); if (configDir) break }
+  for (const a of candidates) {
+    const d = loggedInConfigDir(a)
+    if (d && !skip?.has(d)) { configDir = d; break }
+  }
   if (!configDir) return null
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: configDir, MARVEEN_WORKBENCH_LIVE: '1' }
   for (const k of LIVE_STRIPPED_ENV) delete env[k]
@@ -441,26 +445,40 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             addAgentMessage(session.id, 'user', text)
             let answer = ''
             let failed = ''
-            for await (const ev of getLivePool().turn(
-              liveSpec,
-              (fresh) => fresh
-                ? liveInstallNote() + buildCodeBridgePrompt({
-                  projectName: project.name || project.id,
-                  projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
-                  workItem: item ? { title: item.title, type: item.type } : null,
-                  history,
-                  message: text,
-                  lang,
-                })
-                : text,
-              lang,
-              ac.signal,
-            )) {
-              if (ev.type === 'text') answer += ev.text
-              if (ev.type === 'error') failed = ev.message
-              // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
-              // beszelgetesbe kerul, nem szakad felbe.
-              send(ev.type, ev)
+            // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
+            // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
+            // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
+            const limited = new Set<string>()
+            let spec: LiveStartSpec | null = liveSpec
+            while (spec) {
+              const cur: LiveStartSpec = spec
+              spec = null
+              for await (const ev of getLivePool().turn(
+                cur,
+                (fresh) => fresh
+                  ? liveInstallNote() + buildCodeBridgePrompt({
+                    projectName: project.name || project.id,
+                    projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
+                    workItem: item ? { title: item.title, type: item.type } : null,
+                    history,
+                    message: text,
+                    lang,
+                  })
+                  : text,
+                lang,
+                ac.signal,
+              )) {
+                if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
+                  limited.add(cur.configDir)
+                  const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)
+                  if (next && !limited.has(next.configDir)) { spec = next; break }
+                }
+                if (ev.type === 'text') answer += ev.text
+                if (ev.type === 'error') failed = ev.message
+                // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
+                // beszelgetesbe kerul, nem szakad felbe.
+                send(ev.type, ev)
+              }
             }
             if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
             if (failed) addAgentMessage(session.id, 'system', failed)

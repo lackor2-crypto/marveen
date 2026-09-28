@@ -15,7 +15,7 @@
  * listAgentNames), a fiok-azonosito az agens neve -- sosem token, sosem email.
  */
 import { listClaudeAccountCandidates, orderClaudeAccounts, type ClaudeAccount } from '../life-inbox-ai.js'
-import { tierForPct } from '../rate-limit-status.js'
+import { tierForPct, STALE_AFTER_MS } from '../rate-limit-status.js'
 import { rankModelTier } from '../web/smartest-worker.js'
 
 type Lister = () => ClaudeAccount[]
@@ -35,7 +35,15 @@ export function setWorkbenchAccountListerForTest(l: Lister | null): void {
 export function workbenchAccounts(now: number = Date.now()): string[] {
   let cands: ClaudeAccount[] = []
   try { cands = lister() } catch { cands = [] }
-  return orderClaudeAccounts(cands.map((c) => ({ ...c, sevenDayPct: null })), now).map((c) => c.agent)
+  const ordered = orderClaudeAccounts(cands.map((c) => ({ ...c, sevenDayPct: null })), now)
+  // A heti 100% nem szur ki, de a sor VEGERE kerul (#434, 2026-09-28): a
+  // Munkapad kivalasztott egy 0%-os 5 oras, de heti limites fiokot, es az
+  // elo munkamenet "weekly limit"-tel megszakadt, mikozben ket zold fiok volt.
+  // Csak friss merest hiszunk el; elavult meres nem sorol hatra.
+  const weeklyDead = new Set(cands
+    .filter((c) => c.sevenDayPct != null && c.sevenDayPct >= 100 && !(c.usageAt !== null && now - c.usageAt > STALE_AFTER_MS))
+    .map((c) => c.agent))
+  return [...ordered.filter((c) => !weeklyDead.has(c.agent)), ...ordered.filter((c) => weeklyDead.has(c.agent))].map((c) => c.agent)
 }
 
 /** Egy fiok ELO allapota a valasztohoz (kanban #426). */

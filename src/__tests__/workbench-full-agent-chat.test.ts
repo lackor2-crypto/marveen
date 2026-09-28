@@ -219,4 +219,48 @@ describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
     expect(isTurnRunning(turnKey(projectId, workItemId))).toBe(false)
     pool.stopAll()
   })
+
+  it('#434: automatikus fioknal a limitbe futott fiok helyett a kovetkezo valaszol, a limit-hiba nem jut ki', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wb-live-lim-'))
+    const script = join(dir, 'fake-claude.cjs')
+    writeFileSync(script, FAKE_LIMITED_CLI)
+    const pool = new LiveSessionPool({
+      spawn: (s) => spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }),
+      now: () => Date.now(),
+      loadIds: () => ({}),
+      saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    const tried: string[] = []
+    setWorkbenchLiveResolverForTest((key, _f, _a, skip) => {
+      const d = ['/cfg-dead', '/cfg-ok'].find((c) => !skip?.has(c))
+      if (!d) return null
+      tried.push(d)
+      return { key, bin: process.execPath, configDir: d, cwd: dir, env: { ...process.env, FAKE_CFG: d }, baseArgs: [script] }
+    })
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' })
+    expect(tried).toEqual(['/cfg-dead', '/cfg-ok'])
+    expect(r.raw).toContain('valasz a jo fioktol')
+    expect(r.raw).not.toContain('weekly limit')
+    expect(r.raw).toContain('"type":"done"')
+    pool.stopAll()
+  })
 })
+
+const FAKE_LIMITED_CLI = `
+let buf = ''
+process.stdin.on('data', (d) => {
+  buf += d
+  let i
+  while ((i = buf.indexOf('\\n')) >= 0) {
+    buf = buf.slice(i + 1)
+    const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+    if (process.env.FAKE_CFG === '/cfg-dead') {
+      w({ type: 'result', subtype: 'success', is_error: true, result: "You've hit your weekly limit \\u00b7 resets Oct 2, 9am (Europe/Budapest)" })
+    } else {
+      w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'valasz a jo fioktol' } } })
+      w({ type: 'result', subtype: 'success', result: 'x' })
+    }
+  }
+})
+`
