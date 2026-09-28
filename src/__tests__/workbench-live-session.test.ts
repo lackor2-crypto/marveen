@@ -250,6 +250,11 @@ describe('decideWorkbenchBackend -- the live session comes first in full mode', 
     expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: false }).backend).toBe('code-bridge')
     expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: false }).backend).toBe('workbench-agent')
   })
+  it('bridgeFirst (auto account, bridge not limited) -> an online code bridge beats the live session', () => {
+    expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: true, bridgeFirst: true }).backend).toBe('code-bridge')
+    expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: true, bridgeFirst: false }).backend).toBe('live-session')
+    expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: false, liveAvailable: true, bridgeFirst: true }).backend).toBe('live-session')
+  })
   it('switch off -> the project assistant, whatever is available', () => {
     expect(decideWorkbenchBackend({ fullAgentEnabled: false, workerOnline: true, liveAvailable: true }).backend).toBe('workbench-agent')
   })

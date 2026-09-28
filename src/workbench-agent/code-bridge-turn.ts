@@ -27,6 +27,7 @@
 import type { OrchestratorEvent } from './orchestrator.js'
 import { msg, type Lang } from './messages.js'
 import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
+import { detectsUsageLimit } from '../model-fallback.js'
 
 export type CodeBridgeStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -254,11 +255,40 @@ export async function* runCodeBridgeTurn(
 }
 
 /** Egy lezarult feladat esemenyei + naplo-sora. */
+/** A limit-szoveg rovid: egy hosszu, valodi valasz, ami csak idez egy
+ *  limit-mondatot, nem limit. */
+const LIMIT_TEXT_MAX_CHARS = 400
+
+/**
+ * A kod-hid (VS Code) fiokja kimerult-e (kanban #434). A worker nem mondja meg,
+ * melyik fiokkal fut, ezert a feladat SAJAT kimenetebol olvassuk ki: a Claude
+ * Code a limitnel "You've hit your weekly limit · resets ..." szoveggel zar --
+ * hol eredmenykent (`done`), hol hibakent (`error`). Ilyenkor a hivo masik
+ * fiokkal, a helyi munkamenettel folytathatja.
+ */
+export function codeBridgeLimitDetail(task: CodeBridgeTaskView): string | null {
+  if (task.status !== 'done' && task.status !== 'error') return null
+  const text = task.status === 'done'
+    ? (task.result ?? task.summary ?? '').trim()
+    : codeBridgeErrorDetail(task)
+  if (!text || text.length > LIMIT_TEXT_MAX_CHARS) return null
+  return detectsUsageLimit(text) ? text : null
+}
+
 function* finishedEvents(
   task: CodeBridgeTaskView,
   lang: Lang,
   record: (role: 'user' | 'assistant' | 'system', content: string) => void,
 ): Generator<OrchestratorEvent> {
+  const limit = codeBridgeLimitDetail(task)
+  if (limit) {
+    // Nem valasz: a limit-mondat nem kerulhet a beszelgetesbe valaszkent.
+    const m = msg('code_bridge_limit', lang, { detail: limit })
+    record('system', m)
+    yield { type: 'tool', name: 'code-bridge', status: 'error' }
+    yield { type: 'error', code: 'code_bridge_limit', message: m }
+    return
+  }
   if (task.status === 'done') {
     yield { type: 'tool', name: 'code-bridge', status: 'ok' }
     const answer = (task.result ?? task.summary ?? '').trim()

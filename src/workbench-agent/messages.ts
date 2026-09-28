@@ -60,6 +60,14 @@ export const MESSAGES = {
     hu: 'A teljes értékű ügynök hibára futott. A pontos ok: {detail}',
     en: 'The full agent hit an error. The exact reason: {detail}',
   },
+  code_bridge_limit: {
+    hu: 'A VS Code kódhíd fiókja elérte a keretét: {detail}',
+    en: 'The VS Code code bridge account hit its usage limit: {detail}',
+  },
+  code_bridge_limit_fallback: {
+    hu: 'A VS Code kódhíd fiókja elérte a keretét, ezért most a helyi teljes értékű ügynök válaszol egy másik fiókkal.',
+    en: 'The VS Code code bridge account hit its usage limit, so the local full agent answers now with another account.',
+  },
   code_bridge_cancelled: {
     hu: 'A feladat megszakadt, mielőtt a teljes értékű ügynök befejezte volna.',
     en: 'The task was cancelled before the full agent finished.',
