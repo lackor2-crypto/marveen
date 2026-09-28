@@ -28,7 +28,7 @@
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs'
 import { extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
@@ -38,7 +38,7 @@ import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
-import { ensureWorkbenchTables, getWorkItem, type WorkItemRow } from './workbench.js'
+import { ensureWorkbenchTables, getWorkItem, TITLE_MAX, type WorkItemRow } from './workbench.js'
 
 /** Egy mappanev hossza (a Windows teljes-ut korlatja miatt rovidebb, mint a fajlnev). */
 export const FOLDER_NAME_MAX = 80
@@ -383,4 +383,137 @@ export function ensureSourceListed(item: WorkItemRow, depotRel: string): void {
   let data: Buffer
   try { data = readFileSync(abs) } catch { return }
   registerAsset(item.id, depotRel, abs.split(sep).pop() || depotRel, sha256Of(data), data.length, null)
+}
+
+// ---------------------------------------------------------------------------
+// A mappa es a lista osszhangja (#441, 0/b)
+// ---------------------------------------------------------------------------
+
+/** Egyszerre ennyi, a mappaban talalt, meg nem nyilvantartott fajlt veszunk fel. */
+export const FOLDER_SYNC_MAX = 100
+
+const hiddenName = (n: string): boolean => n.startsWith('.') || /^(desktop\.ini|thumbs\.db)$/i.test(n) || n.startsWith('~$')
+
+/**
+ * A munkadarab mappajaban allo, de az anyagok kozott meg nem szereplo fajlok
+ * felvetele (Boss 2026-09-29: a kezzel a mappaba tett v2/v3/v4 nem latszott
+ * az Anyagok kozott). Csak a mappa FELSO szintje, csak fajl; a futtathato
+ * fajl kimarad. Olcso, ha nincs uj fajl (utvonal szerinti osszevetes).
+ */
+export function syncFolderAssets(itemId: string): number {
+  ensureAssetTables()
+  const item = getWorkItem(itemId)
+  if (!item || !item.folder) return 0
+  const project = getProject(item.project_id)
+  if (!project) return 0
+  const t = projectFileTarget(project, item.folder)
+  if (!t.ok) return 0
+  let names: string[]
+  try {
+    names = readdirSync(t.dirAbs, { withFileTypes: true }).filter((d) => d.isFile() && !hiddenName(d.name)).map((d) => d.name)
+  } catch { return 0 }
+  const known = new Set((getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ?').all(itemId) as { path: string }[]).map((r) => r.path))
+  let added = 0
+  for (const n of names.sort((a, b) => a.localeCompare(b, 'hu'))) {
+    if (added >= FOLDER_SYNC_MAX) break
+    const rel = `${t.dirRel}/${n}`
+    if (known.has(rel) || assetSupport(n) === 'unsupported') continue
+    let data: Buffer
+    try { data = readFileSync(join(t.dirAbs, n)) } catch { continue }
+    registerAsset(itemId, rel, n, sha256Of(data), data.length, null)
+    added++
+  }
+  return added
+}
+
+/** A lista a mappa friss allapotaval (a felulet es az agent ezt kerdezi). */
+export function listWorkItemAssetsSynced(itemId: string): WorkItemAssetView[] {
+  try { syncFolderAssets(itemId) } catch { /* a lista akkor is jojjon */ }
+  return listWorkItemAssets(itemId)
+}
+
+// ---------------------------------------------------------------------------
+// Atnevezes: a mappa is megy (K-0.11)
+
+export type RenameItemOutcome =
+  | { ok: true; item: WorkItemRow; folder: FolderRenameOutcome }
+  | { ok: false; code: 'title_required' | 'title_too_long' }
+
+/** A munkadarab uj neve + a mappaja (a felulet "Atnevezes" gombja es az agent is ezt hasznalja). */
+export function renameWorkItem(item: WorkItemRow, rawTitle: unknown): RenameItemOutcome {
+  ensureAssetTables()
+  const title = String(rawTitle ?? '').trim()
+  if (!title) return { ok: false, code: 'title_required' }
+  if (title.length > TITLE_MAX) return { ok: false, code: 'title_too_long' }
+  getDb().prepare('UPDATE work_items SET title = ?, updated_at = ? WHERE id = ?').run(title, Math.floor(Date.now() / 1000), item.id)
+  const folder = title !== item.title ? renameWorkItemFolder(item, title) : { ok: true as const, renamed: false as const, reason: 'same_name' as const }
+  return { ok: true, item: getWorkItem(item.id) as WorkItemRow, folder }
+}
+// ---------------------------------------------------------------------------
+
+export type FolderRenameOutcome =
+  | { ok: true; renamed: false; reason: 'no_folder' | 'same_name' | 'missing' | 'shared' | 'canvas' }
+  | { ok: true; renamed: true; from: string; to: string }
+  | { ok: false; code: 'move_failed'; message: string }
+
+/**
+ * A munkadarab uj neve utan a mappaja is atnevezodik, es MINDEN hivatkozas
+ * (a munkadarab, a verzioi, a reszei, az anyagai) az uj helyre mutat.
+ * Nem nevezzuk at (es megmondjuk, miert), ha:
+ *   - nincs sajat mappa / a mappa nincs meg,
+ *   - egy MASIK munkadarab is hivatkozik a mappa valamelyik fajljara,
+ *   - rajz (.canvas.json) van benne: a rajz a kepeit utvonallal hivja, azt
+ *     nem irjuk at vakon -- a mappa ilyenkor a regi neven marad.
+ */
+export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): FolderRenameOutcome {
+  ensureAssetTables()
+  const folder = workItemFolder(item.id)
+  if (!folder) return { ok: true, renamed: false, reason: 'no_folder' }
+  const project = getProject(item.project_id)
+  if (!project) return { ok: true, renamed: false, reason: 'missing' }
+  const cur = projectFileTarget(project, folder)
+  if (!cur.ok) return { ok: true, renamed: false, reason: 'missing' }
+  const wanted = folderNameFromTitle(newTitle)
+  const parentRel = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : ''
+  const lastSeg = folder.includes('/') ? folder.slice(folder.lastIndexOf('/') + 1) : folder
+  if (wanted === lastSeg) return { ok: true, renamed: false, reason: 'same_name' }
+  const oldPrefix = cur.dirRel + '/'
+  const db = getDb()
+  const like = oldPrefix.replace(/[\\%_]/g, (c) => '\\' + c) + '%'
+  const shared = db.prepare(`SELECT 1 FROM work_items WHERE id != ? AND source_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_versions WHERE work_item_id != ? AND source_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_parts WHERE work_item_id != ? AND asset_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_assets WHERE work_item_id != ? AND path LIKE ? ESCAPE '\\' LIMIT 1`)
+    .get(item.id, like, item.id, like, item.id, like, item.id, like)
+  if (shared) return { ok: true, renamed: false, reason: 'shared' }
+  let hasCanvas = false
+  try { hasCanvas = readdirSync(cur.dirAbs).some((n) => isCanvasFile(n)) } catch { return { ok: true, renamed: false, reason: 'missing' } }
+  if (hasCanvas) return { ok: true, renamed: false, reason: 'canvas' }
+  const parentAbs = cur.dirAbs.slice(0, cur.dirAbs.length - lastSeg.length - 1)
+  const newSeg = freeFileName(parentAbs, wanted)
+  const newAbs = join(parentAbs, newSeg)
+  const newFolder = parentRel ? `${parentRel}/${newSeg}` : newSeg
+  try { renameSync(cur.dirAbs, newAbs) } catch (e) {
+    return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
+  }
+  const newPrefix = (toLifeRel(newAbs) || `${cur.dirRel.slice(0, cur.dirRel.length - lastSeg.length)}${newSeg}`) + '/'
+  const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
+  try {
+    db.transaction(() => {
+      db.prepare('UPDATE work_items SET folder = ?, source_path = ? WHERE id = ?').run(newFolder, swap(item.source_path), item.id)
+      for (const v of db.prepare('SELECT id, source_path FROM work_item_versions WHERE work_item_id = ?').all(item.id) as { id: string; source_path: string | null }[]) {
+        if (v.source_path && v.source_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(swap(v.source_path), v.id)
+      }
+      for (const r of db.prepare('SELECT id, asset_path FROM work_item_parts WHERE work_item_id = ?').all(item.id) as { id: string; asset_path: string | null }[]) {
+        if (r.asset_path && r.asset_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE id = ?').run(swap(r.asset_path), r.id)
+      }
+      for (const a of db.prepare('SELECT id, path FROM work_item_assets WHERE work_item_id = ?').all(item.id) as { id: string; path: string }[]) {
+        if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
+      }
+    })()
+  } catch (e) {
+    try { renameSync(newAbs, cur.dirAbs) } catch { /* a hibauzenet megy tovabb */ }
+    return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
+  }
+  return { ok: true, renamed: true, from: folder, to: newFolder }
 }

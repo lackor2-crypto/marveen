@@ -10,6 +10,7 @@ import { createProject, updateProject, getProject, setProjectArchived, type Proj
 import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, listWorkItemVersions } from '../workbench.js'
 import {
   assetSupport, folderNameFromTitle, attachAsset, listWorkItemAssets, tidyWorkItemIntoFolder,
+  listWorkItemAssetsSynced, renameWorkItemFolder,
 } from '../workbench-assets.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
@@ -191,6 +192,72 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     })
   })
 
+  describe('0/b: a mappa es a lista osszhangja', () => {
+    it('a mappaba kezzel tett fajlok maguktol megjelennek az anyagok kozott (rejtett / futtathato kimarad)', async () => {
+      const item = newItem()
+      attachAsset(item, 'elso.md', Buffer.from('1'))
+      const dir = join(projDir(), 'Marvin Workbench terv')
+      writeFileSync(join(dir, 'v2.md'), '2')
+      writeFileSync(join(dir, 'v3.md'), '3')
+      writeFileSync(join(dir, 'desktop.ini'), 'x')
+      writeFileSync(join(dir, 'x.exe'), 'MZ')
+      mkdirSync(join(dir, 'alma'))
+      const names = listWorkItemAssetsSynced(item.id).map((a) => a.name)
+      expect(names).toEqual(['elso.md', 'v2.md', 'v3.md'])
+      // Masodszorra nem duplaz.
+      expect(listWorkItemAssetsSynced(item.id)).toHaveLength(3)
+      const d = await callWorkbench(`/api/workbench/items/${item.id}`, 'GET')
+      expect(d.body.assets).toHaveLength(3)
+    })
+
+    it('K-0.11: atnevezeskor a mappa is atnevezodik, es MINDEN hivatkozas az uj helyre mutat', () => {
+      const item = newItem('Regi nev')
+      const r0 = attachAsset(item, 'a.md', Buffer.from('A'))
+      if (!r0.ok) throw new Error('attach')
+      const src = 'Projektek/Iroda/Regi nev/a.md'
+      createWorkItemVersion(item.id, { source_path: src })
+      const r = executeTool('workItem.update', { id: item.id, title: 'Uj nev' }, { projectId: pid, workItemId: item.id, lang: 'hu' })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect((r.data as { folder_rename: unknown }).folder_rename).toEqual({ ok: true, renamed: true, from: 'Regi nev', to: 'Uj nev' })
+      const after = getWorkItem(item.id)
+      expect(after?.folder).toBe('Uj nev')
+      expect(after?.source_path).toBe('Projektek/Iroda/Uj nev/a.md')
+      expect(listWorkItemAssets(item.id)[0].path).toBe('Projektek/Iroda/Uj nev/a.md')
+      expect(readFileSync(join(projDir(), 'Uj nev', 'a.md'), 'utf-8')).toBe('A')
+      expect(existsSync(join(projDir(), 'Regi nev'))).toBe(false)
+    })
+
+    it('K-0.11: a felulet atnevezes-vegpontja: uj nev + mappa, ures nev elutasitva', async () => {
+      const item = newItem('Regi')
+      attachAsset(item, 'a.md', Buffer.from('A'))
+      const bad = await callWorkbench(`/api/workbench/items/${item.id}/rename`, 'POST', { title: '  ' })
+      expect(bad.status).toBe(400)
+      const r = await callWorkbench(`/api/workbench/items/${item.id}/rename`, 'POST', { title: 'Friss' })
+      expect(r.status).toBe(200)
+      expect(r.body.item.title).toBe('Friss')
+      expect(r.body.folder_rename).toEqual({ ok: true, renamed: true, from: 'Regi', to: 'Friss' })
+      expect(existsSync(join(projDir(), 'Friss', 'a.md'))).toBe(true)
+    })
+
+    it('K-0.11: foglalt uj nev -> `nev (2)`; masik munkadarab altal hivatkozott vagy rajzot tarto mappa marad (megmondja, miert)', () => {
+      mkdirSync(join(projDir(), 'Uj nev'))
+      const a = newItem('A nev')
+      attachAsset(a, 'a.md', Buffer.from('A'))
+      const r = renameWorkItemFolder(getWorkItem(a.id)!, 'Uj nev')
+      expect(r).toEqual({ ok: true, renamed: true, from: 'A nev', to: 'Uj nev (2)' })
+
+      const b = newItem('B nev')
+      attachAsset(b, 'b.md', Buffer.from('B'))
+      createWorkItem({ project_id: pid, title: 'Kulso', type: 'note', source_path: 'Projektek/Iroda/B nev/b.md' })
+      expect(renameWorkItemFolder(getWorkItem(b.id)!, 'Masik')).toEqual({ ok: true, renamed: false, reason: 'shared' })
+
+      const c = newItem('C nev')
+      attachAsset(c, 'rajz.canvas.json', Buffer.from('{}'))
+      expect(renameWorkItemFolder(getWorkItem(c.id)!, 'Rajz uj')).toEqual({ ok: true, renamed: false, reason: 'canvas' })
+      expect(existsSync(join(projDir(), 'C nev'))).toBe(true)
+    })
+  })
+
   describe('K-0.17: az agent LATJA az anyagokat, es tudja, mit olvashat', () => {
     it('workItem.listAssets: ut (projekt-relativ, file.read-hez), allapot; olvasasi eszkoz, szabad', () => {
       const item = newItem()
@@ -299,6 +366,16 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     await vi.waitFor(() => expect(h.html()).toContain('wbAssetUpload'))
     h.change('wbAssetUpload', [file('logo.png', 'image/png')])
     await vi.waitFor(() => expect(posts(h).some((u) => u.includes('/assets') && u.includes('force=1'))).toBe(true))
+  })
+
+  it('atnevezes gomb: uj nevet ker, a rename vegpontot hivja', async () => {
+    const h = setup()
+    ;(h.win as unknown as { prompt: () => string }).prompt = () => 'Uj nev'
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-rename"'))
+    h.click({ 'data-wb-act': 'item-rename' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/items/w1/rename') && c.init && c.init.method === 'POST')).toBe(true))
   })
 
   it('minden sajat szoveg a t()-n megy at', async () => {

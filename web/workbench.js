@@ -4051,6 +4051,28 @@
     })
   }
 
+  /** ATNEVEZES (#441, K-0.11): az uj nevvel a munkadarab mappaja is atnevezodik. */
+  function renameItem() {
+    var id = WB.selectedId
+    if (!id || !WB.detail || archived()) return
+    var cur = WB.detail.item.title
+    var title = window.prompt(t('workbench.rename.prompt'), cur)
+    if (title === null) return
+    title = String(title).trim()
+    if (!title || title === cur) return
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/rename', { title: title }).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      var f = r.data.folder_rename || {}
+      window.showToast(f.renamed
+        ? t('workbench.rename.done_folder', { folder: f.to })
+        : (f.reason === 'shared' || f.reason === 'canvas'
+          ? t('workbench.rename.done_folder_kept_' + f.reason)
+          : t('workbench.rename.done')))
+      if (WB.selectedId === id) loadDetail(id)
+      if (WB.projectId) load(WB.projectId)
+    })
+  }
+
   function tidyItemFolder() {
     var id = WB.selectedId
     if (!id || archived() || WB.tidyBusy) return
@@ -4077,7 +4099,8 @@
     if (WB.detail) {
       var it = WB.detail.item
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
-        + '<p>' + esc(it.title) + '</p>'
+        + '<p>' + esc(it.title) + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="item-rename">'
+          + esc(t('workbench.rename.button')) + '</button>') + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p></div>')
       rows.push(assetsBlockHtml())
@@ -6298,6 +6321,7 @@
     else if (a === 'version-new') newVersion()
     else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
     else if (a === 'asset-tidy') tidyItemFolder()
+    else if (a === 'item-rename') renameItem()
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
