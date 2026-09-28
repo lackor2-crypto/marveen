@@ -60,7 +60,7 @@ afterAll(() => {
 })
 
 describe('free-agent-read-only: who is restricted (1A)', () => {
-  it('BLOCKS an Edit by a :free agent inside the install (exit 2, HU+EN message)', () => {
+  it('STOPS the Edit of a :free agent inside the install (exit 2, HU+EN message)', () => {
     const r = run('freebie', 'Edit', { file_path: join(inst, 'src', 'a.ts') })
     expect(r.status).toBe(2)
     expect(r.stderr).toContain('TILTVA')
