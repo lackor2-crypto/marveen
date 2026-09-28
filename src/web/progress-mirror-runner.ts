@@ -50,7 +50,7 @@ const MAX_THOUGHT_BYTES = 256 * 1024
 // PLACEHOLDER_TEXT). It follows the install language there too.
 const PLACEHOLDER_BASE = { hu: '✍️ Dolgozom rajta…', en: '✍️ Working on it…' } as const
 
-type Pending = { chat_id: string | number; message_id: number; transcript_path?: string; file: string }
+type Pending = { chat_id: string | number; message_id: number; transcript_path?: string; created_at?: number; file: string }
 type Target = { agent: string; stateDir: string; session: string }
 
 // Persisted: only what must survive a dashboard restart -- the background
@@ -190,7 +190,11 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
         }
       }
       if (mode === 'verbose' && p.transcript_path) {
-        for (const th of extractThoughts(newTranscriptLines(p.transcript_path), lang)) {
+        // A placeholder from a hook older than #437 carries no created_at:
+        // its pending file's mtime is the closest honest bound.
+        let since = typeof p.created_at === 'number' ? p.created_at : undefined
+        if (since === undefined) { try { since = statSync(p.file).mtimeMs } catch { /* gone: no bound */ } }
+        for (const th of extractThoughts(newTranscriptLines(p.transcript_path), lang, since)) {
           await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })
         }
       }

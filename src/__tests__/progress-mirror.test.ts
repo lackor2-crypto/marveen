@@ -166,6 +166,21 @@ describe('verbose thoughts', () => {
       '42',
     ])
   })
+  it('drops text written before the current turn began (kanban #437)', () => {
+    // The owner got a 90-minute-old paragraph as fresh progress: it was
+    // written after the previous reply, while no placeholder was out, and the
+    // mirror forwarded it with the NEXT message.
+    const at = (ts: string, text: string) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { content: [{ type: 'text', text }] } })
+    const turnStart = Date.parse('2026-09-28T15:13:20.000Z')
+    const lines = [
+      at('2026-09-28T13:43:58.236Z', 'A keretem 99%-on áll, a programozás a keret visszaállása után jön.'),
+      at('2026-09-28T15:13:25.000Z', 'Megírom a hookot.'),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Időbélyeg nélküli sor.' }] } }),
+    ]
+    expect(extractThoughts(lines, 'hu', turnStart)).toEqual(['Megírom a hookot.'])
+    // Without a bound (callers that never had one) nothing changes.
+    expect(extractThoughts(lines, 'hu')).toHaveLength(3)
+  })
   it('reads an en-prefixed install language as English', () => {
     expect(langOf('en')).toBe('en')
     expect(langOf('en-US')).toBe('en')
