@@ -31,7 +31,12 @@ import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } f
 import { openSessionForWorkItem, addAgentMessage, listAgentMessages } from '../workbench-agent/sessions.js'
 import { resetWorkbenchAgentForTest } from '../workbench-agent/index.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
-import { tryHandleWorkbenchAgent, SSE_PING_MS } from '../web/routes/workbench-agent.js'
+import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest } from '../web/routes/workbench-agent.js'
+import { LiveSessionPool, type SavedSession } from '../workbench-agent/live-session.js'
+import { spawn } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import type { RouteContext } from '../web/routes/types.js'
 
 async function post(path: string, body: unknown): Promise<{ status: number; raw: string }> {
@@ -58,6 +63,9 @@ beforeEach(() => {
   resetRunningForTest()
   resetWorkbenchAgentForTest()
   setAuditWriterForTest(() => { /* nem ir valodi naploba */ })
+  // A kod-hid utjat teszteljuk: a helyi allo munkamenet (#434 C) itt nem
+  // indulhat -- kulonben egy valodi `claude` folyamat futna a teszt alatt.
+  setWorkbenchLiveResolverForTest(() => null)
   enqueued.length = 0
   taskState = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
   const p = createProject({ name: 'Iroda fejlesztese' })
@@ -69,6 +77,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setWorkbenchLiveResolverForTest(null)
+  setWorkbenchLivePoolForTest(null)
   setAuditWriterForTest(null)
   resetWorkbenchAgentForTest()
 })
@@ -146,5 +156,67 @@ describe('Munkapad chat teljes erteku modban (kod-hid)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// --- #434 (C opcio): allo, elo munkamenet ---------------------------------
+// Valodi gyerekfolyamat, de a `claude` helyett egy apro node-szkript, ami a
+// stream-json protokollt beszeli: minden uzenetre streamelt valasz.
+const FAKE_CLI = `
+let buf = '', n = 0
+process.stdin.on('data', (d) => {
+  buf += d
+  let i
+  while ((i = buf.indexOf('\\n')) >= 0) {
+    const line = buf.slice(0, i); buf = buf.slice(i + 1)
+    const m = JSON.parse(line); n++
+    const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+    if (n === 1) w({ type: 'system', subtype: 'init', session_id: 'sess-live', model: 'fake-model' })
+    w({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't' + n, name: 'Read', input: { file_path: '/p/terv.md' } }] } })
+    w({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't' + n }] } })
+    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'valasz ' + n + ' (' + m.message.content.length + ' char)' } } })
+    w({ type: 'result', subtype: 'success', result: 'x', session_id: 'sess-live' })
+  }
+})
+`
+
+describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
+  it('ket uzenet EGY folyamatba megy, elo esemenyekkel; az elozmeny csak az elsoben, a valasz a beszelgetesbe kerul', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wb-live-'))
+    const script = join(dir, 'fake-claude.cjs')
+    writeFileSync(script, FAKE_CLI)
+    let ids: Record<string, SavedSession> = {}
+    let spawns = 0
+    const pool = new LiveSessionPool({
+      spawn: (s) => { spawns++; return spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }) },
+      now: () => Date.now(),
+      loadIds: () => ids,
+      saveIds: (x) => { ids = x },
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [script] }))
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    addAgentMessage(session.id, 'user', 'regi kerdes')
+    addAgentMessage(session.id, 'assistant', 'regi valasz')
+
+    const a = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'elso' })
+    const b = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'masodik' })
+    expect(enqueued).toHaveLength(0) // nem a kod-hidon ment
+    expect(spawns).toBe(1)
+    expect(a.raw).toContain('"type":"tool","name":"Read","status":"running","detail":"/p/terv.md"')
+    expect(a.raw).toContain('"status":"ok"')
+    expect(a.raw).toContain('"type":"done","model":"fake-model"')
+    // az elso uzenet a teljes kontextust kapta (elozmeny + projekt), a masodik csak a mondatot
+    const firstLen = Number(/valasz 1 \((\d+) char\)/.exec(a.raw)?.[1])
+    expect(firstLen).toBeGreaterThan(200)
+    expect(b.raw).toContain('valasz 2 (7 char)')
+    const msgs = listAgentMessages(session.id).map((m) => [m.role, m.content])
+    expect(msgs.slice(-4)).toEqual([
+      ['user', 'elso'], ['assistant', expect.stringContaining('valasz 1')],
+      ['user', 'masodik'], ['assistant', 'valasz 2 (7 char)'],
+    ])
+    expect(ids[turnKey(projectId, workItemId)]?.sessionId).toBe('sess-live')
+    expect(isTurnRunning(turnKey(projectId, workItemId))).toBe(false)
+    pool.stopAll()
   })
 })

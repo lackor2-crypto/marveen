@@ -12,9 +12,11 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a keres
 // nyelven. A streamben ugyanez `event: notice` / `event: error` sorkent jon.
+import { existsSync, mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { json, readBody } from '../http-helpers.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
-import { APP_LANG } from '../../config.js'
+import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import { getProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
@@ -22,12 +24,15 @@ import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
-import { workbenchAccountStatuses, isKnownWorkbenchAccount } from '../../workbench-agent/accounts.js'
+import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts } from '../../workbench-agent/accounts.js'
 import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
 import { runCodeBridgeTurn, buildCodeBridgePrompt } from '../../workbench-agent/code-bridge-turn.js'
+import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
+import { loggedInConfigDir, STRIPPED_ENV } from '../../workbench-agent/provider-anthropic.js'
+import { tryResolveFromPath } from '../../platform.js'
 import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
 import {
@@ -39,6 +44,99 @@ import type { RouteContext } from './types.js'
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */
 const TURN_MAX_MS = 15 * 60 * 1000
+/** Az allo munkamenet egy fordulojanak felso korlatja: valodi fejlesztes
+ *  (kod + teszt) ennel ritkan tart tovabb, egy beakadt folyamat viszont ne
+ *  foghassa orokre a beszelgetest. */
+const LIVE_TURN_MAX_MS = 60 * 60 * 1000
+
+let livePool: LiveSessionPool | null = null
+function getLivePool(): LiveSessionPool {
+  if (!livePool) {
+    const pool = new LiveSessionPool(realLiveDeps(STORE_DIR))
+    // A dashboard leallasakor az allo folyamatok se maradjanak arvan (merve:
+    // a szulo halala utan a CLI tovabb futott). A kovetkezo uzenet folytatja.
+    process.once('exit', () => pool.stopAll())
+    livePool = pool
+  }
+  return livePool
+}
+
+/** Hatter-kornyezet, amibol NEM orokolhet a munkamenet: a fiok-/modell-
+ *  felulirasok es a csatorna-/agens-identitas (Telegram allapot, agens-id). */
+const LIVE_STRIPPED_ENV = [...STRIPPED_ENV, 'TELEGRAM_STATE_DIR', 'TELEGRAM_BOT_TOKEN', 'MARVEEN_AGENT_ID', 'CLAUDE_PROJECT_DIR']
+
+/**
+ * Az allo munkamenet inditasi adatai, vagy null, ha helyben nem indithato
+ * (nincs `claude` CLI, vagy nincs bejelentkezett fiok) -- olyankor a regi
+ * utak (kod-hid / projekt-asszisztens) jonnek. Semmi beegetve: a fiok a
+ * Munkapad fiokvalasztasa, a mappa a projekt sajat mappaja.
+ */
+/** Csak teszthez: sajat (hamis folyamatu) pool. null = a valodi. */
+export function setWorkbenchLivePoolForTest(p: LiveSessionPool | null): void {
+  livePool?.stopAll()
+  livePool = p
+}
+
+type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined) => LiveStartSpec | null
+let liveResolver: LiveResolver = (k, f, a) => liveSpecFor(k, f, a)
+/** Csak teszthez: az allo munkamenet elerhetosegenek cserelese (null = valodi). */
+export function setWorkbenchLiveResolverForTest(r: LiveResolver | null): void {
+  liveResolver = r || ((k, f, a) => liveSpecFor(k, f, a))
+}
+
+/**
+ * A munkamenet mappaja. SOSE a telepites mappaja es SOSE egy agens mappaja:
+ * a CLI a naplot `<config>/projects/<kodolt mappa>/` ala irja, es tobb resz
+ * (active-model, agent-process, a kontextus-kapu) EBBOL a konyvtarbol olvassa
+ * egy agens SAJAT munkamenetet. A fo agens fiokjaval a Marvin-mappaban futo
+ * munkamenet igy osszekeveredne a fo agens naplojaval.
+ */
+/** A munkamenet nem a telepites mappajaban fut, tehat a CLAUDE.md-t sem
+ *  latja magatol: ha a Marveen sajat kodjahoz kell nyulnia, innen tudja, hol
+ *  van es milyen szabalyok szerint (worktree + PR, sosem az elo fa). */
+function liveInstallNote(): string {
+  return `[MARVEEN INSTALL] ${PROJECT_ROOT} -- before changing ANY Marveen code, skill or rule, read ${join(PROJECT_ROOT, 'CLAUDE.md')} and follow it (own git worktree via scripts/agent-worktree.sh, land via scripts/land-pr.sh; never edit the live tree).\n`
+}
+
+function liveCwd(projectFolder: string | null): string {
+  const root = resolve(PROJECT_ROOT)
+  if (projectFolder && existsSync(projectFolder)) {
+    const f = resolve(projectFolder)
+    if (f !== root && !f.startsWith(root + '/agents') && !root.startsWith(f + '/')) return f
+  }
+  const own = join(STORE_DIR, 'workbench-live')
+  mkdirSync(own, { recursive: true })
+  return own
+}
+
+function liveSpecFor(key: string, projectFolder: string | null, account: string | undefined): LiveStartSpec | null {
+  // Tesztben SOSE indul valodi `claude` (merve 2026-09-28: egy regi route-teszt
+  // igy 6 valodi munkamenetet inditott); a teszt a sajat resolverevel dolgozik.
+  if (process.env.VITEST) return null
+  const bin = tryResolveFromPath('claude')
+  if (!bin) return null
+  const candidates = account ? [account] : [...workbenchAccounts(), MAIN_AGENT_ID]
+  let configDir: string | null = null
+  for (const a of candidates) { configDir = loggedInConfigDir(a); if (configDir) break }
+  if (!configDir) return null
+  const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: configDir, MARVEEN_WORKBENCH_LIVE: '1' }
+  for (const k of LIVE_STRIPPED_ENV) delete env[k]
+  const guard = guardSettingsJson(join(PROJECT_ROOT, 'templates', 'settings.json.template'), PROJECT_ROOT)
+  const mode = (JSON.parse(guard).permissions?.defaultMode as string) || 'bypassPermissions'
+  return {
+    key,
+    bin,
+    configDir,
+    cwd: liveCwd(projectFolder),
+    env,
+    baseArgs: [
+      '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
+      '--verbose', '--include-partial-messages',
+      '--setting-sources', '', '--strict-mcp-config',
+      '--settings', guard, '--permission-mode', mode,
+    ],
+  }
+}
 /** A kod-hidas (teljes erteku) fordulo ennyit var a chatben; utana a hatterben
  *  figyeli tovabb, es a kesve erkezo valasz is a beszelgetesbe kerul. */
 const CODE_BRIDGE_CHAT_WAIT_MS = TURN_MAX_MS - 30_000
@@ -230,7 +328,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const key = turnKey(project.id, workItemId)
     const ac = turnControllers.get(key)
     if (ac) ac.abort()
-    json(res, { stopped: !!ac, running: isTurnRunning(key) })
+    const liveStopped = livePool ? livePool.stop(key) : false
+    json(res, { stopped: !!ac || liveStopped, running: isTurnRunning(key) })
     return true
   }
 
@@ -287,7 +386,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     res.on('close', () => { clientGone = true })
     // Felso korlat egy fordulora: ha a szolgaltato kapcsolata megakad, a
     // "fut mar" zar ne foghassa orokre a munkadarabot.
-    const turnCap = setTimeout(() => ac.abort(), TURN_MAX_MS)
+    let turnCap = setTimeout(() => ac.abort(), TURN_MAX_MS)
     const key = turnKey(project.id, workItemId)
     // Csak a SAJAT fordulonk kapcsoloja kerul a nyilvantartasba: egy "mar fut"
     // miatt elutasitott keres nem irhatja felul a futoet.
@@ -305,8 +404,13 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // sessionhoz iranyitunk; ha be van kapcsolva, de nincs worker, a chat NEM
     // hal meg: setup-jelzest kuldunk, es tovabb fut a megszokott asszisztens.
     const fullAgentEnabled = String(getEffectiveSettingValue('WORKBENCH_FULL_AGENT')) === '1'
-    const workerOnline = fullAgentEnabled ? codeBridgeHealth().workerOnline : false
-    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline })
+    // #434 (C opcio): a teljes mod elso utja az allo, helyi munkamenet.
+    const liveFolder = fullAgentEnabled ? projectFileTarget(project, '') : null
+    const liveSpec = fullAgentEnabled
+      ? liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account)
+      : null
+    const workerOnline = fullAgentEnabled && !liveSpec ? codeBridgeHealth().workerOnline : false
+    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline, liveAvailable: !!liveSpec })
 
     // A csendes kapcsolat eletben tartasa (#433): a kod-hidas fordulo percekig
     // nem kuld semmit (csak az elejen es a vegen), es egy kozbeeso proxy vagy
@@ -318,7 +422,53 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     }, SSE_PING_MS)
 
     try {
-      if (decision.backend === 'code-bridge') {
+      if (decision.backend === 'live-session' && liveSpec) {
+        if (!claimTurn(key)) {
+          send('error', { type: 'error', code: 'busy', message: msg('busy', lang) })
+        } else {
+          clearTimeout(turnCap)
+          turnCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
+          try {
+            const item = workItemId ? getWorkItem(workItemId) : null
+            const session = item
+              ? openSessionForWorkItem(project.id, item.id, lang)
+              : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
+            send('session', { type: 'session', sessionId: session.id })
+            // Az elozmeny a mentes ELOTT keszul, kulonben az uj uzenet ketszer
+            // allna a promptban.
+            const history = listAgentMessages(session.id)
+            const text = input.message.trim()
+            addAgentMessage(session.id, 'user', text)
+            let answer = ''
+            let failed = ''
+            for await (const ev of getLivePool().turn(
+              liveSpec,
+              (fresh) => fresh
+                ? liveInstallNote() + buildCodeBridgePrompt({
+                  projectName: project.name || project.id,
+                  projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
+                  workItem: item ? { title: item.title, type: item.type } : null,
+                  history,
+                  message: text,
+                  lang,
+                })
+                : text,
+              lang,
+              ac.signal,
+            )) {
+              if (ev.type === 'text') answer += ev.text
+              if (ev.type === 'error') failed = ev.message
+              // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
+              // beszelgetesbe kerul, nem szakad felbe.
+              send(ev.type, ev)
+            }
+            if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
+            if (failed) addAgentMessage(session.id, 'system', failed)
+          } finally {
+            releaseTurn(key)
+          }
+        }
+      } else if (decision.backend === 'code-bridge') {
         // Ugyanaz a "fut mar" zar, mint a projekt-asszisztensnel: igy a
         // felulet visszaterve latja, hogy keszul a valasz, es a Leallitas is mukodik.
         if (!claimTurn(key)) {
