@@ -33,7 +33,7 @@ import { createApproval, createAgentMessage, getApproval, getKanbanSeqByIdPrefix
 import { describeToolApproval } from './approval-text.js'
 import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
-import { runTool } from './execute.js'
+import { runTool, toolResultForModel } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import { pickAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
@@ -526,7 +526,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         // 12-13: verzio + preview -- KESOBBI FAZIS. A hely itt van; a 2.
         // fazis szandekosan nem keszit verziot egy tool-futasbol.
         messages.push({ role: 'assistant', content: full })
-        messages.push({ role: 'user', content: `TOOL RESULT (${tool.name}): ${JSON.stringify(result.data).slice(0, 6000)}` })
+        messages.push({ role: 'user', content: `TOOL RESULT (${tool.name}): ${toolResultForModel(result.data)}` })
       } else {
         const m = msg('tool_failed', lang, { tool: tool.name, detail: result.detail })
         finishToolCall(row.id, 'error', { code: result.code, detail: result.detail })

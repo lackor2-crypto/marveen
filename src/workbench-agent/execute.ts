@@ -39,8 +39,53 @@ import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
+/**
+ * Egy tool-eredmeny ennyi karakterig jut el a modellhez (JSON-kent, lasd
+ * `toolResultForModel`). A file.read oldala ENNEL kisebb kell legyen, kulonben
+ * a modell az oldal veget nem latja (#432, merve 2026-09-28: 8000 karakteres
+ * oldal, 6000-es vagas -> a 6-8., 16-20. es 33. fejezet kimaradt).
+ */
+export const TOOL_RESULT_MAX_CHARS = 12_000
+/** A file.read oldal szovegenek JSON-kodolt hossza legfeljebb ennyi; a
+ *  maradek (ut, meret, eltolas) boven befer a TOOL_RESULT_MAX_CHARS ala. */
+export const FILE_READ_MAX_JSON_CHARS = 10_000
 /** Ennyi fajlt sorolunk fel. */
 export const LIST_FILES_MAX = 60
+
+/** Egy surrogate-par elso fele nem maradhat a vegen, kulonben a byte-hossz
+ *  (es vele a nextOffset) elcsuszna. */
+function dropLoneHighSurrogate(s: string): string {
+  const last = s.charCodeAt(s.length - 1)
+  return s.length && last >= 0xd800 && last <= 0xdbff ? s.slice(0, -1) : s
+}
+
+/**
+ * A file.read oldal addig rovidul, amig JSON-kodolva is belefer a
+ * FILE_READ_MAX_JSON_CHARS-ba. Sok idezojel, sortores vagy vezerlo karakter
+ * eseten a kodolt alak joval hosszabb a nyers szovegnel -- a modell a KODOLT
+ * alakot kapja, tehat annak kell befernie.
+ */
+export function fitFilePage(text: string): string {
+  let page = dropLoneHighSurrogate(text)
+  for (;;) {
+    const over = JSON.stringify(page).length - FILE_READ_MAX_JSON_CHARS
+    if (over <= 0 || !page.length) return page
+    // Minden karakter legalabb egy kodolt karakter: `over` levagasa biztosan
+    // halad, es par korben a keret ala er.
+    page = dropLoneHighSurrogate(page.slice(0, Math.max(0, page.length - over)))
+  }
+}
+
+/**
+ * Egy sikeres tool-eredmeny a modellnek. Ha a keretnel hosszabb, NEM vagjuk
+ * nemán: a modell megtudja, hogy a vege hianyzik (kulonben azt hinne, mindent
+ * latott, es a hianyzo reszt kitalalna).
+ */
+export function toolResultForModel(data: unknown): string {
+  const s = JSON.stringify(data) ?? 'null'
+  if (s.length <= TOOL_RESULT_MAX_CHARS) return s
+  return `${s.slice(0, TOOL_RESULT_MAX_CHARS)}\n[CUT: only the first ${TOOL_RESULT_MAX_CHARS} of ${s.length} characters of this result are shown above. The rest was NOT shown to you -- do not claim to know it.]`
+}
 
 export interface ToolContext {
   projectId: string
@@ -272,9 +317,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       }
       // Egy blokkban legfeljebb ennyi karakter. A vegen ne vagjunk kette egy
       // surrogate-part (emoji), kulonben a byte-hossz elcsuszna.
-      let capped = text.length > FILE_READ_MAX_CHARS ? text.slice(0, FILE_READ_MAX_CHARS) : text
-      const lastUnit = capped.charCodeAt(capped.length - 1)
-      if (capped.length && lastUnit >= 0xd800 && lastUnit <= 0xdbff) capped = capped.slice(0, -1)
+      const capped = fitFilePage(text.length > FILE_READ_MAX_CHARS ? text.slice(0, FILE_READ_MAX_CHARS) : text)
       // A tenylegesen atadott szoveg byte-hossza mondja meg, hol folytassuk.
       const nextOffset = start + Buffer.byteLength(capped, 'utf-8')
       const hasMore = nextOffset < st.size

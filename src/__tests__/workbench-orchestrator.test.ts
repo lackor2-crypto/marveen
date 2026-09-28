@@ -11,9 +11,13 @@
 //   5. a kozos 5 oras keret kimerulesenel nem indul hivas;
 //   6. minden lepes nyomot hagy a KOZOS auditban.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { initDatabase, createApproval, listApprovals, resolveApproval } from '../db.js'
 import { MAIN_AGENT_ID } from '../config.js'
-import { createProject } from '../projects.js'
+import { createProject, updateProject } from '../projects.js'
+import { executeTool } from '../workbench-agent/execute.js'
 import { createWorkItem, listWorkItems } from '../workbench.js'
 import { runTurn, validateTurn, parseToolCall, mayBeToolCall, resetRunningForTest, MESSAGE_MAX_CHARS } from '../workbench-agent/orchestrator.js'
 import { listAgentMessages, listToolCalls, openSessionForWorkItem } from '../workbench-agent/sessions.js'
@@ -585,5 +589,61 @@ describe('fiokvaltas (#402)', () => {
     const p = accountProvider([], [])
     await turn('Szia', p)
     expect(p.seen).toEqual([undefined])
+  })
+})
+
+describe('#432: amit a modell egy hosszu fajlbol TENYLEGESEN lat', () => {
+  let depot = ''
+
+  beforeEach(() => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-orch-depot-'))
+    process.env['MARVEEN_DEPOT'] = depot
+    mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+    const up = updateProject(projectId, { folder_path: 'Projektek/teszt' })
+    if (!up.ok) throw new Error('a projektmappa beallitasa nem sikerult: ' + up.code)
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('vegiglapozva a modellhez a TELJES fajl eljut, oldalhatarnal sem vesz el semmi', async () => {
+    // Valos eset (2026-09-28): 34 fejezetes, ~26k karakteres terv. A lapozas
+    // hianytalan volt, de a modell a tool-eredmenyt 6000 karakternel levagva
+    // kapta -> minden oldal vege (6-8., 16-20., 33. fejezet) kimaradt.
+    const chapters = Array.from({ length: 34 }, (_, i) =>
+      `# ${i + 1}. Fejezet\n\n` + `Ez a(z) ${i + 1}. fejezet szövege, "idézettel" és ékezettel.\n`.repeat(12))
+    const full = chapters.join('\n------\n\n')
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'terv.md'), full, 'utf-8')
+
+    // Az oldalhatarokat maga az eszkoz mondja meg (nextOffset) -- nem talalgatjuk.
+    const offsets: number[] = []
+    let off: number | null = 0
+    while (off != null) {
+      offsets.push(off)
+      const r: ReturnType<typeof executeTool> = executeTool('file.read', { path: 'terv.md', offset: off }, { projectId, workItemId, lang: 'hu' })
+      if (!r.ok) throw new Error('file.read hiba')
+      off = (r.data as any).nextOffset
+    }
+    expect(offsets.length).toBeGreaterThan(2)
+
+    const p = fakeProvider([
+      ...offsets.map((o) => `{"tool":"file.read","input":{"path":"terv.md","offset":${o}}}`),
+      'Végigolvastam.',
+    ])
+    await turn('Olvasd el teljesen a tervet', p)
+
+    const last = p.seen.at(-1)!.messages
+    const seenTexts = last
+      .map((m) => m.content)
+      .filter((c) => c.startsWith('TOOL RESULT (file.read): '))
+      .map((c) => {
+        const body = c.slice('TOOL RESULT (file.read): '.length)
+        expect(body).not.toContain('NOT shown to you')
+        return JSON.parse(body).text as string
+      })
+    expect(seenTexts).toHaveLength(offsets.length)
+    expect(seenTexts.join('')).toBe(full)
   })
 })
