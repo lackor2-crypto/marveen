@@ -395,7 +395,8 @@ Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasznál
 - Egyéni: a te munkakönyvtárad `.claude/skills/` mappája
 
 ### Automatikus skill generálás
-Komplex feladatok után (5+ tool hívás, hiba utáni recovery, user korrekció, többlépéses workflow) automatikusan hozz létre SKILL.md fájlt:
+Komplex feladatok után (5+ tool hívás, hiba utáni recovery, user korrekció, többlépéses workflow) automatikusan hozz létre SKILL.md fájlt.
+A fejlécben a `scope:` sor KÖTELEZŐ: `personal` (konkrét emberre/fiókra/magánügyre szól, ezen a gépen marad) vagy `global` (bárkinek hasznos, a rendszer átviszi a `seed-skills/` alá). Scope nélküli SKILL.md írását a gép megállítja (`skill-scope-gate.py`); ha nem tudod eldönteni, kérdezd meg a tulajdonost, és addig ne hozd létre.
 
 ```bash
 mkdir -p ~/.claude/skills/SKILL-NEV
@@ -403,6 +404,7 @@ cat > ~/.claude/skills/SKILL-NEV/SKILL.md << 'EOF'
 ---
 name: skill-nev
 description: Mikor használd, mit csinál. Legyél konkrét a triggerelésben.
+scope: global
 ---
 # Skill neve
 
