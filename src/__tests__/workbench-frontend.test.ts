@@ -2087,3 +2087,32 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     expect(body).toEqual({ project_id: 'p1', work_item_id: null })
   })
 })
+
+// #435 (Boss, TG 1753): "a munkapadnal F5-ot nyomtam, es visszament legelejere a
+// projektekbe". The Workbench tells where it is, and can be put back there.
+describe('#435: F5 utan ugyanaz a Munkapad-nezet jon vissza', () => {
+  it('viewState: zarva null, nyitva a projekt, a munkadarab es a panel', async () => {
+    h.respond(() => ({ status: 200, body: itemsBody([]) }))
+    expect(h.win.MarvinWorkbench.viewState()).toBeNull()
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-panel-context'))
+    expect(h.win.MarvinWorkbench.viewState()).toEqual({ projectId: 'p1', name: 'Kovács weboldal', item: null, panel: 'items' })
+  })
+
+  it('restore: ugyanaz a projekt, ugyanaz a munkadarab, ugyanaz a panel', async () => {
+    h.respond(() => ({ status: 200, body: itemsBody([]) }))
+    h.win.MarvinWorkbench.restore({ projectId: 'p1', name: 'Kovács weboldal', item: 'w7', panel: 'context' })
+    expect(h.win.MarvinWorkbench.isOpen()).toBe(true)
+    const st = h.win.MarvinWorkbench.viewState()
+    expect(st.projectId).toBe('p1')
+    expect(st.panel).toBe('context')
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('w7') >= 0)).toBe(true))
+  })
+
+  it('restore: hibas/ures allapotra nem nyit semmit', () => {
+    h.win.MarvinWorkbench.restore(null)
+    h.win.MarvinWorkbench.restore({ projectId: '' })
+    h.win.MarvinWorkbench.restore({ projectId: 42 })
+    expect(h.win.MarvinWorkbench.isOpen()).toBe(false)
+  })
+})

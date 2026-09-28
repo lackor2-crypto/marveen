@@ -185,6 +185,49 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
   }
 })()
 
+// === F5 brings back the same view (#435) ===
+// The URL hash only names the menu page. WHERE you were inside it (the open
+// project, its tab, the Workbench, a folder, a settings detail view) lived in
+// memory only, so a reload dropped you at the top of the page (Boss, TG 1753:
+// "frissiteskor miert nem ugyanaz jon be, ugyanaz az utvonal?").
+// Every page with such an inner position registers a collector. When the tab
+// is hidden or unloaded -- which is what an F5 does first -- the CURRENT page's
+// position goes to sessionStorage (this browser tab only: it survives the
+// reload, a new tab still starts clean). On the first load after the reload
+// the same page takes it back, exactly once; later menu clicks behave as before.
+const VIEW_STATE_KEY = 'marveen.viewState'
+const _viewCollectors = {}
+const _viewBootPage = decodeURIComponent((location.hash || '').replace(/^#/, ''))
+  || new URLSearchParams(location.search).get('page') || 'overview'
+let _viewSaved
+function viewStateRegister(page, collect) { _viewCollectors[page] = collect }
+function _viewStateSave() {
+  const page = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'overview'
+  let state = null
+  try { state = _viewCollectors[page] ? _viewCollectors[page]() : null } catch { state = null }
+  try {
+    if (state) sessionStorage.setItem(VIEW_STATE_KEY, JSON.stringify({ page, state }))
+    else sessionStorage.removeItem(VIEW_STATE_KEY)
+  } catch { /* storage blocked: a reload starts at the page top, as before */ }
+}
+/** The saved inner position of `page`, or null. Only the page the reload
+ *  landed on gets it, and only once per document. */
+function viewStateTake(page) {
+  if (_viewSaved === undefined) {
+    _viewSaved = null
+    try {
+      const snap = JSON.parse(sessionStorage.getItem(VIEW_STATE_KEY) || 'null')
+      if (snap && snap.page === _viewBootPage && snap.state && typeof snap.state === 'object') _viewSaved = snap
+    } catch { _viewSaved = null }
+  }
+  if (!_viewSaved || _viewSaved.page !== page) return null
+  const state = _viewSaved.state
+  _viewSaved = null
+  return state
+}
+window.addEventListener('pagehide', _viewStateSave)
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _viewStateSave() })
+
 // === Dashboard auth bootstrap ===
 // The server prints an URL like http://127.0.0.1:3420/?token=XXX on startup
 // ONLY when it runs in a terminal (src/web.ts gates that line on
@@ -13715,6 +13758,8 @@ document.getElementById('driveAllToggle')?.addEventListener('click', () => {
 
 async function loadDrivePage() {
   _driveFolderStack = [{ id: 'root', name: t('drive.root_label') }]
+  // #435: after an F5 the same account's same folder comes back.
+  const back = viewStateTake('drive')
   try { _driveAllMode = localStorage.getItem(DRIVE_LS_MODE) === '1' } catch { _driveAllMode = false }
   try {
     const saved = JSON.parse(localStorage.getItem(DRIVE_LS_HIDDEN) || '[]')
@@ -13762,10 +13807,21 @@ async function loadDrivePage() {
       _driveFolderStack = [{ id: 'root', name: t('drive.root_label') }]
       loadDriveFolder()
     }
+    if (back && back.account === _driveAccount && _viewValidStack(back.stack, 'id')) _driveFolderStack = back.stack
     await loadDriveFolder()
   } catch {
     renderDriveError(t('drive.load_error'))
   }
+}
+
+viewStateRegister('drive', () => (!_driveAllMode && _driveAccount && _driveFolderStack.length > 1
+  ? { account: _driveAccount, stack: _driveFolderStack }
+  : null))
+
+/** A saved folder stack is only used if it still has the shape the page draws. */
+function _viewValidStack(stack, key) {
+  return Array.isArray(stack) && stack.length > 1 && stack.length < 100
+    && stack.every((f) => f && typeof f[key] === 'string' && typeof f.name === 'string')
 }
 
 function currentDriveFolder() {
@@ -30174,6 +30230,13 @@ function loadIrodaSettings() {
     return
   }
   closeIrodaSettingsDetail()
+  // #435: after an F5 the same detail view (e-mail account or Depot) comes back.
+  const back = viewStateTake('irodaSettings')
+  if (back && back.kind === 'depot') openIrodaDepotSettings()
+  else if (back && back.kind === 'email') {
+    if (typeof back.account === 'string' && back.account) irodaSettingsActiveAccount = back.account
+    openIrodaEmailSettings()
+  }
   if (irodaSettingsCategoryWired) return
   irodaSettingsCategoryWired = true
   document.querySelectorAll('#irodaSettingsCategoryList .iroda-settings-category-btn').forEach(btn => {
@@ -30190,6 +30253,10 @@ function loadIrodaSettings() {
 // koltoztetes vagy szinkron fut -- a csempe-listan nincs kinek mutatni, ezert
 // a pollt itt is le kell allitani. A MUNKA a szerveren fut tovabb, es
 // visszalepve a poll magatol ujraindul (lasd _depoRefresh).
+viewStateRegister('irodaSettings', () => (irodaSettingsInDetailView
+  ? { kind: irodaSettingsDetailKind, account: irodaSettingsDetailKind === 'email' ? irodaSettingsActiveAccount : null }
+  : null))
+
 function closeIrodaSettingsDetail() {
   irodaSettingsInDetailView = false
   _depoStopPoll()
@@ -30237,6 +30304,8 @@ async function openIrodaEmailSettings() {
   if (depotView) depotView.hidden = true
   ensureEmailAccountNav()
   if (emailAccountsFetchPromise) await emailAccountsFetchPromise
+  // A remembered account that has since been removed would only load an error.
+  if (irodaSettingsActiveAccount && !emailAccounts.some((a) => a.id === irodaSettingsActiveAccount)) irodaSettingsActiveAccount = null
   if (!irodaSettingsActiveAccount && emailAccounts.length) irodaSettingsActiveAccount = emailAccounts[0].id
   renderIrodaSettingsTabs()
   renderIrodaSettingsForm(irodaSettingsActiveAccount)
@@ -34873,13 +34942,20 @@ async function loadDocs() {
       openDoc(a.dataset.doc)
     })
   })
-  const first = listEl.querySelector('.docs-list-item')
+  // #435: after an F5 the same document comes back, otherwise the first one.
+  const back = viewStateTake('docs')
+  const items = [...listEl.querySelectorAll('.docs-list-item')]
+  const first = (back && items.find((a) => a.dataset.doc === back.doc)) || items[0]
   if (first) { first.classList.add('active'); openDoc(first.dataset.doc) }
 }
+
+let _docsCurrent = ''
+viewStateRegister('docs', () => (_docsCurrent ? { doc: _docsCurrent } : null))
 
 async function openDoc(name) {
   const contentEl = document.getElementById('docsContent')
   if (!contentEl) return
+  _docsCurrent = name
   contentEl.innerHTML = '<p class="muted">' + t('docs.loading') + '</p>'
   try {
     const res = await fetch('/api/docs/' + encodeURIComponent(name))
@@ -38357,9 +38433,13 @@ async function loadIntezoPage() {
   await _intezoLegend()
   await _intezoMountOptions()
   await _intezoStatus()
+  // #435: after an F5 the same folder comes back.
+  const back = viewStateTake('intezo')
+  if (back && typeof back.path === 'string' && !_intezoPath) _intezoPath = back.path
   await _intezoOpen(_intezoPath)
   await _inboxRefresh()
 }
+viewStateRegister('intezo', () => (_intezoPath ? { path: _intezoPath } : null))
 
 /* ================ BEERKEZO-LANC (specifikacio 22-23. pont) ================
  *
@@ -44895,6 +44975,11 @@ function _megaStack(account) {
   return _megaStacks[account]
 }
 
+viewStateRegister('megadepot', () => {
+  if (_megaAllMode || !_megaAccount || !_megaStacks[_megaAccount] || _megaStacks[_megaAccount].length < 2) return null
+  return { account: _megaAccount, stack: _megaStacks[_megaAccount] }
+})
+
 function _megaLabel(account) {
   const a = _megaAccountsAll.find((x) => x.name === account)
   return (a && (a.email || a.name)) || account
@@ -45325,6 +45410,13 @@ async function loadMegaDepotPage() {
   _megaHidden = new Set([..._megaHidden].filter((n) => _megaAccountsAll.some((a) => a.name === n)))
   if (_megaAccountsAll.length && _megaShownAccounts().length === 0) _megaHidden = new Set()
   if (_megaAccountsAll.length < 2) _megaAllMode = false
+  // #435: after an F5 the same account's same folder comes back.
+  const back = viewStateTake('megadepot')
+  if (back && !_megaAllMode && _megaAccountsAll.some((a) => a.name === back.account) && _viewValidStack(back.stack, 'path')) {
+    _megaAccount = back.account
+    _megaStacks[back.account] = back.stack
+    _megaAutoEntered.add(back.account)
+  }
   const relByAccount = {}
   for (const r of ((stor && stor.rows) || [])) if (r && r.kind === 'mega') relByAccount[r.account] = r
   if (!accounts.length) {
@@ -45901,13 +45993,26 @@ async function loadProjectsPage() {
   window.MarvinWorkbench?.reset?.()
   document.getElementById('prjIntezoChip')?.remove()
   document.getElementById('prjIdeasChip')?.remove()
-  const openId = _prj.openOnLoad
+  // #435: after an F5 the same project, tab and Workbench come back.
+  const back = viewStateTake('projects')
+  const openId = _prj.openOnLoad || (back && typeof back.current === 'string' ? back.current : null)
   _prj.openOnLoad = null
-  if (openId) { await _prjOpenProject(openId); return }
+  if (openId) {
+    await _prjOpenProject(openId)
+    if (back && back.current === openId && _prj.current === openId && _prj.overview) {
+      const wb = back.wb
+      if (wb && wb.projectId === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) window.MarvinWorkbench.restore(wb)
+      else if (typeof back.tab === 'string' && back.tab !== _prj.tab) { _prj.tab = back.tab; _prjRenderProject() }
+    }
+    return
+  }
   _prj.current = null
   await _prjLoadList()
 }
 window.loadProjectsPage = loadProjectsPage
+viewStateRegister('projects', () => (_prj.current
+  ? { current: _prj.current, tab: _prj.tab, wb: (window.MarvinWorkbench && window.MarvinWorkbench.viewState && window.MarvinWorkbench.viewState()) || null }
+  : null))
 
 async function _prjLoadList() {
   const root = document.getElementById('projectsRoot')

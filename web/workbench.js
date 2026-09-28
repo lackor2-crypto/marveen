@@ -6571,6 +6571,18 @@
     close: closeWorkbench,
     reset: resetWorkbench,
     isOpen: function () { return WB.open },
+    // #435: where the Workbench is (project, work item, panel), so an F5
+    // brings back the same view; the Projects page saves and replays it.
+    viewState: function () {
+      if (!WB.open || !WB.projectId) return null
+      return { projectId: WB.projectId, name: (WB.project && WB.project.name) || '', item: WB.selectedId || null, panel: WB.panel }
+    },
+    restore: function (st) {
+      if (!st || typeof st.projectId !== 'string' || !st.projectId) return
+      openWorkbench(st.projectId, typeof st.name === 'string' ? st.name : '')
+      if (typeof st.item === 'string' && st.item) selectItem(st.item)
+      if (typeof st.panel === 'string' && st.panel && st.panel !== WB.panel) { WB.panel = st.panel; render() }
+    },
     // A kepszerkeszto tiszta (DOM nelkuli) lepesei -- a tesztek ezeket merik.
     _img: { floodKey: imgFloodKey, clampCrop: imgClampCrop, aspectCrop: imgAspectCrop, outSize: imgOutSize, rotSize: imgRotSize },
     _post: { crop: postCrop, maxBytes: POST_MAX_BYTES },
