@@ -32,7 +32,7 @@
 .wb-grid-chatfirst { grid-template-columns: minmax(260px, 1.1fr) minmax(300px, 2fr) minmax(180px, 0.8fr); }
 .wb-grid-chat { min-width: 0; display: flex; }
 .wb-grid-chat .wb-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 420px; }
-.wb-grid-chat .wb-chat-log { max-height: 62vh; min-height: 200px; }
+.wb-grid-chat .wb-chat-log { max-height: 40vh; min-height: 200px; }
 .wb-grid-below { margin-top: 12px; }
 .wb-grid-below .wb-panel { min-height: 0; }
 
@@ -198,6 +198,17 @@
 .wb-turn-user .wb-turn-text { background: var(--panel-alt, #f3f4f6); border-radius: 8px; padding: 6px 8px; }
 .wb-turn-via { font-size: 0.72rem; color: var(--muted, #6b7280); margin-top: 4px; }
 .wb-turn-notice { font-size: 0.82rem; color: var(--muted, #6b7280); margin-top: 4px; }
+/* Also sav: az eszkozfutasok kulon, sajat gorgetessel (a felso a beszelgetes). */
+.wb-chat-tools-head { font-size: 0.75rem; font-weight: 600; color: var(--muted, #6b7280); margin: 0 0 4px; }
+.wb-chat-tools {
+  max-height: 160px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border, #e5e7eb);
+  padding-top: 4px;
+  margin-bottom: 8px;
+}
+.wb-chat-tools-group + .wb-chat-tools-group { border-top: 1px dashed var(--border, #e5e7eb); margin-top: 4px; padding-top: 2px; }
+.wb-grid-chat .wb-chat-tools, .wb-split-chat .wb-chat-tools { max-height: 24vh; }
 .wb-tool { font-size: 0.82rem; margin-top: 4px; }
 .wb-tool-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .wb-tool-bad { color: var(--danger, #d33); }
@@ -506,7 +517,7 @@
   align-items: start;
 }
 .wb-split-chat .wb-chat { display: flex; flex-direction: column; min-height: 420px; }
-.wb-split-chat .wb-chat-log { max-height: 62vh; min-height: 200px; }
+.wb-split-chat .wb-chat-log { max-height: 40vh; min-height: 200px; }
 .wb-split-work .wb-panel { min-height: 420px; }
 @media (min-width: 901px) {
   .wb-split-work { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow-y: auto; }

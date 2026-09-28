@@ -4444,7 +4444,12 @@
     var body = ''
     if (turn.text) body += '<div class="wb-turn-text">' + esc(turn.text) + '</div>'
     if (turn.text && turn.role !== 'user' && typeof index === 'number') body += '<div class="wb-turn-tts">' + ttsButtonHtml('turn:' + index) + '</div>'
-    if (turn.tools && turn.tools.length) body += turn.tools.map(toolLineHtml).join('')
+    // Az eszkozfutasok NEM itt latszanak, hanem a kulon also savban (Boss,
+    // 2026-09-29: "ezt az egesz chat ablakot ketté kene osztani"): a sok
+    // "Parancs futtatasa kesz" sor felfele tolta a valaszt, fel kellett tekerni.
+    if (turn.tools && turn.tools.length && !turn.text) {
+      body += '<div class="wb-turn-notice wb-turn-tools-below">' + esc(t('workbench.chat.tools_below', { n: turn.tools.length })) + '</div>'
+    }
     if (turn.notices && turn.notices.length) {
       body += turn.notices.map(function (n) { return '<div class="wb-turn-notice">' + esc(n) + '</div>' }).join('')
     }
@@ -4479,6 +4484,23 @@
         : t('workbench.chat.hello_project')) + '</p>'
     }
     return st.turns.map(turnHtml).join('')
+  }
+
+  /** Az also sav: az osszes fordulo eszkozfutasa, fordulonkent elvalasztva.
+   *  Ures, ha meg nem futott eszkoz -- akkor a sav nem is latszik. */
+  function chatToolsHtml() {
+    var st = chatState()
+    var groups = []
+    var total = 0
+    for (var i = 0; i < st.turns.length; i++) {
+      var tools = st.turns[i].tools
+      if (!tools || !tools.length) continue
+      total += tools.length
+      groups.push('<div class="wb-chat-tools-group">' + tools.map(toolLineHtml).join('') + '</div>')
+    }
+    if (!total) return ''
+    return '<div class="wb-chat-tools-head">' + esc(t('workbench.chat.tools_title', { n: total })) + '</div>'
+      + '<div class="wb-chat-tools" id="wbChatTools">' + groups.join('') + '</div>'
   }
 
   /** A fiokvalaszto (kanban #426): MINDEN bejelentkezett fiok, elo zold/piros
@@ -4516,6 +4538,7 @@
       + chatAccountHtml()
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
       + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
+      + chatToolsHtml()
       + chatActivityHtml()
       + '<div class="wb-chat-row">'
       + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
@@ -4545,6 +4568,8 @@
   function scrollChatToBottom() {
     var log = typeof document.getElementById === 'function' ? document.getElementById('wbChatLog') : null
     if (log && typeof log.scrollHeight === 'number') log.scrollTop = log.scrollHeight
+    var tools = typeof document.getElementById === 'function' ? document.getElementById('wbChatTools') : null
+    if (tools && typeof tools.scrollHeight === 'number') tools.scrollTop = tools.scrollHeight
   }
 
   /** CSAK a chat-sav ujrarajzolasa: streameles kozben a teljes oldal ujraepitese
