@@ -26,6 +26,7 @@
  */
 import type { OrchestratorEvent } from './orchestrator.js'
 import { msg, type Lang } from './messages.js'
+import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
 
 export type CodeBridgeStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -107,6 +108,23 @@ export interface CodeBridgePromptInput {
  * tudod?" jellegu mondat ertelmezhetetlen.
  */
 export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
+  const language = input.lang === 'en' ? 'English' : 'Hungarian'
+  const head = [
+    '[MARVEEN WORKBENCH CHAT] The owner is talking to you from the chat of the Workbench (Munkapad), not from a terminal. Your final answer is shown in that chat word for word.',
+    `Project: ${input.projectName}`,
+    `Project folder: ${input.projectFolder ?? '(no folder set for this project)'}`,
+    `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
+    `Answer in ${language}, in plain sentences for a non-programmer.`,
+  ]
+  const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
+  const historyIntro = '\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n'
+  const noHistory = '\n(No earlier messages in this conversation.)'
+  // #434: the code bridge refuses any prompt over PROMPT_MAX_CHARS, and the
+  // history budget alone used to be larger than that -- a long conversation
+  // made EVERY later message fail with "prompt too long (12187 > 12000)"
+  // (Boss, TG 1764). The history gets only what the fixed parts leave free.
+  const fixed = head.join('\n').length + tail.join('\n').length + historyIntro.length + 2
+  const budget = Math.min(CODE_BRIDGE_HISTORY_CHARS, PROMPT_MAX_CHARS - fixed)
   const rows = input.history.filter((r) => r.role === 'user' || r.role === 'assistant').slice(-CODE_BRIDGE_HISTORY_TURNS)
   const lines: string[] = []
   let total = 0
@@ -116,22 +134,15 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
       ? `${r.content.slice(0, CODE_BRIDGE_TURN_CHARS)}\n[... shortened here only; the owner saw the full message in the chat]`
       : r.content
     const line = `${r.role === 'user' ? 'OWNER' : 'ASSISTANT'}: ${body}`
-    if (total + line.length > CODE_BRIDGE_HISTORY_CHARS && lines.length) break
+    // "\n\n" joins the lines: count it, or the sum drifts past the budget.
+    if (total + line.length + 2 > budget) break
     lines.unshift(line)
-    total += line.length
+    total += line.length + 2
   }
-  const language = input.lang === 'en' ? 'English' : 'Hungarian'
   return [
-    '[MARVEEN WORKBENCH CHAT] The owner is talking to you from the chat of the Workbench (Munkapad), not from a terminal. Your final answer is shown in that chat word for word.',
-    `Project: ${input.projectName}`,
-    `Project folder: ${input.projectFolder ?? '(no folder set for this project)'}`,
-    `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
-    `Answer in ${language}, in plain sentences for a non-programmer.`,
-    lines.length
-      ? `\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n${lines.join('\n\n')}`
-      : '\n(No earlier messages in this conversation.)',
-    '\n--- NEW MESSAGE FROM THE OWNER ---',
-    input.message,
+    ...head,
+    lines.length ? `${historyIntro}${lines.join('\n\n')}` : noHistory,
+    ...tail,
   ].join('\n')
 }
 

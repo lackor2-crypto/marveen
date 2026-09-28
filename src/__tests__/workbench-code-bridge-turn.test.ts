@@ -4,6 +4,7 @@ import {
   type CodeBridgeTurnDeps, type CodeBridgeTaskView, type CodeBridgeStatus,
 } from '../workbench-agent/code-bridge-turn.js'
 import type { OrchestratorEvent } from '../workbench-agent/orchestrator.js'
+import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
 
 /** A generator osszes esemenye egy tombbe. */
 async function collect(gen: AsyncGenerator<OrchestratorEvent>): Promise<OrchestratorEvent[]> {
@@ -170,6 +171,18 @@ describe('#433: a teljes erteku mod a BESZELGETES resze (2026-09-28, merve)', ()
     expect(prompt).not.toContain('uzenet-0 ')
     expect(prompt).toContain(`uzenet-${CODE_BRIDGE_HISTORY_TURNS + 4} `)
     expect(prompt).toContain('shortened here only')
+  })
+
+  // #434 (Boss, TG 1764): "Nem sikerult atadni a teljes erteku ugynoknek:
+  // prompt too long (12187 > 12000)" -- a hosszu beszelgetes utan MINDEN uzenet
+  // elhasalt, mert az elozmeny-keret nagyobb volt, mint a kod-hid felso hatara.
+  it('#434: hosszu beszelgetes utan is belefer a kod-hid hataraba, a legujabb fordulo megmarad', () => {
+    const history = Array.from({ length: CODE_BRIDGE_HISTORY_TURNS }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `fordulo-${i} ` + 'y'.repeat(3990) }))
+    const message = 'olvasd el vegig a md dokot es velemenyezd! ' + 'z'.repeat(600)
+    const prompt = buildCodeBridgePrompt({ projectName: 'Iroda fejlesztese', projectFolder: '/x/y', workItem: { title: 'terv.md', type: 'doc' }, history, message, lang: 'hu' })
+    expect(prompt.trim().length).toBeLessThanOrEqual(PROMPT_MAX_CHARS)
+    expect(prompt).toContain(`fordulo-${CODE_BRIDGE_HISTORY_TURNS - 1} `)
+    expect(prompt.endsWith(message)).toBe(true)
   })
 
   it('a kerdes es a valasz a beszelgetes-naploba kerul; a kod-hid a kontextusos feladatot kapja', async () => {
