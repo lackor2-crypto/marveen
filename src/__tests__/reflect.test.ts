@@ -317,19 +317,21 @@ describe('runModelReflection', () => {
     expect(r.skipped).toBe('nincs OpenRouter kulcs')
   })
 
-  it('writes the memories and the new skill', async () => {
+  it('writes the memories but only SUGGESTS a new skill -- no file (owner, #438)', async () => {
     const s = sandbox()
+    const logs: string[] = []
     const d = deps({
       apiKey: 'test-key',
       ...s,
+      appendLog: (_a: string, c: string) => { logs.push(c) },
       fetchImpl: fakeFetch({ memories: ['A CLI autocompact a beállított érték ~69%-án tüzel.'], skill: goodSkill }),
     })
     const r = await runModelReflection(input(), d)
     expect(r.modelMemories).toBe(1)
-    expect(r.skill).toBe('kapu-kuszob-hangolas (új)')
-    const file = join(s.skillsRoot(), goodSkill.name, 'SKILL.md')
-    expect(existsSync(file)).toBe(true)
-    expect(readFileSync(file, 'utf-8')).toContain('## Eljárás')
+    expect(r.skill).toBe('kapu-kuszob-hangolas (javaslat)')
+    expect(existsSync(join(s.skillsRoot(), goodSkill.name))).toBe(false)
+    expect(logs.join('\n')).toContain('Skill-javaslat')
+    expect(logs.join('\n')).toContain(goodSkill.name)
   })
 
   it('patches an existing skill rather than overwriting it', async () => {
