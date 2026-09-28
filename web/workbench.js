@@ -47,6 +47,7 @@
     chatStreaming: false,
     chatAbort: null,
     chatWatch: null,
+    chatReconnect: null,
     chatDraft: '',
     chatSetupOpen: false,
     chatSetupBusy: false,
@@ -4244,7 +4245,10 @@
   /** Mit csinal MOST az agens (#406): Gondolkodik / Dolgozik (melyik eszkoz) /
    *  Valaszol / Jovahagyasra var / Kesz / Hiba / Nem jott valasz / Tetlen.
    *  A forras a stream TENYLEGES esemenyei -- nem becsles. */
-  var CHAT_STALL_MS = 45000
+  // Az "elakadhatott" figyelmeztetes csak HOSSZU csend utan (#434, Boss:
+  // "addig ne irjon ki feleslegesen ilyet"): a villogo potty mutatja, hogy dolgozik,
+  // a korai figyelmeztetes pedig indokolatlan leallitasra csabit.
+  var CHAT_STALL_MS = 5 * 60 * 1000
   function chatActivity(now) {
     var st = chatState()
     var last = null
@@ -4341,7 +4345,15 @@
     }
     if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
     if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
-    if (turn.queued) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.queued')) + '</div>'
+    if (turn.queued) {
+      // Sorban allo uzenet: visszavonhato, amig el nem ment (#434).
+      body += '<div class="wb-turn-notice wb-turn-queued">' + esc(t('workbench.chat.queued'))
+        + (typeof index === 'number'
+          ? ' <button type="button" class="btn-secondary wb-chat-unqueue" data-wb-act="chat-unqueue" data-wb-turn="' + index + '">'
+            + esc(t('workbench.chat.unqueue')) + '</button>'
+          : '')
+        + '</div>'
+    }
     if (!body && turn.role === 'agent') {
       body = turn.done
         ? '<div class="wb-turn-notice">' + esc(t('workbench.chat.no_answer')) + '</div>'
@@ -4407,7 +4419,11 @@
       + micButtonHtml('wbChatInput')
       + (streaming
         ? '<button type="button" class="btn-secondary" data-wb-act="chat-stop">' + esc(t('workbench.chat.stop')) + '</button>'
-        : '<button type="button" class="btn-primary" data-wb-act="chat-send">' + esc(t('workbench.chat.send')) + '</button>')
+        : '')
+      // A Kuldes gomb valasz kozben SEM tunik el (#434, Boss: "ugyanugy kell
+      // viselkedni, mint a Telegramnak"): ilyenkor sorba allit.
+      + '<button type="button" class="btn-primary" data-wb-act="chat-send">'
+      + esc(streaming ? t('workbench.chat.send_queue') : t('workbench.chat.send')) + '</button>'
       + '</div></div>'
       + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail
         ? t('workbench.chat.target_item', { title: WB.detail.item.title })
@@ -4595,13 +4611,84 @@
       finishChatTurn(turn)
       return null
     }).catch(function (e) {
-      if (e && e.name === 'AbortError') turn.aborted = true
-      else turn.error = t('workbench.err.network')
+      if (e && e.name === 'AbortError') { turn.aborted = true; finishChatTurn(turn); return }
+      // Megszakadt a kapcsolat -- tipikusan a Marveen frissites miatti
+      // ujraindulasa (#434, merve: deploy 12:12:05 -> "Nem erem el"). Nem
+      // irunk rogton hibat: megvarjuk, hogy a szerver visszajojjon, es
+      // megkerdezzuk, mi lett a valasszal.
+      WB.chatAbort = null
+      turn.notices.push(t('workbench.chat.reconnecting'))
+      renderChat()
+      WB.chatReconnect = { turn: turn, key: chatKey(), tries: 0 }
+      setTimeout(function () { reconnectChat(turn) }, CHAT_RECONNECT_MS)
+    })
+  }
+
+  var CHAT_RECONNECT_MS = 3000
+  var CHAT_RECONNECT_TRIES = 60 // ~3 perc: egy build+ujrainditas belefer
+
+  /** A megszakadt fordulo utan: ha a szerver visszajott, a TENYLEGES allapot
+   *  dont (meg fut / elkeszult es mentve / elveszett), nem talalgatunk. */
+  function reconnectChat(turn) {
+    var rc = WB.chatReconnect
+    if (!rc || rc.turn !== turn) return // kozben leallitottak
+    if (!WB.open || chatKey() !== rc.key) {
+      WB.chatReconnect = null
+      turn.error = t('workbench.err.network')
+      finishChatTurn(turn)
+      return
+    }
+    api('GET', chatSessionUrl()).then(function (r) {
+      if (WB.chatReconnect !== rc) return
+      if (!r.ok && r.status === 0 && ++rc.tries < CHAT_RECONNECT_TRIES) {
+        setTimeout(function () { reconnectChat(turn) }, CHAT_RECONNECT_MS)
+        return
+      }
+      WB.chatReconnect = null
+      if (!r.ok) { turn.error = r.message; finishChatTurn(turn); return }
+      var st = chatState()
+      var at = st.turns.indexOf(turn)
+      if (r.data && r.data.running) {
+        // A szerver el, a valasz meg keszul: a meglevo figyelo veszi at.
+        if (at >= 0) st.turns.splice(at, 1)
+        stopChatActivityTicker()
+        WB.chatStreaming = false
+        enterChatWatch()
+        return
+      }
+      var msgs = ((r.data && r.data.messages) || []).filter(function (m) { return m.role !== 'tool' })
+      var last = msgs.length ? msgs[msgs.length - 1] : null
+      if (last && last.role !== 'user') {
+        // A valasz elkeszult es mentodott: a szerverrol toltjuk be.
+        stopChatActivityTicker()
+        WB.chatStreaming = false
+        WB.chatAbort = null
+        reloadChatHistory()
+        return
+      }
+      // A valasz elveszett (a szerver ujraindult, mielott befejezte volna).
+      turn.error = t('workbench.chat.interrupted')
       finishChatTurn(turn)
     })
   }
 
+  /** Egy sorban allo uzenet visszavonasa, mielott elment. */
+  function unqueueChat(index) {
+    var st = chatState()
+    var turn = st.turns[index]
+    if (turn && turn.role === 'user' && turn.queued) st.turns.splice(index, 1)
+    renderChat()
+  }
+
   function stopChat() {
+    if (WB.chatReconnect) {
+      // Ujrakapcsolodas kozben: a varakozast allitjuk le.
+      var rt = WB.chatReconnect.turn
+      WB.chatReconnect = null
+      rt.aborted = true
+      finishChatTurn(rt)
+      return
+    }
     // A SZERVEREN is leallitjuk. Eddig csak a bongeszo olvasasa allt le, a
     // valasz tovabb futott, es amig vegzett, minden uj uzenet "mar fut" hibat kapott.
     if (WB.projectId) {
@@ -6050,6 +6137,7 @@
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
+    else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))
     else if (a === 'chat-setup') openChatSetup()
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
     else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }

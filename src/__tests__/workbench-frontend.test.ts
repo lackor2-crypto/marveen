@@ -146,6 +146,8 @@ function harness(): Harness {
   const fakeFetch = (url: string, init?: RequestInit) => {
     fetchCalls.push({ url, init })
     const r = responder(url, init)
+    // status 0 = a halozat/szerver nem erheto el (pl. ujraindul): a valodi fetch ilyenkor elutasit.
+    if (r.status === 0) return Promise.reject(new TypeError('Failed to fetch'))
     // Ha a valasz SZOVEG, akkor SSE-folyam (agent-chat): a `text()` adja vissza.
     const isText = typeof r.body === 'string'
     return Promise.resolve({
@@ -1982,6 +1984,92 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     await vi.advanceTimersByTimeAsync(3100)
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Második próbára ment.'))
     expect(posts).toBe(2)
+  })
+
+  // #434 (Boss, TG 1727/1733): "az a fekete gomb eltunt, amivel az uzenetet
+  // el tudom kuldeni" -- valasz kozben is ott kell lennie, es a sorban allo
+  // uzenet visszavonhato.
+  it('#434: valasz kozben is ott a Kuldes gomb, es a sorban allo uzenet visszavonhato', async () => {
+    let running = true
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 200, body: sse([{ type: 'text', text: 'Csak a megmaradtra.' }, { type: 'done', model: 'm' }]) }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-stop"')
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-send"')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.send_queue')
+    h.inputs.wbChatInput = { value: 'első ötlet', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    h.inputs.wbChatInput = { value: 'mégse ötlet', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    const m = /data-wb-act="chat-unqueue" data-wb-turn="(\d+)"/g
+    const idx: string[] = []
+    let x: RegExpExecArray | null
+    while ((x = m.exec(h.rootEl.innerHTML))) idx.push(x[1])
+    expect(idx).toHaveLength(2)
+    h.click({ 'data-wb-act': 'chat-unqueue', 'data-wb-turn': idx[1] })
+    expect(h.rootEl.innerHTML).not.toContain('mégse ötlet')
+    expect(h.rootEl.innerHTML).toContain('első ötlet')
+    running = false
+    await vi.advanceTimersByTimeAsync(3100)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Csak a megmaradtra.'))
+    const calls = posted('/api/workbench/agent/message')
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(String(calls[0].init?.body)).message).toBe('első ötlet')
+  })
+
+  // #434, valos eset: 12:12:05-kor az automatikus elesites ujrainditotta a
+  // dashboardot, a chat "Nem erem el a Marveent" hibat irt, pedig csak frissult.
+  it('#434: megszakadt kapcsolatnal nem ir rogton hibat, megvarja a szervert, es betolti a mentett valaszt', async () => {
+    let down = true
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 0, body: null }
+      if (down && url.indexOf('/api/workbench/agent/session') >= 0 && h.rootEl.innerHTML.indexOf('workbench.chat.reconnecting') >= 0) return { status: 0, body: null }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        return { status: 200, body: { session: { id: 's1' }, running: false, toolCalls: [], messages: down ? [] : [{ role: 'user', content: 'kérdés' }, { role: 'assistant', content: 'MENTETT VÁLASZ' }] } }
+      }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+    h.inputs.wbChatInput = { value: 'kérdés', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.reconnecting'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.err.network')
+    await vi.advanceTimersByTimeAsync(3100)
+    expect(h.rootEl.innerHTML).not.toContain('workbench.err.network')
+    down = false
+    await vi.advanceTimersByTimeAsync(3100)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('MENTETT VÁLASZ'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.reconnecting')
+    expect(h.rootEl.innerHTML).not.toContain('workbench.err.network')
+  })
+
+  it('#434: ha a valasz az ujrainditasban elveszett, ezt mondja ki (nem altalanos halozati hibat)', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 0, body: null }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        const after = h.rootEl.innerHTML.indexOf('workbench.chat.reconnecting') >= 0
+        return { status: 200, body: { session: { id: 's1' }, running: false, toolCalls: [], messages: after ? [{ role: 'user', content: 'kérdés' }] : [] } }
+      }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+    h.inputs.wbChatInput = { value: 'kérdés', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.reconnecting'))
+    await vi.advanceTimersByTimeAsync(3100)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.interrupted'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.err.network')
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-send"')
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="chat-stop"')
   })
 
   it('az Allj gomb a SZERVEREN is leallit (POST /agent/stop), nem csak a bongeszoben', async () => {
