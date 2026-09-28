@@ -41,6 +41,17 @@ import {
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
+import { listWorkItemAssets } from '../../workbench-assets.js'
+import type { WorkItemRow } from '../../workbench.js'
+
+/** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441). */
+function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[] } {
+  let materials: string[] = []
+  try {
+    materials = listWorkItemAssets(item.id).map((a) => `${a.project_path || a.path} [${a.support}${a.present ? '' : ', missing'}]`)
+  } catch { materials = [] }
+  return { title: item.title, type: item.type, folder: item.folder ?? null, materials }
+}
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */
 const TURN_MAX_MS = 15 * 60 * 1000
@@ -467,7 +478,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             ? liveInstallNote() + buildCodeBridgePrompt({
               projectName: project.name || project.id,
               projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
-              workItem: item ? { title: item.title, type: item.type } : null,
+              workItem: item ? codeBridgeWorkItem(item) : null,
               history,
               message: text,
               lang,
@@ -524,7 +535,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             const prompt = buildCodeBridgePrompt({
               projectName: project.name || project.id,
               projectFolder: folder.ok ? folder.dirAbs : null,
-              workItem: item ? { title: item.title, type: item.type } : null,
+              workItem: item ? codeBridgeWorkItem(item) : null,
               history,
               message: input.message.trim(),
               lang,

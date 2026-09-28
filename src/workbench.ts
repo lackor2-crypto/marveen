@@ -69,6 +69,9 @@ export interface WorkItemRow {
   /** Kituzve (csillag) ekkor; NULL = nincs kituzve. A kituzottek a lista
    *  tetejen allnak, a kituzes sorrendjeben (#406, 21bcb1f4). */
   pinned_at: number | null
+  /** A munkadarab sajat mappaja a projekt mappajaban (projekt-relativ, #441).
+   *  NULL = meg nincs; a `workbench-assets.ts` hozza letre az elso csatolaskor. */
+  folder?: string | null
 }
 
 export interface WorkItemVersionRow {
@@ -147,6 +150,7 @@ export function ensureWorkbenchTables(): void {
   if (!vCols.has('source_path')) db.exec('ALTER TABLE work_item_versions ADD COLUMN source_path TEXT')
   const iCols = new Set((db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).map((c) => c.name))
   if (!iCols.has('pinned_at')) db.exec('ALTER TABLE work_items ADD COLUMN pinned_at INTEGER')
+  if (!iCols.has('folder')) db.exec('ALTER TABLE work_items ADD COLUMN folder TEXT')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, updated_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')

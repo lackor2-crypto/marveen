@@ -119,6 +119,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'workItem.listAssets',
+    description: 'List the materials (attached files) of a work item: photos, logos, PDFs, notes the owner uploaded to it, and the folder of the work item. Each entry says whether you can read its content (support: readable), can use it without reading (usable: image, video, PDF, office file), needs a processor that is not available yet (needs_processor: audio), or is not supported. Read a readable one with file.read using its path. Never claim to know the content of a file you could not read.',
+    input: 'id: the work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
     name: 'workItem.addPart',
     description: 'Add a part to a work item: a text block, or an image that already exists in the project folder. This is how one work item can hold text AND a picture at the same time.',
     input: 'id: the work item id (optional, defaults to the open one); kind: text or image; text: the text (for a text part); path: the image file inside the project folder (for an image part); caption (optional)',

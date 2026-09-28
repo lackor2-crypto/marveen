@@ -158,6 +158,12 @@
 .wb-ctx-block h3 { margin: 0 0 4px; font-size: 0.85rem; }
 .wb-ctx-block p { margin: 0 0 2px; word-break: break-word; }
 .wb-versions { margin: 0; padding-left: 18px; font-size: 0.9rem; }
+.wb-assets { margin: 0 0 6px; padding-left: 18px; font-size: 0.9rem; }
+.wb-asset { margin: 2px 0; word-break: break-word; }
+.wb-asset-sup { font-size: 0.75rem; }
+.wb-asset-sup-needs_processor, .wb-asset-sup-unsupported { opacity: 0.75; }
+.wb-chat-attach { cursor: pointer; }
+.wb-assets-block.wb-drop-hover, .wb-root.wb-dragging .wb-assets-block { outline: 2px dashed var(--accent, #3b82f6); outline-offset: 2px; }
 
 /* AGENT-CHAT (3. fazis). Az `opacity` SZANDEKOSAN nincs itt: a chat nem
  * "hamarosan jon" allapotu doboz tobbe, hanem a Munkapad fo bemenete. */

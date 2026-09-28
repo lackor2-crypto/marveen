@@ -44,7 +44,7 @@ import {
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
-import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { writeProjectFile, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
@@ -80,7 +80,11 @@ import { readCanvas, saveCanvas, renderCanvasForItem } from '../../workbench-can
 import { setOverride } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
-import { createReadStream, statSync } from 'node:fs'
+import { createReadStream, statSync, rmdirSync } from 'node:fs'
+import {
+  makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset, listWorkItemAssets,
+  unlinkAsset, tidyWorkItemIntoFolder, ensureAssetTables,
+} from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -574,6 +578,34 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   upload_too_large: {
     hu: `Ez a fájl túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába a gépeden, és onnan vedd fel.`,
     en: `This file is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder on your computer and add it from there.`,
+  },
+  asset_duplicate: {
+    hu: 'Ez a fájl már megvan ennek a munkadarabnak az anyagai között.',
+    en: 'This file is already among the materials of this work item.',
+  },
+  asset_unsupported: {
+    hu: 'Ilyen fájlt nem tölthetsz fel anyagnak (futtatható program vagy telepítő).',
+    en: 'This kind of file cannot be added as a material (a program or an installer).',
+  },
+  asset_limit: {
+    hu: 'Ennek a munkadarabnak már túl sok anyaga van. Nyiss egy új munkadarabot, vagy vegyél le a listáról régieket.',
+    en: 'This work item already has too many materials. Open a new work item or remove old ones from the list.',
+  },
+  asset_not_found: {
+    hu: 'Ez az anyag már nincs a munkadarab listáján.',
+    en: 'This material is no longer on the list of the work item.',
+  },
+  folder_name: {
+    hu: 'A munkadarab nevéből nem lehet mappanevet készíteni. Nevezd át a munkadarabot, és próbáld újra.',
+    en: 'No folder name can be made from the name of the work item. Rename the work item and try again.',
+  },
+  folder_taken: {
+    hu: 'Ezt a mappát már egy másik munkadarab használja. Válassz másikat.',
+    en: 'This folder is already used by another work item. Pick another one.',
+  },
+  move_failed: {
+    hu: 'A fájlt nem sikerült áthelyezni a munkadarab mappájába. A munkadarab és a fájl a régi helyén maradt.',
+    en: 'The file could not be moved into the folder of the work item. The work item and the file stayed where they were.',
   },
   upload_empty: {
     hu: 'A feltöltött fájl üres volt (nulla bájt). Próbáld újra.',
@@ -1273,8 +1305,30 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     if (!data.length) return fail(res, 400, 'upload_empty', lang)
     const name = url.searchParams.get('name') || ''
-    const out = writeProjectFile(project, url.searchParams.get('sub'), name, data)
+    // #441 (K-0.10): a feltoltesbol szuletett munkadarab SAJAT mappat kap a
+    // projekt mappajaban, a munkadarab nevevel -- a fajl oda kerul, nem
+    // omlesztve a projekt fomappajaba. Ha a hivo kifejezetten megad egy
+    // almappat (`sub`), az marad.
+    const title = titleFromFileName(name)
+    const explicitSub = url.searchParams.get('sub')
+    let folder: string | null = null
+    let folderCreated = false
+    if (!explicitSub) {
+      const f = makeFreshFolder(project, title)
+      if (!f.ok) {
+        const code = MESSAGES['upload_' + f.code] ? 'upload_' + f.code : f.code
+        return failDetail(res, f.code === 'write_failed' ? 500 : 400, code, lang, 'message' in f ? (f.message || null) : null)
+      }
+      folder = f.folder
+      folderCreated = f.created
+    }
+    const out = writeProjectFile(project, folder ?? explicitSub, name, data)
     if (!out.ok) {
+      // A most nyitott, URES mappat nem hagyjuk ott arvanak.
+      if (folder && folderCreated) {
+        const t = projectFileTarget(project, folder)
+        if (t.ok) { try { rmdirSync(t.dirAbs) } catch { /* nem ures / nem torolheto: marad */ } }
+      }
       const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
       return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
     }
@@ -1286,7 +1340,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
-    json(res, { ok: true, item: r.item, versions: [r.version], file: out, renamed: out.renamed, name: out.name }, 201)
+    if (folder) assignWorkItemFolder(r.item.id, folder)
+    registerAsset(r.item.id, out.rel, out.name, sha256Of(data), out.bytes, actor(ctx))
+    const item = getWorkItem(r.item.id) ?? r.item
+    json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name }, 201)
     return true
   }
 
@@ -1307,8 +1364,77 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       versions: listWorkItemVersionsView(item.id),
       parts: listWorkItemParts(item.id),
       part_kinds: WORK_ITEM_PART_KINDS,
+      assets: listWorkItemAssets(item.id),
       approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
+    })
+    return true
+  }
+
+  // ANYAGOK (#441, v4 spec K-0.14 ... K-0.18): egy MEGLEVO munkadarabhoz
+  // csatolt fajlok. A fajl a munkadarab SAJAT mappajaba kerul (ha meg nincs,
+  // most keszul a munkadarab nevevel), es nem lesz belole uj munkadarab.
+  //   GET    .../assets            -- a lista (tamogatasi allapottal)
+  //   POST   .../assets?name=...   -- egy fajl (nyers bajtok); `force=1`: ugyanaz a tartalom ujra
+  //   DELETE .../assets/<id>       -- levetel a listarol (a fajl a mappaban MARAD)
+  //   POST   .../tidy              -- az omlesztett forrasfajl a munkadarab mappajaba
+  if (segs.length === 2 && segs[1] === 'assets' && method === 'GET') {
+    ensureAssetTables()
+    json(res, { assets: listWorkItemAssets(item.id), folder: getWorkItem(item.id)?.folder ?? null })
+    return true
+  }
+  if (segs.length === 2 && segs[1] === 'assets' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    const r = attachAsset(item, url.searchParams.get('name') || '', data, {
+      force: url.searchParams.get('force') === '1',
+      createdBy: actor(ctx),
+    })
+    if (!r.ok) {
+      if (r.code === 'asset_duplicate') {
+        json(res, { error: r.code, message: msg(r.code, lang), existing: r.existing }, 409)
+        return true
+      }
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      const status = r.code === 'write_failed' ? 500 : r.code === 'not_found' ? 404 : 400
+      return failDetail(res, status, code, lang, 'message' in r ? (r.message || null) : null)
+    }
+    json(res, {
+      ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
+      renamed: r.renamed, name: r.asset.name, assets: listWorkItemAssets(item.id),
+    }, 201)
+    return true
+  }
+  if (segs.length === 3 && segs[1] === 'assets' && method === 'DELETE') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (!unlinkAsset(item.id, segs[2] || '')) return fail(res, 404, 'asset_not_found', lang)
+    json(res, { ok: true, assets: listWorkItemAssets(item.id) })
+    return true
+  }
+  if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = await readJson(req)
+    const r = tidyWorkItemIntoFolder(item, { folder: body ? body['folder'] : undefined })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      return failDetail(res, r.code === 'move_failed' || r.code === 'write_failed' ? 500 : 400, code, lang, 'message' in r ? (r.message || null) : null)
+    }
+    json(res, {
+      ok: true, folder: r.folder, moved: r.moved, skipped: r.skipped,
+      item: getWorkItem(item.id), versions: listWorkItemVersionsView(item.id), assets: listWorkItemAssets(item.id),
     })
     return true
   }

@@ -99,7 +99,9 @@ export interface CodeBridgePromptInput {
   projectName: string
   /** A projektmappa abszolut utja, ha be van allitva (kulonben null). */
   projectFolder: string | null
-  workItem: { title: string; type: string } | null
+  /** `folder`: a munkadarab sajat mappaja (projekt-relativ); `materials`: a
+   *  csatolt anyagai, projekt-relativ uttal es tamogatasi allapottal (#441). */
+  workItem: { title: string; type: string; folder?: string | null; materials?: string[] } | null
   /** A beszelgetes eddigi sorai, idorendben, az UJ uzenet NELKUL. */
   history: { role: string; content: string }[]
   message: string
@@ -111,6 +113,22 @@ export interface CodeBridgePromptInput {
  * mappa), mi hangzott el eddig, es mi az uj uzenet. Enelkul egy "na most meg
  * tudod?" jellegu mondat ertelmezhetetlen.
  */
+const MATERIALS_IN_PROMPT = 30
+
+/** A munkadarab mappaja es anyagai (#441) -- hogy a "toltottem fel ide egy
+ *  fajlt" mondat utan az agens tudja, hol keresse. Uresen semmit nem ir. */
+function workItemFileLines(w: CodeBridgePromptInput['workItem']): string[] {
+  if (!w) return []
+  const out: string[] = []
+  if (w.folder) out.push(`Work item folder (inside the project folder): ${w.folder}`)
+  const m = w.materials || []
+  if (m.length) {
+    const shown = m.slice(0, MATERIALS_IN_PROMPT)
+    out.push(`Work item materials (files the owner attached, path inside the project folder [support]): ${shown.join('; ')}${m.length > shown.length ? ` ... and ${m.length - shown.length} more` : ''}`)
+  }
+  return out
+}
+
 export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
   const language = input.lang === 'en' ? 'English' : 'Hungarian'
   const head = [
@@ -118,6 +136,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `Project: ${input.projectName}`,
     `Project folder: ${input.projectFolder ?? '(no folder set for this project)'}`,
     `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
+    ...workItemFileLines(input.workItem),
     `Answer in ${language}, in plain sentences for a non-programmer.`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]

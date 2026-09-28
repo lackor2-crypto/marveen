@@ -22,6 +22,7 @@ import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
 import { convertOfficeToPdf, isOfficeConvertible } from '../office-convert.js'
+import { listWorkItemAssets } from '../workbench-assets.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
@@ -396,6 +397,27 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       return { ok: true, data: getWorkItem(item.id) as WorkItemRow }
     }
 
+    case 'workItem.listAssets': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const assets = listWorkItemAssets(item.id)
+      return {
+        ok: true,
+        data: {
+          folder: item.folder ?? null,
+          count: assets.length,
+          note: assets.length ? '' : 'this work item exists and has no attached materials yet',
+          assets: assets.map((a) => ({
+            path: a.project_path || a.path, name: a.name, support: a.support,
+            bytes: a.bytes, present: a.present,
+          })),
+        },
+      }
+    }
     case 'workItem.listParts': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }

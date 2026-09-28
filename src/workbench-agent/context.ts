@@ -21,6 +21,7 @@ import { decisionsForContext } from '../workbench-decisions.js'
 import { toolsForPrompt } from './tools.js'
 import type { AIMessage } from './provider.js'
 import type { AgentMessageRow } from './sessions.js'
+import { listWorkItemAssets } from '../workbench-assets.js'
 
 /** Felso hatarok. Egy interaktiv fordulo, nem teljes archivum. */
 export const MAX_CONTEXT_CHARS = 12_000
@@ -67,6 +68,16 @@ export interface BuiltContext {
 function clamp(s: string, max: number): { text: string; cut: boolean } {
   if (s.length <= max) return { text: s, cut: false }
   return { text: s.slice(0, max) + '\n[...]', cut: true }
+}
+
+/** A munkadarab anyagai egy sorban (#441): nev + tamogatasi allapot, korlatosan. */
+const MAX_ASSETS_IN_CONTEXT = 30
+function assetsLine(itemId: string): string {
+  const assets = listWorkItemAssets(itemId)
+  if (!assets.length) return 'materials: none attached yet'
+  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${a.present ? '' : ', MISSING from disk'}]`)
+  const more = assets.length > shown.length ? ` ... and ${assets.length - shown.length} more (workItem.listAssets)` : ''
+  return `materials (${assets.length}): ${shown.join('; ')}${more}`
 }
 
 /**
@@ -117,7 +128,9 @@ export function buildContext(
       `Current work item: ${workItem.id} "${workItem.title}"`,
       `kind: ${workItem.type}, status: ${workItem.status}, editor: ${workItem.editor_type}`,
       `file: ${workItem.source_path || '(no file attached yet)'}`,
+      `folder: ${workItem.folder || '(no own folder yet)'}`,
       `versions: ${versions.length ? versions.map((v) => `v${v.version_no}`).join(', ') : 'none'}`,
+      assetsLine(workItem.id),
     ].join('\n'))
   } else {
     add('current_item', 'No work item is open: the conversation is about the project as a whole.')
