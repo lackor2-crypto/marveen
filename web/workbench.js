@@ -4434,6 +4434,13 @@
     return '<div class="wb-chat" id="wbChat">' + chatInnerHtml() + '</div>'
   }
 
+  /** A chat-naplo alapbol a legaljan all: mindig a legutolso uzenet latszik
+   *  (Boss, 2026-09-28: "alapesetben lent legyen a csuszka"). */
+  function scrollChatToBottom() {
+    var log = typeof document.getElementById === 'function' ? document.getElementById('wbChatLog') : null
+    if (log && typeof log.scrollHeight === 'number') log.scrollTop = log.scrollHeight
+  }
+
   /** CSAK a chat-sav ujrarajzolasa: streameles kozben a teljes oldal ujraepitese
    *  elvenne a fokuszt es a gorgetest. Ha a sav nincs a DOM-ban (meg nem
    *  rajzoltunk), a teljes rajzolas lep a helyebe. */
@@ -4443,8 +4450,7 @@
     var focused = false
     try { focused = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { focused = false }
     el.innerHTML = chatInnerHtml()
-    var log = document.getElementById('wbChatLog')
-    if (log && typeof log.scrollHeight === 'number') log.scrollTop = log.scrollHeight
+    scrollChatToBottom()
     if (focused) {
       var input = document.getElementById('wbChatInput')
       if (input && typeof input.focus === 'function') {
@@ -5645,6 +5651,9 @@
       + panelTabsHtml()
       + layoutHtml()
       + '</div>'
+    // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
+    // ami kulonben a tetejen allna.
+    scrollChatToBottom()
     if (WB.formOpen) {
       var input = document.getElementById('wbNewTitle')
       if (input) input.focus()
