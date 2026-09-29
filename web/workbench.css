@@ -237,6 +237,12 @@
 .wb-shared-block { margin: 6px 0 0; }
 .wb-chat-attach { cursor: pointer; }
 .wb-assets-block.wb-drop-hover, .wb-root.wb-dragging .wb-assets-block { outline: 2px dashed var(--accent, #3b82f6); outline-offset: 2px; }
+/* Materials list: compact, and never taller than 2/3 of the screen -- beyond
+   that it scrolls inside itself instead of stretching the page (Boss, TG 1822/1826). */
+.wb-assets-block > .wb-assets { max-height: 66vh; overflow-y: auto; font-size: 0.78rem; line-height: 1.25; padding-right: 4px; }
+.wb-assets-block > .wb-assets .wb-row { padding: 4px 0; }
+.wb-assets-block .wb-asset-act .wb-mini-btn { font-size: 0.7rem; padding: 1px 6px; border-radius: 5px; }
+.wb-assets-block .wb-asset .wb-pill, .wb-assets-block .wb-asset .wb-muted { font-size: 0.7rem; }
 .wb-assets-block.wb-flash { outline: 2px solid var(--accent, #3b82f6); outline-offset: 2px; }
 /* A chatben csatolt fajlok a beiro mezo felett (#441). */
 .wb-attached { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }

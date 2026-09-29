@@ -45,3 +45,12 @@ describe('Verziok blokk fontossagi sorrendben (TG 1817)', () => {
     expect(EN).toContain('"workbench.folder.open_short": "Open"')
   })
 })
+
+describe('Anyagok lista nem nyujtja az oldalt (TG 1822/1826)', () => {
+  it('a lista legfeljebb 2/3 kepernyo magas, utana gorgetheto, es kisebb betus', () => {
+    const fn = WBJS.slice(WBJS.indexOf('function assetsBlockHtml'), WBJS.indexOf('function assetsBlockHtml') + 4000)
+    expect(fn).toContain('\'<ul class="wb-assets">\'')
+    expect(CSS).toMatch(/\.wb-assets-block > \.wb-assets \{[^}]*max-height: 66vh;[^}]*overflow-y: auto;/)
+    expect(CSS).toMatch(/\.wb-assets-block \.wb-asset-act \.wb-mini-btn \{[^}]*font-size: 0\.7rem/)
+  })
+})
