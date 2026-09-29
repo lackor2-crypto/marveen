@@ -245,6 +245,15 @@ describe('harom paneles vaz', () => {
     expect(html).toContain('wb-chat')
   })
 
+  it('#444: a jobb oszlopban nincs kulon Kanban-doboz (a kartyak fent, a csempeken latszanak)', () => {
+    // Boss, 2026-09-29 (TG 1798): "Minek ide lent ez a szovegdoboz a hulyeseggel?"
+    const html = h.rootEl.innerHTML
+    const ctx = html.slice(html.indexOf('wb-panel-context'))
+    expect(ctx).not.toContain('workbench.context.kanban')
+    expect(ctx).not.toContain('A projekt kártyái fent')
+    expect(ctx).not.toContain("The project's cards are shown above")
+  })
+
   it('a chat SOHA nem szurke: munkadarab nelkul is lehet bele irni', () => {
     // Boss, 2026-09-21: "Agent-chat NE legyen szurke/letiltva, meg akkor sem, ha
     // nincs munkadarab kivalasztva." Ez a teszt pontosan ezt orzi.

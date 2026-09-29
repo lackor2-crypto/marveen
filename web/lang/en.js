@@ -5999,8 +5999,6 @@ window._i18n.en = {
   "workbench.editor.soon": "The preview and editor ({kind}) arrive in the next phase of the Workbench. The work item and its first version already exist.",
   "workbench.context.project": "Project",
   "workbench.context.work_item": "Work item",
-  "workbench.context.kanban": "Kanban",
-  "workbench.context.kanban_soon": "The project's cards are shown above, on the four tiles (Planned, In progress, Awaiting approval, Done). The whole board is on the project's Kanban tab.",
   "workbench.context.versions": "Versions",
   "workbench.context.no_versions": "This work item has no version yet.",
   "workbench.context.no_selection": "No work item is selected.",

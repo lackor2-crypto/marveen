@@ -5544,8 +5544,6 @@
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
         + '<p class="wb-muted">' + esc(t('workbench.context.no_selection')) + '</p></div>')
     }
-    rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.kanban')) + '</h3>'
-      + '<p class="wb-muted">' + esc(t('workbench.context.kanban_soon')) + '</p></div>')
     return '<section class="wb-panel wb-panel-context' + (WB.panel === 'context' ? ' wb-panel-current' : '') + '" data-wb-panel-body="context">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.context')) + '</h2>'
       + rows.join('') + '</section>'
