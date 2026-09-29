@@ -43,7 +43,7 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, listSubItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -361,6 +361,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   trash_bad_value: {
     hu: 'Nem derült ki, hogy törölni vagy visszaállítani kell-e a munkadarabot. Frissítsd az oldalt, és kattints újra.',
     en: 'It was not clear whether to delete or restore this work item. Refresh the page and click again.',
+  },
+  parent_not_found: {
+    hu: 'A kiválasztott fő munkadarab nem található (lehet, hogy közben a Lomtárba került). Frissítsd az oldalt, és válassz újra.',
+    en: 'The chosen main work item was not found (it may have gone to the Trash meanwhile). Refresh the page and choose again.',
+  },
+  parent_other_project: {
+    hu: 'Fő munkadarabnak csak ugyanennek a projektnek a munkadarabja választható.',
+    en: 'Only a work item of the same project can be the main work item.',
+  },
+  parent_is_sub: {
+    hu: 'Ez már almunkadarab, alá nem tehető újabb. Válaszd a fő munkadarabot.',
+    en: 'This is already a sub work item, nothing can go under it. Choose the main work item.',
+  },
+  has_sub_items: {
+    hu: 'Ennek a munkadarabnak vannak almunkadarabjai. Válaszd ki, mi legyen velük: kerüljenek a Lomtárba, vagy maradjanak önálló munkadarabként.',
+    en: 'This work item has sub work items. Choose what happens to them: move them to the Trash too, or keep them as stand-alone work items.',
   },
   pin_bad_value: {
     hu: 'Nem derült ki, hogy kitűzni vagy levenni kell-e a csillagot. Frissítsd az oldalt, és kattints újra a csillagra.',
@@ -1756,9 +1772,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       status: body.status,
       source_path: body.source_path,
       prompt: body.prompt,
+      parent_item_id: body.parent_item_id,
       created_by: actor(ctx),
     })
-    if (!r.ok) return fail(res, 400, r.code, lang)
+    if (!r.ok) return fail(res, r.code === 'parent_not_found' ? 404 : 400, r.code, lang)
     json(res, { ok: true, item: r.item, versions: [r.version] }, 201)
     return true
   }
@@ -2326,7 +2343,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let body: Record<string, unknown> = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     if (typeof body['deleted'] !== 'boolean') return fail(res, 400, 'trash_bad_value', lang)
-    const updated = setWorkItemDeleted(item.id, body['deleted'])
+    // #448: a main item with live sub items needs an explicit answer.
+    let subsMode: 'trash' | 'detach' = 'trash'
+    if (body['deleted'] === true && listSubItems(item.id).length) {
+      const sm = body['subs']
+      if (sm !== 'trash' && sm !== 'detach') return fail(res, 409, 'has_sub_items', lang)
+      subsMode = sm
+    }
+    const updated = setWorkItemDeleted(item.id, body['deleted'], Date.now(), subsMode)
     if (!updated) return fail(res, 404, 'not_found', lang)
     json(res, { item: updated, items: listWorkItems(item.project_id), deleted: listDeletedWorkItems(item.project_id) })
     return true

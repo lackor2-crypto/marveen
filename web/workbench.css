@@ -101,7 +101,15 @@
 
 /* Kituzes (#406, 21bcb1f4): a csillag a sor elejen, telefonon is kenyelmes
    celpont (min. 36px), a munkadarab-gomb kitolti a maradekot. */
-.wb-item-row { display: flex; align-items: stretch; gap: 6px; }
+.wb-item-row { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+/* #448: a sub work item is indented under its main item; the warn box takes a full row. */
+.wb-item-sub { margin-left: 22px; border-left: 2px solid var(--wb-editor-border, rgba(37, 99, 235, 0.35)); padding-left: 6px; }
+.wb-item-row > .wb-warn-box { flex: 1 0 100%; }
+.wb-item-fold {
+  border: 1px solid var(--border, #d0d7de); background: transparent; color: inherit;
+  border-radius: 6px; padding: 0 8px; cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.wb-item-fold:hover { border-color: var(--accent, #2563eb); }
 .wb-item-row .wb-item { flex: 1 1 auto; min-width: 0; }
 .wb-item-pin {
   flex: 0 0 auto;

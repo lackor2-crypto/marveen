@@ -113,7 +113,7 @@ export interface CodeBridgePromptInput {
   projectFolder: string | null
   /** `folder`: a munkadarab sajat mappaja (projekt-relativ); `materials`: a
    *  csatolt anyagai, projekt-relativ uttal es tamogatasi allapottal (#441). */
-  workItem: { title: string; type: string; folder?: string | null; materials?: string[]; documentsHint?: string | null } | null
+  workItem: { title: string; type: string; folder?: string | null; materials?: string[]; documentsHint?: string | null; family?: string[] } | null
   /** A beszelgetes eddigi sorai, idorendben, az UJ uzenet NELKUL. */
   history: { role: string; content: string }[]
   message: string
@@ -138,6 +138,7 @@ function workItemFileLines(w: CodeBridgePromptInput['workItem']): string[] {
     const shown = m.slice(0, MATERIALS_IN_PROMPT)
     out.push(`Work item materials (files the owner attached, path inside the project folder [support]): ${shown.join('; ')}${m.length > shown.length ? ` ... and ${m.length - shown.length} more` : ''}`)
   }
+  if (w.family?.length) out.push(...w.family)
   if (w.documentsHint) out.push(w.documentsHint)
   return out
 }
