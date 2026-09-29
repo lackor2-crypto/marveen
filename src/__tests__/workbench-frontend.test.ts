@@ -1161,8 +1161,30 @@ describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
     const del = h.fetchCalls.filter((c) => c.init && c.init.method === 'DELETE').pop()
     expect(del!.url).toContain('/api/workbench/items/w1/versions/v1')
     expect(h.rootEl.innerHTML).not.toContain('data-wb-version="v1"')
-    // Egy verzio maradt: azt nem lehet torolni, nincs mit betolteni utana.
-    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="version-delete"')
+    // Egy verzio maradt: annak is van Torles gombja ("1A"), mas cimmel.
+    expect(h.rootEl.innerHTML).toMatch(/data-wb-act="version-delete"[^>]*data-wb-version="v2"[^>]*workbench\.versions\.delete_last_title/)
+  })
+
+  // Boss, 2026-09-29, "1A": az utolso verzio torlese a munkadarabot a
+  // Lomtarba teszi -- de csak a piros figyelmezteto keret megerositese utan.
+  it('az UTOLSO verzio torlese: piros keret, keres nelkul semmi, megerositesre Lomtar', async () => {
+    await openVersions([V1])
+    const before = h.fetchCalls.length
+    h.click({ 'data-wb-act': 'version-delete', 'data-wb-version': 'v1' })
+    expect(h.fetchCalls.length).toBe(before)
+    expect(h.rootEl.innerHTML).toContain('wb-warn-box')
+    expect(h.rootEl.innerHTML).toContain('workbench.versions.last_warn')
+    // Megse: a keret eltunik, nem tortent semmi.
+    h.click({ 'data-wb-act': 'warn-cancel' })
+    expect(h.rootEl.innerHTML).not.toContain('wb-warn-box')
+    expect(h.fetchCalls.length).toBe(before)
+    h.click({ 'data-wb-act': 'version-delete', 'data-wb-version': 'v1' })
+    h.respond(() => ({ status: 200, body: { item: { ...PREV_ITEM, deleted_at: 5 }, items: [], deleted: [{ ...PREV_ITEM, deleted_at: 5 }] } }))
+    h.click({ 'data-wb-act': 'last-version-trash', 'data-wb-id': 'w1' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.trash.done'))
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/api/workbench/items/w1/trash')
+    expect(h.fetchCalls.some((c) => c.init && c.init.method === 'DELETE')).toBe(false)
   })
 
   it('a JELENLEGI torlese: az alatta levo toltodik be, es kiirja, melyik', async () => {

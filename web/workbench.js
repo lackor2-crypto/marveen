@@ -151,6 +151,9 @@
     deleted: [],
     trashBusy: false,
     trashOpen: false,
+    // Piros figyelmezteto keret egy vegleges / nagy hatasu torles elott (#443):
+    // { kind: 'last-version' } vagy { kind: 'purge', id }.
+    warn: null,
     tdOpen: false,
     tdRem: null,
     tdRemError: null,
@@ -290,6 +293,35 @@
     })
   }
 
+  /** Piros figyelmezteto keret (#443, Boss 2026-09-29): a vegleges vagy az
+   *  egesz munkadarabot erinto torles elott all meg, ket gombbal. */
+  function warnBoxHtml(text, act, okLabel, id) {
+    return '<div class="wb-warn-box" role="alert"><p>' + esc(text) + '</p><div class="wb-warn-acts">'
+      + '<button type="button" class="wb-btn wb-btn-danger" data-wb-act="' + escA(act) + '"'
+      + (id ? ' data-wb-id="' + escA(id) + '"' : '') + '>' + esc(okLabel) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="warn-cancel">' + esc(t('workbench.warn.cancel')) + '</button>'
+      + '</div></div>'
+  }
+
+  /** Vegleges torles a Lomtarbol (#443, "1A"). */
+  function purgeItem(id) {
+    if (!id || WB.trashBusy || archived()) return
+    var pid = WB.projectId
+    WB.trashBusy = true
+    WB.warn = null
+    render()
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/purge', {}).then(function (r) {
+      WB.trashBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
+      if (r.data && Array.isArray(r.data.deleted)) WB.deleted = r.data.deleted
+      if (WB.selectedId === id) { WB.selectedId = null; WB.detail = null }
+      window.showToast(t('workbench.trash.purged'))
+      render()
+    })
+  }
+
   function trashHtml() {
     var list = WB.deleted || []
     if (!list.length) return ''
@@ -304,7 +336,13 @@
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span></span>'
           + '<button type="button" class="wb-item-del" data-wb-act="item-restore" data-wb-id="' + escA(it.id) + '"'
           + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.restore')) + '</button>'
+          + '<button type="button" class="wb-item-del wb-mini-danger" data-wb-act="item-purge-ask" data-wb-id="' + escA(it.id) + '"'
+          + ' title="' + escA(t('workbench.trash.purge_title')) + '"'
+          + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.purge')) + '</button>'
           + '</li>'
+          + (WB.warn && WB.warn.kind === 'purge' && WB.warn.id === it.id
+            ? '<li>' + warnBoxHtml(t('workbench.trash.purge_warn', { title: it.title }), 'item-purge', t('workbench.trash.purge'), it.id) + '</li>'
+            : '')
       }).join('') + '</ul></div>'
   }
 
@@ -5394,14 +5432,15 @@
             var current = v.id === it.current_version_id
             // A JELENLEGIT nincs mire visszaallitani, de torolheto: akkor az
             // alatta levo toltodik be (Boss, 2026-09-29). Az EGYETLEN verzio
-            // nem torolheto -- nem maradna mit betolteni. A Torles vegleges
-            // (#443), rakerdezes nelkul.
-            var canDelete = !ro && versions.length > 1
+            // torlese az egesz munkadarabot a Lomtarba teszi ("1A"), piros
+            // figyelmezteto keret utan. A Torles vegleges (#443).
+            var canDelete = !ro
+            var only = versions.length === 1
             var acts = ((current || ro) ? '' : ('<button type="button" class="wb-mini-btn" data-wb-act="version-restore"'
               + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>'))
               + (canDelete ? ('<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="version-delete"'
               + ' data-wb-version="' + escA(v.id) + '" title="'
-              + escA(t(current ? 'workbench.versions.delete_current_title' : 'workbench.versions.delete_title')) + '">'
+              + escA(t(only ? 'workbench.versions.delete_last_title' : current ? 'workbench.versions.delete_current_title' : 'workbench.versions.delete_title')) + '">'
               + esc(t('workbench.versions.delete')) + '</button>') : '')
             return '<li class="wb-row"><div class="wb-row-main">' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
               + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
@@ -5409,6 +5448,9 @@
                 + esc(t('workbench.versions.restored_from', { n: v.restored_from_no })) + '</span>' : '')
               + '</div>' + (acts ? '<div class="wb-row-act">' + acts + '</div>' : '') + '</li>'
           }).join('') + '</ul>'
+            + (WB.warn && WB.warn.kind === 'last-version' && versions.length === 1
+              ? warnBoxHtml(t('workbench.versions.last_warn'), 'last-version-trash', t('workbench.versions.last_warn_ok'), it.id)
+              : '')
           : '<p class="wb-muted">' + esc(t('workbench.context.no_versions')) + '</p>')
         + (ro ? '' : '<p class="wb-ctx-actions"><button type="button" class="wb-btn" data-wb-act="version-new">'
           + esc(t('workbench.versions.save_new')) + '</button></p>')
@@ -7254,6 +7296,9 @@
   function deleteVersion(versionId) {
     if (!versionId || !WB.selectedId || WB.versionBusy || archived()) return
     var id = WB.selectedId
+    // Az utolso verzio: a munkadarab a Lomtarba kerul, de csak a piros
+    // keret megerositese utan ("1A").
+    if (WB.detail && (WB.detail.versions || []).length === 1) { WB.warn = { kind: 'last-version' }; render(); return }
     WB.versionBusy = true
     render()
     api('DELETE', versionsUrl('/' + encodeURIComponent(versionId))).then(function (r) {
@@ -7560,6 +7605,10 @@
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
+    else if (a === 'item-purge-ask') { WB.warn = { kind: 'purge', id: act.getAttribute('data-wb-id') }; render() }
+    else if (a === 'item-purge') purgeItem(act.getAttribute('data-wb-id'))
+    else if (a === 'last-version-trash') { WB.warn = null; setTrashed(act.getAttribute('data-wb-id'), true) }
+    else if (a === 'warn-cancel') { WB.warn = null; render() }
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
     else if (a === 'goto-fullmode') { if (typeof window.openWorkbenchSettings === 'function') window.openWorkbenchSettings(); else if (typeof window.switchPage === 'function') window.switchPage('settings') }
     else if (a === 'export-open') { WB.exportOpen = WB.selectedId; render() }

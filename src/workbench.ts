@@ -299,6 +299,46 @@ export function setWorkItemDeleted(id: string, deleted: boolean, now: number = D
 }
 
 /**
+ * VEGLEGES torles a Lomtarbol (#443, Boss 2026-09-29, "1A": "a Kukabol torlod
+ * veglegesen"). Csak lomtarban levo munkadarab torolheto igy (`not_in_trash`),
+ * hogy egy kattintas a listaban soha ne legyen vegleges. A munkadarab minden
+ * adatbazis-sora megy: verziok, reszek, beszelgetesek (uzenetek, eszkozfutasok),
+ * teendok, dontesek, megosztasok, dokumentum-modell -- szemet nem marad. A
+ * tablakat a sema alapjan keresi (minden `work_item_id` oszlopos tabla), igy
+ * egy kesobb hozzaadott tabla sem marad ki. A FAJLOK a projekt mappajaban
+ * maradnak (a Raktarban latszanak): mas munkadarab is hivatkozhat rajuk.
+ */
+export function purgeWorkItem(id: string): { ok: true; projectId: string } | { ok: false; code: 'item_not_found' | 'not_in_trash' } {
+  ensureWorkbenchTables()
+  const item = getWorkItem(id)
+  if (!item) return { ok: false, code: 'item_not_found' }
+  if (item.deleted_at == null) return { ok: false, code: 'not_in_trash' }
+  const db = getDb()
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name)
+  const cols = (t: string): Set<string> =>
+    new Set((db.prepare(`PRAGMA table_info("${t.replace(/"/g, '""')}")`).all() as { name: string }[]).map((c) => c.name))
+  const q = (t: string): string => `"${t.replace(/"/g, '""')}"`
+  db.transaction(() => {
+    // Children keyed by something other than work_item_id go first.
+    if (tables.includes('workbench_agent_sessions')) {
+      for (const t of tables) {
+        if (t === 'workbench_agent_sessions' || !t.startsWith('workbench_agent_') || !cols(t).has('session_id')) continue
+        db.prepare(`DELETE FROM ${q(t)} WHERE session_id IN (SELECT id FROM workbench_agent_sessions WHERE work_item_id = ?)`).run(item.id)
+      }
+    }
+    if (tables.includes('wb_doc_claims') && tables.includes('wb_doc_sources') && cols('wb_doc_sources').has('claim_id')) {
+      db.prepare('DELETE FROM wb_doc_sources WHERE claim_id IN (SELECT id FROM wb_doc_claims WHERE work_item_id = ?)').run(item.id)
+    }
+    for (const t of tables) {
+      if (t === 'work_items' || !cols(t).has('work_item_id')) continue
+      db.prepare(`DELETE FROM ${q(t)} WHERE work_item_id = ?`).run(item.id)
+    }
+    db.prepare('DELETE FROM work_items WHERE id = ?').run(item.id)
+  })()
+  return { ok: true, projectId: item.project_id }
+}
+
+/**
  * Kituzes / levetel (csillag). A munkadarab `updated_at`-jet SZANDEKOSAN nem
  * erinti: a csillag nem szerkesztes, es ha az lenne, a levett darab a lista
  * tetejere ugrana. Ismetelt kituzes nem modositja az eredeti idopontot, igy a

@@ -983,3 +983,10 @@
   .wb-docedit-page { padding: 20px 16px; }
   .wb-docedit-foot .btn-primary, .wb-docedit-foot .btn-secondary { flex: 1 1 auto; min-height: 44px; }
 }
+
+/* Red warning frame before a permanent / whole-item delete (#443). */
+.wb-warn-box { border: 2px solid #dc2626; border-radius: 8px; padding: 10px 12px; margin: 8px 0; background: rgba(220, 38, 38, 0.06); }
+.wb-warn-box p { margin: 0 0 8px; color: #dc2626; font-weight: 600; }
+.wb-warn-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.wb-btn.wb-btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.wb-btn.wb-btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
