@@ -134,6 +134,10 @@ const HINTS: Record<string, Hint> = {
     hu: 'ami nem fért a többibe: prezentációk, tanulmányok, fordítások, jegyzőkönyvek, vegyes anyagok',
     en: 'what did not fit anywhere else: presentations, studies, translations, minutes, assorted material',
   },
+  workItems: {
+    hu: 'a Munkapad munkadarabjai: mindegyiknek saját mappája van itt, a hozzá feltöltött anyagokkal',
+    en: 'the Workbench work items: each has its own folder here, with the material uploaded to it',
+  },
   website: {
     hu: 'a weboldal háttere: tárhely-adatok, domain, arculat, szövegek, látogatottsági kimutatások',
     en: 'behind the website: hosting details, domain, branding, copy, traffic reports',

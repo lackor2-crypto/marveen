@@ -131,6 +131,7 @@ import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
 import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
 import { tryHandleWorkbenchAgent, resumeInterruptedWorkbenchTurns } from './web/routes/workbench-agent.js'
+import { migrateAllWorkItemFolders } from './workbench-assets.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
@@ -699,6 +700,14 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // #441 (Boss, 2026-09-29: 1A, 2A): every project gets its "Munkadarabok"
+  // folder and the work item folders lying loose in the project root move under
+  // it. Idempotent: a finished project costs one directory check.
+  try {
+    const wi = migrateAllWorkItemFolders()
+    if (wi.moved || wi.skipped) logger.info(wi, '[workbench] work item folders moved under Munkadarabok')
+  } catch (err) { logger.warn({ err }, '[workbench] work item folder migration failed') }
 
   // #434 (Boss: "frissites utan azonnal folytasa a felbeszakadt munkat!"): a
   // Workbench full-agent turn cut off by this restart continues by itself.

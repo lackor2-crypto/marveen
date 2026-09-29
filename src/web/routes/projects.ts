@@ -196,9 +196,9 @@ function parseFolderRequest(v: unknown): FolderRequest | null {
 }
 
 /** A projekt alapertelmezett almappai -- ugyanaz a ket ag, amit az eletfa a
- *  szemelyes projektek ala tesz (Tudasbazis, Tovabbi anyagok). */
+ *  szemelyes projektek ala tesz (Tudasbazis, Tovabbi anyagok, Munkadarabok). */
 function defaultSubfolders(): string[] {
-  return [lifeName('knowledgeBase'), lifeName('moreMaterial')]
+  return [lifeName('knowledgeBase'), lifeName('moreMaterial'), lifeName('workItems')]
 }
 
 /** Mit jelent a kert mappa -- IRAS NELKUL. A letrehozas elotti elonezet ez. */

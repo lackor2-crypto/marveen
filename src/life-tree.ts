@@ -90,6 +90,7 @@ const NAMES: NameTable = {
   correspondence: { hu: 'Levelezés',   en: 'Correspondence' },
   knowledgeBase:  { hu: 'Tudásbázis',  en: 'Knowledge base' },
   moreMaterial:   { hu: 'További anyagok', en: 'More material' },
+  workItems:      { hu: 'Munkadarabok', en: 'Work items' },
   website:        { hu: 'Weboldal',    en: 'Website' },
   development:    { hu: 'Fejlesztés',  en: 'Development' },
   marketing:      { hu: 'Marketing',   en: 'Marketing' },
