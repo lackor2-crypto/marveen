@@ -494,3 +494,176 @@ export function documentPagesText(abs: string, name: string, from: number, to: n
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// GEPI IDEZET-ELLENORZES (K-1.12)
+// ---------------------------------------------------------------------------
+//
+// Nem az agent onbevallasa: program nezi meg, hogy a szo szerinti idezet
+// tenyleg ott all-e a megadott fajl megadott oldalan. Kis elteres (a
+// szovegfelismeres egy-egy betuje, sortores, kotojel, ekezet, idezojel-fajta)
+// megengedett; ha az idezet MASIK oldalon van, azt kulon megmondjuk (hamis
+// oldalszam), ha sehol, akkor "nem igazolhato".
+
+/** Egy idezet legfeljebb ilyen hosszu lehet (hosszabbat reszekre kell bontani). */
+export const QUOTE_MAX_CHARS = 1500
+/** Ennyi hasonlosag kell egy szovegretegbol olvasott oldalon (1 = betu szerint egyezik). */
+export const MATCH_MIN_TEXT = 0.97
+/** Ennyi egy szovegfelismeressel olvasott oldalon (a felismeres hibazhat egy-egy betut). */
+export const MATCH_MIN_OCR = 0.92
+
+/** Osszeveteshez: kisbetu, ekezet nelkul, egyseges idezojel/kotojel, sortoresnel elvalasztott szo osszeillesztve, egy szokoz. */
+export function normalizeForMatch(s: string): string {
+  return String(s || '')
+    .replace(/(\p{L})-\s*\n\s*(\p{L})/gu, '$1$2')
+    .normalize('NFKD').replace(/\p{M}/gu, '')
+    .replace(/ß/g, 'ss')
+    .toLowerCase()
+    .replace(/[‘’‚‛′`´]/g, "'")
+    .replace(/[“”„‟″«»]/g, '"')
+    .replace(/[‐-―−]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * A `needle` legjobb kozelito elofordulasa a `hay`-ben (Sellers-algoritmus:
+ * szerkesztesi tavolsag, a hay barmely reszehez igazitva).
+ */
+export function bestFuzzyMatch(needle: string, hay: string): { distance: number; similarity: number } {
+  const m = needle.length
+  if (!m) return { distance: 0, similarity: 1 }
+  let prev = new Array<number>(m + 1)
+  let cur = new Array<number>(m + 1)
+  for (let i = 0; i <= m; i++) prev[i] = i
+  let best = m
+  for (let j = 1; j <= hay.length; j++) {
+    cur[0] = 0
+    const hc = hay.charCodeAt(j - 1)
+    for (let i = 1; i <= m; i++) {
+      const cost = needle.charCodeAt(i - 1) === hc ? 0 : 1
+      cur[i] = Math.min(prev[i - 1] + cost, prev[i] + 1, cur[i - 1] + 1)
+    }
+    if (cur[m] < best) best = cur[m]
+    const t = prev; prev = cur; cur = t
+  }
+  if (!hay.length) best = m
+  return { distance: best, similarity: Math.round((1 - best / m) * 1000) / 1000 }
+}
+
+/** Gyors elszures a tobbi oldal atnezesehez: tartalmaz-e az oldal legalabb egy darabot az idezetbol. */
+function mightContain(needle: string, hay: string): boolean {
+  if (needle.length < 24) return true
+  const step = Math.max(1, Math.floor((needle.length - 8) / 6))
+  for (let i = 0; i + 8 <= needle.length; i += step) if (hay.includes(needle.slice(i, i + 8))) return true
+  return false
+}
+
+export interface QuoteCheck {
+  /** verified: ott all (betu szerint vagy kis elteressel); other_page: masik oldalon all;
+   *  not_found: sehol; low_page: ott all, de az oldal rosszul olvashato (ember nezze meg). */
+  verdict: 'verified' | 'low_page' | 'other_page' | 'not_found'
+  page: number
+  similarity: number
+  exact: boolean
+  found_on: number[]
+  method: PageMethod | null
+}
+
+function pageSimilarity(q: string, text: string): { similarity: number; exact: boolean } {
+  const hay = normalizeForMatch(text)
+  if (hay.includes(q)) return { similarity: 1, exact: true }
+  if (!mightContain(q, hay)) return { similarity: 0, exact: false }
+  // Egy szam (datum, osszeg, ugyszam, oldalszam) nem lehet "majdnem jo":
+  // minden szamnak betu szerint szerepelnie kell az oldalon.
+  const hayNums = new Set(hay.match(/\d+/g) || [])
+  if ((q.match(/\d+/g) || []).some((n) => !hayNums.has(n))) return { similarity: 0, exact: false }
+  return { similarity: bestFuzzyMatch(q, hay).similarity, exact: false }
+}
+
+/** Egy mar elolvasott irat egy oldalan az idezet. A hivo biztositja, hogy az irat kesz (`documentOverview`). */
+export function verifyQuoteInRead(sha: string, page: number, quote: string): QuoteCheck | { error: 'bad_quote' | 'bad_page' } {
+  const q = normalizeForMatch(quote)
+  if (q.length < 4 || quote.length > QUOTE_MAX_CHARS) return { error: 'bad_quote' }
+  const pages = getDocPages(sha)
+  const target = pages.find((p) => p.page === page)
+  if (!target) return { error: 'bad_page' }
+  const min = (p: DocPageRow): number => (p.method === 'ocr' ? MATCH_MIN_OCR : MATCH_MIN_TEXT)
+  const here = pageSimilarity(q, target.text)
+  if (here.similarity >= min(target)) {
+    return {
+      verdict: target.low ? 'low_page' : 'verified', page, similarity: here.similarity, exact: here.exact,
+      found_on: [page], method: target.method,
+    }
+  }
+  const elsewhere = pages.filter((p) => p.page !== page && pageSimilarity(q, p.text).similarity >= min(p)).map((p) => p.page)
+  return {
+    verdict: elsewhere.length ? 'other_page' : 'not_found', page, similarity: here.similarity, exact: false,
+    found_on: elsewhere, method: target.method,
+  }
+}
+
+/** Az agent es a teljes erteku ugynok nezete: az irat (ha kell) elolvasasa utan az ellenorzes. */
+export function verifyQuote(abs: string, name: string, page: number, quote: string): DocViewOutcome {
+  const st = stateOrStart(abs, name, false)
+  if (!st.ok) return st
+  const r = verifyQuoteInRead(st.sha, Math.floor(page || 0), String(quote || ''))
+  if ('error' in r) {
+    return {
+      ok: false, code: 'bad_input',
+      detail: r.error === 'bad_page' ? `the document has ${st.sum.pages_total} page(s); page ${page} does not exist` : `the quote must be 4 to ${QUOTE_MAX_CHARS} characters of real text`,
+    }
+  }
+  const say = r.verdict === 'verified' ? `verified: the quote is on page ${page}${r.exact ? '' : ` (similarity ${r.similarity}, small reading differences allowed)`}`
+    : r.verdict === 'low_page' ? `found on page ${page}, but that page is hard to read: the owner must check it before it counts as a source`
+    : r.verdict === 'other_page' ? `NOT on page ${page}; it is on page ${r.found_on.join(', ')} -- correct the page number`
+    : `NOT FOUND in this document: the quote cannot be verified (mark it "⚠ Forrás nem igazolható" / "source cannot be verified")`
+  return { ok: true, data: { name, ref: `[${name}:${page}]`, ...r, result: say } }
+}
+
+// ---------------------------------------------------------------------------
+// KERESHETO MASOLAT (K-1.4)
+// ---------------------------------------------------------------------------
+//
+// A szkennelt PDF-bol olyan masolat, amelyben a kep mogott szovegreteg van
+// (OCRmyPDF, a sajat gepen). Az eredeti fajlhoz NEM nyulunk; a masolat
+// ugyanabba a mappaba kerul, szabad nevvel.
+
+export type SearchableOutcome =
+  | { ok: true; abs: string; name: string }
+  | { ok: false; code: 'not_installed' | 'not_pdf' | 'failed'; detail: string }
+
+const searchableJobs = new Map<string, Promise<SearchableOutcome>>()
+
+export function searchableCopyAvailable(): boolean {
+  return !!which('ocrmypdf') && !!which('tesseract')
+}
+
+/** A masolat neve: `level.pdf` -> `level (kereshető).pdf` (a felulet nyelve szerint). */
+export function searchableName(name: string, lang: 'hu' | 'en'): string {
+  const base = name.replace(/\.pdf$/i, '')
+  return `${base} (${lang === 'en' ? 'searchable' : 'kereshető'}).pdf`
+}
+
+/**
+ * Kereshető másolat keszitese. `destName` a kivant nev (a hivo szabad nevet ad);
+ * ugyanarra a forrasra egyszerre egy futas.
+ */
+export function makeSearchableCopy(abs: string, destAbs: string): Promise<SearchableOutcome> {
+  if (!/\.pdf$/i.test(abs)) return Promise.resolve({ ok: false, code: 'not_pdf', detail: 'only a PDF can get a searchable copy' })
+  if (!searchableCopyAvailable()) return Promise.resolve({ ok: false, code: 'not_installed', detail: 'OCRmyPDF (ocrmypdf) is not installed on this machine' })
+  const running = searchableJobs.get(abs)
+  if (running) return running
+  const langs = ocrLanguages() || 'eng'
+  const job = (async (): Promise<SearchableOutcome> => {
+    const r = await runAsync('ocrmypdf', ['--skip-text', '--output-type', 'pdf', '-l', langs, abs, destAbs], 30 * 60_000)
+    if (!r.ok || !existsSync(destAbs)) {
+      try { rmSync(destAbs, { force: true }) } catch { /* nem jott letre */ }
+      return { ok: false, code: 'failed', detail: r.ok ? 'ocrmypdf produced no file' : r.error }
+    }
+    return { ok: true, abs: destAbs, name: basename(destAbs) }
+  })()
+  const done = job.finally(() => { searchableJobs.delete(abs) })
+  searchableJobs.set(abs, done)
+  return done
+}

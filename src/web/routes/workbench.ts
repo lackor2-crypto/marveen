@@ -44,8 +44,8 @@ import {
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
-import { writeProjectFile, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
-import { documentOverview, documentPagesText } from '../../workbench-docread.js'
+import { writeProjectFile, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
@@ -594,6 +594,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   asset_limit: {
     hu: 'Ennek a munkadarabnak már túl sok anyaga van. Nyiss egy új munkadarabot, vagy vegyél le a listáról régieket.',
     en: 'This work item already has too many materials. Open a new work item or remove old ones from the list.',
+  },
+  searchable_not_pdf: {
+    hu: 'Kereshető másolat csak PDF-ből készülhet.',
+    en: 'Only a PDF can get a searchable copy.',
+  },
+  searchable_not_installed: {
+    hu: 'Ezen a gépen nincs telepítve az OCRmyPDF, ezért nem tudok kereshető másolatot készíteni.',
+    en: 'OCRmyPDF is not installed on this machine, so no searchable copy can be made.',
+  },
+  searchable_failed: {
+    hu: 'A kereshető másolat nem készült el.',
+    en: 'The searchable copy could not be made.',
   },
   document_bad_path: {
     hu: 'Ez az út nem egy fájlra mutat a projekt mappáján belül.',
@@ -1490,10 +1502,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // ugyanazt az oldal-szoveget kapja, mint a Munkapad agentje.
   //   GET .../document?path=<projekt-relativ>            -- attekintes (oldalak, modszer, megbizhatosag)
   //   GET .../document?path=...&from=3&to=5              -- oldalak szo szerint, [fajl:oldal] jelolessel
-  if (segs.length === 2 && segs[1] === 'document' && method === 'GET') {
+  //   POST .../document/verify {path, page, quote}       -- gepi idezet-ellenorzes (K-1.12)
+  //   POST .../document/searchable {path}                -- kereshető masolat (K-1.4), megvarja
+  if (segs[1] === 'document' && ((segs.length === 2 && method === 'GET') || (segs.length === 3 && method === 'POST' && (segs[2] === 'verify' || segs[2] === 'searchable')))) {
     const owner = getProject(item.project_id)
     if (!owner) return fail(res, 404, 'project_not_found', lang)
-    const rel = String(url.searchParams.get('path') || '').replace(/\\/g, '/')
+    const body = method === 'POST' ? await readJson(req) : null
+    if (method === 'POST' && !body) return fail(res, 400, 'bad_json', lang)
+    const rel = String((body ? body['path'] : url.searchParams.get('path')) || '').replace(/\\/g, '/')
     const parts = rel.split('/').filter(Boolean)
     const name = parts.pop() || ''
     if (!name || name === '.' || name === '..') return fail(res, 400, 'document_bad_path', lang)
@@ -1506,11 +1522,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let base = ''
     try { base = root.ok ? realpathSync(root.dirAbs) : '' } catch { base = '' }
     if (!base || !real.startsWith(base + pathSep)) return fail(res, 400, 'document_bad_path', lang)
+    if (segs.length === 3 && segs[2] === 'searchable') {
+      if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+      if (!/\.pdf$/i.test(name)) return fail(res, 400, 'searchable_not_pdf', lang)
+      if (!searchableCopyAvailable()) return fail(res, 424, 'searchable_not_installed', lang)
+      const dest = freeFileName(target.dirAbs, searchableName(name, lang))
+      const r = await makeSearchableCopy(real, joinPath(target.dirAbs, dest))
+      if (!r.ok) return failDetail(res, 500, 'searchable_failed', lang, r.detail)
+      json(res, { ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name, assets: assetsOut(item.id) }, 201)
+      return true
+    }
     const retry = url.searchParams.get('retry') === '1'
     const from = Number(url.searchParams.get('from') || 0)
-    const r = from > 0
-      ? documentPagesText(real, name, from, Number(url.searchParams.get('to') || from), { retry })
-      : documentOverview(real, name, { retry })
+    const r = segs.length === 3
+      ? verifyQuote(real, name, Number(body?.['page'] || 0), String(body?.['quote'] ?? ''))
+      : from > 0
+        ? documentPagesText(real, name, from, Number(url.searchParams.get('to') || from), { retry })
+        : documentOverview(real, name, { retry })
     if (!r.ok) {
       json(res, { error: r.code, detail: r.detail }, r.code === 'processing' ? 202 : r.code === 'missing' ? 404 : r.code === 'failed' ? 500 : 400)
       return true

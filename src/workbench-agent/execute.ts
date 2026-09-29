@@ -17,7 +17,7 @@ import { getTool } from './tools.js'
 import { join, sep } from 'node:path'
 import { getProject, type ProjectRow } from '../projects.js'
 import { projectContext } from '../project-context.js'
-import { projectFileTarget, writeProjectFile, safeFileName } from '../project-files.js'
+import { projectFileTarget, writeProjectFile, safeFileName, freeFileName } from '../project-files.js'
 import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
@@ -37,7 +37,7 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
-import { documentOverview, documentPagesText } from '../workbench-docread.js'
+import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -299,6 +299,33 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         : documentPagesText(ref.abs, ref.name, asNumber(input.from) || 1, asNumber(input.to) || asNumber(input.from) || 1, { retry })
       if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
       return { ok: true, data: { path: asString(input.path), ...r.data } }
+    }
+    case 'source.verifyQuote': {
+      const ref = projectFileRef(project, input.path)
+      if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+      const st = mustBeFile(ref.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      const r = verifyQuote(ref.abs, ref.name, asNumber(input.page), asString(input.quote))
+      if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
+      return { ok: true, data: { path: asString(input.path), ...r.data } }
+    }
+    case 'document.makeSearchable': {
+      const ref = projectFileRef(project, input.path)
+      if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+      const st = mustBeFile(ref.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      if (!/\.pdf$/i.test(ref.name)) return { ok: false, code: 'bad_input', detail: 'only a PDF can get a searchable copy' }
+      if (!searchableCopyAvailable()) return { ok: false, code: 'not_installed', detail: 'OCRmyPDF (ocrmypdf) is not installed on this machine; tell the owner exactly this' }
+      const destName = freeFileName(ref.dirAbs, searchableName(ref.name, ctx.lang === 'en' ? 'en' : 'hu'))
+      makeSearchableCopy(ref.abs, join(ref.dirAbs, destName)).catch(() => undefined)
+      const relDir = asString(input.path).split('/').slice(0, -1).join('/')
+      return {
+        ok: true,
+        data: {
+          started: true, will_create: relDir ? `${relDir}/${destName}` : destName,
+          note: 'it runs in the background; the copy appears in the same folder when ready (list the materials or the folder to see it)',
+        },
+      }
     }
     case 'file.read': {
       const ref = projectFileRef(project, input.path)

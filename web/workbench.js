@@ -4237,7 +4237,13 @@
     var d = a && a.doc
     if (!d || !a.present) return ''
     if (d.status === 'done') {
+      var canSearchable = d.ocr_pages > 0 && /\.pdf$/i.test(a.name || '') && !/\((keres\u0151|searchable)\)\.pdf$/i.test(a.name || '') && !archived()
+      var busy = WB.searchableBusy && WB.searchableBusy[a.project_path]
       return ' <span class="wb-muted wb-doc-state">' + esc(t('workbench.doc.pages', { n: d.pages_total })) + '</span>'
+        + (canSearchable
+          ? ' <button type="button" class="wb-linklike" data-wb-act="doc-searchable" data-wb-path="' + escA(a.project_path) + '"' + (busy ? ' disabled' : '')
+            + ' title="' + escA(t('workbench.doc.searchable_title')) + '">' + esc(t(busy ? 'workbench.doc.searchable_busy' : 'workbench.doc.searchable')) + '</button>'
+          : '')
         + (d.low_pages && d.low_pages.length
           ? ' <span class="wb-doc-low" title="' + escA(t('workbench.doc.low_title')) + '">\u26a0 ' + esc(t('workbench.doc.low', { pages: d.low_pages.join(', ') })) + '</span>'
           : '')
@@ -4246,6 +4252,22 @@
     return ' <span class="wb-muted wb-doc-state">\u23f3 ' + esc(d.pages_total
       ? t('workbench.doc.reading_n', { done: d.pages_done, total: d.pages_total })
       : t('workbench.doc.reading')) + '</span>'
+  }
+
+  /** Kereshető masolat egy szkennelt PDF-bol (K-1.4): az eredeti marad, a masolat melle kerul. */
+  function makeSearchable(path) {
+    var id = WB.selectedId
+    if (!id || !path || archived()) return
+    WB.searchableBusy = WB.searchableBusy || {}
+    if (WB.searchableBusy[path]) return
+    WB.searchableBusy[path] = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/document/searchable', { path: path }).then(function (r) {
+      delete WB.searchableBusy[path]
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      window.showToast(t('workbench.doc.searchable_done', { name: r.data.name || '' }))
+      if (WB.selectedId === id && WB.detail) { WB.detail.assets = r.data.assets || WB.detail.assets; render(); scheduleDocPoll(id) }
+    })
   }
 
   function removeAsset(assetId) {
@@ -6580,6 +6602,7 @@
     else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
+    else if (a === 'doc-searchable') makeSearchable(act.getAttribute('data-wb-path'))
     else if (a === 'shared-toggle') toggleShared()
     else if (a === 'shared-link') linkShared(act.getAttribute('data-wb-path'))
     else if (a === 'chat-attached-drop') {

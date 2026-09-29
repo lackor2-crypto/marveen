@@ -155,6 +155,18 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'source.verifyQuote',
+    description: 'Machine check of a quote: is this verbatim text really on this page of this document (see document.read)? Small text-recognition differences (a letter, a line break, a hyphen, accents) are allowed, numbers must match exactly. Answers verified, low_page (found, but the page is hard to read: the owner must check it), other_page (it is on another page: correct the page number) or not_found (the source cannot be verified). Check EVERY quote you cite from a document before you rely on it, and never present a not_found quote as a fact.',
+    input: 'path: the document inside the project folder; page: the page number you cite; quote: the verbatim text',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'document.makeSearchable',
+    description: 'Make a searchable copy of a scanned PDF of the project folder (text layer behind the page images, made on this machine with OCRmyPDF). Courts that take electronic filings (for example the US CM/ECF) require searchable PDFs; attachments of a filing also benefit. The original is not touched; the copy goes next to it as "<name> (kereshető).pdf". It runs in the background and takes a while for many pages.',
+    input: 'path: the PDF inside the project folder',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
+  {
     name: 'file.preview',
     description: 'Ask whether a file of the project folder can be shown to the owner, and how (pdf, image, video, audio or text). It does not change anything.',
     input: 'path: the file path relative to the project folder',
