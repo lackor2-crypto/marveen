@@ -3981,6 +3981,7 @@
         + approvalBoxHtml()
         + todosBoxHtml()
         + versionBarHtml()
+        + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
           ? compareHtml()
           : (archived() ? '' : '<p class="wb-hint wb-drop-item-hint">' + esc(t(WB.upload
@@ -3996,6 +3997,156 @@
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.editor')) + '</h2>'
       + switcherHtml()
       + inner + '</section>'
+  }
+
+  // ---- dokumentummodell: vazlat, forrasok, hianyok (#441, 1/A) ------------
+
+  var CLAIM_ICON = { verified: '📄✓', owner_confirmed: '🗣✓', owner_unconfirmed: '🗣', inference: '💭', unverified: '⚠' }
+
+  function claimIcon(c) {
+    if (c.strength === 'verified' && !(c.sources || []).some(function (s) { return s.kind === 'document' && s.verdict === 'verified' })) return '⚖✓'
+    return CLAIM_ICON[c.strength] || '⚠'
+  }
+
+  function sourceLineHtml(s) {
+    var what = s.kind === 'document' ? (s.path || '') + ':' + (s.page || '?') + (s.quote ? ' „' + s.quote + '”' : '')
+      : s.kind === 'official' ? (s.citation || '') + (s.url ? ' (' + s.url + ')' : '')
+      : s.kind === 'owner' ? '„' + (s.said || '') + '”' + (s.said_at ? ' (' + when(s.said_at) + ')' : '')
+      : t('workbench.outline.src.inference_line')
+    return '<li class="wb-outline-src wb-outline-src-' + escA(s.verdict) + '">'
+      + '<span class="wb-pill">' + esc(t('workbench.outline.src.' + s.kind)) + '</span> '
+      + esc(what) + (s.kind === 'inference' ? '' : ' <span class="wb-muted">' + esc(t('workbench.outline.verdict.' + s.verdict)) + '</span>')
+      + (s.confirmed_at ? ' <span class="wb-muted">' + esc(t('workbench.outline.confirmed_at', { when: when(s.confirmed_at) })) + '</span>' : '')
+      + '</li>'
+  }
+
+  function claimHtml(c, ro) {
+    var needsConfirm = c.strength === 'owner_unconfirmed'
+    return '<li class="wb-outline-claim wb-outline-claim-' + escA(c.strength) + '">'
+      + '<span class="wb-outline-claim-icon" title="' + escA(t('workbench.outline.strength.' + c.strength)) + '">' + esc(claimIcon(c)) + '</span> '
+      + '<span class="wb-outline-claim-text">' + esc(c.text) + '</span> '
+      + '<span class="wb-muted">' + esc(t('workbench.outline.strength.' + c.strength)) + '</span>'
+      + (needsConfirm && !ro ? ' <button type="button" class="wb-btn" data-wb-act="outline-claim-confirm" data-wb-claim="' + escA(c.id) + '">'
+        + esc(t('workbench.outline.confirm')) + '</button>' : '')
+      + '<ul class="wb-outline-srcs">' + (c.sources || []).map(sourceLineHtml).join('') + '</ul>'
+      + '</li>'
+  }
+
+  /** A blokk szovege; a hiany-jelolesek kiemelve. */
+  function blockTextHtml(text) {
+    return esc(text).replace(/⚠\s*(Hiányzó adat|Forrás nem található|Missing data|Source not found)[^\n⚠]*/g, function (m) {
+      return '<mark class="wb-outline-missing">' + m + '</mark>'
+    }).replace(/\n/g, '<br>')
+  }
+
+  var SECTION_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' }
+
+  function outlineCheckHtml(check) {
+    if (!check) return ''
+    return '<div class="wb-outline-check"><h4>' + esc(t('workbench.outline.check_title')) + '</h4><ul>'
+      + check.items.map(function (i) {
+        var info = i.key === 'inference_as_fact' || i.key === 'owner_written'
+        if (info && !i.count) return ''
+        var txt = t('workbench.outline.check.' + i.key, { n: i.count, total: i.total === undefined ? '' : i.total })
+        return '<li class="' + (i.ok ? 'wb-ok' : 'wb-doc-low') + '">' + (i.ok ? (info ? 'ℹ ' : '✓ ') : '⚠ ') + esc(txt)
+          + (!i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : '')
+          + '</li>'
+      }).join('')
+      + '</ul><p class="' + (check.ready ? 'wb-ok' : 'wb-muted') + '">' + esc(t(check.ready ? 'workbench.outline.ready' : 'workbench.outline.not_ready')) + '</p></div>'
+  }
+
+  /** VAZLAT (K-1.14): fejezetek allapottal, bekezdesek, allitasok a forrasaikkal,
+   *  hianyok, es a veglegesites elotti ellenorzes (K-1.22). */
+  function outlineHtml() {
+    var d = WB.detail
+    if (!d || !d.item) return ''
+    var o = d.outline
+    var ro = archived()
+    if (!o) {
+      if (d.item.type !== 'document' || ro) return ''
+      return '<div class="wb-outline wb-outline-empty"><p class="wb-hint">' + esc(t('workbench.outline.empty_hint')) + '</p>'
+        + '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p></div>'
+    }
+    var secs = (o.sections || []).map(function (sec) {
+      var blocks = (sec.blocks || []).map(function (b) {
+        return '<div class="wb-outline-block wb-outline-kind-' + escA(b.kind) + '">'
+          + '<div class="wb-outline-text">' + blockTextHtml(b.text) + '</div>'
+          + (b.owner_edited_at ? '<p class="wb-muted wb-outline-owner">' + esc(t('workbench.outline.owner_written')) + '</p>' : '')
+          + (b.claims && b.claims.length ? '<ul class="wb-outline-claims">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+          + (ro ? '' : '<p class="wb-outline-tools">'
+            + '<button type="button" class="wb-linklike" data-wb-act="outline-block-edit" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.edit')) + '</button> '
+            + '<button type="button" class="wb-linklike" data-wb-act="outline-block-del" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.delete')) + '</button></p>')
+          + '</div>'
+      }).join('')
+      return '<div class="wb-outline-sec">'
+        + '<h4>' + esc(sec.title) + ' '
+        + (ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
+          : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
+            + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>')
+        + (sec.problems ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
+        + '</h4>'
+        + blocks
+        + (ro ? '' : '<p class="wb-outline-tools">'
+          + '<button type="button" class="wb-linklike" data-wb-act="outline-add-block" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.outline.add_block')) + '</button> '
+          + '<button type="button" class="wb-linklike" data-wb-act="outline-sec-rename" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.outline.rename')) + '</button> '
+          + '<button type="button" class="wb-linklike" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.outline.delete')) + '</button></p>')
+        + '</div>'
+    }).join('')
+    return '<div class="wb-outline"><h3>' + esc(t('workbench.outline.title')) + '</h3>'
+      + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
+      + secs
+      + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
+      + outlineCheckHtml(o.check)
+      + '</div>'
+  }
+
+  function outlineCall(method, sub, body) {
+    var id = WB.selectedId
+    if (!id || archived()) return
+    api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/outline' + sub, body).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      if (WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+    })
+  }
+
+  function findBlock(bid) {
+    var o = WB.detail && WB.detail.outline
+    var out = null
+    ;((o && o.sections) || []).forEach(function (s) { (s.blocks || []).forEach(function (b) { if (b.id === bid) out = b }) })
+    return out
+  }
+  function findSection(sid) {
+    var o = WB.detail && WB.detail.outline
+    return ((o && o.sections) || []).filter(function (s) { return s.id === sid })[0] || null
+  }
+
+  function outlineAction(a, act) {
+    var sid = act.getAttribute('data-wb-sec')
+    var bid = act.getAttribute('data-wb-block')
+    if (a === 'outline-add-section') {
+      var title = window.prompt(t('workbench.outline.add_section_prompt'), '')
+      if (title && title.trim()) outlineCall('POST', '/sections', { title: title.trim() })
+    } else if (a === 'outline-sec-rename') {
+      var sec = findSection(sid)
+      var nt = window.prompt(t('workbench.outline.rename_prompt'), sec ? sec.title : '')
+      if (nt && nt.trim()) outlineCall('PATCH', '/sections/' + encodeURIComponent(sid), { title: nt.trim() })
+    } else if (a === 'outline-sec-status') {
+      outlineCall('PATCH', '/sections/' + encodeURIComponent(sid), { status: act.getAttribute('data-wb-status') })
+    } else if (a === 'outline-sec-del') {
+      if (window.confirm(t('workbench.outline.delete_section_confirm'))) outlineCall('DELETE', '/sections/' + encodeURIComponent(sid))
+    } else if (a === 'outline-add-block') {
+      var text = window.prompt(t('workbench.outline.add_block_prompt'), '')
+      if (text && text.trim()) outlineCall('POST', '/blocks', { section: sid, text: text.trim() })
+    } else if (a === 'outline-block-edit') {
+      var b = findBlock(bid)
+      var nx = window.prompt(t('workbench.outline.edit_prompt'), b ? b.text : '')
+      if (nx !== null && nx.trim() && (!b || nx.trim() !== b.text)) outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: nx.trim() })
+    } else if (a === 'outline-block-del') {
+      if (window.confirm(t('workbench.outline.delete_block_confirm'))) outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid))
+    } else if (a === 'outline-claim-confirm') {
+      // K-1.9: allitasonkenti, kifejezett megerosites -- a teljes szoveg a kerdesben.
+      if (window.confirm(t('workbench.outline.confirm_prompt'))) outlineCall('POST', '/claims/' + encodeURIComponent(act.getAttribute('data-wb-claim')) + '/confirm', {})
+    }
   }
 
   /** A chat 📎 gombja (#441): a fajl a megnyitott munkadarab ANYAGAI koze
@@ -6602,6 +6753,7 @@
     else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
+    else if (a && a.indexOf('outline-') === 0) outlineAction(a, act)
     else if (a === 'doc-searchable') makeSearchable(act.getAttribute('data-wb-path'))
     else if (a === 'shared-toggle') toggleShared()
     else if (a === 'shared-link') linkShared(act.getAttribute('data-wb-path'))

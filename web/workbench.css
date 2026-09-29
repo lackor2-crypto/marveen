@@ -848,3 +848,14 @@
 .wb-post-files li { word-break: break-word; }
 .wb-doc-state { font-size: 0.75rem; }
 .wb-doc-low { font-size: 0.75rem; color: var(--warning, #b45309); }
+.wb-outline { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; }
+.wb-outline-sec { margin: 8px 0; }
+.wb-outline-sec h4 { margin: 6px 0; }
+.wb-outline-block { margin: 4px 0 8px 8px; padding-left: 8px; border-left: 2px solid var(--border, #d1d5db); }
+.wb-outline-claims, .wb-outline-srcs { margin: 2px 0; padding-left: 18px; font-size: 0.85rem; }
+.wb-outline-missing { background: #fef3c7; }
+.wb-outline-claim-unverified .wb-outline-claim-text { text-decoration: underline wavy var(--warning, #b45309); }
+.wb-outline-tools { margin: 2px 0; font-size: 0.8rem; }
+.wb-outline-check { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border, #d1d5db); }
+.wb-outline-check ul { padding-left: 18px; }
+.wb-ok { color: var(--success, #15803d); }
