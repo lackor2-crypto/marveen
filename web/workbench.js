@@ -5187,15 +5187,19 @@
     })
   }
 
-  function openFolder(place, assetId, app) {
+  /** `tab` (optional): a new browser tab already opened inside the click
+   *  (Ctrl+click, TG 1802); the Intezo then loads THERE and this tab stays on
+   *  the Workbench. */
+  function openFolder(place, assetId, app, tab) {
     var pid = WB.projectId
-    if (!pid) return
+    if (!pid) { if (tab) tab.cancel(); return }
     var body = { project: pid, place: place, app: app }
     if (place !== 'shared' && WB.selectedId) body.item = WB.selectedId
     if (assetId) body.asset = assetId
     api('POST', '/api/workbench/open-folder', body).then(function (r) {
-      if (!r.ok) { window.showToast(r.message); return }
+      if (!r.ok) { if (tab) tab.cancel(); window.showToast(r.message); return }
       if (app === 'system') { window.showToast(t('workbench.folder.system_done')); return }
+      if (tab) { tab.go('intezo', { path: r.data.path }); return }
       var p = r.data.project || {}
       if (typeof window._prjOpenFiles === 'function') window._prjOpenFiles({ id: p.id || pid, name: p.name || '', folder_path: r.data.path })
     })
@@ -7654,7 +7658,41 @@
     WB.chatAccount = sel.value === 'auto' ? '' : sel.value
   })
 
+  // ---- Ctrl+click / middle click: a new browser tab (Boss, TG 1802) --------
+  // "ha a kontrolt megnyomom ... akkor egy uj bongeszofulon nyissa meg. Ugy,
+  // hogy ez a bongeszoful ugyanitt maradjon." The new tab gets the target in
+  // its URL in the Projects page's own #435 view shape; this tab is untouched.
+  function projectTabState(projectId, name, item) {
+    return { current: projectId, tab: null, wb: { projectId: projectId, name: name || '', item: item || null, panel: WB.panel } }
+  }
+  function newTabNav(e) {
+    if (typeof window.isNewTabClick !== 'function' || typeof window.openViewInNewTab !== 'function') return false
+    if (!window.isNewTabClick(e)) return false
+    var openBtn = e.target.closest('[data-wb-open]')
+    if (openBtn) {
+      var pid = openBtn.getAttribute('data-wb-open')
+      window.openViewInNewTab('projects', projectTabState(pid, openBtn.getAttribute('data-wb-open-name'), null))
+      return true
+    }
+    if (!WB.open || !WB.projectId) return false
+    var itemBtn = e.target.closest('[data-wb-item]')
+    if (itemBtn) {
+      window.openViewInNewTab('projects', projectTabState(WB.projectId, (WB.project && WB.project.name) || '', itemBtn.getAttribute('data-wb-item')))
+      return true
+    }
+    var folderBtn = e.target.closest('[data-wb-act="folder-intezo"]')
+    if (folderBtn) {
+      openFolder(folderBtn.getAttribute('data-wb-place'), folderBtn.getAttribute('data-wb-asset'), 'intezo', window.openViewInNewTab(null, null, true))
+      return true
+    }
+    return false
+  }
+  document.addEventListener('auxclick', function (e) {
+    if (e.button === 1 && newTabNav(e)) e.preventDefault()
+  })
+
   document.addEventListener('click', function (e) {
+    if (newTabNav(e)) { e.preventDefault(); return }
     var openBtn = e.target.closest('[data-wb-open]')
     if (openBtn) {
       openWorkbench(openBtn.getAttribute('data-wb-open'), openBtn.getAttribute('data-wb-open-name'))

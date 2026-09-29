@@ -200,6 +200,22 @@ const _viewCollectors = {}
 const _viewBootPage = decodeURIComponent((location.hash || '').replace(/^#/, ''))
   || new URLSearchParams(location.search).get('page') || 'overview'
 let _viewSaved
+// A new tab opened with Ctrl+click carries its target position in the URL
+// (?view=<json>), because sessionStorage is not shared between tabs. It is
+// read once and stripped at once, so a later F5 in that tab uses the normal
+// sessionStorage path.
+let _viewUrlState = null
+try {
+  const qs = new URLSearchParams(location.search)
+  const raw = qs.get('view')
+  if (raw !== null) {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') _viewUrlState = parsed
+    qs.delete('view')
+    const rest = qs.toString()
+    history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash)
+  }
+} catch { _viewUrlState = null }
 function viewStateRegister(page, collect) { _viewCollectors[page] = collect }
 function _viewStateSave() {
   const page = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'overview'
@@ -215,7 +231,8 @@ function _viewStateSave() {
 function viewStateTake(page) {
   if (_viewSaved === undefined) {
     _viewSaved = null
-    try {
+    if (_viewUrlState) { _viewSaved = { page: _viewBootPage, state: _viewUrlState }; _viewUrlState = null }
+    else try {
       const snap = JSON.parse(sessionStorage.getItem(VIEW_STATE_KEY) || 'null')
       if (snap && snap.page === _viewBootPage && snap.state && typeof snap.state === 'object') _viewSaved = snap
     } catch { _viewSaved = null }
@@ -226,6 +243,34 @@ function viewStateTake(page) {
   return state
 }
 window.addEventListener('pagehide', _viewStateSave)
+
+// === Ctrl+click / middle click opens a new browser tab (Boss, TG 1802) ===
+// "ha a kontrolt megnyomom ... akkor egy uj bongeszofulon nyissa meg. Ugy, hogy
+// ez a bongeszoful ugyanitt maradjon, ahol van." Buttons that navigate call
+// isNewTabClick(e) first; on a new-tab gesture they hand the target page and
+// its inner position to openViewInNewTab() and leave this tab untouched.
+function isNewTabClick(e) {
+  return !!e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)
+}
+function viewUrl(page, state) {
+  return location.pathname + (state ? '?view=' + encodeURIComponent(JSON.stringify(state)) : '') + '#' + encodeURIComponent(page)
+}
+/** Opens `page` (with its inner position `state`, the same shape its #435
+ *  collector returns) in a new tab. Returns a function that does it later:
+ *  pass `later: true` when the target is only known after a server call --
+ *  the tab has to be opened synchronously inside the click, or the browser
+ *  blocks it as a popup. */
+function openViewInNewTab(page, state, later) {
+  if (!later) { window.open(viewUrl(page, state), '_blank', 'noopener'); return null }
+  const w = window.open('about:blank', '_blank')
+  if (w) { try { w.opener = null } catch { /* cross-origin: fine */ } }
+  return {
+    go(p, st) { if (w && !w.closed) w.location.href = new URL(viewUrl(p, st), location.href).href },
+    cancel() { if (w && !w.closed) w.close() },
+  }
+}
+window.isNewTabClick = isNewTabClick
+window.openViewInNewTab = openViewInNewTab
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _viewStateSave() })
 
 // === Dashboard auth bootstrap ===
@@ -1251,7 +1296,11 @@ if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => setSidebarOpen(
 if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', () => setSidebarOpen(false))
 
 navLinks.forEach((link) => {
+  // A real href, so the browser's own Ctrl+click / middle click / "Open link in
+  // new tab" works on the menu (Boss, TG 1802); a plain click stays in-page.
+  if (link.dataset.page) link.setAttribute('href', '#' + link.dataset.page)
   link.addEventListener('click', (e) => {
+    if (link.dataset.page && isNewTabClick(e)) return
     e.preventDefault()
     const pageId = link.dataset.page
     // Same hash won't fire 'hashchange', so re-render manually; otherwise let the
@@ -45453,7 +45502,14 @@ async function loadMegaDepotPage() {
       + '<div class="megadepot-actions">' + open + '</div>'
       + '</div>'
   }).join('') + '</div>'
-  host.querySelectorAll('[data-megadepot-open]').forEach((b) => b.addEventListener('click', () => {
+  host.querySelectorAll('[data-megadepot-open]').forEach((b) => b.addEventListener('auxclick', (e) => {
+    if (e.button !== 1) return
+    e.preventDefault()
+    openViewInNewTab('intezo', { path: b.getAttribute('data-megadepot-open') })
+  }))
+  host.querySelectorAll('[data-megadepot-open]').forEach((b) => b.addEventListener('click', (e) => {
+    // Ctrl+click: the folder opens in a new tab, this one stays (TG 1802).
+    if (isNewTabClick(e)) { openViewInNewTab('intezo', { path: b.getAttribute('data-megadepot-open') }); return }
     if (typeof _intezoClearSelection === 'function') _intezoClearSelection()
     _intezoPath = b.getAttribute('data-megadepot-open')
     if (location.hash.slice(1) === 'intezo') switchPage('intezo')
@@ -47009,7 +47065,7 @@ document.addEventListener('click', (e) => {
   const dir = e.target.closest('[data-prj-dir]')
   if (dir && dir.closest('#prjFilesBody')) { _prjToggleDir(dir.getAttribute('data-prj-dir')); return }
   const rev = e.target.closest('[data-prj-reveal]')
-  if (rev && rev.closest('#prjFilesBody')) {
+  if (rev && rev.closest('#prjFilesBody') && !isNewTabClick(e)) {
     const p = _prj.overview && _prj.overview.project
     if (p) _prjOpenFiles(p, rev.getAttribute('data-prj-reveal'))
   }
@@ -48479,7 +48535,37 @@ async function _prjSubmitFile(ov, p) {
 
 // ---- esemenyek (egy delegalt figyelo az egesz funkcionak) ----------------------------
 
+/** Ctrl+click / middle click on a Projects-page button that leaves the view:
+ *  the target opens in a NEW browser tab, this one stays where it is
+ *  (Boss, TG 1802). Returns true when it handled the click. */
+function _prjNewTabNav(e) {
+  if (!isNewTabClick(e)) return false
+  const p = _prj.overview && _prj.overview.project
+  const open = e.target.closest('[data-prj-open]')
+  if (open) { openViewInNewTab('projects', { current: open.getAttribute('data-prj-open') }); return true }
+  const ret = e.target.closest('[data-prj-return]')
+  if (ret) { openViewInNewTab('projects', { current: ret.getAttribute('data-prj-return') }); return true }
+  const rev = e.target.closest('[data-prj-reveal]')
+  if (rev && rev.closest('#prjFilesBody') && p && p.folder_path) {
+    const sub = rev.getAttribute('data-prj-reveal')
+    openViewInNewTab('intezo', { path: sub ? p.folder_path + '/' + sub : p.folder_path })
+    return true
+  }
+  const tab = e.target.closest('[data-prj-tab]')
+  if (tab && _prj.current) { openViewInNewTab('projects', { current: _prj.current, tab: tab.getAttribute('data-prj-tab') }); return true }
+  const act = e.target.closest('[data-prj-act]')
+  const a = act && act.getAttribute('data-prj-act')
+  if (a === 'open-intezo' && p && p.folder_path) { openViewInNewTab('intezo', { path: p.folder_path }); return true }
+  if ((a === 'kanban' || a === 'files') && p) { openViewInNewTab('projects', { current: p.id, tab: a }); return true }
+  if (a === 'approvals') { openViewInNewTab('approvals', null); return true }
+  return false
+}
+document.addEventListener('auxclick', (e) => {
+  if (e.button === 1 && _prjNewTabNav(e)) e.preventDefault()
+})
+
 document.addEventListener('click', (e) => {
+  if (_prjNewTabNav(e)) { e.preventDefault(); return }
   // A Munkapad (#336) sajat fajlbol jon. Ha az valamiert nem toltodott be, a
   // gomb ne legyen nema halott gomb -- mondja meg, mi a teendo.
   const wbOpen = e.target.closest('[data-wb-open]')
