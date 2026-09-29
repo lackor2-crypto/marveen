@@ -17,6 +17,7 @@
 import { listClaudeAccountCandidates, orderClaudeAccounts, type ClaudeAccount } from '../life-inbox-ai.js'
 import { tierForPct, STALE_AFTER_MS } from '../rate-limit-status.js'
 import { rankModelTier } from '../web/smartest-worker.js'
+import { liveUsageForAccount, readAccountAccessToken } from '../web/claude-usage-api.js'
 
 type Lister = () => ClaudeAccount[]
 let lister: Lister = listClaudeAccountCandidates
@@ -120,10 +121,63 @@ function withObservedLimits(cands: ClaudeAccount[], now: number): ClaudeAccount[
   })
 }
 
+// ---------------------------------------------------------------------------
+// LIVE USAGE (kanban #434, Boss 2026-09-29, two screenshots: the quota monitor
+// said usalackor 100% (red) while this picker said green). The monitor asks
+// the ACCOUNT (claude-usage-api.ts, 20 s cache shared with it); the picker
+// read only the agent's own statusline file (50%, written while that agent
+// works). Same account, two sources. The live answer now wins whenever it is
+// fresh; the statusline file stays the fallback when the live call fails.
+// ---------------------------------------------------------------------------
+interface LiveOverlay {
+  fiveHourPct: number | null; sevenDayPct: number | null
+  fiveHourResetsAt: number | null; sevenDayResetsAt: number | null
+  measuredAt: number
+}
+const liveOverlay = new Map<string, LiveOverlay>()
+
+/** Csak teszthez. */
+export function resetLiveOverlayForTest(): void { liveOverlay.clear() }
+export function setLiveOverlayForTest(agent: string, o: LiveOverlay): void { liveOverlay.set(agent, o) }
+
+/** Ask every candidate account for its live usage (cached inside
+ *  liveUsageForAccount, so calling this per request does not hammer the API).
+ *  A failed call keeps the previous overlay until it goes stale. */
+export async function refreshLiveAccountUsage(opts: { force?: boolean } = {}): Promise<void> {
+  let cands: ClaudeAccount[] = []
+  try { cands = lister() } catch { return }
+  await Promise.all(cands.map(async (c) => {
+    try {
+      const r = await liveUsageForAccount(c.agent, readAccountAccessToken(c.configDir), { force: opts.force })
+      if (!r.ok) return
+      liveOverlay.set(c.agent, {
+        fiveHourPct: r.usage.fiveHour?.usedPct ?? null, sevenDayPct: r.usage.sevenDay?.usedPct ?? null,
+        fiveHourResetsAt: r.usage.fiveHour?.resetsAt ?? null, sevenDayResetsAt: r.usage.sevenDay?.resetsAt ?? null,
+        measuredAt: r.usage.measuredAt,
+      })
+    } catch { /* the statusline reading stays as the fallback */ }
+  }))
+}
+
+function withLiveUsage(cands: ClaudeAccount[], now: number): ClaudeAccount[] {
+  return cands.map((c) => {
+    const o = liveOverlay.get(c.agent)
+    if (!o || now - o.measuredAt > STALE_AFTER_MS) return c
+    return {
+      ...c,
+      fiveHourPct: o.fiveHourPct ?? c.fiveHourPct,
+      sevenDayPct: o.sevenDayPct ?? c.sevenDayPct,
+      fiveHourResetsAt: o.fiveHourResetsAt ?? c.fiveHourResetsAt,
+      sevenDayResetsAt: o.sevenDayResetsAt ?? c.sevenDayResetsAt,
+      usageAt: o.measuredAt,
+    }
+  })
+}
+
 function listAccounts(now: number): ClaudeAccount[] {
   let cands: ClaudeAccount[] = []
   try { cands = lister() } catch { cands = [] }
-  return withObservedLimits(cands, now)
+  return withObservedLimits(withLiveUsage(cands, now), now)
 }
 
 /** Csak teszthez: a fiok-lista forrasanak cserelese. `null` visszaallitja. */
