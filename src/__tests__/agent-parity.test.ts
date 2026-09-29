@@ -109,7 +109,10 @@ describe('the shipped template is the fleet-wide source of truth', () => {
 describe('this install', () => {
   // The user file is the one in the dir the main agent RUNS on -- the same
   // resolution the runtime check uses (an isolated config dir is not ~/.claude).
-  const mainConfigDir = mainAgentEffectiveConfigDir()
+  // A worktree run (scripts/test-guard.sh) has no store/ or .env, so the
+  // resolver would fall back to ~/.claude; the guard resolves the dir in the
+  // live install and passes it in (#442).
+  const mainConfigDir = process.env.MARVEEN_LIVE_MAIN_CONFIG_DIR || mainAgentEffectiveConfigDir()
   const mainSettings = join(mainConfigDir, 'settings.json')
   const fleetSkills = join(homedir(), '.claude', 'skills')
 

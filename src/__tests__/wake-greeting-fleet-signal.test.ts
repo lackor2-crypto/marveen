@@ -180,7 +180,8 @@ describe('a paritas-kapu MINDKET settings.json-t nezi', () => {
   })
 
   it('ezen a telepitesen a ket fajl EGYUTT sem fut olyat, amit a flotta nem kap', () => {
-    const mainConfigDir = mainAgentEffectiveConfigDir()
+    // test-guard.sh passes the live install's dir: a worktree cannot resolve it (#442).
+    const mainConfigDir = process.env.MARVEEN_LIVE_MAIN_CONFIG_DIR || mainAgentEffectiveConfigDir()
     const mainSettings = join(mainConfigDir, 'settings.json')
     if (!existsSync(mainSettings)) return
     const paths = mainAgentSettingsPaths(mainConfigDir, ROOT).filter(p => existsSync(p))
