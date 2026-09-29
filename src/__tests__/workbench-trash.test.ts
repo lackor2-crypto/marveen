@@ -242,6 +242,10 @@ describe('lomtar: a felulet', () => {
     expect(JSON.parse(String(call?.init?.body))).toEqual({ deleted: true })
     expect(h.html()).not.toContain('data-wb-item="w1"')
     expect(h.html()).toContain('data-wb-act="trash-toggle"')
+    // The trash opens by itself after a delete, so the owner sees where the item went.
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-restore"'))
+    h.click({ 'data-wb-act': 'trash-toggle' })
+    await vi.waitFor(() => expect(h.html()).not.toContain('data-wb-act="item-restore"'))
     h.click({ 'data-wb-act': 'trash-toggle' })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-restore"'))
   })
