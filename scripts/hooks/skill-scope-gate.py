@@ -13,7 +13,9 @@ old "Automatikus skill generalas" instructions that never mentioned scope.
 
 What this gate stops (exit 2 = deny, the agent keeps working):
   * Write of a .../skills/**/SKILL.md whose front matter has no
-    `scope: personal` or `scope: global`.
+    `scope: personal` or `scope: global` -- read exactly the way the Overview
+    self-check reads it (readSkillScope), so what passes here is never asked
+    about there.
   * Edit/MultiEdit of a SKILL.md whose RESULT has no valid scope line
     (personal/global/review): patching a machine-written `review` skill stays
     allowed, removing the line or patching an unscoped skill without adding one
@@ -34,19 +36,30 @@ import json
 
 AGENT_SCOPES = ("personal", "global")
 ALL_SCOPES = ("personal", "global", "review")
-SCOPE_LINE_RX = re.compile(r"^scope:\s*['\"]?([A-Za-z]+)['\"]?\s*$", re.M)
-FRONT_RX = re.compile(r"\A\s*---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.S)
+# An exact mirror of readSkillScope/frontmatterOf in src/web/skill-scope.ts --
+# the reader the Overview self-check and the global-skill seeder use. A skill
+# this gate lets through must never be one the self-check then asks about
+# (a quoted `"global"` or a front matter not on the first line used to pass
+# here and nag there). The parity test in skill-scope-gate-hook.test.ts runs
+# the same inputs through both.
+SCOPE_LINE_RX = re.compile(r"^\s*scope:\s*([a-z]+)\s*$", re.M | re.I)
+OPEN_RX = re.compile(r"---\s*\r?\n")
+# Bash: the first front matter block the command writes (a heredoc line, or
+# right after the opening quote of echo/printf).
+BASH_FRONT_RX = re.compile(r"(?:^|['\"])(---[ \t]*\r?\n.*)", re.M | re.S)
 
 MSG = (
     "TILTVA / BLOCKED (kanban #438): SKILL.md csak eldontott `scope:` sorral irhato.\n"
-    "Tedd a fejlecbe (a --- blokkba), a name/description melle:\n"
+    "Tedd a fejlecbe (a --- blokkba, ami a fajl LEGELSO sora), a name/description melle,\n"
+    "idezojel nelkul:\n"
     "  scope: personal   -- konkret emberre, fiokra, maganugyre szol; ezen a gepen marad\n"
     "  scope: global     -- barkinek hasznos; a rendszer atviszi a seed-skills/ ala\n"
     "A `review` a gepi ute, agens nem valaszthatja. Ha nem tudod eldonteni, kerdezd meg a\n"
     "tulajdonost a csatornajan, es addig ne hozd letre a skillt.\n"
-    "A SKILL.md needs a decided `scope:` line in its front matter: `scope: personal`\n"
-    "(about a specific person/account, stays on this machine) or `scope: global`\n"
-    "(useful to anyone, shipped via seed-skills/). `review` is for the machine path only.\n"
+    "A SKILL.md needs a decided, unquoted `scope:` line in its front matter (the --- block\n"
+    "that opens the file on its very first line): `scope: personal` (about a specific\n"
+    "person/account, stays on this machine) or `scope: global` (useful to anyone, shipped\n"
+    "via seed-skills/). `review` is for the machine path only.\n"
     "Blokkolt lepes / blocked step: {what}"
 )
 
@@ -66,14 +79,20 @@ def is_skill_md(path):
     return parts[-1].lower() == "skill.md" and any(x in ("skills", "seed-skills") for x in parts[:-1])
 
 
+def front_matter(text):
+    """frontmatterOf: from the opening --- on the first line to the first \\n---."""
+    if not isinstance(text, str) or not OPEN_RX.match(text):
+        return None
+    end = text.find("\n---", 4)
+    return None if end == -1 else text[:end]
+
+
 def scope_of(text, allowed):
     """The scope in the front matter if it is one of `allowed`, else None."""
-    if not isinstance(text, str):
+    fm = front_matter(text)
+    if fm is None:
         return None
-    m = FRONT_RX.match(text)
-    if not m:
-        return None
-    s = SCOPE_LINE_RX.search(m.group(1))
+    s = SCOPE_LINE_RX.search(fm)
     if not s:
         return None
     v = s.group(1).lower()
@@ -152,7 +171,8 @@ def check_bash(command, cwd):
                 if is_skill_md(d_md) and os.path.exists(s_md) and not scope_of(read(s_md), AGENT_SCOPES):
                     return seg.strip()
     body = command.replace("\\n", "\n")
-    has_scope = any(re.search(rf"^\s*scope:\s*['\"]?{s}\b", body, re.M) for s in AGENT_SCOPES)
+    m = BASH_FRONT_RX.search(body)
+    has_scope = bool(m and scope_of(m.group(1), AGENT_SCOPES))
     for t in targets:
         if is_skill_md(t) and not has_scope:
             return command if len(command) <= 300 else command[:300] + "..."

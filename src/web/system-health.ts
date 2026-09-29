@@ -94,6 +94,7 @@ import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
 import { readMegaAccounts, readMegaQuota, rcloneBin, type MegaAccount, type MegaQuota } from '../mega.js'
 import { systemDepsSnapshot, systemDepsMonitorStartedAt, type DepsSnapshot } from '../system-deps.js'
+import { readSkillScope } from './skill-scope.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
 
@@ -2098,10 +2099,12 @@ export function skillSeedRows(
     if (seedNevek.has(n)) continue
     const md = join(helyi, n, 'SKILL.md')
     if (!existsSync(md)) continue
-    let fej = ''
-    try { fej = readFileSync(md, 'utf-8').slice(0, 2000) } catch { continue }
+    let tartalom = ''
+    try { tartalom = readFileSync(md, 'utf-8') } catch { continue }
     // Szemelyes skill (konkret emberre/fiokra szol) szandekosan marad helyben.
-    if (/^\s*scope:\s*personal\s*$/m.test(fej)) continue
+    // Ugyanaz az olvaso, mint a sopres es a skill-scope-gate.py tukre (#438):
+    // amit a kapu atenged, arrol az onellenorzes nem mondhat mast.
+    if (readSkillScope(tartalom) === 'personal') continue
     const t = tisztaNev(n)
     if (t) hianyzik.push(t)
   }
@@ -2138,15 +2141,15 @@ export function skillScopeReviewRows(
     if (n.startsWith('.')) continue
     const md = join(helyi, n, 'SKILL.md')
     if (!existsSync(md)) continue
-    let fej = ''
-    try { fej = readFileSync(md, 'utf-8').slice(0, 2000) } catch { continue }
+    let tartalom = ''
+    try { tartalom = readFileSync(md, 'utf-8') } catch { continue }
     // KETFELE "nem tudom" van, es MINDKETTO besorolasra var:
     //  - `scope: review`  -> gep irta, senki nem dontott,
     //  - nincs scope sor   -> regi fajl, sosem kerdezte meg senki.
     // A ketto kozott a felhasznalonak nincs teendo-kulonbsege, ezert egy sor.
-    const fm = /^---\s*\r?\n([\s\S]*?)\n---/.exec(fej)
-    const scopeSor = fm ? /^\s*scope:\s*([a-z]+)\s*$/mi.exec(fm[1]) : null
-    const ertek = scopeSor ? scopeSor[1].toLowerCase() : null
+    // Egyetlen olvaso (#438): a skill-scope-gate.py ennek a tukre, igy amit a
+    // kapu atenged, azt itt sem kerdezzuk meg ujra.
+    const ertek = readSkillScope(tartalom)
     if (ertek === 'personal' || ertek === 'global') continue
     // A HARMADIK dontott allapot: nincs scope sora, de a seed-skills/ alatt MAR
     // ott van -- tehat egy friss telepites megkapja. Ez eldolt, nincs mit

@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { readSkillScope } from '../web/skill-scope.js'
+import { skillScopeReviewRows, skillSeedRows } from '../web/system-health.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..', '..')
@@ -53,6 +55,12 @@ describe('skill-scope-gate: Write', () => {
     const r = run('Write', { file_path: join(skills, 'n', 'SKILL.md'), content: '---\nname: x\n---\nscope: global\n' })
     expect(r.status).toBe(2)
   })
+  it('STOPS a quoted scope and a front matter that does not open the file (the self-check reads neither)', () => {
+    const f = join(skills, 'n', 'SKILL.md')
+    expect(run('Write', { file_path: f, content: '---\nname: x\nscope: "global"\n---\n# X\n' }).status).toBe(2)
+    expect(run('Write', { file_path: f, content: '\n---\nname: x\nscope: global\n---\n# X\n' }).status).toBe(2)
+    expect(run('Write', { file_path: f, content: '---\nname: x\nscope: "global"\n---\n# X\n' }).stderr).toContain('idezojel nelkul')
+  })
   it('ALLOWS personal and global, also in seed-skills/', () => {
     expect(run('Write', { file_path: join(skills, 'n', 'SKILL.md'), content: md('personal') }).status).toBe(0)
     expect(run('Write', { file_path: join(dir, 'seed-skills', 'n', 'SKILL.md'), content: md('global') }).status).toBe(0)
@@ -90,6 +98,15 @@ describe('skill-scope-gate: Bash', () => {
     const cmd = `cat > ~/.claude/skills/X/SKILL.md << 'EOF'\n---\nname: x\ndescription: x\nscope: global\n---\n# X\nEOF`
     expect(run('Bash', { command: cmd }).status).toBe(0)
   })
+  it('judges the heredoc by its FRONT MATTER: a quoted scope or one in the body does not count', () => {
+    const quoted = `cat > ~/.claude/skills/X/SKILL.md << 'EOF'\n---\nname: x\nscope: "global"\n---\n# X\nEOF`
+    const inBody = `cat > ~/.claude/skills/X/SKILL.md << 'EOF'\n---\nname: x\n---\nscope: global\nEOF`
+    expect(run('Bash', { command: quoted }).status).toBe(2)
+    expect(run('Bash', { command: inBody }).status).toBe(2)
+  })
+  it('ALLOWS printf/echo content whose front matter carries the scope', () => {
+    expect(run('Bash', { command: `printf -- '---\\nname: x\\nscope: personal\\n---\\n# X\\n' > ${join(skills, 'n', 'SKILL.md')}` }).status).toBe(0)
+  })
   it('STOPS tee into a SKILL.md without scope', () => {
     expect(run('Bash', { command: `printf -- '---\\nname: x\\n---\\n' | tee ${join(skills, 'n', 'SKILL.md')}` }).status).toBe(2)
   })
@@ -106,10 +123,67 @@ describe('skill-scope-gate: Bash', () => {
   })
 })
 
+// The owner's complaint was the self-check nagging. The gate and the self-check
+// used two readers, so a skill the gate let through (quoted "global", a blank
+// line before the opening ---, a scope line past the first 2000 characters)
+// still showed up as "awaiting classification". One rule now: readSkillScope,
+// which the self-check calls and the gate mirrors -- checked here case by case.
+describe('skill-scope-gate: agrees with the self-check (one reader)', () => {
+  const long = 'd'.repeat(2500)
+  const cases: Record<string, string> = {
+    personal: md('personal'),
+    global: md('global'),
+    review: md('review'),
+    none: md(),
+    unknown: md('maybe'),
+    quoted: '---\nname: x\nscope: "global"\n---\n# X\n',
+    singleQuoted: "---\nname: x\nscope: 'personal'\n---\n# X\n",
+    blankLineFirst: '\n---\nname: x\nscope: global\n---\n# X\n',
+    bom: '﻿---\nname: x\nscope: global\n---\n# X\n',
+    crlf: '---\r\nname: x\r\nscope: global\r\n---\r\n# X\r\n',
+    upperCase: '---\nname: x\nScope: Personal\n---\n# X\n',
+    indented: '---\nname: x\n  scope: personal\n---\n# X\n',
+    inBody: '---\nname: x\n---\nscope: global\n',
+    trailingComment: '---\nname: x\nscope: global # yes\n---\n# X\n',
+    longHeader: `---\nname: x\ndescription: ${long}\nscope: personal\n---\n# X\n`,
+  }
+  for (const [label, content] of Object.entries(cases)) {
+    it(`${label}: the gate allows it exactly when the self-check stays quiet`, () => {
+      const scope = readSkillScope(content)
+      const decided = scope === 'personal' || scope === 'global'
+      const gate = run('Write', { file_path: join(skills, 'p', 'SKILL.md'), content })
+      expect(gate.status).toBe(decided ? 0 : 2)
+
+      const home = mkdtempSync(join(tmpdir(), 'skill-gate-home-'))
+      const root = mkdtempSync(join(tmpdir(), 'skill-gate-root-'))
+      try {
+        mkdirSync(join(home, '.claude', 'skills', label), { recursive: true })
+        writeFileSync(join(home, '.claude', 'skills', label, 'SKILL.md'), content)
+        mkdirSync(join(root, 'seed-skills'), { recursive: true })
+        expect(skillScopeReviewRows(home, root)).toEqual(decided ? [] : [expect.objectContaining({ id: 'skills_scope_review' })])
+        // A personal skill stays local on purpose: the "not seeded" row must not ask about it either.
+        expect(skillSeedRows(home, root).length === 0).toBe(scope === 'personal')
+      } finally {
+        rmSync(home, { recursive: true, force: true })
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
+})
+
 describe('skill-scope-gate: wired and taught everywhere', () => {
   it('is registered for Write|Edit|MultiEdit|Bash in the fleet hook template', () => {
     const pre = JSON.parse(readFileSync(join(ROOT, 'templates', 'settings.json.template'), 'utf-8')).hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>
     const e = pre.find(x => x.hooks.some(h => h.command.includes('skill-scope-gate.py')))
+    expect(e).toBeTruthy()
+    for (const t of ['Write', 'Edit', 'MultiEdit', 'Bash']) expect(e!.matcher.split('|')).toContain(t)
+  })
+  // The fleet template reaches the agents; a code-bridge / VS Code session opened
+  // on this repo runs on the repo's own .claude/settings.json instead, and wrote
+  // skills unchecked until this was added.
+  it('is registered for Write|Edit|MultiEdit|Bash in the repo settings (code-bridge / VS Code sessions)', () => {
+    const pre = JSON.parse(readFileSync(join(ROOT, '.claude', 'settings.json'), 'utf-8')).hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>
+    const e = pre.find(x => x.hooks.some(h => h.command.includes('scripts/hooks/skill-scope-gate.py')))
     expect(e).toBeTruthy()
     for (const t of ['Write', 'Edit', 'MultiEdit', 'Bash']) expect(e!.matcher.split('|')).toContain(t)
   })
