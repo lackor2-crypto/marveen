@@ -6396,7 +6396,17 @@ async function refreshAgentTerminalBusy() {
   }
   // A bal menu szamlaloja: a kod-hid MAR BENNE VAN az `entries`-ben (a
   // kiszolgalo teszi bele), ezert kulon agat nem kap -- egy meres, egy szam.
-  const workingCount = entries.filter((e) => e.state === 'working').length
+  // A kod-hid kartyaja PROJEKTENKENT kulon kartya (#397), ezert a szamlalo is
+  // projektenkent szamol: 2 dolgozo VS Code kartya = 2, nem 1. Regi kiszolgalo
+  // (nincs `projects` terkep) = a bejegyzes egy darab.
+  const workingCount = entries.reduce((n, e) => {
+    if (e.state !== 'working') return n
+    if (e.kind === 'code-bridge' && e.projects && typeof e.projects === 'object') {
+      const busy = Object.values(e.projects).filter((p) => p && p.state === 'working').length
+      return n + Math.max(1, busy)
+    }
+    return n + 1
+  }, 0)
   const badge = document.getElementById('agentsWorkingBadge')
   if (badge) {
     badge.hidden = workingCount === 0

@@ -467,7 +467,10 @@ describe('felulet: egy meres, egy szam', () => {
     // A szamlalo valtozatlanul az entries-bol szamol -- a kod-hid azert kerul
     // bele, mert a KISZOLGALO teszi bele. Ha itt kulon ag lenne, ket "dolgozik"
     // fogalom szuletne, es elobb-utobb elternenek egymastol.
-    expect(app).toContain("const workingCount = entries.filter((e) => e.state === 'working').length")
+    // The counter still counts the entries of the ONE measurement; only the
+    // code-bridge entry is counted per project card (agents-working-badge-count.test.ts).
+    expect(app).toContain('const workingCount = entries.reduce(')
+    expect(app).not.toContain("entries.filter((e) => e.kind === 'code-bridge')")
   })
 
   it('a kod-hid kartyaja a 3 masodperces meresbol kapja a "dolgozik" jelzot', () => {

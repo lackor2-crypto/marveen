@@ -106,7 +106,7 @@ describe('felulet: EGY meresbol lesz zold minden kartyan', () => {
     // Ha a felulet maga dontene, ket kulonbozo "dolgozik" fogalom lenne.
     // #397: per project, still the server's state -- no recount in the page.
     expect(app).toContain("const cbWorking = !!cbState && cbState.state === 'working'")
-    expect(app).toContain("const workingCount = entries.filter((e) => e.state === 'working').length")
+    expect(app).toContain('const workingCount = entries.reduce(')
   })
 
   it('a kod-hid kartyajanak elso kirajzolasa UGYANAZT a feltetelt hasznalja (nincs 3 masodperces villogas)', () => {
