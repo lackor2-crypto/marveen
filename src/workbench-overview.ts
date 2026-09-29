@@ -97,7 +97,7 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
   const pid = String(projectId || '').trim()
 
   const rows = db.prepare(
-    'SELECT id, title, status, updated_at FROM work_items WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC',
+    'SELECT id, title, status, updated_at FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC',
   ).all(pid) as OverviewItem[]
   const open = rows.filter((r) => r.status !== 'done')
   const review = rows.filter((r) => r.status === 'review')

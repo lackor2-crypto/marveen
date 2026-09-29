@@ -162,7 +162,7 @@ export function computeWeeklySummary(projectId: string, start: number, end: numb
     finished = (db.prepare(
       `SELECT title FROM work_items WHERE project_id = ? AND status = 'done' AND updated_at >= ? AND updated_at < ? ORDER BY updated_at ASC`,
     ).all(projectId, start, end) as { title: string }[]).map((r) => r.title)
-    openNow = (db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE project_id = ? AND status != 'done'`).get(projectId) as { n: number }).n
+    openNow = (db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE project_id = ? AND status != 'done' AND deleted_at IS NULL`).get(projectId) as { n: number }).n
   } catch (e) {
     errors.push({ source: 'items', detail: errText(e) })
   }

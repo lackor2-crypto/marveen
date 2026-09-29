@@ -42,7 +42,7 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -342,6 +342,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   not_found: {
     hu: 'Ez a munkadarab nem található (lehet, hogy közben törölték).',
     en: 'This work item was not found (it may have been deleted).',
+  },
+  trash_bad_value: {
+    hu: 'Nem derült ki, hogy törölni vagy visszaállítani kell-e a munkadarabot. Frissítsd az oldalt, és kattints újra.',
+    en: 'It was not clear whether to delete or restore this work item. Refresh the page and click again.',
   },
   pin_bad_value: {
     hu: 'Nem derült ki, hogy kitűzni vagy levenni kell-e a csillagot. Frissítsd az oldalt, és kattints újra a csillagra.',
@@ -1467,6 +1471,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     json(res, {
       project: { id: project.id, name: project.name, archived: project.archived_at != null },
       items: listWorkItems(project.id),
+      deleted: listDeletedWorkItems(project.id),
       types: WORK_ITEM_TYPES,
       statuses: WORK_ITEM_STATUSES,
     })
@@ -1874,6 +1879,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const updated = setWorkItemPinned(item.id, body['pinned'])
     if (!updated) return fail(res, 404, 'not_found', lang)
     json(res, { item: updated, items: listWorkItems(item.project_id) })
+    return true
+  }
+
+  // LOMTAR (#443): torles = lomtarba teves, visszaallithato; a verziok es a
+  // fajlok megmaradnak. A valasz mindket friss listat visszaadja.
+  if (segs.length === 2 && segs[1] === 'trash' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    if (typeof body['deleted'] !== 'boolean') return fail(res, 400, 'trash_bad_value', lang)
+    const updated = setWorkItemDeleted(item.id, body['deleted'])
+    if (!updated) return fail(res, 404, 'not_found', lang)
+    json(res, { item: updated, items: listWorkItems(item.project_id), deleted: listDeletedWorkItems(item.project_id) })
     return true
   }
 

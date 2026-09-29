@@ -106,6 +106,24 @@
 .wb-item-pin:hover:not(:disabled) { border-color: var(--accent, #2563eb); opacity: 1; }
 .wb-item-pin[aria-pressed="true"] { color: #d97706; opacity: 1; }
 .wb-item-pin:disabled { cursor: default; }
+/* #443: Torles / Visszaallitas gomb a sor vegen */
+.wb-item-del {
+  flex: 0 0 auto;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  padding: 0 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.wb-item-del:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; opacity: 1; }
+.wb-trash-row .wb-item-del:hover:not(:disabled) { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
+.wb-item-del:disabled { cursor: default; opacity: 0.4; }
+.wb-trash { margin-top: 10px; }
+.wb-trash-toggle { background: none; border: none; padding: 4px 0; color: inherit; opacity: 0.75; cursor: pointer; font-size: 0.9rem; text-decoration: underline; }
+.wb-trash-item { cursor: default; opacity: 0.7; }
 
 .wb-empty {
   border: 1px dashed var(--border, #d0d7de);

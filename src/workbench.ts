@@ -69,6 +69,8 @@ export interface WorkItemRow {
   /** Kituzve (csillag) ekkor; NULL = nincs kituzve. A kituzottek a lista
    *  tetejen allnak, a kituzes sorrendjeben (#406, 21bcb1f4). */
   pinned_at: number | null
+  /** Lomtarba teve ekkor; NULL = el (#443). */
+  deleted_at?: number | null
   /** A munkadarab sajat mappaja a projekt mappajaban (projekt-relativ, #441).
    *  NULL = meg nincs; a `workbench-assets.ts` hozza letre az elso csatolaskor. */
   folder?: string | null
@@ -151,6 +153,9 @@ export function ensureWorkbenchTables(): void {
   const iCols = new Set((db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).map((c) => c.name))
   if (!iCols.has('pinned_at')) db.exec('ALTER TABLE work_items ADD COLUMN pinned_at INTEGER')
   if (!iCols.has('folder')) db.exec('ALTER TABLE work_items ADD COLUMN folder TEXT')
+  // #443: lomtar. A torolt munkadarab eltunik a listakbol, de a sora, a verzioi
+  // es a fajljai megmaradnak, igy egy kattintassal visszaallithato.
+  if (!iCols.has('deleted_at')) db.exec('ALTER TABLE work_items ADD COLUMN deleted_at INTEGER')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, updated_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')
@@ -262,8 +267,35 @@ export function listWorkItems(projectId: string): WorkItemRow[] {
   const pid = String(projectId || '').trim()
   if (!pid) return []
   return getDb()
-    .prepare('SELECT * FROM work_items WHERE project_id = ? ORDER BY (pinned_at IS NULL), pinned_at DESC, updated_at DESC, created_at DESC')
+    .prepare('SELECT * FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY (pinned_at IS NULL), pinned_at DESC, updated_at DESC, created_at DESC')
     .all(pid) as WorkItemRow[]
+}
+
+/** A projekt lomtara (#443): a torolt munkadarabok, a legutobb torolt elol. */
+export function listDeletedWorkItems(projectId: string): WorkItemRow[] {
+  ensureWorkbenchTables()
+  const pid = String(projectId || '').trim()
+  if (!pid) return []
+  return getDb()
+    .prepare('SELECT * FROM work_items WHERE project_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC')
+    .all(pid) as WorkItemRow[]
+}
+
+/**
+ * Lomtarba teves / visszaallitas (#443). Csak a `deleted_at` valtozik: a
+ * verziok, reszek es fajlok erintetlenek, ezert a visszaallitas veszteseg
+ * nelkuli. Az `updated_at`-et SZANDEKOSAN nem erinti (mint a kituzes), igy a
+ * visszaallitott darab a regi helyere kerul vissza a listaban.
+ */
+export function setWorkItemDeleted(id: string, deleted: boolean, now: number = Date.now()): WorkItemRow | undefined {
+  const item = getWorkItem(id)
+  if (!item) return undefined
+  if (deleted && item.deleted_at == null) {
+    getDb().prepare('UPDATE work_items SET deleted_at = ? WHERE id = ?').run(Math.floor(now), item.id)
+  } else if (!deleted && item.deleted_at != null) {
+    getDb().prepare('UPDATE work_items SET deleted_at = NULL WHERE id = ?').run(item.id)
+  }
+  return getWorkItem(item.id)
 }
 
 /**
@@ -321,7 +353,7 @@ export function countWorkItems(projectId: string): number {
   ensureWorkbenchTables()
   const pid = String(projectId || '').trim()
   if (!pid) return 0
-  const row = getDb().prepare('SELECT COUNT(*) AS n FROM work_items WHERE project_id = ?').get(pid) as { n: number }
+  const row = getDb().prepare('SELECT COUNT(*) AS n FROM work_items WHERE project_id = ? AND deleted_at IS NULL').get(pid) as { n: number }
   return row.n
 }
 
