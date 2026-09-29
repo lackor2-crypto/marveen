@@ -25520,7 +25520,12 @@ function _renderApprovalsTable() {
 
   tbody.innerHTML = page.map(a => {
     const isPending = a.status === 'pending'
-    const rowStyle = isPending ? 'background:color-mix(in srgb, var(--info) 14%, transparent)' : ''
+    // Boss (TG 2000, A): light blue only for real approvals; the ones a kanban
+    // card move created (kanban_done) keep the original warning tint.
+    const rowStyle = !isPending ? ''
+      : (a.category === 'kanban_done'
+        ? 'background:color-mix(in srgb, var(--warning) 8%, transparent)'
+        : 'background:color-mix(in srgb, var(--info) 14%, transparent)')
     const time = a.requested_at ? new Date(a.requested_at * 1000).toLocaleString('hu-HU', { dateStyle: 'short', timeStyle: 'short' }) : '-'
     const badge = _approvalBadge(a.status)
     const countdown = isPending && a.timeout_at ? `<span class="approvals-countdown" data-timeout="${a.timeout_at}" id="cd-${a.id}"></span>` : (a.timeout_at ? '-' : '')
