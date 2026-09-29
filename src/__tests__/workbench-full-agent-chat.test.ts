@@ -11,11 +11,17 @@ let workerOnline = true
 /** Melyik beszelgetesen dolgozik meg egy korabbi kod-hid feladat (a hatterben). */
 let bgChatId: string | null = null
 const cancelledIds: string[] = []
-let taskState: { status: string; result: string | null; summary: string | null; error: string | null } = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
+/** A kod-hid futasanak transzkriptje ezen a gepen (#434: egyenkenti eszkozfutasok). */
+let localTranscript: string | null = null
+let taskState: { status: string; result: string | null; summary: string | null; error: string | null; startedAt?: number; runSessionId?: string } = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
 
 vi.mock('../settings-store.js', async (orig) => {
   const actual = await orig<typeof import('../settings-store.js')>()
   return { ...actual, getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_FULL_AGENT' ? '1' : k.startsWith('WORKBENCH_') ? '' : actual.getEffectiveSettingValue(k)) }
+})
+vi.mock('../web/code-conversation.js', async (orig) => {
+  const actual = await orig<typeof import('../web/code-conversation.js')>()
+  return { ...actual, locateLocalTranscript: () => localTranscript }
 })
 vi.mock('../web/code-bridge-store.js', async (orig) => {
   const actual = await orig<typeof import('../web/code-bridge-store.js')>()
@@ -86,6 +92,7 @@ beforeEach(() => {
   setWorkbenchLiveResolverForTest(() => null)
   enqueued.length = 0
   bgChatId = null
+  localTranscript = null
   cancelledIds.length = 0
   workerOnline = true
   resetWorkbenchBridgeLimitForTest()
@@ -130,6 +137,29 @@ describe('Munkapad chat teljes erteku modban (kod-hid)', () => {
       ['assistant', 'Kész: végigolvastam.'],
     ])
     expect(isTurnRunning(turnKey(projectId, workItemId))).toBe(false)
+  })
+
+  it('#434: a kod-hid egyes parancsai is a Parancsfutasok savba kerulnek, es F5 utan is ott vannak', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bridge-tr-'))
+    localTranscript = join(dir, '11111111-2222-3333-4444-555555555555.jsonl')
+    const started = Date.parse('2026-09-29T10:00:00Z')
+    const row = (ts: string, type: string, content: unknown[]): string => JSON.stringify({ type, timestamp: ts, message: { role: type, content } })
+    writeFileSync(localTranscript, [
+      row('2026-09-29T08:00:00Z', 'assistant', [{ type: 'tool_use', id: 'x', name: 'Write', input: { file_path: '/elozo-feladat.md' } }]),
+      row('2026-09-29T10:00:01Z', 'assistant', [{ type: 'tool_use', id: 'a', name: 'Read', input: { file_path: '/p/terv.md' } }]),
+      row('2026-09-29T10:00:02Z', 'user', [{ type: 'tool_result', tool_use_id: 'a', content: 'ok' }]),
+      '',
+    ].join('\n'))
+    taskState = { ...taskState, startedAt: started, runSessionId: '11111111-2222-3333-4444-555555555555' }
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'olvasd el a tervet' })
+    expect(r.raw).toContain('"name":"Read"')
+    expect(r.raw).toContain('/p/terv.md')
+    expect(r.raw).not.toContain('elozo-feladat')
+    const sid = openSessionForWorkItem(projectId, workItemId, 'hu').id
+    const saved = listToolCalls(sid).map((c) => [c.tool_name, c.status, c.input_json])
+    expect(saved).toContainEqual(['Read', 'ok', '{"detail":"/p/terv.md"}'])
+    expect(saved.map((c) => c[0])).toContain('code-bridge')
+    expect(saved.map((c) => c[0])).not.toContain('Write')
   })
 
   it('a hiba valodi oka a chatbe es a naploba is bekerul', async () => {

@@ -621,6 +621,31 @@ describe('agent-chat (3. fazis)', () => {
     expect(html.slice(toolsStart)).not.toContain('workbench.chat.tool_running')
   })
 
+  it('#434: ket egyszerre futo, azonos nevu parancs ket kulon sor (a masodik nem irja felul az elsot)', async () => {
+    await openChat()
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 200, body: sse([
+        { type: 'tool', name: 'Bash', status: 'running', detail: 'ELSO-PARANCS' },
+        { type: 'tool', name: 'Bash', status: 'running', detail: 'MASODIK-PARANCS' },
+        { type: 'tool', name: 'Bash', status: 'ok' },
+        { type: 'text', text: 'VALASZ' },
+        { type: 'done', model: 'm' },
+      ]) }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.inputs.wbChatInput = { value: 'fussanak', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('VALASZ'))
+    const html = h.rootEl.innerHTML
+    const tools = html.slice(html.indexOf('id="wbChatTools"'))
+    expect(tools).toContain('ELSO-PARANCS')
+    expect(tools).toContain('MASODIK-PARANCS')
+    // Az eredmeny a RÉGEBBI futast zarja: az elso kesz, a masodik meg fut.
+    expect(tools.indexOf('ELSO-PARANCS')).toBeLessThan(tools.indexOf('MASODIK-PARANCS'))
+  })
+
   it('folyamatjelzo: eredmeny nelkuli valasznal "Nem jott valasz", nem orok "Gondolkodik"', async () => {
     await openChat()
     h.respond((url) => {

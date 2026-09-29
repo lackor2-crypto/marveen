@@ -33,7 +33,7 @@ import { runCodeBridgeTurn, buildCodeBridgePrompt } from '../../workbench-agent/
 import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
 import { loggedInConfigDir, STRIPPED_ENV } from '../../workbench-agent/provider-anthropic.js'
 import { tryResolveFromPath } from '../../platform.js'
-import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat } from '../code-bridge-store.js'
+import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat, effectiveRunSessionId, findCodeTabLocation, type CodeTask } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
 import {
   ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
@@ -43,9 +43,26 @@ import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
 import { listWorkItemAssetsSynced } from '../../workbench-assets.js'
 import type { WorkItemRow } from '../../workbench.js'
+import { createTranscriptToolFeed, type TranscriptToolFeed } from '../../workbench-agent/code-bridge-tool-feed.js'
+import { isSafeTranscriptPath, locateLocalTranscript } from '../code-conversation.js'
+import { toLocalWorkspacePath } from '../code-bridge-workspace.js'
 
 /** A helyi munkamenet eszkozfutasa, amit meg nem zartunk le (id + nev). */
 type LiveOpenTool = { id: string; name: string }
+
+/** Where a running code-bridge task's Claude Code writes its transcript, on
+ *  THIS machine -- or `null` when it cannot be seen from here (then only the
+ *  single bridge row shows, as before). */
+function codeTaskTranscript(t: CodeTask): string | null {
+  const sid = effectiveRunSessionId(t)
+  if (!sid) return null
+  const local = locateLocalTranscript(sid)
+  if (local) return local
+  const reported = findCodeTabLocation(sid)?.tab.transcriptPath
+  if (!reported || !isSafeTranscriptPath(reported, sid)) return null
+  const p = toLocalWorkspacePath(reported)
+  return p && existsSync(p) ? p : null
+}
 
 /** A teljes erteku ugynok eszkozfutasait is elmentjuk (#434, Boss 2026-09-29:
  *  "Hol van ketteosztva? Meg mindig nem latom."). Eddig csak elo ment at a
@@ -60,7 +77,7 @@ function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: st
       return
     }
     if (ev.status !== 'ok' && ev.status !== 'error') return
-    for (let i = open.length - 1; i >= 0; i--) {
+    for (let i = 0; i < open.length; i++) {
       if (open[i].name !== name) continue
       finishToolCall(open[i].id, ev.status, null)
       open.splice(i, 1)
@@ -582,6 +599,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
             send('session', { type: 'session', sessionId: session.id })
             let liveFallback: LiveStartSpec | null = null
+            let bridgeFeed: TranscriptToolFeed | null = null
+            const bridgeOpenTools: LiveOpenTool[] = []
             const turnStartSec = Math.floor(Date.now() / 1000)
             const folder = projectFileTarget(project, '')
             const history = listAgentMessages(session.id)
@@ -627,8 +646,19 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                   else addAgentMessageOnce(session.id, role, content, turnStartSec)
                 },
                 cancel: (id) => { cancelCodeTask(id) },
+                toolRuns: (id, finish) => {
+                  const t = getCodeTask(id)
+                  if (!t) return []
+                  if (!bridgeFeed) {
+                    if (!t.startedAt) return []
+                    bridgeFeed = createTranscriptToolFeed(t.startedAt)
+                  }
+                  return bridgeFeed.read(codeTaskTranscript(t), finish)
+                },
               },
             )) {
+              // The bridge's tool runs are saved too, so the panel comes back after F5.
+              if (ev.type === 'tool') recordLiveTool(session.id, bridgeOpenTools, ev)
               // A kod-hid fiokja kimerult (#434): automatikus fioknal a helyi
               // munkamenet folytatja egy masik fiokkal, ugyanebben a fordulóban;
               // egy ideig a kovetkezo uzenetek is egyenesen oda mennek.
