@@ -216,6 +216,8 @@ export interface WorkItemAssetView extends WorkItemAssetRow {
   project_path: string
   /** A fajl ott van-e meg, ahol a sor szerint lennie kell. */
   present: boolean
+  /** A projekt kozos taraban all (K-0.19): hivatkozas, nem a munkadarab sajat fajlja. */
+  shared: boolean
 }
 
 export function sha256Of(data: Buffer): string {
@@ -235,11 +237,14 @@ export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
   const rows = getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? ORDER BY created_at, rowid').all(itemId) as WorkItemAssetRow[]
   const item = getWorkItem(itemId)
   const project = item ? getProject(item.project_id) : undefined
+  const sf = project && rows.length ? projectSharedFolder(project) : null
+  const sharedPrefix = sf && sf.ok ? sf.dirRel + '/' : null
   return rows.map((r) => {
     const abs = resolveLifePath(r.path)
     let present = false
     try { present = !!abs && existsSync(abs) && statSync(abs).isFile() } catch { present = false }
-    return { ...r, project_path: project ? projectRelative(project, r.path) : '', present }
+    const shared = !!sharedPrefix && r.path.startsWith(sharedPrefix) && !r.path.slice(sharedPrefix.length).includes('/')
+    return { ...r, project_path: project ? projectRelative(project, r.path) : '', present, shared }
   })
 }
 
@@ -516,4 +521,171 @@ export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): Folde
     return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
   }
   return { ok: true, renamed: true, from: folder, to: newFolder }
+}
+
+// ---------------------------------------------------------------------------
+// A projekt KOZOS TARA (K-0.19)
+// ---------------------------------------------------------------------------
+//
+// Egy logo vagy markaelem projektszinten EGYSZER van meg (a projekt mappajaban
+// egy "Kozos anyagok" almappa), es a munkadarabhoz csak HIVATKOZASKENT kerul:
+// az anyag-sor a kozos tarban allo fajlra mutat, masolat nem keszul. A
+// levetel a munkadarabrol a fajlt nem erinti. Ez a 4. fazis (Brand Kit)
+// elokeszitese.
+
+/** A kozos tar mappaneve (a felulet nyelve szerint; egy mar letezot mindket neven felismerunk). */
+export const SHARED_FOLDER_NAMES = { hu: 'Közös anyagok', en: 'Shared materials' } as const
+/** Egyszerre ennyi fajlt listazunk a kozos tarbol. */
+export const SHARED_LIST_MAX = 300
+
+function ensureSharedTable(): void {
+  ensureAssetTables()
+  getDb().exec('CREATE TABLE IF NOT EXISTS workbench_shared_folders (project_id TEXT PRIMARY KEY, folder TEXT NOT NULL)')
+}
+
+const folderIsItems = (projectId: string, folder: string): boolean =>
+  !!getDb().prepare('SELECT 1 FROM work_items WHERE project_id = ? AND folder = ?').get(projectId, folder)
+
+export type SharedFolderOutcome =
+  | { ok: true; folder: string; dirAbs: string; dirRel: string; created: boolean }
+  | { ok: false; code: FileErrorCode | 'folder_name' | 'not_found' | 'no_shared_folder'; message?: string }
+
+/**
+ * A projekt kozos taranak mappaja. A megjegyzett mappa, ha meg megvan; kulonben
+ * egy mar letezo "Kozos anyagok" / "Shared materials" mappa (ha nem egy
+ * munkadarabe); kulonben -- csak `create`-tel -- egy uj, szabad nevu mappa.
+ */
+export function projectSharedFolder(project: ProjectRow, opts: { create?: boolean; lang?: 'hu' | 'en' } = {}): SharedFolderOutcome {
+  ensureSharedTable()
+  const db = getDb()
+  const known = db.prepare('SELECT folder FROM workbench_shared_folders WHERE project_id = ?').get(project.id) as { folder: string } | undefined
+  if (known) {
+    const t = projectFileTarget(project, known.folder)
+    if (t.ok && existsSync(t.dirAbs)) return { ok: true, folder: known.folder, dirAbs: t.dirAbs, dirRel: t.dirRel, created: false }
+  }
+  const root = projectFileTarget(project, '')
+  if (!root.ok) return root
+  const remember = (folder: string): void => {
+    db.prepare('INSERT INTO workbench_shared_folders (project_id, folder) VALUES (?, ?) ON CONFLICT(project_id) DO UPDATE SET folder = excluded.folder')
+      .run(project.id, folder)
+  }
+  const order = opts.lang === 'en' ? [SHARED_FOLDER_NAMES.en, SHARED_FOLDER_NAMES.hu] : [SHARED_FOLDER_NAMES.hu, SHARED_FOLDER_NAMES.en]
+  for (const n of order) {
+    const abs = join(root.dirAbs, n)
+    let isDir = false
+    try { isDir = existsSync(abs) && statSync(abs).isDirectory() } catch { isDir = false }
+    if (!isDir || folderIsItems(project.id, n)) continue
+    const t = projectFileTarget(project, n)
+    if (!t.ok) continue
+    remember(n)
+    return { ok: true, folder: n, dirAbs: t.dirAbs, dirRel: t.dirRel, created: false }
+  }
+  if (!opts.create) return { ok: false, code: 'no_shared_folder' }
+  const name = freeFileName(root.dirAbs, order[0] as string)
+  const r = makeProjectFolder(project, '', name)
+  if (!r.ok) return r
+  const t = projectFileTarget(project, r.sub)
+  if (!t.ok) return t
+  remember(r.sub)
+  return { ok: true, folder: r.sub, dirAbs: t.dirAbs, dirRel: t.dirRel, created: r.created }
+}
+
+export interface SharedFileView {
+  /** Raktar-relativ ut (ez kerul az anyag-sorba). */
+  path: string
+  /** A projekt mappajahoz kepesti ut (az agent `file.read`-je ezt varja). */
+  project_path: string
+  name: string
+  support: AssetSupport
+  bytes: number
+  /** Ennyi munkadarab hivatkozik ra. */
+  used_by: number
+}
+
+/** A kozos tar fajljai (csak a felso szint, rejtett es futtathato fajl nelkul). */
+export function listSharedFiles(project: ProjectRow): { folder: string | null; files: SharedFileView[] } {
+  const f = projectSharedFolder(project)
+  if (!f.ok) return { folder: null, files: [] }
+  let names: string[]
+  try {
+    names = readdirSync(f.dirAbs, { withFileTypes: true }).filter((d) => d.isFile() && !hiddenName(d.name)).map((d) => d.name)
+  } catch { return { folder: f.folder, files: [] } }
+  const use = getDb().prepare(`SELECT COUNT(DISTINCT a.work_item_id) AS n FROM work_item_assets a
+    JOIN work_items w ON w.id = a.work_item_id WHERE a.path = ? AND w.project_id = ?`)
+  const files: SharedFileView[] = []
+  for (const n of names.sort((a, b) => a.localeCompare(b, 'hu')).slice(0, SHARED_LIST_MAX)) {
+    if (assetSupport(n) === 'unsupported') continue
+    let bytes = 0
+    try { bytes = statSync(join(f.dirAbs, n)).size } catch { continue }
+    const path = `${f.dirRel}/${n}`
+    files.push({ path, project_path: projectRelative(project, path), name: n, support: assetSupport(n), bytes, used_by: (use.get(path, project.id) as { n: number }).n })
+  }
+  return { folder: f.folder, files }
+}
+
+/** A munkadarab egy anyaga a kozos tarbol valo-e (hivatkozas, nem sajat fajl). */
+export function isSharedPath(project: ProjectRow, depotRel: string): boolean {
+  const f = projectSharedFolder(project)
+  return f.ok && depotRel.startsWith(f.dirRel + '/') && !depotRel.slice(f.dirRel.length + 1).includes('/')
+}
+
+export type SharedUploadOutcome =
+  | { ok: true; file: SharedFileView; renamed: boolean; folder: string }
+  | { ok: false; code: 'shared_duplicate'; existing: SharedFileView }
+  | { ok: false; code: 'asset_unsupported' | FileErrorCode | 'folder_name' | 'not_found' | 'no_shared_folder'; message?: string }
+
+/** Egy fajl a projekt kozos taraba. Ugyanaz a tartalom masodszorra csak `force`-szal. */
+export function uploadSharedFile(project: ProjectRow, name: string, data: Buffer, opts: { force?: boolean; lang?: 'hu' | 'en' } = {}): SharedUploadOutcome {
+  if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
+  const f = projectSharedFolder(project, { create: true, lang: opts.lang })
+  if (!f.ok) return f
+  if (!opts.force) {
+    const sha = sha256Of(data)
+    for (const s of listSharedFiles(project).files) {
+      if (s.bytes !== data.length) continue
+      try {
+        if (sha256Of(readFileSync(join(f.dirAbs, s.name))) === sha) return { ok: false, code: 'shared_duplicate', existing: s }
+      } catch { /* olvashatatlan fajl: nem duplikatum */ }
+    }
+  }
+  const out = writeProjectFile(project, f.folder, name, data)
+  if (!out.ok) return out
+  const file = listSharedFiles(project).files.find((s) => s.path === out.rel)
+  if (!file) return { ok: false, code: 'not_found' }
+  return { ok: true, file, renamed: out.renamed, folder: f.folder }
+}
+
+export type LinkSharedOutcome =
+  | { ok: true; asset: WorkItemAssetView; already: boolean }
+  | { ok: false; code: 'not_found' | 'no_shared_folder' | 'not_shared' | 'asset_unsupported' | 'asset_limit' }
+
+/**
+ * Egy kozos tarban allo fajl HIVATKOZASKENT a munkadarab anyagai koze
+ * (masolat nem keszul). `path` lehet Raktar-relativ, projekt-relativ vagy
+ * csak a fajlnev. Ha mar a listan van, azt adja vissza.
+ */
+export function linkSharedAsset(item: WorkItemRow, rawPath: unknown, createdBy: string | null = null): LinkSharedOutcome {
+  ensureAssetTables()
+  const project = getProject(item.project_id)
+  if (!project) return { ok: false, code: 'not_found' }
+  const f = projectSharedFolder(project)
+  if (!f.ok) return { ok: false, code: 'no_shared_folder' }
+  const raw = String(rawPath ?? '').trim().replace(/\\/g, '/')
+  const name = raw.split('/').pop() || ''
+  const candidates = [raw, project.folder_path ? `${project.folder_path.replace(/\/+$/, '')}/${raw}` : '', `${f.dirRel}/${raw}`]
+  const path = candidates.find((c) => c && c === `${f.dirRel}/${name}`)
+  if (!name || !path || hiddenName(name)) return { ok: false, code: 'not_shared' }
+  if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
+  const abs = join(f.dirAbs, name)
+  try { if (!statSync(abs).isFile()) return { ok: false, code: 'not_found' } } catch { return { ok: false, code: 'not_found' } }
+  const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ?').get(item.id, path) as { id: string } | undefined
+  if (has) {
+    const view = listWorkItemAssets(item.id).find((a) => a.id === has.id)
+    if (view) return { ok: true, asset: view, already: true }
+  }
+  const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ?').get(item.id) as { n: number }).n
+  if (count >= ASSETS_MAX_PER_ITEM) return { ok: false, code: 'asset_limit' }
+  let data: Buffer
+  try { data = readFileSync(abs) } catch { return { ok: false, code: 'not_found' } }
+  return { ok: true, asset: registerAsset(item.id, path, name, sha256Of(data), data.length, createdBy), already: false }
 }
