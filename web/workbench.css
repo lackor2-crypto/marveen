@@ -937,3 +937,49 @@
 .wb-annex-add, .wb-annex-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .wb-annex-add select, .wb-annex-add input { max-width: 100%; min-width: 0; flex: 1 1 12rem; }
 .wb-ok { color: var(--success, #15803d); }
+
+/* ---- Dokumentum-szerkeszto a Munkapadon (#444) ---------------------------- */
+.wb-docedit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.wb-docedit, .wb-pdfedit { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.wb-docedit-bar {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  padding: 6px; border-radius: 8px;
+  border: 1px solid var(--border, #d0d7de);
+  background: var(--bg-card, var(--card-bg, #fff));
+}
+.wb-docedit-btn {
+  min-width: 34px; min-height: 34px; padding: 4px 8px;
+  border-radius: 6px; border: 1px solid var(--border, #d0d7de);
+  background: inherit; color: inherit; cursor: pointer; font-size: 14px; line-height: 1;
+}
+.wb-docedit-btn:hover:not(:disabled) { border-color: var(--accent, #2563eb); }
+.wb-docedit-btn[aria-pressed="true"] { border-color: var(--accent, #2563eb); background: var(--accent, #2563eb); color: #fff; }
+.wb-docedit-select { min-height: 34px; padding: 4px; border-radius: 6px; border: 1px solid var(--border, #d0d7de); background: inherit; color: inherit; }
+.wb-docedit-color { display: inline-flex; align-items: center; gap: 2px; min-height: 34px; padding: 0 4px; border-radius: 6px; border: 1px solid var(--border, #d0d7de); cursor: pointer; }
+.wb-docedit-color input[type="color"] { width: 26px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
+.wb-docedit-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border, #d0d7de); }
+/* A lap mindig "papir": a dokumentum sajat szinei vilagos hatteren olvashatok,
+ * sotet temaban is. */
+.wb-docedit-paper { overflow: auto; max-height: 70vh; padding: 16px; border-radius: 8px; background: #e9ecef; }
+.wb-docedit-page {
+  box-sizing: border-box; max-width: 820px; min-height: 60vh; margin: 0 auto; padding: 48px 56px;
+  background: #fff; color: #111; box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+  outline: none; overflow-wrap: anywhere;
+}
+.wb-docedit-page:focus { box-shadow: 0 0 0 2px var(--accent, #2563eb), 0 1px 4px rgba(0, 0, 0, .25); }
+.wb-docedit-page img { max-width: 100%; height: auto; }
+.wb-docedit-page table { border-collapse: collapse; max-width: 100%; }
+.wb-docedit-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-docedit-foot .wb-hint { flex-basis: 100%; margin: 0; }
+.wb-docedit-status { font-size: 13px; opacity: .8; }
+.wb-pdfedit-text { width: auto; flex: 1 1 180px; min-width: 140px; }
+.wb-pdfedit-pages { display: flex; flex-direction: column; align-items: center; gap: 12px; overflow: auto; max-height: 70vh; padding: 12px; border-radius: 8px; background: #e9ecef; }
+.wb-pdfedit-page { position: relative; flex: 0 0 auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+.wb-pdfedit-page canvas { position: absolute; left: 0; top: 0; display: block; }
+.wb-pdfedit-overlay { cursor: crosshair; touch-action: none; }
+@media (max-width: 700px) {
+  .wb-docedit-paper { padding: 6px; }
+  .wb-docedit-page { padding: 20px 16px; }
+  .wb-docedit-foot .btn-primary, .wb-docedit-foot .btn-secondary { flex: 1 1 auto; min-height: 44px; }
+}
