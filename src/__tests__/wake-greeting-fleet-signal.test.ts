@@ -17,10 +17,11 @@
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { decideWakeGreeting, GREETING_OUTAGE_AFTER_MS } from '../wake-greeting.js'
+import { mainAgentEffectiveConfigDir } from '../web/agent-config.js'
 import {
   findParityDrift, describeParityDrift, hookScriptNames,
   unionHookScripts, mainAgentSettingsPaths,
@@ -160,8 +161,12 @@ describe('a dontes bemenete MINDEN agenshez eljut', () => {
 
 describe('a paritas-kapu MINDKET settings.json-t nezi', () => {
   it('a ket forras a felhasznaloi ES a projekt fajl', () => {
-    const paths = mainAgentSettingsPaths('/h', '/repo')
+    const paths = mainAgentSettingsPaths('/h/.claude', '/repo')
     expect(paths).toEqual(['/h/.claude/settings.json', '/repo/.claude/settings.json'])
+  })
+
+  it('a felhasznaloi fajl abban a mappaban van, amibol a fo agens FUT (elkulonitett mappa: nem a ~/.claude)', () => {
+    expect(mainAgentSettingsPaths('/h/.claude-marvin', '/repo')[0]).toBe('/h/.claude-marvin/settings.json')
   })
 
   it('az unio egyetlen halmazba hozza a ketto tartalmat', () => {
@@ -175,9 +180,10 @@ describe('a paritas-kapu MINDKET settings.json-t nezi', () => {
   })
 
   it('ezen a telepitesen a ket fajl EGYUTT sem fut olyat, amit a flotta nem kap', () => {
-    const mainSettings = join(homedir(), '.claude', 'settings.json')
+    const mainConfigDir = mainAgentEffectiveConfigDir()
+    const mainSettings = join(mainConfigDir, 'settings.json')
     if (!existsSync(mainSettings)) return
-    const paths = mainAgentSettingsPaths(homedir(), ROOT).filter(p => existsSync(p))
+    const paths = mainAgentSettingsPaths(mainConfigDir, ROOT).filter(p => existsSync(p))
     const drift = findParityDrift(unionHookScripts(paths.map(hooksOf)), hookScriptNames(hooksOf(TEMPLATE)))
     expect(drift, describeParityDrift(drift)).toEqual([])
   })
