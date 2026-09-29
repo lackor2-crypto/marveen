@@ -11,8 +11,8 @@
  *
  * Szandekosan a `result`/`error` mezoket olvassa (nem a transzkriptet
  * parszolja): az a keszre-futott feladat vegleges valasza, ami minden
- * telepitesen egyformán ott van. Az elo, lepesenkenti tukrozes kesobbi
- * finomitas.
+ * telepitesen egyformán ott van. A lepesenkenti eszkozfutasok a `toolRuns`
+ * dep-en jonnek (a kod-hid sajat transzkriptjebol, `code-bridge-tool-feed.ts`).
  *
  * A modul dep-injektalt (enqueue / getTask / now / sleep), hogy kulso worker
  * nelkul, determinisztikusan teszthelheto legyen.
@@ -66,6 +66,10 @@ export interface CodeBridgeTurnDeps {
   /** A chat varakozasa utan meddig figyeljuk meg a hatterben (alap 6 ora),
    *  hogy a kesve erkezo valasz is bekeruljon a beszelgetesbe. */
   backgroundMs?: number
+  /** The bridge's own tool runs (Read, Bash, ...) since the previous call, read
+   *  from its transcript (`code-bridge-tool-feed.ts`); `finish` closes the runs
+   *  left open when the task ended. Missing = only the single bridge row. */
+  toolRuns?(taskId: string, finish?: 'ok' | 'error'): OrchestratorEvent[]
 }
 
 export interface CodeBridgeTurnInput {
@@ -196,6 +200,10 @@ export async function* runCodeBridgeTurn(
   const record = (role: 'user' | 'assistant' | 'system', content: string): void => {
     try { deps.record?.(role, content) } catch { /* a naplo hibaja nem allitja meg a valaszt */ }
   }
+  // A transcript that cannot be read never breaks the answer: no rows, that's all.
+  const toolRuns = (id: string, finish?: 'ok' | 'error'): OrchestratorEvent[] => {
+    try { return deps.toolRuns?.(id, finish) ?? [] } catch { return [] }
+  }
 
   record('user', input.message.trim())
 
@@ -227,6 +235,7 @@ export async function* runCodeBridgeTurn(
       // Leallitas: a sorban is lezarjuk, hogy a worker ne dolgozzon tovabb
       // egy olyan kerdesen, amire mar senki nem var.
       try { deps.cancel?.(enq.id) } catch { /* a lezaras hibaja nem uj hiba a chatben */ }
+      yield* toolRuns(enq.id, 'ok')
       const m = msg('code_bridge_cancelled', input.lang)
       record('system', m)
       yield { type: 'tool', name: 'code-bridge', status: 'ok' }
@@ -251,7 +260,10 @@ export async function* runCodeBridgeTurn(
       }
     }
 
+    if (task.status === 'running') yield* toolRuns(enq.id)
+
     if (task.status === 'done' || task.status === 'error' || task.status === 'cancelled') {
+      yield* toolRuns(enq.id, task.status === 'error' ? 'error' : 'ok')
       yield* finishedEvents(task, input.lang, record)
       return
     }

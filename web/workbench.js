@@ -4714,9 +4714,13 @@
     if (ev.type === 'session') { chatState().sessionId = ev.sessionId; return }
     if (ev.type === 'text') { turn.text += ev.text || ''; return }
     if (ev.type === 'tool') {
+      // A new run always gets its own row (two parallel Bash runs are two rows);
+      // a result closes the OLDEST open run of that name -- results come in call order.
       var found = null
-      for (var i = turn.tools.length - 1; i >= 0; i--) {
-        if (turn.tools[i].name === ev.name && turn.tools[i].status === 'running') { found = turn.tools[i]; break }
+      if (ev.status !== 'running') {
+        for (var i = 0; i < turn.tools.length; i++) {
+          if (turn.tools[i].name === ev.name && turn.tools[i].status === 'running') { found = turn.tools[i]; break }
+        }
       }
       if (found) { found.status = ev.status; found.detail = ev.detail || found.detail; found.approvalId = ev.approvalId || found.approvalId }
       else turn.tools.push({ name: ev.name, status: ev.status, detail: ev.detail || '', approvalId: ev.approvalId || '' })

@@ -5,6 +5,10 @@ import {
 } from '../workbench-agent/code-bridge-turn.js'
 import type { OrchestratorEvent } from '../workbench-agent/orchestrator.js'
 import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
+import { createTranscriptToolFeed } from '../workbench-agent/code-bridge-tool-feed.js'
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 /** A generator osszes esemenye egy tombbe. */
 async function collect(gen: AsyncGenerator<OrchestratorEvent>): Promise<OrchestratorEvent[]> {
@@ -246,5 +250,64 @@ describe('#433: a teljes erteku mod a BESZELGETES resze (2026-09-28, merve)', ()
     }))
     expect(evs.some((e) => e.type === 'notice' && (e as { code: string }).code === 'code_bridge_timeout')).toBe(true)
     await vi.waitFor(() => expect(recorded.some(([r, c]) => r === 'assistant' && c === 'Kesve, de kesz.')).toBe(true))
+  })
+})
+
+describe('#434: a kod-hid eszkozfutasai egyenkent latszanak (Boss, 2026-09-29, "A")', () => {
+  const row = (ts: string, type: 'assistant' | 'user', content: unknown[]): string =>
+    JSON.stringify({ type, timestamp: ts, message: { role: type, content } })
+
+  it('a transzkript uj tool_use/tool_result sorai Parancsfutas-esemenyek lesznek, a regiek nem', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bridge-feed-'))
+    const p = join(dir, 'x.jsonl')
+    const start = Date.parse('2026-09-29T10:00:00Z')
+    writeFileSync(p, [
+      row('2026-09-29T09:00:00Z', 'assistant', [{ type: 'tool_use', id: 'old', name: 'Read', input: { file_path: '/regi.md' } }]),
+      row('2026-09-29T10:00:01Z', 'assistant', [{ type: 'tool_use', id: 'a', name: 'Read', input: { file_path: '/p/terv.md' } }]),
+      '',
+    ].join('\n'))
+    const feed = createTranscriptToolFeed(start)
+    expect(feed.read(p)).toEqual([{ type: 'tool', name: 'Read', status: 'running', detail: '/p/terv.md' }])
+    // Felig irt sor: a kovetkezo korig var, nem vesz el.
+    const done = row('2026-09-29T10:00:02Z', 'user', [{ type: 'tool_result', tool_use_id: 'a', content: 'ok' }])
+    appendFileSync(p, done.slice(0, 20))
+    expect(feed.read(p)).toEqual([])
+    appendFileSync(p, done.slice(20) + '\n'
+      + row('2026-09-29T10:00:03Z', 'assistant', [{ type: 'tool_use', id: 'b', name: 'Bash', input: { command: 'npm test', description: 'Tesztek' } }]) + '\n')
+    expect(feed.read(p)).toEqual([
+      { type: 'tool', name: 'Read', status: 'ok' },
+      { type: 'tool', name: 'Bash', status: 'running', detail: 'Tesztek' },
+    ])
+    // A feladat vege lezarja a nyitva maradt futast, hogy ne porogjon orokke.
+    expect(feed.read(p, 'error')).toEqual([{ type: 'tool', name: 'Bash', status: 'error' }])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('a fordulo a futas kozben es a vegen is kiadja a toolRuns esemenyeit', async () => {
+    const clock = fakeClock(1000)
+    const tasks = fakeTasks([task('running'), task('done', { result: 'Kesz.' })])
+    const calls: Array<string | undefined> = []
+    const evs = await collect(runCodeBridgeTurn(baseInput, {
+      enqueue: () => ({ ok: true, id: 't9' }), getTask: tasks.getTask, now: clock.now, sleep: clock.sleep,
+      toolRuns: (id, finish) => {
+        calls.push(finish)
+        expect(id).toBe('t9')
+        return finish ? [{ type: 'tool', name: 'Edit', status: finish }] : [{ type: 'tool', name: 'Edit', status: 'running', detail: '/a.ts' }]
+      },
+    }))
+    expect(calls).toEqual([undefined, 'ok'])
+    const tools = evs.filter((e) => e.type === 'tool').map((e) => `${(e as { name: string }).name}:${(e as { status: string }).status}`)
+    expect(tools).toEqual(['code-bridge:running', 'Edit:running', 'Edit:ok', 'code-bridge:ok'])
+    expect(evs.at(-1)).toMatchObject({ type: 'done' })
+  })
+
+  it('ha a toolRuns eldobja magat, a valasz akkor is megjon', async () => {
+    const clock = fakeClock(1000)
+    const tasks = fakeTasks([task('running'), task('done', { result: 'Kesz.' })])
+    const evs = await collect(runCodeBridgeTurn(baseInput, {
+      enqueue: () => ({ ok: true, id: 't' }), getTask: tasks.getTask, now: clock.now, sleep: clock.sleep,
+      toolRuns: () => { throw new Error('EACCES') },
+    }))
+    expect(evs.some((e) => e.type === 'text')).toBe(true)
   })
 })
