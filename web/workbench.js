@@ -5837,6 +5837,8 @@
       // nem torolheti le a kepernyorol a sajat mondatat es a valaszt.
       attachHistoryTools(regi, r.data.messages || [], r.data.toolCalls || [])
       st.turns = regi.concat(st.turns)
+      // The freshly loaded history opens at its latest message.
+      WB.chatForceBottom = true
       renderChat()
       // Elnavigalas / ujratoltes utan (Boss, 2026-09-28): ha a valasz a
       // szerveren meg KESZUL, azt mutatjuk es megvarjuk -- nem "semmi nem
@@ -6258,6 +6260,41 @@
     if (tools && typeof tools.scrollHeight === 'number') tools.scrollTop = tools.scrollHeight
   }
 
+  // Kanban #444 (Boss, TG 1864): while the agent works, every redraw jumped the
+  // chat back to the bottom, so the owner could not scroll up and read. A pane
+  // follows new output only while it was already at the bottom; once the owner
+  // scrolls up, the redraw keeps the position they scrolled to. Sending a message,
+  // opening the chat or switching items still goes to the bottom.
+  var CHAT_PANES = ['wbChatLog', 'wbChatTools']
+  var CHAT_BOTTOM_SLACK = 40
+
+  function chatScrollSnapshot() {
+    var snap = { target: WB.selectedId || '', panes: {} }
+    if (typeof document.getElementById !== 'function') return snap
+    for (var i = 0; i < CHAT_PANES.length; i++) {
+      var el = document.getElementById(CHAT_PANES[i])
+      if (!el || typeof el.scrollTop !== 'number' || typeof el.scrollHeight !== 'number') continue
+      var client = typeof el.clientHeight === 'number' ? el.clientHeight : 0
+      snap.panes[CHAT_PANES[i]] = { top: el.scrollTop, atBottom: el.scrollHeight - el.scrollTop - client <= CHAT_BOTTOM_SLACK }
+    }
+    return snap
+  }
+
+  function restoreChatScroll(snap) {
+    if (WB.chatForceBottom || !snap || snap.target !== (WB.selectedId || '')) {
+      WB.chatForceBottom = false
+      scrollChatToBottom()
+      return
+    }
+    if (typeof document.getElementById !== 'function') return
+    for (var i = 0; i < CHAT_PANES.length; i++) {
+      var el = document.getElementById(CHAT_PANES[i])
+      if (!el || typeof el.scrollHeight !== 'number') continue
+      var was = snap.panes[CHAT_PANES[i]]
+      el.scrollTop = was && !was.atBottom ? was.top : el.scrollHeight
+    }
+  }
+
   /** CSAK a chat-sav ujrarajzolasa: streameles kozben a teljes oldal ujraepitese
    *  elvenne a fokuszt es a gorgetest. Ha a sav nincs a DOM-ban (meg nem
    *  rajzoltunk), a teljes rajzolas lep a helyebe. */
@@ -6266,8 +6303,9 @@
     if (!el || typeof el.innerHTML !== 'string') { render(); return }
     var focused = false
     try { focused = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { focused = false }
+    var scrollSnap = chatScrollSnapshot()
     el.innerHTML = chatInnerHtml()
-    scrollChatToBottom()
+    restoreChatScroll(scrollSnap)
     if (focused) {
       var input = document.getElementById('wbChatInput')
       if (input && typeof input.focus === 'function') {
@@ -6394,6 +6432,8 @@
     // elkuldhetok, ahogy a szokasos chatekben.
     var attached = WB.selectedId ? (WB.chatAttached[WB.selectedId] || []) : []
     if (!text && !attached.length) return
+    // The owner's own new message must be visible, wherever he had scrolled.
+    WB.chatForceBottom = true
     if (attached.length) {
       text = withAttachedLine(text, attached, (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000)
       WB.chatAttached[WB.selectedId] = []
@@ -7460,6 +7500,7 @@
     var oldVid = document.getElementById('wbVideo')
     var vidKeep = oldVid && typeof oldVid.currentTime === 'number' && oldVid.currentTime > 0 && oldVid.getAttribute
       ? { src: oldVid.getAttribute('src'), at: oldVid.currentTime } : null
+    var chatScroll = chatScrollSnapshot()
     el.innerHTML = '<div class="wb-root">'
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
@@ -7488,8 +7529,8 @@
       + layoutHtml()
       + '</div>'
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
-    // ami kulonben a tetejen allna.
-    scrollChatToBottom()
+    // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
+    restoreChatScroll(chatScroll)
     if (WB.formOpen) {
       var input = document.getElementById('wbNewTitle')
       if (input) input.focus()
@@ -7852,6 +7893,7 @@
     WB.decError = null
     WB.decBusy = false
     WB.decEdit = null
+    WB.chatForceBottom = true
     render()
     load(projectId)
     loadChatStatus()
