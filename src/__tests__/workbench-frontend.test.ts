@@ -1146,6 +1146,22 @@ describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
     expect(h.fetchCalls.length).toBe(before)
   })
 
+  // #443: regi verzio vegleges torlese, rakerdezes nelkul; a jelenlegi nem torolheto.
+  it('verzio torlese: csak a regihez van gomb, rakerdezes nelkul DELETE, a lista frissul', async () => {
+    await openVersions([V2, V1])
+    expect(h.rootEl.innerHTML).toMatch(/data-wb-act="version-delete"[^>]*data-wb-version="v1"/)
+    expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="version-delete"[^>]*data-wb-version="v2"/)
+    const asked: string[] = []
+    h.win.confirm = (m: string) => { asked.push(m); return true }
+    h.respond(() => ({ status: 200, body: { ok: true, item: { ...PREV_ITEM, current_version_id: 'v2' }, versions: [V2] } }))
+    h.click({ 'data-wb-act': 'version-delete', 'data-wb-version': 'v1' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.versions.deleted'))
+    expect(asked).toEqual([])
+    const del = h.fetchCalls.filter((c) => c.init && c.init.method === 'DELETE').pop()
+    expect(del!.url).toContain('/api/workbench/items/w1/versions/v1')
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-version="v1"')
+  })
+
   it('mentes uj verziokent: POST a /versions-re, es szol rola', async () => {
     await openVersions([V2, V1])
     h.respond(() => ({

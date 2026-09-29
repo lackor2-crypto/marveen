@@ -171,17 +171,67 @@
   opacity: 0.75;
 }
 
-.wb-ctx-block { border-top: 1px solid var(--border, #d0d7de); padding-top: 8px; }
-.wb-ctx-block:first-of-type { border-top: 0; padding-top: 0; }
-.wb-ctx-block h3 { margin: 0 0 4px; font-size: 0.85rem; }
-.wb-ctx-block p { margin: 0 0 2px; word-break: break-word; }
-.wb-versions { margin: 0; padding-left: 18px; font-size: 0.9rem; }
-.wb-assets { margin: 0 0 6px; padding-left: 18px; font-size: 0.9rem; }
-.wb-asset { margin: 2px 0; word-break: break-word; }
+.wb-ctx-block {
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+  background: var(--bg-card, transparent);
+}
+.wb-ctx-block h3 { margin: 0 0 6px; font-size: 0.9rem; font-weight: 600; }
+.wb-ctx-block p { margin: 0 0 4px; word-break: break-word; }
+.wb-ctx-block .wb-hint { margin-top: 4px; }
+.wb-ctx-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px !important; }
+/* #443: valodi gomb-kinezet a panel gombjainak (eddig nem volt stilusa, a
+   "Fajl hozzaadasa" sima szovegnek latszott). A <label> is igy nez ki. */
+.wb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-input, transparent);
+  color: var(--text, inherit);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: var(--radius-sm, 6px);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.wb-btn:hover:not(:disabled) { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
+.wb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Lista-sor: balra a tartalom, jobbra a gombok egy oszlopban. */
+.wb-versions, .wb-assets { list-style: none; margin: 0 0 6px; padding: 0; font-size: 0.9rem; }
+.wb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border, #d0d7de);
+}
+.wb-row:first-child { border-top: 0; }
+.wb-row-main { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+.wb-row-act { flex: 0 0 auto; display: flex; gap: 6px; justify-content: flex-end; }
+.wb-mini-btn {
+  padding: 3px 10px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wb-mini-btn:hover:not(:disabled) { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
+.wb-mini-danger:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; }
+.wb-asset { word-break: break-word; }
 .wb-asset-sup { font-size: 0.75rem; }
 .wb-asset-sup-needs_processor, .wb-asset-sup-unsupported { opacity: 0.75; }
 .wb-asset-shared { font-size: 0.75rem; }
-.wb-shared-block { margin: 4px 0 0; padding: 6px 8px; border-left: 3px solid var(--accent, #3b82f6); }
+.wb-shared-block { margin: 6px 0 0; }
 .wb-chat-attach { cursor: pointer; }
 .wb-assets-block.wb-drop-hover, .wb-root.wb-dragging .wb-assets-block { outline: 2px dashed var(--accent, #3b82f6); outline-offset: 2px; }
 .wb-assets-block.wb-flash { outline: 2px solid var(--accent, #3b82f6); outline-offset: 2px; }
