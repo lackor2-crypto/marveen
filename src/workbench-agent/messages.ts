@@ -76,6 +76,10 @@ export const MESSAGES = {
     hu: 'A VS Code kódhíd futása elakadt (időkorlát), a munkát a(z) {to} fiókkal folytatom.',
     en: 'The VS Code code bridge run stalled (time limit), I continue the work with the {to} account.',
   },
+  code_bridge_updating: {
+    hu: 'A VS Code kódhíd Claude Code programja elavult. Megnézem, tudom-e frissíteni a Windows gépen.',
+    en: 'The VS Code code bridge Claude Code is out of date. I am checking whether I can update it on the Windows machine.',
+  },
   code_bridge_outdated_fallback: {
     hu: 'A VS Code kódhíd Claude Code programja elavult, ezt a modellt nem ismeri (nem keretprobléma). A munkát a(z) {to} fiókkal folytatom.',
     en: 'The VS Code code bridge Claude Code is out of date and does not know this model (not a quota problem). I continue the work with the {to} account.',

@@ -78,6 +78,11 @@ export interface CodeBridgeTurnDeps {
   /** Set when the task is handed to the background: a continuation that
    *  already took the work over must not get the stale outcome written. */
   wasContinued?(taskId: string): boolean
+  /** The bridge's Claude Code is too old (#446): try to update it. When it
+   *  reports `updated`, the turn starts the task again ONCE; `notice` (already
+   *  in the turn's language) is shown either way. Missing = no repair. */
+  repairPossible?(): boolean
+  repairOutdatedBridge?(detail: string, lang: Lang): Promise<{ updated: boolean; notice: string | null }>
 }
 
 export interface CodeBridgeTurnInput {
@@ -233,7 +238,9 @@ export async function* runCodeBridgeTurn(
     return
   }
 
-  yield { type: 'notice', code: 'code_bridge_handed_off', message: msg('code_bridge_handed_off', input.lang, { id: enq.id }) }
+  let taskId = enq.id
+  let repairTried = false
+  yield { type: 'notice', code: 'code_bridge_handed_off', message: msg('code_bridge_handed_off', input.lang, { id: taskId }) }
   // Latszo folyamatjelzo a chat-panelen (a kod-hid-nezetre mutat a szoveg).
   yield { type: 'tool', name: 'code-bridge', status: 'running' }
 
@@ -244,8 +251,8 @@ export async function* runCodeBridgeTurn(
     if (input.signal?.aborted) {
       // Leallitas: a sorban is lezarjuk, hogy a worker ne dolgozzon tovabb
       // egy olyan kerdesen, amire mar senki nem var.
-      try { deps.cancel?.(enq.id) } catch { /* a lezaras hibaja nem uj hiba a chatben */ }
-      yield* toolRuns(enq.id, 'ok')
+      try { deps.cancel?.(taskId) } catch { /* a lezaras hibaja nem uj hiba a chatben */ }
+      yield* toolRuns(taskId, 'ok')
       const m = msg('code_bridge_cancelled', input.lang)
       record('system', m)
       yield { type: 'tool', name: 'code-bridge', status: 'ok' }
@@ -254,7 +261,7 @@ export async function* runCodeBridgeTurn(
       return
     }
 
-    const task = deps.getTask(enq.id)
+    const task = deps.getTask(taskId)
     if (!task) {
       const m = msg('code_bridge_lost', input.lang)
       record('system', m)
@@ -270,10 +277,33 @@ export async function* runCodeBridgeTurn(
       }
     }
 
-    if (task.status === 'running') yield* toolRuns(enq.id)
+    if (task.status === 'running') yield* toolRuns(taskId)
 
     if (task.status === 'done' || task.status === 'error' || task.status === 'cancelled') {
-      yield* toolRuns(enq.id, task.status === 'error' ? 'error' : 'ok')
+      yield* toolRuns(taskId, task.status === 'error' ? 'error' : 'ok')
+      // #446: a too-old bridge program is repaired and the task started again,
+      // once per turn (the updater itself allows one attempt per hour).
+      const outdated = task.status === 'error' && !repairTried && deps.repairOutdatedBridge ? codeBridgeOutdatedDetail(task) : null
+      if (outdated && deps.repairOutdatedBridge) {
+        repairTried = true
+        if (deps.repairPossible?.() !== false) {
+          yield { type: 'notice', code: 'code_bridge_updating', message: msg('code_bridge_updating', input.lang) }
+        }
+        let fix: { updated: boolean; notice: string | null } | null = null
+        try { fix = await deps.repairOutdatedBridge(outdated, input.lang) } catch { fix = null }
+        if (fix?.notice) {
+          record('system', fix.notice)
+          yield { type: 'notice', code: 'code_bridge_update_result', message: fix.notice }
+        }
+        if (fix?.updated) {
+          const again = deps.enqueue({ project: input.projectRef, prompt: input.prompt ?? input.message, requestedBy: input.requestedBy, chatId: input.chatId ?? null })
+          if (again.ok) {
+            taskId = again.id
+            lastStatus = ''
+            continue
+          }
+        }
+      }
       const quiet = !!codeBridgeContinuable(task) && !!deps.canContinueElsewhere?.()
       yield* finishedEvents(task, input.lang, quiet ? () => { /* continued elsewhere */ } : record)
       return
@@ -283,9 +313,9 @@ export async function* runCodeBridgeTurn(
       // Nem hagyjuk oroktol fogva nyitva a chat-kapcsolatot: a munka a
       // hattérben tovabb mehet, a Kod-hidon kovetheto -- ES a kesve erkezo
       // valasz is bekerul a beszelgetesbe (kulonben sehol nem latszana a chatben).
-      const m = msg('code_bridge_timeout', input.lang, { id: enq.id })
+      const m = msg('code_bridge_timeout', input.lang, { id: taskId })
       record('system', m)
-      void followInBackground(enq.id, deps, input.lang, record)
+      void followInBackground(taskId, deps, input.lang, record)
       // NEM mondjuk kesznek (Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz
       // ha meg nincs keszen"): se zold pipa, se `done`. A folyam `done` nelkul
       // zarul, a felulet a szervert kerdezi, ami a meg futo feladat miatt
