@@ -31,12 +31,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
-import { getProject, type ProjectRow } from './projects.js'
+import { APP_LANG } from './config.js'
+import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel } from './life-explorer.js'
-import { safeLifeName } from './life-tree.js'
+import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
+import { writeBlockReason } from './git-guard.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -146,17 +148,84 @@ export function workItemFolder(itemId: string): string | null {
 }
 
 /**
- * Egy UJ mappa a projekt fomappajaban a megadott nevvel; foglalt nevnel
- * `nev (2)`, `nev (3)`... -- egy mar letezo mappat (ami lehet egy masik
- * munkadarabe, vagy a felhasznalo sajatja) NEM veszunk at csendben.
+ * The project's "Munkadarabok" (Work items) folder: every work item's own
+ * folder lives under it, so the project root keeps its few permanent folders.
+ * An existing folder of either language name is taken over (unless it is a
+ * work item's own folder); otherwise it is created.
  */
-export function makeFreshFolder(project: ProjectRow, wanted: string): FolderOutcome {
+export function projectWorkItemsFolder(project: ProjectRow): SharedFolderOutcome {
+  ensureAssetTables()
   const root = projectFileTarget(project, '')
   if (!root.ok) return root
-  const name = freeFileName(root.dirAbs, folderNameFromTitle(wanted))
+  const names = [lifeName('workItems'), lifeName('workItems', APP_LANG === 'hu' ? 'en' : 'hu')]
+  for (const n of names) {
+    const abs = join(root.dirAbs, n)
+    let isDir = false
+    try { isDir = existsSync(abs) && statSync(abs).isDirectory() } catch { isDir = false }
+    if (!isDir || folderIsItems(project.id, n)) continue
+    const t = projectFileTarget(project, n)
+    if (t.ok) return { ok: true, folder: n, dirAbs: t.dirAbs, dirRel: t.dirRel, created: false }
+  }
+  const name = freeFileName(root.dirAbs, names[0] as string)
   const r = makeProjectFolder(project, '', name)
   if (!r.ok) return r
+  const t = projectFileTarget(project, r.sub)
+  if (!t.ok) return t
+  return { ok: true, folder: r.sub, dirAbs: t.dirAbs, dirRel: t.dirRel, created: r.created }
+}
+
+/**
+ * A fresh work item folder under the project's "Munkadarabok" folder; a taken
+ * name becomes `name (2)` -- an existing folder (maybe another item's, maybe
+ * the user's own) is never taken over silently.
+ */
+export function makeFreshFolder(project: ProjectRow, wanted: string): FolderOutcome {
+  const box = projectWorkItemsFolder(project)
+  if (!box.ok) return { ok: false, code: box.code === 'no_shared_folder' ? 'not_found' : box.code, ...(box.message ? { message: box.message } : {}) }
+  const name = freeFileName(box.dirAbs, folderNameFromTitle(wanted))
+  const r = makeProjectFolder(project, box.folder, name)
+  if (!r.ok) return r
   return { ok: true, folder: r.sub, created: r.created }
+}
+
+export interface FolderMigration { moved: number; skipped: number; container: string | null }
+
+/** Every project with a folder gets its "Munkadarabok" folder and the old item folders move under it. */
+export function migrateAllWorkItemFolders(): { projects: number; moved: number; skipped: number } {
+  let projects = 0, moved = 0, skipped = 0
+  for (const p of listProjects({ includeArchived: true })) {
+    if (!p.folder_path) continue
+    const r = migrateWorkItemFolders(p)
+    if (r.container) projects++
+    moved += r.moved
+    skipped += r.skipped
+  }
+  return { projects, moved, skipped }
+}
+
+/**
+ * Makes sure the project has its "Munkadarabok" folder and moves the work item
+ * folders that still sit elsewhere under it (registry paths follow). Items
+ * whose folder is shared with another item or holds a drawing stay where they
+ * are (relocateWorkItemFolder says why). Idempotent.
+ */
+export function migrateWorkItemFolders(project: ProjectRow): FolderMigration {
+  ensureAssetTables()
+  const box = projectWorkItemsFolder(project)
+  if (!box.ok) return { moved: 0, skipped: 0, container: null }
+  let moved = 0
+  let skipped = 0
+  const items = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(project.id) as { id: string }[]
+  for (const { id } of items) {
+    const item = getWorkItem(id)
+    const folder = item ? workItemFolder(id) : null
+    if (!item || !folder || folder === box.folder || folder.startsWith(box.folder + '/')) continue
+    const seg = folder.includes('/') ? folder.slice(folder.lastIndexOf('/') + 1) : folder
+    const r = relocateWorkItemFolder(item, seg, box.folder)
+    if (r.ok && r.renamed) moved++
+    else skipped++
+  }
+  return { moved, skipped, container: box.folder }
 }
 
 /**
@@ -590,6 +659,16 @@ export type FolderRenameOutcome =
  *     nem irjuk at vakon -- a mappa ilyenkor a regi neven marad.
  */
 export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): FolderRenameOutcome {
+  return relocateWorkItemFolder(item, folderNameFromTitle(newTitle), null)
+}
+
+/**
+ * The one mover behind both the rename and the move into the project's
+ * "Munkadarabok" folder: the folder gets the name `wanted` under `newParentRel`
+ * (project-relative; null = stay under the current parent), and every path the
+ * registry keeps follows in one transaction.
+ */
+function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel: string | null): FolderRenameOutcome {
   ensureAssetTables()
   const folder = workItemFolder(item.id)
   if (!folder) return { ok: true, renamed: false, reason: 'no_folder' }
@@ -597,10 +676,10 @@ export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): Folde
   if (!project) return { ok: true, renamed: false, reason: 'missing' }
   const cur = projectFileTarget(project, folder)
   if (!cur.ok) return { ok: true, renamed: false, reason: 'missing' }
-  const wanted = folderNameFromTitle(newTitle)
-  const parentRel = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : ''
+  const curParentRel = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : ''
+  const parentRel = newParentRel ?? curParentRel
   const lastSeg = folder.includes('/') ? folder.slice(folder.lastIndexOf('/') + 1) : folder
-  if (wanted === lastSeg) return { ok: true, renamed: false, reason: 'same_name' }
+  if (wanted === lastSeg && parentRel === curParentRel) return { ok: true, renamed: false, reason: 'same_name' }
   const oldPrefix = cur.dirRel + '/'
   const db = getDb()
   const like = oldPrefix.replace(/[\\%_]/g, (c) => '\\' + c) + '%'
@@ -613,14 +692,19 @@ export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): Folde
   let hasCanvas = false
   try { hasCanvas = readdirSync(cur.dirAbs).some((n) => isCanvasFile(n)) } catch { return { ok: true, renamed: false, reason: 'missing' } }
   if (hasCanvas) return { ok: true, renamed: false, reason: 'canvas' }
-  const parentAbs = cur.dirAbs.slice(0, cur.dirAbs.length - lastSeg.length - 1)
+  const parentT = projectFileTarget(project, parentRel)
+  if (!parentT.ok) return { ok: true, renamed: false, reason: 'missing' }
+  const parentAbs = parentT.dirAbs
+  if (parentAbs === cur.dirAbs || parentAbs.startsWith(cur.dirAbs + sep)) return { ok: true, renamed: false, reason: 'missing' }
+  const blocked = writeBlockReason(parentT.dirRel)
+  if (blocked) return { ok: false, code: 'move_failed', message: blocked }
   const newSeg = freeFileName(parentAbs, wanted)
   const newAbs = join(parentAbs, newSeg)
   const newFolder = parentRel ? `${parentRel}/${newSeg}` : newSeg
   try { renameSync(cur.dirAbs, newAbs) } catch (e) {
     return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
   }
-  const newPrefix = (toLifeRel(newAbs) || `${cur.dirRel.slice(0, cur.dirRel.length - lastSeg.length)}${newSeg}`) + '/'
+  const newPrefix = (toLifeRel(newAbs) || `${parentT.dirRel}/${newSeg}`) + '/'
   const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
   try {
     db.transaction(() => {

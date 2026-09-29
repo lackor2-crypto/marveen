@@ -10,7 +10,7 @@ import { createProject, updateProject, getProject, setProjectArchived, type Proj
 import { createWorkItem } from '../workbench.js'
 import {
   projectSharedFolder, listSharedFiles, uploadSharedFile, linkSharedAsset, listWorkItemAssets,
-  attachAsset, unlinkAsset, renameWorkItemFolder,
+  attachAsset, unlinkAsset, renameWorkItemFolder, adoptExistingFolder,
 } from '../workbench-assets.js'
 import { getWorkItem } from '../workbench.js'
 import { executeTool } from '../workbench-agent/execute.js'
@@ -73,8 +73,11 @@ describe('a projekt kozos tara', () => {
   })
 
   it('egy mar letezo, kezzel csinalt "Közös anyagok" mappat felismer; egy MUNKADARAB ilyen nevu mappajat nem veszi at', () => {
+    // A regi, meg nem koltoztetett munkadarab-mappa a projekt gyokerben all.
     const item = newItem('Közös anyagok')
-    attachAsset(item, 'sajat.md', Buffer.from('MUNKADARABE'))
+    mkdirSync(join(depot, 'Projektek', 'Iroda', 'Közös anyagok'))
+    writeFileSync(join(depot, 'Projektek', 'Iroda', 'Közös anyagok', 'sajat.md'), 'MUNKADARABE')
+    expect(adoptExistingFolder(item, project, 'Közös anyagok').ok).toBe(true)
     expect(getWorkItem(item.id)?.folder).toBe('Közös anyagok')
     expect(projectSharedFolder(project).ok).toBe(false)
     const up = uploadSharedFile(project, 'logo.png', Buffer.from('PNG'))
@@ -148,10 +151,10 @@ describe('a projekt kozos tara', () => {
     attachAsset(item, 'szoveg.md', Buffer.from('# x'))
     linkSharedAsset(item, 'logo.png')
     const r = renameWorkItemFolder(getWorkItem(item.id)!, 'Poszt uj')
-    expect(r).toMatchObject({ ok: true, renamed: true, to: 'Poszt uj' })
+    expect(r).toMatchObject({ ok: true, renamed: true, to: 'Munkadarabok/Poszt uj' })
     const assets = listWorkItemAssets(item.id)
     expect(assets.find((x) => x.name === 'logo.png')).toMatchObject({ path: 'Projektek/Iroda/Közös anyagok/logo.png', present: true, shared: true })
-    expect(assets.find((x) => x.name === 'szoveg.md')).toMatchObject({ project_path: 'Poszt uj/szoveg.md', shared: false })
+    expect(assets.find((x) => x.name === 'szoveg.md')).toMatchObject({ project_path: 'Munkadarabok/Poszt uj/szoveg.md', shared: false })
   })
 
   it('az agent: project.listShared (olvaso, szabad) es workItem.linkShared (iro, kategoriaval); a kontextus jeloli', () => {

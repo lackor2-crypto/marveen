@@ -10,7 +10,8 @@ import { createProject, updateProject, getProject, setProjectArchived, type Proj
 import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, listWorkItemVersions } from '../workbench.js'
 import {
   assetSupport, folderNameFromTitle, attachAsset, listWorkItemAssets, tidyWorkItemIntoFolder,
-  listWorkItemAssetsSynced, renameWorkItemFolder,
+  listWorkItemAssetsSynced, renameWorkItemFolder, adoptExistingFolder, registerAsset,
+  migrateAllWorkItemFolders, projectWorkItemsFolder,
 } from '../workbench-assets.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
@@ -75,13 +76,13 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     const item = newItem()
     const r = await callWorkbench(`/api/workbench/items/${item.id}/assets?name=${encodeURIComponent('valasz.md')}`, 'POST', Buffer.from('# Valasz'))
     expect(r.status).toBe(201)
-    expect(r.body.folder).toBe('Marvin Workbench terv')
+    expect(r.body.folder).toBe('Munkadarabok/Marvin Workbench terv')
     expect(r.body.folder_created).toBe(true)
     expect(r.body.asset.support).toBe('readable')
-    expect(r.body.asset.project_path).toBe('Marvin Workbench terv/valasz.md')
-    expect(readFileSync(join(projDir(), 'Marvin Workbench terv', 'valasz.md'), 'utf-8')).toBe('# Valasz')
+    expect(r.body.asset.project_path).toBe('Munkadarabok/Marvin Workbench terv/valasz.md')
+    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'valasz.md'), 'utf-8')).toBe('# Valasz')
     expect(listWorkItems(pid)).toHaveLength(1)
-    expect(getWorkItem(item.id)?.folder).toBe('Marvin Workbench terv')
+    expect(getWorkItem(item.id)?.folder).toBe('Munkadarabok/Marvin Workbench terv')
   })
 
   it('K-0.15: tobb fajl egymas utan ugyanabba a mappaba; a lista a GET-ben is ott van, allapottal', async () => {
@@ -124,13 +125,13 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
   })
 
   it('a mappanev foglalt (pl. a felhasznalo sajat mappaja): `nev (2)` lesz, a meglevobe nem ir', () => {
-    mkdirSync(join(projDir(), 'Marvin Workbench terv'))
-    writeFileSync(join(projDir(), 'Marvin Workbench terv', 'sajat.txt'), 'SAJAT')
+    mkdirSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv'), { recursive: true })
+    writeFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'sajat.txt'), 'SAJAT')
     const item = newItem()
     const r = attachAsset(item, 'uj.md', Buffer.from('UJ'))
     expect(r.ok).toBe(true)
-    if (r.ok) expect(r.folder).toBe('Marvin Workbench terv (2)')
-    expect(readFileSync(join(projDir(), 'Marvin Workbench terv', 'sajat.txt'), 'utf-8')).toBe('SAJAT')
+    if (r.ok) expect(r.folder).toBe('Munkadarabok/Marvin Workbench terv (2)')
+    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'sajat.txt'), 'utf-8')).toBe('SAJAT')
   })
 
   it('levetel a listarol: a FAJL a mappaban marad', async () => {
@@ -139,7 +140,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     const del = await callWorkbench(`/api/workbench/items/${item.id}/assets/${up.body.asset.id}`, 'DELETE')
     expect(del.status).toBe(200)
     expect(del.body.assets).toHaveLength(0)
-    expect(existsSync(join(projDir(), 'Marvin Workbench terv', 'a.md'))).toBe(true)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'a.md'))).toBe(true)
     expect((await callWorkbench(`/api/workbench/items/${item.id}/assets/${up.body.asset.id}`, 'DELETE')).status).toBe(404)
   })
 
@@ -151,12 +152,12 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       createWorkItemVersion(w.item.id, { source_path: 'Projektek/Iroda/terv.md' })
       const r = await callWorkbench(`/api/workbench/items/${w.item.id}/tidy`, 'POST', {})
       expect(r.status).toBe(200)
-      const to = 'Projektek/Iroda/Marvin Workbench implementacios terv/terv.md'
+      const to = 'Projektek/Iroda/Munkadarabok/Marvin Workbench implementacios terv/terv.md'
       expect(r.body.moved).toEqual([{ from: 'Projektek/Iroda/terv.md', to }])
       expect(getWorkItem(w.item.id)?.source_path).toBe(to)
       expect(listWorkItemVersions(w.item.id).every((v) => v.source_path === to)).toBe(true)
       expect(existsSync(join(projDir(), 'terv.md'))).toBe(false)
-      expect(readFileSync(join(projDir(), 'Marvin Workbench implementacios terv', 'terv.md'), 'utf-8')).toBe('TERV')
+      expect(readFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench implementacios terv', 'terv.md'), 'utf-8')).toBe('TERV')
       expect(listWorkItemAssets(w.item.id).map((a) => a.path)).toEqual([to])
     })
 
@@ -196,7 +197,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     it('a mappaba kezzel tett fajlok maguktol megjelennek az anyagok kozott (rejtett / futtathato kimarad)', async () => {
       const item = newItem()
       attachAsset(item, 'elso.md', Buffer.from('1'))
-      const dir = join(projDir(), 'Marvin Workbench terv')
+      const dir = join(projDir(), 'Munkadarabok', 'Marvin Workbench terv')
       writeFileSync(join(dir, 'v2.md'), '2')
       writeFileSync(join(dir, 'v3.md'), '3')
       writeFileSync(join(dir, 'desktop.ini'), 'x')
@@ -214,17 +215,17 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       const item = newItem('Regi nev')
       const r0 = attachAsset(item, 'a.md', Buffer.from('A'))
       if (!r0.ok) throw new Error('attach')
-      const src = 'Projektek/Iroda/Regi nev/a.md'
+      const src = 'Projektek/Iroda/Munkadarabok/Regi nev/a.md'
       createWorkItemVersion(item.id, { source_path: src })
       const r = executeTool('workItem.update', { id: item.id, title: 'Uj nev' }, { projectId: pid, workItemId: item.id, lang: 'hu' })
       expect(r.ok).toBe(true)
-      if (r.ok) expect((r.data as { folder_rename: unknown }).folder_rename).toEqual({ ok: true, renamed: true, from: 'Regi nev', to: 'Uj nev' })
+      if (r.ok) expect((r.data as { folder_rename: unknown }).folder_rename).toEqual({ ok: true, renamed: true, from: 'Munkadarabok/Regi nev', to: 'Munkadarabok/Uj nev' })
       const after = getWorkItem(item.id)
-      expect(after?.folder).toBe('Uj nev')
-      expect(after?.source_path).toBe('Projektek/Iroda/Uj nev/a.md')
-      expect(listWorkItemAssets(item.id)[0].path).toBe('Projektek/Iroda/Uj nev/a.md')
-      expect(readFileSync(join(projDir(), 'Uj nev', 'a.md'), 'utf-8')).toBe('A')
-      expect(existsSync(join(projDir(), 'Regi nev'))).toBe(false)
+      expect(after?.folder).toBe('Munkadarabok/Uj nev')
+      expect(after?.source_path).toBe('Projektek/Iroda/Munkadarabok/Uj nev/a.md')
+      expect(listWorkItemAssets(item.id)[0].path).toBe('Projektek/Iroda/Munkadarabok/Uj nev/a.md')
+      expect(readFileSync(join(projDir(), 'Munkadarabok', 'Uj nev', 'a.md'), 'utf-8')).toBe('A')
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Regi nev'))).toBe(false)
     })
 
     it('K-0.11: a felulet atnevezes-vegpontja: uj nev + mappa, ures nev elutasitva', async () => {
@@ -235,26 +236,26 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       const r = await callWorkbench(`/api/workbench/items/${item.id}/rename`, 'POST', { title: 'Friss' })
       expect(r.status).toBe(200)
       expect(r.body.item.title).toBe('Friss')
-      expect(r.body.folder_rename).toEqual({ ok: true, renamed: true, from: 'Regi', to: 'Friss' })
-      expect(existsSync(join(projDir(), 'Friss', 'a.md'))).toBe(true)
+      expect(r.body.folder_rename).toEqual({ ok: true, renamed: true, from: 'Munkadarabok/Regi', to: 'Munkadarabok/Friss' })
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Friss', 'a.md'))).toBe(true)
     })
 
     it('K-0.11: foglalt uj nev -> `nev (2)`; masik munkadarab altal hivatkozott vagy rajzot tarto mappa marad (megmondja, miert)', () => {
-      mkdirSync(join(projDir(), 'Uj nev'))
+      mkdirSync(join(projDir(), 'Munkadarabok', 'Uj nev'), { recursive: true })
       const a = newItem('A nev')
       attachAsset(a, 'a.md', Buffer.from('A'))
       const r = renameWorkItemFolder(getWorkItem(a.id)!, 'Uj nev')
-      expect(r).toEqual({ ok: true, renamed: true, from: 'A nev', to: 'Uj nev (2)' })
+      expect(r).toEqual({ ok: true, renamed: true, from: 'Munkadarabok/A nev', to: 'Munkadarabok/Uj nev (2)' })
 
       const b = newItem('B nev')
       attachAsset(b, 'b.md', Buffer.from('B'))
-      createWorkItem({ project_id: pid, title: 'Kulso', type: 'note', source_path: 'Projektek/Iroda/B nev/b.md' })
+      createWorkItem({ project_id: pid, title: 'Kulso', type: 'note', source_path: 'Projektek/Iroda/Munkadarabok/B nev/b.md' })
       expect(renameWorkItemFolder(getWorkItem(b.id)!, 'Masik')).toEqual({ ok: true, renamed: false, reason: 'shared' })
 
       const c = newItem('C nev')
       attachAsset(c, 'rajz.canvas.json', Buffer.from('{}'))
       expect(renameWorkItemFolder(getWorkItem(c.id)!, 'Rajz uj')).toEqual({ ok: true, renamed: false, reason: 'canvas' })
-      expect(existsSync(join(projDir(), 'C nev'))).toBe(true)
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'C nev'))).toBe(true)
     })
   })
 
@@ -270,10 +271,10 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       expect(r.ok).toBe(true)
       if (!r.ok) return
       const data = r.data as { folder: string; assets: { path: string; support: string }[] }
-      expect(data.folder).toBe('Marvin Workbench terv')
+      expect(data.folder).toBe('Munkadarabok/Marvin Workbench terv')
       expect(data.assets).toEqual([
-        expect.objectContaining({ path: 'Marvin Workbench terv/valasz.md', support: 'readable' }),
-        expect.objectContaining({ path: 'Marvin Workbench terv/logo.png', support: 'usable' }),
+        expect.objectContaining({ path: 'Munkadarabok/Marvin Workbench terv/valasz.md', support: 'readable' }),
+        expect.objectContaining({ path: 'Munkadarabok/Marvin Workbench terv/logo.png', support: 'usable' }),
       ])
       // ...es a kapott uttal a file.read tenyleg olvas.
       const read = executeTool('file.read', { path: data.assets[0].path }, { projectId: pid, workItemId: item.id, lang: 'hu' })
@@ -285,8 +286,8 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       const item = newItem()
       attachAsset(item, 'valasz.md', Buffer.from('# V'))
       const c = buildContext(project, getWorkItem(item.id) ?? null, 'hu')
-      expect(c.contextText).toContain('folder: Marvin Workbench terv')
-      expect(c.contextText).toContain('Marvin Workbench terv/valasz.md [readable]')
+      expect(c.contextText).toContain('folder: Munkadarabok/Marvin Workbench terv')
+      expect(c.contextText).toContain('Munkadarabok/Marvin Workbench terv/valasz.md [readable]')
       const prompt = buildCodeBridgePrompt({
         projectName: 'Iroda', projectFolder: '/x', history: [], message: 'olvasd el', lang: 'hu',
         workItem: { title: 'Marvin Workbench terv', type: 'note', folder: 'Marvin Workbench terv', materials: ['Marvin Workbench terv/valasz.md [readable]'] },
@@ -294,6 +295,76 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       expect(prompt).toContain('Work item folder (inside the project folder): Marvin Workbench terv')
       expect(prompt).toContain('Marvin Workbench terv/valasz.md [readable]')
     })
+  })
+})
+
+describe('Munkadarabok mappa (1A, 2A): minden projektnek van, a regi munkadarab-mappak alaköltoznek', () => {
+  let depot = ''
+  let pid = ''
+  const projDir = () => join(depot, 'Projektek', 'Iroda')
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-box-'))
+    mkdirSync(projDir(), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const p = createProject({ name: 'Iroda fejlesztese' })
+    if (!p.ok) throw new Error('projekt')
+    pid = p.project.id
+    if (!updateProject(pid, { folder_path: 'Projektek/Iroda' }).ok) throw new Error('projektmappa')
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('2A: az indulaskori sopres uresen is elkesziti a Munkadarabok mappat, es masodszorra nem csinal semmit', () => {
+    const first = migrateAllWorkItemFolders()
+    expect(first).toEqual({ projects: 1, moved: 0, skipped: 0 })
+    expect(existsSync(join(projDir(), 'Munkadarabok'))).toBe(true)
+    expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 0, skipped: 0 })
+  })
+
+  it('1A: a projekt gyokerben allo munkadarab-mappa alakerul, a nyilvantartas (munkadarab, verzio, anyag) vele megy, a fajl ugyanaz', () => {
+    const w = createWorkItem({ project_id: pid, title: 'Marvin Workbench terv', type: 'note' })
+    if (!w.ok) throw new Error('mw')
+    mkdirSync(join(projDir(), 'Marvin Workbench terv'))
+    writeFileSync(join(projDir(), 'Marvin Workbench terv', 'terv.md'), 'TERV')
+    const src = 'Projektek/Iroda/Marvin Workbench terv/terv.md'
+    const item = getWorkItem(w.item.id)!
+    adoptExistingFolder(item, getProject(pid) as ProjectRow, 'Marvin Workbench terv')
+    registerAsset(item.id, src, 'terv.md', 'sha', 4, null)
+    createWorkItemVersion(item.id, { source_path: src })
+
+    expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 1, skipped: 0 })
+    const to = 'Projektek/Iroda/Munkadarabok/Marvin Workbench terv/terv.md'
+    expect(getWorkItem(item.id)?.folder).toBe('Munkadarabok/Marvin Workbench terv')
+    const withFile = listWorkItemVersions(item.id).filter((v) => v.source_path)
+    expect(withFile.length).toBeGreaterThan(0)
+    expect(withFile.every((v) => v.source_path === to)).toBe(true)
+    expect(listWorkItemAssets(item.id).map((a) => a.path)).toEqual([to])
+    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'terv.md'), 'utf-8')).toBe('TERV')
+    expect(existsSync(join(projDir(), 'Marvin Workbench terv'))).toBe(false)
+    // Masodszorra nincs mit mozgatni.
+    expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 0, skipped: 0 })
+  })
+
+  it('a masik munkadarab altal hivatkozott vagy rajzot tarto mappa marad, es a szamlalo megmondja', () => {
+    const a = createWorkItem({ project_id: pid, title: 'Rajzos', type: 'note' })
+    if (!a.ok) throw new Error('mw')
+    mkdirSync(join(projDir(), 'Rajzos'))
+    writeFileSync(join(projDir(), 'Rajzos', 'r.canvas.json'), '{}')
+    adoptExistingFolder(getWorkItem(a.item.id)!, getProject(pid) as ProjectRow, 'Rajzos')
+    expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 0, skipped: 1 })
+    expect(existsSync(join(projDir(), 'Rajzos', 'r.canvas.json'))).toBe(true)
+  })
+
+  it('egy angol nevu, mar meglevo "Work items" mappat atvesz, nem csinal mellette masodikat', () => {
+    mkdirSync(join(projDir(), 'Work items'))
+    const box = projectWorkItemsFolder(getProject(pid) as ProjectRow)
+    expect(box.ok && box.folder).toBe('Work items')
+    expect(existsSync(join(projDir(), 'Munkadarabok'))).toBe(false)
   })
 })
 
