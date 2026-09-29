@@ -2663,6 +2663,7 @@ window._i18n.hu = {
   'approvals.verify.pick_all_free':   'Összes ingyenes kiválasztása',
   'approvals.verify.picker_go':       'Ellenőrzés indítása',
   'approvals.verify.dispatching':     'Küldés...',
+  'approvals.verify.busy_anyway':     'Mégis újraindítom',
   'approvals.verify.dispatched_ok':   '{n} ágens elindítva az ellenőrzésre',
   'approvals.verify.some_failed':     'Néhány ágenshez nem sikerült: {list}',
   'approvals.verify.no_agents':       'Nincs másik elérhető ágens az ellenőrzéshez',
