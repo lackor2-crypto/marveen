@@ -2132,6 +2132,7 @@ window._i18n.en = {
   'approvals.verify.pick_all_free':   'Select all free agents',
   'approvals.verify.picker_go':       'Start verification',
   'approvals.verify.dispatching':     'Sending...',
+  'approvals.verify.busy_anyway':     'Start anyway',
   'approvals.verify.dispatched_ok':   '{n} agent(s) dispatched for verification',
   'approvals.verify.some_failed':     'Some agents failed to dispatch: {list}',
   'approvals.verify.no_agents':       'No other agent available to verify',

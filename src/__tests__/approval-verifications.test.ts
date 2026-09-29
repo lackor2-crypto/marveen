@@ -309,11 +309,27 @@ describe('verification mode on the dispatch endpoint', () => {
     expect(prompt).toContain('szabad kezed van')
   })
 
+  it('refuses to restart a run that is already pending unless force is true', async () => {
+    const approval = createApproval({ id: 'm5', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
+    const again = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] })
+    await tryHandleApprovals(again.ctx)
+    expect(again.out.status).toBe(409)
+    expect(again.out.body.error).toBe('already_running')
+    expect(again.out.body.agents).toEqual(['gemma'])
+    expect(getPendingMessages('gemma')).toHaveLength(1)
+    const forced = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'], force: true })
+    await tryHandleApprovals(forced.ctx)
+    expect(forced.out.status).toBe(200)
+  })
+
   it('re-dispatching the same agent replaces the stored mode, never leaves a stale one', async () => {
     const approval = createApproval({ id: 'm4', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
     await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
     expect(listApprovalVerifications(approval.id)[0]!.mode).toBe('verify')
     await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'], mode: 'fix' }).ctx)
+    expect(listApprovalVerifications(approval.id)[0]!.mode).toBe('verify') // refused: already running
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'], mode: 'fix', force: true }).ctx)
     const rows = listApprovalVerifications(approval.id)
     expect(rows).toHaveLength(1)
     expect(rows[0]!.mode).toBe('fix')

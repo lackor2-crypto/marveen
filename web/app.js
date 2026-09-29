@@ -25998,7 +25998,9 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
       if (b && !b.disabled) b.textContent = _verifyGoLabel()
     })
   })
-  pop.querySelector('#verifyPickerGo').addEventListener('click', async () => {
+  let confirmedRestart = false // set once the "Mégis" warning has been shown
+  pop.querySelector('#verifyPickerGo').addEventListener('click', () => startVerify(confirmedRestart))
+  async function startVerify(force) {
     // :not(:disabled) belt-and-braces -- a disabled box cannot be ticked by
     // hand, but it CAN be ticked by script, and the requester must never end up
     // dispatched to verify its own approval.
@@ -26011,9 +26013,25 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
       const res = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agents: chosen, mode: _verifyPickedMode() }),
+        body: JSON.stringify({ agents: chosen, mode: _verifyPickedMode(), force }),
       })
       const result = await res.json()
+      // Someone is already running this: show why, and offer the real
+      // "Mégis" button -- the run restarts only on that second click.
+      if (res.status === 409 && result.error === 'already_running') {
+        let warn = pop.querySelector('#verifyBusyWarn')
+        if (!warn) {
+          warn = document.createElement('div')
+          warn.id = 'verifyBusyWarn'
+          warn.style.cssText = 'font-size:11px;margin-top:8px;color:var(--warning, #b45309)'
+          goBtn.parentNode.insertBefore(warn, goBtn)
+        }
+        warn.textContent = result.message
+        goBtn.disabled = false
+        goBtn.textContent = t('approvals.verify.busy_anyway')
+        confirmedRestart = true
+        return
+      }
       // A szerver EMBERI mondata nyer a gepi kod felett (user-is-not-a-programmer):
       // a `message` az, amit a felhasznalo elolvashat, az `error` csak azonosito.
       if (!res.ok) throw new Error(result.message || result.error || 'HTTP ' + res.status)
@@ -26029,7 +26047,7 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
       goBtn.disabled = false
       goBtn.textContent = _verifyGoLabel()
     }
-  })
+  }
 }
 
 // Poll while any approval on the current page has a pending verification --

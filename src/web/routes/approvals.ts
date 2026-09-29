@@ -463,6 +463,29 @@ const VERIFY_BLOCKED_TEXT: Record<VerifyBlockedReason, { hu: string; en: string 
   },
 }
 
+/**
+ * Agents that already have a verification in flight ('pending') on this
+ * approval. Starting one again silently RESETS the row and re-sends the task
+ * (createOrResetApprovalVerification), which throws away someone else's running
+ * work -- so the caller must confirm first (the "Mégis" / "Start anyway" button).
+ */
+export function busyVerificationAgents(approvalId: string, agents: string[]): string[] {
+  const pending = new Set(
+    listApprovalVerifications(approvalId).filter(v => v.status === 'pending').map(v => v.agent),
+  )
+  return agents.filter(a => pending.has(a))
+}
+
+const VERIFY_BUSY_TEXT = {
+  hu: (list: string) => `Ezt már valaki csinálja: ${list}. Ha újraindítod, a most futó munka megszakad, és elölről indul.`,
+  en: (list: string) => `Someone is already working on this: ${list}. If you start it again, the run in progress is dropped and starts over.`,
+}
+
+export function verifyBusyMessage(agents: string[]): string {
+  const list = agents.join(', ')
+  return APP_LANG === 'hu' ? VERIFY_BUSY_TEXT.hu(list) : VERIFY_BUSY_TEXT.en(list)
+}
+
 export function verifyBlockedMessage(reason: VerifyBlockedReason): string {
   return APP_LANG === 'hu' ? VERIFY_BLOCKED_TEXT[reason].hu : VERIFY_BLOCKED_TEXT[reason].en
 }
@@ -846,7 +869,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    let body: { agents?: unknown; mode?: unknown }
+    let body: { agents?: unknown; mode?: unknown; force?: unknown }
     try {
       body = JSON.parse((await readBody(req)).toString())
     } catch {
@@ -859,6 +882,16 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // copied curl line sends no mode at all, and the safe reading of silence is
     // the read-only review. See parseVerificationMode().
     const mode: VerificationMode = parseVerificationMode(body.mode)
+
+    // Restarting a run that is already going resets it under whoever is doing
+    // it. Refuse until the caller confirms with force:true ("Mégis").
+    if (body.force !== true) {
+      const busy = busyVerificationAgents(approvalId, agents)
+      if (busy.length > 0) {
+        json(res, { error: 'already_running', message: verifyBusyMessage(busy), agents: busy }, 409)
+        return true
+      }
+    }
 
     const dispatched: string[] = []
     const failed: Array<{ agent: string; error: string }> = []
