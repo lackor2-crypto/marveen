@@ -25527,6 +25527,9 @@ function _renderApprovalsTable() {
         ? 'background:color-mix(in srgb, var(--warning) 8%, transparent)'
         : 'background:color-mix(in srgb, var(--info) 14%, transparent)')
     const time = a.requested_at ? new Date(a.requested_at * 1000).toLocaleString('hu-HU', { dateStyle: 'short', timeStyle: 'short' }) : '-'
+    // A request that belongs to no kanban card is a plain confirmation ticket:
+    // it gets a heading (tint stays the light blue above).
+    const isTicket = !_approvalKanbanCardId(a)
     const badge = _approvalBadge(a.status)
     const countdown = isPending && a.timeout_at ? `<span class="approvals-countdown" data-timeout="${a.timeout_at}" id="cd-${a.id}"></span>` : (a.timeout_at ? '-' : '')
     const actions = isPending
@@ -25555,9 +25558,12 @@ function _renderApprovalsTable() {
     const shortDesc = linkifyKanbanRefs(a.action_description.length > 80 ? a.action_description.slice(0, 80) + '...' : a.action_description)
     const cardId = _approvalKanbanCardId(a)
     const openCardHtml = cardId ? `<button class="btn-secondary btn-compact approvals-open-card" data-card-id="${escapeAttr(cardId)}" style="font-size:11px;margin-top:6px">${t('approvals.btn.open_card')}</button>` : ''
+    const ticketTag = isTicket
+      ? `<div class="approvals-ticket-tag">${escapeHtml(t('approvals.ticket_tag'))}</div>`
+      : ''
     const descHtml = isExpanded
-      ? `<div style="white-space:pre-wrap;word-break:break-word">${fullDesc}</div>${openCardHtml}`
-      : shortDesc
+      ? `${ticketTag}<div style="white-space:pre-wrap;word-break:break-word">${fullDesc}</div>${openCardHtml}`
+      : `${ticketTag}${shortDesc}`
     // Fixed max-width regardless of expand state (Boss 2026-08-07: widening
     // this on expand made the whole table's OTHER columns jump size too --
     // auto table-layout resizes every column to fit the widest cell in its

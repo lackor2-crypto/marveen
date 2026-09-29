@@ -2169,6 +2169,7 @@ window._i18n.en = {
   'approvals.toast.error':       'Error: {msg}',
   'approvals.countdown.expired': 'expired',
   'approvals.btn.open_card':     'Open card',
+  'approvals.ticket_tag':        'Approval ticket to confirm',
   'approvals.btn.undo': '↩ Undo',
   'approvals.btn.undo_title': 'Approved by mistake? The card goes back from Done to Waiting and awaits a decision again.',
   'approvals.undo.confirm': 'Undo this approval?\n\nThe card goes back from Done to Waiting and shows up here again, awaiting a decision. Nothing is lost.',

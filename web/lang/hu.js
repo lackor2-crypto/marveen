@@ -2700,6 +2700,7 @@ window._i18n.hu = {
   'approvals.toast.error':       'Hiba: {msg}',
   'approvals.countdown.expired': 'lejárt',
   'approvals.btn.open_card':     'Kártya megnyitása',
+  'approvals.ticket_tag':        'Jóváhagyási jegy megerősítésre',
   'approvals.btn.undo': '↩ Visszavonás',
   'approvals.btn.undo_title': 'Véletlenül hagytad jóvá? A kártya visszakerül a Kész oszlopból a Várakozóba, és újra döntésre vár.',
   'approvals.undo.confirm': 'Visszavonod ezt a jóváhagyást?\n\nA kártya a Kész oszlopból visszakerül a Várakozóba, és újra itt lesz a jóváhagyások között, döntésre várva. Semmi nem vész el.',
