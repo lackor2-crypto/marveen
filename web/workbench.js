@@ -684,8 +684,11 @@
 
   function ovItemsHtml(items) {
     if (!items || !items.length) return ''
-    return '<ul class="wb-ov-list">' + items.map(function (it) {
-      return '<li><button type="button" class="wb-linklike" data-wb-item="' + escA(it.id) + '">' + esc(it.title) + '</button></li>'
+    // A work item must never look like a kanban card (Boss, TG 1815): its own
+    // colored frame, a "Munkadarab" tag top-left, and the title as a button.
+    return '<ul class="wb-ov-list wb-ov-works">' + items.map(function (it) {
+      return '<li class="wb-ov-work"><span class="wb-ov-work-tag">' + esc(t('workbench.ov.work_tag')) + '</span>'
+        + '<button type="button" class="wb-ov-work-btn" data-wb-item="' + escA(it.id) + '">' + esc(it.title) + '</button></li>'
     }).join('') + '</ul>'
   }
 
@@ -5164,19 +5167,22 @@
   /** MAPPA MEGNYITASA (#443, Boss 2026-09-29, "C" + "2A"): ket gomb -- az
    *  Intezo (a dashboard fajlkezeloje) es a gep sajat fajlkezeloje (Windows
    *  Explorer / Finder). Ha a gepen nincs megnyithato fajlkezelo, csak az
-   *  Intezo gomb latszik. `compact`: ikon-gombok egy anyag-sorban. */
+   *  Intezo gomb latszik. `compact`: ikon-gombok egy anyag-sorban; 'short':
+   *  side by side, icon + "Open", the full meaning in the tooltip (TG 1817). */
   function folderBtnsHtml(place, assetId, compact) {
     if (WB.fm === undefined) loadFileManagerKind()
     var data = ' data-wb-place="' + escA(place) + '"' + (assetId ? ' data-wb-asset="' + escA(assetId) + '"' : '')
     var fm = WB.fm && WB.fm !== 'none' ? WB.fm : null
     var tIn = t(place === 'asset' ? 'workbench.folder.intezo_file_title' : 'workbench.folder.intezo_title')
     var tSys = fm ? t(place === 'asset' ? 'workbench.folder.system_file_title.' + fm : 'workbench.folder.system_title.' + fm) : ''
-    var cls = compact ? 'wb-mini-btn wb-folder-btn' : 'wb-btn wb-folder-btn'
+    var short = compact === 'short'
+    var cls = compact === true ? 'wb-mini-btn wb-folder-btn' : 'wb-btn wb-folder-btn'
+    function label(full) { return compact === true ? '' : ' ' + esc(short ? t('workbench.folder.open_short') : full) }
     var b = '<button type="button" class="' + cls + '" data-wb-act="folder-intezo"' + data
-      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + (compact ? '' : ' ' + esc(t('workbench.folder.intezo'))) + '</button>'
+      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + label(t('workbench.folder.intezo')) + '</button>'
       + (fm ? '<button type="button" class="' + cls + '" data-wb-act="folder-system"' + data
-        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + (compact ? '' : ' ' + esc(t('workbench.folder.system.' + fm))) + '</button>' : '')
-    return compact ? b : '<p class="wb-ctx-actions wb-folder-acts">' + b + '</p>'
+        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + label(t('workbench.folder.system.' + fm)) + '</button>' : '')
+    return compact === true ? b : '<p class="wb-ctx-actions wb-folder-acts' + (short ? ' wb-folder-row' : '') + '">' + b + '</p>'
   }
 
   function loadFileManagerKind() {
@@ -5502,8 +5508,13 @@
       if (!archived()) rows.push(sharedBlockHtml(WB.detail.assets || []))
       var versions = WB.detail.versions || []
       var ro = archived() || WB.versionBusy
+      // Order by importance (Boss, TG 1817): what a version IS, then Save as new
+      // version, then the two Open buttons side by side, the list last.
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + (versions.length ? ' (' + versions.length + ')' : '') + '</h3>'
-        + (versions.length ? folderBtnsHtml('versions') : '')
+        + '<p class="wb-hint">' + esc(t('workbench.versions.hint')) + '</p>'
+        + (ro ? '' : '<p class="wb-ctx-actions"><button type="button" class="wb-btn" data-wb-act="version-new">'
+          + esc(t('workbench.versions.save_new')) + '</button></p>')
+        + (versions.length ? folderBtnsHtml('versions', null, 'short') : '')
         + (versions.length
           ? '<ul class="wb-versions">' + versions.map(function (v) {
             var current = v.id === it.current_version_id
@@ -5529,9 +5540,6 @@
               ? warnBoxHtml(t('workbench.versions.last_warn'), 'last-version-trash', t('workbench.versions.last_warn_ok'), it.id)
               : '')
           : '<p class="wb-muted">' + esc(t('workbench.context.no_versions')) + '</p>')
-        + (ro ? '' : '<p class="wb-ctx-actions"><button type="button" class="wb-btn" data-wb-act="version-new">'
-          + esc(t('workbench.versions.save_new')) + '</button></p>')
-        + '<p class="wb-hint">' + esc(t('workbench.versions.hint')) + '</p>'
         + '</div>')
       // A KOR BEZARASA (spec 8): letoltod, megszerkeszted a sajat gepeden,
       // visszatoltod -- es UJ VERZIO lesz belole. A regi megmarad. Kulon blokk,

@@ -6603,6 +6603,8 @@ window._i18n.hu = {
   "workbench.assets.remove_delete": "Végleges törlés a mappából is",
   "workbench.assets.removed": "Levettem a listáról. A fájl a mappában maradt.",
   "workbench.assets.deleted": "Levettem a listáról, és a fájlt a mappából is véglegesen töröltem.",
+  "workbench.folder.open_short": "Megnyitás",
+  "workbench.ov.work_tag": "Munkadarab",
   "workbench.folder.intezo": "Megnyitás az Intézőben",
   "workbench.folder.intezo_title": "Megnyitja ezt a mappát az Intézőben (a vezérlőpult saját fájlkezelője), ahol átnevezhetsz, törölhetsz vagy rendet rakhatsz.",
   "workbench.folder.intezo_file_title": "Megnyitja az Intézőben azt a mappát, amelyikben ez a fájl van.",
