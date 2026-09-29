@@ -53,7 +53,8 @@ import {
   confirmOwnerClaim, recheckPendingSources,
 } from '../../workbench-docmodel.js'
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
-import { draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDraft } from '../../workbench-docfinal.js'
+import { draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDraft, resolverFor } from '../../workbench-docfinal.js'
+import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
@@ -668,6 +669,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A PDF elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
     en: 'Making the PDF failed. The exact error is in the details; no cause is guessed in its place.',
   },
+  outline_duplicate: {
+    hu: 'Ez a fájl már szerepel a mellékletek között.',
+    en: 'This file is already one of the annexes.',
+  },
+  outline_file_missing: {
+    hu: 'Ez a fájl nincs meg a projekt mappájában. Előbb töltsd fel az anyagok közé.',
+    en: 'This file is not in the project folder. Upload it to the materials first.',
+  },
   outline_owner_only: {
     hu: 'Ezt csak te erősítheted meg, a saját kattintásoddal.',
     en: 'Only you can confirm this, with your own click.',
@@ -893,10 +902,29 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
 }
 
 /** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
-function outlineOut(itemId: string): (ReturnType<typeof documentOutline> & { check: ReturnType<typeof documentCheck> } & Partial<ReturnType<typeof finalizationState>>) | null {
+type OutlineOut = ReturnType<typeof documentOutline> & {
+  check: ReturnType<typeof documentCheck>
+  annexes: ReturnType<typeof listAnnexes>
+  settings: ReturnType<typeof docSettings> & { schemes: typeof ANNEX_SCHEMES; modes: typeof ANNEX_MODES }
+} & Partial<ReturnType<typeof finalizationState>>
+
+function outlineOut(itemId: string): OutlineOut | null {
   if (!hasDocModel(itemId)) return null
   const item = getWorkItem(itemId)
-  return { ...documentOutline(itemId), check: documentCheck(itemId), ...(item ? finalizationState(item) : {}) }
+  const resolve = item ? resolverFor(item) : undefined
+  return {
+    ...documentOutline(itemId),
+    check: documentCheck(itemId, resolve),
+    annexes: listAnnexes(itemId, resolve),
+    settings: { ...docSettings(itemId), schemes: ANNEX_SCHEMES, modes: ANNEX_MODES },
+    ...(item ? finalizationState(item) : {}),
+  }
+}
+
+/** A vazlat valasza akkor is, ha meg nincs fejezet (ures vazlat + ellenorzes). */
+function outlineOrEmpty(itemId: string): NonNullable<ReturnType<typeof outlineOut>> | { sections: never[]; check: ReturnType<typeof documentCheck> } {
+  const item = getWorkItem(itemId)
+  return outlineOut(itemId) ?? { sections: [], check: documentCheck(itemId, item ? resolverFor(item) : undefined) }
 }
 
 /** Egy PDF-keszitesi hiba kodja a felhasznalonak (a LibreOffice-hiany kulon mondat). */
@@ -1557,7 +1585,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (segs.length === 2 && method === 'GET') {
       try { recheckPendingSources(item.id, sourceWorldFor(owner, item.id)) } catch { /* a vazlat akkor is jojjon */ }
-      json(res, { outline: outlineOut(item.id) ?? { sections: [], check: documentCheck(item.id) } })
+      json(res, { outline: outlineOrEmpty(item.id) })
       return true
     }
     // PISZKOZAT PDF (K-1.21): barmikor, vizjellel -- OLVASAS, archivalt projektben is.
@@ -1613,7 +1641,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
-      json(res, { ok: true, outline: outlineOut(item.id) ?? { sections: [], check: documentCheck(item.id) } }, created ? 201 : 200)
+      json(res, { ok: true, outline: outlineOrEmpty(item.id) }, created ? 201 : 200)
       return true
     }
     const sub = segs[2] || ''
@@ -1626,6 +1654,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], kind: body['kind'], author: 'owner' }))
     if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
+    // MELLEKLETJEGYZEK (K-1.18): a szovegbeli hivatkozasok a listahoz igazodnak.
+    if (sub === 'annexes' && segs.length === 3 && method === 'POST') {
+      const resolve = resolverFor(item)
+      if (!resolve) return fail(res, 404, 'project_not_found', lang)
+      return done(addAnnex(item.id, { path: body['path'], title: body['title'], position: body['position'] }, resolve, actor(ctx)), true)
+    }
+    if (sub === 'annexes' && segs.length === 4 && method === 'PATCH') return done(updateAnnex(item.id, id, { title: body['title'], position: body['position'] }))
+    if (sub === 'annexes' && segs.length === 4 && method === 'DELETE') return done(removeAnnex(item.id, id))
+    if (sub === 'settings' && segs.length === 3 && method === 'PATCH') {
+      return done(setDocSettings(item.id, { annex_scheme: body['annex_scheme'], annex_prefix: body['annex_prefix'], annex_mode: body['annex_mode'] }))
+    }
     if (sub === 'claims' && segs.length === 5 && segs[4] === 'confirm' && method === 'POST') {
       // Egy agent (tokennel) nem erosithet meg: a megerosites a tulajdonos szava.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)

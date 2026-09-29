@@ -863,4 +863,9 @@
 .wb-outline-final h4 { margin: 8px 0 4px; }
 .wb-outline-accept { display: inline-flex; align-items: flex-start; gap: 6px; cursor: pointer; }
 .wb-outline-accept input { margin-top: 3px; flex: none; }
+.wb-annexes { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border, #d1d5db); }
+.wb-annex-list { list-style: none; padding-left: 0; margin: 4px 0; }
+.wb-annex { margin: 3px 0; overflow-wrap: anywhere; }
+.wb-annex-add, .wb-annex-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-annex-add select, .wb-annex-add input { max-width: 100%; min-width: 0; flex: 1 1 12rem; }
 .wb-ok { color: var(--success, #15803d); }

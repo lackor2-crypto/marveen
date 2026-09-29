@@ -24,6 +24,9 @@ import { MISSING_MARK_RE, type BlockKind, type SectionStatus } from './workbench
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
   sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string }[] }[]
+  /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
+  annexes?: { label: string; title: string }[]
+  annexTitle?: string
 }
 
 export interface RenderOptions {
@@ -166,6 +169,10 @@ export function buildFodt(outline: RenderOutline, o: RenderOptions): string {
     }
     body.push(...sec)
   }
+  if (outline.annexes && outline.annexes.length) {
+    body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(outline.annexTitle || 'Mellékletek')}</text:h>`)
+    for (const a of outline.annexes) body.push(`<text:p text:style-name="AnnexLine">${inline(a.label)} – ${inlineMarked(a.title, o.draft)}</text:p>`)
+  }
   const lang = o.lang === 'en' ? { l: 'en', c: 'GB', tag: 'en-GB' } : { l: 'hu', c: 'HU', tag: 'hu-HU' }
   const watermark = o.draft
     ? `<text:p text:style-name="HeaderMark"><draw:frame draw:style-name="WmFrame" draw:name="Watermark" text:anchor-type="paragraph" svg:x="0cm" svg:y="10cm" svg:width="16.5cm" svg:height="4cm" draw:z-index="0"><draw:text-box><text:p text:style-name="Watermark">${L.draft}</text:p></draw:text-box></draw:frame></text:p>`
@@ -180,6 +187,7 @@ export function buildFodt(outline: RenderOutline, o: RenderOptions): string {
 <style:style style:name="Standard" style:family="paragraph"/>
 <style:style style:name="Body" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0.25cm" fo:text-align="justify" style:justify-single-word="false" fo:line-height="130%"/></style:style>
 <style:style style:name="BodyLine" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>
+<style:style style:name="AnnexLine" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="0.9cm" fo:text-indent="-0.9cm" fo:margin-bottom="0.1cm"/></style:style>
 <style:style style:name="ListP" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0.1cm"/></style:style>
 <style:style style:name="Title" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="0.6cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="Heading_20_1" style:display-name="Heading 1" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="1"><style:paragraph-properties fo:margin-top="0.45cm" fo:margin-bottom="0.2cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="13pt" fo:font-weight="bold"/></style:style>
@@ -225,7 +233,11 @@ export function toRenderOutline(outline: { sections: { title: string; status: Se
 
 /** A dokumentum tartalmanak ujjlenyomata: ha a vegleges PDF utan valtozik, a vegleges allapot megszunik (K-1.23). */
 export function outlineHash(outline: RenderOutline, title: string): string {
-  const core = { title, s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text })) })) }
+  const core = {
+    title,
+    s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text })) })),
+    ...(outline.annexes && outline.annexes.length ? { a: outline.annexes.map((a) => [a.label, a.title]), at: outline.annexTitle || '' } : {}),
+  }
   return createHash('sha256').update(JSON.stringify(core)).digest('hex')
 }
 

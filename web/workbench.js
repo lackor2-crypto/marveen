@@ -4099,9 +4099,53 @@
       + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
       + secs
       + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
+      + annexHtml(o, ro)
       + outlineCheckHtml(o.check)
       + outlinePdfHtml(o, ro)
       + '</div>'
+  }
+
+  /** MELLEKLETJEGYZEK (#441, K-1.18): szamozott lista; a szovegbeli hivatkozasokat
+   *  a szerver igazitja a listahoz, a felulet csak mutat es kuld. */
+  function annexHtml(o, ro) {
+    var list = o.annexes || []
+    var st = o.settings || {}
+    var rows = list.map(function (a, i) {
+      var warn = (a.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.annex.missing_file')) + '</span>' : '')
+        + (a.refs ? ' <span class="wb-muted">' + esc(t('workbench.annex.refs', { n: a.refs })) + '</span>'
+          : ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.annex.unreferenced')) + '</span>')
+      var tools = ro ? '' : ' <span class="wb-outline-tools">'
+        + (i > 0 ? '<button type="button" class="wb-linklike" data-wb-act="outline-annex-move" data-wb-annex="' + escA(a.id) + '" data-wb-pos="' + (i - 1) + '" title="' + escA(t('workbench.annex.up')) + '" aria-label="' + escA(t('workbench.annex.up')) + '">↑</button> ' : '')
+        + (i < list.length - 1 ? '<button type="button" class="wb-linklike" data-wb-act="outline-annex-move" data-wb-annex="' + escA(a.id) + '" data-wb-pos="' + (i + 1) + '" title="' + escA(t('workbench.annex.down')) + '" aria-label="' + escA(t('workbench.annex.down')) + '">↓</button> ' : '')
+        + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-rename" data-wb-annex="' + escA(a.id) + '">' + esc(t('workbench.annex.rename')) + '</button> '
+        + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-remove" data-wb-annex="' + escA(a.id) + '">' + esc(t('workbench.annex.remove')) + '</button></span>'
+      return '<li class="wb-annex"><strong>' + esc(a.label) + '</strong> – ' + esc(a.title)
+        + ' <span class="wb-muted">(' + esc(a.path) + ')</span>' + warn + tools + '</li>'
+    }).join('')
+    var add = ''
+    var settings = ''
+    if (!ro) {
+      var taken = {}
+      list.forEach(function (a) { taken[a.path] = true })
+      var mats = ((WB.detail && WB.detail.assets) || []).filter(function (m) { return m.present !== false && m.project_path && !taken[m.project_path] })
+      add = mats.length
+        ? '<p class="wb-annex-add"><select id="wbAnnexPick" aria-label="' + escA(t('workbench.annex.pick')) + '"><option value="">' + esc(t('workbench.annex.pick')) + '</option>'
+          + mats.map(function (m) { return '<option value="' + escA(m.project_path) + '">' + esc(m.name) + '</option>' }).join('') + '</select>'
+          + '<input type="text" id="wbAnnexTitle" maxlength="300" placeholder="' + escA(t('workbench.annex.title_placeholder')) + '" aria-label="' + escA(t('workbench.annex.title_placeholder')) + '">'
+          + '<button type="button" class="wb-btn" data-wb-act="outline-annex-add">' + esc(t('workbench.annex.add')) + '</button></p>'
+        : '<p class="wb-hint">' + esc(t('workbench.annex.no_materials')) + '</p>'
+      var scheme = st.annex_scheme || 'k'
+      settings = '<p class="wb-annex-settings"><label>' + esc(t('workbench.annex.scheme')) + ' <select id="wbAnnexScheme">'
+        + (st.schemes || ['k', 'anlage', 'exhibit']).map(function (k) { return '<option value="' + escA(k) + '"' + (k === scheme ? ' selected' : '') + '>' + esc(t('workbench.annex.scheme.' + k)) + '</option>' }).join('')
+        + '</select></label>'
+        + (scheme === 'exhibit' ? '' : ' <label title="' + escA(t('workbench.annex.prefix_hint')) + '">' + esc(t('workbench.annex.prefix')) + ' <input type="text" id="wbAnnexPrefix" size="2" maxlength="2" value="' + escA(st.annex_prefix || 'K') + '"></label>')
+        + '</p>'
+    }
+    if (!list.length && ro) return ''
+    return '<div class="wb-annexes"><h4>' + esc(t('workbench.annex.title')) + (list.length ? ' (' + list.length + ')' : '') + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.annex.hint')) + '</p>'
+      + (list.length ? '<ul class="wb-annex-list">' + rows + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.annex.empty')) + '</p>')
+      + add + settings + '</div>'
   }
 
   /** PISZKOZAT ES VEGLEGESITES (#441, K-1.21 ... K-1.23/b). A piszkozat barmikor
@@ -4181,6 +4225,10 @@
     ;((o && o.sections) || []).forEach(function (s) { (s.blocks || []).forEach(function (b) { if (b.id === bid) out = b }) })
     return out
   }
+  function findAnnex(id) {
+    var o = WB.detail && WB.detail.outline
+    return ((o && o.annexes) || []).filter(function (a) { return a.id === id })[0] || null
+  }
   function findSection(sid) {
     var o = WB.detail && WB.detail.outline
     return ((o && o.sections) || []).filter(function (s) { return s.id === sid })[0] || null
@@ -4209,6 +4257,19 @@
       if (nx !== null && nx.trim() && (!b || nx.trim() !== b.text)) outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: nx.trim() })
     } else if (a === 'outline-block-del') {
       if (window.confirm(t('workbench.outline.delete_block_confirm'))) outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid))
+    } else if (a === 'outline-annex-add') {
+      var pick = document.getElementById('wbAnnexPick')
+      var ttl = document.getElementById('wbAnnexTitle')
+      if (!pick || !pick.value) { window.showToast(t('workbench.annex.pick_first')); return }
+      outlineCall('POST', '/annexes', { path: pick.value, title: ttl && ttl.value ? ttl.value.trim() : '' })
+    } else if (a === 'outline-annex-move') {
+      outlineCall('PATCH', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')), { position: Number(act.getAttribute('data-wb-pos')) })
+    } else if (a === 'outline-annex-rename') {
+      var ax = findAnnex(act.getAttribute('data-wb-annex'))
+      var nt2 = window.prompt(t('workbench.annex.rename_prompt'), ax ? ax.title : '')
+      if (nt2 && nt2.trim()) outlineCall('PATCH', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')), { title: nt2.trim() })
+    } else if (a === 'outline-annex-remove') {
+      if (window.confirm(t('workbench.annex.remove_confirm'))) outlineCall('DELETE', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')))
     } else if (a === 'outline-review') {
       // A link maga nyitja meg a PDF-et uj lapon; a szerver akkor rogziti az
       // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
@@ -7154,6 +7215,14 @@
     if (e.target.id === 'wbPostPlatform') { postState().platform = postPlatform(e.target.value).id; postState().more = false; render(); return }
     if (e.target.id === 'wbSwitch') {
       selectItem(e.target.value)
+      return
+    }
+    // MELLEKLETEK szamozasa (#441, K-1.18): a szerver a szovegbeli hivatkozasokat is atirja.
+    if (e.target.id === 'wbAnnexScheme') { outlineCall('PATCH', '/settings', { annex_scheme: e.target.value }); return }
+    if (e.target.id === 'wbAnnexPrefix') {
+      var px = String(e.target.value || '').trim().toUpperCase()
+      if (/^[A-Z]{1,2}$/.test(px)) outlineCall('PATCH', '/settings', { annex_prefix: px })
+      else window.showToast(t('workbench.annex.prefix_bad'))
       return
     }
     if ((e.target.id === 'wbCmpLeft' || e.target.id === 'wbCmpRight') && WB.compare) {

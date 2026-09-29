@@ -27,6 +27,7 @@
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docread.js'
+import { annexCheck, type FileResolver } from './workbench-docannex.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
 export type SectionStatus = typeof SECTION_STATUSES[number]
@@ -558,7 +559,7 @@ export interface CheckItem { key: string; ok: boolean; count: number; total?: nu
  * sajat kezzel irt blokkjai tajekoztatasul szerepelnek (a sajat szavaiert
  * felel), nem akadalyoznak.
  */
-export function documentCheck(itemId: string): { ready: boolean; items: CheckItem[] } {
+export function documentCheck(itemId: string, resolve?: FileResolver): { ready: boolean; items: CheckItem[] } {
   const { sections } = documentOutline(itemId)
   const claims = sections.flatMap((s) => s.blocks.flatMap((b) => b.claims))
   const blocks = sections.flatMap((s) => s.blocks)
@@ -586,5 +587,13 @@ export function documentCheck(itemId: string): { ready: boolean; items: CheckIte
     { key: 'inference_as_fact', ok: true, count: inferenceOnly.length, detail: inferenceOnly.map((c) => c.text) },
     { key: 'owner_written', ok: true, count: blocks.filter((b) => b.owner_edited_at).length },
   ]
+  // MELLEKLETEK (K-1.18): csak ha van melleklet, vagy a szoveg hivatkozik egyre.
+  const ax = annexCheck(itemId, resolve)
+  if (ax.total || ax.dangling.length) {
+    items.push({ key: 'annexes', ok: ax.ok === ax.total && !ax.dangling.length, count: ax.ok, total: ax.total })
+    if (ax.unreferenced.length) items.push({ key: 'annex_unreferenced', ok: false, count: ax.unreferenced.length, detail: ax.unreferenced })
+    if (ax.dangling.length) items.push({ key: 'annex_dangling', ok: false, count: ax.dangling.length, detail: ax.dangling })
+    if (ax.missing_files.length) items.push({ key: 'annex_missing_file', ok: false, count: ax.missing_files.length, detail: ax.missing_files })
+  }
   return { ready: items.every((i) => i.ok), items }
 }
