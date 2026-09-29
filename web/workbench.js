@@ -147,6 +147,10 @@
     // meg nem kerdeztuk. A 'check_failed' KULON all a 'no_account'-tol.
     gcal: null,
     pinBusy: false,
+    // --- lomtar (#443): torolt munkadarabok, visszaallithatok ---
+    deleted: [],
+    trashBusy: false,
+    trashOpen: false,
     tdOpen: false,
     tdRem: null,
     tdRemError: null,
@@ -233,6 +237,7 @@
       WB.error = null
       WB.project = r.data.project
       WB.items = r.data.items || []
+      WB.deleted = r.data.deleted || []
       loadOverview(projectId)
       loadTodos(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
@@ -261,6 +266,46 @@
       window.showToast(t(pinned ? 'workbench.pin.added' : 'workbench.pin.removed'))
       render()
     })
+  }
+
+  // ---- lomtar (#443) ----------------------------------------------------------
+  //
+  // A Torles nem kerdez ra (a tulajdonos kerese): lomtarba tesz, ahonnan egy
+  // kattintassal visszahozhato, a verziok es a fajlok megmaradnak.
+
+  function setTrashed(id, deleted) {
+    if (WB.trashBusy || archived()) return
+    var pid = WB.projectId
+    WB.trashBusy = true
+    render()
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/trash', { deleted: deleted }).then(function (r) {
+      WB.trashBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
+      if (r.data && Array.isArray(r.data.deleted)) WB.deleted = r.data.deleted
+      if (deleted && WB.selectedId === id) { WB.selectedId = null; WB.detail = null }
+      window.showToast(t(deleted ? 'workbench.trash.done' : 'workbench.trash.restored'))
+      render()
+    })
+  }
+
+  function trashHtml() {
+    var list = WB.deleted || []
+    if (!list.length) return ''
+    var head = '<button type="button" class="wb-trash-toggle" data-wb-act="trash-toggle" aria-expanded="' + WB.trashOpen + '">'
+      + esc(t('workbench.trash.title')) + ' (' + list.length + ')' + '</button>'
+    if (!WB.trashOpen) return '<div class="wb-trash">' + head + '</div>'
+    return '<div class="wb-trash">' + head
+      + '<p class="wb-hint">' + esc(t('workbench.trash.hint')) + '</p>'
+      + '<ul class="wb-items">' + list.map(function (it) {
+        return '<li class="wb-item-row wb-trash-row">'
+          + '<span class="wb-item wb-trash-item"><span class="wb-item-title">' + esc(it.title) + '</span>'
+          + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span></span>'
+          + '<button type="button" class="wb-item-del" data-wb-act="item-restore" data-wb-id="' + escA(it.id) + '"'
+          + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.restore')) + '</button>'
+          + '</li>'
+      }).join('') + '</ul></div>'
   }
 
   // ---- kis teendok hataridovel (#406, 14. pont) -------------------------------
@@ -771,9 +816,14 @@
           + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
           + '<span class="wb-item-title">' + esc((i + 1) + '. ' + it.title) + '</span>'
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
-          + '</button></li>'
+          + '</button>'
+          // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
+          + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
+          + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
+          + esc(t('workbench.trash.delete')) + '</button></li>'
       }).join('') + '</ul>'
     }
+    body += trashHtml()
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
       + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
@@ -6759,6 +6809,9 @@
     var a = act.getAttribute('data-wb-act')
     if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
+    else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
+    else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
+    else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }
     else if (a === 'goto-fullmode') { if (typeof window.openWorkbenchSettings === 'function') window.openWorkbenchSettings(); else if (typeof window.switchPage === 'function') window.switchPage('settings') }
     else if (a === 'export-open') { WB.exportOpen = WB.selectedId; render() }
