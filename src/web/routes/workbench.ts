@@ -62,6 +62,7 @@ import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
+import { docEditExt, docToEditableHtml, htmlToDocBytes, pdfToDocxBytes, looksLikePdf, DOC_EDIT_HTML_MAX } from '../../workbench-docedit.js'
 import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
@@ -585,6 +586,54 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A küldés jóváhagyásra vár. Semmi nem ment ki: jóváhagyás után a fő ágens küldi el, elutasításnál nem történik semmi.',
     en: 'The send is waiting for approval. Nothing has gone out: after approval the main agent sends it, on rejection nothing happens.',
   },
+  docedit_unsupported: {
+    hu: 'Ez a munkadarab nem Word-jellegű dokumentum (docx, doc, odt, rtf), ezért ezzel a szerkesztővel nem nyitható meg.',
+    en: 'This work item is not a Word-type document (docx, doc, odt, rtf), so it cannot be opened in this editor.',
+  },
+  docedit_old_version: {
+    hu: 'Csak a legújabb verzió szerkeszthető. Ha egy régebbiből folytatnád, előbb állítsd vissza a Verziók listában.',
+    en: 'Only the newest version can be edited. To continue from an older one, restore it first in the Versions list.',
+  },
+  docedit_stale: {
+    hu: 'Amíg szerkesztetted, a dokumentumnak új verziója lett (máshonnan mentették). Hogy semmi ne vesszen el, nem írtam felül: nyisd meg újra a szerkesztőt.',
+    en: 'While you were editing, the document got a new version (saved from elsewhere). So that nothing is lost it was not overwritten: open the editor again.',
+  },
+  docedit_empty: {
+    hu: 'Üres dokumentumot nem mentek el. Ha tényleg törölni akarod a tartalmát, írj bele legalább egy sort.',
+    en: 'An empty document is not saved. If you really want to clear it, write at least one line.',
+  },
+  docedit_too_large: {
+    hu: `A dokumentum a képeivel együtt túl nagy ahhoz, hogy itt mentsem (legfeljebb ${Math.floor(DOC_EDIT_HTML_MAX / (1024 * 1024))} MB).`,
+    en: `The document with its images is too large to save here (${Math.floor(DOC_EDIT_HTML_MAX / (1024 * 1024))} MB at most).`,
+  },
+  docedit_not_installed: {
+    hu: 'A dokumentum szerkesztéséhez a LibreOffice kell, és az ezen a gépen nincs telepítve. Linuxon: „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető. Ha máshova telepítetted, add meg az útvonalát a Munkapad „Mi működik ezen a gépen?” paneljén.',
+    en: 'Editing the document needs LibreOffice, and it is not installed on this machine. On Linux: "sudo apt install libreoffice-writer", on Windows/macOS from libreoffice.org. If you installed it elsewhere, give its path on the Workbench "What works on this machine?" panel.',
+  },
+  docedit_check_failed: {
+    hu: 'Nem tudtam megállapítani, van-e LibreOffice ezen a gépen, tehát ez NEM azt jelenti, hogy nincs. A pontos hibaüzenet a részleteknél olvasható.',
+    en: 'It could not be determined whether LibreOffice is on this machine, so this does NOT mean it is missing. The exact error is in the details.',
+  },
+  docedit_timeout: {
+    hu: 'Az átalakítás túl sokáig tartott, ezért leállítottam. Nagy vagy sérült dokumentumnál fordul elő; próbáld újra.',
+    en: 'The conversion took too long, so it was stopped. This happens with very large or damaged documents; try again.',
+  },
+  docedit_convert_failed: {
+    hu: 'Az átalakítás nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
+    en: 'The conversion failed. The exact error is in the details; no cause is guessed in its place.',
+  },
+  docedit_no_output: {
+    hu: 'Az átalakító lefutott, de nem keletkezett fájl. Ez általában sérült vagy jelszóval védett dokumentumnál fordul elő.',
+    en: 'The converter ran but produced no file. This usually happens with a damaged or password-protected document.',
+  },
+  pdfedit_unsupported: {
+    hu: 'Ez a munkadarab nem PDF, ezért a PDF-szerkesztő nem nyitható meg rajta.',
+    en: 'This work item is not a PDF, so the PDF editor cannot be opened on it.',
+  },
+  pdfedit_bad_pdf: {
+    hu: 'A mentendő fájl nem ép PDF, ezért nem mentettem el. Próbáld újra a mentést.',
+    en: 'The file to save is not a valid PDF, so it was not saved. Try saving again.',
+  },
   text_source_unsupported: {
     hu: 'Ennek a munkadarabnak a forrása nem szövegfájl, ezért itt nem írható át. Dokumentumnál töltsd le, szerkeszd a gépeden, és töltsd vissza.',
     en: 'The source of this work item is not a text file, so it cannot be rewritten here. For a document, download it, edit it on your computer and upload it again.',
@@ -994,6 +1043,13 @@ function fail(res: RouteContext['res'], status: number, code: string, lang: 'hu'
 function failDetail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en', detail: string | null): true {
   json(res, { error: code, message: msg(code, lang), detail: detail || null }, status)
   return true
+}
+
+/** Az atalakito (LibreOffice / Poppler) hibaja a dokumentum-szerkesztonel
+ *  (#444): a kodot a MERES adja, a `detail` a valodi hibauzenet. */
+function docEditFail(res: RouteContext['res'], r: { code: string; detail: string | null }, lang: 'hu' | 'en'): true {
+  const status = r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500
+  return failDetail(res, status, 'docedit_' + r.code, lang, r.detail)
 }
 
 async function readJson(req: RouteContext['req']): Promise<Record<string, unknown> | null> {
@@ -2117,6 +2173,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // DOKUMENTUM SZERKESZTESE A MUNKAPADON (#444, 1A): a .docx (doc/odt/rtf)
+  // szerkesztheto HTML-kent. OLVASAS, ezert az archivalt-kapu ELOTT all; a
+  // felulet archivalt projektben nem kinal szerkesztest, a mentes ugyis ott
+  // akad meg. Csak a MOSTANI verzio: regit szerkeszteni = a kozben keszult
+  // verziok csendes elvesztese lenne.
+  if (segs.length === 2 && segs[1] === 'doc-html' && method === 'GET') {
+    const p = buildPreview(item.id)
+    const ext = p.kind === 'office' && p.rel ? docEditExt(p.name || p.rel) : null
+    if (!ext || !p.rel) return fail(res, 400, 'docedit_unsupported', lang)
+    const abs = resolveLifePath(p.rel)
+    if (!abs) return fail(res, 404, 'convert_missing_source', lang)
+    const r = await docToEditableHtml(abs)
+    if (!r.ok) return docEditFail(res, r, lang)
+    json(res, { ok: true, html: r.html, ext, name: p.name, base_version: item.current_version_id || null }, 200, { 'Cache-Control': 'private, no-store' })
+    return true
+  }
+
   // Archivalt projekt = CSAK OLVASHATO. Az olvasas (GET) marad, minden iras
   // ugyanazt az EMBERI mondatot kapja -- a felulet el is rejti a gombokat, de a
   // szabalyt a szerver tartja be, nem a kepernyo.
@@ -2386,6 +2459,110 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       item: saved.item, version: saved.version, versions: listWorkItemVersionsView(item.id),
       rel: saved.rel, name: saved.name, renamed: saved.renamed,
       message: msg('canvas_saved', lang),
+    }, 201)
+    return true
+  }
+
+  // DOKUMENTUM MENTESE (#444, 1A): a szerkesztett HTML-bol UGYANABBAN a
+  // formatumban uj fajl (.docx marad .docx) + UJ verzio; a regi erintetlen.
+  if (segs.length === 2 && segs[1] === 'doc-html' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > DOC_EDIT_HTML_MAX) return fail(res, 413, 'docedit_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: DOC_EDIT_HTML_MAX })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'docedit_too_large', lang)
+      throw e
+    }
+    const html = data.toString('utf-8')
+    if (!html.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;/g, ' ').trim() && !/<img\b/i.test(html)) return fail(res, 400, 'docedit_empty', lang)
+    const base = url.searchParams.get('base_version')
+    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
+    const p = buildPreview(item.id)
+    const ext = p.kind === 'office' && p.rel ? docEditExt(p.name || p.rel) : null
+    if (!ext || !p.rel) return fail(res, 400, 'docedit_unsupported', lang)
+    const out = await htmlToDocBytes(html, ext)
+    if (!out.ok) return docEditFail(res, out, lang)
+    // A konverzio alatt (masodpercek) mashonnan is menthettek: ujra megnezzuk.
+    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
+    const fresh = getWorkItem(item.id)
+    if (!fresh) return fail(res, 404, 'not_found', lang)
+    const r = saveBytesAsNewVersion(fresh, project, p.rel, out.data, { created_by: actor(ctx), prompt: url.searchParams.get('prompt'), edit: 'document' })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
+    }
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      file: r.file, renamed: r.file.renamed, name: r.file.name,
+    }, 201)
+    return true
+  }
+
+  // PDF RAIRAS / KIEMELES / KITAKARAS (#444, 2A): a bongeszo rajzolja ra a
+  // jeloleseket, es a lapokbol UJ PDF-et epit. A kitakaras igy VALODI: a
+  // kitakart szoveg nincs benne az uj fajlban (a lap kepkent kerul bele). A
+  // regi PDF es a regi verzio erintetlen.
+  if (segs.length === 2 && segs[1] === 'pdf-edit' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      throw e
+    }
+    if (!looksLikePdf(data)) return fail(res, 400, 'pdfedit_bad_pdf', lang)
+    const base = url.searchParams.get('base_version')
+    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
+    const p = buildPreview(item.id)
+    if (p.kind !== 'pdf' || !p.rel) return fail(res, 400, 'pdfedit_unsupported', lang)
+    const r = saveBytesAsNewVersion(item, project, p.rel, data, { created_by: actor(ctx), prompt: url.searchParams.get('prompt'), edit: 'pdf_annotate' })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
+    }
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      file: r.file, renamed: r.file.renamed, name: r.file.name,
+    }, 201)
+    return true
+  }
+
+  // PDF -> SZERKESZTHETO WORD (#444, 2B): az uj .docx a PDF melle kerul, es a
+  // munkadarab UJ verzioja lesz -- innen a Word-szerkesztovel folytathato. A
+  // PDF-et tartalmazo regi verzio megmarad.
+  if (segs.length === 2 && segs[1] === 'pdf-to-docx' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const base = String(body['base_version'] ?? '')
+    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
+    const p = buildPreview(item.id)
+    if (p.kind !== 'pdf' || !p.rel) return fail(res, 400, 'pdfedit_unsupported', lang)
+    const abs = resolveLifePath(p.rel)
+    if (!abs) return fail(res, 404, 'convert_missing_source', lang)
+    const out = await pdfToDocxBytes(abs)
+    if (!out.ok) return docEditFail(res, out, lang)
+    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
+    const fresh = getWorkItem(item.id)
+    if (!fresh) return fail(res, 404, 'not_found', lang)
+    const fileName = String(p.name || 'dokumentum.pdf').replace(/\.[^.]+$/, '') + '.docx'
+    const r = saveBytesAsNewVersion(fresh, project, p.rel, out.data, { created_by: actor(ctx), prompt: body['prompt'], edit: 'pdf_to_docx', fileName })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
+    }
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      file: r.file, renamed: r.file.renamed, name: r.file.name, via: out.via,
     }, 201)
     return true
   }

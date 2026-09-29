@@ -759,6 +759,11 @@
     WB.textEdit = null
     if (WB.img && WB.img.itemId !== id) WB.img = null
     if (WB.vid && WB.vid.itemId !== id) WB.vid = null
+    if (WB.docEdit && WB.docEdit.itemId !== id) WB.docEdit = null
+    if (WB.pdfEdit && WB.pdfEdit.itemId !== id) {
+      if (WB.pdfEdit.doc && WB.pdfEdit.doc.destroy) { try { WB.pdfEdit.doc.destroy() } catch (_e) {} }
+      WB.pdfEdit = null
+    }
     if (WB.compare && WB.compare.itemId !== id) WB.compare = null
     WB.preview = null
     WB.previewVersion = null
@@ -1486,7 +1491,7 @@
     // IRODAI DOKUMENTUM (7. fazis): amit latsz, az a belole keszult PDF -- ezt
     // KI IS MONDJUK, hogy senki ne higgye, hogy a .docx-et szerkeszti itt.
     if (p.kind === 'office') {
-      return pdfSlotHtml(p.url)
+      return docButtonsHtml(p) + pdfSlotHtml(p.url)
         + '<p class="wb-hint">' + esc(t('workbench.preview.office_from_pdf')) + '</p>'
         + '<p class="wb-hint"><a href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">'
         + esc(t('workbench.preview.office_download_pdf')) + '</a>'
@@ -1497,7 +1502,7 @@
         + '</p>'
     }
     if (p.kind === 'pdf') {
-      return pdfSlotHtml(p.url)
+      return docButtonsHtml(p) + pdfSlotHtml(p.url)
         + '<p class="wb-hint"><a href="' + escA(p.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a>'
         + ' &middot; <a href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">' + esc(t('workbench.preview.download')) + '</a></p>'
     }
@@ -1727,6 +1732,696 @@
       WB.textEdit = null
       applyVersions(r.data)
       window.showToast(t('workbench.edit.text_saved', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
+    })
+  }
+
+  // ---- DOKUMENTUM-SZERKESZTES A MUNKAPADON (#444) ---------------------------
+  //
+  // A tulajdonos: "ezen a munkapadon belul tudjam szerkeszteni [...] nem az,
+  // hogy letolteni, valamivel szerkeszteni, aztan ide-vissza." Dontese: 1A +
+  // 2C. Ezert:
+  //   - Word (docx/doc/odt/rtf): formazott szerkeszto. A szerver a dokumentumot
+  //     HTML-le alakitja (LibreOffice), itt formazva szerkesztheto, a mentes
+  //     ugyanabban a formatumban UJ fajl + UJ verzio.
+  //   - PDF: raíras, kiemeles, kitakaras a lapokra; ES atalakitas
+  //     szerkesztheto Word-de (uj verziokent, a PDF megmarad).
+  //
+  // MIERT TARTOS DOM-CSOMOPONT (mint a PDF-nezegetonel): a `render()` az egesz
+  // feluletet ujraepiti (egy chat-uzenet is). Ha a szerkeszto abban ulne,
+  // minden ujrarajzolas elvinne a kurzort es a be nem mentett modositast. A
+  // szerkeszto sajat csomopontban el, amit a render() utan visszateszunk.
+
+  var DOC_EDIT_EXTS = { docx: 1, doc: 1, odt: 1, rtf: 1 }
+
+  function docCurrent() {
+    return !WB.previewVersion || (WB.detail && WB.detail.item && WB.previewVersion === WB.detail.item.current_version_id)
+  }
+
+  function docCanEdit(p) {
+    return !!(p && !archived() && docCurrent() && WB.detail && WB.detail.item && WB.selectedId)
+  }
+
+  function docEditableExt(p) {
+    if (!p || p.kind !== 'office') return null
+    var ext = (p.office && p.office.ext) || String(p.name || '').split('.').pop().toLowerCase()
+    return DOC_EDIT_EXTS[ext] ? ext : null
+  }
+
+  function docEditOpen() { return !!(WB.docEdit && WB.docEdit.itemId === WB.selectedId) }
+  function pdfEditOpen() { return !!(WB.pdfEdit && WB.pdfEdit.itemId === WB.selectedId) }
+
+  /** A szerkeszto-gombok az elonezet felett (Word: szerkesztes; PDF: jeloles +
+   *  atalakitas). Regi verzional es archivalt projektben NINCS gomb, csak egy
+   *  mondat, hogy miert. */
+  function docButtonsHtml(p) {
+    if (!p) return ''
+    var isDoc = !!docEditableExt(p)
+    var isPdf = p.kind === 'pdf' && p.available
+    if (!isDoc && !isPdf) return ''
+    if (!docCanEdit(p)) {
+      return (!archived() && !docCurrent()) ? '<p class="wb-hint">' + esc(t('workbench.docedit.old_version')) + '</p>' : ''
+    }
+    if (isDoc) {
+      return '<p class="wb-docedit-actions"><button type="button" class="btn-primary" data-wb-act="doc-edit">' + esc(t('workbench.docedit.open')) + '</button></p>'
+        + '<p class="wb-hint">' + esc(t('workbench.docedit.open_hint')) + '</p>'
+    }
+    var busy = WB.pdfToDocxBusy === WB.selectedId
+    return '<p class="wb-docedit-actions"><button type="button" class="btn-primary" data-wb-act="pdf-edit">' + esc(t('workbench.pdfedit.open')) + '</button> '
+      + '<button type="button" class="btn-secondary" data-wb-act="pdf-to-docx"' + (busy ? ' disabled' : '') + '>'
+      + esc(busy ? t('workbench.pdfedit.to_docx_busy') : t('workbench.pdfedit.to_docx')) + '</button></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.pdfedit.open_hint')) + '</p>'
+  }
+
+  // ---- Word-szerkeszto ----
+
+  /** Egy dokumentum-HTML-bol MINDEN futtathato reszt kiveszunk, mielott az
+   *  oldalba kerul (a szerver is tisztit; ez a masodik zar). A DOMParser
+   *  dokumentuma "halott": abban semmi nem fut le, amig at nem visszuk. */
+  function docCleanTree(root) {
+    var bad = root.querySelectorAll('script,iframe,object,embed,frame,frameset,applet,link,meta,base,form,input,button,textarea,select')
+    for (var i = bad.length - 1; i >= 0; i--) { if (bad[i].parentNode) bad[i].parentNode.removeChild(bad[i]) }
+    var all = root.querySelectorAll('*')
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j]
+      for (var k = el.attributes.length - 1; k >= 0; k--) {
+        var an = el.attributes[k].name.toLowerCase()
+        var av = String(el.attributes[k].value || '').trim().toLowerCase()
+        if (an.indexOf('on') === 0) el.removeAttribute(el.attributes[k].name)
+        else if ((an === 'href' || an === 'src' || an === 'xlink:href') && /^(javascript|vbscript):/.test(av)) el.removeAttribute(el.attributes[k].name)
+        else if (an === 'src' && el.tagName === 'IMG' && av.indexOf('data:') !== 0) el.removeAttribute('src')
+      }
+    }
+  }
+
+  /** A dokumentum sajat stilusait a szerkeszto-lapra SZUKITJUK, hogy ne
+   *  szinezzek at a Munkapad tobbi reszet. Az eredeti stilus-szoveg valtozatlanul
+   *  megmarad a menteshez. */
+  function docScopeCss(css) {
+    var out = []
+    String(css || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--|-->/g, '')
+      .replace(/([^{}@]+)\{([^{}]*)\}/g, function (_m, sel, body) {
+        var scoped = String(sel).split(',').map(function (s) {
+          s = s.trim()
+          if (!s) return ''
+          if (/^(html|body)\b/i.test(s)) return '.wb-docedit-page' + s.replace(/^(html|body)/i, '')
+          return '.wb-docedit-page ' + s
+        }).filter(Boolean).join(', ')
+        if (scoped) out.push(scoped + ' {' + body + '}')
+        return ''
+      })
+    return out.join('\n')
+  }
+
+  function openDocEdit() {
+    var p = WB.preview
+    var ext = docEditableExt(p)
+    if (!ext || !docCanEdit(p)) return
+    var itemId = WB.selectedId
+    WB.docEdit = { itemId: itemId, ext: ext, name: p.name || '', loading: true, busy: false, error: null, detail: null, dirty: false, host: null, page: null, head: '', baseVersion: null, range: null }
+    render()
+    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/doc-html').then(function (r) {
+      var st = WB.docEdit
+      if (!st || st.itemId !== itemId) return
+      st.loading = false
+      if (!r.ok) {
+        st.error = r.message
+        st.detail = (r.data && r.data.detail) || null
+        render()
+        return
+      }
+      st.baseVersion = r.data.base_version || ''
+      docBuildHost(st, String(r.data.html || ''))
+      render()
+      if (st.page && typeof st.page.focus === 'function') st.page.focus()
+    })
+  }
+
+  function docEditHtml() {
+    var st = WB.docEdit
+    if (st.loading) return '<p class="wb-muted">' + esc(t('workbench.docedit.loading')) + '</p>'
+    if (st.error) {
+      return '<p class="wb-preview-bad">' + esc(st.error) + '</p>'
+        + (st.detail ? '<p class="wb-hint">' + esc(st.detail) + '</p>' : '')
+        + '<p><button type="button" class="btn-secondary" data-wb-act="doc-edit-close">' + esc(t('workbench.docedit.back')) + '</button></p>'
+    }
+    return '<div class="wb-docedit-slot" data-wb-docedit="1"></div>'
+  }
+
+  var DOC_TOOLS = [
+    ['undo', '&#8630;'], ['redo', '&#8631;'], ['|'],
+    ['bold', '<b>B</b>'], ['italic', '<i>I</i>'], ['underline', '<u>U</u>'], ['strikeThrough', '<s>S</s>'], ['|'],
+    ['block', ''], ['size', ''], ['|'],
+    ['insertUnorderedList', '&#8226;&#8226;'], ['insertOrderedList', '1.2.'], ['outdent', '&#8676;'], ['indent', '&#8677;'], ['|'],
+    ['justifyLeft', '&#8676;&#8801;'], ['justifyCenter', '&#8801;'], ['justifyRight', '&#8801;&#8677;'], ['justifyFull', '&#9776;'], ['|'],
+    ['foreColor', ''], ['hiliteColor', ''], ['removeFormat', '&#10007;']
+  ]
+
+  function docBuildHost(st, html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html')
+    var styles = doc.querySelectorAll('style')
+    var css = ''
+    for (var i = 0; i < styles.length; i++) css += styles[i].textContent + '\n'
+    // A mentes a DOKUMENTUM eredeti fejevel megy vissza (lapmeret, margok,
+    // bekezdes-stilusok) -- a LibreOffice ebbol tudja, mi volt az eredeti.
+    st.head = '<meta charset="utf-8"><title></title>' + (css ? '<style type="text/css">' + css.replace(/<\/style/gi, '') + '</style>' : '')
+    docCleanTree(doc.body)
+    var host = document.createElement('div')
+    host.className = 'wb-docedit'
+    var bar = document.createElement('div')
+    bar.className = 'wb-docedit-bar'
+    bar.innerHTML = DOC_TOOLS.map(function (tool) {
+      var c = tool[0]
+      if (c === '|') return '<span class="wb-docedit-sep"></span>'
+      if (c === 'block') {
+        return '<select class="wb-docedit-select" data-de-block title="' + escA(t('workbench.docedit.t_block')) + '">'
+          + '<option value="">' + esc(t('workbench.docedit.t_block')) + '</option>'
+          + '<option value="p">' + esc(t('workbench.docedit.block_p')) + '</option>'
+          + '<option value="h1">' + esc(t('workbench.docedit.block_h1')) + '</option>'
+          + '<option value="h2">' + esc(t('workbench.docedit.block_h2')) + '</option>'
+          + '<option value="h3">' + esc(t('workbench.docedit.block_h3')) + '</option></select>'
+      }
+      if (c === 'size') {
+        return '<select class="wb-docedit-select" data-de-size title="' + escA(t('workbench.docedit.t_size')) + '">'
+          + '<option value="">' + esc(t('workbench.docedit.t_size')) + '</option>'
+          + [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'], ['5', '18'], ['6', '24'], ['7', '36']].map(function (o) {
+            return '<option value="' + o[0] + '">' + o[1] + ' pt</option>'
+          }).join('') + '</select>'
+      }
+      if (c === 'foreColor' || c === 'hiliteColor') {
+        return '<label class="wb-docedit-color" title="' + escA(t('workbench.docedit.t_' + c)) + '">'
+          + (c === 'foreColor' ? 'A' : '&#9608;')
+          + '<input type="color" data-de-color="' + c + '" value="' + (c === 'foreColor' ? '#c00000' : '#ffff00') + '"></label>'
+      }
+      return '<button type="button" class="wb-docedit-btn" data-de="' + c + '" title="' + escA(t('workbench.docedit.t_' + c)) + '">' + tool[1] + '</button>'
+    }).join('')
+    var style = document.createElement('style')
+    style.textContent = docScopeCss(css)
+    var paper = document.createElement('div')
+    paper.className = 'wb-docedit-paper'
+    var page = document.createElement('div')
+    page.className = 'wb-docedit-page'
+    page.setAttribute('contenteditable', 'true')
+    page.setAttribute('spellcheck', 'true')
+    page.setAttribute('role', 'textbox')
+    page.setAttribute('aria-multiline', 'true')
+    page.setAttribute('aria-label', st.name || t('workbench.docedit.open'))
+    while (doc.body.firstChild) page.appendChild(document.importNode(doc.body.firstChild, true))
+    paper.appendChild(page)
+    var foot = document.createElement('div')
+    foot.className = 'wb-docedit-foot'
+    foot.innerHTML = '<button type="button" class="btn-primary" data-de-act="save">' + esc(t('workbench.docedit.save')) + '</button> '
+      + '<button type="button" class="btn-secondary" data-de-act="cancel">' + esc(t('common.cancel')) + '</button>'
+      + '<span class="wb-docedit-status" data-de-status></span>'
+      + '<p class="wb-hint">' + esc(t('workbench.docedit.hint', { ext: '.' + st.ext })) + '</p>'
+    host.appendChild(style)
+    host.appendChild(bar)
+    host.appendChild(paper)
+    host.appendChild(foot)
+    // Sajat figyelok: a gepeles es a formazas NEM rajzolja ujra a Munkapadot.
+    bar.addEventListener('mousedown', function (e) {
+      // A gomb ne vegye el a kijelolest a szovegtol.
+      if (e.target && e.target.closest && e.target.closest('[data-de]')) e.preventDefault()
+    })
+    bar.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-de]') : null
+      if (b) docExec(b.getAttribute('data-de'))
+    })
+    bar.addEventListener('change', function (e) {
+      var el = e.target
+      if (!el) return
+      if (el.hasAttribute('data-de-block') && el.value) { docExec('formatBlock', el.value); el.value = '' }
+      else if (el.hasAttribute('data-de-size') && el.value) { docExec('fontSize', el.value); el.value = '' }
+      else if (el.hasAttribute('data-de-color')) docExec(el.getAttribute('data-de-color'), el.value)
+    })
+    page.addEventListener('input', function () { st.dirty = true; docStatus('') })
+    var remember = function () { docSaveRange(st) }
+    page.addEventListener('keyup', remember)
+    page.addEventListener('mouseup', remember)
+    page.addEventListener('blur', remember)
+    foot.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-de-act]') : null
+      if (!b) return
+      if (b.getAttribute('data-de-act') === 'save') saveDocEdit()
+      else closeDocEdit(false)
+    })
+    st.host = host
+    st.page = page
+  }
+
+  function docSaveRange(st) {
+    try {
+      var sel = window.getSelection && window.getSelection()
+      if (sel && sel.rangeCount && st.page && st.page.contains(sel.anchorNode)) st.range = sel.getRangeAt(0).cloneRange()
+    } catch (_e) { /* nincs kijeloles */ }
+  }
+
+  function docRestoreRange(st) {
+    if (!st.range || !st.page) return
+    try {
+      var sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(st.range)
+    } catch (_e) { /* a kijeloles mar nem ervenyes */ }
+  }
+
+  function docExec(cmd, value) {
+    var st = WB.docEdit
+    if (!st || !st.page || st.busy) return
+    if (document.activeElement !== st.page) { st.page.focus(); docRestoreRange(st) }
+    try {
+      if (cmd === 'hiliteColor' && !document.queryCommandSupported('hiliteColor')) cmd = 'backColor'
+      document.execCommand('styleWithCSS', false, cmd === 'hiliteColor' || cmd === 'backColor')
+      if (cmd === 'formatBlock') document.execCommand('formatBlock', false, '<' + value + '>')
+      else document.execCommand(cmd, false, value == null ? null : value)
+    } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
+    st.dirty = true
+    docSaveRange(st)
+  }
+
+  function docStatus(text) {
+    var st = WB.docEdit
+    if (!st || !st.host) return
+    var el = st.host.querySelector('[data-de-status]')
+    if (el) el.textContent = text || ''
+  }
+
+  function docEditMount() {
+    if (!pdfDomOk()) return
+    var st = WB.docEdit
+    var slot = document.querySelector('[data-wb-docedit]')
+    if (!st || !st.host || !slot) return
+    if (st.host.parentNode !== slot) {
+      var had = document.activeElement === st.page || (st.host.parentNode == null && st.range)
+      slot.appendChild(st.host)
+      if (had && st.page) { st.page.focus(); docRestoreRange(st) }
+    }
+  }
+
+  function closeDocEdit(force) {
+    var st = WB.docEdit
+    if (!st) return
+    if (!force && st.dirty && !window.confirm(t('workbench.docedit.confirm_discard'))) return
+    WB.docEdit = null
+    render()
+  }
+
+  function saveDocEdit() {
+    var st = WB.docEdit
+    if (!st || st.busy || !st.page) return
+    var itemId = st.itemId
+    var html = '<!DOCTYPE html>\n<html><head>' + st.head + '</head><body>' + st.page.innerHTML + '</body></html>\n'
+    st.busy = true
+    docStatus(t('workbench.docedit.saving'))
+    var btns = st.host.querySelectorAll('[data-de-act]')
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = true
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/doc-html?base_version=' + encodeURIComponent(st.baseVersion || '')
+      + '&lang=' + encodeURIComponent(window._lang || 'hu')
+    var done = function (msg, detail) {
+      var s2 = WB.docEdit
+      if (!s2 || s2.itemId !== itemId) return
+      s2.busy = false
+      for (var j = 0; j < btns.length; j++) btns[j].disabled = false
+      docStatus(msg + (detail ? ' (' + detail + ')' : ''))
+      window.showToast(msg)
+    }
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/html; charset=utf-8' }, body: html }).then(function (res) {
+      return res.json().catch(function () { return null }).then(function (data) {
+        if (!res.ok) { done((data && data.message) || t('workbench.err.http', { status: res.status }), data && data.detail); return }
+        if (WB.docEdit && WB.docEdit.itemId === itemId) WB.docEdit = null
+        applyVersions(data)
+        window.showToast(t('workbench.docedit.saved', { n: data && data.version ? data.version.version_no : '', name: (data && data.name) || '' }))
+      })
+    }).catch(function () { done(t('workbench.err.network')) })
+  }
+
+  // ---- PDF: raíras, kiemeles, kitakaras ----
+  //
+  // A lapokat a mar meglevo pdf.js rajzolja ki (sajat kiszolgalorol, halozat
+  // nelkul is). A jelolesek PDF-pontban tarolodnak (nagyitasfuggetlenul), es
+  // mentesnel a lap + a jelolesek EGY kepkent kerulnek az uj PDF-be: igy a
+  // kitakart szoveg VALOBAN eltunik (nem csak egy fekete doboz takarja).
+
+  var PDFEDIT_SAVE_SCALE = 2
+  var PDFEDIT_MAX_PX = 2600
+  var PDFEDIT_COLORS = { black: '#000000', red: '#c00000', blue: '#1f4fbf' }
+
+  function openPdfEdit() {
+    var p = WB.preview
+    if (!p || p.kind !== 'pdf' || !p.url || !docCanEdit(p)) return
+    var itemId = WB.selectedId
+    WB.pdfEdit = {
+      itemId: itemId, url: p.url, name: p.name || '', baseVersion: (WB.detail && WB.detail.item && WB.detail.item.current_version_id) || '',
+      loading: true, error: null, detail: null, busy: false, host: null, doc: null, pages: [], anns: [],
+      tool: 'hl', color: 'black', size: 14, drag: null,
+    }
+    render()
+    pdfLoadLib().then(function (lib) {
+      return lib.getDocument({ url: p.url, isEvalSupported: false, cMapUrl: PDFJS_VENDOR_BASE + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_VENDOR_BASE + 'standard_fonts/', wasmUrl: PDFJS_VENDOR_BASE + 'wasm/', iccUrl: PDFJS_VENDOR_BASE + 'iccs/' }).promise
+    }).then(function (doc) {
+      var st = WB.pdfEdit
+      if (!st || st.itemId !== itemId) { try { doc.destroy() } catch (_e) {} return }
+      st.doc = doc
+      st.loading = false
+      pdfEditBuildHost(st)
+      render()
+      pdfEditRenderPages(st)
+    }).catch(function (err) {
+      var st = WB.pdfEdit
+      if (!st || st.itemId !== itemId) return
+      st.loading = false
+      st.error = (err && err.message) || t('workbench.pdf.failed')
+      st.detail = (err && err.detail) || null
+      render()
+    })
+  }
+
+  function pdfEditHtml() {
+    var st = WB.pdfEdit
+    if (st.loading) return '<p class="wb-muted">' + esc(t('workbench.pdfedit.loading')) + '</p>'
+    if (st.error) {
+      return '<p class="wb-preview-bad">' + esc(st.error) + '</p>'
+        + (st.detail ? '<p class="wb-hint">' + esc(st.detail) + '</p>' : '')
+        + '<p><button type="button" class="btn-secondary" data-wb-act="pdf-edit-close">' + esc(t('workbench.docedit.back')) + '</button></p>'
+    }
+    return '<div class="wb-docedit-slot" data-wb-pdfedit="1"></div>'
+  }
+
+  function pdfEditBuildHost(st) {
+    var host = document.createElement('div')
+    host.className = 'wb-pdfedit'
+    var bar = document.createElement('div')
+    bar.className = 'wb-docedit-bar wb-pdfedit-bar'
+    bar.innerHTML = ['hl', 'redact', 'text'].map(function (k) {
+      return '<button type="button" class="wb-docedit-btn wb-pdfedit-tool" data-pe-tool="' + k + '" aria-pressed="' + (st.tool === k) + '">'
+        + esc(t('workbench.pdfedit.tool_' + k)) + '</button>'
+    }).join('')
+      + '<input type="text" class="wb-input wb-pdfedit-text" data-pe-text placeholder="' + escA(t('workbench.pdfedit.text_placeholder')) + '" aria-label="' + escA(t('workbench.pdfedit.text_placeholder')) + '">'
+      + '<select class="wb-docedit-select" data-pe-size title="' + escA(t('workbench.pdfedit.size')) + '">'
+      + [10, 12, 14, 18, 24, 32].map(function (n) { return '<option value="' + n + '"' + (n === st.size ? ' selected' : '') + '>' + n + ' pt</option>' }).join('') + '</select>'
+      + '<select class="wb-docedit-select" data-pe-color title="' + escA(t('workbench.pdfedit.color')) + '">'
+      + Object.keys(PDFEDIT_COLORS).map(function (c) { return '<option value="' + c + '">' + esc(t('workbench.pdfedit.color_' + c)) + '</option>' }).join('') + '</select>'
+      + '<span class="wb-docedit-sep"></span>'
+      + '<button type="button" class="wb-docedit-btn" data-pe-act="undo">' + esc(t('workbench.pdfedit.undo')) + '</button>'
+    var pages = document.createElement('div')
+    pages.className = 'wb-pdfedit-pages'
+    var foot = document.createElement('div')
+    foot.className = 'wb-docedit-foot'
+    foot.innerHTML = '<button type="button" class="btn-primary" data-pe-act="save">' + esc(t('workbench.pdfedit.save')) + '</button> '
+      + '<button type="button" class="btn-secondary" data-pe-act="cancel">' + esc(t('common.cancel')) + '</button>'
+      + '<span class="wb-docedit-status" data-pe-status></span>'
+      + '<p class="wb-hint">' + esc(t('workbench.pdfedit.hint')) + '</p>'
+    host.appendChild(bar)
+    host.appendChild(pages)
+    host.appendChild(foot)
+    bar.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-pe-tool],[data-pe-act]') : null
+      if (!b) return
+      if (b.hasAttribute('data-pe-tool')) {
+        st.tool = b.getAttribute('data-pe-tool')
+        var all = bar.querySelectorAll('[data-pe-tool]')
+        for (var i = 0; i < all.length; i++) all[i].setAttribute('aria-pressed', String(all[i] === b))
+        if (st.tool === 'text') { var ti = bar.querySelector('[data-pe-text]'); if (ti) ti.focus() }
+      } else if (b.getAttribute('data-pe-act') === 'undo') {
+        var last = st.anns.pop()
+        if (last) pdfEditDrawOverlay(st, last.page)
+      }
+    })
+    bar.addEventListener('change', function (e) {
+      var el = e.target
+      if (el && el.hasAttribute('data-pe-size')) st.size = Number(el.value) || 14
+      if (el && el.hasAttribute('data-pe-color')) st.color = PDFEDIT_COLORS[el.value] ? el.value : 'black'
+    })
+    foot.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-pe-act]') : null
+      if (!b) return
+      if (b.getAttribute('data-pe-act') === 'save') savePdfEdit()
+      else closePdfEdit(false)
+    })
+    st.host = host
+    st.pagesEl = pages
+    st.barEl = bar
+  }
+
+  /** A lapok kirajzolasa a szerkeszto szelessegere. Minden laphoz egy
+   *  atlatszo reteg tartozik: arra huzol, arra kerulnek a jelolesek. */
+  function pdfEditRenderPages(st) {
+    var n = st.doc.numPages
+    var width = Math.max(320, Math.min(900, (st.pagesEl.clientWidth || 800) - 8))
+    var chain = Promise.resolve()
+    for (var i = 1; i <= n; i++) {
+      (function (no) {
+        chain = chain.then(function () {
+          if (WB.pdfEdit !== st) return null
+          return st.doc.getPage(no).then(function (page) {
+            var vp1 = page.getViewport({ scale: 1 })
+            var ds = width / vp1.width
+            var vp = page.getViewport({ scale: ds })
+            var wrap = document.createElement('div')
+            wrap.className = 'wb-pdfedit-page'
+            wrap.style.width = Math.floor(vp.width) + 'px'
+            wrap.style.height = Math.floor(vp.height) + 'px'
+            var base = document.createElement('canvas')
+            base.width = Math.floor(vp.width)
+            base.height = Math.floor(vp.height)
+            var over = document.createElement('canvas')
+            over.className = 'wb-pdfedit-overlay'
+            over.width = base.width
+            over.height = base.height
+            wrap.appendChild(base)
+            wrap.appendChild(over)
+            st.pagesEl.appendChild(wrap)
+            st.pages[no - 1] = { no: no, w: vp1.width, h: vp1.height, ds: ds, over: over }
+            pdfEditBindOverlay(st, no - 1)
+            return page.render({ canvasContext: base.getContext('2d'), viewport: vp }).promise
+          })
+        })
+      })(i)
+    }
+    chain.catch(function (err) {
+      if (WB.pdfEdit !== st) return
+      window.showToast(t('workbench.pdfedit.render_failed', { message: (err && err.message) || '' }))
+    })
+  }
+
+  function pdfEditBindOverlay(st, idx) {
+    var pg = st.pages[idx]
+    var over = pg.over
+    var pt = function (e) {
+      var r = over.getBoundingClientRect()
+      return { x: (e.clientX - r.left) * (over.width / (r.width || 1)) / pg.ds, y: (e.clientY - r.top) * (over.height / (r.height || 1)) / pg.ds }
+    }
+    over.addEventListener('pointerdown', function (e) {
+      if (st.busy) return
+      e.preventDefault()
+      try { over.setPointerCapture(e.pointerId) } catch (_e) {}
+      var p0 = pt(e)
+      st.drag = { idx: idx, x0: p0.x, y0: p0.y, x1: p0.x, y1: p0.y }
+    })
+    over.addEventListener('pointermove', function (e) {
+      if (!st.drag || st.drag.idx !== idx) return
+      var p1 = pt(e)
+      st.drag.x1 = p1.x
+      st.drag.y1 = p1.y
+      pdfEditDrawOverlay(st, idx)
+    })
+    var end = function (e) {
+      var d = st.drag
+      if (!d || d.idx !== idx) return
+      st.drag = null
+      var p1 = pt(e)
+      var x = Math.min(d.x0, p1.x), y = Math.min(d.y0, p1.y)
+      var w = Math.abs(p1.x - d.x0), h = Math.abs(p1.y - d.y0)
+      if (st.tool === 'text') {
+        var ti = st.barEl && st.barEl.querySelector('[data-pe-text]')
+        var text = ti ? String(ti.value || '').trim() : ''
+        if (!text) { window.showToast(t('workbench.pdfedit.text_needed')); pdfEditDrawOverlay(st, idx); return }
+        st.anns.push({ page: idx, type: 'text', x: d.x0, y: d.y0, text: text, size: st.size, color: PDFEDIT_COLORS[st.color] })
+      } else if (w > 2 && h > 2) {
+        st.anns.push({ page: idx, type: st.tool, x: x, y: y, w: w, h: h })
+      }
+      pdfEditDrawOverlay(st, idx)
+    }
+    over.addEventListener('pointerup', end)
+    over.addEventListener('pointercancel', function () { st.drag = null; pdfEditDrawOverlay(st, idx) })
+  }
+
+  /** A jelolesek kirajzolasa egy lapra `s` meretaranyban (kepernyo vagy mentes). */
+  function pdfEditPaint(ctx, anns, s) {
+    anns.forEach(function (a) {
+      if (a.type === 'hl') { ctx.fillStyle = 'rgba(255, 230, 0, 0.4)'; ctx.fillRect(a.x * s, a.y * s, a.w * s, a.h * s) }
+      else if (a.type === 'redact') { ctx.fillStyle = '#000000'; ctx.fillRect(a.x * s, a.y * s, a.w * s, a.h * s) }
+      else if (a.type === 'text') {
+        ctx.fillStyle = a.color || '#000000'
+        ctx.font = Math.round(a.size * s) + 'px sans-serif'
+        ctx.textBaseline = 'top'
+        ctx.fillText(a.text, a.x * s, a.y * s)
+      }
+    })
+  }
+
+  function pdfEditDrawOverlay(st, idx) {
+    var pg = st.pages[idx]
+    if (!pg) return
+    var ctx = pg.over.getContext('2d')
+    ctx.clearRect(0, 0, pg.over.width, pg.over.height)
+    pdfEditPaint(ctx, st.anns.filter(function (a) { return a.page === idx }), pg.ds)
+    var d = st.drag
+    if (d && d.idx === idx && st.tool !== 'text') {
+      ctx.strokeStyle = st.tool === 'redact' ? '#000' : '#c9a400'
+      ctx.setLineDash([4, 3])
+      ctx.strokeRect(Math.min(d.x0, d.x1) * pg.ds, Math.min(d.y0, d.y1) * pg.ds, Math.abs(d.x1 - d.x0) * pg.ds, Math.abs(d.y1 - d.y0) * pg.ds)
+      ctx.setLineDash([])
+    }
+  }
+
+  function pdfEditMount() {
+    if (!pdfDomOk()) return
+    var st = WB.pdfEdit
+    var slot = document.querySelector('[data-wb-pdfedit]')
+    if (!st || !st.host || !slot) return
+    if (st.host.parentNode !== slot) slot.appendChild(st.host)
+  }
+
+  function pdfEditStatus(text) {
+    var st = WB.pdfEdit
+    if (!st || !st.host) return
+    var el = st.host.querySelector('[data-pe-status]')
+    if (el) el.textContent = text || ''
+  }
+
+  function closePdfEdit(force) {
+    var st = WB.pdfEdit
+    if (!st) return
+    if (!force && st.anns.length && !window.confirm(t('workbench.docedit.confirm_discard'))) return
+    if (st.doc && st.doc.destroy) { try { st.doc.destroy() } catch (_e) {} }
+    WB.pdfEdit = null
+    render()
+  }
+
+  /** Egy JPEG-lapokbol allo PDF bajtjai. Szandekosan a legegyszerubb ervenyes
+   *  PDF: lapnkent egy kep, a lap meretere feszitve (nincs kulso konyvtar). */
+  function pdfFromJpegs(pages) {
+    var enc = new TextEncoder()
+    var chunks = []
+    var pos = 0
+    var offsets = []
+    var push = function (x) { var b = typeof x === 'string' ? enc.encode(x) : x; chunks.push(b); pos += b.length }
+    var num = function (v) { return (Math.round(v * 100) / 100).toString() }
+    push('%PDF-1.4\n')
+    push(new Uint8Array([37, 226, 227, 207, 211, 10]))
+    var n = pages.length
+    var total = 2 + n * 3
+    var obj = function (id, body) { offsets[id] = pos; push(id + ' 0 obj\n'); push(body); push('\nendobj\n') }
+    obj(1, '<< /Type /Catalog /Pages 2 0 R >>')
+    var kids = []
+    for (var i = 0; i < n; i++) kids.push((3 + i * 3) + ' 0 R')
+    obj(2, '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + n + ' >>')
+    pages.forEach(function (p, i) {
+      var pid = 3 + i * 3, cid = pid + 1, iid = pid + 2
+      obj(pid, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + num(p.w) + ' ' + num(p.h) + '] /Resources << /XObject << /Im0 ' + iid + ' 0 R >> >> /Contents ' + cid + ' 0 R >>')
+      var content = 'q ' + num(p.w) + ' 0 0 ' + num(p.h) + ' 0 0 cm /Im0 Do Q'
+      obj(cid, '<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream')
+      offsets[iid] = pos
+      push(iid + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + p.pw + ' /Height ' + p.ph
+        + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + p.jpeg.length + ' >>\nstream\n')
+      push(p.jpeg)
+      push('\nendstream\nendobj\n')
+    })
+    var xref = pos
+    var x = 'xref\n0 ' + (total + 1) + '\n0000000000 65535 f \n'
+    for (var k = 1; k <= total; k++) x += ('0000000000' + offsets[k]).slice(-10) + ' 00000 n \n'
+    push(x)
+    push('trailer\n<< /Size ' + (total + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n')
+    return new Blob(chunks, { type: 'application/pdf' })
+  }
+
+  function savePdfEdit() {
+    var st = WB.pdfEdit
+    if (!st || st.busy || !st.doc) return
+    if (!st.anns.length) { window.showToast(t('workbench.pdfedit.empty')); return }
+    st.busy = true
+    var itemId = st.itemId
+    var n = st.doc.numPages
+    var out = []
+    var btns = st.host.querySelectorAll('[data-pe-act]')
+    for (var b = 0; b < btns.length; b++) btns[b].disabled = true
+    var fail = function (msg) {
+      var s2 = WB.pdfEdit
+      if (!s2 || s2.itemId !== itemId) return
+      s2.busy = false
+      for (var j = 0; j < btns.length; j++) btns[j].disabled = false
+      pdfEditStatus(msg)
+      window.showToast(msg)
+    }
+    var chain = Promise.resolve()
+    for (var i = 1; i <= n; i++) {
+      (function (no) {
+        chain = chain.then(function () {
+          pdfEditStatus(t('workbench.pdfedit.saving', { i: no, n: n }))
+          return st.doc.getPage(no).then(function (page) {
+            var vp1 = page.getViewport({ scale: 1 })
+            var s = Math.min(PDFEDIT_SAVE_SCALE, PDFEDIT_MAX_PX / Math.max(vp1.width, vp1.height))
+            var vp = page.getViewport({ scale: s })
+            var cv = document.createElement('canvas')
+            cv.width = Math.max(1, Math.floor(vp.width))
+            cv.height = Math.max(1, Math.floor(vp.height))
+            var ctx = cv.getContext('2d')
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, 0, cv.width, cv.height)
+            return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+              pdfEditPaint(ctx, st.anns.filter(function (a) { return a.page === no - 1 }), s)
+              return new Promise(function (resolve, reject) {
+                cv.toBlob(function (blob) {
+                  if (!blob) { reject(new Error('toBlob')); return }
+                  blob.arrayBuffer().then(function (ab) {
+                    out.push({ w: vp1.width, h: vp1.height, pw: cv.width, ph: cv.height, jpeg: new Uint8Array(ab) })
+                    resolve()
+                  }, reject)
+                }, 'image/jpeg', 0.9)
+              })
+            })
+          })
+        })
+      })(i)
+    }
+    chain.then(function () {
+      var blob = pdfFromJpegs(out)
+      var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/pdf-edit?base_version=' + encodeURIComponent(st.baseVersion || '')
+        + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: blob }).then(function (res) {
+        return res.json().catch(function () { return null }).then(function (data) {
+          if (!res.ok) { fail((data && data.message) || t('workbench.err.http', { status: res.status })); return }
+          if (WB.pdfEdit && WB.pdfEdit.itemId === itemId) {
+            try { WB.pdfEdit.doc.destroy() } catch (_e) {}
+            WB.pdfEdit = null
+          }
+          applyVersions(data)
+          window.showToast(t('workbench.pdfedit.saved', { n: data && data.version ? data.version.version_no : '', name: (data && data.name) || '' }))
+        })
+      }, function () { fail(t('workbench.err.network')) })
+    }).catch(function (err) {
+      fail(t('workbench.pdfedit.render_failed', { message: (err && err.message) || '' }))
+    })
+  }
+
+  function pdfToDocx() {
+    var p = WB.preview
+    if (!p || p.kind !== 'pdf' || !docCanEdit(p) || WB.pdfToDocxBusy) return
+    var itemId = WB.selectedId
+    WB.pdfToDocxBusy = itemId
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/pdf-to-docx', {
+      base_version: (WB.detail && WB.detail.item && WB.detail.item.current_version_id) || '',
+    }).then(function (r) {
+      WB.pdfToDocxBusy = null
+      if (WB.selectedId !== itemId) return
+      if (!r.ok) {
+        render()
+        window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+        return
+      }
+      applyVersions(r.data)
+      window.showToast(t('workbench.pdfedit.to_docx_done', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
     })
   }
 
@@ -2598,12 +3293,15 @@
       + previewVersionPickerHtml() + '</div>'
     // TABLAZAT (#406, 15. pont): nyitva a racs -> az van a helyen.
     if (tableOpen()) return '<div class="wb-preview">' + head + tableHtml() + '</div>'
+    // DOKUMENTUM-SZERKESZTES (#444): nyitva a szerkeszto -> az van a helyen.
+    if (docEditOpen()) return '<div class="wb-preview">' + head + docEditHtml() + '</div>'
+    if (pdfEditOpen()) return '<div class="wb-preview">' + head + pdfEditHtml() + '</div>'
     var tableBtn = tableButtonHtml(p)
     if (!p.available && p.reason === 'needs_conversion') {
       // NEM HIBA, hanem TEENDO: ebbol a dokumentumbol tudunk elonezetet
       // csinalni. A gomb mellett ott a letoltes is -- ha a gepen nincs meg a
       // LibreOffice, a felhasznalo attol meg hozzafer a sajat fajljahoz.
-      return '<div class="wb-preview">' + head + tableBtn
+      return '<div class="wb-preview">' + head + tableBtn + docButtonsHtml(p)
         + '<p class="wb-muted">' + esc(p.message || t('workbench.preview.none')) + '</p>'
         + '<p><button type="button" class="btn-primary" data-wb-act="preview-convert"' + (WB.convertBusy ? ' disabled' : '') + '>'
         + esc(WB.convertBusy ? t('workbench.preview.converting') : t('workbench.preview.convert')) + '</button></p>'
@@ -6462,6 +7160,9 @@
     // A PDF-nezegeto csomopontja tulelte az ujrarajzolast: visszatesszuk a
     // helyere (vagy uj dokumentumnal elinditjuk a betoltest).
     pdfMount()
+    // A dokumentum-szerkeszto (#444) is tartos csomopont: vissza a helyere.
+    docEditMount()
+    pdfEditMount()
     if (vidKeep) videoRestore(vidKeep)
     if (keepCell) {
       var cell = document.getElementById(keepCell)
@@ -6876,6 +7577,11 @@
     else if (a === 'compare-open') openCompare()
     else if (a === 'compare-close') { WB.compare = null; render() }
     else if (a === 'text-edit') openTextEdit()
+    else if (a === 'doc-edit') openDocEdit()
+    else if (a === 'doc-edit-close') closeDocEdit(true)
+    else if (a === 'pdf-edit') openPdfEdit()
+    else if (a === 'pdf-edit-close') closePdfEdit(true)
+    else if (a === 'pdf-to-docx') pdfToDocx()
     else if (a === 'dict') dictToggle(act.getAttribute('data-wb-dict'))
     else if (a === 'tts') ttsToggle(act.getAttribute('data-wb-tts'))
     else if (a === 'img-open') openImageEditor()

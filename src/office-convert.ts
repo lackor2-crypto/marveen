@@ -20,7 +20,7 @@
  * VALODI hibauzenetet viszi -- nem talalgatunk okot.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { STORE_DIR } from './config.js'
@@ -193,11 +193,67 @@ export type ConvertResult =
   | { ok: true; pdf: string; key: string; cached: boolean }
   | { ok: false; code: 'unsupported' | 'missing_source' | 'not_installed' | 'check_failed' | 'timeout' | 'convert_failed' | 'no_output'; detail: string | null; probe?: SofficeProbe }
 
+let queue: Promise<unknown> = Promise.resolve()
+/** Az EGYSZERRE-EGY sor, amit a PDF-elonezet is hasznal. Ugyanide all be
+ *  minden mas LibreOffice-futas is (dokumentum -> HTML, HTML -> dokumentum,
+ *  #444): a kozos profil-mappan ket soffice egymasra lepne. */
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const serialized = queue.then(task, task)
+  queue = serialized.catch(() => undefined)
+  return serialized
+}
+
+export type SofficeFileResult =
+  | { ok: true; data: Buffer; name: string }
+  | { ok: false; code: 'not_installed' | 'check_failed' | 'timeout' | 'convert_failed' | 'no_output'; detail: string | null }
+
+/**
+ * Egy fajl atalakitasa BARMILYEN LibreOffice-celformatumra (#444): a Munkapad
+ * dokumentum-szerkesztoje ezzel alakit .docx -> HTML-t (szerkesztesre) es
+ * HTML -> .docx-et (mentesre). Az eredmeny bajtjai jonnek vissza; a munkamappa
+ * mindig torlodik. `outExt`: milyen kiterjesztesu fajlt varunk a kimeneten.
+ */
+export async function sofficeConvertFile(
+  abs: string, convertTo: string,
+  opts: { outExt: string; infilter?: string; timeoutMs?: number },
+): Promise<SofficeFileResult> {
+  return enqueue(async (): Promise<SofficeFileResult> => {
+    const probe = await probeLibreOffice()
+    if (!probe.available) {
+      return { ok: false, code: probe.reason === 'check_failed' ? 'check_failed' : 'not_installed', detail: probe.detail }
+    }
+    const dir = renderCacheDir()
+    const outDir = join(dir, `tmp-x-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+    const profile = join(dir, 'lo-profile')
+    try {
+      mkdirSync(outDir, { recursive: true })
+      mkdirSync(profile, { recursive: true })
+    } catch (e) {
+      return { ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) }
+    }
+    try {
+      const args = ['--headless', '--norestore', '--nolockcheck', '--nodefault',
+        `-env:UserInstallation=${pathToFileURL(profile).href}`]
+      if (opts.infilter) args.push(`--infilter=${opts.infilter}`)
+      args.push('--convert-to', convertTo, '--outdir', outDir, abs)
+      const r = await runVersion(probe.path as string, args, opts.timeoutMs ?? 180_000)
+      if (!r.ok) return { ok: false, code: r.code === 'timeout' ? 'timeout' : 'convert_failed', detail: r.detail }
+      const want = '.' + opts.outExt.toLowerCase()
+      let made: string[] = []
+      try { made = readdirSync(outDir).filter((f) => f.toLowerCase().endsWith(want)) } catch { made = [] }
+      if (!made.length) return { ok: false, code: 'no_output', detail: r.stdout.trim() || null }
+      const name = made[0] as string
+      return { ok: true, data: readFileSync(join(outDir, name)), name }
+    } finally {
+      try { rmSync(outDir, { recursive: true, force: true }) } catch { /* a takaritas hibaja nem a felhasznalo baja */ }
+    }
+  })
+}
+
 // EGYSZERRE EGY atalakitas fut. Ket okbol: a LibreOffice egy kozos profil-
 // mappat hasznal (parhuzamos indulasnal egymasra lepnenek), es egy terhelt
 // flotta-gepen sem akarunk tiz soffice-t egyszerre. Az AZONOS kereseket
 // osszevonjuk: ha ugyanazt a fajlt ketten kerik, egy konverzio lesz belole.
-let queue: Promise<unknown> = Promise.resolve()
 const inFlight = new Map<string, Promise<ConvertResult>>()
 
 /** `pdfFilter`: a LibreOffice `--convert-to` erteke (pl. PDF/A beallitassal); alapbol sima `pdf`.
@@ -260,8 +316,7 @@ export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number
 
   // Sorba allitas: a tenyleges futas megvarja az elotte allot (akkor is, ha az
   // elozo elhasalt -- egy hibas atalakitas nem allithatja meg a tobbit).
-  const serialized = queue.then(doConvert, doConvert)
-  queue = serialized.catch(() => undefined)
+  const serialized = enqueue(doConvert)
   inFlight.set(k.key, serialized)
   try {
     return await serialized
