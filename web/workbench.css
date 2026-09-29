@@ -972,6 +972,9 @@
 .wb-outline-missing { background: #fef3c7; }
 .wb-outline-claim-unverified .wb-outline-claim-text { text-decoration: underline wavy var(--warning, #b45309); }
 .wb-outline-tools { margin: 2px 0; font-size: 0.8rem; }
+.wb-outline-rewrite { margin: 4px 0; padding: 6px 8px; border: 1px dashed var(--accent, #2563eb); border-radius: 6px; background: var(--bg-subtle, rgba(37, 99, 235, 0.05)); }
+.wb-outline-rewrite-stale { border-color: var(--warning, #b45309); opacity: 0.8; }
+.wb-outline-rewrite-head { margin: 0 0 4px; font-size: 0.8rem; font-weight: 600; }
 .wb-outline-check { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border, #d1d5db); }
 .wb-outline-check ul { padding-left: 18px; }
 .wb-outline-check .wb-consistency { margin: 4px 0; overflow-wrap: anywhere; }

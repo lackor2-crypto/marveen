@@ -5002,6 +5002,36 @@
 
   var SECTION_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' }
 
+  /** ATIRASI JAVASLAT (#441, K-1.20): az agent javasol, a tulajdonos fogadja el vagy veti el. */
+  var REWRITABLE = { paragraph: true, list: true, footnote: true }
+
+  function rewriteHtml(b, ro) {
+    var r = b.rewrite
+    var drops = r.would_drop || []
+    return '<div class="wb-outline-rewrite' + (r.stale ? ' wb-outline-rewrite-stale' : '') + '">'
+      + '<p class="wb-outline-rewrite-head">' + esc(t('workbench.outline.rewrite_proposal.' + (r.style || 'other'))) + '</p>'
+      + '<div class="wb-outline-text">' + blockTextHtml(r.text) + '</div>'
+      + (r.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.outline.rewrite_stale')) + '</p>' : '')
+      + (drops.length ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.outline.rewrite_drops', { n: drops.length })) + '</p><ul class="wb-outline-claims">'
+        + drops.map(function (d) { return '<li>' + esc(d) + '</li>' }).join('') + '</ul>' : '')
+      + (ro ? '' : '<p class="wb-outline-tools">'
+        + (r.stale ? '' : '<button type="button" class="wb-btn" data-wb-act="outline-rewrite-accept" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.rewrite_accept')) + '</button> ')
+        + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-dismiss" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.rewrite_dismiss')) + '</button></p>')
+      + '</div>'
+  }
+
+  /** Egy kerest kuld az agentnek a chatben, mintha a tulajdonos irta volna (latszik a chatben). */
+  function askAgent(text) {
+    var st = chatState()
+    if (WB.chatStreaming) {
+      st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true })
+      renderChat()
+      return
+    }
+    st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
+    startChatTurn(text)
+  }
+
   /** KOVETKEZETESSEG (#441, K-1.19): a gepi jelzesek emberi mondattal; a
    *  tulajdonos egyenkent "szandekos"-nak jelolheti, ami visszavonhato. */
   function consistencyIssueHtml(i, ro) {
@@ -5061,8 +5091,11 @@
           + '<div class="wb-outline-text">' + blockTextHtml(b.text) + '</div>'
           + (b.owner_edited_at ? '<p class="wb-muted wb-outline-owner">' + esc(t('workbench.outline.owner_written')) + '</p>' : '')
           + (b.claims && b.claims.length ? '<ul class="wb-outline-claims">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+          + (b.rewrite ? rewriteHtml(b, ro) : '')
           + (ro ? '' : '<p class="wb-outline-tools">'
             + '<button type="button" class="wb-linklike" data-wb-act="outline-block-edit" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.edit')) + '</button> '
+            + (REWRITABLE[b.kind] ? '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_simpler_hint')) + '">' + esc(t('workbench.outline.rewrite_simpler')) + '</button> '
+              + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_formal_hint')) + '">' + esc(t('workbench.outline.rewrite_formal')) + '</button> ' : '')
             + '<button type="button" class="wb-linklike" data-wb-act="outline-block-del" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.delete')) + '</button></p>')
           + '</div>'
       }).join('')
@@ -5254,6 +5287,19 @@
       var b = findBlock(bid)
       var nx = window.prompt(t('workbench.outline.edit_prompt'), b ? b.text : '')
       if (nx !== null && nx.trim() && (!b || nx.trim() !== b.text)) outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: nx.trim() })
+    } else if (a === 'outline-rewrite-ask') {
+      var rb = findBlock(bid)
+      var rs = findSection(sid)
+      if (!rb) return
+      var excerpt = rb.text.length > 400 ? rb.text.slice(0, 400) + '…' : rb.text
+      askAgent(t('workbench.outline.rewrite_ask.' + act.getAttribute('data-wb-style'), { section: rs ? rs.title : '', block: rb.id, text: excerpt }))
+      window.showToast(t('workbench.outline.rewrite_asked'))
+    } else if (a === 'outline-rewrite-accept') {
+      var ab = findBlock(bid)
+      var drops = ab && ab.rewrite ? (ab.rewrite.would_drop || []).length : 0
+      if (!drops || window.confirm(t('workbench.outline.rewrite_drops_confirm', { n: drops }))) outlineCall('POST', '/blocks/' + encodeURIComponent(bid) + '/rewrite/accept', {})
+    } else if (a === 'outline-rewrite-dismiss') {
+      outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid) + '/rewrite')
     } else if (a === 'outline-block-del') {
       if (window.confirm(t('workbench.outline.delete_block_confirm'))) outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid))
     } else if (a === 'outline-annex-add') {
