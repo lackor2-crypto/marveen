@@ -326,11 +326,22 @@ export function codeBridgeStallDetail(task: CodeBridgeTaskView): string | null {
   return /\btimed out after\b|\bno progress for\b/i.test(text) ? text : null
 }
 
-/** A limit or a stalled run: the work was NOT finished and another account
+/** The worker's Claude Code is too old for the requested model ("Claude Code
+ *  2.1.226 does not support this model; version 2.1.280 or newer is required").
+ *  Not a quota problem and not the owner's mistake: the run never started. */
+export function codeBridgeOutdatedDetail(task: CodeBridgeTaskView): string | null {
+  if (task.status !== 'error') return null
+  const text = codeBridgeErrorDetail(task)
+  if (!text || text.length > LIMIT_TEXT_MAX_CHARS) return null
+  return /does not support this model|or newer is required/i.test(text) ? text : null
+}
+
+/** A limit, an outdated worker or a stalled run: the work was NOT finished and another account
  *  can take it over (Boss, 2026-09-29: "Az elso dolog az legyen, hogy megnezi,
  *  hogy milyen masik fiokban van limit es tud dolgozni"). */
-export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'stalled' | null {
+export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'stalled' | null {
   if (codeBridgeLimitDetail(task)) return 'limit'
+  if (codeBridgeOutdatedDetail(task)) return 'outdated'
   if (codeBridgeStallDetail(task)) return 'stalled'
   return null
 }
@@ -368,7 +379,9 @@ function* finishedEvents(
     const m = detail ? msg('code_bridge_error_detail', lang, { detail }) : msg('code_bridge_error', lang)
     record('system', m)
     yield { type: 'tool', name: 'code-bridge', status: 'error' }
-    yield { type: 'error', code: codeBridgeStallDetail(task) ? 'code_bridge_stalled' : 'code_bridge_error', message: m }
+    const code = codeBridgeStallDetail(task) ? 'code_bridge_stalled'
+      : codeBridgeOutdatedDetail(task) ? 'code_bridge_outdated' : 'code_bridge_error'
+    yield { type: 'error', code, message: m }
     return
   }
   const m = msg('code_bridge_cancelled', lang)

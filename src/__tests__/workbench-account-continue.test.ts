@@ -26,6 +26,7 @@ const clock = () => { let t = 0; return { now: () => t, sleep: async () => { t +
 const view = (extra: Partial<CodeBridgeTaskView>): CodeBridgeTaskView => ({ status: 'error', result: null, summary: null, error: null, ...extra })
 const LIMIT = view({ error: 'Claude Code reported an error', result: "You've hit your session limit · resets 2:10am (Europe/Budapest)" })
 const STALL = view({ error: 'no progress for 1800 s (transcript silent) -- stopped' })
+const OUTDATED = view({ error: 'Claude Code reported an error', result: "API Error: 400 Claude Code 2.1.226 does not support this model; version 2.1.280 or newer is required. Run 'claude update'." })
 const HARD = view({ error: 'timed out after 14400 s (hard limit)' })
 const task = (extra: Partial<CodeTask>): CodeTask => ({
   id: 't1', status: 'error', origin: 'workbench', chatId: 's1', result: null, summary: null, error: null, ...extra,
@@ -36,6 +37,7 @@ describe('codeBridgeContinuable', () => {
     expect(codeBridgeContinuable(LIMIT)).toBe('limit')
     expect(codeBridgeContinuable(STALL)).toBe('stalled')
     expect(codeBridgeContinuable(HARD)).toBe('stalled')
+    expect(codeBridgeContinuable(OUTDATED)).toBe('outdated')
     expect(codeBridgeContinuable(view({ error: 'tsc failed: 3 errors' }))).toBeNull()
     expect(codeBridgeContinuable(view({ status: 'done', result: 'ok' }))).toBeNull()
   })
