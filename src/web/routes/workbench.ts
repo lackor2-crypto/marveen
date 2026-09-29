@@ -54,6 +54,7 @@ import {
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
+import { egressLog, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
@@ -689,6 +690,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   outline_rewrite_stale: {
     hu: 'Ez a bekezdés megváltozott, amióta a javaslat készült, ezért a javaslat már nem illik rá. Vesd el, és kérj újat.',
     en: 'This block changed since the proposal was made, so the proposal no longer fits it. Dismiss it and ask for a new one.',
+  },
+  privacy_bad_input: {
+    hu: 'Hibás kérés: a "sensitive" mező igen/nem értéket vár.',
+    en: 'Bad request: the "sensitive" field takes a yes/no value.',
+  },
+  privacy_owner_only: {
+    hu: 'Az „Érzékeny” jelölést csak te kapcsolhatod ki, a saját kattintásoddal. Az Agent csak bekapcsolni tudja.',
+    en: 'Only you can turn the "Sensitive" mark off, with your own click. The Agent can only turn it on.',
   },
   variant_bad_input: {
     hu: 'Ismeretlen nyelv. Válassz a listából, vagy adj meg egy kétbetűs nyelvkódot (például fr).',
@@ -1508,6 +1517,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   }
   // GOOGLE NAPTAR (#406, 14. pont B): csak a tulajdonos kattintasara,
   // teendonkent, a `calendar_write` jovahagyasi kapun at.
+  // A PROJEKT "Erzekeny" jelolese (#441, K-1.32): minden munkadarabjara all.
+  if (path === '/api/workbench/privacy' && (method === 'GET' || method === 'PUT')) {
+    const pid = (url.searchParams.get('project') || '').trim()
+    const project = pid ? getProject(pid) : undefined
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (method === 'PUT') {
+      const body = await readJson(req)
+      if (!body || typeof body['sensitive'] !== 'boolean') return fail(res, 400, 'privacy_bad_input', lang)
+      if (body['sensitive'] === false && !isOwnerClick(ctx)) return fail(res, 403, 'privacy_owner_only', lang)
+      setProjectSensitive(project.id, body['sensitive'] === true, actor(ctx))
+    }
+    json(res, { ok: true, privacy: privacyState(project.id, null), sensitive_items: sensitiveItemIds(project.id) })
+    return true
+  }
   if (path === '/api/workbench/gcal-status' && method === 'GET') {
     json(res, { gcal: gcalStatus() })
     return true
@@ -1683,7 +1706,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     json(res, {
-      project: { id: project.id, name: project.name, archived: project.archived_at != null },
+      project: { id: project.id, name: project.name, archived: project.archived_at != null, sensitive: projectSensitive(project.id) },
+      sensitive_items: sensitiveItemIds(project.id),
       items: listWorkItems(project.id),
       deleted: listDeletedWorkItems(project.id),
       types: WORK_ITEM_TYPES,
@@ -1824,7 +1848,24 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
       outline: outlineOut(item.id),
       deadlines: itemDeadlines(item.id, assets),
+      privacy: privacyState(item.project_id, item.id),
     })
+    return true
+  }
+
+  // ADATVEDELEM (#441, 7.3, K-1.32 ... K-1.34): "Erzekeny" jeloles es a kimeno adatok naploja.
+  //   GET .../privacy                 -- az allapot + mi ment ki, hova, mikor (K-1.33)
+  //   PUT .../privacy {sensitive}     -- bekapcsolni barki (szigoritas), KIKAPCSOLNI csak a tulajdonos kattintasa
+  if (segs.length === 2 && segs[1] === 'privacy' && method === 'GET') {
+    json(res, { privacy: privacyState(item.project_id, item.id), egress: egressLog(item.id), ocr: 'local' })
+    return true
+  }
+  if (segs.length === 2 && segs[1] === 'privacy' && method === 'PUT') {
+    const body = await readJson(req)
+    if (!body || typeof body['sensitive'] !== 'boolean') return fail(res, 400, 'privacy_bad_input', lang)
+    if (body['sensitive'] === false && !isOwnerClick(ctx)) return fail(res, 403, 'privacy_owner_only', lang)
+    setItemSensitive(item.id, body['sensitive'] === true, actor(ctx))
+    json(res, { ok: true, privacy: privacyState(item.project_id, item.id) })
     return true
   }
 

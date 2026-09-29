@@ -243,6 +243,7 @@
       WB.project = r.data.project
       WB.items = r.data.items || []
       WB.deleted = r.data.deleted || []
+      WB.sensitiveIds = r.data.sensitive_items || []
       loadOverview(projectId)
       loadTodos(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
@@ -961,6 +962,8 @@
     loadDetail(WB.selectedId)
     // Mas munkadarab = MAS beszelgetes: a hozza tartozot toltjuk be.
     loadChatHistory()
+    // Nyitott "Technikai reszletek": az uj munkadarab naploja kell (K-1.33).
+    if (WB.techOpen) loadEgress()
   }
 
   function loadDetail(id) {
@@ -1028,7 +1031,7 @@
           + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
           + (pinned ? '★' : '☆') + '</button>'
           + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
-          + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + '</span>'
+          + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
           + '</button>'
           // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
@@ -5932,17 +5935,120 @@
     })
   }
 
+  // ---- adatvedelem (#441, 7.3, K-1.32 ... K-1.34) ------------------------------
+  //
+  // "Erzekeny" jeloles a projekten vagy a munkadarabon (a projekte mindenre all).
+  // Bekapcsolni barki tudja, KIKAPCSOLNI csak a tulajdonos (a szerver nezi).
+  // A "Technikai reszletek" a kimeno adatok naploja: mi, melyik szolgaltatashoz,
+  // mikor (K-1.33). A Munkapad Agentje maga is kulso szolgaltatas (Claude): a
+  // jeloles nem ot kapcsolja ki, hanem a TOVABBI kulso szolgaltatasokat (K-1.34).
+
+  function itemSensitive(id) {
+    if (WB.project && WB.project.sensitive) return true
+    return (WB.sensitiveIds || []).indexOf(id) >= 0
+  }
+  function projectPrivacyHtml() {
+    var on = !!WB.project.sensitive
+    return '<p class="wb-privacy-row"><span class="' + (on ? 'wb-doc-low' : 'wb-muted') + '">' + esc(t(on ? 'workbench.privacy.project_on' : 'workbench.privacy.project_off')) + '</span>'
+      + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="privacy-project" data-wb-on="' + (on ? '0' : '1') + '" title="' + escA(t('workbench.privacy.hint')) + '"' + (WB.privacyBusy ? ' disabled' : '') + '>'
+        + esc(t(on ? 'workbench.privacy.turn_off' : 'workbench.privacy.turn_on_project')) + '</button>')
+      + '</p>'
+  }
+  function itemPrivacyHtml() {
+    var p = (WB.detail && WB.detail.privacy) || { sensitive: false, item: false, project: false }
+    var line = p.project ? t('workbench.privacy.item_from_project') : t(p.item ? 'workbench.privacy.item_on' : 'workbench.privacy.item_off')
+    var btn = archived() || p.project ? ''
+      : ' <button type="button" class="wb-linklike" data-wb-act="privacy-item" data-wb-on="' + (p.item ? '0' : '1') + '" title="' + escA(t('workbench.privacy.hint')) + '"' + (WB.privacyBusy ? ' disabled' : '') + '>'
+        + esc(t(p.item ? 'workbench.privacy.turn_off' : 'workbench.privacy.turn_on_item')) + '</button>'
+    return '<p class="wb-privacy-row"><span class="' + (p.sensitive ? 'wb-doc-low' : 'wb-muted') + '">' + (p.sensitive ? '🔒 ' : '') + esc(line) + '</span>' + btn + '</p>'
+      + (p.sensitive ? '<p class="wb-hint">' + esc(t('workbench.privacy.hint')) + '</p>' : '')
+  }
+  function setPrivacy(scope, on) {
+    if (WB.privacyBusy || archived()) return
+    if (!on && !window.confirm(t('workbench.privacy.off_confirm'))) return
+    var id = WB.selectedId
+    var url = scope === 'project'
+      ? '/api/workbench/privacy?project=' + encodeURIComponent(WB.projectId)
+      : '/api/workbench/items/' + encodeURIComponent(id) + '/privacy'
+    WB.privacyBusy = true
+    render()
+    api('PUT', url, { sensitive: !!on }).then(function (r) {
+      WB.privacyBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      window.showToast(t(on ? 'workbench.privacy.saved_on' : 'workbench.privacy.saved_off'))
+      if (scope === 'project' && WB.project) {
+        WB.project.sensitive = !!r.data.privacy.project
+        WB.sensitiveIds = r.data.sensitive_items || WB.sensitiveIds
+        if (WB.detail && WB.detail.privacy) {
+          WB.detail.privacy.project = WB.project.sensitive
+          WB.detail.privacy.sensitive = WB.detail.privacy.project || WB.detail.privacy.item
+        }
+      } else if (WB.detail && WB.selectedId === id) {
+        WB.detail.privacy = r.data.privacy
+        var ids = (WB.sensitiveIds || []).filter(function (x) { return x !== id })
+        if (r.data.privacy.item) ids.push(id)
+        WB.sensitiveIds = ids
+      }
+      WB.egress = null
+      render()
+      if (WB.techOpen) loadEgress()
+    })
+  }
+
+  function loadEgress() {
+    var id = WB.selectedId
+    if (!id) return
+    WB.egress = { itemId: id, loading: true, rows: [], error: null }
+    render()
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/privacy').then(function (r) {
+      if (WB.selectedId !== id) return
+      WB.egress = r.ok ? { itemId: id, loading: false, rows: r.data.egress || [], error: null } : { itemId: id, loading: false, rows: [], error: r.message }
+      render()
+    })
+  }
+  function egressRowHtml(e) {
+    var who = e.account === 'api_key' ? t('workbench.egress.api_key') : e.account ? t('workbench.egress.account', { account: e.account }) : ''
+    var what
+    if (e.service === 'web_search') what = t('workbench.egress.what_search', { query: e.query || '' })
+    else if (e.service === 'google_calendar') what = t('workbench.egress.what_todo', { todo: e.todo || '', due: e.due || '-' })
+    else what = t('workbench.egress.what_message', { n: e.message_chars || 0 })
+      + ((e.files || []).length ? ' ' + t('workbench.egress.what_files', { files: e.files.join(', ') }) : '')
+      + (e.service === 'claude_code' ? ' ' + t('workbench.egress.full_note') : '')
+    var st = e.status === 'blocked' ? ' <span class="wb-ok">' + esc(t('workbench.egress.blocked')) + '</span>'
+      : e.status === 'failed' ? ' <span class="wb-muted">' + esc(t('workbench.egress.failed')) + '</span>' : ''
+    return '<li><span class="wb-muted">' + esc(when(e.at)) + '</span> · <strong>' + esc(t('workbench.egress.service.' + e.service)) + '</strong>'
+      + (who ? ' <span class="wb-muted">(' + esc(who) + ')</span>' : '') + '<br>' + esc(what) + st + '</li>'
+  }
+  /** "⋮ Technikai reszletek" (K-1.33): mi ment ki, hova, mikor. */
+  function techDetailsHtml() {
+    var open = !!WB.techOpen
+    var e = WB.egress && WB.egress.itemId === WB.selectedId ? WB.egress : null
+    var body = ''
+    if (open) {
+      body = '<p class="wb-hint">' + esc(t('workbench.egress.hint')) + '</p>'
+        + '<p class="wb-muted">' + esc(t('workbench.egress.ocr_local')) + '</p>'
+      if (!e || e.loading) body += '<p class="wb-muted">' + esc(t('workbench.egress.loading')) + '</p>'
+      else if (e.error) body += '<p class="wb-doc-low">' + esc(t('workbench.egress.load_failed')) + ' ' + esc(e.error) + '</p>'
+      else if (!e.rows.length) body += '<p class="wb-muted">' + esc(t('workbench.egress.empty')) + '</p>'
+      else body += '<ul class="wb-egress">' + e.rows.map(egressRowHtml).join('') + '</ul>'
+    }
+    return '<div class="wb-ctx-block wb-tech"><p class="wb-ctx-actions"><button type="button" class="wb-linklike" data-wb-act="tech-toggle" aria-expanded="' + (open ? 'true' : 'false') + '">'
+      + '⋮ ' + esc(t('workbench.egress.title')) + '</button></p>' + body + '</div>'
+  }
+
   function contextPanelHtml() {
     var rows = []
     rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.project')) + '</h3>'
-      + '<p>' + esc(WB.project ? WB.project.name : '-') + '</p></div>')
+      + '<p>' + esc(WB.project ? WB.project.name : '-') + (WB.project && WB.project.sensitive ? ' <span class="wb-lock">🔒</span>' : '') + '</p>'
+      + (WB.project ? projectPrivacyHtml() : '') + '</div>')
     if (WB.detail) {
       var it = WB.detail.item
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
         + '<p>' + workSeqHtml(it) + esc(it.title) + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="item-rename">'
           + esc(t('workbench.rename.button')) + '</button>') + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
-        + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p></div>')
+        + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p>'
+        + itemPrivacyHtml() + '</div>')
       rows.push(assetsBlockHtml())
       if (!archived()) rows.push(sharedBlockHtml(WB.detail.assets || []))
       var versions = WB.detail.versions || []
@@ -5991,6 +6097,7 @@
           + '<input type="file" id="wbDocUpload" class="wb-file-input"></p>'
           + '</div>')
       }
+      rows.push(techDetailsHtml())
     } else {
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
         + '<p class="wb-muted">' + esc(t('workbench.context.no_selection')) + '</p></div>')
@@ -8207,6 +8314,9 @@
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
+    else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
+    else if (a === 'privacy-item') setPrivacy('item', act.getAttribute('data-wb-on') === '1')
+    else if (a === 'tech-toggle') { WB.techOpen = !WB.techOpen; if (WB.techOpen) loadEgress(); else render() }
     else if (a === 'item-purge-ask') { WB.warn = { kind: 'purge', id: act.getAttribute('data-wb-id') }; render() }
     else if (a === 'item-purge') purgeItem(act.getAttribute('data-wb-id'))
     else if (a === 'last-version-trash') { WB.warn = null; setTrashed(act.getAttribute('data-wb-id'), true) }

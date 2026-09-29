@@ -984,6 +984,11 @@
 .wb-outline-final h4 { margin: 8px 0 4px; }
 .wb-outline-accept { display: inline-flex; align-items: flex-start; gap: 6px; cursor: pointer; }
 .wb-outline-accept input { margin-top: 3px; flex: none; }
+/* Adatvedelem (#441, K-1.32 ... K-1.34) */
+.wb-lock { font-size: 0.85em; }
+.wb-privacy-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 4px 0; }
+.wb-egress { margin: 4px 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.wb-egress li { margin: 3px 0; overflow-wrap: anywhere; }
 /* Nyelvi valtozatok (#441, K-1.27 ... K-1.31) */
 .wb-doclang { margin: 6px 0 10px; padding: 6px 8px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; }
 .wb-doclang h4 { margin: 0 0 4px; }

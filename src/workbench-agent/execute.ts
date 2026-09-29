@@ -36,6 +36,7 @@ import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd } from './project-tools.js'
 import { webSearch } from './web-search.js'
+import { searchBlock } from '../workbench-privacy.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
 import { createVariant, variantInfo, variantsSummary, translateSection, setBackTranslation, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks } from '../workbench-doclang.js'
 import {
@@ -213,7 +214,17 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
   if (!project) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
   const archived = archivedGate(name, project)
   if (archived) return archived
-  if (name === 'web.search') return webSearch(input, ctx.lang)
+  if (name === 'web.search') {
+    // ERZEKENY munkadarab/projekt (#441, K-1.32): a keresokifejezes nem vihet ki szemelyes adatot.
+    const hits = searchBlock(project.id, ctx.workItemId, asString(input.query))
+    if (hits) {
+      return {
+        ok: false, code: 'sensitive_personal_data',
+        detail: `This work item is marked SENSITIVE by the owner, so a web search may not carry personal data. Found in the phrase: ${hits.map((h) => `${h.kind} "${h.value}"`).join(', ')}. Search again with a generic phrase (the legal question, the rule, the court) WITHOUT these, or tell the owner why you can not.`,
+      }
+    }
+    return webSearch(input, ctx.lang)
+  }
 
   const ref = projectFileRef(project, input.path)
   if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
