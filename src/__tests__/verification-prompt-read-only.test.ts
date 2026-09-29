@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PROJECT_ROOT } from '../config.js'
-import { buildVerificationPrompt } from '../approval-verification-dispatch.js'
+import { buildVerificationPrompt, buildVerificationReminder } from '../approval-verification-dispatch.js'
 
 const DISPATCH = join(PROJECT_ROOT, 'src', 'approval-verification-dispatch.ts')
 const REMINDER = join(PROJECT_ROOT, 'src', 'web', 'verification-sweep-job.ts')
@@ -40,17 +40,27 @@ describe('verification prompts state the read-only limit', () => {
     expect(text).not.toContain('probald ki tenylegesen')
   })
 
+  // The reminder text is built in the same module as the dispatch prompt
+  // (buildVerificationReminder) since 2026-09-29, so it is asserted on the
+  // BUILT string. The sweep job must still be the one using it -- otherwise
+  // the assertions below would pass on a builder nobody calls.
   it('the reminder repeats the limit, because it arrives as a separate message', () => {
-    const text = read(REMINDER)
-    expect(text).toContain('CSAK-OLVASO')
-    expect(text).toContain('POST/PUT/PATCH/DELETE')
+    expect(read(REMINDER)).toContain('buildVerificationReminder(')
+    const reminder = buildVerificationReminder({
+      approvalId: 'x', category: 'c', actionDescription: 'd', agent: 'a',
+      ownerName: 'o', tokenPath: '/t', baseUrl: 'http://localhost:1', mode: 'verify',
+    })
+    expect(reminder).toContain('CSAK-OLVASO')
+    expect(reminder).toContain('POST/PUT/PATCH/DELETE')
   })
 
   it('leaves exactly one writing call allowed: the verify-result report', () => {
-    for (const path of [DISPATCH, REMINDER]) {
-      const text = read(path)
-      expect(text).toContain('verify-result')
-    }
+    expect(read(DISPATCH)).toContain('verify-result')
+    const reminder = buildVerificationReminder({
+      approvalId: 'x', category: 'c', actionDescription: 'd', agent: 'a',
+      ownerName: 'o', tokenPath: '/t', baseUrl: 'http://localhost:1', mode: 'verify',
+    })
+    expect(reminder).toContain('/api/approvals/x/verify-result')
   })
 
   // The read-only guarantee is a property of the REVIEW mode, and the module

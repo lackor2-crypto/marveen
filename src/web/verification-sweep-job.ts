@@ -4,8 +4,7 @@
 // this. Called once at dashboard startup (clears whatever a restart left in
 // flight) and then on a timer.
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { PROJECT_ROOT, WEB_PORT } from '../config.js'
+import { currentOwnerName } from '../config.js'
 import {
   createAgentMessage,
   getApproval,
@@ -23,10 +22,10 @@ import {
   type AgentActivity,
   type VerificationSweepResult,
 } from '../approval-verification-sweep.js'
-import { kanbanCardIdFromApproval, verificationSender } from './routes/approvals.js'
+import { kanbanCardIdFromApproval, verificationSender, VERIFY_BASE_URL, VERIFY_TOKEN_PATH } from './routes/approvals.js'
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { agentSessionName, capturePane, isSessionReadyForPrompt, sessionExistsOnHost } from './agent-process.js'
-import { codeBridgeProjectOf } from '../approval-verification-dispatch.js'
+import { buildVerificationReminder, codeBridgeProjectOf } from '../approval-verification-dispatch.js'
 import { getCodeSession } from './code-bridge-store.js'
 
 /**
@@ -43,21 +42,23 @@ import { getCodeSession } from './code-bridge-store.js'
  */
 export const VERIFICATION_SWEEP_INTERVAL_MS = 30 * 1000
 
+// The reminder re-sends the whole task in the row's own mode -- see
+// buildVerificationReminder for the 2026-09-29 incident that made a bare
+// "report approval <id>" nudge useless. The approval is read back for the task
+// text; if it cannot be read, the nudge still goes out and says so, because a
+// reminder that silently never arrives is worse than one without the body.
 function reminderPrompt(row: ApprovalVerification): string {
-  const tokenPath = join(PROJECT_ROOT, 'store', '.dashboard-token')
-  return [
-    `Emlekezteto: kaptal egy ellenorzesi feladatot (jovahagyas ${row.approval_id}), es meg nem jelentetted vissza az eredmenyt.`,
-    ``,
-    `Egy panelben leirt valasz NEM szamit jelentesnek -- a rendszer csak ezt a hivast latja:`,
-    `curl -s -X POST http://localhost:${WEB_PORT}/api/approvals/${row.approval_id}/verify-result \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -H "Authorization: Bearer $(cat ${tokenPath})" \\`,
-    `  -d '{"agent":"${row.agent}","status":"pass","report":"rovid osszefoglalo"}'`,
-    ``,
-    `Emlekezteto a hatarra is: az ellenorzes CSAK-OLVASO -- ezen az egy verify-result hivason kivul semmilyen iro (POST/PUT/PATCH/DELETE) hivast ne inditsd az elo rendszeren.`,
-    `Ha nem tudod elvegezni (modell-hiba, nincs hozzaferes, barmi), akkor is jelentsd: status "fail", a report mezoben egy mondatban miert.`,
-    `Ha hamarosan nem erkezik jelentes, a rendszer "nem valaszolt"-kent zarja le ezt a sort.`,
-  ].join('\n')
+  const approval = getApproval(row.approval_id)
+  return buildVerificationReminder({
+    mode: row.mode,
+    approvalId: row.approval_id,
+    category: approval?.category ?? '-',
+    actionDescription: approval?.action_description ?? '(a jovahagyas szovege most nem olvashato vissza)',
+    agent: row.agent,
+    ownerName: currentOwnerName(),
+    tokenPath: VERIFY_TOKEN_PATH,
+    baseUrl: VERIFY_BASE_URL,
+  })
 }
 
 /**
