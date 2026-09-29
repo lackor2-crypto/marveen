@@ -57,6 +57,7 @@ import { sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
+import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
@@ -763,6 +764,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   outline_owner_only: {
     hu: 'Ezt csak te erősítheted meg, a saját kattintásoddal.',
     en: 'Only you can confirm this, with your own click.',
+  },
+  deadline_owner_only: {
+    hu: 'A határidőt csak te veheted fel teendőnek, a saját kattintásoddal.',
+    en: 'Only you can add a deadline as a to-do, with your own click.',
+  },
+  deadline_gone: {
+    hu: 'Ez a határidő már nincs a listán (közben változott az irat vagy az anyagok listája). Frissítem a listát.',
+    en: 'This deadline is no longer on the list (the document or the materials changed). Refreshing the list.',
+  },
+  deadline_not_relative: {
+    hu: 'Ennek a határidőnek az irat megnevezi a napját, nem kell kiszámolni.',
+    en: 'The document names the day of this deadline; there is nothing to compute.',
+  },
+  deadline_bad_trigger: {
+    hu: 'Add meg a kézbesítés (kézhezvétel) napját a naptárban.',
+    en: 'Pick the day of delivery (receipt) in the calendar.',
+  },
+  deadline_workdays: {
+    hu: 'Ez a határidő munkanapban számít, és a munkaszüneti napokat a Marvin nem ismeri, ezért nem tesz javaslatot. Add meg te a határidő napját.',
+    en: 'This deadline counts in working days, and Marvin does not know the public holidays, so it makes no proposal. Enter the day of the deadline yourself.',
+  },
+  deadline_needs_due: {
+    hu: 'Ennek a határidőnek az irat nem nevezi meg a napját. Add meg a határidő napját, és utána veszem fel teendőnek.',
+    en: 'The document does not name the day of this deadline. Enter the day of the deadline, then I add it as a to-do.',
+  },
+  deadline_bad_due: {
+    hu: 'A határidő napja nem érvényes dátum. Válaszd ki a naptárban.',
+    en: 'The day of the deadline is not a valid date. Pick it in the calendar.',
+  },
+  deadline_already: {
+    hu: 'Ebből a határidőből már van teendő. A Teendők között találod.',
+    en: 'This deadline is already a to-do. You find it among the to-dos.',
   },
   outline_consistency_gone: {
     hu: 'Ez az eltérés már nincs a dokumentumban (közben javították). Frissítem a listát.',
@@ -1740,17 +1773,73 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
 
   if (segs.length === 1 && method === 'GET') {
     const project = getProject(item.project_id)
+    const assets = assetsOut(item.id)
     json(res, {
       item,
       versions: listWorkItemVersionsView(item.id),
       parts: listWorkItemParts(item.id),
       part_kinds: WORK_ITEM_PART_KINDS,
-      assets: assetsOut(item.id),
+      assets,
       approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
       outline: outlineOut(item.id),
+      deadlines: itemDeadlines(item.id, assets),
     })
     return true
+  }
+
+  // HATARIDOK ES IDOPONTOK AZ IRATOKBOL (#441, 1/A, K-1.17). A kezdonaptol
+  // szamitott hataridot a Marveen nem szamolja ki magatol: a tulajdonos megadja
+  // a kezbesites napjat, a Marveen javasol, a tulajdonos hagyja jova.
+  //   GET    .../deadlines                          -- a lista, forrassal
+  //   POST   .../deadlines/<key>/propose {trigger}  -- javaslat (nem ir semmit)
+  //   POST   .../deadlines/<key>/todo {due?}        -- teendo lesz belole
+  //   POST/DELETE .../deadlines/<key>/dismiss       -- "nem vonatkozik ram" / visszahozas
+  if (segs[1] === 'deadlines') {
+    const assets = listWorkItemAssetsSynced(item.id)
+    if (segs.length === 2 && method === 'GET') {
+      json(res, { deadlines: itemDeadlines(item.id, assets) })
+      return true
+    }
+    const key = segs[2] || ''
+    if (segs.length !== 4 || !key) return false
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // A teendo es a jovahagyott nap a tulajdonos dontese (az agentnek sajat teendo-eszkoze van).
+    if (!isOwnerClick(ctx)) return fail(res, 403, 'deadline_owner_only', lang)
+    const body = method === 'DELETE' ? {} : await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const gone = (): true => {
+      json(res, { error: 'deadline_gone', message: msg('deadline_gone', lang), deadlines: itemDeadlines(item.id, assets) }, 404)
+      return true
+    }
+    if (segs[3] === 'propose' && method === 'POST') {
+      const d = itemDeadlines(item.id, assets).find((x) => x.key === key)
+      if (!d) return gone()
+      if (!d.relative) return fail(res, 400, 'deadline_not_relative', lang)
+      if (d.relative.unit === 'workday') return fail(res, 400, 'deadline_workdays', lang)
+      const p = proposeDue(String(body['trigger'] ?? ''), d.relative.amount, d.relative.unit)
+      if (!p) return fail(res, 400, 'deadline_bad_trigger', lang)
+      json(res, { proposal: p })
+      return true
+    }
+    if (segs[3] === 'todo' && method === 'POST') {
+      const r = deadlineToTodo(item.id, assets, key, { due: body['due'], by: actor(ctx), lang })
+      if (!r.ok) {
+        if (r.code === 'not_found') return gone()
+        if (r.code === 'todo_failed') return fail(res, r.detail === 'too_many' ? 409 : 400, 'todo_' + (r.detail || 'bad_due_date'), lang)
+        return fail(res, r.code === 'already' ? 409 : 400, 'deadline_' + r.code, lang)
+      }
+      json(res, { ok: true, todo: r.todo, deadlines: itemDeadlines(item.id, assets), todos: listItemTodos(item.id) }, 201)
+      return true
+    }
+    if (segs[3] === 'dismiss' && (method === 'POST' || method === 'DELETE')) {
+      if (!dismissDeadline(item.id, assets, key, method === 'POST', actor(ctx))) return gone()
+      json(res, { ok: true, deadlines: itemDeadlines(item.id, assets) })
+      return true
+    }
+    return false
   }
 
   // DOKUMENTUMMODELL (#441, 1/A, K-1.14 ... K-1.16, K-1.22): a tulajdonos

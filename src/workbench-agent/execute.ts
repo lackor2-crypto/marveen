@@ -44,6 +44,7 @@ import {
 import { finalizationState } from '../workbench-docfinal.js'
 import { addAnnex, annexCheck, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex } from '../workbench-docannex.js'
 import { consistencyIssues } from '../workbench-doccheck.js'
+import { itemDeadlines } from '../workbench-deadlines.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 
@@ -337,7 +338,8 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     }
     case 'doc.outline': case 'doc.addSection': case 'doc.updateSection': case 'doc.removeSection':
     case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
-    case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings': {
+    case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings':
+    case 'doc.deadlines': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
       const item = getWorkItem(id)
@@ -349,6 +351,19 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       const res = ((): { ok: true; data: unknown } | { ok: false; code: string; detail: string } => {
         switch (name) {
           case 'doc.outline': recheckPendingSources(item.id, world); return { ok: true, data: documentOutline(item.id) }
+          case 'doc.deadlines': {
+            const list = itemDeadlines(item.id, listWorkItemAssetsSynced(item.id))
+            return {
+              ok: true,
+              data: {
+                deadlines: list.map((d) => ({
+                  kind: d.kind, topic: d.topic, date: d.date, time: d.time, counts_from: d.relative, file: d.path, page: d.page, quote: d.quote,
+                  hard_to_read_page: d.low, added_as_todo: d.todo ? d.todo.due_date : null, not_relevant_by_owner: d.dismissed,
+                })),
+                note: 'Found by rules in the documents already read (materials of this work item). Say them with their source (file, page). A deadline that counts from delivery (counts_from) is NOT computed by you: ask the owner for the delivery date; Marveen proposes the day and the owner approves it with a click in the "Határidők és időpontok" box, which also makes the to-do (and from there the calendar entry). If a page is hard to read, tell the owner to check it in the document.',
+              },
+            }
+          }
           case 'doc.check': {
             recheckPendingSources(item.id, world)
             const fin = finalizationState(item)

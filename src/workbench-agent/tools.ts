@@ -257,6 +257,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'doc.deadlines',
+    description: 'The hearings and deadlines Marveen found by rules in the documents of this work item that are already read (court or authority letters; Hungarian, German, English): the date and time, or the rule "N days from delivery", with the file, page and the sentence as source, and whether the owner already made a to-do of it. You must never compute a deadline counted from delivery yourself: ask the owner for the delivery date; the owner approves the proposed day with a click, which makes the to-do.',
+    input: 'id (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
     name: 'file.preview',
     description: 'Ask whether a file of the project folder can be shown to the owner, and how (pdf, image, video, audio or text). It does not change anything.',
     input: 'path: the file path relative to the project folder',

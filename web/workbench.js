@@ -143,6 +143,8 @@
     todos: null,
     tdError: null,
     tdBusy: false,
+    dlBusy: false,
+    dlCalc: {},
     // Google Naptar (#406, 14. pont B): { state, account } a szervertol; null =
     // meg nem kerdeztuk. A 'check_failed' KULON all a 'no_account'-tol.
     gcal: null,
@@ -519,6 +521,146 @@
       + '<button type="submit" class="btn-primary"' + (WB.tdBusy ? ' disabled' : '') + '>' + esc(t('workbench.td.add')) + '</button>'
       + '</form>'
     return '<details class="wb-td-box" open><summary>' + esc(t('workbench.td.title_item')) + '</summary>' + form + body + '</details>'
+  }
+
+  // ---- hataridok es idopontok az iratokbol (#441, K-1.17) --------------------
+  // A szerver szabalyokkal gyujti ki a munkadarab olvasott iratai kozul, forrassal.
+  // A kezdonaptol szamitott hataridot nem szamolja ki magatol: a kezbesites
+  // napjabol JAVASOL, a napot a tulajdonos hagyja jova (vagy irja at).
+
+  var DL_ICON = { hearing: '⚖', deadline: '⏳' }
+  var DL_LONG = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }
+
+  function dlWhenText(d) {
+    if (d.date) return tdDateText(d.date, DL_LONG) + (d.time ? ', ' + d.time : '')
+    var r = d.relative || { amount: 0, unit: 'day', trigger: 'other' }
+    return t('workbench.dl.rel.' + r.trigger, { amount: t('workbench.dl.unit.' + r.unit, { n: r.amount }) })
+  }
+
+  function dlHeadHtml(d) {
+    return '<strong>' + esc((DL_ICON[d.kind] || '⏳') + ' ' + t('workbench.dl.topic.' + d.topic)) + ':</strong> ' + esc(dlWhenText(d))
+  }
+
+  function dlActionsHtml(d) {
+    var k = escA(d.key)
+    var busy = WB.dlBusy ? ' disabled' : ''
+    if (d.todo) {
+      return '<span class="wb-ok">✓ ' + esc(t('workbench.dl.todo_done', { date: d.todo.due_date ? tdDateText(d.todo.due_date, DL_LONG) : '' })) + '</span>'
+        + (d.todo.due_date && !d.todo.done
+          ? ' <a class="wb-linklike" href="/api/workbench/todos/' + encodeURIComponent(d.todo.id) + '/ics?lang=' + encodeURIComponent(window._lang || 'hu') + '" download>'
+            + esc(t('workbench.td.to_calendar')) + '</a> <span class="wb-muted">' + esc(t('workbench.dl.todo_more')) + '</span>'
+          : '')
+    }
+    if (archived()) return ''
+    var out = ''
+    if (d.date) {
+      out = '<button type="button" class="wb-btn" data-wb-act="dl-todo" data-wb-key="' + k + '"' + busy + '>' + esc(t('workbench.dl.add_todo')) + '</button>'
+    } else {
+      var r = d.relative || {}
+      var canPropose = r.unit !== 'workday' && r.trigger === 'delivery'
+      var calc = WB.dlCalc[d.key]
+      out = '<p class="wb-hint">' + esc(t(canPropose ? 'workbench.dl.need_trigger' : r.unit === 'workday' ? 'workbench.dl.need_due_workdays' : 'workbench.dl.need_due')) + '</p>'
+      if (canPropose) {
+        out += '<label class="wb-td-date-label">' + esc(t('workbench.dl.trigger_label'))
+          + ' <input class="wb-input" type="date" id="wbDlTrig-' + k + '" value="' + escA(calc ? calc.trigger : '') + '"></label> '
+          + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dl-propose" data-wb-key="' + k + '"' + busy + '>' + esc(t('workbench.dl.propose')) + '</button>'
+      }
+      if (calc) {
+        out += '<p class="wb-hint wb-dl-proposal">' + esc(t('workbench.dl.proposal', { date: tdDateText(calc.due, DL_LONG) }))
+          + (calc.shifted ? ' ' + esc(t('workbench.dl.shifted')) : '') + ' ' + esc(t('workbench.dl.check_holidays')) + '</p>'
+      }
+      if (calc || !canPropose) {
+        out += '<label class="wb-td-date-label">' + esc(t('workbench.dl.due_label'))
+          + ' <input class="wb-input" type="date" id="wbDlDue-' + k + '" value="' + escA(calc ? calc.due : '') + '"></label> '
+          + '<button type="button" class="wb-btn" data-wb-act="dl-todo" data-wb-key="' + k + '"' + busy + '>' + esc(t('workbench.dl.add_todo')) + '</button>'
+      }
+    }
+    return out + ' <button type="button" class="wb-linklike" data-wb-act="dl-dismiss" data-wb-key="' + k + '" title="' + escA(t('workbench.dl.dismiss_title')) + '"' + busy + '>'
+      + esc(t('workbench.dl.dismiss')) + '</button>'
+  }
+
+  function dlRowHtml(d, past) {
+    return '<li class="wb-dl' + (past ? ' wb-dl-past' : '') + '">'
+      + '<div>' + dlHeadHtml(d) + (past ? ' <span class="wb-muted">' + esc(t('workbench.dl.past')) + '</span>' : '') + '</div>'
+      + '<div class="wb-dl-src wb-muted">' + esc(t('workbench.dl.source', { name: d.name, page: d.page })) + ' „' + esc(d.quote) + '”</div>'
+      + (d.low ? '<div class="wb-doc-low">⚠ ' + esc(t('workbench.dl.low')) + '</div>' : '')
+      + (past ? '' : '<div class="wb-dl-act">' + dlActionsHtml(d) + '</div>')
+      + '</li>'
+  }
+
+  /** A szerkesztoben, a teendok alatt: csak ha az iratokban van mit mutatni. */
+  function deadlinesBoxHtml() {
+    var list = (WB.detail && WB.detail.deadlines) || []
+    if (!list.length) return ''
+    var today = todayStr()
+    var shown = list.filter(function (d) { return !d.dismissed })
+    var hidden = list.filter(function (d) { return d.dismissed })
+    var past = shown.filter(function (d) { return d.date && d.date < today && !d.todo })
+    // Elol, ami teendot var (a kezdonaptol szamitott is), a nap szerint; utana a mar teendo lett.
+    var open = shown.filter(function (d) { return past.indexOf(d) < 0 }).sort(function (a, b) {
+      if (!!a.todo !== !!b.todo) return a.todo ? 1 : -1
+      return (a.date || '0000') < (b.date || '0000') ? -1 : (a.date || '0000') > (b.date || '0000') ? 1 : 0
+    })
+    return '<details class="wb-dl-box" open><summary>' + esc(t('workbench.dl.title', { n: open.length })) + '</summary>'
+      + '<p class="wb-hint">' + esc(t('workbench.dl.hint')) + '</p>'
+      + (open.length ? '<ul class="wb-dl-list">' + open.map(function (d) { return dlRowHtml(d, false) }).join('') + '</ul>'
+        : '<p class="wb-muted">' + esc(t('workbench.dl.none_open')) + '</p>')
+      + (past.length ? '<details class="wb-dl-more"><summary>' + esc(t('workbench.dl.past_title', { n: past.length })) + '</summary><ul class="wb-dl-list">'
+        + past.map(function (d) { return dlRowHtml(d, true) }).join('') + '</ul></details>' : '')
+      + (hidden.length ? '<details class="wb-dl-more"><summary>' + esc(t('workbench.dl.hidden_title', { n: hidden.length })) + '</summary><ul class="wb-dl-list">'
+        + hidden.map(function (d) {
+          return '<li class="wb-dl wb-dl-past"><div>' + dlHeadHtml(d) + '</div>'
+            + '<div class="wb-dl-src wb-muted">' + esc(t('workbench.dl.source', { name: d.name, page: d.page })) + '</div>'
+            + (archived() ? '' : '<button type="button" class="wb-linklike" data-wb-act="dl-undismiss" data-wb-key="' + escA(d.key) + '">' + esc(t('workbench.dl.undismiss')) + '</button>')
+            + '</li>'
+        }).join('') + '</ul></details>' : '')
+      + '</details>'
+  }
+
+  function dlCall(method, sub, body) {
+    var id = WB.selectedId
+    if (!id || archived() || WB.dlBusy) return Promise.resolve(null)
+    WB.dlBusy = true
+    render()
+    return api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/deadlines/' + sub, body).then(function (r) {
+      WB.dlBusy = false
+      if (r.data && r.data.deadlines && WB.selectedId === id && WB.detail) WB.detail.deadlines = r.data.deadlines
+      render()
+      if (!r.ok) { window.showToast(r.message); return null }
+      return r.data
+    })
+  }
+
+  function refreshDeadlines(id) {
+    return api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/deadlines').then(function (r) {
+      if (!r.ok || WB.selectedId !== id || !WB.detail) return
+      WB.detail.deadlines = r.data.deadlines || []
+      render()
+    })
+  }
+
+  function dlPropose(key) {
+    var el = document.getElementById('wbDlTrig-' + key)
+    var trig = el && el.value
+    if (!trig) { window.showToast(t('workbench.dl.trigger_missing')); return }
+    dlCall('POST', encodeURIComponent(key) + '/propose', { trigger: trig }).then(function (d) {
+      if (d && d.proposal) { WB.dlCalc[key] = { trigger: trig, due: d.proposal.due, shifted: !!d.proposal.shifted }; render() }
+    })
+  }
+
+  function dlTodo(key) {
+    var el = document.getElementById('wbDlDue-' + key)
+    var body = {}
+    if (el) {
+      if (!el.value) { window.showToast(t('workbench.dl.due_missing')); return }
+      body.due = el.value
+    }
+    dlCall('POST', encodeURIComponent(key) + '/todo', body).then(function (d) {
+      if (!d || !d.todo) return
+      delete WB.dlCalc[key]
+      window.showToast(t('workbench.dl.todo_toast'))
+      loadTodos()
+    })
   }
 
   // ---- teendo-emlekezteto (#406, otlet a5ecabbe) ------------------------------
@@ -4798,6 +4940,7 @@
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
         + approvalBoxHtml()
         + todosBoxHtml()
+        + deadlinesBoxHtml()
         + versionBarHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
@@ -5458,6 +5601,8 @@
         if (!r.ok || WB.selectedId !== id || !WB.detail) return
         WB.detail.assets = r.data.assets || []
         render()
+        // Az irat elolvasva: a hataridok es idopontok is frissulnek (K-1.17).
+        if (!WB.detail.assets.some(docBusy)) refreshDeadlines(id)
         scheduleDocPoll(id, round + 1)
       })
     }, 3000)
@@ -7949,6 +8094,10 @@
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
     else if (a && a.indexOf('outline-') === 0) outlineAction(a, act)
+    else if (a === 'dl-todo') dlTodo(act.getAttribute('data-wb-key'))
+    else if (a === 'dl-propose') dlPropose(act.getAttribute('data-wb-key'))
+    else if (a === 'dl-dismiss') dlCall('POST', encodeURIComponent(act.getAttribute('data-wb-key')) + '/dismiss', {})
+    else if (a === 'dl-undismiss') dlCall('DELETE', encodeURIComponent(act.getAttribute('data-wb-key')) + '/dismiss')
     else if (a === 'doc-searchable') makeSearchable(act.getAttribute('data-wb-path'))
     else if (a === 'shared-toggle') toggleShared()
     else if (a === 'shared-link') linkShared(act.getAttribute('data-wb-path'))
