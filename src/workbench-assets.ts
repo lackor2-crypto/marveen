@@ -39,6 +39,7 @@ import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, getWorkItem, TITLE_MAX, type WorkItemRow } from './workbench.js'
+import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** Egy mappanev hossza (a Windows teljes-ut korlatja miatt rovidebb, mint a fajlnev). */
 export const FOLDER_NAME_MAX = 80
@@ -71,6 +72,10 @@ export function ensureAssetTables(): void {
       created_by TEXT
     )
   `)
+  // Levett anyag (a fajl a mappaban marad): a sor megmarad `removed_at`-tel,
+  // kulonben a mappa-szinkron a kovetkezo listazasnal visszavenne a listara.
+  const aCols = new Set((db.prepare('PRAGMA table_info(work_item_assets)').all() as { name: string }[]).map((c) => c.name))
+  if (!aCols.has('removed_at')) db.exec('ALTER TABLE work_item_assets ADD COLUMN removed_at INTEGER')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_assets_item ON work_item_assets(work_item_id, created_at)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_assets_sha ON work_item_assets(work_item_id, sha256)')
   tablesDb = db
@@ -100,12 +105,14 @@ export function assetSupport(name: string): AssetSupport {
   if (isCanvasFile(name)) return 'usable'
   const k = fileKind(name).kind
   if (k === 'text') return 'readable'
-  if (k === 'image' || k === 'video' || k === 'pdf') return 'usable'
+  // 1/A (K-1.1): a PDF, az irodai fajl es az e-mail oldalankent olvashato
+  // (szovegreteg, szukseg eseten szovegfelismeres -- workbench-docread.ts).
+  if (k === 'pdf' || ext === 'eml' || OFFICE_CONVERTIBLE[ext]) return 'readable'
+  if (k === 'image' || k === 'video') return 'usable'
   if (k === 'audio') return 'needs_processor'
-  if (OFFICE_CONVERTIBLE[ext]) return 'usable'
   if (['wav', 'mp3', 'm4a', 'ogg', 'oga', 'flac', 'aac', 'opus'].includes(ext)) return 'needs_processor'
   if (['heic', 'heif', 'tif', 'tiff', 'bmp', 'svg'].includes(ext)) return 'usable'
-  if (['eml', 'msg'].includes(ext)) return 'needs_processor'
+  if (ext === 'msg') return 'needs_processor'
   return 'usable'
 }
 
@@ -220,6 +227,11 @@ export interface WorkItemAssetView extends WorkItemAssetRow {
   shared: boolean
 }
 
+/** Egy iratkent olvashato anyag (PDF, irodai fajl, fotozott irat, e-mail) olvasasi allapota (1/A). */
+export interface WorkItemAssetDocView extends WorkItemAssetView {
+  doc: DocReadSummary | null
+}
+
 export function sha256Of(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex')
 }
@@ -234,7 +246,7 @@ export function projectRelative(project: ProjectRow, depotRel: string): string {
 
 export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
   ensureAssetTables()
-  const rows = getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? ORDER BY created_at, rowid').all(itemId) as WorkItemAssetRow[]
+  const rows = getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL ORDER BY created_at, rowid').all(itemId) as WorkItemAssetRow[]
   const item = getWorkItem(itemId)
   const project = item ? getProject(item.project_id) : undefined
   const sf = project && rows.length ? projectSharedFolder(project) : null
@@ -244,13 +256,14 @@ export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
     let present = false
     try { present = !!abs && existsSync(abs) && statSync(abs).isFile() } catch { present = false }
     const shared = !!sharedPrefix && r.path.startsWith(sharedPrefix) && !r.path.slice(sharedPrefix.length).includes('/')
-    return { ...r, project_path: project ? projectRelative(project, r.path) : '', present, shared }
+    // A tamogatasi allapot a fajl nevebol jon: egy regebben felvett sor is a mai tudast mutatja.
+    return { ...r, support: assetSupport(r.name), project_path: project ? projectRelative(project, r.path) : '', present, shared }
   })
 }
 
 export function findAssetByHash(itemId: string, sha: string): WorkItemAssetRow | undefined {
   ensureAssetTables()
-  return getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND sha256 = ? ORDER BY created_at LIMIT 1')
+  return getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND sha256 = ? AND removed_at IS NULL ORDER BY created_at LIMIT 1')
     .get(itemId, sha) as WorkItemAssetRow | undefined
 }
 
@@ -270,7 +283,7 @@ export function attachAsset(
 ): AttachOutcome {
   ensureAssetTables()
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
-  const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ?').get(item.id) as { n: number }).n
+  const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').get(item.id) as { n: number }).n
   if (count >= ASSETS_MAX_PER_ITEM) return { ok: false, code: 'asset_limit' }
   const sha = sha256Of(data)
   if (!opts.force) {
@@ -290,6 +303,15 @@ export function attachAsset(
 /** Egy MAR a helyen levo fajl felvetele az anyagok koze (a feltoltesbol szuletett munkadarab forrasa). */
 export function registerAsset(itemId: string, depotRel: string, name: string, sha: string, bytes: number, createdBy: string | null): WorkItemAssetView {
   ensureAssetTables()
+  // Egy korabban levett, ugyanitt allo fajl ujra felveve: a regi sor el ujra.
+  const gone = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NOT NULL LIMIT 1').get(itemId, depotRel) as { id: string } | undefined
+  if (gone) {
+    getDb().prepare('UPDATE work_item_assets SET name = ?, support = ?, sha256 = ?, bytes = ?, created_at = ?, created_by = ?, removed_at = NULL WHERE id = ?')
+      .run(name, assetSupport(name), sha, bytes, Math.floor(Date.now() / 1000), createdBy, gone.id)
+    const back = listWorkItemAssets(itemId).find((a) => a.id === gone.id)
+    if (!back) throw new Error('asset was restored but could not be read back')
+    return back
+  }
   const id = randomUUID().slice(0, 12)
   getDb().prepare(`INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -302,7 +324,8 @@ export function registerAsset(itemId: string, depotRel: string, name: string, sh
 /** Egy anyag levetele a listarol. A FAJL a mappaban marad (a Raktarbol nem torlunk). */
 export function unlinkAsset(itemId: string, assetId: string): boolean {
   ensureAssetTables()
-  return getDb().prepare('DELETE FROM work_item_assets WHERE id = ? AND work_item_id = ?').run(assetId, itemId).changes > 0
+  return getDb().prepare('UPDATE work_item_assets SET removed_at = ? WHERE id = ? AND work_item_id = ? AND removed_at IS NULL')
+    .run(Math.floor(Date.now() / 1000), assetId, itemId).changes > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +511,7 @@ export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): Folde
   const shared = db.prepare(`SELECT 1 FROM work_items WHERE id != ? AND source_path LIKE ? ESCAPE '\\'
     UNION SELECT 1 FROM work_item_versions WHERE work_item_id != ? AND source_path LIKE ? ESCAPE '\\'
     UNION SELECT 1 FROM work_item_parts WHERE work_item_id != ? AND asset_path LIKE ? ESCAPE '\\'
-    UNION SELECT 1 FROM work_item_assets WHERE work_item_id != ? AND path LIKE ? ESCAPE '\\' LIMIT 1`)
+    UNION SELECT 1 FROM work_item_assets WHERE work_item_id != ? AND path LIKE ? ESCAPE '\\' AND removed_at IS NULL LIMIT 1`)
     .get(item.id, like, item.id, like, item.id, like, item.id, like)
   if (shared) return { ok: true, renamed: false, reason: 'shared' }
   let hasCanvas = false
@@ -611,7 +634,7 @@ export function listSharedFiles(project: ProjectRow): { folder: string | null; f
     names = readdirSync(f.dirAbs, { withFileTypes: true }).filter((d) => d.isFile() && !hiddenName(d.name)).map((d) => d.name)
   } catch { return { folder: f.folder, files: [] } }
   const use = getDb().prepare(`SELECT COUNT(DISTINCT a.work_item_id) AS n FROM work_item_assets a
-    JOIN work_items w ON w.id = a.work_item_id WHERE a.path = ? AND w.project_id = ?`)
+    JOIN work_items w ON w.id = a.work_item_id WHERE a.path = ? AND w.project_id = ? AND a.removed_at IS NULL`)
   const files: SharedFileView[] = []
   for (const n of names.sort((a, b) => a.localeCompare(b, 'hu')).slice(0, SHARED_LIST_MAX)) {
     if (assetSupport(n) === 'unsupported') continue
@@ -678,14 +701,51 @@ export function linkSharedAsset(item: WorkItemRow, rawPath: unknown, createdBy: 
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
   const abs = join(f.dirAbs, name)
   try { if (!statSync(abs).isFile()) return { ok: false, code: 'not_found' } } catch { return { ok: false, code: 'not_found' } }
-  const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ?').get(item.id, path) as { id: string } | undefined
+  const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NULL').get(item.id, path) as { id: string } | undefined
   if (has) {
     const view = listWorkItemAssets(item.id).find((a) => a.id === has.id)
     if (view) return { ok: true, asset: view, already: true }
   }
-  const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ?').get(item.id) as { n: number }).n
+  const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').get(item.id) as { n: number }).n
   if (count >= ASSETS_MAX_PER_ITEM) return { ok: false, code: 'asset_limit' }
   let data: Buffer
   try { data = readFileSync(abs) } catch { return { ok: false, code: 'not_found' } }
   return { ok: true, asset: registerAsset(item.id, path, name, sha256Of(data), data.length, createdBy), already: false }
+}
+
+// ---------------------------------------------------------------------------
+// Iratok olvasasa (1/A, K-1.1 ... K-1.3)
+// ---------------------------------------------------------------------------
+
+/** Az anyagok az iratolvasas allapotaval (a felulet ezt mutatja a fajl mellett). */
+export function withDocState(assets: WorkItemAssetView[]): WorkItemAssetDocView[] {
+  return assets.map((a) => {
+    const k = docKind(a.name)
+    if (!k) return { ...a, doc: null }
+    const d = docReadSummary(a.sha256)
+    // Egy kep (logo, fotó) csak kerésre irat: amig senki nem olvasta, nincs allapota.
+    return { ...a, doc: k === 'image' && d.status === 'none' ? null : d }
+  })
+}
+
+/**
+ * A meg nem olvasott (vagy felbeszakadt) iratok feldolgozasanak inditasa a
+ * hatterben. Nem var; a kovetkezo lista-lekeres mar az allapotot mutatja.
+ */
+export function startPendingDocReads(assets: WorkItemAssetView[]): number {
+  let n = 0
+  for (const a of assets) {
+    const k = docKind(a.name)
+    // A kep nem indul magatol (egy logo nem irat); kerésre a document.pages olvassa.
+    if (!a.present || !k || k === 'image') continue
+    const st = docReadSummary(a.sha256).status
+    if (st !== 'none' && st !== 'stale') continue
+    const abs = resolveLifePath(a.path)
+    if (!abs) continue
+    try {
+      const r = startDocRead(abs, a.name, { sha: a.sha256, force: st === 'stale' })
+      if (r.ok && r.started) { n++; r.done.catch(() => undefined) }
+    } catch { /* egy olvashatatlan fajl nem allithatja meg a listat */ }
+  }
+  return n
 }

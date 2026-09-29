@@ -21,7 +21,7 @@ import { decisionsForContext } from '../workbench-decisions.js'
 import { toolsForPrompt } from './tools.js'
 import type { AIMessage } from './provider.js'
 import type { AgentMessageRow } from './sessions.js'
-import { listWorkItemAssetsSynced } from '../workbench-assets.js'
+import { listWorkItemAssetsSynced, withDocState } from '../workbench-assets.js'
 
 /** Felso hatarok. Egy interaktiv fordulo, nem teljes archivum. */
 export const MAX_CONTEXT_CHARS = 12_000
@@ -74,9 +74,13 @@ function clamp(s: string, max: number): { text: string; cut: boolean } {
 /** A munkadarab anyagai egy sorban (#441): nev + tamogatasi allapot, korlatosan. */
 const MAX_ASSETS_IN_CONTEXT = 30
 function assetsLine(itemId: string): string {
-  const assets = listWorkItemAssetsSynced(itemId)
+  const assets = withDocState(listWorkItemAssetsSynced(itemId))
   if (!assets.length) return 'materials: none attached yet'
-  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${a.shared ? ', shared (linked from the project shared materials)' : ''}${a.present ? '' : ', MISSING from disk'}]`)
+  const docNote = (d: (typeof assets)[number]['doc']): string => !d ? ''
+    : d.status === 'done' ? `, document: ${d.pages_total} page(s)${d.low_pages.length ? `, hard to read: p. ${d.low_pages.join(', ')}` : ''} (document.pages / document.read)`
+    : d.status === 'failed' ? ', document: reading failed (document.pages says why)'
+    : ', document: being read now'
+  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${docNote(a.doc)}${a.shared ? ', shared (linked from the project shared materials)' : ''}${a.present ? '' : ', MISSING from disk'}]`)
   const more = assets.length > shown.length ? ` ... and ${assets.length - shown.length} more (workItem.listAssets)` : ''
   return `materials (${assets.length}): ${shown.join('; ')}${more}`
 }

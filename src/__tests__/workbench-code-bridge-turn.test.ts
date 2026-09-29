@@ -336,3 +336,14 @@ describe('tegezes: a Munkapad magyarul tegezve beszel', () => {
     expect(line.replace(/^.*echo "/, '').replace(/" ;;$/, '')).not.toContain('/')
   })
 })
+
+describe('1/A: a teljes erteku ugynok az iratok oldal-szoveget kapja', () => {
+  it('ha van irat az anyagok kozott, a prompt megmondja, honnan kerje le oldalankent', () => {
+    const prompt = buildCodeBridgePrompt({
+      projectName: 'P', projectFolder: '/x', history: [], message: 'mi all a 17. oldalon?', lang: 'hu',
+      workItem: { title: 'Level', type: 'note', folder: 'Level', materials: ['Level/level.pdf [readable, 30 page(s)]'], documentsHint: 'Documents ... /document?path=' },
+    })
+    expect(prompt).toContain('Level/level.pdf [readable, 30 page(s)]')
+    expect(prompt).toContain('Documents ... /document?path=')
+  })
+})
