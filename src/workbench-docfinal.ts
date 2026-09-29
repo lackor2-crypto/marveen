@@ -20,6 +20,7 @@
 import { getDb } from './db.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './workbench-docmodel.js'
+import { consistencyIssues } from './workbench-doccheck.js'
 import { outlineHash, renderOutlinePdf, toRenderOutline, type RenderResult } from './workbench-docrender.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset } from './workbench-assets.js'
@@ -352,6 +353,7 @@ export function documentTrail(item: WorkItemRow): Record<string, unknown> {
       })),
     })),
     annexes: listAnnexes(item.id, resolverFor(item)).map((a) => ({ label: a.label, title: a.title, file: a.path, file_present: a.exists, referenced: a.refs, added_by: a.created_by, added_at: iso(a.created_at) })),
+    consistency: consistencyIssues(item.id).map((i) => ({ kind: i.kind, values: i.values, section: i.where, marked_intentional_by: i.acked_by, marked_intentional_at: iso(i.acked_at) })),
     reviews: reviews.map((r) => ({ content_hash: r.content_hash, reviewed_at: iso(r.reviewed_at), reviewed_by: r.reviewed_by })),
     finals: listFinals(item.id).map((f) => ({
       version_no: f.version_no, label: f.label, content_hash: f.content_hash, file: f.pdf_path, files: f.files ?? null, annex_mode: f.annex_mode ?? null,

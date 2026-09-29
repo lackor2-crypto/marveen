@@ -4859,15 +4859,42 @@
 
   var SECTION_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' }
 
-  function outlineCheckHtml(check) {
+  /** KOVETKEZETESSEG (#441, K-1.19): a gepi jelzesek emberi mondattal; a
+   *  tulajdonos egyenkent "szandekos"-nak jelolheti, ami visszavonhato. */
+  function consistencyIssueHtml(i, ro) {
+    var v = i.values || []
+    var txt = t('workbench.consistency.kind.' + i.kind, { values: v.join(' / '), a: v[0] || '', b: v[1] || '' })
+      + (i.where ? ' ' + t('workbench.consistency.where', { where: i.where }) : '')
+    var tools = ro ? ''
+      : i.acked
+        ? ' <button type="button" class="wb-linklike" data-wb-act="outline-consistency-unack" data-wb-key="' + escA(i.key) + '">' + esc(t('workbench.consistency.unack')) + '</button>'
+        : ' <button type="button" class="wb-btn" data-wb-act="outline-consistency-ack" data-wb-key="' + escA(i.key) + '" title="' + escA(t('workbench.consistency.ack_title')) + '">'
+          + esc(t('workbench.consistency.ack')) + '</button>'
+    return '<li class="wb-consistency ' + (i.acked ? 'wb-muted' : 'wb-doc-low') + '">' + esc(txt)
+      + (i.acked ? ' <span class="wb-ok">✓ ' + esc(t('workbench.consistency.acked')) + '</span>' : '') + tools + '</li>'
+  }
+
+  function consistencyDetailHtml(o, ro) {
+    var list = (o && o.consistency) || []
+    if (!list.length) return ''
+    var open = list.filter(function (i) { return !i.acked })
+    var acked = list.filter(function (i) { return i.acked })
+    return (open.length ? '<p class="wb-hint">' + esc(t('workbench.consistency.hint')) + '</p>' : '')
+      + '<ul>' + open.concat(acked).map(function (i) { return consistencyIssueHtml(i, ro) }).join('') + '</ul>'
+  }
+
+  function outlineCheckHtml(check, o, ro) {
     if (!check) return ''
     return '<div class="wb-outline-check"><h4>' + esc(t('workbench.outline.check_title')) + '</h4><ul>'
       + check.items.map(function (i) {
         var info = i.key === 'inference_as_fact' || i.key === 'owner_written'
         if (info && !i.count) return ''
-        var txt = t('workbench.outline.check.' + i.key, { n: i.count, total: i.total === undefined ? '' : i.total })
+        var key = i.key === 'consistency' && i.ok ? (i.total ? 'consistency_acked' : 'consistency_ok') : i.key
+        var txt = t('workbench.outline.check.' + key, { n: i.count, total: i.total === undefined ? '' : i.total })
+        var detail = i.key === 'consistency' ? consistencyDetailHtml(o, ro)
+          : !i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : ''
         return '<li class="' + (i.ok ? 'wb-ok' : 'wb-doc-low') + '">' + (i.ok ? (info ? 'ℹ ' : '✓ ') : '⚠ ') + esc(txt)
-          + (!i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : '')
+          + detail
           + '</li>'
       }).join('')
       + '</ul><p class="' + (check.ready ? 'wb-ok' : 'wb-muted') + '">' + esc(t(check.ready ? 'workbench.outline.ready' : 'workbench.outline.not_ready')) + '</p></div>'
@@ -4915,7 +4942,7 @@
       + secs
       + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + annexHtml(o, ro)
-      + outlineCheckHtml(o.check)
+      + outlineCheckHtml(o.check, o, ro)
       + outlinePdfHtml(o, ro)
       + '</div>'
   }
@@ -5037,7 +5064,12 @@
     var id = WB.selectedId
     if (!id || archived()) return
     api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/outline' + sub, body).then(function (r) {
-      if (!r.ok) { window.showToast(r.message); return }
+      if (!r.ok) {
+        window.showToast(r.message)
+        // Ha a szerver a friss allapotot is kuldi (pl. a jelzett elteres kozben eltunt), azt mutatjuk.
+        if (r.data && r.data.outline && WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+        return
+      }
       if (WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
     })
   }
@@ -5110,6 +5142,10 @@
     } else if (a === 'outline-claim-confirm') {
       // K-1.9: allitasonkenti, kifejezett megerosites -- a teljes szoveg a kerdesben.
       if (window.confirm(t('workbench.outline.confirm_prompt'))) outlineCall('POST', '/claims/' + encodeURIComponent(act.getAttribute('data-wb-claim')) + '/confirm', {})
+    } else if (a === 'outline-consistency-ack') {
+      outlineCall('POST', '/consistency/' + encodeURIComponent(act.getAttribute('data-wb-key')) + '/ack', {})
+    } else if (a === 'outline-consistency-unack') {
+      outlineCall('DELETE', '/consistency/' + encodeURIComponent(act.getAttribute('data-wb-key')) + '/ack')
     }
   }
 

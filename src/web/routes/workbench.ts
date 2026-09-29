@@ -56,6 +56,7 @@ import {
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
+import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
@@ -763,6 +764,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ezt csak te erősítheted meg, a saját kattintásoddal.',
     en: 'Only you can confirm this, with your own click.',
   },
+  outline_consistency_gone: {
+    hu: 'Ez az eltérés már nincs a dokumentumban (közben javították). Frissítem a listát.',
+    en: 'This mismatch is no longer in the document (it was fixed in the meantime). Refreshing the list.',
+  },
   searchable_not_pdf: {
     hu: 'Kereshető másolat csak PDF-ből készülhet.',
     en: 'Only a PDF can get a searchable copy.',
@@ -1018,6 +1023,7 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
 /** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
 type OutlineOut = ReturnType<typeof documentOutline> & {
   check: ReturnType<typeof documentCheck>
+  consistency: ReturnType<typeof consistencyIssues>
   annexes: ReturnType<typeof listAnnexes>
   settings: ReturnType<typeof docSettings> & { schemes: typeof ANNEX_SCHEMES; modes: typeof ANNEX_MODES }
 } & Partial<ReturnType<typeof finalizationState>>
@@ -1029,6 +1035,7 @@ function outlineOut(itemId: string): OutlineOut | null {
   return {
     ...documentOutline(itemId),
     check: documentCheck(itemId, resolve),
+    consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
     settings: { ...docSettings(itemId), schemes: ANNEX_SCHEMES, modes: ANNEX_MODES },
     ...(item ? finalizationState(item) : {}),
@@ -1753,6 +1760,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   POST   .../outline/sections {title}        PATCH/DELETE .../outline/sections/<id>
   //   POST   .../outline/blocks {section, text}  PATCH/DELETE .../outline/blocks/<id>
   //   POST   .../outline/claims/<id>/confirm     -- CSAK a tulajdonos kattintasa (K-1.9)
+  //   POST/DELETE .../outline/consistency/<key>/ack -- elteres szandekosnak jelolese (K-1.19), CSAK a tulajdonos
   if (segs[1] === 'outline') {
     const owner = getProject(item.project_id)
     if (!owner) return fail(res, 404, 'project_not_found', lang)
@@ -1841,6 +1849,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       // Egy agent (tokennel) nem erosithet meg: a megerosites a tulajdonos szava.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
       return done(confirmOwnerClaim(item.id, id, actor(ctx), lang))
+    }
+    // KOVETKEZETESSEG (K-1.19): egy jelzett elteres "szandekos" -- csak a tulajdonos
+    // kattintasa (az agent a szoveget javithatja, a jelzest nem nemithatja el).
+    if (sub === 'consistency' && segs.length === 5 && segs[4] === 'ack' && (method === 'POST' || method === 'DELETE')) {
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+      if (method === 'DELETE') {
+        unackConsistencyIssue(item.id, id)
+        return done({ ok: true })
+      }
+      if (!ackConsistencyIssue(item.id, id, actor(ctx))) {
+        json(res, { error: 'outline_consistency_gone', message: msg('outline_consistency_gone', lang), outline: outlineOrEmpty(item.id) }, 404)
+        return true
+      }
+      return done({ ok: true })
     }
     return false
   }

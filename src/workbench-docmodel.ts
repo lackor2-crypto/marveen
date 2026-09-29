@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docread.js'
 import { annexCheck, type FileResolver } from './workbench-docannex.js'
+import { consistencyIssues } from './workbench-doccheck.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
 export type SectionStatus = typeof SECTION_STATUSES[number]
@@ -596,5 +597,10 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     if (ax.missing_files.length) items.push({ key: 'annex_missing_file', ok: false, count: ax.missing_files.length, detail: ax.missing_files })
     if (ax.unsupported.length) items.push({ key: 'annex_unsupported', ok: false, count: ax.unsupported.length, detail: ax.unsupported })
   }
+  // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos
+  // altal szandekosnak jelolt elteres nem allitja meg a veglegesitest.
+  const cons = consistencyIssues(itemId)
+  const open = cons.filter((i) => !i.acked)
+  items.push({ key: 'consistency', ok: open.length === 0, count: open.length, total: cons.length, detail: open.map((i) => `${i.kind}: ${i.values.join(' / ')}`) })
   return { ready: items.every((i) => i.ok), items }
 }
