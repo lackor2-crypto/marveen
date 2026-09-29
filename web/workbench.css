@@ -215,6 +215,8 @@
 .wb-row:first-child { border-top: 0; }
 .wb-row-main { flex: 1 1 auto; min-width: 0; word-break: break-word; }
 .wb-row-act { flex: 0 0 auto; display: flex; gap: 6px; justify-content: flex-end; }
+.wb-row-act.wb-asset-act { flex-direction: column; align-items: flex-end; gap: 4px; }
+.wb-folder-pair { display: flex; gap: 6px; }
 .wb-mini-btn {
   padding: 3px 10px;
   background: transparent;
