@@ -6562,6 +6562,7 @@ window._i18n.hu = {
   "workbench.tool.doc.removeSection": "Fejezet törlése",
   "workbench.tool.doc.addBlock": "Bekezdés hozzáadása",
   "workbench.tool.doc.updateBlock": "Bekezdés átírása",
+  "workbench.tool.doc.proposeRewrite": "Átírási javaslat",
   "workbench.tool.doc.removeBlock": "Bekezdés törlése",
   "workbench.tool.doc.addClaim": "Állítás és forrás rögzítése",
   "workbench.tool.doc.removeClaim": "Állítás törlése",

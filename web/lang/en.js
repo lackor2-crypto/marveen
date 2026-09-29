@@ -6484,6 +6484,7 @@ window._i18n.en = {
   "workbench.tool.doc.removeSection": "Removing a section",
   "workbench.tool.doc.addBlock": "Adding a paragraph",
   "workbench.tool.doc.updateBlock": "Rewriting a paragraph",
+  "workbench.tool.doc.proposeRewrite": "Proposing a new wording",
   "workbench.tool.doc.removeBlock": "Removing a paragraph",
   "workbench.tool.doc.addClaim": "Recording a claim and its source",
   "workbench.tool.doc.removeClaim": "Removing a claim",
