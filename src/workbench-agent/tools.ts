@@ -221,6 +221,36 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'doc.annexes',
+    description: 'The annex list (exhibits) of the structured document: every annex with its number and label (K1, Anlage K1, Exhibit A ...), file, title, whether the file is still there and how often the text refers to it, plus the numbering settings. The text refers to an annex by its label ("K1. melléklet", "Anlage K2", "Exhibit A"); Marveen keeps those references in step with the list.',
+    input: 'id (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'doc.addAnnex',
+    description: 'Add a file of the project folder (usually one of the materials) to the annex list. It gets the next number; with position it is inserted and the references in the text are renumbered.',
+    input: 'id (optional); path: the file inside the project folder; title: a short description ("Bérleti szerződés, 2024. május 2."); position (optional, 0 = first)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.updateAnnex',
+    description: 'Rename an annex or move it in the list. Moving renumbers it, and every reference in the text follows.',
+    input: 'id (optional); annex: the annex id; title (optional); position (optional, 0 = first)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.removeAnnex',
+    description: 'Take an annex off the list (the file stays in the folder). The later annexes move up; a reference to the removed one becomes a missing-data mark that blocks finalizing.',
+    input: 'id (optional); annex: the annex id',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.annexSettings',
+    description: 'The numbering of the annexes: scheme k ("K1", Hungarian), anlage ("Anlage K1", German courts) or exhibit ("Exhibit A", US courts); prefix: the letter (K, B, A, F ...; not used for exhibit); mode: separate (every annex its own PDF, the usual for e-filing) or combined (one PDF with the filing). Changing the scheme or the letter rewrites the references in the text.',
+    input: 'id (optional); scheme (optional); prefix (optional); mode (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'doc.check',
     description: 'The check before finalizing (every section done, no missing data, no unverified reference, every quote machine-verified, every owner statement confirmed by the owner, no claim without a verified source). Says what is still open, and whether a final PDF exists and is still current. You can NOT confirm owner statements and you can NOT finalize -- only the owner can, with a click in the Workbench (the draft PDF is also the owner\'s button).',
     input: 'id (optional)',

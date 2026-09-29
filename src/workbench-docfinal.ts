@@ -23,6 +23,10 @@ import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './w
 import { outlineHash, renderOutlinePdf, toRenderOutline, type RenderResult } from './workbench-docrender.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset } from './workbench-assets.js'
+import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
+import { resolveProjectFile } from './workbench-docmodel-world.js'
+import { getProject } from './projects.js'
+import type { RenderOutline } from './workbench-docrender.js'
 
 let tablesDb: unknown = null
 
@@ -52,9 +56,24 @@ export const ACCEPT_TEXT = {
 const FINAL_LABEL = { hu: 'Végleges', en: 'Final' } as const
 const DRAFT_LABEL = { hu: 'piszkozat', en: 'draft' } as const
 
-/** A dokumentum PDF-be kerulo tartalmanak ujjlenyomata (cim + fejezetek + blokkok). */
+/** A projekt fajljainak feloldoja ennel a munkadarabnal (a mellekletek letezesehez). */
+export function resolverFor(item: WorkItemRow): FileResolver | undefined {
+  const project = getProject(item.project_id)
+  return project ? (p: string) => resolveProjectFile(project, p) : undefined
+}
+
+/** Ami a PDF-be kerul: fejezetek, blokkok es a mellekletjegyzek (cimke + leiras). */
+export function renderInputFor(item: WorkItemRow): RenderOutline {
+  const annexes = listAnnexes(item.id)
+  return {
+    ...toRenderOutline(documentOutline(item.id)),
+    ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id)) } : {}),
+  }
+}
+
+/** A dokumentum PDF-be kerulo tartalmanak ujjlenyomata (cim + fejezetek + blokkok + mellekletjegyzek). */
 export function contentHash(item: WorkItemRow): string {
-  return outlineHash(toRenderOutline(documentOutline(item.id)), item.title)
+  return outlineHash(renderInputFor(item), item.title)
 }
 
 /** A PDF szerzoje a metaadatban: a tulajdonos beallitott neve; ha nincs beallitva, nincs szerzo (nem egy helyorzo). */
@@ -145,7 +164,7 @@ export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
 
 /** Piszkozat PDF (K-1.21): barmikor, vizjellel. */
 export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<RenderResult & { hash: string }> {
-  const outline = toRenderOutline(documentOutline(item.id))
+  const outline = renderInputFor(item)
   const hash = outlineHash(outline, item.title)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang })
   return { ...r, hash }
@@ -169,13 +188,13 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (!hasDocModel(item.id)) return { ok: false, code: 'outline_empty', detail: null }
   const hash = contentHash(item)
   if (typeof input.hash === 'string' && input.hash && input.hash !== hash) return { ok: false, code: 'outline_changed', detail: null }
-  const check = documentCheck(item.id)
+  const check = documentCheck(item.id, resolverFor(item))
   if (!check.ready) return { ok: false, code: 'outline_not_ready', detail: null, check }
   const review = reviewOf(item.id, hash)
   if (!review) return { ok: false, code: 'outline_not_reviewed', detail: null }
   if (input.accept !== true) return { ok: false, code: 'outline_accept_required', detail: null }
 
-  const outline = toRenderOutline(documentOutline(item.id))
+  const outline = renderInputFor(item)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: input.lang })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
   // A rendereles alatt (1-2 mp) valtozhatott: amit atnezett, azt veglegesitjuk, mast nem.
@@ -256,6 +275,7 @@ export function documentTrail(item: WorkItemRow): Record<string, unknown> {
         })),
       })),
     })),
+    annexes: listAnnexes(item.id, resolverFor(item)).map((a) => ({ label: a.label, title: a.title, file: a.path, file_present: a.exists, referenced: a.refs, added_by: a.created_by, added_at: iso(a.created_at) })),
     reviews: reviews.map((r) => ({ content_hash: r.content_hash, reviewed_at: iso(r.reviewed_at), reviewed_by: r.reviewed_by })),
     finals: listFinals(item.id).map((f) => ({
       version_no: f.version_no, label: f.label, content_hash: f.content_hash, file: f.pdf_path,

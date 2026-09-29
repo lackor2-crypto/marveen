@@ -42,6 +42,7 @@ import {
   documentCheck, recheckPendingSources,
 } from '../workbench-docmodel.js'
 import { finalizationState } from '../workbench-docfinal.js'
+import { addAnnex, annexCheck, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex } from '../workbench-docannex.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 
@@ -335,7 +336,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     }
     case 'doc.outline': case 'doc.addSection': case 'doc.updateSection': case 'doc.removeSection':
     case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
-    case 'doc.check': {
+    case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
       const item = getWorkItem(id)
@@ -353,13 +354,18 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
             return {
               ok: true,
               data: {
-                ...documentCheck(item.id),
+                ...documentCheck(item.id, world.resolveFile),
                 reviewed_by_owner: fin.reviewed,
                 final: fin.final ? { label: fin.final.label, version_no: fin.final.version_no, file: fin.final.pdf_path, stale: fin.final.stale } : null,
                 pdf: 'The owner makes the draft PDF (watermarked, any time) and the final PDF (only after this check passes, they opened and reviewed it and ticked that they take responsibility) with the buttons of the Vázlat box. You can not finalize.',
               },
             }
           }
+          case 'doc.annexes': return { ok: true, data: { annexes: listAnnexes(item.id, world.resolveFile), settings: docSettings(item.id), check: annexCheck(item.id, world.resolveFile) } }
+          case 'doc.addAnnex': { const r = addAnnex(item.id, { path: input.path, title: input.title, position: input.position }, world.resolveFile, 'workbench-agent'); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.updateAnnex': { const r = updateAnnex(item.id, asString(input.annex), { title: input.title, position: input.position }); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.removeAnnex': { const r = removeAnnex(item.id, asString(input.annex)); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.annexSettings': { const r = setDocSettings(item.id, { annex_scheme: input.scheme, annex_prefix: input.prefix, annex_mode: input.mode }); return r.ok ? { ok: true, data: r } : r }
           case 'doc.addSection': { const r = addSection(item.id, input.title, { position: num(input.position), status: input.status }); return r.ok ? { ok: true, data: r.section } : r }
           case 'doc.updateSection': { const r = updateSection(item.id, asString(input.section), { title: input.title, status: input.status, position: input.position }); return r.ok ? { ok: true, data: r.section } : r }
           case 'doc.removeSection': { const r = removeSection(item.id, asString(input.section)); return r.ok ? { ok: true, data: r } : r }

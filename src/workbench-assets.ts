@@ -538,12 +538,44 @@ export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): Folde
       for (const a of db.prepare('SELECT id, path FROM work_item_assets WHERE work_item_id = ?').all(item.id) as { id: string; path: string }[]) {
         if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
       }
+      moveDocModelPaths(item, project.id, `${folder}/`, `${newFolder}/`, swap)
     })()
   } catch (e) {
     try { renameSync(newAbs, cur.dirAbs) } catch { /* a hibauzenet megy tovabb */ }
     return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
   }
   return { ok: true, renamed: true, from: folder, to: newFolder }
+}
+
+/**
+ * A dokumentummodell utjai a mappaval egyutt (1/A): az irat-forrasok es a
+ * mellekletek projekt-relativ utja (a projekt BARMELY munkadarabjaban, mert egy
+ * masik dokumentum is idezhet ebbol a mappabol), es a vegleges PDF helye a
+ * verzio adataiban. Nelkule egy atnevezes utan a forras "nem talalhato" lenne,
+ * a melleklet "eltunt fajl", a vegleges PDF linkje pedig halott. A tablak csak
+ * akkor leteznek, ha a dokumentummodellt mar hasznaltak -- ezert nezzuk meg elobb.
+ */
+function moveDocModelPaths(item: WorkItemRow, projectId: string, oldProj: string, newProj: string, swapDepot: (p: string | null) => string | null): void {
+  const db = getDb()
+  const has = (t: string): boolean => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
+  const swap = (p: string): string => (p.startsWith(oldProj) ? newProj + p.slice(oldProj.length) : p)
+  if (has('wb_doc_sources') && has('wb_doc_claims')) {
+    const rows = db.prepare(`SELECT s.id, s.path FROM wb_doc_sources s JOIN wb_doc_claims c ON c.id = s.claim_id
+      JOIN work_items w ON w.id = c.work_item_id WHERE w.project_id = ? AND s.path IS NOT NULL`).all(projectId) as { id: string; path: string }[]
+    for (const r of rows) if (r.path.startsWith(oldProj)) db.prepare('UPDATE wb_doc_sources SET path = ? WHERE id = ?').run(swap(r.path), r.id)
+  }
+  if (has('wb_doc_annexes')) {
+    const rows = db.prepare(`SELECT a.id, a.path FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id WHERE w.project_id = ?`).all(projectId) as { id: string; path: string }[]
+    for (const r of rows) if (r.path.startsWith(oldProj)) db.prepare('UPDATE wb_doc_annexes SET path = ? WHERE id = ?').run(swap(r.path), r.id)
+  }
+  for (const v of db.prepare("SELECT id, metadata_json FROM work_item_versions WHERE work_item_id = ? AND metadata_json LIKE '%\"pdf_path\"%'").all(item.id) as { id: string; metadata_json: string }[]) {
+    try {
+      const m = JSON.parse(v.metadata_json) as Record<string, unknown>
+      if (typeof m['pdf_path'] !== 'string') continue
+      const moved = swapDepot(m['pdf_path'])
+      if (moved !== m['pdf_path']) db.prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ ...m, pdf_path: moved }), v.id)
+    } catch { /* rossz JSON: nincs mit athelyezni */ }
+  }
 }
 
 // ---------------------------------------------------------------------------
