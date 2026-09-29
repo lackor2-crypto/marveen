@@ -4427,14 +4427,17 @@
     var loose = src && (!folder || src.indexOf('/' + folder + '/') < 0)
     var list = assets.length
       ? '<ul class="wb-assets">' + assets.map(function (a) {
-        return '<li class="wb-asset">'
+        // Sor = bal oldalt a nev es a cimkek, jobb oldalt a gomb: a gombok igy
+        // egy oszlopban, egymas alatt allnak (Boss, #443).
+        return '<li class="wb-asset wb-row"><div class="wb-row-main">'
           + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
           + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(a.support) + '">' + esc(assetSupportLabel(a.support)) + '</span>'
           + docStateHtml(a)
           + (a.shared ? ' <span class="wb-pill wb-asset-shared" title="' + escA(t('workbench.shared.pill_title')) + '">' + esc(t('workbench.shared.pill')) + '</span>' : '')
           + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
-          + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
-            + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
+          + '</div>'
+          + (ro ? '' : '<div class="wb-row-act"><button type="button" class="wb-mini-btn" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
+            + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button></div>')
           + '</li>'
       }).join('') + '</ul>'
       : '<p class="wb-muted">' + esc(t('workbench.assets.none')) + '</p>'
@@ -4444,7 +4447,7 @@
         ? t('workbench.assets.folder', { folder: folder })
         : t('workbench.assets.no_folder')) + '</p>'
       + list
-      + (ro ? '' : '<p><label class="wb-btn" for="wbAssetUpload">\ud83d\udcce ' + esc(WB.upload
+      + (ro ? '' : '<p class="wb-ctx-actions"><label class="wb-btn" for="wbAssetUpload">\ud83d\udcce ' + esc(WB.upload
         ? t('workbench.upload.busy')
         : t('workbench.assets.add')) + '</label>'
         + '<input type="file" id="wbAssetUpload" class="wb-file-input" multiple></p>'
@@ -4452,7 +4455,6 @@
       + (ro || !loose ? '' : '<p><button type="button" class="wb-btn" data-wb-act="asset-tidy"' + (WB.tidyBusy ? ' disabled' : '') + '>'
         + esc(t('workbench.assets.tidy')) + '</button></p>'
         + '<p class="wb-hint">' + esc(t('workbench.assets.tidy_hint')) + '</p>')
-      + (ro ? '' : sharedBlockHtml(assets))
       + '</div>'
   }
 
@@ -4461,9 +4463,10 @@
   function sharedBlockHtml(assets) {
     var sh = WB.shared && WB.shared.projectId === WB.projectId ? WB.shared : null
     var open = !!(sh && sh.open)
-    var head = '<p><button type="button" class="wb-btn" data-wb-act="shared-toggle" aria-expanded="' + (open ? 'true' : 'false') + '">'
+    var head = '<div class="wb-ctx-block wb-shared-ctx"><h3>' + esc(t('workbench.shared.title')) + '</h3>'
+      + '<p class="wb-ctx-actions"><button type="button" class="wb-btn" data-wb-act="shared-toggle" aria-expanded="' + (open ? 'true' : 'false') + '">'
       + '\u2b50 ' + esc(t(open ? 'workbench.shared.close' : 'workbench.shared.open')) + '</button></p>'
-    if (!open) return head
+    if (!open) return head + '</div>'
     var linked = {}
     ;(assets || []).forEach(function (a) { linked[a.path] = true })
     var body
@@ -4471,23 +4474,24 @@
     else if (!sh.files.length) body = '<p class="wb-muted">' + esc(t(sh.folder ? 'workbench.shared.empty' : 'workbench.shared.none')) + '</p>'
     else {
       body = '<ul class="wb-assets wb-shared-list">' + sh.files.map(function (f) {
-        return '<li class="wb-asset">'
+        return '<li class="wb-asset wb-row"><div class="wb-row-main">'
           + '<span class="wb-asset-name" title="' + escA(f.project_path || f.path) + '">' + esc(f.name) + '</span> '
-          + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(f.support) + '">' + esc(assetSupportLabel(f.support)) + '</span> '
+          + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(f.support) + '">' + esc(assetSupportLabel(f.support)) + '</span>'
+          + '</div><div class="wb-row-act">'
           + (linked[f.path]
             ? '<span class="wb-muted">' + esc(t('workbench.shared.linked')) + '</span>'
-            : '<button type="button" class="wb-linklike" data-wb-act="shared-link" data-wb-path="' + escA(f.path) + '"'
+            : '<button type="button" class="wb-mini-btn" data-wb-act="shared-link" data-wb-path="' + escA(f.path) + '"'
               + ' title="' + escA(t('workbench.shared.link_title')) + '">' + esc(t('workbench.shared.link')) + '</button>')
-          + '</li>'
+          + '</div></li>'
       }).join('') + '</ul>'
     }
     return head + '<div class="wb-shared-block">'
       + '<p class="wb-muted">' + esc(sh.folder ? t('workbench.shared.folder', { folder: sh.folder }) : t('workbench.shared.intro')) + '</p>'
       + body
-      + '<p><label class="wb-btn" for="wbSharedUpload">\ud83d\udcce ' + esc(sh.uploading ? t('workbench.upload.busy') : t('workbench.shared.upload')) + '</label>'
+      + '<p class="wb-ctx-actions"><label class="wb-btn" for="wbSharedUpload">\ud83d\udcce ' + esc(sh.uploading ? t('workbench.upload.busy') : t('workbench.shared.upload')) + '</label>'
       + '<input type="file" id="wbSharedUpload" class="wb-file-input" multiple></p>'
       + '<p class="wb-hint">' + esc(t('workbench.shared.hint')) + '</p>'
-      + '</div>'
+      + '</div></div>'
   }
 
   function loadShared(projectId) {
@@ -4683,33 +4687,42 @@
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p></div>')
       rows.push(assetsBlockHtml())
+      if (!archived()) rows.push(sharedBlockHtml(WB.detail.assets || []))
       var versions = WB.detail.versions || []
       var ro = archived() || WB.versionBusy
-      rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + '</h3>'
+      rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + (versions.length ? ' (' + versions.length + ')' : '') + '</h3>'
         + (versions.length
           ? '<ul class="wb-versions">' + versions.map(function (v) {
             var current = v.id === it.current_version_id
-            // A JELENLEGIT nincs mire visszaallitani; a regihez ott a gomb, es a
-            // kattintas elott KIMONDJUK, hogy a kesobbi verziok megmaradnak.
-            var back = (current || ro) ? '' : (' <button type="button" class="wb-linklike" data-wb-act="version-restore"'
-              + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>')
-            return '<li>' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
+            // A JELENLEGIT nincs mire visszaallitani es nem torolheto; a regihez
+            // ott a ket gomb. A Torles vegleges (#443), rakerdezes nelkul.
+            var acts = (current || ro) ? '' : ('<button type="button" class="wb-mini-btn" data-wb-act="version-restore"'
+              + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>'
+              + '<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="version-delete"'
+              + ' data-wb-version="' + escA(v.id) + '" title="' + escA(t('workbench.versions.delete_title')) + '">'
+              + esc(t('workbench.versions.delete')) + '</button>')
+            return '<li class="wb-row"><div class="wb-row-main">' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
               + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
               + (v.restored_from_no ? ' <span class="wb-muted">'
                 + esc(t('workbench.versions.restored_from', { n: v.restored_from_no })) + '</span>' : '')
-              + back + '</li>'
+              + '</div>' + (acts ? '<div class="wb-row-act">' + acts + '</div>' : '') + '</li>'
           }).join('') + '</ul>'
           : '<p class="wb-muted">' + esc(t('workbench.context.no_versions')) + '</p>')
-        + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="version-new">'
+        + (ro ? '' : '<p class="wb-ctx-actions"><button type="button" class="wb-btn" data-wb-act="version-new">'
           + esc(t('workbench.versions.save_new')) + '</button></p>')
-        // A KOR BEZARASA (spec 8): letoltod, megszerkeszted a sajat gepeden,
-        // visszatoltod -- es UJ VERZIO lesz belole. A regi megmarad.
-        + (ro ? '' : '<p><label class="wb-btn wb-part-upload" for="wbDocUpload">'
-          + esc(WB.docBusy ? t('workbench.versions.uploading') : t('workbench.versions.upload_document')) + '</label>'
-          + '<input type="file" id="wbDocUpload" class="wb-file-input"></p>'
-          + '<p class="wb-hint">' + esc(t('workbench.versions.upload_document_hint')) + '</p>')
         + '<p class="wb-hint">' + esc(t('workbench.versions.hint')) + '</p>'
         + '</div>')
+      // A KOR BEZARASA (spec 8): letoltod, megszerkeszted a sajat gepeden,
+      // visszatoltod -- es UJ VERZIO lesz belole. A regi megmarad. Kulon blokk,
+      // hogy ne folyjon ossze a verziolistaval.
+      if (!ro) {
+        rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.versions.upload_document')) + '</h3>'
+          + '<p class="wb-hint">' + esc(t('workbench.versions.upload_document_hint')) + '</p>'
+          + '<p class="wb-ctx-actions"><label class="wb-btn wb-part-upload" for="wbDocUpload">\ud83d\udcc4 '
+          + esc(WB.docBusy ? t('workbench.versions.uploading') : t('workbench.versions.upload_document_btn')) + '</label>'
+          + '<input type="file" id="wbDocUpload" class="wb-file-input"></p>'
+          + '</div>')
+      }
     } else {
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
         + '<p class="wb-muted">' + esc(t('workbench.context.no_selection')) + '</p></div>')
@@ -6528,6 +6541,29 @@
     })
   }
 
+  /** Regi verzio VEGLEGES torlese (#443). Nem a jelenlegit: azt a szerver is
+   *  elutasitja. A tobbi verzio es az elonezet valtozatlan marad, kiveve ha
+   *  eppen a torolt verziot nezted -- akkor a jelenlegire all vissza. */
+  function deleteVersion(versionId) {
+    if (!versionId || !WB.selectedId || WB.versionBusy || archived()) return
+    var id = WB.selectedId
+    WB.versionBusy = true
+    render()
+    api('DELETE', versionsUrl('/' + encodeURIComponent(versionId))).then(function (r) {
+      WB.versionBusy = false
+      if (WB.selectedId !== id || !WB.detail) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (r.data && r.data.versions) WB.detail.versions = r.data.versions
+      if (r.data && r.data.item) WB.detail.item = r.data.item
+      if (WB.compare) WB.compare = null
+      var wasShown = WB.previewVersion === versionId
+      if (wasShown) WB.previewVersion = null
+      window.showToast(t('workbench.versions.deleted'))
+      render()
+      if (wasShown) loadPreview(id, null)
+    })
+  }
+
   function restoreVersion(versionId) {
     if (!versionId || !WB.selectedId || WB.versionBusy || archived()) return
     if (typeof window.confirm === 'function' && !window.confirm(t('workbench.versions.restore_confirm'))) return
@@ -6967,6 +7003,7 @@
     }
     else if (a === 'item-rename') renameItem()
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
+    else if (a === 'version-delete') deleteVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))

@@ -5,7 +5,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, setProjectArchived } from '../projects.js'
 import {
   createWorkItem, listWorkItems, listDeletedWorkItems, setWorkItemDeleted, getWorkItem,
-  countWorkItems, createWorkItemVersion, listWorkItemVersions,
+  countWorkItems, createWorkItemVersion, listWorkItemVersions, deleteWorkItemVersion, listWorkItemParts, addWorkItemPart,
 } from '../workbench.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
@@ -98,6 +98,59 @@ describe('lomtar: vegpont', () => {
     const r = await callWorkbench(`/api/workbench/items/${ids.A}/trash`, 'POST', { deleted: true })
     expect(r.status).toBe(409)
     expect(getWorkItem(ids.A)!.deleted_at).toBeNull()
+  })
+})
+
+describe('verzio vegleges torlese', () => {
+  beforeEach(setup)
+
+  function twoVersions() {
+    const p = addWorkItemPart({ work_item_id: ids.A, kind: 'text', text: 'elso' })
+    if (!p.ok) throw new Error('resz')
+    const v1 = createWorkItemVersion(ids.A, {})
+    const v2 = createWorkItemVersion(ids.A, {})
+    if (!v1.ok || !v2.ok) throw new Error('verzio')
+    return { v1: v1.version, v2: v2.version }
+  }
+
+  it('a regi verzio es a reszei torlodnek, a jelenlegi es a munkapeldany marad', () => {
+    const { v1, v2 } = twoVersions()
+    const working = listWorkItemParts(ids.A).length
+    expect(listWorkItemParts(ids.A, v1.id).length).toBeGreaterThan(0)
+    const r = deleteWorkItemVersion(v1.id, ids.A)
+    expect(r.ok).toBe(true)
+    expect(listWorkItemVersions(ids.A).map((v) => v.id)).not.toContain(v1.id)
+    expect(listWorkItemVersions(ids.A).map((v) => v.id)).toContain(v2.id)
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM work_item_parts WHERE version_id = ?').get(v1.id)).toEqual({ n: 0 })
+    expect(listWorkItemParts(ids.A).length).toBe(working)
+    expect(getWorkItem(ids.A)!.current_version_id).toBe(v2.id)
+  })
+
+  it('a jelenlegi verzio nem torolheto', () => {
+    const { v2 } = twoVersions()
+    const n = listWorkItemVersions(ids.A).length
+    expect(deleteWorkItemVersion(v2.id, ids.A)).toEqual({ ok: false, code: 'version_current' })
+    expect(listWorkItemVersions(ids.A).length).toBe(n)
+  })
+
+  it('mas munkadarab verzioja: version_mismatch, nem torol', () => {
+    const { v1 } = twoVersions()
+    const n = listWorkItemVersions(ids.A).length
+    expect(deleteWorkItemVersion(v1.id, ids.B)).toEqual({ ok: false, code: 'version_mismatch' })
+    expect(listWorkItemVersions(ids.A).length).toBe(n)
+  })
+
+  it('vegpont: DELETE torol, a jelenlegire 409 emberi mondattal, ismeretlenre 404', async () => {
+    const { v1, v2 } = twoVersions()
+    const ok = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${v1.id}`, 'DELETE')
+    expect(ok.status).toBe(200)
+    expect((ok.body as { versions: { id: string }[] }).versions.map((v) => v.id)).not.toContain(v1.id)
+    const cur = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${v2.id}`, 'DELETE')
+    expect(cur.status).toBe(409)
+    expect(cur.body).toMatchObject({ error: 'version_current' })
+    expect(typeof (cur.body as { message: string }).message).toBe('string')
+    const gone = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${v1.id}`, 'DELETE')
+    expect(gone.status).toBe(404)
   })
 })
 

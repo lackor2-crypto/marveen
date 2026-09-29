@@ -638,7 +638,7 @@ export interface CreateWorkItemVersionInput {
   metadata_json?: unknown
 }
 
-export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch'
+export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch' | 'version_current'
 
 export type CreateWorkItemVersionResult =
   | { ok: true; item: WorkItemRow; version: WorkItemVersionRow }
@@ -714,6 +714,32 @@ export function createWorkItemVersion(workItemId: string, input: CreateWorkItemV
   const fresh = getWorkItem(item.id)
   if (!fresh) throw new Error('work item disappeared while creating a version')
   return { ok: true, item: fresh, version }
+}
+
+/**
+ * Egy REGI verzio VEGLEGES torlese (#443). A verzio sora es a hozza masolt
+ * reszek torlodnek, vissza nem hozhato. A JELENLEGI verzio nem torolheto: az a
+ * munkadarab mostani allapota, arra epul a szerkesztes. A fajlok a projekt
+ * mappajaban maradnak (a Raktarban latszanak), mert mas verzio vagy munkadarab
+ * is hivatkozhat rajuk. A tobbi verzio szama nem valtozik.
+ */
+export function deleteWorkItemVersion(
+  versionId: string,
+  workItemId: string,
+): { ok: true; item: WorkItemRow } | { ok: false; code: VersionErrorCode } {
+  ensureWorkbenchTables()
+  const target = getWorkItemVersion(versionId)
+  if (!target) return { ok: false, code: 'version_not_found' }
+  if (target.work_item_id !== workItemId) return { ok: false, code: 'version_mismatch' }
+  const item = getWorkItem(target.work_item_id)
+  if (!item) return { ok: false, code: 'item_not_found' }
+  if (item.current_version_id === target.id) return { ok: false, code: 'version_current' }
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare('DELETE FROM work_item_parts WHERE work_item_id = ? AND version_id = ?').run(item.id, target.id)
+    db.prepare('DELETE FROM work_item_versions WHERE id = ?').run(target.id)
+  })()
+  return { ok: true, item: getWorkItem(item.id) ?? item }
 }
 
 /** Egy REGI verzio visszaallitasa. Nem ir felul semmit: UJ verzio keletkezik,

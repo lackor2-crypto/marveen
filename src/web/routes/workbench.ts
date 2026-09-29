@@ -44,7 +44,7 @@ import { getProject } from '../../projects.js'
 import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
-  createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
+  createWorkItemVersion, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
 import { writeProjectFile, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
@@ -114,6 +114,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   version_not_found: {
     hu: 'Ez a verzió nincs meg. Lehet, hogy közben törölted a munkadarabot, vagy egy régi lapot néztél -- frissítsd az oldalt.',
     en: 'That version does not exist. The work item may have been deleted, or you are looking at a stale page -- reload it.',
+  },
+  version_current: {
+    hu: 'Ez a jelenlegi verzió, ezt nem lehet törölni. Ha el akarod dobni, előbb állíts vissza egy másikat, vagy ments új verziót.',
+    en: 'This is the current version, so it cannot be deleted. To drop it, restore another version or save a new one first.',
   },
   version_mismatch: {
     hu: 'Ez a verzió nem ehhez a munkadarabhoz tartozik, ezért nem állítom vissza.',
@@ -1950,6 +1954,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       // A mostani verzio "elo" reszei a verziozas elotti sorokat is fogjak.
       parts: listWorkItemParts(item.id, isCurrent ? null : v.id),
     })
+    return true
+  }
+
+  // VERZIO TORLESE (#443): vegleges, a tulajdonos kerese szerint rakerdezes nelkul.
+  if (segs.length === 3 && segs[1] === 'versions' && method === 'DELETE') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = deleteWorkItemVersion(segs[2] || '', item.id)
+    if (!r.ok) return fail(res, r.code === 'version_not_found' || r.code === 'item_not_found' ? 404 : 409, r.code, lang)
+    json(res, { ok: true, item: r.item, versions: listWorkItemVersionsView(item.id) })
     return true
   }
 
