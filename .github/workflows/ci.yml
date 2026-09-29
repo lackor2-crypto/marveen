@@ -55,8 +55,9 @@ jobs:
       # A termek maga ffmpeg nelkul is mukodik (teljes meretu kepre esik
       # vissza), de a bolyegkep-viselkedest csak ffmpeg-gel lehet leellenorizni.
       # 1/A (#441): a Munkapad iratolvasoja (pdftotext + tesseract) valodi PDF-en is tesztelve.
+      # 1/A (#441): a dokumentummodell PDF-je (LibreOffice) valodi PDF-en merve: nincs benne forras (K-1.13), a vegleges PDF/A.
       - name: ffmpeg telepitese
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu libreoffice-writer-nogui fonts-liberation
 
       # A teszt-suite megtagadja a futast, ha eles telepitesben talalja magat.
       # Egy CI checkoutban ennek sosem szabad bekovetkeznie -- de ha megis, a

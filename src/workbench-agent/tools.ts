@@ -222,7 +222,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'doc.check',
-    description: 'The check before finalizing (every section done, no missing data, no unverified reference, every quote machine-verified, every owner statement confirmed by the owner, no claim without a verified source). Says what is still open. You can NOT confirm owner statements -- only the owner can, with a click in the Workbench.',
+    description: 'The check before finalizing (every section done, no missing data, no unverified reference, every quote machine-verified, every owner statement confirmed by the owner, no claim without a verified source). Says what is still open, and whether a final PDF exists and is still current. You can NOT confirm owner statements and you can NOT finalize -- only the owner can, with a click in the Workbench (the draft PDF is also the owner\'s button).',
     input: 'id (optional)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },

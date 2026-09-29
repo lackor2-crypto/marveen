@@ -21,6 +21,9 @@
     vidStatus: null,
     vidLoading: false,
     vid: null,
+    // VEGLEGESITES (#441, K-1.22): a pipa ehhez a tartalom-ujjlenyomathoz tartozik; fut-e a keszites.
+    docAccept: null,
+    docFinalizing: false,
     projectId: null,
     project: null,
     items: null,
@@ -4097,7 +4100,70 @@
       + secs
       + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + outlineCheckHtml(o.check)
+      + outlinePdfHtml(o, ro)
       + '</div>'
+  }
+
+  /** PISZKOZAT ES VEGLEGESITES (#441, K-1.21 ... K-1.23/b). A piszkozat barmikor
+   *  (vizjellel); a vegleges csak ellenorzes + atnezes + felelossegvallalas utan,
+   *  a tulajdonos sajat kattintasaval. A szerver ellenoriz, a felulet csak mutat. */
+  function outlinePdfHtml(o, ro) {
+    var base = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline'
+    var q = '?lang=' + encodeURIComponent(window._lang || 'hu')
+    var f = o.final
+    var finalLine = !f ? '' : '<p class="' + (f.stale ? 'wb-doc-low' : 'wb-ok') + '">'
+      + (f.stale ? '⚠ ' + esc(t('workbench.outline.final_stale', { label: f.label, n: f.version_no }))
+        : '✓ ' + esc(t('workbench.outline.final_current', { label: f.label, n: f.version_no })))
+      + ' <a href="/api/life/file?rel=' + escA(encodeURIComponent(f.pdf_path || '')) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.final_open')) + '</a></p>'
+    var tools = '<p class="wb-outline-pdf-tools">'
+      + '<a class="btn-secondary btn-compact" href="' + escA(base + '/pdf' + q) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.outline.draft_pdf')) + '</a> '
+      + '<a class="wb-linklike" href="' + escA(base + '/trail' + q) + '" title="' + escA(t('workbench.outline.trail_hint')) + '">' + esc(t('workbench.outline.trail')) + '</a></p>'
+    var fin = ''
+    if (!ro) {
+      var hash = o.content_hash || ''
+      var ready = !!(o.check && o.check.ready)
+      var reviewed = !!o.reviewed
+      var accepted = ready && reviewed && WB.docAccept === hash
+      var reviewBtn = ready
+        ? '<a class="btn-secondary btn-compact" data-wb-act="outline-review" href="' + escA(base + '/pdf' + q + '&review=' + encodeURIComponent(hash)) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.review_open')) + '</a>'
+        : '<button type="button" class="btn-secondary btn-compact" disabled>' + esc(t('workbench.outline.review_open')) + '</button>'
+      fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>'
+        + '<p class="wb-hint">' + esc(t(ready ? 'workbench.outline.finalize_steps' : 'workbench.outline.finalize_blocked')) + '</p>'
+        + '<p>' + reviewBtn + (reviewed ? ' <span class="wb-ok">✓ ' + esc(t('workbench.outline.reviewed')) + '</span>' : '') + '</p>'
+        + '<p><label class="wb-outline-accept"><input type="checkbox" data-wb-act="outline-accept"' + (ready && reviewed ? '' : ' disabled') + (accepted ? ' checked' : '') + '> '
+        + esc(t('workbench.outline.accept')) + '</label></p>'
+        + '<p><button type="button" class="wb-btn" data-wb-act="outline-finalize"' + (accepted && !WB.docFinalizing ? '' : ' disabled') + '>'
+        + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
+        + '</div>'
+    }
+    return '<div class="wb-outline-pdf">' + tools + finalLine + fin + '</div>'
+  }
+
+  /** A vazlat ujratoltese a szerverrol (pl. az atnezes rogzitese utan). */
+  function refreshOutline() {
+    var id = WB.selectedId
+    if (!id) return
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline').then(function (r) {
+      if (r.ok && WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+    })
+  }
+
+  function finalizeDocument() {
+    var id = WB.selectedId
+    var o = WB.detail && WB.detail.outline
+    if (!id || !o || WB.docFinalizing || archived()) return
+    WB.docFinalizing = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/finalize', { accept: true, hash: o.content_hash }).then(function (r) {
+      WB.docFinalizing = false
+      if (WB.selectedId === id && WB.detail) {
+        if (r.data && r.data.outline) WB.detail.outline = r.data.outline
+        if (r.ok && r.data.assets) WB.detail.assets = r.data.assets
+      }
+      if (r.ok) { WB.docAccept = null; window.showToast(t('workbench.outline.finalized', { label: r.data.final.label })) }
+      else window.showToast(r.message)
+      render()
+    })
   }
 
   function outlineCall(method, sub, body) {
@@ -4143,6 +4209,20 @@
       if (nx !== null && nx.trim() && (!b || nx.trim() !== b.text)) outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: nx.trim() })
     } else if (a === 'outline-block-del') {
       if (window.confirm(t('workbench.outline.delete_block_confirm'))) outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid))
+    } else if (a === 'outline-review') {
+      // A link maga nyitja meg a PDF-et uj lapon; a szerver akkor rogziti az
+      // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
+      setTimeout(refreshOutline, 1500)
+      setTimeout(refreshOutline, 5000)
+      if (typeof window.addEventListener === 'function') {
+        window.addEventListener('focus', function once() { window.removeEventListener('focus', once); refreshOutline() })
+      }
+    } else if (a === 'outline-accept') {
+      var o = WB.detail && WB.detail.outline
+      WB.docAccept = act.checked && o ? o.content_hash : null
+      render()
+    } else if (a === 'outline-finalize') {
+      finalizeDocument()
     } else if (a === 'outline-claim-confirm') {
       // K-1.9: allitasonkenti, kifejezett megerosites -- a teljes szoveg a kerdesben.
       if (window.confirm(t('workbench.outline.confirm_prompt'))) outlineCall('POST', '/claims/' + encodeURIComponent(act.getAttribute('data-wb-claim')) + '/confirm', {})

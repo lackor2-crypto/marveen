@@ -34,6 +34,7 @@ export const OFFICE_CONVERTIBLE: Record<string, { hu: string; en: string }> = {
   docx: { hu: 'Word-dokumentum', en: 'Word document' },
   doc: { hu: 'Word-dokumentum (regi)', en: 'Word document (legacy)' },
   odt: { hu: 'LibreOffice szoveges dokumentum', en: 'LibreOffice text document' },
+  fodt: { hu: 'LibreOffice szoveges dokumentum (XML)', en: 'LibreOffice text document (flat XML)' },
   rtf: { hu: 'RTF dokumentum', en: 'RTF document' },
   xlsx: { hu: 'Excel-tablazat', en: 'Excel spreadsheet' },
   xls: { hu: 'Excel-tablazat (regi)', en: 'Excel spreadsheet (legacy)' },
@@ -168,10 +169,12 @@ export function gcRenderCache(now = Date.now()): { removed: number; kept: number
 /** A gyorsitotar kulcsa: a FORRAS allapotabol szarmazik (ut + modositas +
  *  meret), tehat ha a fajl valtozik, magatol mas kulcs lesz -- elavult PDF-et
  *  nem lehet visszakapni. */
-export function cacheKeyFor(abs: string): { ok: true; key: string; pdf: string } | { ok: false; code: 'missing_source'; detail: string } {
+export function cacheKeyFor(abs: string, variant = ''): { ok: true; key: string; pdf: string } | { ok: false; code: 'missing_source'; detail: string } {
   try {
     const st = statSync(abs)
-    const key = createHash('sha1').update(`${abs}:${Math.floor(st.mtimeMs)}:${st.size}`).digest('hex').slice(0, 24)
+    // A `variant` (a PDF-export beallitasa) is a kulcs resze: ugyanabbol a
+    // forrasbol a piszkozat es a PDF/A valtozat nem keveredhet ossze.
+    const key = createHash('sha1').update(`${abs}:${Math.floor(st.mtimeMs)}:${st.size}${variant ? `:${variant}` : ''}`).digest('hex').slice(0, 24)
     return { ok: true, key, pdf: join(renderCacheDir(), `${key}.pdf`) }
   } catch (e) {
     return { ok: false, code: 'missing_source', detail: e instanceof Error ? e.message : String(e) }
@@ -197,11 +200,12 @@ export type ConvertResult =
 let queue: Promise<unknown> = Promise.resolve()
 const inFlight = new Map<string, Promise<ConvertResult>>()
 
-export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number } = {}): Promise<ConvertResult> {
+/** `pdfFilter`: a LibreOffice `--convert-to` erteke (pl. PDF/A beallitassal); alapbol sima `pdf`. */
+export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number; pdfFilter?: string } = {}): Promise<ConvertResult> {
   if (!isOfficeConvertible(abs)) {
     return { ok: false, code: 'unsupported', detail: `${basename(abs)}: not an office document` }
   }
-  const k = cacheKeyFor(abs)
+  const k = cacheKeyFor(abs, opts.pdfFilter || '')
   if (!k.ok) return { ok: false, code: 'missing_source', detail: k.detail }
   if (existsSync(k.pdf)) return { ok: true, pdf: k.pdf, key: k.key, cached: true }
 
@@ -229,7 +233,7 @@ export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number
       const r = await runVersion(probe.path as string, [
         '--headless', '--norestore', '--nolockcheck', '--nodefault',
         `-env:UserInstallation=${pathToFileURL(profile).href}`,
-        '--convert-to', 'pdf', '--outdir', outDir, abs,
+        '--convert-to', opts.pdfFilter || 'pdf', '--outdir', outDir, abs,
       ], opts.timeoutMs ?? 180_000)
       if (!r.ok) {
         return { ok: false, code: r.code === 'timeout' ? 'timeout' : 'convert_failed', detail: r.detail }

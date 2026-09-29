@@ -1,0 +1,263 @@
+/**
+ * A DOKUMENTUMMODELLBOL VALODI PDF (kanban #441, v4 spec 1/A, K-1.21 ... K-1.24).
+ *
+ * Nem a bongeszo nyomtatasa: a modellbol (fejezetek, blokkok) egy ODF-
+ * dokumentum (egyetlen XML-fajl, .fodt) keszul, es a meglevo LibreOffice-
+ * atalakitas csinal belole PDF-et. Igy benne van: stabil oldaltores, fejlec
+ * (a 2. oldaltol a cim), lablec "X / Y oldal" szamozassal, margok, beagyazott
+ * betutipusok, cimhierarchia (a PDF konyvjelzoi a fejezetcimekbol), valodi
+ * labjegyzet, alairasblokk, metaadatok (cim, szerzo), cimkezett (akadalymentes)
+ * PDF. A VEGLEGES PDF/A-2b (archivalhato; a nemet ERVV es a birosagi
+ * gyakorlat ezt varja), a PISZKOZAT (K-1.21) minden oldalan vizjel all, es a
+ * hiany-jelolesek kiemelve benne maradnak.
+ *
+ * A FORRAS SOSE KERUL BELE (K-1.13): a renderelo csak a fejezetcimekbol es a
+ * blokkok szovegebol dolgozik -- allitas, forras, ikon, fajlnev, belso
+ * azonosito nem jut el ide.
+ */
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { convertOfficeToPdf, renderCacheDir, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
+import { MISSING_MARK_RE, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
+
+/** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
+export interface RenderOutline {
+  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string }[] }[]
+}
+
+export interface RenderOptions {
+  title: string
+  author: string | null
+  draft: boolean
+  lang: 'hu' | 'en'
+}
+
+/** A LibreOffice PDF-exportjanak beallitasai (JSON szuro-opciok, LibreOffice 7.4+). */
+const PDF_COMMON = '"UseTaggedPDF":{"type":"boolean","value":"true"},"ExportBookmarks":{"type":"boolean","value":"true"},"ExportNotes":{"type":"boolean","value":"false"}'
+export const PDF_FILTER_DRAFT = `pdf:writer_pdf_Export:{${PDF_COMMON}}`
+/** PDF/A-2b: beagyazott betuk, XMP-metaadat, nincs kulso hivatkozas vagy JavaScript. */
+export const PDF_FILTER_FINAL = `pdf:writer_pdf_Export:{${PDF_COMMON},"SelectPdfVersion":{"type":"long","value":"2"}}`
+
+/** Ennyi .fodt forras marad a gyorsitotarban (a PDF-jeiket az atalakito sajat takaritasa viszi). */
+export const RENDER_SOURCES_MAX = 60
+
+export function xmlEscape(s: string): string {
+  return String(s ?? '')
+    // XML 1.0-ban tiltott vezerlo karakterek (a tab, sortores maradhat).
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/** Egy sor szovege ODF-ben: a tobbszoros szokoz es a tab megmarad. */
+function inline(s: string): string {
+  return xmlEscape(s)
+    .replace(/\t/g, '<text:tab/>')
+    .replace(/ {2,}/g, (m) => ` <text:s text:c="${m.length - 1}"/>`)
+}
+
+/** Sor szovege; a piszkozatban a hiany-jelolesek kiemelve (K-1.21). */
+function inlineMarked(s: string, draft: boolean): string {
+  if (!draft) return inline(s)
+  const out: string[] = []
+  let last = 0
+  for (const m of s.matchAll(new RegExp(MISSING_MARK_RE.source, 'g'))) {
+    const at = m.index ?? 0
+    out.push(inline(s.slice(last, at)), `<text:span text:style-name="Missing">${inline(m[0])}</text:span>`)
+    last = at + m[0].length
+  }
+  out.push(inline(s.slice(last)))
+  return out.join('')
+}
+
+/**
+ * Bekezdes(ek). Ures sor = uj bekezdes. Sima sortores = uj sor ugyanabban a
+ * gondolatban -- de SORKIZART bekezdesben a LibreOffice a kezi sortores elotti
+ * sort a lap szeleig szethuzna ("Tisztelt            Birosag!"), ezert minden
+ * sor kulon bekezdes, a belso sorok kozott terkoz nelkul.
+ */
+function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean): string[] {
+  const out: string[] = []
+  for (const para of text.split(/\n[ \t]*\n+/)) {
+    const lines = para.split('\n')
+    lines.forEach((l, i) => {
+      out.push(`<text:p text:style-name="${i < lines.length - 1 ? style + 'Line' : style}">${inlineMarked(l, draft)}</text:p>`)
+    })
+  }
+  return out
+}
+
+/** Alairasblokk: minden sor megmarad (az ures sor is: oda kerul az alairas), egyben marad. */
+function signature(text: string, draft: boolean): string[] {
+  const lines = text.split('\n')
+  return lines.map((l, i) => {
+    const st = i === 0 ? 'SignatureFirst' : 'Signature'
+    const keep = i < lines.length - 1 ? 'Keep' : ''
+    return `<text:p text:style-name="${st}${keep}">${inlineMarked(l, draft)}</text:p>`
+  })
+}
+
+const LIST_MARK = /^\s*(?:[-*•–]|\d+[.)])\s+/
+
+function listBlock(text: string, draft: boolean): string[] {
+  const lines = text.split('\n').filter((l) => l.trim())
+  const numbered = lines.length > 0 && lines.every((l) => /^\s*\d+[.)]\s+/.test(l))
+  const items = lines.map((l) => l.replace(LIST_MARK, '').trim())
+  return [`<text:list text:style-name="${numbered ? 'LNum' : 'LBul'}">${items.map((i) => `<text:list-item><text:p text:style-name="ListP">${inlineMarked(i, draft)}</text:p></text:list-item>`).join('')}</text:list>`]
+}
+
+/** Tablazat "a | b | c" sorokbol; az elso sor fejlec (oldaltoresnel ismetlodik), a "---|---" elvalaszto kimarad. */
+function tableBlock(text: string, n: number, draft: boolean): string[] {
+  const rows = text.split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^\|?[\s:|-]+\|?$/.test(l))
+    .map((l) => l.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()))
+  if (!rows.length) return []
+  const cols = Math.max(1, ...rows.map((r) => r.length))
+  const row = (r: string[], head: boolean): string => `<table:table-row>${Array.from({ length: cols }, (_, ci) => `<table:table-cell table:style-name="Cell" office:value-type="string"><text:p text:style-name="${head ? 'TableHead' : 'TableBody'}">${inlineMarked(r[ci] ?? '', draft)}</text:p></table:table-cell>`).join('')}</table:table-row>`
+  return [`<table:table table:name="T${n}" table:style-name="Tbl">`
+    + `<table:table-column table:number-columns-repeated="${cols}"/>`
+    + `<table:table-header-rows>${row(rows[0] as string[], true)}</table:table-header-rows>`
+    + rows.slice(1).map((r) => row(r, false)).join('')
+    + '</table:table>']
+}
+
+/** Valodi labjegyzet az elozo blokk utolso bekezdesenek vegen (a lap aljan jelenik meg). */
+function footnoteXml(text: string, n: number, draft: boolean): string {
+  const clean = text.replace(/^\s*(?:[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\(?\d+\)|\d+[.)]|\*)\s*/, '').trim()
+  const body = clean.split('\n').map((l) => `<text:p text:style-name="Footnote">${inlineMarked(l, draft)}</text:p>`).join('')
+  return `<text:note text:id="ftn${n}" text:note-class="footnote"><text:note-citation>${n}</text:note-citation><text:note-body>${body}</text:note-body></text:note>`
+}
+
+function attachFootnote(parts: string[], note: string): boolean {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i] as string
+    const at = p.lastIndexOf('</text:p>')
+    if (at >= 0) { parts[i] = p.slice(0, at) + note + p.slice(at); return true }
+  }
+  return false
+}
+
+const LABELS = {
+  hu: { draft: 'PISZKOZAT', pageOf: (cur: string, all: string) => `${cur} / ${all} oldal` },
+  en: { draft: 'DRAFT', pageOf: (cur: string, all: string) => `Page ${cur} of ${all}` },
+} as const
+
+/** A modell -> ODF (flat XML). Csak a cimek es a blokkok szovege kerul bele (K-1.13). */
+export function buildFodt(outline: RenderOutline, o: RenderOptions): string {
+  const L = LABELS[o.lang]
+  const body: string[] = [`<text:p text:style-name="TitleFirst">${inline(o.title)}</text:p>`]
+  let tables = 0
+  let notes = 0
+  for (const s of outline.sections) {
+    body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(s.title)}</text:h>`)
+    const sec: string[] = []
+    for (const b of s.blocks) {
+      if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
+      else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft))
+      else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
+      else if (b.kind === 'footnote') {
+        // Nincs elotte szoveg a fejezetben: kis betus megjegyzeskent all.
+        const note = footnoteXml(b.text, notes + 1, o.draft)
+        if (attachFootnote(sec, note)) notes++
+        else sec.push(...paragraphs(b.text, 'Note', o.draft))
+      } else sec.push(...paragraphs(b.text, 'Body', o.draft))
+    }
+    body.push(...sec)
+  }
+  const lang = o.lang === 'en' ? { l: 'en', c: 'GB', tag: 'en-GB' } : { l: 'hu', c: 'HU', tag: 'hu-HU' }
+  const watermark = o.draft
+    ? `<text:p text:style-name="HeaderMark"><draw:frame draw:style-name="WmFrame" draw:name="Watermark" text:anchor-type="paragraph" svg:x="0cm" svg:y="10cm" svg:width="16.5cm" svg:height="4cm" draw:z-index="0"><draw:text-box><text:p text:style-name="Watermark">${L.draft}</text:p></draw:text-box></draw:frame></text:p>`
+    : ''
+  const footer = `<style:footer><text:p text:style-name="Footer">${o.draft ? `${L.draft} · ` : ''}${L.pageOf('<text:page-number text:select-page="current"/>', '<text:page-count/>')}</text:p></style:footer>`
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
+<office:meta><dc:title>${xmlEscape(o.title)}</dc:title>${o.author ? `<meta:initial-creator>${xmlEscape(o.author)}</meta:initial-creator><dc:creator>${xmlEscape(o.author)}</dc:creator>` : ''}<dc:language>${lang.tag}</dc:language></office:meta>
+<office:font-face-decls><style:font-face style:name="Liberation Serif" svg:font-family="'Liberation Serif'" style:font-family-generic="roman" style:font-pitch="variable"/></office:font-face-decls>
+<office:styles>
+<style:default-style style:family="paragraph"><style:paragraph-properties fo:orphans="2" fo:widows="2"/><style:text-properties style:font-name="Liberation Serif" fo:font-size="12pt" fo:language="${lang.l}" fo:country="${lang.c}"/></style:default-style>
+<style:style style:name="Standard" style:family="paragraph"/>
+<style:style style:name="Body" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0.25cm" fo:text-align="justify" style:justify-single-word="false" fo:line-height="130%"/></style:style>
+<style:style style:name="BodyLine" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>
+<style:style style:name="ListP" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0.1cm"/></style:style>
+<style:style style:name="Title" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="0.6cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>
+<style:style style:name="Heading_20_1" style:display-name="Heading 1" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="1"><style:paragraph-properties fo:margin-top="0.45cm" fo:margin-bottom="0.2cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="13pt" fo:font-weight="bold"/></style:style>
+<style:style style:name="Note" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-bottom="0.15cm"/><style:text-properties fo:font-size="9.5pt"/></style:style>
+<style:style style:name="NoteLine" style:family="paragraph" style:parent-style-name="Note"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>
+<style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:margin-left="0.4cm" fo:text-indent="-0.4cm"/><style:text-properties fo:font-size="10pt"/></style:style>
+<style:style style:name="SignatureFirst" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="1.2cm" fo:margin-left="9cm"/></style:style>
+<style:style style:name="Signature" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="9cm"/></style:style>
+<style:style style:name="SignatureFirstKeep" style:family="paragraph" style:parent-style-name="SignatureFirst"><style:paragraph-properties fo:keep-with-next="always"/></style:style>
+<style:style style:name="SignatureKeep" style:family="paragraph" style:parent-style-name="Signature"><style:paragraph-properties fo:keep-with-next="always"/></style:style>
+<style:style style:name="TableHead" style:family="paragraph" style:parent-style-name="Standard"><style:text-properties fo:font-weight="bold" fo:font-size="11pt"/></style:style>
+<style:style style:name="TableBody" style:family="paragraph" style:parent-style-name="Standard"><style:text-properties fo:font-size="11pt"/></style:style>
+<style:style style:name="Header" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="end"/><style:text-properties fo:font-size="9pt" fo:color="#555555"/></style:style>
+<style:style style:name="HeaderMark" style:family="paragraph" style:parent-style-name="Standard"><style:text-properties fo:font-size="2pt"/></style:style>
+<style:style style:name="Footer" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="9pt"/></style:style>
+<style:style style:name="Watermark" style:family="paragraph"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="72pt" fo:color="#d0d0d0" fo:font-weight="bold"/></style:style>
+<style:style style:name="Missing" style:family="text"><style:text-properties fo:background-color="#fff1a8" fo:font-weight="bold"/></style:style>
+<style:style style:name="WmFrame" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none" style:run-through="background" style:wrap="run-through" style:vertical-pos="from-top" style:vertical-rel="page" style:horizontal-pos="center" style:horizontal-rel="page"/></style:style>
+<text:list-style style:name="LBul"><text:list-level-style-bullet text:level="1" text:bullet-char="•"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.5cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-bullet></text:list-style>
+<text:list-style style:name="LNum"><text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.6cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-number></text:list-style>
+<text:notes-configuration text:note-class="footnote" style:num-format="1" text:start-value="0" text:footnotes-position="page" text:start-numbering-at="document"/>
+</office:styles>
+<office:automatic-styles>
+<style:style style:name="TitleFirst" style:family="paragraph" style:parent-style-name="Title" style:master-page-name="First"/>
+<style:style style:name="Tbl" style:family="table"><style:table-properties style:width="16.5cm" table:align="margins" fo:margin-bottom="0.3cm"/></style:style>
+<style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.08cm" fo:border="0.5pt solid #000000"/></style:style>
+<style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="1.5cm" fo:margin-bottom="1.5cm" fo:margin-left="2.5cm" fo:margin-right="2cm"/><style:header-style><style:header-footer-properties fo:min-height="0.5cm" fo:margin-bottom="0.5cm"/></style:header-style><style:footer-style><style:header-footer-properties fo:min-height="0.8cm" fo:margin-top="0.4cm"/></style:footer-style></style:page-layout>
+</office:automatic-styles>
+<office:master-styles>
+<style:master-page style:name="First" style:page-layout-name="pm1" style:next-style-name="Standard"><style:header>${watermark || '<text:p text:style-name="HeaderMark"/>'}</style:header>${footer}</style:master-page>
+<style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header>${watermark}<text:p text:style-name="Header">${inline(o.title)}</text:p></style:header>${footer}</style:master-page>
+</office:master-styles>
+<office:body><office:text>
+${body.join('\n')}
+</office:text></office:body></office:document>
+`
+}
+
+/** A renderelt tartalom: ami a PDF-be kerul. Mas mezo (allitas, forras) nem. */
+export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string }[] }[] }): RenderOutline {
+  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text })) })) }
+}
+
+/** A dokumentum tartalmanak ujjlenyomata: ha a vegleges PDF utan valtozik, a vegleges allapot megszunik (K-1.23). */
+export function outlineHash(outline: RenderOutline, title: string): string {
+  const core = { title, s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text })) })) }
+  return createHash('sha256').update(JSON.stringify(core)).digest('hex')
+}
+
+export type RenderResult =
+  | { ok: true; pdf: Buffer; cached: boolean }
+  | { ok: false; code: Exclude<ConvertResult, { ok: true }>['code']; detail: string | null }
+
+/** A .fodt forrasok takaritasa: a legujabbak maradnak (a hozzajuk tartozo PDF-et az atalakito takaritja). */
+function pruneSources(dir: string, now = Date.now()): void {
+  let names: string[] = []
+  try { names = readdirSync(dir).filter((n) => n.endsWith('.fodt')) } catch { return }
+  const files = names.map((n) => {
+    try { return { p: join(dir, n), m: statSync(join(dir, n)).mtimeMs } } catch { return null }
+  }).filter((x): x is { p: string; m: number } => !!x).sort((a, b) => b.m - a.m)
+  files.forEach((f, i) => {
+    if (i >= RENDER_SOURCES_MAX || now - f.m > RENDER_CACHE_MAX_AGE_MS) {
+      try { rmSync(f.p, { force: true }) } catch { /* a takaritas hibaja nem a felhasznalo baja */ }
+    }
+  })
+}
+
+/** A modell PDF-kent (a LibreOffice-on at). Ugyanaz a tartalom ujra a gyorsitotarbol jon. */
+export async function renderOutlinePdf(outline: RenderOutline, o: RenderOptions): Promise<RenderResult> {
+  const xml = buildFodt(outline, o)
+  const filter = o.draft ? PDF_FILTER_DRAFT : PDF_FILTER_FINAL
+  const dir = join(renderCacheDir(), 'docmodel')
+  const fail = (e: unknown): RenderResult => ({ ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) })
+  try { mkdirSync(dir, { recursive: true }) } catch (e) { return fail(e) }
+  const src = join(dir, createHash('sha256').update(xml).digest('hex').slice(0, 24) + '.fodt')
+  // Ugyanaz a tartalom = ugyanaz a fajl, valtozatlan idobelyeggel: a PDF a gyorsitotarbol jon.
+  try { if (!existsSync(src)) { writeFileSync(src, xml, 'utf-8'); pruneSources(dir) } } catch (e) { return fail(e) }
+  const r = await convertOfficeToPdf(src, { pdfFilter: filter })
+  if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
+  try { return { ok: true, pdf: readFileSync(r.pdf), cached: r.cached } } catch (e) { return fail(e) }
+}

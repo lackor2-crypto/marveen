@@ -45,7 +45,7 @@ jobs:
       # had no ffmpeg -- the photos-picker thumbnail tests failed with
       # "spawn ffmpeg ENOENT" (5 tests). Same install step as ci.yml.
       - name: Install ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu libreoffice-writer-nogui fonts-liberation
       - run: npm run typecheck
       - run: npm test
       # Shell-test wiring (SEEDREFRESH826 fold-in, from the #1066 verify): a
