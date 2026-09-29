@@ -311,3 +311,28 @@ describe('#434: a kod-hid eszkozfutasai egyenkent latszanak (Boss, 2026-09-29, "
     expect(evs.some((e) => e.type === 'text')).toBe(true)
   })
 })
+
+// Boss, 2026-09-29: "tegezo viszonyban beszelj! egesd be a marvinba."
+describe('tegezes: a Munkapad magyarul tegezve beszel', () => {
+  it('a teljes erteku ugynok promptja magyarul tegezest ker, angolul nem ir ilyet', () => {
+    const base = { projectName: 'P', projectFolder: null, workItem: null, history: [], message: 'szia' }
+    const hu = buildCodeBridgePrompt({ ...base, lang: 'hu' })
+    expect(hu).toContain('Address the owner informally (tegezés')
+    expect(hu).toMatch(/never with "Ön" or "Maga"/)
+    expect(buildCodeBridgePrompt({ ...base, lang: 'en' })).not.toContain('tegezés')
+  })
+
+  it('a projekt-asszisztens rendszer-uzenete is tegezest ir elo', async () => {
+    const { SYSTEM_PROMPT } = await import('../workbench-agent/context.js')
+    expect(SYSTEM_PROMPT).toMatch(/In Hungarian, address the owner informally \(tegezés/)
+  })
+
+  it('a telepito a magyar CLAUDE.md-be is tegezest ir', async () => {
+    const { readFileSync } = await import('node:fs')
+    const lang = readFileSync(join(__dirname, '..', '..', 'install-lang.sh'), 'utf-8')
+    const line = lang.split('\n').find((l) => l.includes('hu:owner_language_line)')) || ''
+    expect(line).toContain('tegező viszonyban')
+    // A sed "s/.../.../" helyettesitesbe megy: perjel nem lehet benne.
+    expect(line.replace(/^.*echo "/, '').replace(/" ;;$/, '')).not.toContain('/')
+  })
+})
