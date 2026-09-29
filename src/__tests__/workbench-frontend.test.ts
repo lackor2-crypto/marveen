@@ -430,6 +430,49 @@ describe('agent-chat (3. fazis)', () => {
     expect(log.scrollTop).toBe(900)
   })
 
+  // Kanban #444 (Boss, TG 1864): while the agent worked, every redraw threw the
+  // chat back to the bottom, so the owner could not scroll up and read.
+  describe('gorgetes: aki felfele gorgetett, ott marad', () => {
+    function fakeLog() {
+      const log = { value: '', focus() {}, scrollTop: 0, scrollHeight: 900, clientHeight: 300 }
+      ;(h.inputs as Record<string, unknown>).wbChatLog = log
+      return log
+    }
+
+    it('felfele gorgetett naplo: az ujrarajzolas utan is ugyanott all', async () => {
+      const log = fakeLog()
+      await openChat()
+      expect(log.scrollTop).toBe(900)
+      log.scrollTop = 100
+      h.click({ 'data-wb-act': 'chat-setup' })
+      expect(log.scrollTop).toBe(100)
+    })
+
+    it('a legaljan (vagy kozel hozza) allo naplo tovabbra is koveti az uj sorokat', async () => {
+      const log = fakeLog()
+      await openChat()
+      log.scrollTop = 580 // 20px from the bottom (900 - 300 - 580)
+      h.click({ 'data-wb-act': 'chat-setup' })
+      expect(log.scrollTop).toBe(900)
+    })
+
+    it('a sajat uj uzenet utan a legaljara ugrik, akarhol allt', async () => {
+      const log = fakeLog()
+      await openChat()
+      log.scrollTop = 100
+      h.inputs.wbChatInput = { value: 'mi a helyzet?', focus() {} }
+      h.respond((url) => {
+        if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 200, body: sse([{ type: 'text', text: 'Minden rendben.' }, { type: 'done', model: 'm' }]) }
+        if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+        if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+        return { status: 200, body: itemsBody([]) }
+      })
+      h.click({ 'data-wb-act': 'chat-send' })
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Minden rendben.'))
+      expect(log.scrollTop).toBe(900)
+    })
+  })
+
   it('a projekt-szintu beszelgetest is VISSZAOLVASSA (nem csak a munkadarabet)', async () => {
     await openChat()
     // A NULLA ket dolgot jelenthet: ha nem kerdeznenk meg a szervert, egy mar
