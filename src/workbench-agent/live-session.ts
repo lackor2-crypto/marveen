@@ -172,6 +172,9 @@ export interface LiveStartSpec {
   env: NodeJS.ProcessEnv
   /** A CLI-nek atadott fix kapcsolok (settings, engedely, modell). */
   baseArgs: string[]
+  /** The account (agent id) whose login this session runs on -- named in the
+   *  chat when the work moves to another account. */
+  account?: string
 }
 
 interface Live {

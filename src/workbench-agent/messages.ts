@@ -69,8 +69,28 @@ export const MESSAGES = {
     en: 'The VS Code code bridge account hit its usage limit: {detail}',
   },
   code_bridge_limit_fallback: {
-    hu: 'A VS Code kódhíd fiókja elérte a keretét, ezért most a helyi teljes értékű ügynök válaszol egy másik fiókkal.',
-    en: 'The VS Code code bridge account hit its usage limit, so the local full agent answers now with another account.',
+    hu: 'A VS Code kódhíd fiókjának kerete kifogyott, a munkát a(z) {to} fiókkal folytatom.',
+    en: 'The VS Code code bridge account ran out of quota, I continue the work with the {to} account.',
+  },
+  code_bridge_stalled_fallback: {
+    hu: 'A VS Code kódhíd futása elakadt (időkorlát), a munkát a(z) {to} fiókkal folytatom.',
+    en: 'The VS Code code bridge run stalled (time limit), I continue the work with the {to} account.',
+  },
+  live_account_switched: {
+    hu: 'A(z) {from} fiók kerete kifogyott, a munkát a(z) {to} fiókkal folytatom.',
+    en: 'The {from} account ran out of quota, I continue the work with the {to} account.',
+  },
+  live_switch_continue: {
+    hu: 'Az előző fiók kerete e válasz közben fogyott ki. Eddig ezt írta:\n---\n{partial}\n---\nFolytasd innen (a munkakönyvtár állapotából is látod, meddig jutott), ne kezdd elölről.',
+    en: 'The previous account ran out of quota during this answer. So far it wrote:\n---\n{partial}\n---\nContinue from here (the working folder shows how far it got), do not start over.',
+  },
+  bridge_continue_note: {
+    hu: 'Egy másik fiók már dolgozott ezen, de félbeszakadt. Nézd meg a munkakönyvtár állapotát (pl. git status), és onnan folytasd; ha már kész, röviden írd meg az eredményt.',
+    en: 'Another account already worked on this but was cut off. Check the state of the working folder (e.g. git status) and continue from there; if it is already done, briefly report the result.',
+  },
+  bridge_continue_prompt: {
+    hu: '{notice}\n\nFolytasd a félbeszakadt munkát onnan, ahol abbamaradt (a munkakönyvtár állapotából látod, meddig jutott); ha már kész volt, röviden írd meg az eredményt.',
+    en: '{notice}\n\nContinue the interrupted work from where it stopped (the working folder shows how far it got); if it was already done, briefly report the result.',
   },
   code_bridge_cancelled: {
     hu: 'A feladat megszakadt, mielőtt a teljes értékű ügynök befejezte volna.',
