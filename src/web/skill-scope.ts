@@ -59,7 +59,14 @@ export function parseHumanSkillScope(raw: unknown): SkillScope | null {
   return (HUMAN_SKILL_SCOPES as string[]).includes(v) ? (v as SkillScope) : null
 }
 
-/** Egy mar meglevo SKILL.md fejlecebol olvassa ki a scope-ot; `null` = nincs. */
+/**
+ * Egy mar meglevo SKILL.md fejlecebol olvassa ki a scope-ot; `null` = nincs.
+ *
+ * Ez az EGYETLEN olvaso: az onellenorzes (system-health) is ezt hivja, es a
+ * scripts/hooks/skill-scope-gate.py ennek a pontos tukre (#438). Ha itt
+ * valtozik a szabaly, ott is valtozzon -- a skill-scope-gate-hook.test.ts
+ * paritas-tesztje megbukik, ha a ketto szetcsuszik.
+ */
 export function readSkillScope(content: string): SkillScope | null {
   const m = /^\s*scope:\s*([a-z]+)\s*$/mi.exec(frontmatterOf(content))
   if (!m) return null
