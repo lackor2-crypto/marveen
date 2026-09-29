@@ -1050,3 +1050,15 @@
 .wb-folder-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-mini-btn.wb-folder-btn { padding-left: 6px; padding-right: 6px; }
 .wb-ov-work-btn:hover .wb-work-seq { color: inherit; border-color: currentColor; background: transparent; }
+
+/* Hataridok es idopontok az iratokbol (#441, K-1.17) */
+.wb-dl-box { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 8px; }
+.wb-dl-box > summary { cursor: pointer; font-weight: 600; }
+.wb-dl-list { list-style: none; padding-left: 0; margin: 6px 0; }
+.wb-dl { padding: 6px 0; border-top: 1px dashed var(--border, #d1d5db); overflow-wrap: anywhere; }
+.wb-dl:first-child { border-top: none; }
+.wb-dl-src { font-size: 0.9em; margin-top: 2px; }
+.wb-dl-act { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wb-dl-act .wb-hint { flex-basis: 100%; margin: 2px 0; }
+.wb-dl-past { opacity: 0.75; }
+.wb-dl-more > summary { cursor: pointer; margin-top: 4px; }

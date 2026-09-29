@@ -24,7 +24,11 @@ import {
   setReadOnlyException, isReadOnlyException,
 } from '../git-accounts.js'
 
-const G = { encoding: 'utf8' as const, stdio: 'pipe' as const }
+// A GIT_* env (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE) set by a git hook that runs
+// this suite would redirect every call below to the REAL repo; `git config
+// user.name T` then overwrote the install's commit identity. Strip it.
+const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')))
+const G = { encoding: 'utf8' as const, stdio: 'pipe' as const, env: cleanEnv }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { ...G, cwd }).toString()
 
 let base = ''
