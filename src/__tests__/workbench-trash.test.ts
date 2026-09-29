@@ -5,7 +5,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, setProjectArchived } from '../projects.js'
 import {
   createWorkItem, listWorkItems, listDeletedWorkItems, setWorkItemDeleted, getWorkItem,
-  countWorkItems, createWorkItemVersion, listWorkItemVersions, deleteWorkItemVersion, listWorkItemParts, addWorkItemPart,
+  countWorkItems, createWorkItemVersion, purgeWorkItem, listWorkItemVersions, deleteWorkItemVersion, listWorkItemParts, addWorkItemPart,
 } from '../workbench.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
@@ -202,6 +202,27 @@ describe('lomtar: a felulet', () => {
     return h
   }
 
+  it('Lomtar: Vegleges torles piros kerettel, Megse nem kuld semmit, megerositesre POST /purge', async () => {
+    const h = open({ status: 200, body: { item: item('w1', 'Ajánlat'), items: [item('w2', 'Logó')], deleted: [item('w1', 'Ajánlat')] } })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-id="w1"'))
+    h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
+    await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.done⟧'))
+    h.click({ 'data-wb-act': 'trash-toggle' })
+    expect(h.html()).toMatch(/data-wb-act="item-purge-ask"[^>]*data-wb-id="w1"/)
+    const before = h.fetchCalls.length
+    h.click({ 'data-wb-act': 'item-purge-ask', 'data-wb-id': 'w1' })
+    expect(h.html()).toContain('wb-warn-box')
+    h.click({ 'data-wb-act': 'warn-cancel' })
+    expect(h.html()).not.toContain('wb-warn-box')
+    expect(h.fetchCalls.length).toBe(before)
+    h.click({ 'data-wb-act': 'item-purge-ask', 'data-wb-id': 'w1' })
+    h.respond(() => ({ status: 200, body: { ok: true, items: [item('w2', 'Logó')], deleted: [] } }))
+    h.click({ 'data-wb-act': 'item-purge', 'data-wb-id': 'w1' })
+    await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.purged⟧'))
+    expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w1/purge'))).toBe(true)
+    expect(h.html()).not.toContain('data-wb-act="trash-toggle"')
+  })
+
   it('Torles gomb minden sor vegen, forditva', async () => {
     const h = open({ status: 200, body: {} })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-trash"'))
@@ -231,5 +252,54 @@ describe('lomtar: a felulet', () => {
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('Archivalt projekt'))
     expect(h.html()).toContain('data-wb-item="w1"')
+  })
+})
+
+// Boss, 2026-09-29, "1A": a Lomtarbol veglegesen torolheto -- es szemet nem marad.
+describe('lomtar: vegleges torles', () => {
+  beforeEach(setup)
+
+  it('csak lomtarban levo darab torolheto veglegesen', () => {
+    expect(purgeWorkItem(ids.A)).toEqual({ ok: false, code: 'not_in_trash' })
+    expect(getWorkItem(ids.A)).toBeTruthy()
+    expect(purgeWorkItem('nincs-ilyen')).toEqual({ ok: false, code: 'item_not_found' })
+  })
+
+  it('minden sora megy (verzio, resz, beszelgetes, uzenet), a tobbi munkadarabe marad', async () => {
+    const { openSessionForWorkItem, addAgentMessage, ensureAgentTables } = await import('../workbench-agent/sessions.js')
+    ensureAgentTables()
+    for (const k of ['A', 'B']) {
+      expect(createWorkItemVersion(ids[k], {}).ok).toBe(true)
+      expect(addWorkItemPart({ work_item_id: ids[k], kind: 'text', text: 'x' }).ok).toBe(true)
+      addAgentMessage(openSessionForWorkItem(pid, ids[k], 'hu').id, 'user', 'szia')
+    }
+    const count = (sql: string, id: string): number => (getDb().prepare(sql).get(id) as { n: number }).n
+    const msgs = (id: string) => count('SELECT COUNT(*) AS n FROM workbench_agent_messages WHERE session_id IN (SELECT id FROM workbench_agent_sessions WHERE work_item_id = ?)', id)
+    expect(msgs(ids.A)).toBeGreaterThan(0)
+    setWorkItemDeleted(ids.A, true)
+    expect(purgeWorkItem(ids.A)).toEqual({ ok: true, projectId: pid })
+    expect(getWorkItem(ids.A)).toBeUndefined()
+    expect(listDeletedWorkItems(pid)).toEqual([])
+    expect(count('SELECT COUNT(*) AS n FROM work_item_versions WHERE work_item_id = ?', ids.A)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM work_item_parts WHERE work_item_id = ?', ids.A)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM workbench_agent_sessions WHERE work_item_id = ?', ids.A)).toBe(0)
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM workbench_agent_messages m WHERE NOT EXISTS (SELECT 1 FROM workbench_agent_sessions s WHERE s.id = m.session_id)').get()).toEqual({ n: 0 })
+    // B erintetlen.
+    expect(listWorkItemVersions(ids.B).length).toBeGreaterThan(0)
+    expect(listWorkItemParts(ids.B).length).toBeGreaterThan(0)
+    expect(msgs(ids.B)).toBeGreaterThan(0)
+  })
+
+  it('vegpont: lomtaron kivul 409 emberi mondattal, lomtarbol torol es friss listakat ad', async () => {
+    const no = await callWorkbench(`/api/workbench/items/${ids.A}/purge`, 'POST', {})
+    expect(no.status).toBe(409)
+    expect(no.body).toMatchObject({ error: 'not_in_trash' })
+    expect((no.body as { message: string }).message).toContain('Lomtár')
+    await callWorkbench(`/api/workbench/items/${ids.A}/trash`, 'POST', { deleted: true })
+    const r = await callWorkbench(`/api/workbench/items/${ids.A}/purge`, 'POST', {})
+    expect(r.status).toBe(200)
+    const body = r.body as { items: { title: string }[]; deleted: unknown[] }
+    expect(body.items.map((i) => i.title).join('')).toBe('CB')
+    expect(body.deleted).toEqual([])
   })
 })
