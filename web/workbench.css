@@ -258,10 +258,11 @@
 }
 
 .wb-chat-label { font-size: 0.85rem; font-weight: 600; }
-.wb-chat-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.wb-chat-head { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.wb-chat-statusline { flex: 1 0 100%; line-height: 1.25; }
 .wb-chat-state { font-size: 0.8rem; color: var(--muted, #6b7280); }
 .wb-chat-state-bad { color: var(--danger, #d33); }
-.wb-chat-setup-btn { margin-left: auto; }
+.wb-chat-setup-btn { font-size: 0.72rem; padding: 1px 8px; }
 .wb-chat-setup { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 /* #426: fiokvalaszto sor -- cimke + select, telefonon is tordelheto. */
 .wb-chat-account-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -654,6 +655,8 @@
 .wb-ov-approval:nth-child(even) { background: rgba(127, 127, 127, 0.10); }
 .wb-ov-apv-title { font-weight: 600; line-height: 1.3; }
 .wb-ov-apv-seq { color: var(--accent, #b45309); }
+/* Work item number "28M": its own color, never the kanban card's yellow (TG 1843). */
+.wb-work-seq { display: inline-block; font-weight: 700; font-size: 0.85em; color: var(--wb-work, #0f766e); background: var(--wb-work-bg, rgba(15,118,110,0.1)); border: 1px solid var(--wb-work, #0f766e); border-radius: 4px; padding: 0 4px; line-height: 1.3; }
 .wb-ov-works { gap: 6px; }
 /* Munkadarab: sajat szinu keret + cimke bal felul, hogy ranezesre elvaljon a
  * kanban-kartyatol (Boss, TG 1815). */
@@ -1042,3 +1045,4 @@
 .wb-folder-acts { margin: 4px 0 8px; }
 .wb-folder-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-mini-btn.wb-folder-btn { padding-left: 6px; padding-right: 6px; }
+.wb-ov-work-btn:hover .wb-work-seq { color: inherit; border-color: currentColor; background: transparent; }

@@ -40,7 +40,9 @@ describe('Verziok blokk fontossagi sorrendben (TG 1817)', () => {
   it("a 'short' gombon par egyszeru szo all, a tooltip ugyanaz (TG 1832)", () => {
     const fn = WBJS.slice(WBJS.indexOf('function folderBtnsHtml'), WBJS.indexOf('function loadFileManagerKind'))
     expect(fn).toContain("var tIn = short ? sIn :")
-    expect(fn).toContain("label(t('workbench.folder.intezo'), sIn)")
+    expect(fn).toContain("short ? t('workbench.folder.open_short') : full")
+    expect(WBJS).toContain("folderBtnsHtml('assets', null, 'short')")
+    expect(HU).toContain('"workbench.folder.open_short": "Megnyitás"')
     expect(HU).toContain('"workbench.folder.short.intezo": "Megnyitás a {bot} Intézőjében"')
     expect(HU).toContain('"workbench.folder.short.system.windows": "Megnyitás a Windows Intézőjében"')
     expect(EN).toContain('"workbench.folder.short.system.windows": "Open in Windows Explorer"')

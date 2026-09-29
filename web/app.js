@@ -1876,6 +1876,10 @@ let kanbanAllLabels = []
 // localStorage alongside the swimlane groupBy choice.
 let kanbanLabelFilter = new Set()
 let kanbanProjectFilter = ''
+// Work items on the board (Boss, TG 1836 "B"): framed as "Munkadarab", never
+// draggable, a click opens them on the Workbench; a switch hides them.
+let kanbanWorkItems = []
+let kanbanShowWork = (() => { try { return localStorage.getItem('marveen.kanbanShowWork') !== '0' } catch { return true } })()
 // Free-text search over the board (Boss 2026-08-10): a live filter, not a
 // jump-to -- when non-empty, only cards whose id, title OR description contain
 // this (already lowercased) substring stay visible. Combined AND with the
@@ -1991,6 +1995,11 @@ async function loadKanban() {
     kanbanAssignees = await assigneesRes.json()
     kanbanProjects = await projectsRes.json()
     kanbanAllLabels = await labelsRes.json()
+    // Work items are extra: if they cannot be read, the cards still show.
+    try {
+      const wr = await fetch('/api/workbench/board-items')
+      kanbanWorkItems = wr.ok ? ((await wr.json()).items || []) : []
+    } catch { kanbanWorkItems = [] }
     await namesReady
     populateProjectFilter()
     populateProjectSuggestions()
@@ -2000,6 +2009,69 @@ async function loadKanban() {
     console.error('Kanban betöltés hiba:', err)
   }
 }
+
+;(() => {
+  const box = document.getElementById('kanbanShowWork')
+  if (!box) return
+  box.checked = kanbanShowWork
+  box.addEventListener('change', () => {
+    kanbanShowWork = box.checked
+    try { localStorage.setItem('marveen.kanbanShowWork', kanbanShowWork ? '1' : '0') } catch { /* per-viewer only */ }
+    renderKanban()
+  })
+})()
+
+/** A work item passes the same board filters a card would: project and search
+ *  ("28M" or the title). An assignee or label filter hides them -- a work item
+ *  has neither. */
+function kanbanWorkItemVisible(w) {
+  if (!kanbanShowWork) return false
+  if (kanbanProjectFilter && w.project_id !== kanbanProjectFilter) return false
+  if (kanbanAssigneeFilter || kanbanLabelFilter.size > 0) return false
+  if (kanbanSearchQuery) {
+    const q = kanbanSearchQuery
+    const qSeq = q.replace(/^#/, '').toLowerCase()
+    const hit = (w.seq != null && qSeq === String(w.seq) + 'm') ||
+      String(w.title || '').toLowerCase().includes(q) ||
+      String(w.project_name || '').toLowerCase().includes(q)
+    if (!hit) return false
+  }
+  return true
+}
+
+/** One framed work item: "Munkadarab" tag, "28M" in its own color, title as a
+ *  button, the project underneath. Shared by the Kanban page and the project
+ *  Kanban tab. */
+function workItemBoardHtml(w, withProject) {
+  const seq = w.seq != null ? `${w.seq}M` : ''
+  return `<div class="kanban-work" data-work-open="${escapeAttr(w.id)}" data-work-project="${escapeAttr(w.project_id)}" data-work-project-name="${escapeAttr(w.project_name || '')}">
+    <span class="kanban-work-tag">${escapeHtml(t('kanban.work.tag'))}</span>
+    <button type="button" class="kanban-work-btn" title="${escapeAttr(t('kanban.work.open_title'))}">${seq ? `<span class="kanban-work-seq" title="${escapeAttr(t('workbench.work_seq.title', { n: seq }))}">${escapeHtml(seq)}</span> ` : ''}${escapeHtml(w.title)}</button>
+    ${withProject && w.project_name ? `<span class="kanban-work-prj">${escapeHtml(w.project_name)}</span>` : ''}
+  </div>`
+}
+
+/** Opens a work item on the Workbench: the project page, its Workbench, that
+ *  item. Ctrl/middle click opens it in a new tab (#435). */
+function openWorkItemFromBoard(e, pid, pname, itemId) {
+  const wb = { projectId: pid, name: pname || '', item: itemId, panel: 'items' }
+  if (isNewTabClick(e)) { openViewInNewTab('projects', { current: pid, tab: 'overview', wb }); return }
+  _prj.openWbOnLoad = wb
+  _prjReturnToProject(pid)
+}
+document.addEventListener('click', (e) => {
+  const el = e.target && e.target.closest ? e.target.closest('[data-work-open]') : null
+  if (!el) return
+  e.preventDefault()
+  openWorkItemFromBoard(e, el.getAttribute('data-work-project'), el.getAttribute('data-work-project-name'), el.getAttribute('data-work-open'))
+})
+document.addEventListener('auxclick', (e) => {
+  if (e.button !== 1) return
+  const el = e.target && e.target.closest ? e.target.closest('[data-work-open]') : null
+  if (!el) return
+  e.preventDefault()
+  openWorkItemFromBoard(e, el.getAttribute('data-work-project'), el.getAttribute('data-work-project-name'), el.getAttribute('data-work-open'))
+})
 
 document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
   kanbanGroupBy = e.target.value
@@ -2413,6 +2485,8 @@ function renderKanban() {
           .sort(kanbanUrgencySort)
         col.appendChild(createCardEl(card, embeddedChildren))
       }
+      const works = kanbanWorkItems.filter((w) => w.column === status && kanbanWorkItemVisible(w))
+      if (works.length) col.insertAdjacentHTML('beforeend', works.map((w) => workItemBoardHtml(w, true)).join(''))
     }
     // Hide/show flat-board columns based on visibility set
     const allColsHidden = KANBAN_STATUS_DEFS.every(d => kanbanHiddenColumns.has(d.status))
@@ -45913,6 +45987,8 @@ var _prj = {
   current: null,
   overview: null,
   openOnLoad: null,
+  // A work item to open on the Workbench once the project page is up (TG 1836).
+  openWbOnLoad: null,
   form: null,
   mig: null,
   migData: null,
@@ -46062,9 +46138,16 @@ async function loadProjectsPage() {
   // #435: after an F5 the same project, tab and Workbench come back.
   const back = viewStateTake('projects')
   const openId = _prj.openOnLoad || (back && typeof back.current === 'string' ? back.current : null)
+  const wbLoad = _prj.openWbOnLoad
   _prj.openOnLoad = null
+  _prj.openWbOnLoad = null
   if (openId) {
     await _prjOpenProject(openId)
+    // A work item clicked on the Kanban board opens on its Workbench (TG 1836).
+    if (wbLoad && wbLoad.projectId === openId && _prj.current === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) {
+      window.MarvinWorkbench.restore(wbLoad)
+      return
+    }
     if (back && back.current === openId && _prj.current === openId && _prj.overview) {
       const wb = back.wb
       if (wb && wb.projectId === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) window.MarvinWorkbench.restore(wb)
@@ -46766,8 +46849,15 @@ async function _prjLoadCards() {
     if (!r.ok) throw new Error('HTTP ' + r.status)
     data = await r.json()
   } catch (e) { err = e && e.message ? e.message : String(e) }
+  // The project's work items sit in the same columns, framed (TG 1836 B).
+  // Unreadable = none shown; the cards still load.
+  let works = []
+  try {
+    const wr = await fetch('/api/workbench/board-items?project=' + encodeURIComponent(pid))
+    if (wr.ok) works = (await wr.json()).items || []
+  } catch { works = [] }
   if (_prj.current !== pid) return
-  _prj.cards = { pid, cards: Array.isArray(data) ? data.filter((c) => c.project === pid) : [], err }
+  _prj.cards = { pid, cards: Array.isArray(data) ? data.filter((c) => c.project === pid) : [], works, err }
   const body = document.getElementById('prjKanbanBody')
   if (body && _prj.tab === 'kanban') body.outerHTML = _prjKanbanTabHtml()
 }
@@ -46788,13 +46878,15 @@ function _prjKanbanTabHtml() {
   let inner
   if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
   else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
-  else if (!d.cards.length) inner = _prjEmptyLine('projects.kanban.empty')
+  else if (!d.cards.length && !(d.works || []).length) inner = _prjEmptyLine('projects.kanban.empty')
   else {
     inner = `<div class="prj-kb-cols">${_PRJ_KB_COLS.map((st) => {
       const list = d.cards.filter((c) => c.status === st)
+      const works = (d.works || []).filter((w) => w.column === st)
       return `<section class="prj-kb-col" aria-label="${escapeAttr(t('kanban.col.' + st))}">
         <h3>${escapeHtml(t('kanban.col.' + st))} <span class="prj-muted">${list.length}</span></h3>
-        ${list.length ? `<ul class="prj-kb-list">${list.map(_prjKanbanCardHtml).join('')}</ul>` : `<p class="prj-muted prj-kb-none">–</p>`}
+        ${list.length ? `<ul class="prj-kb-list">${list.map(_prjKanbanCardHtml).join('')}</ul>` : (works.length ? '' : `<p class="prj-muted prj-kb-none">–</p>`)}
+        ${works.map((w) => workItemBoardHtml(w, false)).join('')}
       </section>`
     }).join('')}</div>`
   }

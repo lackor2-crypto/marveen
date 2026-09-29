@@ -123,16 +123,18 @@ export function buildContext(
     add('work_items', 'Work items: none yet in this project (the list was read and it is empty).')
   } else {
     const shown = items.slice(0, MAX_WORK_ITEMS)
-    const lines = shown.map((i) => `- ${i.id} "${i.title}" (${i.type}, ${i.status})`)
+    // "28M" is how the owner names a work item (kanban cards are "#28"); every
+    // tool that takes a work item id accepts it too (TG 1843).
+    const lines = shown.map((i) => `- ${i.seq ? `${i.seq}M ` : ''}${i.id} "${i.title}" (${i.type}, ${i.status})`)
     if (items.length > shown.length) lines.push(`- ... and ${items.length - shown.length} more`)
-    add('work_items', `Work items (${items.length}):\n${lines.join('\n')}`)
+    add('work_items', `Work items (${items.length}). "28M" means work item number 28 (a work item, NOT kanban card #28); any tool's work item id also accepts "28M":\n${lines.join('\n')}`)
   }
 
   // 3. Az AKTUALIS munkadarab + verzioi.
   if (workItem) {
     const versions = listWorkItemVersions(workItem.id)
     add('current_item', [
-      `Current work item: ${workItem.id} "${workItem.title}"`,
+      `Current work item: ${workItem.seq ? `${workItem.seq}M ` : ''}${workItem.id} "${workItem.title}"`,
       `kind: ${workItem.type}, status: ${workItem.status}, editor: ${workItem.editor_type}`,
       `file: ${workItem.source_path || '(no file attached yet)'}`,
       `folder: ${workItem.folder || '(no own folder yet)'}`,

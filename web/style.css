@@ -12992,3 +12992,35 @@ span.intezo-tree-tw { cursor: default; }
 
 /* Relaxed memory search note (#413). */
 .mem-relaxed-note { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg-hover, rgba(127,127,127,0.1)); color: var(--text-muted); font-size: 13px; }
+
+/* Work items on the Kanban board and the project Kanban tab (Boss, TG 1836 B,
+   TG 1843): framed in their own color with a "Work item" tag and a "28M"
+   number, so they never read as a kanban card. Not draggable; click opens it
+   on the Workbench. */
+:root { --work-item: #0f766e; --work-item-bg: rgba(15, 118, 110, 0.08); }
+[data-theme="dark"] { --work-item: #2dd4bf; --work-item-bg: rgba(45, 212, 191, 0.12); }
+.kanban-work {
+  position: relative;
+  margin: 8px 0;
+  padding: 16px 8px 6px;
+  border: 2px solid var(--work-item);
+  border-radius: 8px;
+  background: var(--work-item-bg);
+  cursor: pointer;
+}
+.kanban-work-tag {
+  position: absolute; top: 2px; left: 6px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--work-item);
+}
+.kanban-work-btn {
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: 0; padding: 0; color: var(--fg, inherit);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.kanban-work-btn:hover { text-decoration: underline; }
+.kanban-work-seq {
+  display: inline-block; font-size: 11px; font-weight: 700; padding: 0 4px; border-radius: 4px;
+  color: var(--work-item); border: 1px solid var(--work-item); background: var(--bg, transparent);
+}
+.kanban-work-prj { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }

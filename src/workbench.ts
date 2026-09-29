@@ -74,6 +74,9 @@ export interface WorkItemRow {
   /** A munkadarab sajat mappaja a projekt mappajaban (projekt-relativ, #441).
    *  NULL = meg nincs; a `workbench-assets.ts` hozza letre az elso csatolaskor. */
   folder?: string | null
+  /** Visible number shown as "28M" (M = munkadarab), so it never mixes with
+   *  kanban card #28. Global, gap-free at creation, never reused (TG 1843). */
+  seq?: number | null
 }
 
 export interface WorkItemVersionRow {
@@ -156,6 +159,17 @@ export function ensureWorkbenchTables(): void {
   // #443: lomtar. A torolt munkadarab eltunik a listakbol, de a sora, a verzioi
   // es a fajljai megmaradnak, igy egy kattintassal visszaallithato.
   if (!iCols.has('deleted_at')) db.exec('ALTER TABLE work_items ADD COLUMN deleted_at INTEGER')
+  // TG 1843: a referable number ("28M"). Existing rows get numbered in creation order.
+  if (!iCols.has('seq')) db.exec('ALTER TABLE work_items ADD COLUMN seq INTEGER')
+  const unnumbered = db.prepare('SELECT id FROM work_items WHERE seq IS NULL ORDER BY created_at, rowid').all() as { id: string }[]
+  if (unnumbered.length) {
+    db.transaction(() => {
+      let next = ((db.prepare('SELECT MAX(seq) AS m FROM work_items').get() as { m: number | null }).m ?? 0) + 1
+      const set = db.prepare('UPDATE work_items SET seq = ? WHERE id = ?')
+      for (const r of unnumbered) set.run(next++, r.id)
+    })()
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_seq ON work_items(seq)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, updated_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')
@@ -228,8 +242,8 @@ export function createWorkItem(input: CreateWorkItemInput): CreateWorkItemResult
 
   db.transaction(() => {
     db.prepare(`INSERT INTO work_items
-      (id, project_id, type, title, status, source_path, editor_type, current_version_id, created_at, updated_at, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      (id, project_id, type, title, status, source_path, editor_type, current_version_id, created_at, updated_at, created_by, seq)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM work_items))`)
       .run(id, input.project_id, type, title, status, sourcePath, EDITOR_BY_TYPE[type], versionId, ts, ts, createdBy)
     db.prepare(`INSERT INTO work_item_versions
       (id, work_item_id, version_no, parent_version_id, manifest_path, preview_path, source_path, prompt, created_by, created_at, metadata_json)
@@ -249,6 +263,9 @@ export function getWorkItem(id: string): WorkItemRow | undefined {
   ensureWorkbenchTables()
   const v = String(id || '').trim()
   if (!v) return undefined
+  // "28M" / "#28M" is the visible number (TG 1843); ids are lowercase hex, so no clash.
+  const bySeq = /^#?(\d+)M$/i.exec(v)
+  if (bySeq) return getDb().prepare('SELECT * FROM work_items WHERE seq = ?').get(Number(bySeq[1])) as WorkItemRow | undefined
   return getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(v) as WorkItemRow | undefined
 }
 

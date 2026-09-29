@@ -60,7 +60,7 @@ import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, s
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
-import { buildWorkbenchOverview } from '../../workbench-overview.js'
+import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { docEditExt, docToEditableHtml, htmlToDocBytes, pdfToDocxBytes, looksLikePdf, DOC_EDIT_HTML_MAX } from '../../workbench-docedit.js'
@@ -1188,6 +1188,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
 
   // PROJEKT-ATTEKINTO (#406, 2. pont): nyitott / jovahagyasra var / friss
   // kesz / utoljara valtozott fajl. Csak olvas; ismeretlen projektre 404.
+  // KANBAN (TG 1836 B): the work items on the Kanban board and the project
+  // Kanban tab too, framed as work items. `project` is optional.
+  if (path === '/api/workbench/board-items' && method === 'GET') {
+    json(res, { items: listBoardWorkItems(url.searchParams.get('project')) })
+    return true
+  }
+
   if (path === '/api/workbench/overview' && method === 'GET') {
     const pid = (url.searchParams.get('project') || '').trim()
     if (!pid) return fail(res, 400, 'project_required', lang)
