@@ -200,9 +200,10 @@ export type ConvertResult =
 let queue: Promise<unknown> = Promise.resolve()
 const inFlight = new Map<string, Promise<ConvertResult>>()
 
-/** `pdfFilter`: a LibreOffice `--convert-to` erteke (pl. PDF/A beallitassal); alapbol sima `pdf`. */
-export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number; pdfFilter?: string } = {}): Promise<ConvertResult> {
-  if (!isOfficeConvertible(abs)) {
+/** `pdfFilter`: a LibreOffice `--convert-to` erteke (pl. PDF/A beallitassal); alapbol sima `pdf`.
+ *  `anyFile`: a kiterjesztes-szuro nelkul (pl. egy fenykep mint melleklet -- a LibreOffice Draw-ja A4-es lapra teszi). */
+export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number; pdfFilter?: string; anyFile?: boolean } = {}): Promise<ConvertResult> {
+  if (!opts.anyFile && !isOfficeConvertible(abs)) {
     return { ok: false, code: 'unsupported', detail: `${basename(abs)}: not an office document` }
   }
   const k = cacheKeyFor(abs, opts.pdfFilter || '')

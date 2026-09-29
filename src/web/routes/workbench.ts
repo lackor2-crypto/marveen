@@ -665,6 +665,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A PDF elkészítése túl sokáig tartott, ezért leállítottam. Próbáld újra.',
     en: 'Making the PDF took too long, so it was stopped. Try again.',
   },
+  docpdf_annex_missing: {
+    hu: 'Ennek a mellékletnek a fájlja nincs meg a projekt mappájában: {label}. Tedd vissza a fájlt, vagy vedd le a mellékletek közül.',
+    en: 'The file of this annex is not in the project folder: {label}. Put the file back, or remove it from the annexes.',
+  },
+  docpdf_annex_unsupported: {
+    hu: 'Ebből a mellékletből nem tudok PDF-et készíteni, mert ez a fájlfajta nem alakítható át: {label}. Melléklet lehet PDF, Word- vagy LibreOffice-dokumentum, kép (JPG, PNG) vagy szövegfájl.',
+    en: 'No PDF can be made from this annex, because this kind of file cannot be converted: {label}. An annex can be a PDF, a Word or LibreOffice document, an image (JPG, PNG) or a text file.',
+  },
+  docpdf_annex_convert_failed: {
+    hu: 'Ezt a mellékletet nem sikerült PDF-fé alakítani: {label}. A pontos hibaüzenet a részleteknél olvasható.',
+    en: 'This annex could not be converted to PDF: {label}. The exact error is in the details.',
+  },
+  docpdf_merge_not_installed: {
+    hu: 'A mellékletek egyesítéséhez a Poppler „pdfunite” programja kell, és ezen a gépen nincs meg. Linuxon: „sudo apt install poppler-utils”, macOS-en: „brew install poppler”. Melléklet nélkül a PDF enélkül is elkészül.',
+    en: 'Joining the annexes needs the Poppler "pdfunite" program, and it is not on this machine. On Linux: "sudo apt install poppler-utils", on macOS: "brew install poppler". Without annexes the PDF is made anyway.',
+  },
+  docpdf_merge_failed: {
+    hu: 'A PDF-ek egyesítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható.',
+    en: 'Joining the PDFs failed. The exact error is in the details.',
+  },
   docpdf_failed: {
     hu: 'A PDF elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
     en: 'Making the PDF failed. The exact error is in the details; no cause is guessed in its place.',
@@ -929,9 +949,23 @@ function outlineOrEmpty(itemId: string): NonNullable<ReturnType<typeof outlineOu
 
 /** Egy PDF-keszitesi hiba kodja a felhasznalonak (a LibreOffice-hiany kulon mondat). */
 function docPdfCode(code: string): string {
+  if (/^(annex_missing|annex_unsupported|annex_convert_failed|merge_not_installed|merge_failed)$/.test(code)) return 'docpdf_' + code
   return code === 'not_installed' ? 'docpdf_not_installed'
     : code === 'check_failed' ? 'docpdf_check_failed'
     : code === 'timeout' ? 'docpdf_timeout' : 'docpdf_failed'
+}
+
+function docPdfStatus(code: string): number {
+  return code === 'docpdf_not_installed' || code === 'docpdf_check_failed' || code === 'docpdf_merge_not_installed' ? 501
+    : code === 'docpdf_timeout' ? 504
+    : code === 'docpdf_annex_missing' || code === 'docpdf_annex_unsupported' ? 409 : 500
+}
+
+/** PDF-keszitesi hiba valasza: emberi mondat (a melleklet jelevel, ha arrol szol) + a valodi hibauzenet. */
+function docPdfFail(res: RouteContext['res'], raw: string, lang: 'hu' | 'en', detail: string | null, label?: string, extra: Record<string, unknown> = {}): true {
+  const code = docPdfCode(raw)
+  json(res, { error: code, message: msg(code, lang).replace('{label}', label || '?'), detail: detail || null, ...extra }, docPdfStatus(code))
+  return true
 }
 
 function msg(code: string, lang: 'hu' | 'en'): string {
@@ -1595,7 +1629,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (segs.length === 3 && segs[2] === 'pdf' && method === 'GET') {
       if (!hasDocModel(item.id)) return fail(res, 404, 'outline_empty', lang)
       const r = await renderDraft(item, lang)
-      if (!r.ok) return failDetail(res, r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500, docPdfCode(r.code), lang, r.detail)
+      if (!r.ok) return docPdfFail(res, r.code, lang, r.detail, r.label)
       const review = url.searchParams.get('review')
       if (review && review === r.hash && isOwnerClick(ctx)) recordReview(item.id, r.hash, actor(ctx))
       const download = url.searchParams.get('download') === '1'
@@ -1628,10 +1662,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!body) return fail(res, 400, 'bad_json', lang)
       const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], by: actor(ctx), lang })
       if (!r.ok) {
-        const code = r.code === 'docpdf_failed' && r.convert ? docPdfCode(r.convert) : r.code
-        const status = r.code === 'outline_empty' ? 404 : r.code === 'outline_accept_required' ? 400
-          : r.code === 'docpdf_failed' ? (code === 'docpdf_not_installed' || code === 'docpdf_check_failed' ? 501 : 500) : 409
-        json(res, { error: code, message: msg(code, lang), detail: r.detail, outline: outlineOut(item.id) }, status)
+        if (!r.code.startsWith('outline_')) return docPdfFail(res, r.code === 'docpdf_failed' && r.convert ? r.convert : r.code, lang, r.detail, r.label, { outline: outlineOut(item.id) })
+        const status = r.code === 'outline_empty' ? 404 : r.code === 'outline_accept_required' ? 400 : 409
+        json(res, { error: r.code, message: msg(r.code, lang), detail: r.detail, outline: outlineOut(item.id) }, status)
         return true
       }
       json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id) })

@@ -573,7 +573,12 @@ function moveDocModelPaths(item: WorkItemRow, projectId: string, oldProj: string
       const m = JSON.parse(v.metadata_json) as Record<string, unknown>
       if (typeof m['pdf_path'] !== 'string') continue
       const moved = swapDepot(m['pdf_path'])
-      if (moved !== m['pdf_path']) db.prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ ...m, pdf_path: moved }), v.id)
+      const files = Array.isArray(m['files'])
+        ? (m['files'] as Record<string, unknown>[]).map((f) => (f && typeof f['path'] === 'string' ? { ...f, path: swapDepot(f['path']) } : f))
+        : m['files']
+      if (moved !== m['pdf_path'] || JSON.stringify(files) !== JSON.stringify(m['files'])) {
+        db.prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ ...m, pdf_path: moved, ...(files !== undefined ? { files } : {}) }), v.id)
+      }
     } catch { /* rossz JSON: nincs mit athelyezni */ }
   }
 }

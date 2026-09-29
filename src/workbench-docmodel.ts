@@ -594,6 +594,7 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     if (ax.unreferenced.length) items.push({ key: 'annex_unreferenced', ok: false, count: ax.unreferenced.length, detail: ax.unreferenced })
     if (ax.dangling.length) items.push({ key: 'annex_dangling', ok: false, count: ax.dangling.length, detail: ax.dangling })
     if (ax.missing_files.length) items.push({ key: 'annex_missing_file', ok: false, count: ax.missing_files.length, detail: ax.missing_files })
+    if (ax.unsupported.length) items.push({ key: 'annex_unsupported', ok: false, count: ax.unsupported.length, detail: ax.unsupported })
   }
   return { ready: items.every((i) => i.ok), items }
 }
