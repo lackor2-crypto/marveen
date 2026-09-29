@@ -75,11 +75,18 @@ export const SUBAGENT_ONLY_HOOKS: ReadonlyArray<{ script: string; why: string }>
  * there for months while the check stayed green. A gate that cannot see half the
  * evidence reports "no drift" when it means "I did not look there".
  *
+ * The USER file is the one in the config dir the main agent RUNS on
+ * (mainAgentEffectiveConfigDir: ~/.claude by default, an isolated dir such as
+ * MAIN_AGENT_CONFIG_DIR otherwise) -- not always ~/.claude. Measured 2026-09-29:
+ * the main agent ran with CLAUDE_CONFIG_DIR=~/.claude-marvin, the boot backfill
+ * had wired the two new template hooks there, and the check -- still reading
+ * ~/.claude -- reported them missing from the main agent on every start.
+ *
  * Pure on purpose: the caller supplies the two roots, so the runtime check and
  * the live-install test cannot drift apart on WHICH files count.
  */
-export function mainAgentSettingsPaths(homeDir: string, repoRoot: string): string[] {
-  return [`${homeDir}/.claude/settings.json`, `${repoRoot}/.claude/settings.json`]
+export function mainAgentSettingsPaths(configDir: string, repoRoot: string): string[] {
+  return [`${configDir}/settings.json`, `${repoRoot}/.claude/settings.json`]
 }
 
 /** The union of several settings.json hook blobs -- see mainAgentSettingsPaths. */

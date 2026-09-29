@@ -11,8 +11,7 @@
 // or a declared exception, and a watcher quietly patching one install would
 // hide the drift from the repo, which is where it must be fixed.
 import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { agentSettingsPath } from './agent-scaffold.js'
@@ -69,8 +68,10 @@ export function checkAgentParity(): { drift: ParityDrift[]; skills: SkillLibrary
   const skills = skillLibraryParity()
   // #202: the main agent's hooks come from the user file AND the project file.
   // Reading only the first is what let ledger-capture.py hide from this gate.
+  // The user file is the one in the dir the main agent RUNS on (an isolated
+  // config dir is not ~/.claude) -- the same file the hook backfill writes.
   const mainSettings = agentSettingsPath(MAIN_AGENT_ID)
-  const mainPaths = mainAgentSettingsPaths(homedir(), PROJECT_ROOT)
+  const mainPaths = mainAgentSettingsPaths(dirname(mainSettings), PROJECT_ROOT)
   const comparable = existsSync(mainSettings) && existsSync(TEMPLATE_PATH)
   const mainScripts = comparable
     ? unionHookScripts(mainPaths.filter(p => existsSync(p)).map(readJsonHooks))

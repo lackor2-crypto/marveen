@@ -24,6 +24,7 @@ import {
   mainAgentSettingsPaths,
 } from '../agent-parity.js'
 import { skillLibraryParity } from '../web/skill-library-parity.js'
+import { mainAgentEffectiveConfigDir } from '../web/agent-config.js'
 
 const REPO_ROOT = join(__dirname, '..', '..')
 const TEMPLATE_PATH = join(REPO_ROOT, 'templates', 'settings.json.template')
@@ -106,7 +107,10 @@ describe('the shipped template is the fleet-wide source of truth', () => {
 })
 
 describe('this install', () => {
-  const mainSettings = join(homedir(), '.claude', 'settings.json')
+  // The user file is the one in the dir the main agent RUNS on -- the same
+  // resolution the runtime check uses (an isolated config dir is not ~/.claude).
+  const mainConfigDir = mainAgentEffectiveConfigDir()
+  const mainSettings = join(mainConfigDir, 'settings.json')
   const fleetSkills = join(homedir(), '.claude', 'skills')
 
   // #202: the main agent's hooks come from TWO files -- the user-scope
@@ -115,7 +119,7 @@ describe('this install', () => {
   // hooks ran for the main agent and no one else while this gate stayed green:
   // it was not looking at the file they were in.
   it.skipIf(!existsSync(mainSettings))('runs nothing the rest of the fleet is denied', () => {
-    const paths = mainAgentSettingsPaths(homedir(), REPO_ROOT).filter(p => existsSync(p))
+    const paths = mainAgentSettingsPaths(mainConfigDir, REPO_ROOT).filter(p => existsSync(p))
     const drift = findParityDrift(unionHookScripts(paths.map(hooksOf)), hookScriptNames(hooksOf(TEMPLATE_PATH)))
     expect(drift, describeParityDrift(drift)).toEqual([])
   })
