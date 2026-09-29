@@ -654,6 +654,8 @@
 }
 .wb-ov-approval:nth-child(even) { background: rgba(127, 127, 127, 0.10); }
 .wb-ov-apv-title { font-weight: 600; line-height: 1.3; }
+.wb-ov-card-open { cursor: pointer; }
+.wb-ov-card-open:hover, .wb-ov-card-open:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: -2px; }
 .wb-ov-apv-seq { color: var(--accent, #b45309); }
 /* Work item number "28M": its own color, never the kanban card's yellow (TG 1843). */
 .wb-work-seq { display: inline-block; font-weight: 700; font-size: 0.85em; color: var(--wb-work, #0f766e); background: var(--wb-work-bg, rgba(15,118,110,0.1)); border: 1px solid var(--wb-work, #0f766e); border-radius: 4px; padding: 0 4px; line-height: 1.3; }

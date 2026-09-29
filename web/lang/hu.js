@@ -6654,6 +6654,7 @@ window._i18n.hu = {
   "workbench.ov.progress_none": "Most semmi nincs folyamatban.",
   "workbench.ov.done_col": "Kész ({days} nap)",
   "workbench.ov.apv_when": "Kérve: {when}",
+  "workbench.ov.card_open_title": "Kattints: megnyílik a kártya",
   "workbench.ov.done_none": "Az elmúlt {days} napban nem lett kész munkadarab.",
   "workbench.items.switch_hint_split": "Kattints egy munkadarabra: az lesz az aktuális, és fent jobbra, a beszélgetés mellett nyílik meg.",
   "workbench.layout.to_classic": "Három panel",

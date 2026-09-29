@@ -35776,7 +35776,7 @@ async function openResearchDoc(agent, name) {
         // Show the running display number (#N, card.seq) like the board, not the hex id.
         const seqLabel = card.seq != null ? `#${card.seq}` : `#${card.id}`
         rowLabel.textContent = `${seqLabel} ${card.title}`
-        rowLabel.addEventListener('click', () => { if (typeof openCardDetail === 'function') openCardDetail(card.id) })
+        rowLabel.addEventListener('click', () => { _prjOpenCardHere(card.id) })
 
         const rowTrack = document.createElement('div')
         rowTrack.style.cssText = 'flex:1;position:relative;height:32px;overflow:hidden;'
@@ -35812,7 +35812,7 @@ async function openResearchDoc(agent, name) {
         ].filter(Boolean).join(';')
         bar.title = `${seqLabel} ${card.title}\n${fmtDateShort(new Date(barStartMs))} - ${fmtDateShort(new Date(barEndMs))}`
         bar.textContent = `${seqLabel} ${card.title}`
-        bar.addEventListener('click', () => { if (typeof openCardDetail === 'function') openCardDetail(card.id) })
+        bar.addEventListener('click', () => { _prjOpenCardHere(card.id) })
         rowTrack.appendChild(bar)
         row.appendChild(rowLabel)
         row.appendChild(rowTrack)
@@ -46902,7 +46902,7 @@ function _prjKanbanTabHtml() {
 
 /** Egy kartya a megszokott kartya-ablakban, a projekt oldalan maradva. Ha a
  *  kartya nincs a tablan (pl. archivalt), a Kanban archivumaban nyilik meg. */
-async function _prjOpenCardHere(cardId) {
+async function _prjOpenCardHere(cardId, opts) {
   let card = _prj.cards && _prj.cards.cards.find((c) => c.id === cardId)
   if (!card) {
     try { const r = await fetch('/api/kanban'); if (r.ok) card = (await r.json()).find((c) => c.id === cardId) } catch { /* lent kezelve */ }
@@ -46925,10 +46925,14 @@ async function _prjOpenCardHere(cardId) {
   const obs = new MutationObserver(() => {
     if (ov.classList.contains('active') || document.getElementById('cardModalOverlay')?.classList.contains('active')) return
     obs.disconnect()
+    // The Workbench (TG 1854) refreshes only its own overview: reopening the
+    // project page would close it.
+    if (opts && typeof opts.onClose === 'function') { opts.onClose(); return }
     if (_prj.current === pid && !document.getElementById('projectsPage')?.hidden) _prjOpenProject(pid)
   })
   obs.observe(ov, { attributes: true, attributeFilter: ['class'] })
 }
+window._prjOpenCardHere = _prjOpenCardHere
 
 // ---- Fajlok ful: a projekt mappaja HELYBEN ----
 
