@@ -83,6 +83,43 @@ describe('land-pr-worktree-cleanup.sh -- a landolt, tiszta worktree eltunik', ()
   })
 })
 
+describe('land-pr-worktree-cleanup.sh -- a hivo shell nem marad torolt mappaban (#445)', () => {
+  // Boss, TG 1859: every successful landing showed up as a failed command in the
+  // Workbench chat, because the caller's `pwd -P` ran in the deleted worktree.
+  it('ha a hivo a worktree-ben all: a hivo parancs zold, a worktree utana tunik el', async () => {
+    const { dir, sha } = makeWorktree('hivo-bent')
+    const log = join(root, 'cleanup.log')
+    const r = spawnSync('bash', ['-c', `cd "$1" && LAND_PR_CALLER_PID=$$ bash "$2" "$3"; pwd -P`, 'x', dir, CLEANUP, sha], {
+      encoding: 'utf8',
+      env: { ...process.env, MARVEEN_WORKTREE_ROOT: '', LAND_PR_CLEANUP_LOG: log, LAND_PR_DEFER_MAX: '20' },
+    })
+    expect(r.status).toBe(0)
+    expect(r.stderr).not.toContain('getcwd')
+    expect(r.stdout.trim()).toBe(dir)
+    expect(r.stderr).toContain('a hivo parancs vege utan torlodik')
+    for (let i = 0; i < 100 && existsSync(dir); i++) await new Promise((res) => setTimeout(res, 100))
+    expect(existsSync(dir)).toBe(false)
+    for (let i = 0; i < 50 && hasBranch('work/hivo-bent'); i++) await new Promise((res) => setTimeout(res, 100))
+    expect(hasBranch('work/hivo-bent')).toBe(false)
+    expect(readFileSync(log, 'utf8')).toContain('torolve')
+  })
+
+  it('a halasztott futas is ellenoriz: ha kozben piszkos lett, marad', async () => {
+    const { dir, sha } = makeWorktree('hivo-piszkos')
+    const log = join(root, 'cleanup.log')
+    const r = spawnSync('bash', ['-c', `cd "$1" && LAND_PR_CALLER_PID=$$ bash "$2" "$3"; echo felkesz > uj.txt`, 'x', dir, CLEANUP, sha], {
+      encoding: 'utf8',
+      env: { ...process.env, MARVEEN_WORKTREE_ROOT: '', LAND_PR_CLEANUP_LOG: log, LAND_PR_DEFER_MAX: '20' },
+    })
+    expect(r.status).toBe(0)
+    for (let i = 0; i < 100 && !(existsSync(log) && readFileSync(log, 'utf8').includes('NEM toroltem')); i++) {
+      await new Promise((res) => setTimeout(res, 100))
+    }
+    expect(readFileSync(log, 'utf8')).toContain('NEM toroltem')
+    expect(existsSync(join(dir, 'uj.txt'))).toBe(true)
+  })
+})
+
 describe('land-pr-worktree-cleanup.sh -- munkat SOHA nem dob el', () => {
   it('commitolatlan modositas: marad, es kimondja miert', () => {
     const { dir, sha } = makeWorktree('piszkos')
@@ -144,6 +181,7 @@ describe('land-pr.sh bekotes', () => {
     const call = landPr.indexOf('land-pr-worktree-cleanup.sh" "$PUSHED_SHA"')
     expect(merged).toBeGreaterThan(0)
     expect(call).toBeGreaterThan(merged)
+    expect(landPr).toContain('LAND_PR_CALLER_PID="$PPID" bash "$BASE/scripts/land-pr-worktree-cleanup.sh"')
     expect(landPr).toMatch(/\[ "\$state_rc" -eq 0 \] && \[ "\$pr_state" = "MERGED" \] && MERGED_CONFIRMED=1/)
     expect(landPr).toMatch(/if \[ "\$MERGED_CONFIRMED" != "1" \]; then/)
   })

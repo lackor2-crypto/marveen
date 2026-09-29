@@ -28,6 +28,17 @@ set -uo pipefail
 PUSHED_SHA="${1:-}"
 say() { echo "land-pr: $*" >&2; }
 
+# Deferred run (see "caller stands in the worktree" below): wait until the
+# calling command has finished, so its shell never runs inside a deleted
+# directory. Capped, because an interactive shell may never exit.
+if [ -n "${LAND_PR_WAIT_PID:-}" ]; then
+  waited=0
+  while kill -0 "$LAND_PR_WAIT_PID" 2>/dev/null && [ "$waited" -lt "${LAND_PR_DEFER_MAX:-60}" ]; do
+    sleep 1; waited=$((waited + 1))
+  done
+  say "$(date '+%F %T') halasztott torles (varakozas: ${waited}s)"
+fi
+
 [ -n "$PUSHED_SHA" ] || { say "a worktree-t NEM toroltem: nem kaptam meg a felnyomott commitot."; exit 0; }
 
 real() { (cd "$1" 2>/dev/null && pwd -P) || true; }
@@ -61,6 +72,35 @@ fi
 if [ -n "$keep_why" ]; then
   say "a worktree-t NEM toroltem (${WT_DIR:-?}): $keep_why"
   exit 0
+fi
+
+# Kanban #445 (Boss, TG 1859): the caller usually runs `cd <worktree> &&
+# land-pr.sh`, so its shell stands in the worktree. Removing it right away made
+# the Claude Code Bash tool's trailing `pwd -P` fail, and every successful
+# landing showed up as "Exit code 1" -- in the Workbench chat as a failed
+# command. When the caller (LAND_PR_CALLER_PID, set by land-pr.sh) stands in
+# this worktree, re-run this script detached: it waits for the caller to finish
+# and then removes the worktree with the same checks as above.
+caller_cwd() {
+  local p="$1"
+  if [ -L "/proc/$p/cwd" ]; then readlink "/proc/$p/cwd" 2>/dev/null || true; return 0; fi
+  command -v lsof >/dev/null 2>&1 && lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+  return 0
+}
+if [ -z "${LAND_PR_WAIT_PID:-}" ] && [ -n "${LAND_PR_CALLER_PID:-}" ]; then
+  CALLER_CWD="$(caller_cwd "$LAND_PR_CALLER_PID")"
+  case "$CALLER_CWD/" in
+    "$WT_REAL"/*)
+      LOG="${LAND_PR_CLEANUP_LOG:-${TMPDIR:-/tmp}/land-pr-worktree-cleanup.log}"
+      launcher=()
+      command -v setsid >/dev/null 2>&1 && launcher=(setsid)
+      LAND_PR_WAIT_PID="$LAND_PR_CALLER_PID" nohup ${launcher[@]+"${launcher[@]}"} bash "${BASH_SOURCE[0]}" "$PUSHED_SHA" \
+        </dev/null >>"$LOG" 2>&1 &
+      say "a landolt worktree a hivo parancs vege utan torlodik (legfeljebb ${LAND_PR_DEFER_MAX:-60} mp mulva): $WT_REAL -- naplo: $LOG"
+      say "a kovetkezo parancsot mar ne innen inditsd: cd $OWNER_ROOT"
+      exit 0
+      ;;
+  esac
 fi
 
 LOCAL_BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
