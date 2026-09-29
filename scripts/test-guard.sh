@@ -40,7 +40,13 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG" 2>/dev/nu
 command -v git >/dev/null 2>&1 || { log "git missing, skipped"; exit 0; }
 [ -d "$BASE/node_modules" ] || { log "node_modules missing, skipped"; exit 0; }
 
-WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/marveen-testguard.XXXXXX")"
+# The worktree lives under the repo's own git-ignored .worktrees/, NOT under
+# $TMPDIR: the suite's setup (src/__tests__/setup/assert-not-live-install.ts)
+# refuses to run from transient storage (/tmp, /var/tmp, /dev/shm), because the
+# hook-path guard rejects tmp-rooted hook commands. A /tmp worktree made every
+# file "fail" with zero tests run (814/814 on 2026-09-29) -- a false red.
+mkdir -p "$BASE/.worktrees" 2>/dev/null
+WORKTREE="$(mktemp -d "$BASE/.worktrees/testguard.XXXXXX")" || { log "worktree dir creation failed, skipped"; exit 0; }
 # Always clean up: a leaked worktree keeps a git lock entry around and the next
 # run inherits the mess.
 cleanup() {
@@ -56,7 +62,16 @@ if ! git -C "$BASE" worktree add "$WORKTREE" -d HEAD >/dev/null 2>&1; then
 fi
 ln -s "$BASE/node_modules" "$WORKTREE/node_modules" 2>/dev/null
 
-OUTPUT="$(cd "$WORKTREE" && npx vitest run --reporter=dot 2>&1)"
+# The "this install" parity tests must read the settings.json the main agent
+# RUNS on. That dir is resolved from the live store/ and .env, which the
+# throwaway worktree does not have -- there the resolver falls back to
+# ~/.claude, a file the main agent may no longer use (false red, #442). Resolve
+# it here, in the live install, and hand it to the suite. No build -> unset ->
+# the tests keep their own resolution.
+LIVE_MAIN_CONFIG_DIR="$(cd "$BASE" && timeout 20 node --input-type=module -e \
+  "const m = await import('$BASE/dist/web/agent-config.js'); console.log(m.mainAgentEffectiveConfigDir()); process.exit(0)" 2>/dev/null | tail -1)"
+
+OUTPUT="$(cd "$WORKTREE" && MARVEEN_LIVE_MAIN_CONFIG_DIR="$LIVE_MAIN_CONFIG_DIR" npx vitest run --reporter=dot 2>&1)"
 STATUS=$?
 
 HEAD_SHA="$(git -C "$BASE" rev-parse --short HEAD 2>/dev/null)"
