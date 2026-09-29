@@ -48,7 +48,16 @@ param(
   [string]$Token = '',
   [int]$PollSeconds = 3,
   [int]$DiscoverSeconds = 60,
-  [int]$TaskTimeoutSeconds = 3600,
+  # HARD CEILING for one task. Until 2026-09-29 this was the ONLY limit (3600 s,
+  # wall clock), and it killed productive work: measured on task d98f6284, the
+  # transcript was written continuously for the full hour (942 rows, the largest
+  # gap 266 s) and the run was cut mid-edit. What a stuck run looks like is
+  # SILENCE, not length -- that is `TaskIdleSeconds` below. This ceiling only
+  # catches a run that stays busy forever.
+  [int]$TaskTimeoutSeconds = 14400,
+  # Kill a task whose transcript has not grown for this long. A Claude Code tool
+  # call is capped at 10 minutes, so 30 minutes of silence is not work.
+  [int]$TaskIdleSeconds = 1800,
   [switch]$Once,
   [switch]$DiscoverOnly
 )
@@ -59,7 +68,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-27.4'
+$script:WorkerVersion = '2026-09-29.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -1120,6 +1129,17 @@ function Invoke-CodeTask {
   # ugyanolyan surun, mint a fo ciklusban.
   $lastPublish = (Get-Date).AddSeconds(10 - $DiscoverSeconds)
   $timedOut = $false
+  $timeoutReason = ''
+  # Idle watch: the run's own transcript (`<runSessionId>.jsonl`) is appended
+  # on every turn and tool result, so its LastWriteTime is the measured "last
+  # sign of work". Located once (Windows + every WSL distro's projects dirs);
+  # until it is found only the hard ceiling applies -- a transcript we cannot
+  # see is "not looked at", never "idle".
+  $projectSources = @()
+  try { $projectSources = @(Get-ProjectsSources) } catch { }
+  $transcript = $null
+  $lastProbe = [datetime]::MinValue
+  $lastActivity = $started
   $script:InTaskId = $Task.id
   $script:InTaskRunSessionId = $runSessionId
   while (-not $proc.HasExited) {
@@ -1137,9 +1157,32 @@ function Invoke-CodeTask {
       $lastPublish = Get-Date
       try { Publish-Sessions } catch { Write-Log ('session report during task failed: ' + $_.Exception.Message) 'WARN' }
     }
-    if (((Get-Date) - $started).TotalSeconds -gt $TaskTimeoutSeconds) {
+    if (((Get-Date) - $lastProbe).TotalSeconds -ge 30) {
+      $lastProbe = Get-Date
+      if (-not $transcript) {
+        foreach ($src in $projectSources) {
+          try {
+            $hit = Get-ChildItem -Path (Join-Path $src.Path ('*\' + $runSessionId + '.jsonl')) -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) { $transcript = $hit.FullName; break }
+          } catch { }
+        }
+      }
+      if ($transcript) {
+        try {
+          $w = (Get-Item -LiteralPath $transcript -ErrorAction Stop).LastWriteTime
+          if ($w -gt $lastActivity) { $lastActivity = $w }
+        } catch { }
+      }
+    }
+    if ($transcript -and ((Get-Date) - $lastActivity).TotalSeconds -gt $TaskIdleSeconds) {
       $timedOut = $true
-      Write-Log ("task {0} timed out after {1}s -- killing" -f $Task.id, $TaskTimeoutSeconds) 'ERROR'
+      $timeoutReason = "no progress for $TaskIdleSeconds s (transcript silent) -- stopped"
+    } elseif (((Get-Date) - $started).TotalSeconds -gt $TaskTimeoutSeconds) {
+      $timedOut = $true
+      $timeoutReason = "timed out after $TaskTimeoutSeconds s (hard limit)"
+    }
+    if ($timedOut) {
+      Write-Log ("task {0}: {1} -- killing" -f $Task.id, $timeoutReason) 'ERROR'
       try { $proc.Kill() } catch { }
       break
     }
@@ -1167,7 +1210,11 @@ function Invoke-CodeTask {
     $payload.result = [string]$parsed.result
     if (($parsed.PSObject.Properties.Name -contains 'is_error') -and $parsed.is_error) {
       $payload.ok = $false
-      $payload.error = 'Claude Code reported an error'
+      # The CLI's own sentence is the real reason ("You've hit your session
+      # limit, resets 3:10am"); the bare generic line hid it on every list.
+      $why = ([string]$parsed.result).Trim()
+      if ($why.Length -gt 300) { $why = $why.Substring(0, 300) }
+      $payload.error = if ($why) { 'Claude Code reported an error: ' + $why } else { 'Claude Code reported an error' }
     }
     if ($parsed.PSObject.Properties.Name -contains 'total_cost_usd') { $payload.costUsd = [double]$parsed.total_cost_usd }
     if ($parsed.PSObject.Properties.Name -contains 'num_turns') { $payload.numTurns = [int]$parsed.num_turns }
@@ -1192,7 +1239,7 @@ function Invoke-CodeTask {
     $tail = $stderr
     if (-not $tail) { $tail = $stdout }
     if (-not $tail) {
-      if ($timedOut) { $tail = "timed out after $TaskTimeoutSeconds s" }
+      if ($timedOut) { $tail = $timeoutReason }
       else { $tail = "claude.exe produced no output (exit $exitCode)" }
     }
     if ($tail.Length -gt 1500) { $tail = $tail.Substring($tail.Length - 1500) }
