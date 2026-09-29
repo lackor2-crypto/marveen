@@ -288,6 +288,9 @@
       if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
       if (r.data && Array.isArray(r.data.deleted)) WB.deleted = r.data.deleted
       if (deleted && WB.selectedId === id) { WB.selectedId = null; WB.detail = null }
+      // Open the trash right away, so the owner sees where the item went: the
+      // collapsed link alone got confused with the file-tree Trash (#443).
+      if (deleted) WB.trashOpen = true
       window.showToast(t(deleted ? 'workbench.trash.done' : 'workbench.trash.restored'))
       render()
     })
@@ -326,7 +329,7 @@
     var list = WB.deleted || []
     if (!list.length) return ''
     var head = '<button type="button" class="wb-trash-toggle" data-wb-act="trash-toggle" aria-expanded="' + WB.trashOpen + '">'
-      + esc(t('workbench.trash.title')) + ' (' + list.length + ')' + '</button>'
+      + (WB.trashOpen ? '▾ ' : '▸ ') + esc(t('workbench.trash.title')) + ' (' + list.length + ')' + '</button>'
     if (!WB.trashOpen) return '<div class="wb-trash">' + head + '</div>'
     return '<div class="wb-trash">' + head
       + '<p class="wb-hint">' + esc(t('workbench.trash.hint')) + '</p>'
