@@ -138,4 +138,18 @@ describe('be van kotve a gombokra', () => {
     expect(WBJS).toContain('if (e.button === 1 && newTabNav(e)) e.preventDefault()')
     expect(WBJS).toContain("if (tab) { tab.go('intezo', { path: r.data.path }); return }")
   })
+
+  it('Megnyitas az Intezoben: sima kattintasra is uj ful, a gesztus-szuro ELOTT (TG 1807 "1A")', () => {
+    const nav = WBJS.slice(WBJS.indexOf('function newTabNav'), WBJS.indexOf('function newTabNav') + 2000)
+    const folder = nav.indexOf('[data-wb-act="folder-intezo"]')
+    const gate = nav.indexOf('if (!window.isNewTabClick(e)) return false')
+    expect(folder).toBeGreaterThan(0)
+    expect(gate).toBeGreaterThan(folder)
+  })
+
+  it('Anyagok sor: a ket mappa-ikon a Levetel / Torles FOLOTT all (TG 1811)', () => {
+    expect(WBJS).toContain('<div class="wb-row-act wb-asset-act">\' + (a.present ? \'<span class="wb-folder-pair">\'')
+    const css = readFileSync(join(WEB, 'workbench.css'), 'utf8')
+    expect(css).toMatch(/\.wb-row-act\.wb-asset-act \{[^}]*flex-direction: column/)
+  })
 })

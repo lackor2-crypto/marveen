@@ -5238,7 +5238,8 @@
           + (a.shared ? ' <span class="wb-pill wb-asset-shared" title="' + escA(t('workbench.shared.pill_title')) + '">' + esc(t('workbench.shared.pill')) + '</span>' : '')
           + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
           + '</div>'
-          + '<div class="wb-row-act">' + (a.present ? folderBtnsHtml('asset', a.id, true) : '')
+          // Icons stacked ABOVE Remove/Delete, so the name keeps the width (Boss, TG 1811).
+          + '<div class="wb-row-act wb-asset-act">' + (a.present ? '<span class="wb-folder-pair">' + folderBtnsHtml('asset', a.id, true) + '</span>' : '')
           + (ro ? '' : '<button type="button" class="wb-mini-btn" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
             + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
           + '</div>'
@@ -7667,6 +7668,13 @@
   }
   function newTabNav(e) {
     if (typeof window.isNewTabClick !== 'function' || typeof window.openViewInNewTab !== 'function') return false
+    // "Open in the Intezo" always opens a new tab, plain click too (Boss, TG 1807
+    // "1A"): the Workbench must not leave this tab.
+    var folderBtn = e.target.closest('[data-wb-act="folder-intezo"]')
+    if (folderBtn && WB.open && WB.projectId && (e.button === 0 || e.button === 1)) {
+      openFolder(folderBtn.getAttribute('data-wb-place'), folderBtn.getAttribute('data-wb-asset'), 'intezo', window.openViewInNewTab(null, null, true))
+      return true
+    }
     if (!window.isNewTabClick(e)) return false
     var openBtn = e.target.closest('[data-wb-open]')
     if (openBtn) {
@@ -7678,11 +7686,6 @@
     var itemBtn = e.target.closest('[data-wb-item]')
     if (itemBtn) {
       window.openViewInNewTab('projects', projectTabState(WB.projectId, (WB.project && WB.project.name) || '', itemBtn.getAttribute('data-wb-item')))
-      return true
-    }
-    var folderBtn = e.target.closest('[data-wb-act="folder-intezo"]')
-    if (folderBtn) {
-      openFolder(folderBtn.getAttribute('data-wb-place'), folderBtn.getAttribute('data-wb-asset'), 'intezo', window.openViewInNewTab(null, null, true))
       return true
     }
     return false
