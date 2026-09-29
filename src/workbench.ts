@@ -638,7 +638,7 @@ export interface CreateWorkItemVersionInput {
   metadata_json?: unknown
 }
 
-export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch' | 'version_current'
+export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch' | 'version_last'
 
 export type CreateWorkItemVersionResult =
   | { ok: true; item: WorkItemRow; version: WorkItemVersionRow }
@@ -717,29 +717,48 @@ export function createWorkItemVersion(workItemId: string, input: CreateWorkItemV
 }
 
 /**
- * Egy REGI verzio VEGLEGES torlese (#443). A verzio sora es a hozza masolt
- * reszek torlodnek, vissza nem hozhato. A JELENLEGI verzio nem torolheto: az a
- * munkadarab mostani allapota, arra epul a szerkesztes. A fajlok a projekt
- * mappajaban maradnak (a Raktarban latszanak), mert mas verzio vagy munkadarab
- * is hivatkozhat rajuk. A tobbi verzio szama nem valtozik.
+ * Egy verzio VEGLEGES torlese (#443). A verzio sora es a hozza masolt reszek
+ * torlodnek, vissza nem hozhato. A fajlok a projekt mappajaban maradnak (a
+ * Raktarban latszanak), mert mas verzio vagy munkadarab is hivatkozhat rajuk.
+ * A tobbi verzio szama nem valtozik.
+ *
+ * A JELENLEGI verzio is torolheto (Boss, 2026-09-29: "az aktualis verziot is
+ * lehessen torolni! es ha azt toroljuk akkor az alatta levo kovetkezo regi
+ * verziot toltse be a rendszer"). Ilyenkor a munkadarab az alatta levo
+ * (kisebb szamu) verziora all at: annak a reszei lesznek az elok, es annak a
+ * forrasfajlja a munkadarabe. Ha alatta nincs, a legujabb megmaradora all.
+ * Az EGYETLEN verzio nem torolheto (`version_last`): nem maradna mit betolteni
+ * -- ha a munkadarabot akarja eltuntetni, arra a Lomtar valo.
  */
 export function deleteWorkItemVersion(
   versionId: string,
   workItemId: string,
-): { ok: true; item: WorkItemRow } | { ok: false; code: VersionErrorCode } {
+  now: number = nowSec(),
+): { ok: true; item: WorkItemRow; loaded: WorkItemVersionRow | null } | { ok: false; code: VersionErrorCode } {
   ensureWorkbenchTables()
   const target = getWorkItemVersion(versionId)
   if (!target) return { ok: false, code: 'version_not_found' }
   if (target.work_item_id !== workItemId) return { ok: false, code: 'version_mismatch' }
   const item = getWorkItem(target.work_item_id)
   if (!item) return { ok: false, code: 'item_not_found' }
-  if (item.current_version_id === target.id) return { ok: false, code: 'version_current' }
   const db = getDb()
+  let loaded: WorkItemVersionRow | null = null
+  if (item.current_version_id === target.id) {
+    loaded = (db.prepare(`SELECT * FROM work_item_versions WHERE work_item_id = ? AND id <> ? AND version_no < ?
+        ORDER BY version_no DESC LIMIT 1`).get(item.id, target.id, target.version_no)
+      ?? db.prepare(`SELECT * FROM work_item_versions WHERE work_item_id = ? AND id <> ?
+        ORDER BY version_no DESC LIMIT 1`).get(item.id, target.id)) as WorkItemVersionRow | undefined ?? null
+    if (!loaded) return { ok: false, code: 'version_last' }
+  }
   db.transaction(() => {
     db.prepare('DELETE FROM work_item_parts WHERE work_item_id = ? AND version_id = ?').run(item.id, target.id)
     db.prepare('DELETE FROM work_item_versions WHERE id = ?').run(target.id)
+    if (loaded) {
+      db.prepare('UPDATE work_items SET current_version_id = ?, source_path = ?, updated_at = ? WHERE id = ?')
+        .run(loaded.id, loaded.source_path, now, item.id)
+    }
   })()
-  return { ok: true, item: getWorkItem(item.id) ?? item }
+  return { ok: true, item: getWorkItem(item.id) ?? item, loaded }
 }
 
 /** Egy REGI verzio visszaallitasa. Nem ir felul semmit: UJ verzio keletkezik,
