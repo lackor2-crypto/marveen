@@ -24,6 +24,9 @@ import { outlineHash, renderOutlinePdf, toRenderOutline, type RenderResult } fro
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
+import { annexPdfs, mergePdfs, type PackageError } from './workbench-docpackage.js'
+import { createHash } from 'node:crypto'
+import { statSync } from 'node:fs'
 import { resolveProjectFile } from './workbench-docmodel-world.js'
 import { getProject } from './projects.js'
 import type { RenderOutline } from './workbench-docrender.js'
@@ -71,9 +74,21 @@ export function renderInputFor(item: WorkItemRow): RenderOutline {
   }
 }
 
-/** A dokumentum PDF-be kerulo tartalmanak ujjlenyomata (cim + fejezetek + blokkok + mellekletjegyzek). */
+/**
+ * A dokumentum PDF-be kerulo tartalmanak ujjlenyomata: cim + fejezetek +
+ * blokkok + mellekletjegyzek, es mellekletek eseten a mellekletfajlok allapota
+ * (meret + modositas ideje) is -- egy kicserelt mellekletet ujra at kell nezni.
+ */
 export function contentHash(item: WorkItemRow): string {
-  return outlineHash(renderInputFor(item), item.title)
+  const base = outlineHash(renderInputFor(item), item.title)
+  const resolve = resolverFor(item)
+  const annexes = listAnnexes(item.id)
+  if (!annexes.length) return base
+  const prints = annexes.map((a) => {
+    const f = resolve ? resolve(a.path) : null
+    try { const st = f ? statSync(f.abs) : null; return st ? `${a.path}:${st.size}:${Math.floor(st.mtimeMs)}` : `${a.path}:missing` } catch { return `${a.path}:missing` }
+  })
+  return createHash('sha256').update(base + '\n' + prints.join('\n')).digest('hex')
 }
 
 /** A PDF szerzoje a metaadatban: a tulajdonos beallitott neve; ha nincs beallitva, nincs szerzo (nem egy helyorzo). */
@@ -101,12 +116,18 @@ export function reviewOf(itemId: string, hash: string): { reviewed_at: number; r
     .get(itemId, hash) as { reviewed_at: number; reviewed_by: string | null } | undefined) ?? null
 }
 
+export interface FinalFile { path: string; name: string; role: 'main' | 'bundle' | 'annex'; label?: string }
+
 export interface FinalMeta {
   final: true
   label: string
   content_hash: string
   pdf_path: string
   pdf_name: string
+  /** Minden keszult fajl (a beadvany, a mellekletek, vagy az egyesitett PDF). Regebbi veglegesitesnel hianyzik. */
+  files?: FinalFile[]
+  annex_mode?: 'separate' | 'combined' | null
+  pdfa?: boolean
   accepted_by: string | null
   accepted_at: number
   accepted_text: string
@@ -162,12 +183,31 @@ export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
   return `${fileStem(item.title)} (${DRAFT_LABEL[lang]}).pdf`
 }
 
-/** Piszkozat PDF (K-1.21): barmikor, vizjellel. */
-export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<RenderResult & { hash: string }> {
+export type DraftResult =
+  | { ok: true; pdf: Buffer; hash: string }
+  | { ok: false; code: string; detail: string | null; label?: string }
+
+/** Egy csomag-hiba (melleklet, egyesites) a hivonak; a LibreOffice-hiany kulon kodot kap. */
+function packageFail(e: PackageError & { ok: false }): { ok: false; code: string; detail: string | null; label?: string } {
+  const convert = 'convert' in e ? e.convert : undefined
+  if (convert === 'not_installed' || convert === 'check_failed') return { ok: false, code: convert, detail: e.detail, label: 'label' in e ? e.label : undefined }
+  return { ok: false, code: e.code, detail: e.detail, label: 'label' in e ? e.label : undefined }
+}
+
+/** Piszkozat PDF (K-1.21): barmikor, vizjellel; mellekletek eseten boritolappal egyutt, egy PDF-ben (atnezesre). */
+export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DraftResult> {
   const outline = renderInputFor(item)
-  const hash = outlineHash(outline, item.title)
+  const hash = contentHash(item)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang })
-  return { ...r, hash }
+  if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
+  if (!outline.annexes || !outline.annexes.length) return { ok: true, pdf: r.pdf, hash }
+  const resolve = resolverFor(item)
+  if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
+  const ax = await annexPdfs(item.id, resolve, { lang })
+  if (!ax.ok) return packageFail(ax)
+  const all = await mergePdfs([r.pdf, ...ax.annexes.map((a) => a.pdf)])
+  if (!all.ok) return packageFail(all)
+  return { ok: true, pdf: all.pdf, hash }
 }
 
 export type FinalizeCode =
@@ -176,19 +216,22 @@ export type FinalizeCode =
 
 export type FinalizeOutcome =
   | { ok: true; final: FinalView & { stale: boolean }; asset_path: string }
-  | { ok: false; code: FinalizeCode; detail: string | null; check?: ReturnType<typeof documentCheck>; convert?: Exclude<RenderResult, { ok: true }>['code'] }
+  | { ok: false; code: FinalizeCode | string; detail: string | null; check?: ReturnType<typeof documentCheck>; convert?: string; label?: string }
 
 /**
- * VEGLEGESITES (K-1.22, K-1.23). A hivo (utvonal) mar ellenorizte, hogy a
- * tulajdonos sajat kattintasa; itt a tartalmi feltetelek allnak.
+ * VEGLEGESITES (K-1.22, K-1.23, K-1.25). A hivo (utvonal) mar ellenorizte, hogy
+ * a tulajdonos sajat kattintasa; itt a tartalmi feltetelek allnak.
  * `hash`: az az ujjlenyomat, amit a tulajdonos a kepernyon latott -- ha a
  * dokumentum kozben valtozott, nem veglegesitunk "vakon".
+ * Mellekletekkel: "separate" -- a beadvany (PDF/A) es mellekletenkent egy PDF
+ * (boritolap + tartalom); "combined" -- minden egy PDF-ben.
  */
 export async function finalizeDocument(item: WorkItemRow, input: { accept: unknown; hash: unknown; by: string | null; lang: 'hu' | 'en' }): Promise<FinalizeOutcome> {
   if (!hasDocModel(item.id)) return { ok: false, code: 'outline_empty', detail: null }
   const hash = contentHash(item)
   if (typeof input.hash === 'string' && input.hash && input.hash !== hash) return { ok: false, code: 'outline_changed', detail: null }
-  const check = documentCheck(item.id, resolverFor(item))
+  const resolve = resolverFor(item)
+  const check = documentCheck(item.id, resolve)
   if (!check.ready) return { ok: false, code: 'outline_not_ready', detail: null, check }
   const review = reviewOf(item.id, hash)
   if (!review) return { ok: false, code: 'outline_not_reviewed', detail: null }
@@ -197,16 +240,49 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const outline = renderInputFor(item)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: input.lang })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
-  // A rendereles alatt (1-2 mp) valtozhatott: amit atnezett, azt veglegesitjuk, mast nem.
+  let annexes: { label: string; title: string; pdf: Buffer }[] = []
+  if (outline.annexes && outline.annexes.length) {
+    if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
+    const ax = await annexPdfs(item.id, resolve, { lang: input.lang })
+    if (!ax.ok) {
+      const f = packageFail(ax)
+      return f.code === 'not_installed' || f.code === 'check_failed' ? { ok: false, code: 'docpdf_failed', detail: f.detail, convert: f.code } : f
+    }
+    annexes = ax.annexes
+  }
+  const mode = docSettings(item.id).annex_mode
+  let bundle: Buffer | null = null
+  if (annexes.length && mode === 'combined') {
+    const all = await mergePdfs([r.pdf, ...annexes.map((a) => a.pdf)])
+    if (!all.ok) return packageFail(all)
+    bundle = all.pdf
+  }
+  // A rendereles alatt valtozhatott: amit atnezett, azt veglegesitjuk, mast nem.
   const fresh = getWorkItem(item.id)
   if (!fresh || contentHash(fresh) !== hash) return { ok: false, code: 'outline_changed', detail: null }
 
   const label = `${FINAL_LABEL[input.lang]} – ${localDate()}`
-  const saved = attachAsset(fresh, `${fileStem(fresh.title)} – ${label}.pdf`, r.pdf, { force: true, createdBy: input.by })
-  if (!saved.ok) return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + saved.code }
+  const save = (name: string, pdf: Buffer): { path: string; name: string } | string => {
+    const x = attachAsset(fresh, name, pdf, { force: true, createdBy: input.by })
+    return x.ok ? { path: x.asset.path, name: x.asset.name } : x.code
+  }
+  const files: FinalFile[] = []
+  const main = save(`${fileStem(fresh.title)} – ${label}.pdf`, bundle ?? r.pdf)
+  if (typeof main === 'string') return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + main }
+  files.push({ ...main, role: bundle ? 'bundle' : 'main' })
+  if (!bundle) {
+    for (const a of annexes) {
+      const f = save(`${fileStem(a.label)} – ${fileStem(a.title)}.pdf`, a.pdf)
+      if (typeof f === 'string') return { ok: false, code: 'docpdf_failed', detail: `the annex ${a.label} could not be saved into the work item folder: ${f}` }
+      files.push({ ...f, role: 'annex', label: a.label })
+    }
+  }
   const meta: FinalMeta = {
     final: true, label, content_hash: hash,
-    pdf_path: saved.asset.path, pdf_name: saved.asset.name,
+    pdf_path: main.path, pdf_name: main.name,
+    files, annex_mode: annexes.length ? mode : null,
+    // A beadvany PDF-je PDF/A-2b; az egyesitett fajl es a mellekletek (a csatolt PDF-ek) nem feltetlenul.
+    pdfa: !bundle,
     accepted_by: input.by, accepted_at: now(), accepted_text: ACCEPT_TEXT[input.lang],
     reviewed_at: review.reviewed_at, reviewed_by: review.reviewed_by,
     check: check.items,
@@ -215,7 +291,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (!v.ok) return { ok: false, code: 'docpdf_failed', detail: v.code }
   const state = finalState(v.item, hash)
   if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
-  return { ok: true, final: state, asset_path: saved.asset.path }
+  return { ok: true, final: state, asset_path: main.path }
 }
 
 const iso = (sec: number | null | undefined): string | null => (sec ? new Date(sec * 1000).toISOString() : null)
@@ -278,7 +354,7 @@ export function documentTrail(item: WorkItemRow): Record<string, unknown> {
     annexes: listAnnexes(item.id, resolverFor(item)).map((a) => ({ label: a.label, title: a.title, file: a.path, file_present: a.exists, referenced: a.refs, added_by: a.created_by, added_at: iso(a.created_at) })),
     reviews: reviews.map((r) => ({ content_hash: r.content_hash, reviewed_at: iso(r.reviewed_at), reviewed_by: r.reviewed_by })),
     finals: listFinals(item.id).map((f) => ({
-      version_no: f.version_no, label: f.label, content_hash: f.content_hash, file: f.pdf_path,
+      version_no: f.version_no, label: f.label, content_hash: f.content_hash, file: f.pdf_path, files: f.files ?? null, annex_mode: f.annex_mode ?? null,
       accepted_by: f.accepted_by, accepted_at: iso(f.accepted_at), accepted_text: f.accepted_text,
       reviewed_at: iso(f.reviewed_at), reviewed_by: f.reviewed_by, check: f.check,
       still_current: f.content_hash === hash,

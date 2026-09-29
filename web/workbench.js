@@ -4140,6 +4140,9 @@
         + '</select></label>'
         + (scheme === 'exhibit' ? '' : ' <label title="' + escA(t('workbench.annex.prefix_hint')) + '">' + esc(t('workbench.annex.prefix')) + ' <input type="text" id="wbAnnexPrefix" size="2" maxlength="2" value="' + escA(st.annex_prefix || 'K') + '"></label>')
         + '</p>'
+        + (list.length ? '<p class="wb-annex-settings"><label>' + esc(t('workbench.annex.mode')) + ' <select id="wbAnnexMode">'
+          + (st.modes || ['separate', 'combined']).map(function (m) { return '<option value="' + escA(m) + '"' + (m === (st.annex_mode || 'separate') ? ' selected' : '') + '>' + esc(t('workbench.annex.mode.' + m)) + '</option>' }).join('')
+          + '</select></label></p>' : '')
     }
     if (!list.length && ro) return ''
     return '<div class="wb-annexes"><h4>' + esc(t('workbench.annex.title')) + (list.length ? ' (' + list.length + ')' : '') + '</h4>'
@@ -4155,10 +4158,15 @@
     var base = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline'
     var q = '?lang=' + encodeURIComponent(window._lang || 'hu')
     var f = o.final
+    // A keszult fajlok: a beadvany (vagy az egyesitett PDF), es kulon mellekleteknel mindegyik.
+    var files = !f ? [] : (f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' }])
     var finalLine = !f ? '' : '<p class="' + (f.stale ? 'wb-doc-low' : 'wb-ok') + '">'
       + (f.stale ? '⚠ ' + esc(t('workbench.outline.final_stale', { label: f.label, n: f.version_no }))
         : '✓ ' + esc(t('workbench.outline.final_current', { label: f.label, n: f.version_no })))
-      + ' <a href="/api/life/file?rel=' + escA(encodeURIComponent(f.pdf_path || '')) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.final_open')) + '</a></p>'
+      + ' ' + files.map(function (x) {
+        return '<a href="/api/life/file?rel=' + escA(encodeURIComponent(x.path || '')) + '" target="_blank" rel="noopener" title="' + escA(x.name || '') + '">'
+          + esc(x.role === 'annex' ? (x.label || x.name || '') : t('workbench.outline.final_open')) + '</a>'
+      }).join(' · ') + '</p>'
     var tools = '<p class="wb-outline-pdf-tools">'
       + '<a class="btn-secondary btn-compact" href="' + escA(base + '/pdf' + q) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.outline.draft_pdf')) + '</a> '
       + '<a class="wb-linklike" href="' + escA(base + '/trail' + q) + '" title="' + escA(t('workbench.outline.trail_hint')) + '">' + esc(t('workbench.outline.trail')) + '</a></p>'
@@ -7219,6 +7227,7 @@
     }
     // MELLEKLETEK szamozasa (#441, K-1.18): a szerver a szovegbeli hivatkozasokat is atirja.
     if (e.target.id === 'wbAnnexScheme') { outlineCall('PATCH', '/settings', { annex_scheme: e.target.value }); return }
+    if (e.target.id === 'wbAnnexMode') { outlineCall('PATCH', '/settings', { annex_mode: e.target.value }); return }
     if (e.target.id === 'wbAnnexPrefix') {
       var px = String(e.target.value || '').trim().toUpperCase()
       if (/^[A-Z]{1,2}$/.test(px)) outlineCall('PATCH', '/settings', { annex_prefix: px })

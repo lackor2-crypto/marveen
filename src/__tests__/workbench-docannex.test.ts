@@ -135,7 +135,7 @@ describe('a mellekletjegyzek a dokumentumban', () => {
     addBlock(itemId, s.section.id, { text: 'Lásd K1 és K5.', author: 'agent' })
     rmSync(join(projDir(), 'Iratok', 'szerzodes.pdf'))
     const ax = annexCheck(itemId, resolve)
-    expect(ax).toEqual({ total: 2, ok: 0, dangling: ['K5'], unreferenced: ['K2'], missing_files: ['K1'] })
+    expect(ax).toEqual({ total: 2, ok: 0, dangling: ['K5'], unreferenced: ['K2'], missing_files: ['K1'], unsupported: [] })
     const chk = documentCheck(itemId, resolve)
     expect(chk.ready).toBe(false)
     const keys = chk.items.map((i) => i.key)

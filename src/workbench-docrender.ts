@@ -259,10 +259,8 @@ function pruneSources(dir: string, now = Date.now()): void {
   })
 }
 
-/** A modell PDF-kent (a LibreOffice-on at). Ugyanaz a tartalom ujra a gyorsitotarbol jon. */
-export async function renderOutlinePdf(outline: RenderOutline, o: RenderOptions): Promise<RenderResult> {
-  const xml = buildFodt(outline, o)
-  const filter = o.draft ? PDF_FILTER_DRAFT : PDF_FILTER_FINAL
+/** Egy ODF (flat XML) PDF-kent, a LibreOffice-on at. Ugyanaz a tartalom ujra a gyorsitotarbol jon. */
+export async function renderFodtPdf(xml: string, filter: string): Promise<RenderResult> {
   const dir = join(renderCacheDir(), 'docmodel')
   const fail = (e: unknown): RenderResult => ({ ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) })
   try { mkdirSync(dir, { recursive: true }) } catch (e) { return fail(e) }
@@ -272,4 +270,41 @@ export async function renderOutlinePdf(outline: RenderOutline, o: RenderOptions)
   const r = await convertOfficeToPdf(src, { pdfFilter: filter })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
   try { return { ok: true, pdf: readFileSync(r.pdf), cached: r.cached } } catch (e) { return fail(e) }
+}
+
+/** A modell PDF-kent. */
+export async function renderOutlinePdf(outline: RenderOutline, o: RenderOptions): Promise<RenderResult> {
+  return renderFodtPdf(buildFodt(outline, o), o.draft ? PDF_FILTER_DRAFT : PDF_FILTER_FINAL)
+}
+
+/** Egy egyszeru, egyoldalas ODF: a boritolap es a szoveges melleklet kozos kerete. */
+function simpleFodt(title: string, body: string, lang: 'hu' | 'en'): string {
+  const l = lang === 'en' ? { l: 'en', c: 'GB' } : { l: 'hu', c: 'HU' }
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
+<office:meta><dc:title>${xmlEscape(title)}</dc:title></office:meta>
+<office:font-face-decls><style:font-face style:name="Liberation Serif" svg:font-family="'Liberation Serif'" style:font-family-generic="roman" style:font-pitch="variable"/><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-family-generic="modern" style:font-pitch="fixed"/></office:font-face-decls>
+<office:styles>
+<style:default-style style:family="paragraph"><style:text-properties style:font-name="Liberation Serif" fo:font-size="12pt" fo:language="${l.l}" fo:country="${l.c}"/></style:default-style>
+<style:style style:name="CoverLabel" style:family="paragraph"><style:paragraph-properties fo:text-align="center" fo:margin-top="9cm" fo:margin-bottom="0.8cm"/><style:text-properties fo:font-size="28pt" fo:font-weight="bold"/></style:style>
+<style:style style:name="CoverTitle" style:family="paragraph"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="14pt"/></style:style>
+<style:style style:name="Plain" style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0cm"/><style:text-properties style:font-name="Liberation Mono" fo:font-size="10pt"/></style:style>
+</office:styles>
+<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-bottom="2cm" fo:margin-left="2.5cm" fo:margin-right="2cm"/></style:page-layout></office:automatic-styles>
+<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles>
+<office:body><office:text>
+${body}
+</office:text></office:body></office:document>
+`
+}
+
+/** Boritolap egy melleklet ele (K-1.25): nagy betuvel a jel ("K1. melleklet"), alatta a leiras. */
+export function buildCoverFodt(heading: string, title: string, lang: 'hu' | 'en'): string {
+  return simpleFodt(heading, `<text:p text:style-name="CoverLabel">${inline(heading)}</text:p><text:p text:style-name="CoverTitle">${inline(title)}</text:p>`, lang)
+}
+
+/** Szoveges melleklet (TXT, MD) PDF-kent: soronkent, valtozatlanul (nem formazzuk at, amit a tulajdonos csatolt). */
+export function buildTextFodt(text: string, name: string): string {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n')
+  return simpleFodt(name, lines.map((l) => `<text:p text:style-name="Plain">${inline(l)}</text:p>`).join('\n'), 'hu')
 }

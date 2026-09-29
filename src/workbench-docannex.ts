@@ -15,6 +15,7 @@
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import { ensureDocModelTables } from './workbench-docmodel.js'
+import { officeExt } from './office-convert.js'
 
 export const ANNEX_SCHEMES = ['k', 'anlage', 'exhibit'] as const
 export type AnnexScheme = typeof ANNEX_SCHEMES[number]
@@ -338,6 +339,19 @@ export function removeAnnex(itemId: string, id: string): AnnexResult<{ removed: 
   return { ok: true, removed: a.id, rewritten }
 }
 
+/** Kepek, amiket a LibreOffice Draw-ja PDF-lappa tud tenni. (HEIC nem: azt a LibreOffice nem nyitja meg.) */
+const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', 'tiff', 'webp'])
+
+/** Hogyan lesz a mellekletbol PDF (K-1.25); null: sehogy -- ezt az ellenorzes elore jelzi. */
+export function annexPdfKind(name: string): 'pdf' | 'office' | 'image' | 'text' | null {
+  const ext = (String(name || '').split('.').pop() || '').toLowerCase()
+  if (ext === 'pdf') return 'pdf'
+  if (officeExt(name)) return 'office'
+  if (IMAGE_EXT.has(ext)) return 'image'
+  if (ext === 'txt' || ext === 'md') return 'text'
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Ellenorzes (K-1.18, K-1.22)
 // ---------------------------------------------------------------------------
@@ -351,6 +365,8 @@ export interface AnnexCheck {
   unreferenced: string[]
   /** melleklet, aminek a fajlja mar nincs meg */
   missing_files: string[]
+  /** melleklet, amibol nem lehet PDF-et kesziteni (pl. e-mail, HEIC, hang) */
+  unsupported: string[]
 }
 
 export function annexCheck(itemId: string, resolve?: FileResolver): AnnexCheck {
@@ -361,6 +377,7 @@ export function annexCheck(itemId: string, resolve?: FileResolver): AnnexCheck {
   const dangling = [...referenced].filter((n) => n > list.length).sort((a, b) => a - b).map((n) => annexLabel(s, n))
   const unreferenced = list.filter((a) => a.refs === 0).map((a) => a.label)
   const missing = list.filter((a) => a.exists === false).map((a) => a.label)
-  const ok = list.filter((a) => a.refs > 0 && a.exists !== false).length
-  return { total: list.length, ok, dangling, unreferenced, missing_files: missing }
+  const unsupported = list.filter((a) => !annexPdfKind(a.path)).map((a) => a.label)
+  const ok = list.filter((a) => a.refs > 0 && a.exists !== false && annexPdfKind(a.path)).length
+  return { total: list.length, ok, dangling, unreferenced, missing_files: missing, unsupported }
 }
