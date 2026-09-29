@@ -1114,8 +1114,8 @@ describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
     const html = h.rootEl.innerHTML
     expect(html).toContain('data-wb-act="version-restore"')
     expect(html).toContain('data-wb-version="v1"')
-    // A mostanit nincs mire visszaallitani.
-    expect(html).not.toContain('data-wb-version="v2"')
+    // A mostanit nincs mire visszaallitani (torolni viszont lehet, #443).
+    expect(html).not.toMatch(/data-wb-act="version-restore"[^>]*data-wb-version="v2"/)
     // A mentes utja is ott van, es a szabaly ki van irva.
     expect(html).toContain('data-wb-act="version-new"')
     expect(html).toContain('workbench.versions.hint')
@@ -1146,11 +1146,12 @@ describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
     expect(h.fetchCalls.length).toBe(before)
   })
 
-  // #443: regi verzio vegleges torlese, rakerdezes nelkul; a jelenlegi nem torolheto.
-  it('verzio torlese: csak a regihez van gomb, rakerdezes nelkul DELETE, a lista frissul', async () => {
+  // #443: verzio vegleges torlese, rakerdezes nelkul; a jelenlegi is (Boss,
+  // 2026-09-29), az egyetlen nem.
+  it('verzio torlese: mindkettohoz van gomb, rakerdezes nelkul DELETE, a lista frissul, az egyetlennek nincs gombja', async () => {
     await openVersions([V2, V1])
     expect(h.rootEl.innerHTML).toMatch(/data-wb-act="version-delete"[^>]*data-wb-version="v1"/)
-    expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="version-delete"[^>]*data-wb-version="v2"/)
+    expect(h.rootEl.innerHTML).toMatch(/data-wb-act="version-delete"[^>]*data-wb-version="v2"/)
     const asked: string[] = []
     h.win.confirm = (m: string) => { asked.push(m); return true }
     h.respond(() => ({ status: 200, body: { ok: true, item: { ...PREV_ITEM, current_version_id: 'v2' }, versions: [V2] } }))
@@ -1160,6 +1161,21 @@ describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
     const del = h.fetchCalls.filter((c) => c.init && c.init.method === 'DELETE').pop()
     expect(del!.url).toContain('/api/workbench/items/w1/versions/v1')
     expect(h.rootEl.innerHTML).not.toContain('data-wb-version="v1"')
+    // Egy verzio maradt: azt nem lehet torolni, nincs mit betolteni utana.
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="version-delete"')
+  })
+
+  it('a JELENLEGI torlese: az alatta levo toltodik be, es kiirja, melyik', async () => {
+    await openVersions([V2, V1])
+    h.respond(() => ({
+      status: 200,
+      body: { ok: true, item: { ...PREV_ITEM, current_version_id: 'v1' }, versions: [V1], loaded: { id: 'v1', version_no: 1 }, parts: [] },
+    }))
+    h.click({ 'data-wb-act': 'version-delete', 'data-wb-version': 'v2' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.versions.deleted_loaded'))
+    const del = h.fetchCalls.filter((c) => c.init && c.init.method === 'DELETE').pop()
+    expect(del!.url).toContain('/api/workbench/items/w1/versions/v2')
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-version="v2"')
   })
 
   it('mentes uj verziokent: POST a /versions-re, es szol rola', async () => {

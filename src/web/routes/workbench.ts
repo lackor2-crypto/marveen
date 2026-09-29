@@ -115,9 +115,9 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a verzió nincs meg. Lehet, hogy közben törölted a munkadarabot, vagy egy régi lapot néztél -- frissítsd az oldalt.',
     en: 'That version does not exist. The work item may have been deleted, or you are looking at a stale page -- reload it.',
   },
-  version_current: {
-    hu: 'Ez a jelenlegi verzió, ezt nem lehet törölni. Ha el akarod dobni, előbb állíts vissza egy másikat, vagy ments új verziót.',
-    en: 'This is the current version, so it cannot be deleted. To drop it, restore another version or save a new one first.',
+  version_last: {
+    hu: 'Ez a munkadarab egyetlen verziója, ezt nem lehet törölni, mert nem maradna mit betölteni. Ha az egész munkadarabot el akarod tüntetni, töröld a listából (a Lomtárba kerül).',
+    en: 'This is the only version of the work item, so it cannot be deleted -- nothing would be left to load. To remove the whole work item, delete it from the list (it goes to the Trash).',
   },
   version_mismatch: {
     hu: 'Ez a verzió nem ehhez a munkadarabhoz tartozik, ezért nem állítom vissza.',
@@ -1963,7 +1963,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = deleteWorkItemVersion(segs[2] || '', item.id)
     if (!r.ok) return fail(res, r.code === 'version_not_found' || r.code === 'item_not_found' ? 404 : 409, r.code, lang)
-    json(res, { ok: true, item: r.item, versions: listWorkItemVersionsView(item.id) })
+    json(res, {
+      ok: true, item: r.item, versions: listWorkItemVersionsView(item.id),
+      // A jelenlegi torlesekor a munkadarab egy masik verziora allt at: annak
+      // a reszei az elok, a felulet ezekkel tolti be ujra a szerkesztot.
+      loaded: r.loaded ? { id: r.loaded.id, version_no: r.loaded.version_no } : null,
+      parts: listWorkItemParts(item.id),
+    })
     return true
   }
 

@@ -5641,6 +5641,8 @@ window._i18n.hu = {
   "workbench.versions.delete": "Törlés",
   "workbench.versions.delete_title": "Ezt a verziót végleg törli, vissza nem hozható. A többi verzió megmarad.",
   "workbench.versions.deleted": "A verzió végleg törölve.",
+  "workbench.versions.delete_current_title": "Ezt, a jelenlegi verziót végleg törli, és az alatta lévő előző verziót tölti be. Vissza nem hozható.",
+  "workbench.versions.deleted_loaded": "A verzió végleg törölve, betöltöttem a(z) {n}. verziót.",
   "workbench.versions.upload_document_btn": "Szerkesztett fájl kiválasztása",
   "workbench.versions.restore_confirm": "Visszaállítod ezt a verziót? A mostani állapot NEM vész el: a visszaállításból új verzió lesz, a közben készült verziók pedig megmaradnak.",
   "workbench.versions.restored": "Visszaállítva. Az új verzió: {n}.",

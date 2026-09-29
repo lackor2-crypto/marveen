@@ -126,11 +126,35 @@ describe('verzio vegleges torlese', () => {
     expect(getWorkItem(ids.A)!.current_version_id).toBe(v2.id)
   })
 
-  it('a jelenlegi verzio nem torolheto', () => {
-    const { v2 } = twoVersions()
-    const n = listWorkItemVersions(ids.A).length
-    expect(deleteWorkItemVersion(v2.id, ids.A)).toEqual({ ok: false, code: 'version_current' })
-    expect(listWorkItemVersions(ids.A).length).toBe(n)
+  it('a jelenlegi verzio is torolheto: az alatta levo toltodik be (Boss, 2026-09-29)', () => {
+    const { v1, v2 } = twoVersions()
+    const v1Parts = listWorkItemParts(ids.A, v1.id).map((p) => p.text)
+    const r = deleteWorkItemVersion(v2.id, ids.A)
+    if (!r.ok) throw new Error(r.code)
+    expect(r.loaded?.id).toBe(v1.id)
+    expect(listWorkItemVersions(ids.A).map((v) => v.id)).not.toContain(v2.id)
+    const item = getWorkItem(ids.A)!
+    expect(item.current_version_id).toBe(v1.id)
+    expect(item.source_path).toBe(v1.source_path)
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM work_item_parts WHERE version_id = ?').get(v2.id)).toEqual({ n: 0 })
+    // Az elo reszek most v1 reszei (plusz a verziozas elotti, ha van).
+    const live = listWorkItemParts(ids.A)
+    expect(live.filter((p) => p.version_id === v1.id).map((p) => p.text)).toEqual(v1Parts)
+    expect(live.some((p) => p.version_id === v2.id)).toBe(false)
+  })
+
+  it('az egyetlen verzio nem torolheto: version_last, nem torol', () => {
+    let vs = listWorkItemVersions(ids.A)
+    while (vs.length > 1) {
+      const cur = getWorkItem(ids.A)!.current_version_id!
+      const r = deleteWorkItemVersion(cur, ids.A)
+      if (!r.ok) throw new Error(r.code)
+      vs = listWorkItemVersions(ids.A)
+    }
+    expect(vs.length).toBe(1)
+    expect(deleteWorkItemVersion(vs[0].id, ids.A)).toEqual({ ok: false, code: 'version_last' })
+    expect(listWorkItemVersions(ids.A).length).toBe(1)
+    expect(getWorkItem(ids.A)!.current_version_id).toBe(vs[0].id)
   })
 
   it('mas munkadarab verzioja: version_mismatch, nem torol', () => {
@@ -140,15 +164,21 @@ describe('verzio vegleges torlese', () => {
     expect(listWorkItemVersions(ids.A).length).toBe(n)
   })
 
-  it('vegpont: DELETE torol, a jelenlegire 409 emberi mondattal, ismeretlenre 404', async () => {
+  it('vegpont: DELETE torol, a jelenlegit is (loaded + parts), az utolsora 409 emberi mondattal, ismeretlenre 404', async () => {
     const { v1, v2 } = twoVersions()
     const ok = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${v1.id}`, 'DELETE')
     expect(ok.status).toBe(200)
     expect((ok.body as { versions: { id: string }[] }).versions.map((v) => v.id)).not.toContain(v1.id)
+    expect(ok.body).toMatchObject({ loaded: null })
     const cur = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${v2.id}`, 'DELETE')
-    expect(cur.status).toBe(409)
-    expect(cur.body).toMatchObject({ error: 'version_current' })
-    expect(typeof (cur.body as { message: string }).message).toBe('string')
+    expect(cur.status).toBe(200)
+    const body = cur.body as { loaded: { id: string }; item: { current_version_id: string }; parts: unknown[] }
+    expect(body.loaded.id).toBe(body.item.current_version_id)
+    expect(Array.isArray(body.parts)).toBe(true)
+    const last = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${body.item.current_version_id}`, 'DELETE')
+    expect(last.status).toBe(409)
+    expect(last.body).toMatchObject({ error: 'version_last' })
+    expect(typeof (last.body as { message: string }).message).toBe('string')
     const gone = await callWorkbench(`/api/workbench/items/${ids.A}/versions/${v1.id}`, 'DELETE')
     expect(gone.status).toBe(404)
   })

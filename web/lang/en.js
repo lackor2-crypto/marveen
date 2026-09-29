@@ -5563,6 +5563,8 @@ window._i18n.en = {
   "workbench.versions.delete": "Delete",
   "workbench.versions.delete_title": "Deletes this version permanently; it cannot be brought back. Other versions are kept.",
   "workbench.versions.deleted": "The version was deleted permanently.",
+  "workbench.versions.delete_current_title": "Deletes this, the current version, permanently and loads the previous version below it. It cannot be brought back.",
+  "workbench.versions.deleted_loaded": "The version was deleted permanently; version {n} is loaded.",
   "workbench.versions.upload_document_btn": "Choose the edited file",
   "workbench.versions.restore_confirm": "Restore this version? The current state is NOT lost: restoring creates a new version, and the versions made in between are kept.",
   "workbench.versions.restored": "Restored. The new version is {n}.",

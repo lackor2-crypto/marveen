@@ -4694,13 +4694,17 @@
         + (versions.length
           ? '<ul class="wb-versions">' + versions.map(function (v) {
             var current = v.id === it.current_version_id
-            // A JELENLEGIT nincs mire visszaallitani es nem torolheto; a regihez
-            // ott a ket gomb. A Torles vegleges (#443), rakerdezes nelkul.
-            var acts = (current || ro) ? '' : ('<button type="button" class="wb-mini-btn" data-wb-act="version-restore"'
-              + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>'
-              + '<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="version-delete"'
-              + ' data-wb-version="' + escA(v.id) + '" title="' + escA(t('workbench.versions.delete_title')) + '">'
-              + esc(t('workbench.versions.delete')) + '</button>')
+            // A JELENLEGIT nincs mire visszaallitani, de torolheto: akkor az
+            // alatta levo toltodik be (Boss, 2026-09-29). Az EGYETLEN verzio
+            // nem torolheto -- nem maradna mit betolteni. A Torles vegleges
+            // (#443), rakerdezes nelkul.
+            var canDelete = !ro && versions.length > 1
+            var acts = ((current || ro) ? '' : ('<button type="button" class="wb-mini-btn" data-wb-act="version-restore"'
+              + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>'))
+              + (canDelete ? ('<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="version-delete"'
+              + ' data-wb-version="' + escA(v.id) + '" title="'
+              + escA(t(current ? 'workbench.versions.delete_current_title' : 'workbench.versions.delete_title')) + '">'
+              + esc(t('workbench.versions.delete')) + '</button>') : '')
             return '<li class="wb-row"><div class="wb-row-main">' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
               + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
               + (v.restored_from_no ? ' <span class="wb-muted">'
@@ -6541,9 +6545,11 @@
     })
   }
 
-  /** Regi verzio VEGLEGES torlese (#443). Nem a jelenlegit: azt a szerver is
-   *  elutasitja. A tobbi verzio es az elonezet valtozatlan marad, kiveve ha
-   *  eppen a torolt verziot nezted -- akkor a jelenlegire all vissza. */
+  /** Verzio VEGLEGES torlese (#443). Regi verzional a tobbi verzio es az
+   *  elonezet valtozatlan marad, kiveve ha eppen a torolt verziot nezted --
+   *  akkor a jelenlegire all vissza. A JELENLEGI torlesekor a szerver az
+   *  alatta levore allitja at a munkadarabot (`loaded`), es a felulet azt
+   *  tolti be ugyanugy, mint egy visszaallitas utan. */
   function deleteVersion(versionId) {
     if (!versionId || !WB.selectedId || WB.versionBusy || archived()) return
     var id = WB.selectedId
@@ -6553,6 +6559,11 @@
       WB.versionBusy = false
       if (WB.selectedId !== id || !WB.detail) return
       if (!r.ok) { render(); window.showToast(r.message); return }
+      if (r.data && r.data.loaded) {
+        applyVersions(r.data)
+        window.showToast(t('workbench.versions.deleted_loaded', { n: r.data.loaded.version_no }))
+        return
+      }
       if (r.data && r.data.versions) WB.detail.versions = r.data.versions
       if (r.data && r.data.item) WB.detail.item = r.data.item
       if (WB.compare) WB.compare = null
