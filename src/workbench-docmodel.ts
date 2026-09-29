@@ -118,6 +118,18 @@ export function ensureDocModelTables(): void {
       created_at INTEGER NOT NULL
     )
   `)
+  // ATIRASI JAVASLAT (K-1.20): blokkonkent legfeljebb egy; a tulajdonos fogadja el vagy veti el.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wb_doc_rewrites (
+      block_id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL,
+      style TEXT NOT NULL,
+      text TEXT NOT NULL,
+      base_text TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      created_by TEXT
+    )
+  `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_sections_item ON wb_doc_sections(work_item_id, position)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_blocks_section ON wb_doc_blocks(section_id, position)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_claims_block ON wb_doc_claims(block_id)')
@@ -150,7 +162,7 @@ export interface SourceRow {
 // Fejezetek es blokkok
 // ---------------------------------------------------------------------------
 
-export type ModelError = 'not_found' | 'bad_input' | 'too_many' | 'claim_not_in_text'
+export type ModelError = 'not_found' | 'bad_input' | 'too_many' | 'claim_not_in_text' | 'rewrite_stale'
 export type ModelResult<T> = { ok: true } & T | { ok: false; code: ModelError; detail: string }
 
 export function listSections(itemId: string): SectionRow[] {
@@ -247,6 +259,7 @@ function dropBlockRows(blockId: string): void {
     db.prepare('DELETE FROM wb_doc_sources WHERE claim_id = ?').run(c.id)
   }
   db.prepare('DELETE FROM wb_doc_claims WHERE block_id = ?').run(blockId)
+  db.prepare('DELETE FROM wb_doc_rewrites WHERE block_id = ?').run(blockId)
   db.prepare('DELETE FROM wb_doc_blocks WHERE id = ?').run(blockId)
 }
 
@@ -525,11 +538,86 @@ export function recheckPendingSources(itemId: string, world: SourceWorld): numbe
 }
 
 // ---------------------------------------------------------------------------
+// Atirasi javaslat: "egyszerubben" / "hivatalosabban" (K-1.20)
+// ---------------------------------------------------------------------------
+//
+// Az agent NEM irja at helyben a bekezdest: javaslatot tesz, amit a
+// tulajdonos a vazlatban lat az eredeti mellett, es egy kattintassal elfogad
+// vagy elvet (mint a Word / Google Docs "javaslat" modja). Igy semmi nem
+// valtozik a hata mogott, es latja, ha egy forrasolt allitas kiesne.
+
+export const REWRITE_STYLES = ['simpler', 'formal', 'other'] as const
+export type RewriteStyle = typeof REWRITE_STYLES[number]
+/** Csak szoveges blokkokat irunk at; a tablazat es az alairas szerkezet, nem stilus kerdese. */
+export const REWRITABLE_KINDS: readonly BlockKind[] = ['paragraph', 'list', 'footnote']
+
+export interface RewriteView {
+  style: RewriteStyle
+  text: string
+  /** A bekezdes azota megvaltozott: a javaslat a regi szovegre szolt, nem fogadhato el. */
+  stale: boolean
+  /** Ezek a forrasolt allitasok esnenek ki (a szoveguk nincs benne a javaslatban). */
+  would_drop: string[]
+  created_at: number
+  created_by: string | null
+}
+
+interface RewriteRow { block_id: string; work_item_id: string; style: RewriteStyle; text: string; base_text: string; created_at: number; created_by: string | null }
+
+function droppedClaims(blockId: string, text: string): string[] {
+  const norm = normalizeForMatch(text)
+  return (getDb().prepare('SELECT text FROM wb_doc_claims WHERE block_id = ? ORDER BY created_at').all(blockId) as { text: string }[])
+    .filter((c) => !norm.includes(normalizeForMatch(c.text))).map((c) => c.text)
+}
+
+function rewriteView(r: RewriteRow, blockText: string): RewriteView {
+  return { style: r.style, text: r.text, stale: r.base_text !== blockText, would_drop: droppedClaims(r.block_id, r.text), created_at: r.created_at, created_by: r.created_by }
+}
+
+export function proposeRewrite(itemId: string, blockId: string, input: { text?: unknown; style?: unknown }, by: string | null): ModelResult<{ rewrite: RewriteView }> {
+  ensureDocModelTables()
+  const b = getBlock(itemId, String(blockId || ''))
+  if (!b) return { ok: false, code: 'not_found', detail: 'no block with this id in this work item' }
+  if (!REWRITABLE_KINDS.includes(b.kind)) return { ok: false, code: 'bad_input', detail: `only ${REWRITABLE_KINDS.join(', ')} blocks can be rewritten this way; edit a ${b.kind} with doc.updateBlock` }
+  const text = String(input.text ?? '').replace(/\r\n/g, '\n').trim()
+  if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
+  if (text === b.text) return { ok: false, code: 'bad_input', detail: 'the proposal is the same as the current text' }
+  const style = REWRITE_STYLES.includes(input.style as RewriteStyle) ? input.style as RewriteStyle : 'other'
+  getDb().prepare(`INSERT INTO wb_doc_rewrites (block_id, work_item_id, style, text, base_text, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(block_id) DO UPDATE SET style = excluded.style, text = excluded.text, base_text = excluded.base_text, created_at = excluded.created_at, created_by = excluded.created_by`)
+    .run(b.id, itemId, style, text, b.text, now(), by)
+  return { ok: true, rewrite: rewriteView(getDb().prepare('SELECT * FROM wb_doc_rewrites WHERE block_id = ?').get(b.id) as RewriteRow, b.text) }
+}
+
+/**
+ * A javaslat elfogadasa: CSAK a tulajdonos kattintasa (a hivo utvonal
+ * ellenorzi). A szoveget az agent irta, ezert a blokk szerzoje nem valtozik
+ * "tulajdonos irta"-ra; a kieso allitasok a forrasaikkal egyutt kiesnek (ezt
+ * a felulet elore mutatta).
+ */
+export function acceptRewrite(itemId: string, blockId: string): ModelResult<{ block: BlockRow; dropped_claims: number }> {
+  ensureDocModelTables()
+  const b = getBlock(itemId, String(blockId || ''))
+  const r = b ? getDb().prepare('SELECT * FROM wb_doc_rewrites WHERE block_id = ?').get(b.id) as RewriteRow | undefined : undefined
+  if (!b || !r) return { ok: false, code: 'not_found', detail: 'no rewrite proposal for this block' }
+  if (r.base_text !== b.text) return { ok: false, code: 'rewrite_stale', detail: 'the block changed since the proposal was made' }
+  const out = updateBlock(itemId, b.id, { text: r.text, author: 'agent' })
+  if (out.ok) getDb().prepare('DELETE FROM wb_doc_rewrites WHERE block_id = ?').run(b.id)
+  return out
+}
+
+export function dismissRewrite(itemId: string, blockId: string): ModelResult<{ removed: string }> {
+  ensureDocModelTables()
+  const r = getDb().prepare('DELETE FROM wb_doc_rewrites WHERE block_id = ? AND work_item_id = ?').run(String(blockId || ''), itemId)
+  return r.changes ? { ok: true, removed: String(blockId) } : { ok: false, code: 'not_found', detail: 'no rewrite proposal for this block' }
+}
+
+// ---------------------------------------------------------------------------
 // A teljes nezet es a veglegesites elotti ellenorzes (K-1.14, K-1.22)
 // ---------------------------------------------------------------------------
 
 export interface SectionView extends SectionRow {
-  blocks: (BlockRow & { claims: ClaimView[]; missing: string[] })[]
+  blocks: (BlockRow & { claims: ClaimView[]; missing: string[]; rewrite: RewriteView | null })[]
   /** Hiany-jelolesek + nem igazolt allitasok szama a fejezetben. */
   problems: number
 }
@@ -542,10 +630,12 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
   ensureDocModelTables()
   const claims = listClaims(itemId)
   const blocks = listBlocks(itemId)
+  const rewrites = new Map((getDb().prepare('SELECT * FROM wb_doc_rewrites WHERE work_item_id = ?').all(itemId) as RewriteRow[]).map((r) => [r.block_id, r]))
   const sections = listSections(itemId).map((s) => {
-    const bs = blocks.filter((b) => b.section_id === s.id).map((b) => ({
-      ...b, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text),
-    }))
+    const bs = blocks.filter((b) => b.section_id === s.id).map((b) => {
+      const rw = rewrites.get(b.id)
+      return { ...b, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
+    })
     const problems = bs.reduce((n, b) => n + b.missing.length + b.claims.filter((c) => c.strength === 'unverified').length, 0)
     return { ...s, blocks: bs, problems }
   })

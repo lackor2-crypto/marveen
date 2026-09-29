@@ -51,7 +51,7 @@ import {
 import { writeProjectFile, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import {
   hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
-  confirmOwnerClaim, recheckPendingSources,
+  confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
@@ -684,6 +684,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   outline_claim_not_in_text: {
     hu: 'Az állítás nem szerepel szó szerint a bekezdésben.',
     en: 'The claim is not a verbatim part of the block.',
+  },
+  outline_rewrite_stale: {
+    hu: 'Ez a bekezdés megváltozott, amióta a javaslat készült, ezért a javaslat már nem illik rá. Vesd el, és kérj újat.',
+    en: 'This block changed since the proposal was made, so the proposal no longer fits it. Dismiss it and ask for a new one.',
   },
   doc_tool_unknown: {
     hu: 'Ismeretlen dokumentum-eszköz (csak a doc.* eszközök érhetők el itt).',
@@ -1971,6 +1975,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       // Egy agent (tokennel) nem erosithet meg: a megerosites a tulajdonos szava.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
       return done(confirmOwnerClaim(item.id, id, actor(ctx), lang))
+    }
+    // ATIRASI JAVASLAT (K-1.20): az agent javasol (doc.proposeRewrite), a tulajdonos
+    // SAJAT kattintasa fogadja el vagy veti el -- az agent a sajat javaslatat nem fogadhatja el.
+    if (sub === 'blocks' && segs.length >= 5 && segs[4] === 'rewrite') {
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+      if (segs.length === 6 && segs[5] === 'accept' && method === 'POST') {
+        const r = acceptRewrite(item.id, id)
+        if (!r.ok && r.code === 'rewrite_stale') {
+          json(res, { error: 'outline_rewrite_stale', message: msg('outline_rewrite_stale', lang), outline: outlineOrEmpty(item.id) }, 409)
+          return true
+        }
+        return done(r)
+      }
+      if (segs.length === 5 && method === 'DELETE') return done(dismissRewrite(item.id, id))
     }
     // KOVETKEZETESSEG (K-1.19): egy jelzett elteres "szandekos" -- csak a tulajdonos
     // kattintasa (az agent a szoveget javithatja, a jelzest nem nemithatja el).

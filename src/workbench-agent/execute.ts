@@ -38,7 +38,7 @@ import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisi
 import { webSearch } from './web-search.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
 import {
-  documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim,
+  documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim, proposeRewrite,
   documentCheck, recheckPendingSources,
 } from '../workbench-docmodel.js'
 import { finalizationState } from '../workbench-docfinal.js'
@@ -338,7 +338,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     }
     case 'doc.outline': case 'doc.addSection': case 'doc.updateSection': case 'doc.removeSection':
     case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
-    case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings':
+    case 'doc.proposeRewrite': case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings':
     case 'doc.deadlines': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
@@ -388,6 +388,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
           case 'doc.removeSection': { const r = removeSection(item.id, asString(input.section)); return r.ok ? { ok: true, data: r } : r }
           case 'doc.addBlock': { const r = addBlock(item.id, asString(input.section), { kind: input.kind, text: input.text, position: input.position, author: 'agent' }); return r.ok ? { ok: true, data: r.block } : r }
           case 'doc.updateBlock': { const r = updateBlock(item.id, asString(input.block), { text: input.text, kind: input.kind, author: 'agent' }); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.proposeRewrite': { const r = proposeRewrite(item.id, asString(input.block), { text: input.text, style: input.style }, 'workbench-agent'); return r.ok ? { ok: true, data: { ...r.rewrite, note: r.rewrite.would_drop.length ? 'These sourced claims would drop out on accept, because their text is not in the proposal verbatim. Keep them word for word and propose again, unless dropping them is intended.' : 'The owner sees the proposal in the outline and accepts or dismisses it.' } } : r }
           case 'doc.removeBlock': { const r = removeBlock(item.id, asString(input.block)); return r.ok ? { ok: true, data: r } : r }
           case 'doc.addClaim': { const r = addClaim(item.id, asString(input.block), input.text, input.sources, world, 'workbench-agent'); return r.ok ? { ok: true, data: r.claim } : r }
           default: { const r = removeClaim(item.id, asString(input.claim)); return r.ok ? { ok: true, data: r } : r }

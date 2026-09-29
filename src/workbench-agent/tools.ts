@@ -203,6 +203,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'doc.proposeRewrite',
+    description: 'Propose a new wording for a paragraph, list or footnote block, e.g. when the owner asks for it "simpler" (egyszerűbben) or "more formal" (hivatalosabban). It does NOT change the block: the owner sees the proposal next to the original in the outline and accepts or dismisses it with a click. Keep every fact, name, date, amount and reference; keep the text of each sourced claim verbatim, otherwise that claim drops out on accept (the result lists them in would_drop -- fix the wording and propose again). "simpler": short sentences, everyday words, still correct in the target language. "formal": the official register of the target language and court (e.g. Hungarian court style, German Schriftsatz style). One proposal per block; a new one replaces the old.',
+    input: 'id (optional); block: the block id; text: the proposed wording; style: simpler | formal | other',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'doc.removeBlock',
     description: 'Remove a block with its claims.',
     input: 'id (optional); block: the block id',
