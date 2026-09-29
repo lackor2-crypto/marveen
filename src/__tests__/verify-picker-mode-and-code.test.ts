@@ -41,7 +41,7 @@ describe('the picker offers a mode, and says what each one does', () => {
   })
 
   it('the chosen mode is actually sent to the server', () => {
-    expect(APP).toContain('JSON.stringify({ agents: chosen, mode: _verifyPickedMode() })')
+    expect(APP).toContain('JSON.stringify({ agents: chosen, mode: _verifyPickedMode(), force })')
   })
 
   it('a finished row shows which mode it ran in', () => {
