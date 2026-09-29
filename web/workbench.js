@@ -1644,7 +1644,7 @@
     if (WB.vidStatus.state !== 'ok') {
       // EXTRA kepesseg: a hianya nem vészjelzes, csak egy mondat es egy ut.
       return '<div class="wb-vid-tools"><p class="wb-hint">' + esc(WB.vidStatus.message || t('workbench.vid.status_failed')) + '</p>'
-        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button></div>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="caps-open" aria-pressed="' + !!WB.capsOpen + '">' + esc(t('workbench.caps.open')) + '</button></div>'
     }
     var st = vidState()
     var busy = !!st.busy
@@ -5168,20 +5168,23 @@
    *  Intezo (a dashboard fajlkezeloje) es a gep sajat fajlkezeloje (Windows
    *  Explorer / Finder). Ha a gepen nincs megnyithato fajlkezelo, csak az
    *  Intezo gomb latszik. `compact`: ikon-gombok egy anyag-sorban; 'short':
-   *  side by side, icon + "Open", the full meaning in the tooltip (TG 1817). */
+   *  side by side, icon + a few plain words, same text as tooltip (TG 1817/1832). */
   function folderBtnsHtml(place, assetId, compact) {
     if (WB.fm === undefined) loadFileManagerKind()
     var data = ' data-wb-place="' + escA(place) + '"' + (assetId ? ' data-wb-asset="' + escA(assetId) + '"' : '')
     var fm = WB.fm && WB.fm !== 'none' ? WB.fm : null
-    var tIn = t(place === 'asset' ? 'workbench.folder.intezo_file_title' : 'workbench.folder.intezo_title')
-    var tSys = fm ? t(place === 'asset' ? 'workbench.folder.system_file_title.' + fm : 'workbench.folder.system_title.' + fm) : ''
     var short = compact === 'short'
+    // 'short': a few plain words on the button itself, no long tooltip (Boss, TG 1832).
+    var sIn = t('workbench.folder.short.intezo')
+    var sSys = fm ? t('workbench.folder.short.system.' + fm) : ''
+    var tIn = short ? sIn : t(place === 'asset' ? 'workbench.folder.intezo_file_title' : 'workbench.folder.intezo_title')
+    var tSys = short ? sSys : (fm ? t(place === 'asset' ? 'workbench.folder.system_file_title.' + fm : 'workbench.folder.system_title.' + fm) : '')
     var cls = compact === true ? 'wb-mini-btn wb-folder-btn' : 'wb-btn wb-folder-btn'
-    function label(full) { return compact === true ? '' : ' ' + esc(short ? t('workbench.folder.open_short') : full) }
+    function label(full, shortText) { return compact === true ? '' : ' ' + esc(short ? shortText : full) }
     var b = '<button type="button" class="' + cls + '" data-wb-act="folder-intezo"' + data
-      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + label(t('workbench.folder.intezo')) + '</button>'
+      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + label(t('workbench.folder.intezo'), sIn) + '</button>'
       + (fm ? '<button type="button" class="' + cls + '" data-wb-act="folder-system"' + data
-        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + label(t('workbench.folder.system.' + fm)) + '</button>' : '')
+        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + label(t('workbench.folder.system.' + fm), sSys) + '</button>' : '')
     return compact === true ? b : '<p class="wb-ctx-actions wb-folder-acts' + (short ? ' wb-folder-row' : '') + '">' + b + '</p>'
   }
 
@@ -6007,7 +6010,7 @@
     return '<div class="wb-chat-head">'
       + '<label class="wb-chat-label" for="wbChatInput">' + esc(t('workbench.chat.title')) + '</label>'
       + chatStatusHtml()
-      + '<button type="button" class="btn-secondary wb-chat-setup-btn" data-wb-act="chat-setup">' + esc(t('workbench.chat.setup')) + '</button>'
+      + '<button type="button" class="btn-secondary wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>'
       + '</div>'
       + chatAccountHtml()
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
@@ -7262,7 +7265,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="td-open" aria-pressed="' + !!WB.tdOpen + '">' + esc(t('workbench.td.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
-      + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="caps-open" aria-pressed="' + !!WB.capsOpen + '">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml()
@@ -7801,7 +7804,7 @@
     else if (a === 'post-dl') postDownload(act.getAttribute('data-wb-fmt') === 'png' ? 'png' : 'jpg')
     else if (a === 'post-pdf') postPdf()
     else if (a === 'post-save') postSave()
-    else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
+    else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = !WB.partNewOpen; WB.partEdit = null; render() } }
     else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partNewDraft = ''; WB.partEdit = null; render() }
     else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }
     else if (a === 'part-edit') { WB.partEdit = act.getAttribute('data-wb-part'); WB.partDraft = null; WB.partNewOpen = false; render() }
@@ -7809,7 +7812,8 @@
     else if (a === 'part-up') movePart(act.getAttribute('data-wb-part'), 'up')
     else if (a === 'part-down') movePart(act.getAttribute('data-wb-part'), 'down')
     else if (a === 'part-remove') removePart(act.getAttribute('data-wb-part'))
-    else if (a === 'caps-open') { WB.capsOpen = true; if (WB.caps === null) loadCaps(false); else render() }
+    // Toggle like every other header panel button: a second press closes it (Boss, TG 1830).
+    else if (a === 'caps-open') { WB.capsOpen = !WB.capsOpen; if (WB.capsOpen && WB.caps === null) loadCaps(false); else render() }
     else if (a === 'caps-close') { WB.capsOpen = false; render() }
     else if (a === 'caps-refresh') loadCaps(true)
     else if (a === 'wk-open') { WB.wkOpen = !WB.wkOpen; if (WB.wkOpen && WB.weekly === null) loadWeekly(); else render() }
@@ -7897,7 +7901,7 @@
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))
-    else if (a === 'chat-setup') openChatSetup()
+    else if (a === 'chat-setup') { if (WB.chatSetupOpen) { WB.chatSetupOpen = false; renderChat() } else openChatSetup() }
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
     else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }
   })

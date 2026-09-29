@@ -37,12 +37,27 @@ describe('Verziok blokk fontossagi sorrendben (TG 1817)', () => {
     expect(block.split("t('workbench.versions.hint')").length).toBe(2)
   })
 
-  it("a 'short' gombon csak 'Megnyitas' all, a teljes jelentes a tooltipben", () => {
+  it("a 'short' gombon par egyszeru szo all, a tooltip ugyanaz (TG 1832)", () => {
     const fn = WBJS.slice(WBJS.indexOf('function folderBtnsHtml'), WBJS.indexOf('function loadFileManagerKind'))
-    expect(fn).toContain("short ? t('workbench.folder.open_short') : full")
-    expect(fn).toContain('title="\' + escA(tIn) + \'"')
-    expect(HU).toContain('"workbench.folder.open_short": "Megnyitás"')
-    expect(EN).toContain('"workbench.folder.open_short": "Open"')
+    expect(fn).toContain("var tIn = short ? sIn :")
+    expect(fn).toContain("label(t('workbench.folder.intezo'), sIn)")
+    expect(HU).toContain('"workbench.folder.short.intezo": "Megnyitás a {bot} Intézőjében"')
+    expect(HU).toContain('"workbench.folder.short.system.windows": "Megnyitás a Windows Intézőjében"')
+    expect(EN).toContain('"workbench.folder.short.system.windows": "Open in Windows Explorer"')
+  })
+})
+
+describe('Fejlec-panel gombjai ki-be kapcsolnak (TG 1830)', () => {
+  it("a 'Mi mukodik ezen a gepen?' es a cseveges-beallitas gomb masodik nyomasra bezar", () => {
+    expect(WBJS).toContain("a === 'caps-open') { WB.capsOpen = !WB.capsOpen;")
+    expect(WBJS).toContain('data-wb-act="caps-open" aria-pressed=')
+    expect(WBJS).toContain("a === 'chat-setup') { if (WB.chatSetupOpen) { WB.chatSetupOpen = false;")
+    expect(WBJS).toContain("WB.partNewOpen = !WB.partNewOpen")
+    const APP = readFileSync(join(WEB, 'app.js'), 'utf8')
+    expect(APP).toContain("bind('intezoConfigBtn', 'click', () => _intezoCfgToggle())")
+    expect(APP).toContain("bind('intezoConfigBtn2', 'click', () => _intezoCfgToggle())")
+    expect(APP).toMatch(/function _intezoCfgToggle\(\) \{[^}]*card\.hidden = true; return/)
+    expect(APP).toMatch(/tgt\.id === 'cbBrowseBtn'\) \{[\s\S]{0,200}open && !open\.hidden\) \{ cbBrowseStop\(\); open\.hidden = true; return \}/)
   })
 })
 
