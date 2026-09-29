@@ -232,3 +232,50 @@ export function buildVerificationPrompt(input: VerificationPromptInput): string 
     ),
   ].join('\n')
 }
+
+// --- The reminder ----------------------------------------------------------
+
+/**
+ * The reminder carries the WHOLE task again, not just the approval id.
+ *
+ * Measured, 2026-09-29 (approvals 7df7d89e, e606e379, 115de717, 67fca7f5 --
+ * card #381 among them): four fix tasks reached lackor3 while it was mid-turn
+ * on another card. Claude Code absorbed them into that turn, and three minutes
+ * later the session was restarted (its agent config changed) before it got to
+ * them, so the fresh session had never seen them. The sweep's reminder arrived
+ * as designed -- and said only "you got a task for approval <id>, report it".
+ * With nothing to act on, the agent reported every one as "never received,
+ * checked nothing". The repeat exists precisely for "it was working and lost
+ * the task" (approval-verification-sweep.ts), so a reminder that cannot
+ * restore the task defeats its own purpose.
+ *
+ * Two more things the old text got wrong:
+ *  - it told EVERY row "az ellenorzes CSAK-OLVASO", fix rows included, so a
+ *    fixer was reminded that it may not write. The body is now the mode's own
+ *    prompt, and each mode carries its own limits.
+ *  - a reminder can reach the agent AFTER it already reported: it waits in the
+ *    inbox while the agent is busy doing that very task. Carrying the task
+ *    makes a re-run tempting, and for a fix that is the same change applied
+ *    twice -- so the first instruction is a read-only look at the row.
+ */
+export function buildVerificationReminder(input: VerificationPromptInput): string {
+  const kind = input.mode === 'fix' ? 'javitasi' : 'ellenorzesi'
+  return [
+    `Emlekezteto: kaptal egy ${kind} feladatot (jovahagyas ${input.approvalId}), es a rendszer meg nem latta a jelentesedet.`,
+    ``,
+    `ELOSZOR nezd meg, nyitott-e meg -- ez egy olvaso (GET) hivas:`,
+    `curl -s ${input.baseUrl}/api/approvals/${input.approvalId} -H "Authorization: Bearer $(cat ${input.tokenPath})"`,
+    `A valasz "verifications" listajaban a te sorod (agent: "${input.agent}") "status" mezoje: ha mar NEM "pending",`,
+    `a jelentesed beert, es NINCS teendod -- ne csinald meg ujra.`,
+    ``,
+    `Ha meg "pending": a feladatot lent TELJES egeszeben megismetlem, mert lehet, hogy az eredeti nem maradt meg`,
+    `nalad (ujraindulas, tomorites, vagy munka kozben erkezett es elsikkadt). Ha mar elvegezted, csak a jelentest`,
+    `kuldd el; ha nem, most vegezd el.`,
+    `Egy panelben leirt valasz NEM szamit jelentesnek -- a rendszer csak a lenti verify-result hivast latja.`,
+    `Ha nem tudod elvegezni (modell-hiba, nincs hozzaferes, barmi), akkor is jelentsd: status "fail", a report mezoben egy mondatban miert.`,
+    `Ha hamarosan nem erkezik jelentes, a rendszer "nem valaszolt"-kent zarja le ezt a sort.`,
+    ``,
+    `----- A FELADAT (valtozatlanul) -----`,
+    buildVerificationPrompt(input),
+  ].join('\n')
+}

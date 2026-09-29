@@ -17,7 +17,7 @@ import { PROJECT_ROOT } from '../config.js'
 import {
   parseVerificationMode, buildVerificationPrompt, FIX_LANDING_POLICY,
   isCodeBridgeAgent, codeBridgeProjectOf, codeBridgeAgentId, CODE_AGENT_PREFIX,
-  descriptionMentionsCardId,
+  descriptionMentionsCardId, buildVerificationReminder,
   type VerificationPromptInput,
 } from '../approval-verification-dispatch.js'
 
@@ -243,5 +243,52 @@ describe('the prompt says what the 8-hex identifier IS', () => {
     // A missing description must not throw -- it reaches here straight from a DB row.
     expect(descriptionMentionsCardId('')).toBe(false)
     expect(descriptionMentionsCardId(undefined as unknown as string)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The reminder must be able to REPLACE a lost task -- measured 2026-09-29
+// ---------------------------------------------------------------------------
+//
+// Four fix tasks (card #381's approval e606e379 among them) reached lackor3
+// mid-turn; its session was restarted three minutes later, before it got to
+// them. The reminders that followed said only "you got a task for approval
+// <id>, report it", so the agent -- honestly -- reported all four as "never
+// received, checked nothing", and the approvals page showed four failures that
+// were delivery losses, not findings.
+describe('the reminder carries the whole task, in the row\'s own mode', () => {
+  const withCard = { ...BASE, actionDescription: 'Kártya #381 (kanban-azonosító: 7e3e38bd, nem git commit): Fotók' }
+
+  it('repeats the full original prompt, so a restarted session can still do the work', () => {
+    for (const mode of ['verify', 'fix'] as const) {
+      const input = { ...withCard, mode }
+      const reminder = buildVerificationReminder(input)
+      expect(reminder, `${mode} reminder`).toContain(buildVerificationPrompt(input))
+      expect(reminder, `${mode} reminder`).toContain('Leiras: Kártya #381 (kanban-azonosító: 7e3e38bd')
+      expect(reminder, `${mode} reminder`).toContain('/api/approvals/appr-1/verify-result')
+      expect(reminder, `${mode} reminder`).toContain('"agent":"some-agent"')
+    }
+  })
+
+  it('a fix row is not told that it may not write; a review row still is', () => {
+    const fix = buildVerificationReminder({ ...BASE, mode: 'fix' })
+    expect(fix).not.toContain('CSAK-OLVASO')
+    expect(fix).toContain('JAVITASI FELADAT')
+    expect(fix).toContain('javitasi feladatot')
+
+    const review = buildVerificationReminder({ ...BASE, mode: 'verify' })
+    expect(review).toContain('CSAK-OLVASO ELLENORZES')
+    expect(review).not.toContain('JAVITASI FELADAT')
+    expect(review).toContain('ellenorzesi feladatot')
+  })
+
+  it('first asks the agent to check (read-only) whether its row is still open, so a late reminder is no re-run', () => {
+    const reminder = buildVerificationReminder({ ...BASE, mode: 'fix' })
+    const check = 'curl -s http://localhost:1234/api/approvals/appr-1 -H "Authorization: Bearer $(cat /somewhere/store/.dashboard-token)"'
+    expect(reminder).toContain(check)
+    expect(reminder).toContain('agent: "some-agent"')
+    expect(reminder).toContain('ne csinald meg ujra')
+    // The check comes BEFORE the task body -- it is the gate, not an afterthought.
+    expect(reminder.indexOf(check)).toBeLessThan(reminder.indexOf('EZ EGY JAVITASI FELADAT'))
   })
 })
