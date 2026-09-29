@@ -5689,6 +5689,7 @@
             + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
           + '</div>'
           + (WB.warn && WB.warn.kind === 'asset-remove' && WB.warn.id === a.id ? assetRemoveBoxHtml(a) : '')
+          + (WB.redact && WB.redact.itemId === WB.selectedId && WB.redact.path === a.project_path ? redactBoxHtml() : '')
           + '</li>'
       }).join('') + '</ul>'
       : '<p class="wb-muted">' + esc(t('workbench.assets.none')) + '</p>'
@@ -5848,7 +5849,12 @@
     if (d.status === 'done') {
       var canSearchable = d.ocr_pages > 0 && /\.pdf$/i.test(a.name || '') && !/\((keres\u0151|searchable)\)\.pdf$/i.test(a.name || '') && !archived()
       var busy = WB.searchableBusy && WB.searchableBusy[a.project_path]
+      var canRedact = /\.pdf$/i.test(a.name || '') && !/\((kitakart|redacted)\)(?: \(\d+\))?\.pdf$/i.test(a.name || '') && !archived()
       return ' <span class="wb-muted wb-doc-state">' + esc(t('workbench.doc.pages', { n: d.pages_total })) + '</span>'
+        + (canRedact
+          ? ' <button type="button" class="wb-linklike" data-wb-act="redact-open" data-wb-path="' + escA(a.project_path) + '"'
+            + ' title="' + escA(t('workbench.redact.open_title')) + '">' + esc(t('workbench.redact.open')) + '</button>'
+          : '')
         + (canSearchable
           ? ' <button type="button" class="wb-linklike" data-wb-act="doc-searchable" data-wb-path="' + escA(a.project_path) + '"' + (busy ? ' disabled' : '')
             + ' title="' + escA(t('workbench.doc.searchable_title')) + '">' + esc(t(busy ? 'workbench.doc.searchable_busy' : 'workbench.doc.searchable')) + '</button>'
@@ -5876,6 +5882,86 @@
       if (!r.ok) { window.showToast(r.message); render(); return }
       window.showToast(t('workbench.doc.searchable_done', { name: r.data.name || '' }))
       if (WB.selectedId === id && WB.detail) { WB.detail.assets = r.data.assets || WB.detail.assets; render(); scheduleDocPoll(id) }
+    })
+  }
+
+  // ---- KITAKARAS (#441, K-1.35) ---------------------------------------------
+  // Egy PDF-rol masolat, amelyben a szemelyes adatok ki vannak takarva. A Marvin
+  // megkeresi oket, a tulajdonos kiveheti a pipat, es nevet adhat hozza; a
+  // masolat kepkent keszul ujra, a kitakart szoveg a fajlbol is torlodik.
+  var REDACT_CAT = { name: 'name', birth_date: 'birth_date', address: 'address', account: 'account', id_number: 'id_number', email: 'email', phone: 'phone', custom: 'custom' }
+
+  function redactBoxHtml() {
+    var r = WB.redact
+    var found = (r.scan && r.scan.findings) || []
+    var chosen = found.filter(function (f) { return !r.skip[f.id] }).length
+    var list = ''
+    if (r.scanning) list = '<p class="wb-muted">\u23f3 ' + esc(t('workbench.redact.scanning')) + '</p>'
+    else if (r.scan && !found.length) list = '<p class="wb-muted">' + esc(t('workbench.redact.none')) + '</p>'
+    else if (found.length) {
+      list = '<ul class="wb-redact-list">' + found.map(function (f) {
+        return '<li><label><input type="checkbox" data-wb-redact-id="' + escA(f.id) + '"' + (r.skip[f.id] ? '' : ' checked') + (r.busy ? ' disabled' : '') + '> '
+          + '<span class="wb-muted">' + esc(t('workbench.redact.page', { n: f.page })) + ' \u00b7 ' + esc(t('workbench.redact.cat.' + (REDACT_CAT[f.category] || 'custom'))) + ':</span> '
+          + '<span class="wb-redact-text">' + esc(f.text) + '</span></label></li>'
+      }).join('') + '</ul>'
+    }
+    var unreadable = r.scan && r.scan.unreadable_pages && r.scan.unreadable_pages.length
+      ? '<p class="wb-doc-low">\u26a0 ' + esc(t('workbench.redact.unreadable', { pages: r.scan.unreadable_pages.join(', ') })) + '</p>'
+      : ''
+    var noOcr = r.scan && !r.scan.ocr ? '<p class="wb-hint">' + esc(t('workbench.redact.no_ocr')) + '</p>' : ''
+    return '<div class="wb-redact-box" role="group" aria-label="' + escA(t('workbench.redact.title')) + '">'
+      + '<p><strong>' + esc(t('workbench.redact.title')) + '</strong></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.redact.intro')) + '</p>'
+      + list + unreadable + noOcr
+      + '<label class="wb-redact-terms-label" for="wbRedactTerms">' + esc(t('workbench.redact.terms')) + '</label>'
+      + '<textarea id="wbRedactTerms" class="wb-redact-terms" rows="3" placeholder="' + escA(t('workbench.redact.terms_ph')) + '"' + (r.busy ? ' disabled' : '') + '>' + esc(r.terms || '') + '</textarea>'
+      + '<p class="wb-hint">' + esc(t('workbench.redact.terms_hint')) + '</p>'
+      + '<p class="wb-ctx-actions">'
+      + '<button type="button" class="wb-btn" data-wb-act="redact-scan"' + (r.busy || r.scanning ? ' disabled' : '') + '>' + esc(t('workbench.redact.rescan')) + '</button> '
+      + '<button type="button" class="wb-btn wb-btn-primary" data-wb-act="redact-apply"' + (r.busy || r.scanning || !chosen ? ' disabled' : '') + '>'
+      + esc(r.busy ? t('workbench.redact.busy') : t('workbench.redact.apply', { n: chosen })) + '</button> '
+      + '<button type="button" class="wb-btn" data-wb-act="redact-close"' + (r.busy ? ' disabled' : '') + '>' + esc(t('workbench.warn.cancel')) + '</button>'
+      + '</p></div>'
+  }
+
+  function redactTerms() {
+    return String((WB.redact && WB.redact.terms) || '').split(/\r?\n/).map(function (x) { return x.trim() }).filter(Boolean)
+  }
+
+  function redactOpen(path) {
+    var id = WB.selectedId
+    if (!id || !path || archived()) return
+    if (WB.redact && WB.redact.itemId === id && WB.redact.path === path) { WB.redact = null; render(); return }
+    WB.redact = { itemId: id, path: path, terms: '', skip: {}, scan: null }
+    redactScan()
+  }
+
+  function redactScan() {
+    var r = WB.redact
+    if (!r || r.scanning || r.busy) return
+    r.scanning = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(r.itemId) + '/document/redact/scan', { path: r.path, terms: redactTerms() }).then(function (res) {
+      if (WB.redact !== r) return
+      r.scanning = false
+      if (!res.ok) { window.showToast(res.message); render(); return }
+      r.scan = res.data
+      render()
+    })
+  }
+
+  function redactApply() {
+    var r = WB.redact
+    if (!r || r.busy || r.scanning || !r.scan) return
+    var skip = Object.keys(r.skip).filter(function (k) { return r.skip[k] })
+    r.busy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(r.itemId) + '/document/redact', { path: r.path, terms: redactTerms(), skip: skip }).then(function (res) {
+      if (WB.redact === r) r.busy = false
+      if (!res.ok) { window.showToast(res.message); render(); return }
+      if (WB.redact === r) WB.redact = null
+      window.showToast(t(res.data.searchable ? 'workbench.redact.done' : 'workbench.redact.done_image', { name: res.data.name || '', n: res.data.redacted }))
+      if (WB.selectedId === r.itemId && WB.detail) { WB.detail.assets = res.data.assets || WB.detail.assets; render(); scheduleDocPoll(r.itemId) }
     })
   }
 
@@ -8251,6 +8337,12 @@
   // a kovetkezo kuldes ezt viszi. Nem kell ujrarajzolni -- a select maga mutatja.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
+    var rid = e.target.getAttribute && e.target.getAttribute('data-wb-redact-id')
+    if (rid && WB.redact) {
+      WB.redact.skip[rid] = !e.target.checked
+      render()
+      return
+    }
     var sel = e.target.closest('[data-wb-act="chat-account"]')
     if (!sel) return
     WB.chatAccount = sel.value === 'auto' ? '' : sel.value
@@ -8481,6 +8573,10 @@
     else if (a === 'dl-dismiss') dlCall('POST', encodeURIComponent(act.getAttribute('data-wb-key')) + '/dismiss', {})
     else if (a === 'dl-undismiss') dlCall('DELETE', encodeURIComponent(act.getAttribute('data-wb-key')) + '/dismiss')
     else if (a === 'doc-searchable') makeSearchable(act.getAttribute('data-wb-path'))
+    else if (a === 'redact-open') redactOpen(act.getAttribute('data-wb-path'))
+    else if (a === 'redact-scan') redactScan()
+    else if (a === 'redact-apply') redactApply()
+    else if (a === 'redact-close') { WB.redact = null; render() }
     else if (a === 'shared-toggle') toggleShared()
     else if (a === 'shared-link') linkShared(act.getAttribute('data-wb-path'))
     else if (a === 'chat-attached-drop') {
@@ -8641,6 +8737,7 @@
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target) return
     if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
+    if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
   })
 
   // Enter kuld, Shift+Enter uj sort ir. (Telefonon a gomb marad a fo ut.)

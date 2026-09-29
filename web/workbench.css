@@ -1083,3 +1083,14 @@
 .wb-dl-act .wb-hint { flex-basis: 100%; margin: 2px 0; }
 .wb-dl-past { opacity: 0.75; }
 .wb-dl-more > summary { cursor: pointer; margin-top: 4px; }
+
+/* KITAKARAS (#441, K-1.35): a talalatok listaja pipakkal, az irat soraban. */
+.wb-redact-box { flex-basis: 100%; border: 1px solid var(--border, #d0d7de); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.wb-redact-box p { margin: 0 0 6px; }
+.wb-redact-list { list-style: none; margin: 6px 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.wb-redact-list li { margin: 2px 0; }
+.wb-redact-list label { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
+.wb-redact-text { word-break: break-word; }
+.wb-redact-terms-label { display: block; margin-top: 8px; font-weight: 600; }
+.wb-redact-terms { width: 100%; box-sizing: border-box; margin: 4px 0; font: inherit; }
+.wb-asset.wb-row:has(> .wb-redact-box) { flex-wrap: wrap; }

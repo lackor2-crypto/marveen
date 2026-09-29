@@ -49,6 +49,7 @@ import { consistencyIssues } from '../workbench-doccheck.js'
 import { itemDeadlines } from '../workbench-deadlines.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
+import { scanForRedaction, makeRedactedCopy, redactedName } from '../workbench-redact.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -206,7 +207,7 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
  *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
  *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-  if (name !== 'web.search' && name !== 'document.toPdf') return executeTool(name, input, ctx)
+  if (name !== 'web.search' && name !== 'document.toPdf' && name !== 'document.redact') return executeTool(name, input, ctx)
 
   // #406 bugkereses 8.: a lassu eszkozok is UGYANAZON a kapun mennek at, mint
   // az executeTool -- kulonben egy uj async eszkoz csendben kikerulne.
@@ -230,6 +231,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
   if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
   const st = mustBeFile(ref.abs)
   if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+  if (name === 'document.redact') return redactTool(ref, input, ctx)
   if (!isOfficeConvertible(ref.name)) {
     return { ok: false, code: 'unsupported', detail: `${ref.name} is not an office document, so no PDF can be made from it` }
   }
@@ -254,6 +256,41 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
       note: out.cached
         ? 'the PDF preview was already made earlier, it is ready'
         : 'the PDF preview has been made; the original document was not changed',
+    },
+  }
+}
+
+/** Kitakaras (K-1.35): `dry_run` eseten csak a talalatok, kulonben a masolat. */
+async function redactTool(ref: { abs: string; name: string; dirAbs: string; rel: string }, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+  if (!/\.pdf$/i.test(ref.name)) return { ok: false, code: 'bad_input', detail: 'only a PDF can be redacted' }
+  const dry = input.dry_run === true || asString(input.dry_run) === 'true'
+  const fail = (r: { code: string; detail: string }): ToolResult => ({
+    ok: false, code: r.code,
+    detail: r.code === 'not_installed' ? `${r.detail}; tell the owner exactly this` : r.code === 'verify_failed' ? `${r.detail}. Tell the owner; do not send the original instead.` : r.detail,
+  })
+  if (dry) {
+    const r = await scanForRedaction(ref.abs, input.terms)
+    if (!r.ok) return fail(r)
+    return {
+      ok: true,
+      data: {
+        path: asString(input.path), pages: r.data.pages, findings: r.data.findings, unreadable_pages: r.data.unreadable_pages, ocr: r.data.ocr,
+        note: 'nothing was made yet. Show the owner what would be redacted, ask about names that were not found (pass them in terms), then call again without dry_run; ids the owner wants to keep visible go to skip',
+      },
+    }
+  }
+  const destName = freeFileName(ref.dirAbs, redactedName(ref.name, ctx.lang === 'en' ? 'en' : 'hu'))
+  const r = await makeRedactedCopy(ref.abs, join(ref.dirAbs, destName), { terms: input.terms, skip: input.skip })
+  if (!r.ok) return fail(r)
+  // A tulajdonos es az Agent a projektmappahoz kepest latja az utat (a ref.rel a Raktarhoz kepest van).
+  const relDir = asString(input.path).split('/').filter(Boolean).slice(0, -1).join('/')
+  return {
+    ok: true,
+    data: {
+      created: relDir ? `${relDir}/${r.name}` : r.name, redacted: r.redacted, pages: r.pages, searchable: r.searchable,
+      unreadable_pages: r.unreadable_pages, verified: true,
+      note: 'the copy was rebuilt from page images with the redacted words blacked out in the pixels, and machine-checked: none of the redacted texts can be read from it. The original was not changed.'
+        + (r.unreadable_pages.length ? ` Pages ${r.unreadable_pages.join(', ')} had no readable text, so nothing was found there: tell the owner to look at them.` : ''),
     },
   }
 }

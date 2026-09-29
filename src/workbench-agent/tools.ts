@@ -167,6 +167,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
   },
   {
+    name: 'document.redact',
+    description: 'Make a REDACTED copy of a PDF of the project folder: personal data (names, date of birth, address, bank account, tax/social/ID numbers, e-mail, phone) blacked out for real -- the copy is rebuilt from page images, so the hidden text is gone from the text layer, the objects and the metadata too, and it is machine-checked afterwards. Needed when a document goes to a third party. Always call it first with dry_run true: it lists what would be redacted (id, page, category, text). Names are only found automatically after a label ("Felperes: ...", "Name: ...") -- read the document (document.read) and pass every other personal name you see in terms, the owner may add more. Then call without dry_run; the ids the owner wants to keep visible go to skip. The original is not touched; the copy goes next to it as "<name> (kitakart).pdf".',
+    input: 'path: the PDF inside the project folder; terms: list of names/phrases to redact everywhere (inflected forms too); skip: list of finding ids to keep visible; dry_run: true to only list the findings',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
+  {
     name: 'doc.outline',
     description: 'The structured document of the work item (an official letter, a court filing): its sections with status, the blocks (paragraphs, lists, tables, footnotes, signature) with their ids, every factual claim with its sources and strength, and the missing-data marks. Work on official documents through these doc.* tools, not by writing a file.',
     input: 'id: the work item id (optional, defaults to the open one)',
