@@ -190,4 +190,20 @@ describe('free-agent-read-only: wired for every agent (parity)', () => {
     expect(entry).toBeTruthy()
     for (const t of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit', 'Bash']) expect(entry!.matcher.split('|')).toContain(t)
   })
+
+  // The main agent (and a code-bridge / VS Code session opened on the repo) runs
+  // on the repo's own .claude/settings.json, not the template. Wired only in the
+  // template, the parity gate saw the hook as template-only on every install
+  // (agent-parity "this install"), so it is registered here too, like
+  // skill-scope-gate (#438). There it is a no-op by design: CLAUDE_PROJECT_DIR is
+  // the install root, not agents/<name>/.
+  it('is registered in the repo settings too, and never stops a session at the install root', () => {
+    const pre = JSON.parse(readFileSync(join(ROOT, '.claude', 'settings.json'), 'utf-8')).hooks.PreToolUse as Array<{ matcher: string; hooks: Array<{ command: string }> }>
+    const entry = pre.find(e => e.hooks.some(h => h.command.includes('free-agent-read-only.py')))
+    expect(entry).toBeTruthy()
+    for (const t of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit', 'Bash']) expect(entry!.matcher.split('|')).toContain(t)
+    expect(bash('freebie', `git -C ${inst} checkout -b x`, inst).status).toBe(2)
+    expect(bash(null, `git -C ${inst} checkout -b x`).status).toBe(0)
+    expect(run(null, 'Edit', { file_path: join(inst, 'src', 'a.ts') }).status).toBe(0)
+  })
 })
