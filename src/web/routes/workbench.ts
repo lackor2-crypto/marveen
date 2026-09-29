@@ -53,6 +53,7 @@ import {
   confirmOwnerClaim, recheckPendingSources,
 } from '../../workbench-docmodel.js'
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
+import { draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDraft } from '../../workbench-docfinal.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
@@ -627,6 +628,46 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ehhez a művelethez az Agentnek most nincs önálló joga (autonómia-beállítás).',
     en: 'The Agent has no autonomous right for this action now (autonomy setting).',
   },
+  outline_empty: {
+    hu: 'Ennek a dokumentumnak még nincs vázlata, ezért nincs miből PDF-et készíteni.',
+    en: 'This document has no outline yet, so there is nothing to make a PDF from.',
+  },
+  outline_not_ready: {
+    hu: 'Még nem véglegesíthető: a „Véglegesítés előtti ellenőrzés” listán van még megoldatlan pont. A piszkozat PDF addig is elkészíthető.',
+    en: 'It cannot be finalized yet: the "Check before finalizing" list still has open points. The draft PDF can be made in the meantime.',
+  },
+  outline_changed: {
+    hu: 'A dokumentum közben megváltozott. Frissítettem a vázlatot: nézd át újra, és utána véglegesítsd.',
+    en: 'The document changed in the meantime. The outline is refreshed: review it again, then finalize it.',
+  },
+  outline_not_reviewed: {
+    hu: 'Előbb nyisd meg és nézd át a dokumentumot a „Megnyitom és átnézem” gombbal. Ha azóta módosult, újra meg kell nyitnod.',
+    en: 'First open and review the document with the "Open and review" button. If it changed since, open it again.',
+  },
+  outline_accept_required: {
+    hu: 'A véglegesítéshez pipáld be, hogy átnézted a dokumentumot, és a tartalmáért felelősséget vállalsz.',
+    en: 'To finalize, tick that you reviewed the document and take responsibility for its content.',
+  },
+  outline_finalize_owner_only: {
+    hu: 'Véglegesíteni csak te tudsz, a saját kattintásoddal. Az Agent a piszkozatot tudja elkészíteni.',
+    en: 'Only you can finalize, with your own click. The Agent can make the draft.',
+  },
+  docpdf_not_installed: {
+    hu: 'A PDF elkészítéséhez a LibreOffice kell, és ezen a gépen nincs telepítve. Enélkül a vázlat szerkeszthető és ellenőrizhető, csak PDF nem készül belőle. Telepítés: Linuxon „sudo apt install libreoffice-writer”, Windowson és macOS-en a libreoffice.org oldaláról. Ha máshová telepítetted, a Munkapad „Mi működik ezen a gépen?” paneljén add meg az útvonalát.',
+    en: 'Making the PDF needs LibreOffice, and it is not installed on this machine. Without it the outline can still be edited and checked, only no PDF is made. To install: on Linux "sudo apt install libreoffice-writer", on Windows and macOS from libreoffice.org. If you installed it elsewhere, give its path in the Workbench "What works on this machine?" panel.',
+  },
+  docpdf_check_failed: {
+    hu: 'Nem tudtam megállapítani, van-e LibreOffice ezen a gépen, tehát ez NEM azt jelenti, hogy nincs. A pontos hibaüzenet a részleteknél olvasható.',
+    en: 'It could not be determined whether LibreOffice is on this machine, so this does NOT mean it is missing. The exact error is in the details.',
+  },
+  docpdf_timeout: {
+    hu: 'A PDF elkészítése túl sokáig tartott, ezért leállítottam. Próbáld újra.',
+    en: 'Making the PDF took too long, so it was stopped. Try again.',
+  },
+  docpdf_failed: {
+    hu: 'A PDF elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
+    en: 'Making the PDF failed. The exact error is in the details; no cause is guessed in its place.',
+  },
   outline_owner_only: {
     hu: 'Ezt csak te erősítheted meg, a saját kattintásoddal.',
     en: 'Only you can confirm this, with your own click.',
@@ -852,9 +893,17 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
 }
 
 /** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
-function outlineOut(itemId: string): (ReturnType<typeof documentOutline> & { check: ReturnType<typeof documentCheck> }) | null {
+function outlineOut(itemId: string): (ReturnType<typeof documentOutline> & { check: ReturnType<typeof documentCheck> } & Partial<ReturnType<typeof finalizationState>>) | null {
   if (!hasDocModel(itemId)) return null
-  return { ...documentOutline(itemId), check: documentCheck(itemId) }
+  const item = getWorkItem(itemId)
+  return { ...documentOutline(itemId), check: documentCheck(itemId), ...(item ? finalizationState(item) : {}) }
+}
+
+/** Egy PDF-keszitesi hiba kodja a felhasznalonak (a LibreOffice-hiany kulon mondat). */
+function docPdfCode(code: string): string {
+  return code === 'not_installed' ? 'docpdf_not_installed'
+    : code === 'check_failed' ? 'docpdf_check_failed'
+    : code === 'timeout' ? 'docpdf_timeout' : 'docpdf_failed'
 }
 
 function msg(code: string, lang: 'hu' | 'en'): string {
@@ -1511,7 +1560,55 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { outline: outlineOut(item.id) ?? { sections: [], check: documentCheck(item.id) } })
       return true
     }
+    // PISZKOZAT PDF (K-1.21): barmikor, vizjellel -- OLVASAS, archivalt projektben is.
+    // `review=<ujjlenyomat>`: a tulajdonos a "Megnyitom es atnezem" gombbal nyitotta
+    // meg; ha a tartalom ugyanaz, amit a kepernyon latott, az atnezest rogzitjuk
+    // (K-1.22). Vegleges PDF itt NEM keszul: az csak a veglegesitessel.
+    if (segs.length === 3 && segs[2] === 'pdf' && method === 'GET') {
+      if (!hasDocModel(item.id)) return fail(res, 404, 'outline_empty', lang)
+      const r = await renderDraft(item, lang)
+      if (!r.ok) return failDetail(res, r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500, docPdfCode(r.code), lang, r.detail)
+      const review = url.searchParams.get('review')
+      if (review && review === r.hash && isOwnerClick(ctx)) recordReview(item.id, r.hash, actor(ctx))
+      const download = url.searchParams.get('download') === '1'
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Length': String(r.pdf.length),
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(draftFileName(item, lang))}`,
+      })
+      res.end(r.pdf)
+      return true
+    }
+    // TECHNIKAI NYOM (K-1.23/b): ki, mikor, mit irt, ellenorzott, erositett meg -- letoltheto JSON.
+    if (segs.length === 3 && segs[2] === 'trail' && method === 'GET') {
+      const body = JSON.stringify(documentTrail(item), null, 2)
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(item.title + ' - nyom.json')}`,
+      })
+      res.end(body)
+      return true
+    }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // VEGLEGESITES (K-1.22, K-1.23): csak a tulajdonos sajat kattintasa, ellenorzes +
+    // atnezes + felelossegvallalas utan. Verziot keszit, a PDF a munkadarab mappajaba kerul.
+    if (segs.length === 3 && segs[2] === 'finalize' && method === 'POST') {
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_finalize_owner_only', lang)
+      const body = await readJson(req)
+      if (!body) return fail(res, 400, 'bad_json', lang)
+      const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], by: actor(ctx), lang })
+      if (!r.ok) {
+        const code = r.code === 'docpdf_failed' && r.convert ? docPdfCode(r.convert) : r.code
+        const status = r.code === 'outline_empty' ? 404 : r.code === 'outline_accept_required' ? 400
+          : r.code === 'docpdf_failed' ? (code === 'docpdf_not_installed' || code === 'docpdf_check_failed' ? 501 : 500) : 409
+        json(res, { error: code, message: msg(code, lang), detail: r.detail, outline: outlineOut(item.id) }, status)
+        return true
+      }
+      json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id) })
+      return true
+    }
     const body = method === 'DELETE' ? {} : await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {

@@ -41,6 +41,7 @@ import {
   documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim,
   documentCheck, recheckPendingSources,
 } from '../workbench-docmodel.js'
+import { finalizationState } from '../workbench-docfinal.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 
@@ -346,7 +347,19 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       const res = ((): { ok: true; data: unknown } | { ok: false; code: string; detail: string } => {
         switch (name) {
           case 'doc.outline': recheckPendingSources(item.id, world); return { ok: true, data: documentOutline(item.id) }
-          case 'doc.check': recheckPendingSources(item.id, world); return { ok: true, data: documentCheck(item.id) }
+          case 'doc.check': {
+            recheckPendingSources(item.id, world)
+            const fin = finalizationState(item)
+            return {
+              ok: true,
+              data: {
+                ...documentCheck(item.id),
+                reviewed_by_owner: fin.reviewed,
+                final: fin.final ? { label: fin.final.label, version_no: fin.final.version_no, file: fin.final.pdf_path, stale: fin.final.stale } : null,
+                pdf: 'The owner makes the draft PDF (watermarked, any time) and the final PDF (only after this check passes, they opened and reviewed it and ticked that they take responsibility) with the buttons of the Vázlat box. You can not finalize.',
+              },
+            }
+          }
           case 'doc.addSection': { const r = addSection(item.id, input.title, { position: num(input.position), status: input.status }); return r.ok ? { ok: true, data: r.section } : r }
           case 'doc.updateSection': { const r = updateSection(item.id, asString(input.section), { title: input.title, status: input.status, position: input.position }); return r.ok ? { ok: true, data: r.section } : r }
           case 'doc.removeSection': { const r = removeSection(item.id, asString(input.section)); return r.ok ? { ok: true, data: r } : r }

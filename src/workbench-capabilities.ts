@@ -145,8 +145,8 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     tier: 'recommended',
     title: { hu: 'Irodai dokumentum előnézete (DOCX, XLSX, PPTX)', en: 'Office document preview (DOCX, XLSX, PPTX)' },
     what_for: {
-      hu: 'A böngésző a Word-, Excel- és PowerPoint-fájlokat magától nem tudja megmutatni. A LibreOffice csinál belőlük egy PDF-et, és azt a Munkapad már be tudja ágyazni.',
-      en: 'Browsers cannot display Word, Excel or PowerPoint files on their own. LibreOffice turns them into a PDF, which the Workbench can then embed.',
+      hu: 'A böngésző a Word-, Excel- és PowerPoint-fájlokat magától nem tudja megmutatni. A LibreOffice csinál belőlük egy PDF-et, és azt a Munkapad már be tudja ágyazni. Ugyanez készíti a Vázlatból a piszkozat és a végleges PDF-et is.',
+      en: 'Browsers cannot display Word, Excel or PowerPoint files on their own. LibreOffice turns them into a PDF, which the Workbench can then embed. It also makes the draft and the final PDF of an outline.',
     },
     affects: {
       hu: 'Enélkül is minden működik: a dokumentum feltölthető, letölthető, új verzió tölthető vissza belőle. Csak a beágyazott előnézet marad el.',
