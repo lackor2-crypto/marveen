@@ -59,7 +59,13 @@ param(
   # call is capped at 10 minutes, so 30 minutes of silence is not work.
   [int]$TaskIdleSeconds = 1800,
   [switch]$Once,
-  [switch]$DiscoverOnly
+  [switch]$DiscoverOnly,
+  # #433: 'chat' = the chat lane. A second process next to the main worker that
+  # claims ONLY Workbench chat tasks, so a chat message no longer waits behind a
+  # long development task (one worker runs one task at a time). It does no
+  # discovery, no browse and no self-update; the main worker starts it and
+  # restarts it after an update (Start-ChatLane).
+  [string]$Lane = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-29.1'
+$script:WorkerVersion = '2026-09-30.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -277,7 +283,10 @@ $script:DiscoveryInterrupted = 'MARVIN-DISCOVERY-INTERRUPTED'
 # not claim a second task -- it keeps THIS task's lease alive instead.
 $script:InTaskId = $null
 $script:InTaskRunSessionId = $null
-$script:AliveFile = Join-Path $script:StateDir 'alive.txt'
+$script:IsChatLane = ($Lane -eq 'chat')
+$script:AliveFile = Join-Path $script:StateDir $(if ($script:IsChatLane) { 'alive-chat.txt' } else { 'alive.txt' })
+$script:ChatAliveFile = Join-Path $script:StateDir 'alive-chat.txt'
+$script:LastChatLaneCheck = [DateTime]::MinValue
 $script:LastAlive = [DateTime]::MinValue
 # A worker that wrote no sign of life for this long is taken over by the next
 # scheduled start (see the entry section).
@@ -289,6 +298,30 @@ function Update-Alive {
   if (((Get-Date) - $script:LastAlive).TotalSeconds -lt 10) { return }
   $script:LastAlive = Get-Date
   try { [System.IO.File]::WriteAllText($script:AliveFile, ('{0} {1}' -f $PID, (Get-Date).ToUniversalTime().Ticks)) } catch { }
+  Start-ChatLane
+}
+
+# #433: the main worker keeps the chat lane running. Called from Update-Alive,
+# which also runs during a long task, so the lane is (re)started even while the
+# main worker is busy. Checked at most every 60 s; a lane with a fresh sign of
+# life is left alone, and a duplicate start exits silently on its own mutex.
+function Start-ChatLane {
+  if ($script:IsChatLane -or $DiscoverOnly -or $Once) { return }
+  if (((Get-Date) - $script:LastChatLaneCheck).TotalSeconds -lt 60) { return }
+  $script:LastChatLaneCheck = Get-Date
+  try {
+    if (Test-Path -LiteralPath $script:ChatAliveFile) {
+      $parts = ([System.IO.File]::ReadAllText($script:ChatAliveFile)).Trim().Split(' ')
+      $age = ((Get-Date).ToUniversalTime() - [DateTime]::new([int64]$parts[1], [DateTimeKind]::Utc)).TotalSeconds
+      if ($age -lt 60) { return }
+    }
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Minimized -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Lane', 'chat'
+    )
+    Write-Log 'chat lane: elinditva (a chat-uzenet nem all be a fejlesztesi feladat moge)'
+  } catch {
+    Write-Log ('chat lane: az inditas nem sikerult: ' + $_.Exception.Message) 'WARN'
+  }
 }
 
 function Get-CachedFileValue {
@@ -1347,9 +1380,21 @@ function Start-WorkerLoop {
         $claim = $script:PendingTask
         $script:PendingTask = $null
       } else {
-        $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId; workerVersion = $script:WorkerVersion }
+        $claimBody = @{ host = $script:HostId; workerVersion = $script:WorkerVersion }
+        if ($script:IsChatLane) { $claimBody['lane'] = 'chat' }
+        $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body $claimBody
       }
-      if ((-not $claim -or -not $claim.task) -and ((Get-Date) - $lastDiscover).TotalSeconds -ge $DiscoverSeconds) {
+      # The chat lane never runs discovery, browse or self-update: it only runs
+      # chat tasks. When the bridge expects a newer script it exits once idle;
+      # the main worker (already updated) starts the fresh copy within a minute.
+      if ($script:IsChatLane -and $claim -and -not $claim.task) {
+        $exp = [string]$claim.expectedWorkerVersion
+        if (-not [string]::IsNullOrWhiteSpace($exp) -and $exp -ne $script:WorkerVersion) {
+          Write-Log ('chat lane: elavult ({0} != {1}), kilepek, a fo worker ujrainditja' -f $script:WorkerVersion, $exp) 'WARN'
+          return
+        }
+      }
+      if ((-not $script:IsChatLane) -and (-not $claim -or -not $claim.task) -and ((Get-Date) - $lastDiscover).TotalSeconds -ge $DiscoverSeconds) {
         $lastDiscover = Get-Date
         $script:LastDiscoveryClaim = Get-Date
         try {
@@ -1379,7 +1424,7 @@ function Start-WorkerLoop {
       #
       # A jelentes agan SZANDEKOSAN benne marad ugyanez: ha a claim-hivas
       # barmiert elakad, a tallozas akkor sem hal meg -- csak lassabb lesz.
-      if ($claim -and $claim.browseRequests) {
+      if ((-not $script:IsChatLane) -and $claim -and $claim.browseRequests) {
         Invoke-BrowseRequests -Requested $claim.browseRequests
       }
       if ($claim -and $claim.task) {
@@ -1422,7 +1467,7 @@ function Start-WorkerLoop {
 # ---- entry ---------------------------------------------------------------
 
 $script:BridgeToken = Get-BridgeToken
-Write-Log ("worker starting host={0} base={1}" -f $script:HostId, $BaseUrl)
+Write-Log ("worker starting host={0} base={1} lane={2}" -f $script:HostId, $BaseUrl, $(if ($script:IsChatLane) { 'chat' } else { 'main' }))
 
 if ($DiscoverOnly) {
   Publish-Sessions
@@ -1442,7 +1487,7 @@ if ($DiscoverOnly) {
 # Amit ezzel nem vesztunk el: hogy fut-e worker, nem ebbol tudjuk, hanem a
 # szivverésbol -- a dashboard `code_bridge_dead` jelzese a WORKER_STALE_MS
 # alapjan meri. A csend itt tehat "minden rendben", nem "nem latok oda".
-$mutex = New-Object System.Threading.Mutex($false, 'Global\MarvinCodeWorker')
+$mutex = New-Object System.Threading.Mutex($false, $(if ($script:IsChatLane) { 'Global\MarvinCodeWorker.chat' } else { 'Global\MarvinCodeWorker' }))
 $script:HaveMutex = $false
 try { $script:HaveMutex = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $script:HaveMutex = $true }
 if (-not $script:HaveMutex) {

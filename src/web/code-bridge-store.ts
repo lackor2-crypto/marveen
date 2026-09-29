@@ -1119,12 +1119,44 @@ function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
   }
 }
 
-export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | null {
+/** #433: the chat lane. One Windows worker runs one task at a time, so a
+ *  Workbench chat message waited behind a long development task (measured
+ *  2026-09-30: a chat queued 42 minutes behind a 24-minute task of ANOTHER
+ *  project, so the per-project busy rule was not the cause). A second worker
+ *  process claims with lane 'chat' and only ever takes `origin = 'workbench'`
+ *  tasks. While that lane is alive the main lane leaves those tasks to it; when
+ *  the lane is silent for CHAT_LANE_ALIVE_MS the main lane takes them again, so
+ *  a dead chat process can never strand a chat message. In memory on purpose:
+ *  the lane claims every few seconds, so a restart refills it at once. */
+export type CodeClaimLane = 'chat'
+export const CHAT_LANE_ALIVE_MS = 30_000
+let chatLaneSeenAt = 0
+
+export function noteChatLaneSeen(now = Date.now()): void {
+  chatLaneSeenAt = now
+}
+
+export function chatLaneAlive(now = Date.now()): boolean {
+  return chatLaneSeenAt > 0 && now - chatLaneSeenAt <= CHAT_LANE_ALIVE_MS
+}
+
+/** Test hook: forget the chat lane's liveness. */
+export function resetChatLaneForTest(): void {
+  chatLaneSeenAt = 0
+}
+
+export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeClaimLane): CodeTask | null {
   ensureTables()
   const db = getDb()
+  if (lane === 'chat') noteChatLaneSeen(now)
+  // chat lane: workbench tasks only. main lane: everything, except the
+  // workbench tasks while a live chat lane is there to take them.
+  const originFilter = lane === 'chat'
+    ? `AND origin = 'workbench'`
+    : chatLaneAlive(now) ? `AND origin <> 'workbench'` : ''
   const claim = db.transaction((): CodeTask | null => {
     const rows = db
-      .prepare(`SELECT * FROM code_tasks WHERE status = 'queued' ORDER BY created_at LIMIT 50`)
+      .prepare(`SELECT * FROM code_tasks WHERE status = 'queued' ${originFilter} ORDER BY created_at LIMIT 50`)
       .all() as Record<string, unknown>[]
 
     // One running task per project, enforced here rather than by trusting the
