@@ -1651,9 +1651,15 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // session (scripts/channels.sh) and the channel watchdog already set it;
     // this was the one launch point that did not.
     const promptSuggestionEnv = 'export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 && '
+    // #431: a sub-agent does not use the account-level claude.ai connectors
+    // (Gmail / Drive / Calendar / Docs / Canva): every turn would otherwise
+    // re-send their tool schemas and server instructions. The switch removes
+    // them from THIS session only (measured on claude 2.1.285: 36 -> 28 tools,
+    // 2 connectors -> 0); the main agent starts via channels.sh and keeps them.
+    const connectorsEnv = 'export ENABLE_CLAUDEAI_MCP_SERVERS=false && '
     // Single-quote `${model}` so values like `claude-opus-4-8[1m]` (1M-context
     // suffix) are not glob-expanded by the shell that tmux spawns the command in.
-    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}${glmEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
+    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${connectorsEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}${glmEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
     // -x 80 -y 60 gives the pane the same 60-row height as the main channel
     // session (lackor2-bot-channels), instead of tmux's detached default of
     // 80x24. The dashboard Terminal viewer bottom-anchors a pane snapshot, so a
