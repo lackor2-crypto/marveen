@@ -207,7 +207,7 @@ describe('lomtar: a felulet', () => {
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-id="w1"'))
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.done⟧'))
-    h.click({ 'data-wb-act': 'trash-toggle' })
+    // No toggle click: the trash is already open after the delete.
     expect(h.html()).toMatch(/data-wb-act="item-purge-ask"[^>]*data-wb-id="w1"/)
     const before = h.fetchCalls.length
     h.click({ 'data-wb-act': 'item-purge-ask', 'data-wb-id': 'w1' })
@@ -242,6 +242,10 @@ describe('lomtar: a felulet', () => {
     expect(JSON.parse(String(call?.init?.body))).toEqual({ deleted: true })
     expect(h.html()).not.toContain('data-wb-item="w1"')
     expect(h.html()).toContain('data-wb-act="trash-toggle"')
+    // The trash opens by itself after a delete, so the owner sees where the item went.
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-restore"'))
+    h.click({ 'data-wb-act': 'trash-toggle' })
+    await vi.waitFor(() => expect(h.html()).not.toContain('data-wb-act="item-restore"'))
     h.click({ 'data-wb-act': 'trash-toggle' })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-restore"'))
   })

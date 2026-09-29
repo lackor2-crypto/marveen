@@ -122,7 +122,8 @@
 .wb-trash-row .wb-item-del:hover:not(:disabled) { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
 .wb-item-del:disabled { cursor: default; opacity: 0.4; }
 .wb-trash { margin-top: 10px; }
-.wb-trash-toggle { background: none; border: none; padding: 4px 0; color: inherit; opacity: 0.75; cursor: pointer; font-size: 0.9rem; text-decoration: underline; }
+.wb-trash-toggle { background: none; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; padding: 6px 10px; color: inherit; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+.wb-trash-toggle:hover { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
 .wb-trash-item { cursor: default; opacity: 0.7; }
 
 .wb-empty {
