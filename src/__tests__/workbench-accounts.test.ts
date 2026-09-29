@@ -1,12 +1,12 @@
 // #402: a Munkapad fiok-sorrendje. CSAK az 5 oras keret szamit, a heti nem.
 import { describe, it, expect, afterEach } from 'vitest'
-import { workbenchAccounts, workbenchAccountStatuses, isKnownWorkbenchAccount, setWorkbenchAccountListerForTest, noteLimitAnswer, limitResetMatches, resetObservedLimitsForTest } from '../workbench-agent/accounts.js'
+import { workbenchAccounts, workbenchAccountStatuses, isKnownWorkbenchAccount, setWorkbenchAccountListerForTest, noteLimitAnswer, limitResetMatches, resetObservedLimitsForTest, setLiveOverlayForTest, resetLiveOverlayForTest } from '../workbench-agent/accounts.js'
 
 const now = Date.now()
 const acc = (agent: string, five: number | null, seven: number | null, model = 'claude-opus-5-5') =>
   ({ agent, configDir: `/cfg/${agent}`, model, fiveHourPct: five, sevenDayPct: seven, usageAt: now })
 
-afterEach(() => { setWorkbenchAccountListerForTest(null); resetObservedLimitsForTest() })
+afterEach(() => { setWorkbenchAccountListerForTest(null); resetObservedLimitsForTest(); resetLiveOverlayForTest() })
 
 describe('workbenchAccounts', () => {
   it('a legtobb 5 oras kerettel rendelkezo elol; a heti 100% NEM szur ki, de a sor vegere kerul', () => {
@@ -130,5 +130,22 @@ describe('#434: a Claude sajat limit-mondata pirosra allitja a fiokot (Boss, 202
     setWorkbenchAccountListerForTest(() => [usa])
     expect(workbenchAccountStatuses(t0211)[0].status).toBe('online') // 26 perces: meg friss
     expect(workbenchAccountStatuses(t0211 + 10 * 60_000)[0].status).toBe('unknown')
+  })
+})
+
+describe('live account usage beats the statusline file (#434)', () => {
+  it('shows an account red when the live answer says 100% although the file says 50%', () => {
+    const now = Date.now()
+    setWorkbenchAccountListerForTest(() => [{ ...acc('usa', 50, 79), usageAt: now - 60_000 }])
+    setLiveOverlayForTest('usa', { fiveHourPct: 100, sevenDayPct: 83, fiveHourResetsAt: now + 3600_000, sevenDayResetsAt: null, measuredAt: now })
+    const row = workbenchAccountStatuses(now)[0]
+    expect(row.status).toBe('limited')
+    expect(row.fiveHourPct).toBe(100)
+  })
+  it('ignores a stale live answer and falls back to the file', () => {
+    const now = Date.now()
+    setWorkbenchAccountListerForTest(() => [{ ...acc('usa', 50, 79), usageAt: now - 60_000 }])
+    setLiveOverlayForTest('usa', { fiveHourPct: 100, sevenDayPct: 83, fiveHourResetsAt: null, sevenDayResetsAt: null, measuredAt: now - 3 * 3600_000 })
+    expect(workbenchAccountStatuses(now)[0].status).toBe('online')
   })
 })

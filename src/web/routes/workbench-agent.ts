@@ -26,7 +26,7 @@ import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
-import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts, noteLimitAnswer } from '../../workbench-agent/accounts.js'
+import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts, noteLimitAnswer, refreshLiveAccountUsage } from '../../workbench-agent/accounts.js'
 import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
@@ -510,6 +510,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
 
   // --- allapot: van-e szolgaltato, hol all a kozos keret --------------------
   if (path === '/api/workbench/agent/status' && method === 'GET') {
+    // #434: the live account answer (the one the quota monitor shows) decides
+    // green/red, not only the agent's own statusline file.
+    if (!process.env.VITEST) await refreshLiveAccountUsage()
     const provider = pickAIProvider()
     // A keret annak a fioknak a kerete, amelyikkel a kovetkezo valasz
     // MENNE (#402) -- nem mindig a fo agense.
