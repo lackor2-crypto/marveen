@@ -2452,3 +2452,16 @@ describe('#435: F5 utan ugyanaz a Munkapad-nezet jon vissza', () => {
     expect(h.win.MarvinWorkbench.isOpen()).toBe(false)
   })
 })
+
+describe('a szerkeszto panel sorrendje (jelenlegi munka)', () => {
+  it('a munkanyag elol, az exportalas es a jovahagyasra kuldes a vegen', () => {
+    const start = SRC.indexOf('function editorPanelHtml()')
+    const body = SRC.slice(start, SRC.indexOf('dokumentummodell: vazlat', start))
+    const order = ['previewHtml()', 'partsHtml()', 'deadlinesBoxHtml()', 'todosBoxHtml()', 'exportBarHtml()', 'approvalBoxHtml()']
+    const at = order.map(k => body.indexOf(k))
+    expect(at.every(i => i > 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    // the export button no longer lives in the version bar at the top
+    expect(SRC.slice(SRC.indexOf('function versionBarHtml()'), SRC.indexOf('function exportBarHtml()'))).not.toContain('export-open')
+  })
+})

@@ -4437,9 +4437,7 @@
 
   function versionBarHtml() {
     var versions = versionsSorted()
-    var exportBtn = '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '"'
-      + ' aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
-    if (versions.length < 2) return '<div class="wb-vbar">' + exportBtn + '</div>' + (exportIsOpen() ? exportPanelHtml() : '')
+    if (versions.length < 2) return ''
     var target = undoTarget()
     var ro = archived() || WB.versionBusy
     return '<div class="wb-vbar">'
@@ -4449,9 +4447,15 @@
       + (WB.compare && WB.compare.itemId === WB.selectedId
         ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="compare-close">' + esc(t('workbench.cmp.close')) + '</button>'
         : '<button type="button" class="btn-secondary btn-compact" data-wb-act="compare-open">' + esc(t('workbench.cmp.open')) + '</button>')
-      + exportBtn
       + '</div>'
-      + (exportIsOpen() ? exportPanelHtml() : '')
+  }
+
+  // The export button sits at the END of the panel (owner, TG 1925): the
+  // material comes first, exporting / sending is what you do once it is done.
+  function exportBarHtml() {
+    var exportBtn = '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '"'
+      + ' aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
+    return '<div class="wb-vbar">' + exportBtn + '</div>' + (exportIsOpen() ? exportPanelHtml() : '')
   }
 
   // ---- export PDF / kep + kuldes a jovahagyasi kapun at (#406, 6. pont) -----
@@ -4938,9 +4942,6 @@
       inner = '<div class="wb-editor-head"><h3>' + workSeqHtml(it) + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
-        + approvalBoxHtml()
-        + todosBoxHtml()
-        + deadlinesBoxHtml()
         + versionBarHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
@@ -4952,6 +4953,10 @@
             + canvasHtml()
             + partsHtml()
             + postPreviewHtml())
+        + deadlinesBoxHtml()
+        + todosBoxHtml()
+        + exportBarHtml()
+        + approvalBoxHtml()
     }
     var dropAttr = WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="item"' : ''
     return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor"' + dropAttr + '>'
