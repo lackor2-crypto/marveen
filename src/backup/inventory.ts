@@ -118,7 +118,7 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   'backups', 'tmp', 'restore-rollback', /^\.env\.bak/, /\.bak(-|$)/, 'windows-settings-backups',
   'persistent-windows-backups', 'deleted-agents', 'windows-settings', 'window-layout-repo',
   // Caches (regenerable).
-  'cache', 'browser', 'workbench-render', 'openrouter-models.json', 'claude-model-scan.json',
+  'cache', 'browser', 'workbench-render', 'openrouter-models.json', 'claude-model-scan.json', 'claude-cli-update.json',
   'mega-quota.json', 'drive-quota.json', 'usage-latest.json', 'upstream-changes.json',
   'upstream-fix-only-files.json', 'upstream-247-restrictions.json', 'upstream-sync-status.json',
   // Logs and journals (diagnostics, not data; opt-in via includeLogs).
