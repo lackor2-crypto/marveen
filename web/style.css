@@ -13023,4 +13023,4 @@ span.intezo-tree-tw { cursor: default; }
   display: inline-block; font-size: 11px; font-weight: 700; padding: 0 4px; border-radius: 4px;
   color: var(--work-item); border: 1px solid var(--work-item); background: var(--bg, transparent);
 }
-.kanban-work-prj { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+.kanban-work-prj { display: block; margin-top: 2px; font-size: 11px; color: var(--text-muted); }
