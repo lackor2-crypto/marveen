@@ -18,6 +18,7 @@
 import { getAgentSession, addAgentMessageOnce } from './sessions.js'
 import { recordCodeBridgeOutcome } from './code-bridge-turn.js'
 import type { CodeTask } from '../web/code-bridge-store.js'
+import { continueBridgeTaskElsewhere } from './bridge-continuation.js'
 
 /** true = a valasz a Munkapad-beszelgetesbe ment (vagy mar bent volt);
  *  false = ez nem Munkapad-feladat, vagy a beszelgetes nem talalhato -- akkor a
@@ -26,6 +27,9 @@ export function deliverCodeTaskToWorkbench(task: CodeTask): boolean {
   if (task.origin !== 'workbench' || !task.chatId) return false
   const session = getAgentSession(task.chatId)
   if (!session) return false
+  // Limit / elakadas: ha egy masik fiok folytatja (vagy az elo fordulo
+  // intezi), a hiba-sor NEM kerul a beszelgetesbe (Boss, 2026-09-29).
+  if (continueBridgeTaskElsewhere(task)) return true
   const lang = session.language === 'en' ? 'en' : 'hu'
   const since = Math.floor(task.createdAt / 1000)
   recordCodeBridgeOutcome(

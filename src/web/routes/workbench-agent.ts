@@ -30,14 +30,17 @@ import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, buildCodeBridgePrompt } from '../../workbench-agent/code-bridge-turn.js'
+import { runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeContinuable } from '../../workbench-agent/code-bridge-turn.js'
+import {
+  setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
+} from '../../workbench-agent/bridge-continuation.js'
 import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
 import { loggedInConfigDir, STRIPPED_ENV } from '../../workbench-agent/provider-anthropic.js'
 import { tryResolveFromPath } from '../../platform.js'
 import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat, effectiveRunSessionId, findCodeTabLocation, type CodeTask } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
 import {
-  ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
+  ensureAgentTables, getAgentSession, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
   addAgentMessageOnce, startToolCall, finishToolCall,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
@@ -115,10 +118,14 @@ function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; f
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */
 const TURN_MAX_MS = 15 * 60 * 1000
-/** Az allo munkamenet egy fordulojanak felso korlatja: valodi fejlesztes
- *  (kod + teszt) ennel ritkan tart tovabb, egy beakadt folyamat viszont ne
- *  foghassa orokre a beszelgetest. */
-const LIVE_TURN_MAX_MS = 60 * 60 * 1000
+/** Az allo munkamenet egy fordulojanak KEMENY felso korlatja. 2026-09-29-ig
+ *  ez 60 perc volt, falora szerint -- es a hosszu, de ELO munkat is kilotte
+ *  (Boss: "timed out after 3600 s ... eleg sokszor hibara fut"). Egy beakadt
+ *  folyamatot a CSEND jelez, nem a hossz: azt a `LIVE_IDLE_MAX_MS` fogja. */
+const LIVE_TURN_MAX_MS = 4 * 60 * 60 * 1000
+/** Ennyi ideig tartó teljes csend (semmi szoveg, semmi eszkoz-esemeny) utan
+ *  all le a fordulo. Egy Claude Code eszkoz-hivas legfeljebb 10 perc. */
+const LIVE_IDLE_MAX_MS = 30 * 60 * 1000
 
 let livePool: LiveSessionPool | null = null
 function getLivePool(): LiveSessionPool {
@@ -280,6 +287,66 @@ async function resumeTurn(key: string, t: InflightTurn): Promise<void> {
   }
 }
 
+/** The Workbench turn a code-bridge task belongs to (its chat session). */
+function bridgeTaskTurn(task: CodeTask): { key: string; projectId: string; workItemId: string | null; lang: Lang } | null {
+  const session = task.chatId ? getAgentSession(task.chatId) : undefined
+  if (!session) return null
+  const workItemId = session.work_item_id && session.work_item_id !== projectSessionKey(session.project_id)
+    ? session.work_item_id
+    : null
+  return { key: turnKey(session.project_id, workItemId), projectId: session.project_id, workItemId, lang: session.language === 'en' ? 'en' : 'hu' }
+}
+
+/** How long a background continuation waits for the chat's turn lock (the
+ *  live chat turn that watched the task may still be closing). */
+const CONTINUE_LOCK_WAIT_MS = 120_000
+
+/**
+ * THE WORK GOES ON WITH ANOTHER ACCOUNT (Boss, 2026-09-29): a Workbench
+ * code-bridge task that ended on a usage limit or on the worker's own time
+ * limit, with nobody watching it live, continues in the local live session on
+ * an account that can work. Runs through the normal message route (like the
+ * restart resume), so the lock, Stop, caps, saving and the tool panel all
+ * apply. false = no account can take it: the caller shows the real reason.
+ */
+function continueBridgeTaskInBackground(task: CodeTask): boolean {
+  const turn = bridgeTaskTurn(task)
+  if (!turn) return false
+  if (String(getEffectiveSettingValue('WORKBENCH_FULL_AGENT')) !== '1') return false
+  const project = getProject(turn.projectId)
+  if (!project) return false
+  const folder = projectFileTarget(project, '')
+  const next = liveResolver(turn.key, folder.ok ? folder.dirAbs : null, undefined)
+  if (!next) return false
+  const to = next.account || '?'
+  const notice = codeBridgeContinuable(task) === 'limit'
+    ? msg('code_bridge_limit_fallback', turn.lang, { to })
+    : msg('code_bridge_stalled_fallback', turn.lang, { to })
+  const actorName = task.requestedBy || 'dashboard'
+  void (async () => {
+    const until = Date.now() + CONTINUE_LOCK_WAIT_MS
+    while (isTurnRunning(turn.key) && Date.now() < until) await new Promise((r) => setTimeout(r, 1000))
+    const body = { project_id: turn.projectId, work_item_id: turn.workItemId, message: msg('bridge_continue_prompt', turn.lang, { notice }), account: '' }
+    const req = Readable.from([Buffer.from(JSON.stringify(body), 'utf-8')]) as unknown as RouteContext['req']
+    const sink = new Writable({ write(_c, _e, cb) { cb() } })
+    const res = Object.assign(sink, { writeHead() { return res } }) as unknown as RouteContext['res']
+    const url = new URL(`http://localhost/api/workbench/agent/message?lang=${turn.lang}`)
+    // Same switch as the restart resume: the live backend, the prompt saved
+    // as a notice (not as the owner's words).
+    resumingTurns.set(turn.key, 0)
+    try {
+      await tryHandleWorkbenchAgent({
+        req, res, path: url.pathname, method: 'POST', url,
+        auth: { kind: 'session', user: actorName },
+      } as unknown as RouteContext)
+    } catch { /* the chat keeps what it had; nothing to throw out of here */ } finally {
+      resumingTurns.delete(turn.key)
+    }
+  })()
+  return true
+}
+setBridgeContinuationHandler((task) => continueBridgeTaskInBackground(task))
+
 /** `skip`: a fordulo alatt mar limitbe futott fiokok config-konyvtarai (#434). */
 type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>) => LiveStartSpec | null
 let liveResolver: LiveResolver = (k, f, a, x) => liveSpecFor(k, f, a, x)
@@ -321,9 +388,10 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
   if (!bin) return null
   const candidates = account ? [account] : [...workbenchAccounts(), MAIN_AGENT_ID]
   let configDir: string | null = null
+  let accountName = ''
   for (const a of candidates) {
     const d = loggedInConfigDir(a)
-    if (d && !skip?.has(d)) { configDir = d; break }
+    if (d && !skip?.has(d)) { configDir = d; accountName = a; break }
   }
   if (!configDir) return null
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: configDir, MARVEEN_WORKBENCH_LIVE: '1' }
@@ -336,6 +404,7 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
     configDir,
     cwd: liveCwd(projectFolder),
     env,
+    account: accountName,
     baseArgs: [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--verbose', '--include-partial-messages',
@@ -657,7 +726,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // Az allo, helyi munkamenet egy fordulója (#434). `prior`: a kod-hid
     // fordulo elotti elozmeny -- a kerdest (es a limit-sort) a kod-hid mar
     // beirta, igy az nem kerul be masodszor sem a naploba, sem a promptba.
-    const runLive = async (first: LiveStartSpec, prior?: ReturnType<typeof listAgentMessages>): Promise<void> => {
+    const runLive = async (first: LiveStartSpec, prior?: ReturnType<typeof listAgentMessages>, note?: string): Promise<void> => {
       const item = workItemId ? getWorkItem(workItemId) : null
       const session = item
         ? openSessionForWorkItem(project.id, item.id, lang)
@@ -668,6 +737,17 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       const history = prior ?? listAgentMessages(session.id)
       const text = input.message.trim()
       if (!prior) addAgentMessage(session.id, resumeCount !== undefined ? 'system' : 'user', text)
+      // What the session is asked: the message, plus -- when the work moves to
+      // another account mid-way -- where it stopped (Boss, 2026-09-29).
+      let turnText = note ? `${text}\n\n${note}` : text
+      // Silence stops a turn, length does not (see LIVE_IDLE_MAX_MS).
+      clearTimeout(turnCap)
+      const hardCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
+      const stillAlive = (): void => {
+        clearTimeout(turnCap)
+        turnCap = setTimeout(() => ac.abort(), LIVE_IDLE_MAX_MS)
+      }
+      stillAlive()
       markInflight(key, {
         projectId: project.id, workItemId, account, lang, actor: input.actor,
         startedAt: Date.now(), resumes: resumeCount ?? 0,
@@ -678,7 +758,10 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         const openTools: LiveOpenTool[] = []
         // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
         // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
-        // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
+        // Munka KOZBEN is (Boss, 2026-09-29: "ha van, akkor folytassa azzal a
+        // munkat"): a kovetkezo fiok azt is megkapja, meddig jutott az elozo.
+        // Kivalasztott fioknal nincs csere. A limit sora csak akkor latszik,
+        // ha mar nincs kire valtani.
         const limited = new Set<string>()
         let spec: LiveStartSpec | null = first
         while (spec) {
@@ -692,19 +775,33 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
                 workItem: item ? codeBridgeWorkItem(item) : null,
                 history,
-                message: text,
+                message: turnText,
                 lang,
               })
-              : text,
+              : turnText,
             lang,
             ac.signal,
           )) {
+            stillAlive()
             // The CLI's own limit sentence: the account picker shows it red (#434).
             if (ev.type === 'error' && ev.code === 'live_limit') noteLimitAnswer(ev.message, { configDir: cur.configDir })
-            if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
+            if (ev.type === 'error' && ev.code === 'live_limit' && !account) {
               limited.add(cur.configDir)
               const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)
-              if (next && !limited.has(next.configDir)) { spec = next; break }
+              if (next && !limited.has(next.configDir)) {
+                if (answer.trim()) {
+                  turnText = `${text}\n\n${msg('live_switch_continue', lang, { partial: answer.trim().slice(-3000) })}`
+                  addAgentMessage(session.id, 'assistant', answer.trim())
+                  answer = ''
+                }
+                // Boss, 2026-09-29: the chat says which account ran out and
+                // which one carries on -- not the limit error itself.
+                const switched = msg('live_account_switched', lang, { from: cur.account || '?', to: next.account || '?' })
+                addAgentMessage(session.id, 'system', switched)
+                send('notice', { type: 'notice', code: 'live_account_switched', message: switched })
+                spec = next
+                break
+              }
             }
             if (ev.type === 'text') answer += ev.text
             if (ev.type === 'error') failed = ev.message
@@ -717,6 +814,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
         if (failed) addAgentMessage(session.id, 'system', failed)
       } finally {
+        clearTimeout(hardCap)
         clearInflight(key)
       }
     }
@@ -732,8 +830,6 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         if (!claimTurn(key)) {
           send('error', { type: 'error', code: 'busy', message: msg('busy', lang) })
         } else {
-          clearTimeout(turnCap)
-          turnCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
           try {
             await runLive(liveSpec)
           } finally {
@@ -753,6 +849,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
             send('session', { type: 'session', sessionId: session.id })
             let liveFallback: LiveStartSpec | null = null
+            let bridgeTaskId: string | null = null
+            let bridgeStalled = false
+            const liveDir = liveFolder && liveFolder.ok ? liveFolder.dirAbs : null
             let bridgeFeed: TranscriptToolFeed | null = null
             const bridgeOpenTools: LiveOpenTool[] = []
             const turnStartSec = Math.floor(Date.now() / 1000)
@@ -780,8 +879,15 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               {
                 enqueue: (i) => {
                   const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'workbench', requestedBy: i.requestedBy, chatId: i.chatId })
-                  return 'error' in r ? { ok: false, message: r.error } : { ok: true, id: r.task.id }
+                  if ('error' in r) return { ok: false, message: r.error }
+                  // While this turn watches the task, IT continues the work on
+                  // another account if needed (bridge-continuation.ts).
+                  bridgeTaskId = r.task.id
+                  watchBridgeTask(r.task.id)
+                  return { ok: true, id: r.task.id }
                 },
+                canContinueElsewhere: () => !account && !ac.signal.aborted && !!liveResolver(key, liveDir, account),
+                wasContinued: (id) => wasBridgeTaskContinued(id),
                 getTask: (id) => {
                   const t = getCodeTask(id)
                   return t ? { status: t.status, result: t.result, summary: t.summary, error: t.error } : null
@@ -813,25 +919,33 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             )) {
               // The bridge's tool runs are saved too, so the panel comes back after F5.
               if (ev.type === 'tool') recordLiveTool(session.id, bridgeOpenTools, ev)
-              // A kod-hid fiokja kimerult (#434): automatikus fioknal a helyi
-              // munkamenet folytatja egy masik fiokkal, ugyanebben a fordulóban;
+              // A kod-hid fiokja kimerult (#434), vagy a worker leallitotta a
+              // futast (idokorlat): automatikus fioknal a helyi munkamenet
+              // folytatja egy masik fiokkal, ugyanebben a fordulóban; limitnel
               // egy ideig a kovetkezo uzenetek is egyenesen oda mennek.
-              if (ev.type === 'error' && ev.code === 'code_bridge_limit') {
-                bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
-                const fallback = !account && !ac.signal.aborted
-                  ? liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account)
-                  : null
-                if (fallback) { liveFallback = fallback; break }
+              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled')) {
+                if (ev.code === 'code_bridge_limit') bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
+                const fallback = !account && !ac.signal.aborted ? liveResolver(key, liveDir, account) : null
+                if (fallback) {
+                  liveFallback = fallback
+                  bridgeStalled = ev.code === 'code_bridge_stalled'
+                  if (bridgeTaskId) markBridgeTaskContinued(bridgeTaskId)
+                  break
+                }
               }
               // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
               // beszelgetesbe kerul, nem szakad felbe.
               send(ev.type, ev)
             }
+            if (bridgeTaskId) unwatchBridgeTask(bridgeTaskId)
             if (liveFallback) {
-              send('notice', { type: 'notice', code: 'code_bridge_limit_fallback', message: msg('code_bridge_limit_fallback', lang) })
-              clearTimeout(turnCap)
-              turnCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
-              await runLive(liveFallback, history)
+              const to = liveFallback.account || '?'
+              const switched = bridgeStalled
+                ? msg('code_bridge_stalled_fallback', lang, { to })
+                : msg('code_bridge_limit_fallback', lang, { to })
+              addAgentMessage(session.id, 'system', switched)
+              send('notice', { type: 'notice', code: 'code_bridge_limit_fallback', message: switched })
+              await runLive(liveFallback, history, msg('bridge_continue_note', lang))
             }
           } finally {
             releaseTurn(key)

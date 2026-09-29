@@ -70,6 +70,14 @@ export interface CodeBridgeTurnDeps {
    *  from its transcript (`code-bridge-tool-feed.ts`); `finish` closes the runs
    *  left open when the task ended. Missing = only the single bridge row. */
   toolRuns?(taskId: string, finish?: 'ok' | 'error'): OrchestratorEvent[]
+  /** Can the turn go on with ANOTHER account right now (Boss, 2026-09-29)? When
+   *  true, a limit / stalled outcome is NOT written into the conversation: the
+   *  caller continues the work elsewhere, and the owner only ever sees the
+   *  limit when every account is out. Missing = false (old behaviour). */
+  canContinueElsewhere?(): boolean
+  /** Set when the task is handed to the background: a continuation that
+   *  already took the work over must not get the stale outcome written. */
+  wasContinued?(taskId: string): boolean
 }
 
 export interface CodeBridgeTurnInput {
@@ -265,7 +273,8 @@ export async function* runCodeBridgeTurn(
 
     if (task.status === 'done' || task.status === 'error' || task.status === 'cancelled') {
       yield* toolRuns(enq.id, task.status === 'error' ? 'error' : 'ok')
-      yield* finishedEvents(task, input.lang, record)
+      const quiet = !!codeBridgeContinuable(task) && !!deps.canContinueElsewhere?.()
+      yield* finishedEvents(task, input.lang, quiet ? () => { /* continued elsewhere */ } : record)
       return
     }
 
@@ -309,6 +318,23 @@ export function codeBridgeLimitDetail(task: CodeBridgeTaskView): string | null {
   return detectsUsageLimit(text) ? text : null
 }
 
+/** The worker stopped the run without an answer (its own time limits:
+ *  "timed out after N s" / "no progress for N s"). Not the owner's Stop. */
+export function codeBridgeStallDetail(task: CodeBridgeTaskView): string | null {
+  if (task.status !== 'error') return null
+  const text = codeBridgeErrorDetail(task)
+  return /\btimed out after\b|\bno progress for\b/i.test(text) ? text : null
+}
+
+/** A limit or a stalled run: the work was NOT finished and another account
+ *  can take it over (Boss, 2026-09-29: "Az elso dolog az legyen, hogy megnezi,
+ *  hogy milyen masik fiokban van limit es tud dolgozni"). */
+export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'stalled' | null {
+  if (codeBridgeLimitDetail(task)) return 'limit'
+  if (codeBridgeStallDetail(task)) return 'stalled'
+  return null
+}
+
 function* finishedEvents(
   task: CodeBridgeTaskView,
   lang: Lang,
@@ -342,7 +368,7 @@ function* finishedEvents(
     const m = detail ? msg('code_bridge_error_detail', lang, { detail }) : msg('code_bridge_error', lang)
     record('system', m)
     yield { type: 'tool', name: 'code-bridge', status: 'error' }
-    yield { type: 'error', code: 'code_bridge_error', message: m }
+    yield { type: 'error', code: codeBridgeStallDetail(task) ? 'code_bridge_stalled' : 'code_bridge_error', message: m }
     return
   }
   const m = msg('code_bridge_cancelled', lang)
@@ -378,6 +404,11 @@ async function followInBackground(
       const task = deps.getTask(id)
       if (!task) return
       if (task.status === 'done' || task.status === 'error' || task.status === 'cancelled') {
+        if (deps.wasContinued?.(id)) return
+        // A limit / stalled end belongs to the completion hook: it either hands
+        // the work to another account or writes the real reason (it always runs,
+        // restarts included). Recording it here too would race the hook.
+        if (deps.wasContinued && codeBridgeContinuable(task)) return
         recordCodeBridgeOutcome(task, lang, record)
         return
       }
