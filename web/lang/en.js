@@ -6525,6 +6525,8 @@ window._i18n.en = {
   "workbench.assets.remove_delete": "Delete permanently from the folder too",
   "workbench.assets.removed": "Removed from the list. The file stayed in the folder.",
   "workbench.assets.deleted": "Removed from the list, and the file was deleted permanently from the folder.",
+  "workbench.folder.open_short": "Open",
+  "workbench.ov.work_tag": "Work item",
   "workbench.folder.intezo": "Open in Explorer",
   "workbench.folder.intezo_title": "Opens this folder in Explorer (the file manager of the dashboard), where you can rename, delete or tidy up.",
   "workbench.folder.intezo_file_title": "Opens the folder of this file in Explorer (the file manager of the dashboard).",

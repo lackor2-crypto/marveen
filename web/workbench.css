@@ -648,6 +648,40 @@
 .wb-ov-approval:nth-child(even) { background: rgba(127, 127, 127, 0.10); }
 .wb-ov-apv-title { font-weight: 600; line-height: 1.3; }
 .wb-ov-apv-seq { color: var(--accent, #b45309); }
+.wb-ov-works { gap: 6px; }
+/* Munkadarab: sajat szinu keret + cimke bal felul, hogy ranezesre elvaljon a
+ * kanban-kartyatol (Boss, TG 1815). */
+.wb-ov-work {
+  border: 2px solid var(--wb-work, #0f766e);
+  border-radius: 6px;
+  padding: 4px 8px 6px;
+  background: var(--wb-work-bg, rgba(15, 118, 110, 0.10));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.wb-ov-work-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--wb-work, #0f766e);
+}
+.wb-ov-work-btn {
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  word-break: break-word;
+  cursor: pointer;
+  border: 1px solid var(--wb-work, #0f766e);
+  border-radius: 4px;
+  padding: 3px 8px;
+  background: var(--bg, #fff);
+  color: var(--text, inherit);
+}
+.wb-ov-work-btn:hover { background: var(--wb-work, #0f766e); color: var(--bg, #fff); }
+[data-theme="dark"] { --wb-work: #2dd4bf; --wb-work-bg: rgba(45, 212, 191, 0.12); }
 .wb-ov-apv-when { font-size: 0.78rem; opacity: 0.7; }
 .wb-ov-file { margin: 4px 0 0; font-weight: 600; word-break: break-all; }
 @media (max-width: 900px) {
@@ -1000,4 +1034,5 @@
 .wb-row > .wb-warn-box { flex: 1 0 100%; }
 /* Open-the-folder buttons (#443, "C" + "2A"). */
 .wb-folder-acts { margin: 4px 0 8px; }
+.wb-folder-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-mini-btn.wb-folder-btn { padding-left: 6px; padding-right: 6px; }
