@@ -8,12 +8,12 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
-import { createProject, updateProject } from '../projects.js'
+import { createProject, setProjectArchived, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItemVersions } from '../workbench.js'
 import { addSection, addBlock, addClaim, documentOutline, type SourceWorld } from '../workbench-docmodel.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
-import { buildFodt, renderOutlinePdf, toRenderOutline, PDF_FILTER_FINAL } from '../workbench-docrender.js'
-import { contentHash, fileStem } from '../workbench-docfinal.js'
+import { buildFodt, renderOutlineDocx, renderOutlinePdf, toRenderOutline, DOCX_FILTER, PDF_FILTER_FINAL } from '../workbench-docrender.js'
+import { contentHash, docxFileName, fileStem } from '../workbench-docfinal.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -39,7 +39,10 @@ for a in "$@"; do
   if [ "$prev" = "--convert-to" ]; then filter="$a"; fi
   prev="$a"
 done
-printf '%%PDF-1.4 %s' "$filter" > "$out/doc.pdf"
+case "$filter" in
+  docx*) printf 'PK-docx %s' "$filter" > "$out/doc.docx" ;;
+  *) printf '%%PDF-1.4 %s' "$filter" > "$out/doc.pdf" ;;
+esac
 exit 0
 `
 
@@ -267,6 +270,48 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     expect(r.body.message).toContain('LibreOffice')
   })
 
+  it('K-1.26: a Word-valtozat ugyanabbol a modellbol, vizjel es futo fejlec nelkul, a hiany kiemelve, forras nelkul', () => {
+    readyDocument()
+    const o = documentOutline(itemId)
+    const xml = buildFodt(toRenderOutline(o), { title: 'Válaszbeadvány', author: 'Teszt Elek', draft: false, lang: 'hu', target: 'docx' })
+    expect(xml).toContain('A tárgyalás 2027. március 17-én 10:30-kor lesz.')
+    expect(xml).toContain('<text:p text:style-name="Title">Válaszbeadvány</text:p>')
+    expect(xml).toContain('text:style-name="Heading_20_1" text:outline-level="1">1. Tényállás<')
+    expect(xml).not.toContain('draw:name="Watermark"')
+    expect(xml).not.toContain('PISZKOZAT')
+    expect(xml).not.toContain('<text:p text:style-name="Header">')
+    expect(xml).toContain('<text:page-number')
+    for (const leak of ['idezes.pdf', 'Level/', 'am 17. März 2027', 'Source', o.sections[0]!.blocks[0]!.claims[0]!.id, itemId, '📄', '🗣']) expect(xml, leak).not.toContain(leak)
+    const gap = buildFodt({ sections: [{ title: 'K', status: 'todo', blocks: [{ kind: 'paragraph', text: 'Nap: ⚠ Hiányzó adat: a kézbesítés dátuma' }] }] }, { title: 'B', author: null, draft: false, lang: 'hu', target: 'docx' })
+    expect(gap).toContain('<text:span text:style-name="Missing">⚠ Hiányzó adat: a kézbesítés dátuma</text:span>')
+    expect(gap).not.toContain('PISZKOZAT')
+  })
+
+  it('K-1.26: a DOCX letoltes a Word-szurovel keszul; vazlat nelkul 404, LibreOffice nelkul emberi mondat', async () => {
+    const base = `/api/workbench/items/${itemId}/outline`
+    expect((await callWorkbench(`${base}/docx`, 'GET')).body.error).toBe('outline_empty')
+    readyDocument()
+    const r = await callWorkbench(`${base}/docx?lang=hu`, 'GET')
+    expect(r.status).toBe(200)
+    expect(r.raw.toString('utf-8')).toBe(`PK-docx ${DOCX_FILTER}`)
+    expect(r.headers['Content-Type']).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    expect(r.headers['Content-Disposition']).toMatch(/^attachment; filename\*=UTF-8''V%C3%A1laszbeadv%C3%A1ny%20\(\d{4}-\d{2}-\d{2}\)\.docx$/)
+    // Archivalt projektben is letoltheto (olvasas).
+    setProjectArchived(pid, true)
+    process.env['MARVEEN_SOFFICE'] = join(depot, 'nincs-ilyen-soffice')
+    resetLibreOfficeProbe()
+    const miss = await callWorkbench(`${base}/docx`, 'GET')
+    expect(miss.status).toBe(501)
+    expect(['docx_not_installed', 'docx_check_failed']).toContain(miss.body.error)
+    expect(miss.body.message).toContain('LibreOffice')
+  })
+
+  it('a Word-fajl neve a cimbol es a datumbol', () => {
+    const item = getWorkItem(itemId)
+    if (!item) throw new Error('munkadarab')
+    expect(docxFileName(item, new Date(2026, 8, 29))).toBe('Válaszbeadvány (2026-09-29).docx')
+  })
+
   it('a fajlnev a cimbol: a perjel es a tiltott jelek nem vesznek el reszt, a .pdf sose esik le', () => {
     expect(fileStem('Kereset 2026/12: "fellebbezés"?')).toBe('Kereset 2026-12- -fellebbezés-')
     expect(fileStem('...')).toBe('dokumentum')
@@ -352,6 +397,35 @@ describe.skipIf(!HAS_SOFFICE)('valodi LibreOffice-szal', () => {
     if (!draft.ok) return
     expect(text(draft.pdf, 'draft.pdf')).toContain('PISZKOZAT')
   }, 180_000)
+
+  it('K-1.26 a kesz DOCX-en merve: Word-cimstilus, valodi labjegyzet es szamozas, vizjel es forras nelkul', async () => {
+    const outline = {
+      sections: [
+        { title: '1. Tényállás', status: 'done' as const, blocks: [
+          { kind: 'paragraph' as const, text: 'A tárgyalás 2027. március 17-én lesz. ⚠ Hiányzó adat: ügyszám' },
+          { kind: 'footnote' as const, text: 'Lásd a K1. mellékletet.' },
+          { kind: 'list' as const, text: '1. első\n2. második' },
+        ] },
+      ],
+    }
+    const r = await renderOutlineDocx(outline, { title: 'Válaszbeadvány', author: 'Teszt Elek', lang: 'hu' })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    if (spawnSync('unzip', ['-v'], { encoding: 'utf-8' }).status !== 0) return
+    const p = join(dir, 'out.docx')
+    writeFileSync(p, r.docx)
+    const part = (name: string): string => spawnSync('unzip', ['-p', p, name], { encoding: 'utf-8' }).stdout
+    const doc = part('word/document.xml')
+    expect(doc).toContain('<w:pStyle w:val="Heading1"/>')
+    expect(doc).toContain('<w:pStyle w:val="Title"/>')
+    expect(doc).toContain('w:footnoteReference')
+    expect(doc).toContain('<w:numId w:val="')
+    expect(part('word/footnotes.xml')).toContain('Lásd a K1. mellékletet.')
+    expect(doc).toContain('⚠ Hiányzó adat: ügyszám')
+    const all = doc + part('word/header1.xml')
+    for (const leak of ['PISZKOZAT', 'Source', '.pdf']) expect(all, leak).not.toContain(leak)
+    expect(part('docProps/core.xml')).toContain('Teszt Elek')
+  }, 180_000)
 })
 
 describe('a felulet: piszkozat, atnezes, veglegesites', () => {
@@ -391,6 +465,8 @@ describe('a felulet: piszkozat, atnezes, veglegesites', () => {
     expect(html).toContain('href="/api/workbench/items/w1/outline/pdf?lang=hu"')
     expect(html).toContain('workbench.outline.draft_pdf')
     expect(html).toContain('href="/api/workbench/items/w1/outline/trail?lang=hu"')
+    expect(html).toContain('href="/api/workbench/items/w1/outline/docx?lang=hu" download')
+    expect(html).toContain('workbench.outline.docx')
     expect(html).toContain(`data-wb-act="outline-review" href="/api/workbench/items/w1/outline/pdf?lang=hu&review=${HASH}"`)
     expect(html).toContain('<input type="checkbox" data-wb-act="outline-accept" disabled>')
     expect(html).toContain('data-wb-act="outline-finalize" disabled')

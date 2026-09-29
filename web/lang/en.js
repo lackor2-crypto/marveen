@@ -6447,6 +6447,8 @@ window._i18n.en = {
   "workbench.outline.check.owner_written": "Paragraphs you rewrote: {n}",
   "workbench.outline.draft_pdf": "📄 Draft PDF",
   "workbench.outline.draft_pdf_hint": "A PDF of the current state. Every page carries a \"DRAFT\" watermark and the gaps are highlighted. The annexes follow at the end, each with a cover page. It can be made any time and sent for review, to a lawyer for example.",
+  "workbench.outline.docx": "📝 Word (DOCX)",
+  "workbench.outline.docx_hint": "An editable Word file of the current state, made from the same source as the PDF. Headings get Word heading styles, numbering and footnotes are real, so a lawyer, for example, can keep editing it. It has no watermark; the gaps are highlighted. The annexes appear only in the list; send the files separately.",
   "workbench.outline.trail": "Download the technical trail",
   "workbench.outline.trail_hint": "A downloadable record of who wrote, checked and confirmed what in this document, and when. Marvin does not judge what this is legally sufficient for.",
   "workbench.outline.final_current": "Final: {label} (v{n}).",

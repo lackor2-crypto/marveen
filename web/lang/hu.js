@@ -6525,6 +6525,8 @@ window._i18n.hu = {
   "workbench.outline.check.owner_written": "Általad átírt bekezdés: {n}",
   "workbench.outline.draft_pdf": "📄 Piszkozat PDF",
   "workbench.outline.draft_pdf_hint": "PDF a mostani állapotról. Minden oldalán „PISZKOZAT” vízjel van, a hiányok ki vannak emelve. A mellékletek borítólappal a végére kerülnek. Bármikor elkészíthető, és átnézésre elküldhető, például ügyvédnek.",
+  "workbench.outline.docx": "📝 Word (DOCX)",
+  "workbench.outline.docx_hint": "Szerkeszthető Word-fájl a mostani állapotról, ugyanabból, amiből a PDF készül. A címek Word-címstílust kapnak, a számozás és a lábjegyzet valódi, így például egy ügyvéd tovább tudja szerkeszteni. Nincs rajta vízjel, a hiányok ki vannak emelve. A mellékletek csak a jegyzékben szerepelnek, a fájlokat külön küldd.",
   "workbench.outline.trail": "Technikai nyom letöltése",
   "workbench.outline.trail_hint": "Letölthető nyilvántartás arról, ki, mikor, mit írt, ellenőrzött és erősített meg ebben a dokumentumban. A Marvin nem minősíti, hogy ez jogilag mire elég.",
   "workbench.outline.final_current": "Végleges: {label} (v{n}).",

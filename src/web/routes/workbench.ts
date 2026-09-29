@@ -54,7 +54,7 @@ import {
   confirmOwnerClaim, recheckPendingSources,
 } from '../../workbench-docmodel.js'
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
-import { draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDraft, resolverFor } from '../../workbench-docfinal.js'
+import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
@@ -752,6 +752,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   docpdf_failed: {
     hu: 'A PDF elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
     en: 'Making the PDF failed. The exact error is in the details; no cause is guessed in its place.',
+  },
+  docx_not_installed: {
+    hu: 'A Word-fájl elkészítéséhez a LibreOffice kell, és ezen a gépen nincs telepítve. Telepítés: Linuxon „sudo apt install libreoffice-writer”, Windowson és macOS-en a libreoffice.org oldaláról. Ha máshová telepítetted, a Munkapad „Mi működik ezen a gépen?” paneljén add meg az útvonalát.',
+    en: 'Making the Word file needs LibreOffice, and it is not installed on this machine. To install: on Linux "sudo apt install libreoffice-writer", on Windows and macOS from libreoffice.org. If you installed it elsewhere, give its path in the Workbench "What works on this machine?" panel.',
+  },
+  docx_check_failed: {
+    hu: 'Nem tudtam megállapítani, van-e LibreOffice ezen a gépen, tehát ez NEM azt jelenti, hogy nincs. A pontos hibaüzenet a részleteknél olvasható.',
+    en: 'It could not be determined whether LibreOffice is on this machine, so this does NOT mean it is missing. The exact error is in the details.',
+  },
+  docx_timeout: {
+    hu: 'A Word-fájl elkészítése túl sokáig tartott, ezért leállítottam. Próbáld újra.',
+    en: 'Making the Word file took too long, so it was stopped. Try again.',
+  },
+  docx_failed: {
+    hu: 'A Word-fájl elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
+    en: 'Making the Word file failed. The exact error is in the details; no cause is guessed in its place.',
   },
   outline_duplicate: {
     hu: 'Ez a fájl már szerepel a mellékletek között.',
@@ -1876,6 +1892,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(draftFileName(item, lang))}`,
       })
       res.end(r.pdf)
+      return true
+    }
+    // SZERKESZTHETO DOCX (K-1.26): ugyanabbol a modellbol, barmikor -- OLVASAS, archivalt projektben is.
+    if (segs.length === 3 && segs[2] === 'docx' && method === 'GET') {
+      if (!hasDocModel(item.id)) return fail(res, 404, 'outline_empty', lang)
+      const r = await renderDocx(item, lang)
+      if (!r.ok) {
+        const code = r.code === 'not_installed' || r.code === 'check_failed' || r.code === 'timeout' ? 'docx_' + r.code : 'docx_failed'
+        return failDetail(res, code === 'docx_timeout' ? 504 : code === 'docx_failed' ? 500 : 501, code, lang, r.detail)
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Length': String(r.docx.length),
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(docxFileName(item))}`,
+      })
+      res.end(r.docx)
       return true
     }
     // TECHNIKAI NYOM (K-1.23/b): ki, mikor, mit irt, ellenorzott, erositett meg -- letoltheto JSON.

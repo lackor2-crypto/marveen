@@ -21,7 +21,7 @@ import { getDb } from './db.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './workbench-docmodel.js'
 import { consistencyIssues } from './workbench-doccheck.js'
-import { outlineHash, renderOutlinePdf, toRenderOutline, type RenderResult } from './workbench-docrender.js'
+import { outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocxResult, type RenderResult } from './workbench-docrender.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
@@ -182,6 +182,21 @@ export function fileStem(title: string): string {
 
 export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
   return `${fileStem(item.title)} (${DRAFT_LABEL[lang]}).pdf`
+}
+
+/** A szerkesztheto Word-fajl neve (K-1.26): a cim, datummal (a kiadott munkapeldanyok megkulonbozthetok). */
+export function docxFileName(item: WorkItemRow, d = new Date()): string {
+  return `${fileStem(item.title)} (${localDate(d)}).docx`
+}
+
+/**
+ * Szerkesztheto DOCX (K-1.26): barmikor, ugyanabbol a modellbol, mint a PDF.
+ * Munkapeldany (pl. ugyvednek tovabbszerkesztesre), nem a vegleges irat: a
+ * hiany-jelolesek kiemelve benne maradnak, a mellekletek csak a jegyzekben
+ * szerepelnek (a fajlok nem kerulnek bele).
+ */
+export async function renderDocx(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DocxResult> {
+  return renderOutlineDocx(renderInputFor(item), { title: item.title, author: documentAuthor(), lang })
 }
 
 export type DraftResult =

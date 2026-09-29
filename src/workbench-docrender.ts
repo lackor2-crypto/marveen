@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { convertOfficeToPdf, renderCacheDir, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
+import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
 import { MISSING_MARK_RE, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
@@ -34,6 +34,9 @@ export interface RenderOptions {
   author: string | null
   draft: boolean
   lang: 'hu' | 'en'
+  /** 'docx' (K-1.26): szerkesztheto Word-fajlnak keszul -- nincs vizjel es futo
+   *  fejlec (az ugyved a sajatjat teszi ra), a hiany-jelolesek kiemelve maradnak. */
+  target?: 'pdf' | 'docx'
 }
 
 /** A LibreOffice PDF-exportjanak beallitasai (JSON szuro-opciok, LibreOffice 7.4+). */
@@ -148,9 +151,12 @@ const LABELS = {
 } as const
 
 /** A modell -> ODF (flat XML). Csak a cimek es a blokkok szovege kerul bele (K-1.13). */
-export function buildFodt(outline: RenderOutline, o: RenderOptions): string {
+export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
+  const docx = opts.target === 'docx'
+  // A Word-valtozatban a hiany-jelolesek kiemelve maradnak (a `draft` itt csak a kiemelest jelenti), vizjel nelkul.
+  const o = docx ? { ...opts, draft: true } : opts
   const L = LABELS[o.lang]
-  const body: string[] = [`<text:p text:style-name="TitleFirst">${inline(o.title)}</text:p>`]
+  const body: string[] = [`<text:p text:style-name="${docx ? 'Title' : 'TitleFirst'}">${inline(o.title)}</text:p>`]
   let tables = 0
   let notes = 0
   for (const s of outline.sections) {
@@ -174,10 +180,10 @@ export function buildFodt(outline: RenderOutline, o: RenderOptions): string {
     for (const a of outline.annexes) body.push(`<text:p text:style-name="AnnexLine">${inline(a.label)} – ${inlineMarked(a.title, o.draft)}</text:p>`)
   }
   const lang = o.lang === 'en' ? { l: 'en', c: 'GB', tag: 'en-GB' } : { l: 'hu', c: 'HU', tag: 'hu-HU' }
-  const watermark = o.draft
+  const watermark = o.draft && !docx
     ? `<text:p text:style-name="HeaderMark"><draw:frame draw:style-name="WmFrame" draw:name="Watermark" text:anchor-type="paragraph" svg:x="0cm" svg:y="10cm" svg:width="16.5cm" svg:height="4cm" draw:z-index="0"><draw:text-box><text:p text:style-name="Watermark">${L.draft}</text:p></draw:text-box></draw:frame></text:p>`
     : ''
-  const footer = `<style:footer><text:p text:style-name="Footer">${o.draft ? `${L.draft} · ` : ''}${L.pageOf('<text:page-number text:select-page="current"/>', '<text:page-count/>')}</text:p></style:footer>`
+  const footer = `<style:footer><text:p text:style-name="Footer">${o.draft && !docx ? `${L.draft} · ` : ''}${L.pageOf('<text:page-number text:select-page="current"/>', '<text:page-count/>')}</text:p></style:footer>`
   return `<?xml version="1.0" encoding="UTF-8"?>
 <office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
 <office:meta><dc:title>${xmlEscape(o.title)}</dc:title>${o.author ? `<meta:initial-creator>${xmlEscape(o.author)}</meta:initial-creator><dc:creator>${xmlEscape(o.author)}</dc:creator>` : ''}<dc:language>${lang.tag}</dc:language></office:meta>
@@ -218,7 +224,7 @@ export function buildFodt(outline: RenderOutline, o: RenderOptions): string {
 </office:automatic-styles>
 <office:master-styles>
 <style:master-page style:name="First" style:page-layout-name="pm1" style:next-style-name="Standard"><style:header>${watermark || '<text:p text:style-name="HeaderMark"/>'}</style:header>${footer}</style:master-page>
-<style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header>${watermark}<text:p text:style-name="Header">${inline(o.title)}</text:p></style:header>${footer}</style:master-page>
+<style:master-page style:name="Standard" style:page-layout-name="pm1">${docx ? '' : `<style:header>${watermark}<text:p text:style-name="Header">${inline(o.title)}</text:p></style:header>`}${footer}</style:master-page>
 </office:master-styles>
 <office:body><office:text>
 ${body.join('\n')}
@@ -275,6 +281,28 @@ export async function renderFodtPdf(xml: string, filter: string): Promise<Render
 /** A modell PDF-kent. */
 export async function renderOutlinePdf(outline: RenderOutline, o: RenderOptions): Promise<RenderResult> {
   return renderFodtPdf(buildFodt(outline, o), o.draft ? PDF_FILTER_DRAFT : PDF_FILTER_FINAL)
+}
+
+/** A LibreOffice Word-exportja: valodi Word-stilusok (Cim, Cimsor 1), valodi labjegyzet, valodi szamozas. */
+export const DOCX_FILTER = 'docx:MS Word 2007 XML'
+
+export type DocxResult =
+  | { ok: true; docx: Buffer }
+  | { ok: false; code: 'not_installed' | 'check_failed' | 'timeout' | 'convert_failed' | 'no_output'; detail: string | null }
+
+/**
+ * A modell szerkesztheto DOCX-kent (K-1.26), UGYANABBOL az ODF-bol, amibol a
+ * PDF keszul -- igy a ket formatum nem terhet el egymastol (K-1.15).
+ */
+export async function renderOutlineDocx(outline: RenderOutline, o: Omit<RenderOptions, 'draft' | 'target'>): Promise<DocxResult> {
+  const xml = buildFodt(outline, { ...o, draft: false, target: 'docx' })
+  const dir = join(renderCacheDir(), 'docmodel')
+  const fail = (e: unknown): DocxResult => ({ ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) })
+  try { mkdirSync(dir, { recursive: true }) } catch (e) { return fail(e) }
+  const src = join(dir, createHash('sha256').update(xml).digest('hex').slice(0, 24) + '.fodt')
+  try { if (!existsSync(src)) { writeFileSync(src, xml, 'utf-8'); pruneSources(dir) } } catch (e) { return fail(e) }
+  const r = await sofficeConvertFile(src, DOCX_FILTER, { outExt: 'docx' })
+  return r.ok ? { ok: true, docx: r.data } : { ok: false, code: r.code, detail: r.detail }
 }
 
 /** Egy egyszeru, egyoldalas ODF: a boritolap es a szoveges melleklet kozos kerete. */
