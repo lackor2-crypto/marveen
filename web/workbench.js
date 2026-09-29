@@ -4079,6 +4079,7 @@
         return '<li class="wb-asset">'
           + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
           + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(a.support) + '">' + esc(assetSupportLabel(a.support)) + '</span>'
+          + (a.shared ? ' <span class="wb-pill wb-asset-shared" title="' + escA(t('workbench.shared.pill_title')) + '">' + esc(t('workbench.shared.pill')) + '</span>' : '')
           + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
           + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
             + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
@@ -4099,7 +4100,111 @@
       + (ro || !loose ? '' : '<p><button type="button" class="wb-btn" data-wb-act="asset-tidy"' + (WB.tidyBusy ? ' disabled' : '') + '>'
         + esc(t('workbench.assets.tidy')) + '</button></p>'
         + '<p class="wb-hint">' + esc(t('workbench.assets.tidy_hint')) + '</p>')
+      + (ro ? '' : sharedBlockHtml(assets))
       + '</div>'
+  }
+
+  /** A PROJEKT KOZOS TARA (#441, K-0.19): logo, markaelemek egyszer a
+   *  projektben; a munkadarabhoz hivatkozaskent kerulnek, masolat nem keszul. */
+  function sharedBlockHtml(assets) {
+    var sh = WB.shared && WB.shared.projectId === WB.projectId ? WB.shared : null
+    var open = !!(sh && sh.open)
+    var head = '<p><button type="button" class="wb-btn" data-wb-act="shared-toggle" aria-expanded="' + (open ? 'true' : 'false') + '">'
+      + '\u2b50 ' + esc(t(open ? 'workbench.shared.close' : 'workbench.shared.open')) + '</button></p>'
+    if (!open) return head
+    var linked = {}
+    ;(assets || []).forEach(function (a) { linked[a.path] = true })
+    var body
+    if (sh.loading) body = '<p class="wb-muted">' + esc(t('workbench.shared.loading')) + '</p>'
+    else if (!sh.files.length) body = '<p class="wb-muted">' + esc(t(sh.folder ? 'workbench.shared.empty' : 'workbench.shared.none')) + '</p>'
+    else {
+      body = '<ul class="wb-assets wb-shared-list">' + sh.files.map(function (f) {
+        return '<li class="wb-asset">'
+          + '<span class="wb-asset-name" title="' + escA(f.project_path || f.path) + '">' + esc(f.name) + '</span> '
+          + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(f.support) + '">' + esc(assetSupportLabel(f.support)) + '</span> '
+          + (linked[f.path]
+            ? '<span class="wb-muted">' + esc(t('workbench.shared.linked')) + '</span>'
+            : '<button type="button" class="wb-linklike" data-wb-act="shared-link" data-wb-path="' + escA(f.path) + '"'
+              + ' title="' + escA(t('workbench.shared.link_title')) + '">' + esc(t('workbench.shared.link')) + '</button>')
+          + '</li>'
+      }).join('') + '</ul>'
+    }
+    return head + '<div class="wb-shared-block">'
+      + '<p class="wb-muted">' + esc(sh.folder ? t('workbench.shared.folder', { folder: sh.folder }) : t('workbench.shared.intro')) + '</p>'
+      + body
+      + '<p><label class="wb-btn" for="wbSharedUpload">\ud83d\udcce ' + esc(sh.uploading ? t('workbench.upload.busy') : t('workbench.shared.upload')) + '</label>'
+      + '<input type="file" id="wbSharedUpload" class="wb-file-input" multiple></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.shared.hint')) + '</p>'
+      + '</div>'
+  }
+
+  function loadShared(projectId) {
+    if (!WB.shared || WB.shared.projectId !== projectId) WB.shared = { projectId: projectId, open: true, folder: null, files: [] }
+    WB.shared.loading = true
+    render()
+    return api('GET', '/api/workbench/shared?project=' + encodeURIComponent(projectId)).then(function (r) {
+      if (!WB.shared || WB.shared.projectId !== projectId) return
+      WB.shared.loading = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.shared.folder = r.data.folder || null
+      WB.shared.files = r.data.files || []
+      render()
+    })
+  }
+
+  function toggleShared() {
+    if (!WB.projectId) return
+    if (WB.shared && WB.shared.projectId === WB.projectId && WB.shared.open) { WB.shared.open = false; render(); return }
+    if (WB.shared && WB.shared.projectId === WB.projectId) WB.shared.open = true
+    loadShared(WB.projectId)
+  }
+
+  function linkShared(path) {
+    var id = WB.selectedId
+    if (!id || !path || archived()) return
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/assets/link', { path: path }).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      window.showToast(t(r.data.already ? 'workbench.shared.link_already' : 'workbench.shared.link_done', { name: (r.data.asset && r.data.asset.name) || '' }))
+      if (WB.selectedId === id && WB.detail) { WB.detail.assets = r.data.assets || []; render() }
+      if (WB.projectId) loadShared(WB.projectId)
+    })
+  }
+
+  /** Fajlok a projekt kozos taraba (egymas utan; ugyanaz a tartalom ujra csak kerdesre). */
+  function uploadShared(fileList) {
+    var projectId = WB.projectId
+    if (!projectId || archived() || !fileList || !fileList.length || (WB.shared && WB.shared.uploading)) return Promise.resolve()
+    var files = []
+    for (var i = 0; i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
+    if (!WB.shared || WB.shared.projectId !== projectId) WB.shared = { projectId: projectId, open: true, folder: null, files: [] }
+    WB.shared.uploading = true
+    render()
+    var lang = encodeURIComponent(window._lang || 'hu')
+    var errors = []
+    var ok = 0
+    var chain = Promise.resolve()
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        var url = '/api/workbench/shared?project=' + encodeURIComponent(projectId) + '&name=' + encodeURIComponent(f.name || 'fajl') + '&lang=' + lang
+        return postFile(url, f).then(function (r) {
+          if (!r.ok && r.data && r.data.error === 'shared_duplicate') {
+            var ex = r.data.existing && r.data.existing.name
+            if (window.confirm(t('workbench.shared.duplicate_confirm', { name: f.name || '', existing: ex || f.name || '' }))) return postFile(url + '&force=1', f)
+            return { ok: true, skipped: true }
+          }
+          return r
+        }).then(function (r) {
+          if (!r.ok) errors.push((f.name ? f.name + ': ' : '') + r.message)
+          else if (!r.skipped) ok++
+        })
+      })
+    })
+    return chain.then(function () {
+      if (WB.shared && WB.shared.projectId === projectId) WB.shared.uploading = false
+      if (errors.length) window.showToast(errors.join(' \u2014 '))
+      if (ok) window.showToast(t('workbench.shared.upload_done', { n: ok }))
+      if (WB.projectId === projectId) loadShared(projectId)
+    })
   }
 
   function removeAsset(assetId) {
@@ -6430,6 +6535,8 @@
     else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
+    else if (a === 'shared-toggle') toggleShared()
+    else if (a === 'shared-link') linkShared(act.getAttribute('data-wb-path'))
     else if (a === 'chat-attached-drop') {
       // Csak az uzenetbol marad ki -- a fajl az Anyagok kozott marad.
       var dropList = WB.selectedId ? WB.chatAttached[WB.selectedId] : null
@@ -6765,6 +6872,12 @@
     if (e.target.id === 'wbAssetUpload' || e.target.id === 'wbChatAssetUpload') {
       var att = e.target.files
       if (att && att.length) uploadFiles(att, 'assets')
+      try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      return
+    }
+    if (e.target.id === 'wbSharedUpload') {
+      var sf = e.target.files
+      if (sf && sf.length) uploadShared(sf)
       try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
       return
     }

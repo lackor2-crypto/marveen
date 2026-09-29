@@ -83,6 +83,7 @@ import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
 import {
   makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset, listWorkItemAssets,
+  listSharedFiles, uploadSharedFile, linkSharedAsset,
   unlinkAsset, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
@@ -590,6 +591,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   asset_limit: {
     hu: 'Ennek a munkadarabnak már túl sok anyaga van. Nyiss egy új munkadarabot, vagy vegyél le a listáról régieket.',
     en: 'This work item already has too many materials. Open a new work item or remove old ones from the list.',
+  },
+  shared_duplicate: {
+    hu: 'Ez a fájl már megvan a projekt közös tárában.',
+    en: 'This file is already in the shared materials of the project.',
+  },
+  no_shared_folder: {
+    hu: 'Ennek a projektnek még nincs közös tára. Tölts fel bele egy fájlt, és az létrehozza.',
+    en: 'This project has no shared materials yet. Upload a file there and it will be created.',
+  },
+  not_shared: {
+    hu: 'Ez a fájl nem a projekt közös tárában van.',
+    en: 'This file is not in the shared materials of the project.',
   },
   asset_not_found: {
     hu: 'Ez az anyag már nincs a munkadarab listáján.',
@@ -1222,6 +1235,45 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // A PROJEKT KOZOS TARA (#441, v4 spec K-0.19): a logo, a markaelemek egyszer
+  // vannak meg a projektben; a munkadarabhoz csak hivatkozaskent kerulnek
+  // (POST .../items/<id>/assets/link), masolat nem keszul.
+  //   GET  /api/workbench/shared?project=<id>               -- a kozos tar fajljai
+  //   POST /api/workbench/shared?project=<id>&name=...      -- egy fajl (nyers bajtok); `force=1`: ugyanaz a tartalom ujra
+  if (path === '/api/workbench/shared' && (method === 'GET' || method === 'POST')) {
+    const project = getProject((url.searchParams.get('project') || '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (method === 'GET') {
+      json(res, listSharedFiles(project))
+      return true
+    }
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    const r = uploadSharedFile(project, url.searchParams.get('name') || '', data, {
+      force: url.searchParams.get('force') === '1', lang,
+    })
+    if (!r.ok) {
+      if (r.code === 'shared_duplicate') {
+        json(res, { error: r.code, message: msg(r.code, lang), existing: r.existing }, 409)
+        return true
+      }
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      const status = r.code === 'write_failed' ? 500 : r.code === 'not_found' ? 404 : 400
+      return failDetail(res, status, code, lang, 'message' in r ? (r.message || null) : null)
+    }
+    json(res, { ok: true, file: r.file, renamed: r.renamed, ...listSharedFiles(project) }, 201)
+    return true
+  }
+
   if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
 
   if (path === '/api/workbench/items' && method === 'GET') {
@@ -1414,6 +1466,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
       renamed: r.renamed, name: r.asset.name, assets: listWorkItemAssets(item.id),
     }, 201)
+    return true
+  }
+  // K-0.19: egy kozos tarban allo fajl hivatkozaskent az anyagok koze.
+  if (segs.length === 3 && segs[1] === 'assets' && segs[2] === 'link' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = linkSharedAsset(item, body['path'], actor(ctx))
+    if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : 400, r.code === 'not_found' ? 'asset_not_found' : r.code, lang)
+    json(res, { ok: true, asset: r.asset, already: r.already, assets: listWorkItemAssets(item.id) }, r.already ? 200 : 201)
     return true
   }
   if (segs.length === 3 && segs[1] === 'assets' && method === 'DELETE') {

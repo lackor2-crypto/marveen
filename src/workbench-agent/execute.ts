@@ -22,7 +22,7 @@ import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
 import { convertOfficeToPdf, isOfficeConvertible } from '../office-convert.js'
-import { listWorkItemAssetsSynced, renameWorkItemFolder } from '../workbench-assets.js'
+import { listWorkItemAssetsSynced, renameWorkItemFolder, listSharedFiles, linkSharedAsset } from '../workbench-assets.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
@@ -417,10 +417,38 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
           note: assets.length ? '' : 'this work item exists and has no attached materials yet',
           assets: assets.map((a) => ({
             path: a.project_path || a.path, name: a.name, support: a.support,
-            bytes: a.bytes, present: a.present,
+            bytes: a.bytes, present: a.present, shared: a.shared,
           })),
         },
       }
+    }
+    case 'project.listShared': {
+      const r = listSharedFiles(project)
+      return {
+        ok: true,
+        data: {
+          folder: r.folder,
+          count: r.files.length,
+          note: r.folder ? (r.files.length ? '' : 'the shared folder exists but it is empty') : 'this project has no shared materials yet',
+          files: r.files.map((f) => ({ path: f.project_path || f.path, name: f.name, support: f.support, bytes: f.bytes, used_by: f.used_by })),
+        },
+      }
+    }
+    case 'workItem.linkShared': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const r = linkSharedAsset(item, input.path, 'workbench-agent')
+      if (!r.ok) {
+        const detail = r.code === 'not_shared' ? 'this file is not in the shared materials of the project (see project.listShared)'
+          : r.code === 'no_shared_folder' ? 'this project has no shared materials yet'
+          : r.code
+        return { ok: false, code: r.code === 'not_found' ? 'not_found' : 'bad_input', detail }
+      }
+      return { ok: true, data: { linked: r.asset.project_path || r.asset.path, already: r.already } }
     }
     case 'workItem.listParts': {
       const id = asString(input.id) || ctx.workItemId || ''

@@ -73,7 +73,7 @@ function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: st
 function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[] } {
   let materials: string[] = []
   try {
-    materials = listWorkItemAssetsSynced(item.id).map((a) => `${a.project_path || a.path} [${a.support}${a.present ? '' : ', missing'}]`)
+    materials = listWorkItemAssetsSynced(item.id).map((a) => `${a.project_path || a.path} [${a.support}${a.shared ? ', shared' : ''}${a.present ? '' : ', missing'}]`)
   } catch { materials = [] }
   return { title: item.title, type: item.type, folder: item.folder ?? null, materials }
 }

@@ -125,6 +125,18 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'project.listShared',
+    description: 'List the shared materials of the project (its "Shared materials" folder): logos, brand elements and other files that belong to the whole project, not to one work item. Each entry has its path and support (as in workItem.listAssets). Use workItem.linkShared to use one in a work item -- it is linked, not copied.',
+    input: 'none',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'workItem.linkShared',
+    description: 'Add a file of the project shared materials (see project.listShared) to the materials of a work item as a LINK: no copy is made, the file stays in the shared folder. If it is already linked, nothing changes.',
+    input: 'id: the work item id (optional, defaults to the open one); path: the file from project.listShared (its path or just its name)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'workItem.addPart',
     description: 'Add a part to a work item: a text block, or an image that already exists in the project folder. This is how one work item can hold text AND a picture at the same time.',
     input: 'id: the work item id (optional, defaults to the open one); kind: text or image; text: the text (for a text part); path: the image file inside the project folder (for an image part); caption (optional)',

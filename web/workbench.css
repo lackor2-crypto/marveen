@@ -162,6 +162,8 @@
 .wb-asset { margin: 2px 0; word-break: break-word; }
 .wb-asset-sup { font-size: 0.75rem; }
 .wb-asset-sup-needs_processor, .wb-asset-sup-unsupported { opacity: 0.75; }
+.wb-asset-shared { font-size: 0.75rem; }
+.wb-shared-block { margin: 4px 0 0; padding: 6px 8px; border-left: 3px solid var(--accent, #3b82f6); }
 .wb-chat-attach { cursor: pointer; }
 .wb-assets-block.wb-drop-hover, .wb-root.wb-dragging .wb-assets-block { outline: 2px dashed var(--accent, #3b82f6); outline-offset: 2px; }
 .wb-assets-block.wb-flash { outline: 2px solid var(--accent, #3b82f6); outline-offset: 2px; }

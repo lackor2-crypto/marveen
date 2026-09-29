@@ -75,7 +75,7 @@ const MAX_ASSETS_IN_CONTEXT = 30
 function assetsLine(itemId: string): string {
   const assets = listWorkItemAssetsSynced(itemId)
   if (!assets.length) return 'materials: none attached yet'
-  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${a.present ? '' : ', MISSING from disk'}]`)
+  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${a.shared ? ', shared (linked from the project shared materials)' : ''}${a.present ? '' : ', MISSING from disk'}]`)
   const more = assets.length > shown.length ? ` ... and ${assets.length - shown.length} more (workItem.listAssets)` : ''
   return `materials (${assets.length}): ${shown.join('; ')}${more}`
 }
