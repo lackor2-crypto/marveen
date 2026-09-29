@@ -49,6 +49,7 @@ import { startWeeklySummarySweeper } from './workbench-weekly.js'
 import { startTodoReminderSweeper } from './workbench-todo-reminder.js'
 import { startSystemDepsMonitor } from './system-deps.js'
 import { scanInstalledClaude } from './claude-model-discovery.js'
+import { startClaudeCliUpdateScheduler } from './claude-cli-updater.js'
 import { registerDiscoveredClaudeModels } from './config-registry.js'
 import { initVisionAdapters } from './life-vision-adapter.js'
 import { tryHandleAuth } from './web/routes/auth.js'
@@ -760,6 +761,12 @@ export function startWebServer(port = 3420): http.Server {
       else if (r.models.length) logger.info({ models: r.models.map((m) => m.id) }, 'Claude modell-meres: a telepitett program ujabb modelleket ismer')
     })
     .catch((err) => logger.warn({ err }, 'Claude modell-meres nem futott le'))
+
+  // The measurement above only sees what the INSTALLED program knows, and that
+  // program never updated itself (agents run with DISABLE_AUTOUPDATER=1, and the
+  // channels.sh updater only reaches npm installs). Owner (2026-09-29): "minimum
+  // 2x naponta ezt ellenorizze le" -- so the dashboard updates it on a schedule.
+  if (!webOnly) startClaudeCliUpdateScheduler()
 
   // Ha a helyi OCR/arcfelismero venv telepitve van (Boss level-2 jovahagyasa
   // utan, `scripts/install-vision.sh`), koti be a valodi adaptereket -- ha

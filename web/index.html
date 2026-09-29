@@ -4508,6 +4508,8 @@
             </select>
             <button class="btn-secondary btn-compact agent-save-section" id="saveModelBtn" data-i18n="common.btn.save">Mentés</button>
             <button class="btn-secondary btn-compact" id="modelSuggestBtn" style="margin-left:6px" data-i18n="agents.settings.model_suggest_btn">Javaslat</button>
+            <button class="btn-secondary btn-compact" id="modelRefreshBtn" style="margin-left:6px" data-i18n="agents.model.refresh_btn" data-i18n-title="agents.model.refresh_title" title="Megnézi, van-e újabb Claude program, frissíti, és a benne megjelent új modelleket felveszi a listába. Magától is lefut naponta háromszor (5, 14 és 22 órakor).">Modellek frissítése</button>
+            <small id="modelRefreshStatus" style="display:block;margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.4"></small>
             <button class="btn-secondary btn-compact" id="openrouterBrowseBtn" style="margin-left:6px;display:none" title="Kézi OpenRouter modellek listájának szerkesztése (pipával)">🔀 OpenRouter kézi lista</button>
             <small id="deepseekHint" style="display:none;margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.4">
               <span data-i18n="agents.deepseek_hint_pre">DeepSeek-V4-Pro nincs konfigurálva.</span> <a href="#" id="deepseekConfigLink" data-i18n="agents.deepseek_link">API kulcs hozzáadása</a> <span data-i18n="agents.deepseek_hint_post">a Vault oldalon.</span>

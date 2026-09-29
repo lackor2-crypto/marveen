@@ -61,8 +61,11 @@ export const CLAUDE_MODELS: ClaudeModel[] = [
     hu: 'előző Fable', en: 'previous Fable' },
   { id: 'claude-opus-5', name: 'Opus 5', family: 'opus',
     hu: 'előző Opus', en: 'previous Opus' },
+  // Measured 2026-09-29: first shipped in CLI 2.1.284.
+  { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5', family: 'sonnet',
+    hu: 'legújabb Sonnet', en: 'latest Sonnet' },
   { id: 'claude-sonnet-5', name: 'Sonnet 5', family: 'sonnet',
-    hu: 'legújabb Sonnet, Opus-közeli', en: 'latest Sonnet, close to Opus' },
+    hu: 'előző Sonnet, Opus-közeli', en: 'previous Sonnet, close to Opus' },
   { id: 'claude-opus-4-8[1m]', name: 'Opus 4.8', family: 'opus',
     hu: '1M kontextus', en: '1M context' },
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', family: 'sonnet',

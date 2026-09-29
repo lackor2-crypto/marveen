@@ -8526,6 +8526,40 @@ document.getElementById('saveModelBtn').addEventListener('click', async () => {
   } catch { showToast(t('common.error_save')) }
 })
 
+// "Modellek frissitese": updates the installed Claude program and re-reads the
+// model list. The server also does this on its own three times a day; the
+// button is for "a new model just came out, I want it now" (owner, 2026-09-29).
+document.getElementById('modelRefreshBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('modelRefreshBtn')
+  const status = document.getElementById('modelRefreshStatus')
+  const sel = document.getElementById('editAgentModel')
+  const keep = sel ? sel.value : ''
+  btn.disabled = true
+  status.style.color = 'var(--text-muted)'
+  status.textContent = t('agents.model.refresh_running')
+  try {
+    const res = await fetch('/api/models/refresh', { method: 'POST' })
+    if (!res.ok) throw new Error(String(res.status))
+    const r = await res.json()
+    _elerhetoModellek = null
+    await loadAvailableModels()
+    if (sel && keep) sel.value = keep
+    const lines = []
+    if (!r.ok) lines.push(((window._lang === 'en' ? r.messageEn : r.message)) || t('agents.model.refresh_failed'))
+    else if (r.updated) lines.push(t('agents.model.refresh_updated').replace('{before}', r.before || '?').replace('{after}', r.after || '?'))
+    else lines.push(t('agents.model.refresh_current').replace('{after}', r.after || '?'))
+    const uj = Array.isArray(r.newModels) ? r.newModels : []
+    lines.push(uj.length ? t('agents.model.refresh_new_models').replace('{list}', uj.map(m => m.label).join(', ')) : t('agents.model.refresh_no_new'))
+    status.style.color = r.ok ? 'var(--success)' : 'var(--danger, #d9534f)'
+    status.textContent = lines.join(' ')
+  } catch {
+    status.style.color = 'var(--danger, #d9534f)'
+    status.textContent = t('agents.model.refresh_failed')
+  } finally {
+    btn.disabled = false
+  }
+})
+
 document.getElementById('modelSuggestBtn').addEventListener('click', async () => {
   if (!currentAgent) return
   const resultDiv = document.getElementById('modelSuggestionResult')

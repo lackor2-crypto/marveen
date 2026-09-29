@@ -184,6 +184,8 @@ import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, codeBridgeDispl
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { claudeModelOptions } from '../../claude-models.js'
 import { scanInstalledClaude } from '../../claude-model-discovery.js'
+import { refreshClaudeModels, loadUpdateState } from '../../claude-cli-updater.js'
+import { registerDiscoveredClaudeModels } from '../../config-registry.js'
 
 // AZ ELAVULT KEPERNYOSZOVEG NE JELENTSEN KIESEST.
 //
@@ -775,11 +777,31 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
   // reads the key from there at start time -- surfacing the option in the UI
   // without the key would let the operator pick a model that 401s on first
   // prompt.
+  // "Modellek frissitese" button: update the installed Claude program now and
+  // re-measure its model list (the same run the daily schedule does).
+  if (path === '/api/models/refresh' && method === 'POST') {
+    const r = await refreshClaudeModels()
+    json(res, {
+      ok: r.ok, kind: r.kind, before: r.before, after: r.after, updated: r.updated,
+      message: r.message, messageEn: r.messageEn, checkedAt: r.checkedAt,
+      newModels: (r.scan?.models || []).map((m) => ({ id: m.id, label: m.name })),
+    })
+    return true
+  }
+
+  if (path === '/api/models/refresh' && method === 'GET') {
+    json(res, { state: loadUpdateState() })
+    return true
+  }
+
   if (path === '/api/models/available' && method === 'GET') {
     const nyelv = new URL(req.url || '/', 'http://x').searchParams.get('lang') === 'en' ? 'en' : 'hu'
     // A meres gyorsitotarazott (a CLI verziojahoz kotve), tehat ez nem indit
     // ujra-olvasast minden legordulo-nyitasnal.
     const mertClaude = await scanInstalledClaude()
+    // A later re-measure (after a program update) must make the new ids
+    // savable too, not only visible -- previously only startup registered them.
+    registerDiscoveredClaudeModels(mertClaude.models.map((m) => m.id))
     const hasDeepseek = getSecret('DEEPSEEK_API_KEY') !== null
     // OpenRouter is gated behind the vault key, same as DeepSeek: surfacing the
     // options without the key would let the operator pick a model that 401s.
