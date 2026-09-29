@@ -1276,9 +1276,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // Claim is a POST: it mutates (running + lease + attempt count).
   if (path === '/api/code/tasks/claim' && method === 'POST') {
     if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
-    const body = await parseJsonBody<{ host?: string; workerVersion?: string }>(ctx)
+    const body = await parseJsonBody<{ host?: string; workerVersion?: string; lane?: string }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
     const host = (body.host ?? '').trim() || 'unknown-worker'
+    // #433: only the literal 'chat' selects the chat lane; anything else is the main lane.
+    const lane = body.lane === 'chat' ? 'chat' as const : undefined
     // #425: a claim MOST viszi a worker sajat verziojat, es igy azonnal frissul
     // a nyilvantartas. Enelkul a verziot csak a felderites irta -- egy epp
     // frissult worker addig "elavultnak" latszott (ezert visszatartva), amig
@@ -1300,7 +1302,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       json(res, { task: null, ...(expectOnly === null ? {} : { expectedWorkerVersion: expectOnly }) })
       return true
     }
-    const task = claimNextCodeTask(host)
+    const task = claimNextCodeTask(host, Date.now(), lane)
     // A VART verzio minden valaszban ott van, mert a worker maga nem tudhatja,
     // hogy elavult: a sajat verziojat eddig csak KULDTE. Enelkul a csere
     // egyetlen szereploje a tulajdonos volt -- kezzel, terminalbol (Boss,
