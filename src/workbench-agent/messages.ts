@@ -34,6 +34,10 @@ export const MESSAGES = {
   },
 
   // --- allo, elo munkamenet (#434, C opcio) ---------------------------------
+  live_resume_prompt: {
+    hu: 'A Marveen újraindult (frissítés), és ez megszakította a munkádat. Folytasd a félbeszakadt munkát onnan, ahol abbamaradt; ha már kész volt, röviden írd meg az eredményt.',
+    en: 'Marveen restarted (update) and that cut off your work. Continue the interrupted work from where it stopped; if it was already done, briefly report the result.',
+  },
   live_session_failed: {
     hu: 'A teljes értékű ügynök munkamenete megszakadt: {detail}. Írd újra az üzeneted -- a beszélgetés folytatódik.',
     en: 'The full agent session stopped: {detail}. Send your message again -- the conversation continues.',
