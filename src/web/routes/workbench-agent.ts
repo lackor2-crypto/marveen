@@ -12,8 +12,9 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a keres
 // nyelven. A streamben ugyanez `event: notice` / `event: error` sorkent jon.
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { Readable, Writable } from 'node:stream'
 import { json, readBody } from '../http-helpers.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../../config.js'
@@ -137,6 +138,130 @@ let bridgeLimitedUntil = 0
 const BRIDGE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000
 /** Csak teszthez: a kod-hid limit-emlekenek torlese. */
 export function resetWorkbenchBridgeLimitForTest(): void { bridgeLimitedUntil = 0 }
+
+/**
+ * Interrupted full-agent turns (#434, Boss TG 1770: "frissites utan azonnal
+ * folytasa a felbeszakadt munkat!"). A live turn is recorded here when it
+ * starts and removed when it ends (answer, error, Stop or the cap). A restart
+ * (deploy, crash) kills the process without running that cleanup, so whatever
+ * is still recorded at the next start was cut off -- and is resumed.
+ */
+interface InflightTurn {
+  projectId: string
+  workItemId: string | null
+  account?: string
+  lang: Lang
+  actor: string
+  startedAt: number
+  /** How many times this turn was already resumed after a restart. */
+  resumes: number
+}
+/** A resume older than this is no longer "the work that just stopped". */
+const INFLIGHT_MAX_AGE_MS = 2 * 60 * 60 * 1000
+/** A turn that keeps dying with the process is not retried forever. */
+const INFLIGHT_MAX_RESUMES = 2
+/** Wait a little after startup so the rest of the server is up. */
+const INFLIGHT_RESUME_DELAY_MS = 5_000
+
+// Under the test runner the record stays in memory unless a test names a file.
+let inflightFile: string | null = process.env.VITEST ? null : join(STORE_DIR, 'workbench-inflight.json')
+let inflightMem: Record<string, InflightTurn> = {}
+/** Keys whose resume is scheduled but has not claimed the turn yet. */
+const pendingResume = new Set<string>()
+/** Keys being resumed now: live backend, and the prompt is saved as a notice. */
+const resumingTurns = new Map<string, number>()
+
+/** Test only: persist the in-flight record to this file (null = memory). */
+export function setWorkbenchInflightFileForTest(path: string | null): void {
+  inflightFile = path
+  inflightMem = {}
+  pendingResume.clear()
+  resumingTurns.clear()
+}
+
+function readInflight(): Record<string, InflightTurn> {
+  if (!inflightFile) return { ...inflightMem }
+  try {
+    const v = JSON.parse(readFileSync(inflightFile, 'utf-8'))
+    return v && typeof v === 'object' ? v as Record<string, InflightTurn> : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeInflight(all: Record<string, InflightTurn>): void {
+  if (!inflightFile) { inflightMem = all; return }
+  try {
+    const tmp = `${inflightFile}.tmp`
+    writeFileSync(tmp, JSON.stringify(all))
+    renameSync(tmp, inflightFile)
+  } catch { /* a missing record only costs the auto-resume, never the turn */ }
+}
+
+function markInflight(key: string, t: InflightTurn): void {
+  const all = readInflight()
+  all[key] = t
+  writeInflight(all)
+}
+
+function clearInflight(key: string): void {
+  const all = readInflight()
+  if (!(key in all)) return
+  delete all[key]
+  writeInflight(all)
+}
+
+/**
+ * Called once at server start: every live turn a restart cut off continues by
+ * itself, in the same chat and (via the saved Claude session id) with the same
+ * context. Returns the resumed keys. `run` is injectable for tests.
+ */
+export function resumeInterruptedWorkbenchTurns(opts: {
+  now?: number
+  delayMs?: number
+  run?: (key: string, t: InflightTurn) => Promise<void>
+} = {}): string[] {
+  const now = opts.now ?? Date.now()
+  const all = readInflight()
+  writeInflight({})
+  const keys: string[] = []
+  for (const [key, t] of Object.entries(all)) {
+    if (!t || typeof t.projectId !== 'string') continue
+    if (now - Number(t.startedAt || 0) > INFLIGHT_MAX_AGE_MS) continue
+    if (Number(t.resumes || 0) >= INFLIGHT_MAX_RESUMES) continue
+    keys.push(key)
+    pendingResume.add(key)
+    const run = opts.run ?? resumeTurn
+    const go = (): void => {
+      run(key, t)
+        .catch(() => { /* the chat shows the interrupted state as before */ })
+        .finally(() => { pendingResume.delete(key) })
+    }
+    const delay = opts.delayMs ?? INFLIGHT_RESUME_DELAY_MS
+    if (delay <= 0) go()
+    else { const tm = setTimeout(go, delay); if (typeof tm.unref === 'function') tm.unref() }
+  }
+  return keys
+}
+
+/** Runs the resume through the normal message route, so every rule of a turn
+ *  (lock, Stop, cap, saving, tool panel) applies unchanged. */
+async function resumeTurn(key: string, t: InflightTurn): Promise<void> {
+  const body = { project_id: t.projectId, work_item_id: t.workItemId, message: msg('live_resume_prompt', t.lang), account: t.account ?? '' }
+  const req = Readable.from([Buffer.from(JSON.stringify(body), 'utf-8')]) as unknown as RouteContext['req']
+  const sink = new Writable({ write(_c, _e, cb) { cb() } })
+  const res = Object.assign(sink, { writeHead() { return res } }) as unknown as RouteContext['res']
+  const url = new URL(`http://localhost/api/workbench/agent/message?lang=${t.lang}`)
+  resumingTurns.set(key, Number(t.resumes || 0) + 1)
+  try {
+    await tryHandleWorkbenchAgent({
+      req, res, path: url.pathname, method: 'POST', url,
+      auth: { kind: 'session', user: t.actor },
+    } as unknown as RouteContext)
+  } finally {
+    resumingTurns.delete(key)
+  }
+}
 
 /** `skip`: a fordulo alatt mar limitbe futott fiokok config-konyvtarai (#434). */
 type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>) => LiveStartSpec | null
@@ -373,7 +498,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         toolCalls: listToolCalls(session.id),
         // Elnavigalas utan visszaterve a felulet ebbol tudja, hogy a valasz
         // meg KESZUL a szerveren (es megvarja), nem pedig elveszett.
-        running: isTurnRunning(turnKey(project.id, null)) || bridgeStillWorking(session.id),
+        running: isTurnRunning(turnKey(project.id, null)) || pendingResume.has(turnKey(project.id, null)) || bridgeStillWorking(session.id),
       })
       return true
     }
@@ -386,7 +511,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       session,
       messages: listAgentMessages(session.id),
       toolCalls: listToolCalls(session.id),
-      running: isTurnRunning(turnKey(item.project_id, item.id)) || bridgeStillWorking(session.id),
+      running: isTurnRunning(turnKey(item.project_id, item.id)) || pendingResume.has(turnKey(item.project_id, item.id)) || bridgeStillWorking(session.id),
     })
     return true
   }
@@ -498,7 +623,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const workerOnline = fullAgentEnabled ? codeBridgeHealth().workerOnline : false
     // Boss (2026-09-28): ha van online kod-hid, az valaszoljon (a VS Code
     // rendszere); kifejezetten valasztott fioknal a helyi munkamenet fut.
-    const bridgeFirst = !account && Date.now() >= bridgeLimitedUntil
+    // An interrupted live turn continues in the live session that has its context.
+    const resumeCount = resumingTurns.get(key)
+    const bridgeFirst = !account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil
     const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline, liveAvailable: !!liveSpec, bridgeFirst })
 
     // A csendes kapcsolat eletben tartasa (#433): a kod-hidas fordulo percekig
@@ -523,50 +650,58 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       // allna a promptban.
       const history = prior ?? listAgentMessages(session.id)
       const text = input.message.trim()
-      if (!prior) addAgentMessage(session.id, 'user', text)
-      let answer = ''
-      let failed = ''
-      const openTools: LiveOpenTool[] = []
-      // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
-      // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
-      // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
-      const limited = new Set<string>()
-      let spec: LiveStartSpec | null = first
-      while (spec) {
-        const cur: LiveStartSpec = spec
-        spec = null
-        for await (const ev of getLivePool().turn(
-          cur,
-          (fresh) => fresh
-            ? liveInstallNote() + buildCodeBridgePrompt({
-              projectName: project.name || project.id,
-              projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
-              workItem: item ? codeBridgeWorkItem(item) : null,
-              history,
-              message: text,
-              lang,
-            })
-            : text,
-          lang,
-          ac.signal,
-        )) {
-          // The CLI's own limit sentence: the account picker shows it red (#434).
-          if (ev.type === 'error' && ev.code === 'live_limit') noteLimitAnswer(ev.message, { configDir: cur.configDir })
-          if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
-            limited.add(cur.configDir)
-            const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)
-            if (next && !limited.has(next.configDir)) { spec = next; break }
+      if (!prior) addAgentMessage(session.id, resumeCount !== undefined ? 'system' : 'user', text)
+      markInflight(key, {
+        projectId: project.id, workItemId, account, lang, actor: input.actor,
+        startedAt: Date.now(), resumes: resumeCount ?? 0,
+      })
+      try {
+        let answer = ''
+        let failed = ''
+        const openTools: LiveOpenTool[] = []
+        // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
+        // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
+        // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
+        const limited = new Set<string>()
+        let spec: LiveStartSpec | null = first
+        while (spec) {
+          const cur: LiveStartSpec = spec
+          spec = null
+          for await (const ev of getLivePool().turn(
+            cur,
+            (fresh) => fresh
+              ? liveInstallNote() + buildCodeBridgePrompt({
+                projectName: project.name || project.id,
+                projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
+                workItem: item ? codeBridgeWorkItem(item) : null,
+                history,
+                message: text,
+                lang,
+              })
+              : text,
+            lang,
+            ac.signal,
+          )) {
+            // The CLI's own limit sentence: the account picker shows it red (#434).
+            if (ev.type === 'error' && ev.code === 'live_limit') noteLimitAnswer(ev.message, { configDir: cur.configDir })
+            if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
+              limited.add(cur.configDir)
+              const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)
+              if (next && !limited.has(next.configDir)) { spec = next; break }
+            }
+            if (ev.type === 'text') answer += ev.text
+            if (ev.type === 'error') failed = ev.message
+            if (ev.type === 'tool') recordLiveTool(session.id, openTools, ev)
+            // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
+            // beszelgetesbe kerul, nem szakad felbe.
+            send(ev.type, ev)
           }
-          if (ev.type === 'text') answer += ev.text
-          if (ev.type === 'error') failed = ev.message
-          if (ev.type === 'tool') recordLiveTool(session.id, openTools, ev)
-          // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
-          // beszelgetesbe kerul, nem szakad felbe.
-          send(ev.type, ev)
         }
+        if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
+        if (failed) addAgentMessage(session.id, 'system', failed)
+      } finally {
+        clearInflight(key)
       }
-      if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
-      if (failed) addAgentMessage(session.id, 'system', failed)
     }
 
     try {

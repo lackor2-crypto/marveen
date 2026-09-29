@@ -129,7 +129,7 @@ import { tryHandleProjects } from './web/routes/projects.js'
 import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
 import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
-import { tryHandleWorkbenchAgent } from './web/routes/workbench-agent.js'
+import { tryHandleWorkbenchAgent, resumeInterruptedWorkbenchTurns } from './web/routes/workbench-agent.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
@@ -698,6 +698,13 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // #434 (Boss: "frissites utan azonnal folytasa a felbeszakadt munkat!"): a
+  // Workbench full-agent turn cut off by this restart continues by itself.
+  try {
+    const resumed = resumeInterruptedWorkbenchTurns()
+    if (resumed.length) logger.info({ resumed }, '[workbench] interrupted turns resume')
+  } catch (err) { logger.warn({ err }, '[workbench] resume of interrupted turns failed') }
 
   // #406, 13. pont: minden aktiv projektnek magatol elkeszul a mult heti
   // osszefoglalo, akkor is, ha senki nem nyitja meg a Munkapadot.

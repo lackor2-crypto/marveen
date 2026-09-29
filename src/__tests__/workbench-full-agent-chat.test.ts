@@ -42,10 +42,10 @@ import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } f
 import { openSessionForWorkItem, addAgentMessage, listAgentMessages, listToolCalls } from '../workbench-agent/sessions.js'
 import { resetWorkbenchAgentForTest } from '../workbench-agent/index.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
-import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest, resetWorkbenchBridgeLimitForTest } from '../web/routes/workbench-agent.js'
+import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest, resetWorkbenchBridgeLimitForTest, setWorkbenchInflightFileForTest, resumeInterruptedWorkbenchTurns } from '../web/routes/workbench-agent.js'
 import { LiveSessionPool, type SavedSession } from '../workbench-agent/live-session.js'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { RouteContext } from '../web/routes/types.js'
@@ -415,5 +415,77 @@ describe('#434: online kod-hid az elso, a helyi munkamenet csak tartalek (Boss, 
     const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' })
     expect(r.raw).toContain('"code":"code_bridge_limit"')
     expect(r.raw).toContain('weekly limit')
+  })
+})
+
+describe('#434: a Marveen ujraindulasa altal felbeszakitott munka magatol folytatodik (Boss TG 1770)', () => {
+  let inflight = ''
+  function livePool(dir: string, onSpawn: () => void): LiveSessionPool {
+    const script = join(dir, 'fake-claude.cjs')
+    writeFileSync(script, FAKE_CLI)
+    const pool = new LiveSessionPool({
+      spawn: (s) => { onSpawn(); return spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }) },
+      now: () => Date.now(),
+      loadIds: () => ({}),
+      saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [script] }))
+    return pool
+  }
+  beforeEach(() => {
+    inflight = join(mkdtempSync(join(tmpdir(), 'wb-inflight-')), 'workbench-inflight.json')
+    setWorkbenchInflightFileForTest(inflight)
+  })
+  afterEach(() => { setWorkbenchInflightFileForTest(null) })
+
+  it('egy vegigfutott fordulo nem hagy nyomot (nincs mit folytatni)', async () => {
+    workerOnline = false
+    const pool = livePool(mkdtempSync(join(tmpdir(), 'wb-rs-')), () => {})
+    await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' })
+    expect(JSON.parse(readFileSync(inflight, 'utf-8'))).toEqual({})
+    pool.stopAll()
+  })
+
+  it('az ujrainditas utan megmaradt fordulo magatol folytatodik a helyi munkamenetben; kozben a chat "fut"-nak latszik', async () => {
+    let spawns = 0
+    const pool = livePool(mkdtempSync(join(tmpdir(), 'wb-rs-')), () => { spawns++ })
+    const key = turnKey(projectId, workItemId)
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    addAgentMessage(session.id, 'user', 'csinald meg a nagy munkat')
+    writeFileSync(inflight, JSON.stringify({ [key]: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: Date.now() - 60_000, resumes: 0 } }))
+
+    // online kod-hid mellett is a helyi munkamenet folytat (ott van a kontextus)
+    expect(resumeInterruptedWorkbenchTurns({ delayMs: 60_000 })).toEqual([key])
+    expect((await get(`/api/workbench/agent/session?workItem=${workItemId}`)).running).toBe(true)
+    setWorkbenchInflightFileForTest(inflight) // a fenti idozitot eldobjuk
+    writeFileSync(inflight, JSON.stringify({ [key]: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: Date.now() - 60_000, resumes: 0 } }))
+    resumeInterruptedWorkbenchTurns({ delayMs: 0 })
+    for (let i = 0; i < 200 && (await get(`/api/workbench/agent/session?workItem=${workItemId}`)).running; i++) {
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    expect((await get(`/api/workbench/agent/session?workItem=${workItemId}`)).running).toBe(false)
+    expect(enqueued).toHaveLength(0)
+    expect(spawns).toBe(1)
+    const msgs = listAgentMessages(session.id).map((m) => [m.role, m.content])
+    expect(msgs.slice(-3)).toEqual([
+      ['user', 'csinald meg a nagy munkat'],
+      ['system', expect.stringContaining('Folytasd a félbeszakadt munkát')],
+      ['assistant', expect.stringContaining('valasz 1')],
+    ])
+    expect(JSON.parse(readFileSync(inflight, 'utf-8'))).toEqual({})
+    pool.stopAll()
+  })
+
+  it('a tul regi vagy mar ketszer folytatott fordulot nem inditja ujra (nincs vegtelen kor)', () => {
+    const now = Date.now()
+    writeFileSync(inflight, JSON.stringify({
+      a: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: now - 3 * 60 * 60 * 1000, resumes: 0 },
+      b: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: now, resumes: 2 },
+    }))
+    const ran: string[] = []
+    expect(resumeInterruptedWorkbenchTurns({ now, delayMs: 0, run: async (k) => { ran.push(k) } })).toEqual([])
+    expect(ran).toEqual([])
+    expect(JSON.parse(readFileSync(inflight, 'utf-8'))).toEqual({})
   })
 })

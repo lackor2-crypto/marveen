@@ -136,6 +136,8 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   // #434: the live Workbench session's scratch cwd and its Claude session ids --
   // both point at the OLD machine's Claude transcripts, useless after a restore.
   'workbench-live', 'workbench-live-sessions.json',
+  // #434: the Workbench turns running right now, resumed after a restart -- machine-local, short-lived.
+  'workbench-inflight.json',
   'kanban-audit-state.json', 'schedule-last-run.json', 'terminal-input.json', 'pending-patches',
   'task-run-history.json', 'backup-state.json', 'restore-in-progress.json', 'onboarding-choice.json',
   'restore-result.json', 'restore-pending.json', 'restore-held', 'restored-local-commits.bundle',
