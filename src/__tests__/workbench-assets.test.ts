@@ -337,7 +337,10 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     const html = h.html()
     expect(html).toContain('workbench.assets.title')
     expect(html).toContain('valasz.md')
-    expect(html).toContain('workbench.assets.support.readable')
+    // Csak a gondot jelzo cimke marad (Boss, 2026-09-29, 1888): az "olvashato"
+    // felesleges, a "feldolgozo kell hozza" mond valamit.
+    expect(html).not.toContain('workbench.assets.support.readable')
+    expect(html).toContain('workbench.assets.support.needs_processor')
     expect(html).toContain('workbench.assets.missing')
     expect(html).toMatch(/<input type="file" id="wbAssetUpload"[^>]*multiple/)
     expect(html).toMatch(/<input type="file" id="wbChatAssetUpload"[^>]*multiple/)

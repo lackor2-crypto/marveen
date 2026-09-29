@@ -5150,6 +5150,65 @@
     return t('workbench.assets.support.' + (sup || 'usable'))
   }
 
+  /** Tamogatasi cimke CSAK a gondnal (Boss, 2026-09-29, 1888): az
+   *  "olvashato"/"felhasznalhato" felesleges, a "feldolgozo kell hozza" es a
+   *  "nem tamogatott" marad, mert az mond valamit. */
+  function supportPillHtml(sup) {
+    if (sup !== 'needs_processor' && sup !== 'unsupported') return ''
+    return ' <span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(sup) + '">' + esc(assetSupportLabel(sup)) + '</span>'
+  }
+
+  /** MAPPA MEGNYITASA (#443, Boss 2026-09-29, "C" + "2A"): ket gomb -- az
+   *  Intezo (a dashboard fajlkezeloje) es a gep sajat fajlkezeloje (Windows
+   *  Explorer / Finder). Ha a gepen nincs megnyithato fajlkezelo, csak az
+   *  Intezo gomb latszik. `compact`: ikon-gombok egy anyag-sorban. */
+  function folderBtnsHtml(place, assetId, compact) {
+    if (WB.fm === undefined) loadFileManagerKind()
+    var data = ' data-wb-place="' + escA(place) + '"' + (assetId ? ' data-wb-asset="' + escA(assetId) + '"' : '')
+    var fm = WB.fm && WB.fm !== 'none' ? WB.fm : null
+    var tIn = t(place === 'asset' ? 'workbench.folder.intezo_file_title' : 'workbench.folder.intezo_title')
+    var tSys = fm ? t(place === 'asset' ? 'workbench.folder.system_file_title.' + fm : 'workbench.folder.system_title.' + fm) : ''
+    var cls = compact ? 'wb-mini-btn wb-folder-btn' : 'wb-btn wb-folder-btn'
+    var b = '<button type="button" class="' + cls + '" data-wb-act="folder-intezo"' + data
+      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + (compact ? '' : ' ' + esc(t('workbench.folder.intezo'))) + '</button>'
+      + (fm ? '<button type="button" class="' + cls + '" data-wb-act="folder-system"' + data
+        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + (compact ? '' : ' ' + esc(t('workbench.folder.system.' + fm))) + '</button>' : '')
+    return compact ? b : '<p class="wb-ctx-actions wb-folder-acts">' + b + '</p>'
+  }
+
+  function loadFileManagerKind() {
+    WB.fm = null
+    api('GET', '/api/workbench/file-manager').then(function (r) {
+      WB.fm = r.ok && r.data && r.data.kind ? r.data.kind : 'none'
+      if (WB.fm !== 'none') render()
+    })
+  }
+
+  function openFolder(place, assetId, app) {
+    var pid = WB.projectId
+    if (!pid) return
+    var body = { project: pid, place: place, app: app }
+    if (place !== 'shared' && WB.selectedId) body.item = WB.selectedId
+    if (assetId) body.asset = assetId
+    api('POST', '/api/workbench/open-folder', body).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      if (app === 'system') { window.showToast(t('workbench.folder.system_done')); return }
+      var p = r.data.project || {}
+      if (typeof window._prjOpenFiles === 'function') window._prjOpenFiles({ id: p.id || pid, name: p.name || '', folder_path: r.data.path })
+    })
+  }
+
+  /** LEVETEL / TORLES kerdes (Boss, 2026-09-29, 1884): csak levetel (a fajl a
+   *  mappaban marad), vagy vegleges torles a mappabol is -- "szemetet nem
+   *  kellene hagyni a rendszerben". Piros keret, a sor alatt. */
+  function assetRemoveBoxHtml(a) {
+    return '<div class="wb-warn-box" role="alert"><p>' + esc(t('workbench.assets.remove_ask', { name: a.name })) + '</p><div class="wb-warn-acts">'
+      + '<button type="button" class="wb-btn" data-wb-act="asset-unlink" data-wb-asset="' + escA(a.id) + '">' + esc(t('workbench.assets.remove_only')) + '</button>'
+      + '<button type="button" class="wb-btn wb-btn-danger" data-wb-act="asset-delete-file" data-wb-asset="' + escA(a.id) + '">' + esc(t('workbench.assets.remove_delete')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="warn-cancel">' + esc(t('workbench.warn.cancel')) + '</button>'
+      + '</div></div>'
+  }
+
   /** ANYAGOK doboz (#441, v4 K-0.14 ... K-0.16): a munkadarab sajat mappaja es
    *  a hozza csatolt fajlok, tamogatasi allapottal. Ide is lehet fajlt huzni. */
   function assetsBlockHtml() {
@@ -5167,13 +5226,16 @@
         // egy oszlopban, egymas alatt allnak (Boss, #443).
         return '<li class="wb-asset wb-row"><div class="wb-row-main">'
           + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
-          + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(a.support) + '">' + esc(assetSupportLabel(a.support)) + '</span>'
+          + supportPillHtml(a.support)
           + docStateHtml(a)
           + (a.shared ? ' <span class="wb-pill wb-asset-shared" title="' + escA(t('workbench.shared.pill_title')) + '">' + esc(t('workbench.shared.pill')) + '</span>' : '')
           + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
           + '</div>'
-          + (ro ? '' : '<div class="wb-row-act"><button type="button" class="wb-mini-btn" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
-            + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button></div>')
+          + '<div class="wb-row-act">' + (a.present ? folderBtnsHtml('asset', a.id, true) : '')
+          + (ro ? '' : '<button type="button" class="wb-mini-btn" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
+            + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
+          + '</div>'
+          + (WB.warn && WB.warn.kind === 'asset-remove' && WB.warn.id === a.id ? assetRemoveBoxHtml(a) : '')
           + '</li>'
       }).join('') + '</ul>'
       : '<p class="wb-muted">' + esc(t('workbench.assets.none')) + '</p>'
@@ -5182,6 +5244,7 @@
       + '<p class="wb-muted">' + esc(folder
         ? t('workbench.assets.folder', { folder: folder })
         : t('workbench.assets.no_folder')) + '</p>'
+      + (folder ? folderBtnsHtml('assets') : '')
       + list
       + (ro ? '' : '<p class="wb-ctx-actions"><label class="wb-btn" for="wbAssetUpload">\ud83d\udcce ' + esc(WB.upload
         ? t('workbench.upload.busy')
@@ -5212,7 +5275,7 @@
       body = '<ul class="wb-assets wb-shared-list">' + sh.files.map(function (f) {
         return '<li class="wb-asset wb-row"><div class="wb-row-main">'
           + '<span class="wb-asset-name" title="' + escA(f.project_path || f.path) + '">' + esc(f.name) + '</span> '
-          + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(f.support) + '">' + esc(assetSupportLabel(f.support)) + '</span>'
+          + supportPillHtml(f.support)
           + '</div><div class="wb-row-act">'
           + (linked[f.path]
             ? '<span class="wb-muted">' + esc(t('workbench.shared.linked')) + '</span>'
@@ -5223,6 +5286,7 @@
     }
     return head + '<div class="wb-shared-block">'
       + '<p class="wb-muted">' + esc(sh.folder ? t('workbench.shared.folder', { folder: sh.folder }) : t('workbench.shared.intro')) + '</p>'
+      + (sh.folder ? folderBtnsHtml('shared') : '')
       + body
       + '<p class="wb-ctx-actions"><label class="wb-btn" for="wbSharedUpload">\ud83d\udcce ' + esc(sh.uploading ? t('workbench.upload.busy') : t('workbench.shared.upload')) + '</label>'
       + '<input type="file" id="wbSharedUpload" class="wb-file-input" multiple></p>'
@@ -5360,13 +5424,18 @@
     })
   }
 
-  function removeAsset(assetId) {
+  /** `withFile`: a fajl a mappabol is torlodik; anelkul csak levetel. Ha a
+   *  fajlt mas is hasznalja, a szerver nem torli, es megmondja, ki. */
+  function removeAsset(assetId, withFile) {
     var id = WB.selectedId
     if (!id || !assetId || archived()) return
-    if (!window.confirm(t('workbench.assets.remove_confirm'))) return
-    api('DELETE', '/api/workbench/items/' + encodeURIComponent(id) + '/assets/' + encodeURIComponent(assetId)).then(function (r) {
+    WB.warn = null
+    render()
+    api('DELETE', '/api/workbench/items/' + encodeURIComponent(id) + '/assets/' + encodeURIComponent(assetId) + (withFile ? '?file=1' : '')).then(function (r) {
       if (!r.ok) { window.showToast(r.message); return }
       if (WB.selectedId === id && WB.detail) { WB.detail.assets = r.data.assets || []; render() }
+      window.showToast(t(withFile ? 'workbench.assets.deleted' : 'workbench.assets.removed'))
+      if (withFile && WB.shared && WB.shared.open && WB.shared.projectId === WB.projectId) loadShared(WB.projectId)
     })
   }
 
@@ -5427,6 +5496,7 @@
       var versions = WB.detail.versions || []
       var ro = archived() || WB.versionBusy
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + (versions.length ? ' (' + versions.length + ')' : '') + '</h3>'
+        + (versions.length ? folderBtnsHtml('versions') : '')
         + (versions.length
           ? '<ul class="wb-versions">' + versions.map(function (v) {
             var current = v.id === it.current_version_id
@@ -7754,7 +7824,11 @@
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
-    else if (a === 'asset-remove') removeAsset(act.getAttribute('data-wb-asset'))
+    else if (a === 'asset-remove') { WB.warn = { kind: 'asset-remove', id: act.getAttribute('data-wb-asset') }; render() }
+    else if (a === 'asset-unlink') removeAsset(act.getAttribute('data-wb-asset'), false)
+    else if (a === 'asset-delete-file') removeAsset(act.getAttribute('data-wb-asset'), true)
+    else if (a === 'folder-intezo') openFolder(act.getAttribute('data-wb-place'), act.getAttribute('data-wb-asset'), 'intezo')
+    else if (a === 'folder-system') openFolder(act.getAttribute('data-wb-place'), act.getAttribute('data-wb-asset'), 'system')
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
     else if (a && a.indexOf('outline-') === 0) outlineAction(a, act)

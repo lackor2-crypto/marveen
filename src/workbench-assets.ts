@@ -28,8 +28,8 @@
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs'
-import { extname, join, sep } from 'node:path'
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
+import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel } from './life-explorer.js'
@@ -38,7 +38,7 @@ import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
-import { ensureWorkbenchTables, getWorkItem, TITLE_MAX, type WorkItemRow } from './workbench.js'
+import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** Egy mappanev hossza (a Windows teljes-ut korlatja miatt rovidebb, mint a fajlnev). */
@@ -326,6 +326,102 @@ export function unlinkAsset(itemId: string, assetId: string): boolean {
   ensureAssetTables()
   return getDb().prepare('UPDATE work_item_assets SET removed_at = ? WHERE id = ? AND work_item_id = ? AND removed_at IS NULL')
     .run(Math.floor(Date.now() / 1000), assetId, itemId).changes > 0
+}
+
+export type DeleteAssetFileOutcome =
+  | { ok: true }
+  | { ok: false; code: 'asset_not_found' | 'asset_in_use' | 'asset_outside' | 'delete_failed'; users?: string[] }
+
+/**
+ * LEVETEL + VEGLEGES TORLES A MAPPABOL (Boss, 2026-09-29, 1884: "szemetet nem
+ * kellene hagyni a rendszerben"). A fajl a lemezrol is torlodik, az anyag-sor
+ * is megy. NEM torol, ha a fajlt mas is hasznalja -- egy masik munkadarab
+ * anyaga, egy munkadarab fo fajlja, egy verzio vagy egy resz --, mert az
+ * eltorne (`asset_in_use`, a hasznalok cimevel). A projekt mappajan kivuli
+ * fajlhoz nem nyul (`asset_outside`).
+ */
+export function deleteAssetFile(itemId: string, assetId: string): DeleteAssetFileOutcome {
+  ensureAssetTables()
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM work_item_assets WHERE id = ? AND work_item_id = ? AND removed_at IS NULL')
+    .get(assetId, itemId) as WorkItemAssetRow | undefined
+  if (!row) return { ok: false, code: 'asset_not_found' }
+  const item = getWorkItem(itemId)
+  const project = item ? getProject(item.project_id) : undefined
+  if (!item || !project) return { ok: false, code: 'asset_not_found' }
+  const users = new Set<string>()
+  const title = (id: string): string => (getWorkItem(id)?.title ?? id)
+  for (const r of db.prepare('SELECT work_item_id FROM work_item_assets WHERE path = ? AND id <> ? AND removed_at IS NULL').all(row.path, row.id) as { work_item_id: string }[]) users.add(title(r.work_item_id))
+  for (const r of db.prepare('SELECT id FROM work_items WHERE source_path = ?').all(row.path) as { id: string }[]) users.add(title(r.id))
+  for (const r of db.prepare('SELECT work_item_id FROM work_item_versions WHERE source_path = ? OR manifest_path = ? OR preview_path = ?').all(row.path, row.path, row.path) as { work_item_id: string }[]) users.add(title(r.work_item_id))
+  for (const r of db.prepare('SELECT work_item_id FROM work_item_parts WHERE asset_path = ?').all(row.path) as { work_item_id: string }[]) users.add(title(r.work_item_id))
+  if (users.size) return { ok: false, code: 'asset_in_use', users: [...users] }
+  const base = projectFileTarget(project, '')
+  const abs = resolveLifePath(row.path)
+  if (!base.ok || !abs || !abs.startsWith(base.dirAbs + sep)) return { ok: false, code: 'asset_outside' }
+  try {
+    if (existsSync(abs)) unlinkSync(abs)
+  } catch { return { ok: false, code: 'delete_failed' } }
+  db.prepare('DELETE FROM work_item_assets WHERE id = ?').run(row.id)
+  return { ok: true }
+}
+
+export type WorkbenchPlace = 'assets' | 'shared' | 'versions' | 'asset'
+export type PlaceOutcome =
+  | { ok: true; abs: string; dirRel: string; select: string | null }
+  | { ok: false; code: 'no_item_folder' | 'no_shared_folder' | 'asset_not_found' | 'not_found' | 'bad_place' }
+
+/**
+ * WHERE a Workbench list keeps its files, for the "open the folder" buttons
+ * (#443, Boss 2026-09-29): the materials of a work item (its own folder), the
+ * shared materials of the project, the versions (the folder of the current
+ * version's file), or one material row (its folder, the file selected).
+ * Everything stays inside the project folder -- a path outside it is
+ * `not_found`, never opened.
+ */
+export function workbenchPlace(project: ProjectRow, item: WorkItemRow | null, place: unknown, assetId: unknown = null): PlaceOutcome {
+  const root = projectFileTarget(project, '')
+  if (!root.ok) return { ok: false, code: 'not_found' }
+  const inside = (abs: string | null): abs is string => !!abs && (abs === root.dirAbs || abs.startsWith(root.dirAbs + sep)) && existsSync(abs)
+  const out = (abs: string, select: string | null): PlaceOutcome => {
+    const dir = select ? dirname(abs) : abs
+    return { ok: true, abs, dirRel: toLifeRel(dir), select }
+  }
+  if (place === 'shared') {
+    const sh = projectSharedFolder(project)
+    if (!sh.ok) return { ok: false, code: 'no_shared_folder' }
+    return out(sh.dirAbs, null)
+  }
+  if (!item || item.project_id !== project.id) return { ok: false, code: 'not_found' }
+  const itemDir = (): string | null => {
+    const f = workItemFolder(item.id)
+    if (!f) return null
+    const t = projectFileTarget(project, f)
+    return t.ok && inside(t.dirAbs) ? t.dirAbs : null
+  }
+  if (place === 'assets') {
+    const d = itemDir()
+    return d ? out(d, null) : { ok: false, code: 'no_item_folder' }
+  }
+  if (place === 'versions') {
+    const cur = item.current_version_id ? getWorkItemVersion(item.current_version_id) : undefined
+    for (const rel of [cur?.source_path, item.source_path]) {
+      const abs = rel ? resolveLifePath(rel) : null
+      if (inside(abs)) return out(dirname(abs), null)
+    }
+    const d = itemDir()
+    return d ? out(d, null) : { ok: false, code: 'no_item_folder' }
+  }
+  if (place === 'asset') {
+    ensureAssetTables()
+    const row = getDb().prepare('SELECT path, name FROM work_item_assets WHERE id = ? AND work_item_id = ? AND removed_at IS NULL')
+      .get(String(assetId ?? ''), item.id) as { path: string; name: string } | undefined
+    if (!row) return { ok: false, code: 'asset_not_found' }
+    const abs = resolveLifePath(row.path)
+    if (!inside(abs)) return { ok: false, code: 'asset_not_found' }
+    return out(abs, abs.slice(abs.lastIndexOf(sep) + 1))
+  }
+  return { ok: false, code: 'bad_place' }
 }
 
 // ---------------------------------------------------------------------------

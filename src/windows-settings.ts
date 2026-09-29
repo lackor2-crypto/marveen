@@ -324,7 +324,7 @@ async function reopenExplorerFolders(paths: string[]): Promise<void> {
  * Write a PowerShell script and run it inside the interactive desktop session
  * via a scheduled task. Anything that has to touch the desktop goes this way.
  */
-async function runScriptViaTaskScheduler(taskName: string, fileName: string, script: string): Promise<boolean> {
+export async function runScriptViaTaskScheduler(taskName: string, fileName: string, script: string): Promise<boolean> {
   const wslPath = `/mnt/c/Users/Public/${fileName}.ps1`
   const winPath = `C:\\Users\\Public\\${fileName}.ps1`
   try {
