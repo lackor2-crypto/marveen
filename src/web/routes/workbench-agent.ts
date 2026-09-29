@@ -24,7 +24,7 @@ import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
-import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts } from '../../workbench-agent/accounts.js'
+import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts, noteLimitAnswer } from '../../workbench-agent/accounts.js'
 import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
@@ -550,6 +550,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
           lang,
           ac.signal,
         )) {
+          // The CLI's own limit sentence: the account picker shows it red (#434).
+          if (ev.type === 'error' && ev.code === 'live_limit') noteLimitAnswer(ev.message, { configDir: cur.configDir })
           if (ev.type === 'error' && ev.code === 'live_limit' && !account && !answer.trim()) {
             limited.add(cur.configDir)
             const next = liveResolver(key, liveFolder && liveFolder.ok ? liveFolder.dirAbs : null, account, limited)

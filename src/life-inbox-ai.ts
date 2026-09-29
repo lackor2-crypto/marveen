@@ -61,6 +61,10 @@ export interface ClaudeAccount {
    *  limit is really used up cannot answer a call, so it is skipped here. */
   sevenDayPct?: number | null
   usageAt: number | null
+  /** When the measured 5-hour / 7-day windows reset (ms) -- lets a "limit"
+   *  answer that names its reset time be tied to THIS account (#434). */
+  fiveHourResetsAt?: number | null
+  sevenDayResetsAt?: number | null
 }
 
 /**
@@ -108,6 +112,8 @@ export function listClaudeAccountCandidates(): ClaudeAccount[] {
         fiveHourPct: snap?.fiveHour?.usedPct ?? null,
         sevenDayPct: snap?.sevenDay?.usedPct ?? null,
         usageAt: snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null,
+        fiveHourResetsAt: snap?.fiveHour?.resetsAt ?? null,
+        sevenDayResetsAt: snap?.sevenDay?.resetsAt ?? null,
       })
     } catch { /* one broken agent config must not hide the others */ }
   }

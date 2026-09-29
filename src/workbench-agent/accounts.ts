@@ -21,6 +21,111 @@ import { rankModelTier } from '../web/smartest-worker.js'
 type Lister = () => ClaudeAccount[]
 let lister: Lister = listClaudeAccountCandidates
 
+// ---------------------------------------------------------------------------
+// OBSERVED LIMITS (kanban #434, Boss 2026-09-29: "zoldet mutat az usalackor
+// mikozben 100% on van!")
+//
+// The percentages come from the agent's own statusline, which only refreshes
+// while that agent works in its terminal. The same login also answers the
+// Workbench (live session, VS Code bridge) -- and when THAT hits the limit,
+// the snapshot never learns it: measured 2026-09-29, the bridge said "You've
+// hit your session limit · resets 3:10am" at 02:11 while the snapshot still
+// said 83% from 01:45. The CLI's own limit sentence is a measurement, so it
+// is remembered until the reset it names, and the account shows as limited.
+// ---------------------------------------------------------------------------
+
+type LimitWindow = 'five' | 'seven'
+interface LimitMark { window: LimitWindow; until: number; at: number }
+const marks = new Map<string, LimitMark>()
+/** A limit sentence for a KNOWN account whose reset time we cannot tie to its
+ *  measured window: hold it this long, then trust the numbers again. */
+const UNMATCHED_LIMIT_HOLD_MS = 30 * 60_000
+
+/** Csak teszthez: a megfigyelt limitek torlese. */
+export function resetObservedLimitsForTest(): void { marks.clear() }
+
+function windowOf(text: string): LimitWindow | null {
+  if (/weekly limit|7-day limit/i.test(text)) return 'seven'
+  if (/session limit|5-hour limit|five-hour limit/i.test(text)) return 'five'
+  return null
+}
+
+/**
+ * Does the "resets 3:10am (Europe/Budapest)" / "resets Oct 2, 9am" part of a
+ * limit sentence name exactly this instant? Compared in the zone the sentence
+ * names (else the install's), to the minute -- the CLI prints no seconds.
+ */
+export function limitResetMatches(text: string, resetsAt: number): boolean {
+  const m = /resets\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s*(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s*\(([^)]+)\))?/i.exec(text)
+  if (!m || !Number.isFinite(resetsAt)) return false
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: m[6] || undefined, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+    }).formatToParts(new Date(resetsAt))
+  } catch { return false }
+  const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? ''
+  if (Number(get('hour')) !== Number(m[3])) return false
+  if (Number(get('minute')) !== Number(m[4] ?? '0')) return false
+  if (get('dayPeriod').toLowerCase() !== m[5].toLowerCase()) return false
+  if (m[1] && (get('month').toLowerCase() !== m[1].toLowerCase() || Number(get('day')) !== Number(m[2]))) return false
+  return true
+}
+
+/**
+ * The CLI answered with its limit sentence: remember which account ran out.
+ * `configDir` given = the caller knows the account (live session); otherwise
+ * (VS Code bridge, whose login we cannot see) the account is the ONE whose
+ * measured window resets exactly when the sentence says. No unique match =
+ * nothing is marked -- a guess would paint a working account red.
+ * Returns the marked agent, or null.
+ */
+export function noteLimitAnswer(text: string, opts: { configDir?: string; now?: number } = {}): string | null {
+  const now = opts.now ?? Date.now()
+  const win = windowOf(text)
+  let cands: ClaudeAccount[] = []
+  try { cands = lister() } catch { cands = [] }
+  if (opts.configDir) cands = cands.filter((c) => c.configDir === opts.configDir)
+  const hits: Array<{ agent: string; window: LimitWindow; until: number }> = []
+  for (const c of cands) {
+    for (const w of (win ? [win] : ['five', 'seven'] as LimitWindow[])) {
+      const r = w === 'five' ? c.fiveHourResetsAt : c.sevenDayResetsAt
+      if (r != null && r > now && limitResetMatches(text, r)) hits.push({ agent: c.agent, window: w, until: r })
+    }
+  }
+  let hit = hits.length === 1 ? hits[0] : null
+  if (!hit && opts.configDir && cands.length === 1) {
+    hit = { agent: cands[0].agent, window: win ?? 'five', until: now + UNMATCHED_LIMIT_HOLD_MS }
+  }
+  if (!hit) return null
+  marks.set(hit.agent, { window: hit.window, until: hit.until, at: now })
+  return hit.agent
+}
+
+/** The accounts as measured, with the observed limits laid over them. A mark
+ *  ends at its reset, or when a statusline reading taken AFTER it says the
+ *  window is no longer full. */
+function withObservedLimits(cands: ClaudeAccount[], now: number): ClaudeAccount[] {
+  return cands.map((c) => {
+    const mk = marks.get(c.agent)
+    if (!mk) return c
+    const measuredPct = mk.window === 'five' ? c.fiveHourPct : c.sevenDayPct
+    if (mk.until <= now || (c.usageAt != null && c.usageAt > mk.at && measuredPct != null && measuredPct < 100)) {
+      marks.delete(c.agent)
+      return c
+    }
+    return mk.window === 'five'
+      ? { ...c, fiveHourPct: 100, usageAt: now }
+      : { ...c, sevenDayPct: 100, usageAt: now }
+  })
+}
+
+function listAccounts(now: number): ClaudeAccount[] {
+  let cands: ClaudeAccount[] = []
+  try { cands = lister() } catch { cands = [] }
+  return withObservedLimits(cands, now)
+}
+
 /** Csak teszthez: a fiok-lista forrasanak cserelese. `null` visszaallitja. */
 export function setWorkbenchAccountListerForTest(l: Lister | null): void {
   lister = l || listClaudeAccountCandidates
@@ -33,8 +138,7 @@ export function setWorkbenchAccountListerForTest(l: Lister | null): void {
  * esik vissza, ami a tenyleges okot (nincs fiok / keret) ki is mondja.
  */
 export function workbenchAccounts(now: number = Date.now()): string[] {
-  let cands: ClaudeAccount[] = []
-  try { cands = lister() } catch { cands = [] }
+  const cands = listAccounts(now)
   const ordered = orderClaudeAccounts(cands.map((c) => ({ ...c, sevenDayPct: null })), now)
   // A heti 100% nem szur ki, de a sor VEGERE kerul (#434, 2026-09-28): a
   // Munkapad kivalasztott egy 0%-os 5 oras, de heti limites fiokot, es az
@@ -68,9 +172,8 @@ export interface WorkbenchAccountStatus {
  * valasztani... zold vagy piros"). Az elo (zold) fiokok elol, hogy az elso
  * kesz-valasztas is jo legyen.
  */
-export function workbenchAccountStatuses(): WorkbenchAccountStatus[] {
-  let cands: ClaudeAccount[] = []
-  try { cands = lister() } catch { cands = [] }
+export function workbenchAccountStatuses(now: number = Date.now()): WorkbenchAccountStatus[] {
+  const cands = listAccounts(now)
   // CSAK Claude-fiokok. A Munkapad providere a `claude -p`-t inditja, tehat egy
   // nem-Claude fiok (ingyenes glm/laguna/nemotron OpenRouter-modell) itt nem
   // hasznalhato -- ugyanaz a szures, mint az auto-valasztasban (orderClaudeAccounts:
@@ -80,8 +183,12 @@ export function workbenchAccountStatuses(): WorkbenchAccountStatus[] {
     const weeklyDead = c.sevenDayPct != null && c.sevenDayPct >= 100
     const fiveCritical = c.fiveHourPct != null && tierForPct(c.fiveHourPct) === 'critical'
     const noMeasure = c.fiveHourPct == null && (c.sevenDayPct == null)
+    // An old reading is not a green light: the numbers only refresh while that
+    // agent works in its own terminal, while the Workbench keeps spending the
+    // same login (#434: 83% at 01:45, out of limit by 02:11, still green).
+    const stale = c.usageAt != null && now - c.usageAt > STALE_AFTER_MS
     const status: WorkbenchAccountState =
-      weeklyDead || fiveCritical ? 'limited' : noMeasure ? 'unknown' : 'online'
+      weeklyDead || fiveCritical ? 'limited' : noMeasure || stale ? 'unknown' : 'online'
     return { agent: c.agent, model: c.model, status, fiveHourPct: c.fiveHourPct, sevenDayPct: c.sevenDayPct ?? null }
   })
   const rank = (s: WorkbenchAccountState): number => (s === 'online' ? 0 : s === 'unknown' ? 1 : 2)
