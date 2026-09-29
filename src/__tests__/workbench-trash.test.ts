@@ -207,7 +207,7 @@ describe('lomtar: a felulet', () => {
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-id="w1"'))
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.done⟧'))
-    h.click({ 'data-wb-act': 'trash-toggle' })
+    // No toggle click: the trash is already open after the delete.
     expect(h.html()).toMatch(/data-wb-act="item-purge-ask"[^>]*data-wb-id="w1"/)
     const before = h.fetchCalls.length
     h.click({ 'data-wb-act': 'item-purge-ask', 'data-wb-id': 'w1' })
