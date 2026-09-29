@@ -17,6 +17,6 @@ describe('no feedback survey on any unattended launch (#413)', () => {
     const src = read('src/web/agent-process.ts')
     const line = src.split('\n').find((l) => l.includes('const promptSuggestionEnv ='))!
     expect(line).toContain('CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1')
-    expect(src).toMatch(/\$\{promptSuggestionEnv\}\$\{mcpEnv\}/)
+    expect(src).toMatch(/\${promptSuggestionEnv}\${connectorsEnv}\${mcpEnv}/)
   })
 })
