@@ -35,7 +35,10 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
-import { APP_LANG, DASHBOARD_PUBLIC_URL } from '../../config.js'
+import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
+import { executeTool } from '../../workbench-agent/execute.js'
+import { getTool, decideTool } from '../../workbench-agent/tools.js'
+import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
@@ -45,6 +48,11 @@ import {
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
 import { writeProjectFile, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import {
+  hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
+  confirmOwnerClaim, recheckPendingSources,
+} from '../../workbench-docmodel.js'
+import { sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
@@ -595,6 +603,34 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a munkadarabnak már túl sok anyaga van. Nyiss egy új munkadarabot, vagy vegyél le a listáról régieket.',
     en: 'This work item already has too many materials. Open a new work item or remove old ones from the list.',
   },
+  outline_not_found: {
+    hu: 'Ez a fejezet vagy bekezdés már nincs meg.',
+    en: 'This section or block no longer exists.',
+  },
+  outline_bad_input: {
+    hu: 'Hiányos adat: a cím vagy a szöveg nem lehet üres.',
+    en: 'Incomplete input: the title or the text cannot be empty.',
+  },
+  outline_too_many: {
+    hu: 'Ez a dokumentum már túl nagy. Oszd több munkadarabra.',
+    en: 'This document is already too large. Split it into several work items.',
+  },
+  outline_claim_not_in_text: {
+    hu: 'Az állítás nem szerepel szó szerint a bekezdésben.',
+    en: 'The claim is not a verbatim part of the block.',
+  },
+  doc_tool_unknown: {
+    hu: 'Ismeretlen dokumentum-eszköz (csak a doc.* eszközök érhetők el itt).',
+    en: 'Unknown document tool (only the doc.* tools are available here).',
+  },
+  doc_tool_not_allowed: {
+    hu: 'Ehhez a művelethez az Agentnek most nincs önálló joga (autonómia-beállítás).',
+    en: 'The Agent has no autonomous right for this action now (autonomy setting).',
+  },
+  outline_owner_only: {
+    hu: 'Ezt csak te erősítheted meg, a saját kattintásoddal.',
+    en: 'Only you can confirm this, with your own click.',
+  },
   searchable_not_pdf: {
     hu: 'Kereshető másolat csak PDF-ből készülhet.',
     en: 'Only a PDF can get a searchable copy.',
@@ -813,6 +849,12 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
   const list = listWorkItemAssetsSynced(itemId)
   try { startPendingDocReads(list) } catch { /* a lista akkor is jojjon */ }
   return withDocState(list)
+}
+
+/** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
+function outlineOut(itemId: string): (ReturnType<typeof documentOutline> & { check: ReturnType<typeof documentCheck> }) | null {
+  if (!hasDocModel(itemId)) return null
+  return { ...documentOutline(itemId), check: documentCheck(itemId) }
 }
 
 function msg(code: string, lang: 'hu' | 'en'): string {
@@ -1449,7 +1491,68 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       assets: assetsOut(item.id),
       approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
+      outline: outlineOut(item.id),
     })
+    return true
+  }
+
+  // DOKUMENTUMMODELL (#441, 1/A, K-1.14 ... K-1.16, K-1.22): a tulajdonos
+  // kezi szerkesztese es a megerositesek. Az agent a doc.* eszkozokkel
+  // ugyanezt a modellt szerkeszti.
+  //   GET    .../outline                         -- vazlat + veglegesites elotti ellenorzes
+  //   POST   .../outline/sections {title}        PATCH/DELETE .../outline/sections/<id>
+  //   POST   .../outline/blocks {section, text}  PATCH/DELETE .../outline/blocks/<id>
+  //   POST   .../outline/claims/<id>/confirm     -- CSAK a tulajdonos kattintasa (K-1.9)
+  if (segs[1] === 'outline') {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (segs.length === 2 && method === 'GET') {
+      try { recheckPendingSources(item.id, sourceWorldFor(owner, item.id)) } catch { /* a vazlat akkor is jojjon */ }
+      json(res, { outline: outlineOut(item.id) ?? { sections: [], check: documentCheck(item.id) } })
+      return true
+    }
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = method === 'DELETE' ? {} : await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {
+      if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
+      json(res, { ok: true, outline: outlineOut(item.id) ?? { sections: [], check: documentCheck(item.id) } }, created ? 201 : 200)
+      return true
+    }
+    const sub = segs[2] || ''
+    const id = segs[3] || ''
+    if (sub === 'sections' && segs.length === 3 && method === 'POST') return done(addSection(item.id, body['title'], { status: body['status'] }), true)
+    if (sub === 'sections' && segs.length === 4 && method === 'PATCH') return done(updateSection(item.id, id, { title: body['title'], status: body['status'], position: body['position'] }))
+    if (sub === 'sections' && segs.length === 4 && method === 'DELETE') return done(removeSection(item.id, id))
+    if (sub === 'blocks' && segs.length === 3 && method === 'POST') {
+      return done(addBlock(item.id, String(body['section'] ?? ''), { kind: body['kind'], text: body['text'], position: body['position'], author: 'owner' }), true)
+    }
+    if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], kind: body['kind'], author: 'owner' }))
+    if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
+    if (sub === 'claims' && segs.length === 5 && segs[4] === 'confirm' && method === 'POST') {
+      // Egy agent (tokennel) nem erosithet meg: a megerosites a tulajdonos szava.
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+      return done(confirmOwnerClaim(item.id, id, actor(ctx), lang))
+    }
+    return false
+  }
+
+  // A TELJES ERTEKU UGYNOK (kod-hid) a doc.* eszkozoket ezen at eri el -- ugyanaz
+  // a vegrehajtas es ugyanaz az autonomia-kapu, mint a Munkapad agentjenel.
+  // Csak a doc.* eszkozok: a tobbihez a kod-hidnak sajat eszkozei vannak. A
+  // tulajdonosi megerosites NEM eszkoz, itt sem erheto el.
+  if (segs.length === 2 && segs[1] === 'doc-tool' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const name = String(body['tool'] ?? '')
+    const tool = name.startsWith('doc.') ? getTool(name) : undefined
+    if (!tool) return fail(res, 400, 'doc_tool_unknown', lang)
+    const decision = decideTool(tool, MAIN_AGENT_ID)
+    if (decision.kind !== 'allow') return fail(res, 403, 'doc_tool_not_allowed', lang)
+    const input = (body['input'] && typeof body['input'] === 'object' ? body['input'] : {}) as Record<string, unknown>
+    const r = executeTool(name, { ...input, id: item.id }, { projectId: item.project_id, workItemId: item.id, lang })
+    if (tool.autonomyCategory) auditWorkbench({ agent: MAIN_AGENT_ID, tool: name, op: 'doc-tool', target: item.id, cwd: item.project_id })
+    json(res, r, r.ok ? 200 : 400)
     return true
   }
 

@@ -37,6 +37,11 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
+import {
+  documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim,
+  documentCheck, recheckPendingSources,
+} from '../workbench-docmodel.js'
+import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
@@ -326,6 +331,33 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
           note: 'it runs in the background; the copy appears in the same folder when ready (list the materials or the folder to see it)',
         },
       }
+    }
+    case 'doc.outline': case 'doc.addSection': case 'doc.updateSection': case 'doc.removeSection':
+    case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
+    case 'doc.check': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const world = sourceWorldFor(project, item.id)
+      const num = (v: unknown): number | undefined => (v === undefined || v === null || v === '' ? undefined : Number(v))
+      const res = ((): { ok: true; data: unknown } | { ok: false; code: string; detail: string } => {
+        switch (name) {
+          case 'doc.outline': recheckPendingSources(item.id, world); return { ok: true, data: documentOutline(item.id) }
+          case 'doc.check': recheckPendingSources(item.id, world); return { ok: true, data: documentCheck(item.id) }
+          case 'doc.addSection': { const r = addSection(item.id, input.title, { position: num(input.position), status: input.status }); return r.ok ? { ok: true, data: r.section } : r }
+          case 'doc.updateSection': { const r = updateSection(item.id, asString(input.section), { title: input.title, status: input.status, position: input.position }); return r.ok ? { ok: true, data: r.section } : r }
+          case 'doc.removeSection': { const r = removeSection(item.id, asString(input.section)); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.addBlock': { const r = addBlock(item.id, asString(input.section), { kind: input.kind, text: input.text, position: input.position, author: 'agent' }); return r.ok ? { ok: true, data: r.block } : r }
+          case 'doc.updateBlock': { const r = updateBlock(item.id, asString(input.block), { text: input.text, kind: input.kind, author: 'agent' }); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.removeBlock': { const r = removeBlock(item.id, asString(input.block)); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.addClaim': { const r = addClaim(item.id, asString(input.block), input.text, input.sources, world, 'workbench-agent'); return r.ok ? { ok: true, data: r.claim } : r }
+          default: { const r = removeClaim(item.id, asString(input.claim)); return r.ok ? { ok: true, data: r } : r }
+        }
+      })()
+      return res.ok ? { ok: true, data: res.data } : { ok: false, code: res.code, detail: res.detail }
     }
     case 'file.read': {
       const ref = projectFileRef(project, input.path)
