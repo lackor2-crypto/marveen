@@ -56,7 +56,8 @@ export interface CapabilitySetting {
   value: string | null
   secret: boolean
   configured: boolean
-  label: Text
+  /** Already resolved to the request language, like every other row text. */
+  label: string
   placeholder: string
 }
 
@@ -361,7 +362,7 @@ export function writableSettingKeys(): string[] {
   return CAPABILITIES.map((c) => c.setting_key).filter((k): k is string => !!k)
 }
 
-function settingOf(key: string): CapabilitySetting | null {
+function settingOf(key: string, lang: Lang): CapabilitySetting | null {
   const def = getSettingDefinition(key)
   if (!def) return null
   let raw = ''
@@ -373,14 +374,15 @@ function settingOf(key: string): CapabilitySetting | null {
     value: secret ? null : raw,
     secret,
     configured: raw.trim().length > 0,
-    label: {
+    // Resolved here: the page prints it as-is, an object showed "[object Object]" (Boss, TG 1830).
+    label: ({
       hu: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'A LibreOffice teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Az FFmpeg teljes útvonala (üresen: magától megkeresi)'
         : key,
       en: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'Full path to LibreOffice (empty: found automatically)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Full path to FFmpeg (empty: found automatically)'
         : key,
-    },
+    } as Text)[lang],
     placeholder: key === 'WORKBENCH_LIBREOFFICE_PATH' ? '/usr/bin/soffice'
       : key === 'WORKBENCH_FFMPEG_PATH' ? '/usr/bin/ffmpeg'
       : '',
@@ -458,7 +460,7 @@ export async function describeCapability(c: CapabilityDescriptor, lang: Lang, fo
     path: m.path,
     checked_at: Date.now(),
     testable: c.testable,
-    setting: c.setting_key ? settingOf(c.setting_key) : null,
+    setting: c.setting_key ? settingOf(c.setting_key, lang) : null,
   }
   if (c.extra) Object.assign(row, c.extra())
   return row

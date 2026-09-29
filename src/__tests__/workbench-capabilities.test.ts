@@ -186,6 +186,14 @@ describe('amit a felhasznalo lat', () => {
     expect(writableSettingKeys()).not.toContain('WORKBENCH_ANTHROPIC_API_KEY')
   })
 
+  it('a beallitas cimkeje a keres nyelven jovo SZOVEG, nem objektum ("[object Object]", TG 1830)', async () => {
+    const hu = await describeCapability(getCapability('office_to_pdf')!, 'hu', true)
+    const en = await describeCapability(getCapability('office_to_pdf')!, 'en', true)
+    expect(typeof hu.setting!.label).toBe('string')
+    expect(hu.setting!.label).toMatch(/LibreOffice teljes útvonala/)
+    expect(en.setting!.label).toMatch(/Full path to LibreOffice/)
+  })
+
   it('a PDF-elonezet alapfunkcio, es mindig mukodik (nincs mit telepiteni)', async () => {
     const row = await describeCapability(getCapability('pdf_preview')!, 'hu', true)
     expect(row.tier).toBe('core')

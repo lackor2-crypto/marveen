@@ -38340,8 +38340,9 @@ async function loadIntezoPage() {
   _intezoRenderMultiBar()
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
   bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
-  bind('intezoConfigBtn', 'click', () => _intezoCfgOpen())
-  bind('intezoConfigBtn2', 'click', () => _intezoCfgOpen())
+  // Second press closes it again, like every other opener (Boss, TG 1830).
+  bind('intezoConfigBtn', 'click', () => _intezoCfgToggle())
+  bind('intezoConfigBtn2', 'click', () => _intezoCfgToggle())
   bind('intezoCfgCloseBtn', 'click', () => { const c = document.getElementById('intezoConfigCard'); if (c) c.hidden = true })
   bind('intezoAddPersonBtn', 'click', () => _intezoCfgAddPerson())
   bind('intezoAddCompanyBtn', 'click', () => _intezoCfgAddCompany())
@@ -42882,6 +42883,12 @@ function _intezoNewCompany() {
   return { id: '', name: '', countries: [], countrySplit: (d.companyCountrySplit || []).slice() }
 }
 
+function _intezoCfgToggle() {
+  const card = document.getElementById('intezoConfigCard')
+  if (card && !card.hidden) { card.hidden = true; return }
+  _intezoCfgOpen()
+}
+
 async function _intezoCfgOpen() {
   const card = document.getElementById('intezoConfigCard')
   if (!card) return
@@ -44626,6 +44633,9 @@ async function _intezoCfgSave() {
     }
 
     if (tgt.id === 'cbBrowseBtn') {
+      // Second press closes the open browser, like every other opener (Boss, TG 1830).
+      const open = document.getElementById('cbBrowseBox')
+      if (open && !open.hidden) { cbBrowseStop(); open.hidden = true; return }
       // Onnan indulunk, ami a mezoben all -- ha ures, a meghajtoktol.
       const cur = document.getElementById('cbAddWorkspace')
       cbBrowseOpen(cur && cur.value.trim() ? cur.value.trim() : '')
