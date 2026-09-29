@@ -25,6 +25,8 @@ export const OVERVIEW_LIST_MAX = 5
 
 export interface OverviewItem {
   id: string
+  /** Visible number, shown as "28M" (TG 1843). */
+  seq: number | null
   title: string
   status: WorkItemStatus
   updated_at: number
@@ -97,7 +99,7 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
   const pid = String(projectId || '').trim()
 
   const rows = db.prepare(
-    'SELECT id, title, status, updated_at FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC',
+    'SELECT id, seq, title, status, updated_at FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC',
   ).all(pid) as OverviewItem[]
   const open = rows.filter((r) => r.status !== 'done')
   const review = rows.filter((r) => r.status === 'review')
@@ -207,4 +209,44 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
     recent_done: { count: done.length, items: done.slice(0, OVERVIEW_LIST_MAX), days: RECENT_DONE_DAYS },
     last_file: last ? { name: basename(last.rel), rel: last.rel, item_id: last.item_id, item_title: last.item_title, at: last.at } : null,
   }
+}
+
+/** A work item as it appears on the Kanban board (TG 1843/1836 B): same four
+ *  columns as the cards, but its own kind, so the board can show it framed. */
+export interface BoardWorkItem {
+  id: string
+  seq: number | null
+  title: string
+  status: WorkItemStatus
+  /** The kanban column it sits in: draft -> planned, review -> waiting. */
+  column: 'planned' | 'in_progress' | 'waiting' | 'done'
+  project_id: string
+  project_name: string
+  updated_at: number
+}
+
+const BOARD_COLUMN: Record<string, BoardWorkItem['column']> = {
+  draft: 'planned', in_progress: 'in_progress', review: 'waiting', done: 'done',
+}
+
+/** Every live work item for the Kanban board, optionally one project only. A
+ *  done one stays for RECENT_DONE_DAYS, like on the Workbench strip. A fresh
+ *  install (no projects table yet) is an empty list, not an error. */
+export function listBoardWorkItems(projectId?: string | null, now = Math.floor(Date.now() / 1000)): BoardWorkItem[] {
+  ensureWorkbenchTables()
+  const db = getDb()
+  if (!hasTable('projects')) return []
+  const pid = String(projectId || '').trim()
+  const since = now - RECENT_DONE_DAYS * 86400
+  const rows = db.prepare(
+    `SELECT w.id, w.seq, w.title, w.status, w.project_id, p.name AS project_name, w.updated_at
+       FROM work_items w JOIN projects p ON p.id = w.project_id
+      WHERE w.deleted_at IS NULL AND p.archived_at IS NULL
+        AND (? = '' OR w.project_id = ?)
+        AND (w.status != 'done' OR w.updated_at >= ?)
+      ORDER BY w.updated_at DESC`,
+  ).all(pid, pid, since) as Array<Omit<BoardWorkItem, 'column'>>
+  return rows
+    .filter((r) => BOARD_COLUMN[r.status])
+    .map((r) => ({ ...r, column: BOARD_COLUMN[r.status] }))
 }

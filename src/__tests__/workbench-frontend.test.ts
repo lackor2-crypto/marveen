@@ -2021,8 +2021,10 @@ describe('munkadarabok kozti valtas (#359)', () => {
 
   it('a lista szamozott, a fejlec mutatja a darabszamot, es van magyarazo sor', () => {
     const html = h.rootEl.innerHTML
-    expect(html).toContain('1. Darab 1')
-    expect(html).toContain('3. Darab 3')
+    // TG 1843: the position numbering became the stable "28M" work-item number (seq);
+    // these fixtures carry no seq, so the plain titles are listed.
+    expect(html).toContain('<span class="wb-item-title">Darab 1</span>')
+    expect(html).toContain('<span class="wb-item-title">Darab 3</span>')
     expect(html).toContain('⟦workbench.panel.items⟧ (3)')
     // Osztott nezetben (#406, 1. pont) a mondat a jobb oldalt nevezi meg.
     expect(html).toMatch(/⟦workbench\.items\.switch_hint(_split)?⟧/)

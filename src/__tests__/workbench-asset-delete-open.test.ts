@@ -223,7 +223,9 @@ describe('levetel / torles es mappa-gombok (felulet)', () => {
     expect(html).toContain('data-wb-act="folder-intezo" data-wb-place="assets"')
     expect(html).toContain('data-wb-act="folder-intezo" data-wb-place="versions"')
     for (const id of ['a1', 'a2', 'a3']) expect(html).toContain(`data-wb-act="folder-system" data-wb-place="asset" data-wb-asset="${id}"`)
-    expect(html).toContain('workbench.folder.system.windows')
+    // TG 1839: Anyagok header buttons match Versions -- side by side, just "Open", detail in the tooltip.
+    expect(html).toContain('title="⟦workbench.folder.short.system.windows⟧"')
+    expect(html).toMatch(/wb-folder-row"><button[^>]*data-wb-place="assets"[^>]*>📂 ⟦workbench\.folder\.open_short⟧/)
   })
 
   it('fajlkezelo nelkuli gepen csak az Intezo gomb latszik', async () => {

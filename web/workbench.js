@@ -682,13 +682,21 @@
     })
   }
 
+  /** The work item's own number, "28M" (M = munkadarab), in its own color so it
+   *  never reads as kanban card #28 -- the owner can name it in the chat (TG 1843). */
+  function workSeqText(it) { return it && it.seq ? it.seq + 'M' : '' }
+  function workSeqHtml(it) {
+    var s = workSeqText(it)
+    return s ? '<span class="wb-work-seq" title="' + escA(t('workbench.work_seq.title', { n: s })) + '">' + esc(s) + '</span> ' : ''
+  }
+
   function ovItemsHtml(items) {
     if (!items || !items.length) return ''
     // A work item must never look like a kanban card (Boss, TG 1815): its own
     // colored frame, a "Munkadarab" tag top-left, and the title as a button.
     return '<ul class="wb-ov-list wb-ov-works">' + items.map(function (it) {
       return '<li class="wb-ov-work"><span class="wb-ov-work-tag">' + esc(t('workbench.ov.work_tag')) + '</span>'
-        + '<button type="button" class="wb-ov-work-btn" data-wb-item="' + escA(it.id) + '">' + esc(it.title) + '</button></li>'
+        + '<button type="button" class="wb-ov-work-btn" data-wb-item="' + escA(it.id) + '">' + workSeqHtml(it) + esc(it.title) + '</button></li>'
     }).join('') + '</ul>'
   }
 
@@ -863,7 +871,7 @@
           + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
           + (pinned ? '★' : '☆') + '</button>'
           + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
-          + '<span class="wb-item-title">' + esc((i + 1) + '. ' + it.title) + '</span>'
+          + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + '</span>'
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
           + '</button>'
           // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
@@ -4204,7 +4212,7 @@
     for (var i = 0; i < items.length; i++) if (items[i].id === WB.selectedId) idx = i
     var opts = (idx < 0 ? '<option value="" selected>' + esc(t('workbench.switch.choose')) + '</option>' : '')
       + items.map(function (it, j) {
-        return '<option value="' + escA(it.id) + '"' + (j === idx ? ' selected' : '') + '>' + esc((j + 1) + '. ' + it.title) + '</option>'
+        return '<option value="' + escA(it.id) + '"' + (j === idx ? ' selected' : '') + '>' + esc((workSeqText(it) ? workSeqText(it) + ' · ' : '') + it.title) + '</option>'
       }).join('')
     var prev = idx > 0 ? items[idx - 1].id : ''
     var next = idx >= 0 && idx < items.length - 1 ? items[idx + 1].id : (idx < 0 ? items[0].id : '')
@@ -4225,7 +4233,7 @@
     var list = items.length
       ? '<ul class="wb-split-pick">' + items.slice(0, 8).map(function (it) {
         return '<li><button type="button" class="wb-item" data-wb-item="' + escA(it.id) + '">'
-          + '<span class="wb-item-title">' + esc(it.title) + '</span>'
+          + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + '</span>'
           + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
           + '</button></li>'
       }).join('') + '</ul>'
@@ -4770,7 +4778,7 @@
       inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
     } else {
       var it = WB.detail.item
-      inner = '<div class="wb-editor-head"><h3>' + esc(it.title) + '</h3>'
+      inner = '<div class="wb-editor-head"><h3>' + workSeqHtml(it) + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
         + approvalBoxHtml()
@@ -5168,23 +5176,24 @@
    *  Intezo (a dashboard fajlkezeloje) es a gep sajat fajlkezeloje (Windows
    *  Explorer / Finder). Ha a gepen nincs megnyithato fajlkezelo, csak az
    *  Intezo gomb latszik. `compact`: ikon-gombok egy anyag-sorban; 'short':
-   *  side by side, icon + a few plain words, same text as tooltip (TG 1817/1832). */
+   *  side by side, icon + "Open", a few plain words as tooltip (TG 1817/1832/1839). */
   function folderBtnsHtml(place, assetId, compact) {
     if (WB.fm === undefined) loadFileManagerKind()
     var data = ' data-wb-place="' + escA(place) + '"' + (assetId ? ' data-wb-asset="' + escA(assetId) + '"' : '')
     var fm = WB.fm && WB.fm !== 'none' ? WB.fm : null
     var short = compact === 'short'
-    // 'short': a few plain words on the button itself, no long tooltip (Boss, TG 1832).
+    // 'short': a few plain words as the tooltip, no long explanation (Boss, TG 1832).
     var sIn = t('workbench.folder.short.intezo')
     var sSys = fm ? t('workbench.folder.short.system.' + fm) : ''
     var tIn = short ? sIn : t(place === 'asset' ? 'workbench.folder.intezo_file_title' : 'workbench.folder.intezo_title')
     var tSys = short ? sSys : (fm ? t(place === 'asset' ? 'workbench.folder.system_file_title.' + fm : 'workbench.folder.system_title.' + fm) : '')
     var cls = compact === true ? 'wb-mini-btn wb-folder-btn' : 'wb-btn wb-folder-btn'
-    function label(full, shortText) { return compact === true ? '' : ' ' + esc(short ? shortText : full) }
+    // 'short': the button says just "Open"; the plain meaning is in the tooltip (Boss, TG 1839).
+    function label(full) { return compact === true ? '' : ' ' + esc(short ? t('workbench.folder.open_short') : full) }
     var b = '<button type="button" class="' + cls + '" data-wb-act="folder-intezo"' + data
-      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + label(t('workbench.folder.intezo'), sIn) + '</button>'
+      + ' title="' + escA(tIn) + '" aria-label="' + escA(tIn) + '">\ud83d\udcc2' + label(t('workbench.folder.intezo')) + '</button>'
       + (fm ? '<button type="button" class="' + cls + '" data-wb-act="folder-system"' + data
-        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + label(t('workbench.folder.system.' + fm), sSys) + '</button>' : '')
+        + ' title="' + escA(tSys) + '" aria-label="' + escA(tSys) + '">\ud83d\uddc2' + label(t('workbench.folder.system.' + fm)) + '</button>' : '')
     return compact === true ? b : '<p class="wb-ctx-actions wb-folder-acts' + (short ? ' wb-folder-row' : '') + '">' + b + '</p>'
   }
 
@@ -5261,7 +5270,7 @@
       + '<p class="wb-muted">' + esc(folder
         ? t('workbench.assets.folder', { folder: folder })
         : t('workbench.assets.no_folder')) + '</p>'
-      + (folder ? folderBtnsHtml('assets') : '')
+      + (folder ? folderBtnsHtml('assets', null, 'short') : '')
       + list
       + (ro ? '' : '<p class="wb-ctx-actions"><label class="wb-btn" for="wbAssetUpload">\ud83d\udcce ' + esc(WB.upload
         ? t('workbench.upload.busy')
@@ -5303,7 +5312,7 @@
     }
     return head + '<div class="wb-shared-block">'
       + '<p class="wb-muted">' + esc(sh.folder ? t('workbench.shared.folder', { folder: sh.folder }) : t('workbench.shared.intro')) + '</p>'
-      + (sh.folder ? folderBtnsHtml('shared') : '')
+      + (sh.folder ? folderBtnsHtml('shared', null, 'short') : '')
       + body
       + '<p class="wb-ctx-actions"><label class="wb-btn" for="wbSharedUpload">\ud83d\udcce ' + esc(sh.uploading ? t('workbench.upload.busy') : t('workbench.shared.upload')) + '</label>'
       + '<input type="file" id="wbSharedUpload" class="wb-file-input" multiple></p>'
@@ -5504,7 +5513,7 @@
     if (WB.detail) {
       var it = WB.detail.item
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
-        + '<p>' + esc(it.title) + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="item-rename">'
+        + '<p>' + workSeqHtml(it) + esc(it.title) + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="item-rename">'
           + esc(t('workbench.rename.button')) + '</button>') + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p></div>')
@@ -6008,9 +6017,11 @@
     var streaming = WB.chatStreaming
     var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000
     return '<div class="wb-chat-head">'
+      // Settings sits right next to the title as a small button, the status
+      // gets its own line below -- no extra rows (Boss, TG 1841).
       + '<label class="wb-chat-label" for="wbChatInput">' + esc(t('workbench.chat.title')) + '</label>'
-      + chatStatusHtml()
-      + '<button type="button" class="btn-secondary wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>'
+      + '<button type="button" class="wb-mini-btn wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>'
+      + '<div class="wb-chat-statusline">' + chatStatusHtml() + '</div>'
       + '</div>'
       + chatAccountHtml()
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
