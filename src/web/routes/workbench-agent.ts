@@ -22,6 +22,7 @@ import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_PORT } from '../.
 import { getProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
+import { familyLines } from '../../workbench-agent/context.js'
 import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider } from '../../workbench-agent/provider.js'
@@ -95,7 +96,7 @@ function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: st
 
 /** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441),
  *  es ha van kozottuk irat, hogyan kerje le az oldalak szoveget (1/A). */
-function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[]; documentsHint: string | null } {
+function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[]; documentsHint: string | null; family: string[] } {
   let materials: string[] = []
   let hasDoc = false
   try {
@@ -121,7 +122,7 @@ function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; f
     ? `SENSITIVE: the owner marked this ${privacy.project ? 'project' : 'work item'} sensitive. Do not put personal data (names of the people in the case, case numbers, addresses, account numbers, e-mail, phone, date of birth) into any web search or web fetch, and do not send its files to any outside service (image editing, image generation, online text recognition); text recognition runs only on this machine.`
     : null
   const hints = [privacyHint, documentsHint, item.type === 'document' ? docTools : null, item.type === 'document' ? langTools : null].filter(Boolean).join('\n')
-  return { title: item.title, type: item.type, folder: item.folder ?? null, materials, documentsHint: hints || null }
+  return { title: item.title, type: item.type, folder: item.folder ?? null, materials, documentsHint: hints || null, family: familyLines(item) }
 }
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */

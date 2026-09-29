@@ -179,7 +179,16 @@ export function projectWorkItemsFolder(project: ProjectRow): SharedFolderOutcome
  * name becomes `name (2)` -- an existing folder (maybe another item's, maybe
  * the user's own) is never taken over silently.
  */
-export function makeFreshFolder(project: ProjectRow, wanted: string): FolderOutcome {
+export function makeFreshFolder(project: ProjectRow, wanted: string, parentFolder?: string | null): FolderOutcome {
+  // #448: a sub work item's folder is created INSIDE its main item's folder.
+  if (parentFolder) {
+    const pt = projectFileTarget(project, parentFolder)
+    if (!pt.ok) return pt
+    const subName = freeFileName(pt.dirAbs, folderNameFromTitle(wanted))
+    const sr = makeProjectFolder(project, parentFolder, subName)
+    if (!sr.ok) return sr
+    return { ok: true, folder: sr.sub, created: sr.created }
+  }
   const box = projectWorkItemsFolder(project)
   if (!box.ok) return { ok: false, code: box.code === 'no_shared_folder' ? 'not_found' : box.code, ...(box.message ? { message: box.message } : {}) }
   const name = freeFileName(box.dirAbs, folderNameFromTitle(wanted))
@@ -242,7 +251,17 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
     if (t.ok) return { ok: true, folder: known, created: false }
     // A mappa eltunt / at lett nevezve: uj mappat adunk, a regi utat nem talalgatjuk.
   }
-  const r = makeFreshFolder(project, item.title)
+  // #448: a sub item's folder goes inside the main item's folder (made on demand).
+  let parentFolder: string | null = null
+  if (item.parent_item_id) {
+    const parent = getWorkItem(item.parent_item_id)
+    if (parent) {
+      const pf = ensureWorkItemFolder(parent)
+      if (!pf.ok) return pf
+      parentFolder = pf.folder
+    }
+  }
+  const r = makeFreshFolder(project, item.title, parentFolder)
   if (!r.ok) return r
   setItemFolder(item.id, r.folder)
   return r

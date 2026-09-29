@@ -156,6 +156,7 @@
     // Piros figyelmezteto keret egy vegleges / nagy hatasu torles elott (#443):
     // { kind: 'last-version' } vagy { kind: 'purge', id }.
     warn: null,
+    collapsedMain: {},
     tdOpen: false,
     tdRem: null,
     tdRemError: null,
@@ -279,12 +280,21 @@
   // A Torles nem kerdez ra (a tulajdonos kerese): lomtarba tesz, ahonnan egy
   // kattintassal visszahozhato, a verziok es a fajlok megmaradnak.
 
-  function setTrashed(id, deleted) {
+  function setTrashed(id, deleted, subs) {
     if (WB.trashBusy || archived()) return
+    // #448: a main item with sub items asks what to do with them first.
+    if (deleted && !subs && (WB.items || []).some(function (x) { return x.parent_item_id === id })) {
+      WB.warn = { kind: 'trash-subs', id: id }
+      render()
+      return
+    }
     var pid = WB.projectId
     WB.trashBusy = true
+    WB.warn = null
     render()
-    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/trash', { deleted: deleted }).then(function (r) {
+    var payload = { deleted: deleted }
+    if (subs) payload.subs = subs
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/trash', payload).then(function (r) {
       WB.trashBusy = false
       if (WB.projectId !== pid) return
       if (!r.ok) { window.showToast(r.message); render(); return }
@@ -1008,6 +1018,44 @@
   function typeLabel(type) { return t('workbench.type.' + type) }
   function statusLabel(status) { return t('workbench.status.' + status) }
 
+  /** One row of the work item list (#448: a sub item is indented, a main item with subs has a fold toggle). */
+  function itemRowHtml(it, isSub, subCount, collapsed) {
+    var on = it.id === WB.selectedId
+    // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
+    // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
+    var pinned = it.pinned_at != null
+    var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
+    var fold = ''
+    if (subCount) {
+      fold = '<button type="button" class="wb-item-fold" data-wb-act="main-fold" data-wb-id="' + escA(it.id) + '" aria-expanded="' + (!collapsed) + '"'
+        + ' title="' + escA(t(collapsed ? 'workbench.sub.expand' : 'workbench.sub.collapse')) + '">'
+        + (collapsed ? '▸ ' : '▾ ') + subCount + '</button>'
+    }
+    var warn = ''
+    if (WB.warn && WB.warn.kind === 'trash-subs' && WB.warn.id === it.id) {
+      warn = '<div class="wb-warn-box" role="alert"><p>' + esc(t('workbench.sub.trash_warn', { title: it.title })) + '</p><div class="wb-warn-acts">'
+        + '<button type="button" class="wb-btn wb-btn-danger" data-wb-act="trash-subs-all" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sub.trash_all')) + '</button>'
+        + '<button type="button" class="wb-btn" data-wb-act="trash-subs-detach" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sub.trash_detach')) + '</button>'
+        + '<button type="button" class="wb-btn" data-wb-act="warn-cancel">' + esc(t('workbench.warn.cancel')) + '</button>'
+        + '</div></div>'
+    }
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (isSub ? ' wb-item-sub' : '') + '">'
+      + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
+      + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
+      + (pinned ? '★' : '☆') + '</button>'
+      + fold
+      + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
+      + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
+      + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
+      + '</button>'
+      // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
+      // Fo munkadarabnal, ha vannak almunkadarabjai, megkerdezzuk mi legyen velük (#448).
+      + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
+      + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.trash.delete')) + '</button>'
+      + warn + '</li>'
+  }
+
   function itemsPanelHtml() {
     var body
     if (WB.items === null) {
@@ -1020,25 +1068,22 @@
         + '<p class="wb-muted">' + esc(t('workbench.empty.hint')) + '</p>'
         + '</div>'
     } else {
-      body = '<ul class="wb-items">' + WB.items.map(function (it, i) {
-        var on = it.id === WB.selectedId
-        // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
-        // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
-        var pinned = it.pinned_at != null
-        var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-        return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + '">'
-          + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
-          + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
-          + (pinned ? '★' : '☆') + '</button>'
-          + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
-          + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
-          + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
-          + '</button>'
-          // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
-          + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
-          + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
-          + esc(t('workbench.trash.delete')) + '</button></li>'
-      }).join('') + '</ul>'
+      // #448: sub work items sit indented under their main item (collapsible).
+      var liveIds = {}
+      WB.items.forEach(function (it) { liveIds[it.id] = true })
+      var subsOf = {}
+      WB.items.forEach(function (it) {
+        if (it.parent_item_id && liveIds[it.parent_item_id]) (subsOf[it.parent_item_id] = subsOf[it.parent_item_id] || []).push(it)
+      })
+      var rows = []
+      WB.items.forEach(function (it) {
+        if (it.parent_item_id && liveIds[it.parent_item_id]) return
+        var subs = subsOf[it.id] || []
+        var collapsed = !!WB.collapsedMain[it.id]
+        rows.push(itemRowHtml(it, false, subs.length, collapsed))
+        if (!collapsed) subs.forEach(function (sub) { rows.push(itemRowHtml(sub, true, 0, false)) })
+      })
+      body = '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
     body += trashHtml()
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
@@ -1202,6 +1247,18 @@
     if (box && box.classList) box.classList.toggle('wb-dragging', !!on)
   }
 
+  /** #448: "Under which work item?" -- only main items (no sub under a sub). Empty = stand-alone. */
+  function parentSelectHtml() {
+    var mains = (WB.items || []).filter(function (it) { return !it.parent_item_id })
+    if (!mains.length) return ''
+    return '<label class="wb-label" for="wbNewParent">' + esc(t('workbench.sub.parent_label')) + '</label>'
+      + '<select class="wb-input" id="wbNewParent">'
+      + '<option value="">' + esc(t('workbench.sub.parent_none')) + '</option>'
+      + mains.map(function (it) { return '<option value="' + escA(it.id) + '">' + esc(it.title) + '</option>' }).join('')
+      + '</select>'
+      + '<p class="wb-hint">' + esc(t('workbench.sub.parent_hint')) + '</p>'
+  }
+
   function newFormHtml() {
     var types = ['document', 'image', 'graphic', 'video', 'note']
     return '<form class="wb-form" id="wbNewForm">'
@@ -1212,6 +1269,7 @@
       + types.map(function (ty) { return '<option value="' + escA(ty) + '">' + esc(typeLabel(ty)) + '</option>' }).join('')
       + '</select>'
       + '<p class="wb-hint">' + esc(t('workbench.new.type_hint')) + '</p>'
+      + parentSelectHtml()
       + '<div class="wb-form-actions">'
       + '<button type="submit" class="btn-primary" data-wb-act="create"' + (WB.busy ? ' disabled' : '') + '>'
       + esc(WB.busy ? t('workbench.new.creating') : t('workbench.new.create')) + '</button>'
@@ -7981,9 +8039,12 @@
     if (!titleEl || !typeEl || WB.busy) return
     var title = titleEl.value.trim()
     var type = typeEl.value
+    var parentEl = document.getElementById('wbNewParent')
+    var payload = { project_id: WB.projectId, title: title, type: type }
+    if (parentEl && parentEl.value) payload.parent_item_id = parentEl.value
     WB.busy = true
     render()
-    api('POST', '/api/workbench/items', { project_id: WB.projectId, title: title, type: type }).then(function (r) {
+    api('POST', '/api/workbench/items', payload).then(function (r) {
       WB.busy = false
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false
@@ -8404,6 +8465,9 @@
     if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
+    else if (a === 'trash-subs-all') setTrashed(act.getAttribute('data-wb-id'), true, 'trash')
+    else if (a === 'trash-subs-detach') setTrashed(act.getAttribute('data-wb-id'), true, 'detach')
+    else if (a === 'main-fold') { var mf = act.getAttribute('data-wb-id'); WB.collapsedMain[mf] = !WB.collapsedMain[mf]; render() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
     else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
