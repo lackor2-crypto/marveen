@@ -32,7 +32,7 @@ import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeContinuable } from '../../workbench-agent/code-bridge-turn.js'
+import { runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeContinuable, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
   setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
@@ -41,6 +41,7 @@ import { loggedInConfigDir, STRIPPED_ENV } from '../../workbench-agent/provider-
 import { tryResolveFromPath } from '../../platform.js'
 import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat, effectiveRunSessionId, findCodeTabLocation, type CodeTask } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
+import { updateWindowsClaudeForBridge, windowsUpdatePossible, type WindowsUpdateOutcome } from '../../windows-claude-updater.js'
 import {
   ensureAgentTables, getAgentSession, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
   addAgentMessageOnce, startToolCall, finishToolCall,
@@ -306,6 +307,13 @@ function bridgeTaskTurn(task: CodeTask): { key: string; projectId: string; workI
   return { key: turnKey(session.project_id, workItemId), projectId: session.project_id, workItemId, lang: session.language === 'en' ? 'en' : 'hu' }
 }
 
+/** The Windows Claude Code update (#446) as the notice the chat shows; null = nothing to say. */
+async function repairOutdatedBridge(detail: string, lang: Lang): Promise<{ updated: boolean; notice: string | null; outcome: WindowsUpdateOutcome }> {
+  const outcome = await updateWindowsClaudeForBridge(detail)
+  const text = lang === 'en' ? outcome.messageEn : outcome.message
+  return { updated: outcome.status === 'updated', notice: text || null, outcome }
+}
+
 /** How long a background continuation waits for the chat's turn lock (the
  *  live chat turn that watched the task may still be closing). */
 const CONTINUE_LOCK_WAIT_MS = 120_000
@@ -318,7 +326,7 @@ const CONTINUE_LOCK_WAIT_MS = 120_000
  * restart resume), so the lock, Stop, caps, saving and the tool panel all
  * apply. false = no account can take it: the caller shows the real reason.
  */
-function continueBridgeTaskInBackground(task: CodeTask): boolean {
+function continueOnAnotherAccount(task: CodeTask): boolean {
   const turn = bridgeTaskTurn(task)
   if (!turn) return false
   if (String(getEffectiveSettingValue('WORKBENCH_FULL_AGENT')) !== '1') return false
@@ -353,6 +361,33 @@ function continueBridgeTaskInBackground(task: CodeTask): boolean {
       } as unknown as RouteContext)
     } catch { /* the chat keeps what it had; nothing to throw out of here */ } finally {
       resumingTurns.delete(turn.key)
+    }
+  })()
+  return true
+}
+
+/**
+ * Nobody watches the task: an outdated Windows Claude Code (#446) is updated
+ * and the task started again; only when that is not possible does the work go
+ * on with another account (or the real reason is written into the chat).
+ */
+function continueBridgeTaskInBackground(task: CodeTask): boolean {
+  const turn = bridgeTaskTurn(task)
+  const detail = codeBridgeOutdatedDetail(task)
+  if (!turn || !task.chatId || !detail || !windowsUpdatePossible()) return continueOnAnotherAccount(task)
+  const chatId = task.chatId
+  void (async () => {
+    let fixed = false
+    try {
+      const r = await repairOutdatedBridge(detail, turn.lang)
+      if (r.notice) addAgentMessage(chatId, 'system', r.notice)
+      if (r.updated) {
+        const again = enqueueCodeTask({ project: task.project, prompt: task.prompt, origin: 'workbench', requestedBy: task.requestedBy, chatId })
+        fixed = !('error' in again)
+      }
+    } catch { fixed = false }
+    if (!fixed && !continueOnAnotherAccount(task)) {
+      recordCodeBridgeOutcome(task, turn.lang, (role, content) => { if (content.trim()) addAgentMessage(chatId, role, content) })
     }
   })()
   return true
@@ -901,6 +936,11 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                   bridgeTaskId = r.task.id
                   watchBridgeTask(r.task.id)
                   return { ok: true, id: r.task.id }
+                },
+                repairPossible: () => windowsUpdatePossible(),
+                repairOutdatedBridge: async (detail, l) => {
+                  const r = await repairOutdatedBridge(detail, l)
+                  return { updated: r.updated, notice: r.notice }
                 },
                 canContinueElsewhere: () => !account && !ac.signal.aborted && !!liveResolver(key, liveDir, account),
                 wasContinued: (id) => wasBridgeTaskContinued(id),
