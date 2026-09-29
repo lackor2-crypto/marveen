@@ -727,6 +727,7 @@
       if (!r.ok) { window.showToast(r.message); return }
       WB.detail = r.data
       render()
+      scheduleDocPoll(id)
       // A rajz-fajta munkadarabnal magatol megnezzuk, van-e mar vaszon. Mas
       // fajtanal nem kerdezunk feleslegesen -- ott az elonezet mondja meg, ha
       // megis rajz all mogotte.
@@ -4079,6 +4080,7 @@
         return '<li class="wb-asset">'
           + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
           + '<span class="wb-pill wb-asset-sup wb-asset-sup-' + escA(a.support) + '">' + esc(assetSupportLabel(a.support)) + '</span>'
+          + docStateHtml(a)
           + (a.shared ? ' <span class="wb-pill wb-asset-shared" title="' + escA(t('workbench.shared.pill_title')) + '">' + esc(t('workbench.shared.pill')) + '</span>' : '')
           + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
           + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="asset-remove" data-wb-asset="' + escA(a.id) + '"'
@@ -4205,6 +4207,45 @@
       if (ok) window.showToast(t('workbench.shared.upload_done', { n: ok }))
       if (WB.projectId === projectId) loadShared(projectId)
     })
+  }
+
+  /** Iratolvasas (1/A): amig egy irat olvasasa tart, par masodpercenkent
+   *  frissitjuk az anyagok listajat, hogy a "3/30 oldal" elorehaladjon. */
+  function docBusy(a) {
+    return !!(a && a.doc && a.present && (a.doc.status === 'pending' || a.doc.status === 'running' || a.doc.status === 'stale' || a.doc.status === 'none'))
+  }
+  function scheduleDocPoll(id, round) {
+    if (WB.docPollTimer) { clearTimeout(WB.docPollTimer); WB.docPollTimer = null }
+    var assets = (WB.detail && WB.detail.assets) || []
+    // Legfeljebb ~30 percig kerdezunk; utana a kovetkezo megnyitas folytatja.
+    round = round || 0
+    if (WB.selectedId !== id || !assets.some(docBusy) || round > 600) return
+    WB.docPollTimer = setTimeout(function () {
+      WB.docPollTimer = null
+      if (WB.selectedId !== id || !WB.detail) return
+      api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/assets').then(function (r) {
+        if (!r.ok || WB.selectedId !== id || !WB.detail) return
+        WB.detail.assets = r.data.assets || []
+        render()
+        scheduleDocPoll(id, round + 1)
+      })
+    }, 3000)
+  }
+
+  /** Az irat olvasasi allapota a fajl mellett (K-1.1 ... K-1.3). */
+  function docStateHtml(a) {
+    var d = a && a.doc
+    if (!d || !a.present) return ''
+    if (d.status === 'done') {
+      return ' <span class="wb-muted wb-doc-state">' + esc(t('workbench.doc.pages', { n: d.pages_total })) + '</span>'
+        + (d.low_pages && d.low_pages.length
+          ? ' <span class="wb-doc-low" title="' + escA(t('workbench.doc.low_title')) + '">\u26a0 ' + esc(t('workbench.doc.low', { pages: d.low_pages.join(', ') })) + '</span>'
+          : '')
+    }
+    if (d.status === 'failed') return ' <span class="wb-doc-low" title="' + escA(d.error || '') + '">' + esc(t('workbench.doc.failed')) + '</span>'
+    return ' <span class="wb-muted wb-doc-state">\u23f3 ' + esc(d.pages_total
+      ? t('workbench.doc.reading_n', { done: d.pages_done, total: d.pages_total })
+      : t('workbench.doc.reading')) + '</span>'
   }
 
   function removeAsset(assetId) {

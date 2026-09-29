@@ -24,8 +24,8 @@ describe('tamogatasi allapot es mappanev', () => {
     expect(assetSupport('terv.md')).toBe('readable')
     expect(assetSupport('jegyzet.txt')).toBe('readable')
     expect(assetSupport('logo.png')).toBe('usable')
-    expect(assetSupport('level.pdf')).toBe('usable')
-    expect(assetSupport('szerzodes.docx')).toBe('usable')
+    expect(assetSupport('level.pdf')).toBe('readable')
+    expect(assetSupport('szerzodes.docx')).toBe('readable')
     expect(assetSupport('klip.mp4')).toBe('usable')
     expect(assetSupport('diktalas.wav')).toBe('needs_processor')
     expect(assetSupport('telepito.exe')).toBe('unsupported')
@@ -92,7 +92,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     }
     const d = await callWorkbench(`/api/workbench/items/${item.id}`, 'GET')
     expect(d.body.assets.map((a: { name: string; support: string }) => `${a.name}:${a.support}`))
-      .toEqual(['logo.png:usable', 'level.pdf:usable', 'hang.wav:needs_processor'])
+      .toEqual(['logo.png:usable', 'level.pdf:readable', 'hang.wav:needs_processor'])
     expect(d.body.assets.every((a: { present: boolean }) => a.present)).toBe(true)
   })
 

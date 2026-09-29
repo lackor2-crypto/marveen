@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { json, readBody } from '../http-helpers.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
-import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../../config.js'
+import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_PORT } from '../../config.js'
 import { getProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
@@ -42,7 +42,9 @@ import {
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
-import { listWorkItemAssetsSynced } from '../../workbench-assets.js'
+import { listWorkItemAssetsSynced, withDocState } from '../../workbench-assets.js'
+import { docKind } from '../../workbench-docread.js'
+import { DASHBOARD_TOKEN_PATH } from '../dashboard-auth.js'
 import type { WorkItemRow } from '../../workbench.js'
 import { createTranscriptToolFeed, type TranscriptToolFeed } from '../../workbench-agent/code-bridge-tool-feed.js'
 import { isSafeTranscriptPath, locateLocalTranscript } from '../code-conversation.js'
@@ -87,13 +89,26 @@ function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: st
   } catch { /* a naplozas hibaja nem allithatja meg a valaszt */ }
 }
 
-/** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441). */
-function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[] } {
+/** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441),
+ *  es ha van kozottuk irat, hogyan kerje le az oldalak szoveget (1/A). */
+function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[]; documentsHint: string | null } {
   let materials: string[] = []
+  let hasDoc = false
   try {
-    materials = listWorkItemAssetsSynced(item.id).map((a) => `${a.project_path || a.path} [${a.support}${a.shared ? ', shared' : ''}${a.present ? '' : ', missing'}]`)
+    materials = withDocState(listWorkItemAssetsSynced(item.id)).map((a) => {
+      if (docKind(a.name)) hasDoc = true
+      const d = a.doc
+      const docNote = !d ? ''
+        : d.status === 'done' ? `, ${d.pages_total} page(s)${d.low_pages.length ? `, hard to read: p. ${d.low_pages.join(', ')}` : ''}`
+        : d.status === 'failed' ? ', reading failed'
+        : ', being read'
+      return `${a.project_path || a.path} [${a.support}${docNote}${a.shared ? ', shared' : ''}${a.present ? '' : ', missing'}]`
+    })
   } catch { materials = [] }
-  return { title: item.title, type: item.type, folder: item.folder ?? null, materials }
+  const documentsHint = hasDoc
+    ? `Documents among the materials (PDF, scans, office files, e-mails, photographed papers) are read page by page on this machine, text recognition included. Use THESE page texts (not your own PDF reading) when you quote: curl -s -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/document?path=<path inside the project folder, URL-encoded>" gives the page list; add &from=N&to=M for the verbatim text of pages. Quote word for word and cite as [file:page]. Pages marked hard to read are not a source of facts until the owner checks them.`
+    : null
+  return { title: item.title, type: item.type, folder: item.folder ?? null, materials, documentsHint }
 }
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */

@@ -846,3 +846,5 @@
 }
 .wb-post-files ul { margin: 4px 0 0; padding-left: 18px; }
 .wb-post-files li { word-break: break-word; }
+.wb-doc-state { font-size: 0.75rem; }
+.wb-doc-low { font-size: 0.75rem; color: var(--warning, #b45309); }

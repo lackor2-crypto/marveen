@@ -45,6 +45,9 @@ import {
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
 import { writeProjectFile, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { documentOverview, documentPagesText } from '../../workbench-docread.js'
+import { realpathSync } from 'node:fs'
+import { join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
@@ -82,8 +85,8 @@ import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
 import {
-  makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset, listWorkItemAssets,
-  listSharedFiles, uploadSharedFile, linkSharedAsset,
+  makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
+  listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
@@ -592,6 +595,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a munkadarabnak már túl sok anyaga van. Nyiss egy új munkadarabot, vagy vegyél le a listáról régieket.',
     en: 'This work item already has too many materials. Open a new work item or remove old ones from the list.',
   },
+  document_bad_path: {
+    hu: 'Ez az út nem egy fájlra mutat a projekt mappáján belül.',
+    en: 'This path does not point to a file inside the project folder.',
+  },
   shared_duplicate: {
     hu: 'Ez a fájl már megvan a projekt közös tárában.',
     en: 'This file is already in the shared materials of the project.',
@@ -785,6 +792,17 @@ function optionalBaseIsStale(itemId: string, base: unknown): boolean {
 
 /** Gepi kod -> EMBERI mondat. Ismeretlen kodnal a kodot adjuk vissza, hogy
  *  soha ne legyen ures a mondat (az ures uzenet rosszabb a nyers kodnal). */
+/**
+ * A munkadarab anyagai a felulet szamara: a mappa friss allapotaval, es az
+ * iratok (PDF, irodai fajl, fotozott irat, e-mail) olvasasi allapotaval. A meg
+ * nem olvasott iratok feldolgozasa itt indul el, a hatterben (1/A, K-1.1).
+ */
+function assetsOut(itemId: string): ReturnType<typeof withDocState> {
+  const list = listWorkItemAssetsSynced(itemId)
+  try { startPendingDocReads(list) } catch { /* a lista akkor is jojjon */ }
+  return withDocState(list)
+}
+
 function msg(code: string, lang: 'hu' | 'en'): string {
   const m = MESSAGES[code]
   return m ? m[lang] : code
@@ -1416,7 +1434,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       versions: listWorkItemVersionsView(item.id),
       parts: listWorkItemParts(item.id),
       part_kinds: WORK_ITEM_PART_KINDS,
-      assets: listWorkItemAssetsSynced(item.id),
+      assets: assetsOut(item.id),
       approval: workItemApprovalState(item.id),
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
@@ -1432,7 +1450,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   POST   .../tidy              -- az omlesztett forrasfajl a munkadarab mappajaba
   if (segs.length === 2 && segs[1] === 'assets' && method === 'GET') {
     ensureAssetTables()
-    json(res, { assets: listWorkItemAssetsSynced(item.id), folder: getWorkItem(item.id)?.folder ?? null })
+    json(res, { assets: assetsOut(item.id), folder: getWorkItem(item.id)?.folder ?? null })
     return true
   }
   if (segs.length === 2 && segs[1] === 'assets' && method === 'POST') {
@@ -1464,8 +1482,40 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     json(res, {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
-      renamed: r.renamed, name: r.asset.name, assets: listWorkItemAssets(item.id),
+      renamed: r.renamed, name: r.asset.name, assets: assetsOut(item.id),
     }, 201)
+    return true
+  }
+  // IRAT OLDALANKENT (1/A, K-1.1/K-1.2): a teljes erteku ugynok (kod-hid) is
+  // ugyanazt az oldal-szoveget kapja, mint a Munkapad agentje.
+  //   GET .../document?path=<projekt-relativ>            -- attekintes (oldalak, modszer, megbizhatosag)
+  //   GET .../document?path=...&from=3&to=5              -- oldalak szo szerint, [fajl:oldal] jelolessel
+  if (segs.length === 2 && segs[1] === 'document' && method === 'GET') {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    const rel = String(url.searchParams.get('path') || '').replace(/\\/g, '/')
+    const parts = rel.split('/').filter(Boolean)
+    const name = parts.pop() || ''
+    if (!name || name === '.' || name === '..') return fail(res, 400, 'document_bad_path', lang)
+    const target = projectFileTarget(owner, parts.join('/'))
+    if (!target.ok) return fail(res, 404, 'asset_not_found', lang)
+    const abs = joinPath(target.dirAbs, name)
+    let real = ''
+    try { real = realpathSync(abs) } catch { return fail(res, 404, 'asset_not_found', lang) }
+    const root = projectFileTarget(owner, '')
+    let base = ''
+    try { base = root.ok ? realpathSync(root.dirAbs) : '' } catch { base = '' }
+    if (!base || !real.startsWith(base + pathSep)) return fail(res, 400, 'document_bad_path', lang)
+    const retry = url.searchParams.get('retry') === '1'
+    const from = Number(url.searchParams.get('from') || 0)
+    const r = from > 0
+      ? documentPagesText(real, name, from, Number(url.searchParams.get('to') || from), { retry })
+      : documentOverview(real, name, { retry })
+    if (!r.ok) {
+      json(res, { error: r.code, detail: r.detail }, r.code === 'processing' ? 202 : r.code === 'missing' ? 404 : r.code === 'failed' ? 500 : 400)
+      return true
+    }
+    json(res, { ok: true, path: rel, ...r.data })
     return true
   }
   // K-0.19: egy kozos tarban allo fajl hivatkozaskent az anyagok koze.
@@ -1476,14 +1526,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = linkSharedAsset(item, body['path'], actor(ctx))
     if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : 400, r.code === 'not_found' ? 'asset_not_found' : r.code, lang)
-    json(res, { ok: true, asset: r.asset, already: r.already, assets: listWorkItemAssets(item.id) }, r.already ? 200 : 201)
+    json(res, { ok: true, asset: r.asset, already: r.already, assets: assetsOut(item.id) }, r.already ? 200 : 201)
     return true
   }
   if (segs.length === 3 && segs[1] === 'assets' && method === 'DELETE') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     if (!unlinkAsset(item.id, segs[2] || '')) return fail(res, 404, 'asset_not_found', lang)
-    json(res, { ok: true, assets: listWorkItemAssets(item.id) })
+    json(res, { ok: true, assets: assetsOut(item.id) })
     return true
   }
   // ATNEVEZES (#441, K-0.11): a munkadarab uj neve, es vele a mappaja is.
@@ -1494,7 +1544,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = renameWorkItem(item, body['title'])
     if (!r.ok) return fail(res, 400, r.code, lang)
-    json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: listWorkItemAssetsSynced(item.id) })
+    json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: assetsOut(item.id) })
     return true
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {
@@ -1508,7 +1558,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     json(res, {
       ok: true, folder: r.folder, moved: r.moved, skipped: r.skipped,
-      item: getWorkItem(item.id), versions: listWorkItemVersionsView(item.id), assets: listWorkItemAssets(item.id),
+      item: getWorkItem(item.id), versions: listWorkItemVersionsView(item.id), assets: assetsOut(item.id),
     })
     return true
   }

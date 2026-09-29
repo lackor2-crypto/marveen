@@ -37,6 +37,7 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
+import { documentOverview, documentPagesText } from '../workbench-docread.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -286,6 +287,19 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       }
     }
 
+    case 'document.pages':
+    case 'document.read': {
+      const ref = projectFileRef(project, input.path)
+      if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+      const st = mustBeFile(ref.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      const retry = input.retry === true || input.retry === 'true'
+      const r = name === 'document.pages'
+        ? documentOverview(ref.abs, ref.name, { retry })
+        : documentPagesText(ref.abs, ref.name, asNumber(input.from) || 1, asNumber(input.to) || asNumber(input.from) || 1, { retry })
+      if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
+      return { ok: true, data: { path: asString(input.path), ...r.data } }
+    }
     case 'file.read': {
       const ref = projectFileRef(project, input.path)
       if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }

@@ -54,8 +54,9 @@ jobs:
       # futtatogepen NEM volt ffmpeg, "spawn ffmpeg ENOENT" 5 tesztet buktatott.
       # A termek maga ffmpeg nelkul is mukodik (teljes meretu kepre esik
       # vissza), de a bolyegkep-viselkedest csak ffmpeg-gel lehet leellenorizni.
+      # 1/A (#441): a Munkapad iratolvasoja (pdftotext + tesseract) valodi PDF-en is tesztelve.
       - name: ffmpeg telepitese
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu
 
       # A teszt-suite megtagadja a futast, ha eles telepitesben talalja magat.
       # Egy CI checkoutban ennek sosem szabad bekovetkeznie -- de ha megis, a

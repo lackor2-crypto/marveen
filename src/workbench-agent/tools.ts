@@ -58,7 +58,7 @@ export interface ToolDef extends ToolMeta {
 export const TOOLS: ToolDef[] = [
   {
     name: 'file.read',
-    description: 'Read a text file that belongs to the project folder. Long files come back in parts: when the result has truncated=true it also gives nextOffset -- call file.read again with that offset to get the next part, and repeat until truncated is false. Do not judge a file from its first part only.',
+    description: 'Read a plain text file (txt, md, csv, json...) that belongs to the project folder. For a PDF, a Word/office document, a photographed or scanned paper or an e-mail (eml) use document.pages and document.read instead. Long files come back in parts: when the result has truncated=true it also gives nextOffset -- call file.read again with that offset to get the next part, and repeat until truncated is false. Do not judge a file from its first part only.',
     input: 'path: the file path relative to the project folder; offset (optional): byte position to continue from -- pass the nextOffset returned by the previous read to fetch the next part of a long file (default 0, the start)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
@@ -141,6 +141,18 @@ export const TOOLS: ToolDef[] = [
     description: 'Add a part to a work item: a text block, or an image that already exists in the project folder. This is how one work item can hold text AND a picture at the same time.',
     input: 'id: the work item id (optional, defaults to the open one); kind: text or image; text: the text (for a text part); path: the image file inside the project folder (for an image part); caption (optional)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'document.pages',
+    description: 'Overview of a document of the project folder: a PDF (text or scanned), an office document (docx, odt, ...), a photographed paper (jpg, png, tiff) or an e-mail (eml). Every page is read on this machine (text layer, or text recognition for scanned pages) once and kept. Gives the number of pages, per page how it was read and how reliable the text recognition is, and the first words of each page -- for a long document this is its table of contents. Pages marked low are hard to read: never use them as a source of facts until the owner has checked them. If the answer says the document is still being read, tell the owner and ask again later; never guess the content.',
+    input: 'path: the file path relative to the project folder; retry (optional): true to read it again after a failure',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'document.read',
+    description: 'The verbatim text of pages of a document (see document.pages), each page marked as [file:page]. Quote word for word and cite the page as [file:page]. When next_page is set, call again from there. A page with a warning is hard to read: say so and do not rely on it.',
+    input: 'path: the file path relative to the project folder; from (optional): first page, default 1; to (optional): last page, default = from',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
     name: 'file.preview',
