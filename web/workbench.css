@@ -984,6 +984,19 @@
 .wb-outline-final h4 { margin: 8px 0 4px; }
 .wb-outline-accept { display: inline-flex; align-items: flex-start; gap: 6px; cursor: pointer; }
 .wb-outline-accept input { margin-top: 3px; flex: none; }
+/* Nyelvi valtozatok (#441, K-1.27 ... K-1.31) */
+.wb-doclang { margin: 6px 0 10px; padding: 6px 8px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; }
+.wb-doclang h4 { margin: 0 0 4px; }
+.wb-doclang-list { margin: 4px 0; padding-left: 1.2rem; }
+.wb-doclang-state { margin: 0 0 4px; font-size: 0.85rem; }
+.wb-doclang-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-doclang-add select, .wb-doclang-add input { max-width: 100%; min-width: 0; flex: 1 1 10rem; }
+.wb-doclang-back { margin: 4px 0; padding: 6px 8px; border: 1px dashed var(--border, #d1d5db); border-radius: 6px; }
+.wb-doclang-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wb-doclang-cols > div { min-width: 0; }
+.wb-doclang-gloss { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border, #d1d5db); }
+.wb-doclang-gloss summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 700px) { .wb-doclang-cols { grid-template-columns: 1fr; } }
 .wb-annexes { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border, #d1d5db); }
 .wb-annex-list { list-style: none; padding-left: 0; margin: 4px 0; }
 .wb-annex { margin: 3px 0; overflow-wrap: anywhere; }

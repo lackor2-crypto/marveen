@@ -54,6 +54,7 @@ import {
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
 import { sourceWorldFor } from '../../workbench-docmodel-world.js'
+import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
@@ -689,6 +690,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a bekezdés megváltozott, amióta a javaslat készült, ezért a javaslat már nem illik rá. Vesd el, és kérj újat.',
     en: 'This block changed since the proposal was made, so the proposal no longer fits it. Dismiss it and ask for a new one.',
   },
+  variant_bad_input: {
+    hu: 'Ismeretlen nyelv. Válassz a listából, vagy adj meg egy kétbetűs nyelvkódot (például fr).',
+    en: 'Unknown language. Pick one from the list or give a two-letter language code (for example fr).',
+  },
+  variant_outline_empty: {
+    hu: 'Ennek a dokumentumnak még nincs vázlata, ezért nincs mit lefordítani.',
+    en: 'This document has no outline yet, so there is nothing to translate.',
+  },
+  variant_variant_of_variant: {
+    hu: 'Ez már egy nyelvi változat. Új nyelvi változatot az eredetiből készíts.',
+    en: 'This is already a language version. Make a new language version from the original.',
+  },
   doc_tool_unknown: {
     hu: 'Ismeretlen dokumentum-eszköz (csak a doc.* eszközök érhetők el itt).',
     en: 'Unknown document tool (only the doc.* tools are available here).',
@@ -1092,7 +1105,14 @@ function outlineOut(itemId: string): OutlineOut | null {
     annexes: listAnnexes(itemId, resolve),
     settings: { ...docSettings(itemId), schemes: ANNEX_SCHEMES, modes: ANNEX_MODES },
     ...(item ? finalizationState(item) : {}),
+    ...(item ? langOut(item) : {}),
   }
+}
+
+/** NYELVI VALTOZATOK (K-1.27 ... K-1.31): az eredetinel a valtozatai, a valtozatnal a fejezetek allapota, a szoszedet, a visszaforditasok. */
+function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: ReturnType<typeof variantsSummary>; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks> } {
+  const variant = variantInfo(item.id)
+  return { variant, variants: variant ? [] : variantsSummary(item.id), glossary: listGlossary(item.project_id), backchecks: variant ? backchecks(item.id) : [] }
 }
 
 /** A vazlat valasza akkor is, ha meg nincs fejezet (ures vazlat + ellenorzes). */
@@ -1952,6 +1972,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     const sub = segs[2] || ''
     const id = segs[3] || ''
+    // NYELVI VALTOZAT (K-1.27): kulon munkadarab, fejezetenkent osszekotve; a forditast az agent vegzi.
+    if (sub === 'variants' && segs.length === 3 && method === 'POST') {
+      const r = createVariant(item, body['lang'], actor(ctx))
+      if (!r.ok) return failDetail(res, r.code === 'outline_empty' ? 409 : 400, 'variant_' + r.code, lang, r.detail)
+      json(res, { ok: true, existing: r.existing, item: { id: r.item.id, title: r.item.title }, outline: outlineOrEmpty(item.id) }, r.existing ? 200 : 201)
+      return true
+    }
+    // SZOSZEDET (K-1.29): ugyenkent (a projektben) rogzitett forditasok.
+    if (sub === 'glossary' && segs.length === 3 && method === 'POST') {
+      return done(addGlossaryTerm(item.project_id, { term: body['term'], translation: body['translation'], lang: body['lang'], note: body['note'] }, actor(ctx)), true)
+    }
+    if (sub === 'glossary' && segs.length === 4 && method === 'DELETE') return done(removeGlossaryTerm(item.project_id, id))
+    // VISSZAFORDITAS (K-1.30): a tulajdonos elvetheti (az agent ujat keszithet).
+    if (sub === 'backchecks' && segs.length === 4 && method === 'DELETE') return done(removeBackTranslation(item.id, id))
     if (sub === 'sections' && segs.length === 3 && method === 'POST') return done(addSection(item.id, body['title'], { status: body['status'] }), true)
     if (sub === 'sections' && segs.length === 4 && method === 'PATCH') return done(updateSection(item.id, id, { title: body['title'], status: body['status'], position: body['position'] }))
     if (sub === 'sections' && segs.length === 4 && method === 'DELETE') return done(removeSection(item.id, id))

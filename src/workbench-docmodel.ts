@@ -29,6 +29,7 @@ import { getDb } from './db.js'
 import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docread.js'
 import { annexCheck, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
+import { variantCheckItems } from './workbench-doclang.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
 export type SectionStatus = typeof SECTION_STATUSES[number]
@@ -692,5 +693,7 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const cons = consistencyIssues(itemId)
   const open = cons.filter((i) => !i.acked)
   items.push({ key: 'consistency', ok: open.length === 0, count: open.length, total: cons.length, detail: open.map((i) => `${i.kind}: ${i.values.join(' / ')}`) })
+  // NYELVI VALTOZAT (K-1.28): leforditatlan vagy elavult fejezettel nem veglegesitheto.
+  items.push(...variantCheckItems(itemId))
   return { ready: items.every((i) => i.ok), items }
 }
