@@ -672,6 +672,16 @@
 
   // ---- projekt-attekinto (#406, 2. pont) -------------------------------------
 
+  /** TG 1854: open a kanban card from the overview tiles in the usual card
+   *  window; the Workbench stays open and only its overview refreshes after. */
+  function openCard(cardId) {
+    if (!cardId) return
+    if (typeof window._prjOpenCardHere !== 'function') return
+    var pid = WB.projectId
+    window._prjOpenCardHere(cardId, {
+      onClose: function () { if (WB.open && WB.projectId === pid) loadOverview(pid) },
+    })
+  }
   function loadOverview(projectId) {
     return api('GET', '/api/workbench/overview?project=' + encodeURIComponent(projectId)).then(function (r) {
       if (WB.projectId !== projectId) return
@@ -721,7 +731,9 @@
     function ovCardsHtml(list) {
       if (!list || !list.length) return ''
       return '<ul class="wb-ov-list wb-ov-approvals">' + list.map(function (c) {
-        return '<li class="wb-ov-approval"><span class="wb-ov-apv-title"><span class="wb-ov-apv-seq">#' + esc(String(c.seq)) + '</span> ' + esc(c.title) + '</span>'
+        // TG 1854: a card on the tile opens in the usual card window, like on the board.
+        return '<li class="wb-ov-approval wb-ov-card-open" data-wb-act="card-open" data-wb-card="' + esc(c.id) + '" role="button" tabindex="0" title="' + esc(t('workbench.ov.card_open_title')) + '">'
+          + '<span class="wb-ov-apv-title"><span class="wb-ov-apv-seq">#' + esc(String(c.seq)) + '</span> ' + esc(c.title) + '</span>'
           + (c.updated_at ? '<span class="wb-ov-apv-when">' + esc(when(c.updated_at)) + '</span>' : '') + '</li>'
       }).join('') + '</ul>'
     }
@@ -729,7 +741,10 @@
       var head = a.card_seq
         ? '<span class="wb-ov-apv-seq">#' + esc(String(a.card_seq)) + '</span> ' + esc(a.card_title || a.description)
         : esc(a.description)
-      return '<li class="wb-ov-approval">'
+      var open = a.card_id
+        ? ' wb-ov-card-open" data-wb-act="card-open" data-wb-card="' + esc(a.card_id) + '" role="button" tabindex="0" title="' + esc(t('workbench.ov.card_open_title')) + '"'
+        : '"'
+      return '<li class="wb-ov-approval' + open + '>'
         + '<span class="wb-ov-apv-title">' + head + '</span>'
         + (a.requested_at ? '<span class="wb-ov-apv-when">' + esc(t('workbench.ov.apv_when', { when: when(a.requested_at) })) + '</span>' : '')
         + '</li>'
@@ -7804,6 +7819,7 @@
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
+    else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; render() }
     else if (a === 'create') { e.preventDefault(); create() }
@@ -8023,6 +8039,15 @@
 
   document.addEventListener('pointerup', function () { canvasDragFinish(true) })
   document.addEventListener('pointercancel', function () { canvasDragFinish(false) })
+
+  // TG 1854: the overview's card rows open with Enter/Space too, not only a click.
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || (e.key !== 'Enter' && e.key !== ' ') || !e.target || typeof e.target.closest !== 'function') return
+    var row = e.target.closest('[data-wb-act="card-open"]')
+    if (!row) return
+    e.preventDefault()
+    openCard(row.getAttribute('data-wb-card'))
+  })
 
   // Nyilbillentyuk: eger nelkul is mozgathato az elem (Shift = nagyobb lepes).
   // Ez ugyanaz a `move` muvelet, amit az agent is kuldene.

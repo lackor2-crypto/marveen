@@ -6576,6 +6576,7 @@ window._i18n.en = {
   "workbench.ov.progress_none": "Nothing is in progress right now.",
   "workbench.ov.done_col": "Done ({days} days)",
   "workbench.ov.apv_when": "Requested: {when}",
+  "workbench.ov.card_open_title": "Click to open the card",
   "workbench.ov.done_none": "No work item was finished in the last {days} days.",
   "workbench.items.switch_hint_split": "Click a work item: it becomes the current one and opens at the top right, next to the conversation.",
   "workbench.layout.to_classic": "Three panels",

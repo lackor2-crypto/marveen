@@ -1,6 +1,8 @@
 // #406, 2. pont -- PROJEKT-ATTEKINTO a Munkapad tetejen: a szerver-oldal (mert
 // adat) ES a felulet (mit lat a felhasznalo).
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { initDatabase, createKanbanCard, createApproval, getDb } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, createWorkItemVersion, addWorkItemPart } from '../workbench.js'
@@ -74,9 +76,11 @@ describe('attekinto: a szerver merese', () => {
     // the card's number and title; a card-less ticket has none.
     const ap2 = o.approvals.items.find((a) => a.id === 'ap2')!
     expect(ap2.card_title).toBe('Projekt kártya')
+    expect(ap2.card_id).toBe('aaaa1111')
     expect(typeof ap2.card_seq).toBe('number')
     const ap1 = o.approvals.items.find((a) => a.id === 'ap1')!
     expect(ap1.card_seq).toBeNull()
+    expect(ap1.card_id).toBeNull()
     expect(o.columns.in_progress.count).toBe(1)
     expect(o.columns.in_progress.cards[0].title).toBe('Projekt kártya')
     expect(o.columns.planned.count).toBe(0)
@@ -177,6 +181,37 @@ describe('attekinto: a felulet', () => {
     expect(html).toContain('<span class="wb-ov-apv-seq">#398</span> Raktár a MEGA-n')
     expect(html).toContain('workbench.ov.apv_when')
     expect(html).not.toContain('kanban-azonosító: cd19e75c')
+  })
+
+  // TG 1854: "a Kanban kartyakra nem lehet raklikkelni ... nyiljon meg a Kanban kartya".
+  it('a csempe kanban-kartyajara (es a kartyas jegyre) kattintva a kartya-ablak nyilik, a Munkapad marad', async () => {
+    const h = workbenchHarness()
+    const opened: Array<{ id: string; opts: any }> = []
+    h.win._prjOpenCardHere = (id: string, opts: any) => { opened.push({ id, opts }) }
+    open(h, { ...OV,
+      approvals: { count: 1, error: null, items: [{ id: 'a1', category: 'kanban_done', description: 'Kártya #404', requested_at: 1, card_seq: 404, card_title: 'Jegy', card_id: 'k4' }] },
+      columns: { planned: { count: 1, cards: [{ id: 'k1', seq: 501, title: 'Terv kártya', updated_at: 1 }] }, in_progress: { count: 0, cards: [] }, waiting: { count: 0, cards: [] }, done: { count: 0, cards: [] } },
+      work: { draft: { count: 0, items: [] }, in_progress: { count: 0, items: [] } },
+    })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-card="k1"'))
+    expect(h.html()).toContain('data-wb-act="card-open" data-wb-card="k4"')
+    expect(h.html()).toContain('workbench.ov.card_open_title')
+    h.click({ 'data-wb-act': 'card-open', 'data-wb-card': 'k1' })
+    h.click({ 'data-wb-act': 'card-open', 'data-wb-card': 'k4' })
+    expect(opened.map((o) => o.id)).toEqual(['k1', 'k4'])
+    // Closing the card window refreshes only the overview, the Workbench stays open.
+    const before = h.fetchCalls.filter((c) => c.url.includes('/api/workbench/overview')).length
+    opened[0].opts.onClose()
+    await vi.waitFor(() => expect(h.fetchCalls.filter((c) => c.url.includes('/api/workbench/overview')).length).toBe(before + 1))
+    expect(h.html()).toContain('wb-ov-tile')
+  })
+
+  it('app.js: a kartya-nyito ki van teve a Munkapadnak, bezaraskor a hivo frissit; az idovonal sem nem letezo fuggvenyt hiv', () => {
+    const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+    expect(app).toContain('window._prjOpenCardHere = _prjOpenCardHere')
+    expect(app).toMatch(/async function _prjOpenCardHere\(cardId, opts\)/)
+    expect(app).toMatch(/opts && typeof opts\.onClose === 'function'\) \{ opts\.onClose\(\); return \}/)
+    expect(app).not.toContain('openCardDetail')
   })
 
   it('a csempe munkadarabjara kattintva az nyilik meg', async () => {

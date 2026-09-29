@@ -53,6 +53,8 @@ export interface OverviewApproval {
    *  the approval names no card or the card is gone. */
   card_seq: number | null
   card_title: string | null
+  /** The card's id, so the tile can open it in the card window (TG 1854). */
+  card_id: string | null
 }
 
 export interface WorkbenchOverview {
@@ -162,13 +164,13 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
     // block of text, so two cards read like one. Each approval now carries its
     // card's number and title, and the page draws it as its own small card.
     const cardStmt = hasTable('kanban_cards')
-      ? db.prepare('SELECT rowid AS seq, title FROM kanban_cards WHERE id = ? OR id LIKE ? ORDER BY length(id) LIMIT 1')
+      ? db.prepare('SELECT id, rowid AS seq, title FROM kanban_cards WHERE id = ? OR id LIKE ? ORDER BY length(id) LIMIT 1')
       : null
     approvals.items = mine.slice(0, OVERVIEW_LIST_MAX).map((a) => {
       const ref = approvalCardId(a.action_payload, a.action_description || '')
-      let card: { seq: number; title: string } | undefined
+      let card: { id: string; seq: number; title: string } | undefined
       if (ref && cardStmt) {
-        try { card = cardStmt.get(ref, `${ref}%`) as { seq: number; title: string } | undefined } catch { card = undefined }
+        try { card = cardStmt.get(ref, `${ref}%`) as { id: string; seq: number; title: string } | undefined } catch { card = undefined }
       }
       return {
         id: a.id,
@@ -178,6 +180,7 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
         requested_at: a.requested_at,
         card_seq: card ? Number(card.seq) : null,
         card_title: card ? String(card.title || '') : null,
+        card_id: card ? String(card.id) : null,
       }
     })
   } catch (e) {
