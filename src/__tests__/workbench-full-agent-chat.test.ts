@@ -33,7 +33,7 @@ import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } from '../workbench-agent/orchestrator.js'
-import { openSessionForWorkItem, addAgentMessage, listAgentMessages } from '../workbench-agent/sessions.js'
+import { openSessionForWorkItem, addAgentMessage, listAgentMessages, listToolCalls } from '../workbench-agent/sessions.js'
 import { resetWorkbenchAgentForTest } from '../workbench-agent/index.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
 import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest, resetWorkbenchBridgeLimitForTest } from '../web/routes/workbench-agent.js'
@@ -267,6 +267,14 @@ describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
     ])
     expect(ids[turnKey(projectId, workItemId)]?.sessionId).toBe('sess-live')
     expect(isTurnRunning(turnKey(projectId, workItemId))).toBe(false)
+    // #434 (Boss, 2026-09-29): az eszkozfutasok is mentodnek, kulonben F5
+    // utan a Parancsfutasok sav ures marad.
+    const calls = listToolCalls(session.id).map((c) => [c.tool_name, c.status, c.input_json])
+    expect(calls).toEqual([
+      ['Read', 'ok', JSON.stringify({ detail: '/p/terv.md' })],
+      ['Read', 'ok', JSON.stringify({ detail: '/p/terv.md' })],
+    ])
+    expect((await get(`/api/workbench/agent/session?workItem=${workItemId}`)).toolCalls).toHaveLength(2)
     pool.stopAll()
   })
 

@@ -591,6 +591,36 @@ describe('agent-chat (3. fazis)', () => {
     expect(html).toContain('workbench.chat.tools_title')
   })
 
+  // Boss, 2026-09-29: "Hol van ketteosztva? Meg mindig nem latom." -- F5 /
+  // elnavigalas utan az elozmeny csak a szoveget hozta vissza, a sav eltunt.
+  it('#434: F5 utan a mentett eszkozfutasok visszakerulnek a Parancsfutasok savba', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        return { status: 200, body: { session: { id: 's1' }, running: false,
+          messages: [
+            { role: 'user', content: 'nezd meg', created_at: 100 },
+            { role: 'assistant', content: 'KESZ VALASZ', created_at: 130 },
+          ],
+          toolCalls: [
+            { tool_name: 'Bash', status: 'ok', started_at: 110, input_json: '{"detail":"npm test"}', approval_id: null },
+            { tool_name: 'Grep', status: 'running', started_at: 120, input_json: null, approval_id: null },
+          ] } }
+      }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('KESZ VALASZ'))
+    const html = h.rootEl.innerHTML
+    const toolsStart = html.indexOf('id="wbChatTools"')
+    expect(toolsStart).toBeGreaterThan(html.indexOf('id="wbChatLog"'))
+    expect(html.slice(html.indexOf('id="wbChatLog"'), toolsStart)).not.toContain('workbench.tool.Bash')
+    expect(html.slice(toolsStart)).toContain('workbench.tool.Bash')
+    expect(html.slice(toolsStart)).toContain('npm test')
+    expect(html.slice(toolsStart)).toContain('workbench.chat.tool_history')
+    expect(html.slice(toolsStart)).not.toContain('workbench.chat.tool_running')
+  })
+
   it('folyamatjelzo: eredmeny nelkuli valasznal "Nem jott valasz", nem orok "Gondolkodik"', async () => {
     await openChat()
     h.respond((url) => {
