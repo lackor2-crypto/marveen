@@ -35,7 +35,7 @@ _t() {
     # Boss, 2026-09-27: an English fresh install must never get Hungarian on
     # Telegram. {{OWNER_NAME}} is substituted after this line is inserted.
     en:owner_language_line) echo "With {{OWNER_NAME}}: English only -- every message, Telegram included" ;;
-    hu:owner_language_line) echo "{{OWNER_NAME}}-val magyarul" ;;
+    hu:owner_language_line) echo "{{OWNER_NAME}}-val magyarul, tegező viszonyban (te, soha nem Ön vagy Maga)" ;;
     # ── Interactive prompts ───────────────────────────────────────────
     en:prompt_open_claude) echo "  Open Claude Code to diagnose the error? (y/n) [n]: " ;;
     hu:prompt_open_claude) echo "  Megnyissam Claude Code-ot a hiba diagnosztizálásához? (i/n) [n]: " ;;

@@ -141,7 +141,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `Project folder: ${input.projectFolder ?? '(no folder set for this project)'}`,
     `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
     ...workItemFileLines(input.workItem),
-    `Answer in ${language}, in plain sentences for a non-programmer.`,
+    `Answer in ${language}, in plain sentences for a non-programmer.${input.lang === 'en' ? '' : ' Address the owner informally (tegezés: "te"), never with "Ön" or "Maga".'}`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
   const historyIntro = '\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n'
