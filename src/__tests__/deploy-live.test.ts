@@ -10,7 +10,7 @@
 //   - ha a fetch elbukik, azt NEM veszi naprakesznek (a nulla ket dolgot jelenthet),
 //   - bare topologian (ami .worktrees/-t hoszt) is helyesen materializal.
 import { describe, it, expect, beforeEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, cpSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, cpSync, readdirSync, symlinkSync } from 'node:fs'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -349,6 +349,29 @@ describe('deploy-live.sh -- fuggosegek telepitese', () => {
     expect(built()).toBe(true)
     expect(restarted()).toBe(true)
     expect(deployLog()).toMatch(/dependencies are stale/)
+  })
+
+  it('onmagara mutato node_modules/node_modules symlinket telepites ELOTT eltavolitja (npm ENOTDIR, #439)', () => {
+    seedNpm()
+    symlinkSync(join(root, 'node_modules'), join(root, 'node_modules', 'node_modules'))
+    advanceOrigin('package-lock.json', '{"lockfileVersion":3,"packages":{"a":{}}}\n', 'lock v2')
+    // The install command only "succeeds" if the loop is already gone: the
+    // real npm died on it with ENOTDIR.
+    runDeploy({ MARVEEN_DEPLOY_INSTALL_CMD: `test ! -e '${root}/node_modules/node_modules' && touch '${markers}/install'` })
+    expect(installed()).toBe(true)
+    expect(built()).toBe(true)
+    expect(deployLog()).toMatch(/removed self-referencing node_modules/)
+  })
+
+  it('mas node_modules/node_modules symlinkhez nem nyul', () => {
+    seedNpm()
+    mkdirSync(join(root, 'elsewhere'), { recursive: true })
+    symlinkSync(join(root, 'elsewhere'), join(root, 'node_modules', 'node_modules'))
+    advanceOrigin('package-lock.json', '{"lockfileVersion":3,"packages":{"a":{}}}\n', 'lock v2')
+    runDeploy(INSTALL_ENV())
+    expect(installed()).toBe(true)
+    expect(existsSync(join(root, 'node_modules', 'node_modules'))).toBe(true)
+    expect(deployLog()).not.toMatch(/removed self-referencing/)
   })
 
   it('valtozatlan lockfile mellett NEM telepit ujra', () => {

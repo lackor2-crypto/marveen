@@ -86,7 +86,7 @@ if ! git -C "$REPO_ROOT" worktree add --detach "$TMP_WT" "$target_sha" >/dev/nul
 fi
 
 if [ -d "$REPO_ROOT/node_modules" ]; then
-  ln -s "$REPO_ROOT/node_modules" "$TMP_WT/node_modules"
+  ln -sfn "$REPO_ROOT/node_modules" "$TMP_WT/node_modules"
 fi
 
 if ! (cd "$TMP_WT" && npx tsc --noEmit) >"$FAIL_LOG" 2>&1; then

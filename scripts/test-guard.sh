@@ -60,7 +60,7 @@ if ! git -C "$BASE" worktree add "$WORKTREE" -d HEAD >/dev/null 2>&1; then
   log "worktree creation failed, skipped"
   exit 0
 fi
-ln -s "$BASE/node_modules" "$WORKTREE/node_modules" 2>/dev/null
+ln -sfn "$BASE/node_modules" "$WORKTREE/node_modules" 2>/dev/null
 
 # The "this install" parity tests must read the settings.json the main agent
 # RUNS on. That dir is resolved from the live store/ and .env, which the

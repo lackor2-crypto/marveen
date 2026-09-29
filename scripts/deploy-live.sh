@@ -268,7 +268,27 @@ fi
 # hammer than the job needs. A failed install aborts BEFORE the build, so the
 # previous working dist/ and the running service stay untouched.
 INSTALL_CMD="${MARVEEN_DEPLOY_INSTALL_CMD:-npm install --no-audit --no-fund}"
+
+# A node_modules/node_modules symlink that points back at node_modules itself
+# is worktree-convenience debris (a `ln -s` onto an already-linked path nests
+# the link INSIDE the target). npm then tries to rename it as an extraneous
+# package and dies with ENOTDIR, and because the failed install aborts before
+# the build, every 3-minute tick repeated the same failure (2026-09-28: 37
+# failed ticks, 15:42-17:43, the live app stuck on the old build). Removing the
+# self-loop is lossless; anything else under node_modules is left alone.
+heal_node_modules_loop() {
+  local nested="$ROOT/node_modules/node_modules"
+  [ -L "$nested" ] || return 0
+  [ "$(readlink -f "$nested" 2>/dev/null)" = "$(readlink -f "$ROOT/node_modules" 2>/dev/null)" ] || return 0
+  if rm -f "$nested" 2>>"$LOG"; then
+    log "removed self-referencing node_modules/node_modules symlink before the install."
+  else
+    log "could not remove the self-referencing node_modules/node_modules symlink -- the install will probably fail."
+  fi
+}
+
 if deps_stale; then
+  heal_node_modules_loop
   log "dependencies are stale (package-lock.json newer than node_modules) -- running: $INSTALL_CMD"
   if ! ( cd "$ROOT" && bash -c "$INSTALL_CMD" ) >>"$LOG" 2>&1; then
     log "DEPENDENCY INSTALL FAILED for $SHORT -- NOT building or restarting; the previous working dist/ stays live."
