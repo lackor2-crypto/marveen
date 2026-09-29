@@ -990,3 +990,11 @@
 .wb-warn-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .wb-btn.wb-btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
 .wb-btn.wb-btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+
+/* Levétel / Törlés question under a material row: the row wraps so the red box
+   takes the full width below the name and the buttons (#443, 1884). */
+.wb-row:has(> .wb-warn-box) { flex-wrap: wrap; }
+.wb-row > .wb-warn-box { flex: 1 0 100%; }
+/* Open-the-folder buttons (#443, "C" + "2A"). */
+.wb-folder-acts { margin: 4px 0 8px; }
+.wb-mini-btn.wb-folder-btn { padding-left: 6px; padding-right: 6px; }

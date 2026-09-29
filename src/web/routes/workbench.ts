@@ -34,6 +34,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
+import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
 import { executeTool } from '../../workbench-agent/execute.js'
@@ -98,7 +99,7 @@ import { createReadStream, statSync, rmdirSync } from 'node:fs'
 import {
   makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
-  unlinkAsset, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
+  unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -789,6 +790,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   not_shared: {
     hu: 'Ez a fájl nem a projekt közös tárában van.',
     en: 'This file is not in the shared materials of the project.',
+  },
+  asset_in_use: {
+    hu: 'Ezt a fájlt más is használja ({users}), ezért nem törlöm a mappából. Csak levenni lehet.',
+    en: 'This file is used elsewhere too ({users}), so it is not deleted from the folder. It can only be removed from the list.',
+  },
+  asset_outside: {
+    hu: 'Ez a fájl nem a projekt mappájában van, ezért innen nem törölhető. Csak levenni lehet.',
+    en: 'This file is not in the folder of the project, so it cannot be deleted from here. It can only be removed from the list.',
+  },
+  delete_failed: {
+    hu: 'A fájlt nem sikerült törölni a mappából. Lehet, hogy egy program épp nyitva tartja: zárd be, és próbáld újra.',
+    en: 'The file could not be deleted from the folder. A program may be keeping it open: close it and try again.',
+  },
+  no_item_folder: {
+    hu: 'Ennek a munkadarabnak még nincs saját mappája. Adj hozzá egy fájlt, és az létrehozza.',
+    en: 'This work item has no folder of its own yet. Add a file and it will be created.',
+  },
+  bad_place: {
+    hu: 'Ismeretlen hely: ezt a mappát nem tudom megnyitni.',
+    en: 'Unknown place: this folder cannot be opened.',
+  },
+  open_no_file_manager: {
+    hu: 'Ezen a gépen nincs fájlkezelő, amit meg lehetne nyitni. Használd az Intéző gombot.',
+    en: 'This machine has no file manager that can be opened. Use the Explorer button instead.',
+  },
+  open_open_failed: {
+    hu: 'A fájlkezelőt nem sikerült megnyitni ezen a gépen. Próbáld újra, vagy használd az Intéző gombot.',
+    en: 'The file manager could not be opened on this machine. Try again, or use the Explorer button.',
+  },
+  open_not_found: {
+    hu: 'Ez a mappa már nincs meg a lemezen.',
+    en: 'This folder no longer exists on the disk.',
   },
   asset_not_found: {
     hu: 'Ez az anyag már nincs a munkadarab listáján.',
@@ -1525,6 +1558,36 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // MAPPA MEGNYITASA (#443, Boss 2026-09-29): az Anyagok, a Kozos tar, a
+  // Verziok es egy anyag-sor mappaja egy gombnyomassal -- az Intezoben (a
+  // valasz a mappa raktar-relativ utja, a felulet oda lep), vagy a gep sajat
+  // fajlkezelojeben (Windows Explorer / Finder / asztali fajlkezelo).
+  //   GET  /api/workbench/file-manager  -- {kind}: melyik fajlkezelo erheto el
+  //   POST /api/workbench/open-folder   -- {project, item?, place, asset?, app: 'intezo'|'system'}
+  if (path === '/api/workbench/file-manager' && method === 'GET') {
+    json(res, { kind: fileManagerKind() })
+    return true
+  }
+  if (path === '/api/workbench/open-folder' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const itemId = String(body['item'] ?? '').trim()
+    const item = itemId ? (getWorkItem(itemId) ?? null) : null
+    if (itemId && !item) return fail(res, 404, 'not_found', lang)
+    const r = workbenchPlace(project, item, body['place'], body['asset'])
+    if (!r.ok) return fail(res, r.code === 'bad_place' ? 400 : 404, r.code, lang)
+    if (body['app'] === 'system') {
+      const o = await openInFileManager(r.abs)
+      if (!o.ok) return fail(res, o.code === 'not_found' ? 404 : o.code === 'no_file_manager' ? 409 : 500, 'open_' + o.code, lang)
+      json(res, { ok: true, path: r.dirRel })
+      return true
+    }
+    json(res, { ok: true, path: r.dirRel, select: r.select, project: { id: project.id, name: project.name } })
+    return true
+  }
+
   if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
 
   if (path === '/api/workbench/items' && method === 'GET') {
@@ -1901,6 +1964,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 3 && segs[1] === 'assets' && method === 'DELETE') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // `?file=1`: LEVETEL + VEGLEGES TORLES -- a fajl a mappabol is torlodik
+    // (Boss, 2026-09-29, 1884); anelkul csak levetel, a fajl a mappaban marad.
+    if (url.searchParams.get('file') === '1') {
+      const d = deleteAssetFile(item.id, segs[2] || '')
+      if (!d.ok) {
+        if (d.code === 'asset_in_use') {
+          json(res, { error: d.code, message: msg(d.code, lang).replace('{users}', (d.users || []).join(', ')), users: d.users }, 409)
+          return true
+        }
+        return fail(res, d.code === 'asset_not_found' ? 404 : d.code === 'delete_failed' ? 500 : 400, d.code, lang)
+      }
+      json(res, { ok: true, deleted: true, assets: assetsOut(item.id) })
+      return true
+    }
     if (!unlinkAsset(item.id, segs[2] || '')) return fail(res, 404, 'asset_not_found', lang)
     json(res, { ok: true, assets: assetsOut(item.id) })
     return true
