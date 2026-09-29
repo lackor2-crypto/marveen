@@ -4267,6 +4267,7 @@
       // ELE fuzzuk, nem felulirjuk. A betoltes kozben a felhasznalo mar
       // irhatott (eppen azert nem szurke a mezo); a kesve beerkezo elozmeny
       // nem torolheti le a kepernyorol a sajat mondatat es a valaszt.
+      attachHistoryTools(regi, r.data.messages || [], r.data.toolCalls || [])
       st.turns = regi.concat(st.turns)
       renderChat()
       // Elnavigalas / ujratoltes utan (Boss, 2026-09-28): ha a valasz a
@@ -4416,6 +4417,36 @@
     var key = 'workbench.tool.' + String(name || '')
     var s = t(key)
     return s && s !== key ? s : String(name || '')
+  }
+
+  /** A mentett eszkozfutasok visszaolvasasa a Parancsfutasok savba (#434,
+   *  Boss 2026-09-29: "Hol van ketteosztva? Meg mindig nem latom."). Eddig az
+   *  elozmeny csak a szoveget hozta vissza, igy F5 / elnavigalas utan a sav
+   *  eltunt. Minden futas ahhoz a valaszhoz kerul, amelyik UTANA mentodott;
+   *  ami a legutolso valasz utan futott, az a legutolso ugynok-fordulohoz. */
+  function attachHistoryTools(turns, messages, calls) {
+    if (!calls.length) return
+    var shown = messages.filter(function (m) { return m.role !== 'tool' })
+    var lastAgent = -1
+    for (var i = turns.length - 1; i >= 0; i--) { if (turns[i].role === 'agent') { lastAgent = i; break } }
+    calls.forEach(function (c) {
+      var at = -1
+      for (var j = 0; j < shown.length; j++) {
+        if (shown[j].role !== 'user' && shown[j].created_at >= c.started_at) { at = j; break }
+      }
+      if (at < 0) at = lastAgent
+      if (at < 0 || !turns[at]) return
+      var detail = ''
+      try { detail = (JSON.parse(c.input_json || 'null') || {}).detail || '' } catch (_e) { detail = '' }
+      if (typeof detail !== 'string') detail = ''
+      turns[at].tools.push({
+        name: c.tool_name,
+        // A mar nem futo, de "running"-kent maradt sor (ujrainditas) nem allit semmit.
+        status: c.status === 'running' ? 'history' : c.status,
+        detail: detail,
+        approvalId: c.approval_id || '',
+      })
+    })
   }
 
   /** Csak-eszkozhivas elozmeny-sor (a #401 elotti, nyers `{"tool":...}` szoveg)

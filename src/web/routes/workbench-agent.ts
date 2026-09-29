@@ -37,12 +37,37 @@ import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeW
 import { projectFileTarget } from '../../project-files.js'
 import {
   ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey, addAgentMessage,
-  addAgentMessageOnce,
+  addAgentMessageOnce, startToolCall, finishToolCall,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
 import { listWorkItemAssetsSynced } from '../../workbench-assets.js'
 import type { WorkItemRow } from '../../workbench.js'
+
+/** A helyi munkamenet eszkozfutasa, amit meg nem zartunk le (id + nev). */
+type LiveOpenTool = { id: string; name: string }
+
+/** A teljes erteku ugynok eszkozfutasait is elmentjuk (#434, Boss 2026-09-29:
+ *  "Hol van ketteosztva? Meg mindig nem latom."). Eddig csak elo ment at a
+ *  bongeszobe, igy F5 / elnavigalas utan a Parancsfutasok sav ures maradt. */
+function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: string; status?: string; detail?: string }): void {
+  const name = String(ev.name || '')
+  if (!name) return
+  try {
+    if (ev.status === 'running') {
+      const row = startToolCall(sessionId, name, ev.detail ? { detail: ev.detail } : undefined)
+      open.push({ id: row.id, name })
+      return
+    }
+    if (ev.status !== 'ok' && ev.status !== 'error') return
+    for (let i = open.length - 1; i >= 0; i--) {
+      if (open[i].name !== name) continue
+      finishToolCall(open[i].id, ev.status, null)
+      open.splice(i, 1)
+      return
+    }
+  } catch { /* a naplozas hibaja nem allithatja meg a valaszt */ }
+}
 
 /** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441). */
 function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[] } {
@@ -484,6 +509,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       if (!prior) addAgentMessage(session.id, 'user', text)
       let answer = ''
       let failed = ''
+      const openTools: LiveOpenTool[] = []
       // #434: automatikus fiokvalasztasnal a limitbe futott fiok helyett a
       // kovetkezo jon (a tulajdonos: "Mindig azt hasznalja, ahol van").
       // Csak amig semmi valasz nem ment ki; kivalasztott fioknal nincs csere.
@@ -514,6 +540,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
           }
           if (ev.type === 'text') answer += ev.text
           if (ev.type === 'error') failed = ev.message
+          if (ev.type === 'tool') recordLiveTool(session.id, openTools, ev)
           // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
           // beszelgetesbe kerul, nem szakad felbe.
           send(ev.type, ev)
