@@ -171,7 +171,7 @@ describe('a felulet: kereshető masolat gomb', () => {
     await vi.waitFor(() => expect(h.html()).toContain('wb-assets-block'))
     const html = h.html()
     expect(html).toContain('data-wb-act="doc-searchable" data-wb-path="Level/scan.pdf"')
-    expect(html).not.toContain('data-wb-path="Level/szoveg.pdf"')
+    expect(html).not.toContain('data-wb-act="doc-searchable" data-wb-path="Level/szoveg.pdf"')
     h.click({ 'data-wb-act': 'doc-searchable', 'data-wb-path': 'Level/scan.pdf' })
     await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.doc.searchable_done'))
     const call = h.fetchCalls.find((c) => c.url.includes('/items/w1/document/searchable'))

@@ -61,6 +61,7 @@ import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, update
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
+import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
 import { realpathSync } from 'node:fs'
 import { join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
@@ -854,6 +855,30 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   searchable_failed: {
     hu: 'A kereshető másolat nem készült el.',
     en: 'The searchable copy could not be made.',
+  },
+  redact_not_pdf: {
+    hu: 'Kitakart másolat csak PDF-ből készülhet.',
+    en: 'Only a PDF can get a redacted copy.',
+  },
+  redact_not_installed: {
+    hu: 'Ezen a gépen nincs telepítve a Poppler (pdftoppm, pdftotext), ezért nem tudok kitakart másolatot készíteni.',
+    en: 'Poppler (pdftoppm, pdftotext) is not installed on this machine, so no redacted copy can be made.',
+  },
+  redact_too_many_pages: {
+    hu: 'Ez az irat túl hosszú a kitakaráshoz (legfeljebb 300 oldal). Bontsd kisebb részekre.',
+    en: 'This document is too long to redact (at most 300 pages). Split it into smaller parts.',
+  },
+  redact_nothing_selected: {
+    hu: 'Nincs kijelölve semmi, amit ki kellene takarni.',
+    en: 'Nothing is selected for redaction.',
+  },
+  redact_verify_failed: {
+    hu: 'A kész másolatot ellenőriztem, és egy kitakart szöveg még kiolvasható volt belőle, ezért nem tartottam meg. Semmi nem került ki.',
+    en: 'I checked the finished copy and a redacted text could still be read from it, so I did not keep it. Nothing went out.',
+  },
+  redact_failed: {
+    hu: 'A kitakart másolat nem készült el.',
+    en: 'The redacted copy could not be made.',
   },
   document_bad_path: {
     hu: 'Ez az út nem egy fájlra mutat a projekt mappáján belül.',
@@ -2152,7 +2177,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   GET .../document?path=...&from=3&to=5              -- oldalak szo szerint, [fajl:oldal] jelolessel
   //   POST .../document/verify {path, page, quote}       -- gepi idezet-ellenorzes (K-1.12)
   //   POST .../document/searchable {path}                -- kereshető masolat (K-1.4), megvarja
-  if (segs[1] === 'document' && ((segs.length === 2 && method === 'GET') || (segs.length === 3 && method === 'POST' && (segs[2] === 'verify' || segs[2] === 'searchable')))) {
+  //   POST .../document/redact/scan {path, terms}        -- mi takarodna ki (K-1.35)
+  //   POST .../document/redact {path, terms, skip}       -- kitakart masolat, megvarja
+  const redactRoute = method === 'POST' && segs[2] === 'redact' && (segs.length === 3 || (segs.length === 4 && segs[3] === 'scan'))
+  if (segs[1] === 'document' && ((segs.length === 2 && method === 'GET') || redactRoute || (segs.length === 3 && method === 'POST' && (segs[2] === 'verify' || segs[2] === 'searchable')))) {
     const owner = getProject(item.project_id)
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     const body = method === 'POST' ? await readJson(req) : null
@@ -2170,6 +2198,29 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let base = ''
     try { base = root.ok ? realpathSync(root.dirAbs) : '' } catch { base = '' }
     if (!base || !real.startsWith(base + pathSep)) return fail(res, 400, 'document_bad_path', lang)
+    if (redactRoute) {
+      if (!/\.pdf$/i.test(name)) return fail(res, 400, 'redact_not_pdf', lang)
+      const redactFail = (r: { code: string; detail: string }): true => {
+        const status = r.code === 'not_installed' ? 424 : r.code === 'too_many_pages' || r.code === 'nothing_selected' ? 400 : 500
+        const code = `redact_${r.code === 'not_pdf' ? 'not_pdf' : r.code}`
+        return failDetail(res, status, code, lang, r.detail)
+      }
+      if (segs.length === 4) {
+        const r = await scanForRedaction(real, body?.['terms'])
+        if (!r.ok) return redactFail(r)
+        json(res, { ok: true, path: rel, ...r.data })
+        return true
+      }
+      if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+      const dest = freeFileName(target.dirAbs, redactedName(name, lang))
+      const r = await makeRedactedCopy(real, joinPath(target.dirAbs, dest), { terms: body?.['terms'], skip: body?.['skip'] })
+      if (!r.ok) return redactFail(r)
+      json(res, {
+        ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name,
+        redacted: r.redacted, pages: r.pages, searchable: r.searchable, unreadable_pages: r.unreadable_pages, assets: assetsOut(item.id),
+      }, 201)
+      return true
+    }
     if (segs.length === 3 && segs[2] === 'searchable') {
       if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
       if (!/\.pdf$/i.test(name)) return fail(res, 400, 'searchable_not_pdf', lang)
