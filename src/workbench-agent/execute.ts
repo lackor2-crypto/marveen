@@ -37,6 +37,7 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
+import { createVariant, variantInfo, variantsSummary, translateSection, setBackTranslation, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks } from '../workbench-doclang.js'
 import {
   documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim, proposeRewrite,
   documentCheck, recheckPendingSources,
@@ -339,7 +340,8 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'doc.outline': case 'doc.addSection': case 'doc.updateSection': case 'doc.removeSection':
     case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
     case 'doc.proposeRewrite': case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings':
-    case 'doc.deadlines': {
+    case 'doc.deadlines': case 'doc.variants': case 'doc.createVariant': case 'doc.translateSection': case 'doc.backTranslate':
+    case 'doc.glossary': case 'doc.addTerm': case 'doc.removeTerm': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
       const item = getWorkItem(id)
@@ -364,6 +366,30 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
               },
             }
           }
+          case 'doc.variants': {
+            const v = variantInfo(item.id)
+            if (!v) return { ok: true, data: { is_language_version: false, language_versions: variantsSummary(item.id), note: 'This is an original. Make a language version with doc.createVariant {lang}.' } }
+            const src = documentOutline(v.source_item_id)
+            return {
+              ok: true,
+              data: {
+                is_language_version: true, lang: v.lang, original: { id: v.source_item_id, title: v.source_title },
+                sections: v.sections, original_sections_not_here_yet: v.new_in_source,
+                original_outline: src.sections.map((s) => ({ id: s.id, title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, claims: b.claims.map((c) => ({ id: c.id, text: c.text, strength: c.strength })) })) })),
+                glossary: listGlossary(project.id, v.lang).map((g) => ({ id: g.id, term: g.term, translation: g.translation, note: g.note })),
+                back_translations: backchecks(item.id).map((b) => ({ section: b.section_id, stale: b.stale })),
+              },
+            }
+          }
+          case 'doc.createVariant': {
+            const r = createVariant(item, input.lang, 'workbench-agent')
+            return r.ok ? { ok: true, data: { item_id: r.item.id, title: r.item.title, existing: r.existing, note: 'Now translate it section by section: doc.variants {id: item_id} shows the original outline to translate from, then doc.translateSection {id: item_id, source_section, title, blocks} for each section. Tell the owner the language version is a separate work item they can open.' } } : { ok: false, code: 'bad_input', detail: r.detail }
+          }
+          case 'doc.translateSection': { const r = translateSection(item.id, { source_section: input.source_section, title: input.title, blocks: input.blocks }, 'workbench-agent'); return r.ok ? { ok: true, data: r.result } : r }
+          case 'doc.backTranslate': { const r = setBackTranslation(item.id, asString(input.section), input.text, 'workbench-agent'); return r.ok ? { ok: true, data: r.backcheck } : r }
+          case 'doc.glossary': return { ok: true, data: { glossary: listGlossary(project.id, asString(input.lang).toLowerCase() || undefined) } }
+          case 'doc.addTerm': { const r = addGlossaryTerm(project.id, { term: input.term, translation: input.translation, lang: input.lang, note: input.note }, 'workbench-agent'); return r.ok ? { ok: true, data: r.term } : r }
+          case 'doc.removeTerm': { const r = removeGlossaryTerm(project.id, asString(input.term_id)); return r.ok ? { ok: true, data: r } : r }
           case 'doc.check': {
             recheckPendingSources(item.id, world)
             const fin = finalizationState(item)

@@ -5111,7 +5111,9 @@
             + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>')
         + (sec.problems ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
         + '</h4>'
+        + langSectionHtml(o, sec, ro)
         + blocks
+        + backcheckHtml(o, sec, ro)
         + (ro ? '' : '<p class="wb-outline-tools">'
           + '<button type="button" class="wb-linklike" data-wb-act="outline-add-block" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.outline.add_block')) + '</button> '
           + '<button type="button" class="wb-linklike" data-wb-act="outline-sec-rename" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.outline.rename')) + '</button> '
@@ -5120,12 +5122,149 @@
     }).join('')
     return '<div class="wb-outline"><h3>' + esc(t('workbench.outline.title')) + '</h3>'
       + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
+      + langHeadHtml(o, ro)
       + secs
       + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + annexHtml(o, ro)
+      + glossaryHtml(o, ro)
       + outlineCheckHtml(o.check, o, ro)
       + outlinePdfHtml(o, ro)
       + '</div>'
+  }
+
+  /** NYELVI VALTOZATOK (#441, K-1.27 ... K-1.31). A valtozat kulon munkadarab,
+   *  fejezetenkent osszekotve az eredetivel. A forditas az agent munkaja: a
+   *  gombok csak megkerik (ugyanugy, mint az atiras-javaslatnal); az allapotot
+   *  (leforditatlan / friss / elavult) a szerver szamolja. */
+  var DOC_LANGS = ['de', 'en', 'hu', 'fr', 'it', 'es', 'sk', 'ro', 'pl']
+  function docLangName(code) {
+    var k = 'workbench.doclang.lang.' + code
+    var n = t(k)
+    return n === k ? String(code || '').toUpperCase() : n
+  }
+  function variantPending(v) {
+    return ((v && v.sections) || []).filter(function (s) { return s.state === 'untranslated' || s.state === 'stale' }).length
+      + ((v && v.new_in_source) || []).length
+  }
+  function langHeadHtml(o, ro) {
+    var v = o.variant
+    if (v) {
+      var pending = variantPending(v)
+      var removed = (v.sections || []).filter(function (s) { return s.state === 'source_removed' }).length
+      return '<div class="wb-doclang"><h4>' + esc(t('workbench.doclang.variant_title', { lang: docLangName(v.lang) })) + '</h4>'
+        + '<p class="wb-hint">' + esc(t('workbench.doclang.variant_hint', { title: v.source_title || '?', lang: docLangName(v.lang) })) + '</p>'
+        + (v.source_title ? '' : '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.source_gone')) + '</p>')
+        + ((v.new_in_source || []).length ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.new_in_source', { list: v.new_in_source.map(function (x) { return x.title }).join(', ') })) + '</p>' : '')
+        + (removed ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.removed_in_source', { n: removed })) + '</p>' : '')
+        + '<p class="wb-outline-tools">'
+        + (v.source_title ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="outline-lang-open" data-wb-item="' + escA(v.source_item_id) + '">' + esc(t('workbench.doclang.open_source')) + '</button> ' : '')
+        + (!ro && pending && v.source_title ? '<button type="button" class="wb-btn" data-wb-act="outline-lang-translate-all" title="' + escA(t('workbench.doclang.translate_all_hint')) + '">' + esc(t('workbench.doclang.translate_all', { n: pending })) + '</button>' : '')
+        + (!pending && !removed ? '<span class="wb-ok">✓ ' + esc(t('workbench.doclang.all_current')) + '</span>' : '')
+        + '</p></div>'
+    }
+    var list = o.variants || []
+    // Vazlat nelkul nincs mit forditani; csak ha mar van valtozat, akkor latszik.
+    if (!list.length && (ro || !(o.sections || []).length)) return ''
+    var rows = list.map(function (x) {
+      return '<li><strong>' + esc(docLangName(x.lang)) + '</strong> – ' + esc(x.title)
+        + (x.stale ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.stale_n', { n: x.stale })) + '</span>' : '')
+        + (x.untranslated ? ' <span class="wb-muted">' + esc(t('workbench.doclang.untranslated_n', { n: x.untranslated })) + '</span>' : '')
+        + (!x.stale && !x.untranslated ? ' <span class="wb-ok">✓ ' + esc(t('workbench.doclang.current')) + '</span>' : '')
+        + ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-open" data-wb-item="' + escA(x.item_id) + '">' + esc(t('workbench.doclang.open')) + '</button></li>'
+    }).join('')
+    var have = {}
+    list.forEach(function (x) { have[x.lang] = true })
+    var add = ro || !(o.sections || []).length ? '' : '<p class="wb-doclang-add"><select id="wbVariantLang" aria-label="' + escA(t('workbench.doclang.pick')) + '">'
+      + DOC_LANGS.filter(function (c) { return !have[c] }).map(function (c) { return '<option value="' + escA(c) + '">' + esc(docLangName(c)) + '</option>' }).join('')
+      + '<option value="other">' + esc(t('workbench.doclang.other')) + '</option></select> '
+      + '<button type="button" class="wb-btn" data-wb-act="outline-lang-create" title="' + escA(t('workbench.doclang.create_hint')) + '"' + (WB.variantBusy ? ' disabled' : '') + '>' + esc(t('workbench.doclang.create')) + '</button></p>'
+    return '<div class="wb-doclang"><h4>' + esc(t('workbench.doclang.title')) + (list.length ? ' (' + list.length + ')' : '') + '</h4>'
+      + (list.length ? '<ul class="wb-doclang-list">' + rows + '</ul>' : '<p class="wb-hint">' + esc(t('workbench.doclang.hint')) + '</p>')
+      + add + '</div>'
+  }
+  function variantSection(o, sid) {
+    return ((o.variant && o.variant.sections) || []).filter(function (x) { return x.section_id === sid })[0] || null
+  }
+  /** Egy valtozat-fejezet allapota a fejezet cime alatt, a teendo gombjaval (K-1.28). */
+  function langSectionHtml(o, sec, ro) {
+    var vs = variantSection(o, sec.id)
+    if (!vs) return ''
+    var canAsk = !ro && o.variant && o.variant.source_title
+    var line = ''
+    if (vs.state === 'untranslated') {
+      line = '<span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.state.untranslated')) + '</span>'
+        + (canAsk ? ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-translate" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.doclang.translate')) + '</button>' : '')
+    } else if (vs.state === 'stale') {
+      line = '<span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.state.stale')) + '</span>'
+        + (canAsk ? ' <button type="button" class="wb-btn" data-wb-act="outline-lang-translate" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.doclang.refresh_hint')) + '">' + esc(t('workbench.doclang.refresh')) + '</button>' : '')
+    } else if (vs.state === 'source_removed') {
+      line = '<span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.state.source_removed')) + '</span>'
+    } else {
+      line = '<span class="wb-muted">✓ ' + esc(t('workbench.doclang.state.current', { title: vs.source_title || '' })) + '</span>'
+        + (canAsk ? ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-back" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.doclang.back_hint')) + '">' + esc(t('workbench.doclang.back')) + '</button>' : '')
+    }
+    return '<p class="wb-doclang-state">' + line + '</p>'
+  }
+  /** VISSZAFORDITAS-ELLENORZES (K-1.30): az eredeti es a visszaforditott szoveg egymas mellett. */
+  function backcheckHtml(o, sec, ro) {
+    var b = ((o.backchecks) || []).filter(function (x) { return x.section_id === sec.id })[0]
+    if (!b) return ''
+    return '<div class="wb-doclang-back"><p class="wb-outline-rewrite-head">' + esc(t('workbench.doclang.back_title')) + '</p>'
+      + (b.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.back_stale')) + '</p>' : '')
+      + '<div class="wb-doclang-cols"><div><p class="wb-muted">' + esc(t('workbench.doclang.back_original')) + '</p><div class="wb-outline-text">' + blockTextHtml(b.source_text || '') + '</div></div>'
+      + '<div><p class="wb-muted">' + esc(t('workbench.doclang.back_text')) + '</p><div class="wb-outline-text">' + blockTextHtml(b.text) + '</div></div></div>'
+      + (ro ? '' : '<p class="wb-outline-tools"><button type="button" class="wb-linklike" data-wb-act="outline-lang-back-del" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.doclang.back_dismiss')) + '</button></p>')
+      + '</div>'
+  }
+  /** UGYENKENTI SZOSZEDET (K-1.29): a projekt (ugy) minden nyelvi valtozataban igy marad. */
+  function glossaryHtml(o, ro) {
+    var list = o.glossary || []
+    var isVariant = !!o.variant
+    if (!isVariant && !(o.variants || []).length && !list.length) return ''
+    if (ro && !list.length) return ''
+    var rows = list.map(function (g) {
+      return '<li><strong>' + esc(g.term) + '</strong> → ' + esc(g.translation) + ' <span class="wb-muted">(' + esc(docLangName(g.lang)) + ')</span>'
+        + (g.note ? ' <span class="wb-muted">– ' + esc(g.note) + '</span>' : '')
+        + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-term-del" data-wb-term="' + escA(g.id) + '">' + esc(t('workbench.doclang.term_remove')) + '</button>')
+        + '</li>'
+    }).join('')
+    var defLang = isVariant ? o.variant.lang : ((o.variants || [])[0] || {}).lang || 'de'
+    var langs = DOC_LANGS.indexOf(defLang) >= 0 ? DOC_LANGS : [defLang].concat(DOC_LANGS)
+    var add = ro ? '' : '<p class="wb-doclang-add">'
+      + '<input type="text" id="wbGlossTerm" maxlength="200" placeholder="' + escA(t('workbench.doclang.term_placeholder')) + '" aria-label="' + escA(t('workbench.doclang.term_placeholder')) + '"> → '
+      + '<input type="text" id="wbGlossTr" maxlength="200" placeholder="' + escA(t('workbench.doclang.tr_placeholder')) + '" aria-label="' + escA(t('workbench.doclang.tr_placeholder')) + '"> '
+      + '<select id="wbGlossLang" aria-label="' + escA(t('workbench.doclang.term_lang')) + '">'
+      + langs.map(function (c) { return '<option value="' + escA(c) + '"' + (c === defLang ? ' selected' : '') + '>' + esc(docLangName(c)) + '</option>' }).join('') + '</select> '
+      + '<button type="button" class="wb-btn" data-wb-act="outline-lang-term-add">' + esc(t('workbench.doclang.term_add')) + '</button></p>'
+    return '<details class="wb-doclang-gloss"' + (WB.glossOpen ? ' open' : '') + '><summary data-wb-act="outline-lang-gloss-toggle">' + esc(t('workbench.doclang.gloss_title', { n: list.length })) + '</summary>'
+      + '<p class="wb-hint">' + esc(t('workbench.doclang.gloss_hint')) + '</p>'
+      + (list.length ? '<ul class="wb-doclang-list">' + rows + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.doclang.gloss_empty')) + '</p>')
+      + add + '</details>'
+  }
+
+  /** A "+ Nyelvi valtozat": letrehozza, megnyitja, es a valtozat chatjeben megkeri az agentet a forditasra. */
+  function createVariantNow() {
+    var id = WB.selectedId
+    var sel = document.getElementById('wbVariantLang')
+    if (!id || !sel || WB.variantBusy || archived()) return
+    var code = sel.value
+    if (code === 'other') {
+      var typed = window.prompt(t('workbench.doclang.other_prompt'), '')
+      if (typed === null) return
+      code = String(typed).trim().toLowerCase()
+    }
+    WB.variantBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/variants', { lang: code }).then(function (r) {
+      WB.variantBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      var vid = r.data.item.id
+      window.showToast(t(r.data.existing ? 'workbench.doclang.exists' : 'workbench.doclang.created', { title: r.data.item.title }))
+      load(WB.projectId)
+      selectItem(vid)
+      if (!r.data.existing) askAgent(t('workbench.doclang.ask_all', { lang: docLangName(code) }))
+      else render()
+    })
   }
 
   /** MELLEKLETJEGYZEK (#441, K-1.18): szamozott lista; a szovegbeli hivatkozasokat
@@ -5299,6 +5438,45 @@
       var excerpt = rb.text.length > 400 ? rb.text.slice(0, 400) + '…' : rb.text
       askAgent(t('workbench.outline.rewrite_ask.' + act.getAttribute('data-wb-style'), { section: rs ? rs.title : '', block: rb.id, text: excerpt }))
       window.showToast(t('workbench.outline.rewrite_asked'))
+    } else if (a === 'outline-lang-create') {
+      createVariantNow()
+    } else if (a === 'outline-lang-open') {
+      var oid = act.getAttribute('data-wb-item')
+      if (oid) selectItem(oid)
+    } else if (a === 'outline-lang-translate-all') {
+      var ov = WB.detail && WB.detail.outline && WB.detail.outline.variant
+      if (!ov) return
+      askAgent(t('workbench.doclang.ask_all', { lang: docLangName(ov.lang) }))
+      window.showToast(t('workbench.doclang.asked'))
+    } else if (a === 'outline-lang-translate') {
+      var tv = WB.detail && WB.detail.outline && WB.detail.outline.variant
+      var ts = findSection(sid)
+      var tvs = tv ? variantSection(WB.detail.outline, sid) : null
+      if (!tv || !tvs) return
+      askAgent(t(tvs.state === 'stale' ? 'workbench.doclang.ask_refresh' : 'workbench.doclang.ask_one', { lang: docLangName(tv.lang), section: tvs.source_title || (ts ? ts.title : ''), source_section: tvs.source_section_id }))
+      window.showToast(t('workbench.doclang.asked'))
+    } else if (a === 'outline-lang-back') {
+      var bv = WB.detail && WB.detail.outline && WB.detail.outline.variant
+      var bs = findSection(sid)
+      if (!bv || !bs) return
+      askAgent(t('workbench.doclang.ask_back', { lang: docLangName(bv.lang), section: bs.title, id: sid }))
+      window.showToast(t('workbench.doclang.asked'))
+    } else if (a === 'outline-lang-back-del') {
+      outlineCall('DELETE', '/backchecks/' + encodeURIComponent(sid))
+    } else if (a === 'outline-lang-term-add') {
+      var te = document.getElementById('wbGlossTerm')
+      var tr = document.getElementById('wbGlossTr')
+      var tl = document.getElementById('wbGlossLang')
+      var term = te ? te.value.trim() : ''
+      var trans = tr ? tr.value.trim() : ''
+      if (!term || !trans) { window.showToast(t('workbench.doclang.term_required')); return }
+      WB.glossOpen = true
+      outlineCall('POST', '/glossary', { term: term, translation: trans, lang: tl ? tl.value : '' })
+    } else if (a === 'outline-lang-term-del') {
+      outlineCall('DELETE', '/glossary/' + encodeURIComponent(act.getAttribute('data-wb-term') || ''))
+    } else if (a === 'outline-lang-gloss-toggle') {
+      var det = act.parentNode
+      WB.glossOpen = !(det && det.open)
     } else if (a === 'outline-rewrite-accept') {
       var ab = findBlock(bid)
       var drops = ab && ab.rewrite ? (ab.rewrite.would_drop || []).length : 0

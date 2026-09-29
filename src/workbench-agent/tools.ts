@@ -263,6 +263,48 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'doc.variants',
+    description: 'Language versions (K-1.27). On an ORIGINAL: its language versions and how many of their sections are out of date or not yet translated. On a LANGUAGE VERSION: the language, the state of each section (untranslated / current / stale = the original section changed since / source_removed), the original sections not in it yet, and the ORIGINAL outline to translate from (section ids, block texts, claim ids and texts), plus the case glossary for this language.',
+    input: 'id (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'doc.createVariant',
+    description: 'Make a language version of this ORIGINAL document: a separate work item "<title> (DE)" in the same project, its sections linked to the original ones (empty, to be translated). If one already exists for that language, it is returned. Then open it (tell the owner) and translate it section by section with doc.translateSection.',
+    input: 'id (optional); lang: two-letter language code (hu, de, en, fr, ...)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.translateSection',
+    description: 'Save the translation of ONE section of the original into this language version (call it on the language version). It replaces that section\'s title and blocks, copies the sources of the claims you carry over (the same file, page and quote; the owner\'s confirmation stays), and marks the section current again. Translate faithfully in the official legal register of the target language and court; use the case glossary (doc.variants shows it) for every term in it; keep names, case numbers, dates and amounts exact (dates and amounts in the target language format); keep "⚠ Hiányzó adat" marks (translated). For each block give claims: [{source_claim: the original claim id, text: its verbatim translation inside the translated block}] -- a claim not carried over is reported in claims_not_carried, and glossary_issues lists glossary terms whose fixed translation is missing: fix and call again.',
+    input: 'id (optional); source_section: the ORIGINAL section id; title: translated title; blocks: [{kind, text, claims: [{source_claim, text}]}] in order',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.backTranslate',
+    description: 'Back-translation check (K-1.30), when the owner asks for it: translate a section of this language version back into the language of the original, literally (do not smooth it out, do not look at the original while doing it), and save it here. The owner sees it next to the original section and can judge the translation without knowing the target language. Say plainly if you see a difference in meaning.',
+    input: 'id (optional); section: the section id of THIS language version; text: the back-translation',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.glossary',
+    description: 'The case glossary (K-1.29): legal terms and names with their fixed translation in this case (e.g. Klage -> keresetlevél), per target language. Every language version must use them.',
+    input: 'lang (optional): only this target language',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'doc.addTerm',
+    description: 'Fix the translation of a term or name for this case (K-1.29), e.g. when the owner decides one or you settle one while translating. The same term for the same language is replaced.',
+    input: 'term: the term in the original; translation: its fixed translation; lang: the language of the translation (two-letter code); note (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.removeTerm',
+    description: 'Remove a term from the case glossary.',
+    input: 'term_id: the glossary entry id',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'doc.deadlines',
     description: 'The hearings and deadlines Marveen found by rules in the documents of this work item that are already read (court or authority letters; Hungarian, German, English): the date and time, or the rule "N days from delivery", with the file, page and the sentence as source, and whether the owner already made a to-do of it. You must never compute a deadline counted from delivery yourself: ask the owner for the delivery date; the owner approves the proposed day with a click, which makes the to-do.',
     input: 'id (optional)',
