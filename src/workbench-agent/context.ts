@@ -12,6 +12,7 @@
  *      kontextus KIMONDJA, hogy nincs -- es azt is, hogy ez "meg nincs semmi"
  *      vagy "nem latok oda". A rendszer-uzenet pedig megtiltja a kitalalast.
  */
+import { privacyState } from '../workbench-privacy.js'
 import type { ProjectRow } from '../projects.js'
 import type { WorkItemRow } from '../workbench.js'
 import { projectContext } from '../project-context.js'
@@ -143,6 +144,12 @@ export function buildContext(
     ].join('\n'))
   } else {
     add('current_item', 'No work item is open: the conversation is about the project as a whole.')
+  }
+
+  // 3b. ERZEKENY jeloles (#441, K-1.32): csak ha be van kapcsolva (kulonben nem kolt kontextust).
+  const privacy = privacyState(project.id, workItem ? workItem.id : null)
+  if (privacy.sensitive) {
+    add('privacy', `SENSITIVE: the owner marked this ${privacy.project ? 'project' : 'work item'} sensitive. Personal data (names of the people in the case, case numbers, addresses, account numbers, e-mail, phone, date of birth) must not go to any outside service besides you: a web.search phrase containing them is refused by Marveen -- search with a generic phrase. Text recognition runs only on this machine.`)
   }
 
   // 4. Fajlok -- a mappa allapota KIMONDVA (nem latok oda vs nincs semmi).
