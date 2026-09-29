@@ -106,7 +106,7 @@ function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; f
     })
   } catch { materials = [] }
   const documentsHint = hasDoc
-    ? `Documents among the materials (PDF, scans, office files, e-mails, photographed papers) are read page by page on this machine, text recognition included. Use THESE page texts (not your own PDF reading) when you quote: curl -s -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/document?path=<path inside the project folder, URL-encoded>" gives the page list; add &from=N&to=M for the verbatim text of pages. Quote word for word and cite as [file:page]. Pages marked hard to read are not a source of facts until the owner checks them.`
+    ? `Documents among the materials (PDF, scans, office files, e-mails, photographed papers) are read page by page on this machine, text recognition included. Use THESE page texts (not your own PDF reading) when you quote: curl -s -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/document?path=<path inside the project folder, URL-encoded>" gives the page list; add &from=N&to=M for the verbatim text of pages. Quote word for word and cite as [file:page]. Pages marked hard to read are not a source of facts until the owner checks them. Before you rely on a quote, have it machine-checked: POST the same URL base + /document/verify with JSON {"path":"...","page":N,"quote":"..."} (verified / low_page / other_page / not_found); never present a not_found quote as a fact.`
     : null
   return { title: item.title, type: item.type, folder: item.folder ?? null, materials, documentsHint }
 }
