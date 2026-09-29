@@ -503,5 +503,7 @@ echo "land-pr: KESZ. Az elo peldanyra a scripts/deploy-live.sh viszi ki (idozitv
 if [ "$MERGED_CONFIRMED" != "1" ]; then
   echo "land-pr: a worktree-t NEM toroltem: a PR MERGED allapotat nem tudtam visszaolvasni." >&2
 elif [ "${LAND_PR_KEEP_WORKTREE:-0}" != "1" ]; then
-  bash "$BASE/scripts/land-pr-worktree-cleanup.sh" "$PUSHED_SHA" || true
+  # The caller's pid lets the cleanup defer the removal while the caller's shell
+  # still stands in the worktree (kanban #445).
+  LAND_PR_CALLER_PID="$PPID" bash "$BASE/scripts/land-pr-worktree-cleanup.sh" "$PUSHED_SHA" || true
 fi
