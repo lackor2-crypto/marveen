@@ -43,7 +43,7 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, listSubItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, checkParentItem, getWorkItem, getWorkItemVersion, listWorkItems, listSubItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -102,7 +102,7 @@ import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
 import {
-  makeFreshFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
+  makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
 } from '../../workbench-assets.js'
@@ -1793,14 +1793,39 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const title = String(body['title'] ?? '').trim()
     if (!title) return fail(res, 400, 'table_title_required', lang)
-    const out = writeProjectFile(project, null, `${title.replace(/\.xlsx$/i, '')}.xlsx`, blankXlsx(lang === 'en' ? 'Sheet1' : 'Munka1'))
+    // #448: the "+ New work item" form's "Under which work item?" field holds
+    // for a new table too: the table becomes a sub work item, its own folder
+    // (with the .xlsx in it) inside the main item's folder. Empty = as before.
+    const parentId = String(body['parent_item_id'] ?? '').trim()
+    let folder: string | null = null
+    let folderCreated = false
+    if (parentId) {
+      const pc = checkParentItem(project.id, parentId)
+      if (!pc.ok) return fail(res, pc.code === 'parent_not_found' ? 404 : 400, pc.code, lang)
+      const pf = ensureWorkItemFolder(pc.parent)
+      const f = pf.ok ? makeFreshFolder(project, title, pf.folder) : pf
+      if (!f.ok) {
+        const code = MESSAGES['upload_' + f.code] ? 'upload_' + f.code : f.code
+        return failDetail(res, f.code === 'write_failed' ? 500 : 400, code, lang, 'message' in f ? (f.message || null) : null)
+      }
+      folder = f.folder
+      folderCreated = f.created
+    }
+    const out = writeProjectFile(project, folder, `${title.replace(/\.xlsx$/i, '')}.xlsx`, blankXlsx(lang === 'en' ? 'Sheet1' : 'Munka1'))
     if (!out.ok) {
+      // The EMPTY folder just made for it is not left behind as an orphan.
+      if (folder && folderCreated) {
+        const t = projectFileTarget(project, folder)
+        if (t.ok) { try { rmdirSync(t.dirAbs) } catch { /* nem ures / nem torolheto: marad */ } }
+      }
       const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
       return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
     }
-    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, created_by: actor(ctx) })
-    if (!r.ok) return fail(res, 400, r.code, lang)
-    json(res, { ok: true, item: r.item, versions: [r.version], file: out, renamed: out.renamed, name: out.name }, 201)
+    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, parent_item_id: parentId || undefined, created_by: actor(ctx) })
+    if (!r.ok) return fail(res, r.code === 'parent_not_found' ? 404 : 400, r.code, lang)
+    if (folder) assignWorkItemFolder(r.item.id, folder)
+    const item = folder ? (getWorkItem(r.item.id) ?? r.item) : r.item
+    json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name }, 201)
     return true
   }
 

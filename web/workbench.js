@@ -285,6 +285,10 @@
     // #448: a main item with sub items asks what to do with them first.
     if (deleted && !subs && (WB.items || []).some(function (x) { return x.parent_item_id === id })) {
       WB.warn = { kind: 'trash-subs', id: id }
+      // The question sits on the main item's row in the list; when it comes
+      // from the editor (deleting the last version) the list is not the shown
+      // panel on a phone -- switch to it, or the click seems to do nothing.
+      WB.panel = 'items'
       render()
       return
     }
@@ -2913,9 +2917,13 @@
     if (!titleEl || WB.busy || archived()) return
     var title = String(titleEl.value || '').trim()
     if (!title) { window.showToast(t('workbench.table.title_required')); return }
+    // #448: the "Under which work item?" field of the same form holds here too.
+    var parentEl = document.getElementById('wbNewParent')
+    var payload = { project_id: WB.projectId, title: title }
+    if (parentEl && parentEl.value) payload.parent_item_id = parentEl.value
     WB.busy = true
     render()
-    api('POST', '/api/workbench/items/new-table', { project_id: WB.projectId, title: title }).then(function (r) {
+    api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
       WB.busy = false
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false

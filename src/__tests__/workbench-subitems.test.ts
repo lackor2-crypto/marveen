@@ -1,6 +1,6 @@
 // #448 -- main work item + sub work items: creation rules, trash with subs,
 // the folder inside the main item's folder, agent context, and the list UI.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -148,6 +148,55 @@ describe('folder inside the main item folder', () => {
   })
 })
 
+describe('new table under a main item (the same "+ New work item" form)', () => {
+  let dir = ''
+  beforeEach(() => {
+    initDatabase(':memory:')
+    dir = mkdtempSync(join(tmpdir(), 'wb-subtable-'))
+    process.env['MARVEEN_DEPOT'] = dir
+    const p = createProject({ name: 'Robotok' })
+    if (!p.ok) throw new Error('projekt')
+    pid = p.project.id
+    if (!updateProject(pid, { folder_path: 'Projektek/Robotok' }).ok) throw new Error('projektmappa')
+    mkdirSync(join(dir, 'Projektek', 'Robotok'), { recursive: true })
+    main = mk('LK Trendvonal EA')
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('the table becomes a sub item; its folder and .xlsx sit inside the main item folder', async () => {
+    const r = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Osszesito', parent_item_id: main })
+    expect(r.status).toBe(201)
+    const body = r.body as { item: { id: string; parent_item_id: string; folder: string; source_path: string }; folder: string }
+    expect(body.item.parent_item_id).toBe(main)
+    const mainFolder = getWorkItem(main)!.folder
+    expect(mainFolder).toBeTruthy()
+    expect(body.folder.startsWith(mainFolder + '/')).toBe(true)
+    expect(getWorkItem(body.item.id)!.folder).toBe(body.folder)
+    expect(body.item.source_path).toContain(body.folder + '/Osszesito.xlsx')
+    expect(existsSync(join(dir, ...body.item.source_path.split('/')))).toBe(true)
+    expect(listSubItems(main).map((i) => i.title)).toEqual(['Osszesito'])
+  })
+
+  it('without a main item nothing changes: a stand-alone table', async () => {
+    const r = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Onallo' })
+    expect(r.status).toBe(201)
+    expect((r.body as { item: { parent_item_id: string | null } }).item.parent_item_id ?? null).toBeNull()
+    expect(listSubItems(main)).toEqual([])
+  })
+
+  it('a bad main item is refused with a human message and no file is written', async () => {
+    const r = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Rossz', parent_item_id: 'nincs' })
+    expect(r.status).toBe(404)
+    expect(r.body).toMatchObject({ error: 'parent_not_found' })
+    expect(typeof (r.body as { message: string }).message).toBe('string')
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', 'Rossz.xlsx'))).toBe(false)
+    expect(listWorkItems(pid).map((i) => i.title)).toEqual(['LK Trendvonal EA'])
+  })
+})
+
 describe('agent context', () => {
   beforeEach(setup)
 
@@ -174,6 +223,8 @@ describe('list UI', () => {
   function open() {
     const h = workbenchHarness()
     h.respond((url) => {
+      // The request body is what these tests check; the answer is a clean refusal.
+      if (url.includes('/api/workbench/items/new-table')) return { status: 404, body: { error: 'parent_not_found', message: 'nincs meg' } }
       if (url.includes('/api/workbench/items?')) {
         return { status: 200, body: itemsBody([item('m1', 'Robot', null), item('s1', 'BL', 'm1'), item('s2', 'BB', 'm1'), item('x1', 'Egyeb', null)]) }
       }
@@ -193,5 +244,32 @@ describe('list UI', () => {
     expect(html.indexOf('data-wb-item="m1"')).toBeLessThan(html.indexOf('data-wb-item="s1"'))
     expect(html.indexOf('data-wb-item="s2"')).toBeLessThan(html.indexOf('data-wb-item="x1"'))
     expect(untranslatedHungarian(html, ['Robotok', 'Robot', 'Egyeb', 'Kovács weboldal'])).toBe('')
+  })
+
+  it('"New table" in the same form files the table under the chosen main item', async () => {
+    const h = open()
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
+    h.click({ 'data-wb-act': 'new' })
+    expect(h.html()).toContain('id="wbNewParent"')
+    h.inputs['wbNewTitle'] = { value: 'Osszesito', focus() {} }
+    h.inputs['wbNewParent'] = { value: 'm1', focus() {} }
+    h.click({ 'data-wb-act': 'create-table' })
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/items/new-table'))
+    expect(call).toBeTruthy()
+    expect(JSON.parse(String(call!.init!.body))).toMatchObject({ project_id: 'p1', title: 'Osszesito', parent_item_id: 'm1' })
+    await vi.waitFor(() => expect(h.toasts).toContain('nincs meg'))
+  })
+
+  it('trashing a main item from the editor (last version) shows the sub question on the list panel', async () => {
+    const h = open()
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
+    // On a phone the editor is the shown panel (the tab row switches it).
+    h.click({ 'data-wb-panel': 'editor' })
+    expect(h.html()).toMatch(/wb-panel-editor wb-panel-current/)
+    h.click({ 'data-wb-act': 'last-version-trash', 'data-wb-id': 'm1' })
+    const html = h.html()
+    expect(html).toContain('data-wb-act="trash-subs-all"')
+    expect(html).toMatch(/wb-panel-items wb-panel-current/)
+    expect(h.fetchCalls.some((c) => c.url.includes('/m1/trash'))).toBe(false)
   })
 })
