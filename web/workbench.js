@@ -7189,15 +7189,27 @@
         return '<option value="' + escA(x.id) + '"' + (x.id === current ? ' selected' : '') + '>' + esc(x.label) + '</option>'
       }).join('')
     }
+    // A group whose key is missing still shows up (disabled, with the reason): an empty list
+    // means "no key yet", not "no such models".
+    function keyedGroup(configured, labelKey, list, nokeyKey) {
+      if (configured) return '<optgroup label="' + escA(t(labelKey)) + '">' + opts(list) + '</optgroup>'
+      return '<optgroup label="' + escA(t(labelKey)) + '"><option disabled>' + esc(t(nokeyKey)) + '</option></optgroup>'
+    }
     var html = '<select class="wb-input" id="wbChatModel">'
       + '<option value=""' + (current ? '' : ' selected') + '>' + esc(t('workbench.chat.setup_model_default')) + '</option>'
     if (m) {
       var claude = (m.claude || []).concat(m.claudeUj || [])
       html += '<optgroup label="' + escA(t('workbench.chat.model_group_claude')) + '">' + opts(claude) + '</optgroup>'
-      if (m.glmConfigured) {
-        html += '<optgroup label="' + escA(t('workbench.chat.model_group_glm')) + '">' + opts(m.glm) + '</optgroup>'
+      html += keyedGroup(m.glmConfigured, 'workbench.chat.model_group_glm', m.glm, 'workbench.chat.model_glm_nokey')
+      html += keyedGroup(m.deepseekConfigured, 'workbench.chat.model_group_deepseek', m.deepseek, 'workbench.chat.model_deepseek_nokey')
+      // OpenRouter (ChatGPT, Gemini, ... via one key): auto-per-tier first, then the curated manual list.
+      if (m.openrouterConfigured && m.openrouter) {
+        var auto = (m.openrouter.tiers || []).map(function (tr) { return { id: tr.autoId, label: tr.label } })
+        html += '<optgroup label="' + escA(t('workbench.chat.model_group_openrouter_auto')) + '">' + opts(auto) + '</optgroup>'
+        var manual = (m.openrouterManual || []).map(function (x) { return { id: x.id, label: x.name || x.id } })
+        if (manual.length) html += '<optgroup label="' + escA(t('workbench.chat.model_group_openrouter_manual')) + '">' + opts(manual) + '</optgroup>'
       } else {
-        html += '<optgroup label="' + escA(t('workbench.chat.model_group_glm')) + '"><option disabled>' + esc(t('workbench.chat.model_glm_nokey')) + '</option></optgroup>'
+        html += '<optgroup label="' + escA(t('workbench.chat.model_group_openrouter')) + '"><option disabled>' + esc(t('workbench.chat.model_openrouter_nokey')) + '</option></optgroup>'
       }
     }
     // A mar elmentett, de a listaban nem szereplo ertek sose tunjon el csendben.

@@ -33,6 +33,7 @@ import { detectsUsageLimit } from '../model-fallback.js'
 import { workbenchAccounts } from './accounts.js'
 import { getSecret } from '../web/vault.js'
 import { GLM_BASE_URL, GLM_FAST_MODEL, GLM_TIMEOUT_MS, GLM_VAULT_KEY, isGlmModel } from '../web/glm-models.js'
+import { resolveOpenRouterModel } from '../web/openrouter-models.js'
 import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from './provider.js'
 
 /** Egy valasz felso hatara. Egy interaktiv beszelgetes-fordulo, nem konyv. */
@@ -272,31 +273,68 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
 }
 
 /**
- * GLM (Z.ai Coding Plan): the same `claude -p` runner, pointed at Z.ai's
- * Anthropic-compatible endpoint with the vault key -- exactly how the fleet
- * launches GLM agents (agent-process.ts). Subscription-billed at Z.ai, so the
- * #404 rule (no pay-per-token API) still holds. The key never leaves the
+ * Third-party routes (#455): the same `claude -p` runner pointed at an
+ * Anthropic-compatible endpoint with a vault key -- exactly how the fleet
+ * launches GLM / DeepSeek / OpenRouter agents (web/agent-process.ts), so the
+ * Workbench offers every model the fleet can run. The key never leaves the
  * server: it goes into the child's environment only. A throw-away config dir
- * keeps the owner's Claude OAuth login out of this call.
+ * keeps the owner's Claude OAuth login out of the call.
+ *
+ * Ollama tags (local, no '/') are deliberately NOT a route: the picker does not
+ * offer them and a stored one reports `not_configured` instead of quietly
+ * answering from the wrong model.
  */
-function streamViaGlm(req: AICallRequest, model: string): AsyncIterable<AIChunk> {
-  const key = getSecret(GLM_VAULT_KEY)
+type WorkbenchRoute = 'claude' | 'glm' | 'deepseek' | 'openrouter' | 'unsupported'
+
+interface RouteSpec {
+  vaultKey: string
+  baseUrl: string
+  account: string
+  detail: string
+  fastModel?: string
+  timeoutMs?: string
+}
+
+const DEEPSEEK_VAULT_KEY = 'DEEPSEEK_API_KEY'
+const OPENROUTER_VAULT_KEY = 'openrouter-fleet-key'
+
+const ROUTE_SPECS: Record<'glm' | 'deepseek' | 'openrouter', RouteSpec> = {
+  glm: { vaultKey: GLM_VAULT_KEY, baseUrl: GLM_BASE_URL, account: 'zai-glm', detail: 'Z.ai GLM Coding Plan', fastModel: GLM_FAST_MODEL, timeoutMs: GLM_TIMEOUT_MS },
+  deepseek: { vaultKey: DEEPSEEK_VAULT_KEY, baseUrl: 'https://api.deepseek.com/anthropic', account: 'deepseek', detail: 'DeepSeek' },
+  openrouter: { vaultKey: OPENROUTER_VAULT_KEY, baseUrl: 'https://openrouter.ai/api', account: 'openrouter', detail: 'OpenRouter' },
+}
+
+/** Same classification order as the fleet launcher (agent-process.ts). `model` is already resolved. */
+export function workbenchRoute(model: string): WorkbenchRoute {
+  if (model.startsWith('claude-')) return 'claude'
+  if (model.startsWith('deepseek-')) return 'deepseek'
+  if (isGlmModel(model)) return 'glm'
+  if (model.includes('/')) return 'openrouter'
+  return 'unsupported'
+}
+
+/** The stored value -> the concrete id the runner uses (`openrouter-auto:<tier>` is resolved). */
+function effectiveModel(): string { return resolveOpenRouterModel(workbenchModel()) }
+
+function streamViaRoute(req: AICallRequest, model: string, route: 'glm' | 'deepseek' | 'openrouter'): AsyncIterable<AIChunk> {
+  const spec = ROUTE_SPECS[route]
+  const key = getSecret(spec.vaultKey)
   if (key === null) {
     return (async function* () {
-      yield { kind: 'error', code: 'not_configured', detail: `no Z.ai key in the vault (${GLM_VAULT_KEY})` } as AIChunk
+      yield { kind: 'error', code: 'not_configured', detail: `no ${spec.detail} key in the vault (${spec.vaultKey})` } as AIChunk
     })()
   }
-  const dir = mkdtempSync(join(tmpdir(), 'marveen-workbench-glm-'))
+  const dir = mkdtempSync(join(tmpdir(), `marveen-workbench-${route}-`))
   const extraEnv: NodeJS.ProcessEnv = {
     ANTHROPIC_AUTH_TOKEN: key,
-    ANTHROPIC_BASE_URL: GLM_BASE_URL,
+    ANTHROPIC_BASE_URL: spec.baseUrl,
     ANTHROPIC_MODEL: model,
     ANTHROPIC_DEFAULT_OPUS_MODEL: model,
     ANTHROPIC_DEFAULT_SONNET_MODEL: model,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM_FAST_MODEL,
-    API_TIMEOUT_MS: GLM_TIMEOUT_MS,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: spec.fastModel ?? model,
   }
-  const inner = streamViaCli(req, dir, model, { kind: 'account', account: 'zai-glm' }, extraEnv)
+  if (spec.timeoutMs) extraEnv.API_TIMEOUT_MS = spec.timeoutMs
+  const inner = streamViaCli(req, dir, model, { kind: 'account', account: spec.account }, extraEnv)
   return (async function* () {
     try { yield* inner } finally { try { rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ } }
   })()
@@ -305,13 +343,18 @@ function streamViaGlm(req: AICallRequest, model: string): AsyncIterable<AIChunk>
 export const anthropicProvider: AIProvider = {
   id: 'anthropic',
 
-  model(): string { return workbenchModel() },
+  model(): string { return effectiveModel() },
 
   availability(): AIAvailability {
-    if (isGlmModel(workbenchModel())) {
-      return getSecret(GLM_VAULT_KEY) !== null
-        ? { available: true, detail: 'Z.ai GLM Coding Plan' }
-        : { available: false, reason: 'not_configured', detail: 'no Z.ai key in the vault' }
+    const route = workbenchRoute(effectiveModel())
+    if (route === 'unsupported') {
+      return { available: false, reason: 'not_configured', detail: 'this model has no Workbench route (local Ollama models are not supported)' }
+    }
+    if (route !== 'claude') {
+      const spec = ROUTE_SPECS[route]
+      return getSecret(spec.vaultKey) !== null
+        ? { available: true, detail: spec.detail }
+        : { available: false, reason: 'not_configured', detail: `no ${spec.detail} key in the vault` }
     }
     const dir = loggedInConfigDir()
     if (dir || workbenchAccounts().length) return { available: true, detail: 'signed-in Claude account' }
@@ -319,8 +362,14 @@ export const anthropicProvider: AIProvider = {
   },
 
   stream(req: AICallRequest): AsyncIterable<AIChunk> {
-    const model = workbenchModel()
-    if (isGlmModel(model)) return streamViaGlm(req, model)
+    const model = effectiveModel()
+    const route = workbenchRoute(model)
+    if (route === 'unsupported') {
+      return (async function* () {
+        yield { kind: 'error', code: 'not_configured', detail: `model ${model} has no Workbench route (local Ollama models are not supported)` } as AIChunk
+      })()
+    }
+    if (route !== 'claude') return streamViaRoute(req, model, route)
     const account = String(req.account || '').trim() || MAIN_AGENT_ID
     const dir = loggedInConfigDir(account)
     if (!dir) {
