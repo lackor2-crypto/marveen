@@ -220,13 +220,13 @@ describe('list UI', () => {
     current_version_id: null, created_at: 1, updated_at: 1, created_by: null, pinned_at: null, parent_item_id: parent,
   })
 
-  function open() {
+  function open(items = [item('m1', 'Robot', null), item('s1', 'BL', 'm1'), item('s2', 'BB', 'm1'), item('x1', 'Egyeb', null)]) {
     const h = workbenchHarness()
     h.respond((url) => {
       // The request body is what these tests check; the answer is a clean refusal.
       if (url.includes('/api/workbench/items/new-table')) return { status: 404, body: { error: 'parent_not_found', message: 'nincs meg' } }
       if (url.includes('/api/workbench/items?')) {
-        return { status: 200, body: itemsBody([item('m1', 'Robot', null), item('s1', 'BL', 'm1'), item('s2', 'BB', 'm1'), item('x1', 'Egyeb', null)]) }
+        return { status: 200, body: itemsBody(items) }
       }
       if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
       return { status: 200, body: {} }
@@ -258,6 +258,18 @@ describe('list UI', () => {
     expect(call).toBeTruthy()
     expect(JSON.parse(String(call!.init!.body))).toMatchObject({ project_id: 'p1', title: 'Osszesito', parent_item_id: 'm1' })
     await vi.waitFor(() => expect(h.toasts).toContain('nincs meg'))
+  })
+
+  it('#454: the main item question is shown even in a project with no work item yet', async () => {
+    const h = open([])
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items?'))).toBe(true))
+    h.click({ 'data-wb-act': 'new' })
+    const html = h.html()
+    const select = html.slice(html.indexOf('id="wbNewParent"'), html.indexOf('</select>', html.indexOf('id="wbNewParent"')))
+    expect(select).toContain('<option value="">')
+    expect(select).not.toMatch(/<option value="[^"]+">/)
+    expect(html).toContain('⟦workbench.sub.parent_empty_hint⟧')
+    expect(untranslatedHungarian(html, ['Robotok'])).toBe('')
   })
 
   it('trashing a main item from the editor (last version) shows the sub question on the list panel', async () => {

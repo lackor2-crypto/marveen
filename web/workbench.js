@@ -1277,16 +1277,19 @@
     if (box && box.classList) box.classList.toggle('wb-dragging', !!on)
   }
 
-  /** #448: "Under which work item?" -- only main items (no sub under a sub). Empty = stand-alone. */
+  /**
+   * #448: "Under which work item?" -- only main items (no sub under a sub). Empty = stand-alone.
+   * #454: always shown, also in a project with no work item yet, so the choice is visible from
+   * the first item on; then the only option is "stand-alone" and the hint says why.
+   */
   function parentSelectHtml() {
     var mains = (WB.items || []).filter(function (it) { return !it.parent_item_id })
-    if (!mains.length) return ''
     return '<label class="wb-label" for="wbNewParent">' + esc(t('workbench.sub.parent_label')) + '</label>'
       + '<select class="wb-input" id="wbNewParent">'
       + '<option value="">' + esc(t('workbench.sub.parent_none')) + '</option>'
       + mains.map(function (it) { return '<option value="' + escA(it.id) + '">' + esc(it.title) + '</option>' }).join('')
       + '</select>'
-      + '<p class="wb-hint">' + esc(t('workbench.sub.parent_hint')) + '</p>'
+      + '<p class="wb-hint">' + esc(t(mains.length ? 'workbench.sub.parent_hint' : 'workbench.sub.parent_empty_hint')) + '</p>'
   }
 
   function newFormHtml() {

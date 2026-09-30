@@ -5549,6 +5549,7 @@ window._i18n.en = {
   "workbench.sub.parent_label": "Which work item should it go under?",
   "workbench.sub.parent_none": "(none, a stand-alone work item)",
   "workbench.sub.parent_hint": "If you choose a main work item here, the new one becomes a sub work item: its folder is created inside the main item's folder, and the assistant also sees the main item's material. Leave it empty and everything stays as before.",
+  "workbench.sub.parent_empty_hint": "This project has no work item yet, so this one will be stand-alone. When you create the next one, you can choose this one here as its main work item, and the new one becomes a sub work item under it.",
   "workbench.sub.expand": "Show sub work items",
   "workbench.sub.collapse": "Collapse sub work items",
   "workbench.sub.trash_warn": "The work item \"{title}\" has sub work items. What should happen to them?",

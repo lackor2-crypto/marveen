@@ -5627,6 +5627,7 @@ window._i18n.hu = {
   "workbench.sub.parent_label": "Melyik munkadarab alá tartozzon?",
   "workbench.sub.parent_none": "(egyik alá sem, önálló munkadarab)",
   "workbench.sub.parent_hint": "Ha itt kiválasztasz egy fő munkadarabot, az új munkadarab almunkadarab lesz: a mappája a fő munkadarab mappáján belül jön létre, és az asszisztens a fő munkadarab anyagát is látja. Ha üresen hagyod, minden marad a régi.",
+  "workbench.sub.parent_empty_hint": "Ebben a projektben még nincs munkadarab, ezért ez önálló lesz. Ha később újat hozol létre, itt ezt választhatod fő munkadarabnak, és az új almunkadarab lesz alatta.",
   "workbench.sub.expand": "Almunkadarabok megjelenítése",
   "workbench.sub.collapse": "Almunkadarabok összecsukása",
   "workbench.sub.trash_warn": "A(z) „{title}” munkadarabnak vannak almunkadarabjai. Mi legyen velük?",
