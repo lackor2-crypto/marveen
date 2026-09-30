@@ -18,6 +18,7 @@
  *   A Marveen NEM minositi, hogy ez mire eleg jogilag -- csak rogziti.
  */
 import { getDb } from './db.js'
+import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './workbench-docmodel.js'
 import { consistencyIssues } from './workbench-doccheck.js'
@@ -27,8 +28,9 @@ import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItem
 import { attachAsset } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
 import { annexPdfs, mergePdfs, type PackageError } from './workbench-docpackage.js'
+import { checkFiles, getProfile, itemProfileId, profileFileName, saveCourtCheck, type CheckFile, type CourtCheckResult } from './workbench-courtprofile.js'
 import { createHash } from 'node:crypto'
-import { statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { resolveProjectFile } from './workbench-docmodel-world.js'
 import { getProject } from './projects.js'
 import type { RenderOutline } from './workbench-docrender.js'
@@ -242,7 +244,7 @@ export type FinalizeCode =
   | 'docpdf_failed'
 
 export type FinalizeOutcome =
-  | { ok: true; final: FinalView & { stale: boolean }; asset_path: string }
+  | { ok: true; final: FinalView & { stale: boolean }; asset_path: string; court: CourtCheckResult | null }
   | { ok: false; code: FinalizeCode | string; detail: string | null; check?: ReturnType<typeof documentCheck>; convert?: string; label?: string }
 
 /**
@@ -289,17 +291,25 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (!fresh || contentHash(fresh) !== hash) return { ok: false, code: 'outline_changed', detail: null }
 
   const label = `${FINAL_LABEL[input.lang]} – ${localDate()}`
-  const save = (name: string, pdf: Buffer): { path: string; name: string } | string => {
-    const x = attachAsset(fresh, name, pdf, { force: true, createdBy: input.by })
-    return x.ok ? { path: x.asset.path, name: x.asset.name } : x.code
+  // Celbirosag-profil (K-1.36): a fajlnevek a profil szabalya szerint (pl. ERVB: 01_Klage.pdf).
+  const profile = getProfile(itemProfileId(fresh.id))
+  const total = bundle ? 1 : 1 + annexes.length
+  let index = 0
+  const checkIn: CheckFile[] = []
+  const save = (name: string, pdf: Buffer, role: FinalFile['role'], a?: { label: string }): { path: string; name: string } | string => {
+    const x = attachAsset(fresh, profileFileName(name, profile, index++, total), pdf, { force: true, createdBy: input.by })
+    if (!x.ok) return x.code
+    const annexId = a ? annexIdOf(fresh.id, a.label) : undefined
+    checkIn.push({ name: x.asset.name, pdf, role, ...(a ? { label: a.label } : {}), ...(annexId ? { annex_id: annexId } : {}), path: x.asset.path })
+    return { path: x.asset.path, name: x.asset.name }
   }
   const files: FinalFile[] = []
-  const main = save(`${fileStem(fresh.title)} – ${label}.pdf`, bundle ?? r.pdf)
+  const main = save(`${fileStem(fresh.title)} – ${label}.pdf`, bundle ?? r.pdf, bundle ? 'bundle' : 'main')
   if (typeof main === 'string') return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + main }
   files.push({ ...main, role: bundle ? 'bundle' : 'main' })
   if (!bundle) {
     for (const a of annexes) {
-      const f = save(`${fileStem(a.label)} – ${fileStem(a.title)}.pdf`, a.pdf)
+      const f = save(`${fileStem(a.label)} – ${fileStem(a.title)}.pdf`, a.pdf, 'annex', a)
       if (typeof f === 'string') return { ok: false, code: 'docpdf_failed', detail: `the annex ${a.label} could not be saved into the work item folder: ${f}` }
       files.push({ ...f, role: 'annex', label: a.label })
     }
@@ -318,7 +328,48 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (!v.ok) return { ok: false, code: 'docpdf_failed', detail: v.code }
   const state = finalState(v.item, hash)
   if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
-  return { ok: true, final: state, asset_path: main.path }
+  // K-1.37: a KESZ fajlok gepi ellenorzese a profil mai szabalyverzioja szerint.
+  // Nem akadalyozza a veglegesitest: a tulajdonos latja, mit talalt, es dont.
+  let court: CourtCheckResult | null = null
+  if (profile) {
+    court = await checkFiles(profile, checkIn)
+    saveCourtCheck(fresh.id, state.version_id, court)
+  }
+  return { ok: true, final: state, asset_path: main.path, court }
+}
+
+/** A mellekletjegyzek-cimkehez (K1, Anlage K2 ...) tartozo melleklet azonositoja; csak PDF-forrasnal (annak lehet kereshető masolata). */
+function annexIdOf(itemId: string, label: string): string | undefined {
+  const a = listAnnexes(itemId).find((x) => x.label === label)
+  return a && /\.pdf$/i.test(a.path) ? a.id : undefined
+}
+
+export type CourtRecheck =
+  | { ok: true; court: CourtCheckResult }
+  | { ok: false; code: 'court_no_profile' | 'court_no_final' | 'court_file_missing'; detail: string | null }
+
+/**
+ * Az ellenorzes ujrafuttatasa a legutobbi veglegesites fajljain (pl. mas
+ * profil valasztasa, vagy a profil frissitese utan).
+ */
+export async function recheckFinal(item: WorkItemRow): Promise<CourtRecheck> {
+  const profile = getProfile(itemProfileId(item.id))
+  if (!profile) return { ok: false, code: 'court_no_profile', detail: null }
+  const f = listFinals(item.id)[0]
+  if (!f) return { ok: false, code: 'court_no_final', detail: null }
+  const list: FinalFile[] = f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' }]
+  const files: CheckFile[] = []
+  for (const x of list) {
+    // A vegleges fajlok utja a Raktarhoz kepest van (mint minden anyage), nem a projektmappahoz.
+    const abs = resolveLifePath(x.path)
+    if (!abs || !existsSync(abs)) return { ok: false, code: 'court_file_missing', detail: x.name }
+    const got = { abs }
+    const annexId = x.label ? annexIdOf(item.id, x.label) : undefined
+    files.push({ name: x.name, pdf: readFileSync(got.abs), role: x.role, ...(x.label ? { label: x.label } : {}), ...(annexId ? { annex_id: annexId } : {}), path: x.path })
+  }
+  const court = await checkFiles(profile, files)
+  saveCourtCheck(item.id, f.version_id, court)
+  return { ok: true, court }
 }
 
 const iso = (sec: number | null | undefined): string | null => (sec ? new Date(sec * 1000).toISOString() : null)

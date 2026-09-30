@@ -53,17 +53,18 @@ import {
   hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
-import { sourceWorldFor } from '../../workbench-docmodel-world.js'
+import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { egressLog, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
-import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
-import { addAnnex, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
+import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
+import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
+import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
 import { realpathSync } from 'node:fs'
-import { join as joinPath, sep as pathSep } from 'node:path'
+import { dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
@@ -872,6 +873,58 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A kereshető másolat nem készült el.',
     en: 'The searchable copy could not be made.',
   },
+  court_bad_input: {
+    hu: 'Ilyen célbíróság-profil nincs.',
+    en: 'There is no such court profile.',
+  },
+  court_owner_only: {
+    hu: 'Azt, hogy a hivatalos forrást megnézted, csak te jelezheted, a saját kattintásoddal.',
+    en: 'Only you can confirm, with your own click, that you looked at the official source.',
+  },
+  court_owner_only_rules: {
+    hu: 'Szabályfrissítést elfogadni vagy elvetni, és a figyelmeztetés idejét átállítani csak te tudsz, a saját kattintásoddal.',
+    en: 'Only you can accept or reject a rule update, or change the reminder time, with your own click.',
+  },
+  court_file_broken: {
+    hu: 'A célbíróság-profilok fájlja hibás, ezért nem írok bele (a kézi javításaid elvesznének). Javítsd ki a fájlt, vagy nevezd át, és a beépített profilok maradnak.',
+    en: 'The court profile file is broken, so I do not write to it (your manual fixes would be lost). Fix the file, or rename it and the built-in profiles stay.',
+  },
+  court_settings_bad: {
+    hu: 'A figyelmeztetés ideje 30 és 3650 nap között lehet.',
+    en: 'The reminder time can be between 30 and 3650 days.',
+  },
+  court_proposal_not_found: {
+    hu: 'Ez a szabályfrissítési javaslat már nincs meg.',
+    en: 'This rule update proposal no longer exists.',
+  },
+  court_proposal_not_open: {
+    hu: 'Erről a javaslatról már döntöttél, vagy újabb javaslat váltotta fel.',
+    en: 'This proposal was already decided, or a newer proposal replaced it.',
+  },
+  court_no_profile: {
+    hu: 'Ennél a munkadarabnál nincs kiválasztva célbíróság. Válassz egyet, és utána ellenőrzöm.',
+    en: 'No target court is chosen for this work item. Choose one and I will check.',
+  },
+  court_no_final: {
+    hu: 'Még nincs végleges változat. Az ellenőrzés a véglegesítéskor, a kész fájlokon fut.',
+    en: 'There is no final version yet. The check runs on the finished files when you finalize.',
+  },
+  court_file_missing: {
+    hu: 'A végleges változat egyik fájlja már nincs meg a mappában, ezért nem tudom újra ellenőrizni. Véglegesítsd újra.',
+    en: 'One file of the final version is no longer in the folder, so I cannot check it again. Finalize again.',
+  },
+  court_not_installed: {
+    hu: 'Ezen a gépen nincs telepítve a Poppler (pdfinfo, pdffonts, pdftotext, pdfdetach), ezért a fájlokat nem tudom gépi úton ellenőrizni.',
+    en: 'Poppler (pdfinfo, pdffonts, pdftotext, pdfdetach) is not installed on this machine, so the files cannot be checked by machine.',
+  },
+  court_annex_not_found: {
+    hu: 'Ez a melléklet már nincs a jegyzékben.',
+    en: 'This annex is no longer on the list.',
+  },
+  court_fix_not_pdf: {
+    hu: 'Kereshető változat csak PDF-mellékletből készülhet. Ezt a mellékletet szkenneld be újra szöveggel, vagy cseréld PDF-re.',
+    en: 'Only a PDF annex can get a searchable copy. Scan this annex again with text, or replace it with a PDF.',
+  },
   redact_not_pdf: {
     hu: 'Kitakart másolat csak PDF-ből készülhet.',
     en: 'Only a PDF can get a redacted copy.',
@@ -1143,6 +1196,18 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   annexes: ReturnType<typeof listAnnexes>
   settings: ReturnType<typeof docSettings> & { schemes: typeof ANNEX_SCHEMES; modes: typeof ANNEX_MODES }
 } & Partial<ReturnType<typeof finalizationState>>
+
+/**
+ * A celbirosag-allapot. `check_current`: az utolso ellenorzes a mostani vegleges
+ * valtozat fajljain futott; `rules_current`: es a profil ma ervenyes szabalyverzioja
+ * szerint (ha azota uj verziot fogadtal el, ujra kell ellenorizni).
+ */
+function courtOut(itemId: string): ReturnType<typeof itemCourtState> & { check_current: boolean; rules_current: boolean } {
+  const st = itemCourtState(itemId)
+  const f = listFinals(itemId)[0]
+  const check_current = !!st.check && !!f && st.check.version_id === f.version_id && st.check.result.profile_id === st.profile_id
+  return { ...st, check_current, rules_current: check_current && !!st.profile && st.check!.result.version === st.profile.version }
+}
 
 function outlineOut(itemId: string): OutlineOut | null {
   if (!hasDocModel(itemId)) return null
@@ -1891,8 +1956,86 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       outline: outlineOut(item.id),
       deadlines: itemDeadlines(item.id, assets),
       privacy: privacyState(item.project_id, item.id),
+      court: courtOut(item.id),
     })
     return true
+  }
+
+  // CELBIROSAG-PROFIL (#441, 7.4, K-1.36, K-1.37).
+  //   GET  .../court                     -- a valasztott profil, a valaszthatok, az utolso ellenorzes
+  //   PUT  .../court {profile_id|null}    -- profil valasztasa
+  //   POST .../court/check                -- ujraellenorzes a legutobbi vegleges fajlokon
+  //   POST .../court/checked {profile_id} -- a tulajdonos megnezte a hivatalos forrast (datum frissul)
+  //   POST .../court/fix {annex_id}       -- kereshető masolat a mellekletrol, a jegyzek arra mutat
+  //   PUT  .../court/settings {max_age_days}      -- ennyi nap utan kerdez ra a valtozasra (tulajdonos)
+  //   POST .../court/proposals/<id>/accept|reject -- az Agent szabalyfrissitesi javaslata (tulajdonos)
+  if (segs[1] === 'court') {
+    if (segs.length === 2 && method === 'GET') {
+      json(res, { court: courtOut(item.id) })
+      return true
+    }
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    if (segs.length === 2 && method === 'PUT') {
+      const r = setItemProfile(item.id, body['profile_id'])
+      if (!r.ok) return failDetail(res, 400, 'court_bad_input', lang, r.detail)
+      json(res, { ok: true, court: courtOut(item.id) })
+      return true
+    }
+    if (segs.length === 3 && segs[2] === 'check' && method === 'POST') {
+      if (!itemCourtState(item.id).available) return fail(res, 424, 'court_not_installed', lang)
+      const r = await recheckFinal(item)
+      if (!r.ok) return failDetail(res, r.code === 'court_file_missing' ? 404 : 409, r.code, lang, r.detail)
+      json(res, { ok: true, court: courtOut(item.id) })
+      return true
+    }
+    if (segs.length === 3 && segs[2] === 'checked' && method === 'POST') {
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'court_owner_only', lang)
+      const r = markProfileChecked(String(body['profile_id'] ?? ''))
+      if (!r.ok) return r.code === 'file_broken' ? failDetail(res, 409, 'court_file_broken', lang, r.detail) : fail(res, 404, 'court_bad_input', lang)
+      json(res, { ok: true, court: courtOut(item.id) })
+      return true
+    }
+    if (segs.length === 3 && segs[2] === 'settings' && method === 'PUT') {
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'court_owner_only_rules', lang)
+      const r = setMaxAgeDays(body['max_age_days'])
+      if (!r.ok) return r.code === 'file_broken' ? failDetail(res, 409, 'court_file_broken', lang, r.detail) : failDetail(res, 400, 'court_settings_bad', lang, r.detail)
+      json(res, { ok: true, court: courtOut(item.id) })
+      return true
+    }
+    if (segs.length === 5 && segs[2] === 'proposals' && (segs[4] === 'accept' || segs[4] === 'reject') && method === 'POST') {
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'court_owner_only_rules', lang)
+      const r = segs[4] === 'accept' ? acceptProposal(segs[3]) : rejectProposal(segs[3])
+      if (!r.ok) {
+        if (r.code === 'file_broken') return failDetail(res, 409, 'court_file_broken', lang, r.detail)
+        return fail(res, r.code === 'not_found' ? 404 : 409, r.code === 'not_found' ? 'court_proposal_not_found' : 'court_proposal_not_open', lang)
+      }
+      json(res, { ok: true, court: courtOut(item.id) })
+      return true
+    }
+    if (segs.length === 3 && segs[2] === 'fix' && method === 'POST') {
+      const a = listAnnexes(item.id).find((x) => x.id === String(body['annex_id'] ?? ''))
+      if (!a) return fail(res, 404, 'court_annex_not_found', lang)
+      if (!/\.pdf$/i.test(a.path)) return fail(res, 400, 'court_fix_not_pdf', lang)
+      if (!searchableCopyAvailable()) return fail(res, 424, 'searchable_not_installed', lang)
+      const resolve = (p: string) => resolveProjectFile(owner, p)
+      const src = resolve(a.path)
+      if (!src) return fail(res, 404, 'asset_not_found', lang)
+      const dirAbs = dirnamePath(src.abs)
+      const dest = freeFileName(dirAbs, searchableName(src.name, lang))
+      const r = await makeSearchableCopy(src.abs, joinPath(dirAbs, dest))
+      if (!r.ok) return failDetail(res, 500, 'searchable_failed', lang, r.detail)
+      const relDir = a.path.split('/').slice(0, -1).join('/')
+      const newPath = relDir ? `${relDir}/${r.name}` : r.name
+      const set = setAnnexPath(item.id, a.id, newPath, resolve)
+      if (!set.ok) return failDetail(res, 500, 'searchable_failed', lang, set.detail)
+      json(res, { ok: true, annex_id: a.id, path: newPath, court: courtOut(item.id), outline: outlineOut(item.id), assets: assetsOut(item.id) }, 201)
+      return true
+    }
+    return fail(res, 404, 'court_bad_input', lang)
   }
 
   // ADATVEDELEM (#441, 7.3, K-1.32 ... K-1.34): "Erzekeny" jeloles es a kimeno adatok naploja.
@@ -2043,7 +2186,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         json(res, { error: r.code, message: msg(r.code, lang), detail: r.detail, outline: outlineOut(item.id) }, status)
         return true
       }
-      json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id) })
+      json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id) })
       return true
     }
     const body = method === 'DELETE' ? {} : await readJson(req)

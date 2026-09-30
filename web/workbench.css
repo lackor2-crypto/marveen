@@ -1115,6 +1115,15 @@
 .wb-mini-btn.wb-folder-btn { padding-left: 6px; padding-right: 6px; }
 .wb-ov-work-btn:hover .wb-work-seq { color: inherit; border-color: currentColor; background: transparent; }
 
+/* Celbirosag-profil: szabalyverzio, gepi ellenorzes, szabalyfrissitesi javaslat (#441, 7.4) */
+.wb-court { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 8px; }
+.wb-court h4 { margin: 0 0 4px; }
+.wb-court-list { margin: 4px 0; padding-left: 18px; }
+.wb-court-err { color: var(--danger, #b91c1c); }
+.wb-court-warn { color: var(--warning, #92400e); }
+.wb-court-prop { margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--accent, #2563eb); background: var(--surface-2, rgba(37, 99, 235, 0.05)); }
+.wb-court-prop a { word-break: break-all; }
+
 /* Hataridok es idopontok az iratokbol (#441, K-1.17) */
 .wb-dl-box { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 8px; }
 .wb-dl-box > summary { cursor: pointer; font-weight: 600; }

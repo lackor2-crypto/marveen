@@ -5435,7 +5435,125 @@
         + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
         + '</div>'
     }
-    return '<div class="wb-outline-pdf">' + tools + finalLine + fin + '</div>'
+    return '<div class="wb-outline-pdf">' + tools + finalLine + courtBoxHtml(ro) + fin + '</div>'
+  }
+
+  /** CELBIROSAG-PROFIL (#441, 7.4, K-1.36, K-1.37): valasztas, a szabalyverzio a
+   *  forrassal, es a kesz fajlok gepi ellenorzesenek eredmenye emberi mondatokkal. */
+  function courtIssueText(i) {
+    var d = i.detail || {}
+    var who = i.label ? t('workbench.court.annex_file', { label: i.label }) : (i.file ? '„' + i.file + '”' : '')
+    var p = { who: who, pages: (d.pages || []).join(', '), n: d.n, fonts: (d.fonts || []).join(', '), mb: d.mb, max: d.max, length: d.length, form: d.form, error: d.error }
+    return t('workbench.court.issue.' + i.key, p)
+  }
+
+  function courtBoxHtml(ro) {
+    var c = WB.detail && WB.detail.court
+    if (!c) return ''
+    var lang = window._lang === 'en' ? 'en' : 'hu'
+    var nm = function (x) { return (x && x.name && (x.name[lang] || x.name.hu)) || '' }
+    var p = c.profile
+    var sel = ro ? (p ? '<p>' + esc(nm(p)) + '</p>' : '')
+      : '<p><label>' + esc(t('workbench.court.choose')) + ' <select id="wbCourtProfile"><option value="">' + esc(t('workbench.court.none')) + '</option>'
+        + (c.profiles || []).map(function (x) { return '<option value="' + escA(x.id) + '"' + (p && p.id === x.id ? ' selected' : '') + '>' + esc(nm(x)) + '</option>' }).join('')
+        + '</select></label></p>'
+    var srcLinks = function (list) {
+      return (list || []).map(function (s) { return '<a href="' + escA(s.url) + '" target="_blank" rel="noopener noreferrer">' + esc(s.title || s.url) + '</a>' }).join(' · ')
+    }
+    // A profilfajl hibaja nem nema: a beepitett profilok mennek, es megmondjuk, miert.
+    var fileWarn = (c.file_error ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.court.file_error', { file: c.file || '', error: c.file_error })) + '</p>' : '')
+      + (c.skipped || []).map(function (s) { return '<p class="wb-doc-low">⚠ ' + esc(t('workbench.court.skipped', { id: s.id, problem: s.problem })) + '</p>' }).join('')
+    var info = ''
+    if (p) {
+      info = '<p class="wb-hint">' + esc(t(p.valid_from_unknown ? 'workbench.court.version_unknown' : 'workbench.court.version', { version: p.version, from: p.valid_from, checked: p.last_checked })) + ' '
+        + srcLinks(p.sources) + '</p>'
+        + (p.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.court.stale', { name: nm(p), date: p.last_checked }))
+          + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="court-checked" data-wb-id="' + escA(p.id) + '">' + esc(t('workbench.court.mark_checked')) + '</button>') + '</p>' : '')
+        + (!ro && (p.sources || []).length ? '<p><button type="button" class="wb-linklike" data-wb-act="court-ask-check" data-wb-id="' + escA(p.id) + '">' + esc(t('workbench.court.ask_check')) + '</button></p>' : '')
+        + (p.filename_rule ? '<p class="wb-hint">' + esc(t('workbench.court.filename', { rule: p.filename_rule[lang] || p.filename_rule.hu })) + '</p>' : '')
+        + (p.notes || []).map(function (n) { return '<p class="wb-hint">ℹ ' + esc(n[lang] || n.hu) + '</p>' }).join('')
+    }
+    var props = (c.proposals || []).map(function (x) { return courtProposalHtml(x, ro, nm) }).join('')
+    var res = ''
+    var ck = c.check && c.check.result
+    if (p && ck && c.check_current) {
+      var list = ck.issues || []
+      res = (c.rules_current ? '' : '<p class="wb-doc-low">⚠ ' + esc(t('workbench.court.rules_changed', { version: p.version, old: ck.version })) + '</p>')
+        + '<p class="' + (ck.errors ? 'wb-doc-low' : 'wb-ok') + '">'
+        + esc(t(ck.errors ? 'workbench.court.result_errors' : ck.warnings ? 'workbench.court.result_warnings' : 'workbench.court.result_clean', { version: ck.version, files: (ck.files || []).length, e: ck.errors, w: ck.warnings })) + '</p>'
+        + (list.length ? '<ul class="wb-court-list">' + list.map(function (i) {
+          return '<li class="wb-court-' + (i.level === 'error' ? 'err' : 'warn') + '">' + (i.level === 'error' ? '✗ ' : '⚠ ') + esc(courtIssueText(i))
+            + (i.fix === 'searchable' && !ro ? ' <button type="button" class="wb-linklike" data-wb-act="court-fix" data-wb-id="' + escA(i.annex_id || '') + '"' + (WB.courtBusy ? ' disabled' : '') + '>' + esc(t('workbench.court.fix_searchable')) + '</button>' : '')
+            + '</li>'
+        }).join('') + '</ul>' : '')
+        + '<p class="wb-hint">' + esc(t('workbench.court.disclaimer')) + '</p>'
+    } else if (p) {
+      res = '<p class="wb-muted">' + esc(t((WB.detail.outline && WB.detail.outline.final) ? 'workbench.court.not_checked_final' : 'workbench.court.not_checked')) + '</p>'
+    }
+    if (p && !c.available) res += '<p class="wb-doc-low">' + esc(t('workbench.court.not_installed')) + '</p>'
+    var btn = p && !ro && c.available && WB.detail.outline && WB.detail.outline.final
+      ? '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="court-check"' + (WB.courtBusy ? ' disabled' : '') + '>' + esc(t(WB.courtBusy ? 'workbench.court.checking' : 'workbench.court.recheck')) + '</button></p>' : ''
+    return '<div class="wb-court"><h4>' + esc(t('workbench.court.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.court.hint')) + '</p>'
+      + fileWarn + sel + info + props + res + btn + courtSettingsHtml(c, ro) + '</div>'
+  }
+
+  /** A szabalyfrissites javaslata: mi valtozna a mostani szabalyhoz kepest, es a tulajdonos dont. */
+  function courtProposalHtml(x, ro, nm) {
+    var lang = window._lang === 'en' ? 'en' : 'hu'
+    var v = x.version || {}
+    var head = t('workbench.court.proposal.' + x.kind, { name: nm(x), version: v.version || '' })
+    var val = function (k, y) {
+      if (y == null) return t(k === 'valid_from' ? 'workbench.court.val.unknown_date' : 'workbench.court.val.none')
+      if (k === 'searchable' || k === 'fonts_embedded' || k === 'encryption' || k === 'javascript' || k === 'launch' || k === 'embedded_files' || k === 'media' || k === 'form_fields') return t('workbench.court.val.' + y)
+      if (k === 'encryption_scope') return t('workbench.court.val.' + y)
+      if (k === 'max_file_mb' || k === 'max_total_mb') return t('workbench.court.val.mb', { n: y })
+      if (k === 'filename') return (y.rule && (y.rule[lang] || y.rule.hu)) || ''
+      if (k === 'sources') return y.length ? y.map(function (s) { return s.title || s.url }).join(' · ') : t('workbench.court.val.none')
+      if (k === 'notes') return y.length ? y.map(function (n) { return n[lang] || n.hu }).join(' / ') : t('workbench.court.val.none')
+      return String(y)
+    }
+    var diff = (x.diff || []).map(function (d) {
+      return '<li><b>' + esc(t('workbench.court.req.' + d.key)) + ':</b> ' + esc(val(d.key, d.from)) + ' → ' + esc(val(d.key, d.to)) + '</li>'
+    }).join('')
+    return '<div class="wb-court-prop"><p><b>' + esc(head) + '</b></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.court.proposal.reason')) + ' ' + esc(x.reason || '') + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.court.proposal.sources')) + ' '
+      + (x.checked_sources || []).map(function (u) { return '<a href="' + escA(u) + '" target="_blank" rel="noopener noreferrer">' + esc(u) + '</a>' }).join(' · ') + '</p>'
+      + (diff ? '<p class="wb-hint">' + esc(t('workbench.court.proposal.changes')) + '</p><ul class="wb-court-list">' + diff + '</ul>' : '')
+      + '<p class="wb-hint">' + esc(t('workbench.court.proposal.verify')) + '</p>'
+      + (ro ? '' : '<p class="wb-outline-tools"><button type="button" class="wb-btn" data-wb-act="court-prop-accept" data-wb-id="' + escA(x.id) + '"' + (WB.courtBusy ? ' disabled' : '') + '>' + esc(t('workbench.court.proposal.accept')) + '</button> '
+        + '<button type="button" class="wb-linklike" data-wb-act="court-prop-reject" data-wb-id="' + escA(x.id) + '"' + (WB.courtBusy ? ' disabled' : '') + '>' + esc(t('workbench.court.proposal.reject')) + '</button></p>')
+      + '</div>'
+  }
+
+  /** Mennyi ido utan kerdezzen ra a Marvin a valtozasra (honapban; a nem kerek erteket napban mutatjuk). */
+  var COURT_AGE_MONTHS = [[3, 91], [6, 183], [12, 365], [24, 730]]
+  function courtSettingsHtml(c, ro) {
+    var cur = c.max_age_days
+    var known = COURT_AGE_MONTHS.some(function (m) { return m[1] === cur })
+    var opts = COURT_AGE_MONTHS.map(function (m) {
+      return '<option value="' + m[1] + '"' + (m[1] === cur ? ' selected' : '') + '>' + esc(t('workbench.court.months', { n: m[0] })) + '</option>'
+    }).join('') + (known || !cur ? '' : '<option value="' + escA(String(cur)) + '" selected>' + esc(t('workbench.court.days', { n: cur })) + '</option>')
+    return '<p class="wb-hint">' + esc(t('workbench.court.new_hint')) + '</p>'
+      + '<p class="wb-hint"><label>' + esc(t('workbench.court.stale_after')) + ' <select id="wbCourtMaxAge"' + (ro || c.file_error ? ' disabled' : '') + '>' + opts + '</select></label></p>'
+  }
+
+  function courtCall(method, sub, body, done) {
+    var id = WB.selectedId
+    if (!id || archived() || WB.courtBusy) return
+    WB.courtBusy = true
+    render()
+    api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/court' + sub, body).then(function (r) {
+      WB.courtBusy = false
+      if (WB.selectedId === id && WB.detail && r.data) {
+        if (r.data.court) WB.detail.court = r.data.court
+        if (r.data.outline) WB.detail.outline = r.data.outline
+        if (r.data.assets) WB.detail.assets = r.data.assets
+      }
+      if (!r.ok) window.showToast(r.message)
+      else if (done) done(r.data)
+      render()
+    })
   }
 
   /** A vazlat ujratoltese a szerverrol (pl. az atnezes rogzitese utan). */
@@ -5458,6 +5576,7 @@
       if (WB.selectedId === id && WB.detail) {
         if (r.data && r.data.outline) WB.detail.outline = r.data.outline
         if (r.ok && r.data.assets) WB.detail.assets = r.data.assets
+        if (r.ok && r.data.court) WB.detail.court = r.data.court
       }
       if (r.ok) { WB.docAccept = null; window.showToast(t('workbench.outline.finalized', { label: r.data.final.label })) }
       else window.showToast(r.message)
@@ -5596,6 +5715,22 @@
       render()
     } else if (a === 'outline-finalize') {
       finalizeDocument()
+    } else if (a === 'court-check') {
+      courtCall('POST', '/check', {})
+    } else if (a === 'court-checked') {
+      courtCall('POST', '/checked', { profile_id: act.getAttribute('data-wb-id') })
+    } else if (a === 'court-ask-check') {
+      var cp = WB.detail && WB.detail.court && WB.detail.court.profile
+      if (cp) {
+        var cl = window._lang === 'en' ? 'en' : 'hu'
+        askAgent(t('workbench.court.ask_check_text', { name: (cp.name && (cp.name[cl] || cp.name.hu)) || cp.id, id: cp.id, version: cp.version, checked: cp.last_checked, urls: (cp.sources || []).map(function (s) { return s.url }).join(' , ') }))
+      }
+    } else if (a === 'court-prop-accept') {
+      courtCall('POST', '/proposals/' + encodeURIComponent(act.getAttribute('data-wb-id') || '') + '/accept', {}, function () { window.showToast(t('workbench.court.proposal.accepted')) })
+    } else if (a === 'court-prop-reject') {
+      courtCall('POST', '/proposals/' + encodeURIComponent(act.getAttribute('data-wb-id') || '') + '/reject', {}, function () { window.showToast(t('workbench.court.proposal.rejected')) })
+    } else if (a === 'court-fix') {
+      courtCall('POST', '/fix', { annex_id: act.getAttribute('data-wb-id') }, function () { window.showToast(t('workbench.court.fixed')) })
     } else if (a === 'outline-claim-confirm') {
       // K-1.9: allitasonkenti, kifejezett megerosites -- a teljes szoveg a kerdesben.
       if (window.confirm(t('workbench.outline.confirm_prompt'))) outlineCall('POST', '/claims/' + encodeURIComponent(act.getAttribute('data-wb-claim')) + '/confirm', {})
@@ -8655,7 +8790,8 @@
     else if (a === 'folder-system') openFolder(act.getAttribute('data-wb-place'), act.getAttribute('data-wb-asset'), 'system')
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
-    else if (a && a.indexOf('outline-') === 0) outlineAction(a, act)
+    // A celbirosag-doboz a vazlat PDF-reszeben el, ugyanaz a kezelo (#441, 7.4).
+    else if (a && (a.indexOf('outline-') === 0 || a.indexOf('court-') === 0)) outlineAction(a, act)
     else if (a === 'dl-todo') dlTodo(act.getAttribute('data-wb-key'))
     else if (a === 'dl-propose') dlPropose(act.getAttribute('data-wb-key'))
     else if (a === 'dl-dismiss') dlCall('POST', encodeURIComponent(act.getAttribute('data-wb-key')) + '/dismiss', {})
@@ -9000,6 +9136,9 @@
     // MELLEKLETEK szamozasa (#441, K-1.18): a szerver a szovegbeli hivatkozasokat is atirja.
     if (e.target.id === 'wbAnnexScheme') { outlineCall('PATCH', '/settings', { annex_scheme: e.target.value }); return }
     if (e.target.id === 'wbAnnexMode') { outlineCall('PATCH', '/settings', { annex_mode: e.target.value }); return }
+    // CELBIROSAG-PROFIL (#441, K-1.36)
+    if (e.target.id === 'wbCourtProfile') { courtCall('PUT', '', { profile_id: e.target.value || null }); return }
+    if (e.target.id === 'wbCourtMaxAge') { courtCall('PUT', '/settings', { max_age_days: Number(e.target.value) }, function () { window.showToast(t('workbench.court.settings_saved')) }); return }
     if (e.target.id === 'wbAnnexPrefix') {
       var px = String(e.target.value || '').trim().toUpperCase()
       if (/^[A-Z]{1,2}$/.test(px)) outlineCall('PATCH', '/settings', { annex_prefix: px })
