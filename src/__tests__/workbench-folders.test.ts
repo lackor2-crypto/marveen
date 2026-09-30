@@ -115,6 +115,25 @@ describe('endpoints', () => {
     expect(typeof (bad.body as { message: string }).message).toBe('string')
   })
 
+  it('POST /items makes the item its own folder at once, with no file needed', async () => {
+    const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
+    expect(r.status).toBe(201)
+    const folder = (r.body as { item: { folder: string | null } }).item.folder
+    expect(folder).toBeTruthy()
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...String(folder).split('/')))).toBe(true)
+  })
+
+  it('POST /items with a typed new folder name makes that folder and files the item into it', async () => {
+    const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note', new_folder: 'LK Trendvonal' })
+    expect(r.status).toBe(201)
+    const item = (r.body as { item: { folder: string; container_folder: string } }).item
+    expect(item.folder.endsWith('/LK Trendvonal')).toBe(true)
+    expect(item.container_folder).toBe(item.folder)
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...item.folder.split('/')))).toBe(true)
+    const bad = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'X', type: 'note', new_folder: '.rejtett' })
+    expect(bad.status).toBe(400)
+  })
+
   it('new table goes into the chosen folder with its own folder and .xlsx', async () => {
     const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK' })
     const folder = (f.body as { folder: string }).folder

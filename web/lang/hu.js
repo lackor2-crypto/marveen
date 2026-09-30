@@ -5629,7 +5629,7 @@ window._i18n.hu = {
   "workbench.folder.pick_hint": "Itt látod a projekt összes mappáját. Válaszd ki, melyikbe tegyük az új munkadarabot; ha nem választasz, a Munkadarabok mappába kerül.",
   "workbench.folder.new_placeholder": "Új mappa neve",
   "workbench.folder.new_btn": "Új mappa",
-  "workbench.folder.new_hint": "Az új mappa a fent kijelölt mappán belül jön létre (ha semmit nem jelöltél ki, a Munkadarabok mappában). Mappán belül újabb mappát is nyithatsz.",
+  "workbench.folder.new_hint": "Az új mappa a fent kijelölt mappán belül jön létre (ha semmit nem jelöltél ki, a Munkadarabok mappában). Mappán belül újabb mappát is nyithatsz. Ha beírsz egy nevet, a Létrehozásra a mappa is elkészül, és a munkadarab bekerül.",
   "workbench.folder.name_required": "Írd be az új mappa nevét.",
   "workbench.folder.expand": "Mappa megnyitása",
   "workbench.folder.collapse": "Mappa összecsukása",

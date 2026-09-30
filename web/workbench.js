@@ -3096,6 +3096,8 @@
     var folderEl = document.getElementById('wbNewFolder')
     var payload = { project_id: WB.projectId, title: title }
     if (folderEl && folderEl.value) payload.folder = folderEl.value
+    var newFolderEl = document.getElementById('wbNewFolderName')
+    if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
     WB.busy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
@@ -8824,6 +8826,8 @@
     var folderEl = document.getElementById('wbNewFolder')
     var payload = { project_id: WB.projectId, title: title, type: type }
     if (folderEl && folderEl.value) payload.folder = folderEl.value
+    var newFolderEl = document.getElementById('wbNewFolderName')
+    if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
     WB.busy = true
     render()
     api('POST', '/api/workbench/items', payload).then(function (r) {

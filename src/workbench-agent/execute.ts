@@ -22,7 +22,7 @@ import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
 import { convertOfficeToPdf, isOfficeConvertible } from '../office-convert.js'
-import { listWorkItemAssetsSynced, renameWorkItemFolder, listSharedFiles, linkSharedAsset } from '../workbench-assets.js'
+import { ensureWorkItemFolder, listWorkItemAssetsSynced, renameWorkItemFolder, listSharedFiles, linkSharedAsset } from '../workbench-assets.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
@@ -581,7 +581,8 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         created_by: 'workbench-agent',
       })
       if (!r.ok) return { ok: false, code: r.code, detail: `the work item was not created: ${r.code}` }
-      return { ok: true, data: { item: r.item, version: r.version } }
+      try { ensureWorkItemFolder(r.item) } catch { /* the folder is made with the first file instead */ }
+      return { ok: true, data: { item: getWorkItem(r.item.id) ?? r.item, version: r.version } }
     }
 
     case 'workItem.fromTemplate': {
