@@ -5551,7 +5551,7 @@ window._i18n.en = {
   "workbench.folder.pick_hint": "This lists every folder of the project. Choose where the new work item goes; if you choose nothing it goes into the Work items folder.",
   "workbench.folder.new_placeholder": "New folder name",
   "workbench.folder.new_btn": "New folder",
-  "workbench.folder.new_hint": "The new folder is made inside the folder chosen above (in the Work items folder if you chose nothing). You can make a folder inside a folder too.",
+  "workbench.folder.new_hint": "The new folder is made inside the folder chosen above (in the Work items folder if you chose nothing). You can make a folder inside a folder too. If you type a name, Create makes the folder as well and puts the work item in it.",
   "workbench.folder.name_required": "Type the name of the new folder.",
   "workbench.folder.expand": "Open folder",
   "workbench.folder.collapse": "Collapse folder",

@@ -1911,6 +1911,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       containerFolder = c.folder
     }
+    // A typed "new folder" name is made for real right now (it used to need the
+    // extra button), inside the picked folder, and the item goes into it.
+    let ownFolder: string | null = null
+    const newFolderName = String(body.new_folder ?? '').trim()
+    if (newFolderName) {
+      const mf = makeWorkFolder(project, containerFolder ?? '', newFolderName)
+      if (!mf.ok) {
+        const code = mf.code === 'no_box' ? 'folder_gone' : mf.code === 'folder_name' ? 'bad_folder_name' : mf.code
+        return failDetail(res, mf.code === 'write_failed' ? 500 : 400, code, lang, 'message' in mf ? (mf.message || null) : null)
+      }
+      ownFolder = mf.folder
+      containerFolder = mf.folder
+    }
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
@@ -1922,7 +1935,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
-    json(res, { ok: true, item: r.item, versions: [r.version] }, 201)
+    // The item gets its folder at creation, not only with its first file.
+    if (ownFolder) assignWorkItemFolder(r.item.id, ownFolder)
+    else { try { ensureWorkItemFolder(r.item) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] item folder at creation failed') } }
+    json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version] }, 201)
     return true
   }
 
@@ -1944,9 +1960,18 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let folder: string | null = null
     let folderCreated = false
     let containerFolder: string | null = null
-    if (String(body['folder'] ?? '').trim()) {
-      const c = workFolderTarget(project, body['folder'])
+    const newFolderName = String(body['new_folder'] ?? '').trim()
+    if (String(body['folder'] ?? '').trim() || newFolderName) {
+      let c = workFolderTarget(project, body['folder'])
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
+      if (newFolderName) {
+        const mf = makeWorkFolder(project, c.folder, newFolderName)
+        if (!mf.ok) {
+          const code = mf.code === 'no_box' ? 'folder_gone' : mf.code === 'folder_name' ? 'bad_folder_name' : mf.code
+          return failDetail(res, mf.code === 'write_failed' ? 500 : 400, code, lang, 'message' in mf ? (mf.message || null) : null)
+        }
+        c = { ok: true, folder: mf.folder }
+      }
       containerFolder = c.folder
       const f = makeFreshFolder(project, title, c.folder)
       if (!f.ok) {
