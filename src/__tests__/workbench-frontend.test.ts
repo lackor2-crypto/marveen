@@ -2001,6 +2001,84 @@ describe('rajzvaszon a feluletrol (9. fazis)', () => {
     expect(h.rootEl.innerHTML).not.toContain('data-wb-act="canvas-undo"')
   })
 
+  // ---- K-2.5 / K-2.6: uj muveletek es elemek a feluletrol ---------------------
+  const opsSent = () => h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0).map((c) => JSON.parse(String(c.init!.body)).ops)
+  const OPS_OK = { status: 200, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], created: false, message: 'Mentve' } }
+
+  it('kijeloles nelkul a sav megmondja, hogyan kell kijelolni; kijelolve igazit, eloszt, csoportosit', async () => {
+    await openCanvas()
+    expect(h.rootEl.innerHTML).toContain('workbench.canvas.pick_hint')
+    h.respond((url) => (url.indexOf('/canvas/ops') > 0 ? OPS_OK : { status: 200, body: CANVAS_OK }))
+    h.click({ 'data-wb-act': 'canvas-pick', 'data-wb-obj': 'headline' })
+    // Egy elem: a vaszonhoz igazit, es ezt ki is mondja; elosztas, csoport tiltva.
+    expect(h.rootEl.innerHTML).toContain('workbench.canvas.picked_one')
+    expect(h.rootEl.innerHTML).toMatch(/data-wb-act="canvas-group" data-wb-arg="" disabled/)
+    h.click({ 'data-wb-act': 'canvas-pick', 'data-wb-obj': 'keret' })
+    expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-group" data-wb-arg="" disabled/)
+    h.click({ 'data-wb-act': 'canvas-align', 'data-wb-arg': 'left' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(1))
+    expect(opsSent()[0]).toEqual([{ op: 'align', ids: ['headline', 'keret'], to: 'left' }])
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-group" data-wb-arg="" disabled/))
+    h.click({ 'data-wb-act': 'canvas-group', 'data-wb-arg': '' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(2))
+    expect(opsSent()[1]).toEqual([{ op: 'group', ids: ['headline', 'keret'] }])
+  })
+
+  it('kor, vonal es Gomb hozzaadasa; a Gomb egy csoport (doboz + felirat)', async () => {
+    await openCanvas()
+    h.respond((url) => (url.indexOf('/canvas/ops') > 0 ? OPS_OK : { status: 200, body: CANVAS_OK }))
+    h.click({ 'data-wb-act': 'canvas-add-button' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(1))
+    const btn = opsSent()[0]
+    expect(btn.map((o: { object: { type: string } }) => o.object.type)).toEqual(['rect', 'text'])
+    expect(btn[0].object.group).toBeTruthy()
+    expect(btn[1].object.group).toBe(btn[0].object.group)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-add-ellipse" disabled/))
+    h.click({ 'data-wb-act': 'canvas-add-ellipse' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(2))
+    expect(opsSent()[1][0].object.type).toBe('ellipse')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-add-line" disabled/))
+    h.click({ 'data-wb-act': 'canvas-add-line' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(3))
+    expect(opsSent()[2][0].object.type).toBe('line')
+  })
+
+  it('Forgatas es Masolat gomb; a szerkeszto urlap a forgatast es az atlatszosagot is kuldi', async () => {
+    await openCanvas()
+    h.respond((url) => (url.indexOf('/canvas/ops') > 0 ? OPS_OK : { status: 200, body: CANVAS_OK }))
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'rotate', 'data-wb-obj': 'keret' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(1))
+    expect(opsSent()[0]).toEqual([{ op: 'rotate', id: 'keret', by: 15 }])
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-op="duplicate"[^>]*disabled/))
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'duplicate', 'data-wb-obj': 'keret' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(2))
+    expect(opsSent()[1]).toEqual([{ op: 'duplicate', id: 'keret' }])
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-op="duplicate"[^>]*disabled/))
+    h.click({ 'data-wb-act': 'canvas-edit', 'data-wb-obj': 'headline' })
+    expect(h.rootEl.innerHTML).toContain('id="wbCanRot"')
+    expect(h.rootEl.innerHTML).toContain('id="wbCanFont"')
+    h.inputs['wbCanRot'] = { value: '30', focus() {} }
+    h.inputs['wbCanOpacity'] = { value: '50', focus() {} }
+    h.click({ 'data-wb-act': 'canvas-save', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(3))
+    const patch = opsSent()[2][0].patch
+    expect(patch.rotation).toBe(30)
+    expect(patch.opacity).toBe(0.5)
+  })
+
+  it('Ctrl+C / Ctrl+V a kijelolt elemet masolja; kijeloles nelkul a bongeszo sajat masolasa marad', async () => {
+    await openCanvas(CANVAS_DRAFT)
+    h.respond((url) => (url.indexOf('/canvas/ops') > 0 ? OPS_OK : { status: 200, body: CANVAS_DRAFT }))
+    h.key({ key: 'v', ctrlKey: true })
+    h.key({ key: 'd', ctrlKey: true })
+    expect(opsSent()).toHaveLength(0)
+    h.drag('keret', 0, 0)
+    h.key({ key: 'c', ctrlKey: true })
+    h.key({ key: 'v', ctrlKey: true })
+    await vi.waitFor(() => expect(opsSent()).toHaveLength(1))
+    expect(opsSent()[0]).toEqual([{ op: 'duplicate', id: 'keret' }])
+  })
+
   it('minden kepernyore kerulo sajat szoveg a t()-n megy at (HU/EN)', async () => {
     await openCanvas()
     const html = h.rootEl.innerHTML
