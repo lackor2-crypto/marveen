@@ -129,11 +129,15 @@ describe('destinations', () => {
 
   it('replicate() alone reports every destination', async () => {
     const { f, deps } = setup('rep')
-    const file = join(f.root, backupFileName(new Date(), 'x'))
+    // One name for the whole test: the name has a seconds field, so three
+    // separate `new Date()` calls drifted apart when replicate() crossed a
+    // second boundary under load, and the check looked for a file never made.
+    const name = backupFileName(new Date(), 'x')
+    const file = join(f.root, name)
     writeFileSync(file, 'data')
-    const reps = await replicate(file, backupFileName(new Date(), 'x'), readConfig(f.storeDir), deps)
+    const reps = await replicate(file, name, readConfig(f.storeDir), deps)
     expect(reps.map((x) => x.dest)).toEqual(['local', 'depot'])
-    expect(existsSync(join(deps.depotBackupDir()!, backupFileName(new Date(), 'x')))).toBe(true)
+    expect(existsSync(join(deps.depotBackupDir()!, name))).toBe(true)
   })
 })
 
