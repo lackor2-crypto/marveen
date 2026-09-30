@@ -60,6 +60,7 @@
     chatSetupOpen: false,
     chatSetupBusy: false,
     chatConfig: null,
+    chatModels: null,
     // --- reszek (vegyes munkadarab, 3. fazis) ---
     partEdit: null,
     partNewOpen: false,
@@ -7175,6 +7176,35 @@
     return '<span class="wb-chat-state">' + bits.join(' · ') + '</span>'
   }
 
+  /** A modell-lenyilo (#454, Boss TG 2125): NEM csak Claude -- minden, amit a
+   *  Marvin ezen a gepen tud (a lista a /api/models/available-bol jon, ugyanaz a
+   *  forras, mint az agens-beallitasoknal). Ami kulcs nelkul nem hasznalhato, azt
+   *  KI KELL MONDANI (letiltott sor + hova menjen a felhasznalo), nem eltuntetni. */
+  function chatModelSelectHtml(current) {
+    var m = WB.chatModels
+    var known = {}
+    function opts(list) {
+      return (list || []).map(function (x) {
+        known[x.id] = true
+        return '<option value="' + escA(x.id) + '"' + (x.id === current ? ' selected' : '') + '>' + esc(x.label) + '</option>'
+      }).join('')
+    }
+    var html = '<select class="wb-input" id="wbChatModel">'
+      + '<option value=""' + (current ? '' : ' selected') + '>' + esc(t('workbench.chat.setup_model_default')) + '</option>'
+    if (m) {
+      var claude = (m.claude || []).concat(m.claudeUj || [])
+      html += '<optgroup label="' + escA(t('workbench.chat.model_group_claude')) + '">' + opts(claude) + '</optgroup>'
+      if (m.glmConfigured) {
+        html += '<optgroup label="' + escA(t('workbench.chat.model_group_glm')) + '">' + opts(m.glm) + '</optgroup>'
+      } else {
+        html += '<optgroup label="' + escA(t('workbench.chat.model_group_glm')) + '"><option disabled>' + esc(t('workbench.chat.model_glm_nokey')) + '</option></optgroup>'
+      }
+    }
+    // A mar elmentett, de a listaban nem szereplo ertek sose tunjon el csendben.
+    if (current && !known[current]) html += '<option value="' + escA(current) + '" selected>' + esc(current) + '</option>'
+    return html + '</select>'
+  }
+
   /** A modell beallitasa UGYANEBBOL a feluletbol -- terminal nelkul. Sajat
    *  API-kulcs mezo nincs (#404): egyetlen ut a bejelentkezett elofizetes. */
   function chatSetupHtml() {
@@ -7182,8 +7212,7 @@
     return '<form class="wb-chat-setup" id="wbChatSetup">'
       + '<p class="wb-hint">' + esc(t('workbench.chat.setup_intro')) + '</p>'
       + '<label class="wb-label" for="wbChatModel">' + esc(t('workbench.chat.setup_model_label')) + '</label>'
-      + '<input class="wb-input" id="wbChatModel" type="text" autocomplete="off" value="' + escA(cfg.WORKBENCH_MODEL || '') + '" placeholder="'
-      + escA(t('workbench.chat.setup_model_placeholder')) + '">'
+      + chatModelSelectHtml(cfg.WORKBENCH_MODEL || '')
       + '<p class="wb-hint">' + esc(t('workbench.chat.setup_model_hint')) + '</p>'
       + '<div class="wb-fullmode-note">'
       + '<p class="wb-hint">' + esc(t('workbench.chat.fullmode_hint')) + '</p>'
@@ -7827,6 +7856,9 @@
     api('GET', '/api/workbench/agent/config').then(function (r) {
       if (r.ok) WB.chatConfig = r.data
       renderChat()
+    })
+    api('GET', '/api/models/available').then(function (r) {
+      if (r.ok && r.data) { WB.chatModels = r.data; renderChat() }
     })
   }
 
