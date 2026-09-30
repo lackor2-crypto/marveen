@@ -17,6 +17,7 @@
 // Boss szolt (2026-09-23).
 import { CLAUDE_MODEL_IDS } from './claude-models.js'
 import { GLM_MODELS } from './web/glm-models.js'
+import { isValidModelId } from './model-id.js'
 
 // The model a fresh install runs when DEFAULT_AGENT_MODEL is unset. Kept here
 // (a zero-import module) so the registry default and the boot-time constant in
@@ -59,6 +60,9 @@ export interface SettingDefinition {
   restartTarget?: RestartTarget
   /** Optional fixed set of allowed values (enum-style settings). */
   valueSet?: string[]
+  /** #455: besides `valueSet`, also accept any other syntactically valid, routable model id
+   *  (DeepSeek, OpenRouter `provider/model`, `openrouter-auto:<tier>`): those lists are dynamic. */
+  dynamicModelIds?: boolean
   /** Inclusive bounds, only meaningful for type 'int'. */
   min?: number
   max?: number
@@ -572,6 +576,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
     valueSet: ['', ...CLAUDE_MODEL_IDS, ...GLM_MODELS.map((m) => m.id)],
+    dynamicModelIds: true,
   },
   {
     key: 'WORKBENCH_FULL_AGENT',
@@ -842,13 +847,21 @@ export function effectiveValueSet(def: SettingDefinition): string[] | undefined 
   return ki
 }
 
+/** #455: DeepSeek / OpenRouter ids are not a fixed list (the OpenRouter catalog changes weekly), so
+ *  they pass on SHAPE: a valid model id with a known provider marker. Same discriminators as the
+ *  fleet launcher. Ollama tags (no '/') stay out: the Workbench has no route for them. */
+export function isRoutableDynamicModelId(id: string): boolean {
+  if (!isValidModelId(id)) return false
+  return id.startsWith('deepseek-') || id.startsWith('openrouter-auto:') || id.includes('/')
+}
+
 // Pure validation against a single registry entry. No I/O, no DB -- callers
 // (the /api/settings route, tests) decide what happens with the result.
 export function validateSettingValue(def: SettingDefinition, raw: unknown): SettingValidationResult {
   const megengedett = effectiveValueSet(def)
   if (megengedett && megengedett.length > 0) {
     const str = String(raw)
-    if (!megengedett.includes(str)) {
+    if (!megengedett.includes(str) && !(def.dynamicModelIds && isRoutableDynamicModelId(str))) {
       return { ok: false, error: `Érvénytelen érték. Megengedett: ${megengedett.join(', ')}` }
     }
     return { ok: true, value: str }
