@@ -212,8 +212,8 @@ async function run(errorText: string, deps: WindowsUpdateDeps): Promise<WindowsU
       }
       return outcome(
         'needs_approval', before, before,
-        `A Windowsos Claude Code (${before}) elavult. A frissítéshez a Jóváhagyások oldalon kell engedélyt adnod (Csomag telepítés); utána a következő üzenetnél magától frissül.`,
-        `The Windows Claude Code (${before}) is out of date. Updating it needs your approval on the Approvals page (Package install); after that it updates by itself on the next message.`,
+        `A Windowsos Claude Code (${before}) elavult. A frissítéshez a Jóváhagyások oldalon kell engedélyt adnod (Csomag telepítés); utána azonnal magától frissül.`,
+        `The Windows Claude Code (${before}) is out of date. Updating it needs your approval on the Approvals page (Package install); after that it updates by itself right away.`,
         now,
       )
     }
@@ -245,4 +245,25 @@ async function run(errorText: string, deps: WindowsUpdateDeps): Promise<WindowsU
   deps.saveState({ ...result, attemptedAt: now, usedApprovalId: usedApprovalId ?? state?.usedApprovalId })
   logger.info({ status, before, after }, 'Windows Claude Code update for the code bridge')
   return result
+}
+
+/**
+ * The owner just approved the update ticket this module opened: run it NOW.
+ * Without this the approval only took effect on the NEXT bridge message, so an
+ * approved update sat idle (Boss 2026-09-29: "erre mar adtam jovahagyast!").
+ * Returns null when the approval is not this module's ticket, so the approvals
+ * route can call it for every approved package_install without checking.
+ */
+export function windowsUpdateFromApproval(
+  approval: Pick<Approval, 'category' | 'status' | 'action_payload'>,
+  deps?: WindowsUpdateDeps,
+): Promise<WindowsUpdateOutcome> | null {
+  if (approval.category !== WINDOWS_UPDATE_CATEGORY || approval.status !== 'approved') return null
+  let payload: { kind?: string; before?: string; need?: string } = {}
+  try { payload = JSON.parse(approval.action_payload || '{}') } catch { return null }
+  if (payload.kind !== WINDOWS_UPDATE_KIND) return null
+  // Rebuild the bridge's own sentence so the version guard inside run() sees
+  // exactly what it would have seen on a failing task.
+  const errorText = `Claude Code ${payload.before || '0.0.0'} does not support this model; version ${payload.need || ''} or newer is required`
+  return updateWindowsClaudeForBridge(errorText, deps)
 }

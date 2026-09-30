@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  updateWindowsClaudeForBridge, parseOutdatedVersions, compareVersions, windowsUpdatePossible,
+  updateWindowsClaudeForBridge, windowsUpdateFromApproval, parseOutdatedVersions, compareVersions, windowsUpdatePossible,
   type WindowsUpdateDeps,
 } from '../windows-claude-updater.js'
 import { runCodeBridgeTurn, type CodeBridgeTaskView } from '../workbench-agent/code-bridge-turn.js'
@@ -144,5 +144,27 @@ describe('code bridge turn repairs an outdated bridge (#446)', () => {
       { enqueue: () => ({ ok: true, id: 't' }), getTask: () => ({ status: 'error', result: null, summary: null, error: ERR }), now: () => 0, sleep: async () => {}, repairOutdatedBridge: repair },
     )) events.push(ev)
     expect(events.find((e) => e.type === 'error')).toMatchObject({ code: 'code_bridge_outdated' })
+  })
+})
+
+describe('approved update ticket runs at once (#446)', () => {
+  const ticket = (over: Record<string, unknown> = {}) => ({
+    category: 'package_install', status: 'approved',
+    action_payload: JSON.stringify({ kind: 'windows_claude_update', before: '2.1.226', need: '2.1.280' }),
+    ...over,
+  }) as any
+
+  it('runs the update the moment the ticket is approved, without a new bridge message', async () => {
+    const d = deps({ level: () => 2, latestApproval: () => ({ id: 'a1', status: 'approved', requested_at: 1 } as any) })
+    const r = await windowsUpdateFromApproval(ticket(), d)
+    expect(r?.status).toBe('updated')
+    expect(d.ran).toContain('claude update')
+  })
+
+  it('ignores other tickets and rejections', () => {
+    expect(windowsUpdateFromApproval(ticket({ status: 'rejected' }))).toBeNull()
+    expect(windowsUpdateFromApproval(ticket({ category: 'email_send' }))).toBeNull()
+    expect(windowsUpdateFromApproval(ticket({ action_payload: '{"kind":"other"}' }))).toBeNull()
+    expect(windowsUpdateFromApproval(ticket({ action_payload: 'not json' }))).toBeNull()
   })
 })

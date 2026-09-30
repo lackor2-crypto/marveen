@@ -756,6 +756,15 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const approval = getApproval(idMatch[1])
     logger.info({ id: idMatch[1], status, resolved_by, reason: resolutionReason }, 'Approval resolved')
     if (approval) notifyRequester(approval)
+    // #446: an approved "update the Windows Claude Code" ticket runs right now,
+    // not on the next bridge message. Fire and forget; the outcome goes to the
+    // main agent, which relays it to the owner.
+    if (approval) {
+      import('../../windows-claude-updater.js')
+        .then(m => m.windowsUpdateFromApproval(approval))
+        .then(out => { if (out && out.status !== 'not_applicable') createAgentMessage('system', MAIN_AGENT_ID, `[WINDOWS_CLAUDE_UPDATE] ${out.status}: ${out.message}`) })
+        .catch(err => logger.warn({ err, approvalId: approval.id }, 'Approved Windows Claude update failed to start'))
+    }
     // A dontes megszuletett: a meg futo ellenorzeseknek nincs mit eldonteniuk.
     // Ez az "attol a pillanattol" fele -- a sopres kulonben csak a kovetkezo
     // fordulóban (max. 30 mp) venne eszre, es addig meg kimehetne egy nudge.
