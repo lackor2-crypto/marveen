@@ -488,7 +488,7 @@ public static extern short GetAsyncKeyState(int vKey);
   # Telegram: egy kepes uzenet szovege (caption) legfeljebb 1024 karakter; ami
   # hosszabb, azt a Telegram csendben levagja (Boss TG 2133). Naplozzuk.
   if ($txt.Length -ge 1000) {
-    Log "FIGYELEM: $($txt.Length) karakter -- kepes Telegram-uzenetnel 1024 felett a Telegram levagja a vegét; kulon uzenetben kuldd, kep nelkul"
+    Log "FIGYELEM: $($txt.Length) karakter -- kepes Telegram-uzenetnel 1024 felett a Telegram levagja a veget; kulon uzenetben kuldd, kep nelkul"
   }
   Set-Clipboard -Value $txt
   if ($env:HU_DIKTALAS_DRYRUN -eq '1') {
