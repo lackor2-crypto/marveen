@@ -1049,6 +1049,7 @@
     // Mas munkadarab = mas vaszon: a kijeloles nem szivaroghat at.
     WB.canvasSel = null
     WB.canvasPick = {}
+    WB.canvasPlatformPick = null
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -4142,6 +4143,7 @@
       draft: 'draft' in d ? d.draft : old.draft,
       history: 'history' in d ? d.history : old.history,
       orphans: 'orphans' in d ? d.orphans : old.orphans,
+      platforms: 'platforms' in d ? d.platforms : old.platforms,
     }
     bumpCanvasStamp()
     if (WB.detail && d.item) { WB.detail.item = d.item }
@@ -4223,6 +4225,90 @@
       window.showToast(r.data.message || '')
       render()
     })
+  }
+
+  /** A platformlista (K-2.8), ahogy a szerver adta: forrassal, ellenorzes napjaval. */
+  function canvasPlatforms() {
+    var pl = WB.canvas && WB.canvas.platforms
+    return (pl && pl.platforms) || []
+  }
+
+  /** A mostani meretre illo platform (a biztonsagi zonaval rendelkezo elore:
+   *  a Story es a TikTok merete ugyanaz). A merettel egyutt valtozik, ezert a
+   *  bongeszo szamolja a lista alapjan, nem egy regi valaszbol veszi. */
+  function canvasPlatformNow() {
+    var doc = WB.canvas && WB.canvas.canvas
+    if (!doc) return null
+    var hit = null
+    canvasPlatforms().forEach(function (p) {
+      if (p.width === doc.width && p.height === doc.height && (!hit || (!hit.safe && p.safe))) hit = p
+    })
+    return hit
+  }
+
+  function platformLabel(p) {
+    return (p.label && (window._lang === 'en' ? p.label.en : p.label.hu)) || p.id
+  }
+
+  /** Meret es platform (K-2.8, K-2.9): atmeretezes helyben (visszavonhato
+   *  lepes), vagy valtozat uj verziokent. Minden meret mellett a forras. */
+  function canvasPlatformHtml() {
+    var list = canvasPlatforms()
+    if (!list.length || archived() || (WB.canvas && WB.canvas.current === false)) return ''
+    var now = canvasPlatformNow()
+    var pick = WB.canvasPlatformPick || (now && now.id) || list[0].id
+    var sel = null
+    list.forEach(function (p) { if (p.id === pick) sel = p })
+    if (!sel) sel = list[0]
+    var busy = WB.canvasBusy ? ' disabled' : ''
+    var info = ''
+    if (sel.note) info += '<p class="wb-hint">' + esc(window._lang === 'en' ? sel.note.en : sel.note.hu) + '</p>'
+    info += '<p class="wb-hint">' + esc(t('workbench.canvas.platform_source', { date: sel.checked })) + ' '
+      + (sel.sources || []).map(function (src) {
+        return '<a href="' + escA(src.url) + '" target="_blank" rel="noopener">' + esc(src.title) + '</a>'
+      }).join(', ') + '</p>'
+    if (sel.stale) info += '<p class="wb-preview-bad">' + esc(t('workbench.canvas.platform_stale', { date: sel.checked })) + '</p>'
+    var fileErr = WB.canvas && WB.canvas.platforms && WB.canvas.platforms.file_error
+    return '<div class="wb-can-platform">'
+      + '<label class="wb-label" for="wbCanPlatform">' + esc(t('workbench.canvas.platform_label')) + '</label>'
+      + '<select class="wb-input" id="wbCanPlatform">' + list.map(function (p) {
+        return '<option value="' + escA(p.id) + '"' + (p.id === sel.id ? ' selected' : '') + '>'
+          + esc(platformLabel(p) + ' · ' + p.width + ' × ' + p.height) + '</option>'
+      }).join('') + '</select>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-resize" data-wb-arg="' + escA(sel.id) + '"' + busy + '>' + esc(t('workbench.canvas.platform_resize')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-variant" data-wb-arg="' + escA(sel.id) + '"' + busy + '>' + esc(t('workbench.canvas.platform_variant')) + '</button>'
+      + '<p class="wb-hint">' + esc(t('workbench.canvas.platform_hint')) + '</p>'
+      + info
+      + (fileErr ? '<p class="wb-preview-bad">' + esc(t('workbench.canvas.platform_file_error', { detail: fileErr })) + '</p>' : '')
+      + '</div>'
+  }
+
+  /** Valtozat mas platformra (K-2.9): uj verzio az uj meretben. */
+  function canvasVariant(id) {
+    if (!WB.selectedId || WB.canvasBusy || archived() || !id) return
+    WB.canvasBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas/variant', { platform: id }).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      canvasTake(r.data)
+      window.showToast(r.data.message || '')
+      loadPreview(WB.selectedId, null, true)
+      render()
+    })
+  }
+
+  /** A biztonsagi zona (K-2.10) a kep folott: a negy sav, amit a platform sajat
+   *  gombjai, felirata eltakar. Csak jelzes -- a kepbe nem kerul bele. */
+  function canvasSafeHtml() {
+    var p = canvasPlatformNow()
+    if (!p || !p.safe) return ''
+    var z = p.safe
+    var pc = function (v) { return (Math.round(v * 10000) / 100) + '%' }
+    return '<span class="wb-can-safe" style="left:0;right:0;top:0;height:' + pc(z.top) + '"></span>'
+      + '<span class="wb-can-safe" style="left:0;right:0;bottom:0;height:' + pc(z.bottom) + '"></span>'
+      + '<span class="wb-can-safe" style="left:0;top:' + pc(z.top) + ';bottom:' + pc(z.bottom) + ';width:' + pc(z.left) + '"></span>'
+      + '<span class="wb-can-safe" style="right:0;top:' + pc(z.top) + ';bottom:' + pc(z.bottom) + ';width:' + pc(z.right) + '"></span>'
   }
 
   /** A vaszon fejenek eszkozsora: visszavonas, ujra, mentes-allapot, verzio. */
@@ -4593,12 +4679,15 @@
     return '<div class="wb-can-stage" data-wb-stage="1">' + img
       + '<div class="wb-can-layer' + (WB.canvasGrid ? ' wb-can-layer-grid' : '') + '"'
       + (WB.canvasGrid ? ' style="background-size:' + (Math.round(10000 * CANVAS_GRID / doc.width) / 100) + '% ' + (Math.round(10000 * CANVAS_GRID / doc.height) / 100) + '%"' : '') + '>'
+      + canvasSafeHtml()
       + '<span class="wb-can-guide wb-can-guide-x" id="wbCanGuideX" hidden></span>'
       + '<span class="wb-can-guide wb-can-guide-y" id="wbCanGuideY" hidden></span>'
       + canvasObjects().map(function (o) { return canvasBoxHtml(o, doc) }).join('')
       + '</div>'
       + '<span class="wb-can-live" id="wbCanLive" aria-live="polite"></span>'
       + '</div>'
+      + (canvasPlatformNow() && canvasPlatformNow().safe
+        ? '<p class="wb-hint">' + esc(t('workbench.canvas.safe_hint', { name: platformLabel(canvasPlatformNow()) })) + '</p>' : '')
       + '<p class="wb-can-snapopts">'
       + '<label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
       + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label>'
@@ -4786,6 +4875,7 @@
     return '<div class="wb-can">' + head
       + canvasToolsHtml()
       + canvasOrphansHtml()
+      + canvasPlatformHtml()
       + '<p class="wb-hint">' + esc(t('workbench.canvas.intro')) + '</p>'
       + (archived() ? '' : canvasAddHtml())
       + (archived() || !objects.length ? '' : canvasPickBarHtml())
@@ -9197,6 +9287,8 @@
     else if (a === 'canvas-add-button') { if (!archived()) canvasAddButton() }
     else if (a === 'canvas-pick') { var pid = act.getAttribute('data-wb-obj'); if (WB.canvasPick[pid]) delete WB.canvasPick[pid]; else WB.canvasPick[pid] = true; render() }
     else if (a === 'canvas-unpick') { WB.canvasPick = {}; render() }
+    else if (a === 'canvas-resize') { if (!archived()) canvasOps([{ op: 'resize', platform: act.getAttribute('data-wb-arg') }]) }
+    else if (a === 'canvas-variant') canvasVariant(act.getAttribute('data-wb-arg'))
     else if (a === 'canvas-snap') { WB.canvasSnap = !WB.canvasSnap; writePref('wb.canvas.snap', WB.canvasSnap ? '1' : '0'); render() }
     else if (a === 'canvas-grid') { WB.canvasGrid = !WB.canvasGrid; writePref('wb.canvas.grid', WB.canvasGrid ? '1' : '0'); render() }
     else if (a === 'canvas-align') canvasMulti('align', act.getAttribute('data-wb-arg'))
@@ -9633,6 +9725,7 @@
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
     if (e.target.id === 'wbPostPlatform') { postState().platform = postPlatform(e.target.value).id; postState().more = false; render(); return }
+    if (e.target.id === 'wbCanPlatform') { WB.canvasPlatformPick = e.target.value; render(); return }
     if (e.target.id === 'wbSwitch') {
       selectItem(e.target.value)
       return

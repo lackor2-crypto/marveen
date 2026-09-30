@@ -322,8 +322,15 @@ const OBJECT_OPS = ['remove', 'update', 'move', 'center', 'scale', 'order', 'rot
 /** Azok a muveletek, amik TOBB elemre hatnak (`ids` lista, v4 spec K-2.5). */
 const MULTI_OPS = ['align', 'distribute', 'group', 'ungroup']
 
+/** A vaszon atmeretezese az elemek atrendezesevel (v4 spec K-2.9). */
+export interface SafeArea { top: number; bottom: number; left: number; right: number }
+export interface CanvasOpsContext {
+  /** Platform-azonositobol meret + biztonsagi zona (a `resize` muveletnek). */
+  platform?: (id: string) => { width: number; height: number; safe: SafeArea | null } | null
+}
+
 /** Minden ismert muvelet -- a hibauzenet ezt sorolja fel. */
-const ALL_OPS = ['add', 'update', 'remove', 'move', 'center', 'scale', 'order', 'rotate', 'duplicate', 'align', 'distribute', 'group', 'ungroup', 'canvas']
+const ALL_OPS = ['add', 'update', 'remove', 'move', 'center', 'scale', 'order', 'rotate', 'duplicate', 'align', 'distribute', 'group', 'ungroup', 'canvas', 'resize']
 
 function findIndex(doc: CanvasDoc, id: unknown): number {
   const want = String(id ?? '').trim()
@@ -408,7 +415,7 @@ function opPayload(r: Record<string, unknown>, key: 'object' | 'patch'): Record<
   return flat
 }
 
-export function applyCanvasOps(doc: CanvasDoc, rawOps: unknown): CanvasOpsResult {
+export function applyCanvasOps(doc: CanvasDoc, rawOps: unknown, ctx: CanvasOpsContext = {}): CanvasOpsResult {
   if (!Array.isArray(rawOps)) return { ok: false, code: 'canvas_bad_ops', detail: 'ops must be a list' }
   if (!rawOps.length) return { ok: false, code: 'canvas_bad_ops', detail: 'ops is empty: there is nothing to do' }
   if (rawOps.length > CANVAS_MAX_OBJECTS) {
@@ -430,6 +437,26 @@ export function applyCanvasOps(doc: CanvasDoc, rawOps: unknown): CanvasOpsResult
       if (r['height'] !== undefined) next.height = clampSize(r['height'], next.height)
       if (r['background'] !== undefined) next.background = safeColor(r['background'], next.background)
       applied.push({ op, id: null, note: `canvas is now ${next.width}x${next.height}` })
+      continue
+    }
+
+    if (op === 'resize') {
+      let width = Number(r['width'])
+      let height = Number(r['height'])
+      let safe: SafeArea | null = null
+      if (r['platform'] !== undefined) {
+        const pf = ctx.platform ? ctx.platform(String(r['platform'])) : null
+        if (!pf) return { ok: false, code: 'canvas_unknown_platform', detail: `ops[${i}] (resize): there is no platform called "${String(r['platform'])}"` }
+        width = pf.width
+        height = pf.height
+        safe = pf.safe
+      }
+      if (!Number.isFinite(width) || !Number.isFinite(height)) {
+        return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (resize): give "platform", or "width" and "height"` }
+      }
+      const from = `${next.width}x${next.height}`
+      relayoutCanvas(next, clampSize(width, next.width), clampSize(height, next.height), safe)
+      applied.push({ op, id: null, note: `canvas resized from ${from} to ${next.width}x${next.height}, the elements rearranged${safe ? ' inside the safe zone' : ''}` })
       continue
     }
 
@@ -767,6 +794,72 @@ function multiOp(doc: CanvasDoc, op: string, r: Record<string, unknown>, i: numb
     pos += (axis === 'x' ? row.b.width : row.b.height) + gap
   }
   return { ok: true, note: { op, id: null, note: `${rows.length} objects spaced evenly (${axis === 'x' ? 'across' : 'down'})` } }
+}
+
+/**
+ * Atrendezes uj meretre (K-2.9) -- ahogy a Canva "Magic Resize"-a: a hatter
+ * (ami a vaszon legalabb 90%-at fedi) kitolti az uj vasznat; minden mas elem
+ * (a csoport egyben) a helyet ARANYOSAN tartja, a meretet torzitas nelkul, a
+ * rovidebb ol aranyaban kapja; betumeret, vonalvastagsag, lekerekites vele
+ * nonek. Ha van biztonsagi zona, es az elem befer, oda kerul; kulonben a
+ * vaszonra (ha befer). Az Agent utana finomithat rajta.
+ */
+export function relayoutCanvas(doc: CanvasDoc, width: number, height: number, safe: SafeArea | null): void {
+  const sx = width / doc.width
+  const sy = height / doc.height
+  const s = Math.min(sx, sy)
+  const units = new Map<string, CanvasObject[]>()
+  for (const o of doc.objects) {
+    const k = o.group ? `g:${o.group}` : `#${o.id}`
+    units.set(k, [...(units.get(k) || []), o])
+  }
+  const grow = (o: CanvasObject, f: number): void => {
+    if (o.type === 'text') o.fontSize = num(o.fontSize * f, o.fontSize, 4, 1200)
+    if (o.type === 'rect') o.radius = num(o.radius * f, o.radius, 0, CANVAS_MAX_SIZE)
+    if (o.type === 'ellipse' || o.type === 'line') o.strokeWidth = num(o.strokeWidth * f, o.strokeWidth, o.type === 'line' ? 1 : 0, 400)
+  }
+  const area: Box = safe
+    ? { x: width * safe.left, y: height * safe.top, width: width * (1 - safe.left - safe.right), height: height * (1 - safe.top - safe.bottom) }
+    : { x: 0, y: 0, width, height }
+  for (const members of units.values()) {
+    const b = unionBox(members)
+    const background = b.width >= doc.width * 0.9 && b.height >= doc.height * 0.9
+    if (background) {
+      for (const o of members) {
+        o.x = num(o.x * sx, 0)
+        o.y = num(o.y * sy, 0)
+        o.width = num(o.width * sx, o.width, 1, CANVAS_MAX_SIZE)
+        o.height = num(o.height * sy, o.height, 1, CANVAS_MAX_SIZE)
+        grow(o, s)
+      }
+      continue
+    }
+    const cx = b.x + b.width / 2
+    const cy = b.y + b.height / 2
+    const ncx = cx * sx
+    const ncy = cy * sy
+    for (const o of members) {
+      const c = centerOf(o)
+      const w = num(o.width * s, o.width, 1, CANVAS_MAX_SIZE)
+      const h = num(o.height * s, o.height, 1, CANVAS_MAX_SIZE)
+      o.x = num(ncx + (c.cx - cx) * s - w / 2, 0)
+      o.y = num(ncy + (c.cy - cy) * s - h / 2, 0)
+      o.width = w
+      o.height = h
+      grow(o, s)
+    }
+    // Beljebb tolas: elobb a biztonsagi zonaba, ha oda nem fer, a vaszonra.
+    const nb = unionBox(members)
+    for (const frame of [area, { x: 0, y: 0, width, height }]) {
+      if (nb.width > frame.width || nb.height > frame.height) continue
+      const dx = Math.max(frame.x - nb.x, Math.min(0, frame.x + frame.width - (nb.x + nb.width)))
+      const dy = Math.max(frame.y - nb.y, Math.min(0, frame.y + frame.height - (nb.y + nb.height)))
+      for (const o of members) shiftBy(o, Math.round(dx), Math.round(dy))
+      break
+    }
+  }
+  doc.width = width
+  doc.height = height
 }
 
 function esc(s: string): string {

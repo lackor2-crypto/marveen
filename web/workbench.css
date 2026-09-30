@@ -525,6 +525,9 @@
 .wb-can-guide[hidden] { display: none; }
 .wb-can-guide-x { top: 0; bottom: 0; width: 1px; }
 .wb-can-guide-y { left: 0; right: 0; height: 1px; }
+.wb-can-safe { position: absolute; background: rgba(232, 23, 138, 0.14); pointer-events: none; z-index: 2; }
+.wb-can-platform { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.wb-can-platform .wb-hint, .wb-can-platform .wb-preview-bad { flex-basis: 100%; margin: 2px 0; }
 .wb-can-snapopts { display: flex; flex-wrap: wrap; gap: 14px; margin: 6px 0; font-size: 0.9em; }
 .wb-can-box {
   position: absolute;

@@ -30,6 +30,7 @@ import {
 } from '../workbench.js'
 import { applyCanvasOps, canvasSummary } from '../workbench-graphic.js'
 import { readCanvas, commitCanvasChange, canvasOpsLabel, flushCanvasDraft } from '../workbench-canvas-store.js'
+import { listCanvasPlatforms, canvasPlatform, platformForSize } from '../workbench-canvas-platforms.js'
 import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
@@ -864,6 +865,10 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         data: {
           canvas: r.doc, exists: r.exists, summary: canvasSummary(r.doc),
           version: r.version_no, unsaved_since_version: !!r.draft?.since_version,
+          // K-2.8: a platformmeretek (a {op:"resize", platform} ezeket ismeri),
+          // es a mostani mereten ervenyes biztonsagi zona (K-2.10).
+          platforms: listCanvasPlatforms().platforms.map((p) => ({ id: p.id, name: p.label.en, width: p.width, height: p.height, safe_zone: p.safe })),
+          safe_zone: platformForSize(r.doc.width, r.doc.height)?.safe ?? null,
           note: r.exists ? '' : 'there is no drawing yet on this work item; this is an empty canvas to start from',
         },
       }
@@ -878,7 +883,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       }
       const current = readCanvas(item.id)
       if (!current.ok) return { ok: false, code: current.code, detail: current.detail || current.code }
-      const applied = applyCanvasOps(current.doc, input.ops)
+      const applied = applyCanvasOps(current.doc, input.ops, { platform: canvasPlatform })
       if (!applied.ok) return { ok: false, code: applied.code, detail: applied.detail }
       // A munkapeldanyba megy (K-2.2), verzio NELKUL; a tulajdonos egy kerese
       // egy visszavonhato lepes (K-2.1), es NAGY valtozas elott a verziozatlan

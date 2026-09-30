@@ -97,6 +97,7 @@ import {
   parseCanvas, applyCanvasOps, canvasSummary, canvasFileName,
   CANVAS_MAX_OBJECTS, CANVAS_TEXT_MAX, CANVAS_MAX_SIZE,
 } from '../../workbench-graphic.js'
+import { listCanvasPlatforms, canvasPlatform, platformForSize } from '../../workbench-canvas-platforms.js'
 import {
   readCanvas, renderCanvasForItem, commitCanvasChange, canvasOpsLabel, canvasHistory, canvasOrphans,
   undoCanvas, redoCanvas, saveCanvasVersion, flushCanvasDraft, restoreCanvasOrphan, discardCanvasOrphan,
@@ -627,6 +628,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   canvas_orphan_discarded: {
     hu: 'A félbehagyott munkapéldány törölve. A verziók érintetlenek.',
     en: 'The unsaved working copy was deleted. The versions are untouched.',
+  },
+  canvas_variant_made: {
+    hu: 'Elkészült a(z) {name} változat, új verzióként. Az eredeti méret megmaradt az előző verzióban. Az elemeket arányosan rendeztem át; nézd át, és finomíts rajta (a Marvin is segít).',
+    en: 'The {name} variant is ready, as a new version. The original size is kept in the previous version. The elements were rearranged proportionally; check them and fine-tune (Marvin can help).',
+  },
+  canvas_unknown_platform: {
+    hu: 'Ilyen platformméretet nem ismerek. Válassz a listából.',
+    en: 'I do not know this platform size. Pick one from the list.',
   },
   canvas_old_version: {
     hu: 'Régebbi verziót nem lehet közvetlenül szerkeszteni. Állítsd vissza a verziólistából, és utána szerkeszd.',
@@ -3083,6 +3092,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       draft: r.draft,
       history: onCurrent ? canvasHistory(item.id) : null,
       orphans: canvasOrphans(item.id),
+      // K-2.8 .. K-2.10: a platformmeretek (forrassal, ellenorzes napjaval) es
+      // a mostani meretre illo platform (a biztonsagi zonaval).
+      platforms: listCanvasPlatforms(),
+      platform: platformForSize(r.doc.width, r.doc.height)?.id ?? null,
     })
     return true
   }
@@ -3150,7 +3163,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     const current = readCanvas(item.id)
     if (!current.ok) return failDetail(res, current.code === 'not_found' ? 404 : 409, current.code, lang, current.detail)
-    const applied = applyCanvasOps(current.doc, body['ops'])
+    const applied = applyCanvasOps(current.doc, body['ops'], { platform: canvasPlatform })
     if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
     // A csoport: egy szerkeszto-urlap egy megnyitasa, vagy egy huzas -- ezek
     // egy lepeskent vonhatok vissza, akarhany mentes ment is le kozben.
@@ -3188,6 +3201,38 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       item: getWorkItem(item.id) || item,
       ...canvasState(),
     })
+    return true
+  }
+
+  // VALTOZAT MAS PLATFORMRA (K-2.9): ugyanannak a munkadarabnak egy uj
+  // verzioja az uj meretben, az elemek aranyosan atrendezve. Elotte a mostani
+  // allapot verzio lesz (ha van benne verziozatlan munka) -- igy az eredeti
+  // meret is megmarad, visszaallithato, osszehasonlithato.
+  if (segs.length === 3 && segs[1] === 'canvas' && segs[2] === 'variant' && method === 'POST') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
+    const body = (await readJson(req)) || {}
+    const pf = canvasPlatform(body['platform'])
+    if (!pf) return failDetail(res, 400, 'canvas_unknown_platform', lang, String(body['platform'] ?? ''))
+    const who = actor(ctx)
+    const flushed = flushCanvasDraft(item, { reason: 'manual', actor: who })
+    if (flushed && !flushed.ok) return failDetail(res, 409, flushed.code, lang, flushed.detail)
+    const fresh = getWorkItem(item.id) || item
+    const current = readCanvas(fresh.id)
+    if (!current.ok) return failDetail(res, current.code === 'not_found' ? 404 : 409, current.code, lang, current.detail)
+    if (!current.exists) return fail(res, 409, 'canvas_nothing_to_version', lang)
+    const applied = applyCanvasOps(current.doc, [{ op: 'resize', platform: pf.id }], { platform: canvasPlatform })
+    if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+    const commit = commitCanvasChange(fresh, applied.doc, { source: 'owner', label: 'resize', actor: who, name: current.name })
+    if (!commit.ok) return failDetail(res, 409, commit.code, lang, commit.detail)
+    const v = saveCanvasVersion(getWorkItem(item.id) || fresh, { label: pf.label[lang], reason: 'variant', actor: who })
+    if (!v.ok) return failDetail(res, 409, v.code, lang, v.detail)
+    json(res, {
+      ok: true, canvas: applied.doc, item: v.item, version: v.version, created: v.created,
+      versions: listWorkItemVersionsView(item.id),
+      ...canvasState(),
+      platforms: listCanvasPlatforms(), platform: pf.id,
+      message: msg('canvas_variant_made', lang).replace('{name}', pf.label[lang]),
+    }, 201)
     return true
   }
 
