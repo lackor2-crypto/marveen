@@ -16,6 +16,7 @@
 // hianyzott a `claude-sonnet-4-6` -- pontosan az a csendes szetcsuszas, amirol
 // Boss szolt (2026-09-23).
 import { CLAUDE_MODEL_IDS } from './claude-models.js'
+import { GLM_MODELS } from './web/glm-models.js'
 
 // The model a fresh install runs when DEFAULT_AGENT_MODEL is unset. Kept here
 // (a zero-import module) so the registry default and the boot-time constant in
@@ -570,7 +571,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'munkapad',
     secret: false,
     requiresRestart: false,
-    valueSet: ['', ...CLAUDE_MODEL_IDS],
+    valueSet: ['', ...CLAUDE_MODEL_IDS, ...GLM_MODELS.map((m) => m.id)],
   },
   {
     key: 'WORKBENCH_FULL_AGENT',

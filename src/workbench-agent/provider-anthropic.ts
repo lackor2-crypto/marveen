@@ -31,6 +31,8 @@ import { tryResolveFromPath } from '../platform.js'
 import { resolveAgentConfigDir } from '../web/claude-plans.js'
 import { detectsUsageLimit } from '../model-fallback.js'
 import { workbenchAccounts } from './accounts.js'
+import { getSecret } from '../web/vault.js'
+import { GLM_BASE_URL, GLM_FAST_MODEL, GLM_TIMEOUT_MS, GLM_VAULT_KEY, isGlmModel } from '../web/glm-models.js'
 import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from './provider.js'
 
 /** Egy valasz felso hatara. Egy interaktiv beszelgetes-fordulo, nem konyv. */
@@ -174,7 +176,7 @@ let spawner: Spawner = spawn
 /** Csak teszthez: a gyerekfolyamat-inditas cserelese. `null` visszaallitja. */
 export function setSpawnerForTest(s: Spawner | null): void { spawner = s || spawn }
 
-async function* streamViaCli(req: AICallRequest, configDir: string, model: string, via: AIVia): AsyncIterable<AIChunk> {
+async function* streamViaCli(req: AICallRequest, configDir: string, model: string, via: AIVia, extraEnv?: NodeJS.ProcessEnv): AsyncIterable<AIChunk> {
   const bin = tryResolveFromPath('claude')
   if (!bin) {
     yield { kind: 'error', code: 'not_configured', detail: 'claude CLI not found on PATH' }
@@ -183,6 +185,7 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
   const cwd = mkdtempSync(join(tmpdir(), 'marveen-workbench-'))
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: configDir }
   for (const k of STRIPPED_ENV) delete env[k]
+  if (extraEnv) Object.assign(env, extraEnv)
   const args = [
     '-p', '--model', model,
     '--tools', '', '--setting-sources', 'project', '--no-session-persistence',
@@ -268,12 +271,48 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
   }
 }
 
+/**
+ * GLM (Z.ai Coding Plan): the same `claude -p` runner, pointed at Z.ai's
+ * Anthropic-compatible endpoint with the vault key -- exactly how the fleet
+ * launches GLM agents (agent-process.ts). Subscription-billed at Z.ai, so the
+ * #404 rule (no pay-per-token API) still holds. The key never leaves the
+ * server: it goes into the child's environment only. A throw-away config dir
+ * keeps the owner's Claude OAuth login out of this call.
+ */
+function streamViaGlm(req: AICallRequest, model: string): AsyncIterable<AIChunk> {
+  const key = getSecret(GLM_VAULT_KEY)
+  if (key === null) {
+    return (async function* () {
+      yield { kind: 'error', code: 'not_configured', detail: `no Z.ai key in the vault (${GLM_VAULT_KEY})` } as AIChunk
+    })()
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'marveen-workbench-glm-'))
+  const extraEnv: NodeJS.ProcessEnv = {
+    ANTHROPIC_AUTH_TOKEN: key,
+    ANTHROPIC_BASE_URL: GLM_BASE_URL,
+    ANTHROPIC_MODEL: model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: model,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: model,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM_FAST_MODEL,
+    API_TIMEOUT_MS: GLM_TIMEOUT_MS,
+  }
+  const inner = streamViaCli(req, dir, model, { kind: 'account', account: 'zai-glm' }, extraEnv)
+  return (async function* () {
+    try { yield* inner } finally { try { rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ } }
+  })()
+}
+
 export const anthropicProvider: AIProvider = {
   id: 'anthropic',
 
   model(): string { return workbenchModel() },
 
   availability(): AIAvailability {
+    if (isGlmModel(workbenchModel())) {
+      return getSecret(GLM_VAULT_KEY) !== null
+        ? { available: true, detail: 'Z.ai GLM Coding Plan' }
+        : { available: false, reason: 'not_configured', detail: 'no Z.ai key in the vault' }
+    }
     const dir = loggedInConfigDir()
     if (dir || workbenchAccounts().length) return { available: true, detail: 'signed-in Claude account' }
     return { available: false, reason: 'not_configured', detail: 'no signed-in Claude account' }
@@ -281,6 +320,7 @@ export const anthropicProvider: AIProvider = {
 
   stream(req: AICallRequest): AsyncIterable<AIChunk> {
     const model = workbenchModel()
+    if (isGlmModel(model)) return streamViaGlm(req, model)
     const account = String(req.account || '').trim() || MAIN_AGENT_ID
     const dir = loggedInConfigDir(account)
     if (!dir) {
