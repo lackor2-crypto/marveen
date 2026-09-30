@@ -29,11 +29,14 @@ export interface RenderOutline {
   annexTitle?: string
 }
 
+export type DocLang = 'hu' | 'en' | 'de'
+
 export interface RenderOptions {
   title: string
   author: string | null
   draft: boolean
-  lang: 'hu' | 'en'
+  /** A DOKUMENTUM nyelve (lablec, vizjel, nyelvi cimke) -- nyelvi valtozatnal a valtozate. */
+  lang: DocLang
   /** 'docx' (K-1.26): szerkesztheto Word-fajlnak keszul -- nincs vizjel es futo
    *  fejlec (az ugyved a sajatjat teszi ra), a hiany-jelolesek kiemelve maradnak. */
   target?: 'pdf' | 'docx'
@@ -148,6 +151,7 @@ function attachFootnote(parts: string[], note: string): boolean {
 const LABELS = {
   hu: { draft: 'PISZKOZAT', pageOf: (cur: string, all: string) => `${cur} / ${all} oldal` },
   en: { draft: 'DRAFT', pageOf: (cur: string, all: string) => `Page ${cur} of ${all}` },
+  de: { draft: 'ENTWURF', pageOf: (cur: string, all: string) => `Seite ${cur} von ${all}` },
 } as const
 
 /** A modell -> ODF (flat XML). Csak a cimek es a blokkok szovege kerul bele (K-1.13). */
@@ -179,7 +183,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
     body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(outline.annexTitle || 'Mellékletek')}</text:h>`)
     for (const a of outline.annexes) body.push(`<text:p text:style-name="AnnexLine">${inline(a.label)} – ${inlineMarked(a.title, o.draft)}</text:p>`)
   }
-  const lang = o.lang === 'en' ? { l: 'en', c: 'GB', tag: 'en-GB' } : { l: 'hu', c: 'HU', tag: 'hu-HU' }
+  const lang = o.lang === 'en' ? { l: 'en', c: 'GB', tag: 'en-GB' } : o.lang === 'de' ? { l: 'de', c: 'DE', tag: 'de-DE' } : { l: 'hu', c: 'HU', tag: 'hu-HU' }
   const watermark = o.draft && !docx
     ? `<text:p text:style-name="HeaderMark"><draw:frame draw:style-name="WmFrame" draw:name="Watermark" text:anchor-type="paragraph" svg:x="0cm" svg:y="10cm" svg:width="16.5cm" svg:height="4cm" draw:z-index="0"><draw:text-box><text:p text:style-name="Watermark">${L.draft}</text:p></draw:text-box></draw:frame></text:p>`
     : ''

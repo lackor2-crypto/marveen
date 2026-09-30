@@ -21,7 +21,8 @@ import { getDb } from './db.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './workbench-docmodel.js'
 import { consistencyIssues } from './workbench-doccheck.js'
-import { outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocxResult, type RenderResult } from './workbench-docrender.js'
+import { outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderResult } from './workbench-docrender.js'
+import { variantOf } from './workbench-doclang.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
@@ -184,6 +185,16 @@ export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
   return `${fileStem(item.title)} (${DRAFT_LABEL[lang]}).pdf`
 }
 
+/**
+ * A dokumentum nyelve a PDF/DOCX feliratainal (lablec, vizjel, nyelvi cimke):
+ * nyelvi valtozatnal a valtozate (K-1.27), kulonben a felulete.
+ */
+export function docLangFor(item: WorkItemRow, ui: 'hu' | 'en'): DocLang {
+  const v = variantOf(item.id)
+  if (!v) return ui
+  return v.lang === 'hu' || v.lang === 'de' || v.lang === 'en' ? v.lang : 'en'
+}
+
 /** A szerkesztheto Word-fajl neve (K-1.26): a cim, datummal (a kiadott munkapeldanyok megkulonbozthetok). */
 export function docxFileName(item: WorkItemRow, d = new Date()): string {
   return `${fileStem(item.title)} (${localDate(d)}).docx`
@@ -196,7 +207,7 @@ export function docxFileName(item: WorkItemRow, d = new Date()): string {
  * szerepelnek (a fajlok nem kerulnek bele).
  */
 export async function renderDocx(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DocxResult> {
-  return renderOutlineDocx(renderInputFor(item), { title: item.title, author: documentAuthor(), lang })
+  return renderOutlineDocx(renderInputFor(item), { title: item.title, author: documentAuthor(), lang: docLangFor(item, lang) })
 }
 
 export type DraftResult =
@@ -214,7 +225,7 @@ function packageFail(e: PackageError & { ok: false }): { ok: false; code: string
 export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DraftResult> {
   const outline = renderInputFor(item)
   const hash = contentHash(item)
-  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang })
+  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
   if (!outline.annexes || !outline.annexes.length) return { ok: true, pdf: r.pdf, hash }
   const resolve = resolverFor(item)
@@ -254,7 +265,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (input.accept !== true) return { ok: false, code: 'outline_accept_required', detail: null }
 
   const outline = renderInputFor(item)
-  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: input.lang })
+  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
   let annexes: { label: string; title: string; pdf: Buffer }[] = []
   if (outline.annexes && outline.annexes.length) {
