@@ -292,3 +292,15 @@ describe('the reminder carries the whole task, in the row\'s own mode', () => {
     expect(reminder.indexOf(check)).toBeLessThan(reminder.indexOf('EZ EGY JAVITASI FELADAT'))
   })
 })
+
+describe('the run must not end on a promise (approval fa6cd5fc, 2026-09-30)', () => {
+  const input = {
+    approvalId: 'a-1', category: 'kanban_done', actionDescription: 'x', agent: 'code:marveen',
+    ownerName: 'Boss', tokenPath: '/t', baseUrl: 'http://x',
+  }
+  it.each(['fix', 'verify'] as const)('%s prompt tells the executor to report before the run ends', (mode) => {
+    const text = buildVerificationPrompt({ ...input, mode })
+    expect(text).toContain('A FUTAS NEM ERHET VEGET IGERETTEL')
+    expect(text.indexOf('A FUTAS NEM ERHET VEGET IGERETTEL')).toBeLessThan(text.indexOf('/verify-result'))
+  })
+})
