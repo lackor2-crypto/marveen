@@ -42,6 +42,10 @@ if (Test-Path $ModelFile) {
 }
 
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Out-File -FilePath $Log -Append -Encoding UTF8 }
+# A zarolas "friss" marad, amig dolgozunk: a 120 mp-es elavulasi hatar kulonben
+# egy 10 perces felvetel KOZBEN lejarna, es egy ujabb kattintas a talcaikonon
+# egy MASODIK, parhuzamos felvetelt inditana ugyanarra a mikrofonra.
+function TouchLock { try { (Get-Item $Lock).LastWriteTime = Get-Date } catch { } }
 function Beep2($f,$d) { try { [console]::Beep($f,$d) } catch { } }
 
 # Dupla inditas vedelme: ha veletlenul ketszer kattintasz, a masodik csendben
@@ -121,9 +125,11 @@ public static extern short GetAsyncKeyState(int vKey);
   # akkor se" vagodjon le. A felvevo puffere (recorder.ps1 NBUF) is 30 perc.
   $MAX_SEC = 1800         # 30 perc
   $t0 = Get-Date
+  $touched = $t0
   $released = $false
   while ($true) {
     Start-Sleep -Milliseconds 40
+    if (((Get-Date) - $touched).TotalSeconds -ge 20) { TouchLock; $touched = Get-Date }
     $down = ([HuDikt.U32]::GetAsyncKeyState(1) -band 0x8000) -ne 0
     $elapsed = ((Get-Date) - $t0).TotalSeconds
 
@@ -297,38 +303,91 @@ public static extern short GetAsyncKeyState(int vKey);
   # leginkabb a hallucinaciot csendes/zajos reszeken. A Groq alapertelmezese is 0, de
   # EXPLICITEN adjuk meg, hogy egy szolgaltatoi default-valtozas ne csendben rontson el.
   # A `language=hu` nem csak a pontossagot, a KESLELTETEST is javitja (Groq doksi).
-  # ***2026-09-29: HOSSZU FELVETEL DARABOLVA ***
-  # A Groq egy feltoltesben 25 MB-ot fogad; 16 kHz / 16 bit / mono mellett ez
-  # ~13 perc. Boss: "meg hogyha 10 percig beszelek, akkor se" vagodjon le -- ezert
-  # a felvetelt legfeljebb 9 perces darabokra vagjuk, a hatar elotti 30 mp
-  # LEGCSENDESEBB pontjan (ne szo kozepen), es a darabok szoveget egyben illesztjuk be.
-  $PIECE_SAMPLES  = [long](9 * 60 * 16000)
-  $SEARCH_SAMPLES = [long](30 * 16000)
-  $cuts = [HuWavTools]::SplitPoints($frames, [long]$n, $PIECE_SAMPLES, $SEARCH_SAMPLES)
-  if ($cuts.Count -gt 1) { Log "hosszu felvetel: $($cuts.Count) darabban kuldom fel" }
+  # ***HOSSZU FELVETEL: ROVID, ONALLO DARABOKBAN (2026-09-30, #447) ***
+  # A HIBA, a naplobol merve (2026-09-26 21:58): 163 mp-es felvetel, vegig beszed,
+  # az atirat megis csak 377 karakter (a szokasos ~9 karakter/mp helyett 2.3), es
+  # a vegen egy kitalalt "Koszonom, hogy megnezted!" all. A Whisper a hosszu hangot
+  # 30 mp-es ablakokban, EGYMAS UTAN irja at, es minden ablakot az elozo ablak
+  # szovegehez igazit: egy szunetben kitalalt "zaromondat" utan a kovetkezo
+  # ablakok uresek maradtak -- a felvetel tobbi resze elveszett. Ez volt a
+  # "hosszu beszednel levagja a szoveget".
+  # A megoldas a szakmai gyakorlat (WhisperX, faster-whisper): a felvetelt a modell
+  # SAJAT ablakanal nem hosszabb (<= 30 mp) darabokra vagjuk, SZUNETBEN, es minden
+  # darabot KULON kuldunk fel. Egy darab nem orokli az elozo hibajat, igy egy
+  # kitalalt mondat legfeljebb a sajat darabjat rontja, a tobbit nem viszi el.
+  # (Az elso, 2026-09-29-es darabolas 9 perces volt -- a Groq 25 MB-os hatara
+  # miatt --, azt a fenti hibat nem fogta meg: a 163 mp egyetlen darab maradt.)
+  $PIECE_SAMPLES = [long](30 * 16000)
+  $BAND_SAMPLES  = [long](5 * 16000)
+  $cuts  = [HuWavTools]::SplitPoints($frames, [long]$n, $PIECE_SAMPLES, $BAND_SAMPLES)
+  $multi = $cuts.Count -gt 1
+  if ($multi) { Log "hosszu felvetel: $($cuts.Count) darabban kuldom fel (darabonkent <= 30 mp, szunetnel vagva)" }
+  $HdrFile = Join-Path $env:TEMP 'hu_diktalas_auto.hdr'
+  $sw = [Diagnostics.Stopwatch]::StartNew()
 
-  $texts = New-Object System.Collections.ArrayList
-  $segs  = @()
-  $from  = [long]0
-  $piece = 0
+  $texts  = New-Object System.Collections.ArrayList
+  $segs   = @()
+  $from   = [long]0
+  $piece  = 0
+  $failed = ''
   foreach ($to in $cuts) {
     $piece++
+    TouchLock
     $upload = $Wav
-    if ($cuts.Count -gt 1) {
+    if ($multi) {
       $upload = Join-Path $env:TEMP ("hu_diktalas_auto_{0}.wav" -f $piece)
       [HuWavTools]::WritePiece($upload, $b, $from, $to)
     }
+    # ***UJRAPROBALAS -- sok darab = sok keres. A Groq percenkenti kereten (HTTP
+    # 429) a sajat "retry-after" fejleceben megadott idot varjuk ki; halozati
+    # hibanal (000) es szerverhibanal (5xx) roviden varunk, es ujra. Mas hiba
+    # (pl. rossz kulcs) nem javul ujraprobalastol -- ott azonnal megallunk.
+    $http = ''
     try {
-      Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
-      # --max-time 600: egy 9 perces darab ~17 MB, lassu feltoltesen a 120 mp keves.
-      $http = & curl.exe -s --max-time 600 -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
-          -H "Authorization: Bearer $Key" `
-          -F "file=@$upload" -F "model=$Model" -F "language=hu" -F "temperature=0" `
-          -F "response_format=verbose_json" @promptArg
+      for ($try = 1; $try -le 5; $try++) {
+        Remove-Item $JsonFile, $HdrFile -Force -ErrorAction SilentlyContinue
+        # --max-time 180: egy 30 mp-es darab ~1 MB, lassu feltoltesen is boven eleg.
+        $http = & curl.exe -s --max-time 180 -D "$HdrFile" -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
+            -H "Authorization: Bearer $Key" `
+            -F "file=@$upload" -F "model=$Model" -F "language=hu" -F "temperature=0" `
+            -F "response_format=verbose_json" @promptArg
+        if ("$http" -eq '200') { break }
+        if ("$http" -eq '429') {
+          $wait = 10
+          $ra = $null
+          if (Test-Path $HdrFile) { $ra = Select-String -Path $HdrFile -Pattern '^retry-after:\s*(\d+)' | Select-Object -First 1 }
+          if ($ra) { $wait = [int]$ra.Matches[0].Groups[1].Value + 1 }
+          $wait = [Math]::Min(60, [Math]::Max(1, $wait))
+        } elseif ("$http" -eq '000' -or "$http" -match '^5') {
+          $wait = 2 * $try
+        } else { break }
+        if ($try -lt 5) {
+          Log "Groq HTTP $http (darab $piece/$($cuts.Count), $try. proba) -- $wait mp mulva ujra"
+          Start-Sleep -Seconds $wait
+          TouchLock
+        }
+      }
     } finally {
       if ($upload -ne $Wav) { Remove-Item $upload -Force -ErrorAction SilentlyContinue }
+      Remove-Item $HdrFile -Force -ErrorAction SilentlyContinue
     }
-    if ("$http" -ne "200") { Log "Groq HTTP $http (darab $piece/$($cuts.Count))"; Beep2 220 400; throw "http $http" }
+    if ("$http" -ne "200") {
+      # A szolgaltato sajat hibauzenete (pl. "Invalid API Key") a valasz-fajlban
+      # all -- azt naplozzuk, ne csak a kodot, es a fajl ne maradjon a TEMP-ben.
+      $errMsg = ''
+      try { if (Test-Path $JsonFile) { $errMsg = "" + ([System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json).error.message } } catch { }
+      Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
+      if ($errMsg) { $errMsg = ': ' + $errMsg }
+      Log "Groq HTTP $http (darab $piece/$($cuts.Count)) -- feladom$errMsg"
+      Beep2 220 400
+      # Ha meg semmi nem ment at, nincs mit menteni. Ha viszont a korabbi darabok
+      # atmentek, azokat NEM dobjuk el: beillesztjuk oket, es a szoveg vegen
+      # kimondjuk, honnan hianyzik az atiras -- egy csendben csonka szoveg rosszabb.
+      if (-not (@($texts) | Where-Object { $_ })) { throw "http $http" }
+      $at = [long][Math]::Floor($from / 16000)
+      $failed = [regex]::Unescape(('[A dikt\u00e1l\u00e1s t\u00f6bbi r\u00e9sze ({0}:{1:D2}-t\u00f3l) nem lett \u00e1t\u00edrva: a felismer\u0151 nem v\u00e1laszolt (HTTP {2}).]' -f [int][Math]::Floor($at / 60), ($at % 60), $http))
+      break
+    }
     $resp = [System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8)
     Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
     $parsed = $resp | ConvertFrom-Json
@@ -345,6 +404,7 @@ public static extern short GetAsyncKeyState(int vKey);
     # szegmens maga is inkabb csendnek tunik.
     $pieceSegs = @()
     if ($parsed.segments) { $pieceSegs = @($parsed.segments) }
+    $pieceText = ("" + $parsed.text).Trim()
     if ($pieceSegs.Count -gt 0) {
       $kept = New-Object System.Collections.ArrayList
       foreach ($sg in $pieceSegs) {
@@ -357,14 +417,26 @@ public static extern short GetAsyncKeyState(int vKey);
         if ($drop) { Log "szegmens kihagyva ($drop, no_speech=$([math]::Round($sg.no_speech_prob,2))): $segTxt" }
         elseif ($segTxt) { [void]$kept.Add($segTxt) }
       }
-      [void]$texts.Add(($kept -join ' '))
+      $pieceText = ($kept -join ' ')
       $segs += $pieceSegs
-    } else {
-      [void]$texts.Add(("" + $parsed.text).Trim())
+      # Egy darab <= 30 mp: ugyanaz a merce all ra, mint egy rovid diktalasra
+      # (lent). Egy szunetnyi darabra a Whisper rovid szoveget talal ki
+      # ("Koszonom.", "NAMASTE") -- az nem kerulhet a hosszu szoveg kozepebe.
+      if ($multi -and $pieceText -and $pieceText.Length -le 60) {
+        $pn = ($pieceSegs | Measure-Object -Property no_speech_prob -Average).Average
+        $pa = ($pieceSegs | Measure-Object -Property avg_logprob    -Average).Average
+        if ($pn -gt 0.75 -or $pa -lt -1.0) {
+          Log ("darab {0} kihagyva (rovid, es a modell szerint nem beszed: no_speech={1}, avg_logprob={2}): {3}" -f $piece, [math]::Round($pn,2), [math]::Round($pa,2), $pieceText)
+          $pieceText = ''
+        }
+      }
     }
+    [void]$texts.Add($pieceText)
+    if ($multi) { Log ("darab {0}/{1}: {2}-{3} mp, {4} karakter" -f $piece, $cuts.Count, [math]::Round($from / 16000.0, 1), [math]::Round($to / 16000.0, 1), $pieceText.Length) }
     $from = $to
   }
   $txt = ((@($texts) | Where-Object { $_ }) -join ' ').Trim()
+  if ($multi) { Log ("atiras: {0}/{1} darab, {2} mp alatt" -f $piece, $cuts.Count, [math]::Round($sw.Elapsed.TotalSeconds, 1)) }
 
   $nsp = $null; $alp = $null; $crx = $null
   if ($segs.Count -gt 0) {
@@ -410,6 +482,7 @@ public static extern short GetAsyncKeyState(int vKey);
       }
     if ($n -gt 0) { Log "szotar-javitas: $n csere" }
   }
+  if ($failed) { $txt = ($txt + ' ' + $failed).Trim() }
   if ([string]::IsNullOrWhiteSpace($txt)) { Log "ures atirat"; Beep2 220 400; throw "ures" }
 
   # Telegram: egy kepes uzenet szovege (caption) legfeljebb 1024 karakter; ami

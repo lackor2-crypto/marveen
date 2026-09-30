@@ -12,6 +12,8 @@
 #    5. asztali parancsikonokat keszit
 #
 #  Futtatas:   powershell -ExecutionPolicy Bypass -File telepit.ps1
+#  Frissites:  powershell -ExecutionPolicy Bypass -File telepit.ps1 -Frissites
+#              (csak az 1-2. lepes: a kulcs, a mikrofon es a parancsikonok maradnak)
 #  Nem kell rendszergazda.
 #
 #  ***KODOLAS: 100% ASCII. A PowerShell 5.1 a .ps1-et ANSI-kent olvassa, ezert egy
@@ -20,7 +22,8 @@
 param(
   [string]$Mikrofon = '',     # pl. 'Realtek' vagy 'High Definition'; ures = a jelenlegi alapertelmezett
   [int]$Szint = 55,           # bemeneti szint %-ban (NEM 100: a vagas rontja a felismerest)
-  [switch]$KulcsNelkul        # ne kerdezze a Groq-kulcsot (CI / nem-interaktiv)
+  [switch]$KulcsNelkul,       # ne kerdezze a Groq-kulcsot (CI / nem-interaktiv)
+  [switch]$Frissites          # csak a programfajlok cserejere (lasd lent, az 1-2. lepes utan)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,8 +43,12 @@ Write-Host ""
 # ---------- 1. masolas ----------
 if (-not (Test-Path $Dst)) { New-Item -ItemType Directory -Path $Dst -Force | Out-Null }
 $copied = 0
+# A `javitasok.txt`-t a felhasznalo bovitheti ("hibas=helyes" soronkent) -- ha mar
+# van, NEM irjuk felul a repo peldajaval, kulonben egy ujratelepites csendben
+# elvinne a sajat javitasait.
 Get-ChildItem -Path $Src -File | Where-Object {
-  $_.Name -notin @('telepit.ps1','README.md') -and $_.Name -notlike '*.bak-*'
+  $_.Name -notin @('telepit.ps1','README.md') -and $_.Name -notlike '*.bak-*' -and
+  -not ($_.Name -eq 'javitasok.txt' -and (Test-Path (Join-Path $Dst $_.Name)))
 } | ForEach-Object {
   Copy-Item $_.FullName (Join-Path $Dst $_.Name) -Force
   $copied++
@@ -60,6 +67,21 @@ Get-ChildItem -Path $Dst -Filter *.cmd | ForEach-Object {
   $fixed++
 }
 Write-Host "  [2/5] $fixed .cmd fajl CRLF sorvegre allitva" -ForegroundColor Green
+
+# ---------- csak frissites ----------
+# 2026-09-30 (#447): a parancsikon a %USERPROFILE%\.hu-diktalas alatti MASOLATOT
+# inditja, nem a repot -- egy landolt javitas addig NEM el, amig ide at nem
+# masoljuk (igy futhat hetekig a regi valtozat egy mar javitott hiba mellett). A teljes
+# telepites viszont a mikrofont is ujra beallitja (rendszer-alapertelmezett +
+# 55%), ezert a frissites itt megall: a belott mikrofonhoz, a kulcshoz es a
+# parancsikonokhoz nem nyul.
+if ($Frissites) {
+  Write-Host ""
+  Write-Host "  KESZ -- frissitve. A kulcs, a mikrofon es a parancsikonok valtozatlanok." -ForegroundColor Green
+  Write-Host "  A kovetkezo diktalas mar az uj valtozattal indul." -ForegroundColor Green
+  Write-Host ""
+  exit 0
+}
 
 # ---------- 3. Groq API-kulcs ----------
 $KeyFile = Join-Path $Dst 'groq.key'
