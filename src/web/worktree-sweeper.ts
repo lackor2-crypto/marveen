@@ -16,12 +16,14 @@
 //
 // So this sweep removes, for EVERY agent alike, what provably holds no work:
 //   worktree: directly under the worktree root, nothing uncommitted, every
-//             commit already on origin/main (content check, the same
-//             `worktreeState` the wake-up "abandoned work" list uses), quiet for
-//             SWEEP_QUIET_MS, no local process standing in it, and no queued or
-//             running code-bridge task pointing at it;
+//             commit already on origin/main (content check: the same
+//             `worktreeState` the wake-up "abandoned work" list uses, then
+//             `branchLanded` commit by commit), quiet for SWEEP_QUIET_MS, no
+//             local process standing in it, and no queued or running
+//             code-bridge task pointing at it;
 //   branch:   a local `work/*` branch no worktree has checked out, quiet for
-//             SWEEP_QUIET_MS, whose added lines already stand on origin/main.
+//             SWEEP_QUIET_MS, whose every commit's added lines already stand
+//             on origin/main (`branchLanded`).
 //
 // It never uses --force: `git worktree remove` itself refuses a tree with
 // modified or untracked files, which is a second lock behind our own check.
@@ -86,18 +88,46 @@ function inside(child: string, parent: string): boolean {
   return c === p || c.startsWith(p + '/')
 }
 
-/** Is `branch`'s own work (merge-base..tip) already on `base`? */
+/**
+ * Is `branch`'s own work (merge-base..tip) already on `base`? Content, not
+ * ancestry (land-pr squash-merges). Two locks, both must hold:
+ *   - the whole: >= LANDED_PCT of its added lines stand on base;
+ *   - each commit: a small fix committed AFTER the landing and never landed
+ *     hides under the whole's tolerance (8 new lines under 800 landed ones is
+ *     99%), so every non-merge commit's added lines that still stand at the
+ *     tip must be on base too. Lines a later commit of the branch replaced are
+ *     not asked for: the squash landed the tip, not the history.
+ * Anything git cannot answer (no merge-base, a failed diff) -> false: keep.
+ */
 export async function branchLanded(root: string, branch: string, base: string, git: GitRun): Promise<boolean> {
   const mb = await git(root, ['merge-base', branch, base])
   const tip = await git(root, ['rev-parse', branch])
   if (!mb.ok || !tip.ok) return false
   const m = mb.out.trim()
-  if (m === tip.out.trim()) return true
-  const diff = await git(root, ['diff', '-U0', m, branch])
-  const gone = await git(root, ['diff', '--name-only', '--diff-filter=D', m, branch])
+  const t = tip.out.trim()
+  if (m === t) return true
+  const diff = await git(root, ['diff', '-U0', m, t])
+  const gone = await git(root, ['diff', '--name-only', '--diff-filter=D', m, t])
   if (!diff.ok || !gone.ok) return false
-  const pct = await onBasePct(root, base, addedLinesByFile(diff.out), gone.out.split('\n').filter(Boolean), git)
-  return pct >= LANDED_PCT
+  if (await onBasePct(root, base, addedLinesByFile(diff.out), gone.out.split('\n').filter(Boolean), git) < LANDED_PCT) return false
+  const revs = await git(root, ['rev-list', '--no-merges', `${m}..${t}`])
+  if (!revs.ok) return false
+  const atTip = new Map<string, Set<string>>()
+  for (const c of revs.out.split('\n').filter(Boolean)) {
+    const own = await git(root, ['diff', '-U0', `${c}^`, c])
+    if (!own.ok) return false
+    const standing = new Map<string, string[]>()
+    for (const [file, lines] of addedLinesByFile(own.out)) {
+      if (!atTip.has(file)) {
+        const f = await git(root, ['show', `${t}:${file}`])
+        atTip.set(file, new Set(f.ok ? f.out.split('\n').map((l) => l.trim()) : []))
+      }
+      const have = atTip.get(file)!
+      standing.set(file, lines.filter((l) => have.has(l)))
+    }
+    if (await onBasePct(root, base, standing, [], git) < LANDED_PCT) return false
+  }
+  return true
 }
 
 export async function sweepWorktrees(deps: SweepDeps): Promise<SweepResult> {
@@ -144,6 +174,10 @@ export async function sweepWorktrees(deps: SweepDeps): Promise<SweepResult> {
       keep(st.dirtyFiles.length ? `commitolatlan valtozas: ${st.dirtyFiles.slice(0, 3).join(', ')}` : `${st.unlandedCommits} nem landolt commit`)
       continue
     }
+    // `clean` also comes back when git could not name a merge-base (a timeout,
+    // an unrelated history), and it judges the commits as one sum: the
+    // per-commit lock below answers both, and a "could not tell" keeps.
+    if (!(await branchLanded(wt.path, 'HEAD', deps.base, git))) { keep('nem tudtam igazolni, hogy minden commitja a mainen van'); continue }
     const rm = await git(root, ['worktree', 'remove', wt.path])
     if (!rm.ok) { keep('git worktree remove megtagadta'); continue }
     res.removedWorktrees.push(name)
@@ -189,8 +223,13 @@ export function localProcessCwds(): string[] {
   return out
 }
 
+/** The remote-tracking ref spelled out: a stray local branch named
+ *  `origin/main` (it happened here once) outranks the remote one in git's
+ *  lookup, and a stale base would read unlanded work as landed. */
+export const SWEEP_BASE = 'refs/remotes/origin/main'
+
 export function liveSweepDeps(
-  projectRoot: string, worktreeRoot: string | null, busyWorkspaces: () => string[], logFile: string | null, base = 'origin/main',
+  projectRoot: string, worktreeRoot: string | null, busyWorkspaces: () => string[], logFile: string | null, base = SWEEP_BASE,
 ): SweepDeps {
   return {
     record: (line) => { if (logFile) { try { appendFileSync(logFile, line + '\n') } catch { /* a log that cannot be written must not stop the sweep */ } } },
