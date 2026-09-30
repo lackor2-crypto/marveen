@@ -54,7 +54,7 @@ describe('projekt Fajlok ful: mapparendszer + kereso', () => {
     return tryHandleProjects({ req, res, path: url.pathname, method: 'GET', url } as RouteContext).then(() => out)
   }
 
-  it('egy szint: mappak elol darabszammal, fajlok utana; a szemet nem latszik', () => {
+  it('egy szint: mappak elol darabszammal, fajlok utana; minden latszik, csak a Windows segedfajlok nem', () => {
     const { p, w } = project()
     put(w, 'mt4/tester/EURUSD.set')
     put(w, 'mt4/tester/GBPUSD.set')
@@ -66,9 +66,9 @@ describe('projekt Fajlok ful: mapparendszer + kereso', () => {
     const root = listProjectDir(p, '')
     expect(root.ok).toBe(true)
     if (!root.ok) return
-    expect(root.entries.map((e) => [e.kind, e.name])).toEqual([['dir', 'mt4'], ['file', 'jegyzet.md']])
-    expect(root.entries[0]).toMatchObject({ sub: 'mt4', children: 2 })
-    expect(root.entries[1]).toMatchObject({ sub: 'jegyzet.md', size: 5 })
+    expect(root.entries.map((e) => [e.kind, e.name])).toEqual([['dir', '.rejtett'], ['dir', 'mt4'], ['dir', 'node_modules'], ['file', 'jegyzet.md']])
+    expect(root.entries[1]).toMatchObject({ sub: 'mt4', children: 2 })
+    expect(root.entries[3]).toMatchObject({ sub: 'jegyzet.md', size: 5 })
     const tester = listProjectDir(p, 'mt4/tester')
     expect(tester.ok && tester.entries.map((e) => e.sub)).toEqual(['mt4/tester/EURUSD.set', 'mt4/tester/GBPUSD.set'])
     // Projekten kivulre nem vezet ut.

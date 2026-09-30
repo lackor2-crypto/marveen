@@ -185,6 +185,11 @@ const hiddenEntry = (name: string): boolean => name.startsWith('.') || name === 
   // A Windows mappa-segedfajljai nem a felhasznalo fajljai (lasd #370).
   || /^(desktop\.ini|thumbs\.db)$/i.test(name)
 
+/** A fa (Boss TG 2130): ugyanazt a valosagot mutatja, mint a Windows Intezo,
+ *  ezert a ponttal kezdodo elemek es a node_modules IS latszanak; csak a
+ *  Windows segedfajljai maradnak ki. A kereso-index tovabbra is a hiddenEntry-t hasznalja. */
+const treeJunk = (name: string): boolean => /^(desktop\.ini|thumbs\.db)$/i.test(name)
+
 /** A projekt mappajanak (vagy egy almappajanak) EGY szintje: elol a mappak,
  *  utana a fajlok, mindketto nev szerint. A mappanal a kozvetlen tartalom
  *  darabszama is jon, hogy a felulet ki tudja irni ("12 elem"). */
@@ -196,14 +201,14 @@ export function listProjectDir(p: ProjectRow, sub: unknown): DirListing {
   try { entries = readdirSync(t.dirAbs, { withFileTypes: true }) } catch { return { ok: false, code: 'unreachable' } }
   const out: TreeEntry[] = []
   for (const e of entries) {
-    if (hiddenEntry(e.name)) continue
+    if (treeJunk(e.name)) continue
     const full = join(t.dirAbs, e.name)
     const childSub = subRel ? `${subRel}/${e.name}` : e.name
     let st: import('node:fs').Stats
     try { st = statSync(full) } catch { continue /* eltunt kozben, vagy torott link */ }
     if (st.isDirectory()) {
       let children = 0
-      try { children = readdirSync(full).filter((n) => !hiddenEntry(n)).length } catch { /* nem olvashato: 0 marad */ }
+      try { children = readdirSync(full).filter((n) => !treeJunk(n)).length } catch { /* nem olvashato: 0 marad */ }
       out.push({ name: e.name, sub: childSub, kind: 'dir', at: st.mtimeMs, children })
     } else if (st.isFile()) {
       out.push({ name: e.name, sub: childSub, kind: 'file', at: st.mtimeMs, size: st.size })
