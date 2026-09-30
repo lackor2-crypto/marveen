@@ -569,12 +569,33 @@ export CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
 # Failures are logged, never fatal: a stale claude still works, and a missing
 # one is retried by the next KeepAlive restart 30 seconds later.
 CLAUDE_UPDATE_STAMP="$INSTALL_DIR/store/.claude-update-stamp"
+# The dashboard updates claude too (src/claude-cli-updater.ts, 3x a day + a
+# button), so "exactly ONE place" now means "one at a time": both sides take
+# this lock around the install. mkdir is atomic; a lock older than 15 minutes
+# is a crashed holder's and is taken over.
+CLAUDE_UPDATE_LOCK="$INSTALL_DIR/store/.claude-update.lock"
 claude_install() {
   local why="$1"
   if ! command -v npm >/dev/null 2>&1; then
     echo "$(date '+%F %T') claude install SKIPPED ($why): npm not on PATH" >&2
     return 1
   fi
+  local waited=0 locked=0
+  while :; do
+    if mkdir "$CLAUDE_UPDATE_LOCK" 2>/dev/null; then locked=1; break; fi
+    # No lock to wait for (no writable store/): install unlocked, as before.
+    [ -d "$CLAUDE_UPDATE_LOCK" ] || break
+    if [ -n "$(find "$CLAUDE_UPDATE_LOCK" -maxdepth 0 -mmin +15 2>/dev/null)" ]; then
+      rm -rf "$CLAUDE_UPDATE_LOCK"
+      continue
+    fi
+    if [ "$waited" -ge 300 ]; then
+      echo "$(date '+%F %T') claude install SKIPPED ($why): another update holds $CLAUDE_UPDATE_LOCK" >&2
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
   echo "$(date '+%F %T') claude install START ($why): $CLAUDE_PKG" >&2
   if npm install -g "$CLAUDE_PKG" >/dev/null 2>&1; then
     : > "$CLAUDE_UPDATE_STAMP"
@@ -582,6 +603,7 @@ claude_install() {
   else
     echo "$(date '+%F %T') claude install FAILED ($why)" >&2
   fi
+  if [ "$locked" = 1 ]; then rm -rf "$CLAUDE_UPDATE_LOCK"; fi
 }
 
 if ! command -v claude >/dev/null 2>&1; then
