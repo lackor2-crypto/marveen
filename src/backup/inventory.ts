@@ -81,6 +81,8 @@ const STORE_SETTINGS = [
   'auto-restart.json', 'norbert-personal.json', 'key-service-active.json', 'backup-rules.json',
   'git-readonly-kivetelek.json', 'email-attachment-flags.json', 'mt4-terminal-dir.txt',
   'marveen-avatar.png', 'backup-config.json',
+  // A celbirosag-profilok tulajdonos altal elfogadott szabalyverzioi es a figyelmeztetes ideje (#441, 7.4).
+  'workbench-court-profiles.json',
 ] as const
 const STORE_SETTINGS_DIRS = ['folder-icons'] as const
 const STORE_DEPOT_CONFIG = [

@@ -47,6 +47,8 @@ import { finalizationState } from '../workbench-docfinal.js'
 import { addAnnex, annexCheck, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex } from '../workbench-docannex.js'
 import { consistencyIssues } from '../workbench-doccheck.js'
 import { itemDeadlines } from '../workbench-deadlines.js'
+import { itemCourtState, proposeRule, setItemProfile } from '../workbench-courtprofile.js'
+import { listFinals } from '../workbench-docfinal.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../workbench-redact.js'
@@ -389,7 +391,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
     case 'doc.proposeRewrite': case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings':
     case 'doc.deadlines': case 'doc.variants': case 'doc.createVariant': case 'doc.translateSection': case 'doc.backTranslate':
-    case 'doc.glossary': case 'doc.addTerm': case 'doc.removeTerm': {
+    case 'doc.glossary': case 'doc.addTerm': case 'doc.removeTerm': case 'doc.court': case 'doc.setCourt': case 'doc.proposeCourtRule': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
       const item = getWorkItem(id)
@@ -456,6 +458,32 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
           case 'doc.addAnnex': { const r = addAnnex(item.id, { path: input.path, title: input.title, position: input.position }, world.resolveFile, 'workbench-agent'); return r.ok ? { ok: true, data: r } : r }
           case 'doc.updateAnnex': { const r = updateAnnex(item.id, asString(input.annex), { title: input.title, position: input.position }); return r.ok ? { ok: true, data: r } : r }
           case 'doc.removeAnnex': { const r = removeAnnex(item.id, asString(input.annex)); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.court': {
+            const st = itemCourtState(item.id)
+            const f = listFinals(item.id)[0]
+            const current = !!st.check && !!f && st.check.version_id === f.version_id && st.check.result.profile_id === st.profile_id
+            return {
+              ok: true,
+              data: {
+                profile: st.profile, choices: st.profiles.map((p) => ({ id: p.id, name: p.name.en, version: p.version, last_checked: p.last_checked, stale: p.stale })),
+                last_check: st.check ? { ...st.check.result, for_current_final: current, for_current_rules: current && !!st.profile && st.check.result.version === st.profile.version } : null,
+                machine_check_available: st.available,
+                stale_after_days: st.max_age_days,
+                open_rule_proposals: st.proposals.map((p) => ({ id: p.id, profile_id: p.profile_id, kind: p.kind, diff: p.diff })),
+                profile_file_problem: st.file_error,
+                skipped_profiles: st.skipped,
+                note: 'The check runs on the finished files when the owner finalizes; the owner can re-run it with the "Újraellenőrzés" button. For a not searchable annex the owner can make a searchable copy with one click in the "Célbíróság" box (the annex list then points to it; finalize again). If the profile is stale, tell the owner when it was last checked and offer to look at the official source; after looking, record what you found with doc.proposeCourtRule. If profile_file_problem is set, tell the owner the profile file is broken and that the built-in profiles are used until it is fixed.',
+              },
+            }
+          }
+          case 'doc.setCourt': { const r = setItemProfile(item.id, input.profile); return r.ok ? { ok: true, data: { profile_id: r.profile_id } } : r }
+          case 'doc.proposeCourtRule': {
+            const r = proposeRule({
+              profile_id: input.profile_id, name: input.name, unchanged: input.unchanged, version: input.version,
+              reason: input.reason, checked_sources: input.checked_sources, work_item_id: item.id,
+            })
+            return r.ok ? { ok: true, data: { proposal: r.proposal, note: 'The owner sees it in the "Célbíróság" box of this work item and accepts or rejects it. Nothing changed yet.' } } : r
+          }
           case 'doc.annexSettings': { const r = setDocSettings(item.id, { annex_scheme: input.scheme, annex_prefix: input.prefix, annex_mode: input.mode }); return r.ok ? { ok: true, data: r } : r }
           case 'doc.addSection': { const r = addSection(item.id, input.title, { position: num(input.position), status: input.status }); return r.ok ? { ok: true, data: r.section } : r }
           case 'doc.updateSection': { const r = updateSection(item.id, asString(input.section), { title: input.title, status: input.status, position: input.position }); return r.ok ? { ok: true, data: r.section } : r }

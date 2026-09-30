@@ -257,6 +257,24 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'doc.court',
+    description: 'The target court profile of the document (Germany beA/ERVV, US federal CM/ECF, Hungary e-per, general): the rule version Marveen checks against with its requirements, its official sources, when it was last looked up there (stale: older than the set limit -- then tell the owner and offer to look at the official source on the web), the file name rule, what cannot be checked by machine (signature, filing channel), the result of the last machine check of the finished files (searchable text, embedded fonts, password, JavaScript, embedded files, media, form fields, size, file names), and the open rule update proposals. Marveen never says a filing complies: say what was checked, by which rule version, and what was found.',
+    input: 'id (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'doc.setCourt',
+    description: 'Choose the target court profile of the document (profile: de-ervv, us-cmecf, hu-eper, general, or a profile from the profile file; null to clear). On finalizing, the file names follow the profile rule and the finished files are machine-checked against it. Pair it with doc.annexSettings (anlage for German, exhibit for US courts).',
+    input: 'id (optional); profile',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'doc.proposeCourtRule',
+    description: 'After you looked at the official source of a court profile (web.search; the owner asks, or doc.court says stale), propose what the owner should record. It changes nothing: the owner sees the proposal with the differences in the "Célbíróság" box and accepts or rejects it with a click. If nothing changed: unchanged: true (accepting sets the last-checked date to today). If a rule changed: version = the new rule version { version: its name, valid_from: YYYY-MM-DD from the source (if the source does not say it: today and valid_from_unknown: true), sources: [{ title, url }] (the official pages), requirements: ONLY the keys that change -- the rest stay as in the current version; set a key to null to drop it -- notes (optional): [{ hu, en }] }. Requirement keys: searchable, fonts_embedded, encryption, javascript, launch, embedded_files, media, form_fields ("error" = the court rejects it, "warn" = recommended or a local rule, null = no requirement); encryption_scope ("any" | "print_only"); max_file_mb, max_total_mb, max_files (number or null); filename ({ max_length, pattern, numbered, rule: { hu, en } } or null). Only take a value from the official text, never from a blog or your memory; "should" / "soll" is warn, "must" / "muss" is error. For a court that has no profile yet give a new profile_id and name { hu, en }. Say in reason what you read and where; checked_sources = the addresses you saw it on. A new proposal for the same profile replaces the older open one.',
+    input: 'id (optional); profile_id; unchanged (optional): true; version (optional, unless unchanged); name (optional, a new profile only): { hu, en }; reason: what you read, where, and what changed; checked_sources: the https addresses',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'doc.annexSettings',
     description: 'The numbering of the annexes: scheme k ("K1", Hungarian), anlage ("Anlage K1", German courts) or exhibit ("Exhibit A", US courts); prefix: the letter (K, B, A, F ...; not used for exhibit); mode: separate (every annex its own PDF, the usual for e-filing) or combined (one PDF with the filing). Changing the scheme or the letter rewrites the references in the text.',
     input: 'id (optional); scheme (optional); prefix (optional); mode (optional)',

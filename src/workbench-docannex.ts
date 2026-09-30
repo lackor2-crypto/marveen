@@ -329,6 +329,21 @@ export function updateAnnex(itemId: string, id: string, patch: { title?: unknown
   return { ok: true, annex: getDb().prepare('SELECT * FROM wb_doc_annexes WHERE id = ?').get(a.id) as AnnexRow, rewritten }
 }
 
+/**
+ * A melleklet fajljanak csereje (pl. a kereshető masolatra, K-1.37): a sorszam,
+ * a cim es a szovegbeli hivatkozasok maradnak.
+ */
+export function setAnnexPath(itemId: string, id: string, rawPath: string, resolve: FileResolver): AnnexResult<{ annex: AnnexRow }> {
+  const rows = listAnnexRows(itemId)
+  const a = rows.find((r) => r.id === String(id || ''))
+  if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }
+  const path = String(rawPath ?? '').replace(/\\/g, '/').replace(/^\/+/, '').trim()
+  if (!path || !resolve(path)) return { ok: false, code: 'file_missing', detail: 'there is no such file in the project folder' }
+  if (rows.some((r) => r.id !== a.id && r.path === path)) return { ok: false, code: 'duplicate', detail: 'this file is already an annex of this document' }
+  getDb().prepare('UPDATE wb_doc_annexes SET path = ? WHERE id = ?').run(path, a.id)
+  return { ok: true, annex: getDb().prepare('SELECT * FROM wb_doc_annexes WHERE id = ?').get(a.id) as AnnexRow }
+}
+
 /** Levetel a jegyzekrol (a fajl a mappaban marad). A ra mutato hivatkozasbol hiany-jeloles lesz. */
 export function removeAnnex(itemId: string, id: string): AnnexResult<{ removed: string; rewritten: number }> {
   const rows = listAnnexRows(itemId)
