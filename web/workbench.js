@@ -86,6 +86,9 @@
     // Melyik elemet jelolte ki a felhasznalo a vasznon (huzogatas, kartya
     // d4b05d82). Csak a KIEMELEST jelenti, a szerkeszto urlapot nem nyitja.
     canvasSel: null,
+    // A verziolista kinyitott "apro modositasok" csoportjai (K-2.4), a csoport
+    // legregebbi verziojanak azonositojaval: uj verzio erkezesekor sem ugrik.
+    verOpen: {},
     // --- PDF-nezegeto (kartya f7d423e7) ---
     // A kirajzolt lapok DOM-csomopontja TULELI a render()-t, ezert itt all,
     // nem a felulet HTML-jeben. A `pdfLib === null` = meg nem kertuk le a
@@ -6477,6 +6480,46 @@
       + '⋮ ' + esc(t('workbench.egress.title')) + '</button></p>' + body + '</div>'
   }
 
+  /** Egy verzio "apro"-e (K-2.4): nev, ok es visszaallitas nelkul keszult --
+   *  a regi, minden mozdulatra keszult verziok ilyenek. A jelenlegi sosem apro. */
+  function versionIsSmall(v, currentId) {
+    return v.id !== currentId && !v.label && !v.restored_from_no && !v.reason
+  }
+
+  /** A nap, amikor a verzio keszult ("szept. 27."), a felulet nyelven. */
+  function versionDay(sec) {
+    try {
+      return new Date(sec * 1000).toLocaleDateString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { month: 'short', day: 'numeric' })
+    } catch (_e) { return '-' }
+  }
+
+  /** Legalabb ennyi egymas utani apro verzio csukodik ossze egy sorba. */
+  var VERSION_GROUP_MIN = 3
+
+  /** A verziolista sorai (K-2.4): az ugyanazon a napon keszult, egymas utani
+   *  apro verziok egy osszecsukhato sorba kerulnek ("12 apro modositas, szept.
+   *  27."). Semmi nem torlodik: kinyitva ugyanazok a sorok latszanak. A nevvel
+   *  vagy okkal mentett, a visszaallitott es a jelenlegi verzio mindig kulon sor. */
+  function versionGroups(versions, currentId) {
+    var out = []
+    var run = []
+    var flush = function () {
+      if (run.length >= VERSION_GROUP_MIN) {
+        out.push({ many: true, list: run, key: run[run.length - 1].id, day: versionDay(run[0].created_at) })
+      } else {
+        run.forEach(function (v) { out.push({ many: false, v: v }) })
+      }
+      run = []
+    }
+    versions.forEach(function (v) {
+      if (!versionIsSmall(v, currentId)) { flush(); out.push({ many: false, v: v }); return }
+      if (run.length && versionDay(run[0].created_at) !== versionDay(v.created_at)) flush()
+      run.push(v)
+    })
+    flush()
+    return out
+  }
+
   function contextPanelHtml() {
     var rows = []
     rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.project')) + '</h3>'
@@ -6494,6 +6537,29 @@
       if (!archived()) rows.push(sharedBlockHtml(WB.detail.assets || []))
       var versions = WB.detail.versions || []
       var ro = archived() || WB.versionBusy
+      var versionRowHtml = function (v) {
+        var current = v.id === it.current_version_id
+        // A JELENLEGIT nincs mire visszaallitani, de torolheto: akkor az
+        // alatta levo toltodik be (Boss, 2026-09-29). Az EGYETLEN verzio
+        // torlese az egesz munkadarabot a Lomtarba teszi ("1A"), piros
+        // figyelmezteto keret utan. A Torles vegleges (#443).
+        var canDelete = !ro
+        var only = versions.length === 1
+        var acts = ((current || ro) ? '' : ('<button type="button" class="wb-mini-btn" data-wb-act="version-restore"'
+          + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>'))
+          + (canDelete ? ('<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="version-delete"'
+          + ' data-wb-version="' + escA(v.id) + '" title="'
+          + escA(t(only ? 'workbench.versions.delete_last_title' : current ? 'workbench.versions.delete_current_title' : 'workbench.versions.delete_title')) + '">'
+          + esc(t('workbench.versions.delete')) + '</button>') : '')
+        return '<li class="wb-row"><div class="wb-row-main">' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
+          + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
+          + (v.label ? ' <strong class="wb-ver-label">' + esc(v.label) + '</strong>' : '')
+          + (v.restored_from_no ? ' <span class="wb-muted">'
+            + esc(t('workbench.versions.restored_from', { n: v.restored_from_no })) + '</span>' : '')
+          + (v.reason && v.reason !== 'manual' && t('workbench.versions.reason_' + v.reason) !== 'workbench.versions.reason_' + v.reason
+            ? ' <span class="wb-muted">' + esc(t('workbench.versions.reason_' + v.reason)) + '</span>' : '')
+          + '</div>' + (acts ? '<div class="wb-row-act">' + acts + '</div>' : '') + '</li>'
+      }
       // Order by importance (Boss, TG 1817): what a version IS, then Save as new
       // version, then the two Open buttons side by side, the list last.
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + (versions.length ? ' (' + versions.length + ')' : '') + '</h3>'
@@ -6502,28 +6568,15 @@
           + esc(t('workbench.versions.save_new')) + '</button></p>')
         + (versions.length ? folderBtnsHtml('versions', null, 'short') : '')
         + (versions.length
-          ? '<ul class="wb-versions">' + versions.map(function (v) {
-            var current = v.id === it.current_version_id
-            // A JELENLEGIT nincs mire visszaallitani, de torolheto: akkor az
-            // alatta levo toltodik be (Boss, 2026-09-29). Az EGYETLEN verzio
-            // torlese az egesz munkadarabot a Lomtarba teszi ("1A"), piros
-            // figyelmezteto keret utan. A Torles vegleges (#443).
-            var canDelete = !ro
-            var only = versions.length === 1
-            var acts = ((current || ro) ? '' : ('<button type="button" class="wb-mini-btn" data-wb-act="version-restore"'
-              + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>'))
-              + (canDelete ? ('<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="version-delete"'
-              + ' data-wb-version="' + escA(v.id) + '" title="'
-              + escA(t(only ? 'workbench.versions.delete_last_title' : current ? 'workbench.versions.delete_current_title' : 'workbench.versions.delete_title')) + '">'
-              + esc(t('workbench.versions.delete')) + '</button>') : '')
-            return '<li class="wb-row"><div class="wb-row-main">' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
-              + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
-              + (v.label ? ' <strong class="wb-ver-label">' + esc(v.label) + '</strong>' : '')
-              + (v.restored_from_no ? ' <span class="wb-muted">'
-                + esc(t('workbench.versions.restored_from', { n: v.restored_from_no })) + '</span>' : '')
-              + (v.reason && v.reason !== 'manual' && t('workbench.versions.reason_' + v.reason) !== 'workbench.versions.reason_' + v.reason
-                ? ' <span class="wb-muted">' + esc(t('workbench.versions.reason_' + v.reason)) + '</span>' : '')
-              + '</div>' + (acts ? '<div class="wb-row-act">' + acts + '</div>' : '') + '</li>'
+          ? '<ul class="wb-versions">' + versionGroups(versions, it.current_version_id).map(function (g) {
+            if (!g.many) return versionRowHtml(g.v)
+            var open = !!WB.verOpen[g.key]
+            return '<li class="wb-row wb-ver-group"><div class="wb-row-main">'
+              + '<button type="button" class="wb-linklike" data-wb-act="version-group" data-wb-key="' + escA(g.key) + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
+              + (open ? '▾ ' : '▸ ') + esc(t('workbench.versions.group', { n: g.list.length, day: g.day })) + '</button>'
+              + ' <span class="wb-muted">' + esc(t('workbench.versions.group_range', { from: g.list[g.list.length - 1].version_no, to: g.list[0].version_no })) + '</span>'
+              + '</div></li>'
+              + (open ? g.list.map(versionRowHtml).join('') : '')
           }).join('') + '</ul>'
             + (WB.warn && WB.warn.kind === 'last-version' && versions.length === 1
               ? warnBoxHtml(t('workbench.versions.last_warn'), 'last-version-trash', t('workbench.versions.last_warn_ok'), it.id)
@@ -8933,6 +8986,7 @@
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
+    else if (a === 'version-group') { var gk = act.getAttribute('data-wb-key'); WB.verOpen[gk] = !WB.verOpen[gk]; render() }
     else if (a === 'asset-remove') { WB.warn = { kind: 'asset-remove', id: act.getAttribute('data-wb-asset') }; render() }
     else if (a === 'asset-unlink') removeAsset(act.getAttribute('data-wb-asset'), false)
     else if (a === 'asset-delete-file') removeAsset(act.getAttribute('data-wb-asset'), true)
