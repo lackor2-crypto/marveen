@@ -40,7 +40,7 @@ import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
-import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, TITLE_MAX, type WorkItemRow } from './workbench.js'
+import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** Egy mappanev hossza (a Windows teljes-ut korlatja miatt rovidebb, mint a fajlnev). */
@@ -197,6 +197,121 @@ export function makeFreshFolder(project: ProjectRow, wanted: string, parentFolde
   return { ok: true, folder: r.sub, created: r.created }
 }
 
+// ---------------------------------------------------------------------------
+// #454: folders instead of main / sub work items
+// ---------------------------------------------------------------------------
+
+/** The project's work items box WITHOUT creating it (null = none yet). */
+export function findWorkItemsBox(project: ProjectRow): string | null {
+  ensureAssetTables()
+  const root = projectFileTarget(project, '')
+  if (!root.ok) return null
+  const names = [lifeName('workItems'), lifeName('workItems', APP_LANG === 'hu' ? 'en' : 'hu')]
+  for (const n of names) {
+    const abs = join(root.dirAbs, n)
+    let isDir = false
+    try { isDir = existsSync(abs) && statSync(abs).isDirectory() } catch { isDir = false }
+    if (isDir && !folderIsItems(project.id, n)) return n
+  }
+  return null
+}
+
+/** A folder for a new work item may only be the box itself or a folder inside it. */
+export type WorkFolderError = FileErrorCode | 'no_box'
+
+export function workFolderTarget(project: ProjectRow, folder: unknown): { ok: true; folder: string } | { ok: false; code: WorkFolderError } {
+  const box = findWorkItemsBox(project)
+  if (!box) return { ok: false, code: 'no_box' }
+  const raw = String(folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!raw) return { ok: true, folder: box }
+  if (raw !== box && !raw.startsWith(box + '/')) return { ok: false, code: 'bad_folder' }
+  const t = projectFileTarget(project, raw)
+  if (!t.ok) return t
+  return { ok: true, folder: raw }
+}
+
+export const WORK_FOLDER_MAX_DEPTH = 8
+export const WORK_FOLDER_MAX = 600
+
+/** Every folder inside the work items box, project-relative, parents before children. */
+export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean } {
+  const box = findWorkItemsBox(project)
+  if (!box) return { box: null, folders: [], truncated: false }
+  const t = projectFileTarget(project, box)
+  if (!t.ok) return { box, folders: [], truncated: false }
+  const out: string[] = []
+  let truncated = false
+  const walk = (abs: string, rel: string, depth: number): void => {
+    if (depth > WORK_FOLDER_MAX_DEPTH) return
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+      .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+    for (const d of dirs) {
+      if (out.length >= WORK_FOLDER_MAX) { truncated = true; return }
+      const childAbs = join(abs, d.name)
+      if (existsSync(join(childAbs, '.git'))) continue
+      const childRel = `${rel}/${d.name}`
+      out.push(childRel)
+      walk(childAbs, childRel, depth + 1)
+    }
+  }
+  walk(t.dirAbs, box, 1)
+  return { box, folders: out, truncated }
+}
+
+/** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */
+export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unknown): { ok: true; folder: string; created: boolean } | { ok: false; code: WorkFolderError | 'folder_name'; message?: string } {
+  let parentRel: string
+  const raw = String(parent ?? '').trim()
+  if (!raw || findWorkItemsBox(project) === null) {
+    const box = projectWorkItemsFolder(project)
+    if (!box.ok) return { ok: false, code: box.code === 'no_shared_folder' || box.code === 'not_found' ? 'no_box' : box.code, ...(box.message ? { message: box.message } : {}) }
+    parentRel = box.folder
+  } else {
+    const c = workFolderTarget(project, raw)
+    if (!c.ok) return c
+    parentRel = c.folder
+  }
+  const r = makeProjectFolder(project, parentRel, name)
+  if (!r.ok) return r
+  return { ok: true, folder: r.sub, created: r.created }
+}
+
+/**
+ * #454 (Boss: "fő munkadarab és almunkadarab nem lesz többé"): converts every old
+ * main/sub link into folders. A sub item keeps its folder (already inside the
+ * main item's folder) and just loses the link. A main item that has no own
+ * content (no materials, no parts) IS the folder now, so it goes to the trash
+ * (restorable, nothing on disk is touched); one with own content stays as a
+ * plain work item in that same folder. Idempotent; returns how many subs moved.
+ */
+export function migrateSubItemsToFolders(): number {
+  ensureAssetTables()
+  const db = getDb()
+  const subs = db.prepare('SELECT id, parent_item_id FROM work_items WHERE parent_item_id IS NOT NULL').all() as { id: string; parent_item_id: string }[]
+  if (!subs.length) return 0
+  const mains = new Set<string>()
+  for (const s of subs) {
+    const main = getWorkItem(s.parent_item_id)
+    if (main) {
+      mains.add(main.id)
+      const pf = ensureWorkItemFolder(main)
+      if (pf.ok) db.prepare('UPDATE work_items SET container_folder = ? WHERE id = ?').run(pf.folder, s.id)
+    }
+    db.prepare('UPDATE work_items SET parent_item_id = NULL WHERE id = ?').run(s.id)
+  }
+  for (const id of mains) {
+    const main = getWorkItem(id)
+    if (!main || main.deleted_at != null) continue
+    const own = (db.prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ?').get(id) as { n: number }).n
+    if (own === 0 && listWorkItemParts(id).length === 0) {
+      db.prepare('UPDATE work_items SET deleted_at = ? WHERE id = ?').run(Date.now(), id)
+    }
+  }
+  return subs.length
+}
+
 export interface FolderMigration { moved: number; skipped: number; container: string | null }
 
 /** Every project with a folder gets its "Munkadarabok" folder and the old item folders move under it. */
@@ -251,15 +366,12 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
     if (t.ok) return { ok: true, folder: known, created: false }
     // A mappa eltunt / at lett nevezve: uj mappat adunk, a regi utat nem talalgatjuk.
   }
-  // #448: a sub item's folder goes inside the main item's folder (made on demand).
+  // #454: the folder the owner picked in the new-item form (must still exist
+  // inside the work items box); otherwise the default box.
   let parentFolder: string | null = null
-  if (item.parent_item_id) {
-    const parent = getWorkItem(item.parent_item_id)
-    if (parent) {
-      const pf = ensureWorkItemFolder(parent)
-      if (!pf.ok) return pf
-      parentFolder = pf.folder
-    }
+  if (item.container_folder) {
+    const c = workFolderTarget(project, item.container_folder)
+    if (c.ok) parentFolder = c.folder
   }
   const r = makeFreshFolder(project, item.title, parentFolder)
   if (!r.ok) return r

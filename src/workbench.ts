@@ -77,9 +77,14 @@ export interface WorkItemRow {
   /** Visible number shown as "28M" (M = munkadarab), so it never mixes with
    *  kanban card #28. Global, gap-free at creation, never reused (TG 1843). */
   seq?: number | null
-  /** #448: the main work item this one sits under (a sub work item). NULL = a
-   *  main / stand-alone item. One level only: a sub item has no sub items. */
+  /** LEGACY (#448): the old main/sub link. Since #454 no work item has a main
+   *  item; existing links are converted to folders by migrateSubItemsToFolders()
+   *  and this stays NULL. */
   parent_item_id?: string | null
+  /** #454: the project folder (project-relative) this item's own folder is made
+   *  in. NULL = the project's default "Work items" folder. Used once, when the
+   *  item's folder is created. */
+  container_folder?: string | null
 }
 
 export interface WorkItemVersionRow {
@@ -164,8 +169,10 @@ export function ensureWorkbenchTables(): void {
   if (!iCols.has('deleted_at')) db.exec('ALTER TABLE work_items ADD COLUMN deleted_at INTEGER')
   // TG 1843: a referable number ("28M"). Existing rows get numbered in creation order.
   if (!iCols.has('seq')) db.exec('ALTER TABLE work_items ADD COLUMN seq INTEGER')
-  // #448: main work item / sub work items.
+  // #448: main work item / sub work items (legacy since #454, see container_folder).
   if (!iCols.has('parent_item_id')) db.exec('ALTER TABLE work_items ADD COLUMN parent_item_id TEXT')
+  // #454: folder the item's own folder is made in.
+  if (!iCols.has('container_folder')) db.exec('ALTER TABLE work_items ADD COLUMN container_folder TEXT')
   const unnumbered = db.prepare('SELECT id FROM work_items WHERE seq IS NULL ORDER BY created_at, rowid').all() as { id: string }[]
   if (unnumbered.length) {
     db.transaction(() => {
@@ -201,24 +208,13 @@ export interface CreateWorkItemInput {
   created_by?: string | null
   /** A v1 verzio melle mentett keres (ha a felhasznalo irt ilyet). */
   prompt?: unknown
-  /** #448: the main work item to file this one under; empty = stand-alone. */
-  parent_item_id?: unknown
+  /** #454: project folder (project-relative, already validated by the caller) to make the item's folder in; empty = default. */
+  container_folder?: string | null
 }
 
 export type CreateWorkItemResult =
   | { ok: true; item: WorkItemRow; version: WorkItemVersionRow }
-  | { ok: false; code: 'title_required' | 'title_too_long' | 'bad_type' | 'bad_status' | ParentErrorCode }
-
-export type ParentErrorCode = 'parent_not_found' | 'parent_other_project' | 'parent_is_sub'
-
-/** #448: may `parentId` be the main item of a new/moved item of `projectId`? */
-export function checkParentItem(projectId: string, parentId: string): { ok: true; parent: WorkItemRow } | { ok: false; code: ParentErrorCode } {
-  const parent = getWorkItem(parentId)
-  if (!parent || parent.deleted_at != null) return { ok: false, code: 'parent_not_found' }
-  if (parent.project_id !== projectId) return { ok: false, code: 'parent_other_project' }
-  if (parent.parent_item_id) return { ok: false, code: 'parent_is_sub' }
-  return { ok: true, parent }
-}
+  | { ok: false; code: 'title_required' | 'title_too_long' | 'bad_type' | 'bad_status' }
 
 function newWorkItemId(): string {
   const db = getDb()
@@ -245,11 +241,7 @@ export function createWorkItem(input: CreateWorkItemInput): CreateWorkItemResult
   const rawStatus = input.status === undefined || input.status === null || input.status === '' ? 'draft' : input.status
   if (!isWorkItemStatus(rawStatus)) return { ok: false, code: 'bad_status' }
   const status: WorkItemStatus = rawStatus
-  const rawParent = input.parent_item_id === undefined || input.parent_item_id === null ? '' : String(input.parent_item_id).trim()
-  if (rawParent) {
-    const pc = checkParentItem(input.project_id, rawParent)
-    if (!pc.ok) return { ok: false, code: pc.code }
-  }
+  const container = typeof input.container_folder === 'string' ? input.container_folder.trim() : ''
 
   const db = getDb()
   const ts = nowSec()
@@ -265,9 +257,9 @@ export function createWorkItem(input: CreateWorkItemInput): CreateWorkItemResult
 
   db.transaction(() => {
     db.prepare(`INSERT INTO work_items
-      (id, project_id, type, title, status, source_path, editor_type, current_version_id, created_at, updated_at, created_by, parent_item_id, seq)
+      (id, project_id, type, title, status, source_path, editor_type, current_version_id, created_at, updated_at, created_by, container_folder, seq)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM work_items))`)
-      .run(id, input.project_id, type, title, status, sourcePath, EDITOR_BY_TYPE[type], versionId, ts, ts, createdBy, rawParent || null)
+      .run(id, input.project_id, type, title, status, sourcePath, EDITOR_BY_TYPE[type], versionId, ts, ts, createdBy, container || null)
     db.prepare(`INSERT INTO work_item_versions
       (id, work_item_id, version_no, parent_version_id, manifest_path, preview_path, source_path, prompt, created_by, created_at, metadata_json)
       VALUES (?, ?, 1, NULL, NULL, NULL, ?, ?, ?, ?, NULL)`)
@@ -327,40 +319,15 @@ export function listDeletedWorkItems(projectId: string): WorkItemRow[] {
  * nelkuli. Az `updated_at`-et SZANDEKOSAN nem erinti (mint a kituzes), igy a
  * visszaallitott darab a regi helyere kerul vissza a listaban.
  */
-export function setWorkItemDeleted(
-  id: string,
-  deleted: boolean,
-  now: number = Date.now(),
-  /** #448: what to do with the sub items of a main item that is being trashed. */
-  subs: 'trash' | 'detach' = 'trash',
-): WorkItemRow | undefined {
+export function setWorkItemDeleted(id: string, deleted: boolean, now: number = Date.now()): WorkItemRow | undefined {
   const item = getWorkItem(id)
   if (!item) return undefined
-  const db = getDb()
   if (deleted && item.deleted_at == null) {
-    const at = Math.floor(now)
-    db.transaction(() => {
-      if (subs === 'detach') db.prepare('UPDATE work_items SET parent_item_id = NULL WHERE parent_item_id = ? AND deleted_at IS NULL').run(item.id)
-      else db.prepare('UPDATE work_items SET deleted_at = ? WHERE parent_item_id = ? AND deleted_at IS NULL').run(at, item.id)
-      db.prepare('UPDATE work_items SET deleted_at = ? WHERE id = ?').run(at, item.id)
-    })()
+    getDb().prepare('UPDATE work_items SET deleted_at = ? WHERE id = ?').run(Math.floor(now), item.id)
   } else if (!deleted && item.deleted_at != null) {
-    db.transaction(() => {
-      // The subs that went to the trash together with the main item (same
-      // timestamp) come back with it; a sub trashed on its own stays there.
-      db.prepare('UPDATE work_items SET deleted_at = NULL WHERE parent_item_id = ? AND deleted_at = ?').run(item.id, item.deleted_at)
-      db.prepare('UPDATE work_items SET deleted_at = NULL WHERE id = ?').run(item.id)
-    })()
+    getDb().prepare('UPDATE work_items SET deleted_at = NULL WHERE id = ?').run(item.id)
   }
   return getWorkItem(item.id)
-}
-
-/** #448: the live sub items of a main item. */
-export function listSubItems(parentId: string): WorkItemRow[] {
-  ensureWorkbenchTables()
-  return getDb()
-    .prepare('SELECT * FROM work_items WHERE parent_item_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid')
-    .all(parentId) as WorkItemRow[]
 }
 
 /**
@@ -398,8 +365,6 @@ export function purgeWorkItem(id: string): { ok: true; projectId: string } | { o
       if (t === 'work_items' || !cols(t).has('work_item_id')) continue
       db.prepare(`DELETE FROM ${q(t)} WHERE work_item_id = ?`).run(item.id)
     }
-    // #448: sub items that are left (e.g. trashed on their own) become stand-alone.
-    db.prepare('UPDATE work_items SET parent_item_id = NULL WHERE parent_item_id = ?').run(item.id)
     db.prepare('DELETE FROM work_items WHERE id = ?').run(item.id)
   })()
   return { ok: true, projectId: item.project_id }

@@ -16,7 +16,7 @@ import { privacyState } from '../workbench-privacy.js'
 import type { ProjectRow } from '../projects.js'
 import type { WorkItemRow } from '../workbench.js'
 import { projectContext } from '../project-context.js'
-import { getWorkItem, listSubItems, listWorkItems, listWorkItemVersions } from '../workbench.js'
+import { listWorkItems, listWorkItemVersions } from '../workbench.js'
 import { recentFiles } from '../project-overview.js'
 import { decisionsForContext } from '../workbench-decisions.js'
 import { toolsForPrompt } from './tools.js'
@@ -89,24 +89,21 @@ function assetsLine(itemId: string): string {
 }
 
 /**
- * #448: how a work item relates to the others. A sub item shows its main item
- * (folder, materials: the shared rules and the summary table live there) and
- * its siblings; a main item lists its sub items.
+ * #454: how a work item relates to the others -- by FOLDER. The owner files
+ * work items in folders (a folder holds work items and other folders), so the
+ * agent sees the other work items in the same folder (shared rules, summary
+ * table) and the ones inside this item's own folder.
  */
 export function familyLines(item: WorkItemRow): string[] {
-  const tag = (i: WorkItemRow): string => `${i.seq ? `${i.seq}M ` : ''}${i.id} "${i.title}"`
+  const tag = (i: WorkItemRow): string => `${i.seq ? `${i.seq}M ` : ''}${i.id} "${i.title}" (folder: ${i.folder})`
   const out: string[] = []
-  if (item.parent_item_id) {
-    const main = getWorkItem(item.parent_item_id)
-    if (main) {
-      out.push(`This is a SUB work item of the main work item ${tag(main)}. Read the main item's material too (shared rules, summary table): main folder: ${main.folder || '(no own folder yet)'}; ${assetsLine(main.id)}`)
-      const sibs = listSubItems(main.id).filter((i) => i.id !== item.id)
-      if (sibs.length) out.push(`Sibling sub work items: ${sibs.map(tag).join('; ')}`)
-    }
-  } else {
-    const subs = listSubItems(item.id)
-    if (subs.length) out.push(`This is a MAIN work item; its sub work items (their folders are inside this item's folder): ${subs.map((i) => `${tag(i)} (folder: ${i.folder || 'none yet'})`).join('; ')}`)
-  }
+  if (!item.folder) return out
+  const dir = (f: string): string => f.split('/').slice(0, -1).join('/')
+  const all = listWorkItems(item.project_id).filter((i) => i.id !== item.id && i.folder)
+  const same = all.filter((i) => dir(i.folder as string) === dir(item.folder as string))
+  const inside = all.filter((i) => (i.folder as string).startsWith(item.folder + '/'))
+  if (same.length) out.push(`Other work items in the same folder (${dir(item.folder) || '/'}), read their material too if it is related (shared rules, summary table): ${same.map(tag).join('; ')}`)
+  if (inside.length) out.push(`Work items inside this item's own folder: ${inside.map(tag).join('; ')}`)
   return out
 }
 
@@ -148,7 +145,7 @@ export function buildContext(
     const shown = items.slice(0, MAX_WORK_ITEMS)
     // "28M" is how the owner names a work item (kanban cards are "#28"); every
     // tool that takes a work item id accepts it too (TG 1843).
-    const lines = shown.map((i) => `- ${i.parent_item_id ? '  (sub of ' + (items.find((m) => m.id === i.parent_item_id)?.seq ? items.find((m) => m.id === i.parent_item_id)?.seq + 'M' : i.parent_item_id) + ') ' : ''}${i.seq ? `${i.seq}M ` : ''}${i.id} "${i.title}" (${i.type}, ${i.status})`)
+    const lines = shown.map((i) => `- ${i.seq ? `${i.seq}M ` : ''}${i.id} "${i.title}" (${i.type}, ${i.status})`)
     if (items.length > shown.length) lines.push(`- ... and ${items.length - shown.length} more`)
     add('work_items', `Work items (${items.length}). "28M" means work item number 28 (a work item, NOT kanban card #28); any tool's work item id also accepts "28M":\n${lines.join('\n')}`)
   }

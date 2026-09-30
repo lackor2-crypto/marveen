@@ -106,14 +106,19 @@
 /* Kituzes (#406, 21bcb1f4): a csillag a sor elejen, telefonon is kenyelmes
    celpont (min. 36px), a munkadarab-gomb kitolti a maradekot. */
 .wb-item-row { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
-/* #448: a sub work item is indented under its main item; the warn box takes a full row. */
-.wb-item-sub { margin-left: 22px; border-left: 2px solid var(--wb-editor-border, rgba(37, 99, 235, 0.35)); padding-left: 6px; }
-.wb-item-row > .wb-warn-box { flex: 1 0 100%; }
-.wb-item-fold {
-  border: 1px solid var(--border, #d0d7de); background: transparent; color: inherit;
-  border-radius: 6px; padding: 0 8px; cursor: pointer; font-size: 12px; white-space: nowrap;
-}
-.wb-item-fold:hover { border-color: var(--accent, #2563eb); }
+.wb-depth-1 { margin-left: 18px; }
+.wb-depth-2 { margin-left: 36px; }
+.wb-depth-3 { margin-left: 54px; }
+.wb-depth-4 { margin-left: 72px; }
+.wb-depth-5 { margin-left: 90px; }
+.wb-depth-6 { margin-left: 108px; }
+.wb-depth-7 { margin-left: 126px; }
+.wb-depth-8 { margin-left: 144px; }
+.wb-folder-row { list-style: none; margin: 6px 0 2px; }
+.wb-folder-toggle { background: none; border: 0; padding: 4px 2px; font: inherit; font-weight: 600; cursor: pointer; text-align: left; color: inherit; }
+.wb-folder-toggle:hover { color: var(--accent, #2563eb); }
+.wb-folder-new { display: flex; gap: 8px; align-items: center; }
+.wb-folder-new .wb-input { flex: 1; min-width: 0; }
 .wb-item-row .wb-item { flex: 1 1 auto; min-width: 0; }
 .wb-item-pin {
   flex: 0 0 auto;

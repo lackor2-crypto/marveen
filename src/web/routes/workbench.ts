@@ -43,7 +43,7 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, checkParentItem, getWorkItem, getWorkItemVersion, listWorkItems, listSubItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -105,10 +105,12 @@ import { setOverride } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
+import { logger } from '../../logger.js'
 import {
   makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
+  workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -366,21 +368,13 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Nem derült ki, hogy törölni vagy visszaállítani kell-e a munkadarabot. Frissítsd az oldalt, és kattints újra.',
     en: 'It was not clear whether to delete or restore this work item. Refresh the page and click again.',
   },
-  parent_not_found: {
-    hu: 'A kiválasztott fő munkadarab nem található (lehet, hogy közben a Lomtárba került). Frissítsd az oldalt, és válassz újra.',
-    en: 'The chosen main work item was not found (it may have gone to the Trash meanwhile). Refresh the page and choose again.',
+  bad_folder_name: {
+    hu: 'Ez a mappanév nem jó: ne legyen benne \\ / : * ? " < > | jel, és ne kezdődjön ponttal.',
+    en: 'This folder name will not do: no \\ / : * ? " < > | characters, and it must not start with a dot.',
   },
-  parent_other_project: {
-    hu: 'Fő munkadarabnak csak ugyanennek a projektnek a munkadarabja választható.',
-    en: 'Only a work item of the same project can be the main work item.',
-  },
-  parent_is_sub: {
-    hu: 'Ez már almunkadarab, alá nem tehető újabb. Válaszd a fő munkadarabot.',
-    en: 'This is already a sub work item, nothing can go under it. Choose the main work item.',
-  },
-  has_sub_items: {
-    hu: 'Ennek a munkadarabnak vannak almunkadarabjai. Válaszd ki, mi legyen velük: kerüljenek a Lomtárba, vagy maradjanak önálló munkadarabként.',
-    en: 'This work item has sub work items. Choose what happens to them: move them to the Trash too, or keep them as stand-alone work items.',
+  folder_gone: {
+    hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
+    en: 'The chosen folder is gone (renamed or deleted). Choose a folder again.',
   },
   pin_bad_value: {
     hu: 'Nem derült ki, hogy kitűzni vagy levenni kell-e a csillagot. Frissítsd az oldalt, és kattints újra a csillagra.',
@@ -1859,6 +1853,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // #454: a new folder inside the project's work items box (the picker's "New folder").
+  if (path === '/api/workbench/folders' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body.project_id ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = makeWorkFolder(project, body.parent, body.name)
+    if (!r.ok) return failDetail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'folder_name' ? 'bad_folder_name' : r.code, lang, r.message || null)
+    json(res, { ok: true, folder: r.folder, created: r.created, work_folders: listWorkFolders(project) }, 201)
+    return true
+  }
+
   if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
 
   if (path === '/api/workbench/items' && method === 'GET') {
@@ -1866,9 +1873,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!pid) return fail(res, 400, 'project_required', lang)
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
+    // #454: old main/sub links become folders (no-op once done).
+    try { migrateSubItemsToFolders() } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] sub item -> folder migration failed') }
     json(res, {
       project: { id: project.id, name: project.name, archived: project.archived_at != null, sensitive: projectSensitive(project.id) },
       sensitive_items: sensitiveItemIds(project.id),
+      work_folders: listWorkFolders(project),
       items: listWorkItems(project.id),
       deleted: listDeletedWorkItems(project.id),
       types: WORK_ITEM_TYPES,
@@ -1885,6 +1895,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // #454: "Which folder should it go in?" -- '' = the project's default box.
+    let containerFolder: string | null = null
+    if (String(body.folder ?? '').trim()) {
+      const c = workFolderTarget(project, body.folder)
+      if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
+      containerFolder = c.folder
+    }
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
@@ -1892,10 +1909,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       status: body.status,
       source_path: body.source_path,
       prompt: body.prompt,
-      parent_item_id: body.parent_item_id,
+      container_folder: containerFolder,
       created_by: actor(ctx),
     })
-    if (!r.ok) return fail(res, r.code === 'parent_not_found' ? 404 : 400, r.code, lang)
+    if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, item: r.item, versions: [r.version] }, 201)
     return true
   }
@@ -1913,17 +1930,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const title = String(body['title'] ?? '').trim()
     if (!title) return fail(res, 400, 'table_title_required', lang)
-    // #448: the "+ New work item" form's "Under which work item?" field holds
-    // for a new table too: the table becomes a sub work item, its own folder
-    // (with the .xlsx in it) inside the main item's folder. Empty = as before.
-    const parentId = String(body['parent_item_id'] ?? '').trim()
+    // #454: the form's "Which folder?" field holds for a new table too: its own
+    // folder (with the .xlsx in it) is made inside the chosen folder.
     let folder: string | null = null
     let folderCreated = false
-    if (parentId) {
-      const pc = checkParentItem(project.id, parentId)
-      if (!pc.ok) return fail(res, pc.code === 'parent_not_found' ? 404 : 400, pc.code, lang)
-      const pf = ensureWorkItemFolder(pc.parent)
-      const f = pf.ok ? makeFreshFolder(project, title, pf.folder) : pf
+    let containerFolder: string | null = null
+    if (String(body['folder'] ?? '').trim()) {
+      const c = workFolderTarget(project, body['folder'])
+      if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
+      containerFolder = c.folder
+      const f = makeFreshFolder(project, title, c.folder)
       if (!f.ok) {
         const code = MESSAGES['upload_' + f.code] ? 'upload_' + f.code : f.code
         return failDetail(res, f.code === 'write_failed' ? 500 : 400, code, lang, 'message' in f ? (f.message || null) : null)
@@ -1941,8 +1957,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
       return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
     }
-    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, parent_item_id: parentId || undefined, created_by: actor(ctx) })
-    if (!r.ok) return fail(res, r.code === 'parent_not_found' ? 404 : 400, r.code, lang)
+    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, container_folder: containerFolder, created_by: actor(ctx) })
+    if (!r.ok) return fail(res, 400, r.code, lang)
     if (folder) assignWorkItemFolder(r.item.id, folder)
     const item = folder ? (getWorkItem(r.item.id) ?? r.item) : r.item
     json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name }, 201)
@@ -2566,14 +2582,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let body: Record<string, unknown> = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     if (typeof body['deleted'] !== 'boolean') return fail(res, 400, 'trash_bad_value', lang)
-    // #448: a main item with live sub items needs an explicit answer.
-    let subsMode: 'trash' | 'detach' = 'trash'
-    if (body['deleted'] === true && listSubItems(item.id).length) {
-      const sm = body['subs']
-      if (sm !== 'trash' && sm !== 'detach') return fail(res, 409, 'has_sub_items', lang)
-      subsMode = sm
-    }
-    const updated = setWorkItemDeleted(item.id, body['deleted'], Date.now(), subsMode)
+    const updated = setWorkItemDeleted(item.id, body['deleted'])
     if (!updated) return fail(res, 404, 'not_found', lang)
     json(res, { item: updated, items: listWorkItems(item.project_id), deleted: listDeletedWorkItems(item.project_id) })
     return true

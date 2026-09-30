@@ -169,7 +169,12 @@
     // Piros figyelmezteto keret egy vegleges / nagy hatasu torles elott (#443):
     // { kind: 'last-version' } vagy { kind: 'purge', id }.
     warn: null,
-    collapsedMain: {},
+    // #454: folders inside the project's work items box + tree state + new-item form draft
+    workFolders: null,
+    collapsedFolder: {},
+    pickFolder: '',
+    newDraft: null,
+    folderBusy: false,
     // Az attekinto negy szama ala lenyithato kartyalista (Boss, TG 2068).
     ovOpen: readOvOpen(),
     tdOpen: false,
@@ -282,6 +287,7 @@
       WB.project = r.data.project
       WB.items = r.data.items || []
       WB.deleted = r.data.deleted || []
+      WB.workFolders = r.data.work_folders || null
       WB.sensitiveIds = r.data.sensitive_items || []
       loadOverview(projectId)
       loadTodos(projectId)
@@ -318,24 +324,13 @@
   // A Torles nem kerdez ra (a tulajdonos kerese): lomtarba tesz, ahonnan egy
   // kattintassal visszahozhato, a verziok es a fajlok megmaradnak.
 
-  function setTrashed(id, deleted, subs) {
+  function setTrashed(id, deleted) {
     if (WB.trashBusy || archived()) return
-    // #448: a main item with sub items asks what to do with them first.
-    if (deleted && !subs && (WB.items || []).some(function (x) { return x.parent_item_id === id })) {
-      WB.warn = { kind: 'trash-subs', id: id }
-      // The question sits on the main item's row in the list; when it comes
-      // from the editor (deleting the last version) the list is not the shown
-      // panel on a phone -- switch to it, or the click seems to do nothing.
-      WB.panel = 'items'
-      render()
-      return
-    }
     var pid = WB.projectId
     WB.trashBusy = true
     WB.warn = null
     render()
     var payload = { deleted: deleted }
-    if (subs) payload.subs = subs
     return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/trash', payload).then(function (r) {
       WB.trashBusy = false
       if (WB.projectId !== pid) return
@@ -1072,42 +1067,141 @@
   function typeLabel(type) { return t('workbench.type.' + type) }
   function statusLabel(status) { return t('workbench.status.' + status) }
 
-  /** One row of the work item list (#448: a sub item is indented, a main item with subs has a fold toggle). */
-  function itemRowHtml(it, isSub, subCount, collapsed) {
+  /** One row of the work item list (#454: indented by its folder depth). */
+  function itemRowHtml(it, depth) {
     var on = it.id === WB.selectedId
     // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    var fold = ''
-    if (subCount) {
-      fold = '<button type="button" class="wb-item-fold" data-wb-act="main-fold" data-wb-id="' + escA(it.id) + '" aria-expanded="' + (!collapsed) + '"'
-        + ' title="' + escA(t(collapsed ? 'workbench.sub.expand' : 'workbench.sub.collapse')) + '">'
-        + (collapsed ? '▸ ' : '▾ ') + subCount + '</button>'
-    }
-    var warn = ''
-    if (WB.warn && WB.warn.kind === 'trash-subs' && WB.warn.id === it.id) {
-      warn = '<div class="wb-warn-box" role="alert"><p>' + esc(t('workbench.sub.trash_warn', { title: it.title })) + '</p><div class="wb-warn-acts">'
-        + '<button type="button" class="wb-btn wb-btn-danger" data-wb-act="trash-subs-all" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sub.trash_all')) + '</button>'
-        + '<button type="button" class="wb-btn" data-wb-act="trash-subs-detach" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sub.trash_detach')) + '</button>'
-        + '<button type="button" class="wb-btn" data-wb-act="warn-cancel">' + esc(t('workbench.warn.cancel')) + '</button>'
-        + '</div></div>'
-    }
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (isSub ? ' wb-item-sub' : '') + '">'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '">'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
-      + fold
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
       + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
       + '</button>'
       // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
-      // Fo munkadarabnal, ha vannak almunkadarabjai, megkerdezzuk mi legyen velük (#448).
       + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
       + esc(t('workbench.trash.delete')) + '</button>'
-      + warn + '</li>'
+      + '</li>'
+  }
+
+  // ---- folders (#454) ---------------------------------------------------------
+  //
+  // Boss: there is no main / sub work item any more, only FOLDERS. A folder holds
+  // work items and other folders; the list shows them as a collapsible tree.
+  // The tree comes from the folders on disk (server: work_folders) plus the
+  // folder each work item lives in.
+
+  function dirOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? '' : String(path).slice(0, i) }
+  function baseOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? String(path) : String(path).slice(i + 1) }
+
+  /** Where an item sits in the tree: its own folder when other things are filed
+   *  inside it (an old main item with content), else the folder it was filed in. */
+  function itemPlaces(items, folders, box) {
+    var occupied = {}
+    folders.forEach(function (f) { occupied[dirOf(f)] = true })
+    items.forEach(function (it) {
+      if (it.folder) occupied[dirOf(it.folder)] = true
+      else if (it.container_folder) occupied[it.container_folder] = true
+    })
+    var place = {}
+    items.forEach(function (it) {
+      if (it.folder) place[it.id] = occupied[it.folder] ? it.folder : (dirOf(it.folder) || box)
+      else place[it.id] = it.container_folder || box
+    })
+    return place
+  }
+
+  function folderTreeRows() {
+    var wf = WB.workFolders || { box: null, folders: [] }
+    var box = wf.box || ''
+    var items = WB.items || []
+    var folders = (wf.folders || []).slice()
+    var place = itemPlaces(items, folders, box)
+    // A leaf folder that is exactly one work item's own folder IS that item, not a separate folder.
+    var itemFolder = {}
+    items.forEach(function (it) { if (it.folder && place[it.id] !== it.folder) itemFolder[it.folder] = true })
+    var shown = folders.filter(function (f) { return !itemFolder[f] })
+    var have = {}
+    shown.forEach(function (f) { have[f] = true })
+    // A place that is not in the folder list (list cut off, folder gone) falls back to the box.
+    Object.keys(place).forEach(function (id) { if (place[id] !== box && !have[place[id]]) place[id] = box })
+    var kids = {}
+    shown.forEach(function (f) { var d = dirOf(f); if (d !== box && !have[d]) d = box; (kids[d] = kids[d] || []).push(f) })
+    var byPlace = {}
+    items.forEach(function (it) { (byPlace[place[it.id]] = byPlace[place[it.id]] || []).push(it) })
+    function count(path) {
+      var n = (byPlace[path] || []).length
+      ;(kids[path] || []).forEach(function (k) { n += count(k) })
+      return n
+    }
+    var rows = []
+    function walk(path, depth) {
+      ;(kids[path] || []).forEach(function (f) {
+        var collapsed = !!WB.collapsedFolder[f]
+        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '">'
+          + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
+          + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
+          + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button></li>')
+        if (!collapsed) walk(f, depth + 1)
+      })
+      ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth)) })
+    }
+    // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
+    walk(box, 0)
+    return rows
+  }
+
+  /** "Which folder should it go in?" -- a list of the folders (indented by depth) + a "New folder" box. */
+  function folderPickHtml() {
+    var wf = WB.workFolders || { box: null, folders: [] }
+    var box = wf.box || ''
+    var pick = WB.pickFolder || ''
+    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_default')) + '</option>']
+    ;(wf.folders || []).forEach(function (f) {
+      var depth = f.split('/').length - 1 - (box ? box.split('/').length - 1 : 0)
+      var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0\u00a0')
+      opts.push('<option value="' + escA(f) + '"' + (f === pick ? ' selected' : '') + '>' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
+    })
+    return '<label class="wb-label" for="wbNewFolder">' + esc(t('workbench.folder.pick_label')) + '</label>'
+      + '<select class="wb-input" id="wbNewFolder">' + opts.join('') + '</select>'
+      + '<p class="wb-hint">' + esc(t('workbench.folder.pick_hint')) + '</p>'
+      + '<div class="wb-folder-new">'
+      + '<input class="wb-input" id="wbNewFolderName" type="text" maxlength="80" placeholder="' + escA(t('workbench.folder.new_placeholder')) + '" autocomplete="off">'
+      + '<button type="button" class="btn-secondary" data-wb-act="mkfolder"' + (WB.folderBusy ? ' disabled' : '') + '>' + esc(t('workbench.folder.new_btn')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
+  }
+
+  function readNewDraft() {
+    var ti = document.getElementById('wbNewTitle')
+    var ty = document.getElementById('wbNewType')
+    var fo = document.getElementById('wbNewFolder')
+    WB.newDraft = { title: ti ? ti.value : '', type: ty ? ty.value : '' }
+    if (fo) WB.pickFolder = fo.value
+  }
+
+  function makeFolder() {
+    if (WB.folderBusy || archived()) return
+    var nameEl = document.getElementById('wbNewFolderName')
+    var name = nameEl ? String(nameEl.value || '').trim() : ''
+    if (!name) { window.showToast(t('workbench.folder.name_required')); return }
+    readNewDraft()
+    var pid = WB.projectId
+    WB.folderBusy = true
+    render()
+    api('POST', '/api/workbench/folders', { project_id: pid, parent: WB.pickFolder || '', name: name }).then(function (r) {
+      WB.folderBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
+      if (r.data && r.data.folder) WB.pickFolder = r.data.folder
+      render()
+    })
   }
 
   function itemsPanelHtml() {
@@ -1122,21 +1216,7 @@
         + '<p class="wb-muted">' + esc(t('workbench.empty.hint')) + '</p>'
         + '</div>'
     } else {
-      // #448: sub work items sit indented under their main item (collapsible).
-      var liveIds = {}
-      WB.items.forEach(function (it) { liveIds[it.id] = true })
-      var subsOf = {}
-      WB.items.forEach(function (it) {
-        if (it.parent_item_id && liveIds[it.parent_item_id]) (subsOf[it.parent_item_id] = subsOf[it.parent_item_id] || []).push(it)
-      })
-      var rows = []
-      WB.items.forEach(function (it) {
-        if (it.parent_item_id && liveIds[it.parent_item_id]) return
-        var subs = subsOf[it.id] || []
-        var collapsed = !!WB.collapsedMain[it.id]
-        rows.push(itemRowHtml(it, false, subs.length, collapsed))
-        if (!collapsed) subs.forEach(function (sub) { rows.push(itemRowHtml(sub, true, 0, false)) })
-      })
+      var rows = folderTreeRows()
       body = '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
     body += trashHtml()
@@ -1301,32 +1381,17 @@
     if (box && box.classList) box.classList.toggle('wb-dragging', !!on)
   }
 
-  /**
-   * #448: "Under which work item?" -- only main items (no sub under a sub). Empty = stand-alone.
-   * #454: always shown, also in a project with no work item yet, so the choice is visible from
-   * the first item on; then the only option is "stand-alone" and the hint says why.
-   */
-  function parentSelectHtml() {
-    var mains = (WB.items || []).filter(function (it) { return !it.parent_item_id })
-    return '<label class="wb-label" for="wbNewParent">' + esc(t('workbench.sub.parent_label')) + '</label>'
-      + '<select class="wb-input" id="wbNewParent">'
-      + '<option value="">' + esc(t('workbench.sub.parent_none')) + '</option>'
-      + mains.map(function (it) { return '<option value="' + escA(it.id) + '">' + esc(it.title) + '</option>' }).join('')
-      + '</select>'
-      + '<p class="wb-hint">' + esc(t(mains.length ? 'workbench.sub.parent_hint' : 'workbench.sub.parent_empty_hint')) + '</p>'
-  }
-
   function newFormHtml() {
     var types = ['document', 'image', 'graphic', 'video', 'note']
     return '<form class="wb-form" id="wbNewForm">'
       + '<label class="wb-label" for="wbNewTitle">' + esc(t('workbench.new.name_label')) + '</label>'
-      + '<input class="wb-input" id="wbNewTitle" type="text" maxlength="200" placeholder="' + escA(t('workbench.new.name_placeholder')) + '" autocomplete="off">'
+      + '<input class="wb-input" id="wbNewTitle" type="text" maxlength="200" value="' + escA(WB.newDraft ? WB.newDraft.title : '') + '" placeholder="' + escA(t('workbench.new.name_placeholder')) + '" autocomplete="off">'
       + '<label class="wb-label" for="wbNewType">' + esc(t('workbench.new.type_label')) + '</label>'
       + '<select class="wb-input" id="wbNewType">'
-      + types.map(function (ty) { return '<option value="' + escA(ty) + '">' + esc(typeLabel(ty)) + '</option>' }).join('')
+      + types.map(function (ty) { return '<option value="' + escA(ty) + '"' + (WB.newDraft && WB.newDraft.type === ty ? ' selected' : '') + '>' + esc(typeLabel(ty)) + '</option>' }).join('')
       + '</select>'
       + '<p class="wb-hint">' + esc(t('workbench.new.type_hint')) + '</p>'
-      + parentSelectHtml()
+      + folderPickHtml()
       + '<div class="wb-form-actions">'
       + '<button type="submit" class="btn-primary" data-wb-act="create"' + (WB.busy ? ' disabled' : '') + '>'
       + esc(WB.busy ? t('workbench.new.creating') : t('workbench.new.create')) + '</button>'
@@ -3010,10 +3075,10 @@
     if (!titleEl || WB.busy || archived()) return
     var title = String(titleEl.value || '').trim()
     if (!title) { window.showToast(t('workbench.table.title_required')); return }
-    // #448: the "Under which work item?" field of the same form holds here too.
-    var parentEl = document.getElementById('wbNewParent')
+    // #454: the "Which folder?" field of the same form holds here too.
+    var folderEl = document.getElementById('wbNewFolder')
     var payload = { project_id: WB.projectId, title: title }
-    if (parentEl && parentEl.value) payload.parent_item_id = parentEl.value
+    if (folderEl && folderEl.value) payload.folder = folderEl.value
     WB.busy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
@@ -8607,9 +8672,9 @@
     if (!titleEl || !typeEl || WB.busy) return
     var title = titleEl.value.trim()
     var type = typeEl.value
-    var parentEl = document.getElementById('wbNewParent')
+    var folderEl = document.getElementById('wbNewFolder')
     var payload = { project_id: WB.projectId, title: title, type: type }
-    if (parentEl && parentEl.value) payload.parent_item_id = parentEl.value
+    if (folderEl && folderEl.value) payload.folder = folderEl.value
     WB.busy = true
     render()
     api('POST', '/api/workbench/items', payload).then(function (r) {
@@ -8966,6 +9031,7 @@
   // a kovetkezo kuldes ezt viszi. Nem kell ujrarajzolni -- a select maga mutatja.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
+    if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
     var rid = e.target.getAttribute && e.target.getAttribute('data-wb-redact-id')
     if (rid && WB.redact) {
       WB.redact.skip[rid] = !e.target.checked
@@ -9033,10 +9099,9 @@
     if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
-    else if (a === 'trash-subs-all') setTrashed(act.getAttribute('data-wb-id'), true, 'trash')
-    else if (a === 'trash-subs-detach') setTrashed(act.getAttribute('data-wb-id'), true, 'detach')
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
-    else if (a === 'main-fold') { var mf = act.getAttribute('data-wb-id'); WB.collapsedMain[mf] = !WB.collapsedMain[mf]; render() }
+    else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }
+    else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
     else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
@@ -9108,8 +9173,8 @@
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
-    else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
-    else if (a === 'cancel-new') { WB.formOpen = false; render() }
+    else if (a === 'new') { if (!archived()) { WB.newDraft = null; WB.formOpen = true; render() } }
+    else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; render() }
     else if (a === 'create') { e.preventDefault(); create() }
     else if (a === 'tpl-use') useTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'tpl-retry') { WB.templatesError = null; WB.templates = null; render(); loadTemplates() }
