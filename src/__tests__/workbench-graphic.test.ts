@@ -341,3 +341,121 @@ describe('az `add`/`update` KET alakja -- a koteg ne bukjon el formai okbol', ()
     expect(r.detail).toContain('patch')
   })
 })
+
+// ============================================================================
+// v4 spec K-2.5 / K-2.6 (#441): forgatas, duplikalas, igazitas, elosztas,
+// csoportositas; kor/ellipszis es vonal.
+// ============================================================================
+describe('uj muveletek es elemfajtak (K-2.5, K-2.6)', () => {
+  function three(): CanvasDoc {
+    const p = parseCanvas({
+      width: 1000, height: 800,
+      objects: [
+        { id: 'a', type: 'rect', x: 0, y: 0, width: 100, height: 100 },
+        { id: 'b', type: 'rect', x: 300, y: 50, width: 200, height: 100 },
+        { id: 'c', type: 'rect', x: 700, y: 100, width: 100, height: 300 },
+      ],
+    })
+    if (!p.ok) throw new Error(p.detail)
+    return p.doc
+  }
+  function run(doc: CanvasDoc, ops: unknown[]): CanvasDoc {
+    const r = applyCanvasOps(doc, ops)
+    if (!r.ok) throw new Error(r.code + ': ' + r.detail)
+    return r.doc
+  }
+  const byId = (d: CanvasDoc, id: string) => d.objects.find((o) => o.id === id)!
+
+  it('kor es vonal: ervenyes elemek, az SVG-ben ellipse es line, a regi rajzhoz nem nyul', () => {
+    const d = run(emptyCanvas(), [
+      { op: 'add', object: { id: 'potty', type: 'ellipse', x: 10, y: 20, width: 100, height: 60, fill: '#ff0000' } },
+      { op: 'add', object: { id: 'vonal', type: 'line', x: 0, y: 500, width: 400, stroke: '#0000ff', strokeWidth: 6 } },
+    ])
+    const svg = renderCanvasSvg(d)
+    expect(svg).toContain('<ellipse cx="60" cy="50" rx="50" ry="30" fill="#ff0000"')
+    expect(svg).toContain('<line x1="0" y1="510" x2="400" y2="510" stroke="#0000ff" stroke-width="6"')
+    // A regi elemeken nem jelenik meg uj mezo (rotation, group): a regi rajz bajtra ugyanaz marad.
+    expect(Object.keys(byId(three(), 'a'))).not.toContain('rotation')
+    expect(Object.keys(byId(three(), 'a'))).not.toContain('group')
+  })
+
+  it('forgatas: angle = uj szog, by = hozzaad; az SVG a kozeppont korul forgat; 0 fok = nincs mezo', () => {
+    let d = run(three(), [{ op: 'rotate', id: 'a', angle: 45 }])
+    expect(byId(d, 'a').rotation).toBe(45)
+    expect(renderCanvasSvg(d)).toContain('<g transform="rotate(45 50 50)">')
+    d = run(d, [{ op: 'rotate', id: 'a', by: 150 }])
+    expect(byId(d, 'a').rotation).toBe(-165)
+    d = run(d, [{ op: 'rotate', id: 'a', angle: 360 }])
+    expect('rotation' in byId(d, 'a')).toBe(false)
+    const bad = applyCanvasOps(three(), [{ op: 'rotate', id: 'a' }])
+    expect(bad.ok).toBe(false)
+  })
+
+  it('duplikalas: uj azonosito, eltolva, kozvetlenul az eredeti fole', () => {
+    const d = run(three(), [{ op: 'duplicate', id: 'a' }])
+    expect(d.objects.map((o) => o.id)).toEqual(['a', 'a-2', 'b', 'c'])
+    expect(byId(d, 'a-2').x).toBe(20)
+    expect(byId(d, 'a-2').y).toBe(20)
+  })
+
+  it('igazitas egymashoz: bal, jobb, kozep; egy elem a vaszonhoz', () => {
+    let d = run(three(), [{ op: 'align', ids: ['a', 'b', 'c'], to: 'left' }])
+    expect(d.objects.map((o) => o.x)).toEqual([0, 0, 0])
+    d = run(three(), [{ op: 'align', ids: ['a', 'b', 'c'], to: 'bottom' }])
+    expect(d.objects.map((o) => o.y + o.height)).toEqual([400, 400, 400])
+    d = run(three(), [{ op: 'align', ids: ['a', 'c'], to: 'center' }])
+    // Az egyesitett doboz 0..800, kozepe 400.
+    expect(byId(d, 'a').x + 50).toBe(400)
+    expect(byId(d, 'c').x + 50).toBe(400)
+    d = run(three(), [{ op: 'align', ids: ['b'], to: 'right' }])
+    expect(byId(d, 'b').x + byId(d, 'b').width).toBe(1000)
+  })
+
+  it('egyenletes elosztas: a ket szelso marad, a hezagok egyformak; ketto keves', () => {
+    const d = run(three(), [{ op: 'distribute', ids: ['c', 'a', 'b'], axis: 'x' }])
+    const a = byId(d, 'a'), b = byId(d, 'b'), c = byId(d, 'c')
+    expect(a.x).toBe(0)
+    expect(c.x).toBe(700)
+    expect(b.x - (a.x + a.width)).toBe(c.x - (b.x + b.width))
+    const few = applyCanvasOps(three(), [{ op: 'distribute', ids: ['a', 'b'] }])
+    expect(few.ok).toBe(false)
+  })
+
+  it('csoport: nevvel, egyutt mozog/masolodik/torlodik, bontva szetvalik', () => {
+    let d = run(three(), [{ op: 'group', ids: ['a', 'c'], name: 'gomb' }])
+    expect(byId(d, 'a').group).toBe('gomb')
+    // A csoport tagjai egymas melle kerulnek a sorrendben.
+    expect(d.objects.map((o) => o.id)).toEqual(['b', 'a', 'c'])
+    d = run(d, [{ op: 'move', id: 'gomb', dx: 10, dy: 5 }])
+    expect([byId(d, 'a').x, byId(d, 'c').x, byId(d, 'b').x]).toEqual([10, 710, 300])
+    d = run(d, [{ op: 'duplicate', id: 'gomb' }])
+    const copies = d.objects.filter((o) => o.group === 'gomb 2')
+    expect(copies).toHaveLength(2)
+    d = run(d, [{ op: 'remove', id: 'gomb 2' }])
+    expect(d.objects).toHaveLength(3)
+    d = run(d, [{ op: 'ungroup', group: 'gomb' }])
+    expect(d.objects.every((o) => !o.group)).toBe(true)
+    // Csoporton a skalazas nem ertelmes: a hiba megmondja, mit lehet.
+    const g = run(three(), [{ op: 'group', ids: ['a', 'b'], name: 'g' }])
+    const bad = applyCanvasOps(g, [{ op: 'scale', id: 'g', factor: 2 }])
+    expect(bad.ok).toBe(false)
+    if (!bad.ok) expect(bad.detail).toContain('a, b')
+  })
+
+  it('csoportos igazitasnal a csoport egyben mozog', () => {
+    const g = run(three(), [{ op: 'group', ids: ['a', 'b'], name: 'g' }])
+    const d = run(g, [{ op: 'align', ids: ['g', 'c'], to: 'top' }])
+    // A csoport (a+b) teteje 0 volt: marad; a "c" felmegy 0-ra.
+    expect(byId(d, 'a').y).toBe(0)
+    expect(byId(d, 'b').y).toBe(50)
+    expect(byId(d, 'c').y).toBe(0)
+  })
+
+  it('az ismeretlen muvelet hibaja az uj muveleteket is felsorolja', () => {
+    const r = applyCanvasOps(three(), [{ op: 'flip', id: 'a' }])
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      for (const op of ['rotate', 'duplicate', 'align', 'distribute', 'group', 'ungroup']) expect(r.detail).toContain(op)
+    }
+  })
+})

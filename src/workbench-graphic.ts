@@ -37,7 +37,8 @@ export const CANVAS_EMBED_MAX_BYTES = 4 * 1024 * 1024
  *  de ertelmes hataron belul -- a vegtelen szam nem rajz, hanem hiba. */
 const COORD_LIMIT = 40_000
 
-export type CanvasObjectType = 'text' | 'rect' | 'image'
+export type CanvasObjectType = 'text' | 'rect' | 'image' | 'ellipse' | 'line'
+export const CANVAS_OBJECT_TYPES: readonly CanvasObjectType[] = ['text', 'rect', 'image', 'ellipse', 'line']
 export type CanvasAlign = 'left' | 'center' | 'right'
 export type CanvasFont = 'sans' | 'serif' | 'mono'
 export type CanvasFit = 'contain' | 'cover'
@@ -50,6 +51,12 @@ export interface CanvasObjectCommon {
   width: number
   height: number
   opacity: number
+  /** Forgatas fokban a doboz kozeppontja korul (v4 spec K-2.5). Csak akkor
+   *  all az adatban, ha nem 0 -- a regi rajzok valtozatlanok maradnak. */
+  rotation?: number
+  /** Csoport neve (K-2.5): az azonos nevu elemek egyutt mozognak, masolodnak,
+   *  torlodnek. Csak akkor all az adatban, ha van. */
+  group?: string
 }
 
 export interface CanvasText extends CanvasObjectCommon {
@@ -77,7 +84,24 @@ export interface CanvasImage extends CanvasObjectCommon {
   alt: string
 }
 
-export type CanvasObject = CanvasText | CanvasRect | CanvasImage
+/** Kor vagy ellipszis (K-2.6): a doboz kitoltott ovalisa. */
+export interface CanvasEllipse extends CanvasObjectCommon {
+  type: 'ellipse'
+  fill: string
+  stroke: string
+  strokeWidth: number
+}
+
+/** Vonal (K-2.6): a doboz kozepvonala balrol jobbra, `width` hosszan. A ferde
+ *  vonal a forgatassal all elo -- ugyanigy tarolja a Figma is (hossz + szog),
+ *  igy a vonalra is ugyanaz a mozgatas, masolas, igazitas ervenyes. */
+export interface CanvasLine extends CanvasObjectCommon {
+  type: 'line'
+  stroke: string
+  strokeWidth: number
+}
+
+export type CanvasObject = CanvasText | CanvasRect | CanvasImage | CanvasEllipse | CanvasLine
 
 export interface CanvasDoc {
   version: 1
@@ -148,14 +172,30 @@ export function slugCanvasId(seed: string, type: CanvasObjectType, taken: Set<st
   return id
 }
 
+/** Szog -180 .. 180 kozott, ket tizedesre. Ertelmetlen ertek = 0 (nincs forgatas). */
+function normAngle(v: unknown): number {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0
+  let a = n % 360
+  if (a > 180) a -= 360
+  if (a <= -180) a += 360
+  return Math.round(a * 100) / 100 || 0
+}
+
+/** Csoportnev: rovid, olvashato szo. Ures vagy ertelmetlen = nincs csoport. */
+function groupName(v: unknown): string {
+  if (typeof v !== 'string') return ''
+  return v.trim().replace(/\s+/g, ' ').slice(0, 40)
+}
+
 function parseObject(raw: unknown, index: number, taken: Set<string>): { ok: true; obj: CanvasObject } | { ok: false; code: string; detail: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, code: 'canvas_bad_object', detail: `objects[${index}] is not an object` }
   }
   const o = raw as Record<string, unknown>
   const type = String(o['type'] ?? '').trim().toLowerCase()
-  if (type !== 'text' && type !== 'rect' && type !== 'image') {
-    return { ok: false, code: 'canvas_bad_object', detail: `objects[${index}]: unknown type "${type || '(missing)'}" (allowed: text, rect, image)` }
+  if (!(CANVAS_OBJECT_TYPES as readonly string[]).includes(type)) {
+    return { ok: false, code: 'canvas_bad_object', detail: `objects[${index}]: unknown type "${type || '(missing)'}" (allowed: ${CANVAS_OBJECT_TYPES.join(', ')})` }
   }
   const rawId = String(o['id'] ?? '').trim()
   // A MEGLEVO id-t megtartjuk (ez a "stabil ID" lenyege). Csak akkor adunk
@@ -168,8 +208,28 @@ function parseObject(raw: unknown, index: number, taken: Set<string>): { ok: tru
     id, type: type as CanvasObjectType,
     x: num(o['x'], 0), y: num(o['y'], 0),
     width: num(o['width'], type === 'text' ? 600 : 300, 1, CANVAS_MAX_SIZE),
-    height: num(o['height'], type === 'text' ? 120 : 300, 1, CANVAS_MAX_SIZE),
+    height: num(o['height'], type === 'text' ? 120 : type === 'line' ? 20 : 300, 1, CANVAS_MAX_SIZE),
     opacity: Math.min(1, Math.max(0, Number.isFinite(Number(o['opacity'])) ? Number(o['opacity']) : 1)),
+  }
+  const rotation = normAngle(o['rotation'])
+  if (rotation) common.rotation = rotation
+  const group = groupName(o['group'])
+  if (group) common.group = group
+
+  if (type === 'ellipse') {
+    return {
+      ok: true,
+      obj: {
+        ...common, type: 'ellipse', fill: safeColor(o['fill'], '#dddddd'),
+        stroke: safeColor(o['stroke'], 'none'), strokeWidth: num(o['strokeWidth'], 0, 0, 400),
+      },
+    }
+  }
+  if (type === 'line') {
+    return {
+      ok: true,
+      obj: { ...common, type: 'line', stroke: safeColor(o['stroke'], '#111111'), strokeWidth: num(o['strokeWidth'], 4, 1, 400) },
+    }
   }
 
   if (type === 'text') {
@@ -257,7 +317,13 @@ export type CanvasOpsResult =
   | { ok: false; code: string; detail: string }
 
 /** Azok a muveletek, amik EGY MEGLEVO elemre hatnak (tehat `id` kell hozzajuk). */
-const OBJECT_OPS = ['remove', 'update', 'move', 'center', 'scale', 'order']
+const OBJECT_OPS = ['remove', 'update', 'move', 'center', 'scale', 'order', 'rotate', 'duplicate']
+
+/** Azok a muveletek, amik TOBB elemre hatnak (`ids` lista, v4 spec K-2.5). */
+const MULTI_OPS = ['align', 'distribute', 'group', 'ungroup']
+
+/** Minden ismert muvelet -- a hibauzenet ezt sorolja fel. */
+const ALL_OPS = ['add', 'update', 'remove', 'move', 'center', 'scale', 'order', 'rotate', 'duplicate', 'align', 'distribute', 'group', 'ungroup', 'canvas']
 
 function findIndex(doc: CanvasDoc, id: unknown): number {
   const want = String(id ?? '').trim()
@@ -266,6 +332,54 @@ function findIndex(doc: CanvasDoc, id: unknown): number {
 
 function centerOf(o: CanvasObject): { cx: number; cy: number } {
   return { cx: o.x + o.width / 2, cy: o.y + o.height / 2 }
+}
+
+interface Box { x: number; y: number; width: number; height: number }
+
+/** Az elem LATHATO befoglalo doboza: forgatott elemnel a forgatott sarkok
+ *  kore rajzolt teglalap. Igy az igazitas azt igazitja, amit a szem lat (a
+ *  Figma es a Canva is igy csinalja). */
+export function visualBox(o: CanvasObject): Box {
+  const a = ((o.rotation || 0) * Math.PI) / 180
+  if (!a) return { x: o.x, y: o.y, width: o.width, height: o.height }
+  const { cx, cy } = centerOf(o)
+  const w = Math.abs(o.width * Math.cos(a)) + Math.abs(o.height * Math.sin(a))
+  const h = Math.abs(o.width * Math.sin(a)) + Math.abs(o.height * Math.cos(a))
+  return { x: cx - w / 2, y: cy - h / 2, width: w, height: h }
+}
+
+function unionBox(list: CanvasObject[]): Box {
+  const boxes = list.map(visualBox)
+  const x = Math.min(...boxes.map((b) => b.x))
+  const y = Math.min(...boxes.map((b) => b.y))
+  const r = Math.max(...boxes.map((b) => b.x + b.width))
+  const btm = Math.max(...boxes.map((b) => b.y + b.height))
+  return { x, y, width: r - x, height: btm - y }
+}
+
+/** Egy muvelet celpontjai: az `id` lehet egy elem, VAGY egy csoport neve --
+ *  ilyenkor a csoport minden eleme (a vaszon sorrendjeben). */
+function targetsOf(doc: CanvasDoc, id: unknown): CanvasObject[] {
+  const want = String(id ?? '').trim()
+  if (!want) return []
+  const one = doc.objects.find((o) => o.id === want)
+  if (one) return [one]
+  return doc.objects.filter((o) => o.group === want)
+}
+
+function shiftBy(o: CanvasObject, dx: number, dy: number): void {
+  o.x = num(o.x + dx, o.x)
+  o.y = num(o.y + dy, o.y)
+}
+
+function notFound(doc: CanvasDoc, id: unknown): { ok: false; code: string; detail: string } {
+  const have = doc.objects.map((o) => o.id).join(', ') || '(the canvas is empty)'
+  const groups = [...new Set(doc.objects.map((o) => o.group).filter(Boolean))]
+  return {
+    ok: false, code: 'canvas_object_not_found',
+    detail: `there is no object or group called "${String(id ?? '')}" on the canvas. Objects: ${have}`
+      + (groups.length ? `. Groups: ${groups.join(', ')}` : ''),
+  }
 }
 
 /**
@@ -338,22 +452,58 @@ export function applyCanvasOps(doc: CanvasDoc, rawOps: unknown): CanvasOpsResult
     // AZ ISMERETLEN MUVELET ITT bukik meg, MIELOTT az azonositot keresnenk:
     // kulonben egy elgepelt muveletnev "nincs ilyen elem" hibat adna, ami mas
     // iranyba kuldene a hivot (ember es agent egyarant).
-    if (!OBJECT_OPS.includes(op)) {
+    if (!OBJECT_OPS.includes(op) && !MULTI_OPS.includes(op)) {
       return {
         ok: false,
         code: 'canvas_bad_ops',
-        detail: `ops[${i}]: unknown operation "${op || '(missing)'}" (allowed: add, update, remove, move, center, scale, order, canvas)`,
+        detail: `ops[${i}]: unknown operation "${op || '(missing)'}" (allowed: ${ALL_OPS.join(', ')})`,
       }
+    }
+
+    if (MULTI_OPS.includes(op)) {
+      const m = multiOp(next, op, r, i)
+      if (!m.ok) return m
+      applied.push(m.note)
+      continue
+    }
+
+    // CSOPORTRA is hathat (az `id` a csoport neve): mozgatas, kozepre, masolas,
+    // torles, sorrend -- ugyanaz, amit a csoport egy elemenel a szem var.
+    const group = findIndex(next, r['id']) < 0 ? targetsOf(next, r['id']) : []
+    if (group.length) {
+      const g = groupOp(next, op, r, i, group)
+      if (!g.ok) return g
+      applied.push(g.note)
+      continue
     }
 
     const idx = findIndex(next, r['id'])
     if (idx < 0) {
       // A "nincs ilyen" SOSE csendes: megmondjuk, mi VAN a vaszonon, hogy a
       // hivo (ember vagy agent) ne talalgasson tovabb.
-      const have = next.objects.map((o) => o.id).join(', ') || '(the canvas is empty)'
-      return { ok: false, code: 'canvas_object_not_found', detail: `there is no object called "${String(r['id'] ?? '')}" on the canvas. Objects: ${have}` }
+      return notFound(next, r['id'])
     }
     const target = next.objects[idx] as CanvasObject
+
+    if (op === 'rotate') {
+      const hasAngle = r['angle'] !== undefined
+      const by = Number(hasAngle ? r['angle'] : r['by'])
+      if (!Number.isFinite(by)) {
+        return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (rotate): give "angle" (the new angle in degrees) or "by" (degrees to turn, + = clockwise)` }
+      }
+      const a = normAngle(hasAngle ? by : (target.rotation || 0) + by)
+      if (a) target.rotation = a
+      else delete target.rotation
+      applied.push({ op, id: target.id, note: `"${target.id}" is now turned ${a} degrees` })
+      continue
+    }
+
+    if (op === 'duplicate') {
+      const d = duplicateObjects(next, [target], r, i)
+      if (!d.ok) return d
+      applied.push({ op, id: d.ids[0] ?? null, note: `"${target.id}" copied as "${d.ids[0]}"` })
+      continue
+    }
 
     if (op === 'remove') {
       next.objects.splice(idx, 1)
@@ -429,6 +579,196 @@ export function applyCanvasOps(doc: CanvasDoc, rawOps: unknown): CanvasOpsResult
   return { ok: true, doc: next, applied }
 }
 
+type OpOk = { ok: true; note: CanvasOpNote }
+type OpFail = { ok: false; code: string; detail: string }
+
+/** A masolatok (K-2.5 "duplikalas"): uj azonositoval, kicsit eltolva, KOZVETLENUL
+ *  az eredeti(ek) fole. Csoport masolasa uj csoportot ad. */
+function duplicateObjects(doc: CanvasDoc, list: CanvasObject[], r: Record<string, unknown>, i: number): { ok: true; ids: string[] } | OpFail {
+  if (doc.objects.length + list.length > CANVAS_MAX_OBJECTS) {
+    return { ok: false, code: 'canvas_too_many', detail: `ops[${i}] (duplicate): the canvas would hold more than ${CANVAS_MAX_OBJECTS} objects` }
+  }
+  const dx = num(r['dx'], 20)
+  const dy = num(r['dy'], 20)
+  const taken = new Set(doc.objects.map((o) => o.id))
+  const oldGroup = list[0]?.group
+  const newGroup = oldGroup && list.every((o) => o.group === oldGroup)
+    ? freeGroupName(doc, oldGroup)
+    : ''
+  const ids: string[] = []
+  let at = Math.max(...list.map((o) => doc.objects.indexOf(o))) + 1
+  for (const o of list) {
+    const copy = JSON.parse(JSON.stringify(o)) as CanvasObject
+    copy.id = slugCanvasId(o.id.replace(/-\d+$/, ''), o.type, taken)
+    shiftBy(copy, dx, dy)
+    if (newGroup) copy.group = newGroup
+    else delete copy.group
+    doc.objects.splice(at, 0, copy)
+    at += 1
+    ids.push(copy.id)
+  }
+  return { ok: true, ids }
+}
+
+function freeGroupName(doc: CanvasDoc, base: string): string {
+  const have = new Set(doc.objects.map((o) => o.group).filter(Boolean))
+  const root = base.replace(/ \d+$/, '') || 'group'
+  let n = 2
+  let name = `${root} ${n}`
+  while (have.has(name)) { n += 1; name = `${root} ${n}` }
+  return name
+}
+
+/** Muvelet egy egesz csoporton (az `id` a csoport neve). */
+function groupOp(doc: CanvasDoc, op: string, r: Record<string, unknown>, i: number, list: CanvasObject[]): OpOk | OpFail {
+  const name = String(r['id'])
+  if (op === 'move') {
+    const dx = num(r['dx'], 0)
+    const dy = num(r['dy'], 0)
+    for (const o of list) shiftBy(o, dx, dy)
+    return { ok: true, note: { op, id: name, note: `group "${name}" moved` } }
+  }
+  if (op === 'center') {
+    const axis = pickEnum(r['axis'], ['x', 'y', 'both'] as const, 'both')
+    const b = unionBox(list)
+    const dx = axis === 'y' ? 0 : Math.round((doc.width - b.width) / 2 - b.x)
+    const dy = axis === 'x' ? 0 : Math.round((doc.height - b.height) / 2 - b.y)
+    for (const o of list) shiftBy(o, dx, dy)
+    return { ok: true, note: { op, id: name, note: `group "${name}" centered (${axis})` } }
+  }
+  if (op === 'remove') {
+    doc.objects = doc.objects.filter((o) => !list.includes(o))
+    return { ok: true, note: { op, id: name, note: `group "${name}" removed (${list.length} objects)` } }
+  }
+  if (op === 'duplicate') {
+    const d = duplicateObjects(doc, list, r, i)
+    if (!d.ok) return d
+    const g = doc.objects.find((o) => o.id === d.ids[0])?.group ?? null
+    return { ok: true, note: { op, id: g, note: `group "${name}" copied as "${g}"` } }
+  }
+  if (op === 'order') {
+    const to = pickEnum(r['to'], ['front', 'back'] as const, 'front')
+    const rest = doc.objects.filter((o) => !list.includes(o))
+    doc.objects = to === 'front' ? [...rest, ...list] : [...list, ...rest]
+    return { ok: true, note: { op, id: name, note: `group "${name}" moved ${to}` } }
+  }
+  return {
+    ok: false, code: 'canvas_bad_ops',
+    detail: `ops[${i}] (${op}): "${name}" is a group; ${op} works on one object at a time. A group can be moved, centered, copied (duplicate), removed or brought to front/back; or give the id of one of its objects: ${list.map((o) => o.id).join(', ')}`,
+  }
+}
+
+/** Az `ids` lista feloldasa: elem-azonositok ES csoportnevek, ismetles nelkul,
+ *  a vaszon sorrendjeben. */
+function resolveIds(doc: CanvasDoc, raw: unknown, op: string, i: number): { ok: true; list: CanvasObject[] } | OpFail {
+  if (!Array.isArray(raw) || !raw.length) {
+    return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (${op}): "ids" must be a list of object ids (or group names)` }
+  }
+  const set = new Set<CanvasObject>()
+  for (const id of raw) {
+    const t = targetsOf(doc, id)
+    if (!t.length) return notFound(doc, id)
+    for (const o of t) set.add(o)
+  }
+  return { ok: true, list: doc.objects.filter((o) => set.has(o)) }
+}
+
+/**
+ * Tobb elemre hato muveletek (v4 spec K-2.5):
+ *   align      -- igazitas egymashoz (bal, kozep, jobb, fent, kozep, lent); EGY
+ *                 elemnel a vaszonhoz (ahogy a Figma a keretehez igazit)
+ *   distribute -- egyenletes elosztas (legalabb harom elem): a ket szelso
+ *                 marad, a koztes hezagok egyformak lesznek
+ *   group / ungroup -- csoportositas nevvel, es a csoport bontasa
+ */
+function multiOp(doc: CanvasDoc, op: string, r: Record<string, unknown>, i: number): OpOk | OpFail {
+  if (op === 'ungroup') {
+    const names = new Set<string>()
+    if (r['group'] !== undefined) names.add(groupName(r['group']))
+    if (Array.isArray(r['ids'])) {
+      const res = resolveIds(doc, r['ids'], op, i)
+      if (!res.ok) return res
+      for (const o of res.list) if (o.group) names.add(o.group)
+    }
+    names.delete('')
+    const hit = doc.objects.filter((o) => o.group && names.has(o.group))
+    if (!hit.length) {
+      const groups = [...new Set(doc.objects.map((o) => o.group).filter(Boolean))]
+      return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (ungroup): there is no such group. Groups: ${groups.join(', ') || '(none)'}` }
+    }
+    for (const o of hit) delete o.group
+    return { ok: true, note: { op, id: null, note: `group ${[...names].map((n) => `"${n}"`).join(', ')} split into ${hit.length} objects` } }
+  }
+  const res = resolveIds(doc, r['ids'], op, i)
+  if (!res.ok) return res
+  const list = res.list
+  if (op === 'group') {
+    if (list.length < 2) return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (group): a group needs at least two objects` }
+    const wanted = groupName(r['name'])
+    if (wanted && doc.objects.some((o) => o.id === wanted)) {
+      return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (group): "${wanted}" is already the id of an object; pick another group name` }
+    }
+    const name = wanted || freeGroupName(doc, 'group')
+    for (const o of list) o.group = name
+    // A csoport elemei egymas mellett allnak a sorrendben (a legfelso helyen),
+    // kulonben egy kozbeeso idegen elem "atlatszana" a csoporton.
+    const top = Math.max(...list.map((o) => doc.objects.indexOf(o)))
+    const before = doc.objects.slice(0, top + 1).filter((o) => !list.includes(o))
+    const after = doc.objects.slice(top + 1)
+    doc.objects = [...before, ...list, ...after]
+    return { ok: true, note: { op, id: name, note: `${list.length} objects grouped as "${name}"` } }
+  }
+  if (op === 'align') {
+    const to = pickEnum(r['to'], ['left', 'center', 'right', 'top', 'middle', 'bottom'] as const, 'left')
+    // Egy elem (vagy egy csoport) a vaszonhoz igazodik, tobb elem egymashoz.
+    const single = new Set(list.map((o) => o.group || `#${o.id}`)).size === 1
+    const frame: Box = single ? { x: 0, y: 0, width: doc.width, height: doc.height } : unionBox(list)
+    // Csoportot egyben igazitunk: a belso elrendezese nem esik szet.
+    const units = new Map<string, CanvasObject[]>()
+    for (const o of list) {
+      const k = o.group || `#${o.id}`
+      units.set(k, [...(units.get(k) || []), o])
+    }
+    for (const members of units.values()) {
+      const b = unionBox(members)
+      let dx = 0
+      let dy = 0
+      if (to === 'left') dx = frame.x - b.x
+      else if (to === 'right') dx = frame.x + frame.width - (b.x + b.width)
+      else if (to === 'center') dx = frame.x + frame.width / 2 - (b.x + b.width / 2)
+      else if (to === 'top') dy = frame.y - b.y
+      else if (to === 'bottom') dy = frame.y + frame.height - (b.y + b.height)
+      else dy = frame.y + frame.height / 2 - (b.y + b.height / 2)
+      for (const o of members) shiftBy(o, Math.round(dx), Math.round(dy))
+    }
+    return { ok: true, note: { op, id: null, note: `${list.length} objects aligned ${to}${single ? ' to the canvas' : ''}` } }
+  }
+  // distribute
+  const axis = pickEnum(r['axis'], ['x', 'y'] as const, 'x')
+  const units = new Map<string, CanvasObject[]>()
+  for (const o of list) {
+    const k = o.group || `#${o.id}`
+    units.set(k, [...(units.get(k) || []), o])
+  }
+  if (units.size < 3) {
+    return { ok: false, code: 'canvas_bad_ops', detail: `ops[${i}] (distribute): even spacing needs at least three objects (or groups); got ${units.size}` }
+  }
+  const rows = [...units.values()].map((m) => ({ m, b: unionBox(m) }))
+  rows.sort((a, b) => (axis === 'x' ? a.b.x - b.b.x : a.b.y - b.b.y))
+  const first = rows[0]!.b
+  const last = rows[rows.length - 1]!.b
+  const span = axis === 'x' ? last.x + last.width - first.x : last.y + last.height - first.y
+  const sizes = rows.reduce((acc, row) => acc + (axis === 'x' ? row.b.width : row.b.height), 0)
+  const gap = (span - sizes) / (rows.length - 1)
+  let pos = axis === 'x' ? first.x : first.y
+  for (const row of rows) {
+    const d = Math.round(pos - (axis === 'x' ? row.b.x : row.b.y))
+    for (const o of row.m) shiftBy(o, axis === 'x' ? d : 0, axis === 'y' ? d : 0)
+    pos += (axis === 'x' ? row.b.width : row.b.height) + gap
+  }
+  return { ok: true, note: { op, id: null, note: `${rows.length} objects spaced evenly (${axis === 'x' ? 'across' : 'down'})` } }
+}
+
 function esc(s: string): string {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -486,50 +826,72 @@ export function renderCanvasSvg(doc: CanvasDoc, opts: RenderOptions = {}): strin
     parts.push(`<rect x="0" y="0" width="${doc.width}" height="${doc.height}" fill="${esc(doc.background)}"/>`)
   }
   for (const o of doc.objects) {
-    const opacity = o.opacity >= 1 ? '' : ` opacity="${o.opacity}"`
-    if (o.type === 'rect') {
-      const r = o.radius > 0 ? ` rx="${o.radius}" ry="${o.radius}"` : ''
-      parts.push(`<rect x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" fill="${esc(o.fill)}"${r}${opacity}/>`)
-      continue
-    }
-    if (o.type === 'image') {
-      const r = opts.resolveImage ? opts.resolveImage(o.src) : { ok: false as const, note: 'the picture is not embedded here' }
-      if (r.ok) {
-        const fit = o.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'
-        parts.push(`<image x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" preserveAspectRatio="${fit}" href="${esc(r.dataUri)}" xlink:href="${esc(r.dataUri)}"${opacity}>`
-          + `<title>${esc(o.alt || o.src)}</title></image>`)
-        continue
-      }
-      // A HIANYZO KEP NEM TUNIK EL: a helyen lathato tabla all, es megmondja,
-      // melyik fajlrol van szo es mi a baj vele.
-      parts.push(`<g${opacity}><rect x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" fill="#f2f2f2" stroke="#b00020" stroke-dasharray="8 6"/>`
-        + `<text x="${o.x + 12}" y="${o.y + 28}" font-family="${esc(FONT_STACK.sans)}" font-size="18" fill="#b00020">${esc(o.src)}</text>`
-        + `<text x="${o.x + 12}" y="${o.y + 52}" font-family="${esc(FONT_STACK.sans)}" font-size="16" fill="#b00020">${esc(r.note)}</text></g>`)
-      continue
-    }
-    const lines = wrapText(o.text, o.width, o.fontSize, o.font)
-    const anchor = o.align === 'center' ? 'middle' : o.align === 'right' ? 'end' : 'start'
-    const tx = o.align === 'center' ? o.x + o.width / 2 : o.align === 'right' ? o.x + o.width : o.x
-    const lineHeight = Math.round(o.fontSize * 1.25)
-    // Az elso sor alapvonala: a betumagassag miatt a doboz tetejetol lejjebb.
-    let ty = o.y + Math.round(o.fontSize * 0.95)
-    const style = `font-family="${esc(FONT_STACK[o.font])}" font-size="${o.fontSize}" fill="${esc(o.color)}"`
-      + (o.bold ? ' font-weight="bold"' : '') + (o.italic ? ' font-style="italic"' : '')
-    parts.push(`<g${opacity}>`)
-    for (const line of lines) {
-      parts.push(`<text x="${tx}" y="${ty}" text-anchor="${anchor}" ${style}>${esc(line)}</text>`)
-      ty += lineHeight
-    }
-    parts.push('</g>')
+    // A forgatott elem egy `<g transform>`-ba kerul, a doboz kozeppontja korul
+    // -- ugyanugy, ahogy a felulet a dobozt forgatja.
+    const rot = o.rotation ? `rotate(${o.rotation} ${o.x + o.width / 2} ${o.y + o.height / 2})` : ''
+    if (rot) parts.push(`<g transform="${rot}">`)
+    renderObject(parts, o, opts)
+    if (rot) parts.push('</g>')
   }
   parts.push('</svg>')
   return parts.join('\n')
 }
 
+function renderObject(parts: string[], o: CanvasObject, opts: RenderOptions): void {
+  const opacity = o.opacity >= 1 ? '' : ` opacity="${o.opacity}"`
+  if (o.type === 'ellipse') {
+    const stroke = o.stroke !== 'none' && o.strokeWidth > 0 ? ` stroke="${esc(o.stroke)}" stroke-width="${o.strokeWidth}"` : ''
+    parts.push(`<ellipse cx="${o.x + o.width / 2}" cy="${o.y + o.height / 2}" rx="${o.width / 2}" ry="${o.height / 2}" fill="${esc(o.fill)}"${stroke}${opacity}/>`)
+    return
+  }
+  if (o.type === 'line') {
+    const y = o.y + o.height / 2
+    parts.push(`<line x1="${o.x}" y1="${y}" x2="${o.x + o.width}" y2="${y}" stroke="${esc(o.stroke)}" stroke-width="${o.strokeWidth}" stroke-linecap="round"${opacity}/>`)
+    return
+  }
+  if (o.type === 'rect') {
+    const r = o.radius > 0 ? ` rx="${o.radius}" ry="${o.radius}"` : ''
+    parts.push(`<rect x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" fill="${esc(o.fill)}"${r}${opacity}/>`)
+    return
+  }
+  if (o.type === 'image') {
+    const r = opts.resolveImage ? opts.resolveImage(o.src) : { ok: false as const, note: 'the picture is not embedded here' }
+    if (r.ok) {
+      const fit = o.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'
+      parts.push(`<image x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" preserveAspectRatio="${fit}" href="${esc(r.dataUri)}" xlink:href="${esc(r.dataUri)}"${opacity}>`
+        + `<title>${esc(o.alt || o.src)}</title></image>`)
+      return
+    }
+    // A HIANYZO KEP NEM TUNIK EL: a helyen lathato tabla all, es megmondja,
+    // melyik fajlrol van szo es mi a baj vele.
+    parts.push(`<g${opacity}><rect x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" fill="#f2f2f2" stroke="#b00020" stroke-dasharray="8 6"/>`
+      + `<text x="${o.x + 12}" y="${o.y + 28}" font-family="${esc(FONT_STACK.sans)}" font-size="18" fill="#b00020">${esc(o.src)}</text>`
+      + `<text x="${o.x + 12}" y="${o.y + 52}" font-family="${esc(FONT_STACK.sans)}" font-size="16" fill="#b00020">${esc(r.note)}</text></g>`)
+    return
+  }
+  const lines = wrapText(o.text, o.width, o.fontSize, o.font)
+  const anchor = o.align === 'center' ? 'middle' : o.align === 'right' ? 'end' : 'start'
+  const tx = o.align === 'center' ? o.x + o.width / 2 : o.align === 'right' ? o.x + o.width : o.x
+  const lineHeight = Math.round(o.fontSize * 1.25)
+  // Az elso sor alapvonala: a betumagassag miatt a doboz tetejetol lejjebb.
+  let ty = o.y + Math.round(o.fontSize * 0.95)
+  const style = `font-family="${esc(FONT_STACK[o.font])}" font-size="${o.fontSize}" fill="${esc(o.color)}"`
+    + (o.bold ? ' font-weight="bold"' : '') + (o.italic ? ' font-style="italic"' : '')
+  parts.push(`<g${opacity}>`)
+  for (const line of lines) {
+    parts.push(`<text x="${tx}" y="${ty}" text-anchor="${anchor}" ${style}>${esc(line)}</text>`)
+    ty += lineHeight
+  }
+  parts.push('</g>')
+}
+
 /** Rovid, EMBERI osszefoglalo a vaszonrol -- ezt kapja az agent es a naplo. */
 export function canvasSummary(doc: CanvasDoc): string {
   if (!doc.objects.length) return `empty canvas, ${doc.width}x${doc.height}`
-  const items = doc.objects.map((o) => (o.type === 'text' ? `${o.id} (text: "${o.text.slice(0, 40)}")` : `${o.id} (${o.type})`))
+  const items = doc.objects.map((o) => {
+    const extra = (o.rotation ? `, turned ${o.rotation}°` : '') + (o.group ? `, group "${o.group}"` : '')
+    return o.type === 'text' ? `${o.id} (text: "${o.text.slice(0, 40)}"${extra})` : `${o.id} (${o.type}${extra})`
+  })
   return `${doc.width}x${doc.height}, ${doc.objects.length} objects: ${items.join(', ')}`
 }
 

@@ -86,6 +86,16 @@
     // Melyik elemet jelolte ki a felhasznalo a vasznon (huzogatas, kartya
     // d4b05d82). Csak a KIEMELEST jelenti, a szerkeszto urlapot nem nyitja.
     canvasSel: null,
+    // Tobb elem kijelolese az igazitashoz, elosztashoz, csoportositashoz
+    // (K-2.5): elem-azonosito -> true. A lista pipajai es a Shift+kattintas.
+    canvasPick: {},
+    // A Ctrl+C-vel "vagolapra" tett elem azonositoja; a Ctrl+V masolatot ker.
+    canvasClip: null,
+    // Illesztes huzaskor (K-2.7): segedvonalakhoz (a vaszon szeleihez,
+    // kozepehez es a tobbi elemhez) alapbol igen, racsra alapbol nem. A
+    // valasztast a bongeszo megjegyzi.
+    canvasSnap: readPref('wb.canvas.snap', '1') === '1',
+    canvasGrid: readPref('wb.canvas.grid', '0') === '1',
     // A verziolista kinyitott "apro modositasok" csoportjai (K-2.4), a csoport
     // legregebbi verziojanak azonositojaval: uj verzio erkezesekor sem ugrik.
     verOpen: {},
@@ -223,6 +233,19 @@
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
   function escA(s) { return window.escapeAttr(s == null ? '' : String(s)) }
   function t(key, params) { return window.t(key, params || {}) }
+
+  /** Egy felulet-beallitas a bongeszobol. Ha a tarolo nem erheto el (privat
+   *  mod, teszt), az alapertek marad -- a beallitas nem hiba forrasa. */
+  function readPref(key, fallback) {
+    try {
+      var v = window.localStorage && window.localStorage.getItem(key)
+      return v == null ? fallback : String(v)
+    } catch (_e) { return fallback }
+  }
+
+  function writePref(key, value) {
+    try { if (window.localStorage) window.localStorage.setItem(key, String(value)) } catch (_e) { /* nem baj */ }
+  }
 
   function root() { return document.getElementById('projectsRoot') }
 
@@ -1025,6 +1048,7 @@
     WB.canvasEdit = null
     // Mas munkadarab = mas vaszon: a kijeloles nem szivaroghat at.
     WB.canvasSel = null
+    WB.canvasPick = {}
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -4289,9 +4313,12 @@
     var patch = {
       x: numField('wbCanX', o.x), y: numField('wbCanY', o.y),
       width: numField('wbCanW', o.width), height: numField('wbCanH', o.height),
+      rotation: numField('wbCanRot', o.rotation || 0),
+      opacity: Math.max(0, Math.min(100, numField('wbCanOpacity', Math.round((o.opacity == null ? 1 : o.opacity) * 100)))) / 100,
     }
     if (o.type === 'text') {
       patch.text = fieldValue('wbCanText', o.text)
+      patch.font = fieldValue('wbCanFont', o.font)
       patch.fontSize = numField('wbCanFontSize', o.fontSize)
       patch.color = fieldValue('wbCanColor', o.color)
       patch.align = fieldValue('wbCanAlign', o.align)
@@ -4300,6 +4327,11 @@
     } else if (o.type === 'rect') {
       patch.fill = fieldValue('wbCanFill', o.fill)
       patch.radius = numField('wbCanRadius', o.radius)
+    } else if (o.type === 'ellipse' || o.type === 'line') {
+      // A kitoltetlen kor korvonala csak akkor latszik, ha van vastagsaga.
+      if (o.type === 'ellipse') patch.fill = fieldValue('wbCanFill', o.fill)
+      patch.stroke = fieldValue('wbCanStroke', o.stroke)
+      patch.strokeWidth = numField('wbCanStrokeWidth', o.strokeWidth)
     } else {
       patch.fit = fieldValue('wbCanFit', o.fit)
       patch.alt = fieldValue('wbCanAlt', o.alt)
@@ -4324,6 +4356,28 @@
     canvasOps([{ op: 'add', object: { type: 'rect', x: 80, y: 260, width: 400, height: 240, fill: '#dddddd', radius: 16 } }])
   }
 
+  function canvasAddEllipse() {
+    canvasOps([{ op: 'add', object: { type: 'ellipse', x: 120, y: 300, width: 240, height: 240, fill: '#dddddd' } }])
+  }
+
+  function canvasAddLine() {
+    canvasOps([{ op: 'add', object: { type: 'line', x: 80, y: 540, width: 480, height: 20, stroke: '#111111', strokeWidth: 6 } }])
+  }
+
+  /** "Gomb" (K-2.6): elore osszerakott csoport -- lekerekitett doboz, rajta
+   *  kozepre igazitott felirat. Egyben mozog, de mindket resze kulon allithato. */
+  function canvasAddButton() {
+    var taken = {}
+    canvasObjects().forEach(function (o) { if (o.group) taken[o.group] = true })
+    var base = t('workbench.canvas.button_group')
+    var name = base
+    for (var n = 2; taken[name]; n += 1) name = base + ' ' + n
+    canvasOps([
+      { op: 'add', object: { type: 'rect', x: 80, y: 700, width: 360, height: 96, fill: '#1a73e8', radius: 48, group: name } },
+      { op: 'add', object: { type: 'text', text: t('workbench.canvas.button_text'), x: 80, y: 724, width: 360, height: 60, fontSize: 40, color: '#ffffff', align: 'center', bold: true, group: name } },
+    ])
+  }
+
   function canvasAddImage() {
     var src = fieldValue('wbCanNewImage', '')
     if (!src) return
@@ -4340,6 +4394,45 @@
     else if (op === 'smaller') canvasOps([{ op: 'scale', id: id, factor: 1 / 1.3 }])
     else if (op === 'front') canvasOps([{ op: 'order', id: id, to: 'front' }])
     else if (op === 'back') canvasOps([{ op: 'order', id: id, to: 'back' }])
+    else if (op === 'rotate') canvasOps([{ op: 'rotate', id: id, by: 15 }])
+    else if (op === 'duplicate') canvasOps([{ op: 'duplicate', id: id }])
+  }
+
+  /** A kijelolt elemek, a vaszon sorrendjeben (a mar nem letezoket kihagyva). */
+  function canvasPicked() {
+    return canvasObjects().filter(function (o) { return !!WB.canvasPick[o.id] }).map(function (o) { return o.id })
+  }
+
+  /** Tobb elemre hato muvelet a kijelolten (K-2.5). Egy elemnel az igazitas a
+   *  vaszonhoz igazit -- ezt a gomb felirata is megmondja. */
+  function canvasMulti(kind, arg) {
+    var ids = canvasPicked()
+    if (!ids.length) return
+    if (kind === 'align') canvasOps([{ op: 'align', ids: ids, to: arg }])
+    else if (kind === 'distribute') canvasOps([{ op: 'distribute', ids: ids, axis: arg }])
+    else if (kind === 'group') canvasOps([{ op: 'group', ids: ids }])
+    else if (kind === 'ungroup') canvasOps([{ op: 'ungroup', ids: ids }])
+  }
+
+  /** A kijeloles eszkoztara: igazitas, elosztas, csoport. Kijeloles nelkul egy
+   *  mondat mondja meg, hogyan lehet kijelolni -- nem ures sav. */
+  function canvasPickBarHtml() {
+    var ids = canvasPicked()
+    var busy = WB.canvasBusy ? ' disabled' : ''
+    if (!ids.length) return '<p class="wb-hint">' + esc(t('workbench.canvas.pick_hint')) + '</p>'
+    var grouped = canvasObjects().some(function (o) { return WB.canvasPick[o.id] && o.group })
+    var b = function (act, arg, label, off) {
+      return '<button type="button" class="wb-mini-btn" data-wb-act="' + act + '" data-wb-arg="' + arg + '"' + (off ? ' disabled' : busy) + '>' + esc(label) + '</button>'
+    }
+    return '<div class="wb-can-pickbar">'
+      + '<span class="wb-muted">' + esc(t(ids.length === 1 ? 'workbench.canvas.picked_one' : 'workbench.canvas.picked', { n: ids.length })) + '</span>'
+      + ['left', 'center', 'right', 'top', 'middle', 'bottom'].map(function (a) { return b('canvas-align', a, t('workbench.canvas.align_to_' + a)) }).join('')
+      + b('canvas-distribute', 'x', t('workbench.canvas.distribute_x'), ids.length < 3)
+      + b('canvas-distribute', 'y', t('workbench.canvas.distribute_y'), ids.length < 3)
+      + b('canvas-group', '', t('workbench.canvas.group'), ids.length < 2)
+      + (grouped ? b('canvas-ungroup', '', t('workbench.canvas.ungroup')) : '')
+      + b('canvas-unpick', '', t('workbench.canvas.unpick'))
+      + '</div>'
   }
 
   /** Elem kivetele. A korabbi allapot NEM vesz el (uj verzio keletkezik), de
@@ -4386,16 +4479,89 @@
     return { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) }
   }
 
+  /** A racs lepese vaszon-egysegben (K-2.7). */
+  var CANVAS_GRID = 20
+
+  /**
+   * Illesztes (K-2.7) -- tiszta fuggveny. A huzott doboz szeleit es kozepet a
+   * celvonalakhoz (a vaszon szelei es kozepe, a tobbi elem szelei es kozepe)
+   * huzza, ha `tol` vaszon-egysegen belul vannak; ahogy a Figma es a Canva.
+   * Atmeretezesnel csak a MOZGO szelek illeszkednek. Ha segedvonal nem fogja
+   * meg, es a racs be van kapcsolva, a racsra kerekit.
+   * Visszaad: az uj doboz + a megjelenitendo segedvonalak.
+   */
+  function canvasSnapBox(box, mode, others, doc, opts) {
+    var tol = opts.tol
+    var out = { x: box.x, y: box.y, width: box.width, height: box.height }
+    var guides = []
+    var targets = function (axis) {
+      var list = axis === 'x' ? [0, doc.width / 2, doc.width] : [0, doc.height / 2, doc.height]
+      others.forEach(function (o) {
+        if (axis === 'x') list.push(o.x, o.x + o.width / 2, o.x + o.width)
+        else list.push(o.y, o.y + o.height / 2, o.y + o.height)
+      })
+      return list
+    }
+    // Melyik pontok mozognak ezen a tengelyen: mozgatasnal mindharom (kezdet,
+    // kozep, veg), atmeretezesnel csak a megfogott szel.
+    var movers = function (axis) {
+      var start = axis === 'x' ? out.x : out.y
+      var size = axis === 'x' ? out.width : out.height
+      if (mode === 'move') return [{ at: start, kind: 'start' }, { at: start + size / 2, kind: 'mid' }, { at: start + size, kind: 'end' }]
+      var west = mode === 'nw' || mode === 'sw'
+      var north = mode === 'nw' || mode === 'ne'
+      var lead = axis === 'x' ? west : north
+      return [lead ? { at: start, kind: 'start' } : { at: start + size, kind: 'end' }]
+    }
+    ;['x', 'y'].forEach(function (axis) {
+      var best = null
+      if (opts.guides) {
+        var tg = targets(axis)
+        movers(axis).forEach(function (m) {
+          tg.forEach(function (at) {
+            var d = at - m.at
+            if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d: d, kind: m.kind, at: at }
+          })
+        })
+      }
+      var startKey = axis === 'x' ? 'x' : 'y'
+      var sizeKey = axis === 'x' ? 'width' : 'height'
+      if (best) {
+        if (mode === 'move') out[startKey] = out[startKey] + best.d
+        else if (best.kind === 'start') { out[startKey] += best.d; out[sizeKey] -= best.d }
+        else out[sizeKey] += best.d
+        guides.push({ axis: axis, at: best.at })
+      } else if (opts.grid) {
+        var g = CANVAS_GRID
+        if (mode === 'move') out[startKey] = Math.round(out[startKey] / g) * g
+        else {
+          var mv = movers(axis)[0]
+          var snapped = Math.round(mv.at / g) * g
+          var dd = snapped - mv.at
+          if (mv.kind === 'start') { out[startKey] += dd; out[sizeKey] -= dd } else out[sizeKey] += dd
+        }
+      }
+    })
+    if (out.width < CANVAS_OBJ_MIN) out.width = CANVAS_OBJ_MIN
+    if (out.height < CANVAS_OBJ_MIN) out.height = CANVAS_OBJ_MIN
+    return {
+      box: { x: Math.round(out.x), y: Math.round(out.y), width: Math.round(out.width), height: Math.round(out.height) },
+      guides: guides,
+    }
+  }
+
   /** A doboz helye SZAZALEKBAN: a kep kicsinyitve is jo helyen all, es nem
    *  kell megmernunk a kepernyon elfoglalt meretet a kirajzolashoz. */
   function canvasBoxStyle(box, doc) {
     var pct = function (v, total) { return (Math.round((10000 * v) / total) / 100) + '%' }
     return 'left:' + pct(box.x, doc.width) + ';top:' + pct(box.y, doc.height)
       + ';width:' + pct(box.width, doc.width) + ';height:' + pct(box.height, doc.height)
+      // A forgatott elem kerete is forog -- a kozeppontja korul, ahogy a kep.
+      + (box.rotation ? ';transform:rotate(' + box.rotation + 'deg)' : '')
   }
 
   function canvasBoxHtml(o, doc) {
-    return '<div class="wb-can-box' + (WB.canvasSel === o.id ? ' wb-can-box-sel' : '') + '"'
+    return '<div class="wb-can-box' + (WB.canvasSel === o.id ? ' wb-can-box-sel' : '') + (WB.canvasPick[o.id] ? ' wb-can-box-picked' : '') + '"'
       + ' data-wb-box="' + escA(o.id) + '" tabindex="0" role="button"'
       + ' title="' + escA(canvasObjectLabel(o)) + '"'
       + ' aria-label="' + escA(t('workbench.canvas.drag_aria', { name: canvasObjectLabel(o) })) + '"'
@@ -4425,11 +4591,18 @@
         + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_archived')) + '</p>'
     }
     return '<div class="wb-can-stage" data-wb-stage="1">' + img
-      + '<div class="wb-can-layer">'
+      + '<div class="wb-can-layer' + (WB.canvasGrid ? ' wb-can-layer-grid' : '') + '"'
+      + (WB.canvasGrid ? ' style="background-size:' + (Math.round(10000 * CANVAS_GRID / doc.width) / 100) + '% ' + (Math.round(10000 * CANVAS_GRID / doc.height) / 100) + '%"' : '') + '>'
+      + '<span class="wb-can-guide wb-can-guide-x" id="wbCanGuideX" hidden></span>'
+      + '<span class="wb-can-guide wb-can-guide-y" id="wbCanGuideY" hidden></span>'
       + canvasObjects().map(function (o) { return canvasBoxHtml(o, doc) }).join('')
       + '</div>'
       + '<span class="wb-can-live" id="wbCanLive" aria-live="polite"></span>'
       + '</div>'
+      + '<p class="wb-can-snapopts">'
+      + '<label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
+      + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label>'
+      + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p>'
   }
 
@@ -4443,12 +4616,21 @@
       + '<input class="wb-input" id="wbCanW" type="number" value="' + escA(String(o.width)) + '">'
       + '<label class="wb-label" for="wbCanH">' + esc(t('workbench.canvas.label_height')) + '</label>'
       + '<input class="wb-input" id="wbCanH" type="number" value="' + escA(String(o.height)) + '">'
+      + '<label class="wb-label" for="wbCanRot">' + esc(t('workbench.canvas.label_rotation')) + '</label>'
+      + '<input class="wb-input" id="wbCanRot" type="number" min="-180" max="180" step="1" value="' + escA(String(o.rotation || 0)) + '">'
+      + '<label class="wb-label" for="wbCanOpacity">' + esc(t('workbench.canvas.label_opacity')) + '</label>'
+      + '<input class="wb-input" id="wbCanOpacity" type="number" min="0" max="100" step="5" value="' + escA(String(Math.round((o.opacity == null ? 1 : o.opacity) * 100))) + '">'
       + '</div>'
     var own = ''
     if (o.type === 'text') {
       own = '<label class="wb-label" for="wbCanText">' + esc(t('workbench.canvas.label_text')) + '</label>'
         + '<textarea class="wb-input" id="wbCanText" rows="3">' + esc(o.text || '') + '</textarea>'
         + '<div class="wb-can-grid">'
+        + '<label class="wb-label" for="wbCanFont">' + esc(t('workbench.canvas.label_font')) + '</label>'
+        + '<select class="wb-input" id="wbCanFont">'
+        + ['sans', 'serif', 'mono'].map(function (f) {
+          return '<option value="' + f + '"' + ((o.font || 'sans') === f ? ' selected' : '') + '>' + esc(t('workbench.canvas.font_' + f)) + '</option>'
+        }).join('') + '</select>'
         + '<label class="wb-label" for="wbCanFontSize">' + esc(t('workbench.canvas.label_font_size')) + '</label>'
         + '<input class="wb-input" id="wbCanFontSize" type="number" min="4" max="1200" value="' + escA(String(o.fontSize)) + '">'
         + '<label class="wb-label" for="wbCanColor">' + esc(t('workbench.canvas.label_color')) + '</label>'
@@ -4469,6 +4651,17 @@
         + '<input class="wb-input" id="wbCanFill" type="color" value="' + escA(o.fill || '#dddddd') + '">'
         + '<label class="wb-label" for="wbCanRadius">' + esc(t('workbench.canvas.label_radius')) + '</label>'
         + '<input class="wb-input" id="wbCanRadius" type="number" min="0" value="' + escA(String(o.radius)) + '">'
+        + '</div>'
+    } else if (o.type === 'ellipse' || o.type === 'line') {
+      own = '<div class="wb-can-grid">'
+        + (o.type === 'ellipse'
+          ? '<label class="wb-label" for="wbCanFill">' + esc(t('workbench.canvas.label_fill')) + '</label>'
+            + '<input class="wb-input" id="wbCanFill" type="color" value="' + escA(o.fill && o.fill !== 'none' ? o.fill : '#dddddd') + '">'
+          : '')
+        + '<label class="wb-label" for="wbCanStroke">' + esc(t('workbench.canvas.label_stroke')) + '</label>'
+        + '<input class="wb-input" id="wbCanStroke" type="color" value="' + escA(o.stroke && o.stroke !== 'none' ? o.stroke : '#111111') + '">'
+        + '<label class="wb-label" for="wbCanStrokeWidth">' + esc(t('workbench.canvas.label_stroke_width')) + '</label>'
+        + '<input class="wb-input" id="wbCanStrokeWidth" type="number" min="0" max="400" value="' + escA(String(o.strokeWidth || 0)) + '">'
         + '</div>'
     } else {
       own = '<p class="wb-hint">' + esc(o.src || '') + '</p>'
@@ -4493,6 +4686,8 @@
   function canvasObjectLabel(o) {
     if (o.type === 'text') return t('workbench.canvas.obj_text', { text: (o.text || '').slice(0, 40) })
     if (o.type === 'rect') return t('workbench.canvas.obj_rect')
+    if (o.type === 'ellipse') return t('workbench.canvas.obj_ellipse')
+    if (o.type === 'line') return t('workbench.canvas.obj_line')
     return t('workbench.canvas.obj_image', { name: (o.src || '').split('/').pop() })
   }
 
@@ -4501,11 +4696,16 @@
       return '<button type="button" class="wb-part-btn" data-wb-act="' + act + '" data-wb-op="' + op + '" data-wb-obj="' + escA(o.id) + '"'
         + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(label) + '</button>'
     }
-    return '<li class="wb-can-obj">'
+    var ro = archived()
+    return '<li class="wb-can-obj' + (WB.canvasPick[o.id] ? ' wb-can-obj-picked' : '') + '">'
       + '<div class="wb-can-obj-head">'
+      + (ro ? '' : '<input type="checkbox" class="wb-can-pick-box" data-wb-act="canvas-pick" data-wb-obj="' + escA(o.id) + '"'
+        + (WB.canvasPick[o.id] ? ' checked' : '') + ' aria-label="' + escA(t('workbench.canvas.pick_aria', { name: canvasObjectLabel(o) })) + '">')
       + '<span class="wb-pill">' + esc(t('workbench.canvas.type_' + o.type)) + '</span>'
       + '<span class="wb-can-obj-name">' + esc(canvasObjectLabel(o)) + '</span>'
       + '<code class="wb-can-id">' + esc(o.id) + '</code>'
+      + (o.group ? ' <span class="wb-pill wb-can-group">' + esc(t('workbench.canvas.in_group', { name: o.group })) + '</span>' : '')
+      + (o.rotation ? ' <span class="wb-muted">' + esc(t('workbench.canvas.turned', { deg: o.rotation })) + '</span>' : '')
       + '</div>'
       + '<div class="wb-can-obj-actions">'
       + btn('canvas-op', 'center', t('workbench.canvas.center'))
@@ -4513,6 +4713,8 @@
       + btn('canvas-op', 'smaller', t('workbench.canvas.smaller'))
       + btn('canvas-op', 'front', t('workbench.canvas.front'))
       + btn('canvas-op', 'back', t('workbench.canvas.back'))
+      + btn('canvas-op', 'rotate', t('workbench.canvas.rotate'))
+      + btn('canvas-op', 'duplicate', t('workbench.canvas.duplicate'))
       + '<button type="button" class="wb-part-btn" data-wb-act="canvas-edit" data-wb-obj="' + escA(o.id) + '">'
       + esc(t('workbench.canvas.edit')) + '</button>'
       + '<button type="button" class="wb-part-btn wb-part-btn-bad" data-wb-act="canvas-remove" data-wb-obj="' + escA(o.id) + '"'
@@ -4529,6 +4731,12 @@
       + esc(t('workbench.canvas.add_text')) + '</button>'
       + '<button type="button" class="wb-btn" data-wb-act="canvas-add-rect"' + (WB.canvasBusy ? ' disabled' : '') + '>'
       + esc(t('workbench.canvas.add_rect')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-add-ellipse"' + (WB.canvasBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.canvas.add_ellipse')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-add-line"' + (WB.canvasBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.canvas.add_line')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-add-button"' + (WB.canvasBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.canvas.add_button')) + '</button>'
       + (images.length
         ? '<select class="wb-input wb-can-pick" id="wbCanNewImage">'
           + images.map(function (p) {
@@ -4580,6 +4788,7 @@
       + canvasOrphansHtml()
       + '<p class="wb-hint">' + esc(t('workbench.canvas.intro')) + '</p>'
       + (archived() ? '' : canvasAddHtml())
+      + (archived() || !objects.length ? '' : canvasPickBarHtml())
       + (objects.length
         ? '<ul class="wb-can-objs">' + objects.map(canvasObjectHtml).join('') + '</ul>'
         : '<p class="wb-muted">' + esc(t('workbench.canvas.empty')) + '</p>')
@@ -8983,6 +9192,17 @@
     else if (a === 'canvas-save') { e.preventDefault(); saveCanvasObject(act.getAttribute('data-wb-obj')) }
     else if (a === 'canvas-add-text') { if (!archived()) canvasAddText() }
     else if (a === 'canvas-add-rect') { if (!archived()) canvasAddRect() }
+    else if (a === 'canvas-add-ellipse') { if (!archived()) canvasAddEllipse() }
+    else if (a === 'canvas-add-line') { if (!archived()) canvasAddLine() }
+    else if (a === 'canvas-add-button') { if (!archived()) canvasAddButton() }
+    else if (a === 'canvas-pick') { var pid = act.getAttribute('data-wb-obj'); if (WB.canvasPick[pid]) delete WB.canvasPick[pid]; else WB.canvasPick[pid] = true; render() }
+    else if (a === 'canvas-unpick') { WB.canvasPick = {}; render() }
+    else if (a === 'canvas-snap') { WB.canvasSnap = !WB.canvasSnap; writePref('wb.canvas.snap', WB.canvasSnap ? '1' : '0'); render() }
+    else if (a === 'canvas-grid') { WB.canvasGrid = !WB.canvasGrid; writePref('wb.canvas.grid', WB.canvasGrid ? '1' : '0'); render() }
+    else if (a === 'canvas-align') canvasMulti('align', act.getAttribute('data-wb-arg'))
+    else if (a === 'canvas-distribute') canvasMulti('distribute', act.getAttribute('data-wb-arg'))
+    else if (a === 'canvas-group') canvasMulti('group')
+    else if (a === 'canvas-ungroup') canvasMulti('ungroup')
     else if (a === 'canvas-add-image') { if (!archived()) canvasAddImage() }
     else if (a === 'canvas-remove') canvasRemoveObject(act.getAttribute('data-wb-obj'))
     else if (a === 'canvas-op') canvasQuickOp(act.getAttribute('data-wb-op'), act.getAttribute('data-wb-obj'))
@@ -9054,6 +9274,23 @@
     if ('textContent' in el) el.textContent = text
   }
 
+  /** A segedvonalak kirajzolasa huzas kozben (csak a ket vonal stilusa
+   *  valtozik, a vaszon nem rajzolodik ujra). */
+  function canvasGuides(guides, doc) {
+    ;['x', 'y'].forEach(function (axis) {
+      var el = document.getElementById(axis === 'x' ? 'wbCanGuideX' : 'wbCanGuideY')
+      if (!el) return
+      var g = null
+      guides.forEach(function (x) { if (x.axis === axis) g = x })
+      if (!g) { el.hidden = true; return }
+      el.hidden = false
+      if (el.style) {
+        if (axis === 'x') el.style.left = (Math.round((10000 * g.at) / doc.width) / 100) + '%'
+        else el.style.top = (Math.round((10000 * g.at) / doc.height) / 100) + '%'
+      }
+    })
+  }
+
   function canvasDragHighlight(stage, boxEl) {
     if (!stage || typeof stage.querySelectorAll !== 'function') return
     var all = stage.querySelectorAll('[data-wb-box]')
@@ -9092,8 +9329,21 @@
       doc: doc,
       el: boxEl,
       moved: false,
+      // A tobbi elem (a sajat csoportja nelkul) -- ezekhez illeszkedik.
+      others: canvasObjects().filter(function (x) { return x.id !== o.id && !x.rotation }),
+      rotated: !!o.rotation,
     }
     WB.canvasSel = o.id
+    // Shift+kattintas: hozzaadja a kijeloleshez (vagy kiveszi) -- ahogy minden
+    // rajzoloprogramban. Huzas ilyenkor nincs.
+    if (e.shiftKey) {
+      canvasDrag = null
+      if (WB.canvasPick[o.id]) delete WB.canvasPick[o.id]
+      else WB.canvasPick[o.id] = true
+      if (typeof e.preventDefault === 'function') e.preventDefault()
+      render()
+      return
+    }
     canvasDragHighlight(stage, boxEl)
     // A mutato "hozzaragad" a dobozhoz: ha a kez kifut a kepbol, a huzas akkor
     // sem szakad meg.
@@ -9113,6 +9363,15 @@
     if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return
     d.moved = true
     d.box = canvasDragBox(d.from, d.mode, sx * d.kx, sy * d.ky)
+    // Illesztes (K-2.7). Az Alt lenyomva tartasa kikapcsolja erre a huzasra --
+    // ugyanugy, mint a Figmaban. A tures 6 kepernyo-pixel, barmekkora a kep.
+    // Forgatott elemnel nincs illesztes: a doboza nem az, amit a szem lat.
+    var snapped = { box: d.box, guides: [] }
+    if ((WB.canvasSnap || WB.canvasGrid) && !e.altKey && !d.rotated) {
+      snapped = canvasSnapBox(d.box, d.mode, d.others, d.doc, { tol: 6 * d.kx, guides: WB.canvasSnap, grid: WB.canvasGrid })
+      d.box = snapped.box
+    }
+    canvasGuides(snapped.guides, d.doc)
     canvasDragStyle(d.el, d.box, d.doc)
     canvasDragLive(d.box)
     if (typeof e.preventDefault === 'function') e.preventDefault()
@@ -9124,6 +9383,7 @@
     var d = canvasDrag
     if (!d) return
     canvasDrag = null
+    canvasGuides([], d.doc)
     var b = d.box
     var f = d.from
     var same = b.x === f.x && b.y === f.y && b.width === f.width && b.height === f.height
@@ -9169,7 +9429,7 @@
   document.addEventListener('keydown', function (e) {
     if (!WB.open || !(e.ctrlKey || e.metaKey) || e.altKey) return
     var k = String(e.key || '').toLowerCase()
-    if (k !== 'z' && k !== 'y') return
+    if (k !== 'z' && k !== 'y' && k !== 'c' && k !== 'v' && k !== 'd') return
     var c = WB.canvas
     if (!c || !c.exists || c.current === false || !WB.selectedId) return
     var tg = e.target
@@ -9178,6 +9438,24 @@
     // Csak ha a rajz lathato: mas szerkesztonel a Ctrl+Z nem a rajzrol szol.
     var el = root()
     if (!el || String(el.innerHTML || '').indexOf('wb-can-tools') < 0) return
+    if (k === 'c' || k === 'v' || k === 'd') {
+      // Masolas (K-2.5): Ctrl+C a kijelolt elemet jegyzi meg, Ctrl+V masolatot
+      // tesz le belole (akarhanyszor), Ctrl+D rogton duplikal. Kijelolt elem
+      // nelkul a bongeszo sajat masolasa marad (pl. egy kijelolt szovegre).
+      var sel = WB.canvasSel && canvasObject(WB.canvasSel) ? WB.canvasSel : null
+      if (k === 'c') {
+        if (!sel) return
+        if (typeof window.getSelection === 'function' && String(window.getSelection() || '')) return
+        WB.canvasClip = sel
+        if (typeof e.preventDefault === 'function') e.preventDefault()
+        return
+      }
+      var src = k === 'v' ? WB.canvasClip : sel
+      if (!src || !canvasObject(src) || archived()) return
+      if (typeof e.preventDefault === 'function') e.preventDefault()
+      canvasOps([{ op: 'duplicate', id: src }])
+      return
+    }
     if (typeof e.preventDefault === 'function') e.preventDefault()
     canvasStep(k === 'y' || e.shiftKey ? 'redo' : 'undo')
   })
