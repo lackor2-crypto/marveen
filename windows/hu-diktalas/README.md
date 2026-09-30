@@ -22,10 +22,24 @@ Nem kell rendszergazda. A telepítő:
 4. beállítja az alapértelmezett mikrofont **mind a három szerepre**
 5. asztali parancsikonokat készít
 
+### Frissítés (új változat után)
+
+A parancsikon a `%USERPROFILE%\.hu-diktalas` alatti **másolatot** indítja, nem a repót —
+egy javítás tehát csak akkor él, ha odamásoltad. Erre ez való:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File telepit.ps1 -Frissites
+```
+
+Csak a programfájlokat cseréli (1–2. lépés). A Groq-kulcshoz, a beállított mikrofonhoz és a
+parancsikonokhoz nem nyúl; a saját `javitasok.txt`-det a teljes telepítés sem írja felül.
+
 ## Használat
 
 Kattints a **Magyar diktálás** ikonra → sípol → beszélsz → **kattints oda, ahová a szöveget
-akarod** = leáll ÉS odailleszti. Max 5 perc.
+akarod** = leáll ÉS odailleszti. Max 30 perc. A 30 mp-nél hosszabb felvételt legfeljebb
+30 mp-es darabokban, szünetnél vágva írja át, és a darabok szövegét egyben illeszti be
+(lásd a 11. buktatót).
 
 Tálcára tűzés: jobb klikk az ikonon → *Pin to taskbar*. (A Win10 letiltotta a programozott
 kitűzést, ezért kézzel kell — és ezért `wscript.exe` a parancsikon célja, mert csak EXE tűzhető.)
@@ -133,6 +147,25 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
    metódusa → előtte pontosan 10 helykitöltő kell.
 10. **PS 5.1 nem tud metódust hívni nyers `__ComObject`-en** (IUnknown out-paraméterből).
     Minden COM-műveletet C#-on **belül** kell elvégezni, és csak primitívet visszaadni.
+11. **Hosszú felvétel egyben → a Whisper „befejezi" a közepén.** Mérve (2026-09-26): 163 mp
+    beszédből 377 karakter lett (a szokásos ~9 karakter/mp helyett 2,3), a végén egy kitalált
+    „Köszönöm, hogy megnézted!" zárómondattal. A Whisper a hosszú hangot 30 mp-es ablakokban,
+    egymás után írja át, és minden ablakot az előzőhöz igazít — egy szünetben kitalált
+    zárómondat után a többi ablak üres marad, a felvétel vége elvész. Ezért a felvételt
+    **legfeljebb 30 mp-es, önálló darabokra** vágjuk (a vágás a legcsendesebb ~300 ms-ra esik),
+    és darabonként küldjük fel; így egy kitalált mondat legfeljebb a saját darabját rontja.
+    A darabonkénti kérés miatt a Groq percenkénti kerete (HTTP 429) is elfogyhat — ilyenkor a
+    szkript kivárja a `retry-after` időt; ha egy darab végleg nem megy át, a már átírt szöveg
+    nem vész el: beilleszti, és a végén kiírja, honnan hiányzik az átírás.
+12. **Telegram-képaláírás: 1024 karakter, utána néma vágás.** Ha egy képernyőkép (vagy más
+    csatolmány) mellé diktálsz, a szöveg *képaláírás* lesz, és a Telegram 1024 karakternél
+    (Premiummal 4096-nál) levágja — a maradékot el sem küldi, hibát sem jelez. Mérve
+    (2026-09-29/30): 1250 és ~1700 karakteres diktálásokból 1024 karakter érkezett meg, a
+    naplóban viszont a teljes szöveg megvolt — tehát nem a diktáló vágott. Ezt a diktáló nem
+    látja (nem tudja, hogy a képaláírás-mezőbe illeszt). A Marveen oldalán a
+    `scripts/hooks/telegram_caption_limit.py` figyeli: a határon álló képaláírásnál szól az
+    ágensnek, és ha ez a napló ugyanazon a gépen van, abból visszaállítja a teljes szöveget.
+    Hosszú mondanivalót ezért inkább külön üzenetben, kép nélkül küldj.
 
 ## Fájlok
 

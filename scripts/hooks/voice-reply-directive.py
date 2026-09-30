@@ -7,9 +7,13 @@ When a voice message is delivered to a voice/auto-mode agent, this hook:
   2. Injects "[Hang átirat]: <text>" into the prompt when a transcript is returned.
   3. Injects the TTS curl directive so the agent knows to reply with voice.
 
+It also flags a Telegram caption cut at Telegram's cap (#447, see
+telegram_caption_limit.py): this is the UserPromptSubmit hook every agent, the
+main one included, already runs for a channel message.
+
 Claude Code delivers stdout from UserPromptSubmit hooks directly into the model
-prompt (no JSON wrapper needed -- plain text is injected as-is). This hook
-stays completely silent for non-voice messages.
+prompt (no JSON wrapper needed -- plain text is injected as-is). Apart from a
+capped caption, this hook stays completely silent for non-voice messages.
 
 Never raises: any error results in a silent exit(0) so the prompt is never blocked.
 """
@@ -19,6 +23,13 @@ import json
 import re
 import urllib.request
 import urllib.parse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from telegram_caption_limit import notices as caption_notices  # noqa: E402
+    _HAS_CAPTION = True
+except Exception:
+    _HAS_CAPTION = False
 
 
 def _project_root():
@@ -92,6 +103,16 @@ def main():
     if not m:
         sys.exit(0)
     chat_id = m.group(1)
+
+    # #447: printed first, so none of the early exits below can swallow it.
+    if _HAS_CAPTION:
+        try:
+            notes = caption_notices(prompt)
+            if notes:
+                sys.stdout.write("\n" + notes + "\n")
+                sys.stdout.flush()
+        except Exception:
+            pass
 
     # Extract attachment_file_id AND attachment_kind. The kind matters: the
     # Telegram plugin sets attachment_file_id for every attachment type, so the

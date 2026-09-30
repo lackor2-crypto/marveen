@@ -42,6 +42,15 @@ try:
     _HAS_RL = True
 except Exception:
     _HAS_RL = False
+
+# #447: a Telegram caption cut at Telegram's cap is flagged in the same batch,
+# and restored from the owner's dictation log when that log is on this machine.
+# Fail-open: no module -> the batch is delivered exactly as before.
+try:
+    from telegram_caption_limit import notices as caption_notices  # noqa: E402
+    _HAS_CAPTION = True
+except Exception:
+    _HAS_CAPTION = False
     def quota_status_message_if_critical(cwd, now_ms=None):
         return None
     def install_lang(project_root):
@@ -443,6 +452,13 @@ def drain(payload):
     if dropped:
         header += "\n[Figyelem: %d regebbi uzenet ki lett hagyva, hogy a koteg elferjen. A legfrissebbek maradtak.]" % dropped
     text = header + "\n" + "\n".join(entries)
+    if _HAS_CAPTION:
+        try:
+            notes = caption_notices(text)
+            if notes:
+                text += "\n" + notes
+        except Exception:
+            pass
     # Archive BEFORE the unlink: after it, this batch exists only in a context
     # window that compaction is allowed to discard.
     _archive(state_dir, entries, text)
@@ -507,6 +523,30 @@ def self_test():
         assert 'attachment_0_name="a.png"' in out
         assert not os.path.exists(pending)
         assert not glob.glob(os.path.join(state, "inbox-draining-*.jsonl"))
+
+        # #447: a photo caption at Telegram's 1024 cap gets the notice in the
+        # same batch. The dictation log is pointed at nothing, so the result
+        # never depends on the machine the test runs on.
+        if _HAS_CAPTION:
+            capped = {"receivedAt": 3, "params": {"content": "x" * 1024, "meta": {
+                "chat_id": "c3", "message_id": "m3", "image_path": "/tmp/c.png"}}}
+            with open(pending, "w", encoding="utf-8") as f:
+                f.write(json.dumps(capped) + "\n")
+            capture = tempfile.TemporaryFile("w+", encoding="utf-8")
+            try:
+                sys.stdout = capture
+                os.environ["TELEGRAM_STATE_DIR"] = state
+                os.environ["HU_DIKTALAS_LOG"] = os.path.join(td, "nincs-naplo.log")
+                drain({"cwd": td})
+                capture.seek(0)
+                out = capture.read()
+            finally:
+                sys.stdout = old_stdout
+                os.environ.pop("TELEGRAM_STATE_DIR", None)
+                os.environ.pop("HU_DIKTALAS_LOG", None)
+                capture.close()
+            assert "1 fuggoben levo uzenet" in out, out
+            assert "[TELEGRAM-KÉPALÁÍRÁS LEVÁGVA] A(z) m3." in out, out
 
     # Receipt handover (Boss 2026-08-23). Two properties are load-bearing:
     # the sender's "queued" message becomes the working text, and the record

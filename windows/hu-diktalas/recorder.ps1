@@ -61,8 +61,8 @@ public class HuWaveRecorder {
   const int NBUF = 1800;                                       // 30 PERC felso hatar
   // 2026-09-29: 5 percrol 30 percre (Boss: "meg hogyha 10 percig beszelek, akkor
   // se" vagodjon le). 30 perc = 57.6 MB nyers PCM a memoriaban (1800 x 32 kB),
-  // ez egy mai gepen elhanyagolhato. A Groq 25 MB-os feltoltesi hataran a
-  // diktal-auto.ps1 darabolasa visz at (HuWavTools.SplitPoints lent).
+  // ez egy mai gepen elhanyagolhato. A felismeresre a diktal-auto.ps1 rovid,
+  // onallo darabokra vagja (HuWavTools.SplitPoints lent).
   const uint WHDR_DONE = 0x00000001;
 
   IntPtr h = IntPtr.Zero;
@@ -266,23 +266,37 @@ public static class HuWavTools {
     }
   }
 
-  /// Hol vagjuk a felvetelt feltoltheto darabokra (MINTA-indexek, a vegpont is
-  /// benne). Minden darab legfeljebb maxSamples hosszu; a vagas a hatar elotti
-  /// searchSamples-nyi savban a LEGCSENDESEBB 50 ms-os keretre esik, hogy ne
-  /// szo kozepen vagjon.
-  public static long[] SplitPoints(double[] frameRms, long totalSamples, long maxSamples, long searchSamples) {
+  /// Hol vagjuk a felvetelt onallo darabokra (MINTA-indexek, a vegpont is
+  /// benne). Minden darab legfeljebb maxSamples hosszu, es a darabok nagyjabol
+  /// EGYFORMAK: a hatralevo reszt annyi darabra osztjuk, ahany kell, igy a vegen
+  /// nem marad egy 1 mp-es csonk (egy rovid, csendes darabra a Whisper kitalal
+  /// valamit). A vagas az idealis pont koruli +-bandSamples savban -- de sosem
+  /// maxSamples utan -- a LEGCSENDESEBB QUIET_FRAMES-nyi ablak kozepere esik.
+  /// 2026-09-30: nem egyetlen 50 ms-os keret, hanem ~300 ms-os ablak: egy
+  /// zarhang (p, t, k) belseje 50 ms-ig szinte nema, egy szo kozepen is; egy
+  /// 300 ms-os csend viszont mar valodi szunet a szavak kozott.
+  public const int QUIET_FRAMES = 6;
+  public static long[] SplitPoints(double[] frameRms, long totalSamples, long maxSamples, long bandSamples) {
     List<long> cuts = new List<long>();
+    long half = (long)FRAME * QUIET_FRAMES / 2;
     long start = 0;
     while (totalSamples - start > maxSamples) {
+      long rest = totalSamples - start;
+      long pieces = (rest + maxSamples - 1) / maxSamples;
+      long ideal = start + rest / pieces;
       long hardEnd = start + maxSamples;
-      long from = Math.Max(start + FRAME, hardEnd - searchSamples);
-      int f0 = (int)(from / FRAME), f1 = (int)(hardEnd / FRAME) - 1;
-      int best = f1; double bestV = double.MaxValue;
-      for (int f = f0; f <= f1 && f < frameRms.Length; f++) {
-        if (frameRms[f] < bestV) { bestV = frameRms[f]; best = f; }
+      long lo = Math.Max(start + half, ideal - bandSamples);
+      long hi = Math.Min(hardEnd, ideal + bandSamples);
+      // ablak: [f, f + QUIET_FRAMES) keretek, kozepe f*FRAME + half
+      long f0 = Math.Max(0, (lo - half + FRAME - 1) / FRAME);
+      long f1 = Math.Min((hi - half) / FRAME, (long)frameRms.Length - QUIET_FRAMES);
+      long cut = -1; double bestV = double.MaxValue;
+      for (long f = f0; f <= f1; f++) {
+        double v = 0;
+        for (int j = 0; j < QUIET_FRAMES; j++) v += frameRms[f + j];
+        if (v < bestV) { bestV = v; cut = f * FRAME + half; }
       }
-      long cut = (long)best * FRAME + FRAME / 2;
-      if (cut <= start || cut > hardEnd) cut = hardEnd;
+      if (cut <= start || cut > hardEnd) cut = Math.Min(hardEnd, ideal);
       cuts.Add(cut);
       start = cut;
     }
