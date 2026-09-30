@@ -669,6 +669,17 @@
 .wb-ov-attn { border-left: 4px solid var(--warning, #b45309); }
 .wb-ov-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; }
 .wb-ov-num { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+/* The tile head is the fold switch of the card lists (TG 2068). */
+.wb-ov { align-items: start; }
+.wb-ov-head {
+  display: flex; flex-direction: column; align-items: flex-start;
+  width: 100%; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.wb-ov-head:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; border-radius: 4px; }
+.wb-ov-head:hover .wb-ov-caret { opacity: 1; }
+.wb-ov-caret { opacity: 0.6; }
+.wb-ov-head .wb-ov-num { display: block; }
 .wb-ov-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 0.88rem; }
 .wb-ov-list .wb-linklike, .wb-ov-tile .wb-linklike { text-align: left; word-break: break-word; }
 /* Minden jovahagyas kulon kis kartya: keret, valtakozo hatter -- ket tetel
