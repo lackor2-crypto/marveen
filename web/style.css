@@ -13024,3 +13024,5 @@ span.intezo-tree-tw { cursor: default; }
   color: var(--work-item); border: 1px solid var(--work-item); background: var(--bg, transparent);
 }
 .kanban-work-prj { display: block; margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+
+.approvals-ticket-tag { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 10px; background: var(--info); color: #fff; font-size: 11px; font-weight: 600; }
