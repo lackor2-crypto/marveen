@@ -36,6 +36,10 @@ const HOOKS = [
   // weekly (Segedmunkas) blocking logic, so the suite runs it directly rather
   // than only transitively through the two consumers.
   'rate_limit_status_lib.py',
+  // Added 2026-09-30 (#447): a Telegram caption cut at the 1024 cap is flagged,
+  // and restored from the owner's dictation log when that is on the machine.
+  // Pure apart from the log it is handed -- the self-test never reads a real one.
+  'telegram_caption_limit.py',
 ]
 
 describe('python hook self-tests', () => {

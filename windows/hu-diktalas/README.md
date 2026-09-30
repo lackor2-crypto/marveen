@@ -157,6 +157,15 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
     A darabonkénti kérés miatt a Groq percenkénti kerete (HTTP 429) is elfogyhat — ilyenkor a
     szkript kivárja a `retry-after` időt; ha egy darab végleg nem megy át, a már átírt szöveg
     nem vész el: beilleszti, és a végén kiírja, honnan hiányzik az átírás.
+12. **Telegram-képaláírás: 1024 karakter, utána néma vágás.** Ha egy képernyőkép (vagy más
+    csatolmány) mellé diktálsz, a szöveg *képaláírás* lesz, és a Telegram 1024 karakternél
+    (Premiummal 4096-nál) levágja — a maradékot el sem küldi, hibát sem jelez. Mérve
+    (2026-09-29/30): 1250 és ~1700 karakteres diktálásokból 1024 karakter érkezett meg, a
+    naplóban viszont a teljes szöveg megvolt — tehát nem a diktáló vágott. Ezt a diktáló nem
+    látja (nem tudja, hogy a képaláírás-mezőbe illeszt). A Marveen oldalán a
+    `scripts/hooks/telegram_caption_limit.py` figyeli: a határon álló képaláírásnál szól az
+    ágensnek, és ha ez a napló ugyanazon a gépen van, abból visszaállítja a teljes szöveget.
+    Hosszú mondanivalót ezért inkább külön üzenetben, kép nélkül küldj.
 
 ## Fájlok
 
