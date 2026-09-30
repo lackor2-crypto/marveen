@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execSync, execFileSync } from 'node:child_process'
-import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID, STORE_DIR, APP_LANG, currentBrandName } from './config.js'
+import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID, STORE_DIR, APP_LANG, currentBrandName, CODE_WORKTREE_ROOT } from './config.js'
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
 import { startDashboardTokenGuard, stopDashboardTokenGuard } from './web/dashboard-token-guard.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
@@ -45,6 +45,9 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { liveSweepDeps, sweepWorktrees, SWEEP_INTERVAL_MS } from './web/worktree-sweeper.js'
+import { listBusyCodeTaskWorkspaces } from './web/code-bridge-store.js'
+import { worktreeNameFor } from './web/code-live-tree-worktree.js'
 import { startWeeklySummarySweeper } from './workbench-weekly.js'
 import { startTodoReminderSweeper } from './workbench-todo-reminder.js'
 import { startSystemDepsMonitor } from './system-deps.js'
@@ -701,6 +704,24 @@ export function startWebServer(port = 3420): http.Server {
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
 
+  // #453 (Boss, TG 2087: "egyik agens se hagyjon szemetet maga utan soha"):
+  // worktrees and work/* branches that provably hold no work -- clean, landed,
+  // quiet for half a day, nobody standing in them -- are removed for every
+  // agent alike. See src/web/worktree-sweeper.ts for the exact conditions.
+  const worktreeSweep = (): void => {
+    if (process.env.MARVEEN_WORKTREE_SWEEP === '0') return
+    sweepWorktrees(liveSweepDeps(PROJECT_ROOT, CODE_WORKTREE_ROOT, () => listBusyCodeTaskWorkspaces(worktreeNameFor), join(STORE_DIR, 'worktree-sweep.log')))
+      .then((r) => {
+        if (r.skipped) logger.info({ reason: r.skipped }, '[worktree-sweep] nem futott')
+        else if (r.removedWorktrees.length || r.removedBranches.length) {
+          logger.info({ worktrees: r.removedWorktrees, branches: r.removedBranches }, '[worktree-sweep] landolt, tetlen worktree-k/agak torolve')
+        }
+      })
+      .catch((err) => logger.warn({ err }, '[worktree-sweep] hiba'))
+  }
+  const worktreeSweepStart = setTimeout(worktreeSweep, 5 * 60_000)
+  const worktreeSweepInterval = setInterval(worktreeSweep, SWEEP_INTERVAL_MS)
+
   // #441 (Boss, 2026-09-29: 1A, 2A): every project gets its "Munkadarabok"
   // folder and the work item folders lying loose in the project root move under
   // it. Idempotent: a finished project costs one directory check.
@@ -1069,6 +1090,8 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(kukaSepresInterval)
     stopBackupScheduler()
     clearInterval(skillSeederInterval)
+    clearTimeout(worktreeSweepStart)
+    clearInterval(worktreeSweepInterval)
     clearInterval(weeklySummaryInterval)
     clearInterval(todoReminderInterval)
     clearInterval(updateCheckerInterval)

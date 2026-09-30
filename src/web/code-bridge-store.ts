@@ -724,6 +724,26 @@ export function listDismissedWorkspaces(): { workspacePath: string; project: str
 }
 
 /**
+ * What a queued or running code task stands in, or WILL stand in (#453): its
+ * recorded workspace_path, plus the worktree name its card maps to -- a queued
+ * follow-up on a card reuses `code-<card>` at claim time, so the worktree sweep
+ * must not take it away in between. Plain strings; the sweeper matches them
+ * against a worktree's folder name.
+ */
+export function listBusyCodeTaskWorkspaces(nameFor: (cardRef: string | null, taskId: string) => string): string[] {
+  ensureTables()
+  const rows = getDb()
+    .prepare(`SELECT id, workspace_path, card_ref FROM code_tasks WHERE status IN ('queued', 'running')`)
+    .all() as { id: string; workspace_path: string | null; card_ref: string | null }[]
+  const out: string[] = []
+  for (const r of rows) {
+    if (r.workspace_path) out.push(r.workspace_path)
+    out.push(nameFor(r.card_ref, r.id))
+  }
+  return out
+}
+
+/**
  * Discovery is the authority on what a given host currently has open, so a row
  * it stops reporting has to go.
  *
