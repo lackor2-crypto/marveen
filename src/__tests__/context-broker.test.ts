@@ -8,6 +8,7 @@ import {
   rolesOf,
   EMPTY_ROLES,
   planRoleClear,
+  recipientAvailability,
 } from '../context-broker.js'
 import { CAUTION_THRESHOLD_PCT, CRITICAL_THRESHOLD_PCT, STALE_AFTER_MS } from '../rate-limit-status.js'
 
@@ -252,5 +253,34 @@ describe('planRoleClear (kartya #275)', () => {
   it('is deterministic in planner/implementer/checker order regardless of input', () => {
     const roles = { checker: 'c', planner: 'a', implementer: 'b' }
     expect(planRoleClear(roles, null).assigned).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('recipientAvailability (kartya #451)', () => {
+  it('ok when the recipient is running with allowance left', () => {
+    expect(recipientAvailability('a', [candidate('a'), candidate('b')], NOW)).toEqual({ ok: true })
+  })
+
+  it('names the stand-in with the most headroom when the recipient is out of quota', () => {
+    const res = recipientAvailability('a', [
+      candidate('a', { usedPct: CRITICAL_THRESHOLD_PCT }),
+      candidate('b', { usedPct: 60 }),
+      candidate('c', { usedPct: 5 }),
+    ], NOW)
+    expect(res).toEqual({ ok: false, reason: 'quota', standIn: 'c' })
+  })
+
+  it('reports a stopped recipient, and null when nobody else can work', () => {
+    const res = recipientAvailability('a', [candidate('a', { running: false }), candidate('b', { running: false })], NOW)
+    expect(res).toEqual({ ok: false, reason: 'stopped', standIn: null })
+  })
+
+  it('an agent it cannot measure is not reported unavailable (fail-open)', () => {
+    expect(recipientAvailability('ghost', [candidate('a')], NOW)).toEqual({ ok: true })
+  })
+
+  it('a stale usage snapshot does not disqualify the recipient', () => {
+    const res = recipientAvailability('a', [candidate('a', { usedPct: 100, usageAt: NOW - STALE_AFTER_MS - 1 })], NOW)
+    expect(res).toEqual({ ok: true })
   })
 })

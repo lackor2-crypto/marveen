@@ -19,6 +19,8 @@ import { isKnownAgent } from '../agent-config.js'
 import { OWNER_NAME } from '../../config.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
+import { recipientAvailability } from '../../context-broker.js'
+import { listBrokerCandidates } from '../context-broker-store.js'
 import { checkCardWork, cardWorkNotice, claimCardWork, resolveCardRefs, type CardWorkNotice } from '../card-work-guard.js'
 import { parseQualifiedId, formatQualifiedId } from '../federation/address.js'
 import { getFederationConfig } from '../federation/config.js'
@@ -189,6 +191,22 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     } else if (declared && verdict.kind === 'unknown') {
       // A NULLA ket dolgot jelenthet: ez az ag mondja ki, hogy nem lattunk oda.
       warning = cardWorkNotice('cb.warn.card_uncheckable', { detail: verdict.detail })
+    }
+    // Kartya #451 -- atadas elott elerhetoseg. Az uzenetet itt sem utasitjuk el,
+    // de a kuldo NEM maradhat abban a hitben, hogy valaki feldolgozza: kimerult
+    // vagy leallt cimzettnel a figyelmeztetes megnevezi a szabad tartalekot.
+    // Fail-open: ha a meres elhal, az uzenet megy, figyelmeztetes nelkul.
+    if (!storedTo.includes('/') && sanitizeAgentIdent(from) !== sanitizeAgentIdent(storedTo) && isKnownAgent(sanitizeAgentIdent(storedTo))) {
+      try {
+        const av = recipientAvailability(storedTo, listBrokerCandidates().filter((c) => c.agent !== sanitizeAgentIdent(from)))
+        if (!av.ok) {
+          const alt = cardWorkNotice('msg.warn.alt_self', {}).message
+          warning = cardWorkNotice(av.reason === 'quota' ? 'msg.warn.recipient_quota' : 'msg.warn.recipient_stopped', { to: storedTo, alt })
+          logger.warn({ from: from.trim(), to: storedTo, reason: av.reason, standIn: av.standIn }, 'Agent message to an unavailable recipient')
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Recipient availability check failed; message accepted without a warning')
+      }
     }
     const msg = createAgentMessage(from.trim(), storedTo, normalizedContent, trimmedOriginNote)
     if (declared) {
