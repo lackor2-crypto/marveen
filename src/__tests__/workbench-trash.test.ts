@@ -227,7 +227,7 @@ describe('lomtar: a felulet', () => {
     const h = open({ status: 200, body: {} })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-trash"'))
     const html = h.html()
-    const rows = html.match(/<li class="wb-item-row[^"]*">[^]*?<\/li>/g) || []
+    const rows = html.match(/<li class="wb-item-row[^"]*"[^>]*>[^]*?<\/li>/g) || []
     expect(rows.length).toBe(2)
     for (const row of rows) expect(row).toMatch(/data-wb-act="item-trash"[^>]*>[^<]*<\/button><\/li>$/)
     expect(untranslatedHungarian(html, ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')

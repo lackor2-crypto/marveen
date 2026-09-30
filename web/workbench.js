@@ -1091,7 +1091,8 @@
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '">'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '"'
+      + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
@@ -1103,7 +1104,42 @@
       + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
       + esc(t('workbench.trash.delete')) + '</button>'
+      + moveSelectHtml(it)
       + '</li>'
+  }
+
+  /** A compact "Move to folder..." list on every item row (the drag is the other way to do the same). */
+  function moveSelectHtml(it) {
+    var wf = WB.workFolders || { box: null, folders: [] }
+    if (archived() || !wf.box) return ''
+    var box = wf.box
+    var opts = ['<option value="">' + esc(t('workbench.move.label')) + '</option>',
+      '<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>']
+    ;(wf.folders || []).forEach(function (f) {
+      var depth = f.split('/').length - 1 - (box.split('/').length - 1)
+      var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
+      opts.push('<option value="' + escA(f) + '">' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
+    })
+    return '<select class="wb-item-move" data-wb-move="' + escA(it.id) + '" aria-label="' + escA(t('workbench.move.label')) + '"'
+      + (WB.moveBusy ? ' disabled' : '') + '>' + opts.join('') + '</select>'
+  }
+
+  function moveItemToFolder(itemId, folder) {
+    if (!itemId || WB.moveBusy || archived()) return
+    var pid = WB.projectId
+    WB.moveBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/folder', { folder: folder === '\u0000box' ? '' : folder }).then(function (r) {
+      WB.moveBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      var d = r.data || {}
+      if (d.work_folders) WB.workFolders = d.work_folders
+      if (d.items) WB.items = d.items
+      if (WB.detail && d.item && WB.detail.item && WB.detail.item.id === d.item.id) WB.detail.item = d.item
+      render()
+      window.showToast(t(d.moved ? 'workbench.move.done' : 'workbench.move.' + (d.reason === 'same_place' ? 'same' : 'blocked')))
+    })
   }
 
   // ---- folders (#454) ---------------------------------------------------------
@@ -1160,7 +1196,7 @@
     function walk(path, depth) {
       ;(kids[path] || []).forEach(function (f) {
         var collapsed = !!WB.collapsedFolder[f]
-        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '">'
+        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '" data-wb-drop-folder="' + escA(f) + '">'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button></li>')
@@ -9196,6 +9232,8 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
     if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
+    var mv = e.target.getAttribute && e.target.getAttribute('data-wb-move')
+    if (mv) { if (e.target.value) moveItemToFolder(mv, e.target.value); return }
     var rid = e.target.getAttribute && e.target.getAttribute('data-wb-redact-id')
     if (rid && WB.redact) {
       WB.redact.skip[rid] = !e.target.checked
@@ -9922,6 +9960,29 @@
       WB.previewVersion = e.target.value || null
       loadPreview(WB.selectedId, WB.previewVersion)
     }
+  })
+
+  // Item rows can be dragged onto a folder row (files the item into it).
+  document.addEventListener('dragstart', function (e) {
+    if (!WB.open || !e.target || !e.target.closest) return
+    var row = e.target.closest('[data-wb-drag-item]')
+    if (!row || !e.dataTransfer) return
+    WB.dragItem = row.getAttribute('data-wb-drag-item')
+    try { e.dataTransfer.setData('text/x-wb-item', WB.dragItem); e.dataTransfer.effectAllowed = 'move' } catch (_e) { /* nem baj */ }
+  })
+  document.addEventListener('dragend', function () { WB.dragItem = null })
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || !WB.dragItem || !e.target || !e.target.closest) return
+    if (e.target.closest('[data-wb-drop-folder]')) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move' } catch (_e) { /* nem baj */ } }
+  })
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || !WB.dragItem || !e.target || !e.target.closest) return
+    var z = e.target.closest('[data-wb-drop-folder]')
+    if (!z) return
+    e.preventDefault()
+    var id = WB.dragItem
+    WB.dragItem = null
+    moveItemToFolder(id, z.getAttribute('data-wb-drop-folder') || '\u0000box')
   })
 
   // Behuzas: a bongeszo alapbol MEGNYITNA a fajlt (elhagyva a Munkapadot) --
