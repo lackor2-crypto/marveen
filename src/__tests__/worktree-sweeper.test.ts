@@ -102,6 +102,65 @@ describe('sweepWorktrees', () => {
     expect(branches()).toEqual(expect.arrayContaining(['main', 'work/orphan-unlanded', 'feature/keep-me']))
   })
 
+  // A PR squash-landed, then one more small fix committed on the same branch and
+  // never landed: 2 new lines under 40 landed ones are 95% of the whole -- the
+  // sum alone called it landed and the fix went with the branch.
+  it('KEEPS a landed branch with a small fix committed after the landing, as worktree and as branch', async () => {
+    const body = Array.from({ length: 40 }, (_, i) => `landed line ${i}`).join('\n') + '\n'
+    const p = addWt('code-tail')
+    commitFile(p, 'e.txt', body, 'feat')
+    commitFile(root, 'e.txt', body, 'feat (#2)')
+    git(root, 'push', '-q', 'origin', 'main')
+    git(root, 'fetch', '-q', 'origin')
+    commitFile(p, 'e.txt', body + 'follow-up fix one\nfollow-up fix two\n', 'fix after landing')
+    git(root, 'branch', 'work/orphan-tail', 'work/code-tail')
+    const r = await sweepWorktrees(deps())
+    expect(r.removedWorktrees).toEqual([])
+    expect(r.removedBranches).toEqual([])
+    const why = Object.fromEntries(r.kept.map((k) => [k.name, k.why]))
+    expect(why['code-tail']).toMatch(/igazolni/)
+    expect(why['work/orphan-tail']).toMatch(/nem landolt/)
+    expect(branches()).toEqual(expect.arrayContaining(['work/code-tail', 'work/orphan-tail']))
+  })
+
+  it('still removes a branch whose early lines a later commit of its own replaced', async () => {
+    git(root, 'checkout', '-q', '-b', 'work/rewritten')
+    commitFile(root, 'f.txt', 'first try\n', 'wip')
+    commitFile(root, 'f.txt', 'final version\n', 'redo')
+    git(root, 'checkout', '-q', 'main')
+    commitFile(root, 'f.txt', 'final version\n', 'land (#3)')
+    git(root, 'push', '-q', 'origin', 'main')
+    git(root, 'fetch', '-q', 'origin')
+    const r = await sweepWorktrees(deps())
+    expect(r.removedBranches).toEqual(['work/rewritten'])
+  })
+
+  // No merge-base (an unrelated history here; a git timeout answers the same):
+  // worktreeState reads that as "clean", which must never become a removal.
+  it('KEEPS a clean worktree whose commits git cannot place against origin/main', async () => {
+    const p = join(root, '.worktrees', 'unrelated')
+    git(root, 'worktree', 'add', '-q', '--detach', p)
+    git(p, 'checkout', '-q', '--orphan', 'work/unrelated')
+    git(p, 'rm', '-rqf', '.')
+    commitFile(p, 'g.txt', 'history of its own\n', 'root')
+    const r = await sweepWorktrees(deps())
+    expect(r.removedWorktrees).toEqual([])
+    expect(existsSync(p)).toBe(true)
+    expect(branches()).toContain('work/unrelated')
+  })
+
+  // A stray local branch called `origin/main` outranks the remote-tracking one
+  // in git's lookup; the sweep must judge against the remote, not the stray.
+  it('judges against the remote origin/main, not a local branch of the same name', async () => {
+    git(root, 'checkout', '-q', '-b', 'work/only-on-stray')
+    commitFile(root, 'h.txt', 'never pushed\n', 'wip')
+    git(root, 'checkout', '-q', 'main')
+    git(root, 'branch', 'origin/main', 'work/only-on-stray')
+    const r = await sweepWorktrees(deps())
+    expect(r.removedBranches).not.toContain('work/only-on-stray')
+    expect(branches()).toContain('work/only-on-stray')
+  })
+
   it('does nothing when origin/main cannot be read (fresh install without a remote)', async () => {
     const solo = join(dir, 'solo')
     git(dir, 'init', '-q', '-b', 'main', solo)
