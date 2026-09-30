@@ -44,6 +44,8 @@ describe('config-registry', () => {
     const ROUTES = 'src/web/routes'
     const OWNER_ROUTE: Record<string, string> = {
       CODE_BOT_TOKEN: 'code.ts',
+      // A Munkapad Kepessegek ablakanak beallitas-utja (#441, K-2.11).
+      WORKBENCH_GEMINI_API_KEY: 'workbench.ts',
     }
     const secrets = SETTINGS_REGISTRY.filter((s) => s.secret)
     expect(secrets.length).toBeGreaterThan(0)

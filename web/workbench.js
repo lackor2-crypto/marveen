@@ -1061,6 +1061,7 @@
     WB.canvasSel = null
     WB.canvasPick = {}
     WB.canvasPlatformPick = null
+    WB.canvasAi = null
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -4402,6 +4403,92 @@
       + '</div>'
   }
 
+  // ---- AI-kepszerkesztes (K-2.11 .. K-2.13) ---------------------------------
+
+  /** A panel megnyitasa: elobb megkerdezzuk, elerheto-e (kulcs, erzekenyseg),
+   *  es mennyibe kerul -- a futtatas gomb csak ezutan jelenik meg. */
+  function canvasAiOpen(id) {
+    if (!WB.selectedId || !id) return
+    if (WB.canvasAi && WB.canvasAi.id === id) { WB.canvasAi = null; render(); return }
+    WB.canvasAi = { id: id, info: null, busy: false, text: '' }
+    render()
+    var itemId = WB.selectedId
+    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/canvas/ai-edit').then(function (r) {
+      if (!WB.canvasAi || WB.canvasAi.id !== id || WB.selectedId !== itemId) return
+      WB.canvasAi.info = r.ok ? r.data : { available: false, reason_message: r.message }
+      render()
+    })
+  }
+
+  function canvasAiRun() {
+    var st = WB.canvasAi
+    if (!st || st.busy || !WB.selectedId) return
+    var el = document.getElementById('wbCanAiText')
+    var text = String((el && el.value) || st.text || '').trim()
+    st.text = text
+    if (!text) { window.showToast(t('workbench.canvas.ai_need_text')); return }
+    st.busy = true
+    WB.canvasBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas/ai-edit', { object_id: st.id, instruction: text, confirm_cost: true }).then(function (r) {
+      WB.canvasBusy = false
+      if (WB.canvasAi) WB.canvasAi.busy = false
+      if (!r.ok) {
+        window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+        render()
+        return
+      }
+      WB.canvasAi = null
+      canvasTake(r.data)
+      window.showToast(r.data.message || '')
+      loadPreview(WB.selectedId, null, true)
+      render()
+    })
+  }
+
+  function canvasAiHtml(o) {
+    var st = WB.canvasAi
+    var info = st.info
+    if (!info) return '<div class="wb-can-ai"><p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
+    if (!info.available) {
+      return '<div class="wb-can-ai"><p class="wb-hint">' + esc(info.reason_message || '') + '</p>'
+        + (info.reason === 'ai_edit_not_configured' ? '<p><button type="button" class="wb-btn" data-wb-act="caps-open">' + esc(t('workbench.canvas.ai_setup')) + '</button></p>' : '')
+        + '</div>'
+    }
+    var cost = info.estimate_usd == null ? t('workbench.canvas.ai_cost_unknown', { model: info.model })
+      : t('workbench.canvas.ai_cost', { usd: '$' + Number(info.estimate_usd).toFixed(3), model: info.model })
+    return '<div class="wb-can-ai">'
+      + '<label class="wb-label" for="wbCanAiText">' + esc(t('workbench.canvas.ai_label')) + '</label>'
+      + '<textarea class="wb-input" id="wbCanAiText" rows="2" maxlength="1000" placeholder="' + escA(t('workbench.canvas.ai_placeholder')) + '">' + esc(st.text || '') + '</textarea>'
+      + '<p class="wb-hint">' + esc(cost) + ' <a href="' + escA((info.price_source && info.price_source.url) || '') + '" target="_blank" rel="noopener">' + esc(t('workbench.canvas.ai_price_source')) + '</a></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.canvas.ai_hint')) + '</p>'
+      + '<div class="wb-form-actions">'
+      + '<button type="button" class="btn-primary" data-wb-act="canvas-ai-run"' + (st.busy ? ' disabled' : '') + '>'
+      + esc(st.busy ? t('workbench.canvas.ai_running') : t('workbench.canvas.ai_run', { usd: info.estimate_usd == null ? '?' : '$' + Number(info.estimate_usd).toFixed(3) })) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="canvas-ai-open" data-wb-obj="' + escA(o.id) + '">' + esc(t('common.cancel')) + '</button>'
+      + '</div></div>'
+  }
+
+  /** K-2.13: jelzes a munkadarabnal, ha a rajzon AI-val keszult kep van -- es
+   *  a letoltes AI-jelolessel (IPTC metaadat). A kotelezoseget nem minositjuk. */
+  function canvasAiNoticeHtml() {
+    var doc = WB.canvas && WB.canvas.canvas
+    if (!doc) return ''
+    var area = 0
+    var any = false
+    canvasObjects().forEach(function (o) {
+      if (o.type !== 'image' || !o.ai) return
+      any = true
+      var w = Math.max(0, Math.min(doc.width, o.x + o.width) - Math.max(0, o.x))
+      var h = Math.max(0, Math.min(doc.height, o.y + o.height) - Math.max(0, o.y))
+      area += w * h
+    })
+    if (!any) return ''
+    var big = area / (doc.width * doc.height) >= 0.25
+    return '<div class="wb-can-ai-notice"><p class="wb-hint">' + esc(t(big ? 'workbench.canvas.ai_notice_big' : 'workbench.canvas.ai_notice_some')) + '</p>'
+      + '<p class="wb-hint"><a href="' + escA(canvasSvgUrl(WB.selectedId, true) + '&ai_label=1') + '" target="_blank" rel="noopener">' + esc(t('workbench.canvas.ai_download_labeled')) + '</a></p></div>'
+  }
+
   /** Valtozat mas platformra (K-2.9): uj verzio az uj meretben. */
   function canvasVariant(id) {
     if (!WB.selectedId || WB.canvasBusy || archived() || !id) return
@@ -4914,6 +5001,7 @@
       + '<code class="wb-can-id">' + esc(o.id) + '</code>'
       + (o.group ? ' <span class="wb-pill wb-can-group">' + esc(t('workbench.canvas.in_group', { name: o.group })) + '</span>' : '')
       + (o.rotation ? ' <span class="wb-muted">' + esc(t('workbench.canvas.turned', { deg: o.rotation })) + '</span>' : '')
+      + (o.ai ? ' <span class="wb-pill wb-can-ai-pill" title="' + escA(t('workbench.canvas.ai_pill_title', { model: o.ai.model, prompt: o.ai.prompt })) + '">' + esc(t('workbench.canvas.ai_pill')) + '</span>' : '')
       + '</div>'
       + '<div class="wb-can-obj-actions">'
       + btn('canvas-op', 'center', t('workbench.canvas.center'))
@@ -4923,12 +5011,17 @@
       + btn('canvas-op', 'back', t('workbench.canvas.back'))
       + btn('canvas-op', 'rotate', t('workbench.canvas.rotate'))
       + btn('canvas-op', 'duplicate', t('workbench.canvas.duplicate'))
+      + (o.type === 'image' && !ro
+        ? '<button type="button" class="wb-part-btn" data-wb-act="canvas-ai-open" data-wb-obj="' + escA(o.id) + '"' + (WB.canvasBusy ? ' disabled' : '') + '>'
+          + esc(t('workbench.canvas.ai_open')) + '</button>'
+        : '')
       + '<button type="button" class="wb-part-btn" data-wb-act="canvas-edit" data-wb-obj="' + escA(o.id) + '">'
       + esc(t('workbench.canvas.edit')) + '</button>'
       + '<button type="button" class="wb-part-btn wb-part-btn-bad" data-wb-act="canvas-remove" data-wb-obj="' + escA(o.id) + '"'
       + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(t('workbench.canvas.remove')) + '</button>'
       + '</div>'
       + (WB.canvasEdit === o.id ? canvasFormHtml(o) : '')
+      + (WB.canvasAi && WB.canvasAi.id === o.id ? canvasAiHtml(o) : '')
       + '</li>'
   }
 
@@ -4995,6 +5088,7 @@
       + canvasToolsHtml()
       + canvasOrphansHtml()
       + canvasPlatformHtml()
+      + canvasAiNoticeHtml()
       + '<p class="wb-hint">' + esc(t('workbench.canvas.intro')) + '</p>'
       + (archived() ? '' : canvasAddHtml())
       + (archived() || !objects.length ? '' : canvasPickBarHtml())
@@ -9467,6 +9561,8 @@
     else if (a === 'canvas-unpick') { WB.canvasPick = {}; render() }
     else if (a === 'canvas-resize') { if (!archived()) canvasOps([{ op: 'resize', platform: act.getAttribute('data-wb-arg') }]) }
     else if (a === 'canvas-variant') canvasVariant(act.getAttribute('data-wb-arg'))
+    else if (a === 'canvas-ai-open') canvasAiOpen(act.getAttribute('data-wb-obj'))
+    else if (a === 'canvas-ai-run') canvasAiRun()
     else if (a === 'canvas-snap') { WB.canvasSnap = !WB.canvasSnap; writePref('wb.canvas.snap', WB.canvasSnap ? '1' : '0'); render() }
     else if (a === 'canvas-grid') { WB.canvasGrid = !WB.canvasGrid; writePref('wb.canvas.grid', WB.canvasGrid ? '1' : '0'); render() }
     else if (a === 'canvas-align') canvasMulti('align', act.getAttribute('data-wb-arg'))
@@ -9735,6 +9831,7 @@
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target) return
     if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
+    if (e.target.id === 'wbCanAiText' && WB.canvasAi) WB.canvasAi.text = e.target.value
     if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
   })
 

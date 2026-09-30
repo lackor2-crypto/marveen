@@ -30,6 +30,7 @@ import { getSettingDefinition } from './config-registry.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { listAIProviders } from './workbench-agent/provider.js'
 import { activeWebSearchProvider, lastWebSearchProbe, probeWebSearch } from './workbench-agent/web-search.js'
+import { imageAiConfig } from './workbench-image-ai.js'
 
 export type CapabilityState =
   /** Mukodik, meg is mertuk. */
@@ -305,19 +306,28 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   {
     key: 'image_gen',
     tier: 'extra',
-    title: { hu: 'Képgenerálás (Gemini / Imagen)', en: 'Image generation (Gemini / Imagen)' },
-    what_for: { hu: 'Kép készítése szöveges leírásból, a Munkapadon belül.', en: 'Creating an image from a text description, inside the Workbench.' },
+    title: { hu: 'AI-képszerkesztés (Google Gemini)', en: 'AI image editing (Google Gemini)' },
+    what_for: {
+      hu: 'Egy kép átalakítása egy mondattal a rajzon („legyen piros az autó”). Az eredmény új kép, a régi megmarad.',
+      en: 'Changing a picture on the drawing with one sentence ("make the car red"). The result is a new picture; the old one is kept.',
+    },
     affects: {
-      hu: 'A Munkapad minden más része működik. Képet most is használhatsz: feltöltheted a sajátodat, és a munkadarab részévé teheted.',
-      en: 'Every other part of the Workbench works. You can still use images: upload your own and make it part of the work item.',
+      hu: 'A Munkapad minden más része működik, a rajz kézzel teljesen szerkeszthető. Csak az AI-képszerkesztés gombja nem fut.',
+      en: 'Every other part of the Workbench works, and the drawing is fully editable by hand. Only the AI image edit button does not run.',
     },
     how_to: {
-      hu: ['Ebben a verzióban még nincs bekötve, ezért nincs mit beállítani hozzá. Amint elkészül, itt fog megjelenni a beállítása.'],
-      en: ['It is not wired up in this version, so there is nothing to configure. Once it is ready, its setting will appear here.'],
+      hu: ['Nyisd meg: https://aistudio.google.com/apikey, és jelentkezz be a Google-fiókoddal.', 'Készíts egy API-kulcsot, és állíts be hozzá fizetési módot (a képszerkesztés fizetős, kb. $0,07 képenként).', 'Másold be a kulcsot ide, a lenti mezőbe.'],
+      en: ['Open https://aistudio.google.com/apikey and sign in with your Google account.', 'Create an API key and set up billing for it (image editing is paid, about $0.07 per picture).', 'Paste the key into the field below.'],
     },
-    obtain_url: null,
+    obtain_url: 'https://aistudio.google.com/apikey',
+    setting_key: 'WORKBENCH_GEMINI_API_KEY',
+    // Nincs "Ellenorzes most": minden probafutas penzbe kerulne.
     testable: false,
-    async measure() { return { state: 'not_implemented', detail: null, version: null, path: null } },
+    async measure() {
+      const cfg = imageAiConfig()
+      if (!cfg) return { state: 'not_configured', detail: null, version: null, path: null }
+      return { state: 'ok', detail: 'key set, not tested (a test run would cost money)', version: cfg.model, path: null }
+    },
   },
   {
     key: 'video_gen',
@@ -378,9 +388,11 @@ function settingOf(key: string, lang: Lang): CapabilitySetting | null {
     label: ({
       hu: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'A LibreOffice teljes útvonala (üresen: magától megkeresi)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Az FFmpeg teljes útvonala (üresen: magától megkeresi)'
+        : key === 'WORKBENCH_GEMINI_API_KEY' ? 'Google Gemini API-kulcs (a mentett kulcsot nem mutatom vissza)'
         : key,
       en: key === 'WORKBENCH_LIBREOFFICE_PATH' ? 'Full path to LibreOffice (empty: found automatically)'
         : key === 'WORKBENCH_FFMPEG_PATH' ? 'Full path to FFmpeg (empty: found automatically)'
+        : key === 'WORKBENCH_GEMINI_API_KEY' ? 'Google Gemini API key (a saved key is never shown back)'
         : key,
     } as Text)[lang],
     placeholder: key === 'WORKBENCH_LIBREOFFICE_PATH' ? '/usr/bin/soffice'

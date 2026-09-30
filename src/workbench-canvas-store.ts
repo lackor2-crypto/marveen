@@ -657,6 +657,25 @@ export function imageResolverFor(project: ProjectRow | null): (src: string) => I
 }
 
 /** A vaszon KEPE egy munkadarabhoz -- elonezethez es letolteshez ugyanaz. */
-export function renderCanvasForItem(item: WorkItemRow, doc: CanvasDoc): string {
-  return renderCanvasSvg(doc, { resolveImage: imageResolverFor(getProject(item.project_id) || null) })
+export function renderCanvasForItem(item: WorkItemRow, doc: CanvasDoc, opts: { aiLabel?: boolean } = {}): string {
+  return renderCanvasSvg(doc, { resolveImage: imageResolverFor(getProject(item.project_id) || null), aiLabel: !!opts.aiLabel })
+}
+
+/** Egy kepelem fajljanak beolvasasa (az AI-szerkeszteshez): a Raktar-relativ
+ *  utat es a projekt mappajahoz kepest megadottat is elfogadja, mint a kirajzolas. */
+export function readCanvasImageFile(project: ProjectRow, src: string): { ok: true; bytes: Buffer; mime: string; rel: string } | { ok: false; code: string; detail: string } {
+  const raw = String(src || '').trim()
+  const candidates = [raw]
+  if (project.folder_path) candidates.push(`${project.folder_path}/${raw.replace(/^[./\\]+/, '')}`)
+  for (const rel of candidates) {
+    const abs = resolveLifePath(rel)
+    if (!abs) continue
+    try { statSync(abs) } catch { continue }
+    const k = fileKind(rel)
+    if (k.kind !== 'image') return { ok: false, code: 'ai_edit_bad_image', detail: 'this file is not a picture' }
+    try { return { ok: true, bytes: readFileSync(abs), mime: k.mime || 'image/png', rel } } catch (e) {
+      return { ok: false, code: 'ai_edit_bad_image', detail: e instanceof Error ? e.message : String(e) }
+    }
+  }
+  return { ok: false, code: 'ai_edit_image_missing', detail: raw }
 }

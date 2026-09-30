@@ -82,6 +82,9 @@ export interface CanvasImage extends CanvasObjectCommon {
   src: string
   fit: CanvasFit
   alt: string
+  /** AI keszitette/szerkesztette (K-2.13): melyik modell, mikor, milyen
+   *  keresre. Csak akkor all az adatban, ha igaz. */
+  ai?: { model: string; at: number; prompt: string }
 }
 
 /** Kor vagy ellipszis (K-2.6): a doboz kitoltott ovalisa. */
@@ -188,6 +191,27 @@ function groupName(v: unknown): string {
   return v.trim().replace(/\s+/g, ' ').slice(0, 40)
 }
 
+function aiMark(v: unknown): { ai?: { model: string; at: number; prompt: string } } {
+  if (!v || typeof v !== 'object') return {}
+  const a = v as Record<string, unknown>
+  const model = String(a['model'] ?? '').trim().slice(0, 80)
+  if (!model) return {}
+  return { ai: { model, at: Number.isFinite(Number(a['at'])) ? Math.round(Number(a['at'])) : 0, prompt: String(a['prompt'] ?? '').slice(0, 500) } }
+}
+
+/** A vaszon mekkora reszet fedik AI-val keszult kepek (0..1, a kepek dobozainak
+ *  a vaszonra eso reszebol; az atfedest nem vonjuk le, 1-nel levagjuk). */
+export function canvasAiShare(doc: CanvasDoc): number {
+  let area = 0
+  for (const o of doc.objects) {
+    if (o.type !== 'image' || !o.ai) continue
+    const w = Math.max(0, Math.min(doc.width, o.x + o.width) - Math.max(0, o.x))
+    const h = Math.max(0, Math.min(doc.height, o.y + o.height) - Math.max(0, o.y))
+    area += w * h
+  }
+  return Math.min(1, area / (doc.width * doc.height))
+}
+
 function parseObject(raw: unknown, index: number, taken: Set<string>): { ok: true; obj: CanvasObject } | { ok: false; code: string; detail: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, code: 'canvas_bad_object', detail: `objects[${index}] is not an object` }
@@ -259,7 +283,7 @@ function parseObject(raw: unknown, index: number, taken: Set<string>): { ok: tru
   if (!src) return { ok: false, code: 'canvas_bad_object', detail: `objects[${index}] (${id}): an image object needs a src (the file path inside the Depot)` }
   return {
     ok: true,
-    obj: { ...common, type: 'image', src, fit: pickEnum(o['fit'], ['contain', 'cover'] as const, 'contain'), alt: String(o['alt'] ?? '').slice(0, 300) },
+    obj: { ...common, type: 'image', src, fit: pickEnum(o['fit'], ['contain', 'cover'] as const, 'contain'), alt: String(o['alt'] ?? '').slice(0, 300), ...aiMark(o['ai']) },
   }
 }
 
@@ -906,6 +930,9 @@ export interface RenderOptions {
   /** A kep utjat ADAT-URI-ra valto fuggveny. Ha nincs megadva, a kepek helyen
    *  tabla all -- igy a modul fajlrendszer NELKUL is tesztelheto. */
   resolveImage?: (src: string) => ImageResolve
+  /** K-2.13: "AI altal keszitett" jeloles a fajl metaadataiban (IPTC
+   *  DigitalSourceType), ha van AI-val keszult elem. Csak keresre. */
+  aiLabel?: boolean
 }
 
 /**
@@ -915,6 +942,17 @@ export interface RenderOptions {
 export function renderCanvasSvg(doc: CanvasDoc, opts: RenderOptions = {}): string {
   const parts: string[] = []
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">`)
+  const aiObjs = doc.objects.filter((o) => o.type === 'image' && o.ai)
+  if (opts.aiLabel && aiObjs.length) {
+    // Az IPTC szabvanyos szotara: "trainedAlgorithmicMedia" = teljesen AI
+    // keszitette, "compositeWithTrainedAlgorithmicMedia" = AI-val keszult
+    // resz is van benne. Ezt olvassak a kepkezelok es a platformok.
+    const full = canvasAiShare(doc) >= 0.9
+    const type = full ? 'trainedAlgorithmicMedia' : 'compositeWithTrainedAlgorithmicMedia'
+    parts.push(`<metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/">`
+      + `<rdf:Description Iptc4xmpExt:DigitalSourceType="http://cv.iptc.org/newscodes/digitalsourcetype/${type}"/></rdf:RDF></metadata>`)
+    parts.push(`<desc>${esc(full ? 'AI-generated image' : 'Contains AI-generated or AI-edited content')}</desc>`)
+  }
   if (doc.background !== 'none') {
     parts.push(`<rect x="0" y="0" width="${doc.width}" height="${doc.height}" fill="${esc(doc.background)}"/>`)
   }
