@@ -147,9 +147,9 @@ describe('attekinto: a felulet', () => {
     expect(html.match(/class="wb-ov-tile /g)!.length).toBe(4)
     expect(html).not.toContain('wb-ov-file-tile')
     // Tervezett: 1 kartya + 1 vazlat munkadarab = 2.
-    expect(html).toMatch(/wb-ov-planned[^]*?<div class="wb-ov-num">2<\/div>/)
+    expect(html).toMatch(/wb-ov-planned[^]*?<span class="wb-ov-num">2<\/span>/)
     // Jovahagyasra var: 1 kartya nelkuli jegy + 1 atnezesre varo munkadarab = 2, kiemelve.
-    expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<div class="wb-ov-num">2<\/div>/)
+    expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<span class="wb-ov-num">2<\/span>/)
     expect(html).toContain('data-wb-act="goto-approvals"')
     // Boss, 2026-09-30, TG 2011 (B): a kartyalista es a munkadarab-lista eltunt.
     const ov = html.slice(html.indexOf('class="wb-ov"'), html.indexOf('wb-panel-tabs'))
@@ -158,6 +158,45 @@ describe('attekinto: a felulet', () => {
     expect(ov).not.toContain('wb-ov-list')
     expect(ov).not.toContain('data-wb-card=')
     expect(ov).not.toContain('data-wb-item=')
+  })
+
+  // Boss, 2026-09-30, TG 2068: "hogy lehet ezt lenyitni? Felcsukni es lenyitni."
+  it('LENYITHATO: a csempe fejere kattintva mind a negy lista lenyilik, ujra kattintva visszacsukodik, es megjegyzi', async () => {
+    const h = workbenchHarness()
+    open(h, { ...OV,
+      approvals: { count: 1, error: null, items: [{ id: 'a1', category: 'kanban_done', description: 'Kártya #404', requested_at: 1, card_seq: 404, card_title: 'Jegy', card_id: 'k4' }] },
+      columns: {
+        planned: { count: 1, cards: [{ id: 'k1', seq: 501, title: 'Terv kártya', updated_at: 1 }] },
+        in_progress: { count: 1, cards: [{ id: 'k2', seq: 502, title: 'Futó kártya', updated_at: 1 }] },
+        waiting: { count: 0, cards: [] },
+        done: { count: 1, cards: [{ id: 'k3', seq: 503, title: 'Kész kártya', updated_at: 1 }] },
+      },
+      work: { draft: { count: 1, items: [{ id: 'w1', title: 'Ajánlat', status: 'draft', updated_at: 1 }] }, in_progress: { count: 0, items: [] } },
+    })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
+    const ovOf = () => { const x = h.html(); return x.slice(x.indexOf('class="wb-ov'), x.indexOf('wb-panel-tabs')) }
+    // Alapbol csukva: csak a szamok (TG 2011), de minden fej kapcsolo.
+    expect(ovOf().match(/data-wb-act="ov-fold" aria-expanded="false"/g)!.length).toBe(4)
+    expect(ovOf()).not.toContain('Terv kártya')
+    expect(ovOf()).toContain('workbench.ov.fold_open')
+
+    h.click({ 'data-wb-act': 'ov-fold' })
+    await vi.waitFor(() => expect(ovOf()).toContain('Terv kártya'))
+    const opened = ovOf()
+    expect(opened.match(/aria-expanded="true"/g)!.length).toBe(4)
+    for (const x of ['#501</span> Terv kártya', '#502</span> Futó kártya', '#503</span> Kész kártya', '#404</span> Jegy', 'data-wb-item="w1"', 'workbench.ov.fold_close']) expect(opened).toContain(x)
+    expect(h.win.localStorage.getItem('marveen.workbench.ovOpen')).toBe('1')
+
+    // A lenyitott kartyara kattintva a kartya-ablak nyilik (TG 1854).
+    const seen: string[] = []
+    h.win._prjOpenCardHere = (id: string) => { seen.push(id) }
+    h.click({ 'data-wb-act': 'card-open', 'data-wb-card': 'k1' })
+    expect(seen).toEqual(['k1'])
+
+    h.click({ 'data-wb-act': 'ov-fold' })
+    await vi.waitFor(() => expect(ovOf()).not.toContain('Terv kártya'))
+    expect(ovOf().match(/aria-expanded="false"/g)!.length).toBe(4)
+    expect(h.win.localStorage.getItem('marveen.workbench.ovOpen')).toBe('0')
   })
 
   it('a jovahagyasra varo kartya nem szamolodik ketszer (oszlop + jegy)', async () => {
@@ -170,7 +209,7 @@ describe('attekinto: a felulet', () => {
     })
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
     const html = h.html()
-    expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<div class="wb-ov-num">1<\/div>/)
+    expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<span class="wb-ov-num">1<\/span>/)
   })
 
   it('app.js: a kartya-nyito ki van teve a Munkapadnak, bezaraskor a hivo frissit; az idovonal sem nem letezo fuggvenyt hiv', () => {
@@ -185,6 +224,8 @@ describe('attekinto: a felulet', () => {
     const h = workbenchHarness()
     open(h, OV)
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
+    h.click({ 'data-wb-act': 'ov-fold' })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="w2"'))
     h.click({ 'data-wb-item': 'w2' })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2'))).toBe(true))
   })
@@ -197,7 +238,7 @@ describe('attekinto: a felulet', () => {
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
     const html = h.html()
     // Igaz nulla: a forras valaszolt, nincs semmi -- negy 0 szam, nem hiba.
-    expect(html.match(/<div class="wb-ov-num">0<\/div>/g)!.length).toBe(4)
+    expect(html.match(/<span class="wb-ov-num">0<\/span>/g)!.length).toBe(4)
     expect(html).not.toContain('wb-ov-attn')
     expect(html).not.toContain('wb-preview-bad')
   })
@@ -218,7 +259,7 @@ describe('attekinto: a felulet', () => {
     expect(html).toContain('workbench.ov.cards_unknown')
     expect(html).toContain('workbench.ov.approvals_unknown')
     // A jovahagyas-szam ismeretlen: a csempen NEM all szam.
-    expect(html).not.toMatch(/wb-ov-wait[^"]*"><div class="wb-ov-title">[^<]*<\/div><div class="wb-ov-num">/)
+    expect(html).not.toMatch(/wb-ov-wait[^"]*">(?:(?!wb-ov-tile)[^])*?wb-ov-num/)
   })
 
   it('minden sajat szoveg a t()-n megy at', async () => {

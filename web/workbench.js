@@ -157,6 +157,8 @@
     // { kind: 'last-version' } vagy { kind: 'purge', id }.
     warn: null,
     collapsedMain: {},
+    // Az attekinto negy szama ala lenyithato kartyalista (Boss, TG 2068).
+    ovOpen: readOvOpen(),
     tdOpen: false,
     tdRem: null,
     tdRemError: null,
@@ -199,6 +201,16 @@
       var v = window.localStorage && window.localStorage.getItem('marveen.workbench.layout')
       return v === 'classic' ? 'classic' : 'split'
     } catch (_e) { return 'split' }
+  }
+
+  /** The overview's card lists: folded by default (Boss, TG 2011: "only the
+   *  four numbers"), opened by a click on any tile (TG 2068). Remembered per
+   *  browser; a blocked storage just means folded. */
+  function readOvOpen() {
+    try { return !!(window.localStorage && window.localStorage.getItem('marveen.workbench.ovOpen') === '1') } catch (_e) { return false }
+  }
+  function saveOvOpen(v) {
+    try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.ovOpen', v ? '1' : '0') } catch (_e) { /* nem baj: csak most ervenyes */ }
   }
 
   function saveLayout(v) {
@@ -863,12 +875,45 @@
     }).join('') + '</ul>'
   }
 
-  function ovTile(cls, title, count, body) {
+  /** One tile: the head (column name + number) is the fold switch for ALL
+   *  four lists, so the row stays aligned. `always` shows even when folded
+   *  (error hints, the approvals link); `list` only when open. */
+  function ovTile(cls, title, count, always, list) {
+    var open = WB.ovOpen
     return '<div class="wb-ov-tile ' + cls + '">'
-      + '<div class="wb-ov-title">' + esc(title) + '</div>'
-      + (count === null ? '' : '<div class="wb-ov-num">' + esc(String(count)) + '</div>')
-      + body + '</div>'
+      + '<button type="button" class="wb-ov-head" data-wb-act="ov-fold" aria-expanded="' + (open ? 'true' : 'false') + '"'
+      + ' title="' + escA(t(open ? 'workbench.ov.fold_close' : 'workbench.ov.fold_open')) + '">'
+      + '<span class="wb-ov-title">' + esc(title) + ' <span class="wb-ov-caret" aria-hidden="true">' + (open ? '▾' : '▸') + '</span></span>'
+      + (count === null ? '' : '<span class="wb-ov-num">' + esc(String(count)) + '</span>')
+      + '</button>'
+      + (always || '') + (open ? (list || '') : '') + '</div>'
   }
+
+  // Minden jovahagyas KULON kis kartya: sorszam + cim + datum, ahogy a
+  // kanban-tablan (Boss, 2026-09-26, TG 6535). Kartya nelkuli jegynel a
+  // leiras elso sora a cim.
+  function ovCardsHtml(list) {
+    if (!list || !list.length) return ''
+    return '<ul class="wb-ov-list wb-ov-approvals">' + list.map(function (c) {
+      // TG 1854: a card on the tile opens in the usual card window, like on the board.
+      return '<li class="wb-ov-approval wb-ov-card-open" data-wb-act="card-open" data-wb-card="' + esc(c.id) + '" role="button" tabindex="0" title="' + esc(t('workbench.ov.card_open_title')) + '">'
+        + '<span class="wb-ov-apv-title"><span class="wb-ov-apv-seq">#' + esc(String(c.seq)) + '</span> ' + esc(c.title) + '</span>'
+        + (c.updated_at ? '<span class="wb-ov-apv-when">' + esc(when(c.updated_at)) + '</span>' : '') + '</li>'
+    }).join('') + '</ul>'
+  }
+  function ovApprovalHtml(a) {
+    var head = a.card_seq
+      ? '<span class="wb-ov-apv-seq">#' + esc(String(a.card_seq)) + '</span> ' + esc(a.card_title || a.description)
+      : esc(a.description)
+    var open = a.card_id
+      ? ' wb-ov-card-open" data-wb-act="card-open" data-wb-card="' + esc(a.card_id) + '" role="button" tabindex="0" title="' + esc(t('workbench.ov.card_open_title')) + '"'
+      : '"'
+    return '<li class="wb-ov-approval' + open + '>'
+      + '<span class="wb-ov-apv-title">' + head + '</span>'
+      + (a.requested_at ? '<span class="wb-ov-apv-when">' + esc(t('workbench.ov.apv_when', { when: when(a.requested_at) })) + '</span>' : '')
+      + '</li>'
+  }
+  function ovNone(key, params) { return '<p class="wb-hint">' + esc(t(key, params)) + '</p>' }
 
   /** Egy pillantasra, a kanban oszlopneveivel: Tervezett, Folyamatban,
    *  Jovahagyasra var, Kesz. Minden szam MERT: ha egy forras nem valaszolt, azt kimondjuk, es a
@@ -882,7 +927,8 @@
     if (!o) return '<section class="wb-ov"><p class="wb-muted">' + esc(t('workbench.ov.loading')) + '</p></section>'
 
     // EGYSOROS SZAMSOR (Boss, 2026-09-30, TG 2011, "B"): a kanban oszlopainak
-    // nevei es a projekt szamai, kartyalista nelkul. Minden szam MERT: ha egy
+    // nevei es a projekt szamai; a kartyalista alapbol csukva, a csempe fejere
+    // kattintva lenyilik es visszacsukhato (TG 2068). Minden szam MERT: ha egy
     // forras nem valaszolt, azt kimondjuk, es nem irunk helyette nullat.
     var cards = o.cards || {}
     var cols = o.columns || {}
@@ -893,8 +939,17 @@
     function num(n) { return n === null || n === undefined ? null : n }
     function sum(a, b) { return a === null ? null : a + (b || 0) }
 
-    var plCount = sum(num(colOf('planned').count), (work.draft || {}).count || 0)
-    var ipCount = sum(num(colOf('in_progress').count), (work.in_progress || {}).count || 0)
+    var pl = colOf('planned')
+    var plDraft = work.draft || { count: 0, items: [] }
+    var plCount = sum(num(pl.count), plDraft.count || 0)
+    var plList = ovCardsHtml(pl.cards) + ovItemsHtml(plDraft.items)
+      + (plCount === 0 ? ovNone('workbench.ov.planned_none') : '')
+
+    var ip = colOf('in_progress')
+    var ipWork = work.in_progress || { count: 0, items: [] }
+    var ipCount = sum(num(ip.count), ipWork.count || 0)
+    var ipList = ovCardsHtml(ip.cards) + ovItemsHtml(ipWork.items)
+      + (ipCount === 0 ? ovNone('workbench.ov.progress_none') : '')
 
     // Jovahagyasra var: a kanban oszlop kartyai + a kartya NELKULI jegyek +
     // az atnezesre varo munkadarabok. Egy kartyara szolo jegy nem szamolodik
@@ -909,14 +964,22 @@
     var wtBody = (ap.count === null ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.approvals_unknown', { message: ap.error || '' })) + '</p>' : '')
       + (ap.count ? '<p><button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button></p>' : '')
 
-    var rd = o.recent_done || {}
-    var dnCount = sum(num(colOf('done').count), rd.count || 0)
+    var wtList = ovCardsHtml(wt.cards)
+      + (extraAp.length ? '<ul class="wb-ov-list wb-ov-approvals">' + extraAp.map(ovApprovalHtml).join('') + '</ul>' : '')
+      + ovItemsHtml(o.review && o.review.items)
+      + (wtCount === 0 ? ovNone('workbench.ov.wait_none') : '')
 
-    return '<section class="wb-ov" aria-label="' + escA(t('workbench.ov.title')) + '">'
-      + ovTile('wb-ov-planned', t('kanban.col.planned'), plCount, blindHint)
-      + ovTile('wb-ov-progress', t('kanban.col.in_progress'), ipCount, '')
-      + ovTile('wb-ov-wait' + (wtCount ? ' wb-ov-attn' : ''), t('kanban.col.waiting'), wtCount, wtBody)
-      + ovTile('wb-ov-done', t('workbench.ov.done_col', { days: rd.days || 14 }), dnCount, '')
+    var dn = colOf('done')
+    var rd = o.recent_done || {}
+    var dnCount = sum(num(dn.count), rd.count || 0)
+    var dnList = ovCardsHtml(dn.cards) + ovItemsHtml(rd.items)
+      + (dnCount === 0 ? ovNone('workbench.ov.done_none', { days: rd.days || 14 }) : '')
+
+    return '<section class="wb-ov' + (WB.ovOpen ? ' wb-ov-open' : '') + '" aria-label="' + escA(t('workbench.ov.title')) + '">'
+      + ovTile('wb-ov-planned', t('kanban.col.planned'), plCount, blindHint, plList)
+      + ovTile('wb-ov-progress', t('kanban.col.in_progress'), ipCount, '', ipList)
+      + ovTile('wb-ov-wait' + (wtCount ? ' wb-ov-attn' : ''), t('kanban.col.waiting'), wtCount, wtBody, wtList)
+      + ovTile('wb-ov-done', t('workbench.ov.done_col', { days: rd.days || 14 }), dnCount, '', dnList)
       + '</section>'
   }
 
@@ -8427,6 +8490,7 @@
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
     else if (a === 'trash-subs-all') setTrashed(act.getAttribute('data-wb-id'), true, 'trash')
     else if (a === 'trash-subs-detach') setTrashed(act.getAttribute('data-wb-id'), true, 'detach')
+    else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'main-fold') { var mf = act.getAttribute('data-wb-id'); WB.collapsedMain[mf] = !WB.collapsedMain[mf]; render() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
