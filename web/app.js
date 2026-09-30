@@ -25555,9 +25555,10 @@ function _renderApprovalsTable() {
     const shortDesc = linkifyKanbanRefs(a.action_description.length > 80 ? a.action_description.slice(0, 80) + '...' : a.action_description)
     const cardId = _approvalKanbanCardId(a)
     const openCardHtml = cardId ? `<button class="btn-secondary btn-compact approvals-open-card" data-card-id="${escapeAttr(cardId)}" style="font-size:11px;margin-top:6px">${t('approvals.btn.open_card')}</button>` : ''
+    const ticketHead = _approvalTicketHeadHtml(a)
     const descHtml = isExpanded
-      ? `<div style="white-space:pre-wrap;word-break:break-word">${fullDesc}</div>${openCardHtml}`
-      : shortDesc
+      ? `${ticketHead}<div style="white-space:pre-wrap;word-break:break-word">${fullDesc}</div>${openCardHtml}`
+      : ticketHead + shortDesc
     // Fixed max-width regardless of expand state (Boss 2026-08-07: widening
     // this on expand made the whole table's OTHER columns jump size too --
     // auto table-layout resizes every column to fit the widest cell in its
@@ -26102,6 +26103,20 @@ function _approvalKanbanCardId(a) {
   // require a "kartya" word or a leading '#'.
   const m = a.action_description && a.action_description.match(/\b([0-9a-f]{8})\b/i)
   return m ? m[1] : null
+}
+
+// #446 (Boss TG 1976, 1980): a card close-out approval starts with "Kártya
+// #N", but an approval that is not a card (e.g. the Windows Claude Code
+// update) started with nothing -- the owner could not tell what it is or
+// "mi a száma". Such rows now open with "Jóváhagyási jegy megerősítésre" and
+// the ticket's own short id. Same split as the row tint above: kanban_done =
+// card, everything else = ticket, so the label and the colour always agree.
+function _approvalTicketHeadHtml(a) {
+  if (!a || a.category === 'kanban_done') return ''
+  const head = t(a.status === 'pending' ? 'approvals.ticket.head_pending' : 'approvals.ticket.head')
+  const id = String(a.id || '').slice(0, 8)
+  const idHtml = id ? ` <span style="font-weight:400;color:var(--text-secondary)">(${escapeHtml(t('approvals.ticket.id', { id }))})</span>` : ''
+  return `<div class="approvals-ticket-head" style="font-weight:600">${escapeHtml(head)}${idHtml}</div>`
 }
 
 // Boss 2026-08-07: from an approval row, jump to the linked kanban card and
