@@ -5675,6 +5675,8 @@ window._i18n.hu = {
   "workbench.versions.save_new": "Mentés új verzióként",
   "workbench.versions.saved": "Mentve új verzióként: {n}.",
   "workbench.versions.restored_from": "(a {n}. verzióból visszaállítva)",
+  "workbench.versions.group": "{n} apró módosítás, {day}",
+  "workbench.versions.group_range": "(v{from}–v{to})",
   "workbench.versions.hint": "Minden mentés új verziót készít, a régi soha nem íródik felül. A régi verziót az Előnézetben meg is tudod nézni, mielőtt visszaállítod.",
   "workbench.preview.title": "Előnézet",
   "workbench.preview.none": "Ehhez a munkadarabhoz még nincs megjeleníthető fájl. Amint lesz (például egy feltöltött PDF vagy kép), itt fogod látni.",

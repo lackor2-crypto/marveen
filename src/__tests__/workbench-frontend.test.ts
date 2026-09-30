@@ -1166,6 +1166,42 @@ async function openVersions(versions: unknown[], item = { ...PREV_ITEM, current_
 }
 
 describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
+  // K-2.4: a sok apro verzio megmarad, de egy sorba csukhato.
+  it('az egy napon keszult, egymas utani apro verziok egy osszecsukott sorba kerulnek', async () => {
+    const day = 1790000000
+    const v = (n: number, extra: Record<string, unknown> = {}) => ({ id: 'v' + n, version_no: n, created_at: day + n * 60, restored_from_no: null, label: null, reason: null, ...extra })
+    // v9 a jelenlegi, v8 nevvel mentett, v7..v3 apro (5 db), v2 okkal mentett, v1 apro (egyedul: nem csukodik).
+    const list = [v(9), v(8, { label: 'Ügyfélnek' }), v(7), v(6), v(5), v(4), v(3), v(2, { reason: 'export' }), v(1)]
+    await openVersions(list, { ...PREV_ITEM, current_version_id: 'v9' })
+    let html = h.rootEl.innerHTML
+    expect(html).toContain('data-wb-act="version-group"')
+    expect(html).toContain('"n":5')
+    expect(html).toContain('Ügyfélnek')
+    // Osszecsukva a csoport tagjai nem latszanak, a kulon sorok igen.
+    expect(html).not.toContain('data-wb-version="v5"')
+    expect(html).toContain('data-wb-version="v8"')
+    expect(html).toContain('data-wb-version="v2"')
+    expect(html).toContain('data-wb-version="v1"')
+    // Kinyitva mind megvan: semmi nem torlodott.
+    h.click({ 'data-wb-act': 'version-group', 'data-wb-key': 'v3' })
+    html = h.rootEl.innerHTML
+    for (const n of [3, 4, 5, 6, 7]) expect(html).toContain('data-wb-version="v' + n + '"')
+    expect(html).toContain('aria-expanded="true"')
+    h.click({ 'data-wb-act': 'version-group', 'data-wb-key': 'v3' })
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-version="v5"')
+  })
+
+  it('ket apro verzio nem csukodik ossze, es a kulonbozo napok kulon csoportba kerulnek', async () => {
+    const d1 = 1790000000
+    const d2 = d1 + 3 * 86400
+    const v = (n: number, at: number) => ({ id: 'v' + n, version_no: n, created_at: at, restored_from_no: null, label: null, reason: null })
+    await openVersions([v(8, d2 + 50), v(7, d2 + 40), v(6, d2 + 30), v(5, d2 + 20), v(4, d1 + 30), v(3, d1 + 20), v(2, d1 + 10), v(1, d1)], { ...PREV_ITEM, current_version_id: 'v8' })
+    const html = h.rootEl.innerHTML
+    expect((html.match(/data-wb-act="version-group"/g) || []).length).toBe(2)
+    await openVersions([v(3, d1 + 20), v(2, d1 + 10), v(1, d1)], { ...PREV_ITEM, current_version_id: 'v3' })
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="version-group"')
+  })
+
   it('a JELENLEGI verziohoz nincs visszaallitas, a regihez van', async () => {
     await openVersions([V2, V1])
     const html = h.rootEl.innerHTML

@@ -5597,6 +5597,8 @@ window._i18n.en = {
   "workbench.versions.save_new": "Save as a new version",
   "workbench.versions.saved": "Saved as new version {n}.",
   "workbench.versions.restored_from": "(restored from version {n})",
+  "workbench.versions.group": "{n} small changes, {day}",
+  "workbench.versions.group_range": "(v{from}–v{to})",
   "workbench.versions.hint": "Every save creates a new version; the old one is never overwritten. You can look at an older version in the Preview before restoring it.",
   "workbench.preview.title": "Preview",
   "workbench.preview.none": "There is no file to show for this work item yet. As soon as there is one (an uploaded PDF or picture, for example), it will appear here.",
