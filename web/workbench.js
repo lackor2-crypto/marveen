@@ -4082,22 +4082,157 @@
       }
       WB.canvasError = null
       WB.canvasEdit = null
-      WB.canvas = {
-        canvas: r.data.canvas, exists: true, rel: r.data.rel, name: r.data.name,
-        version_id: r.data.version && r.data.version.id,
-        version_no: r.data.version && r.data.version.version_no,
+      canvasTake(r.data)
+      // Az automatikus mentes nem ad buborekot minden mozdulatra: a "Mentve"
+      // jelzes a vaszon fejeben all (K-2.2). Csak a rajz SZULETESET mondjuk ki.
+      if (r.data.created) {
+        window.showToast(r.data.renamed
+          ? t('workbench.canvas.renamed', { name: r.data.name })
+          : (r.data.message || t('workbench.canvas.saved')))
       }
-      bumpCanvasStamp()
-      if (WB.detail && r.data.item) { WB.detail.item = r.data.item }
-      if (WB.detail && r.data.versions) { WB.detail.versions = r.data.versions }
-      window.showToast(r.data.renamed
-        ? t('workbench.canvas.renamed', { name: r.data.name })
-        : (r.data.message || t('workbench.canvas.saved')))
       // A kozepso panel elonezete is a vaszonrol szol: ujra kell kerni -- de a
       // mostani kep a helyen marad, amig az uj meg nem jon (nincs villogas).
       loadPreview(WB.selectedId, null, true)
       render()
     })
+  }
+
+  /** Egy szerver-valasz atvetele: a rajz, a munkapeldany allapota (K-2.2), a
+   *  visszavonas (K-2.1) es a felbehagyott munkak. Ami a valaszban nincs, az a
+   *  regi erteken marad -- nem talaljuk ki. */
+  function canvasTake(d) {
+    var old = WB.canvas || {}
+    var ver = d.version || null
+    WB.canvas = {
+      canvas: d.canvas || old.canvas, exists: true,
+      rel: d.rel || old.rel, name: d.name || old.name,
+      version_id: ver ? ver.id : old.version_id,
+      version_no: ver ? ver.version_no : old.version_no,
+      current: true,
+      draft: 'draft' in d ? d.draft : old.draft,
+      history: 'history' in d ? d.history : old.history,
+      orphans: 'orphans' in d ? d.orphans : old.orphans,
+    }
+    bumpCanvasStamp()
+    if (WB.detail && d.item) { WB.detail.item = d.item }
+    if (WB.detail && d.versions) { WB.detail.versions = d.versions }
+  }
+
+  /** Visszavonas / ujra (K-2.1). A lepes lehet kezi vagy az agent egy egesz
+   *  kerese -- a szerver tudja, mi tartozik egybe. */
+  function canvasStep(dir) {
+    if (!WB.selectedId || WB.canvasBusy || archived()) return
+    var h = WB.canvas && WB.canvas.history
+    if (!h || !(dir === 'undo' ? h.can_undo : h.can_redo)) return
+    WB.canvasBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas/' + dir, {}).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) {
+        // Utkozes: a rajz kozben mashol valtozott. A mostani rajz erintetlen,
+        // a szerver megmondja, melyik elem -- es a friss allapotot betoltjuk.
+        window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+        loadCanvas(WB.selectedId)
+        return
+      }
+      WB.canvasEdit = null
+      canvasTake(r.data)
+      var step = r.data.step || {}
+      window.showToast(t(dir === 'undo' ? 'workbench.canvas.undone' : 'workbench.canvas.redone', { what: canvasStepLabel(step) }))
+      loadPreview(WB.selectedId, null, true)
+      render()
+    })
+  }
+
+  /** A lepes emberi neve: a szerver gepi muveletneveket ad ("move,scale"). */
+  function canvasStepLabel(step) {
+    if (!step || !step.label) return ''
+    var names = String(step.label).split(',').map(function (n) {
+      var key = 'workbench.canvas.op_' + n
+      var txt = t(key)
+      return txt === key ? n : txt
+    })
+    var text = names.join(', ')
+    return step.source === 'agent' ? t('workbench.canvas.by_agent', { what: text }) : text
+  }
+
+  /** "Verzio mentese" (K-2.3): nevvel, ha a tulajdonos ad nevet. */
+  function canvasSaveVersion() {
+    if (!WB.selectedId || WB.canvasBusy || archived()) return
+    var label = typeof window.prompt === 'function' ? window.prompt(t('workbench.canvas.version_prompt'), '') : ''
+    // Megse: nincs verzio. Az ures nev rendben van (nev nelkuli verzio).
+    if (label === null) return
+    WB.canvasBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas/version', { label: label || '', reason: 'manual' }).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      canvasTake(r.data)
+      window.showToast(r.data.message || t('workbench.canvas.version_saved'))
+      render()
+    })
+  }
+
+  /** Felbehagyott munka (egy korabbi verziora epult munkapeldany): verzio
+   *  legyen belole, vagy eldobjuk. Eldobas elott rakerdezunk -- az vegleges. */
+  function canvasOrphan(base, restore) {
+    if (!WB.selectedId || WB.canvasBusy || archived() || !base) return
+    if (!restore && typeof window.confirm === 'function' && !window.confirm(t('workbench.canvas.orphan_discard_confirm'))) return
+    WB.canvasBusy = true
+    render()
+    var url = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas/orphans/' + encodeURIComponent(base)
+    api(restore ? 'POST' : 'DELETE', restore ? url + '/restore' : url, restore ? {} : undefined).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) { window.showToast(r.message); loadCanvas(WB.selectedId); return }
+      if (restore) {
+        canvasTake(r.data)
+        loadPreview(WB.selectedId, null, true)
+      } else if (WB.canvas) {
+        WB.canvas.orphans = r.data.orphans || []
+      }
+      window.showToast(r.data.message || '')
+      render()
+    })
+  }
+
+  /** A vaszon fejenek eszkozsora: visszavonas, ujra, mentes-allapot, verzio. */
+  function canvasToolsHtml() {
+    var c = WB.canvas
+    if (!c || !c.exists || archived() || c.current === false) return ''
+    var h = c.history || {}
+    var busy = WB.canvasBusy
+    var undoTitle = h.undo ? t('workbench.canvas.undo_what', { what: canvasStepLabel(h.undo) }) : t('workbench.canvas.undo_none')
+    var redoTitle = h.redo ? t('workbench.canvas.redo_what', { what: canvasStepLabel(h.redo) }) : t('workbench.canvas.redo_none')
+    var state = c.draft && c.draft.since_version
+      ? t('workbench.canvas.state_unversioned', { when: when(c.draft.updated_at) })
+      : t('workbench.canvas.state_clean')
+    return '<div class="wb-can-tools">'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-undo"' + (busy || !h.can_undo ? ' disabled' : '')
+      + ' title="' + escA(undoTitle + ' (Ctrl+Z)') + '" aria-label="' + escA(undoTitle) + '">↶ ' + esc(t('workbench.canvas.undo')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-redo"' + (busy || !h.can_redo ? ' disabled' : '')
+      + ' title="' + escA(redoTitle + ' (Ctrl+Y)') + '" aria-label="' + escA(redoTitle) + '">↷ ' + esc(t('workbench.canvas.redo')) + '</button>'
+      + '<span class="wb-can-state' + (c.draft && c.draft.since_version ? ' wb-can-state-dirty' : '') + '" aria-live="polite">'
+      + esc(busy ? t('workbench.canvas.state_saving') : state) + '</span>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-version"' + (busy ? ' disabled' : '') + '>'
+      + esc(t('workbench.canvas.version_save')) + '</button>'
+      + '</div>'
+  }
+
+  /** A felbehagyott munkak sava. Nem tunik el szo nelkul semmi: a tulajdonos
+   *  dont, verzio legyen-e belole. */
+  function canvasOrphansHtml() {
+    var list = (WB.canvas && WB.canvas.orphans) || []
+    if (!list.length || archived()) return ''
+    return '<div class="wb-can-orphans">' + list.map(function (o) {
+      var what = o.objects < 0
+        ? t('workbench.canvas.orphan_unreadable')
+        : t('workbench.canvas.orphan_line', { n: o.base_version_no == null ? '?' : o.base_version_no, when: when(o.updated_at), count: o.objects })
+      return '<p class="wb-hint">' + esc(what) + ' '
+        + (o.objects < 0 ? '' : '<button type="button" class="wb-mini-btn" data-wb-act="canvas-orphan-restore" data-wb-version="' + escA(o.base_version_id) + '"'
+          + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(t('workbench.canvas.orphan_restore')) + '</button>')
+        + '<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="canvas-orphan-discard" data-wb-version="' + escA(o.base_version_id) + '"'
+        + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(t('workbench.canvas.orphan_discard')) + '</button></p>'
+    }).join('') + '</div>'
   }
 
   /** Az ures vaszon LETREHOZASA. Addig nincs fajl, amig a felhasznalo el nem
@@ -4117,14 +4252,7 @@
         return
       }
       WB.canvasError = null
-      WB.canvas = {
-        canvas: r.data.canvas, exists: true, rel: r.data.rel, name: r.data.name,
-        version_id: r.data.version && r.data.version.id,
-        version_no: r.data.version && r.data.version.version_no,
-      }
-      bumpCanvasStamp()
-      if (WB.detail && r.data.item) { WB.detail.item = r.data.item }
-      if (WB.detail && r.data.versions) { WB.detail.versions = r.data.versions }
+      canvasTake(r.data)
       loadPreview(WB.selectedId, null)
       render()
     })
@@ -4432,6 +4560,7 @@
     if (!WB.canvas.exists) {
       // MEG NINCS RAJZ. Ez kezdoallapot, nem hiba -- es van belole ut tovabb.
       return '<div class="wb-can">' + head
+        + canvasOrphansHtml()
         + '<div class="wb-empty">'
         + '<p class="wb-empty-title">' + esc(t('workbench.canvas.none_title')) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.canvas.none_hint')) + '</p>'
@@ -4441,6 +4570,8 @@
     }
     var objects = canvasObjects()
     return '<div class="wb-can">' + head
+      + canvasToolsHtml()
+      + canvasOrphansHtml()
       + '<p class="wb-hint">' + esc(t('workbench.canvas.intro')) + '</p>'
       + (archived() ? '' : canvasAddHtml())
       + (objects.length
@@ -6387,8 +6518,11 @@
               + esc(t('workbench.versions.delete')) + '</button>') : '')
             return '<li class="wb-row"><div class="wb-row-main">' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
               + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
+              + (v.label ? ' <strong class="wb-ver-label">' + esc(v.label) + '</strong>' : '')
               + (v.restored_from_no ? ' <span class="wb-muted">'
                 + esc(t('workbench.versions.restored_from', { n: v.restored_from_no })) + '</span>' : '')
+              + (v.reason && v.reason !== 'manual' && t('workbench.versions.reason_' + v.reason) !== 'workbench.versions.reason_' + v.reason
+                ? ' <span class="wb-muted">' + esc(t('workbench.versions.reason_' + v.reason)) + '</span>' : '')
               + '</div>' + (acts ? '<div class="wb-row-act">' + acts + '</div>' : '') + '</li>'
           }).join('') + '</ul>'
             + (WB.warn && WB.warn.kind === 'last-version' && versions.length === 1
@@ -6978,7 +7112,7 @@
       }
       if (found) { found.status = ev.status; found.detail = ev.detail || found.detail; found.approvalId = ev.approvalId || found.approvalId }
       else turn.tools.push({ name: ev.name, status: ev.status, detail: ev.detail || '', approvalId: ev.approvalId || '' })
-      if (ev.status === 'ok' && String(ev.name || '').indexOf('workItem.') === 0) scheduleLiveRefresh()
+      if (ev.status === 'ok' && /^(workItem|canvas)\./.test(String(ev.name || ''))) scheduleLiveRefresh()
       return
     }
     if (ev.type === 'notice') {
@@ -8121,6 +8255,9 @@
         if (!r.ok || WB.selectedId !== itemId || !WB.detail) return
         WB.detail = r.data
         loadPreview(itemId, WB.previewVersion, true)
+        // Az agent a rajzon is dolgozhatott (canvas.edit): a munkapeldany, a
+        // visszavonas es a "Mentve" jelzes is onnan jon.
+        if (WB.canvas || canvasKind(r.data && r.data.item)) loadCanvas(itemId)
         // az agens teendot is felvehetett (workItem.addTodo)
         loadTodos()
       })
@@ -8780,6 +8917,11 @@
     else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'canvas-start') { if (!archived()) startCanvas() }
     else if (a === 'canvas-refresh') loadCanvas(WB.selectedId)
+    else if (a === 'canvas-undo') canvasStep('undo')
+    else if (a === 'canvas-redo') canvasStep('redo')
+    else if (a === 'canvas-version') canvasSaveVersion()
+    else if (a === 'canvas-orphan-restore') canvasOrphan(act.getAttribute('data-wb-version'), true)
+    else if (a === 'canvas-orphan-discard') canvasOrphan(act.getAttribute('data-wb-version'), false)
     else if (a === 'canvas-edit') { WB.canvasEdit = act.getAttribute('data-wb-obj'); render() }
     else if (a === 'canvas-cancel') { WB.canvasEdit = null; render() }
     else if (a === 'canvas-save') { e.preventDefault(); saveCanvasObject(act.getAttribute('data-wb-obj')) }
@@ -8962,6 +9104,25 @@
     if (typeof e.preventDefault === 'function') e.preventDefault()
     WB.canvasSel = boxEl.getAttribute('data-wb-box')
     canvasOps([{ op: 'move', id: WB.canvasSel, dx: dx, dy: dy }])
+  })
+
+  // Ctrl+Z / Ctrl+Y (Macen Cmd, es a Cmd+Shift+Z is ujra) a rajzon (K-2.1).
+  // Szovegmezoben NEM: ott a bongeszo sajat visszavonasa a helyes (a felig
+  // begepelt szoveg), nem a rajz utolso lepese.
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !(e.ctrlKey || e.metaKey) || e.altKey) return
+    var k = String(e.key || '').toLowerCase()
+    if (k !== 'z' && k !== 'y') return
+    var c = WB.canvas
+    if (!c || !c.exists || c.current === false || !WB.selectedId) return
+    var tg = e.target
+    var tag = tg && tg.tagName ? String(tg.tagName).toUpperCase() : ''
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable)) return
+    // Csak ha a rajz lathato: mas szerkesztonel a Ctrl+Z nem a rajzrol szol.
+    var el = root()
+    if (!el || String(el.innerHTML || '').indexOf('wb-can-tools') < 0) return
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    canvasStep(k === 'y' || e.shiftKey ? 'redo' : 'undo')
   })
 
   // A bevitel erteket allapotban tartjuk: a chat-sav ujrarajzolasa (streameles

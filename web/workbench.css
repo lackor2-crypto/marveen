@@ -463,6 +463,12 @@
 .wb-can { margin-top: 14px; border-top: 1px solid var(--border, #d0d7de); padding-top: 12px; }
 .wb-can-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .wb-can-head h4 { margin: 0; }
+.wb-can-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.wb-can-state { font-size: 0.85em; opacity: 0.8; }
+.wb-can-state-dirty { opacity: 1; font-weight: 600; }
+.wb-can-orphans { border-left: 3px solid var(--warning, #d9a400); padding-left: 8px; margin: 8px 0; }
+.wb-can-orphans .wb-mini-btn { margin-left: 6px; }
+.wb-ver-label { font-weight: 600; }
 .wb-can-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 .wb-can-pick { max-width: 240px; }
 .wb-can-objs { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

@@ -97,7 +97,10 @@ import {
   parseCanvas, applyCanvasOps, canvasSummary, canvasFileName,
   CANVAS_MAX_OBJECTS, CANVAS_TEXT_MAX, CANVAS_MAX_SIZE,
 } from '../../workbench-graphic.js'
-import { readCanvas, saveCanvas, renderCanvasForItem } from '../../workbench-canvas-store.js'
+import {
+  readCanvas, renderCanvasForItem, commitCanvasChange, canvasOpsLabel, canvasHistory, canvasOrphans,
+  undoCanvas, redoCanvas, saveCanvasVersion, flushCanvasDraft, restoreCanvasOrphan, discardCanvasOrphan,
+} from '../../workbench-canvas-store.js'
 import { setOverride } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
@@ -576,6 +579,58 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   canvas_saved: {
     hu: 'Mentve, új verzióként. A korábbi állapot megmaradt.',
     en: 'Saved as a new version. The earlier state is kept.',
+  },
+  canvas_autosaved: {
+    hu: 'Mentve. Verzió akkor lesz belőle, ha a „Verzió mentése” gombra nyomsz.',
+    en: 'Saved. It becomes a version when you press "Save version".',
+  },
+  canvas_nothing_to_undo: {
+    hu: 'Nincs mit visszavonni: a legutóbbi verzió óta nem történt változás ezen a rajzon.',
+    en: 'There is nothing to undo: this drawing has not changed since the last version.',
+  },
+  canvas_nothing_to_redo: {
+    hu: 'Nincs mit újra elvégezni: nincs visszavont lépés.',
+    en: 'There is nothing to redo: no step has been undone.',
+  },
+  canvas_undo_conflict: {
+    hu: 'Ezt a lépést nem vonom vissza, mert közben az érintett elem megváltozott (például egy másik ablakban). A részletek megmondják, melyik; a mostani rajz érintetlen.',
+    en: 'I am not undoing this step, because the element it touched has changed since (for example in another window). The details say which one; the drawing is untouched.',
+  },
+  canvas_draft_unreadable: {
+    hu: 'A rajz munkapéldánya sérült az adatbázisban. A verziók érintetlenek: a verziólistából visszaállhatsz egyre.',
+    en: 'The working copy of the drawing is damaged in the database. The versions are untouched: you can go back to one from the version list.',
+  },
+  canvas_nothing_to_version: {
+    hu: 'Még nincs rajz, így nincs miből verziót menteni. Kezdd el a rajzot.',
+    en: 'There is no drawing yet, so there is nothing to save as a version. Start the drawing first.',
+  },
+  canvas_version_saved: {
+    hu: 'Verzió mentve. A rajzon tovább dolgozhatsz, a visszavonás is megmaradt.',
+    en: 'Version saved. You can keep working on the drawing, and undo still works.',
+  },
+  canvas_version_named: {
+    hu: 'A legutóbbi verzió óta nem változott semmi, ezért nem készült új: a mostani verzió kapta meg a nevet.',
+    en: 'Nothing has changed since the last version, so no new one was made: the current version got the name.',
+  },
+  canvas_version_unchanged: {
+    hu: 'A legutóbbi verzió óta nem változott semmi, ezért nem készült új verzió.',
+    en: 'Nothing has changed since the last version, so no new version was made.',
+  },
+  canvas_orphan_not_found: {
+    hu: 'Ez a félbehagyott munkapéldány már nincs meg (lehet, hogy egy másik ablakban már döntöttél róla). Frissítsd a rajzot.',
+    en: 'This unsaved working copy is no longer there (perhaps you already dealt with it in another window). Refresh the drawing.',
+  },
+  canvas_orphan_restored: {
+    hu: 'A félbehagyott munkából új verzió lett, most ez a jelenlegi.',
+    en: 'The unsaved work became a new version, and it is now the current one.',
+  },
+  canvas_orphan_discarded: {
+    hu: 'A félbehagyott munkapéldány törölve. A verziók érintetlenek.',
+    en: 'The unsaved working copy was deleted. The versions are untouched.',
+  },
+  canvas_old_version: {
+    hu: 'Régebbi verziót nem lehet közvetlenül szerkeszteni. Állítsd vissza a verziólistából, és utána szerkeszd.',
+    en: 'An older version cannot be edited directly. Restore it from the version list, then edit it.',
   },
   send_bad_to: {
     hu: 'Adj meg egy érvényes email-címet a címzettnek (például: nev@pelda.hu). Egyszerre egy címzett.',
@@ -2545,7 +2600,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const action = body['action']
     const who = actor(ctx)
     let r
-    if (action === 'submit') r = submitWorkItemForApproval(item.id, { actor: who, lang })
+    if (action === 'submit') {
+      // A jovahagyas a JELENLEGI verziorol szol. Rajznal a latott allapot a
+      // munkapeldanyban allhat (K-2.2): elobb verzio lesz belole (K-2.3,
+      // "veglegesiteskor"), kulonben a tulajdonos egy regebbi rajzot hagyna jova.
+      const flushed = flushCanvasDraft(item, { reason: 'finalize', actor: who })
+      if (flushed && !flushed.ok) return failDetail(res, 409, flushed.code, lang, flushed.detail)
+      r = submitWorkItemForApproval(item.id, { actor: who, lang })
+    }
     else if (action === 'withdraw') r = withdrawWorkItemApproval(item.id, { actor: who, lang })
     else if (action === 'approve' || action === 'reject') {
       if (ctx.auth?.kind !== 'session') return fail(res, 403, 'approval_owner_only', lang)
@@ -2564,6 +2626,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
+    // Rajz-munkadarabnal a latott rajz a MUNKAPELDANYBAN all (K-2.2): az uj
+    // verzio azt tartalmazza, nem a legutobbi verzio fajljat masolja le.
+    if (!('source_path' in body)) {
+      const flushed = flushCanvasDraft(item, { label: body['label'], reason: 'manual', actor: actor(ctx), prompt: body['prompt'] })
+      if (flushed) {
+        if (!flushed.ok) return failDetail(res, flushed.code === 'project_not_found' ? 404 : 409, flushed.code, lang, flushed.detail)
+        json(res, { ok: true, item: flushed.item, version: flushed.version, versions: listWorkItemVersionsView(item.id) }, 201)
+        return true
+      }
+    }
     const r = createWorkItemVersion(item.id, {
       prompt: body['prompt'],
       // A `source_path` csak akkor valtozik, ha a hivo KIMONDJA -- kulonben marad.
@@ -2961,16 +3033,41 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   GET  .../canvas       -- a vaszon adata (meg nincs rajz => URES vaszon,
   //                            ami NEM hiba: ez a kezdoallapot)
   //   PUT  .../canvas       -- a teljes vaszon mentese  -> UJ VERZIO
-  //   POST .../canvas/ops   -- STRUKTURALT modositas    -> UJ VERZIO
+  //   POST .../canvas/ops   -- STRUKTURALT modositas    -> munkapeldany (verzio NEM)
+  //   POST .../canvas/undo | redo                      -> egy lepes vissza / elore
+  //   POST .../canvas/version {label, reason}          -> UJ VERZIO a munkapeldanybol
+  //   POST   .../canvas/orphans/<verzio>/restore       -> felbehagyott munka verziokent
+  //   DELETE .../canvas/orphans/<verzio>               -> felbehagyott munka eldobasa
   //   GET  .../canvas.svg   -- a vaszon KEPE (elonezet es letoltes)
   //
   // A strukturalt muveleteket ugyanaz a modul vegzi, amit az agent toolja hiv
   // (`applyCanvasOps`), tehat a "tedd a cimet 30%-kal nagyobbra es kozepre"
   // pontosan ugyanazt csinalja gombbal es agenssel.
+  //
+  // v4 spec 8. fejezet (#441, K-2.1..K-2.3): a modositas AZONNAL mentodik a
+  // munkapeldanyba, de verziot csak jelentos pont csinal -- igy a verziolista
+  // nem telik meg szaz apro lepessel, es minden lepes visszavonhato.
   // ============================================================================
+  const canvasArchived = (): boolean => {
+    const owner = getProject(item.project_id)
+    return !!owner && owner.archived_at != null
+  }
+  /** A munkapeldany allapota minden valaszban: a felulet EBBOL tudja, mit irjon
+   *  ki ("Mentve" / "Nem mentett valtozas") es mi vonhato vissza. */
+  const canvasState = (): Record<string, unknown> => {
+    const r = readCanvas(item.id)
+    return {
+      draft: r.ok ? r.draft : null,
+      history: canvasHistory(item.id),
+      orphans: canvasOrphans(item.id),
+    }
+  }
+
   if (segs.length === 2 && segs[1] === 'canvas' && method === 'GET') {
     const r = readCanvas(item.id, url.searchParams.get('version'))
     if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 409, r.code, lang, r.detail)
+    const fresh = getWorkItem(item.id) || item
+    const onCurrent = !r.version_id || r.version_id === fresh.current_version_id
     json(res, {
       canvas: r.doc,
       // A KET NULLA KULON: "meg nincs rajz" (exists=false) sosem keveredik
@@ -2980,6 +3077,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       version_id: r.version_id, version_no: r.version_no,
       limits: { max_objects: CANVAS_MAX_OBJECTS, text_max: CANVAS_TEXT_MAX, max_size: CANVAS_MAX_SIZE },
       summary: canvasSummary(r.doc),
+      // Regi verzio nezesekor nincs munkapeldany es nincs mit visszavonni: az
+      // a verzio sajat, lezart allapota.
+      current: onCurrent,
+      draft: r.draft,
+      history: onCurrent ? canvasHistory(item.id) : null,
+      orphans: canvasOrphans(item.id),
     })
     return true
   }
@@ -3008,36 +3111,120 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const parsed = parseCanvas('canvas' in body ? body['canvas'] : body)
     if (!parsed.ok) return failDetail(res, 400, parsed.code, lang, parsed.detail)
     if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
-    const saved = saveCanvas(item, parsed.doc, {
-      prompt: body['prompt'], createdBy: actor(ctx), sub: body['sub'], name: body['name'],
+    // A teljes vaszon kuldese EXPLICIT mentes: a munkapeldanyba kerul (egy
+    // visszavonhato lepeskent), es rogton verzio is lesz belole. Ha pontosan az
+    // all mar a verzioban, nem gyartunk egy ugyanolyan masodikat.
+    const commit = commitCanvasChange(item, parsed.doc, {
+      source: 'owner', label: 'replace', actor: actor(ctx), sub: body['sub'], name: body['name'], prompt: body['prompt'],
     })
-    if (!saved.ok) return failDetail(res, saved.code === 'project_not_found' ? 404 : 400, saved.code, lang, saved.detail)
+    if (!commit.ok) return failDetail(res, commit.code === 'project_not_found' ? 404 : 400, commit.code, lang, commit.detail)
+    const v = saveCanvasVersion(getWorkItem(item.id) || item, {
+      label: body['label'], reason: 'manual', actor: actor(ctx), prompt: body['prompt'],
+    })
+    if (!v.ok) return failDetail(res, v.code === 'project_not_found' ? 404 : 409, v.code, lang, v.detail)
+    const save = v.save || commit.created
+    const after = readCanvas(item.id)
     json(res, {
-      ok: true, canvas: parsed.doc, item: saved.item, version: saved.version,
+      ok: true, canvas: parsed.doc, item: v.item, version: v.version,
       versions: listWorkItemVersionsView(item.id),
-      rel: saved.rel, name: saved.name, renamed: saved.renamed,
-      message: msg('canvas_saved', lang),
-    }, 201)
+      rel: save ? save.rel : (after.ok ? after.rel : null),
+      name: save ? save.name : (after.ok ? after.name : null),
+      renamed: save ? save.renamed : false,
+      created: !!save,
+      ...canvasState(),
+      message: msg(save ? 'canvas_saved' : 'canvas_version_unchanged', lang),
+    }, save ? 201 : 200)
     return true
   }
 
   if (segs.length === 3 && segs[1] === 'canvas' && segs[2] === 'ops' && method === 'POST') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const current = readCanvas(item.id, body['version'])
+    if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
+    // A munkapeldany a JELENLEGI verziora epul. Regi verziot csak
+    // visszaallitas utan lehet szerkeszteni -- kulonben ket vonal keveredne.
+    const wanted = body['version']
+    if (wanted != null && wanted !== '' && String(wanted) !== (item.current_version_id || '')) {
+      return fail(res, 409, 'canvas_old_version', lang)
+    }
+    const current = readCanvas(item.id)
     if (!current.ok) return failDetail(res, current.code === 'not_found' ? 404 : 409, current.code, lang, current.detail)
     const applied = applyCanvasOps(current.doc, body['ops'])
     if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
-    const saved = saveCanvas(item, applied.doc, {
-      prompt: body['prompt'], createdBy: actor(ctx), sub: body['sub'], name: current.name,
+    // A csoport: egy szerkeszto-urlap egy megnyitasa, vagy egy huzas -- ezek
+    // egy lepeskent vonhatok vissza, akarhany mentes ment is le kozben.
+    const group = typeof body['group'] === 'string' ? body['group'].trim().slice(0, 80) : ''
+    const commit = commitCanvasChange(item, applied.doc, {
+      source: 'owner', grp: group ? `ui:${group}` : null, label: canvasOpsLabel(body['ops']),
+      actor: actor(ctx), sub: body['sub'], name: current.name, prompt: body['prompt'],
     })
-    if (!saved.ok) return failDetail(res, saved.code === 'project_not_found' ? 404 : 400, saved.code, lang, saved.detail)
+    if (!commit.ok) return failDetail(res, commit.code === 'project_not_found' ? 404 : 400, commit.code, lang, commit.detail)
+    const fresh = getWorkItem(item.id) || item
+    const created = commit.created
     json(res, {
-      ok: true, canvas: applied.doc, applied: applied.applied,
-      item: saved.item, version: saved.version, versions: listWorkItemVersionsView(item.id),
-      rel: saved.rel, name: saved.name, renamed: saved.renamed,
-      message: msg('canvas_saved', lang),
+      ok: true, canvas: applied.doc, applied: applied.applied, changed: commit.changed,
+      item: fresh,
+      version: created ? created.version : (fresh.current_version_id ? getWorkItemVersion(fresh.current_version_id) ?? null : null),
+      versions: listWorkItemVersionsView(item.id),
+      rel: created ? created.rel : current.rel,
+      name: created ? created.name : current.name,
+      renamed: created ? created.renamed : false,
+      created: !!created,
+      ...canvasState(),
+      // Az ELSO mentes hozza letre a rajzot (fajl + verzio); utana a
+      // modositas csak a munkapeldanyba megy.
+      message: msg(created ? 'canvas_saved' : 'canvas_autosaved', lang),
+    }, created ? 201 : 200)
+    return true
+  }
+
+  if (segs.length === 3 && segs[1] === 'canvas' && (segs[2] === 'undo' || segs[2] === 'redo') && method === 'POST') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
+    const r = segs[2] === 'undo' ? undoCanvas(item, actor(ctx)) : redoCanvas(item, actor(ctx))
+    if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 409, r.code, lang, r.detail)
+    json(res, {
+      ok: true, canvas: r.doc, step: { label: r.label, source: r.source },
+      item: getWorkItem(item.id) || item,
+      ...canvasState(),
+    })
+    return true
+  }
+
+  if (segs.length === 3 && segs[1] === 'canvas' && segs[2] === 'version' && method === 'POST') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
+    const body = (await readJson(req)) || {}
+    const v = saveCanvasVersion(item, { label: body['label'], reason: body['reason'], actor: actor(ctx), prompt: body['prompt'] })
+    if (!v.ok) return failDetail(res, v.code === 'project_not_found' || v.code === 'not_found' ? 404 : 409, v.code, lang, v.detail)
+    const named = !v.created && typeof body['label'] === 'string' && body['label'].trim() !== ''
+    json(res, {
+      ok: true, created: v.created, item: v.item, version: v.version,
+      versions: listWorkItemVersionsView(item.id),
+      rel: v.save ? v.save.rel : null, name: v.save ? v.save.name : null, renamed: v.save ? v.save.renamed : false,
+      ...canvasState(),
+      message: msg(v.created ? 'canvas_version_saved' : named ? 'canvas_version_named' : 'canvas_version_unchanged', lang),
+    }, v.created ? 201 : 200)
+    return true
+  }
+
+  if (segs.length === 5 && segs[1] === 'canvas' && segs[2] === 'orphans' && segs[4] === 'restore' && method === 'POST') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
+    const r = restoreCanvasOrphan(item, segs[3] || '', actor(ctx))
+    if (!r.ok) return failDetail(res, r.code === 'canvas_orphan_not_found' ? 404 : 409, r.code, lang, r.detail)
+    const after = readCanvas(item.id)
+    json(res, {
+      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
+      canvas: after.ok ? after.doc : null,
+      ...canvasState(),
+      message: msg('canvas_orphan_restored', lang),
     }, 201)
+    return true
+  }
+
+  if (segs.length === 4 && segs[1] === 'canvas' && segs[2] === 'orphans' && method === 'DELETE') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
+    if (!discardCanvasOrphan(item, segs[3] || '')) return fail(res, 404, 'canvas_orphan_not_found', lang)
+    json(res, { ok: true, ...canvasState(), message: msg('canvas_orphan_discarded', lang) })
     return true
   }
 

@@ -88,7 +88,8 @@ async function settleOnce(sessionId?: string | null): Promise<number> {
       }
       let result
       try {
-        result = await runTool(row.tool_name, input, { projectId: session.project_id, workItemId, lang, actor: requesterOf(approval.action_payload) })
+        // Egy jovahagyott lepes egy visszavonhato lepes a rajzon.
+        result = await runTool(row.tool_name, input, { projectId: session.project_id, workItemId, lang, actor: requesterOf(approval.action_payload), turnId: `approval:${String(row.approval_id)}` })
       } catch (e) {
         result = { ok: false as const, code: 'failed', detail: e instanceof Error ? e.message : String(e) }
       }
