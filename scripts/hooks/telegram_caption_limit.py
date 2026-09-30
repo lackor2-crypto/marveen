@@ -20,15 +20,15 @@ What was past the cap cannot be fetched from Telegram. Two things can be done:
      machine and the caption is the beginning of the owner's dictations pasted
      into Telegram just before the message was sent, the full text is rebuilt.
 
-Used two ways:
-  * imported by channel-inbox-drain.py (queued messages, the sub-agent path);
-  * run as a UserPromptSubmit hook (the --channels path, where the <channel>
-    block is the prompt itself).
-Never blocks: any error means silence, exit 0.
+Imported by the two hooks a Telegram message reaches an agent through, both
+already wired for every agent, so nothing new has to be registered:
+  * channel-inbox-drain.py -- queued messages (the sub-agent path);
+  * voice-reply-directive.py -- the --channels path, where the <channel> block
+    is the prompt itself.
+Both call it fail-open: an error here never stops a message from arriving.
 """
 import glob
 import html
-import json
 import os
 import re
 import sys
@@ -343,15 +343,6 @@ def self_test():
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
         self_test()
-        return
-    try:
-        payload = json.load(sys.stdin)
-        out = notices(payload.get("prompt") or "")
-        if out:
-            sys.stdout.write("\n" + out + "\n")
-    except Exception:
-        pass
-    sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,6 @@ import { atomicWriteFileSync } from './atomic-write.js'
 export const KNOWN_HOOK_SCRIPTS: readonly string[] = [
   'taskstate-replay.py',
   'voice-reply-directive.py',
-  'telegram_caption_limit.py',
   'staleness-guard.py',
   // email-send-gate.mjs + self-pace-gate.mjs removed 2026-08-20 (owner decision,
   // Telegram msg 404). Leftover entries in old settings.json are stripped by
