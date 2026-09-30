@@ -128,7 +128,7 @@ describe('attekinto: a felulet', () => {
     h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
   }
 
-  it('a negy csempe a Munkapad TETEJEN all, a KANBAN oszlopneveivel, kartyakkal es munkadarabokkal', async () => {
+  it('EGYSOROS SZAMSOR: negy csempe a Munkapad TETEJEN, a KANBAN oszlopneveivel, csak szamokkal -- kartyalista es munkadarab-lista nelkul', async () => {
     const h = workbenchHarness()
     open(h, { ...OV,
       columns: {
@@ -147,14 +147,20 @@ describe('attekinto: a felulet', () => {
     expect(html.match(/class="wb-ov-tile /g)!.length).toBe(4)
     expect(html).not.toContain('wb-ov-file-tile')
     // Tervezett: 1 kartya + 1 vazlat munkadarab = 2.
-    expect(html).toMatch(/wb-ov-planned[^]*?<div class="wb-ov-num">2<\/div>[^]*?#501<\/span> Terv kártya/)
+    expect(html).toMatch(/wb-ov-planned[^]*?<div class="wb-ov-num">2<\/div>/)
     // Jovahagyasra var: 1 kartya nelkuli jegy + 1 atnezesre varo munkadarab = 2, kiemelve.
     expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<div class="wb-ov-num">2<\/div>/)
     expect(html).toContain('data-wb-act="goto-approvals"')
-    expect(html).toContain('data-wb-item="w2"')
+    // Boss, 2026-09-30, TG 2011 (B): a kartyalista es a munkadarab-lista eltunt.
+    const ov = html.slice(html.indexOf('class="wb-ov"'), html.indexOf('wb-panel-tabs'))
+    expect(ov).not.toContain('Terv kártya')
+    expect(ov).not.toContain('Ajánlat')
+    expect(ov).not.toContain('wb-ov-list')
+    expect(ov).not.toContain('data-wb-card=')
+    expect(ov).not.toContain('data-wb-item=')
   })
 
-  it('a jovahagyasra varo kartya nem jelenik meg ketszer (oszlop + jegy)', async () => {
+  it('a jovahagyasra varo kartya nem szamolodik ketszer (oszlop + jegy)', async () => {
     const h = workbenchHarness()
     open(h, { ...OV,
       approvals: { count: 1, error: null, items: [{ id: 'a1', category: 'kanban_done', description: 'Kártya #404', requested_at: 1, card_seq: 404, card_title: 'Munkapad' }] },
@@ -164,46 +170,7 @@ describe('attekinto: a felulet', () => {
     })
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
     const html = h.html()
-    expect(html.match(/#404<\/span>/g)!.length).toBe(1)
     expect(html).toMatch(/wb-ov-wait wb-ov-attn[^]*?<div class="wb-ov-num">1<\/div>/)
-  })
-
-  it('ket jovahagyas KET kulon kis kartya: sorszam, cim, datum -- nem egy szovegfolyam', async () => {
-    const h = workbenchHarness()
-    open(h, { ...OV, approvals: { count: 2, error: null, items: [
-      { id: 'a1', category: 'kanban_done', description: 'Kártya #404 (kanban-azonosító: cd19e75c): hosszú', requested_at: 1, card_seq: 404, card_title: 'Munkapad-ágens eszközei' },
-      { id: 'a2', category: 'kanban_done', description: 'Kártya #398: Raktár', requested_at: 1, card_seq: 398, card_title: 'Raktár a MEGA-n' },
-    ] } })
-    await vi.waitFor(() => expect(h.html()).toContain('wb-ov-approvals'))
-    const html = h.html()
-    expect(html.match(/<li class="wb-ov-approval">/g)!.length).toBe(2)
-    expect(html).toContain('<span class="wb-ov-apv-seq">#404</span> Munkapad-ágens eszközei')
-    expect(html).toContain('<span class="wb-ov-apv-seq">#398</span> Raktár a MEGA-n')
-    expect(html).toContain('workbench.ov.apv_when')
-    expect(html).not.toContain('kanban-azonosító: cd19e75c')
-  })
-
-  // TG 1854: "a Kanban kartyakra nem lehet raklikkelni ... nyiljon meg a Kanban kartya".
-  it('a csempe kanban-kartyajara (es a kartyas jegyre) kattintva a kartya-ablak nyilik, a Munkapad marad', async () => {
-    const h = workbenchHarness()
-    const opened: Array<{ id: string; opts: any }> = []
-    h.win._prjOpenCardHere = (id: string, opts: any) => { opened.push({ id, opts }) }
-    open(h, { ...OV,
-      approvals: { count: 1, error: null, items: [{ id: 'a1', category: 'kanban_done', description: 'Kártya #404', requested_at: 1, card_seq: 404, card_title: 'Jegy', card_id: 'k4' }] },
-      columns: { planned: { count: 1, cards: [{ id: 'k1', seq: 501, title: 'Terv kártya', updated_at: 1 }] }, in_progress: { count: 0, cards: [] }, waiting: { count: 0, cards: [] }, done: { count: 0, cards: [] } },
-      work: { draft: { count: 0, items: [] }, in_progress: { count: 0, items: [] } },
-    })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-card="k1"'))
-    expect(h.html()).toContain('data-wb-act="card-open" data-wb-card="k4"')
-    expect(h.html()).toContain('workbench.ov.card_open_title')
-    h.click({ 'data-wb-act': 'card-open', 'data-wb-card': 'k1' })
-    h.click({ 'data-wb-act': 'card-open', 'data-wb-card': 'k4' })
-    expect(opened.map((o) => o.id)).toEqual(['k1', 'k4'])
-    // Closing the card window refreshes only the overview, the Workbench stays open.
-    const before = h.fetchCalls.filter((c) => c.url.includes('/api/workbench/overview')).length
-    opened[0].opts.onClose()
-    await vi.waitFor(() => expect(h.fetchCalls.filter((c) => c.url.includes('/api/workbench/overview')).length).toBe(before + 1))
-    expect(h.html()).toContain('wb-ov-tile')
   })
 
   it('app.js: a kartya-nyito ki van teve a Munkapadnak, bezaraskor a hivo frissit; az idovonal sem nem letezo fuggvenyt hiv', () => {
@@ -222,17 +189,15 @@ describe('attekinto: a felulet', () => {
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2'))).toBe(true))
   })
 
-  it('FRISS TELEPITES: ures projektben baratsagos mondatok, nem hiba', async () => {
+  it('FRISS TELEPITES: ures projektben negy 0 szam, nem hiba', async () => {
     const h = workbenchHarness()
     const col = { count: 0, cards: [] }
     open(h, { open: { count: 0, items: [] }, cards: { open: 0, error: null }, review: { count: 0, items: [] }, approvals: { count: 0, items: [], error: null }, recent_done: { count: 0, items: [], days: 14 }, last_file: null,
       columns: { planned: col, in_progress: col, waiting: col, done: col }, work: { draft: { count: 0, items: [] }, in_progress: { count: 0, items: [] } } })
     await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
     const html = h.html()
-    expect(html).toContain('workbench.ov.planned_none')
-    expect(html).toContain('workbench.ov.progress_none')
-    expect(html).toContain('workbench.ov.wait_none')
-    expect(html).toContain('workbench.ov.done_none')
+    // Igaz nulla: a forras valaszolt, nincs semmi -- negy 0 szam, nem hiba.
+    expect(html.match(/<div class="wb-ov-num">0<\/div>/g)!.length).toBe(4)
     expect(html).not.toContain('wb-ov-attn')
     expect(html).not.toContain('wb-preview-bad')
   })
