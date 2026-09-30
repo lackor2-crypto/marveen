@@ -260,3 +260,16 @@ describe('uzenetet SOHA nem utasitunk el', () => {
     expect(src.slice(start, end)).not.toContain('json(res,')
   })
 })
+
+describe('recipient availability notices (kartya #451)', () => {
+  it('name the recipient and tell the sender to start the work, not to wait', async () => {
+    const { cardWorkNotice } = await import('../web/card-work-guard.js')
+    const alt = cardWorkNotice('msg.warn.alt_self', {}).message
+    for (const key of ['msg.warn.recipient_quota', 'msg.warn.recipient_stopped']) {
+      const n = cardWorkNotice(key, { to: 'some-agent', alt })
+      expect(n.message).toContain('some-agent')
+      expect(n.message).toContain(alt)
+      expect(n.message).not.toContain('{')
+    }
+  })
+})

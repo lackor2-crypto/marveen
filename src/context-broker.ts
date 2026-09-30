@@ -272,3 +272,27 @@ export function resolveBroker(
   const reason: BrokerReason = (!self || !self.running) ? 'fallback-stopped' : 'fallback-quota'
   return { designated, effective: standIn.agent, reason, steppedOver: designated }
 }
+
+/**
+ * Can this agent take work RIGHT NOW? Used before a hand-over (kanban #451):
+ * a message to an exhausted or stopped agent is accepted by the router but
+ * nobody reads it for hours or days, and the sender waits. `standIn` names an
+ * agent that can work now (most headroom first), or null when nobody can.
+ */
+export type RecipientAvailability =
+  | { ok: true }
+  | { ok: false; reason: 'stopped' | 'quota'; standIn: string | null }
+
+export function recipientAvailability(
+  recipient: string,
+  candidates: BrokerCandidate[],
+  now: number = Date.now(),
+): RecipientAvailability {
+  const self = candidates.find((c) => c.agent === recipient)
+  // Unknown to the candidate list = we cannot measure it: say nothing (the
+  // router stays fail-open, a coordination helper must never stop the fleet).
+  if (!self) return { ok: true }
+  if (usable(self, now)) return { ok: true }
+  const standIn = rankStandIns(candidates, now, recipient)[0] || null
+  return { ok: false, reason: self.running ? 'quota' : 'stopped', standIn: standIn ? standIn.agent : null }
+}

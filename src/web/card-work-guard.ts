@@ -352,6 +352,18 @@ const NOTICE_TEXT: Record<string, { hu: string; en: string }> = {
     hu: 'Figyelem: a(z) {card} kártyára már landolt munka a fő ágon ({commit} -- {subject}). Ha ez folytatás vagy javítás, minden rendben; ha nem tudtál róla, nézd meg, mielőtt kétszer csináljátok meg.',
     en: 'Heads up: work for card {card} has already landed on the main branch ({commit} -- {subject}). If this is a follow-up or a fix, all good; if you did not know about it, check before it gets done twice.',
   },
+  'msg.warn.recipient_quota': {
+    hu: 'FIGYELEM: {to} most nem tud dolgozni (kimerült a kerete), az üzenet addig nem kerül feldolgozásra. Ne várj rá, {alt}',
+    en: 'HEADS UP: {to} cannot work right now (its quota is exhausted), so this message will not be handled until it recovers. Do not wait for it, {alt}',
+  },
+  'msg.warn.recipient_stopped': {
+    hu: 'FIGYELEM: {to} most nem fut, az üzenet addig nem kerül feldolgozásra. Ne várj rá, {alt}',
+    en: 'HEADS UP: {to} is not running, so this message will not be handled until it is back. Do not wait for it, {alt}',
+  },
+  'msg.warn.alt_self': {
+    hu: 'ne adj át senkinek, és ne várj: kezdj neki azonnal magad.',
+    en: 'do not hand it to anyone and do not wait: start the work yourself, right now.',
+  },
   'cb.warn.card_uncheckable': {
     hu: 'Nem tudtam megnézni, dolgozik-e már valaki ezen a kártyán: {detail}. Elküldtem, de ezt nem ellenőriztem.',
     en: 'I could not check whether someone is already working on this card: {detail}. It was sent, but this was not verified.',

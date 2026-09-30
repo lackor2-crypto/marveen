@@ -138,6 +138,31 @@ def _roster(me, roles):
     return "\n".join(rows)
 
 
+def _effective(designated, base):
+    """Who brokers RIGHT NOW, asked from the running dashboard (kanban #451).
+
+    store/context-broker.json only holds who the owner TICKED. The dashboard's
+    resolveEffectiveBroker() is what steps over an agent that is stopped or out
+    of quota and names a stand-in -- and this hook used to ignore it, so every
+    agent was told at session start to "ask <designated>" even while the
+    designated one had been exhausted for days (Boss, 2026-09-30, TG 2017).
+    Returns (effective, reason). Fail-open: any error -> the designation, as
+    before, because losing this lookup must never block a session start.
+    """
+    try:
+        import urllib.request
+        token = open(os.path.join(_project_root(), "store", ".dashboard-token")).read().strip()
+        req = urllib.request.Request(base + "/api/context-broker", headers={"Authorization": "Bearer " + token})
+        with urllib.request.urlopen(req, timeout=2) as r:
+            d = json.load(r)
+        if isinstance(d, dict) and d.get("designated") == designated and "effective" in d:
+            eff = d.get("effective")
+            return (eff if isinstance(eff, str) and eff else None), str(d.get("reason") or "")
+    except Exception:
+        pass
+    return designated, "unknown"
+
+
 def _config():
     path = os.path.join(_project_root(), "store", "context-broker.json")
     try:
@@ -207,6 +232,18 @@ A kartyadon ez a szereped: {roles}.
   megvalosito  -> a kapott terv vegrehajtasa; ha a terv rossz, szolj, ne tervezz ujra
   ellenorzo    -> a kesz munka atnezese; te nem javitasz, hanem megtalalod a hibat"""
 
+NOBODY = """[SZEREP: a kijelolt kontextusgenerator most nem elerheto]
+
+A kijelolt {designated} most NEM elerheto ({why}). Ne adj at neki semmit, ne varj
+tole, es masnak se add at helyette: kezdj neki AZONNAL a munkanak, a munkacsomagot
+magad allitod ossze. Ha valami hianyzik, keresd meg magad."""
+
+HANDOFF_RULE = """
+Atadas elott (MINDIG, az elso lepes): nezd meg, hogy a cimzett tud-e most dolgozni
+(fut, nincs kimerult kerete) -- a POST /api/messages valaszanak `warning` mezeje es az
+agent-msg.sh `WARN` sora ezt megmondja. Ha nem elerheto: NE add at senkinek, vegezd el
+magad, azonnal. Valasz nelkul 30 percnel tovabb ne varj senkire."""
+
 HANDBACK = """
 Rovid parancsok: a gepen csak rovid keresest inditasz (kb. {secs} masodperc
 folott mar hosszu). Ha egy parancs ennel tovabb tartana -- teljes build, teljes
@@ -239,7 +276,20 @@ def main():
 
     base = "http://localhost:%s" % _env_value("WEB_PORT", "3420")
     parts = []
-    if designated and me == designated:
+    effective, why = designated, ""
+    if designated:
+        effective, why = _effective(designated, base)
+    reasons = {
+        "fallback-stopped": "nem fut",
+        "fallback-quota": "kimerult a kerete",
+        "unavailable": "nem fut vagy kimerult a kerete",
+    }
+    why_text = reasons.get(why, "nem elerheto")
+    if designated and effective != designated:
+        # Boss, 2026-09-30, TG 2027: an unavailable designee is not replaced by a
+        # relay. Nobody hands work to a stand-in -- every agent starts the work itself, at once.
+        parts.append(NOBODY.format(designated=designated, why=why_text))
+    elif designated and me == designated:
         roster = _roster(me, roles)
         if not roster:
             roster = "  (nincs mas agens felveve)"
@@ -251,6 +301,8 @@ def main():
         secs = cfg.get("handBackAfterSeconds")
         if isinstance(secs, (int, float)) and secs > 0:
             parts.append(HANDBACK.format(broker=designated, secs=int(secs)))
+    if designated or roles:
+        parts.append(HANDOFF_RULE)
 
     # My own ticked roles, whether or not a generator is designated -- the two
     # settings are independent, and a role means the same thing either way.
