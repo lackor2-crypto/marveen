@@ -117,7 +117,9 @@ public static extern short GetAsyncKeyState(int vKey);
   #
   # Eloszor megvarjuk, hogy az INDITO kattintast elengedd -- kulonben ugyanaz a
   # kattintas azonnal le is allitana a felvetelt.
-  $MAX_SEC = 300          # 5 perc
+  # 2026-09-29: 5 perc helyett 30 perc. Boss: "meg hogyha 10 percig beszelek,
+  # akkor se" vagodjon le. A felvevo puffere (recorder.ps1 NBUF) is 30 perc.
+  $MAX_SEC = 1800         # 30 perc
   $t0 = Get-Date
   $released = $false
   while ($true) {
@@ -131,7 +133,7 @@ public static extern short GetAsyncKeyState(int vKey);
       continue
     }
     if ($down)               { Log "leallitva kattintassal ($([math]::Round($elapsed,1)) mp)"; break }
-    if ($elapsed -ge $MAX_SEC) { Log "elerte az 5 perces felso hatart"; break }
+    if ($elapsed -ge $MAX_SEC) { Log "elerte a 30 perces felso hatart"; break }
   }
 
   # Hagyjuk, hogy a kattintas elvegezze a dolgat: fokusz + kurzor a helyere.
@@ -146,25 +148,15 @@ public static extern short GetAsyncKeyState(int vKey);
   # (a szoba alapzaja is 2% fole megy): a beszed HULLAMZIK, a zaj egyenletes,
   # ezert a hangos es halk keretek ARANYAT is nezzuk.
   $b = [System.IO.File]::ReadAllBytes($Wav)
-  $FRAME = 800
-  $frames = New-Object System.Collections.ArrayList
-  $peak = 0; [double]$all = 0; $n = 0; [double]$fsum = 0; $fn = 0
-  for ($k = 44; $k -lt $b.Length - 1; $k += 2) {
-    $s = [BitConverter]::ToInt16($b, $k); $a = [Math]::Abs([int]$s)
-    if ($a -gt $peak) { $peak = $a }
-    $sq = [double]$s * $s; $all += $sq; $n++; $fsum += $sq; $fn++
-    if ($fn -ge $FRAME) { [void]$frames.Add([Math]::Sqrt($fsum/$fn)); $fsum = 0; $fn = 0 }
-  }
-  if ($fn -gt 0) { [void]$frames.Add([Math]::Sqrt($fsum/$fn)) }
+  # 2026-09-29: a mintankenti PowerShell-ciklus egy 10 perces felvetelnel
+  # (9.6 millio minta) percekig futna -- a meres C#-ban tortenik (recorder.ps1).
+  $st     = [HuWavTools]::Analyze($b)
+  $peak   = $st.Peak
+  $n      = $st.Samples
+  $frames = $st.FrameRms
   $pk  = [math]::Round($peak / 32768 * 100, 1)
-  $rms = if ($n) { [math]::Round([Math]::Sqrt($all/$n) / 32768 * 100, 2) } else { 0 }
-  $dyn = 0.0
-  if ($frames.Count -ge 8) {
-    $srt = @($frames | Sort-Object)
-    $lo = $srt[[int]([Math]::Floor($srt.Count * 0.10))]
-    $hi = $srt[[int]([Math]::Floor($srt.Count * 0.90))]
-    if ($lo -gt 1) { $dyn = [math]::Round($hi / $lo, 2) }
-  }
+  $rms = [math]::Round($st.Rms / 32768 * 100, 2)
+  $dyn = [math]::Round($st.Dynamics, 2)
   $secs = [math]::Round($n / 16000.0, 1)
 
   # ***VAGAS-MERES (2026-08-09) ***
@@ -172,10 +164,7 @@ public static extern short GetAsyncKeyState(int vKey);
   # Ami szamit: HANY MINTA ul a plafonon. Ha ez ezrelek alatt van, az normalis
   # beszed-csucs; ha szazalekokban merheto, a hullamforma teteje LE VAN VAGVA, es
   # abbol a felismeres nem tudja kiolvasni a hangokat. Eddig ezt tippeltem -- most merjuk.
-  $clip = 0
-  for ($k = 44; $k -lt $b.Length - 1; $k += 2) {
-    if ([Math]::Abs([int][BitConverter]::ToInt16($b, $k)) -ge 32700) { $clip++ }
-  }
+  $clip = $st.Clipped
   $clipPct = if ($n) { [math]::Round(100.0 * $clip / $n, 3) } else { 0 }
   Log "felvetel: $secs mp, csucs $pk%, RMS $rms%, dinamika ${dyn}x, vagott minta ${clipPct}%"
   if ($clipPct -gt 0.5) {
@@ -274,11 +263,7 @@ public static extern short GetAsyncKeyState(int vKey);
   $targetPeak = 0.85 * 32767.0
   $gain = if ($peak -gt 0) { [Math]::Min(25.0, $targetPeak / $peak) } else { 1.0 }
   if ($gain -gt 1.05) {
-    for ($k = 44; $k -lt $b.Length - 1; $k += 2) {
-      $v = [int]([BitConverter]::ToInt16($b, $k) * $gain)
-      if ($v -gt 32767) { $v = 32767 } elseif ($v -lt -32768) { $v = -32768 }
-      [Array]::Copy([BitConverter]::GetBytes([int16]$v), 0, $b, $k, 2)
-    }
+    [HuWavTools]::Normalize($b, $gain)
     [System.IO.File]::WriteAllBytes($Wav, $b)
     Log ("normalizalas: {0}x erosites -> csucs {1}%" -f [math]::Round($gain,1), [math]::Round($pk*$gain,1))
   }
@@ -312,53 +297,95 @@ public static extern short GetAsyncKeyState(int vKey);
   # leginkabb a hallucinaciot csendes/zajos reszeken. A Groq alapertelmezese is 0, de
   # EXPLICITEN adjuk meg, hogy egy szolgaltatoi default-valtozas ne csendben rontson el.
   # A `language=hu` nem csak a pontossagot, a KESLELTETEST is javitja (Groq doksi).
-  $http = & curl.exe -s --max-time 120 -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
-      -H "Authorization: Bearer $Key" `
-      -F "file=@$Wav" -F "model=$Model" -F "language=hu" -F "temperature=0" `
-      -F "response_format=verbose_json" @promptArg
+  # ***2026-09-29: HOSSZU FELVETEL DARABOLVA ***
+  # A Groq egy feltoltesben 25 MB-ot fogad; 16 kHz / 16 bit / mono mellett ez
+  # ~13 perc. Boss: "meg hogyha 10 percig beszelek, akkor se" vagodjon le -- ezert
+  # a felvetelt legfeljebb 9 perces darabokra vagjuk, a hatar elotti 30 mp
+  # LEGCSENDESEBB pontjan (ne szo kozepen), es a darabok szoveget egyben illesztjuk be.
+  $PIECE_SAMPLES  = [long](9 * 60 * 16000)
+  $SEARCH_SAMPLES = [long](30 * 16000)
+  $cuts = [HuWavTools]::SplitPoints($frames, [long]$n, $PIECE_SAMPLES, $SEARCH_SAMPLES)
+  if ($cuts.Count -gt 1) { Log "hosszu felvetel: $($cuts.Count) darabban kuldom fel" }
 
-  if ("$http" -ne "200") { Log "Groq HTTP $http"; Beep2 220 400; throw "http $http" }
-  $resp = [System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8)
-  Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
-  $parsed = $resp | ConvertFrom-Json
-  $txt = ("" + $parsed.text).Trim()
-
-  # ***A "BESZED-E?" DONTES A MODELL SAJAT MERTEKEVEL (verbose_json) ***
-  # Ket sajat kudarc utan (mindketto VALODI beszedet dobott el a hangero/dinamika
-  # alapjan) ide kerult a dontes. A Whisper szegmensenkent visszaadja:
-  #   no_speech_prob - mennyire valoszinu, hogy ott NINCS beszed (0..1)
-  #   avg_logprob    - mennyire volt magabiztos az atirasban (0 fele = jo,
-  #                    -1 alatt jellemzoen halandzsa/hallucinacio)
-  # Ez tavolsag- es hangero-fuggetlen, es pont erre a celra keszult.
-  # A kuszobok az OpenAI referencia-implementaciojabol valok (0.6 / -1.0).
-  $nsp = $null; $alp = $null; $crx = $null; $segs = @()
-  if ($parsed.segments) {
-    $segs = @($parsed.segments)
-    if ($segs.Count -gt 0) {
-      $nsp = [math]::Round((($segs | Measure-Object -Property no_speech_prob    -Average).Average), 3)
-      $alp = [math]::Round((($segs | Measure-Object -Property avg_logprob       -Average).Average), 3)
-      $crx = [math]::Round((($segs | Measure-Object -Property compression_ratio -Maximum).Maximum), 2)
+  $texts = New-Object System.Collections.ArrayList
+  $segs  = @()
+  $from  = [long]0
+  $piece = 0
+  foreach ($to in $cuts) {
+    $piece++
+    $upload = $Wav
+    if ($cuts.Count -gt 1) {
+      $upload = Join-Path $env:TEMP ("hu_diktalas_auto_{0}.wav" -f $piece)
+      [HuWavTools]::WritePiece($upload, $b, $from, $to)
     }
+    try {
+      Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
+      # --max-time 600: egy 9 perces darab ~17 MB, lassu feltoltesen a 120 mp keves.
+      $http = & curl.exe -s --max-time 600 -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
+          -H "Authorization: Bearer $Key" `
+          -F "file=@$upload" -F "model=$Model" -F "language=hu" -F "temperature=0" `
+          -F "response_format=verbose_json" @promptArg
+    } finally {
+      if ($upload -ne $Wav) { Remove-Item $upload -Force -ErrorAction SilentlyContinue }
+    }
+    if ("$http" -ne "200") { Log "Groq HTTP $http (darab $piece/$($cuts.Count))"; Beep2 220 400; throw "http $http" }
+    $resp = [System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8)
+    Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
+    $parsed = $resp | ConvertFrom-Json
+
+    # ***2026-09-29: A SZURES SZEGMENSENKENT, NEM AZ EGESZ SZOVEGRE ***
+    # A Whisper szegmensenkent visszaadja:
+    #   no_speech_prob - mennyire valoszinu, hogy ott NINCS beszed (0..1)
+    #   avg_logprob    - mennyire volt magabiztos (-1 alatt jellemzoen halandzsa)
+    #   compression_ratio - 2.4 felett ismetlodo hallucinacios hurok
+    # A korabbi kapu ezek ATLAGABOL dontott, es az EGESZ szoveget dobta el. Egy
+    # hosszu, szunetekkel teli diktalasnal ez valodi beszedet vesztett volna el.
+    # Most csak a rossz SZEGMENS esik ki (OpenAI referencia-kuszobok: 0.6 / -1.0 /
+    # 2.4), plusz a Whisper ismert "csendbol kitalalt" zaromondatai, ha a
+    # szegmens maga is inkabb csendnek tunik.
+    $pieceSegs = @()
+    if ($parsed.segments) { $pieceSegs = @($parsed.segments) }
+    if ($pieceSegs.Count -gt 0) {
+      $kept = New-Object System.Collections.ArrayList
+      foreach ($sg in $pieceSegs) {
+        $segTxt = ("" + $sg.text).Trim()
+        $halu = $segTxt -match '^(K\u00f6sz\u00f6n\u00f6m|Koszonom),? hogy megn\u00e9zted!?\.?$|^NAMASTE[.!]?$'
+        $drop = ''
+        if ($sg.no_speech_prob -gt 0.6 -and $sg.avg_logprob -lt -1.0) { $drop = 'nem beszed' }
+        elseif ($sg.compression_ratio -gt 2.4)                    { $drop = 'ismetlodo hurok' }
+        elseif ($halu -and $sg.no_speech_prob -gt 0.3)            { $drop = 'ismert kitalalt mondat' }
+        if ($drop) { Log "szegmens kihagyva ($drop, no_speech=$([math]::Round($sg.no_speech_prob,2))): $segTxt" }
+        elseif ($segTxt) { [void]$kept.Add($segTxt) }
+      }
+      [void]$texts.Add(($kept -join ' '))
+      $segs += $pieceSegs
+    } else {
+      [void]$texts.Add(("" + $parsed.text).Trim())
+    }
+    $from = $to
+  }
+  $txt = ((@($texts) | Where-Object { $_ }) -join ' ').Trim()
+
+  $nsp = $null; $alp = $null; $crx = $null
+  if ($segs.Count -gt 0) {
+    $nsp = [math]::Round((($segs | Measure-Object -Property no_speech_prob    -Average).Average), 3)
+    $alp = [math]::Round((($segs | Measure-Object -Property avg_logprob       -Average).Average), 3)
+    $crx = [math]::Round((($segs | Measure-Object -Property compression_ratio -Maximum).Maximum), 2)
   }
   if ($nsp -ne $null) {
     Log "modell: no_speech=$nsp  avg_logprob=$alp  tomorites=$crx  ($($segs.Count) szegmens)"
-
-    # ***MERT KORLAT -- ez a kapu NEM mindenhato, es ezt tudni kell rola.
-    # Proba tiszta zajjal: a Whisper magabiztosan kitalalta, hogy "Koszonom."
-    # (no_speech=0.26, avg_logprob=-0.157) -- vagyis a sajat magabiztossaga
-    # NEM fogja meg a rovid hallucinaciot. Ezert:
-    #   - a ket bizonytalansag-jelzo VAGY kapcsolatban all (nem ES), es
-    #   - mellejuk jon a TOMORITESI ARANY, ami az ISMETLODEST fogja meg -- pont
-    #     azt a hibat, amit eleben lattunk ("tozsdei aranyt... tozsdei aranyt").
-    #     A 2.4-es hatar az OpenAI referencia-implementaciojabol valo.
-    $dobd = $false; $miert = ''
-    if ($nsp -gt 0.75)      { $dobd = $true; $miert = "a modell szerint nincs beszed (no_speech=$nsp)" }
-    elseif ($alp -lt -1.0)  { $dobd = $true; $miert = "a modell bizonytalan volt (avg_logprob=$alp)" }
-    elseif ($crx -gt 2.4)   { $dobd = $true; $miert = "ismetlodo szoveg = hallucinacios hurok (tomorites=$crx)" }
-    if ($dobd) {
-      Log "ELDOBVA: $miert  -- a szoveg NEM kerul a szerkesztobe: $txt"
-      Beep2 220 400
-      throw "nem beszed"
+    # A TELJES felvetel eldobasa csak ROVID szovegnel maradt: a csendbol kitalalt
+    # szoveg rovid ("Koszonom.", "NAMASTE"), egy hosszu diktalast viszont soha
+    # nem dobunk el egy atlag miatt.
+    if ($txt.Length -le 60) {
+      $dobd = $false; $miert = ''
+      if ($nsp -gt 0.75)      { $dobd = $true; $miert = "a modell szerint nincs beszed (no_speech=$nsp)" }
+      elseif ($alp -lt -1.0)  { $dobd = $true; $miert = "a modell bizonytalan volt (avg_logprob=$alp)" }
+      if ($dobd) {
+        Log "ELDOBVA: $miert  -- a szoveg NEM kerul a szerkesztobe: $txt"
+        Beep2 220 400
+        throw "nem beszed"
+      }
     }
   }
 

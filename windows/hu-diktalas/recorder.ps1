@@ -58,9 +58,11 @@ public class HuWaveRecorder {
   const int RATE = 16000, BITS = 16, CH = 1;
   const int CHUNK_MS = 1000;
   const int BUFSZ = RATE * (BITS/8) * CH * CHUNK_MS / 1000;   // 32000 bajt = 1 mp
-  const int NBUF = 300;                                        // 5 PERC felso hatar
-  // 5 perc = 9.6 MB nyers PCM. A Groq atirasi vegpontja 25 MB-ig fogad, tehat
-  // bven belefer; a memoria is rendben (300 puffer x 32 kB).
+  const int NBUF = 1800;                                       // 30 PERC felso hatar
+  // 2026-09-29: 5 percrol 30 percre (Boss: "meg hogyha 10 percig beszelek, akkor
+  // se" vagodjon le). 30 perc = 57.6 MB nyers PCM a memoriaban (1800 x 32 kB),
+  // ez egy mai gepen elhanyagolhato. A Groq 25 MB-os feltoltesi hataran a
+  // diktal-auto.ps1 darabolasa visz at (HuWavTools.SplitPoints lent).
   const uint WHDR_DONE = 0x00000001;
 
   IntPtr h = IntPtr.Zero;
@@ -210,6 +212,97 @@ public class HuWaveRecorder {
       w.Write(data);
     }
     return data.Length / blockAlign;
+  }
+}
+
+// ***2026-09-29: A MINTA-SZINTU MUNKA C#-BAN, NEM POWERSHELL-CIKLUSBAN ***
+// Mert: a diktal-auto.ps1 PowerShell-ciklusai egy 117 mp-es felvetelen 28 mp-ig
+// dolgoztak a leallitas utan (naplo, 17:12:22 -> 17:12:50). Egy 10 perces
+// felvetelnel ez tobb perc varakozas lett volna. Ugyanaz a munka itt ezredresz.
+public class HuWavStats {
+  public int Peak;          // legnagyobb abszolut minta
+  public double Rms;        // 0..32768 skalan
+  public long Samples;
+  public long Clipped;      // plafonon ulo mintak (>= 32700)
+  public double Dynamics;   // 90. / 10. percentilis keret-RMS arany (0, ha nem merheto)
+  public double[] FrameRms; // keretenkenti RMS, a darabolashoz
+}
+
+public static class HuWavTools {
+  public const int HEADER = 44;
+  public const int FRAME = 800;   // 50 ms 16 kHz-en
+
+  public static HuWavStats Analyze(byte[] b) {
+    HuWavStats st = new HuWavStats();
+    List<double> frames = new List<double>();
+    double all = 0, fsum = 0; long n = 0; int fn = 0;
+    for (int k = HEADER; k + 1 < b.Length; k += 2) {
+      int s = BitConverter.ToInt16(b, k);
+      int a = s < 0 ? -s : s;
+      if (a > st.Peak) st.Peak = a;
+      if (a >= 32700) st.Clipped++;
+      double sq = (double)s * s; all += sq; n++; fsum += sq; fn++;
+      if (fn >= FRAME) { frames.Add(Math.Sqrt(fsum / fn)); fsum = 0; fn = 0; }
+    }
+    if (fn > 0) frames.Add(Math.Sqrt(fsum / fn));
+    st.Samples = n;
+    st.Rms = n > 0 ? Math.Sqrt(all / n) : 0;
+    st.FrameRms = frames.ToArray();
+    if (frames.Count >= 8) {
+      double[] srt = frames.ToArray(); Array.Sort(srt);
+      double lo = srt[(int)Math.Floor(srt.Length * 0.10)];
+      double hi = srt[(int)Math.Floor(srt.Length * 0.90)];
+      if (lo > 1) st.Dynamics = hi / lo;
+    }
+    return st;
+  }
+
+  public static void Normalize(byte[] b, double gain) {
+    for (int k = HEADER; k + 1 < b.Length; k += 2) {
+      int v = (int)(BitConverter.ToInt16(b, k) * gain);
+      if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+      short sv = (short)v;
+      b[k] = (byte)(sv & 0xff); b[k + 1] = (byte)((sv >> 8) & 0xff);
+    }
+  }
+
+  /// Hol vagjuk a felvetelt feltoltheto darabokra (MINTA-indexek, a vegpont is
+  /// benne). Minden darab legfeljebb maxSamples hosszu; a vagas a hatar elotti
+  /// searchSamples-nyi savban a LEGCSENDESEBB 50 ms-os keretre esik, hogy ne
+  /// szo kozepen vagjon.
+  public static long[] SplitPoints(double[] frameRms, long totalSamples, long maxSamples, long searchSamples) {
+    List<long> cuts = new List<long>();
+    long start = 0;
+    while (totalSamples - start > maxSamples) {
+      long hardEnd = start + maxSamples;
+      long from = Math.Max(start + FRAME, hardEnd - searchSamples);
+      int f0 = (int)(from / FRAME), f1 = (int)(hardEnd / FRAME) - 1;
+      int best = f1; double bestV = double.MaxValue;
+      for (int f = f0; f <= f1 && f < frameRms.Length; f++) {
+        if (frameRms[f] < bestV) { bestV = frameRms[f]; best = f; }
+      }
+      long cut = (long)best * FRAME + FRAME / 2;
+      if (cut <= start || cut > hardEnd) cut = hardEnd;
+      cuts.Add(cut);
+      start = cut;
+    }
+    cuts.Add(totalSamples);
+    return cuts.ToArray();
+  }
+
+  /// Egy darab kiirasa onallo 16 kHz / 16 bit / mono WAV-kent.
+  public static void WritePiece(string path, byte[] b, long fromSample, long toSample) {
+    long off = HEADER + fromSample * 2;
+    long len = Math.Max(0, Math.Min(b.Length - off, (toSample - fromSample) * 2));
+    using (BinaryWriter w = new BinaryWriter(File.Create(path))) {
+      w.Write(new char[]{'R','I','F','F'}); w.Write((int)(36 + len));
+      w.Write(new char[]{'W','A','V','E'});
+      w.Write(new char[]{'f','m','t',' '}); w.Write(16);
+      w.Write((short)1); w.Write((short)1); w.Write(16000);
+      w.Write(32000); w.Write((short)2); w.Write((short)16);
+      w.Write(new char[]{'d','a','t','a'}); w.Write((int)len);
+      w.Write(b, (int)off, (int)len);
+    }
   }
 }
 '@
