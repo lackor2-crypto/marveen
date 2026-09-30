@@ -1176,3 +1176,7 @@
 .wb-redact-terms-label { display: block; margin-top: 8px; font-weight: 600; }
 .wb-redact-terms { width: 100%; box-sizing: border-box; margin: 4px 0; font: inherit; }
 .wb-asset.wb-row:has(> .wb-redact-box) { flex-wrap: wrap; }
+
+.wb-item-move { max-width: 11rem; font-size: 12px; margin-left: 6px; }
+.wb-item-row[draggable="true"] { cursor: grab; }
+.wb-folder-row[data-wb-drop-folder]:hover { outline: 1px dashed currentColor; }

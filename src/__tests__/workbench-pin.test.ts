@@ -129,7 +129,7 @@ describe('kituzes: a felulet', () => {
     expect(html).toContain('workbench.pin.add')
     expect(html).toContain('workbench.pin.remove')
     // A csillag nem a munkadarab-gomb belsejeben van (gombba gomb nem agyazhato).
-    const rows = html.match(/<li class="wb-item-row[^"]*">[^]*?<\/li>/g) || []
+    const rows = html.match(/<li class="wb-item-row[^"]*"[^>]*>[^]*?<\/li>/g) || []
     expect(rows.length).toBe(2)
     for (const row of rows) expect(row).toMatch(/^<li[^>]*><button[^>]*data-wb-act="item-pin"[^>]*>[^<]*<\/button><button[^>]*data-wb-item=/)
     expect(untranslatedHungarian(html, ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')

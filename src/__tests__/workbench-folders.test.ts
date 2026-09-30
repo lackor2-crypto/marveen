@@ -134,6 +134,24 @@ describe('endpoints', () => {
     expect(bad.status).toBe(400)
   })
 
+  it('POST /items/:id/folder moves an existing item (and its folder) into a folder made afterwards', async () => {
+    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
+    const id = (a.body as { item: { id: string } }).item.id
+    const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK Trendvonal' })
+    const folder = (f.body as { folder: string }).folder
+    const m = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder })
+    expect(m.status).toBe(200)
+    const moved = (m.body as { moved: boolean; item: { folder: string; container_folder: string } })
+    expect(moved.moved).toBe(true)
+    expect(moved.item.folder).toBe(folder + '/BL szignal')
+    expect(moved.item.container_folder).toBe(folder)
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...moved.item.folder.split('/')))).toBe(true)
+    const again = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder })
+    expect((again.body as { moved: boolean; reason: string }).reason).toBe('same_place')
+    const gone = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder: 'Projektek/nem-a-doboz' })
+    expect(gone.status).toBe(400)
+  })
+
   it('new table goes into the chosen folder with its own folder and .xlsx', async () => {
     const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK' })
     const folder = (f.body as { folder: string }).folder

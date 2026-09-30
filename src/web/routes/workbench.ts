@@ -111,7 +111,7 @@ import {
   makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
-  workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders,
+  workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -2576,6 +2576,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = renameWorkItem(item, body['title'])
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: assetsOut(item.id) })
+    return true
+  }
+  // Files an existing item (and its folder) into another folder of the box.
+  if (segs.length === 2 && segs[1] === 'folder' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = await readJson(req)
+    const r = moveWorkItemToFolder(item, body ? body['folder'] : '')
+    if (!r.ok) {
+      const code = r.code === 'no_box' ? 'folder_gone' : r.code
+      return failDetail(res, r.code === 'move_failed' ? 500 : 400, code, lang, r.message || null)
+    }
+    json(res, { ok: true, moved: r.moved, reason: r.reason ?? null, folder: r.folder, item: getWorkItem(item.id), work_folders: listWorkFolders(owner as NonNullable<typeof owner>), items: listWorkItems(item.project_id) })
     return true
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {

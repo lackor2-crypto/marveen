@@ -858,6 +858,38 @@ function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel:
   return { ok: true, renamed: true, from: folder, to: newFolder }
 }
 
+export type MoveItemOutcome =
+  | { ok: true; moved: boolean; folder: string | null; reason?: 'same_place' | 'shared' | 'canvas' | 'missing' }
+  | { ok: false; code: WorkFolderError | 'move_failed'; message?: string }
+
+/**
+ * Files an EXISTING work item into a folder of the work items box ('' = the box
+ * itself): its own folder (if it has one) is moved inside the target, every
+ * path follows; an item with no folder of its own yet just gets the new
+ * container and makes its folder there. Nothing is ever overwritten.
+ */
+export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveItemOutcome {
+  ensureAssetTables()
+  const project = getProject(item.project_id)
+  if (!project) return { ok: false, code: 'not_found' as WorkFolderError }
+  const c = workFolderTarget(project, folder)
+  if (!c.ok) return c
+  const own = workItemFolder(item.id)
+  if (!own) {
+    getDb().prepare('UPDATE work_items SET container_folder = ?, updated_at = ? WHERE id = ?').run(c.folder, Math.floor(Date.now() / 1000), item.id)
+    const f = ensureWorkItemFolder(getWorkItem(item.id) as WorkItemRow)
+    return f.ok ? { ok: true, moved: true, folder: f.folder } : { ok: false, code: 'move_failed', message: 'message' in f ? f.message : undefined }
+  }
+  const curParent = own.includes('/') ? own.slice(0, own.lastIndexOf('/')) : ''
+  if (curParent === c.folder) return { ok: true, moved: false, folder: own, reason: 'same_place' }
+  const seg = own.includes('/') ? own.slice(own.lastIndexOf('/') + 1) : own
+  const r = relocateWorkItemFolder(item, seg, c.folder)
+  if (!r.ok) return { ok: false, code: 'move_failed', message: r.message }
+  if (!r.renamed) return { ok: true, moved: false, folder: own, reason: r.reason === 'same_name' ? 'same_place' : r.reason === 'no_folder' ? 'missing' : r.reason }
+  getDb().prepare('UPDATE work_items SET container_folder = ?, updated_at = ? WHERE id = ?').run(c.folder, Math.floor(Date.now() / 1000), item.id)
+  return { ok: true, moved: true, folder: r.to }
+}
+
 /**
  * A dokumentummodell utjai a mappaval egyutt (1/A): az irat-forrasok es a
  * mellekletek projekt-relativ utja (a projekt BARMELY munkadarabjaban, mert egy
