@@ -27,8 +27,9 @@
 //      coordinator) gets it, but only once it has been quiet for a while, so a
 //      live side-session working in it is not stepped on.
 //
-// Read-only: it never commits, removes or cleans anything. Deleting a worktree
-// is a deletion and stays behind the owner's yes (the ask-back rule).
+// Read-only: it never commits, removes or cleans anything. What provably holds
+// no work (clean, landed, quiet) is removed by worktree-sweeper.ts (#453, the
+// owner's standing order); anything with work in it stays for the agent here.
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
