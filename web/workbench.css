@@ -31,7 +31,11 @@
 /* Harom panel (TG 6552): bal oszlop a chat, alatta a munkadarab-lista. */
 .wb-grid-chatfirst { grid-template-columns: minmax(260px, 1.1fr) minmax(300px, 2fr) minmax(180px, 0.8fr); }
 .wb-grid-chat { min-width: 0; display: flex; }
-.wb-grid-chat .wb-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 420px; }
+.wb-grid-chat .wb-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 420px; min-width: 0; }
+/* A flex-elem alapbol `min-width: auto`: a fiokvalaszto/statuszsor tartalma a
+ * chat dobozt az oszlopanal szelesebbre tolta, es belelogott a szomszed panelbe
+ * (Boss, TG 2008). A doboz ehelyett az oszlophoz igazodik. */
+.wb-chat-statusline, .wb-chat-account-row { min-width: 0; max-width: 100%; }
 .wb-grid-chat .wb-chat-log { max-height: 40vh; min-height: 200px; }
 .wb-grid-below { margin-top: 12px; }
 .wb-grid-below .wb-panel { min-height: 0; }
@@ -287,7 +291,7 @@
 /* #426: fiokvalaszto sor -- cimke + select, telefonon is tordelheto. */
 .wb-chat-account-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .wb-chat-account-label { font-size: 0.8rem; color: var(--muted, #6b7280); flex: 0 0 auto; }
-.wb-chat-account { flex: 1 1 auto; min-width: 12ch; max-width: 100%; }
+.wb-chat-account { flex: 1 1 auto; min-width: 0; width: 100%; max-width: 100%; text-overflow: ellipsis; }
 .wb-chat-log {
   max-height: 320px;
   overflow-y: auto;
@@ -314,7 +318,7 @@
 }
 .wb-chat-tools-group + .wb-chat-tools-group { border-top: 1px dashed var(--border, #e5e7eb); margin-top: 4px; padding-top: 2px; }
 .wb-grid-chat .wb-chat-tools, .wb-split-chat .wb-chat-tools { max-height: 24vh; }
-.wb-tool { font-size: 0.82rem; margin-top: 4px; }
+.wb-tool { font-size: 0.82rem; margin-top: 4px; overflow-wrap: anywhere; }
 .wb-tool-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .wb-tool-bad { color: var(--danger, #d33); }
 .wb-tool-wait { color: var(--warning, #b45309); }
@@ -340,6 +344,14 @@
 /* MOBIL: egymas ala nem fer el harom panel ugy, hogy barmelyik hasznalhato
  * legyen, ezert telefonon egyszerre EGY panel latszik, es a fulek valtanak
  * kozottuk (mobile-parity-check). */
+/* 901-1100px: a harom oszlop minimuma (260+300+180) mar nem fer el a fo teruleten
+ * az oldalsav mellett, a jobb oszlop kilogott a racsbol. Itt a kontextus panel
+ * teljes szelessegben az also sorba kerul. */
+@media (min-width: 901px) and (max-width: 1100px) {
+  .wb-grid-chatfirst { grid-template-columns: minmax(220px, 1fr) minmax(240px, 1.6fr); }
+  .wb-grid-chatfirst > .wb-panel-context { grid-column: 1 / -1; }
+}
+
 @media (max-width: 900px) {
   .wb-grid { grid-template-columns: 1fr; }
   /* telefonon felul a munka, alatta a chat */
