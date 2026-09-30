@@ -88,6 +88,28 @@ export const FIX_LANDING_POLICY: readonly string[] = [
   `kanban kartya, ird vissza ra, MIT javitottal es mi a commit azonositoja.`,
 ]
 
+/**
+ * The run must not end on a promise.
+ *
+ * Measured, 2026-09-30 (approval fa6cd5fc, card #446): the code-bridge
+ * executor worked 28 minutes (62 turns), committed the fix with a green suite,
+ * then ended its run with "the landing waits for CI in the background, I will
+ * report when it is merged". A finished headless run cannot wake itself, so
+ * nothing landed, verify-result was never posted, and the owner watched the
+ * hourglass spin on a task that was done. The sweep's 6 reminders met the same
+ * dead end. Two earlier verify tasks (644a30af, 616ff770) timed out the same way.
+ *
+ * So the prompt says it out loud: the report goes out BEFORE the run ends, and
+ * waiting on CI is done in the foreground, not promised.
+ */
+export const RUN_TO_COMPLETION: readonly string[] = [
+  `A FUTAS NEM ERHET VEGET IGERETTEL: amint a vegen visszaadod a valaszt, a futasod LEZARUL, es magatol`,
+  `sosem ebredsz fel ("a hatterben a CI-re var, majd jelzek" = soha nem jelzel). Ezert a landolast`,
+  `(scripts/land-pr.sh) ELOTERBEN futtasd, es varj meg a "MERGE-ELVE" sorra (vagy a hibara); csak utana`,
+  `kuldd el a lentebbi jelentest, es csak utana fejezd be a valaszodat. Ha a CI tul sokaig tart, kuldd el`,
+  `a jelentest a tenyleges allapottal (mi landolt, mi var meg), de ne maradjon el.`,
+]
+
 // --- What the identifier in the description IS -----------------------------
 
 /**
@@ -162,6 +184,8 @@ export interface VerificationPromptInput {
 
 function reportBlock(i: VerificationPromptInput, passMeaning: string, failMeaning: string): string[] {
   return [
+    ...RUN_TO_COMPLETION,
+    ``,
     `Amikor kesz vagy, jelentsd vissza az eredmenyt EZZEL a hivassal (KOTELEZO, ne csak inter-agent uzenettel):`,
     `curl -s -X POST ${i.baseUrl}/api/approvals/${i.approvalId}/verify-result \\`,
     `  -H "Content-Type: application/json" \\`,
