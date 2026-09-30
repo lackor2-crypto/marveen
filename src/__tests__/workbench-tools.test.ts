@@ -13,7 +13,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getKanbanCard, createLabel } from '../db.js'
 import { createProject, updateProject, type ProjectRow, getProject, setProjectArchived } from '../projects.js'
-import { createWorkItem, getWorkItem, listWorkItems, listWorkItemParts, removeWorkItemPart } from '../workbench.js'
+import { createWorkItem, getWorkItem, listWorkItems, listWorkItemParts, removeWorkItemPart, listWorkItemVersionsView } from '../workbench.js'
+import { canvasHistory, undoCanvas, readCanvas } from '../workbench-canvas-store.js'
 import { TOOLS, getTool, decideTool, toolsForPrompt, setAutonomyLoaderForTest } from '../workbench-agent/tools.js'
 import { executeTool, runTool, FILE_READ_MAX_CHARS, FILE_READ_MAX_JSON_CHARS, TOOL_RESULT_MAX_CHARS, toolResultForModel } from '../workbench-agent/execute.js'
 import { buildContext, historyMessages, MAX_CONTEXT_CHARS, MAX_HISTORY_TURNS } from '../workbench-agent/context.js'
@@ -856,12 +857,14 @@ describe('rajzvaszon-eszkozok (9. fazis)', () => {
     expect(String(d.note)).toMatch(/no drawing yet/i)
   })
 
-  it('"a cimet tedd 30%-kal nagyobbra es kozepre": EGY hivas, es a rajz UJ verzio lesz', () => {
-    data(executeTool('canvas.edit', {
+  it('"a cimet tedd 30%-kal nagyobbra es kozepre": EGY hivas, a munkapeldanyba megy, verzio NELKUL (K-2.2)', () => {
+    const first = data(executeTool('canvas.edit', {
       id: rajzId,
       ops: [{ op: 'canvas', width: 1000, height: 800 },
         { op: 'add', type: 'text', id: 'headline', text: 'Ride for less', x: 0, y: 0, width: 800, height: 120, fontSize: 72 }],
     }, c()))
+    // Az elso mentes szuli meg a rajzot: az verzio.
+    expect(String(first.note)).toMatch(/created as a new version/)
     const d = data(executeTool('canvas.edit', {
       id: rajzId,
       ops: [{ op: 'scale', id: 'headline', factor: 1.3 }, { op: 'center', id: 'headline', axis: 'both' }],
@@ -869,8 +872,69 @@ describe('rajzvaszon-eszkozok (9. fazis)', () => {
     const obj = (d.canvas as { objects: { id: string; fontSize: number; x: number }[] }).objects[0]
     expect(obj.id).toBe('headline')
     expect(obj.fontSize).toBeCloseTo(93.6, 1)
-    // Uj verzio keletkezett, tehat a korabbi allapot megvan.
-    expect(Number(d.version)).toBeGreaterThan(1)
+    // NEM lett uj verzio: ugyanaz a verzioszam, es az agent tudja, hogy van
+    // verziozatlan munka.
+    expect(d.version).toBe(first.version)
+    expect(d.unsaved_since_version).toBe(true)
+    expect(String(d.note)).toMatch(/working copy/)
+    // A felulet ugyanazt a munkapeldanyt latja.
+    const g = data(executeTool('canvas.get', { id: rajzId }, c()))
+    expect((g.canvas as { objects: { fontSize: number }[] }).objects[0].fontSize).toBeCloseTo(93.6, 1)
+  })
+
+  it('a tulajdonos EGY kerese EGY visszavonhato lepes, akarhany eszkozhivas is (K-2.1)', () => {
+    const ctxTurn = (turnId: string) => ({ ...c(), turnId })
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'add', type: 'text', id: 'cim', text: 'Nyár', fontSize: 40 }] }, ctxTurn('t1')))
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'update', id: 'cim', color: '#ff0000' }] }, ctxTurn('t2')))
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'scale', id: 'cim', factor: 2 }] }, ctxTurn('t2')))
+    const h = canvasHistory(rajzId)
+    expect(h.can_undo).toBe(true)
+    expect(h.undo).toEqual({ label: 'update,scale', source: 'agent' })
+    const item = getWorkItem(rajzId)!
+    const u = undoCanvas(item)
+    if (!u.ok) throw new Error(u.code)
+    // A t2 KET hivasa egyszerre vonodott vissza: a cim megint az eredeti.
+    const cim = u.doc.objects[0] as unknown as { color: string; fontSize: number }
+    expect(cim.fontSize).toBe(40)
+    expect(cim.color).not.toBe('#ff0000')
+  })
+
+  it('NAGY valtozas elott a verziozatlan munka verzio lesz, egy keresen belul EGYSZER (K-2.3)', () => {
+    const ctxTurn = (turnId: string) => ({ ...c(), turnId })
+    data(executeTool('canvas.edit', {
+      id: rajzId,
+      ops: [{ op: 'add', type: 'text', id: 'a', text: 'A' }, { op: 'add', type: 'text', id: 'b', text: 'B' },
+        { op: 'add', type: 'text', id: 'c', text: 'C' }],
+    }, ctxTurn('t1')))
+    const v1 = listWorkItemVersionsView(rajzId).length
+    // Kis, verziozatlan valtozas.
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'update', id: 'a', text: 'A2' }] }, ctxTurn('t2')))
+    expect(listWorkItemVersionsView(rajzId).length).toBe(v1)
+    // Nagy valtozas (elem torlese): ELOTTE verzio lesz a verziozatlan munkabol.
+    const big = data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'remove', id: 'c' }] }, ctxTurn('t3')))
+    expect(String(big.note)).toMatch(/kept as version/)
+    const versions = listWorkItemVersionsView(rajzId)
+    expect(versions.length).toBe(v1 + 1)
+    expect(versions.some((v) => v.reason === 'before_agent')).toBe(true)
+    // Ugyanabban a keresben a kovetkezo nagy lepes mar NEM gyart ujabbat.
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'remove', id: 'b' }] }, ctxTurn('t3')))
+    expect(listWorkItemVersionsView(rajzId).length).toBe(v1 + 1)
+  })
+
+  it('workItem.createVersion rajznal a LATOTT (munkapeldany) allapotot menti, a megadott nevvel', () => {
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'add', type: 'text', id: 'a', text: 'elso' }] }, c()))
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'update', id: 'a', text: 'masodik' }] }, c()))
+    data(executeTool('workItem.createVersion', { id: rajzId, label: 'Ügyfélnek' }, c()))
+    const top = listWorkItemVersionsView(rajzId)[0]
+    expect(top.label).toBe('Ügyfélnek')
+    expect(top.reason).toBe('agent')
+    const d = data(executeTool('canvas.get', { id: rajzId }, c()))
+    expect((d.canvas as { objects: { text: string }[] }).objects[0].text).toBe('masodik')
+    // A verzio FAJLJA is a latott allapot -- nem a regi lemez-tartalom.
+    const r = readCanvas(rajzId)
+    if (!r.ok) throw new Error(r.code)
+    expect(readFileSync(join(depot, String(r.rel)), 'utf-8')).toContain('masodik')
+    expect(d.unsaved_since_version).toBe(false)
   })
 
   it('nem letezo elemnel MEGMONDJA, mi van a vaszonon -- nem talalgat', () => {

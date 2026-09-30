@@ -438,21 +438,58 @@ export function listWorkItemVersions(workItemId: string): WorkItemVersionRow[] {
 export interface WorkItemVersionView extends WorkItemVersionRow {
   restored_from: string | null
   restored_from_no: number | null
+  /** A tulajdonos altal adott nev ("Verzio mentese" nevvel, v4 spec K-2.3). */
+  label: string | null
+  /** MIERT keszult: 'manual' | 'export' | 'finalize' | 'agent' | 'before_agent' | 'draft' -- a
+   *  felulet forditja le. Ismeretlen/hianyzo = nem mondunk rola semmit. */
+  reason: string | null
 }
+
+/** A verzio NEVE es OKA (K-2.3) a `metadata_json`-ban. Hosszu nevet levagunk:
+ *  a lista egy sor, nem jegyzetfuzet. */
+export const VERSION_LABEL_MAX = 120
 
 export function listWorkItemVersionsView(workItemId: string): WorkItemVersionView[] {
   return listWorkItemVersions(workItemId).map((v) => {
     let from: string | null = null
     let fromNo: number | null = null
+    let label: string | null = null
+    let reason: string | null = null
     if (v.metadata_json) {
       try {
         const meta = JSON.parse(v.metadata_json) as Record<string, unknown>
         if (typeof meta['restored_from'] === 'string') from = meta['restored_from']
         if (typeof meta['restored_from_no'] === 'number') fromNo = meta['restored_from_no']
+        if (typeof meta['label'] === 'string' && meta['label'].trim()) label = meta['label'].trim().slice(0, VERSION_LABEL_MAX)
+        if (typeof meta['reason'] === 'string' && meta['reason'].trim()) reason = meta['reason'].trim()
       } catch { /* rossz JSON: nincs adat, nem hiba */ }
     }
-    return { ...v, restored_from: from, restored_from_no: fromNo }
+    return { ...v, restored_from: from, restored_from_no: fromNo, label, reason }
   })
+}
+
+/**
+ * Egy MEGLEVO verzio nevenek beallitasa (K-2.3: "Verzio mentese" nevvel, de a
+ * legutobbi verzio ota nem valtozott semmi -- ilyenkor nem gyartunk egy
+ * ugyanolyan masodikat, hanem a mostanit nevezzuk el, ahogy a Google Docs
+ * "Aktualis verzio elnevezese" is teszi). A tobbi metaadat erintetlen.
+ */
+export function setWorkItemVersionLabel(versionId: string, label: unknown): WorkItemVersionRow | undefined {
+  ensureWorkbenchTables()
+  const v = getWorkItemVersion(versionId)
+  if (!v) return undefined
+  let meta: Record<string, unknown> = {}
+  if (v.metadata_json) {
+    try {
+      const parsed = JSON.parse(v.metadata_json) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) meta = parsed as Record<string, unknown>
+    } catch { /* rossz JSON: uj metaadattal irjuk felul, a regi olvashatatlan volt */ }
+  }
+  const text = String(label ?? '').trim().slice(0, VERSION_LABEL_MAX)
+  if (text) meta['label'] = text
+  else delete meta['label']
+  getDb().prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify(meta), v.id)
+  return getWorkItemVersion(v.id)
 }
 
 /** Hany munkadarab van a projektben (a belepesi pont szamlaloja). */

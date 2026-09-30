@@ -29,7 +29,7 @@ import {
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
 } from '../workbench.js'
 import { applyCanvasOps, canvasSummary } from '../workbench-graphic.js'
-import { readCanvas, saveCanvas } from '../workbench-canvas-store.js'
+import { readCanvas, commitCanvasChange, canvasOpsLabel, flushCanvasDraft } from '../workbench-canvas-store.js'
 import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
@@ -109,6 +109,9 @@ export interface ToolContext {
   lang: 'hu' | 'en'
   /** Ki kerte a dashboardon (a kanban-komment szerzoje). Nelkule a fo agens. */
   actor?: string | null
+  /** A tulajdonos EGY keresenek azonositoja. A rajz visszavonasi naplojaban
+   *  ez fogja ossze egy lepesse, amit az agent egy keresre tett (v4 spec K-2.1). */
+  turnId?: string | null
 }
 
 export type ToolResult =
@@ -860,6 +863,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         ok: true,
         data: {
           canvas: r.doc, exists: r.exists, summary: canvasSummary(r.doc),
+          version: r.version_no, unsaved_since_version: !!r.draft?.since_version,
           note: r.exists ? '' : 'there is no drawing yet on this work item; this is an empty canvas to start from',
         },
       }
@@ -876,16 +880,31 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       if (!current.ok) return { ok: false, code: current.code, detail: current.detail || current.code }
       const applied = applyCanvasOps(current.doc, input.ops)
       if (!applied.ok) return { ok: false, code: applied.code, detail: applied.detail }
-      const saved = saveCanvas(item, applied.doc, { createdBy: 'workbench-agent', name: current.name })
+      // A munkapeldanyba megy (K-2.2), verzio NELKUL; a tulajdonos egy kerese
+      // egy visszavonhato lepes (K-2.1), es NAGY valtozas elott a verziozatlan
+      // munka verziot kap (K-2.3).
+      const saved = commitCanvasChange(item, applied.doc, {
+        source: 'agent', grp: ctx.turnId ? `agent:${ctx.turnId}` : null, label: canvasOpsLabel(input.ops),
+        actor: 'workbench-agent', name: current.name, versionBeforeBig: true,
+      })
       if (!saved.ok) return { ok: false, code: saved.code, detail: saved.detail || folderStateDetail(saved.code) }
+      const notes: string[] = []
+      if (saved.versioned) notes.push(`this was a big change, so the unsaved work before it was first kept as version ${saved.versioned.version_no}`)
+      if (saved.created) {
+        notes.push(saved.created.renamed
+          ? `the drawing was created as a new version; the file name was taken, so it was written as ${saved.created.name}`
+          : 'the drawing was created as a new version')
+      } else {
+        notes.push('saved to the working copy (no new version); the owner can undo this whole request in one step. Make a version with workItem.createVersion only when the owner asks for it or the work reached a milestone')
+      }
       return {
         ok: true,
         data: {
           canvas: applied.doc, applied: applied.applied, summary: canvasSummary(applied.doc),
-          path: saved.rel, version: saved.version.version_no,
-          note: saved.renamed
-            ? `saved as a new version; the file name was taken, so it was written as ${saved.name}`
-            : 'saved as a new version; nothing was overwritten',
+          path: saved.created ? saved.created.rel : current.rel,
+          version: saved.created ? saved.created.version.version_no : current.version_no,
+          unsaved_since_version: !!saved.draft?.since_version,
+          note: notes.join('; '),
         },
       }
     }
@@ -896,6 +915,12 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       const item = getWorkItem(id)
       if (!item || item.project_id !== project.id) {
         return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      // Rajznal a latott allapot a munkapeldanyban all: az lesz a verzio.
+      const flushed = flushCanvasDraft(item, { reason: 'agent', actor: 'workbench-agent', label: input.label })
+      if (flushed) {
+        if (!flushed.ok) return { ok: false, code: flushed.code, detail: flushed.detail || `the version was not created: ${flushed.code}` }
+        return { ok: true, data: { version: flushed.version, versions: listWorkItemVersionsView(item.id).length } }
       }
       const r = createWorkItemVersion(item.id, { created_by: 'workbench-agent' })
       if (!r.ok) return { ok: false, code: r.code, detail: `the version was not created: ${r.code}` }

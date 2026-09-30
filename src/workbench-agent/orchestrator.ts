@@ -294,6 +294,9 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     return
   }
   running.add(key)
+  // A tulajdonos EGY kerese: amit az agent erre a vasznon tesz, az a
+  // visszavonasi naploban EGY lepes (v4 spec K-2.1).
+  const turnId = randomUUID()
 
   let session: AgentSessionRow | null = null
   try {
@@ -524,7 +527,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       // approved-runnerben, a kivetel is rendes hibaeredmeny lesz.
       let result: Awaited<ReturnType<typeof runTool>>
       try {
-        result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang, actor: input.actor })
+        result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang, actor: input.actor, turnId })
       } catch (e) {
         result = { ok: false as const, code: 'failed', detail: e instanceof Error ? e.message : String(e) }
       }

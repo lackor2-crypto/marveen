@@ -969,24 +969,190 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     expect(back.body.canvas.objects[0].id).toBe('headline')
   })
 
-  it('"30%-kal nagyobbra es kozepre": a strukturalt muvelet UJ VERZIOT ir, a regi megmarad', async () => {
-    await call(url(''), 'PUT', {
+  it('"30%-kal nagyobbra es kozepre": a munkapeldanyba ment, verzio NELKUL, a verzio erintetlen (K-2.2)', async () => {
+    const put = await call(url(''), 'PUT', {
       canvas: { width: 1000, height: 800, objects: [{ id: 'headline', type: 'text', x: 0, y: 0, width: 800, height: 120, fontSize: 72, text: 'Ride for less' }] },
     })
-    const before = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions.length
+    const before = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions
     const r = await call(url('/ops'), 'POST', {
       ops: [{ op: 'scale', id: 'headline', factor: 1.3 }, { op: 'center', id: 'headline', axis: 'both' }],
     })
-    expect(r.status).toBe(201)
+    expect(r.status).toBe(200)
     expect(r.body.canvas.objects[0].fontSize).toBeCloseTo(93.6, 1)
     expect(r.body.applied).toHaveLength(2)
-    expect(r.body.versions.length).toBe(before + 1)
-    // A regi verzio meg mindig a REGI allapotot mutatja: semmi nem irodott felul.
-    // Az 1. verzio a munkadarab sajat kezdo verzioja (meg nincs benne fajl), a
-    // rajz elso mentese a 2. -- AZT kell visszaolvasni.
-    const firstDrawing = r.body.versions.find((v: { version_no: number }) => v.version_no === 2)
-    const old = await call(url(`?version=${encodeURIComponent(firstDrawing.id)}`), 'GET')
+    // A LENYEG: az automatikus mentes NEM gyart verziot.
+    expect(r.body.created).toBe(false)
+    expect(r.body.versions.length).toBe(before.length)
+    expect(r.body.draft.since_version).toBe(true)
+    expect(r.body.message).toMatch(/Verzió mentése/)
+    // ...de MENTVE van: visszaolvasva a modositott rajz jon.
+    const back = await call(url(''), 'GET')
+    expect(back.body.canvas.objects[0].fontSize).toBeCloseTo(93.6, 1)
+    expect(back.body.draft.since_version).toBe(true)
+    expect(back.body.history.can_undo).toBe(true)
+    expect(back.body.history.undo.label).toBe('scale,center')
+    // A verzio FAJLJA valtozatlan a lemezen: semmi nem irodott felul.
+    const onDisk = JSON.parse(readFileSync(join(depot, 'Projektek', 'teszt', put.body.name), 'utf-8'))
+    expect(onDisk.objects[0].fontSize).toBe(72)
+    // ...es verzio-mentes utan a regi verzio a SAJAT allapotat mutatja.
+    await call(url('/version'), 'POST', {})
+    const old = await call(url(`?version=${encodeURIComponent(before[0].id)}`), 'GET')
     expect(old.body.canvas.objects[0].fontSize).toBe(72)
+    expect(old.body.current).toBe(false)
+    expect(old.body.history).toBeNull()
+  })
+
+  it('visszavonas es ujra (K-2.1): lepesenkent vissza, elore, es a hatar KIMONDVA', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect', x: 0, y: 0, width: 10, height: 10 }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 5, dy: 0 }] })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 0, dy: 7 }] })
+    const u1 = await call(url('/undo'), 'POST', {})
+    expect(u1.status).toBe(200)
+    expect(u1.body.canvas.objects[0]).toMatchObject({ x: 5, y: 0 })
+    expect(u1.body.step).toEqual({ label: 'move', source: 'owner' })
+    expect(u1.body.history.can_redo).toBe(true)
+    const u2 = await call(url('/undo'), 'POST', {})
+    expect(u2.body.canvas.objects[0]).toMatchObject({ x: 0, y: 0 })
+    // Vissza a verzio allapotaba: nincs verziozatlan valtozas.
+    expect(u2.body.draft.since_version).toBe(false)
+    const r1 = await call(url('/redo'), 'POST', {})
+    expect(r1.body.canvas.objects[0]).toMatchObject({ x: 5, y: 0 })
+    // Uj lepes a visszavonas utan: az "ujra" ag elvesz, ahogy minden szerkesztoben.
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 1, dy: 1 }] })
+    const noRedo = await call(url('/redo'), 'POST', {})
+    expect(noRedo.status).toBe(409)
+    expect(noRedo.body.error).toBe('canvas_nothing_to_redo')
+    expect(String(noRedo.body.message).length).toBeGreaterThan(20)
+    // A PUT maga is egy lepes (a teljes vaszon cserejet is vissza lehet vonni).
+    await call(url('/undo'), 'POST', {})
+    await call(url('/undo'), 'POST', {})
+    const toEmpty = await call(url('/undo'), 'POST', {})
+    expect(toEmpty.status).toBe(200)
+    expect(toEmpty.body.canvas.objects).toEqual([])
+    const none = await call(url('/undo'), 'POST', {})
+    expect(none.status).toBe(409)
+    expect(none.body.error).toBe('canvas_nothing_to_undo')
+  })
+
+  it('egy csoport (pl. egy szerkeszto-urlap) EGY visszavonasi lepes, akarhany mentes megy le', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 't', type: 'text', text: 'a' }] } })
+    for (const text of ['ab', 'abc', 'abcd']) {
+      const r = await call(url('/ops'), 'POST', { ops: [{ op: 'update', id: 't', patch: { text } }], group: 'form:t:1' })
+      expect(r.status).toBe(200)
+    }
+    const u = await call(url('/undo'), 'POST', {})
+    expect(u.body.canvas.objects[0].text).toBe('a')
+    expect(u.body.history.can_redo).toBe(true)
+    const r = await call(url('/redo'), 'POST', {})
+    expect(r.body.canvas.objects[0].text).toBe('abcd')
+  })
+
+  it('"Verzio mentese" (K-2.3): nevvel UJ verzio; valtozas nelkul NEM gyart masodikat', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 3, dy: 3 }] })
+    const v = await call(url('/version'), 'POST', { label: 'Ügyfélnek küldve' })
+    expect(v.status).toBe(201)
+    expect(v.body.created).toBe(true)
+    expect(v.body.draft.since_version).toBe(false)
+    const listed = v.body.versions.find((x: { id: string }) => x.id === v.body.version.id)
+    expect(listed.label).toBe('Ügyfélnek küldve')
+    expect(listed.reason).toBe('manual')
+    // A fajlnev nem no tovabb: "rajz.canvas (2).json", nem "(2) (2)".
+    expect(String(v.body.name)).not.toMatch(/\(\d+\) \(\d+\)/)
+    // A visszavonas a verzio utan is megmarad.
+    expect(v.body.history.can_undo).toBe(true)
+    const again = await call(url('/version'), 'POST', {})
+    expect(again.status).toBe(200)
+    expect(again.body.created).toBe(false)
+    expect(again.body.versions.length).toBe(v.body.versions.length)
+    expect(again.body.message).toMatch(/nem változott/)
+    // Nev megadasa valtozas nelkul: a mostani verzio kapja meg.
+    const named = await call(url('/version'), 'POST', { label: 'Végleges' })
+    expect(named.body.created).toBe(false)
+    expect(named.body.versions.find((x: { id: string }) => x.id === v.body.version.id).label).toBe('Végleges')
+  })
+
+  it('"Verzio mentese" rajz nelkul: kimondja, hogy meg nincs mibol (nem ures verzio)', async () => {
+    const r = await call(url('/version'), 'POST', { label: 'x' })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('canvas_nothing_to_version')
+  })
+
+  it('a generikus "uj verzio" rajznal a LATOTT (munkapeldany) allapotot menti', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'text', text: 'regi' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'update', id: 'a', patch: { text: 'uj' } }] })
+    const v = await call(`/api/workbench/items/${itemId}/versions`, 'POST', {})
+    expect(v.status).toBe(201)
+    const read = await call(url(`?version=${encodeURIComponent(v.body.version.id)}`), 'GET')
+    expect(read.body.canvas.objects[0].text).toBe('uj')
+  })
+
+  it('regi verziora nem lehet vakon muveletet kuldeni: 409 emberi mondattal', async () => {
+    const first = await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 1, dy: 1 }] })
+    await call(url('/version'), 'POST', {})
+    const r = await call(url('/ops'), 'POST', { version: first.body.version.id, ops: [{ op: 'move', id: 'a', dx: 1, dy: 1 }] })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('canvas_old_version')
+  })
+
+  it('visszaallitas kozben verziozatlan munkaval: a munka ARVA lesz, nem vesz el; verzio lehet belole', async () => {
+    const first = await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'text', text: 'egy' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'update', id: 'a', patch: { text: 'ketto' } }] })
+    await call(url('/version'), 'POST', {})
+    await call(url('/ops'), 'POST', { ops: [{ op: 'update', id: 'a', patch: { text: 'harom (nem mentett)' } }] })
+    const restored = await call(`/api/workbench/items/${itemId}/versions/${first.body.version.id}/restore`, 'POST', {})
+    expect(restored.status).toBe(201)
+    const g = await call(url(''), 'GET')
+    expect(g.body.canvas.objects[0].text).toBe('egy')
+    expect(g.body.orphans).toHaveLength(1)
+    expect(g.body.orphans[0].objects).toBe(1)
+    // Az uj vonalon a regi lepesek nem vonhatok vissza (mas allapotrol szolnak).
+    expect(g.body.history.can_undo).toBe(false)
+    const back = await call(url(`/orphans/${g.body.orphans[0].base_version_id}/restore`), 'POST', {})
+    expect(back.status).toBe(201)
+    expect(back.body.canvas.objects[0].text).toBe('harom (nem mentett)')
+    expect(back.body.orphans).toEqual([])
+    expect(back.body.versions.find((x: { id: string }) => x.id === back.body.version.id).reason).toBe('draft')
+  })
+
+  it('arva munkapeldany eldobasa: eltunik, a verziok erintetlenek; masodszor 404', async () => {
+    const first = await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 9, dy: 9 }] })
+    await call(`/api/workbench/items/${itemId}/versions/${first.body.version.id}/restore`, 'POST', {})
+    const g = await call(url(''), 'GET')
+    const base = g.body.orphans[0].base_version_id
+    const versions = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions.length
+    const d = await call(url(`/orphans/${base}`), 'DELETE')
+    expect(d.status).toBe(200)
+    expect(d.body.orphans).toEqual([])
+    expect((await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions.length).toBe(versions)
+    const again = await call(url(`/orphans/${base}`), 'DELETE')
+    expect(again.status).toBe(404)
+    expect(again.body.error).toBe('canvas_orphan_not_found')
+  })
+
+  it('ARCHIVALT projektben visszavonni es verziot menteni sem lehet', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 1, dy: 1 }] })
+    setProjectArchived(projectId, true)
+    for (const [p, m] of [['/undo', 'POST'], ['/redo', 'POST'], ['/version', 'POST']] as const) {
+      const r = await call(url(p), m, {})
+      expect(r.status).toBe(409)
+      expect(r.body.error).toBe('project_archived')
+    }
+  })
+
+  it('jovahagyasra kuldes elott a verziozatlan rajz verzio lesz ("veglegesiteskor")', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'text', text: 'regi' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'update', id: 'a', patch: { text: 'jovahagyando' } }] })
+    const s = await call(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'submit' })
+    expect(s.status).toBe(200)
+    const detail = (await call(`/api/workbench/items/${itemId}`, 'GET')).body
+    const cur = detail.versions.find((x: { id: string }) => x.id === detail.item.current_version_id)
+    expect(cur.reason).toBe('finalize')
+    const read = await call(url(`?version=${encodeURIComponent(cur.id)}`), 'GET')
+    expect(read.body.canvas.objects[0].text).toBe('jovahagyando')
   })
 
   it('MASODIK mentes: az atnevezett fajl (nev (2).json) is rajz marad, nem tunik el', async () => {

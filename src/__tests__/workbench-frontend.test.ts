@@ -38,6 +38,8 @@ interface Harness {
   drag: (id: string, dx: number, dy: number, opts?: { grip?: string; cancel?: boolean; steps?: number }) => DragProbe
   /** Nyilbillentyu egy kijelolt vaszon-elemen. */
   arrow: (id: string, key: string, shift?: boolean) => void
+  /** Billentyu (Ctrl+Z stb.) az oldalon; a `target` alapbol a lap maga. */
+  key: (ev: Record<string, unknown>) => void
   /** MINDEN kirajzolas, idorendben. Igy az is merheto, mit latott a
    *  felhasznalo KOZBEN -- nem csak a vegallapot. */
   renders: string[]
@@ -193,6 +195,9 @@ function harness(): Harness {
     arrow(id, key, shift = false) {
       const probe = dragTargetFor(id)
       for (const fn of keyHandlers) fn({ ...probe.event(0, 0), key, shiftKey: shift })
+    },
+    key(ev) {
+      for (const fn of keyHandlers) fn({ target: { tagName: 'BODY' }, preventDefault() {}, ...ev })
     },
     change(id, files, value = '') {
       const e = { target: { id, files, value }, preventDefault() {} }
@@ -1832,6 +1837,132 @@ describe('rajzvaszon a feluletrol (9. fazis)', () => {
     const html = h.rootEl.innerHTML
     expect(html).toContain('/api/workbench/items/w1/canvas.svg')
     expect(html).not.toContain('data-wb-act="canvas-add-text"')
+  })
+
+  // ---- K-2.1 .. K-2.3: visszavonas, automatikus mentes, verzio ----------------
+  const HISTORY = { can_undo: true, can_redo: false, undo: { label: 'move,scale', source: 'agent' }, redo: null }
+  const CANVAS_DRAFT = {
+    ...CANVAS_OK, current: true,
+    draft: { rev: 3, updated_at: 1790000000, since_version: true },
+    history: HISTORY, orphans: [],
+  }
+
+  it('a vaszon fejeben Visszavonas / Ujra / Mentve jelzes / Verzio mentese all', async () => {
+    await openCanvas(CANVAS_DRAFT)
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('data-wb-act="canvas-undo"')
+    expect(html).toContain('data-wb-act="canvas-redo"')
+    expect(html).toContain('data-wb-act="canvas-version"')
+    expect(html).toContain('workbench.canvas.state_unversioned')
+    // Az agent egesz kerese EGY lepes, es a gomb megmondja, mit von vissza.
+    expect(html).toContain('workbench.canvas.by_agent')
+    expect(html).toMatch(/data-wb-act="canvas-redo" disabled/)
+  })
+
+  it('egy modositas utan NINCS buborek minden mozdulatra: a jelzes a fejben all', async () => {
+    await openCanvas(CANVAS_DRAFT)
+    h.respond((url) => {
+      if (url.indexOf('/canvas/ops') > 0) {
+        return { status: 200, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], created: false, changed: true, message: 'Mentve.', draft: CANVAS_DRAFT.draft, history: HISTORY, orphans: [] } }
+      }
+      return { status: 200, body: CANVAS_DRAFT }
+    })
+    h.toasts.length = 0
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'center', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/canvas/ops') > 0)).toBe(true))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.canvas.state_unversioned'))
+    expect(h.toasts).toHaveLength(0)
+  })
+
+  it('a Visszavonas gomb a /canvas/undo utat hivja, es a visszakapott rajzot mutatja', async () => {
+    await openCanvas(CANVAS_DRAFT)
+    const back = { ...DOC, objects: [DOC.objects[1]] }
+    h.respond((url) => {
+      if (url.indexOf('/canvas/undo') > 0) {
+        return { status: 200, body: { ok: true, canvas: back, step: { label: 'add', source: 'owner' }, item: GRAPHIC, draft: { rev: 4, updated_at: 1790000001, since_version: false }, history: { can_undo: false, can_redo: true, undo: null, redo: { label: 'add', source: 'owner' } }, orphans: [] } }
+      }
+      return { status: 200, body: CANVAS_DRAFT }
+    })
+    h.click({ 'data-wb-act': 'canvas-undo' })
+    await vi.waitFor(() => expect(h.toasts.some((m) => m.indexOf('workbench.canvas.undone') >= 0)).toBe(true))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.canvas.state_clean')
+    expect(html).toMatch(/data-wb-act="canvas-undo" disabled/)
+    expect(html).not.toMatch(/data-wb-act="canvas-redo" disabled/)
+  })
+
+  it('Ctrl+Z visszavon, Ctrl+Y es Ctrl+Shift+Z ujra -- szovegmezoben NEM a rajzot', async () => {
+    await openCanvas({ ...CANVAS_DRAFT, history: { ...HISTORY, can_redo: true, redo: { label: 'move', source: 'owner' } } })
+    h.respond((url) => {
+      if (url.indexOf('/canvas/undo') > 0 || url.indexOf('/canvas/redo') > 0) {
+        return { status: 200, body: { ok: true, canvas: DOC, step: { label: 'move', source: 'owner' }, item: GRAPHIC, draft: CANVAS_DRAFT.draft, history: { ...HISTORY, can_redo: true, redo: { label: 'move', source: 'owner' } }, orphans: [] } }
+      }
+      return { status: 200, body: CANVAS_DRAFT }
+    })
+    const steps = () => h.fetchCalls.filter((c) => /\/canvas\/(undo|redo)/.test(c.url)).map((c) => c.url.indexOf('/undo') > 0 ? 'undo' : 'redo')
+    h.key({ key: 'z', ctrlKey: true, target: { tagName: 'TEXTAREA' } })
+    expect(steps()).toEqual([])
+    h.key({ key: 'z', ctrlKey: true })
+    await vi.waitFor(() => expect(steps()).toEqual(['undo']))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-undo" disabled/))
+    h.key({ key: 'y', ctrlKey: true })
+    await vi.waitFor(() => expect(steps()).toEqual(['undo', 'redo']))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-redo" disabled/))
+    h.key({ key: 'Z', metaKey: true, shiftKey: true })
+    await vi.waitFor(() => expect(steps()).toEqual(['undo', 'redo', 'redo']))
+  })
+
+  it('visszavonasi utkozesnel a szerver mondata megy ki, es a friss rajz betoltodik', async () => {
+    await openCanvas(CANVAS_DRAFT)
+    h.respond((url) => {
+      if (url.indexOf('/canvas/undo') > 0) return { status: 409, body: { error: 'canvas_undo_conflict', message: 'Ezt a lépést nem vonom vissza.', detail: 'changed since this step: "headline"' } }
+      return { status: 200, body: CANVAS_DRAFT }
+    })
+    h.fetchCalls.length = 0
+    h.click({ 'data-wb-act': 'canvas-undo' })
+    await vi.waitFor(() => expect(h.toasts.some((m) => m.indexOf('Ezt a lépést nem vonom vissza.') >= 0 && m.indexOf('headline') >= 0)).toBe(true))
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => /\/canvas\?/.test(c.url))).toBe(true))
+  })
+
+  it('Verzio mentese: a megadott nevvel kuldi, Megse-re nem ment', async () => {
+    await openCanvas(CANVAS_DRAFT)
+    h.respond((url) => {
+      if (url.indexOf('/canvas/version') > 0) {
+        return { status: 201, body: { ok: true, created: true, item: GRAPHIC, version: { id: 'v3', version_no: 3 }, versions: [], draft: { ...CANVAS_DRAFT.draft, since_version: false }, history: HISTORY, orphans: [], message: 'Verzió mentve.' } }
+      }
+      return { status: 200, body: CANVAS_DRAFT }
+    })
+    h.win.prompt = () => null
+    h.click({ 'data-wb-act': 'canvas-version' })
+    expect(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/version') > 0)).toHaveLength(0)
+    h.win.prompt = () => 'Ügyfélnek elküldve'
+    h.click({ 'data-wb-act': 'canvas-version' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/canvas/version') > 0)).toBe(true))
+    const sent = JSON.parse(String(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/version') > 0)[0].init!.body))
+    expect(sent).toEqual({ label: 'Ügyfélnek elküldve', reason: 'manual' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.canvas.state_clean'))
+  })
+
+  it('felbehagyott munka: latszik, verzio lehet belole, eldobas elott rakerdez', async () => {
+    const orphan = { base_version_id: 'v1', base_version_no: 1, updated_at: 1790000000, objects: 2 }
+    await openCanvas({ ...CANVAS_DRAFT, orphans: [orphan] })
+    expect(h.rootEl.innerHTML).toContain('workbench.canvas.orphan_line')
+    h.respond((url, init) => {
+      if (url.indexOf('/canvas/orphans/v1/restore') > 0) return { status: 201, body: { ok: true, item: GRAPHIC, version: { id: 'v4', version_no: 4 }, versions: [], canvas: DOC, draft: null, history: HISTORY, orphans: [], message: 'Új verzió lett.' } }
+      if (url.indexOf('/canvas/orphans/v1') > 0 && init && init.method === 'DELETE') return { status: 200, body: { ok: true, orphans: [], message: 'Törölve.' } }
+      return { status: 200, body: { ...CANVAS_DRAFT, orphans: [orphan] } }
+    })
+    h.win.confirm = () => false
+    h.click({ 'data-wb-act': 'canvas-orphan-discard', 'data-wb-version': 'v1' })
+    expect(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/orphans/') > 0)).toHaveLength(0)
+    h.click({ 'data-wb-act': 'canvas-orphan-restore', 'data-wb-version': 'v1' })
+    await vi.waitFor(() => expect(h.toasts).toContain('Új verzió lett.'))
+    expect(h.rootEl.innerHTML).not.toContain('workbench.canvas.orphan_line')
+  })
+
+  it('regi verzio nezesekor nincs visszavonas-sav', async () => {
+    await openCanvas({ ...CANVAS_DRAFT, current: false, history: null })
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="canvas-undo"')
   })
 
   it('minden kepernyore kerulo sajat szoveg a t()-n megy at (HU/EN)', async () => {

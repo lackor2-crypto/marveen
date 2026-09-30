@@ -390,8 +390,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'workItem.createVersion',
-    description: 'Save the current state of a work item as a new version (a snapshot). Nothing is overwritten.',
-    input: 'id: the work item id (optional, defaults to the open one)',
+    description: 'Save the current state of a work item as a new version (a snapshot). Nothing is overwritten. For a drawing, the version holds what the owner sees now (the autosaved working copy).',
+    input: 'id: the work item id (optional, defaults to the open one); label: a short name for the version (optional, for a drawing)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
@@ -414,7 +414,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'canvas.edit',
-    description: 'Change the structured drawing (canvas) of a work item with a list of operations, and save the result as a NEW version (nothing is overwritten). Objects are addressed by their stable id, so "make the headline 30% bigger and centre it" is two operations on the same id. Read the canvas first with canvas.get to learn the ids.',
+    description: 'Change the structured drawing (canvas) of a work item with a list of operations. The result is saved at once to the working copy the owner sees -- it does NOT make a new version, so the version list stays readable. Everything you do for one request of the owner is ONE undo step for them (Ctrl+Z). Before a big change (resize, removing elements, touching most of them) the unsaved work is kept as a version by itself. Make a version with workItem.createVersion only when the owner asks for one or the drawing reached a milestone. Objects are addressed by their stable id, so "make the headline 30% bigger and centre it" is two operations on the same id. Read the canvas first with canvas.get to learn the ids.',
     input: 'id: the work item id (optional, defaults to the open one); ops: the list of operations. Each one is an object: {op:"add", object:{type:"text"|"rect"|"image", ...}}, {op:"update", id, patch:{...}}, {op:"remove", id}, {op:"move", id, dx, dy}, {op:"center", id, axis:"x"|"y"|"both"}, {op:"scale", id, factor} (1.3 = 30% bigger), {op:"order", id, to:"front"|"back"|"up"|"down"}, or {op:"canvas", width, height, background}. A text object has text, fontSize, color (#rrggbb), align, bold, italic; a rect has fill and radius; an image has src (a picture inside the project folder).',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
   },
