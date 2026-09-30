@@ -2079,6 +2079,39 @@ describe('rajzvaszon a feluletrol (9. fazis)', () => {
     expect(opsSent()[0]).toEqual([{ op: 'duplicate', id: 'keret' }])
   })
 
+  // ---- K-2.8 .. K-2.10: platformmeretek ------------------------------------
+  const PLATFORMS = { file_error: null, platforms: [
+    { id: 'instagram_square', label: { hu: 'Instagram négyzet', en: 'Instagram square' }, width: 1080, height: 1080, safe: null, sources: [{ title: 'Meta', url: 'https://example.com/ig' }], checked: '2026-09-30', stale: false },
+    { id: 'story_reel', label: { hu: 'Story / Reel', en: 'Story / Reel' }, width: 1080, height: 1920, safe: { top: 0.14, bottom: 0.35, left: 0.06, right: 0.06 }, sources: [{ title: 'Meta safe', url: 'https://example.com/safe' }], checked: '2020-01-01', stale: true },
+  ] }
+
+  it('a meretvalaszto a forrast mutatja, atmeretez (visszavonhato lepes) es valtozatot kesz', async () => {
+    await openCanvas({ ...CANVAS_DRAFT, platforms: PLATFORMS })
+    let html = h.rootEl.innerHTML
+    expect(html).toContain('id="wbCanPlatform"')
+    expect(html).toContain('https://example.com/ig')
+    h.change('wbCanPlatform', [], 'story_reel')
+    html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.canvas.platform_stale')
+    h.respond((url) => {
+      if (url.indexOf('/canvas/ops') > 0) return { status: 200, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], created: false } }
+      if (url.indexOf('/canvas/variant') > 0) return { status: 201, body: { ok: true, canvas: { ...DOC, width: 1080, height: 1920 }, item: GRAPHIC, versions: [], message: 'Kész a változat.' } }
+      if (url.indexOf('/canvas') > 0) return { status: 200, body: { ...CANVAS_DRAFT, platforms: PLATFORMS } }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: { available: true, kind: 'canvas', mime: 'image/svg+xml', name: 'nyari-plakat.canvas.json', rel: 'Projektek/teszt/nyari-plakat.canvas.json', reason: null, message: null, url: null } }
+      return { status: 200, body: { item: GRAPHIC, versions: [], parts: [], part_kinds: [], project: PROJECT } }
+    })
+    h.click({ 'data-wb-act': 'canvas-resize', 'data-wb-arg': 'story_reel' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/canvas/ops') > 0)).toBe(true))
+    const sent = JSON.parse(String(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0)[0].init!.body))
+    expect(sent.ops).toEqual([{ op: 'resize', platform: 'story_reel' }])
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="canvas-variant"[^>]*disabled/))
+    h.click({ 'data-wb-act': 'canvas-variant', 'data-wb-arg': 'story_reel' })
+    await vi.waitFor(() => expect(h.toasts).toContain('Kész a változat.'))
+    // Az uj meret Story: a biztonsagi zona savjai megjelennek a kepen.
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-can-safe'))
+    expect(h.rootEl.innerHTML).toContain('workbench.canvas.safe_hint')
+  })
+
   it('minden kepernyore kerulo sajat szoveg a t()-n megy at (HU/EN)', async () => {
     await openCanvas()
     const html = h.rootEl.innerHTML

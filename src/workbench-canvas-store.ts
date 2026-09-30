@@ -526,8 +526,8 @@ export function redoCanvas(item: WorkItemRow, actor: string | null = null): Canv
 // ---------------------------------------------------------------------------
 
 /** Miert keszul a verzio. A felulet forditja le a listaban. */
-export type CanvasVersionReason = 'manual' | 'export' | 'finalize' | 'agent' | 'before_agent' | 'draft'
-const REASONS: readonly string[] = ['manual', 'export', 'finalize', 'agent', 'before_agent', 'draft']
+export type CanvasVersionReason = 'manual' | 'export' | 'finalize' | 'agent' | 'before_agent' | 'draft' | 'variant'
+const REASONS: readonly string[] = ['manual', 'export', 'finalize', 'agent', 'before_agent', 'draft', 'variant']
 
 export type CanvasVersionResult =
   | { ok: true; created: boolean; version: WorkItemVersionRow; item: WorkItemRow; save: CanvasSave | null }

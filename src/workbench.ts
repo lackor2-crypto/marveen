@@ -440,7 +440,7 @@ export interface WorkItemVersionView extends WorkItemVersionRow {
   restored_from_no: number | null
   /** A tulajdonos altal adott nev ("Verzio mentese" nevvel, v4 spec K-2.3). */
   label: string | null
-  /** MIERT keszult: 'manual' | 'export' | 'finalize' | 'agent' | 'before_agent' | 'draft' -- a
+  /** MIERT keszult: 'manual' | 'export' | 'finalize' | 'agent' | 'before_agent' | 'draft' | 'variant' -- a
    *  felulet forditja le. Ismeretlen/hianyzo = nem mondunk rola semmit. */
   reason: string | null
 }

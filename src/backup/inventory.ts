@@ -83,6 +83,8 @@ const STORE_SETTINGS = [
   'marveen-avatar.png', 'backup-config.json',
   // A celbirosag-profilok tulajdonos altal elfogadott szabalyverzioi es a figyelmeztetes ideje (#441, 7.4).
   'workbench-court-profiles.json',
+  // A rajz sajat platformmeret-listaja (#441, K-2.8).
+  'workbench-canvas-platforms.json',
 ] as const
 const STORE_SETTINGS_DIRS = ['folder-icons'] as const
 const STORE_DEPOT_CONFIG = [

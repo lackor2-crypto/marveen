@@ -1002,6 +1002,27 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     expect(old.body.history).toBeNull()
   })
 
+  it('valtozat mas platformra (K-2.9): uj verzio az uj meretben, az eredeti megmarad; a GET a platformokat is adja', async () => {
+    await call(url(''), 'PUT', { canvas: { width: 1080, height: 1080, objects: [{ id: 'cim', type: 'text', x: 90, y: 20, width: 900, height: 120, fontSize: 80, text: 'Akció' }] } })
+    await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'cim', dx: 0, dy: 10 }] })
+    const g = await call(url(''), 'GET')
+    expect(g.body.platforms.platforms.some((p: { id: string }) => p.id === 'story_reel')).toBe(true)
+    expect(g.body.platform).toBe('instagram_square')
+    const before = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions.length
+    const v = await call(url('/variant'), 'POST', { platform: 'story_reel' })
+    expect(v.status).toBe(201)
+    expect([v.body.canvas.width, v.body.canvas.height]).toEqual([1080, 1920])
+    // A verziozatlan munka elobb verzio lett, aztan a valtozat is: ketto uj.
+    expect(v.body.versions.length).toBe(before + 2)
+    const top = v.body.versions[0]
+    expect(top.reason).toBe('variant')
+    expect(top.label).toMatch(/Story/)
+    expect(v.body.versions[1].reason).toBe('manual')
+    const bad = await call(url('/variant'), 'POST', { platform: 'myspace' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('canvas_unknown_platform')
+  })
+
   it('visszavonas es ujra (K-2.1): lepesenkent vissza, elore, es a hatar KIMONDVA', async () => {
     await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect', x: 0, y: 0, width: 10, height: 10 }] } })
     await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'a', dx: 5, dy: 0 }] })
