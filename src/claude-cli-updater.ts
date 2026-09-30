@@ -21,7 +21,7 @@
  * without a dashboard restart.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { APP_TZ, STORE_DIR } from './config.js'
@@ -32,6 +32,19 @@ import { logger } from './logger.js'
 const execFileAsync = promisify(execFile)
 
 export const CLAUDE_CLI_UPDATE_STATE_PATH = join(STORE_DIR, 'claude-cli-update.json')
+
+/**
+ * Cross-process lock around every change of the Claude install, shared with
+ * `claude_install()` in scripts/channels.sh. That script used to be the ONLY
+ * update point, because two `npm install -g` runs into one prefix at the same
+ * moment deleted the program on 2026-08-23 (see its DISABLE_AUTOUPDATER
+ * block). This module is a second update point, so the two take turns.
+ * `mkdir` is atomic; a lock older than any real update is a crashed holder's.
+ */
+export const CLAUDE_UPDATE_LOCK_PATH = join(STORE_DIR, '.claude-update.lock')
+export const CLAUDE_UPDATE_LOCK_STALE_MS = 15 * 60 * 1000
+const LOCK_WAIT_MS = 5 * 60 * 1000
+const LOCK_POLL_MS = 5000
 
 /** Local hours of the automatic checks (owner: at least twice, early morning and late evening). */
 export const CLAUDE_UPDATE_HOURS = [5, 14, 22]
@@ -112,11 +125,57 @@ export function loadUpdateState(): Omit<ClaudeUpdateResult, 'scan'> | null {
   }
 }
 
+/**
+ * `held`: ours, release it. `busy`: another update runs right now.
+ * `unavailable`: no lock can be made at all (no writable store/) -- update
+ * unlocked, as before the lock existed, rather than never.
+ */
+export type UpdateLock = 'held' | 'busy' | 'unavailable'
+
+export function takeUpdateLock(path: string = CLAUDE_UPDATE_LOCK_PATH, now: number = Date.now()): UpdateLock {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      mkdirSync(path)
+      return 'held'
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') return 'unavailable'
+    }
+    let age: number
+    try { age = now - statSync(path).mtimeMs } catch { continue } // released in between: try again
+    if (age < CLAUDE_UPDATE_LOCK_STALE_MS) return 'busy'
+    try { rmSync(path, { recursive: true, force: true }) } catch { return 'busy' }
+  }
+  return 'busy'
+}
+
+export function releaseUpdateLock(path: string = CLAUDE_UPDATE_LOCK_PATH): void {
+  try { rmSync(path, { recursive: true, force: true }) } catch { /* the stale rule frees it */ }
+}
+
+async function waitForUpdateLock(): Promise<UpdateLock> {
+  const until = Date.now() + LOCK_WAIT_MS
+  for (;;) {
+    const lock = takeUpdateLock()
+    if (lock !== 'busy' || Date.now() >= until) return lock
+    await new Promise((r) => setTimeout(r, LOCK_POLL_MS))
+  }
+}
+
 async function runUpdate(): Promise<ClaudeUpdateResult> {
   const checkedAt = new Date().toISOString()
   const bin = await findClaudeBinary()
   let kind = installKindFromPath(bin)
   if (kind !== 'missing' && isAvxLessHost()) kind = 'pinned'
+  // Taken before `before` is measured: an update that ran while we waited is not ours to report.
+  const lock: UpdateLock = kind === 'native' || kind === 'npm' ? await waitForUpdateLock() : 'unavailable'
+  try {
+    return await updateUnderLock(kind, lock, checkedAt)
+  } finally {
+    if (lock === 'held') releaseUpdateLock()
+  }
+}
+
+async function updateUnderLock(kind: ClaudeInstallKind, lock: UpdateLock, checkedAt: string): Promise<ClaudeUpdateResult> {
   const before = await installedVersion()
   const base = { kind, before, after: before, updated: false, checkedAt }
 
@@ -125,6 +184,9 @@ async function runUpdate(): Promise<ClaudeUpdateResult> {
   }
   if (kind === 'pinned') {
     return { ...base, ok: true, message: `Ez a gép processzora régebbi (AVX nélküli), ezért itt a Claude program szándékosan rögzített verzión fut (${before || '?'}), nem frissítem.`, messageEn: `This machine has an older (AVX-less) processor, so the Claude program is deliberately pinned here (${before || '?'}) and is not updated.` }
+  }
+  if (lock === 'busy') {
+    return { ...base, ok: false, message: `Épp egy másik Claude-frissítés fut ezen a gépen, ezért most nem frissítettem, hogy a kettő ne rontsa el egymást (${before || 'ismeretlen verzió'} maradt). Pár perc múlva próbáld újra; magától is újra megpróbálom a következő időpontban.`, messageEn: `Another Claude update is running on this machine right now, so I did not update now, to keep the two from breaking each other (${before || 'unknown version'} kept). Try again in a few minutes; it also retries on its own at the next scheduled time.` }
   }
 
   try {

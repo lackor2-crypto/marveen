@@ -127,7 +127,7 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   /\.pid$/, 'locks', /-state\.json$/, /^schedule-tick-state\.json/, 'rate-limit-status',
   'agent-taskstate', /^\.agent-failures-/, /^\.channel-/, /^\.fleet-/, /^\.ratelimit-/,
   /^\.google-/, /^\.last-/, /^\.morning-/, '.subagent-retry', '.deployed-sha', '.win-home',
-  '.default-projects-seeded', '.vault-key.migrated', 'deploy.lock', 'update.last-result',
+  '.default-projects-seeded', '.vault-key.migrated', 'deploy.lock', '.claude-update.lock', 'update.last-result',
   'upstream-measure.pid', 'limit-wake-alive.json', 'code-bot-offset', 'code-bot-stt',
   'agent-parity-alert.json', 'command-task-health.json', 'commit-push-dispatch.json',
   'context-broker.json', /^context-guard-last-pane-/, 'context-restart-gate.json',
