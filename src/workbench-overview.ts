@@ -55,6 +55,9 @@ export interface OverviewApproval {
   card_title: string | null
   /** The card's id, so the tile can open it in the card window (TG 1854). */
   card_id: string | null
+  /** The card already stands in the Waiting column: the tile shows the card,
+   *  not the ticket a second time. */
+  in_waiting: boolean
 }
 
 export interface WorkbenchOverview {
@@ -65,7 +68,9 @@ export interface WorkbenchOverview {
   /** Jovahagyasra var: az "atnezesre var" munkadarabok + a projekt fuggo
    *  jovahagyas-jegyei. A jegyek szama `null`, ha nem tudtam lekerdezni. */
   review: { count: number; items: OverviewItem[] }
-  approvals: { count: number | null; items: OverviewApproval[]; error: string | null }
+  /** `extra`: the tickets that are NOT about a card already in the Waiting
+   *  column -- counted on the whole set, the lists are cut to OVERVIEW_LIST_MAX. */
+  approvals: { count: number | null; extra: number | null; items: OverviewApproval[]; error: string | null }
   /** A projekt kanban-kartyai oszloponkent (a Tesztelés a Folyamatbanba
    *  szamit; a Kesz csak az utolso RECENT_DONE_DAYS nap). */
   columns: { planned: OverviewColumn; in_progress: OverviewColumn; waiting: OverviewColumn; done: OverviewColumn }
@@ -126,6 +131,7 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
 
   const emptyCol = (): OverviewColumn => ({ count: 0, cards: [] })
   const columns: WorkbenchOverview['columns'] = { planned: emptyCol(), in_progress: emptyCol(), waiting: emptyCol(), done: emptyCol() }
+  const waitingIds = new Set<string>()
   if (cards.open === null) {
     for (const k of Object.keys(columns) as Array<keyof typeof columns>) columns[k].count = null
   } else if (hasTable('kanban_cards')) {
@@ -140,7 +146,7 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
       for (const c of all) {
         if (c.status === 'planned') put(columns.planned, c)
         else if (c.status === 'in_progress' || c.status === 'testing') put(columns.in_progress, c)
-        else if (c.status === 'waiting') put(columns.waiting, c)
+        else if (c.status === 'waiting') { put(columns.waiting, c); waitingIds.add(c.id) }
         else if (c.status === 'done' && c.updated_at >= since) put(columns.done, c)
       }
     } catch (e) {
@@ -156,7 +162,7 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
     in_progress: { count: running.length, items: running.slice(0, OVERVIEW_LIST_MAX) },
   }
 
-  const approvals: WorkbenchOverview['approvals'] = { count: 0, items: [], error: null }
+  const approvals: WorkbenchOverview['approvals'] = { count: 0, extra: 0, items: [], error: null }
   try {
     const mine = listPendingApprovals().filter((a) => approvalBelongs(a, pid, cardIds))
     approvals.count = mine.length
@@ -166,12 +172,21 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
     const cardStmt = hasTable('kanban_cards')
       ? db.prepare('SELECT id, rowid AS seq, title FROM kanban_cards WHERE id = ? OR id LIKE ? ORDER BY length(id) LIMIT 1')
       : null
-    approvals.items = mine.slice(0, OVERVIEW_LIST_MAX).map((a) => {
+    const resolved = mine.map((a) => {
       const ref = approvalCardId(a.action_payload, a.action_description || '')
       let card: { id: string; seq: number; title: string } | undefined
       if (ref && cardStmt) {
         try { card = cardStmt.get(ref, `${ref}%`) as { id: string; seq: number; title: string } | undefined } catch { card = undefined }
       }
+      return { a, card, inWaiting: !!card && waitingIds.has(String(card.id)) }
+    })
+    // A ticket about a card already in the Waiting column is that card, not a
+    // second thing to approve. Decided HERE, on the whole sets: the page gets
+    // only the first OVERVIEW_LIST_MAX of each list, so it could double-count
+    // or drop one past the cut (TG 2068).
+    const extra = resolved.filter((r) => !r.inWaiting)
+    approvals.extra = extra.length
+    approvals.items = [...extra, ...resolved.filter((r) => r.inWaiting)].slice(0, OVERVIEW_LIST_MAX).map(({ a, card, inWaiting }) => {
       return {
         id: a.id,
         category: a.category,
@@ -181,10 +196,12 @@ export function buildWorkbenchOverview(projectId: string, now: number = Math.flo
         card_seq: card ? Number(card.seq) : null,
         card_title: card ? String(card.title || '') : null,
         card_id: card ? String(card.id) : null,
+        in_waiting: inWaiting,
       }
     })
   } catch (e) {
     approvals.count = null
+    approvals.extra = null
     approvals.error = errText(e)
   }
 

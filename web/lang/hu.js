@@ -7047,6 +7047,8 @@ window._i18n.hu = {
   "workbench.ov.apv_when": "Kérve: {when}",
   "workbench.ov.card_open_title": "Kattints: megnyílik a kártya",
   "workbench.ov.done_none": "Az elmúlt {days} napban nem lett kész munkadarab.",
+  "workbench.ov.more": "…és még {n}, ami ide nem fér ki.",
+  "workbench.ov.more_open": "Mindet mutasd a projekt Kanban fülén",
   "workbench.ov.goto_approvals": "Jóváhagyások megnyitása",
   "workbench.ov.done_col": "Kész ({days} nap)",
   "workbench.items.switch_hint_split": "Kattints egy munkadarabra: az lesz az aktuális, és fent jobbra, a beszélgetés mellett nyílik meg.",

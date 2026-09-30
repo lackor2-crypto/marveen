@@ -939,6 +939,15 @@
       + '</li>'
   }
   function ovNone(key, params) { return '<p class="wb-hint">' + esc(t(key, params)) + '</p>' }
+  /** The number counts everything, an opened list shows the first few: say
+   *  how many are left out and lead to the project's Kanban tab, where all of
+   *  them are -- a silent cut reads as a wrong number (TG 2068). */
+  function ovMore(total, shown) {
+    if (total === null || total === undefined || total - shown <= 0) return ''
+    return '<p class="wb-hint wb-ov-more">' + esc(t('workbench.ov.more', { n: total - shown }))
+      + ' <button type="button" class="wb-linklike" data-wb-act="ov-kanban">' + esc(t('workbench.ov.more_open')) + '</button></p>'
+  }
+  function ovLen(a) { return (a && a.length) || 0 }
 
   /** Egy pillantasra, a kanban oszlopneveivel: Tervezett, Folyamatban,
    *  Jovahagyasra var, Kesz. Minden szam MERT: ha egy forras nem valaszolt, azt kimondjuk, es a
@@ -968,36 +977,42 @@
     var plDraft = work.draft || { count: 0, items: [] }
     var plCount = sum(num(pl.count), plDraft.count || 0)
     var plList = ovCardsHtml(pl.cards) + ovItemsHtml(plDraft.items)
+      + ovMore(plCount, ovLen(pl.cards) + ovLen(plDraft.items))
       + (plCount === 0 ? ovNone('workbench.ov.planned_none') : '')
 
     var ip = colOf('in_progress')
     var ipWork = work.in_progress || { count: 0, items: [] }
     var ipCount = sum(num(ip.count), ipWork.count || 0)
     var ipList = ovCardsHtml(ip.cards) + ovItemsHtml(ipWork.items)
+      + ovMore(ipCount, ovLen(ip.cards) + ovLen(ipWork.items))
       + (ipCount === 0 ? ovNone('workbench.ov.progress_none') : '')
 
     // Jovahagyasra var: a kanban oszlop kartyai + a kartya NELKULI jegyek +
     // az atnezesre varo munkadarabok. Egy kartyara szolo jegy nem szamolodik
-    // ketszer, ha a kartya mar az oszlopban all.
+    // ketszer, ha a kartya mar az oszlopban all. Ezt a szerver donti el a
+    // TELJES halmazon (`in_waiting`, `extra`): itt a listak otre vagva jonnek.
     var wt = colOf('waiting')
     var ap = o.approvals || {}
     var seen = {}
     ;(wt.cards || []).forEach(function (c) { seen[c.seq] = true })
-    var extraAp = (ap.items || []).filter(function (a) { return !(a.card_seq && seen[a.card_seq]) })
+    var extraAp = (ap.items || []).filter(function (a) { return typeof a.in_waiting === 'boolean' ? !a.in_waiting : !(a.card_seq && seen[a.card_seq]) })
+    var extraN = typeof ap.extra === 'number' ? ap.extra : extraAp.length
     var reviewCount = (o.review && o.review.count) || 0
-    var wtCount = ap.count === null ? null : sum(num(wt.count), extraAp.length + reviewCount)
+    var wtCount = ap.count === null ? null : sum(num(wt.count), extraN + reviewCount)
     var wtBody = (ap.count === null ? '<p class="wb-hint wb-preview-bad">' + esc(t('workbench.ov.approvals_unknown', { message: ap.error || '' })) + '</p>' : '')
       + (ap.count ? '<p><button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button></p>' : '')
 
     var wtList = ovCardsHtml(wt.cards)
       + (extraAp.length ? '<ul class="wb-ov-list wb-ov-approvals">' + extraAp.map(ovApprovalHtml).join('') + '</ul>' : '')
       + ovItemsHtml(o.review && o.review.items)
+      + ovMore(wtCount, ovLen(wt.cards) + extraAp.length + ovLen(o.review && o.review.items))
       + (wtCount === 0 ? ovNone('workbench.ov.wait_none') : '')
 
     var dn = colOf('done')
     var rd = o.recent_done || {}
     var dnCount = sum(num(dn.count), rd.count || 0)
     var dnList = ovCardsHtml(dn.cards) + ovItemsHtml(rd.items)
+      + ovMore(dnCount, ovLen(dn.cards) + ovLen(rd.items))
       + (dnCount === 0 ? ovNone('workbench.ov.done_none', { days: rd.days || 14 }) : '')
 
     return '<section class="wb-ov' + (WB.ovOpen ? ' wb-ov-open' : '') + '" aria-label="' + escA(t('workbench.ov.title')) + '">'
@@ -9112,7 +9127,18 @@
     WB.projectId = null
     WB.items = null
     WB.detail = null
-    if (pid && typeof window._prjOpenProject === 'function') window._prjOpenProject(pid)
+    if (pid && typeof window._prjOpenProject === 'function') return window._prjOpenProject(pid)
+  }
+
+  /** "...and N more" on an opened overview tile: the whole lists are on the
+   *  project page's own Kanban tab (every card and work item, per column). */
+  function openProjectKanban() {
+    var pid = WB.projectId
+    Promise.resolve(closeWorkbench()).then(function () {
+      var P = window._prj
+      if (!P || P.current !== pid || typeof window._prjRenderProject !== 'function') return
+      if (P.tab !== 'kanban') { P.tab = 'kanban'; window._prjRenderProject() }
+    })
   }
 
   // ---- esemenyek (egy delegalt figyelo) -------------------------------------
@@ -9190,6 +9216,7 @@
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
+    else if (a === 'ov-kanban') openProjectKanban()
     else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }
     else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)

@@ -86,6 +86,26 @@ describe('attekinto: a szerver merese', () => {
     expect(o.columns.planned.count).toBe(0)
   })
 
+  // TG 2068: the lists are cut to OVERVIEW_LIST_MAX, so "is this ticket about a
+  // card already in the Waiting column" must be decided on the WHOLE sets.
+  it('jovahagyasra var: a duplikacio-szures a TELJES halmazon, nem az otre vagott listan', () => {
+    for (let i = 1; i <= 7; i++) createKanbanCard({ id: `wait000${i}`, title: `Vár ${i}`, project: pid, status: 'waiting' })
+    // The two oldest waiting cards fall past the cut of five.
+    getDb().prepare("UPDATE kanban_cards SET updated_at = 1 WHERE id IN ('wait0006', 'wait0007')").run()
+    createApproval({ id: 'apw6', agent_id: 'main', category: 'kanban_done', action_description: 'Kész', action_payload: JSON.stringify({ kanban_card_id: 'wait0006' }) })
+    createApproval({ id: 'apw7', agent_id: 'main', category: 'kanban_done', action_description: 'Kész', action_payload: JSON.stringify({ kanban_card_id: 'wait0007' }) })
+    createApproval({ id: 'apf', agent_id: 'main', category: 'workbench_file_write', action_description: 'Fájl írása', action_payload: JSON.stringify({ source: 'workbench', project: pid }) })
+    const o = buildWorkbenchOverview(pid)
+    expect(o.columns.waiting.count).toBe(7)
+    expect(o.columns.waiting.cards.map((c) => c.id)).not.toContain('wait0006')
+    expect(o.approvals.count).toBe(3)
+    // Only the card-less ticket is a second thing to approve.
+    expect(o.approvals.extra).toBe(1)
+    expect(o.approvals.items[0].id).toBe('apf')
+    expect(o.approvals.items.find((a) => a.id === 'apf')!.in_waiting).toBe(false)
+    expect(o.approvals.items.find((a) => a.id === 'apw6')!.in_waiting).toBe(true)
+  })
+
   it('utoljara valtozott fajl: a legfrissebb verzio-forras vagy kep-resz', () => {
     const a = item('Ajánlat', 'draft')
     createWorkItemVersion(a.id, { source_path: 'Projektek/kovacs/ajanlat.docx' })
@@ -197,6 +217,55 @@ describe('attekinto: a felulet', () => {
     await vi.waitFor(() => expect(ovOf()).not.toContain('Terv kártya'))
     expect(ovOf().match(/aria-expanded="false"/g)!.length).toBe(4)
     expect(h.win.localStorage.getItem('marveen.workbench.ovOpen')).toBe('0')
+  })
+
+  // TG 2068, live: "Kész (14 nap) 39", opened -- five cards and not a word
+  // about the other 34. The cut is said out loud, with the way to all of them.
+  it('LENYITVA: ha a szam tobb, mint a lista, kimondja, hany maradt ki, es a projekt Kanban fulere visz', async () => {
+    const h = workbenchHarness()
+    const five = (from: number) => Array.from({ length: 5 }, (_, i) => ({ id: `d${from + i}`, seq: from + i, title: `Kész ${from + i}`, updated_at: 1 }))
+    open(h, { ...OV,
+      approvals: { count: 3, extra: 1, error: null, items: [
+        { id: 'af', category: 'x', description: 'Fájl írása', requested_at: 1, card_seq: null, card_title: null, card_id: null, in_waiting: false },
+        { id: 'a6', category: 'kanban_done', description: 'Kártya #606', requested_at: 1, card_seq: 606, card_title: 'Hatodik', card_id: 'k6', in_waiting: true },
+      ] },
+      review: { count: 0, items: [] },
+      columns: {
+        planned: { count: 1, cards: [{ id: 'k1', seq: 501, title: 'Terv kártya', updated_at: 1 }] },
+        in_progress: { count: 0, cards: [] },
+        waiting: { count: 7, cards: five(600) },
+        done: { count: 39, cards: five(700) },
+      },
+      work: { draft: { count: 0, items: [] }, in_progress: { count: 0, items: [] } },
+    })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-ov-tile'))
+    const ovOf = () => { const x = h.html(); return x.slice(x.indexOf('class="wb-ov'), x.indexOf('wb-panel-tabs')) }
+    // The ticket on a Waiting card past the cut is not counted twice: 7 cards + 1 card-less ticket.
+    expect(ovOf()).toMatch(/wb-ov-wait wb-ov-attn[^]*?<span class="wb-ov-num">8<\/span>/)
+    // Folded: only the numbers, no "more" line either.
+    expect(ovOf()).not.toContain('workbench.ov.more')
+
+    h.click({ 'data-wb-act': 'ov-fold' })
+    await vi.waitFor(() => expect(ovOf()).toContain('Terv kártya'))
+    const tile = (cls: string) => { const x = ovOf(); const i = x.indexOf(cls); return x.slice(i, x.indexOf('class="wb-ov-tile', i + 1) === -1 ? undefined : x.indexOf('class="wb-ov-tile', i + 1)) }
+    expect(tile('wb-ov-done')).toMatch(/workbench\.ov\.more:\{[^}]*34\}/)
+    // Waiting: 5 cards + 1 ticket listed of 8.
+    expect(tile('wb-ov-wait')).toMatch(/workbench\.ov\.more:\{[^}]*2\}/)
+    expect(tile('wb-ov-wait')).not.toContain('Hatodik')
+    // Planned shows all it counts: no "more" line.
+    expect(tile('wb-ov-planned')).not.toContain('workbench.ov.more')
+    expect(ovOf()).toContain('data-wb-act="ov-kanban"')
+
+    // The link: back to the project page, on its Kanban tab.
+    const calls: string[] = []
+    let rendered = 0
+    h.win._prj = { current: 'p1', tab: 'overview' }
+    h.win._prjOpenProject = async (id: string) => { calls.push(id) }
+    h.win._prjRenderProject = () => { rendered++ }
+    h.click({ 'data-wb-act': 'ov-kanban' })
+    await vi.waitFor(() => expect(h.win._prj.tab).toBe('kanban'))
+    expect(calls).toEqual(['p1'])
+    expect(rendered).toBe(1)
   })
 
   it('a jovahagyasra varo kartya nem szamolodik ketszer (oszlop + jegy)', async () => {
