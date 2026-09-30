@@ -6969,6 +6969,8 @@ window._i18n.en = {
   "workbench.ov.apv_when": "Requested: {when}",
   "workbench.ov.card_open_title": "Click to open the card",
   "workbench.ov.done_none": "No work item was finished in the last {days} days.",
+  "workbench.ov.more": "…and {n} more that do not fit here.",
+  "workbench.ov.more_open": "Show them all on the project's Kanban tab",
   "workbench.ov.goto_approvals": "Open approvals",
   "workbench.ov.done_col": "Done ({days} days)",
   "workbench.items.switch_hint_split": "Click a work item: it becomes the current one and opens at the top right, next to the conversation.",
