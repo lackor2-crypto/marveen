@@ -516,6 +516,16 @@
   border-radius: 8px;
 }
 .wb-can-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
+.wb-can-layer-grid {
+  background-image:
+    linear-gradient(to right, rgba(26, 115, 232, 0.18) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 115, 232, 0.18) 1px, transparent 1px);
+}
+.wb-can-guide { position: absolute; background: #e8178a; pointer-events: none; z-index: 3; }
+.wb-can-guide[hidden] { display: none; }
+.wb-can-guide-x { top: 0; bottom: 0; width: 1px; }
+.wb-can-guide-y { left: 0; right: 0; height: 1px; }
+.wb-can-snapopts { display: flex; flex-wrap: wrap; gap: 14px; margin: 6px 0; font-size: 0.9em; }
 .wb-can-box {
   position: absolute;
   box-sizing: border-box;

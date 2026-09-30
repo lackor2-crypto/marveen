@@ -91,6 +91,11 @@
     canvasPick: {},
     // A Ctrl+C-vel "vagolapra" tett elem azonositoja; a Ctrl+V masolatot ker.
     canvasClip: null,
+    // Illesztes huzaskor (K-2.7): segedvonalakhoz (a vaszon szeleihez,
+    // kozepehez es a tobbi elemhez) alapbol igen, racsra alapbol nem. A
+    // valasztast a bongeszo megjegyzi.
+    canvasSnap: readPref('wb.canvas.snap', '1') === '1',
+    canvasGrid: readPref('wb.canvas.grid', '0') === '1',
     // A verziolista kinyitott "apro modositasok" csoportjai (K-2.4), a csoport
     // legregebbi verziojanak azonositojaval: uj verzio erkezesekor sem ugrik.
     verOpen: {},
@@ -228,6 +233,19 @@
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
   function escA(s) { return window.escapeAttr(s == null ? '' : String(s)) }
   function t(key, params) { return window.t(key, params || {}) }
+
+  /** Egy felulet-beallitas a bongeszobol. Ha a tarolo nem erheto el (privat
+   *  mod, teszt), az alapertek marad -- a beallitas nem hiba forrasa. */
+  function readPref(key, fallback) {
+    try {
+      var v = window.localStorage && window.localStorage.getItem(key)
+      return v == null ? fallback : String(v)
+    } catch (_e) { return fallback }
+  }
+
+  function writePref(key, value) {
+    try { if (window.localStorage) window.localStorage.setItem(key, String(value)) } catch (_e) { /* nem baj */ }
+  }
 
   function root() { return document.getElementById('projectsRoot') }
 
@@ -4458,6 +4476,77 @@
     return { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) }
   }
 
+  /** A racs lepese vaszon-egysegben (K-2.7). */
+  var CANVAS_GRID = 20
+
+  /**
+   * Illesztes (K-2.7) -- tiszta fuggveny. A huzott doboz szeleit es kozepet a
+   * celvonalakhoz (a vaszon szelei es kozepe, a tobbi elem szelei es kozepe)
+   * huzza, ha `tol` vaszon-egysegen belul vannak; ahogy a Figma es a Canva.
+   * Atmeretezesnel csak a MOZGO szelek illeszkednek. Ha segedvonal nem fogja
+   * meg, es a racs be van kapcsolva, a racsra kerekit.
+   * Visszaad: az uj doboz + a megjelenitendo segedvonalak.
+   */
+  function canvasSnapBox(box, mode, others, doc, opts) {
+    var tol = opts.tol
+    var out = { x: box.x, y: box.y, width: box.width, height: box.height }
+    var guides = []
+    var targets = function (axis) {
+      var list = axis === 'x' ? [0, doc.width / 2, doc.width] : [0, doc.height / 2, doc.height]
+      others.forEach(function (o) {
+        if (axis === 'x') list.push(o.x, o.x + o.width / 2, o.x + o.width)
+        else list.push(o.y, o.y + o.height / 2, o.y + o.height)
+      })
+      return list
+    }
+    // Melyik pontok mozognak ezen a tengelyen: mozgatasnal mindharom (kezdet,
+    // kozep, veg), atmeretezesnel csak a megfogott szel.
+    var movers = function (axis) {
+      var start = axis === 'x' ? out.x : out.y
+      var size = axis === 'x' ? out.width : out.height
+      if (mode === 'move') return [{ at: start, kind: 'start' }, { at: start + size / 2, kind: 'mid' }, { at: start + size, kind: 'end' }]
+      var west = mode === 'nw' || mode === 'sw'
+      var north = mode === 'nw' || mode === 'ne'
+      var lead = axis === 'x' ? west : north
+      return [lead ? { at: start, kind: 'start' } : { at: start + size, kind: 'end' }]
+    }
+    ;['x', 'y'].forEach(function (axis) {
+      var best = null
+      if (opts.guides) {
+        var tg = targets(axis)
+        movers(axis).forEach(function (m) {
+          tg.forEach(function (at) {
+            var d = at - m.at
+            if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d: d, kind: m.kind, at: at }
+          })
+        })
+      }
+      var startKey = axis === 'x' ? 'x' : 'y'
+      var sizeKey = axis === 'x' ? 'width' : 'height'
+      if (best) {
+        if (mode === 'move') out[startKey] = out[startKey] + best.d
+        else if (best.kind === 'start') { out[startKey] += best.d; out[sizeKey] -= best.d }
+        else out[sizeKey] += best.d
+        guides.push({ axis: axis, at: best.at })
+      } else if (opts.grid) {
+        var g = CANVAS_GRID
+        if (mode === 'move') out[startKey] = Math.round(out[startKey] / g) * g
+        else {
+          var mv = movers(axis)[0]
+          var snapped = Math.round(mv.at / g) * g
+          var dd = snapped - mv.at
+          if (mv.kind === 'start') { out[startKey] += dd; out[sizeKey] -= dd } else out[sizeKey] += dd
+        }
+      }
+    })
+    if (out.width < CANVAS_OBJ_MIN) out.width = CANVAS_OBJ_MIN
+    if (out.height < CANVAS_OBJ_MIN) out.height = CANVAS_OBJ_MIN
+    return {
+      box: { x: Math.round(out.x), y: Math.round(out.y), width: Math.round(out.width), height: Math.round(out.height) },
+      guides: guides,
+    }
+  }
+
   /** A doboz helye SZAZALEKBAN: a kep kicsinyitve is jo helyen all, es nem
    *  kell megmernunk a kepernyon elfoglalt meretet a kirajzolashoz. */
   function canvasBoxStyle(box, doc) {
@@ -4499,11 +4588,18 @@
         + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_archived')) + '</p>'
     }
     return '<div class="wb-can-stage" data-wb-stage="1">' + img
-      + '<div class="wb-can-layer">'
+      + '<div class="wb-can-layer' + (WB.canvasGrid ? ' wb-can-layer-grid' : '') + '"'
+      + (WB.canvasGrid ? ' style="background-size:' + (Math.round(10000 * CANVAS_GRID / doc.width) / 100) + '% ' + (Math.round(10000 * CANVAS_GRID / doc.height) / 100) + '%"' : '') + '>'
+      + '<span class="wb-can-guide wb-can-guide-x" id="wbCanGuideX" hidden></span>'
+      + '<span class="wb-can-guide wb-can-guide-y" id="wbCanGuideY" hidden></span>'
       + canvasObjects().map(function (o) { return canvasBoxHtml(o, doc) }).join('')
       + '</div>'
       + '<span class="wb-can-live" id="wbCanLive" aria-live="polite"></span>'
       + '</div>'
+      + '<p class="wb-can-snapopts">'
+      + '<label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
+      + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label>'
+      + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p>'
   }
 
@@ -9098,6 +9194,8 @@
     else if (a === 'canvas-add-button') { if (!archived()) canvasAddButton() }
     else if (a === 'canvas-pick') { var pid = act.getAttribute('data-wb-obj'); if (WB.canvasPick[pid]) delete WB.canvasPick[pid]; else WB.canvasPick[pid] = true; render() }
     else if (a === 'canvas-unpick') { WB.canvasPick = {}; render() }
+    else if (a === 'canvas-snap') { WB.canvasSnap = !WB.canvasSnap; writePref('wb.canvas.snap', WB.canvasSnap ? '1' : '0'); render() }
+    else if (a === 'canvas-grid') { WB.canvasGrid = !WB.canvasGrid; writePref('wb.canvas.grid', WB.canvasGrid ? '1' : '0'); render() }
     else if (a === 'canvas-align') canvasMulti('align', act.getAttribute('data-wb-arg'))
     else if (a === 'canvas-distribute') canvasMulti('distribute', act.getAttribute('data-wb-arg'))
     else if (a === 'canvas-group') canvasMulti('group')
@@ -9173,6 +9271,23 @@
     if ('textContent' in el) el.textContent = text
   }
 
+  /** A segedvonalak kirajzolasa huzas kozben (csak a ket vonal stilusa
+   *  valtozik, a vaszon nem rajzolodik ujra). */
+  function canvasGuides(guides, doc) {
+    ;['x', 'y'].forEach(function (axis) {
+      var el = document.getElementById(axis === 'x' ? 'wbCanGuideX' : 'wbCanGuideY')
+      if (!el) return
+      var g = null
+      guides.forEach(function (x) { if (x.axis === axis) g = x })
+      if (!g) { el.hidden = true; return }
+      el.hidden = false
+      if (el.style) {
+        if (axis === 'x') el.style.left = (Math.round((10000 * g.at) / doc.width) / 100) + '%'
+        else el.style.top = (Math.round((10000 * g.at) / doc.height) / 100) + '%'
+      }
+    })
+  }
+
   function canvasDragHighlight(stage, boxEl) {
     if (!stage || typeof stage.querySelectorAll !== 'function') return
     var all = stage.querySelectorAll('[data-wb-box]')
@@ -9211,6 +9326,9 @@
       doc: doc,
       el: boxEl,
       moved: false,
+      // A tobbi elem (a sajat csoportja nelkul) -- ezekhez illeszkedik.
+      others: canvasObjects().filter(function (x) { return x.id !== o.id && !x.rotation }),
+      rotated: !!o.rotation,
     }
     WB.canvasSel = o.id
     // Shift+kattintas: hozzaadja a kijeloleshez (vagy kiveszi) -- ahogy minden
@@ -9242,6 +9360,15 @@
     if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return
     d.moved = true
     d.box = canvasDragBox(d.from, d.mode, sx * d.kx, sy * d.ky)
+    // Illesztes (K-2.7). Az Alt lenyomva tartasa kikapcsolja erre a huzasra --
+    // ugyanugy, mint a Figmaban. A tures 6 kepernyo-pixel, barmekkora a kep.
+    // Forgatott elemnel nincs illesztes: a doboza nem az, amit a szem lat.
+    var snapped = { box: d.box, guides: [] }
+    if ((WB.canvasSnap || WB.canvasGrid) && !e.altKey && !d.rotated) {
+      snapped = canvasSnapBox(d.box, d.mode, d.others, d.doc, { tol: 6 * d.kx, guides: WB.canvasSnap, grid: WB.canvasGrid })
+      d.box = snapped.box
+    }
+    canvasGuides(snapped.guides, d.doc)
     canvasDragStyle(d.el, d.box, d.doc)
     canvasDragLive(d.box)
     if (typeof e.preventDefault === 'function') e.preventDefault()
@@ -9253,6 +9380,7 @@
     var d = canvasDrag
     if (!d) return
     canvasDrag = null
+    canvasGuides([], d.doc)
     var b = d.box
     var f = d.from
     var same = b.x === f.x && b.y === f.y && b.width === f.width && b.height === f.height
