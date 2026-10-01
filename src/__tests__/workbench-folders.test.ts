@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItems, setWorkItemDeleted } from '../workbench.js'
-import { ensureWorkItemFolder, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, workFolderTarget } from '../workbench-assets.js'
+import { ensureWorkItemFolder, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, renameWorkFolder, workFolderTarget } from '../workbench-assets.js'
 import { familyLines } from '../workbench-agent/context.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
@@ -445,5 +445,41 @@ describe('list UI', () => {
     const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/items/new-table'))
     expect(call).toBeTruthy()
     expect(JSON.parse(String(call!.init!.body))).toMatchObject({ project_id: 'p1', title: 'Osszesito', folder: `${box}/LK` })
+  })
+})
+
+describe('renaming a plain folder', () => {
+  beforeEach(setup)
+  afterEach(teardown)
+
+  it('renames a folder with no work item in it, keeps its subfolders, refuses clashes and the box', () => {
+    const p = getProjectRow()
+    const a = makeWorkFolder(p, '', 'Regi')
+    if (!a.ok) throw new Error('mk')
+    const sub = makeWorkFolder(p, a.folder, 'Bent')
+    if (!sub.ok) throw new Error('mk2')
+    const other = makeWorkFolder(p, '', 'Masik')
+    if (!other.ok) throw new Error('mk3')
+    const r = renameWorkFolder(p, a.folder, 'Uj')
+    if (!r.ok) throw new Error('rename: ' + r.code)
+    expect(r.renamed).toBe(true)
+    const box = a.folder.slice(0, a.folder.lastIndexOf('/'))
+    expect(listWorkFolders(p).folders).toContain(`${box}/Uj`)
+    expect(listWorkFolders(p).folders).toContain(`${box}/Uj/Bent`)
+    expect(listWorkFolders(p).folders).not.toContain(a.folder)
+    expect(renameWorkFolder(p, `${box}/Uj`, 'Masik')).toMatchObject({ ok: false, code: 'folder_exists' })
+    expect(renameWorkFolder(p, `${box}/Uj`, 'a/b')).toMatchObject({ ok: false, code: 'folder_name' })
+    expect(renameWorkFolder(p, `${box}/Uj`, '.rejtett')).toMatchObject({ ok: false, code: 'folder_name' })
+    expect(renameWorkFolder(p, box, 'Valami')).toMatchObject({ ok: false, code: 'folder_is_box' })
+    expect(renameWorkFolder(p, `${box}/Uj`, 'Uj')).toMatchObject({ ok: true, renamed: false })
+  })
+
+  it('refuses a folder a work item lives in', () => {
+    const p = getProjectRow()
+    const a = makeWorkFolder(p, '', 'Gyujto')
+    if (!a.ok) throw new Error('mk')
+    mk('Valami', a.folder)
+    expect(renameWorkFolder(p, a.folder, 'Atnevezett')).toMatchObject({ ok: false, code: 'folder_has_items' })
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...a.folder.split('/')))).toBe(true)
   })
 })

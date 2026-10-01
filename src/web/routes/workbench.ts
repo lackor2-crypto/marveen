@@ -115,6 +115,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
+  renameWorkFolder,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -383,6 +384,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   folder_is_box: {
     hu: 'Ez a munkadarabok közös mappája, ezt nem lehet törölni. Csak a benne lévő mappákat.',
     en: 'This is the shared folder for all work items and cannot be deleted. Only the folders inside it can.',
+  },
+  folder_box_rename: {
+    hu: 'Ez a munkadarabok közös mappája, ezt nem lehet átnevezni. Csak a benne lévő mappákat.',
+    en: 'This is the shared folder for all work items and cannot be renamed. Only the folders inside it can.',
+  },
+  folder_exists: {
+    hu: 'Ilyen nevű mappa már van ezen a helyen. Válassz másik nevet.',
+    en: 'A folder with this name already exists here. Choose another name.',
+  },
+  folder_has_items: {
+    hu: 'Ebben a mappában munkadarab van, ezért itt nem nevezhető át (a munkadarab útvonalai elromlanának). Nevezd át a munkadarabot: a mappája vele együtt átnevezódik.',
+    en: 'A work item lives in this folder, so it cannot be renamed here (the work item paths would break). Rename the work item instead: its folder is renamed with it.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -1925,6 +1938,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = makeWorkFolder(project, body.parent, body.name)
     if (!r.ok) return failDetail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'folder_name' ? 'bad_folder_name' : r.code, lang, r.message || null)
     json(res, { ok: true, folder: r.folder, created: r.created, work_folders: listWorkFolders(project) }, 201)
+    return true
+  }
+
+  // Rename a plain folder of the box (never one a work item lives in: its paths are in the registry).
+  if (path === '/api/workbench/folders/rename' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body.project_id ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = renameWorkFolder(project, body.folder, body.name)
+    if (!r.ok) {
+      const code = r.code === 'folder_name' ? 'bad_folder_name' : r.code === 'folder_is_box' ? 'folder_box_rename' : r.code === 'no_box' ? 'folder_gone' : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' || r.code === 'folder_has_items' ? 409 : 400, code, lang, r.message || null)
+    }
+    json(res, { ok: true, folder: r.folder, renamed: r.renamed, work_folders: listWorkFolders(project) })
     return true
   }
 

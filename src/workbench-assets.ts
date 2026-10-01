@@ -309,6 +309,53 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFo
   return { ok: true, folder: c.folder }
 }
 
+export type RenameFolderResult =
+  | { ok: true; folder: string; renamed: boolean }
+  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_name' | 'folder_exists' | 'folder_has_items' | 'write_failed'; items?: number; message?: string }
+
+/**
+ * Renames a plain folder inside the work items box (same parent, new last
+ * segment). Only a folder that no work item points into: a work item keeps its
+ * own paths in the registry, and those are rewritten by renaming the ITEM (which
+ * moves its folder). Loose files and subfolders on disk move along untouched.
+ */
+export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: unknown): RenameFolderResult {
+  const c = workFolderTarget(project, folder)
+  if (!c.ok) return c
+  const box = findWorkItemsBox(project)
+  if (!box || c.folder === box) return { ok: false, code: 'folder_is_box' }
+  const seg = String(newName ?? '').trim()
+  const clean = safeLifeName(seg)
+  if (!seg || seg.includes('/') || seg.includes('\\') || !clean || clean === '_' || clean.startsWith('.') || clean.length > 120 || clean !== seg) return { ok: false, code: 'folder_name' }
+  const t = projectFileTarget(project, c.folder)
+  if (!t.ok) return t
+  const parentRel = c.folder.slice(0, c.folder.lastIndexOf('/'))
+  const lastSeg = c.folder.slice(c.folder.lastIndexOf('/') + 1)
+  if (clean === lastSeg) return { ok: true, folder: c.folder, renamed: false }
+  const parentT = projectFileTarget(project, parentRel)
+  if (!parentT.ok) return parentT
+  const newAbs = join(parentT.dirAbs, clean)
+  if (existsSync(newAbs)) return { ok: false, code: 'folder_exists' }
+  const blocked = writeBlockReason(`${parentT.dirRel}/${clean}`)
+  if (blocked) return { ok: false, code: 'write_failed', message: blocked }
+  ensureAssetTables()
+  const db = getDb()
+  const like = (t.dirRel + '/').replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
+  const likeBare = (c.folder + '/').replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
+  const rows = db.prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
+  const under = (v: string | null): boolean => !!v && (v === c.folder || v.startsWith(c.folder + '/') || v === t.dirRel || v.startsWith(t.dirRel + '/'))
+  let items = rows.filter((r) => under(r.cf) || under(r.f) || under(r.sp)).length
+  const refs = db.prepare(`SELECT COUNT(*) AS n FROM (
+    SELECT 1 FROM work_item_versions WHERE source_path LIKE ? ESCAPE '\\' OR source_path LIKE ? ESCAPE '\\'
+    UNION ALL SELECT 1 FROM work_item_parts WHERE asset_path LIKE ? ESCAPE '\\' OR asset_path LIKE ? ESCAPE '\\'
+    UNION ALL SELECT 1 FROM work_item_assets WHERE (path LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\') AND removed_at IS NULL)`)
+    .get(like, likeBare, like, likeBare, like, likeBare) as { n: number }
+  items += refs.n
+  if (items) return { ok: false, code: 'folder_has_items', items }
+  try { renameSync(t.dirAbs, newAbs) } catch (e) { return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) } }
+  return { ok: true, folder: parentRel ? `${parentRel}/${clean}` : clean, renamed: true }
+}
+
 /**
  * #454 (Boss: "fő munkadarab és almunkadarab nem lesz többé"): converts every old
  * main/sub link into folders. A sub item keeps its folder (already inside the
