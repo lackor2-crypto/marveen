@@ -75,9 +75,10 @@ describe('tool registry', () => {
     expect(getTool('file.preview')!.autonomyCategory).toBeNull()
   })
 
-  it('a kesobbi fazisok eszkozei (dokumentum/kep/video) MEG NINCSENEK benne', () => {
-    const names = TOOLS.map((t) => t.name)
+  it('a kesobbi fazisok eszkozei (dokumentum/kep/publikalas/email) MEG NINCSENEK benne; a video idovonal (5. fazis) a timeline.* nevek alatt van', () => {
+    const names = TOOLS.map((t) => t.name).filter((n) => !n.startsWith('timeline.'))
     expect(names.some((n) => /docx|image|video|render|publish|email/i.test(n))).toBe(false)
+    expect(TOOLS.map((t) => t.name)).toEqual(expect.arrayContaining(['timeline.get', 'timeline.edit', 'timeline.render']))
   })
 
   it('ismeretlen eszkoz nincs', () => {
