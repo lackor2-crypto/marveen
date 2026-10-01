@@ -5337,8 +5337,7 @@
   }
 
   function vtInput(name, id) {
-    var el = root() && root().querySelector('[data-vt="' + name + '"]' + (id ? '[data-vt-id="' + id + '"]' : ''))
-    return el || null
+    return document.getElementById('wbVt-' + name + (id ? '-' + id : ''))
   }
   function vtNum(name, id) {
     var el = vtInput(name, id)
@@ -5453,8 +5452,7 @@
   }
 
   function vtNumField(name, id, value, label) {
-    return '<label class="wb-muted">' + esc(label) + ' <input type="text" size="5" inputmode="decimal" data-vt="' + name + '"'
-      + (id ? ' data-vt-id="' + escA(id) + '"' : '') + ' value="' + escA(value === undefined || value === null ? '' : vtSecs(value)) + '"></label> '
+    return '<label class="wb-muted">' + esc(label) + ' <input type="text" size="5" inputmode="decimal" id="wbVt-' + name + (id ? '-' + escA(id) : '') + '" value="' + escA(value === undefined || value === null ? '' : vtSecs(value)) + '"></label> '
   }
 
   function vtBtn(act, label, id, extra) {
@@ -5474,7 +5472,7 @@
     }).join('')
     return '<h5>' + esc(t('workbench.vt.clips')) + '</h5>'
       + (rows ? '<ol class="wb-vt-list">' + rows + '</ol>' : '<p class="wb-muted">' + esc(t('workbench.vt.no_clips')) + '</p>')
-      + '<p><select data-vt="clip-src">' + vtMediaOptions('video') + '</select> '
+      + '<p><select id="wbVt-clip-src">' + vtMediaOptions('video') + '</select> '
       + vtNumField('clip-start', '', undefined, t('workbench.vt.from')) + vtNumField('clip-end', '', undefined, t('workbench.vt.to'))
       + vtBtn('vt-clip-add', t('workbench.vt.add_clip')) + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.clip_hint')) + '</p>'
@@ -5482,13 +5480,13 @@
 
   function vtSubtitlesHtml(doc) {
     var rows = doc.subtitles.map(function (s) {
-      return '<li class="wb-vt-row"><input type="text" size="34" data-vt="text" data-vt-id="' + escA(s.id) + '" value="' + escA(s.text) + '"> '
+      return '<li class="wb-vt-row"><input type="text" size="34" id="wbVt-text-' + escA(s.id) + '" value="' + escA(s.text) + '"> '
         + vtNumField('start', s.id, s.start, t('workbench.vt.from')) + vtNumField('end', s.id, s.end, t('workbench.vt.to'))
         + vtBtn('vt-sub-save', t('workbench.vt.save'), s.id) + vtBtn('vt-sub-del', t('workbench.vt.remove'), s.id) + '</li>'
     }).join('')
     return '<h5>' + esc(t('workbench.vt.subtitles')) + '</h5>'
       + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
-      + '<p><input type="text" size="34" data-vt="sub-text" placeholder="' + escA(t('workbench.vt.sub_text')) + '"> '
+      + '<p><input type="text" size="34" id="wbVt-sub-text" placeholder="' + escA(t('workbench.vt.sub_text')) + '"> '
       + vtNumField('sub-start', '', undefined, t('workbench.vt.from')) + vtNumField('sub-end', '', undefined, t('workbench.vt.to'))
       + vtBtn('vt-sub-add', t('workbench.vt.add_sub')) + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.sub_hint')) + '</p>'
@@ -5497,9 +5495,9 @@
   function vtMusicHtml(doc) {
     var m = doc.music
     return '<h5>' + esc(t('workbench.vt.music')) + '</h5><p>'
-      + '<select data-vt="music-src"' + (m ? ' disabled' : '') + '>' + vtMediaOptions('audio', m && m.src) + '</select> '
+      + '<select id="wbVt-music-src"' + (m ? ' disabled' : '') + '>' + vtMediaOptions('audio', m && m.src) + '</select> '
       + vtNumField('music-volume', '', Math.round((m ? m.volume : 0.5) * 100), t('workbench.vt.volume_pct'))
-      + '<label class="wb-muted"><input type="checkbox" data-vt="music-duck"' + (!m || m.duck ? ' checked' : '') + '> ' + esc(t('workbench.vt.duck')) + '</label> '
+      + '<label class="wb-muted"><input type="checkbox" id="wbVt-music-duck"' + (!m || m.duck ? ' checked' : '') + '> ' + esc(t('workbench.vt.duck')) + '</label> '
       + (m ? vtBtn('vt-music-save', t('workbench.vt.save')) + vtBtn('vt-music-del', t('workbench.vt.remove')) : vtBtn('vt-music-set', t('workbench.vt.set_music')))
       + '</p>'
   }
@@ -5514,7 +5512,7 @@
     }).join('')
     return '<h5>' + esc(t('workbench.vt.overlays')) + '</h5>'
       + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
-      + '<p><select data-vt="ov-src">' + vtMediaOptions('image') + '</select> '
+      + '<p><select id="wbVt-ov-src">' + vtMediaOptions('image') + '</select> '
       + vtNumField('start', '', undefined, t('workbench.vt.from')) + vtNumField('end', '', undefined, t('workbench.vt.to'))
       + vtNumField('x', '', 70, 'x %') + vtNumField('y', '', 5, 'y %') + vtNumField('width', '', 25, t('workbench.vt.width_pct'))
       + vtBtn('vt-ov-add', t('workbench.vt.add_overlay')) + '</p>'
