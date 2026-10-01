@@ -175,6 +175,10 @@ export interface LiveStartSpec {
   /** The account (agent id) whose login this session runs on -- named in the
    *  chat when the work moves to another account. */
   account?: string
+  /** #455: the model this session runs (`--model`); null/missing = the
+   *  account's own default. A changed model needs a new process -- a running
+   *  CLI keeps the model it was started with. */
+  model?: string | null
 }
 
 interface Live {
@@ -255,7 +259,8 @@ export class LiveSessionPool {
   /** Az allo folyamat (vagy egy uj, folytatva az eltett munkamenetet). */
   private acquire(spec: LiveStartSpec, resumeAllowed: boolean): Live {
     const cur = this.sessions.get(spec.key)
-    if (cur && !cur.dead && cur.spec.configDir === spec.configDir && cur.spec.cwd === spec.cwd) return cur
+    if (cur && !cur.dead && cur.spec.configDir === spec.configDir && cur.spec.cwd === spec.cwd
+      && (cur.spec.model ?? null) === (spec.model ?? null)) return cur
     if (cur) this.kill(cur)
 
     // Helyet csinalunk: a legregebben hasznalt TETLEN folyamat all le.

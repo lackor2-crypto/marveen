@@ -203,6 +203,19 @@ describe('LiveSessionPool -- one standing process per conversation', () => {
     expect(h.pool.has('p1::')).toBe(false)
   })
 
+  it('#455: a changed model starts a new process (a running CLI keeps its model); the conversation resumes', async () => {
+    const h = harness(() => echoScript('sid-m'))
+    await collect(h.pool.turn(spec({ model: 'claude-sonnet-5-5', baseArgs: ['-p', '--model', 'claude-sonnet-5-5'] }), () => 'm', 'hu'))
+    await collect(h.pool.turn(spec({ model: 'claude-sonnet-5-5', baseArgs: ['-p', '--model', 'claude-sonnet-5-5'] }), () => 'm', 'hu'))
+    expect(h.spawned).toHaveLength(1)
+    await collect(h.pool.turn(spec({ model: 'claude-opus-5-5', baseArgs: ['-p', '--model', 'claude-opus-5-5'] }), () => 'm', 'hu'))
+    expect(h.spawned).toHaveLength(2)
+    expect(h.spawned[0].killed).toBe(true)
+    expect(h.spawned[1].spec.args).toContain('claude-opus-5-5')
+    // same account + folder: the saved conversation goes on with the new model
+    expect(h.spawned[1].spec.args).toContain('--resume')
+  })
+
   it('stop() ends the standing process', async () => {
     const h = harness(() => echoScript('s'))
     await collect(h.pool.turn(spec(), () => 'm', 'hu'))
@@ -253,6 +266,15 @@ describe('decideWorkbenchBackend -- the live session comes first in full mode', 
   it('bridgeFirst (auto account, bridge not limited) -> an online code bridge beats the live session', () => {
     expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: true, bridgeFirst: true }).backend).toBe('code-bridge')
     expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: true, bridgeFirst: false }).backend).toBe('live-session')
+  })
+
+  it('#455: a non-Claude model never goes to the code bridge (the worker would answer on its own Claude model)', () => {
+    expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: true, bridgeFirst: true, nonClaudeModel: true }).backend).toBe('live-session')
+    // the live session cannot run it (e.g. its key is missing): the project assistant answers and names why
+    const d = decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: false, bridgeFirst: true, nonClaudeModel: true })
+    expect(d).toEqual({ backend: 'workbench-agent', reason: 'model_not_runnable', needsWorkerSetup: false })
+    // a Claude model keeps the owner's order: an online bridge first
+    expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: true, liveAvailable: true, bridgeFirst: true, nonClaudeModel: false }).backend).toBe('code-bridge')
     expect(decideWorkbenchBackend({ fullAgentEnabled: true, workerOnline: false, liveAvailable: true, bridgeFirst: true }).backend).toBe('live-session')
   })
   it('switch off -> the project assistant, whatever is available', () => {

@@ -61,6 +61,7 @@
     chatSetupBusy: false,
     chatConfig: null,
     chatModels: null,
+    chatOllama: null,
     // --- reszek (vegyes munkadarab, 3. fazis) ---
     partEdit: null,
     partNewOpen: false,
@@ -7479,6 +7480,18 @@
         html += '<optgroup label="' + escA(t('workbench.chat.model_group_openrouter')) + '"><option disabled>' + esc(t('workbench.chat.model_openrouter_nokey')) + '</option></optgroup>'
       }
     }
+    // #455: local models (Ollama), the same source as the agent settings. When it
+    // does not run or holds no chat model, the group says so instead of vanishing.
+    var ol = WB.chatOllama
+    if (ol) {
+      var local = (ol.models || []).map(function (x) { return { id: x.name, label: x.size ? x.name + ' (' + x.size + ')' : x.name } })
+      var why = ol.verdict === 'unreachable' ? t('workbench.chat.model_ollama_unreachable', { url: ol.url || '' })
+        : ol.verdict === 'check_failed' ? t('workbench.chat.model_ollama_check_failed', { error: ol.error || '' })
+          : ol.verdict === 'embed_only' ? t('workbench.chat.model_ollama_embed_only')
+            : t('workbench.chat.model_ollama_no_models')
+      html += '<optgroup label="' + escA(t('workbench.chat.model_group_ollama')) + '">'
+        + (local.length ? opts(local) : '<option disabled>' + esc(why) + '</option>') + '</optgroup>'
+    }
     // A mar elmentett, de a listaban nem szereplo ertek sose tunjon el csendben.
     if (current && !known[current]) html += '<option value="' + escA(current) + '" selected>' + esc(current) + '</option>'
     return html + '</select>'
@@ -8138,6 +8151,11 @@
     })
     api('GET', '/api/models/available').then(function (r) {
       if (r.ok && r.data) { WB.chatModels = r.data; renderChat() }
+    })
+    api('GET', '/api/ollama/models').then(function (r) {
+      // A failed request is "could not look" (with the actual error) -- never an empty "no models".
+      WB.chatOllama = r.ok && r.data ? r.data : { verdict: 'check_failed', error: r.message || '', models: [] }
+      renderChat()
     })
   }
 

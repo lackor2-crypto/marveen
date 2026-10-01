@@ -592,6 +592,56 @@ describe('fiokvaltas (#402)', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// #455: a GLM / DeepSeek / OpenRouter / Ollama model is not on a Claude account.
+// ---------------------------------------------------------------------------
+function offBudgetProvider(opts: { fail?: AIChunk; keyFor?: string } = {}): AIProvider & { seen: (string | undefined)[] } {
+  const seen: (string | undefined)[] = []
+  return {
+    id: 'kulso',
+    seen,
+    model: () => 'glm-5.3',
+    availability: () => (opts.keyFor
+      ? { available: false, reason: 'not_configured' as const, keyFor: opts.keyFor }
+      : { available: true }),
+    accounts: () => ['claude-fiok'],
+    onClaudeBudget: () => false,
+    async *stream(req: AICallRequest): AsyncIterable<AIChunk> {
+      seen.push(req.account)
+      if (opts.fail) { yield opts.fail; return }
+      yield { kind: 'text', text: 'glm válasz' }
+      yield { kind: 'done', model: 'glm-5.3' }
+    },
+  }
+}
+
+describe('#455: nem-Claude modell', () => {
+  it('a Claude-fiokok betelt 5 oras kerete NEM allitja meg, es fiokot sem valaszt hozza', async () => {
+    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 99, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
+    const p = offBudgetProvider()
+    const evs = await turn('Szia', p)
+    expect(textOf(evs)).toBe('glm válasz')
+    expect(evs.find((e) => e.type === 'notice')).toBeUndefined()
+    expect(p.seen).toEqual([undefined])
+  })
+
+  it('hianyzo kulcs: a valasztott modellt es a kulcsot nevezi meg, nem a Claude-fiokot', async () => {
+    const evs = await turn('Szia', offBudgetProvider({ keyFor: 'Z.ai GLM Coding Plan' }))
+    const notice = evs.find((e) => e.type === 'notice') as any
+    expect(notice.code).toBe('no_provider')
+    expect(notice.message).toContain('glm-5.3')
+    expect(notice.message).toContain('Z.ai GLM Coding Plan')
+    expect(notice.message).not.toMatch(/Claude-fiók/)
+  })
+
+  it('a szolgaltato limitje a modellt nevezi meg, nem "minden fiok kerete"', async () => {
+    const evs = await turn('Szia', offBudgetProvider({ fail: { kind: 'error', code: 'limit', detail: 'rate limited' } }))
+    const notice = evs.find((e) => e.type === 'notice') as any
+    expect(notice.code).toBe('model_provider_limited')
+    expect(notice.message).toContain('glm-5.3')
+  })
+})
+
 describe('#432: amit a modell egy hosszu fajlbol TENYLEGESEN lat', () => {
   let depot = ''
 

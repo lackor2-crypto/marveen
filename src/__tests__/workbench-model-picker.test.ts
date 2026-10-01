@@ -17,8 +17,10 @@ vi.mock('../settings-store.js', async (orig) => {
   return { ...actual, getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_MODEL' ? model : '') }
 })
 
-import { anthropicProvider, setSpawnerForTest } from '../workbench-agent/provider-anthropic.js'
+import { anthropicProvider, liveModelLaunch, setOllamaProbeForTest, setSpawnerForTest } from '../workbench-agent/provider-anthropic.js'
 import { getSettingDefinition, validateSettingValue } from '../config-registry.js'
+import { OLLAMA_URL } from '../config.js'
+import { whyNoAIProvider, registerAIProvider, clearAIProvidersForTest } from '../workbench-agent/provider.js'
 
 function fakeSpawner(seen: { env?: NodeJS.ProcessEnv; args?: string[] }) {
   return ((_bin: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {
@@ -47,7 +49,7 @@ async function drain(it: AsyncIterable<any>) {
 }
 
 describe('workbench model picker (#454)', () => {
-  beforeEach(() => { vaultKey = null; deepseekKey = null; openrouterKey = null; model = ''; setSpawnerForTest(null) })
+  beforeEach(() => { vaultKey = null; deepseekKey = null; openrouterKey = null; model = ''; setSpawnerForTest(null); setOllamaProbeForTest(null) })
 
   it('the registry accepts the GLM ids as the Workbench model', () => {
     const def = getSettingDefinition('WORKBENCH_MODEL')!
@@ -85,12 +87,14 @@ describe('workbench model picker (#454)', () => {
 
   // --- #455: every model the fleet can run, not only Claude + GLM ----------
 
-  it('the registry accepts DeepSeek and OpenRouter ids, but not an Ollama tag or a shell-breaking value', () => {
+  it('the registry accepts DeepSeek, OpenRouter and local Ollama ids, but not a mistyped Claude id or a shell-breaking value', () => {
     const def = getSettingDefinition('WORKBENCH_MODEL')!
     expect(validateSettingValue(def, 'deepseek-v4-pro')).toMatchObject({ ok: true })
     expect(validateSettingValue(def, 'openai/gpt-5')).toMatchObject({ ok: true })
     expect(validateSettingValue(def, 'openrouter-auto:tier2')).toMatchObject({ ok: true })
-    expect(validateSettingValue(def, 'qwen3.6:27b')).toMatchObject({ ok: false })
+    expect(validateSettingValue(def, 'qwen3.6:27b')).toMatchObject({ ok: true })
+    // A Claude id comes from the measured list: a typo is not a "dynamic" id.
+    expect(validateSettingValue(def, 'claude-opus-9-typo')).toMatchObject({ ok: false })
     expect(validateSettingValue(def, "x'; rm -rf /; echo '")).toMatchObject({ ok: false })
   })
 
@@ -131,13 +135,76 @@ describe('workbench model picker (#454)', () => {
     }
   })
 
-  it('a stored Ollama tag is not answered from the wrong model: not_configured, no spawn', async () => {
+  // --- #455: a local Ollama model runs too, as in the fleet ----------------
+
+  it('a local Ollama model (no key) runs against the install\'s OLLAMA_URL', async () => {
     model = 'qwen3.6:27b'
+    setOllamaProbeForTest(async () => null)
     const seen: any = {}
     setSpawnerForTest(fakeSpawner(seen))
-    expect(anthropicProvider.availability().available).toBe(false)
+    expect(anthropicProvider.availability().available).toBe(true)
+    expect(anthropicProvider.onClaudeBudget!()).toBe(false)
+    expect(anthropicProvider.accounts!()).toEqual([])
     const chunks = await drain(anthropicProvider.stream({ system: 's', messages: [{ role: 'user', content: 'hi' }], lang: 'hu' }))
-    expect(chunks[0]).toMatchObject({ kind: 'error', code: 'not_configured' })
+    expect(chunks[chunks.length - 1]).toMatchObject({ kind: 'done', model: 'qwen3.6:27b' })
+    expect(seen.env.ANTHROPIC_BASE_URL).toBe(OLLAMA_URL)
+    expect(seen.env.ANTHROPIC_MODEL).toBe('qwen3.6:27b')
+    expect(seen.args).toContain('qwen3.6:27b')
+  })
+
+  it('a stopped Ollama is named with its address and the ACTUAL error, and nothing is spawned', async () => {
+    model = 'qwen3.6:27b'
+    setOllamaProbeForTest(async () => 'fetch failed (ECONNREFUSED)')
+    const seen: any = {}
+    setSpawnerForTest(fakeSpawner(seen))
+    const chunks = await drain(anthropicProvider.stream({ system: 's', messages: [{ role: 'user', content: 'hi' }], lang: 'hu' }))
+    expect(chunks[0]).toMatchObject({ kind: 'error', code: 'failed' })
+    expect(chunks[0].detail).toContain(OLLAMA_URL)
+    expect(chunks[0].detail).toContain('ECONNREFUSED')
     expect(seen.env).toBeUndefined()
+  })
+
+  it('a Claude model stays on the signed-in accounts and the Claude limit', () => {
+    model = 'claude-sonnet-5-5'
+    expect(anthropicProvider.onClaudeBudget!()).toBe(true)
+  })
+
+  // --- #455: the full mode (live session) runs the CHOSEN model too --------
+
+  it('live session: no chosen model = the account default (no --model); a chosen Claude model is passed on', () => {
+    model = ''
+    expect(liveModelLaunch()).toEqual({ kind: 'claude', model: null })
+    model = 'claude-sonnet-5-5'
+    expect(liveModelLaunch()).toEqual({ kind: 'claude', model: 'claude-sonnet-5-5' })
+  })
+
+  it('live session: GLM with a key gets the same Z.ai environment as the assistant; without a key it is unavailable', () => {
+    model = 'glm-5.3'
+    expect(liveModelLaunch()).toMatchObject({ kind: 'unavailable', route: 'glm' })
+    vaultKey = 'sk-test-glm'
+    const l = liveModelLaunch()
+    expect(l).toMatchObject({ kind: 'route', route: 'glm', model: 'glm-5.3', account: 'zai-glm' })
+    if (l.kind !== 'route') throw new Error('expected a route')
+    expect(l.env.ANTHROPIC_BASE_URL).toBe('https://api.z.ai/api/anthropic')
+    expect(l.env.ANTHROPIC_AUTH_TOKEN).toBe('sk-test-glm')
+    expect(l.env.ANTHROPIC_MODEL).toBe('glm-5.3')
+  })
+
+  it('live session: a local Ollama model needs no key', () => {
+    model = 'qwen3.6:27b'
+    expect(liveModelLaunch()).toMatchObject({ kind: 'route', route: 'ollama', model: 'qwen3.6:27b', env: { ANTHROPIC_BASE_URL: OLLAMA_URL } })
+  })
+
+  // --- #455: a missing key of the chosen model is named, not "no Claude account" ---
+
+  it('the "why no provider" sentence names the chosen model and the missing key', () => {
+    clearAIProvidersForTest()
+    registerAIProvider(anthropicProvider)
+    model = 'deepseek-v4-pro'
+    const hu = whyNoAIProvider('hu')
+    expect(hu).toContain('deepseek-v4-pro')
+    expect(hu).toContain('DeepSeek')
+    expect(hu).not.toContain('Claude-fiók')
+    clearAIProvidersForTest()
   })
 })

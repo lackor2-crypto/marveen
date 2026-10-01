@@ -61,7 +61,7 @@ export interface SettingDefinition {
   /** Optional fixed set of allowed values (enum-style settings). */
   valueSet?: string[]
   /** #455: besides `valueSet`, also accept any other syntactically valid, routable model id
-   *  (DeepSeek, OpenRouter `provider/model`, `openrouter-auto:<tier>`): those lists are dynamic. */
+   *  (DeepSeek, OpenRouter `provider/model`, `openrouter-auto:<tier>`, local Ollama tags): those lists are dynamic. */
   dynamicModelIds?: boolean
   /** Inclusive bounds, only meaningful for type 'int'. */
   min?: number
@@ -571,7 +571,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'WORKBENCH_MODEL',
     type: 'string',
     default: '',
-    description: 'Melyik modellel dolgozzon az AI Munkapad ágense. Üresen hagyva a telepítés alapértelmezett modelljét használja (DEFAULT_AGENT_MODEL). A Munkapad ugyanazt a közös 5 órás Claude-keretet fogyasztja, mint a többi ügynök.',
+    description: 'Melyik modellel dolgozzon az AI Munkapad ágense (a szűkített asszisztens és a teljes értékű mód is). Üresen hagyva a telepítés alapértelmezett modelljét használja (DEFAULT_AGENT_MODEL). Claude-modellnél a Munkapad ugyanazt a közös 5 órás Claude-keretet fogyasztja, mint a többi ügynök; GLM, DeepSeek, OpenRouter vagy helyi (Ollama) modellnél a saját szolgáltatója kulcsával (Fiókok oldal) fut, a Claude-kerettől függetlenül.',
     module: 'munkapad',
     secret: false,
     requiresRestart: false,
@@ -865,12 +865,13 @@ export function effectiveValueSet(def: SettingDefinition): string[] | undefined 
   return ki
 }
 
-/** #455: DeepSeek / OpenRouter ids are not a fixed list (the OpenRouter catalog changes weekly), so
- *  they pass on SHAPE: a valid model id with a known provider marker. Same discriminators as the
- *  fleet launcher. Ollama tags (no '/') stay out: the Workbench has no route for them. */
+/** #455: DeepSeek / OpenRouter ids and local Ollama tags are not a fixed list (the OpenRouter
+ *  catalog changes weekly, Ollama holds whatever was pulled), so they pass on SHAPE: a valid model
+ *  id, routed like the fleet launcher does. A `claude-*` id must come from the measured list
+ *  (valueSet): a typo there is not a "dynamic" id. */
 export function isRoutableDynamicModelId(id: string): boolean {
   if (!isValidModelId(id)) return false
-  return id.startsWith('deepseek-') || id.startsWith('openrouter-auto:') || id.includes('/')
+  return !id.startsWith('claude-')
 }
 
 // Pure validation against a single registry entry. No I/O, no DB -- callers

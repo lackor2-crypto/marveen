@@ -123,8 +123,16 @@ function sweep(now: number): void {
   }
 }
 
+/**
+ * #455: the budget key of a call that does not run on a Claude account (GLM,
+ * DeepSeek, OpenRouter, local Ollama). No 5-hour window belongs to it, so only
+ * the in-flight cap gates it -- that one protects this machine, whoever answers.
+ */
+export const OFF_BUDGET = '(off-budget)'
+
 /** Az 5 oras ablak allapota. `getWindow()` a spec szerinti nev. */
 export function getWindow(agent = defaultAgent(), now = Date.now()): UsageWindowInfo {
+  if (agent === OFF_BUDGET) return { usedPct: null, resetsAt: null, measuredAt: null, stale: false, source: 'none' }
   let snap: ReturnType<SnapshotReader> = null
   try { snap = readSnapshot(agent) } catch { snap = null }
   const five = snap?.fiveHour
