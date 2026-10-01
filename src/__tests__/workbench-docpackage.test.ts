@@ -16,6 +16,7 @@ import { buildCoverFodt, buildTextFodt } from '../workbench-docrender.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+import { rmTempDir } from './helpers/rm-temp-dir.js'
 
 /** Hamis LibreOffice: a PDF-be beirja a forras nevet (igy latszik, mi hova kerult). */
 const FAKE_SOFFICE = `#!/bin/sh
@@ -211,7 +212,8 @@ describe.skipIf(!HAS_TOOLS)('valodi LibreOffice-szal es pdfunite-tal', () => {
       else process.env[k] = v
     }
     resetLibreOfficeProbe()
-    rmSync(dir, { recursive: true, force: true })
+    // A REAL LibreOffice wrote its profile here: see rm-temp-dir.ts (#456).
+    rmTempDir(dir)
   })
 
   it('szoveges melleklet + boritolap egyesitve: a lapszam es a szoveg a helyen', async () => {
