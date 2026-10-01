@@ -50,6 +50,7 @@ import { consistencyIssues } from '../workbench-doccheck.js'
 import { itemDeadlines } from '../workbench-deadlines.js'
 import { itemCourtState, proposeRule, setItemProfile } from '../workbench-courtprofile.js'
 import { listFinals } from '../workbench-docfinal.js'
+import { scheduleOutlineMirror } from '../workbench-docmirror.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../workbench-redact.js'
@@ -489,13 +490,13 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
             return r.ok ? { ok: true, data: { proposal: r.proposal, note: 'The owner sees it in the "Célbíróság" box of this work item and accepts or rejects it. Nothing changed yet.' } } : r
           }
           case 'doc.annexSettings': { const r = setDocSettings(item.id, { annex_scheme: input.scheme, annex_prefix: input.prefix, annex_mode: input.mode }); return r.ok ? { ok: true, data: r } : r }
-          case 'doc.addSection': { const r = addSection(item.id, input.title, { position: num(input.position), status: input.status }); return r.ok ? { ok: true, data: r.section } : r }
-          case 'doc.updateSection': { const r = updateSection(item.id, asString(input.section), { title: input.title, status: input.status, position: input.position }); return r.ok ? { ok: true, data: r.section } : r }
-          case 'doc.removeSection': { const r = removeSection(item.id, asString(input.section)); return r.ok ? { ok: true, data: r } : r }
-          case 'doc.addBlock': { const r = addBlock(item.id, asString(input.section), { kind: input.kind, text: input.text, position: input.position, author: 'agent' }); return r.ok ? { ok: true, data: r.block } : r }
-          case 'doc.updateBlock': { const r = updateBlock(item.id, asString(input.block), { text: input.text, kind: input.kind, author: 'agent' }); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.addSection': { const r = addSection(item.id, input.title, { position: num(input.position), status: input.status }); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r.section } : r }
+          case 'doc.updateSection': { const r = updateSection(item.id, asString(input.section), { title: input.title, status: input.status, position: input.position }); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r.section } : r }
+          case 'doc.removeSection': { const r = removeSection(item.id, asString(input.section)); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.addBlock': { const r = addBlock(item.id, asString(input.section), { kind: input.kind, text: input.text, position: input.position, author: 'agent' }); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r.block } : r }
+          case 'doc.updateBlock': { const r = updateBlock(item.id, asString(input.block), { text: input.text, kind: input.kind, author: 'agent' }); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
           case 'doc.proposeRewrite': { const r = proposeRewrite(item.id, asString(input.block), { text: input.text, style: input.style }, 'workbench-agent'); return r.ok ? { ok: true, data: { ...r.rewrite, note: r.rewrite.would_drop.length ? 'These sourced claims would drop out on accept, because their text is not in the proposal verbatim. Keep them word for word and propose again, unless dropping them is intended.' : 'The owner sees the proposal in the outline and accepts or dismisses it.' } } : r }
-          case 'doc.removeBlock': { const r = removeBlock(item.id, asString(input.block)); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.removeBlock': { const r = removeBlock(item.id, asString(input.block)); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
           case 'doc.addClaim': { const r = addClaim(item.id, asString(input.block), input.text, input.sources, world, 'workbench-agent'); return r.ok ? { ok: true, data: r.claim } : r }
           default: { const r = removeClaim(item.id, asString(input.claim)); return r.ok ? { ok: true, data: r } : r }
         }
