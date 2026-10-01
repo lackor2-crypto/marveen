@@ -1435,9 +1435,91 @@
     if (box && box.classList) box.classList.toggle('wb-dragging', !!on)
   }
 
+  // ---- belepo: "Mit szeretnel letrehozni?" (#441, K-3.1) --------------------
+  //
+  // Egy mondat vagy egy gomb. A szerver talalja ki a munkatipust; ha nem
+  // biztos, NEM hoz letre semmit, hanem visszakerdez -- a felulet ilyenkor a
+  // lehetseges tipusokat kinalja, es a mondat megmarad. A letrejott
+  // munkadarab rogton megnyilik, a mondat pedig az Agenthez megy.
+
+  var INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation']
+
+  function intakeHtml() {
+    var ask = WB.intakeAsk
+    var kinds = ask ? ask.options : INTAKE_KINDS
+    var busy = !!WB.intakeBusy
+    return '<div class="wb-intake">'
+      + '<label class="wb-label" for="wbIntakeText">' + esc(t('workbench.intake.title')) + '</label>'
+      + '<textarea class="wb-input wb-intake-text" id="wbIntakeText" rows="3" maxlength="4000" placeholder="'
+      + escA(t('workbench.intake.placeholder')) + '">' + esc(WB.intakeDraft || '') + '</textarea>'
+      + (ask ? '<div class="info-box wb-intake-ask" role="status">' + esc(ask.message) + '</div>' : '')
+      + '<div class="wb-intake-kinds">' + kinds.map(function (k) {
+        return '<button type="button" class="btn-secondary wb-intake-kind" data-wb-act="intake-kind" data-wb-kind="' + escA(k) + '"'
+          + (busy ? ' disabled' : '') + '>' + esc(t('workbench.intake.kind.' + k)) + '</button>'
+      }).join('') + '</div>'
+      + '<div class="wb-form-actions">'
+      + '<button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
+      + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button>'
+      + (ask ? '<button type="button" class="btn-secondary" data-wb-act="intake-reset">' + esc(t('workbench.intake.all_kinds')) + '</button>' : '')
+      + '<button type="button" class="btn-secondary" data-wb-act="cancel-new">' + esc(t('common.cancel')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.intake.hint')) + '</p>'
+      + '</div>'
+  }
+
+  function intakeReadDraft() {
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbIntakeText') : null
+    if (el && typeof el.value === 'string') WB.intakeDraft = el.value
+    return String(WB.intakeDraft || '').trim()
+  }
+
+  /** `kind` nelkul a szerver talalja ki a tipust (es kerdezhet vissza). */
+  function intakeCreate(kind) {
+    if (WB.intakeBusy || archived()) return
+    var text = intakeReadDraft()
+    if (!kind && !text) { window.showToast(t('workbench.intake.empty')); return }
+    var payload = { project_id: WB.projectId, text: text }
+    if (kind) payload.kind = kind
+    WB.intakeBusy = true
+    render()
+    api('POST', '/api/workbench/intake', payload).then(function (r) {
+      WB.intakeBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (r.data.ask) {
+        WB.intakeAsk = { options: r.data.options || INTAKE_KINDS, message: r.data.message || '' }
+        render()
+        return
+      }
+      WB.intakeAsk = null
+      WB.intakeDraft = ''
+      WB.formOpen = false
+      window.showToast(r.data.message || t('workbench.new.created', { title: r.data.item.title }))
+      selectItem(r.data.item.id)
+      load(WB.projectId)
+      // A mondat az Agenthez: o kezdi el a munkat az uj munkadarabon.
+      if (text) handOffToAgent(text)
+    })
+  }
+
+  /** Egy mondat az Agentnek, mintha a tulajdonos a chatbe irta volna. Futo
+   *  valasz kozben sorba all, ahogy a kezzel irt uzenet is. */
+  function handOffToAgent(text) {
+    var st = chatState()
+    WB.chatForceBottom = true
+    if (WB.chatStreaming) {
+      st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true })
+      renderChat()
+      return
+    }
+    st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
+    startChatTurn(text)
+  }
+
   function newFormHtml() {
     var types = ['document', 'image', 'graphic', 'video', 'note']
-    return '<form class="wb-form" id="wbNewForm">'
+    return intakeHtml()
+      + '<details class="wb-new-manual"><summary>' + esc(t('workbench.intake.manual')) + '</summary>'
+      + '<form class="wb-form" id="wbNewForm">'
       + '<label class="wb-label" for="wbNewTitle">' + esc(t('workbench.new.name_label')) + '</label>'
       + '<input class="wb-input" id="wbNewTitle" type="text" maxlength="200" value="' + escA(WB.newDraft ? WB.newDraft.title : '') + '" placeholder="' + escA(t('workbench.new.name_placeholder')) + '" autocomplete="off">'
       + '<label class="wb-label" for="wbNewType">' + esc(t('workbench.new.type_label')) + '</label>'
@@ -1454,7 +1536,7 @@
       + '<p class="wb-hint">' + esc(t('workbench.table.new_hint')) + '</p>'
       + '<div class="wb-form-actions"><button type="button" class="btn-secondary" data-wb-act="create-table"' + (WB.busy ? ' disabled' : '') + '>'
       + esc(t('workbench.table.new')) + '</button></div>'
-      + '</form>'
+      + '</form></details>'
   }
 
   // ---- sablonok (#406, 11. pont) --------------------------------------------
@@ -5671,6 +5753,37 @@
       + '</div>'
   }
 
+  /** Melyik felulet a munkadarab fo felulete (K-3.3). */
+  function surfaceOf(it) {
+    if (!it) return 'parts'
+    if (canvasKind(it) || (WB.canvas && WB.canvas.exists)) return 'canvas'
+    if (it.type === 'document') return 'document'
+    if (it.type === 'video') return 'player'
+    if (it.type === 'composite') return 'post'
+    return 'parts'
+  }
+
+  /** A belso tartalomreszek csak akkor technikai adat, ha a tartalmat mar egy
+   *  masik felulet mutatja: a vaszon, egy fajl-elonezet vagy a vazlat. Egy
+   *  jegyzetnel vagy egy meg ures munkadarabnal a reszlista MAGA a tartalom. */
+  function partsAreTechnical(it) {
+    if (!it || !partsOf().length) return false
+    if (WB.canvas && WB.canvas.exists) return true
+    var p = WB.preview
+    if (p && p.available && p.kind !== 'parts') return true
+    var o = WB.detail && WB.detail.outline
+    return !!(o && (o.sections || []).length)
+  }
+
+  function partsTechHtml() {
+    var open = !!WB.partsTechOpen
+    var n = partsOf().length
+    return '<div class="wb-parts-tech"><p class="wb-ctx-actions"><button type="button" class="wb-linklike" data-wb-act="parts-tech-toggle" aria-expanded="' + (open ? 'true' : 'false') + '">'
+      + '⋮ ' + esc(t('workbench.tech.parts', { n: n })) + '</button></p>'
+      + (open ? '<p class="wb-hint">' + esc(t('workbench.tech.parts_hint')) + '</p>' + partsHtml() : '')
+      + '</div>'
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
@@ -5680,9 +5793,13 @@
       inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
     } else {
       var it = WB.detail.item
+      // A munkatipus szerinti felulet (K-3.3): rajznal a vaszon all elol,
+      // dokumentumnal a vazlat es az elonezet, videonal a lejatszo. A belso
+      // tartalomreszek (K-3.2) a "Technikai reszletek" ala kerulnek, ha mar
+      // egy masik felulet mutatja a tartalmat -- torolve semmi nincs.
+      var canvasFirst = surfaceOf(it) === 'canvas'
       inner = '<div class="wb-editor-head"><h3>' + workSeqHtml(it) + esc(it.title) + '</h3>'
-        + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
-        + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
+        + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span></div>'
         + versionBarHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
@@ -5690,9 +5807,8 @@
           : (archived() ? '' : '<p class="wb-hint wb-drop-item-hint">' + esc(t(WB.upload
             ? 'workbench.upload.busy'
             : 'workbench.upload.drop_item')) + '</p>')
-            + previewHtml()
-            + canvasHtml()
-            + partsHtml()
+            + (canvasFirst ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
+            + (partsAreTechnical(it) ? partsTechHtml() : partsHtml())
             + postPreviewHtml())
         + deadlinesBoxHtml()
         + todosBoxHtml()
@@ -6978,13 +7094,32 @@
     return '<li><span class="wb-muted">' + esc(when(e.at)) + '</span> · <strong>' + esc(t('workbench.egress.service.' + e.service)) + '</strong>'
       + (who ? ' <span class="wb-muted">(' + esc(who) + ')</span>' : '') + '<br>' + esc(what) + st + '</li>'
   }
-  /** "⋮ Technikai reszletek" (K-1.33): mi ment ki, hova, mikor. */
+  /** A munkadarab technikai adatai (K-3.2): ami a fo feluletrol lekerult. */
+  function techMetaHtml() {
+    var it = WB.detail && WB.detail.item
+    if (!it) return ''
+    var cur = currentVersion()
+    var row = function (k, v) { return v == null || v === '' ? '' : '<li><span class="wb-muted">' + esc(t('workbench.tech.' + k)) + ':</span> ' + esc(String(v)) + '</li>' }
+    return '<ul class="wb-tech-meta">'
+      + row('status', statusLabel(it.status))
+      + row('type', it.type + (it.editor_type ? ' / ' + it.editor_type : ''))
+      + row('version', cur ? cur.version_no : null)
+      + row('file', it.source_path)
+      + row('folder', it.folder)
+      + row('created_by', it.created_by)
+      + row('id', it.id)
+      + '</ul>'
+  }
+
+  /** "⋮ Technikai reszletek" (K-1.33, K-3.2): a munkadarab technikai adatai,
+   *  es mi ment ki, hova, mikor. */
   function techDetailsHtml() {
     var open = !!WB.techOpen
     var e = WB.egress && WB.egress.itemId === WB.selectedId ? WB.egress : null
     var body = ''
     if (open) {
-      body = '<p class="wb-hint">' + esc(t('workbench.egress.hint')) + '</p>'
+      body = techMetaHtml()
+        + '<p class="wb-hint">' + esc(t('workbench.egress.hint')) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.egress.ocr_local')) + '</p>'
       if (!e || e.loading) body += '<p class="wb-muted">' + esc(t('workbench.egress.loading')) + '</p>'
       else if (e.error) body += '<p class="wb-doc-low">' + esc(t('workbench.egress.load_failed')) + ' ' + esc(e.error) + '</p>'
@@ -8925,9 +9060,11 @@
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
     restoreChatScroll(chatScroll)
-    if (WB.formOpen) {
-      var input = document.getElementById('wbNewTitle')
-      if (input) input.focus()
+    if (WB.formOpen && !WB.intakeFocused) {
+      // Egyszer, a megnyitaskor: a kesobbi ujrarajzolas nem rantja el a fokuszt.
+      WB.intakeFocused = true
+      var input = document.getElementById('wbIntakeText')
+      if (input && typeof input.focus === 'function') input.focus()
     }
     // A PDF-nezegeto csomopontja tulelte az ujrarajzolast: visszatesszuk a
     // helyere (vagy uj dokumentumnal elinditjuk a betoltest).
@@ -9247,6 +9384,7 @@
     WB.detail = null
     WB.selectedId = null
     WB.formOpen = false
+    WB.intakeAsk = null; WB.intakeDraft = ''
     WB.error = null
     WB.panel = 'items'
     WB.chat = {}
@@ -9403,6 +9541,7 @@
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
     else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
     else if (a === 'privacy-item') setPrivacy('item', act.getAttribute('data-wb-on') === '1')
+    else if (a === 'parts-tech-toggle') { WB.partsTechOpen = !WB.partsTechOpen; render() }
     else if (a === 'tech-toggle') { WB.techOpen = !WB.techOpen; if (WB.techOpen) loadEgress(); else render() }
     else if (a === 'item-purge-ask') { WB.warn = { kind: 'purge', id: act.getAttribute('data-wb-id') }; render() }
     else if (a === 'item-purge') purgeItem(act.getAttribute('data-wb-id'))
@@ -9470,8 +9609,11 @@
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
-    else if (a === 'new') { if (!archived()) { WB.newDraft = null; WB.formOpen = true; render() } }
-    else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; render() }
+    else if (a === 'new') { if (!archived()) { WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
+    else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; WB.intakeAsk = null; render() }
+    else if (a === 'intake-go') intakeCreate(null)
+    else if (a === 'intake-kind') intakeCreate(act.getAttribute('data-wb-kind'))
+    else if (a === 'intake-reset') { intakeReadDraft(); WB.intakeAsk = null; render() }
     else if (a === 'create') { e.preventDefault(); create() }
     else if (a === 'tpl-use') useTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'tpl-retry') { WB.templatesError = null; WB.templates = null; render(); loadTemplates() }
@@ -9831,6 +9973,7 @@
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target) return
     if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
+    if (e.target.id === 'wbIntakeText') WB.intakeDraft = e.target.value
     if (e.target.id === 'wbCanAiText' && WB.canvasAi) WB.canvasAi.text = e.target.value
     if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
   })
