@@ -12,7 +12,7 @@
  * the render does not silently drop the subtitles.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
@@ -26,7 +26,7 @@ export const RENDER_FPS = 30
 export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
 
 export type RenderFailCode =
-  | 'render_empty' | 'render_source_missing' | 'render_source_outside' | 'render_no_subtitle_filter'
+  | 'render_empty' | 'render_clip_beyond_end' | 'render_source_missing' | 'render_source_outside' | 'render_no_subtitle_filter'
   | 'render_probe_failed'
 
 export type RenderFail = { ok: false; code: RenderFailCode; detail?: string | null }
@@ -149,14 +149,22 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
 
 // ---- running it ---------------------------------------------------------------------
 
-type Probe = (ffmpegPath: string, abs: string) => Promise<boolean | null>
+export interface MediaProbe { audio: boolean; duration: number | null }
+type Probe = (ffmpegPath: string, abs: string) => Promise<MediaProbe | null>
 type Filters = (ffmpegPath: string) => Promise<boolean | null>
 
 const ffprobePath = (ffmpegPath: string): string => join(dirname(ffmpegPath), basename(ffmpegPath).replace(/ffmpeg/i, 'ffprobe'))
 
 const defaultProbe: Probe = (ffmpegPath, abs) => new Promise((resolve) => {
-  execFile(ffprobePath(ffmpegPath), ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', abs],
-    { timeout: 30_000, windowsHide: true }, (err, stdout) => resolve(err ? null : stdout.trim().length > 0))
+  execFile(ffprobePath(ffmpegPath), ['-v', 'error', '-show_entries', 'stream=codec_type:format=duration', '-of', 'json', abs],
+    { timeout: 30_000, windowsHide: true }, (err, stdout) => {
+      if (err) { resolve(null); return }
+      try {
+        const j = JSON.parse(stdout) as { streams?: { codec_type?: string }[]; format?: { duration?: string } }
+        const d = Number(j.format?.duration)
+        resolve({ audio: (j.streams || []).some((x) => x.codec_type === 'audio'), duration: Number.isFinite(d) && d > 0 ? d : null })
+      } catch { resolve(null) }
+    })
 })
 
 const defaultFilters: Filters = (ffmpegPath) => new Promise((resolve) => {
@@ -202,11 +210,19 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
       abs[s] = r.abs
     }
     const hasAudio: Record<string, boolean> = {}
+    const durations: Record<string, number | null> = {}
     for (const c of doc.clips) {
-      if (c.src in hasAudio) continue
-      const p = await probe(ff.path, abs[c.src])
-      if (p === null) return { ok: false, code: 'render_probe_failed', detail: c.src }
-      hasAudio[c.src] = p
+      if (!(c.src in hasAudio)) {
+        const p = await probe(ff.path, abs[c.src])
+        if (p === null) return { ok: false, code: 'render_probe_failed', detail: c.src }
+        hasAudio[c.src] = p.audio
+        durations[c.src] = p.duration
+      }
+      // A cut that runs past the end of its file would silently give a shorter video: say so instead.
+      const len = durations[c.src]
+      if (len !== null && c.end > len + 0.5) {
+        return { ok: false, code: 'render_clip_beyond_end', detail: `${c.src}: the cut ends at ${c.end}s but the file is only ${Math.round(len * 10) / 10}s long` }
+      }
     }
     if (doc.subtitles.length || doc.music?.duck) {
       const ok = await filters(ff.path)
@@ -248,4 +264,60 @@ export function lastRenderOf(itemId: string): LastRender | null {
     } catch { /* a version with unreadable metadata is skipped, not fatal */ }
   }
   return null
+}
+
+// ---- helpers for the editor and the agent -------------------------------------------
+
+export interface MediaFile { path: string; name: string; kind: 'video' | 'audio' | 'image'; bytes: number }
+const MEDIA_KIND: [RegExp, MediaFile['kind']][] = [
+  [/\.(mp4|mov|m4v|webm|mkv|avi)$/i, 'video'], [/\.(mp3|m4a|wav|ogg|aac|flac)$/i, 'audio'], [/\.(png|jpe?g|gif|webp)$/i, 'image'],
+]
+export const MEDIA_MAX_DEPTH = 4
+export const MEDIA_MAX_FILES = 400
+
+/** The video, audio and picture files in the project folder (a bounded walk), for the editor's pickers. */
+export function listProjectMedia(project: ProjectRow): { ok: true; files: MediaFile[]; truncated: boolean } | RenderFail {
+  const folder = (project.folder_path || '').replace(/\/+$/, '')
+  const base = folder ? resolveLifePath(folder) : null
+  if (!folder || !base || !existsSync(base)) return { ok: false, code: 'render_source_missing', detail: folder || null }
+  const files: MediaFile[] = []
+  let truncated = false
+  const walk = (abs: string, rel: string, depth: number): void => {
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (files.length >= MEDIA_MAX_FILES) { truncated = true; return }
+      if (e.name.startsWith('.') || e.name === 'node_modules') continue
+      if (e.isDirectory()) { if (depth < MEDIA_MAX_DEPTH) walk(join(abs, e.name), `${rel}/${e.name}`, depth + 1); continue }
+      const kind = MEDIA_KIND.find(([re]) => re.test(e.name))?.[1]
+      if (!kind) continue
+      let bytes = 0
+      try { bytes = statSync(join(abs, e.name)).size } catch { /* listed without a size */ }
+      files.push({ path: `${rel}/${e.name}`, name: e.name, kind, bytes })
+    }
+  }
+  walk(base, folder, 0)
+  return { ok: true, files, truncated }
+}
+
+/**
+ * An `addClip` without `end` runs to the end of the file: the length is read from
+ * the file here (the pure operations cannot), so the editor and the agent never have
+ * to guess a duration.
+ */
+export async function fillClipEnds(project: ProjectRow, ops: unknown): Promise<{ ok: true; ops: unknown } | VideoFail | RenderFail> {
+  if (!Array.isArray(ops)) return { ok: true, ops }
+  const out: unknown[] = []
+  for (const raw of ops) {
+    const o = raw as Record<string, unknown> | null
+    if (!o || typeof o !== 'object' || o.op !== 'addClip' || (o.end !== undefined && o.end !== null && o.end !== '') || typeof o.src !== 'string') { out.push(raw); continue }
+    const r = resolveMedia(project, o.src)
+    if (!r.ok) return r
+    const ff = await videoTool()
+    if (!ff.ok) return ff
+    const p = await probe(ff.path, r.abs)
+    if (p === null || p.duration === null) return { ok: false, code: 'render_probe_failed', detail: o.src }
+    out.push({ ...o, end: Math.floor(p.duration * 1000) / 1000 })
+  }
+  return { ok: true, ops: out }
 }

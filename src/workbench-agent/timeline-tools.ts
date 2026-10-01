@@ -10,7 +10,7 @@ import {
   type TimelineDoc,
 } from '../workbench-video-timeline.js'
 import { opsLabel } from '../workbench-draft-store.js'
-import { renderTimeline, lastRenderOf } from '../workbench-video-render.js'
+import { renderTimeline, lastRenderOf, fillClipEnds } from '../workbench-video-render.js'
 import type { ToolContext, ToolResult } from './execute.js'
 
 function videoItem(project: ProjectRow, id: string): { ok: true; item: NonNullable<ReturnType<typeof getWorkItem>> } | Extract<ToolResult, { ok: false }> {
@@ -41,13 +41,16 @@ export function timelineGet(project: ProjectRow, ctx: ToolContext, input: Record
   }
 }
 
-export function timelineEdit(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): ToolResult {
+export async function timelineEdit(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
   const v = videoItem(project, String(input.id ?? '').trim() || ctx.workItemId || '')
   if (!v.ok) return v
   const store = timelineStore()
   const current = store.read(v.item.id)
   if (!current.ok) return { ok: false, code: current.code, detail: current.detail || current.code }
-  const applied = applyTimelineOps(current.doc, input.ops)
+  // An addClip without `end` runs to the end of the file; the length is read from the file.
+  const filled = await fillClipEnds(project, input.ops)
+  if (!filled.ok) return { ok: false, code: filled.code, detail: ('detail' in filled && filled.detail) || filled.code }
+  const applied = applyTimelineOps(current.doc, filled.ops)
   if (!applied.ok) return { ok: false, code: applied.code, detail: applied.detail }
   const saved = store.commit(v.item, applied.doc, {
     source: 'agent', grp: ctx.turnId ? `agent:${ctx.turnId}` : null, label: opsLabel(input.ops),

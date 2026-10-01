@@ -75,7 +75,7 @@ import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS } from '../../workbench-video-timeline.js'
-import { renderTimeline, lastRenderOf } from '../../workbench-video-render.js'
+import { renderTimeline, lastRenderOf, fillClipEnds, listProjectMedia } from '../../workbench-video-render.js'
 import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
@@ -779,6 +779,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   video_no_depot: {
     hu: 'Nincs beállítva a Raktár ezen a gépen, ezért nincs hová menteni az idővonalat.',
     en: 'The Depot is not set up on this machine, so there is nowhere to save the timeline.',
+  },
+  render_clip_beyond_end: {
+    hu: 'Az egyik vágás a videó vége után ér véget, ezért nem készítettem el, hogy ne kapj csendben rövidebb videót. A részletek megmondják, melyik fájl és milyen hosszú. Állítsd a vágás végét a fájl hosszán belülre.',
+    en: 'One cut ends after the end of its video, so I did not make it, rather than silently give you a shorter video. The details say which file and how long it is. Set the end of the cut inside the length of the file.',
+  },
+  timeline_no_folder: {
+    hu: 'A projektnek nincs mappája (vagy nem érem el), ezért nincs miből videót, hangot vagy képet választani. Állíts be mappát a projektnek, és tedd bele a fájlokat.',
+    en: 'The project has no folder (or I cannot reach it), so there is nothing to pick videos, audio or pictures from. Set a folder for the project and put the files in it.',
   },
   canvas_autosaved: {
     hu: 'Mentve. Verzió akkor lesz belőle, ha a „Verzió mentése” gombra nyomsz.',
@@ -1966,6 +1974,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
   // VIDEOMUNKA (#406, 19. pont): van-e FFmpeg. A lejatszashoz nem kell.
+  // The video, audio and picture files in a project folder: what the timeline pickers offer.
+  if (path === '/api/workbench/media' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const r = listProjectMedia(project)
+    if (!r.ok) return failDetail(res, 409, 'timeline_no_folder', lang, r.detail || null)
+    json(res, { files: r.files, truncated: r.truncated })
+    return true
+  }
   if (path === '/api/workbench/video-status' && method === 'GET') {
     const st = await videoToolStatus()
     json(res, { video: { state: st.state, message: st.state === 'ok' ? null : msg(st.state === 'check_failed' ? 'video_ffmpeg_check_failed' : 'video_no_ffmpeg', lang), detail: st.detail } })
@@ -3804,7 +3823,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
       const current = store.read(item.id)
       if (!current.ok) return failDetail(res, tlStatus(current.code), current.code, lang, current.detail)
-      const applied = applyTimelineOps(current.doc, body['ops'])
+      const owner = getProject(item.project_id)
+      const filled = owner ? await fillClipEnds(owner, body['ops']) : { ok: true as const, ops: body['ops'] }
+      if (!filled.ok) {
+        return failDetail(res, filled.code === 'video_no_ffmpeg' || filled.code === 'video_ffmpeg_check_failed' ? 503 : 400, filled.code, lang, ('detail' in filled && filled.detail) || null)
+      }
+      const applied = applyTimelineOps(current.doc, filled.ops)
       if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
       const group = typeof body['group'] === 'string' ? body['group'].trim().slice(0, 80) : ''
       const commit = store.commit(item, applied.doc, {

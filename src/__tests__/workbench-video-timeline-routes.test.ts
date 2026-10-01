@@ -1,6 +1,6 @@
 // Video timeline over HTTP: the working copy, undo, versions, and the render.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, writeFileSync } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -182,5 +182,59 @@ describe('video timeline: the Workbench agent', () => {
 
   it('render with no clips is a plain failure, with a code', async () => {
     expect(await runTool('timeline.render', {}, ctx())).toMatchObject({ ok: false, code: 'render_empty' })
+  })
+})
+
+describe.skipIf(!HAVE_FFMPEG)('video timeline: media and clip length (needs ffmpeg)', () => {
+  let depot = ''
+  let pid = ''
+  let itemId = ''
+  const dir = () => join(depot, 'Projektek', 'teszt')
+  const url = (tail = '') => `/api/workbench/items/${itemId}/timeline${tail}`
+  const ops = (list: unknown[]) => callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: list }), { 'content-type': 'application/json' })
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-tlm-'))
+    mkdirSync(join(dir(), 'media'), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const p = createProject({ name: 'Kovács ház' })
+    if (!p.ok) throw new Error('project')
+    pid = p.project.id
+    updateProject(pid, { folder_path: 'Projektek/teszt' })
+    const w = createWorkItem({ project_id: pid, title: 'Reklám', type: 'video' })
+    if (!w.ok) throw new Error('item')
+    itemId = w.item.id
+    const ff = (args: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { stdio: 'pipe' })
+    ff(['-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x180:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir(), 'media', 'a.mp4')])
+    ff(['-f', 'lavfi', '-i', 'sine=frequency=220:duration=1', join(dir(), 'zene.mp3')])
+  })
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('the media list offers the videos, audio and pictures of the project folder, subfolders included', async () => {
+    writeFileSync(join(dir(), 'jegyzet.txt'), 'x')
+    const r = await callWorkbench(`/api/workbench/media?project=${pid}`, 'GET')
+    expect(r.status).toBe(200)
+    expect(r.body.files.map((f: any) => [f.path, f.kind])).toEqual([['Projektek/teszt/media/a.mp4', 'video'], ['Projektek/teszt/zene.mp3', 'audio']])
+  })
+
+  it('a clip added without an end runs to the end of the file', async () => {
+    const r = await ops([{ op: 'addClip', src: 'Projektek/teszt/media/a.mp4' }])
+    expect(r.status).toBe(201)
+    expect(r.body.timeline.clips[0]).toMatchObject({ start: 0 })
+    expect(r.body.timeline.clips[0].end).toBeGreaterThan(2.9)
+    expect(r.body.timeline.clips[0].end).toBeLessThanOrEqual(3.1)
+  })
+
+  it('a cut past the end of its file is refused with the length, not silently shortened', async () => {
+    await ops([{ op: 'addClip', src: 'Projektek/teszt/media/a.mp4', start: 1, end: 9 }])
+    const r = await callWorkbench(url('/render'), 'POST')
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('render_clip_beyond_end')
+    expect(r.body.detail).toMatch(/only 3(\.\d)?s long/)
+    expect(readdirSync(dir()).filter((n) => n.endsWith('.mp4'))).toEqual([])
   })
 })
