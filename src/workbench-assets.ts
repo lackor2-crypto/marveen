@@ -671,11 +671,15 @@ export function workbenchPlace(project: ProjectRow, item: WorkItemRow | null, pl
     return out(sh.dirAbs, null)
   }
   if (!item || item.project_id !== project.id) return { ok: false, code: 'not_found' }
+  // The item's own folder, else the folder it is filed in (Boss #455: an item
+  // that has no files yet still sits in a real folder; "no folder" was a lie).
   const itemDir = (): string | null => {
-    const f = workItemFolder(item.id)
-    if (!f) return null
-    const t = projectFileTarget(project, f)
-    return t.ok && inside(t.dirAbs) ? t.dirAbs : null
+    for (const f of [workItemFolder(item.id), item.container_folder]) {
+      if (!f) continue
+      const t = projectFileTarget(project, f)
+      if (t.ok && inside(t.dirAbs)) return t.dirAbs
+    }
+    return null
   }
   if (place === 'assets') {
     const d = itemDir()
