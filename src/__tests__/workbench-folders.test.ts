@@ -361,6 +361,20 @@ describe('list UI', () => {
     expect(untranslatedHungarian(h.html(), ['Robotok', 'Egyeb', 'Ures', 'Munkadarabok', 'Kovács weboldal'])).toBe('')
   })
 
+  it('the Move menu does not offer an item\'s own storage folder as a separate folder', async () => {
+    const h = open(
+      [item('s1', 'BL', `${box}/LK/BL`), item('x1', 'Egyeb', `${box}/Egyeb`)],
+      [`${box}/LK`, `${box}/LK/BL`, `${box}/Egyeb`, `${box}/Ures`],
+    )
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-move="s1"'))
+    const sel = h.html().slice(h.html().indexOf('data-wb-move="s1"'))
+    const menu = sel.slice(0, sel.indexOf('</select>'))
+    expect(menu).toContain('value="Munkadarabok/LK"')
+    expect(menu).toContain('value="Munkadarabok/Ures"')
+    expect(menu).not.toContain('value="Munkadarabok/LK/BL"')
+    expect(menu).not.toContain('value="Munkadarabok/Egyeb"')
+  })
+
   it('collapsing a folder hides its items', async () => {
     const h = open([item('s1', 'BL', `${box}/LK/BL`)], [`${box}/LK`, `${box}/LK/BL`])
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))

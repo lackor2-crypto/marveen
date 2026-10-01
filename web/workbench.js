@@ -1117,7 +1117,9 @@
     var box = wf.box
     var opts = ['<option value="">' + esc(t('workbench.move.label')) + '</option>',
       '<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>']
+    var ownFolder = itemOwnFolders(WB.items || [], wf.folders || [], box)
     ;(wf.folders || []).forEach(function (f) {
+      if (ownFolder[f]) return
       var depth = f.split('/').length - 1 - (box.split('/').length - 1)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
       opts.push('<option value="' + escA(f) + '">' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
@@ -1169,6 +1171,14 @@
       else place[it.id] = it.container_folder || box
     })
     return place
+  }
+
+  /** Folders that are just a work item's own storage folder: the list shows them as the item, so no menu offers them as a target. */
+  function itemOwnFolders(items, folders, box) {
+    var place = itemPlaces(items, folders, box)
+    var own = {}
+    items.forEach(function (it) { if (it.folder && place[it.id] !== it.folder) own[it.folder] = true })
+    return own
   }
 
   function folderTreeRows() {
