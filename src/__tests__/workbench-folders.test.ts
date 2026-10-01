@@ -134,6 +134,18 @@ describe('endpoints', () => {
     expect(bad.status).toBe(400)
   })
 
+  it('POST /items flags folder_existed when the typed folder name was already there, and never wipes it', async () => {
+    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Elso', type: 'note', new_folder: 'Kozos' })
+    expect((a.body as { folder_existed: boolean }).folder_existed).toBe(false)
+    const b = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Masodik', type: 'note', new_folder: 'Kozos' })
+    expect(b.status).toBe(201)
+    expect((b.body as { folder_existed: boolean }).folder_existed).toBe(true)
+    const fa = (a.body as { item: { folder: string } }).item.folder
+    const fb = (b.body as { item: { folder: string } }).item.folder
+    expect(fb).toBe(fa)
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...fa.split('/')))).toBe(true)
+  })
+
   it('POST /items/:id/folder moves an existing item (and its folder) into a folder made afterwards', async () => {
     const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
     const id = (a.body as { item: { id: string } }).item.id

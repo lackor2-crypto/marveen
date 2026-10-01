@@ -5583,6 +5583,7 @@ window._i18n.en = {
   "workbench.intake.kind.court_filing": "Court filing",
   "workbench.intake.kind.video": "Video",
   "workbench.intake.kind.presentation": "Presentation",
+  "workbench.new.folder_existed": "That folder already existed, so I put it in there.",
   "workbench.new.created": "Work item created: {title}",
   "workbench.tpl.title": "Or start from a template (one click):",
   "workbench.tpl.hint": "The new work item already has the structure: replace the [bracketed] places with your own text.",
