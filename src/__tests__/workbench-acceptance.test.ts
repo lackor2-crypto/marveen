@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable } from 'node:stream'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -46,6 +46,7 @@ import { renderOutlineDocx } from '../workbench-docrender.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+import { rmTempDir } from './helpers/rm-temp-dir.js'
 
 // ---------------------------------------------------------------------------
 // Kozos segedek
@@ -308,7 +309,8 @@ function docEnv(): { get: () => DocEnv; setup: (title: string) => void; teardown
         else process.env[k] = v
       }
       resetLibreOfficeProbe()
-      if (env) rmSync(env.depot, { recursive: true, force: true })
+      // The depot holds the profile of a REAL LibreOffice: see rm-temp-dir.ts (#456).
+      if (env) rmTempDir(env.depot)
       env = null
     },
   }

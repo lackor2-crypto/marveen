@@ -426,3 +426,57 @@ describe('ci.yml: a stabil nevu aggregalt kapu megvan', () => {
     expect(ci).toContain('needs.test.result')
   })
 })
+
+describe('ci.yml: the apt packages do not depend on the mirror being fast', () => {
+  // WHY (#456, measured 2026-10-01): 170 MB of .deb files came from the apt
+  // mirror on every run. A slow mirror used up the whole job budget, the job
+  // was CANCELLED and the tests never started -- 7 runs that day. A PR whose
+  // tests were fine (#642) could not land because of it.
+  const ci = readFileSync(CI_YML, 'utf8')
+  const stepAt = (marker: string): string => {
+    const from = ci.indexOf(marker)
+    expect(from, `no step with '${marker}' in ci.yml`).toBeGreaterThan(-1)
+    const next = ci.indexOf('\n      - name:', from + marker.length)
+    return ci.slice(from, next === -1 ? undefined : next)
+  }
+
+  it('the .deb files are restored before the install and saved after it', () => {
+    const restore = ci.indexOf('actions/cache/restore@')
+    const install = ci.indexOf('apt-get install')
+    const save = ci.indexOf('actions/cache/save@')
+    expect(restore).toBeGreaterThan(-1)
+    expect(install).toBeGreaterThan(restore)
+    expect(save).toBeGreaterThan(install)
+  })
+
+  it('the install reads the cached directory, and the download has its own bound', () => {
+    const install = stepAt('- name: ffmpeg telepitese')
+    const path = stepAt('- name: apt cache restore').match(/path:\s*(\S+)/)?.[1]
+    expect(path).toBeTruthy()
+    expect(install).toContain(`APT_ARCHIVES: ${path}`)
+    // Both apt-get install calls must point at the cache, or it is decoration.
+    const calls = install.split('apt-get install').slice(1)
+    expect(calls).toHaveLength(2)
+    for (const c of calls) expect(c).toContain('Dir::Cache::Archives="$APT_ARCHIVES"')
+    expect(install).toMatch(/timeout\s+--kill-after=\S+\s+\d+m\s+apt-get install[^\n]*--download-only/)
+  })
+
+  it('a download that ran out of time says so, and its partial result is still saved', () => {
+    expect(stepAt('- name: ffmpeg telepitese')).toContain('NEM teszt-hiba')
+    expect(stepAt('- name: apt cache state')).toMatch(/if:\s*always\(\)/)
+    const save = stepAt('- name: apt cache save')
+    expect(save).toMatch(/if:\s*always\(\)/)
+    // An unchanged set of files must not be re-uploaded on every run.
+    expect(save).toContain('steps.aptstate.outputs.key != steps.aptrestore.outputs.cache-matched-key')
+    expect(save).toContain(`path: ${stepAt('- name: apt cache restore').match(/path:\s*(\S+)/)?.[1]}`)
+  })
+
+  it('the download bound fits inside the job budget', () => {
+    const jobMinutes = Number(ci.match(/timeout-minutes:\s*(\d+)/)?.[1])
+    const downloadMinutes = Number(stepAt('- name: ffmpeg telepitese').match(/timeout\s+--kill-after=\S+\s+(\d+)m/)?.[1])
+    expect(jobMinutes).toBeGreaterThan(0)
+    expect(downloadMinutes).toBeGreaterThan(0)
+    // The suite itself needs ~6 minutes after the packages are there.
+    expect(jobMinutes - downloadMinutes).toBeGreaterThanOrEqual(7)
+  })
+})

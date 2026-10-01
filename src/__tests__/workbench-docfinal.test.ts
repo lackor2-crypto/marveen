@@ -17,6 +17,7 @@ import { contentHash, docxFileName, fileStem } from '../workbench-docfinal.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+import { rmTempDir } from './helpers/rm-temp-dir.js'
 import { workbenchHarness, itemsBody } from './helpers/workbench-harness.js'
 
 const QUOTE_PAGE = 'Landgericht Berlin. Der Termin zur mündlichen Verhandlung ist am 17. März 2027 um 10:30 Uhr.'
@@ -355,7 +356,8 @@ describe.skipIf(!HAS_SOFFICE)('valodi LibreOffice-szal', () => {
       else process.env[k] = v
     }
     resetLibreOfficeProbe()
-    rmSync(dir, { recursive: true, force: true })
+    // A REAL LibreOffice wrote its profile here: see rm-temp-dir.ts (#456).
+    rmTempDir(dir)
   })
 
   it('K-1.13 + K-1.21 + K-1.24 a kesz PDF-en merve', async () => {
