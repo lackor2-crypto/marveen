@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItems, setWorkItemDeleted } from '../workbench.js'
-import { ensureWorkItemFolder, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, renameWorkFolder, workFolderTarget } from '../workbench-assets.js'
+import { ensureWorkItemFolder, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, renameWorkFolder, workbenchPlace, workFolderTarget } from '../workbench-assets.js'
 import { familyLines } from '../workbench-agent/context.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
@@ -481,5 +481,23 @@ describe('renaming a plain folder', () => {
     mk('Valami', a.folder)
     expect(renameWorkFolder(p, a.folder, 'Atnevezett')).toMatchObject({ ok: false, code: 'folder_has_items' })
     expect(existsSync(join(dir, 'Projektek', 'Robotok', ...a.folder.split('/')))).toBe(true)
+  })
+})
+
+describe('opening the folder of an item with no files yet', () => {
+  beforeEach(setup)
+  afterEach(teardown)
+
+  it('falls back to the folder the item is filed in instead of "no folder"', () => {
+    const p = getProjectRow()
+    const a = makeWorkFolder(p, '', 'Box szignal')
+    if (!a.ok) throw new Error('mk')
+    const item = getWorkItem(mk('Box szignal optimalizalasa', a.folder))!
+    expect(item.folder ?? null).toBeNull()
+    for (const place of ['versions', 'assets']) {
+      const r = workbenchPlace(p, item, place)
+      expect(r).toMatchObject({ ok: true })
+      if (r.ok) expect(r.dirRel).toContain('Box szignal')
+    }
   })
 })
