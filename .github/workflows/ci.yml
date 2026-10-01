@@ -75,33 +75,39 @@ jobs:
 
       # The real key is a hash of the .deb set, known only AFTER the install, so
       # the exact key below never hits on purpose: the newest cache with the
-      # prefix is restored (this branch first, then main).
+      # prefix is restored (this branch first, then main). A COMPLETE set wins
+      # over a partial one whatever their age -- measured on PR #645: the slow
+      # job saved its partial set 7 minutes AFTER the fast job saved the full
+      # one, and "newest first" alone would have handed out the partial set.
       - name: apt cache restore
         id: aptrestore
         uses: actions/cache/restore@v4
         with:
           path: /tmp/marveen-apt-archives
-          key: ${{ steps.aptkey.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ steps.aptkey.outputs.prefix }}-full-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ steps.aptkey.outputs.prefix }}-
+            ${{ steps.aptkey.outputs.prefix }}-full-
+            ${{ steps.aptkey.outputs.prefix }}-partial-
 
       - name: ffmpeg telepitese
+        id: aptinstall
         env:
           APT_ARCHIVES: /tmp/marveen-apt-archives
           APT_PACKAGES: ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu libreoffice-writer-nogui fonts-liberation
         run: |
           mkdir -p "$APT_ARCHIVES"
           sudo apt-get update -qq
-          # Download only, bounded: 7 minutes is what the job budget can spare
-          # and still finish the suite. Killing a pure download is safe; killing
-          # a half-done dpkg run would not be, hence the two separate calls.
+          # Download only, bounded: 8 minutes is what the job budget can spare
+          # and still finish the suite (~5.5 minutes after this step). Killing a
+          # pure download is safe; killing a half-done dpkg run would not be,
+          # hence the two separate calls.
           rc=0
-          sudo timeout --kill-after=30s 7m apt-get install -y --no-install-recommends --download-only \
+          sudo timeout --kill-after=30s 8m apt-get install -y --no-install-recommends --download-only \
             -o Dir::Cache::Archives="$APT_ARCHIVES" $APT_PACKAGES || rc=$?
           if [ "$rc" -ne 0 ]; then
             megvan="$(find "$APT_ARCHIVES" -maxdepth 1 -name '*.deb' | wc -l)"
             if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-              echo "::error::Az apt-csomagok letoltese 7 perc alatt nem ert veget (lassu csomagtukor) -- ez NEM teszt-hiba, a tesztek el sem indultak. Eddig $megvan csomag jott le; ezeket a kovetkezo lepes menti el, igy az ujrafuttatas onnan folytatja."
+              echo "::error::Az apt-csomagok letoltese 8 perc alatt nem ert veget (lassu csomagtukor) -- ez NEM teszt-hiba, a tesztek el sem indultak. Eddig $megvan csomag jott le; ezeket a kovetkezo lepes menti el, igy az ujrafuttatas onnan folytatja."
             else
               echo "::error::Az apt-csomagok letoltese hibaval allt meg (apt-get exit $rc) -- ez NEM teszt-hiba, a tesztek el sem indultak. A pontos ok a lepes naplojaban, az apt sajat uzeneteben all."
             fi
@@ -125,7 +131,9 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$APT_ARCHIVES"
           [ -n "$(find "$APT_ARCHIVES" -type f -print -quit)" ] || exit 0
           hash="$(cd "$APT_ARCHIVES" && find . -type f -printf '%P %s\n' | LC_ALL=C sort | sha256sum | cut -c1-16)"
-          echo "key=${{ steps.aptkey.outputs.prefix }}-$hash" >> "$GITHUB_OUTPUT"
+          # "full" only if the install step itself finished: see the restore order.
+          kind="${{ steps.aptinstall.outcome == 'success' && 'full' || 'partial' }}"
+          echo "key=${{ steps.aptkey.outputs.prefix }}-$kind-$hash" >> "$GITHUB_OUTPUT"
 
       - name: apt cache save
         if: always() && steps.aptstate.outputs.key != '' && steps.aptstate.outputs.key != steps.aptrestore.outputs.cache-matched-key

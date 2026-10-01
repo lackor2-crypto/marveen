@@ -471,6 +471,19 @@ describe('ci.yml: the apt packages do not depend on the mirror being fast', () =
     expect(save).toContain(`path: ${stepAt('- name: apt cache restore').match(/path:\s*(\S+)/)?.[1]}`)
   })
 
+  it('a complete set of packages is preferred over a partial one, whatever their age', () => {
+    // Measured on PR #645: the slow job saved its partial set 7 minutes AFTER
+    // the fast job saved the full one; "newest first" would pick the partial.
+    const restore = stepAt('- name: apt cache restore')
+    const full = restore.indexOf('.prefix }}-full-\n')
+    const partial = restore.indexOf('.prefix }}-partial-\n')
+    expect(full).toBeGreaterThan(-1)
+    expect(partial).toBeGreaterThan(full)
+    // "full" has to mean that the install step really finished.
+    expect(stepAt('- name: ffmpeg telepitese')).toContain('id: aptinstall')
+    expect(stepAt('- name: apt cache state')).toContain("steps.aptinstall.outcome == 'success' && 'full' || 'partial'")
+  })
+
   it('the download bound fits inside the job budget', () => {
     const jobMinutes = Number(ci.match(/timeout-minutes:\s*(\d+)/)?.[1])
     const downloadMinutes = Number(stepAt('- name: ffmpeg telepitese').match(/timeout\s+--kill-after=\S+\s+(\d+)m/)?.[1])
