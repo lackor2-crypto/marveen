@@ -20,6 +20,7 @@ import { extname, join, sep } from 'node:path'
 import { resolveLifePath, toLifeRel, explorerRoot } from './life-explorer.js'
 import { safeLifeName } from './life-tree.js'
 import { writeBlockReason } from './git-guard.js'
+import { mountsInside, resolveMount } from './life-mounts.js'
 import { cleanFolderRel, type ProjectRow } from './projects.js'
 
 /** Egy feltoltott fajl felso hatara. A nagyobbat a Windows Intezoben kell a
@@ -45,7 +46,10 @@ export function projectFileTarget(p: ProjectRow, sub: unknown): FileTarget {
   if (subRel === null) return { ok: false, code: 'bad_folder' }
   const abs = subRel ? resolveLifePath(`${p.folder_path}/${subRel}`) : base
   // A projekt mappajan KIVULRE nem vezethet egy almappa-nev sem.
-  if (!abs || (abs !== base && !abs.startsWith(base + sep))) return { ok: false, code: 'bad_folder' }
+  // A MOUNT (e.g. the repos under GIT_REPOS) really lives elsewhere on disk, but the
+  // Explorer shows it here -- the project tree must follow it, so a mount is not "outside".
+  const viaMount = !!subRel && !!resolveMount(`${p.folder_path}/${subRel}`)
+  if (!abs || (abs !== base && !abs.startsWith(base + sep) && !viaMount)) return { ok: false, code: 'bad_folder' }
   if (!existsSync(abs)) return { ok: false, code: 'bad_folder' }
   try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'unreachable' } }
   return { ok: true, dirAbs: abs, dirRel: toLifeRel(abs) || (subRel ? `${p.folder_path}/${subRel}` : p.folder_path) }
@@ -208,11 +212,28 @@ export function listProjectDir(p: ProjectRow, sub: unknown): DirListing {
     try { st = statSync(full) } catch { continue /* eltunt kozben, vagy torott link */ }
     if (st.isDirectory()) {
       let children = 0
-      try { children = readdirSync(full).filter((n) => !treeJunk(n)).length } catch { /* nem olvashato: 0 marad */ }
+      let onDisk: string[] = []
+      try { onDisk = readdirSync(full).filter((n) => !treeJunk(n)); children = onDisk.length } catch { /* nem olvashato: 0 marad */ }
+      children += mountsInside(`${p.folder_path}/${childSub}`).filter((m) => !onDisk.includes(m.rel.slice(m.rel.lastIndexOf('/') + 1))).length
       out.push({ name: e.name, sub: childSub, kind: 'dir', at: st.mtimeMs, children })
     } else if (st.isFile()) {
       out.push({ name: e.name, sub: childSub, kind: 'file', at: st.mtimeMs, size: st.size })
     }
+  }
+  // Mounts shown directly in this folder (what the Explorer shows: the git repos
+  // under GIT_REPOS live in the central storage, not on this disk folder).
+  for (const m of mountsInside(subRel ? `${p.folder_path}/${subRel}` : String(p.folder_path))) {
+    const name = m.rel.slice(m.rel.lastIndexOf('/') + 1)
+    const mAbs = resolveLifePath(m.rel)
+    let st: import('node:fs').Stats
+    try { st = statSync(mAbs || '') } catch { continue }
+    if (!st.isDirectory()) continue
+    let kids: string[] = []
+    try { kids = readdirSync(mAbs as string).filter((n) => !treeJunk(n)) } catch { /* unreadable: 0 */ }
+    const entry: TreeEntry = { name, sub: subRel ? `${subRel}/${name}` : name, kind: 'dir', at: st.mtimeMs, children: kids.length + mountsInside(m.rel).length }
+    const at = out.findIndex((x) => x.name === name)
+    if (at >= 0) out[at] = entry
+    else out.push(entry)
   }
   out.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, 'hu', { numeric: true }) : a.kind === 'dir' ? -1 : 1))
   return { ok: true, sub: subRel, entries: out.slice(0, TREE_DIR_MAX), truncated: out.length > TREE_DIR_MAX }
