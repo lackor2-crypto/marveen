@@ -1189,8 +1189,10 @@
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
-          + (archived() ? '' : ' <button type="button" class="wb-folder-del" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '"'
-            + ' title="' + escA(t('workbench.folder.delete')) + '" aria-label="' + escA(t('workbench.folder.delete')) + '">🗑</button>') + '</li>')
+          + (archived() ? '' : ' <span class="wb-folder-ctl"><button type="button" class="wb-folder-del" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '"'
+            + ' title="' + escA(t('workbench.folder.rename')) + '" aria-label="' + escA(t('workbench.folder.rename')) + '">✏️</button>'
+            + '<button type="button" class="wb-folder-del" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '"'
+            + ' title="' + escA(t('workbench.folder.delete')) + '" aria-label="' + escA(t('workbench.folder.delete')) + '">🗑</button></span>') + '</li>')
         if (!collapsed) walk(f, depth + 1)
       })
       ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth)) })
@@ -1277,6 +1279,26 @@
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
       if (WB.pickFolder === folder || String(WB.pickFolder || '').indexOf(folder + '/') === 0) WB.pickFolder = ''
       window.showToast(t('workbench.folder.deleted'))
+      render()
+    })
+  }
+
+  // Rename a plain folder; the server refuses (with a human sentence) when a work item lives in it.
+  function renameFolder(folder) {
+    if (WB.folderBusy || archived() || !folder) return
+    var name = window.prompt(t('workbench.folder.rename_prompt', { name: baseOf(folder) }), baseOf(folder))
+    if (name == null) return
+    name = String(name).trim()
+    if (!name || name === baseOf(folder)) return
+    var pid = WB.projectId
+    WB.folderBusy = true
+    api('POST', '/api/workbench/folders/rename', { project_id: pid, folder: folder, name: name }).then(function (r) {
+      WB.folderBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); return }
+      if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
+      if (WB.pickFolder === folder) WB.pickFolder = r.data.folder
+      window.showToast(t('workbench.folder.renamed'))
       render()
     })
   }
@@ -9581,6 +9603,7 @@
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'ov-kanban') openProjectKanban()
     else if (a === 'folder-delete') { deleteFolder(act.getAttribute('data-wb-folder')) }
+    else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }
     else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
