@@ -17,6 +17,7 @@ import { initDatabase, createKanbanCard, moveKanbanCard, addKanbanComment, creat
 import { resetCodeBridgeTablesForTests, listCodeTasks } from '../web/code-bridge-store.js'
 import { claimCardWork } from '../web/card-work-guard.js'
 import { createProject, linkObject, updateProject } from '../projects.js'
+import { createWorkItem } from '../workbench.js'
 import { buildProjectOverview, sortNextSteps, type OverviewCard } from '../project-overview.js'
 
 const DAY = 86_400_000
@@ -124,6 +125,38 @@ describe('attekintes', () => {
     const ov = buildProjectOverview(p.id, { now })!
     expect(ov.facts).toMatchObject({ openCards: 2, overdue: 1, staleOpenCards: 1 })
     expect(ov.nextSteps.map((c) => c.id)).not.toContain('done')
+  })
+
+  it('a munkadarabok is beleszamitanak a szamokba, az aktualis munkaba es a kovetkezo lepesekbe', () => {
+    const p = mustProject('Tozsde')
+    const other = mustProject('Masik')
+    const mk = (project: string, title: string, status: string) => {
+      const r = createWorkItem({ project_id: project, title, type: 'note', status })
+      if (!r.ok) throw new Error('nem jott letre')
+      return r.item
+    }
+    mk(p.id, 'Tervezet', 'draft')
+    const running = mk(p.id, 'Fut', 'in_progress')
+    mk(p.id, 'Atnezesre var', 'review')
+    mk(p.id, 'Kesz', 'done')
+    mk(other.id, 'Idegen', 'in_progress')
+    createKanbanCard({ id: 'k', title: 'Kartya', project: p.id, status: 'planned' })
+
+    const ov = buildProjectOverview(p.id)!
+    // a kartya (1) + draft + in_progress + review; a kesz es az idegen nem szamit
+    expect(ov.facts.openCards).toBe(4)
+    expect(ov.facts.inProgress).toBe(1)
+    expect(ov.facts.waiting).toBe(1)
+    expect(ov.facts.activeWork).toBe(1)
+    expect(ov.workItems.map((w) => w.title).sort()).toEqual(['Atnezesre var', 'Fut', 'Tervezet'])
+    expect(ov.workItems.find((w) => w.id === running.id)?.status).toBe('in_progress')
+  })
+
+  it('munkadarab nelkuli (friss) projekten a munkadarab-lista ures, nem hiba', () => {
+    const p = mustProject('Ures')
+    const ov = buildProjectOverview(p.id)!
+    expect(ov.workItems).toEqual([])
+    expect(ov.facts.openCards).toBe(0)
   })
 
   it('ismeretlen projekt: null', () => {

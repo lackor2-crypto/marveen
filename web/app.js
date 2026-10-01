@@ -46441,10 +46441,18 @@ function _prjEmptyLine(key) {
   return `<p class="prj-muted prj-section-empty">${escapeHtml(t(key))}</p>`
 }
 
+/** A work item as a framed, clickable row (same frame as on the Kanban tab). */
+function _prjWorkRowHtml(ov, w) {
+  const p = ov.project || {}
+  return workItemBoardHtml({ id: w.id, seq: w.seq, title: w.title, project_id: p.id, project_name: p.name }, false)
+}
+
 function _prjCurrentHtml(ov) {
   const list = ov.currentWork || []
-  if (!list.length) return _prjEmptyLine('projects.current.empty')
-  return `<ul class="prj-list">${list.map((w) => {
+  const running = (ov.workItems || []).filter((w) => w.status === 'in_progress')
+  if (!list.length && !running.length) return _prjEmptyLine('projects.current.empty')
+  const runningHtml = running.map((w) => _prjWorkRowHtml(ov, w)).join('')
+  return `${runningHtml}<ul class="prj-list">${list.map((w) => {
     const head = w.card
       ? `${_prjCardLink(w.card)} ${_prjStatusPill(w.card.status)}`
       : `<span class="prj-item-title">${escapeHtml(t('projects.current.cardless'))}</span>`
@@ -46484,9 +46492,11 @@ function _prjApprovalsHtml(ov) {
 
 function _prjNextHtml(ov) {
   const list = ov.nextSteps || []
-  if (!list.length) return _prjEmptyLine('projects.next.empty')
+  const works = ov.workItems || []
+  if (!list.length && !works.length) return _prjEmptyLine('projects.next.empty')
   const more = (ov.nextStepsTotal || 0) - list.length
-  return `<ul class="prj-list">${list.map((c) => {
+  const worksHtml = works.map((w) => _prjWorkRowHtml(ov, w)).join('')
+  return `${worksHtml}<ul class="prj-list">${list.map((c) => {
     const bits = [escapeHtml(_prjT('kanban.priority.' + c.priority, null, c.priority))]
     if (c.dueAt) bits.push(escapeHtml(t(c.dueAt < Date.now() ? 'projects.next.overdue' : 'projects.next.due', { date: _prjDate(c.dueAt) })))
     if (c.assignee) bits.push(escapeHtml(c.assignee))
@@ -46957,7 +46967,7 @@ function _prjKanbanTabHtml() {
       const list = d.cards.filter((c) => c.status === st)
       const works = (d.works || []).filter((w) => w.column === st)
       return `<section class="prj-kb-col" aria-label="${escapeAttr(t('kanban.col.' + st))}">
-        <h3>${escapeHtml(t('kanban.col.' + st))} <span class="prj-muted">${list.length}</span></h3>
+        <h3>${escapeHtml(t('kanban.col.' + st))} <span class="prj-muted">${list.length + works.length}</span></h3>
         ${list.length ? `<ul class="prj-kb-list">${list.map(_prjKanbanCardHtml).join('')}</ul>` : (works.length ? '' : `<p class="prj-muted prj-kb-none">–</p>`)}
         ${works.map((w) => workItemBoardHtml(w, false)).join('')}
       </section>`
