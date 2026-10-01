@@ -2161,11 +2161,11 @@ export function updateKanbanCard(id: string, fields: Partial<Omit<KanbanCard, 'i
   ).run(f.title, f.description, f.status, f.assignee, f.priority, f.project, f.parent_id, f.due_date, f.sort_order, f.updated_at, f.archived_at, id).changes > 0
 }
 
-// Rebuilt from upstream 94765127 (#456): nothing refused the write that makes a
-// card its own ancestor (A -> B -> A through PUT /api/kanban/:id). Walk upward from
-// the PROPOSED parent over the existing chain; if cardId is reachable, pointing
-// cardId at that parent would close a loop. A pre-existing cycle in the data
-// (seen-set / depth cap) refuses the write too instead of extending a broken chain.
+// Rebuilt from upstream 94765127 (#456): a card could become its own ancestor
+// (A -> B -> A through PUT /api/kanban/:id). Walk upward from the PROPOSED parent
+// over the existing chain; if cardId is reachable, pointing cardId at that parent
+// would close a loop. A pre-existing cycle in the data (seen-set / depth cap)
+// also answers true instead of extending a broken chain.
 const PARENT_DEPTH_LIMIT = 16
 export function parentWouldCycle(cardId: string, parentId: string): boolean {
   if (cardId === parentId) return true

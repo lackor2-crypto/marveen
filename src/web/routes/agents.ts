@@ -1342,7 +1342,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       return true
     }
 
-    json(res, personalitySkipped.length > 0 ? { ok: true, name, personalitySkipped } : { ok: true, name })
+    if (personalitySkipped.length > 0) {
+      json(res, { ok: true, name, personalitySkipped })
+      return true
+    }
+    json(res, { ok: true, name })
     return true
   }
 
