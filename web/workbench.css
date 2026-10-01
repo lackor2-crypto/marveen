@@ -883,6 +883,19 @@
 .wb-dec-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .wb-dec-revoked .wb-dec-text { text-decoration: line-through; opacity: .65; }
 @media (max-width: 700px) { .wb-dec-form textarea { font-size: 16px; } }
+/* --- Brand Kit (K-4.1..K-4.3) -------------------------------------------- */
+.wb-brand-form { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.wb-brand-form textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.wb-brand-colors { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wb-brand-color { display: flex; gap: 8px; align-items: center; }
+.wb-brand-color input[type="color"] { width: 44px; height: 32px; padding: 0; flex: none; }
+.wb-brand-color .wb-input { flex: 1; min-width: 0; }
+.wb-brand-sw { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-left: 6px; }
+.wb-brand-swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border, #d0d7de); cursor: pointer; padding: 0; }
+.wb-brand-check { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border, #d0d7de); border-radius: 8px; }
+.wb-brand-findings { margin: 4px 0 0; padding-left: 18px; }
+.wb-brand-ok { color: var(--success, #16a34a); }
+@media (max-width: 700px) { .wb-brand-form textarea, .wb-brand-form .wb-input { font-size: 16px; } }
 /* --- Export + kuldes (#406, 6. pont) ---------------------------------------- */
 .wb-exp { border: 1px solid var(--border, #d0d7de); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 8px; }
 .wb-exp-title { margin: 4px 0 0; font-size: 0.95rem; }

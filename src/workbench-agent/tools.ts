@@ -471,6 +471,19 @@ export const TOOLS: ToolDef[] = [
     input: 'text: the decision in one or two sentences (at most 500 characters); workItem (optional): the id of the work item it is about',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
+  // K-4.2 / K-4.3: Brand Kit. Read-only: the brand itself is set by the owner on the Brand Kit panel.
+  {
+    name: 'brand.get',
+    description: 'Read the Brand Kit of THIS project: colours, logos (for light and dark backgrounds), fonts and style rules. Apply it by yourself to every post and drawing of the brand.',
+    input: '(no input)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'brand.check',
+    description: 'Check the drawing (canvas) of a work item against the Brand Kit and list every deviation in plain language (a colour that is not a brand colour, a wrong font, a missing or too small logo, a logo in the wrong corner, an exclamation mark). It changes nothing. Run it after you changed a branded drawing, then fix the deviations or tell the owner why you left them.',
+    input: 'id: the work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
   // #406, 14. pont: kis teendo hataridovel. A `workItem.` elotag miatt a
   // felulet utana magatol frissul.
   {
