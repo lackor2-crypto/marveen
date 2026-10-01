@@ -130,6 +130,22 @@ already present or target code this fork removed.
 - **A pathPattern entry excludes every commit touching that file.** Prefer a
   subjectPattern or contentSignature for a single change in a shared file.
 
+## "Do the upstream sync" means: bring the box to ZERO
+When the owner says "csináld meg az upstream synchront" (do the upstream sync),
+the job is not done until the Overview "Upstream" box shows **0 clean files and
+0 conflicting files** (owner, 2026-10-01: "megcsinálni = nullázni, és helyére
+tenni a dolgokat"). Procedure:
+1. `git fetch upstream`, then `bash scripts/upstream-divergence-check.sh manual`
+   from a worktree. Read `cleanFileCount` and `conflictCount` from its stdout.
+2. Every remaining file needs a decision: rebuild the useful fix in our own code
+   (rule above), or record it in `governance/upstream-skipped-files.json`
+   (`kind: decided`, `blob` = the CURRENT upstream blob, a `card`, a `reason`).
+3. Re-run the check. Only when both numbers are 0 is the sync finished; the
+   commit-distance (`behindCount`) is a different unit and does not reach zero
+   by decisions, so say so instead of calling it "done".
+4. Re-measure AFTER landing: upstream keeps moving, so a count measured hours
+   ago (the dashboard's `checkedAt`) is not today's.
+
 ## Verification
 ```bash
 npx vitest run src/__tests__/upstream-principle-gate.test.ts
