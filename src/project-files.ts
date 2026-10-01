@@ -281,7 +281,7 @@ const nameIndexes = new Map<string, NameIndex>()
 
 /** A projekt mappajanak nev-indexe (csak nev + mappa-e, stat nelkul, mert a
  *  stat a lassu resz). Aszinkron: a dashboardot nem allitja meg. */
-function projectNameIndex(abs: string): NameIndex {
+function projectNameIndex(abs: string, lifeRel: string = ''): NameIndex {
   const cur = nameIndexes.get(abs)
   if (cur && (!cur.done || Date.now() - cur.builtAt < FIND_INDEX_TTL_MS)) return cur
   const idx: NameIndex = { entries: [], done: false, capped: false, full: false, builtAt: Date.now(), ready: Promise.resolve() }
@@ -299,6 +299,20 @@ function projectNameIndex(abs: string): NameIndex {
       if (dir.depth + 1 > FIND_MAX_DEPTH) idx.capped = true
       else queue.push({ abs: join(dir.abs, e.name), rel, depth: dir.depth + 1 })
     }
+    // Mounts shown in this folder (e.g. the git repos under GIT_REPOS) live elsewhere
+    // on disk; the search follows them like the tree does.
+    if (!lifeRel) return
+    for (const m of mountsInside(dir.rel ? `${lifeRel}/${dir.rel}` : lifeRel)) {
+      const name = m.rel.slice(m.rel.lastIndexOf('/') + 1)
+      const rel = dir.rel ? `${dir.rel}/${name}` : name
+      const mAbs = resolveLifePath(m.rel)
+      if (!mAbs || idx.entries.some((x) => x.rel === rel)) continue
+      try { if (!statSync(mAbs).isDirectory()) continue } catch { continue }
+      if (idx.entries.length >= FIND_MAX_VISIT) { idx.capped = true; idx.full = true; return }
+      idx.entries.push({ rel, name, folded: foldName(name), dir: true })
+      if (dir.depth + 1 > FIND_MAX_DEPTH) idx.capped = true
+      else queue.push({ abs: mAbs, rel, depth: dir.depth + 1 })
+    }
   }
   const worker = async (): Promise<void> => { while (queue.length && !idx.full) await visit(queue.shift()!) }
   idx.ready = (async () => {
@@ -315,7 +329,7 @@ function projectNameIndex(abs: string): NameIndex {
  *  felhasznalo gepelni kezd. Semmit nem var meg, semmit nem ir. */
 export function warmProjectNameIndex(p: ProjectRow): void {
   const t = projectFileTarget(p, '')
-  if (t.ok) projectNameIndex(t.dirAbs)
+  if (t.ok) projectNameIndex(t.dirAbs, String(p.folder_path))
 }
 
 /** Uj fajl / mappa a projektben (Marveenen at): a kereso azonnal lassa. */
@@ -337,7 +351,7 @@ export async function findProjectFiles(p: ProjectRow, q: unknown, budgetMs: numb
   const t = projectFileTarget(p, '')
   if (!t.ok) return { ok: false, code: t.code }
   const needle = foldName(query)
-  const idx = projectNameIndex(t.dirAbs)
+  const idx = projectNameIndex(t.dirAbs, String(p.folder_path))
   if (!idx.done) {
     let timer: NodeJS.Timeout | undefined
     await Promise.race([idx.ready, new Promise<void>((r) => { timer = setTimeout(r, Math.max(0, budgetMs)) })])
@@ -346,7 +360,8 @@ export async function findProjectFiles(p: ProjectRow, q: unknown, budgetMs: numb
   const matched = idx.entries.filter((e) => e.folded.includes(needle))
   const found = await Promise.all(matched.slice(0, FIND_MAX_HITS).map(async (e): Promise<TreeEntry | null> => {
     try {
-      const st = await stat(join(t.dirAbs, ...e.rel.split('/')))
+      // resolveLifePath follows mounts, so a hit inside a mounted repo is found too.
+      const st = await stat(resolveLifePath(`${p.folder_path}/${e.rel}`) || join(t.dirAbs, ...e.rel.split('/')))
       return e.dir
         ? { name: e.name, sub: e.rel, kind: 'dir', at: st.mtimeMs }
         : { name: e.name, sub: e.rel, kind: 'file', at: st.mtimeMs, size: st.size }
