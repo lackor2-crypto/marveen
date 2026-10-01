@@ -94,15 +94,19 @@ export function parseAmount(raw: string): number | null {
 
 export interface FoundAmount { cents: number; currency: string | null; raw: string }
 
-const NUM = '\\d{1,3}(?:[ .,\\u00a0\\u202f]\\d{3})+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?'
+// A szam nem kezdodhet egy masik szam kozepen: a "3. Januar 2026 900 Euro"
+// nem "026 900 Euro", hanem 900 euro (a 2026 ezres tagolasnak nem ervenyes).
+const NUM = '(?<!\\d)(?:\\d{1,3}(?:[ .,\\u00a0\\u202f]\\d{3})+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?)'
+// A magyar ragos alak is osszeg: "900 eurót", "100 000 forintot", "forinttal".
+const HU_CASE = '(?:o?t|ért|ból|ba|ban|ra|ról|tól|nál|hoz|t?al|val|nak|ig|o?s|ként)'
 
 /** Penzosszegek (penznemmel elol vagy hatul). Penznem nelkuli szam nem osszeg. */
 export function findAmounts(text: string): FoundAmount[] {
   const out: FoundAmount[] = []
-  const re = new RegExp(`(?:(€|\\$|EUR|USD|HUF|CHF)\\s?(${NUM}))|(?:(${NUM})(?:,-)?\\s?(Ft|HUF|forint|EUR|€|euró|euro|USD|CHF)(?![\\p{L}]))`, 'giu')
+  const re = new RegExp(`(?:(€|\\$|EUR|USD|HUF|CHF)\\s?(${NUM}))|(?:(${NUM})(?:,-)?\\s?(?:(Ft|HUF|EUR|€|USD|CHF)|(forint|euró|euro)${HU_CASE}?)(?![\\p{L}]))`, 'giu')
   for (const m of String(text || '').matchAll(re)) {
     const num = m[2] ?? m[3] ?? ''
-    const cur = (m[1] ?? m[4] ?? '').toLowerCase()
+    const cur = (m[1] ?? m[4] ?? m[5] ?? '').toLowerCase()
     const cents = parseAmount(num)
     if (cents !== null) out.push({ cents, currency: CUR[cur] ?? null, raw: m[0].trim() })
   }

@@ -45,6 +45,8 @@ describe('cimkek es hivatkozasok', () => {
     expect(annexRefs('See Exhibit A and Exhibit C; not Exhibits.', en)).toEqual([1, 3])
     // A mar hianyzonak jelolt hivatkozas nem szamit.
     expect(annexRefs('⚠ Hiányzó adat: a hivatkozott melléklet nincs a jegyzékben (K2) es K1', k)).toEqual([1])
+    // A nemet sema cimkeje nem K-hivatkozas (kulonben semavaltaskor "Anlage Anlage K1" lenne).
+    expect(annexRefs('Beweis: Anlage K1, Anl. K2, Anl.K3, Anlage K4; und K5', k)).toEqual([5])
   })
 })
 
@@ -172,6 +174,25 @@ describe('a mellekletjegyzek a dokumentumban', () => {
     expect(setDocSettings(itemId, { annex_scheme: 'bates' }).ok).toBe(false)
     expect(setDocSettings(itemId, { annex_prefix: 'K1' }).ok).toBe(false)
     expect(setDocSettings(itemId, { annex_mode: 'zip' }).ok).toBe(false)
+  })
+
+  it('a nemetre forditott szoveg utan beallitott Anlage-sema nem rontja el a hivatkozasokat (11. pont 1/B)', () => {
+    // A nyelvi valtozat mellekletjegyzek nelkul indul; a Marvin elobb fordit
+    // ("Anlage K1"), aztan allitja a semat, aztan veszi fel a mellekleteket.
+    const s = addSection(itemId, 'Sachverhalt')
+    if (!s.ok) throw new Error('fejezet')
+    addBlock(itemId, s.section.id, { text: 'Miete laut Mietvertrag (Anlage K1), Zahlung (Anlage K2); siehe auch K3.', author: 'agent' })
+    expect(setDocSettings(itemId, { annex_scheme: 'anlage' }).ok).toBe(true)
+    // A mar nemet cimke valtozatlan; a csupasz K3 atcimkezodik -- egyik sem lesz "torolt melleklet".
+    expect(text()).toBe('Miete laut Mietvertrag (Anlage K1), Zahlung (Anlage K2); siehe auch Anlage K3.')
+    // A jegyzekben meg nem szereplo melleklet ettol meg megallitja a veglegesitest.
+    expect(annexCheck(itemId, resolve)).toMatchObject({ total: 0, dangling: ['Anlage K1', 'Anlage K2', 'Anlage K3'] })
+    annex('Iratok/szerzodes.pdf', 'Mietvertrag')
+    annex('Iratok/szamla.pdf', 'Kontoauszug')
+    expect(annexCheck(itemId, resolve)).toMatchObject({ total: 2, dangling: ['Anlage K3'], unreferenced: [] })
+    // Vissza magyarra: a nemet cimkebol K-cimke lesz, duplazas nelkul.
+    expect(setDocSettings(itemId, { annex_scheme: 'k' }).ok).toBe(true)
+    expect(text()).toBe('Miete laut Mietvertrag (K1), Zahlung (K2); siehe auch K3.')
   })
 
   it('nem letezo fajl es ketszer ugyanaz a fajl nem veheto fel', () => {
