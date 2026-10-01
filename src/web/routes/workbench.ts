@@ -375,6 +375,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a mappanév nem jó: ne legyen benne \\ / : * ? " < > | jel, és ne kezdődjön ponttal.',
     en: 'This folder name will not do: no \\ / : * ? " < > | characters, and it must not start with a dot.',
   },
+  folder_required: {
+    hu: 'Nem tudom elmenteni: előbb az 1. lépésben válaszd ki (vagy hozd létre) azt a mappát, amelyik alá a munkadarab kerül. Mappát nem hozok létre magamtól.',
+    en: 'I cannot save this yet: first, in step 1, choose (or create) the folder the work item goes under. I do not create folders on my own.',
+  },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
     en: 'The chosen folder is gone (renamed or deleted). Choose a folder again.',
@@ -1947,12 +1951,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       intakeFolder = c.folder
     }
+    // Step 2 needs step 1: nothing is filed into a folder nobody chose, and no folder is made on the side.
+    if (!intakeFolder && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     const r = createWorkItem({
       project_id: project.id, type: INTAKE_TYPE[kind], title: intakeTitle(text, kind, lang),
       prompt: text || undefined, container_folder: intakeFolder, created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
-    try { ensureWorkItemFolder(r.item) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] intake item folder failed') }
     json(res, {
       ok: true, ask: false, kind, item: r.item, versions: [r.version], text,
       message: kind === 'presentation' ? msg('intake_presentation', lang) : null,
@@ -2011,6 +2016,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       containerFolder = mf.folder
       folderExisted = !mf.created
     }
+    // Step 2 needs step 1: no folder chosen (or typed) -> nothing is saved, and none is made on the side.
+    if (containerFolder === null && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
@@ -2022,9 +2029,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
-    // The item gets its folder at creation, not only with its first file.
     if (ownFolder) assignWorkItemFolder(r.item.id, ownFolder)
-    else { try { ensureWorkItemFolder(r.item) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] item folder at creation failed') } }
     json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted }, 201)
     return true
   }
@@ -2042,13 +2047,15 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const title = String(body['title'] ?? '').trim()
     if (!title) return fail(res, 400, 'table_title_required', lang)
-    // #454: the form's "Which folder?" field holds for a new table too: its own
-    // folder (with the .xlsx in it) is made inside the chosen folder.
+    // #454: the form's "Which folder?" field holds for a new table too: the .xlsx
+    // goes straight into the chosen folder (no extra folder is made).
     let folder: string | null = null
     let folderCreated = false
     let folderExisted = false
     let containerFolder: string | null = null
     const newFolderName = String(body['new_folder'] ?? '').trim()
+    // Step 2 needs step 1: no folder chosen (or typed) -> nothing is saved, and none is made on the side.
+    if (!String(body['folder'] ?? '').trim() && !newFolderName && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     if (String(body['folder'] ?? '').trim() || newFolderName) {
       let c = workFolderTarget(project, body['folder'])
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
@@ -2062,13 +2069,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         folderExisted = !mf.created
       }
       containerFolder = c.folder
-      const f = makeFreshFolder(project, title, c.folder)
-      if (!f.ok) {
-        const code = MESSAGES['upload_' + f.code] ? 'upload_' + f.code : f.code
-        return failDetail(res, f.code === 'write_failed' ? 500 : 400, code, lang, 'message' in f ? (f.message || null) : null)
-      }
-      folder = f.folder
-      folderCreated = f.created
+      folder = c.folder
     }
     const out = writeProjectFile(project, folder, `${title.replace(/\.xlsx$/i, '')}.xlsx`, blankXlsx(lang === 'en' ? 'Sheet1' : 'Munka1'))
     if (!out.ok) {
@@ -2082,9 +2083,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, container_folder: containerFolder, created_by: actor(ctx) })
     if (!r.ok) return fail(res, 400, r.code, lang)
-    if (folder) assignWorkItemFolder(r.item.id, folder)
-    const item = folder ? (getWorkItem(r.item.id) ?? r.item) : r.item
-    json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name, folder_existed: folderExisted }, 201)
+    json(res, { ok: true, item: r.item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name, folder_existed: folderExisted }, 201)
     return true
   }
 

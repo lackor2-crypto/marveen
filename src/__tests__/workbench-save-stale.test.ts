@@ -49,7 +49,7 @@ function statuses(rs: { status: number }[]): number[] {
 
 describe('ket egyszerre mento ful: a masodik nem irhatja felul csendben az elsot', () => {
   it('tablazat: ket parhuzamos mentes ugyanarrol a verziorol -> egy 201, egy 409 table_stale', async () => {
-    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Lista' })
+    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Lista', folder: ((await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'Tabla' })).body as { folder: string }).folder })
     const itemId = c.body.item.id
     const g = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     const save = (cell: string) => callWorkbench(`/api/workbench/items/${itemId}/table`, 'POST', {

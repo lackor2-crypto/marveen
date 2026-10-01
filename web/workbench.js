@@ -1211,12 +1211,17 @@
     return rows
   }
 
+  /** The project has a work folder system (a box): then step 2 needs a folder chosen in step 1. */
+  function hasFolderSystem() {
+    return !!(WB.workFolders && WB.workFolders.box)
+  }
+
   /** "Which folder should it go in?" -- a list of the folders (indented by depth) + a "New folder" box. */
   function folderPickHtml() {
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
     var pick = WB.pickFolder || ''
-    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_default')) + '</option>']
+    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>']
     ;(wf.folders || []).forEach(function (f) {
       var depth = f.split('/').length - 1 - (box ? box.split('/').length - 1 : 0)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0\u00a0')
@@ -1495,6 +1500,7 @@
     var pf = document.getElementById('wbNewFolder')
     if (pf) WB.pickFolder = pf.value
     if (WB.pickFolder) payload.folder = WB.pickFolder
+    if (!payload.folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/intake', payload).then(function (r) {
@@ -3231,6 +3237,7 @@
     if (folderEl && folderEl.value) payload.folder = folderEl.value
     var newFolderEl = document.getElementById('wbNewFolderName')
     if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
+    if (!payload.folder && !payload.new_folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.busy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
@@ -9126,6 +9133,7 @@
     if (folderEl && folderEl.value) payload.folder = folderEl.value
     var newFolderEl = document.getElementById('wbNewFolderName')
     if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
+    if (!payload.folder && !payload.new_folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.busy = true
     render()
     api('POST', '/api/workbench/items', payload).then(function (r) {

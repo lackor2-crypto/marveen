@@ -2,7 +2,7 @@
 // create endpoints, the folder list, the conversion of old sub items, the agent
 // context by folder, and the tree in the list UI.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
@@ -115,12 +115,20 @@ describe('endpoints', () => {
     expect(typeof (bad.body as { message: string }).message).toBe('string')
   })
 
-  it('POST /items makes the item its own folder at once, with no file needed', async () => {
+  it('POST /items without a folder is refused with a human message and makes no folder on its own', async () => {
+    const before = readdirSync(join(dir, 'Projektek', 'Robotok'))
     const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
-    expect(r.status).toBe(201)
-    const folder = (r.body as { item: { folder: string | null } }).item.folder
-    expect(folder).toBeTruthy()
-    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...String(folder).split('/')))).toBe(true)
+    expect(r.status).toBe(400)
+    expect((r.body as { error: string }).error).toBe('folder_required')
+    expect(typeof (r.body as { message: string }).message).toBe('string')
+    expect(readdirSync(join(dir, 'Projektek', 'Robotok'))).toEqual(before)
+    const i = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'Ajánlat' })
+    expect(i.status).toBe(400)
+    expect((i.body as { error: string }).error).toBe('folder_required')
+    const t = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Onallo' })
+    expect(t.status).toBe(400)
+    expect((t.body as { error: string }).error).toBe('folder_required')
+    expect(readdirSync(join(dir, 'Projektek', 'Robotok'))).toEqual(before)
   })
 
   it('POST /items with a typed new folder name makes that folder and files the item into it', async () => {
@@ -147,7 +155,7 @@ describe('endpoints', () => {
   })
 
   it('POST /items/:id/folder moves an existing item (and its folder) into a folder made afterwards', async () => {
-    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
+    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note', new_folder: 'BL szignal' })
     const id = (a.body as { item: { id: string } }).item.id
     const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK Trendvonal' })
     const folder = (f.body as { folder: string }).folder
@@ -180,20 +188,15 @@ describe('endpoints', () => {
     expect(typeof (bad.body as { message: string }).message).toBe('string')
   })
 
-  it('new table goes into the chosen folder with its own folder and .xlsx', async () => {
+  it('new table goes straight into the chosen folder (no extra folder); a bad folder writes no file', async () => {
     const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK' })
     const folder = (f.body as { folder: string }).folder
     const r = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Osszesito', folder })
     expect(r.status).toBe(201)
     const body = r.body as { item: { id: string; source_path: string }; folder: string }
-    expect(body.folder.startsWith(folder + '/')).toBe(true)
-    expect(getWorkItem(body.item.id)!.folder).toBe(body.folder)
+    expect(body.folder).toBe(folder)
+    expect(body.item.source_path.endsWith(`/${folder}/Osszesito.xlsx`)).toBe(true)
     expect(existsSync(join(dir, ...body.item.source_path.split('/')))).toBe(true)
-  })
-
-  it('new table without a folder is a stand-alone table as before; a bad folder writes no file', async () => {
-    const ok = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Onallo' })
-    expect(ok.status).toBe(201)
     const bad = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Rossz', folder: 'Projektek/masik' })
     expect(bad.status).toBe(400)
     expect(existsSync(join(dir, 'Projektek', 'Robotok', 'Rossz.xlsx'))).toBe(false)
@@ -375,6 +378,21 @@ describe('list UI', () => {
     expect(JSON.parse(String(call!.init!.body))).toMatchObject({ project_id: 'p1', parent: `${box}/LK`, name: 'Uj' })
     await vi.waitFor(() => expect(h.html()).toContain(`value="${box}/Uj" selected`))
     expect(h.html()).toContain('value="Tervezet"')
+  })
+
+  it('step 2 without a folder chosen in step 1 sends nothing and says so (intake, manual form, table)', async () => {
+    const h = open([], [`${box}/LK`])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="new"'))
+    h.click({ 'data-wb-act': 'new' })
+    h.inputs['wbNewTitle'] = { value: 'Osszesito', focus() {} }
+    h.inputs['wbNewType'] = { value: 'note', focus() {} }
+    await vi.waitFor(() => expect(h.html()).toContain('Munkadarabok/LK'))
+    h.click({ 'data-wb-act': 'create-table' })
+    h.click({ 'data-wb-act': 'create' })
+    h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'video' })
+    expect(h.toasts.filter((x) => x === '⟦workbench.folder.required⟧')).toHaveLength(3)
+    expect(h.fetchCalls.some((c) => /\/api\/workbench\/(intake|items\/new-table)/.test(c.url))).toBe(false)
+    expect(h.fetchCalls.some((c) => c.url.endsWith('/api/workbench/items') && c.init?.method === 'POST')).toBe(false)
   })
 
   it('"New table" files the table under the chosen folder', async () => {
