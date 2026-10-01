@@ -16,7 +16,8 @@ vi.mock('../config.js', async () => {
 
 const { initDatabase } = await import('../db.js')
 const { createProject } = await import('../projects.js')
-const { listProjectDir } = await import('../project-files.js')
+const { listProjectDir, findProjectFiles, _resetProjectNameIndexes } = await import('../project-files.js')
+const { recentFiles } = await import('../project-overview.js')
 const { addMount } = await import('../life-mounts.js')
 
 describe('project Files tab follows mounts', () => {
@@ -40,5 +41,31 @@ describe('project Files tab follows mounts', () => {
     const inside = listProjectDir(r.project, 'Fejlesztés/GIT_REPOS/trend')
     expect(inside.ok && inside.entries.map((e) => e.name)).toEqual(['src', 'README.md'])
     expect(listProjectDir(r.project, '../..')).toEqual({ ok: false, code: 'bad_folder' })
+  })
+
+  it('the file search finds files inside a mounted repo too', async () => {
+    const w = join(depot, 'Projektek', 'Tozsde')
+    mkdirSync(join(w, 'Fejlesztés', 'GIT_REPOS'), { recursive: true })
+    const repo = join(depot, 'Rendszer', 'Tárolók', 'Git', 'acc', 'trend')
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'trendvonal_rajzolo.mq5'), 'x')
+    addMount({ rel: 'Projektek/Tozsde/Fejlesztés/GIT_REPOS/trend', target: 'Rendszer/Tárolók/Git/acc/trend', kind: 'git', label: 'acc / trend' })
+    const r = createProject({ name: 'Tozsde', folder_path: 'Projektek/Tozsde' })
+    if (!r.ok) throw new Error(r.code)
+    _resetProjectNameIndexes()
+    const f = await findProjectFiles(r.project, 'rajzolo', 5000)
+    expect(f.ok && f.hits.map((h) => h.sub)).toEqual(['Fejlesztés/GIT_REPOS/trend/trendvonal_rajzolo.mq5'])
+  })
+
+  it('the flat "recent files" list includes files of a mounted repo', () => {
+    mkdirSync(join(depot, 'Projektek', 'Tozsde', 'Fejlesztés', 'GIT_REPOS'), { recursive: true })
+    const repo = join(depot, 'Rendszer', 'Tárolók', 'Git', 'acc', 'trend')
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'a.mq5'), 'x')
+    addMount({ rel: 'Projektek/Tozsde/Fejlesztés/GIT_REPOS/trend', target: 'Rendszer/Tárolók/Git/acc/trend', kind: 'git', label: 'acc / trend' })
+    const r = createProject({ name: 'Tozsde', folder_path: 'Projektek/Tozsde' })
+    if (!r.ok) throw new Error(r.code)
+    const rf = recentFiles(r.project, 50)
+    expect(rf.files.map((f) => f.rel)).toEqual(['Projektek/Tozsde/Fejlesztés/GIT_REPOS/trend/a.mq5'])
   })
 })

@@ -24,6 +24,7 @@ import { readdirSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { getDb } from './db.js'
 import { explorerRoot, resolveLifePath } from './life-explorer.js'
+import { mountsInside } from './life-mounts.js'
 import {
   getProject, hasTable, projectCardIds, projectCodeAliases, projectIdeaIds,
   type ProjectRow,
@@ -260,6 +261,13 @@ export function recentFiles(project: ProjectRow, limit: number): { state: Folder
         const st = statSync(full)
         files.push({ rel: `${project.folder_path}/${rel}`, name: e.name, at: st.mtimeMs })
       } catch { /* eltunt kozben -- nem hiba */ }
+    }
+    // Mounted folders (e.g. the git repos under GIT_REPOS) show here in the Explorer
+    // but live elsewhere on disk: follow them, so the flat list matches the tree.
+    for (const m of mountsInside(relDir ? `${project.folder_path}/${relDir}` : String(project.folder_path))) {
+      const mAbs = resolveLifePath(m.rel)
+      const name = m.rel.slice(m.rel.lastIndexOf('/') + 1)
+      if (mAbs) walk(mAbs, relDir ? `${relDir}/${name}` : name, depth + 1)
     }
   }
   try {
