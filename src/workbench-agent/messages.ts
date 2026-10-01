@@ -20,6 +20,20 @@ export const MESSAGES = {
     hu: 'Ezen a gépen most nincs beállítva AI-szolgáltató a Munkapadhoz: nincs bejelentkezett Claude-fiók, és nincs helyi modell sem. Jelentkezz be egy Claude-fiókkal, vagy indíts helyi modellt — addig a Munkapad többi része működik, csak az ágens hallgat.',
     en: 'No AI provider is set up for the Workbench on this machine right now: there is no signed-in Claude account and no local model either. Sign in with a Claude account or start a local model — until then the rest of the Workbench works, only the agent stays silent.',
   },
+  // #455: a chosen GLM / DeepSeek / OpenRouter model whose key is missing is NOT
+  // "no Claude account signed in" -- that sentence sends the owner to the wrong page.
+  model_key_missing: {
+    hu: 'A Munkapad chathez beállított modell ({model}) a(z) {provider} kulcsával fut, de ez a kulcs nincs megadva. Add meg a Fiókok oldalon, vagy válassz másik modellt a chat Beállítás gombjánál.',
+    en: 'The model set for the Workbench chat ({model}) runs with the {provider} key, but that key is not set. Add it on the Accounts page, or pick another model with the chat\'s Settings button.',
+  },
+  model_provider_limited: {
+    hu: 'A választott modell ({model}) szolgáltatója most keret-limitet jelzett. Próbáld újra később, vagy válassz másik modellt a chat Beállítás gombjánál.',
+    en: 'The provider of the chosen model ({model}) reported a usage limit right now. Try again later, or pick another model with the chat\'s Settings button.',
+  },
+  ollama_unreachable: {
+    hu: 'a helyi modell-szerver (Ollama) nem válaszol ezen a címen: {url} (hibaüzenet: {error}). Indítsd el az Ollamát, vagy írd át a címet a Beállítások oldalon az OLLAMA_URL sorban -- vagy válassz másik modellt a chat Beállítás gombjánál.',
+    en: 'the local model server (Ollama) does not answer at {url} (error: {error}). Start Ollama, or change the address on the Settings page in the OLLAMA_URL row -- or pick another model with the chat\'s Settings button.',
+  },
   provider_no_answer: {
     hu: 'A szolgáltató most nem adott használható választ. Próbáld újra pár perc múlva.',
     en: 'The provider gave no usable answer now. Try again in a few minutes.',
@@ -153,6 +167,10 @@ export const MESSAGES = {
   usage_unknown: {
     hu: 'A közös keretről most nincs friss mérés — nem azt jelenti, hogy üres, hanem azt, hogy nem látok oda.',
     en: 'There is no fresh measurement of the shared limit right now — that does not mean it is empty, it means I cannot see it.',
+  },
+  usage_off_budget: {
+    hu: 'ez a modell nem a Claude-előfizetés 5 órás keretéből fut',
+    en: 'this model does not run on the Claude subscription 5-hour limit',
   },
 
   // --- keres / munkamenet --------------------------------------------------

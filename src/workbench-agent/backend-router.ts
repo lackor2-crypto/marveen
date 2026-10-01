@@ -28,6 +28,10 @@ export type BackendReason =
   | 'disabled'
   /** Be van kapcsolva, de nincs online kod-hid worker -> a felulet setupra hiv. */
   | 'no_worker'
+  /** #455: a chosen non-Claude model the live session cannot start (e.g. its
+   *  key is missing) -> the project assistant answers and names why. Never the
+   *  code bridge: that would silently answer on a Claude model instead. */
+  | 'model_not_runnable'
 
 export interface BackendDecisionInput {
   /**
@@ -53,6 +57,14 @@ export interface BackendDecisionInput {
    * futott nemreg limitbe. Hianyzo mezo = false (a regi sorrend).
    */
   bridgeFirst?: boolean
+  /**
+   * #455: the model chosen in the chat's Settings is not a Claude model (GLM,
+   * DeepSeek, OpenRouter, local Ollama). The code bridge runs the worker's own
+   * Claude login and cannot run it, so it is skipped: the live session (which
+   * runs the chosen model) answers, else the project assistant. Missing = false
+   * (the old order).
+   */
+  nonClaudeModel?: boolean
 }
 
 export interface BackendDecision {
@@ -73,11 +85,14 @@ export function decideWorkbenchBackend(input: BackendDecisionInput): BackendDeci
   if (!input.fullAgentEnabled) {
     return { backend: 'workbench-agent', reason: 'disabled', needsWorkerSetup: false }
   }
-  if (input.workerOnline && input.bridgeFirst) {
+  if (input.workerOnline && input.bridgeFirst && !input.nonClaudeModel) {
     return { backend: 'code-bridge', reason: 'ok', needsWorkerSetup: false }
   }
   if (input.liveAvailable) {
     return { backend: 'live-session', reason: 'ok', needsWorkerSetup: false }
+  }
+  if (input.nonClaudeModel) {
+    return { backend: 'workbench-agent', reason: 'model_not_runnable', needsWorkerSetup: false }
   }
   if (!input.workerOnline) {
     return { backend: 'workbench-agent', reason: 'no_worker', needsWorkerSetup: true }

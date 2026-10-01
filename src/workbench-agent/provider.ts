@@ -13,6 +13,7 @@
  * nem is lat kulcsot: a szolgaltato a SAJAT, szerveroldali configjabol veszi,
  * es a hivo csak azt tudja meg rola, hogy `available`-e.
  */
+import { msg, type Lang } from './messages.js'
 
 export interface AIMessage {
   role: 'user' | 'assistant'
@@ -66,6 +67,9 @@ export interface AIAvailability {
   reason?: 'not_configured'
   /** Emberi reszlet a naplohoz (SOSE kulcs, SOSE token). */
   detail?: string
+  /** #455: the chosen model runs on this provider's key (e.g. "DeepSeek") and
+   *  that key is missing -- the chat names it instead of "no Claude account". */
+  keyFor?: string
 }
 
 export interface AIProvider {
@@ -83,6 +87,13 @@ export interface AIProvider {
    * modell): a hivo a `stream()` alapertelmezettjet hasznalja.
    */
   accounts?(): string[]
+  /**
+   * #455: does the next call run on a Claude subscription account, i.e. on the
+   * shared 5-hour limit? A GLM / DeepSeek / OpenRouter / local Ollama model
+   * does not: the Claude accounts' limits must neither block it nor make the
+   * caller switch accounts. Missing method = true.
+   */
+  onClaudeBudget?(): boolean
 }
 
 const providers = new Map<string, AIProvider>()
@@ -114,6 +125,21 @@ export function pickAIProvider(): AIProvider | null {
     try { if (p.availability().available) return p } catch { /* egy rossz szolgaltato ne vigye a tobbit */ }
   }
   return null
+}
+
+/**
+ * WHY no provider is ready, in words (#455). A chosen model whose key is
+ * missing is named as such; only when nothing points elsewhere does the
+ * general "no provider" sentence stand.
+ */
+export function whyNoAIProvider(lang: Lang): string {
+  for (const p of listAIProviders()) {
+    try {
+      const a = p.availability()
+      if (!a.available && a.keyFor) return msg('model_key_missing', lang, { model: p.model(), provider: a.keyFor })
+    } catch { /* a kovetkezo szolgaltato */ }
+  }
+  return msg('no_provider', lang)
 }
 
 /** Csak teszthez: a nyilvantartas kiuritese. */

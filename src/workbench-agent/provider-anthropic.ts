@@ -25,7 +25,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
+import { MAIN_AGENT_ID, DEFAULT_AGENT_MODEL, OLLAMA_URL } from '../config.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { tryResolveFromPath } from '../platform.js'
 import { resolveAgentConfigDir } from '../web/claude-plans.js'
@@ -34,6 +34,8 @@ import { workbenchAccounts } from './accounts.js'
 import { getSecret } from '../web/vault.js'
 import { GLM_BASE_URL, GLM_FAST_MODEL, GLM_TIMEOUT_MS, GLM_VAULT_KEY, isGlmModel } from '../web/glm-models.js'
 import { resolveOpenRouterModel } from '../web/openrouter-models.js'
+import { isValidModelId } from '../model-id.js'
+import { msg } from './messages.js'
 import type { AIAvailability, AICallRequest, AIChunk, AIProvider, AIVia } from './provider.js'
 
 /** Egy valasz felso hatara. Egy interaktiv beszelgetes-fordulo, nem konyv. */
@@ -274,20 +276,22 @@ async function* streamViaCli(req: AICallRequest, configDir: string, model: strin
 
 /**
  * Third-party routes (#455): the same `claude -p` runner pointed at an
- * Anthropic-compatible endpoint with a vault key -- exactly how the fleet
- * launches GLM / DeepSeek / OpenRouter agents (web/agent-process.ts), so the
- * Workbench offers every model the fleet can run. The key never leaves the
- * server: it goes into the child's environment only. A throw-away config dir
+ * Anthropic-compatible endpoint -- exactly how the fleet launches GLM /
+ * DeepSeek / OpenRouter / Ollama agents (web/agent-process.ts), so the
+ * Workbench offers every model the fleet can run. A vault key never leaves the
+ * server: it goes into the child's environment only. A separate config dir
  * keeps the owner's Claude OAuth login out of the call.
  *
- * Ollama tags (local, no '/') are deliberately NOT a route: the picker does not
- * offer them and a stored one reports `not_configured` instead of quietly
- * answering from the wrong model.
+ * Ollama (a local tag such as `qwen3.6:27b`) needs no key; its address is the
+ * install's OLLAMA_URL. Whether it answers is checked BEFORE the call: the CLI
+ * would otherwise retry a dead address for minutes and then say nothing useful.
  */
-type WorkbenchRoute = 'claude' | 'glm' | 'deepseek' | 'openrouter' | 'unsupported'
+export type WorkbenchRoute = 'claude' | 'glm' | 'deepseek' | 'openrouter' | 'ollama' | 'unsupported'
+export type ThirdPartyRoute = 'glm' | 'deepseek' | 'openrouter' | 'ollama'
 
 interface RouteSpec {
-  vaultKey: string
+  /** null = no key (local Ollama). */
+  vaultKey: string | null
   baseUrl: string
   account: string
   detail: string
@@ -298,10 +302,11 @@ interface RouteSpec {
 const DEEPSEEK_VAULT_KEY = 'DEEPSEEK_API_KEY'
 const OPENROUTER_VAULT_KEY = 'openrouter-fleet-key'
 
-const ROUTE_SPECS: Record<'glm' | 'deepseek' | 'openrouter', RouteSpec> = {
+const ROUTE_SPECS: Record<ThirdPartyRoute, RouteSpec> = {
   glm: { vaultKey: GLM_VAULT_KEY, baseUrl: GLM_BASE_URL, account: 'zai-glm', detail: 'Z.ai GLM Coding Plan', fastModel: GLM_FAST_MODEL, timeoutMs: GLM_TIMEOUT_MS },
   deepseek: { vaultKey: DEEPSEEK_VAULT_KEY, baseUrl: 'https://api.deepseek.com/anthropic', account: 'deepseek', detail: 'DeepSeek' },
   openrouter: { vaultKey: OPENROUTER_VAULT_KEY, baseUrl: 'https://openrouter.ai/api', account: 'openrouter', detail: 'OpenRouter' },
+  ollama: { vaultKey: null, baseUrl: OLLAMA_URL, account: 'ollama', detail: 'Ollama' },
 }
 
 /** Same classification order as the fleet launcher (agent-process.ts). `model` is already resolved. */
@@ -310,51 +315,121 @@ export function workbenchRoute(model: string): WorkbenchRoute {
   if (model.startsWith('deepseek-')) return 'deepseek'
   if (isGlmModel(model)) return 'glm'
   if (model.includes('/')) return 'openrouter'
-  return 'unsupported'
+  // What is left is a local Ollama tag, as in the fleet. A malformed id routes nowhere.
+  return isValidModelId(model) ? 'ollama' : 'unsupported'
 }
 
 /** The stored value -> the concrete id the runner uses (`openrouter-auto:<tier>` is resolved). */
-function effectiveModel(): string { return resolveOpenRouterModel(workbenchModel()) }
+export function effectiveWorkbenchModel(): string { return resolveOpenRouterModel(workbenchModel()) }
 
-function streamViaRoute(req: AICallRequest, model: string, route: 'glm' | 'deepseek' | 'openrouter'): AsyncIterable<AIChunk> {
+export type RouteLaunch =
+  | { ok: true; account: string; detail: string; env: Record<string, string> }
+  | { ok: false; keyFor: string; detail: string }
+
+/** The child environment of a third-party route -- ONE place for the per-turn
+ *  assistant call and the live full-agent session. */
+export function thirdPartyLaunch(route: ThirdPartyRoute, model: string): RouteLaunch {
   const spec = ROUTE_SPECS[route]
-  const key = getSecret(spec.vaultKey)
-  if (key === null) {
-    return (async function* () {
-      yield { kind: 'error', code: 'not_configured', detail: `no ${spec.detail} key in the vault (${spec.vaultKey})` } as AIChunk
-    })()
-  }
-  const dir = mkdtempSync(join(tmpdir(), `marveen-workbench-${route}-`))
-  const extraEnv: NodeJS.ProcessEnv = {
+  // Ollama accepts any token; the fleet sends the same placeholder.
+  const key = spec.vaultKey === null ? 'ollama' : getSecret(spec.vaultKey)
+  if (key === null) return { ok: false, keyFor: spec.detail, detail: `no ${spec.detail} key in the vault (${spec.vaultKey})` }
+  const env: Record<string, string> = {
     ANTHROPIC_AUTH_TOKEN: key,
     ANTHROPIC_BASE_URL: spec.baseUrl,
     ANTHROPIC_MODEL: model,
     ANTHROPIC_DEFAULT_OPUS_MODEL: model,
     ANTHROPIC_DEFAULT_SONNET_MODEL: model,
+    // Background (haiku-class) calls would otherwise ask the endpoint for a Claude model it does not have.
     ANTHROPIC_DEFAULT_HAIKU_MODEL: spec.fastModel ?? model,
   }
-  if (spec.timeoutMs) extraEnv.API_TIMEOUT_MS = spec.timeoutMs
-  const inner = streamViaCli(req, dir, model, { kind: 'account', account: spec.account }, extraEnv)
+  if (spec.timeoutMs) env.API_TIMEOUT_MS = spec.timeoutMs
+  return { ok: true, account: spec.account, detail: spec.detail, env }
+}
+
+/** Does the local Ollama answer? `null` = yes; otherwise the ACTUAL error, never a guessed one. */
+type OllamaProbe = (url: string) => Promise<string | null>
+const realOllamaProbe: OllamaProbe = async (url) => {
+  try {
+    const r = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(3000) })
+    return r.ok ? null : `HTTP ${r.status} ${r.statusText}`.trim()
+  } catch (e) {
+    const err = e as Error & { cause?: { code?: string } }
+    return err.cause?.code ? `${err.message} (${err.cause.code})` : (err.message || String(e))
+  }
+}
+let ollamaProbe: OllamaProbe = realOllamaProbe
+/** Csak teszthez: az Ollama-elerhetoseg mereset cserelese. `null` visszaallitja. */
+export function setOllamaProbeForTest(p: OllamaProbe | null): void { ollamaProbe = p || realOllamaProbe }
+
+/** The install's Ollama address and whether it answers now (`null` = it does). */
+export async function ollamaUnreachable(): Promise<{ url: string; error: string } | null> {
+  const error = await ollamaProbe(OLLAMA_URL)
+  return error === null ? null : { url: OLLAMA_URL, error }
+}
+
+/**
+ * How the live full-agent session (#434) runs the CHOSEN model. Claude: the
+ * login picks the account; `--model` only when the owner chose one (empty =
+ * the account's own default, as before). Other routes: the same environment
+ * as the per-turn call, no Claude login at all.
+ */
+export type LiveModelLaunch =
+  | { kind: 'claude'; model: string | null }
+  | { kind: 'route'; route: ThirdPartyRoute; model: string; account: string; env: Record<string, string> }
+  | { kind: 'unavailable'; route: WorkbenchRoute; model: string; detail: string }
+
+export function liveModelLaunch(): LiveModelLaunch {
+  const chosen = String(getEffectiveSettingValue('WORKBENCH_MODEL') ?? '').trim()
+  const model = effectiveWorkbenchModel()
+  const route = workbenchRoute(model)
+  if (route === 'claude') return { kind: 'claude', model: chosen ? model : null }
+  if (route === 'unsupported') return { kind: 'unavailable', route, model, detail: `model ${model} is not a valid model id` }
+  const l = thirdPartyLaunch(route, model)
+  return l.ok
+    ? { kind: 'route', route, model, account: l.account, env: l.env }
+    : { kind: 'unavailable', route, model, detail: l.detail }
+}
+
+function streamViaRoute(req: AICallRequest, model: string, route: ThirdPartyRoute): AsyncIterable<AIChunk> {
+  const launch = thirdPartyLaunch(route, model)
   return (async function* () {
-    try { yield* inner } finally { try { rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ } }
+    if (!launch.ok) {
+      yield { kind: 'error', code: 'not_configured', detail: launch.detail } as AIChunk
+      return
+    }
+    if (route === 'ollama') {
+      const down = await ollamaUnreachable()
+      if (down) {
+        yield { kind: 'error', code: 'failed', detail: msg('ollama_unreachable', req.lang, down) } as AIChunk
+        return
+      }
+    }
+    const dir = mkdtempSync(join(tmpdir(), `marveen-workbench-${route}-`))
+    try {
+      yield* streamViaCli(req, dir, model, { kind: 'account', account: launch.account }, launch.env)
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ }
+    }
   })()
 }
 
 export const anthropicProvider: AIProvider = {
   id: 'anthropic',
 
-  model(): string { return effectiveModel() },
+  model(): string { return effectiveWorkbenchModel() },
 
   availability(): AIAvailability {
-    const route = workbenchRoute(effectiveModel())
+    const model = effectiveWorkbenchModel()
+    const route = workbenchRoute(model)
     if (route === 'unsupported') {
-      return { available: false, reason: 'not_configured', detail: 'this model has no Workbench route (local Ollama models are not supported)' }
+      return { available: false, reason: 'not_configured', detail: `model ${model} is not a valid model id` }
     }
     if (route !== 'claude') {
-      const spec = ROUTE_SPECS[route]
-      return getSecret(spec.vaultKey) !== null
-        ? { available: true, detail: spec.detail }
-        : { available: false, reason: 'not_configured', detail: `no ${spec.detail} key in the vault` }
+      // Ollama has no key: whether it runs is measured at call time (a sync check cannot ask it).
+      const l = thirdPartyLaunch(route, model)
+      return l.ok
+        ? { available: true, detail: l.detail }
+        : { available: false, reason: 'not_configured', detail: `no ${ROUTE_SPECS[route].detail} key in the vault`, keyFor: l.keyFor }
     }
     const dir = loggedInConfigDir()
     if (dir || workbenchAccounts().length) return { available: true, detail: 'signed-in Claude account' }
@@ -362,11 +437,11 @@ export const anthropicProvider: AIProvider = {
   },
 
   stream(req: AICallRequest): AsyncIterable<AIChunk> {
-    const model = effectiveModel()
+    const model = effectiveWorkbenchModel()
     const route = workbenchRoute(model)
     if (route === 'unsupported') {
       return (async function* () {
-        yield { kind: 'error', code: 'not_configured', detail: `model ${model} has no Workbench route (local Ollama models are not supported)` } as AIChunk
+        yield { kind: 'error', code: 'not_configured', detail: `model ${model} is not a valid model id` } as AIChunk
       })()
     }
     if (route !== 'claude') return streamViaRoute(req, model, route)
@@ -380,7 +455,13 @@ export const anthropicProvider: AIProvider = {
     return streamViaCli(req, dir, model, { kind: 'account', account })
   },
 
+  // #455: only a Claude model runs on the signed-in accounts. For any other
+  // model the account list is empty: no account to pick, none to switch to.
   accounts(): string[] {
-    return workbenchAccounts()
+    return workbenchRoute(effectiveWorkbenchModel()) === 'claude' ? workbenchAccounts() : []
+  },
+
+  onClaudeBudget(): boolean {
+    return workbenchRoute(effectiveWorkbenchModel()) === 'claude'
   },
 }

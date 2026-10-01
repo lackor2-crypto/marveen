@@ -140,6 +140,9 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   // #434: the live Workbench session's scratch cwd and its Claude session ids --
   // both point at the OLD machine's Claude transcripts, useless after a restore.
   'workbench-live', 'workbench-live-sessions.json',
+  // #455: the live session's CLI config per non-Claude route (GLM, DeepSeek,
+  // OpenRouter, Ollama): no login, only that machine's transcripts -- recreated on use.
+  'workbench-live-config',
   // #434: the Workbench turns running right now, resumed after a restart -- machine-local, short-lived.
   'workbench-inflight.json',
   'kanban-audit-state.json', 'schedule-last-run.json', 'terminal-input.json', 'pending-patches',

@@ -25,8 +25,8 @@ import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
 import { familyLines } from '../../workbench-agent/context.js'
 import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
-import { pickAIProvider } from '../../workbench-agent/provider.js'
-import { getRemaining } from '../../workbench-agent/usage-manager.js'
+import { pickAIProvider, whyNoAIProvider } from '../../workbench-agent/provider.js'
+import { OFF_BUDGET, getRemaining } from '../../workbench-agent/usage-manager.js'
 import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts, noteLimitAnswer, refreshLiveAccountUsage } from '../../workbench-agent/accounts.js'
 import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
@@ -37,7 +37,7 @@ import {
   setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
 import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
-import { loggedInConfigDir, STRIPPED_ENV } from '../../workbench-agent/provider-anthropic.js'
+import { effectiveWorkbenchModel, liveModelLaunch, loggedInConfigDir, ollamaUnreachable, STRIPPED_ENV, workbenchRoute } from '../../workbench-agent/provider-anthropic.js'
 import { tryResolveFromPath } from '../../platform.js'
 import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat, effectiveRunSessionId, findCodeTabLocation, type CodeTask } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
@@ -433,6 +433,33 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
   if (process.env.VITEST) return null
   const bin = tryResolveFromPath('claude')
   if (!bin) return null
+  // #455: the model chosen in the chat's Settings runs here too, not only in
+  // the narrowed assistant -- the full mode used to ignore it entirely.
+  const launch = liveModelLaunch()
+  if (launch.kind === 'unavailable') return null
+  const guard = guardSettingsJson(join(PROJECT_ROOT, 'templates', 'settings.json.template'), PROJECT_ROOT)
+  const mode = (JSON.parse(guard).permissions?.defaultMode as string) || 'bypassPermissions'
+  const baseArgs = [
+    '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
+    '--verbose', '--include-partial-messages',
+    '--setting-sources', '', '--strict-mcp-config',
+    '--settings', guard, '--permission-mode', mode,
+  ]
+  if (launch.kind === 'route') {
+    // GLM / DeepSeek / OpenRouter / Ollama: no Claude login. An own config dir
+    // per route keeps the owner's login and the agents' logs out of it.
+    const configDir = join(STORE_DIR, 'workbench-live-config', launch.route)
+    if (skip?.has(configDir)) return null
+    mkdirSync(configDir, { recursive: true })
+    const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: configDir, MARVEEN_WORKBENCH_LIVE: '1' }
+    for (const k of LIVE_STRIPPED_ENV) delete env[k]
+    Object.assign(env, launch.env)
+    return {
+      key, bin, configDir, cwd: liveCwd(projectFolder), env,
+      account: launch.account, model: launch.model,
+      baseArgs: [...baseArgs, '--model', launch.model],
+    }
+  }
   const candidates = account ? [account] : [...workbenchAccounts(), MAIN_AGENT_ID]
   let configDir: string | null = null
   let accountName = ''
@@ -443,8 +470,6 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
   if (!configDir) return null
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: configDir, MARVEEN_WORKBENCH_LIVE: '1' }
   for (const k of LIVE_STRIPPED_ENV) delete env[k]
-  const guard = guardSettingsJson(join(PROJECT_ROOT, 'templates', 'settings.json.template'), PROJECT_ROOT)
-  const mode = (JSON.parse(guard).permissions?.defaultMode as string) || 'bypassPermissions'
   return {
     key,
     bin,
@@ -452,12 +477,8 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
     cwd: liveCwd(projectFolder),
     env,
     account: accountName,
-    baseArgs: [
-      '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-      '--verbose', '--include-partial-messages',
-      '--setting-sources', '', '--strict-mcp-config',
-      '--settings', guard, '--permission-mode', mode,
-    ],
+    model: launch.model,
+    baseArgs: launch.model ? [...baseArgs, '--model', launch.model] : baseArgs,
   }
 }
 /** A kod-hidas (teljes erteku) fordulo ennyit var a chatben; utana a hatterben
@@ -554,13 +575,17 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // MENNE (#402) -- nem mindig a fo agense.
     let account: string | null = null
     try { account = provider?.accounts?.()[0] || null } catch { account = null }
-    const remaining = getRemaining(account || undefined)
+    // #455: a GLM / DeepSeek / OpenRouter / Ollama model is not on a Claude
+    // account -- the Claude 5-hour limit neither blocks it nor describes it.
+    let onClaudeBudget = true
+    try { onClaudeBudget = provider?.onClaudeBudget?.() ?? true } catch { onClaudeBudget = true }
+    const remaining = getRemaining(onClaudeBudget ? account || undefined : OFF_BUDGET)
     const u = remaining.usage
     json(res, {
       provider: provider
         ? { id: provider.id, model: provider.model(), account, available: true }
         // A ket eset KULONBOZIK: nincs beallitva vs nem latunk oda.
-        : { id: null, model: null, available: false, message: msg('no_provider', lang) },
+        : { id: null, model: null, available: false, message: whyNoAIProvider(lang) },
       usage: {
         // usedPct === null = NINCS meres. Nem 0%.
         usedPct: u.usedPct,
@@ -570,7 +595,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         resetsAt: u.resetsAt,
         tier: u.tier,
         inFlight: u.inFlight,
-        message: u.usedPct === null ? msg('usage_unknown', lang) : null,
+        message: !onClaudeBudget ? msg('usage_off_budget', lang) : u.usedPct === null ? msg('usage_unknown', lang) : null,
       },
       allowed: remaining.allowed,
       blockedReason: remaining.reason,
@@ -762,7 +787,11 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // An interrupted live turn continues in the live session that has its context.
     const resumeCount = resumingTurns.get(key)
     const bridgeFirst = !account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil
-    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline, liveAvailable: !!liveSpec, bridgeFirst })
+    // #455: a GLM / DeepSeek / OpenRouter / local Ollama model runs only in the
+    // live session -- the code bridge has the worker's own Claude login.
+    const modelRoute = fullAgentEnabled ? workbenchRoute(effectiveWorkbenchModel()) : 'claude'
+    const nonClaudeModel = modelRoute !== 'claude'
+    const decision = decideWorkbenchBackend({ fullAgentEnabled, workerOnline, liveAvailable: !!liveSpec, bridgeFirst, nonClaudeModel })
 
     // A csendes kapcsolat eletben tartasa (#433): a kod-hidas fordulo percekig
     // nem kuld semmit (csak az elejen es a vegen), es egy kozbeeso proxy vagy
@@ -787,6 +816,17 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       const history = prior ?? listAgentMessages(session.id)
       const text = input.message.trim()
       if (!prior) addAgentMessage(session.id, resumeCount !== undefined ? 'system' : 'user', text)
+      // #455: a stopped local Ollama would make the CLI retry for minutes and
+      // then say nothing useful -- ask it first and name the actual error.
+      if (modelRoute === 'ollama') {
+        const down = await ollamaUnreachable()
+        if (down) {
+          const m = msg('provider_failed', lang, { detail: msg('ollama_unreachable', lang, down) })
+          addAgentMessage(session.id, 'system', m)
+          send('error', { type: 'error', code: 'live_failed', message: m })
+          return
+        }
+      }
       // What the session is asked: the message, plus -- when the work moves to
       // another account mid-way -- where it stopped (Boss, 2026-09-29).
       let turnText = note ? `${text}\n\n${note}` : text

@@ -805,6 +805,28 @@ describe('agent-chat (3. fazis)', () => {
       expect(JSON.parse(String(post?.init?.body))).toEqual({ WORKBENCH_MODEL: 'claude-sonnet-5' })
     })
   })
+
+  it('#455: a modell-lenyilo a helyi (Ollama) modelleket is kinalja, ugyanabbol a forrasbol, mint az ugynokok', async () => {
+    await openChat()
+    let ollama: any = { verdict: 'ok', url: 'http://localhost:11434', models: [{ name: 'qwen3.6:27b', size: '17 GB' }] }
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/config') >= 0) return { status: 200, body: { WORKBENCH_MODEL: '' } }
+      if (url.indexOf('/api/models/available') >= 0) return { status: 200, body: { claude: [], claudeUj: [], glmConfigured: false, deepseekConfigured: false, openrouterConfigured: false } }
+      if (url.indexOf('/api/ollama/models') >= 0) return { status: 200, body: ollama }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: null, measured: false }, allowed: true } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.click({ 'data-wb-act': 'chat-setup' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="qwen3.6:27b"'))
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.model_group_ollama')
+
+    // Nem fut: a csoport megmarad es kimondja, miert ures -- nem tunik el csendben.
+    ollama = { verdict: 'unreachable', url: 'http://localhost:11434', models: [], error: 'fetch failed' }
+    h.click({ 'data-wb-act': 'chat-setup-close' })
+    h.click({ 'data-wb-act': 'chat-setup' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.model_ollama_unreachable'))
+    expect(h.rootEl.innerHTML).not.toContain('value="qwen3.6:27b"')
+  })
 })
 
 describe('mobil-paritas', () => {

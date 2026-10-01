@@ -35,7 +35,7 @@ import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
 import { runTool, toolResultForModel } from './execute.js'
 import { msg, type Lang } from './messages.js'
-import { pickAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
+import { pickAIProvider, whyNoAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
   addAgentMessage, claimAwaitingCallsForApproval, finishToolCall, isApprovalRunInProgress, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
   projectSessionKey, startToolCall,
@@ -43,7 +43,7 @@ import {
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
 import { settleWorkbenchApprovals } from './approved-runner.js'
-import { getRemaining, record, reserve } from './usage-manager.js'
+import { OFF_BUDGET, getRemaining, record, reserve } from './usage-manager.js'
 
 /**
  * Hany tool-kor lehet egy forduloban. A tizedik kor mar nem terv, hanem kor.
@@ -140,6 +140,14 @@ export function parseToolCall(text: string): { tool: string; input: Record<strin
 export function mayBeToolCall(soFar: string): boolean {
   const s = soFar.trimStart().replace(/^```(?:json)?\s*/i, '').trimStart()
   return s === '' || s.startsWith('{') || '{'.startsWith(s.slice(0, 1))
+}
+
+/** #455: why THIS provider cannot answer -- a missing key of the chosen model is
+ *  named, not reported as "no Claude account signed in". */
+function notReadyMessage(provider: AIProvider, lang: Lang): string {
+  let keyFor: string | undefined
+  try { keyFor = provider.availability().keyFor } catch { keyFor = undefined }
+  return keyFor ? msg('model_key_missing', lang, { model: provider.model(), provider: keyFor }) : msg('no_provider', lang)
 }
 
 function usageNotice(lang: Lang, account?: string): { code: string; message: string } | null {
@@ -310,7 +318,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
 
     const provider = providerOverride ?? pickAIProvider()
     if (!provider) {
-      const m = msg('no_provider', lang)
+      const m = whyNoAIProvider(lang)
       addAgentMessage(session.id, 'system', m)
       yield { type: 'notice', code: 'no_provider', message: m }
       yield { type: 'done', model: null }
@@ -318,7 +326,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     }
     const avail = provider.availability()
     if (!avail.available) {
-      const m = msg('no_provider', lang)
+      const m = notReadyMessage(provider, lang)
       addAgentMessage(session.id, 'system', m)
       yield { type: 'notice', code: 'no_provider', message: m }
       yield { type: 'done', model: null }
@@ -341,13 +349,16 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     // Az a fiok, amelyik ebben a korben mar valaszolt: a kovetkezo korben
     // elol marad, hogy egy beszelgetes ne ugraljon fiokok kozott.
     let stickyAccount: string | undefined
+    // #455: a GLM / DeepSeek / OpenRouter / Ollama model is not on any Claude
+    // account: no Claude 5-hour limit gates it and no account switch helps it.
+    const onClaudeBudget = provider.onClaudeBudget?.() ?? true
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       // --- melyik fiokkal (#402) ------------------------------------------
       // Kimondott fiok: csak az. Kulonben a szolgaltato sorrendje (a legtobb
       // 5 oras kerettel rendelkezo elol); ha nincs lista, a szolgaltato
       // alapertelmezettje (`undefined` = fo fiok vagy API-kulcs).
-      let candidates: (string | undefined)[] = input.account ? [input.account] : (provider.accounts?.() || [])
+      let candidates: (string | undefined)[] = !onClaudeBudget ? [] : input.account ? [input.account] : (provider.accounts?.() || [])
       if (stickyAccount && candidates.includes(stickyAccount)) {
         candidates = [stickyAccount, ...candidates.filter((a) => a !== stickyAccount)]
       }
@@ -363,14 +374,15 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         const account = candidates[ai]
         const isLast = ai === candidates.length - 1
         // --- a kozos keret kapuja (spec 0.2): a VALASZTOTT fiok 5 oras kerete
-        const blocked = usageNotice(lang, account)
+        const budgetKey = onClaudeBudget ? account : OFF_BUDGET
+        const blocked = usageNotice(lang, budgetKey)
         if (blocked) {
           blockedAll = blocked
           // A levegoben levo hivasok szama nem fiokfuggo: masik fiok sem segit.
           if (blocked.code === 'too_many_in_flight') break
           continue
         }
-        const res = reserve(account)
+        const res = reserve(budgetKey)
         if (!res.ok) {
           blockedAll = {
             code: res.reason,
@@ -409,11 +421,13 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
               // akkor latszik, ha MINDEN fiok limitelt (auto), vagy ha a
               // felhasznalo EGY konkret, limitelt fiokot valasztott.
               failure = chunk.code === 'limit'
-                ? input.account
-                  ? { code: 'chosen_account_limited', message: msg('chosen_account_limited', lang, { account: input.account }) }
-                  : { code: 'all_accounts_limited', message: msg('all_accounts_limited', lang) }
+                ? !onClaudeBudget
+                  ? { code: 'model_provider_limited', message: msg('model_provider_limited', lang, { model: provider.model() }) }
+                  : input.account
+                    ? { code: 'chosen_account_limited', message: msg('chosen_account_limited', lang, { account: input.account }) }
+                    : { code: 'all_accounts_limited', message: msg('all_accounts_limited', lang) }
                 : chunk.code === 'not_configured'
-                  ? { code: 'no_provider', message: msg('no_provider', lang) }
+                  ? { code: 'no_provider', message: notReadyMessage(provider, lang) }
                   : chunk.code === 'no_answer'
                     ? { code: 'provider_no_answer', message: msg('provider_no_answer', lang) }
                     : { code: 'provider_failed', message: msg('provider_failed', lang, { detail: chunk.detail }) }
