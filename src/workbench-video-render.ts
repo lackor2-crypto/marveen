@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import { resolveLifePath } from './life-explorer.js'
+import { getDb } from './db.js'
 import { baseNameForNextVersion } from './workbench-edit.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
 import { ASPECT_SIZE, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
@@ -229,4 +230,22 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
     videoBusy.delete(itemId)
     if (tmp) { try { rmSync(tmp, { recursive: true, force: true }) } catch { /* temp dir; the OS cleans it */ } }
   }
+}
+
+export interface LastRender { rel: string; name: string; seconds: number; version_id: string; version_no: number }
+
+/** The newest version of the work item that has a rendered video recorded on it. */
+export function lastRenderOf(itemId: string): LastRender | null {
+  const rows = getDb().prepare('SELECT id, version_no, metadata_json FROM work_item_versions WHERE work_item_id = ? AND metadata_json IS NOT NULL ORDER BY version_no DESC')
+    .all(itemId) as { id: string; version_no: number; metadata_json: string }[]
+  for (const r of rows) {
+    try {
+      const m = JSON.parse(r.metadata_json) as { render?: { rel?: unknown; name?: unknown; seconds?: unknown } }
+      const x = m.render
+      if (x && typeof x.rel === 'string' && typeof x.name === 'string') {
+        return { rel: x.rel, name: x.name, seconds: Number(x.seconds) || 0, version_id: r.id, version_no: r.version_no }
+      }
+    } catch { /* a version with unreadable metadata is skipped, not fatal */ }
+  }
+  return null
 }

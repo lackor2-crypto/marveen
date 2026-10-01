@@ -457,6 +457,22 @@ export function setWorkItemVersionLabel(versionId: string, label: unknown): Work
   return getWorkItemVersion(v.id)
 }
 
+/** Adds keys to the metadata of a version (other keys stay). Used to record the rendered video on a timeline version. */
+export function setWorkItemVersionMeta(versionId: string, patch: Record<string, unknown>): WorkItemVersionRow | undefined {
+  ensureWorkbenchTables()
+  const v = getWorkItemVersion(versionId)
+  if (!v) return undefined
+  let meta: Record<string, unknown> = {}
+  if (v.metadata_json) {
+    try {
+      const parsed = JSON.parse(v.metadata_json) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) meta = parsed as Record<string, unknown>
+    } catch { /* unreadable old metadata: written over with the new keys */ }
+  }
+  getDb().prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify({ ...meta, ...patch }), v.id)
+  return getWorkItemVersion(v.id)
+}
+
 /** Hany munkadarab van a projektben (a belepesi pont szamlaloja). */
 export function countWorkItems(projectId: string): number {
   ensureWorkbenchTables()

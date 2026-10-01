@@ -47,7 +47,7 @@ export interface PreviewResult {
    *  'office' = irodai dokumentum, amibol PDF-et kell keszitenunk. */
   /** 'canvas' = strukturalt rajz (9. fazis): a kepet a szerver rajzolja ki
    *  SVG-be, tehat a bongeszonek nem kell hozza semmi. */
-  kind: PreviewKind | 'parts' | 'office' | 'canvas' | null
+  kind: PreviewKind | 'parts' | 'office' | 'canvas' | 'timeline' | null
   version_id: string | null
   version_no: number | null
   rel: string | null
@@ -168,6 +168,15 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
   if (isCanvasFile(name)) {
     return {
       available: true, kind: 'canvas', ...base, mime: 'image/svg+xml', etag,
+      text: null, truncated: false, reason: null, detail: null, office: null,
+    }
+  }
+
+  // VIDEO TIMELINE (phase 5): a `.timeline.json` is data, not something to read:
+  // the editor shows it, with the last rendered video as the picture.
+  if (name.toLowerCase().endsWith('.timeline.json')) {
+    return {
+      available: true, kind: 'timeline', ...base, mime: 'application/json', etag,
       text: null, truncated: false, reason: null, detail: null, office: null,
     }
   }

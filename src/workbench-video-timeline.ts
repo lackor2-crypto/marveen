@@ -411,8 +411,13 @@ export const timelineKind: DraftKind<TimelineDoc, TimelinePatch> = {
   ext: TIMELINE_EXT,
   maxBytes: 2_000_000,
   empty: emptyTimeline,
+  // The store hands over the file / database text; a ready object is accepted too.
   parse: (raw) => {
-    const p = parseTimeline(raw)
+    let value: unknown = raw
+    if (typeof raw === 'string') {
+      try { value = JSON.parse(raw) } catch { return { ok: false, code: 'timeline_bad_shape', detail: 'the timeline file is not valid JSON' } }
+    }
+    const p = parseTimeline(value)
     return p.ok ? { ok: true, doc: p.doc } : { ok: false, code: p.code, detail: p.detail }
   },
   isFile: (name) => name.toLowerCase().endsWith(TIMELINE_EXT),

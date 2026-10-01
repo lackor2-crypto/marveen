@@ -45,7 +45,7 @@ import { getProject } from '../../projects.js'
 import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
-  createWorkItemVersion, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
+  createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
 import { writeProjectFile, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
@@ -74,6 +74,9 @@ import { docEditExt, docToEditableHtml, htmlToDocBytes, pdfToDocxBytes, looksLik
 import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
+import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS } from '../../workbench-video-timeline.js'
+import { renderTimeline, lastRenderOf } from '../../workbench-video-render.js'
+import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
@@ -644,6 +647,138 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   canvas_saved: {
     hu: 'Mentve, új verzióként. A korábbi állapot megmaradt.',
     en: 'Saved as a new version. The earlier state is kept.',
+  },
+  timeline_not_video: {
+    hu: 'Az idővonal csak videó típusú munkadarabon van. Hozz létre egy videó munkadarabot.',
+    en: 'The timeline only exists on a video work item. Create a video work item.',
+  },
+  timeline_bad_shape: {
+    hu: 'Az idővonal adatai nem érthetők. Töltsd újra az oldalt, és próbáld újra.',
+    en: 'The timeline data could not be understood. Reload the page and try again.',
+  },
+  timeline_bad_op: {
+    hu: 'Ez a művelet nem érthető vagy üres. Próbáld újra.',
+    en: 'That operation is not understood or empty. Try again.',
+  },
+  timeline_not_found: {
+    hu: 'Ez az elem nem található az idővonalon (lehet, hogy közben törölték). Töltsd újra az oldalt.',
+    en: 'That element is not on the timeline (it may have been removed meanwhile). Reload the page.',
+  },
+  timeline_too_many: {
+    hu: 'Az idővonalon legfeljebb 100 klip, 500 felirat és 50 kép-rátét lehet.',
+    en: 'The timeline can hold at most 100 clips, 500 subtitles and 50 picture overlays.',
+  },
+  timeline_bad_time: {
+    hu: 'Az időpontok nem jók: a kezdet és a vég másodperc legyen (például 12,5), és a vég legalább 0,1 másodperccel legyen a kezdet után.',
+    en: 'The times are not valid: start and end must be seconds (for example 12.5), and the end at least 0.1 seconds after the start.',
+  },
+  timeline_bad_media: {
+    hu: 'Ez a fájl nem használható itt. Klipnek videót (mp4, mov, webm), zenének hangfájlt (mp3, m4a, wav), rátétnek képet (png, jpg) válassz a projekt mappájából.',
+    en: 'This file cannot be used here. Pick a video (mp4, mov, webm) as a clip, an audio file (mp3, m4a, wav) as music, a picture (png, jpg) as an overlay, from the project folder.',
+  },
+  timeline_text_required: {
+    hu: 'Írd be a felirat szövegét.',
+    en: 'Type the subtitle text.',
+  },
+  timeline_text_too_long: {
+    hu: 'A felirat túl hosszú (legfeljebb 300 karakter). Bontsd több feliratra.',
+    en: 'The subtitle is too long (300 characters at most). Split it into several subtitles.',
+  },
+  timeline_bad_aspect: {
+    hu: 'A kép formátuma csak 16:9 (fekvő), 9:16 (álló, Reels/Story) vagy 1:1 (négyzet) lehet.',
+    en: 'The picture format can only be 16:9 (landscape), 9:16 (portrait, Reels/Story) or 1:1 (square).',
+  },
+  timeline_bad_value: {
+    hu: 'Az érték nem jó: a hangerő és az átlátszóság 0 és 1 közötti szám, a rátét helye és szélessége 0 és 1 közötti arány.',
+    en: 'The value is not valid: volume and opacity are numbers between 0 and 1, the overlay position and width are shares between 0 and 1.',
+  },
+  timeline_saved: {
+    hu: 'Az idővonal elmentve, új verzióként.',
+    en: 'The timeline is saved, as a new version.',
+  },
+  timeline_autosaved: {
+    hu: 'Mentve. Verzió akkor lesz belőle, ha a „Verzió mentése” gombra nyomsz.',
+    en: 'Saved. It becomes a version when you press "Save version".',
+  },
+  timeline_version_saved: {
+    hu: 'Verzió mentve. Az idővonalon tovább dolgozhatsz, a visszavonás is megmaradt.',
+    en: 'Version saved. You can keep working on the timeline, and undo still works.',
+  },
+  timeline_version_unchanged: {
+    hu: 'Nincs új változás a legutóbbi verzió óta.',
+    en: 'There is no new change since the last version.',
+  },
+  timeline_rendered: {
+    hu: 'Kész a videó. Új fájl lett belőle a projekt mappájában, a régi videók érintetlenek.',
+    en: 'The video is ready. It is a new file in the project folder; the old videos are untouched.',
+  },
+  render_empty: {
+    hu: 'Az idővonalon még nincs klip, így nincs mit elkészíteni. Adj hozzá legalább egy videót.',
+    en: 'There is no clip on the timeline yet, so there is nothing to make. Add at least one video.',
+  },
+  render_source_missing: {
+    hu: 'Az egyik használt fájl nem található a lemezen. A részletek megmondják, melyik: tedd vissza, vagy vedd ki az idővonalról.',
+    en: 'One of the files used cannot be found on disk. The details say which one: put it back or take it off the timeline.',
+  },
+  render_source_outside: {
+    hu: 'Az egyik használt fájl nem a projekt mappájában van, ezért nem használható. A részletek megmondják, melyik.',
+    en: 'One of the files used is not in the project folder, so it cannot be used. The details say which one.',
+  },
+  render_no_subtitle_filter: {
+    hu: 'Ez a gép videóprogramja nem tud feliratot a képre írni. Vedd ki a feliratokat, vagy telepíts teljes ffmpeg-et (a Képességek panel megmondja, hogyan). A videó emiatt nem készült el, hogy ne feliratok nélkül kapd meg csendben.',
+    en: 'This machine\'s video program cannot burn subtitles into the picture. Remove the subtitles, or install a full ffmpeg (the Capabilities panel says how). The video was not made, so you do not get it silently without subtitles.',
+  },
+  render_probe_failed: {
+    hu: 'Nem tudtam megnézni, van-e hang az egyik videóban (az ffprobe nem válaszolt). A részletek megmondják, melyik fájl.',
+    en: 'I could not check whether one of the videos has sound (ffprobe did not answer). The details say which file.',
+  },
+  video_nothing_to_undo: {
+    hu: 'Nincs mit visszavonni: a legutóbbi verzió óta nem történt változás ezen az idővonalon.',
+    en: 'There is nothing to undo: this timeline has not changed since the last version.',
+  },
+  video_nothing_to_redo: {
+    hu: 'Nincs mit újra elvégezni: nincs visszavont lépés.',
+    en: 'There is nothing to redo: no step has been undone.',
+  },
+  video_undo_conflict: {
+    hu: 'Ezt a lépést nem vonom vissza, mert közben az idővonal más módon is megváltozott. A mostani idővonal érintetlen.',
+    en: 'I am not undoing this step, because the timeline has changed in another way since. The timeline is untouched.',
+  },
+  video_draft_unreadable: {
+    hu: 'Az idővonal munkapéldánya sérült az adatbázisban. A verziók érintetlenek: a verziólistából visszaállhatsz egyre.',
+    en: 'The working copy of the timeline is damaged in the database. The versions are untouched: you can go back to one from the version list.',
+  },
+  video_nothing_to_version: {
+    hu: 'Még nincs idővonal, így nincs miből verziót menteni. Adj hozzá egy klipet.',
+    en: 'There is no timeline yet, so there is nothing to save as a version. Add a clip first.',
+  },
+  video_orphan_not_found: {
+    hu: 'Ez az elhagyott munka már nem található.',
+    en: 'That abandoned work is no longer there.',
+  },
+  video_missing: {
+    hu: 'Az idővonal fájlja nem található a lemezen.',
+    en: 'The timeline file cannot be found on disk.',
+  },
+  video_unreachable: {
+    hu: 'Az idővonal fájljához nem látok oda (a Raktár vagy a mappa nem elérhető).',
+    en: 'I cannot reach the timeline file (the Depot or the folder is not available).',
+  },
+  video_unreadable: {
+    hu: 'Az idővonal fájlját nem tudtam elolvasni.',
+    en: 'I could not read the timeline file.',
+  },
+  video_too_large: {
+    hu: 'Az idővonal fájlja túl nagy.',
+    en: 'The timeline file is too large.',
+  },
+  video_no_folder: {
+    hu: 'A projektnek nincs mappája, ezért nincs hová menteni az idővonalat.',
+    en: 'The project has no folder, so there is nowhere to save the timeline.',
+  },
+  video_no_depot: {
+    hu: 'Nincs beállítva a Raktár ezen a gépen, ezért nincs hová menteni az idővonalat.',
+    en: 'The Depot is not set up on this machine, so there is nowhere to save the timeline.',
   },
   canvas_autosaved: {
     hu: 'Mentve. Verzió akkor lesz belőle, ha a „Verzió mentése” gombra nyomsz.',
@@ -3626,6 +3761,118 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     json(res, { ok: true, ...canvasState(), message: msg('canvas_orphan_discarded', lang) })
     return true
   }
+
+  // ============================================================================
+  // VIDEO TIMELINE (v4 spec phase 5, video): clips, subtitles, music, overlays.
+  // Same shape as the canvas above: edits save at once to a working copy, only a
+  // milestone makes a version, every step is undoable. The render makes a NEW mp4.
+  // ============================================================================
+  if (segs[1] === 'timeline') {
+    if (item.type !== 'video') return fail(res, 409, 'timeline_not_video', lang)
+    const store = timelineStore()
+    const tlArchived = (): boolean => {
+      const owner = getProject(item.project_id)
+      return !!owner && owner.archived_at != null
+    }
+    const tlState = (): Record<string, unknown> => {
+      const r = store.read(item.id)
+      return { draft: r.ok ? r.draft : null, history: store.history(item.id), orphans: store.orphans(item.id) }
+    }
+    const tlStatus = (code: string): number => (/_(not_found|orphan_not_found)$/.test(code) ? 404 : 409)
+
+    if (segs.length === 2 && method === 'GET') {
+      const r = store.read(item.id, url.searchParams.get('version'))
+      if (!r.ok) return failDetail(res, tlStatus(r.code), r.code, lang, r.detail)
+      const fresh = getWorkItem(item.id) || item
+      const onCurrent = !r.version_id || r.version_id === fresh.current_version_id
+      const last = lastRenderOf(item.id)
+      json(res, {
+        timeline: r.doc, exists: r.exists, rel: r.rel, name: r.name, version_id: r.version_id, version_no: r.version_no,
+        summary: timelineSummary(r.doc), duration: timelineDuration(r.doc), offsets: clipOffsets(r.doc),
+        limits: { clips: TIMELINE_MAX_CLIPS, subtitles: TIMELINE_MAX_SUBTITLES, overlays: TIMELINE_MAX_OVERLAYS, text: TIMELINE_TEXT_MAX, min_clip: TIMELINE_MIN_CLIP, aspects: TIMELINE_ASPECTS },
+        current: onCurrent, draft: r.draft,
+        history: onCurrent ? store.history(item.id) : null, orphans: store.orphans(item.id),
+        last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: !!r.version_id && last.version_id === r.version_id && !(r.draft && r.draft.since_version) } : null,
+      })
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'ops' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const body = await readJson(req)
+      if (!body) return fail(res, 400, 'bad_json', lang)
+      if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
+      const current = store.read(item.id)
+      if (!current.ok) return failDetail(res, tlStatus(current.code), current.code, lang, current.detail)
+      const applied = applyTimelineOps(current.doc, body['ops'])
+      if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+      const group = typeof body['group'] === 'string' ? body['group'].trim().slice(0, 80) : ''
+      const commit = store.commit(item, applied.doc, {
+        source: 'owner', grp: group ? `ui:${group}` : null, label: opsLabel(body['ops']),
+        actor: actor(ctx), name: current.name, prompt: body['prompt'],
+      })
+      if (!commit.ok) return failDetail(res, commit.code === 'project_not_found' ? 404 : 400, commit.code, lang, commit.detail)
+      const fresh = getWorkItem(item.id) || item
+      const created = commit.created
+      json(res, {
+        ok: true, timeline: applied.doc, applied: applied.applied, changed: commit.changed, item: fresh,
+        versions: listWorkItemVersionsView(item.id), rel: created ? created.rel : current.rel, created: !!created,
+        summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
+        ...tlState(), message: msg(created ? 'timeline_saved' : 'timeline_autosaved', lang),
+      }, created ? 201 : 200)
+      return true
+    }
+
+    if (segs.length === 3 && (segs[2] === 'undo' || segs[2] === 'redo') && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const r = segs[2] === 'undo' ? store.undo(item, actor(ctx)) : store.redo(item, actor(ctx))
+      if (!r.ok) return failDetail(res, tlStatus(r.code), r.code, lang, r.detail)
+      json(res, {
+        ok: true, timeline: r.doc, step: { label: r.label, source: r.source }, item: getWorkItem(item.id) || item,
+        summary: timelineSummary(r.doc), duration: timelineDuration(r.doc), offsets: clipOffsets(r.doc), ...tlState(),
+      })
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'version' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const body = (await readJson(req)) || {}
+      const v = store.saveVersion(item, { label: body['label'], reason: body['reason'], actor: actor(ctx) })
+      if (!v.ok) return failDetail(res, tlStatus(v.code), v.code, lang, v.detail)
+      json(res, {
+        ok: true, created: v.created, item: v.item, version: v.version, versions: listWorkItemVersionsView(item.id),
+        ...tlState(), message: msg(v.created ? 'timeline_version_saved' : 'timeline_version_unchanged', lang),
+      }, v.created ? 201 : 200)
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'render' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const project = getProject(item.project_id)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const cur = store.read(item.id)
+      if (!cur.ok) return failDetail(res, tlStatus(cur.code), cur.code, lang, cur.detail)
+      const r = await renderTimeline(project, item.id, item.title, cur.doc)
+      if (!r.ok) {
+        const status = r.code === 'video_busy' ? 409
+          : r.code === 'video_no_ffmpeg' || r.code === 'video_ffmpeg_check_failed' || r.code === 'render_no_subtitle_filter' ? 503
+          : r.code === 'video_failed' || r.code === 'video_timeout' || r.code === 'write_failed' ? 500 : 400
+        return failDetail(res, status, r.code, lang, ('detail' in r && r.detail) || null)
+      }
+      // The version that holds exactly the timeline that was rendered; the mp4 is recorded on it.
+      const v = store.saveVersion(item, { reason: 'export', actor: actor(ctx), metadata: {} })
+      const versionId = v.ok ? v.version.id : cur.version_id
+      if (versionId) setWorkItemVersionMeta(versionId, { render: { rel: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes } })
+      const last = lastRenderOf(item.id)
+      json(res, {
+        ok: true, file: r.file, seconds: r.seconds, item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id),
+        last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: true } : null,
+        ...tlState(), message: msg('timeline_rendered', lang),
+      }, 201)
+      return true
+    }
+  }
+
 
   // DOKUMENTUM MENTESE (#444, 1A): a szerkesztett HTML-bol UGYANABBAN a
   // formatumban uj fajl (.docx marad .docx) + UJ verzio; a regi erintetlen.
