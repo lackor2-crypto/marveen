@@ -23,6 +23,11 @@ import { resolveLifePath, explorerRoot } from './life-explorer.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { fileKind, type PreviewKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
+
+/** A video timeline file. The free-name search puts " (2)" before the extension (`x.timeline (2).json`), so that form counts too. */
+export function isTimelineFile(name: unknown): boolean {
+  return /\.timeline(?: \(\d+\))?\.json$/i.test(String(name ?? ''))
+}
 import { isOfficeConvertible, officeExt, cachedPdfFor } from './office-convert.js'
 import {
   getWorkItem, listWorkItemVersions, listWorkItemParts,
@@ -47,7 +52,7 @@ export interface PreviewResult {
    *  'office' = irodai dokumentum, amibol PDF-et kell keszitenunk. */
   /** 'canvas' = strukturalt rajz (9. fazis): a kepet a szerver rajzolja ki
    *  SVG-be, tehat a bongeszonek nem kell hozza semmi. */
-  kind: PreviewKind | 'parts' | 'office' | 'canvas' | null
+  kind: PreviewKind | 'parts' | 'office' | 'canvas' | 'timeline' | null
   version_id: string | null
   version_no: number | null
   rel: string | null
@@ -168,6 +173,15 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
   if (isCanvasFile(name)) {
     return {
       available: true, kind: 'canvas', ...base, mime: 'image/svg+xml', etag,
+      text: null, truncated: false, reason: null, detail: null, office: null,
+    }
+  }
+
+  // VIDEO TIMELINE (phase 5): a `.timeline.json` is data, not something to read:
+  // the editor shows it, with the last rendered video as the picture.
+  if (isTimelineFile(name)) {
+    return {
+      available: true, kind: 'timeline', ...base, mime: 'application/json', etag,
       text: null, truncated: false, reason: null, detail: null, office: null,
     }
   }

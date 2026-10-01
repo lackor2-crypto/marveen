@@ -418,6 +418,25 @@ export const TOOLS: ToolDef[] = [
     input: 'id: the work item id (optional, defaults to the open one); ops: the list of operations. Each one is an object: {op:"add", object:{type:"text"|"rect"|"ellipse"|"line"|"image", ...}}, {op:"update", id, patch:{...}}, {op:"remove", id}, {op:"move", id, dx, dy}, {op:"center", id, axis:"x"|"y"|"both"}, {op:"scale", id, factor} (1.3 = 30% bigger), {op:"order", id, to:"front"|"back"|"up"|"down"}, {op:"rotate", id, angle} (degrees, or by: degrees to turn), {op:"duplicate", id, dx, dy}, {op:"align", ids:[...], to:"left"|"center"|"right"|"top"|"middle"|"bottom"} (one id = to the canvas), {op:"distribute", ids:[3 or more], axis:"x"|"y"} (even spacing), {op:"group", ids, name}, {op:"ungroup", group},, {op:"resize", platform} (or width, height: a new size with the elements rearranged proportionally and kept inside the platform safe zone; the platform ids are in canvas.get) or {op:"canvas", width, height, background} (size only, nothing moves). A group name works as id for move, center, duplicate, remove and order. Every object has x, y, width, height, opacity (0..1), rotation. A text object has text, fontSize, font ("sans"|"serif"|"mono"), color (#rrggbb), align, bold, italic; a rect has fill and radius; an ellipse (circle) has fill, stroke, strokeWidth; a line has stroke and strokeWidth (it runs across its width; turn it with rotation); an image has src (a picture inside the project folder). A button is a rect and a text in one group.',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
   },
+  // v4 spec phase 5 (video): the timeline. Same working copy / undo / version store as the owner's editor.
+  {
+    name: 'timeline.get',
+    description: 'Read the video timeline of a video work item: the clips (each a cut of a video file of the project), subtitles, music, picture overlays and the output format (16:9, 9:16 or 1:1), with stable ids, and the length of the finished video. If there is no timeline yet, the answer says so and gives an empty one -- that is a starting point, not an error.',
+    input: 'id: the video work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'timeline.edit',
+    description: 'Change the video timeline with a list of operations. All or nothing: one bad operation changes nothing. Saved at once to the working copy the owner sees (no new version); everything you do for one request is ONE undo step for the owner. Read the timeline first with timeline.get to learn the ids. Clip start/end are seconds inside the SOURCE video; subtitle and overlay start/end are seconds on the finished timeline. The video is NOT made by this: call timeline.render when the owner wants the finished file.',
+    input: 'id: the video work item id (optional, defaults to the open one); ops: the list of operations: {op:"addClip", src, start, end, at?} (src = path of a video file in the project folder; leave out start and end to take the whole file; at = position, 0 = first), {op:"trimClip", id, start?, end?}, {op:"moveClip", id, to} (1 = first), {op:"splitClip", id, at} (at = second in the source), {op:"removeClip", id}, {op:"addSubtitle", text, start, end}, {op:"updateSubtitle", id, text?, start?, end?}, {op:"removeSubtitle", id}, {op:"setMusic", src, volume?, duck?} (an audio file; duck lowers it while the clips speak, default true), {op:"updateMusic", volume?, duck?}, {op:"clearMusic"}, {op:"addOverlay", src, start, end, x?, y?, width?, opacity?} (a picture; x, y, width are shares 0..1 of the frame), {op:"updateOverlay", id, ...}, {op:"removeOverlay", id}, {op:"setAspect", aspect:"16:9"|"9:16"|"1:1"} (a 16:9 clip in 9:16 is filled with a blurred copy of itself, no black bars), {op:"setClipVolume", volume} (0..1, the original sound).',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
+  {
+    name: 'timeline.render',
+    description: 'Make the finished video from the timeline: one NEW mp4 file in the project folder (nothing is overwritten) and a version that records it. It can take minutes for a long video. Subtitles are burnt into the picture. If something cannot be made (a missing file, no ffmpeg), the answer says exactly what; tell the owner in plain words.',
+    input: 'id: the video work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
   {
     name: 'kanban.create',
     description: 'Open a kanban card. Code fixes and development tasks are NOT work items: they belong on the kanban board. The card is always bound to THIS project, whatever the request says. ONE PROJECT = ONE CARD: if an open card already covers this work (a sub-task, a new bug in it, its next phase), do not open a new card -- the server refuses it; tell the owner to continue on that card.',
