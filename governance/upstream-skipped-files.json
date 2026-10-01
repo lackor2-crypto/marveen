@@ -2,10 +2,10 @@
   "_comment": "Upstream files left out ON PURPOSE (kanban #375). An entry is valid only while the upstream blob still matches: if upstream changes the file again, it counts as still to pull and needs a new decision. blob=null means upstream deleted the file. kind=deferred: postponed, not final; kind=decided: final. Read by scripts/upstream-divergence-check.sh.",
   "files": {
     ".claude/settings.json": {
-      "blob": "458362ebbf183b582b88d7533ae06695afde6ddf",
+      "blob": "0c1287a0f6a28f970200d975bba84621db217850",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     ".env.example": {
       "blob": "8a3ff2b4a7c32ce178b49d28fd1d4b9317a07e54",
@@ -20,22 +20,22 @@
       "card": "#375"
     },
     ".gitignore": {
-      "blob": "56cb3ac316b8a2ec0db176854e6c1ec91fb1ed30",
+      "blob": "7b32528432bd14d89baf968cb58b669d2c121ebc",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "README.md": {
-      "blob": "2ec43e13eae82bc3a70e169d4917989c6f7a2269",
+      "blob": "27eccf3fd2869e59360e3a7e3230546ecd61b4c3",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "docs/config-reference.md": {
-      "blob": "4ab38c3f7152e7087e9504f10501e7f121a6bbee",
+      "blob": "0bcc3eb67e1b3c69cf633105e9a7c55fce3005b5",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "docs/onboarding-uj-asszisztens.md": {
       "blob": "9a50b062d1f34478c4b1355e87abd2ac6c09bfc1",
@@ -50,10 +50,10 @@
       "card": "#416"
     },
     "docs/telegram-progress-indicator.md": {
-      "blob": "584919777094df2a1b392c76ef8e179d58c89241",
+      "blob": "49b6a89aa365836b0d288a1123347eade4a5bf06",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (76fa2a61 fix(hooks): fleet hooks leave the user-global settings.json ). Card #413.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "install-lang.sh": {
       "blob": "8b46943861d859931800429c8704f1cb4b7e0326",
@@ -62,28 +62,28 @@
       "card": "#375"
     },
     "install-linux.sh": {
-      "blob": "066bb24bf8bc347fd4cc5bbf6aa3dcca7a86eecd",
+      "blob": "bedc34b4e4ffbc6e9cfb195039c3f214ed96ad0b",
       "kind": "decided",
-      "reason": "Owner decision (2026-09-24): ours -- the morning timer stays enabled and the auto-deploy unit stays; the upstream keepalive-probe units merged by hand (#375).",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "install-macos.sh": {
-      "blob": "12fffd9118f7de2c5ad2a40b7ecebe00f9a62fc7",
+      "blob": "3f763052c302171144602315ee6dd38f757a508f",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "package-lock.json": {
-      "blob": "873217a2ea50d23dce25511c702c010e4ca6fc5f",
+      "blob": "3e90b66f9942563a623d10b7ef7364a5806a4940",
       "kind": "decided",
-      "reason": "Decided (#413): lockfile of package.json, which stays ours (C-31); it follows it. The upstream dependency advisories were cleared in our shape (#447).",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "package.json": {
-      "blob": "f8e8153101835187343a1eb1f289725c438cec6a",
+      "blob": "ccb1545452d6f5a3d31cac5447de2a2317246f92",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scheduled-tasks/dream-engine/SKILL.md": {
       "blob": "a1ae06a0765f03c2a1e281fee12934d6243fc26d",
@@ -170,34 +170,34 @@
       "card": "#413"
     },
     "scripts/agent-msg.sh": {
-      "blob": "476ccb2f7c201aeabcf711ca3a24b098803f79eb",
+      "blob": "c31ffc58577b9ed7a3e966f86731f52376da7f99",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/backup.sh": {
-      "blob": "53ef3dbf94516833cfa897b8f9c32a77010b4e81",
+      "blob": "517c02813b7e84c42a39d425e1b5594ef761fbec",
       "kind": "decided",
-      "reason": "Owner decision (2026-09-24): ours. Upstream backs up the whole store/ (here store/accounts alone is ~760 MB).",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/channel-keepalive-probe.sh": {
-      "blob": "70f78f86adfc26637051f7515eb2968b88a71682",
+      "blob": "05ac4fe395d68baa1b70bff8f4530c4404f7c9fc",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/channel-watchdog.sh": {
-      "blob": "032da18795b87a5d228be063bb70ba4194451507",
+      "blob": "9a71853a04c862baed59573e14895aaf0e9347ce",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/channels.sh": {
-      "blob": "5fdc0c31ada4a670725e290982920e0a24299ca1",
+      "blob": "04046873676223749cf137fa5747bbf78d9c0bd9",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/context-restart-gate-doctor.mjs": {
       "blob": "05253ae9b03337e0d991a60528a119aa49c370d3",
@@ -218,16 +218,16 @@
       "card": "#375"
     },
     "scripts/email-send-gate.mjs": {
-      "blob": "27e5fdad5886f86935de69b230416f5445802bca",
+      "blob": "dfb13dd2fa302e31ab182421fcb369ff46cedfd2",
       "kind": "decided",
-      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. This gate is not shipped or wired in this fork.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/fleet-memory-gate.sh": {
-      "blob": "57247cd74f61235d5e8441523830280bbac2d1bb",
+      "blob": "fd19bcd6247746e44b5ccbfe40b2f2d3e8e6cc49",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/garmin_run_gate.py": {
       "blob": "e3105110d92ca3a97d5505e099b05392d08f2a2f",
@@ -272,10 +272,10 @@
       "card": "#375"
     },
     "scripts/hooks/ledger-outbound.py": {
-      "blob": "e207445abae10f0e786c431910e95f56c6169420",
+      "blob": "0e98fb6c2f2cba9bdec52baeefaef3d45fc315e0",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/hooks/ledger-replay.py": {
       "blob": "cdd0a94c8c54452b8c3a54c0682519c548064231",
@@ -320,10 +320,10 @@
       "card": "#375"
     },
     "scripts/hooks/telegram_progress.py": {
-      "blob": "ddd95d839121b2ffd54775efaada8b6136855209",
+      "blob": "3af9144c51d81fbdee7cb7378ac696999b6c34cb",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/hooks/telegram_progress_clear.py": {
       "blob": "0720bbecfaaf076472c0f69c583f05b19eebbb21",
@@ -338,10 +338,10 @@
       "card": "#375"
     },
     "scripts/hooks/tool-log-capture.py": {
-      "blob": "aa3362e5066f09a1ca9749bf48bebbcd711e287a",
+      "blob": "9de7586268d9b05f19d5c96d277aa7d49d4a0dd5",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/install-channel-image-hook.sh": {
       "blob": "b30cb769a08c93e7a34680c88974a196e37eb4fd",
@@ -374,16 +374,16 @@
       "card": "#413"
     },
     "scripts/limit-monitor.sh": {
-      "blob": "79e50fcfaff81bec887de66150100c28a239a326",
+      "blob": "dc5aec1bb751286442c4bf33d7e2e8d05b63ee73",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/main-agent-isolated-config.mjs": {
-      "blob": "398be23c492c74eda6eda9051f356dea32d6fde3",
+      "blob": "5c431a7c5c971258ad48ddc293078e68dc50d0d5",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/memoria_heartbeat_gate.py": {
       "blob": "b4dfcd4af6a83c812751564ccb6dac3c41bec6e2",
@@ -464,10 +464,10 @@
       "card": "#375"
     },
     "scripts/stuck-modal-guard.sh": {
-      "blob": "161b2bbf8685f0145424d47231fda4859ea3780b",
+      "blob": "b7750d7bbf0247bec964d4465fe3c58a7e4654ec",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/telegram-live-progress.py": {
       "blob": "3a8fa9b2ec6bfc47251e39c8e956da83d327a153",
@@ -500,16 +500,16 @@
       "card": "#375"
     },
     "scripts/voice/_vtools.py": {
-      "blob": "468a1473e0bfdfeea8fe063b7a0062c4482b4163",
+      "blob": "6a793da29c2c81e73f4d4a3e5bdaf0cf99eced76",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/watchdog.sh": {
-      "blob": "2cfe28af3bfe419f72c57fb4a0ea8b9b9f705ee1",
+      "blob": "5b207c328859fee3404dfadd6719d9048ccb588d",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/worker-tail.sh": {
       "blob": "eca5f07d8d13b1a31b119172ebe7c4fb80c151b7",
@@ -518,10 +518,10 @@
       "card": "#413"
     },
     "seed-scheduled-tasks/kanban-audit/SKILL.md": {
-      "blob": "86d053ffc7b6a57fab05aa7d8fa8ed2a64dfe57c",
+      "blob": "60ae0971e075db7b8e26d208d87ac4b6012c6d8b",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "seed-skills/bridge-szolgaltatas-lapok/SKILL.md": {
       "blob": "ecc3f04200dce4f093c8557c0a31d209eabec028",
@@ -572,10 +572,10 @@
       "card": "#413"
     },
     "src/__tests__/agent-put-fields.test.ts": {
-      "blob": "7d2231e2f0a4eedf341d4c31dd1451dd46d791c8",
+      "blob": "63dffdef6906794f8a81922b4c1860b8ef68db1e",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (38c690f8 feat(context-guard): idle-flush tier for heavy sessions that; d3cdb375 feat(context-guard): daily-handoff trigger tier, and drop th). Card #413. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
-      "card": "#417"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/agent-scaffold-claude-md-prompt.test.ts": {
       "blob": "6d7426d1b2c6c27c66d9515bdab1b3ab0306ff8a",
@@ -674,10 +674,10 @@
       "card": "#413"
     },
     "src/__tests__/channel-deafness-recovery.test.ts": {
-      "blob": "7a515fa2688345071a41418b003e7414cd942c2b",
+      "blob": "258f6228acde16e2e4503ec8bc776b30b37a1875",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/channel-event-log.test.ts": {
       "blob": "b04e44955869ea1181e7a7010d33bd2b0234b100",
@@ -1604,10 +1604,10 @@
       "card": "#413"
     },
     "src/__tests__/main-agent-config-dir.test.ts": {
-      "blob": "be181a01de24b8b88c1e35b800d34b3ca67bb963",
+      "blob": "546491daa25167a7872dcf0be22cb1b897c14485",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/main-agent-isolated-config.test.ts": {
       "blob": "3516f1cbdd849e80fa013aa557bb95aee3697266",
@@ -1712,10 +1712,10 @@
       "card": "#413"
     },
     "src/__tests__/message-router-tick-cap.test.ts": {
-      "blob": "1de23311464f79e7e9c34ec98ecad71ffa8b0011",
+      "blob": "1868a0c7c631ea0b91fea0c15b2757796c717083",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/messages-main-agent-no-false-warning.test.ts": {
       "blob": "4057a6872b7e3dcaa24ef2a9c2a777db69388914",
@@ -1784,10 +1784,10 @@
       "card": "#413"
     },
     "src/__tests__/pane-first-run-gate.test.ts": {
-      "blob": "010e6987bf185cb3d95e6abe5f8152d617fa9911",
+      "blob": "4f41ed2594be2c058ab20929c47c12e1a89a5100",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/pane-state.test.ts": {
       "blob": "e8a534605744578a265e083912c51065651cfb55",
@@ -2150,10 +2150,10 @@
       "card": "#413"
     },
     "src/__tests__/template-identity-hygiene.test.ts": {
-      "blob": "54d86bce1aa82ccdf2361e4d7c9d5c11256c4f15",
+      "blob": "16d3f700bb5667aa98c4a2fdd9727269085784cf",
       "kind": "decided",
-      "reason": "Our own test, rewritten upstream; restored to our version.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/tmux-stderr-attribution.test.ts": {
       "blob": "51bffac2ead7a29d3f5af1fab1279a36bb4a6c31",
@@ -2228,10 +2228,10 @@
       "card": "#413"
     },
     "src/auto-restart.ts": {
-      "blob": "839eac8dc278d6005170f61acf1fcbf789cbf0eb",
+      "blob": "2334cb3d5355d89810a49d835a123c8c6fd071d8",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): ed62c7b6 / d9eaad38 add an open-question deferral gate to scheduled restarts (new gate = out); d3cdb375 is a context-guard feature. Not taken. d3cdb375 rebuilt in #417 (owner TG 6695/6698): the daily-handoff tier now lives in our src/context-guard.ts + src/web/context-guard-runner.ts, the auto-restart runner stands aside for an armed tier, the unwired auto-restart `handoff` field is dropped, and the agent page has the switch (HU+EN); tests in src/__tests__/context-guard-daily-tier.test.ts. The other upstream commits on this file stay out.",
-      "card": "#417"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/channel-coordinator/liveness.ts": {
       "blob": "5d89c1812fa078f838d4448ca8126d0df76a5392",
@@ -2246,16 +2246,16 @@
       "card": "#375"
     },
     "src/config-registry.ts": {
-      "blob": "ee82a3de50d82d24651228866165c18635dec620",
+      "blob": "0ec7e505c4eb2e7eaf953a0f88ce9e0a5fd62134",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/config.ts": {
-      "blob": "5edbaa99bdc369bea50b27f54c0f983a91630a45",
+      "blob": "fbaed802374c9789bb0aa28474755ff11c3188b3",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/context-guard.ts": {
       "blob": "737ed020b74360dac7d4c23eda5e5fcd42fb7c0d",
@@ -2264,16 +2264,16 @@
       "card": "#417"
     },
     "src/context-restart-gate.ts": {
-      "blob": "b2d4bc1a970bc88b0e7f43607712947fa1216212",
+      "blob": "6186bff7fe4e4bfe79af002414cd72e9639e9826",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/db.ts": {
-      "blob": "4c62e262e2d6ecebaebfd93527ed4fccd57a5215",
+      "blob": "4e8671a048c4aa0241de03918e946374a8a8998b",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/heartbeat.ts": {
       "blob": "4b78d9e034d72b1973793c0bef61d4185e575055",
@@ -2282,10 +2282,10 @@
       "card": "#413"
     },
     "src/index.ts": {
-      "blob": "926fe81ed7c9a09ae6a1e44eeae46cf3fc459ba7",
+      "blob": "7372ed4a1435d96180f1733252e88435cea6ba1e",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/kanban-dispatch.ts": {
       "blob": "7fffc38f78b99573fb88fd797ac67b3593ffb872",
@@ -2294,10 +2294,10 @@
       "card": "#375"
     },
     "src/memory.ts": {
-      "blob": "ce2755bc7da33474381233c06862848ddcd634c6",
+      "blob": "af9f66316bd85499a8bafe47444a9b9e0ab779bd",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/model-fallback.ts": {
       "blob": "93ea8f17a6c9608003f047c1c9b5f8defe0f1da8",
@@ -2306,16 +2306,16 @@
       "card": "#375"
     },
     "src/notify.ts": {
-      "blob": "3d6581ee8c0cc2f02af2f98da2311fbe946640ff",
+      "blob": "32ddff53c4d9462d0c96ff5d080448171c3c2819",
       "kind": "decided",
-      "reason": "Upstream CHATID0 fix (placeholder chat id 0 treated as missing) already covered by our ownerChatId().",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/pane-state.ts": {
-      "blob": "52c868de627a2e791345180051b215f22c74b8ac",
+      "blob": "9ab0d198bfc0d4a5d37078134389d5a802bcb9c5",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/skill-cli-core.ts": {
       "blob": "8fe3b8f27caf416ae473a36a048aeb1244c2d9cd",
@@ -2342,16 +2342,16 @@
       "card": "#375"
     },
     "src/web.ts": {
-      "blob": "3ae469a731a60ca1e6a46318fb22296304db16d2",
+      "blob": "960a60671fcbbcf67859fc181434a4bb264de951",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/active-model.ts": {
-      "blob": "33899f4ba5045f00c4e9e1e820d9bcc5295aed74",
+      "blob": "c7d429bdc07c4e74b39a9ad960221df7070c9470",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): bd93dae9 fixes the in-flight sawTurn probe of upstream's schedule runner; this fork's schedule runner has no sawTurn probe, and the main agent's own config root is read everywhere since #451. Not applicable.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/agent-config.ts": {
       "blob": "d08920a20fad7964c5b8a836f238cf61aea6ca97",
@@ -2366,22 +2366,22 @@
       "card": "#375"
     },
     "src/web/agent-process.ts": {
-      "blob": "42490bddd71300c905498b94f8c05ca0b17f08d5",
+      "blob": "c8e4db2e7c995b256dd7aecb51c4e0f199827c28",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/agent-put-fields.ts": {
-      "blob": "69ce01fdd32899cf93f68071e045d4c32e10e0ae",
+      "blob": "2ea90c78478932b3e66a343b30b1e1f20f535688",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (38c690f8 feat(context-guard): idle-flush tier for heavy sessions that). Card #413.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/agent-scaffold.ts": {
-      "blob": "60e2755b187a761987fdb0c9bf19684f6e974510",
+      "blob": "98f289691799edf7a2eb939f52967c0167552e40",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/agent-taskstate.ts": {
       "blob": "625d03282bb75b554ce23822f67cc4e51b0706c1",
@@ -2390,16 +2390,16 @@
       "card": "#375"
     },
     "src/web/agent-worker.ts": {
-      "blob": "33142b2fbb1abff84038086b9c56549057604c37",
+      "blob": "5671caef73c3f2671e5e6631f25a18f6816c924b",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/auto-restart-runner.ts": {
-      "blob": "12cb41d9bbc0c3b519545028f8bdc6d7ae31319b",
+      "blob": "679540684b5bf96127a401148051d68f387dc456",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): 0db93a44's lastRestart-on-failure fix is already present here; the rest is the open-question deferral gate and the daily-handoff tier (out). Not taken.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/channel-mcp-reconnect.ts": {
       "blob": "633a2552f141560971a56b442fb03fee4e8787b5",
@@ -2408,10 +2408,10 @@
       "card": "#375"
     },
     "src/web/channel-monitor.ts": {
-      "blob": "8cdeac8b13699522556c15179a04fabca51328fa",
+      "blob": "200f9704a555df335200cb3959638fd029cf93b3",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/channel-plugin-unlock.ts": {
       "blob": "1a5ca263586e3f67cdbdeeb5e3ad7647d97e341d",
@@ -2420,22 +2420,22 @@
       "card": "#375"
     },
     "src/web/channel-poller-reap.ts": {
-      "blob": "920e2523a22c7653f6556302f2a6a0781743f19a",
+      "blob": "9b7f469f0da03a90a259f9bf6ab0a8b48d093166",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/claude-plans.ts": {
-      "blob": "7c832321e4b4522eea60490b26f1bfc69f3475ec",
+      "blob": "2ef2398015d5ce60f0199cff197e95722f8edf28",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/command-task.ts": {
-      "blob": "1ba336bf924d349ac10eac7d0e5fa6adae882827",
+      "blob": "f80cf491d9cde4efb17bc2daa1ac70b65d634f9e",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/context-guard-runner.ts": {
       "blob": "e160c72ed35d45a17ead0f03ae0f1995894d519c",
@@ -2450,10 +2450,10 @@
       "card": "#413"
     },
     "src/web/context-restart-gate-runner.ts": {
-      "blob": "86515bbefb24118f2906a3288a0b4701c43f5141",
+      "blob": "588c35241193764152514a9ecdd196622b2fd377",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/context-restart-gate-store.ts": {
       "blob": "f00ecccbc027deb26ec68be562168e870600f48c",
@@ -2474,10 +2474,10 @@
       "card": "#419"
     },
     "src/web/hook-registration-guard.ts": {
-      "blob": "b28c9bfc04f2ae9cfd4e3d5a6f1aec5da6f71914",
+      "blob": "3bdb2fb5ad84325a9cf9c9dcd9edfeace526346f",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/http-helpers.ts": {
       "blob": "4d416c1fef8dc667b5921ca4ad849ecf9ed1ab3f",
@@ -2504,16 +2504,16 @@
       "card": "#413"
     },
     "src/web/message-router.ts": {
-      "blob": "2350380c18889ba448f00127059bd118dea288d9",
+      "blob": "a2409b538a9593dc95530d03ea010766860ea08e",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/model-suggest.ts": {
-      "blob": "2af4e076711e2c2754d18f3fd563d9f8401674e4",
+      "blob": "06a47158fdee221417292b2fcc861b87092bc871",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/profiles.ts": {
       "blob": "e3321e5087ea2d07884252b45aef7c8811e89a42",
@@ -2546,10 +2546,10 @@
       "card": "#375"
     },
     "src/web/routes/agents.ts": {
-      "blob": "94101d8787f0206a215e711b20f1910fc4596cb6",
+      "blob": "012e8dcd47a40d3f2c0fe3108e78359d8b79f9de",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/approvals.ts": {
       "blob": "5837e95738dbf8af083a9cac0e4ac81c45ec5ac8",
@@ -2558,10 +2558,10 @@
       "card": "#413"
     },
     "src/web/routes/connectors.ts": {
-      "blob": "d821fb73ea84e929cb77ca158e7bbf78e2de6cd0",
+      "blob": "689f43f9d335dd5366c036cd98d357703437d154",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/ideas.ts": {
       "blob": "06d261823e57a4b4ab9e434ca07aa3f579c7d1c4",
@@ -2570,10 +2570,10 @@
       "card": "#413"
     },
     "src/web/routes/kanban.ts": {
-      "blob": "0bfd8f56b457337d15222b17024fe28574f60c6a",
+      "blob": "a52b288bb185778148b304e713bcfc86f01a7621",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/marveen.ts": {
       "blob": "56e36a5fc5dfa53ca0cf33e19cc264a3918169a5",
@@ -2582,16 +2582,16 @@
       "card": "#413"
     },
     "src/web/routes/memories.ts": {
-      "blob": "c31bc1c428716eafb8e07b8a4bfd382c8845ba69",
+      "blob": "c25e5264084fb4e79e1bcd6f6cbc984964e07971",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/messages.ts": {
-      "blob": "082d5e466521dde82cb4a7c1e5a11c240e983af2",
+      "blob": "b53ed5fca2120266e700af75535ed793a3f57a47",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/migrate.ts": {
       "blob": "33ae87c9e6cfdf3f251d99c4df4e95cc6a7e82d6",
@@ -2606,10 +2606,10 @@
       "card": "#375"
     },
     "src/web/routes/overview.ts": {
-      "blob": "6438431757fc8fa86be6d1fab17f02725f592866",
+      "blob": "4354050c853e16c1f8ca72d30e59bc2a3ea027b8",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/pr-ledger.ts": {
       "blob": "ed52ccc80e1015a41a335c302faa0cb6b49347c6",
@@ -2624,10 +2624,10 @@
       "card": "#375"
     },
     "src/web/routes/schedules.ts": {
-      "blob": "80b4563f84d0297d02c0ca6e1cdfd58362d84a5f",
+      "blob": "7895fa5c0a3d15db5bf035e0e57509764b51c222",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/skills.ts": {
       "blob": "34c1e440bd5009e79546d686ec9fbc481ba0af7e",
@@ -2642,34 +2642,34 @@
       "card": "#375"
     },
     "src/web/routes/updates.ts": {
-      "blob": "7755cd0e260fe60fc274d1475afd31f9e4503419",
+      "blob": "ffb3aa8a225396ab463f17d747ae69d884822b6d",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/routes/voice.ts": {
-      "blob": "7887cfe8e3e108e3eb668560bc1ab99ffc66c2dd",
+      "blob": "83b228639b4c191fdba7cb9365740e60ad6ceb27",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/schedule-runner.ts": {
-      "blob": "6486e1a363182d22992daadb9fea90ab6a63428d",
+      "blob": "058bb70dc871984f0c8c3ea7363cb08807cb7dd5",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/scheduled-tasks-io.ts": {
-      "blob": "355b771c82fd51e9e32c2137ddd61b3c1fd41f20",
+      "blob": "834347426b8c918f810f80cef8cc82d6876fdd25",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/ssh-tmux.ts": {
-      "blob": "81747fd722ce4b84f5e522f29d45067211846f36",
+      "blob": "2a67f8fb91a9e56606626cf8ffae34e911ae664f",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/stuck-tool-call-watcher.ts": {
       "blob": "80f56ab7a9fa84b1f431db27a7eb240aa873e53c",
@@ -2684,22 +2684,22 @@
       "card": "#413"
     },
     "src/web/token-usage.ts": {
-      "blob": "82ebcf785cd0d988b2f8146b6049ad078fe521c0",
+      "blob": "7b097efb62193c347c4a565f23341551cb8db6d0",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/update-checker.ts": {
-      "blob": "b4dffa346e8f60bec6466b6c9b0ca9b48202971b",
+      "blob": "78aa60e240de8ea50f96ba81711ef656740cde94",
       "kind": "decided",
-      "reason": "Owner decision (2026-09-24): the \"new version\" signal follows our own origin (what update.sh pulls); no hardcoded fallback repo.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/vault.ts": {
-      "blob": "938948a65bc5c264b36387da6ed0230974f95781",
+      "blob": "2bc49837d3539a95e84d31f5b979be023bd8c930",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/voice-directive.ts": {
       "blob": "cc6ae56ef4eb7074d0655d2326816d3d06b6736b",
@@ -2714,76 +2714,76 @@
       "card": "#375"
     },
     "templates/settings.json.template": {
-      "blob": "7500c488547154e25b81d1be0f2e1e948ce8f8cf",
+      "blob": "40a5f18a907cc618c3f8a524d33e7a91259b9244",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "update.sh": {
-      "blob": "a75de2c593c13b6f15b39b9b4dc86ef29514f6f9",
+      "blob": "c09a5bfac728d33cf0a7db489b8ef3858bea2902",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "web/app.js": {
-      "blob": "dba935621dc310c2a95c4308f0bee6240a193194",
+      "blob": "0ef0e277f5b13a5b5e291e6fc619ed787e8969d1",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "web/index.html": {
-      "blob": "b4f142158c1c6f8e3c215274836eeb8c6d6c72f4",
+      "blob": "4c14244d20252c7637b200b4b23e3182773bf6e2",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "web/lang/en.js": {
-      "blob": "6d8de35454f4152c92c956cded28cca14a395943",
+      "blob": "3842f39b1a0e9274e2020bc58d58da7aed843bde",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "web/lang/hu.js": {
-      "blob": "151a2c8cac7fbe6bf0c4f62fa628ec084a113156",
+      "blob": "98adb1d027174645425f9d5e59aba70136bd06ad",
       "kind": "decided",
-      "reason": "Decided (#413): C-31, kept at ours (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "web/style.css": {
-      "blob": "fe0979cde94488243665adebb5771c974b977c9d",
+      "blob": "d102534e9b0e259791b623e0ff020c2066d37679",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/__tests__/conversation-ledger.test.sh": {
-      "blob": "14788745a8add658d1632d009a34048c35487e69",
+      "blob": "7e142b5426fae6774b7b34263b717c2741845fe4",
       "kind": "decided",
-      "reason": "Rewritten here (#413, PR #445): case (f) runs from a throwaway install with agents/dia, so it passes on CI/worktrees; upstream's version stays red here.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/disk-space-guard.sh": {
-      "blob": "e9b335119e44f6cc7813d20509d7eed03c2b8d8e",
+      "blob": "369a003005fac096c3d4fbbe467c7257c942b454",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/github-pr-monitor.sh": {
-      "blob": "aca5a51b633457795328412d522db3d02778e8d7",
+      "blob": "4b377fabe642d27de0fe96825564092b60bddead",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/morning-briefing.sh": {
-      "blob": "f603036e0ac706ef1ae0c4e6c75e394bac6bd1ec",
+      "blob": "4638af6d98f90dfbd02f12867c6c315165c498a9",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. Also skips with a log line when no owner chat exists.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/watchdog-inbound-prober.py": {
-      "blob": "b1d45ed9e0de03571e4f56bc557c8ba836c6a03e",
+      "blob": "764d4dc15620f7d43913b863811bc80ee0e2f8dd",
       "kind": "decided",
-      "reason": "Ours is newer (#413, PR #444): the prober also treats the ALLOWED_CHAT_ID=0 placeholder as absent; upstream only checks empty.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     ".github/workflows/test.yml": {
       "blob": "2970438ae4ca0491e3c4984cc2fd39771862a039",
@@ -2798,58 +2798,58 @@
       "card": "#413"
     },
     "scripts/__tests__/limit-monitor-signals.test.sh": {
-      "blob": "776e7c1671aa93573b42737813ca168d32de638a",
+      "blob": "80c31f3d1d2578bd8b041ed3876150d515364cf1",
       "kind": "decided",
-      "reason": "Ours is newer (#413, PR #445): the case install also copies scripts/lib/owner-chat.sh; without it all 26 cases fail here.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/__tests__/morning-stamp-gate.test.sh": {
-      "blob": "32d060c25f86d6152e8e4a000467d0f73aa263e9",
+      "blob": "41cfa6ba75fe1d415de0b5efe0542cbefe4aa027",
       "kind": "decided",
-      "reason": "Ours is newer (#413): mktemp per case (upstream's $RANDOM dirs collided on CI 2026-09-25) and copies scripts/lib for the owner-chat resolver.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "scripts/notify.sh": {
-      "blob": "0b349a43558d33de521f07390ce86d60f40ce92a",
+      "blob": "658dd10e9a108650568c6c4b5306af74db7280b6",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "seed-scheduled-tasks/nap-zaro/SKILL.md": {
-      "blob": "5cfbfc622b658da667dbb57a8c7991b35fa12b69",
+      "blob": "2669af394cb17c29d6f43b6d5e00e0026676e330",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the start-of-day timestamp uses python instead of `date -d`, which BSD date lacks (upstream aced2af8 already absorbed otherwise).",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/notify-delivery-honesty.test.ts": {
-      "blob": "fbeb2e331581d5e843d70b55ecc08ca5f5f9c04b",
+      "blob": "f84e69aad4a3ebad926004d168446a5394c52d78",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. The test stages owner-chat.sh.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/profile-rule-syntax.test.ts": {
-      "blob": "11f78e374183c041ea0d8a9af07e0a49d90cf8f3",
+      "blob": "4e6dc76d0431d646119bc4c70549df8ec12aab4b",
       "kind": "decided",
-      "reason": "Fork divergence (#358): the profiles point at scripts/agent-msg.sh; upstream's agent-post.sh does not exist here.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/send-honesty-round2.test.ts": {
-      "blob": "56455209457402d22da703198fc2da62488bce25",
+      "blob": "625fb881eda4ef41a8739b78468c3435d780dd42",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. The test stages owner-chat.sh.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/send-honesty-sweep.test.ts": {
-      "blob": "afc17a2222a86a7645343f837618ebe74516dacc",
+      "blob": "e229f0bb34b79a322758a2b8eee155771e865684",
       "kind": "decided",
-      "reason": "Ours is newer (#413): the fork's owner-chat resolver (scripts/lib/owner-chat.sh, PR #444) supersedes upstream CHATID0 3e807fe4; taking upstream would drop it. The test stages owner-chat.sh.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/channel-intake-monitor.ts": {
-      "blob": "d868306f0f0dc39f1d487f43f4d5c6e4d84a05ee",
+      "blob": "9bb0488eef00274d148159f392afcbf9fab39e2d",
       "kind": "decided",
-      "reason": "Ours is newer (#407): the main agent's channel .env comes from channelStateDir() (install-scoped after the #915 migration); upstream's fixed ~/.claude path finds no token after migration.",
-      "card": "#413"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/web/stuck-input-watcher.ts": {
       "blob": "968f8dc341764da1c8808f50ba42fc62f0058aa9",
@@ -2900,10 +2900,10 @@
       "card": "#440"
     },
     "scripts/lib/quota-check.py": {
-      "blob": "c6e2162c3d26fc862955b9c3214b1350b29fe41b",
+      "blob": "6da7f7f45ac12171564e64765d71dc66b3e04403",
       "kind": "decided",
-      "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream staleness ceiling (#1280) and heredoc fix (#1154) are already in ours; ours adds QUOTA_LANG (#416). Upstream would revert to Hungarian-only.",
-      "card": "#440"
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/atomic-write-tmp-mode.test.ts": {
       "blob": "b54466909beb7848367af9a1d853758b929d02f4",
@@ -2934,6 +2934,294 @@
       "kind": "decided",
       "reason": "Decided (#440, 2026-09-28): kept at ours -- upstream once-per-occurrence fix (#1186) is already in ours; ours makes the suffix bilingual (#416). Upstream would revert to Hungarian-only.",
       "card": "#440"
+    },
+    ".github/pull_request_template.md": {
+      "blob": "d7d0eb80d6458667137e7be1e6df9c0c8aba2b53",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "docs/channels.md": {
+      "blob": "e2441a7ad074d8e131f8e85638ca8c12dee5f680",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "docs/mcp-list-channel-plugin.md": {
+      "blob": "d0fdcd0737234950380cbc942b9d608fb7a6fe6e",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "docs/superpowers/specs/2026-09-11-claude-key-rotation-design.md": {
+      "blob": "56f6be993a50a98a81818d77a1e692f29262adf0",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "plugins/worksource/server.mjs": {
+      "blob": "640fbfb33eb313b43c56bc7502d385a282b39197",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "plugins/worksource/verify.mjs": {
+      "blob": "34788030927727a0bd2e4b9937800885eeb32a7e",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/kartya-dryrun-paritas.test.py": {
+      "blob": "0722f478e6db668906d7ddd7710a98089052b4c5",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/kartya-leiras-mozgatas.test.py": {
+      "blob": "c28564134a385e4ea2215a1051137ca9e6c4d7cd",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/keepalive-probe-install.test.sh": {
+      "blob": "5ef4b3c6d33d4629f1abf6f830e3e1920a9ddb30",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/migrate-agent-id-linux.test.sh": {
+      "blob": "f6cb8c4286641503dc59531a6f2aef965661132d",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/outgoing-copy-gate-failclosed.test.py": {
+      "blob": "077cedf8a2994d10a05e21bfc03fe062d89bd87f",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/outgoing-copy-gate.test.py": {
+      "blob": "7d2057816bf7b8453d99e6bf7cd9fd02cd6e4cbc",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/pre-modify-backup-honest-exit.test.sh": {
+      "blob": "b919aa2cb1a77d1916a0f8e192b10a5836077e7c",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/skill-usage-capture.test.py": {
+      "blob": "c22b7159d9089192fceaf7ebc7f385ec3d767641",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/__tests__/telegram-reply-guard.test.py": {
+      "blob": "2da1bf1ecce30f970cddbf47aa6671ad81a40e64",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/claude-plan-rotate-check.ts": {
+      "blob": "cbb1d2f3f7ff8b2e893fd1f0adddb17fe9a6688f",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/hooks/email_extract.py": {
+      "blob": "2666a80a3d5b9dab9f1a7be362f6965654f797ba",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/hooks/send-invocation-cases.json": {
+      "blob": "a4328dbc603ae70a7a811b7690e3d2958e6046fb",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/hooks/skill-usage-capture.py": {
+      "blob": "258906b8786e3c73636c504fb6e2dfa384a49e44",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/hooks/telegram-reply-guard.py": {
+      "blob": "5644998c51313eac5417ad911d19b00a4672a0c7",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/hooks/voice-reply-directive.py": {
+      "blob": "181d2f38bfc8ffee8c0684e07caad55eb150d53a",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/install-prod-tree-guard-hook.sh": {
+      "blob": "e594c5628087bb34ecfcd4baa3f8020b9736bfc7",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/lib/owner-chat.sh": {
+      "blob": "017b05f78d147e2ffe9c8a2e4459f1788c49a156",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/pre-modify-backup.sh": {
+      "blob": "ba2d0371b29c1bb78af24a4ab1dfef3b7be09360",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/set-bot-menu.sh": {
+      "blob": "002b39d8bb6c03a43bf46a2840a1323b64623373",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/vault-env-wrapper.sh": {
+      "blob": "573244ee39f29db3bd7671e09307145ef4d62f49",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "scripts/vault-resolve.mjs": {
+      "blob": "254524ec8a8e6480dcd66ddcc7d58b5782721ef0",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/channel-poller-reap.test.ts": {
+      "blob": "697cc0d93c1e1a7d61e348db8ebaffca742d82ae",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/claude-plan-rotate-check.test.ts": {
+      "blob": "1bf13fcfdba3f7845e04b197e8a8120113caac59",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/claude-plan-rotation.test.ts": {
+      "blob": "3d2e29fbbeb486bb27bfac284fafdb7963f4c27d",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/claude-plans-routes.test.ts": {
+      "blob": "b9f058a48dd4e52e08adfc80b489fa9f6b7b221d",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/claude-plans-state.test.ts": {
+      "blob": "fe9312279953985618ac97c27c46abf8d7fc1464",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/command-task-async.test.ts": {
+      "blob": "1327b2d861b4ddaf8ffe436152130cad274b57f0",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/keepalive-probe-poller-regex.test.ts": {
+      "blob": "67324d6490d341fa1634c0619ed5255a2a90759c",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/main-config-dir-parity.test.ts": {
+      "blob": "7056328fa311c32419bdf1162776e761abc6f0b2",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/messages-post-sender-guards.test.ts": {
+      "blob": "e1c7267151a01fe9b1265bf3f40f737d69719f57",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/quota-snapshot.test.ts": {
+      "blob": "0477ed41607864236ba3b565d4d5f240fe65b1d8",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/__tests__/vault-resolve-loud-failures.test.ts": {
+      "blob": "a1a066b6379fa745c24548380da08f86434149c2",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/claude-plan-rotate-heartbeat.ts": {
+      "blob": "4d39d7429bee9b312b94ae7e9505bee93c51750f",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/claude-plan-rotation.ts": {
+      "blob": "eb936ab1c0e5099ed5e198263c5b53eb52034f53",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/prompt-safety.ts": {
+      "blob": "b8681305a43de75ab96f16abdf4b0ff47dd5e686",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/update-preflight.ts": {
+      "blob": "8dfa2c4e0faa6a4b17bb87cc13e2674d613313f8",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/web/claude-plans-state.ts": {
+      "blob": "9b08397759171d78ca6a8f3d60b4a45ea68ea555",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/web/inbound-probe.ts": {
+      "blob": "c46da74e0336f9917227cb3736077a8c60a19f1b",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/web/model-fallback-runner.ts": {
+      "blob": "43082f8e5be897ce9dd551958f10eb0ebee43504",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/web/quota.ts": {
+      "blob": "bf061894ada355edb654536a9db4b0253a98cace",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/web/routes/claude-plans.ts": {
+      "blob": "61665813a439c81c395ce620ae3f01278f00daa2",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+    },
+    "src/web/vault-acl.ts": {
+      "blob": "bd75d06ed9d5a3f2b52715e76abc45294f7cd5b7",
+      "kind": "decided",
+      "card": "#456",
+      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     }
   }
 }

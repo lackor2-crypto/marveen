@@ -92,6 +92,21 @@ install of this fork elsewhere.
    principle it touches, and A/B (take it / drop it). Do not guess.
 6. Proceed to merge only the ALLOW + owner-approved DISCUSS set.
 
+## Own rewrite instead of taking an upstream file (owner rule, 2026-10-01)
+When a shared file conflicts and the owner picks "own implementation" (option B),
+the upstream file is NOT taken; the function is rebuilt in our code, and ONLY if
+all three hold:
+1. it does not restrict how this fork operates (no new gate/block on agents),
+2. it does not contradict this fork's own logic and principles,
+3. it makes this Marveen measurably better (a real bug fix, a protective guard).
+Otherwise the item is skipped. Record every file in
+`governance/upstream-skipped-files.json` (path -> upstream blob, kind `decided`,
+reason, card) and add a line to the decisions log; a restrictive item with a
+stable signature also goes into `governance/upstream-exclusions.json`. The rule
+lives here (global) so a fresh install of this fork follows it too.
+Before porting, check the fix applies to our code: many upstream fixes are
+already present or target code this fork removed.
+
 ## Pitfalls
 - **Exit 2 is not clean.** A zero exclusion count from an unreviewed source is
   the "zero means two things" trap: fresh-install-empty vs. broken-access. The
