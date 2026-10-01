@@ -19,6 +19,7 @@ import { projectContext } from '../project-context.js'
 import { listWorkItems, listWorkItemVersions } from '../workbench.js'
 import { recentFiles } from '../project-overview.js'
 import { decisionsForContext } from '../workbench-decisions.js'
+import { brandForContext } from '../workbench-brand.js'
 import { toolsForPrompt } from './tools.js'
 import type { AIMessage } from './provider.js'
 import type { AgentMessageRow } from './sessions.js'
@@ -46,6 +47,7 @@ HARD RULES:
 - Official documents (letters, court filings) are built with the doc.* tools: sections, blocks, and for every factual statement a claim with its sources (doc.addClaim). Never write a fact without a source; write "⚠ Hiányzó adat: ..." instead. Only the owner can confirm their own statements. The PDF is made from this structure: the owner clicks "Piszkozat PDF" (watermarked, any time) or, once doc.check passes, reviews it and makes the final PDF. You can not finalize; tell the owner what is still open. Exhibits go on the annex list (doc.addAnnex); refer to them in the text by their label (K1, Anlage K1, Exhibit A) -- Marveen renumbers the references when the list changes. Before finalizing, Marveen machine-checks that names, case numbers, dates, amounts and addresses agree everywhere and with the quoted sources (doc.check, consistency); fix real mistakes in the text, the owner marks the intentional ones. Hearings and deadlines in the uploaded court or authority letters: doc.deadlines (with source); never compute a deadline counted from delivery yourself -- ask the owner for the delivery date. Language versions (German, English, ...) are separate work items linked section by section to the original (doc.createVariant on the original, then doc.translateSection on the version, one section at a time, carrying every claim with its source). Use the case glossary (doc.glossary; fix a new term with doc.addTerm). A section marked stale changed in the original: translate it again. A back-translation check (doc.backTranslate) is literal and made only when the owner asks. The target court (doc.court, doc.setCourt: Germany beA, US CM/ECF, Hungary e-per, general) sets the file names and the machine check of the finished files; say by which rule version it checked and never claim the filing complies. Court rules change: when a profile is stale or the owner asks, look at its official source (web.search) and record the result with doc.proposeCourtRule (unchanged, or the new rule version from the official text only) -- the owner accepts it with a click.
 - In Hungarian, address the owner informally (tegezés: "te", "csináld", "nézd meg"), never with "Ön" or "Maga".
 - Follow the recorded DECISIONS of the project. When the owner and you agree on something that should hold later (a colour, a wording, a deadline, a rule), record it with decision.record and say so.
+- Apply the project's BRAND KIT (shown in the context) by yourself to every post and drawing: brand colours only, the brand logo (light or dark version to match the background), the brand fonts and the style rules. After a canvas change run brand.check and fix the deviations, or tell the owner why you left one. Never invent brand colours when the Brand Kit is empty.
 
 WHAT GOES WHERE:
 - A CODE FIX or a development task is NOT a work item. Open a kanban card for it (kanban.create). The card is bound to this project automatically.
@@ -136,6 +138,14 @@ export function buildContext(
     decisions = 'Decisions agreed in this project: cannot be read right now. This does NOT mean there are none.'
   }
   add('decisions', decisions)
+
+  // 1c. Brand Kit (K-4.2): the agent applies it by itself. An unreadable table
+  // is not "no brand": say so, so the agent does not invent colours.
+  let brand: string
+  try { brand = brandForContext(project.id) } catch {
+    brand = 'Brand Kit of this project: cannot be read right now. This does NOT mean there is none; do not invent brand colours.'
+  }
+  add('brand', brand)
 
   // 2. Munkadarabok -- rovid lista, felso hatarral.
   const items = listWorkItems(project.id)

@@ -188,6 +188,16 @@
     // "nem tudtam betolteni" sose latsszon "meg nincs dontes"-nek.
     decOpen: false,
     decisions: null,
+    // --- Brand Kit (K-4.1..K-4.3) ---
+    // `brand === null` = not loaded yet; a load error is kept apart so
+    // "could not load" never looks like "no brand yet".
+    brandOpen: false,
+    brand: null,
+    brandDraft: null,
+    brandFiles: [],
+    brandError: null,
+    brandBusy: false,
+    brandCheck: null,
     // --- atadocsomag (#406, 12. pont) ---
     hoOpen: false,
     // Betekinto linkek (#406, 18. pont): a projekt linkjei + a kivalasztott ervenyesseg.
@@ -4333,6 +4343,8 @@
       } else {
         WB.canvas = r.data
         bumpCanvasStamp()
+        WB.brandCheck = null
+        ensureBrand()
       }
       render()
     })
@@ -4397,6 +4409,8 @@
       platforms: 'platforms' in d ? d.platforms : old.platforms,
     }
     bumpCanvasStamp()
+    WB.brandCheck = null
+    ensureBrand()
     if (WB.detail && d.item) { WB.detail.item = d.item }
     if (WB.detail && d.versions) { WB.detail.versions = d.versions }
   }
@@ -4668,7 +4682,10 @@
       + esc(busy ? t('workbench.canvas.state_saving') : state) + '</span>'
       + '<button type="button" class="wb-btn" data-wb-act="canvas-version"' + (busy ? ' disabled' : '') + '>'
       + esc(t('workbench.canvas.version_save')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-brand-check" title="' + escA(t('workbench.brand.check_title')) + '">'
+      + esc(t('workbench.brand.check')) + '</button>'
       + '</div>'
+      + brandCheckHtml()
   }
 
   /** A felbehagyott munkak sava. Nem tunik el szo nelkul semmi: a tulajdonos
@@ -5060,7 +5077,7 @@
         + '<label class="wb-label" for="wbCanFontSize">' + esc(t('workbench.canvas.label_font_size')) + '</label>'
         + '<input class="wb-input" id="wbCanFontSize" type="number" min="4" max="1200" value="' + escA(String(o.fontSize)) + '">'
         + '<label class="wb-label" for="wbCanColor">' + esc(t('workbench.canvas.label_color')) + '</label>'
-        + '<input class="wb-input" id="wbCanColor" type="color" value="' + escA(o.color || '#111111') + '">'
+        + '<input class="wb-input" id="wbCanColor" type="color" value="' + escA(o.color || '#111111') + '">' + brandSwatchesHtml('wbCanColor')
         + '<label class="wb-label" for="wbCanAlign">' + esc(t('workbench.canvas.label_align')) + '</label>'
         + '<select class="wb-input" id="wbCanAlign">'
         + ['left', 'center', 'right'].map(function (a) {
@@ -5074,7 +5091,7 @@
     } else if (o.type === 'rect') {
       own = '<div class="wb-can-grid">'
         + '<label class="wb-label" for="wbCanFill">' + esc(t('workbench.canvas.label_fill')) + '</label>'
-        + '<input class="wb-input" id="wbCanFill" type="color" value="' + escA(o.fill || '#dddddd') + '">'
+        + '<input class="wb-input" id="wbCanFill" type="color" value="' + escA(o.fill || '#dddddd') + '">' + brandSwatchesHtml('wbCanFill')
         + '<label class="wb-label" for="wbCanRadius">' + esc(t('workbench.canvas.label_radius')) + '</label>'
         + '<input class="wb-input" id="wbCanRadius" type="number" min="0" value="' + escA(String(o.radius)) + '">'
         + '</div>'
@@ -5082,10 +5099,10 @@
       own = '<div class="wb-can-grid">'
         + (o.type === 'ellipse'
           ? '<label class="wb-label" for="wbCanFill">' + esc(t('workbench.canvas.label_fill')) + '</label>'
-            + '<input class="wb-input" id="wbCanFill" type="color" value="' + escA(o.fill && o.fill !== 'none' ? o.fill : '#dddddd') + '">'
+            + '<input class="wb-input" id="wbCanFill" type="color" value="' + escA(o.fill && o.fill !== 'none' ? o.fill : '#dddddd') + '">' + brandSwatchesHtml('wbCanFill')
           : '')
         + '<label class="wb-label" for="wbCanStroke">' + esc(t('workbench.canvas.label_stroke')) + '</label>'
-        + '<input class="wb-input" id="wbCanStroke" type="color" value="' + escA(o.stroke && o.stroke !== 'none' ? o.stroke : '#111111') + '">'
+        + '<input class="wb-input" id="wbCanStroke" type="color" value="' + escA(o.stroke && o.stroke !== 'none' ? o.stroke : '#111111') + '">' + brandSwatchesHtml('wbCanStroke')
         + '<label class="wb-label" for="wbCanStrokeWidth">' + esc(t('workbench.canvas.label_stroke_width')) + '</label>'
         + '<input class="wb-input" id="wbCanStrokeWidth" type="number" min="0" max="400" value="' + escA(String(o.strokeWidth || 0)) + '">'
         + '</div>'
@@ -8939,6 +8956,202 @@
     decRequest('PATCH', '/api/workbench/decisions/' + encodeURIComponent(WB.decEdit), { text: text }, 'edit')
   }
 
+  // ---- Brand Kit (K-4.1 .. K-4.3) ---------------------------------------------
+
+  var BRAND_FONTS = ['sans', 'serif', 'mono']
+  var BRAND_CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+  var BRAND_IMG = /\.(png|jpe?g|gif|webp|svg)$/i
+
+  function brandCopy(b) {
+    var x = b || {}
+    return {
+      colors: (x.colors || []).map(function (c) { return { name: c.name || '', hex: c.hex } }),
+      logo_light: x.logo_light || '', logo_dark: x.logo_dark || '',
+      font_heading: x.font_heading || '', font_body: x.font_body || '',
+      logo_corner: x.logo_corner || '',
+      logo_min_width_pct: x.logo_min_width_pct == null ? '' : x.logo_min_width_pct,
+      no_exclamation: !!x.no_exclamation,
+      notes: (x.notes || []).slice(),
+    }
+  }
+
+  /** Loads the brand once (and again whenever the panel opens). */
+  function loadBrand() {
+    var pid = WB.projectId
+    if (!pid) return Promise.resolve()
+    WB.brandError = null
+    return Promise.all([
+      api('GET', '/api/workbench/brand?project=' + encodeURIComponent(pid)),
+      api('GET', '/api/workbench/shared?project=' + encodeURIComponent(pid)),
+    ]).then(function (rs) {
+      if (WB.projectId !== pid) return
+      var b = rs[0]
+      if (!b.ok) { WB.brandError = b.message; WB.brand = null; render(); return }
+      WB.brand = b.data.brand
+      WB.brandDraft = brandCopy(WB.brand)
+      WB.brandFiles = rs[1].ok && rs[1].data && rs[1].data.files
+        ? rs[1].data.files.filter(function (f) { return BRAND_IMG.test(f.name || '') }) : []
+      render()
+    })
+  }
+
+  /** The canvas editor shows the brand colours first, so the brand is loaded in the background. */
+  function ensureBrand() {
+    if (WB.brand === null && !WB.brandError && !WB.brandLoading && WB.projectId) {
+      WB.brandLoading = true
+      loadBrand().then(function () { WB.brandLoading = false }, function () { WB.brandLoading = false })
+    }
+  }
+
+  /** Brand colour buttons under a colour field; a click puts the colour into the field. */
+  function brandSwatchesHtml(targetId) {
+    var cs = (WB.brand && WB.brand.colors) || []
+    if (!cs.length) return ''
+    return '<span class="wb-brand-sw" role="group" aria-label="' + escA(t('workbench.brand.swatches')) + '">'
+      + cs.map(function (c) {
+        return '<button type="button" class="wb-brand-swatch" data-wb-act="brand-swatch" data-wb-target="' + escA(targetId) + '"'
+          + ' data-wb-hex="' + escA(c.hex) + '" style="background:' + escA(c.hex) + '"'
+          + ' title="' + escA((c.name ? c.name + ' ' : '') + c.hex) + '" aria-label="' + escA((c.name ? c.name + ' ' : '') + c.hex) + '"></button>'
+      }).join('') + '</span>'
+  }
+
+  function brandSyncDraft() {
+    var d = WB.brandDraft
+    if (!d) return
+    var v = function (id) { var el = document.getElementById(id); return el ? el.value : '' }
+    var colors = []
+    for (var i = 0; i < d.colors.length; i++) {
+      var hx = document.getElementById('wbBrandHex' + i)
+      colors.push({ name: v('wbBrandName' + i), hex: hx ? hx.value : d.colors[i].hex })
+    }
+    d.colors = colors
+    d.logo_light = v('wbBrandLogoLight'); d.logo_dark = v('wbBrandLogoDark')
+    d.font_heading = v('wbBrandFontH'); d.font_body = v('wbBrandFontB')
+    d.logo_corner = v('wbBrandCorner'); d.logo_min_width_pct = v('wbBrandMinW')
+    var ex = document.getElementById('wbBrandNoExcl'); d.no_exclamation = !!(ex && ex.checked)
+    d.notes = v('wbBrandNotes').split('\n').map(function (x) { return x.trim() }).filter(Boolean)
+  }
+
+  function brandSelect(id, value, options, labelFn, emptyKey) {
+    return '<select class="wb-input" id="' + id + '"><option value="">' + esc(t(emptyKey)) + '</option>'
+      + options.map(function (o) {
+        return '<option value="' + escA(o) + '"' + (value === o ? ' selected' : '') + '>' + esc(labelFn(o)) + '</option>'
+      }).join('') + '</select>'
+  }
+
+  function brandPanelHtml() {
+    if (!WB.brandOpen) return ''
+    var body
+    if (WB.brandError) body = '<p class="wb-error">' + esc(WB.brandError) + '</p>'
+    else if (WB.brand === null || !WB.brandDraft) body = '<p class="wb-hint">' + esc(t('workbench.brand.loading')) + '</p>'
+    else {
+      var d = WB.brandDraft, ro = archived() || WB.brandBusy ? ' disabled' : ''
+      var paths = WB.brandFiles.map(function (f) { return f.path })
+      var logoOpts = function (cur) { return cur && paths.indexOf(cur) < 0 ? paths.concat([cur]) : paths }
+      var nameOf = function (pth) {
+        var f = WB.brandFiles.filter(function (x) { return x.path === pth })[0]
+        return f ? f.name : pth
+      }
+      var colors = d.colors.map(function (c, i) {
+        return '<li class="wb-brand-color">'
+          + '<input type="color" id="wbBrandHex' + i + '" value="' + escA(c.hex) + '" aria-label="' + escA(t('workbench.brand.color_pick')) + '"' + ro + '>'
+          + '<input type="text" class="wb-input" id="wbBrandName' + i + '" maxlength="40" value="' + escA(c.name) + '"'
+          + ' placeholder="' + escA(t('workbench.brand.color_name_ph')) + '" aria-label="' + escA(t('workbench.brand.color_name')) + '"' + ro + '>'
+          + '<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="brand-del-color" data-wb-i="' + i + '"' + ro + '>' + esc(t('workbench.brand.color_del')) + '</button>'
+          + '</li>'
+      }).join('')
+      body = '<form id="wbBrandForm" class="wb-brand-form">'
+        + '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_colors')) + '</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.brand.colors_help')) + '</p>'
+        + '<ul class="wb-brand-colors">' + (colors || '<li class="wb-hint">' + esc(t('workbench.brand.colors_none')) + '</li>') + '</ul>'
+        + '<p><button type="button" class="wb-btn" data-wb-act="brand-add-color"' + (d.colors.length >= 12 || ro ? ' disabled' : '') + '>' + esc(t('workbench.brand.color_add')) + '</button></p>'
+        + '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_logos')) + '</h3>'
+        + '<p class="wb-hint">' + esc(t(paths.length ? 'workbench.brand.logos_help' : 'workbench.brand.logos_none')) + '</p>'
+        + '<div class="wb-can-grid">'
+        + '<label class="wb-label" for="wbBrandLogoLight">' + esc(t('workbench.brand.logo_light')) + '</label>'
+        + brandSelect('wbBrandLogoLight', d.logo_light, logoOpts(d.logo_light), nameOf, 'workbench.brand.none')
+        + '<label class="wb-label" for="wbBrandLogoDark">' + esc(t('workbench.brand.logo_dark')) + '</label>'
+        + brandSelect('wbBrandLogoDark', d.logo_dark, logoOpts(d.logo_dark), nameOf, 'workbench.brand.none')
+        + '</div>'
+        + '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_fonts')) + '</h3>'
+        + '<div class="wb-can-grid">'
+        + '<label class="wb-label" for="wbBrandFontH">' + esc(t('workbench.brand.font_heading')) + '</label>'
+        + brandSelect('wbBrandFontH', d.font_heading, BRAND_FONTS, function (f) { return t('workbench.canvas.font_' + f) }, 'workbench.brand.none')
+        + '<label class="wb-label" for="wbBrandFontB">' + esc(t('workbench.brand.font_body')) + '</label>'
+        + brandSelect('wbBrandFontB', d.font_body, BRAND_FONTS, function (f) { return t('workbench.canvas.font_' + f) }, 'workbench.brand.none')
+        + '</div>'
+        + '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_rules')) + '</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.brand.rules_help')) + '</p>'
+        + '<div class="wb-can-grid">'
+        + '<label class="wb-label" for="wbBrandCorner">' + esc(t('workbench.brand.logo_corner')) + '</label>'
+        + brandSelect('wbBrandCorner', d.logo_corner, BRAND_CORNERS, function (c) { return t('workbench.brand.corner_' + c) }, 'workbench.brand.any_place')
+        + '<label class="wb-label" for="wbBrandMinW">' + esc(t('workbench.brand.logo_min')) + '</label>'
+        + '<input class="wb-input" id="wbBrandMinW" type="number" min="1" max="80" step="0.5" value="' + escA(String(d.logo_min_width_pct)) + '" placeholder="10">'
+        + '</div>'
+        + '<p class="wb-can-checks"><label><input type="checkbox" id="wbBrandNoExcl"' + (d.no_exclamation ? ' checked' : '') + '> ' + esc(t('workbench.brand.no_excl')) + '</label></p>'
+        + '<label class="wb-label" for="wbBrandNotes">' + esc(t('workbench.brand.notes')) + '</label>'
+        + '<textarea id="wbBrandNotes" rows="3" placeholder="' + escA(t('workbench.brand.notes_ph')) + '">' + esc(d.notes.join('\n')) + '</textarea>'
+        + (archived() ? '' : '<div class="wb-dec-btns"><button type="submit" class="btn-primary"' + (WB.brandBusy ? ' disabled' : '') + '>' + esc(t('workbench.brand.save')) + '</button>'
+          + '<button type="button" class="btn-secondary" data-wb-act="brand-reset">' + esc(t('workbench.brand.reset')) + '</button></div>')
+        + '</form>'
+    }
+    return '<section class="wb-caps-panel wb-brand-panel" id="wbBrandPanel">'
+      + '<div class="wb-caps-head"><h2>' + esc(t('workbench.brand.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="brand-close">' + esc(t('workbench.caps.close')) + '</button></div>'
+      + '<p class="wb-hint">' + esc(t('workbench.brand.intro')) + '</p>'
+      + body + '</section>'
+  }
+
+  function saveBrand() {
+    if (WB.brandBusy || !WB.brandDraft) return
+    brandSyncDraft()
+    var d = WB.brandDraft, pid = WB.projectId
+    var payload = {
+      colors: d.colors, logo_light: d.logo_light || null, logo_dark: d.logo_dark || null,
+      font_heading: d.font_heading || null, font_body: d.font_body || null,
+      logo_corner: d.logo_corner || null,
+      logo_min_width_pct: d.logo_min_width_pct === '' ? null : Number(d.logo_min_width_pct),
+      no_exclamation: d.no_exclamation, notes: d.notes,
+    }
+    WB.brandBusy = true
+    render()
+    api('PUT', '/api/workbench/brand', { project: pid, brand: payload }).then(function (r) {
+      WB.brandBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.brand = r.data.brand
+      WB.brandDraft = brandCopy(WB.brand)
+      WB.brandCheck = null
+      window.showToast(t('workbench.brand.toast_saved'))
+      render()
+    })
+  }
+
+  function runBrandCheck() {
+    var id = WB.selectedId
+    if (!id) return
+    WB.brandCheck = { itemId: id, loading: true }
+    render()
+    api('GET', '/api/workbench/brand/check?item=' + encodeURIComponent(id)).then(function (r) {
+      if (WB.selectedId !== id) return
+      WB.brandCheck = r.ok ? { itemId: id, data: r.data } : { itemId: id, error: r.message }
+      render()
+    })
+  }
+
+  function brandCheckHtml() {
+    var c = WB.brandCheck
+    if (!c || c.itemId !== WB.selectedId) return ''
+    var inner
+    if (c.loading) inner = '<p class="wb-hint">' + esc(t('workbench.brand.checking')) + '</p>'
+    else if (c.error) inner = '<p class="wb-error">' + esc(c.error) + '</p>'
+    else if (!c.data.has_brand) inner = '<p class="wb-hint">' + esc(t('workbench.brand.check_nobrand')) + '</p>'
+    else if (!c.data.findings.length) inner = '<p class="wb-hint wb-brand-ok">' + esc(t('workbench.brand.check_ok')) + '</p>'
+    else inner = '<p class="wb-hint">' + esc(t('workbench.brand.check_found', { n: c.data.findings.length })) + '</p>'
+      + '<ul class="wb-brand-findings">' + c.data.findings.map(function (f) { return '<li>' + esc(f.message) + '</li>' }).join('') + '</ul>'
+    return '<div class="wb-brand-check" role="status">' + inner + '</div>'
+  }
+
   // ---- projekt-idovonal (#406, 7. pont) --------------------------------------
   //
   // A projekt minden esemenye egy gorgetheto savban, a legfrissebb felul. A
@@ -9107,6 +9320,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="wk-open" aria-pressed="' + !!WB.wkOpen + '">' + esc(t('workbench.wk.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="brand-open" aria-pressed="' + !!WB.brandOpen + '">' + esc(t('workbench.brand.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="td-open" aria-pressed="' + !!WB.tdOpen + '">' + esc(t('workbench.td.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="caps-open" aria-pressed="' + !!WB.capsOpen + '">' + esc(t('workbench.caps.open')) + '</button>'
@@ -9117,6 +9331,7 @@
       + timelinePanelHtml()
       + weeklyPanelHtml()
       + decisionsPanelHtml()
+      + brandPanelHtml()
       + todosPanelHtml()
       + handoffPanelHtml()
       + overviewHtml()
@@ -9497,6 +9712,13 @@
     WB.decError = null
     WB.decBusy = false
     WB.decEdit = null
+    WB.brandOpen = false
+    WB.brand = null
+    WB.brandDraft = null
+    WB.brandFiles = []
+    WB.brandError = null
+    WB.brandBusy = false
+    WB.brandCheck = null
     WB.chatForceBottom = true
     render()
     load(projectId)
@@ -9741,6 +9963,16 @@
       else if (a === 'td-toggle') tdRequest('PATCH', '/api/workbench/todos/' + encodeURIComponent(tdId), { done: cur.done_at == null }, cur.done_at == null ? 'done' : 'undone')
       else if (window.confirm(t('workbench.td.delete_confirm', { text: cur.text }))) tdRequest('DELETE', '/api/workbench/todos/' + encodeURIComponent(tdId), undefined, 'deleted')
     }
+    else if (a === 'brand-open') { WB.brandOpen = !WB.brandOpen; render(); if (WB.brandOpen) loadBrand() }
+    else if (a === 'brand-close') { WB.brandOpen = false; render() }
+    else if (a === 'brand-add-color') { brandSyncDraft(); WB.brandDraft.colors.push({ name: '', hex: '#1a73e8' }); render() }
+    else if (a === 'brand-del-color') { brandSyncDraft(); WB.brandDraft.colors.splice(parseInt(act.getAttribute('data-wb-i'), 10), 1); render() }
+    else if (a === 'brand-reset') { WB.brandDraft = brandCopy(WB.brand); render() }
+    else if (a === 'brand-swatch') {
+      var sw = document.getElementById(act.getAttribute('data-wb-target'))
+      if (sw) sw.value = act.getAttribute('data-wb-hex')
+    }
+    else if (a === 'canvas-brand-check') runBrandCheck()
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
     else if (a === 'dec-close') { WB.decOpen = false; WB.decEdit = null; render() }
     else if (a === 'dec-edit') { WB.decEdit = act.getAttribute('data-wb-dec'); render() }
@@ -10335,6 +10567,7 @@
     if (e.target && e.target.id === 'wbPartForm') { e.preventDefault(); savePart(WB.partEdit) }
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
     if (e.target && e.target.id === 'wbSearchForm') { e.preventDefault(); runSearch() }
+    if (e.target && e.target.id === 'wbBrandForm') { e.preventDefault(); saveBrand() }
     if (e.target && e.target.id === 'wbDecForm') { e.preventDefault(); addDecisionFromForm() }
     if (e.target && e.target.id === 'wbTdForm') { e.preventDefault(); addTodoFromForm() }
     if (e.target && e.target.id === 'wbDecEditForm') { e.preventDefault(); saveDecisionEdit() }

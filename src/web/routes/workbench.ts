@@ -82,6 +82,7 @@ import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTod
 import { getReminderStatus, setReminderSettings } from '../../workbench-todo-reminder.js'
 import { gcalStatus, requestTodoCalendar, settleTodoCalendarApprovals } from '../../workbench-todo-gcal.js'
 import { sendOwnerChannelChecked } from '../../notify.js'
+import { getBrand, saveBrand, checkCanvasBrand, emptyBrand, BRAND_FONTS, LOGO_CORNERS, BRAND_MAX_COLORS, BRAND_MAX_NOTES, BRAND_NOTE_MAX_CHARS } from '../../workbench-brand.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -325,6 +326,50 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   todo_none_due: {
     hu: 'Ebben a projektben nincs nyitott, határidős teendő, így a naptárba sincs mit betenni.',
     en: 'This project has no open to-dos with a due date, so there is nothing to put in the calendar.',
+  },
+  brand_bad_color: {
+    hu: 'Ez nem szín. Színt így adj meg: #1a73e8 (kettőskereszt és hat jegy), vagy válaszd ki a színválasztóval.',
+    en: 'That is not a colour. Give a colour like #1a73e8 (a hash and six digits), or pick it with the colour picker.',
+  },
+  brand_too_many_colors: {
+    hu: 'Legfeljebb 12 márkaszín lehet. Egy márka általában 3-5 színből áll, hagyd ki a ritkán használtakat.',
+    en: 'A brand can have at most 12 colours. A brand usually has 3-5, leave out the ones rarely used.',
+  },
+  brand_bad_logo: {
+    hu: 'A logó egy kép legyen (png, jpg, svg, gif vagy webp) a projekt közös anyagai közül. Válaszd ki a listából.',
+    en: 'The logo has to be a picture (png, jpg, svg, gif or webp) from the project\'s shared materials. Pick it from the list.',
+  },
+  brand_bad_font: {
+    hu: 'Ez a betűtípus nincs a választékban. Válassz a listából: serif (talpas), sans (talp nélküli) vagy mono (fix szélességű).',
+    en: 'That font is not available. Pick one from the list: sans, serif or mono.',
+  },
+  brand_bad_corner: {
+    hu: 'A logó helye csak a négy sarok egyike lehet. Válassz a listából.',
+    en: 'The logo position can only be one of the four corners. Pick it from the list.',
+  },
+  brand_bad_min_width: {
+    hu: 'A logó legkisebb szélessége 1 és 80 közötti százalék legyen (például 10).',
+    en: 'The smallest logo width must be a percentage between 1 and 80 (for example 10).',
+  },
+  brand_too_many_notes: {
+    hu: 'Legfeljebb 20 stílusszabályt lehet felírni. Vond össze a hasonlókat.',
+    en: 'At most 20 style rules can be written down. Merge similar ones.',
+  },
+  brand_note_too_long: {
+    hu: 'Egy stílusszabály legfeljebb 300 karakter lehet. Írd rövidebben, egy mondatban.',
+    en: 'A style rule can be at most 300 characters. Keep it to one sentence.',
+  },
+  brand_bad_input: {
+    hu: 'A márka adatai nem érthetők. Töltsd újra az oldalt, és próbáld újra.',
+    en: 'The brand data could not be understood. Reload the page and try again.',
+  },
+  brand_read_failed: {
+    hu: 'A márka adatai most nem olvashatók. Ez NEM azt jelenti, hogy nincs márka: próbáld újra később.',
+    en: 'The brand data cannot be read right now. This does NOT mean there is no brand: try again later.',
+  },
+  brand_item_not_found: {
+    hu: 'Ez a munkadarab nem található, ezért nincs mit ellenőrizni.',
+    en: 'This work item was not found, so there is nothing to check.',
   },
   decision_text_required: {
     hu: 'Írd be, miben állapodtatok meg (például: „a logó kék marad”).',
@@ -1643,6 +1688,51 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r) return fail(res, 400, 'decision_text_required', lang)
     if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : r.code === 'too_many' ? 409 : 400, 'decision_' + r.code, lang)
     json(res, { decision: r.decision })
+    return true
+  }
+
+  // BRAND KIT (v4 spec K-4.1..K-4.3): one brand per project. The check only
+  // reads the drawing and lists deviations; it never changes it.
+  if (path === '/api/workbench/brand' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    let brand: ReturnType<typeof getBrand>
+    try { brand = getBrand(project.id) } catch { return fail(res, 500, 'brand_read_failed', lang) }
+    json(res, {
+      brand: brand ?? { ...emptyBrand(), project_id: project.id, updated_at: 0 },
+      exists: brand != null,
+      limits: { max_colors: BRAND_MAX_COLORS, max_notes: BRAND_MAX_NOTES, note_max_chars: BRAND_NOTE_MAX_CHARS, fonts: BRAND_FONTS, corners: LOGO_CORNERS },
+    })
+    return true
+  }
+  if (path === '/api/workbench/brand' && method === 'PUT') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = typeof body['project'] === 'string' ? body['project'].trim() : ''
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = saveBrand(project.id, body['brand'])
+    if (!r.ok) return fail(res, 400, 'brand_' + r.code, lang)
+    json(res, { brand: r.brand })
+    return true
+  }
+  if (path === '/api/workbench/brand/check' && method === 'GET') {
+    const it = getWorkItem((url.searchParams.get('item') || '').trim())
+    if (!it) return fail(res, 404, 'brand_item_not_found', lang)
+    let brand: ReturnType<typeof getBrand>
+    try { brand = getBrand(it.project_id) } catch { return fail(res, 500, 'brand_read_failed', lang) }
+    const c = readCanvas(it.id)
+    if (!c.ok) return failDetail(res, c.code === 'not_found' ? 404 : 409, c.code, lang, c.detail)
+    const findings = c.exists ? checkCanvasBrand(c.doc, brand) : []
+    json(res, {
+      has_brand: brand != null,
+      has_canvas: c.exists,
+      findings: findings.map((f) => ({ code: f.code, object: f.object, message: f.message[lang] })),
+    })
     return true
   }
 
