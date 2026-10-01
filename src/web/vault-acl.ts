@@ -100,3 +100,12 @@ export function logVaultRead(id: string, auth: RouteContext['auth'], found: bool
     found,
   }, 'vault: secret value read')
 }
+
+// #456 (rebuilt from upstream 82a403bf): SSH private keys live in the vault as
+// `ssh-key-<id>` and are consumed ONLY in-process by the SSH feature
+// (routes/vault-ssh-keys.ts). No generic path may hand one out: not the value
+// route, not a binding (env var / header, which would send it to a remote server).
+// One predicate, so the concept is closed at every writer, not at one endpoint.
+export function isSshPrivateKeyId(id: string): boolean {
+  return typeof id === 'string' && id.trim().startsWith('ssh-key-')
+}

@@ -18,7 +18,7 @@ import { shellEscape } from '../sanitize.js'
 import { getExternalProjectPaths, addExternalProjectPath, removeExternalProjectPath, getGitHubRepos, installGitHubRepo, removeGitHubRepo, updateGitHubRepo, detectRequiredEnvVars } from '../dashboard-settings.js'
 import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta, getSecretFields, setSecretFields, getSecretHistory, listAllTags } from '../vault.js'
 import { normalizeVaultFields } from '../../vault-fields.js'
-import { logVaultRead } from '../vault-acl.js'
+import { logVaultRead, isSshPrivateKeyId, principalOf } from '../vault-acl.js'
 import {
   getBindings, addBinding, removeBinding, removeBindingsForSecret,
   syncSecret, syncAllBindings, scanMcpConfigs, unsyncBinding,
@@ -829,6 +829,14 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
   const isVaultSubroute = vaultMatch && ['bindings', 'sync', 'scan', 'import', 'ssh-servers', 'ssh-keys'].includes(vaultMatch[1])
   if (vaultMatch && !isVaultSubroute && method === 'GET') {
     const id = decodeURIComponent(vaultMatch[1])
+    // SSH private keys are NEVER served by this generic value route (the SSH
+    // feature reads them in-process, the list only hides them from the cards).
+    // The audit row is kept so an attempt stays visible; the key is not decrypted.
+    if (isSshPrivateKeyId(id)) {
+      logVaultRead(id, ctx.auth, listSecrets().some(s => s.id === id))
+      json(res, { error: 'SSH private keys are not served by this route / Az SSH privát kulcsot ez a végpont nem adja ki' }, 403)
+      return true
+    }
     const val = getSecret(id)
     // VAULTSZELES826 F0: one audit row per value read (id, kind, principal,
     // allowlist verdict) BEFORE the value leaves the server. Audit only: the
@@ -869,6 +877,14 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
       // header (e.g. Authorization) via headersHelper instead of an env var.
       headerName?: string
       headerScheme?: string
+    }
+    // An SSH private key must never be bound: a header binding would send it to a
+    // remote server, an env binding would put it into a child process.
+    if (isSshPrivateKeyId(data.vaultSecretId)) {
+      const { kind, principal } = principalOf(ctx.auth)
+      logger.warn({ event: 'vault-binding-refused', vaultSecretId: data.vaultSecretId, kind, principal, via: data.headerName?.trim() ? 'header' : 'env' }, 'vault: SSH private key binding refused')
+      json(res, { error: 'SSH private keys cannot be bound to an env var or a header / SSH privát kulcsot nem lehet környezeti változóhoz vagy fejléchez kötni' }, 400)
+      return true
     }
     // A binding is either env-var based (local/stdio servers) or header based
     // (remote http/sse servers). Header bindings key on the header name.
