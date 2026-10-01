@@ -1103,6 +1103,8 @@
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
       + '</button>'
       // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
+      + (archived() ? '' : '<button type="button" class="wb-item-del wb-item-edit" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '"'
+        + ' title="' + escA(t('workbench.rename.row_hint')) + '" aria-label="' + escA(t('workbench.rename.row_hint')) + '">✏️</button>')
       + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
       + esc(t('workbench.trash.delete')) + '</button>'
@@ -1191,7 +1193,7 @@
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
           + (archived() ? '' : ' <span class="wb-folder-ctl"><button type="button" class="wb-folder-del" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '"'
             + ' title="' + escA(t('workbench.folder.rename')) + '" aria-label="' + escA(t('workbench.folder.rename')) + '">✏️</button>'
-            + '<button type="button" class="wb-folder-del" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '"'
+            + '<button type="button" class="wb-folder-del wb-folder-trash" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '"'
             + ' title="' + escA(t('workbench.folder.delete')) + '" aria-label="' + escA(t('workbench.folder.delete')) + '">🗑</button></span>') + '</li>')
         if (!collapsed) walk(f, depth + 1)
       })
@@ -1494,6 +1496,8 @@
     var kinds = ask ? ask.options : INTAKE_KINDS
     var busy = !!WB.intakeBusy
     return '<div class="wb-intake">'
+      + '<label class="wb-label" for="wbIntakeName">' + esc(t('workbench.intake.name_label')) + '</label>'
+      + '<input class="wb-input" id="wbIntakeName" type="text" maxlength="200" value="' + escA(WB.intakeName || '') + '" placeholder="' + escA(t('workbench.intake.name_placeholder')) + '" autocomplete="off">'
       + '<label class="wb-label" for="wbIntakeText">' + esc(t('workbench.intake.title')) + '</label>'
       + '<textarea class="wb-input wb-intake-text" id="wbIntakeText" rows="3" maxlength="4000" placeholder="'
       + escA(t('workbench.intake.placeholder')) + '">' + esc(WB.intakeDraft || '') + '</textarea>'
@@ -1522,9 +1526,13 @@
   function intakeCreate(kind) {
     if (WB.intakeBusy || archived()) return
     var text = intakeReadDraft()
+    var nameEl = document.getElementById('wbIntakeName')
+    if (nameEl && typeof nameEl.value === 'string') WB.intakeName = nameEl.value
+    var name = String(WB.intakeName || '').trim()
     if (!kind && !text) { window.showToast(t('workbench.intake.empty')); return }
     var payload = { project_id: WB.projectId, text: text }
     if (kind) payload.kind = kind
+    if (name) payload.title = name
     var pf = document.getElementById('wbNewFolder')
     if (pf) WB.pickFolder = pf.value
     if (WB.pickFolder) payload.folder = WB.pickFolder
@@ -1541,6 +1549,7 @@
       }
       WB.intakeAsk = null
       WB.intakeDraft = ''
+      WB.intakeName = ''
       WB.formOpen = false
       window.showToast(r.data.message || t('workbench.new.created', { title: r.data.item.title }))
       selectItem(r.data.item.id)
@@ -7019,10 +7028,12 @@
   }
 
   /** ATNEVEZES (#441, K-0.11): az uj nevvel a munkadarab mappaja is atnevezodik. */
-  function renameItem() {
-    var id = WB.selectedId
-    if (!id || !WB.detail || archived()) return
-    var cur = WB.detail.item.title
+  function renameItem(rowId) {
+    var id = rowId || WB.selectedId
+    if (!id || archived()) return
+    var row = rowId ? (WB.items || []).filter(function (x) { return x.id === rowId })[0] : (WB.detail && WB.detail.item)
+    if (!row) return
+    var cur = row.title
     var title = window.prompt(t('workbench.rename.prompt'), cur)
     if (title === null) return
     title = String(title).trim()
@@ -9451,7 +9462,7 @@
     WB.detail = null
     WB.selectedId = null
     WB.formOpen = false
-    WB.intakeAsk = null; WB.intakeDraft = ''
+    WB.intakeAsk = null; WB.intakeDraft = ''; WB.intakeName = ''
     WB.error = null
     WB.panel = 'items'
     WB.chat = {}
@@ -9814,6 +9825,7 @@
       if (dropList && dropAt >= 0 && dropAt < dropList.length) { dropList.splice(dropAt, 1); renderChat() }
     }
     else if (a === 'item-rename') renameItem()
+    else if (a === 'item-rename-row') renameItem(act.getAttribute('data-wb-id'))
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'version-delete') deleteVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
@@ -10043,6 +10055,7 @@
     if (!WB.open || !e.target) return
     if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
     if (e.target.id === 'wbIntakeText') WB.intakeDraft = e.target.value
+    if (e.target.id === 'wbIntakeName') WB.intakeName = e.target.value
     if (e.target.id === 'wbCanAiText' && WB.canvasAi) WB.canvasAi.text = e.target.value
     if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
   })

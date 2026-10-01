@@ -2017,7 +2017,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // Step 2 needs step 1: nothing is filed into a folder nobody chose, and no folder is made on the side.
     if (!intakeFolder && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     const r = createWorkItem({
-      project_id: project.id, type: INTAKE_TYPE[kind], title: intakeTitle(text, kind, lang),
+      project_id: project.id, type: INTAKE_TYPE[kind], title: String(body['title'] ?? '').trim().slice(0, 200) || intakeTitle(text, kind, lang),
       prompt: text || undefined, container_folder: intakeFolder, created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
