@@ -46,6 +46,17 @@ export interface OverviewCard {
   updatedAt: number
 }
 
+/** A Workbench work item ("munkadarab"): not a kanban card, but real work the
+ *  project holds -- the Kanban tab shows it, so the overview must count it. */
+export interface OverviewWorkItem {
+  id: string
+  seq: number | null
+  title: string
+  /** draft / in_progress / review (done ones are not open work). */
+  status: string
+  updatedAt: number
+}
+
 export interface WorkClaim { holder: string; kind: string; ref: string | null; since: number }
 export interface CodeTaskRef { id: string; status: string; alias: string; cardId: string | null; excerpt: string; at: number }
 
@@ -103,6 +114,8 @@ export interface ProjectOverview {
   approvals: ApprovalItem[]
   nextSteps: OverviewCard[]
   nextStepsTotal: number
+  /** The project's open work items (draft / in progress / review), newest first. */
+  workItems: OverviewWorkItem[]
   activity: ActivityItem[]
   folder: { state: FolderState; path: string | null; recentFiles: number }
   facts: ProjectFacts
@@ -146,6 +159,18 @@ export function sortNextSteps(cards: OverviewCard[]): OverviewCard[] {
     || ((a.dueAt ?? Number.MAX_SAFE_INTEGER) - (b.dueAt ?? Number.MAX_SAFE_INTEGER))
     || ((STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9))
     || (b.updatedAt - a.updatedAt))
+}
+
+/** Open work items of the project. A fresh install has no table yet: that is
+ *  "no work item", not an error. */
+function loadWorkItems(projectId: string): OverviewWorkItem[] {
+  if (!hasTable('work_items')) return []
+  const rows = getDb().prepare(
+    `SELECT id, seq, title, status, updated_at FROM work_items
+      WHERE project_id = ? AND deleted_at IS NULL AND status IN ('draft', 'in_progress', 'review')
+      ORDER BY updated_at DESC`,
+  ).all(projectId) as { id: string; seq: number | null; title: string; status: string; updated_at: number }[]
+  return rows.map((r) => ({ id: r.id, seq: r.seq ?? null, title: r.title, status: r.status, updatedAt: toMs(r.updated_at) }))
 }
 
 function loadClaims(cardIds: string[], now: number): Map<string, WorkClaim[]> {
@@ -385,6 +410,7 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
   }
   for (const t of cardless) currentWork.push({ card: null, claims: [], codeTasks: [t] })
 
+  const workItems = loadWorkItems(project.id)
   const approvals = loadApprovals(cards)
   const open = cards.filter((c) => OPEN_STATUSES.includes(c.status))
   const next = sortNextSteps(open)
@@ -406,16 +432,22 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
     approvals,
     nextSteps: next.slice(0, 10),
     nextStepsTotal: next.length,
+    workItems,
     activity,
     folder: { state: folderScan.state, path: project.folder_path, recentFiles: folderScan.files.length },
     facts: {
-      openCards: open.length,
-      inProgress: cards.filter((c) => c.status === 'in_progress' || c.status === 'testing').length,
-      waiting: cards.filter((c) => c.status === 'waiting').length,
+      // Cards AND work items: the Kanban tab shows both, so the numbers must too.
+      openCards: open.length + workItems.length,
+      inProgress: cards.filter((c) => c.status === 'in_progress' || c.status === 'testing').length
+        + workItems.filter((w) => w.status === 'in_progress').length,
+      waiting: cards.filter((c) => c.status === 'waiting').length
+        + workItems.filter((w) => w.status === 'review').length,
       overdue: open.filter((c) => c.dueAt != null && c.dueAt < now).length,
       pendingApprovals: approvals.length,
-      activeWork: currentWork.filter((w) => w.claims.length || w.codeTasks.length).length,
-      staleOpenCards: open.filter((c) => c.updatedAt > 0 && c.updatedAt < staleCut).length,
+      activeWork: currentWork.filter((w) => w.claims.length || w.codeTasks.length).length
+        + workItems.filter((w) => w.status === 'in_progress').length,
+      staleOpenCards: open.filter((c) => c.updatedAt > 0 && c.updatedAt < staleCut).length
+        + workItems.filter((w) => w.updatedAt > 0 && w.updatedAt < staleCut).length,
     },
     hasDevWork,
     codeAliases: aliases,
