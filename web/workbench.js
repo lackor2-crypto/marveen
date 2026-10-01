@@ -3226,7 +3226,7 @@
       WB.selectedId = r.data.item.id
       WB.panel = 'editor'
       WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
-      window.showToast(t('workbench.table.created', { name: r.data.name || '' }))
+      window.showToast(t('workbench.table.created', { name: r.data.name || '' }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
       load(WB.projectId)
       loadDetail(r.data.item.id)
       openTable(r.data.item.id, null)
@@ -9103,7 +9103,7 @@
       WB.formOpen = false
       WB.selectedId = r.data.item.id
       WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
-      window.showToast(t('workbench.new.created', { title: r.data.item.title }))
+      window.showToast(t('workbench.new.created', { title: r.data.item.title }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
       load(WB.projectId)
     })
   }

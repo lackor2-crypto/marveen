@@ -1991,6 +1991,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // A typed "new folder" name is made for real right now (it used to need the
     // extra button), inside the picked folder, and the item goes into it.
     let ownFolder: string | null = null
+    let folderExisted = false
     const newFolderName = String(body.new_folder ?? '').trim()
     if (newFolderName) {
       const mf = makeWorkFolder(project, containerFolder ?? '', newFolderName)
@@ -2000,6 +2001,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       ownFolder = mf.folder
       containerFolder = mf.folder
+      folderExisted = !mf.created
     }
     const r = createWorkItem({
       project_id: project.id,
@@ -2015,7 +2017,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // The item gets its folder at creation, not only with its first file.
     if (ownFolder) assignWorkItemFolder(r.item.id, ownFolder)
     else { try { ensureWorkItemFolder(r.item) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] item folder at creation failed') } }
-    json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version] }, 201)
+    json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted }, 201)
     return true
   }
 
@@ -2036,6 +2038,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // folder (with the .xlsx in it) is made inside the chosen folder.
     let folder: string | null = null
     let folderCreated = false
+    let folderExisted = false
     let containerFolder: string | null = null
     const newFolderName = String(body['new_folder'] ?? '').trim()
     if (String(body['folder'] ?? '').trim() || newFolderName) {
@@ -2048,6 +2051,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
           return failDetail(res, mf.code === 'write_failed' ? 500 : 400, code, lang, 'message' in mf ? (mf.message || null) : null)
         }
         c = { ok: true, folder: mf.folder }
+        folderExisted = !mf.created
       }
       containerFolder = c.folder
       const f = makeFreshFolder(project, title, c.folder)
@@ -2072,7 +2076,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) return fail(res, 400, r.code, lang)
     if (folder) assignWorkItemFolder(r.item.id, folder)
     const item = folder ? (getWorkItem(r.item.id) ?? r.item) : r.item
-    json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name }, 201)
+    json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name, folder_existed: folderExisted }, 201)
     return true
   }
 

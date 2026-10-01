@@ -5661,6 +5661,7 @@ window._i18n.hu = {
   "workbench.intake.kind.court_filing": "Bírósági beadvány",
   "workbench.intake.kind.video": "Videó",
   "workbench.intake.kind.presentation": "Prezentáció",
+  "workbench.new.folder_existed": "Ez a mappa már megvolt, ebbe tettem.",
   "workbench.new.created": "Elkészült a munkadarab: {title}",
   "workbench.tpl.title": "Vagy indulj sablonból (egy kattintás):",
   "workbench.tpl.hint": "Az új munkadarabban már ott a szerkezet: a [szögletes zárójeles] helyeket írd át a sajátodra.",
