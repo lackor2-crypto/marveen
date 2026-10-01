@@ -23,6 +23,11 @@ import { resolveLifePath, explorerRoot } from './life-explorer.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { fileKind, type PreviewKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
+
+/** A video timeline file. The free-name search puts " (2)" before the extension (`x.timeline (2).json`), so that form counts too. */
+export function isTimelineFile(name: unknown): boolean {
+  return /\.timeline(?: \(\d+\))?\.json$/i.test(String(name ?? ''))
+}
 import { isOfficeConvertible, officeExt, cachedPdfFor } from './office-convert.js'
 import {
   getWorkItem, listWorkItemVersions, listWorkItemParts,
@@ -174,7 +179,7 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
 
   // VIDEO TIMELINE (phase 5): a `.timeline.json` is data, not something to read:
   // the editor shows it, with the last rendered video as the picture.
-  if (name.toLowerCase().endsWith('.timeline.json')) {
+  if (isTimelineFile(name)) {
     return {
       available: true, kind: 'timeline', ...base, mime: 'application/json', etag,
       text: null, truncated: false, reason: null, detail: null, office: null,

@@ -65,6 +65,9 @@ describe('video timeline: the routes', () => {
     const v = await callWorkbench(url('/version'), 'POST', JSON.stringify({ label: 'első vágás' }), { 'content-type': 'application/json' })
     expect(v.status).toBe(201)
     expect(v.body.versions.length).toBe(3)
+    // Undo survives a version (the version only freezes a milestone), and runs out at the start.
+    expect((await callWorkbench(url('/undo'), 'POST')).status).toBe(200)
+    expect((await callWorkbench(url('/undo'), 'POST')).status).toBe(200)
     const none = await callWorkbench(url('/undo'), 'POST')
     expect(none.status).toBe(409)
     expect(none.body.message).toMatch(/Nincs mit visszavonni/)

@@ -15,6 +15,7 @@
  * module): a cut that runs past the end of its file is reported by the renderer
  * in plain words, it is not guessed at.
  */
+import { isTimelineFile } from './workbench-preview.js'
 import { createDraftStore, type DraftKind, type DraftStore } from './workbench-draft-store.js'
 
 export const TIMELINE_MAX_CLIPS = 100
@@ -24,6 +25,8 @@ export const TIMELINE_TEXT_MAX = 300
 export const TIMELINE_MIN_CLIP = 0.1
 export const TIMELINE_MAX_SECONDS = 4 * 3600
 export const TIMELINE_EXT = '.timeline.json'
+
+export { isTimelineFile }
 
 export const TIMELINE_ASPECTS = ['16:9', '9:16', '1:1'] as const
 export type TimelineAspect = (typeof TIMELINE_ASPECTS)[number]
@@ -420,7 +423,7 @@ export const timelineKind: DraftKind<TimelineDoc, TimelinePatch> = {
     const p = parseTimeline(value)
     return p.ok ? { ok: true, doc: p.doc } : { ok: false, code: p.code, detail: p.detail }
   },
-  isFile: (name) => name.toLowerCase().endsWith(TIMELINE_EXT),
+  isFile: (name) => isTimelineFile(name),
   fileName: (title) => {
     const base = String(title ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 60)
     return `${base || 'video'}${TIMELINE_EXT}`
