@@ -6607,6 +6607,7 @@ window._i18n.hu = {
   "workbench.rename.button": "átnevezés",
   "workbench.rename.prompt": "A munkadarab új neve (a mappája is ezt a nevet kapja):",
   "workbench.rename.row_hint": "Munkadarab átnevezése",
+  "workbench.rename.row_label": "Szerkesztés",
   "workbench.rename.done": "Átneveztem.",
   "workbench.rename.done_folder": "Átneveztem, a mappa új neve: {folder}",
   "workbench.rename.done_folder_kept_shared": "Átneveztem. A mappa a régi néven maradt, mert egy másik munkadarab is használ belőle fájlt.",

@@ -105,7 +105,7 @@
 .wb-item-title { word-break: break-word; }
 .wb-item-meta { font-size: 0.8rem; opacity: 0.7; white-space: nowrap; flex: 0 0 auto; margin-left: auto; }
 .wb-item-title { flex: 1 1 auto; min-width: 0; }
-.wb-item-edit { font-size: 1rem; padding: 0 8px; }
+.wb-item-edit { padding: 0 8px; }
 .wb-folder-del { font-size: 1.05rem; }
 .wb-folder-trash { font-size: 1.3rem; line-height: 1; opacity: .85; }
 

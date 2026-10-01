@@ -6529,6 +6529,7 @@ window._i18n.en = {
   "workbench.rename.button": "rename",
   "workbench.rename.prompt": "New name of the work item (its folder gets this name too):",
   "workbench.rename.row_hint": "Rename the work item",
+  "workbench.rename.row_label": "Edit",
   "workbench.rename.done": "Renamed.",
   "workbench.rename.done_folder": "Renamed, the new name of the folder: {folder}",
   "workbench.rename.done_folder_kept_shared": "Renamed. The folder kept its old name because another work item uses a file from it.",

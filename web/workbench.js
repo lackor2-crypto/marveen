@@ -1104,7 +1104,7 @@
       + '</button>'
       // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
       + (archived() ? '' : '<button type="button" class="wb-item-del wb-item-edit" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '"'
-        + ' title="' + escA(t('workbench.rename.row_hint')) + '" aria-label="' + escA(t('workbench.rename.row_hint')) + '">✏️</button>')
+        + ' title="' + escA(t('workbench.rename.row_hint')) + '">' + esc(t('workbench.rename.row_label')) + '</button>')
       + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
       + esc(t('workbench.trash.delete')) + '</button>'
