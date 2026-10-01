@@ -198,11 +198,11 @@ describe('a szerver', () => {
   })
 
   it('FRISS TELEPITES: uj ures tablazat a feluletrol -> fajl a projekt mappajaba + munkadarab; szerkesztes -> UJ fajl + UJ verzio, a regi erintetlen', async () => {
-    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Költségvetés' })
+    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Költségvetés', folder: ((await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'Tabla' })).body as { folder: string }).folder })
     expect(c.status).toBe(201)
     expect(c.body.name).toBe('Költségvetés.xlsx')
     const itemId = c.body.item.id
-    const firstBytes = readFileSync(join(depot, 'Projektek', 'teszt', 'Költségvetés.xlsx'))
+    const firstBytes = readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés.xlsx'))
 
     const g = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     expect(g.status).toBe(200)
@@ -214,8 +214,8 @@ describe('a szerver', () => {
     expect(s.status).toBe(201)
     expect(s.body.name).toBe('Költségvetés (2).xlsx')
     expect(s.body.version.version_no).toBe(2)
-    expect(readdirSync(join(depot, 'Projektek', 'teszt')).sort()).toEqual(['Költségvetés (2).xlsx', 'Költségvetés.xlsx'])
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Költségvetés.xlsx')).equals(firstBytes)).toBe(true)
+    expect(readdirSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla')).sort()).toEqual(['Költségvetés (2).xlsx', 'Költségvetés.xlsx'])
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés.xlsx')).equals(firstBytes)).toBe(true)
 
     const g2 = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     expect(g2.body.sheets[0].rows).toEqual([['Tétel', 'Ár'], ['Tégla', '120']])
@@ -225,7 +225,7 @@ describe('a szerver', () => {
   })
 
   it('kozben keszult ujabb verzio -> 409, nem ir felul; valtozas nelkul -> 409 emberi mondattal', async () => {
-    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Lista' })
+    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Lista', folder: ((await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'Tabla' })).body as { folder: string }).folder })
     const itemId = c.body.item.id
     const g = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     const stale = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'POST', { base_version: 'regi', sheets: g.body.sheets })
@@ -237,7 +237,7 @@ describe('a szerver', () => {
   })
 
   it('archivalt projekt: megnezni lehet, menteni nem', async () => {
-    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Arch' })
+    const c = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Arch', folder: ((await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'Tabla' })).body as { folder: string }).folder })
     const itemId = c.body.item.id
     const g = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     setProjectArchived(pid, true)
