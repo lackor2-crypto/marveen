@@ -5555,6 +5555,8 @@ window._i18n.en = {
   "workbench.move.done": "Moved into the folder.",
   "workbench.move.same": "It is already in this folder.",
   "workbench.move.blocked": "Could not move it: another work item uses files in its folder, or it holds a drawing. The work item stayed where it was.",
+  "workbench.move.own": "This work item is already in this folder: it is its own folder, so there is nothing to move.",
+  "workbench.move.missing": "I could not find the work item's folder on disk, so I could not move it. The work item stayed where it was.",
   "workbench.folder.new_hint": "The new folder is made inside the folder chosen above (in the Work items folder if you chose nothing). You can make a folder inside a folder too. If you type a name, Create makes the folder as well and puts the work item in it.",
   "workbench.folder.name_required": "Type the name of the new folder.",
   "workbench.folder.expand": "Open folder",

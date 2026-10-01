@@ -162,6 +162,11 @@ describe('endpoints', () => {
     expect((again.body as { moved: boolean; reason: string }).reason).toBe('same_place')
     const gone = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder: 'Projektek/nem-a-doboz' })
     expect(gone.status).toBe(400)
+    // its own folder as the target: it already lives there, not "in use by something else"
+    const own = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder: moved.item.folder })
+    expect(own.status).toBe(200)
+    expect((own.body as { moved: boolean; reason: string }).moved).toBe(false)
+    expect((own.body as { moved: boolean; reason: string }).reason).toBe('own_folder')
   })
 
   it('new table goes into the chosen folder with its own folder and .xlsx', async () => {
