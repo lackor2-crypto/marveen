@@ -260,3 +260,7 @@ export async function saveVideoFrame(
   if (!c.ok) return { ok: false, code: 'video_failed', detail: c.code }
   return { ok: true, item: c.item, file: { rel: out.rel, name: out.name, bytes: r.bytes } }
 }
+
+// Shared with the timeline renderer (workbench-video-render.ts): the same ffmpeg
+// lookup, free-name target, guarded run and one-at-a-time lock as the trim.
+export { tool as videoTool, target as videoTarget, runTo as videoRunTo, busy as videoBusy }
