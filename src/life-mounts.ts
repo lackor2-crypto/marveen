@@ -23,6 +23,7 @@ import { join, sep } from 'node:path'
 import { STORE_DIR } from './config.js'
 import { depotRoot } from './depot.js'
 import { logger } from './logger.js'
+import { ensureMountLink, removeMountLink } from './life-mount-links.js'
 
 const STORE_PATH = join(STORE_DIR, 'life-mounts.json')
 
@@ -162,6 +163,8 @@ export function addMount(input: { rel: string; target: string; kind?: string; la
   store.mounts.push(mount)
   save(store)
   logger.info({ rel, target }, '[eletfa] bekotes hozzaadva')
+  // A Windows Intezo is lassa (git-bekotes): valodi hivatkozas a bekotes helyen.
+  ensureMountLink(mount, store.mounts)
   return { ok: true, message: `Bekötve: ${rel} → ${target}`, mount }
 }
 
@@ -171,11 +174,13 @@ export function removeMount(rel: string): MountResult {
   const store = load()
   if (store.corrupt) return corruptRefusal()
   const before = store.mounts.length
+  const gone = store.mounts.find((m) => m.rel === key)
   store.mounts = store.mounts.filter((m) => m.rel !== key)
   if (store.mounts.length === before) {
     return { ok: false, code: 'missing', message: 'Ilyen bekötés nincs.' }
   }
   save(store)
+  if (gone) removeMountLink(gone)
   return { ok: true, message: 'A bekötés megszűnt. A fájlok a helyükön maradtak — csak innen nem látszanak többé.' }
 }
 

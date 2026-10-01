@@ -45,6 +45,8 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { listMounts } from './life-mounts.js'
+import { reconcileMountLinks } from './life-mount-links.js'
 import { liveSweepDeps, sweepWorktrees, SWEEP_INTERVAL_MS } from './web/worktree-sweeper.js'
 import { listBusyCodeTaskWorkspaces } from './web/code-bridge-store.js'
 import { worktreeNameFor } from './web/code-live-tree-worktree.js'
@@ -703,6 +705,12 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // Boss, 2026-10-01: a bekotott git-repo a Windows Intezoben is latszodjon a
+  // projekt alatt. Indulaskor a mar meglevo bekotesek hivatkozasat potoljuk.
+  setTimeout(() => {
+    try { reconcileMountLinks(listMounts()) } catch (err: any) { logger.warn({ err: err?.message }, '[eletfa] hivatkozas-potlas nem sikerult') }
+  }, 5000).unref()
 
   // #453 (Boss, TG 2087: "egyik agens se hagyjon szemetet maga utan soha"):
   // worktrees and work/* branches that provably hold no work -- clean, landed,
