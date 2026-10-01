@@ -24,6 +24,8 @@ import { integrationRows } from '../web/system-health.js'
 const EXEMPT: Record<string, string> = {
   CODE_BOT_TOKEN:
     'Configured in the Code bridge window, which has its own walk-through and its own self-check rows (code_bridge_*).',
+  WORKBENCH_GEMINI_API_KEY:
+    'Configured in the Workbench capabilities panel (image_gen), which has its own walk-through and status row; the key is only needed there.',
   TOKEN_USAGE_RETENTION_DAYS: 'Not a credential: a retention period that happens to contain the word TOKEN.',
 }
 

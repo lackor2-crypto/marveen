@@ -2112,6 +2112,46 @@ describe('rajzvaszon a feluletrol (9. fazis)', () => {
     expect(h.rootEl.innerHTML).toContain('workbench.canvas.safe_hint')
   })
 
+  // ---- K-2.11 .. K-2.13: AI-kepszerkesztes ------------------------------------
+  const IMG_DOC = { ...DOC, objects: [...DOC.objects, { id: 'auto', type: 'image', x: 0, y: 0, width: 1000, height: 800, src: 'auto.png', fit: 'contain', alt: '' }] }
+
+  it('AI-szerkesztes: elobb az ar latszik, a futtatas megerositve megy; kulcs nelkul a beallitashoz visz', async () => {
+    await openCanvas({ ...CANVAS_DRAFT, canvas: IMG_DOC })
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="canvas-ai-open" data-wb-obj="auto"')
+    h.respond((url, init) => {
+      if (url.indexOf('/canvas/ai-edit') > 0 && (!init || init.method === 'GET')) {
+        return { status: 200, body: { available: true, reason: null, model: 'gemini-3.1-flash-image', estimate_usd: 0.068, price_source: { url: 'https://ai.google.dev/gemini-api/docs/pricing' } } }
+      }
+      if (url.indexOf('/canvas/ai-edit') > 0) {
+        const done = { ...IMG_DOC, objects: IMG_DOC.objects.map((o) => (o.id === 'auto' ? { ...o, src: 'auto-ai.png', ai: { model: 'gemini-3.1-flash-image', at: 1, prompt: 'legyen piros' } } : o)) }
+        return { status: 200, body: { ok: true, canvas: done, item: GRAPHIC, cost_usd: 0.068, message: 'Kész, $0.068' } }
+      }
+      return { status: 200, body: { ...CANVAS_DRAFT, canvas: IMG_DOC } }
+    })
+    h.click({ 'data-wb-act': 'canvas-ai-open', 'data-wb-obj': 'auto' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.canvas.ai_cost'))
+    expect(h.rootEl.innerHTML).toContain('$0.068')
+    h.inputs['wbCanAiText'] = { value: 'legyen piros', focus() {} }
+    h.click({ 'data-wb-act': 'canvas-ai-run' })
+    await vi.waitFor(() => expect(h.toasts).toContain('Kész, $0.068'))
+    const post = h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ai-edit') > 0 && c.init && c.init.method === 'POST')[0]
+    expect(JSON.parse(String(post.init!.body))).toEqual({ object_id: 'auto', instruction: 'legyen piros', confirm_cost: true })
+    // K-2.13: a munkadarabnal latszik, hogy a kep nagy reszet AI keszitette, es van jelolt letoltes.
+    expect(h.rootEl.innerHTML).toContain('workbench.canvas.ai_notice_big')
+    expect(h.rootEl.innerHTML).toContain('ai_label=1')
+  })
+
+  it('AI-szerkesztes kulcs nelkul: a szerver oka latszik, es a Kepessegekhez visz', async () => {
+    await openCanvas({ ...CANVAS_DRAFT, canvas: IMG_DOC })
+    h.respond((url) => (url.indexOf('/canvas/ai-edit') > 0
+      ? { status: 200, body: { available: false, reason: 'ai_edit_not_configured', reason_message: 'Kulcs kell.' } }
+      : { status: 200, body: { ...CANVAS_DRAFT, canvas: IMG_DOC } }))
+    h.click({ 'data-wb-act': 'canvas-ai-open', 'data-wb-obj': 'auto' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Kulcs kell.'))
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="canvas-ai-run"')
+    expect(h.rootEl.innerHTML).toContain('workbench.canvas.ai_setup')
+  })
+
   it('minden kepernyore kerulo sajat szoveg a t()-n megy at (HU/EN)', async () => {
     await openCanvas()
     const html = h.rootEl.innerHTML

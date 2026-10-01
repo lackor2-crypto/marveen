@@ -154,13 +154,25 @@ describe('amit a felhasznalo lat', () => {
 
   it('amihez nincs megvalositasunk, azt KIMONDJUK -- nem igerunk varazslot', async () => {
     const rows = await describeAllCapabilities('hu', true)
-    for (const key of ['image_gen', 'video_gen', 'tts']) {
+    for (const key of ['video_gen', 'tts']) {
       const row = rows.find((r) => r.key === key)!
       expect(row.state).toBe('not_implemented')
       expect(row.setting).toBe(null)
       expect(row.testable).toBe(false)
       expect(row.message).toMatch(/nincs bekötve/i)
     }
+  })
+
+  it('AI-kepszerkesztes (#441, K-2.11): kulcs nelkul csendes "nincs beallitva", a kulcs erteke sosem megy ki', async () => {
+    const rows = await describeAllCapabilities('hu', true)
+    const row = rows.find((r) => r.key === 'image_gen')!
+    expect(row.tier).toBe('extra')
+    expect(['not_configured', 'ok']).toContain(row.state)
+    expect(row.setting!.key).toBe('WORKBENCH_GEMINI_API_KEY')
+    expect(row.setting!.secret).toBe(true)
+    expect(row.setting!.value).toBeNull()
+    // Proba-futas penzbe kerulne: nincs "Ellenorzes most".
+    expect(row.testable).toBe(false)
   })
 
   it('a szoveg a keres nyelven jon (HU es EN is)', async () => {

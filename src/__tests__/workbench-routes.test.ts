@@ -17,7 +17,9 @@ import { createWorkItem, addWorkItemPart, listWorkItemParts, updateWorkItemPart 
 import { PREVIEW_TEXT_MAX } from '../workbench-preview.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { resetCapabilityProbes } from '../workbench-capabilities.js'
-import { getEffectiveSettingValue, reloadOverridesForTest } from '../settings-store.js'
+import { getEffectiveSettingValue, reloadOverridesForTest, setOverride } from '../settings-store.js'
+import { setItemSensitive } from '../workbench-privacy.js'
+import { executeTool } from '../workbench-agent/execute.js'
 import { PROJECT_ROOT } from '../config.js'
 
 // A valasz VALODI irhato folyam, nem objektum-mock: a kesz PDF-et a vegpont
@@ -1000,6 +1002,102 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     expect(old.body.canvas.objects[0].fontSize).toBe(72)
     expect(old.body.current).toBe(false)
     expect(old.body.history).toBeNull()
+  })
+
+  // A spec 11. fejezetenek 2. fazisu probaesete, szo szerint:
+  // "Facebook-poszt -> Story-valtozat, 10 kezi es Agent-modositas, visszavonas"
+  // Kesz, ha: egy munkadarab, 2 jelentos verzio (nem 10), a visszavonas
+  // mindket fajta modositasnal mukodik.
+  it('2. FAZIS PROBAESET: Facebook-poszt -> Story-valtozat, 10 modositas, visszavonas', async () => {
+    const itemsBefore = (await call(`/api/workbench/items?project=${projectId}`, 'GET')).body.items.length
+    // A munkadarab ures kezdoverzioja mar a proba elott megvan: a proba
+    // KOZBEN keletkezett verziokat szamoljuk.
+    const startVersions = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions.length
+    // 1. jelentos verzio: a Facebook-poszt (1200x630).
+    await call(url(''), 'PUT', { canvas: { width: 1200, height: 630, objects: [
+      { id: 'hatter', type: 'rect', x: 0, y: 0, width: 1200, height: 630, fill: '#ffeecc' },
+      { id: 'cim', type: 'text', x: 60, y: 40, width: 800, height: 120, fontSize: 72, text: 'Nyári akció' },
+      { id: 'logo', type: 'ellipse', x: 1040, y: 470, width: 120, height: 120 },
+    ] } })
+    // 2. jelentos verzio: a Story-valtozat.
+    const v = await call(url('/variant'), 'POST', { platform: 'story_reel' })
+    expect(v.status).toBe(201)
+    const versionsAfterVariant = v.body.versions.length
+    // 10 modositas: 5 kezi, 5 Agent (az Agent 5 kulon kerese).
+    for (let i = 0; i < 5; i++) {
+      const r = await call(url('/ops'), 'POST', { ops: [{ op: 'move', id: 'cim', dx: 0, dy: 10 }] })
+      expect(r.status).toBe(200)
+    }
+    for (let i = 0; i < 5; i++) {
+      const r = executeTool('canvas.edit', { ops: [{ op: 'move', id: 'logo', dx: -10, dy: 0 }] }, { projectId, workItemId: itemId, lang: 'hu', turnId: `turn-${i}` })
+      expect(r.ok).toBe(true)
+    }
+    const mid = await call(url(''), 'GET')
+    // Egy munkadarab, es a 10 modositas NEM gyartott verziot.
+    expect((await call(`/api/workbench/items?project=${projectId}`, 'GET')).body.items.length).toBe(itemsBefore)
+    const versions = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions
+    expect(versions.length).toBe(versionsAfterVariant)
+    expect(versions.length - startVersions).toBe(2)
+    expect(versions[0].reason).toBe('variant')
+    // Visszavonas: elobb az Agent utolso kerese, aztan tovabb a kezi lepesekig.
+    const logoX = mid.body.canvas.objects.find((o: { id: string }) => o.id === 'logo').x
+    const u1 = await call(url('/undo'), 'POST', {})
+    expect(u1.body.step.source).toBe('agent')
+    expect(u1.body.canvas.objects.find((o: { id: string }) => o.id === 'logo').x).toBe(logoX + 10)
+    for (let i = 0; i < 4; i++) await call(url('/undo'), 'POST', {})
+    const u6 = await call(url('/undo'), 'POST', {})
+    expect(u6.body.step.source).toBe('owner')
+    const cimY = mid.body.canvas.objects.find((o: { id: string }) => o.id === 'cim').y
+    expect(u6.body.canvas.objects.find((o: { id: string }) => o.id === 'cim').y).toBe(cimY - 10)
+  })
+
+  it('AI-kepszerkesztes (K-2.11, K-2.12): kulcs nelkul es erzekenynel nem fut, penz csak megerositve, uj fajl, visszavonhato', async () => {
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'auto.png'), Buffer.from('89504e470d0a1a0a', 'hex'))
+    await call(url(''), 'PUT', { canvas: { width: 100, height: 100, objects: [{ id: 'auto', type: 'image', src: 'auto.png', x: 0, y: 0, width: 100, height: 100 }] } })
+    const off = await call(url('/ai-edit'), 'GET')
+    expect(off.body.available).toBe(false)
+    expect(off.body.reason).toBe('ai_edit_not_configured')
+    expect(setOverride('WORKBENCH_GEMINI_API_KEY', 'k-test').ok).toBe(true)
+    const realFetch = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls += 1
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: Buffer.from('uj-kep').toString('base64') } }] } }],
+        usageMetadata: { promptTokenCount: 1300, candidatesTokenCount: 1120 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
+    try {
+      const on = await call(url('/ai-edit'), 'GET')
+      expect(on.body.available).toBe(true)
+      expect(on.body.estimate_usd).toBeGreaterThan(0.05)
+      // Megerosites nelkul nem fut: a tulajdonos nem latta az arat.
+      const noConfirm = await call(url('/ai-edit'), 'POST', { object_id: 'auto', instruction: 'legyen piros' })
+      expect(noConfirm.body.error).toBe('ai_edit_confirm_cost')
+      expect(calls).toBe(0)
+      const r = await call(url('/ai-edit'), 'POST', { object_id: 'auto', instruction: 'legyen piros', confirm_cost: true })
+      expect(r.status).toBe(200)
+      expect(calls).toBe(1)
+      expect(r.body.file.name).toBe('auto-ai.png')
+      expect(readFileSync(join(depot, 'Projektek', 'teszt', 'auto-ai.png'), 'utf-8')).toBe('uj-kep')
+      // A regi fajl megmaradt, az elem az ujra mutat, AI-jelolessel.
+      expect(readFileSync(join(depot, 'Projektek', 'teszt', 'auto.png')).length).toBe(8)
+      expect(r.body.canvas.objects[0].src).toMatch(/auto-ai\.png$/)
+      expect(r.body.canvas.objects[0].ai.prompt).toBe('legyen piros')
+      expect(r.body.cost_usd).toBeGreaterThan(0)
+      expect(r.body.history.undo.label).toBe('ai_edit')
+      const u = await call(url('/undo'), 'POST', {})
+      expect(u.body.canvas.objects[0].src).toBe('auto.png')
+      // Erzekeny munkadarabnal nem fut, es a szolgaltatot meg sem hivja.
+      setItemSensitive(itemId, true, 'test')
+      const sens = await call(url('/ai-edit'), 'POST', { object_id: 'auto', instruction: 'legyen kek', confirm_cost: true })
+      expect(sens.status).toBe(403)
+      expect(sens.body.error).toBe('ai_edit_sensitive')
+      expect(calls).toBe(1)
+    } finally {
+      globalThis.fetch = realFetch
+      setOverride('WORKBENCH_GEMINI_API_KEY', '')
+    }
   })
 
   it('valtozat mas platformra (K-2.9): uj verzio az uj meretben, az eredeti megmarad; a GET a platformokat is adja', async () => {

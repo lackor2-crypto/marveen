@@ -98,11 +98,12 @@ import {
   CANVAS_MAX_OBJECTS, CANVAS_TEXT_MAX, CANVAS_MAX_SIZE,
 } from '../../workbench-graphic.js'
 import { listCanvasPlatforms, canvasPlatform, platformForSize } from '../../workbench-canvas-platforms.js'
+import { imageAiConfig, estimateImageEdit, editImageWithAI } from '../../workbench-image-ai.js'
 import {
-  readCanvas, renderCanvasForItem, commitCanvasChange, canvasOpsLabel, canvasHistory, canvasOrphans,
+  readCanvas, renderCanvasForItem, commitCanvasChange, readCanvasImageFile, canvasOpsLabel, canvasHistory, canvasOrphans,
   undoCanvas, redoCanvas, saveCanvasVersion, flushCanvasDraft, restoreCanvasOrphan, discardCanvasOrphan,
 } from '../../workbench-canvas-store.js'
-import { setOverride } from '../../settings-store.js'
+import { setOverride, getEffectiveSettingValue } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
@@ -631,6 +632,35 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ilyen platformméretet nem ismerek. Válassz a listából.',
     en: 'I do not know this platform size. Pick one from the list.',
   },
+  ai_edit_done: {
+    hu: 'Kész: az AI-val szerkesztett kép új fájlként mentve ({name}), a régi megmaradt. Tényleges költség: {cost}. A Visszavonás (Ctrl+Z) visszateszi a régit.',
+    en: 'Done: the AI-edited picture was saved as a new file ({name}); the old one is kept. Actual cost: {cost}. Undo (Ctrl+Z) puts the old one back.',
+  },
+  ai_edit_sensitive: {
+    hu: 'Ez a munkadarab (vagy a projektje) érzékenynek van jelölve, ezért a kép nem mehet ki külső AI-szolgáltatóhoz. Az AI-képszerkesztés itt nem érhető el; kézzel minden szerkeszthető.',
+    en: 'This work item (or its project) is marked sensitive, so the picture cannot go to an outside AI service. AI image editing is not available here; everything can be edited by hand.',
+  },
+  ai_edit_not_configured: {
+    hu: 'Az AI-képszerkesztéshez Google Gemini API-kulcs kell. A Munkapad Képességek ablakában („AI-képszerkesztés”) be tudod írni; addig minden más működik.',
+    en: 'AI image editing needs a Google Gemini API key. You can enter it in the Workbench Capabilities window ("AI image editing"); everything else works meanwhile.',
+  },
+  ai_edit_confirm_cost: {
+    hu: 'Az AI-szerkesztés pénzbe kerül: előbb nézd meg a várható költséget, és azzal indítsd.',
+    en: 'AI editing costs money: check the expected cost first and start it from there.',
+  },
+  ai_edit_no_instruction: { hu: 'Írd le egy mondatban, mit változtasson a képen.', en: 'Write in one sentence what to change on the picture.' },
+  ai_edit_not_image: { hu: 'AI-szerkesztés csak képelemen fut. Válassz egy képet a rajzon.', en: 'AI editing only runs on a picture element. Pick a picture on the drawing.' },
+  ai_edit_image_missing: { hu: 'A kép fájlját nem találom a Raktárban.', en: 'I cannot find the picture file in the Depot.' },
+  ai_edit_bad_image: { hu: 'Ezt a képet nem tudom AI-val szerkeszteni (csak PNG, JPEG, WebP).', en: 'This picture cannot be edited with AI (PNG, JPEG, WebP only).' },
+  ai_edit_too_large: { hu: 'A kép túl nagy az AI-szerkesztéshez (legfeljebb 12 MB).', en: 'The picture is too large for AI editing (12 MB at most).' },
+  ai_edit_bad_key: { hu: 'A Google elutasította az API-kulcsot. Nézd meg a kulcsot és a fizetési beállítást az AI Studióban.', en: 'Google rejected the API key. Check the key and its billing in AI Studio.' },
+  ai_edit_quota: { hu: 'A Google-kerete most elfogyott vagy túl sok volt a kérés. Próbáld később; a kézi szerkesztés addig is működik.', en: 'Your Google quota ran out or there were too many requests. Try later; manual editing works meanwhile.' },
+  ai_edit_bad_model: { hu: 'A beállított képmodellt a Google nem ismeri (lehet, hogy leállították). Állíts be másikat a Beállításokban.', en: 'Google does not know the configured image model (it may have been retired). Set another one in Settings.' },
+  ai_edit_no_image: { hu: 'A modell nem adott vissza képet (gyakran tartalmi szűrő miatt). A részletekben a saját válasza.', en: 'The model returned no picture (often because of a content filter). Its own answer is in the details.' },
+  ai_edit_timeout: { hu: 'Az AI-szerkesztés nem készült el 2 percen belül. Próbáld újra.', en: 'The AI edit did not finish within 2 minutes. Try again.' },
+  ai_edit_network: { hu: 'Nem értem el a Google szolgáltatását (hálózat). Próbáld újra.', en: 'I could not reach the Google service (network). Try again.' },
+  ai_edit_failed: { hu: 'Az AI-szerkesztés nem sikerült. A részletekben a szolgáltató üzenete.', en: 'The AI edit failed. The provider message is in the details.' },
+  ai_edit_write_failed: { hu: 'Az új képet nem tudtam elmenteni a projekt mappájába.', en: 'I could not save the new picture into the project folder.' },
   canvas_old_version: {
     hu: 'Régebbi verziót nem lehet közvetlenül szerkeszteni. Állítsd vissza a verziólistából, és utána szerkeszd.',
     en: 'An older version cannot be edited directly. Restore it from the version list, then edit it.',
@@ -3150,7 +3180,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 2 && segs[1] === 'canvas.svg' && method === 'GET') {
     const r = readCanvas(item.id, url.searchParams.get('version'))
     if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 409, r.code, lang, r.detail)
-    const svg = renderCanvasForItem(item, r.doc)
+    // K-2.13: "AI altal keszitett" jeloles a fajlban -- csak keresre (?ai_label=1).
+    const svg = renderCanvasForItem(item, r.doc, { aiLabel: url.searchParams.get('ai_label') === '1' })
     const name = (r.name || canvasFileName(item.title)).replace(/\.canvas\.json$/i, '') + '.svg'
     const download = url.searchParams.get('download') === '1'
     res.writeHead(200, {
@@ -3280,6 +3311,70 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       platforms: listCanvasPlatforms(), platform: pf.id,
       message: msg('canvas_variant_made', lang).replace('{name}', pf.label[lang]),
     }, 201)
+    return true
+  }
+
+  // AI-KEPSZERKESZTES (K-2.11 .. K-2.13) egy kepelemen.
+  //   GET  .../canvas/ai-edit  -- elerheto-e (kulcs, erzekenyseg) + varhato koltseg
+  //   POST .../canvas/ai-edit {object_id, instruction, confirm_cost}
+  // A POST csak `confirm_cost: true`-val fut: a tulajdonos LATTA az arat.
+  const aiEditBlock = (): string | null => {
+    if (privacyState(item.project_id, item.id).sensitive) return 'ai_edit_sensitive'
+    if (!imageAiConfig()) return 'ai_edit_not_configured'
+    return null
+  }
+  if (segs.length === 3 && segs[1] === 'canvas' && segs[2] === 'ai-edit' && method === 'GET') {
+    const cfg = imageAiConfig()
+    const block = aiEditBlock()
+    const est = estimateImageEdit(cfg ? cfg.model : '', String(url.searchParams.get('instruction') || ''))
+    json(res, {
+      // A titkos kulcsbol CSAK az megy ki, hogy be van-e allitva -- az erteke soha.
+      // Irni a Kepessegek ablak beallitas-utja tudja (capabilities/image_gen/setting).
+      key_set: String(getEffectiveSettingValue('WORKBENCH_GEMINI_API_KEY') ?? '').trim() !== '',
+      available: !block, reason: block, reason_message: block ? msg(block, lang) : null,
+      model: cfg ? cfg.model : null, estimate_usd: cfg ? est.usd : null, price_source: est.source,
+    })
+    return true
+  }
+  if (segs.length === 3 && segs[1] === 'canvas' && segs[2] === 'ai-edit' && method === 'POST') {
+    if (canvasArchived()) return fail(res, 409, 'project_archived', lang)
+    const block = aiEditBlock()
+    if (block) return fail(res, block === 'ai_edit_sensitive' ? 403 : 409, block, lang)
+    const body = (await readJson(req)) || {}
+    if (body['confirm_cost'] !== true) return fail(res, 400, 'ai_edit_confirm_cost', lang)
+    const instruction = String(body['instruction'] ?? '').trim().slice(0, 1000)
+    if (!instruction) return fail(res, 400, 'ai_edit_no_instruction', lang)
+    const current = readCanvas(item.id)
+    if (!current.ok) return failDetail(res, current.code === 'not_found' ? 404 : 409, current.code, lang, current.detail)
+    const obj = current.doc.objects.find((o) => o.id === String(body['object_id'] ?? ''))
+    if (!obj || obj.type !== 'image') return fail(res, 400, 'ai_edit_not_image', lang)
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const file = readCanvasImageFile(project, obj.src)
+    if (!file.ok) return failDetail(res, 409, file.code, lang, file.detail)
+    const cfg = imageAiConfig()!
+    const out = await editImageWithAI({ bytes: file.bytes, mime: file.mime, instruction, cfg })
+    if (!out.ok) return failDetail(res, 502, out.code, lang, out.detail)
+    // UJ fajl a regi mellett, a regi nevebol ("auto.png" -> "auto-ai.png").
+    const ext = out.mime === 'image/jpeg' ? '.jpg' : out.mime === 'image/webp' ? '.webp' : '.png'
+    const base = (file.rel.split('/').pop() || 'kep').replace(/\.[^.]+$/, '').replace(/-ai(?: \(\d+\))?$/, '')
+    const folder = project.folder_path || ''
+    const dir = file.rel.includes('/') ? file.rel.slice(0, file.rel.lastIndexOf('/')) : ''
+    const sub = folder && dir.startsWith(folder + '/') ? dir.slice(folder.length + 1) : null
+    const written = writeProjectFile(project, sub, `${base}-ai${ext}`, out.bytes)
+    if (!written.ok) return failDetail(res, 409, 'ai_edit_write_failed', lang, written.code)
+    const at = Math.floor(Date.now() / 1000)
+    const applied = applyCanvasOps(current.doc, [{ op: 'update', id: obj.id, patch: { src: written.rel, ai: { model: out.model, at, prompt: instruction } } }])
+    if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+    const commit = commitCanvasChange(item, applied.doc, { source: 'owner', label: 'ai_edit', actor: actor(ctx), name: current.name })
+    if (!commit.ok) return failDetail(res, 409, commit.code, lang, commit.detail)
+    json(res, {
+      ok: true, canvas: applied.doc, item: getWorkItem(item.id) || item,
+      file: { rel: written.rel, name: written.name, previous: file.rel },
+      cost_usd: out.cost_usd, model: out.model, model_note: out.note,
+      ...canvasState(),
+      message: msg('ai_edit_done', lang).replace('{name}', written.name).replace('{cost}', out.cost_usd == null ? '?' : `$${out.cost_usd.toFixed(3)}`),
+    })
     return true
   }
 
