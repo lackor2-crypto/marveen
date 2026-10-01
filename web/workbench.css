@@ -1213,3 +1213,5 @@
 .wb-item-move { max-width: 11rem; font-size: 12px; margin-left: 6px; }
 .wb-item-row[draggable="true"] { cursor: grab; }
 .wb-folder-row[data-wb-drop-folder]:hover { outline: 1px dashed currentColor; }
+.wb-vt-list { list-style: none; margin: 4px 0; padding: 0; }
+.wb-vt-row { margin: 4px 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

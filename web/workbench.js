@@ -85,6 +85,12 @@
     canvasBusy: false,
     canvasEdit: null,
     canvasStamp: null,
+    // --- video timeline (v4 spec phase 5); `vt` because `tl` is the project timeline ---
+    vt: null,
+    vtMedia: null,
+    vtBusy: false,
+    vtRender: false,
+    vtError: null,
     // Melyik elemet jelolte ki a felhasznalo a vasznon (huzogatas, kartya
     // d4b05d82). Csak a KIEMELEST jelenti, a szerkeszto urlapot nem nyitja.
     canvasSel: null,
@@ -1073,6 +1079,9 @@
     WB.canvasPick = {}
     WB.canvasPlatformPick = null
     WB.canvasAi = null
+    WB.vt = null
+    WB.vtError = null
+    WB.vtBusy = false
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -1085,6 +1094,7 @@
       // fajtanal nem kerdezunk feleslegesen -- ott az elonezet mondja meg, ha
       // megis rajz all mogotte.
       if (canvasKind(r.data && r.data.item)) loadCanvas(id)
+      if (r.data && r.data.item && r.data.item.type === 'video') loadVideoTimeline(id)
     })
   }
 
@@ -3890,6 +3900,8 @@
     if (!p) return '<div class="wb-preview"><p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
     // A sajat reszeit (szoveg + kep) a reszlista mutatja: nem duplazzuk meg.
     if (p.available && p.kind === 'parts') return ''
+    // The timeline file is data: the timeline editor below shows it.
+    if (p.available && p.kind === 'timeline') return ''
     var head = '<div class="wb-preview-head"><h4>' + esc(t('workbench.preview.title')) + '</h4>'
       + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
       + previewVersionPickerHtml() + '</div>'
@@ -5207,6 +5219,343 @@
       + '</div>'
   }
 
+  // ---- video timeline (v4 spec phase 5) --------------------------------------
+  //
+  // Same shape as the canvas: every edit goes to the server at once (working
+  // copy, undo, versions there); the page only shows what the server returns.
+
+  function vtUrl(tail) {
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/timeline' + (tail || '')
+  }
+
+  function loadVideoTimeline(itemId) {
+    WB.vtError = null
+    return api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline').then(function (r) {
+      if (WB.selectedId !== itemId) return
+      if (!r.ok) {
+        WB.vt = null
+        WB.vtError = { message: r.message, detail: (r.data && r.data.detail) || '' }
+      } else {
+        WB.vt = r.data
+      }
+      render()
+      loadVideoMedia()
+    })
+  }
+
+  function loadVideoMedia() {
+    if (!WB.projectId || WB.vtMedia !== null) return
+    WB.vtMedia = []
+    api('GET', '/api/workbench/media?project=' + encodeURIComponent(WB.projectId)).then(function (r) {
+      if (r.ok) { WB.vtMedia = (r.data && r.data.files) || []; render() }
+    })
+  }
+
+  function vtDoc() { return (WB.vt && WB.vt.timeline) || null }
+
+  function vtTake(d) {
+    var old = WB.vt || {}
+    WB.vt = Object.assign({}, old, {
+      timeline: d.timeline || old.timeline, exists: true,
+      summary: d.summary || old.summary, duration: 'duration' in d ? d.duration : old.duration,
+      offsets: d.offsets || old.offsets,
+      draft: 'draft' in d ? d.draft : old.draft,
+      history: 'history' in d ? d.history : old.history,
+      orphans: 'orphans' in d ? d.orphans : old.orphans,
+      last_render: 'last_render' in d ? d.last_render : old.last_render,
+      current: true,
+    })
+    if (WB.detail && d.item) WB.detail.item = d.item
+    if (WB.detail && d.versions) WB.detail.versions = d.versions
+  }
+
+  function vtFail(r) {
+    WB.vtError = { message: r.message, detail: (r.data && r.data.detail) || '' }
+  }
+
+  /** A batch of operations: the same route the agent uses. */
+  function vtOps(ops) {
+    if (!WB.selectedId || WB.vtBusy || archived()) return
+    WB.vtBusy = true
+    render()
+    api('POST', vtUrl('/ops'), { ops: ops }).then(function (r) {
+      WB.vtBusy = false
+      if (!r.ok) { vtFail(r); render(); return }
+      WB.vtError = null
+      vtTake(r.data)
+      if (r.data.created) window.showToast(r.data.message || t('workbench.vt.saved'))
+      render()
+    })
+  }
+
+  function vtStep(dir) {
+    var h = WB.vt && WB.vt.history
+    if (!WB.selectedId || WB.vtBusy || archived() || !h || !(dir === 'undo' ? h.can_undo : h.can_redo)) return
+    WB.vtBusy = true
+    render()
+    api('POST', vtUrl('/' + dir), {}).then(function (r) {
+      WB.vtBusy = false
+      if (!r.ok) {
+        window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+        loadVideoTimeline(WB.selectedId)
+        return
+      }
+      vtTake(r.data)
+      window.showToast(t(dir === 'undo' ? 'workbench.vt.undone' : 'workbench.vt.redone'))
+      render()
+    })
+  }
+
+  function vtVersion() {
+    if (!WB.selectedId || WB.vtBusy || archived()) return
+    var label = typeof window.prompt === 'function' ? window.prompt(t('workbench.canvas.version_prompt'), '') : ''
+    if (label === null) return
+    WB.vtBusy = true
+    render()
+    api('POST', vtUrl('/version'), { label: label || '', reason: 'manual' }).then(function (r) {
+      WB.vtBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      vtTake(r.data)
+      window.showToast(r.data.message || t('workbench.vt.version_saved'))
+      render()
+    })
+  }
+
+  /** Making the mp4 takes a while: one at a time, and the button says so. */
+  function vtRenderNow() {
+    if (!WB.selectedId || WB.vtBusy || WB.vtRender || archived()) return
+    WB.vtRender = true
+    WB.vtError = null
+    render()
+    api('POST', vtUrl('/render'), {}).then(function (r) {
+      WB.vtRender = false
+      if (!r.ok) { vtFail(r); render(); return }
+      vtTake(r.data)
+      window.showToast(r.data.message || t('workbench.vt.rendered'))
+      render()
+    })
+  }
+
+  function vtInput(name, id) {
+    var el = root() && root().querySelector('[data-vt="' + name + '"]' + (id ? '[data-vt-id="' + id + '"]' : ''))
+    return el || null
+  }
+  function vtNum(name, id) {
+    var el = vtInput(name, id)
+    if (!el || String(el.value).trim() === '') return undefined
+    var n = Number(String(el.value).replace(',', '.'))
+    return isNaN(n) ? NaN : n
+  }
+  function vtText(name, id) {
+    var el = vtInput(name, id)
+    return el ? String(el.value) : ''
+  }
+  /** A number the owner typed that is not a number: say so, send nothing. */
+  function vtBad(v) {
+    if (typeof v === 'number' && isNaN(v)) { window.showToast(t('workbench.vt.not_a_number')); return true }
+    return false
+  }
+
+  function vtAddClip() {
+    var src = vtText('clip-src')
+    if (!src) { window.showToast(t('workbench.vt.pick_file')); return }
+    var s = vtNum('clip-start'), e = vtNum('clip-end')
+    if (vtBad(s) || vtBad(e)) return
+    var op = { op: 'addClip', src: src, start: s === undefined ? 0 : s }
+    if (e !== undefined) op.end = e
+    vtOps([op])
+  }
+  function vtTrimClip(id) {
+    var s = vtNum('start', id), e = vtNum('end', id)
+    if (vtBad(s) || vtBad(e)) return
+    var op = { op: 'trimClip', id: id }
+    if (s !== undefined) op.start = s
+    if (e !== undefined) op.end = e
+    vtOps([op])
+  }
+  function vtMoveClip(id, delta) {
+    var clips = (vtDoc() || {}).clips || []
+    for (var i = 0; i < clips.length; i += 1) {
+      if (clips[i].id === id) { vtOps([{ op: 'moveClip', id: id, to: i + 1 + delta }]); return }
+    }
+  }
+  function vtSplitClip(id) {
+    var raw = typeof window.prompt === 'function' ? window.prompt(t('workbench.vt.split_prompt'), '') : null
+    if (raw === null || String(raw).trim() === '') return
+    var n = Number(String(raw).replace(',', '.'))
+    if (isNaN(n)) { window.showToast(t('workbench.vt.not_a_number')); return }
+    vtOps([{ op: 'splitClip', id: id, at: n }])
+  }
+  function vtAddSubtitle() {
+    var s = vtNum('sub-start'), e = vtNum('sub-end')
+    if (vtBad(s) || vtBad(e)) return
+    vtOps([{ op: 'addSubtitle', text: vtText('sub-text'), start: s, end: e }])
+  }
+  function vtSaveSubtitle(id) {
+    var s = vtNum('start', id), e = vtNum('end', id)
+    if (vtBad(s) || vtBad(e)) return
+    var op = { op: 'updateSubtitle', id: id, text: vtText('text', id) }
+    if (s !== undefined) op.start = s
+    if (e !== undefined) op.end = e
+    vtOps([op])
+  }
+  function vtMusicVolume() {
+    var v = vtNum('music-volume')
+    if (vtBad(v)) return null
+    return v === undefined ? 0.5 : Math.max(0, Math.min(100, v)) / 100
+  }
+  function vtSetMusic() {
+    var src = vtText('music-src')
+    if (!src) { window.showToast(t('workbench.vt.pick_file')); return }
+    var v = vtMusicVolume()
+    if (v === null) return
+    var d = vtInput('music-duck')
+    vtOps([{ op: 'setMusic', src: src, volume: v, duck: !!(d && d.checked) }])
+  }
+  function vtSaveMusic() {
+    var v = vtMusicVolume()
+    if (v === null) return
+    var d = vtInput('music-duck')
+    vtOps([{ op: 'updateMusic', volume: v, duck: !!(d && d.checked) }])
+  }
+  function vtSaveVolume() {
+    var v = vtNum('clip-volume')
+    if (v === undefined || vtBad(v)) return
+    vtOps([{ op: 'setClipVolume', volume: Math.max(0, Math.min(100, v)) / 100 }])
+  }
+  function vtOverlayFields(id) {
+    var s = vtNum('start', id), e = vtNum('end', id), x = vtNum('x', id), y = vtNum('y', id), w = vtNum('width', id)
+    if (vtBad(s) || vtBad(e) || vtBad(x) || vtBad(y) || vtBad(w)) return null
+    var pct = function (n, d) { return n === undefined ? d : Math.max(0, Math.min(100, n)) / 100 }
+    return { start: s, end: e, x: pct(x, 0.7), y: pct(y, 0.05), width: pct(w, 0.25) }
+  }
+  function vtAddOverlay() {
+    var src = vtText('ov-src')
+    if (!src) { window.showToast(t('workbench.vt.pick_file')); return }
+    var f = vtOverlayFields('')
+    if (!f) return
+    vtOps([{ op: 'addOverlay', src: src, start: f.start, end: f.end, x: f.x, y: f.y, width: f.width, opacity: 1 }])
+  }
+  function vtSaveOverlay(id) {
+    var f = vtOverlayFields(id)
+    if (!f) return
+    vtOps([{ op: 'updateOverlay', id: id, start: f.start, end: f.end, x: f.x, y: f.y, width: f.width }])
+  }
+
+  function vtSecs(n) { return String(Math.round(Number(n) * 10) / 10).replace('.', ',') }
+
+  function vtMediaOptions(kind, chosen) {
+    var list = (WB.vtMedia || []).filter(function (f) { return f.kind === kind })
+    return '<option value="">' + esc(t('workbench.vt.pick_file')) + '</option>'
+      + list.map(function (f) {
+        return '<option value="' + escA(f.path) + '"' + (f.path === chosen ? ' selected' : '') + '>' + esc(f.path.split('/').slice(-2).join('/')) + '</option>'
+      }).join('')
+  }
+
+  function vtNumField(name, id, value, label) {
+    return '<label class="wb-muted">' + esc(label) + ' <input type="text" size="5" inputmode="decimal" data-vt="' + name + '"'
+      + (id ? ' data-vt-id="' + escA(id) + '"' : '') + ' value="' + escA(value === undefined || value === null ? '' : vtSecs(value)) + '"></label> '
+  }
+
+  function vtBtn(act, label, id, extra) {
+    return '<button type="button" class="wb-btn" data-wb-act="' + act + '"' + (id ? ' data-wb-id="' + escA(id) + '"' : '')
+      + (extra || '') + (WB.vtBusy || WB.vtRender || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
+  }
+
+  function vtClipsHtml(doc) {
+    var rows = doc.clips.map(function (c, i) {
+      return '<li class="wb-vt-row"><strong>' + (i + 1) + '.</strong> <span>' + esc(c.src.split('/').pop()) + '</span> '
+        + vtNumField('start', c.id, c.start, t('workbench.vt.from')) + vtNumField('end', c.id, c.end, t('workbench.vt.to'))
+        + vtBtn('vt-clip-trim', t('workbench.vt.trim'), c.id)
+        + vtBtn('vt-clip-up', t('workbench.vt.up'), c.id, i === 0 ? ' disabled' : '')
+        + vtBtn('vt-clip-down', t('workbench.vt.down'), c.id, i === doc.clips.length - 1 ? ' disabled' : '')
+        + vtBtn('vt-clip-split', t('workbench.vt.split'), c.id)
+        + vtBtn('vt-clip-del', t('workbench.vt.remove'), c.id) + '</li>'
+    }).join('')
+    return '<h5>' + esc(t('workbench.vt.clips')) + '</h5>'
+      + (rows ? '<ol class="wb-vt-list">' + rows + '</ol>' : '<p class="wb-muted">' + esc(t('workbench.vt.no_clips')) + '</p>')
+      + '<p><select data-vt="clip-src">' + vtMediaOptions('video') + '</select> '
+      + vtNumField('clip-start', '', undefined, t('workbench.vt.from')) + vtNumField('clip-end', '', undefined, t('workbench.vt.to'))
+      + vtBtn('vt-clip-add', t('workbench.vt.add_clip')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.vt.clip_hint')) + '</p>'
+  }
+
+  function vtSubtitlesHtml(doc) {
+    var rows = doc.subtitles.map(function (s) {
+      return '<li class="wb-vt-row"><input type="text" size="34" data-vt="text" data-vt-id="' + escA(s.id) + '" value="' + escA(s.text) + '"> '
+        + vtNumField('start', s.id, s.start, t('workbench.vt.from')) + vtNumField('end', s.id, s.end, t('workbench.vt.to'))
+        + vtBtn('vt-sub-save', t('workbench.vt.save'), s.id) + vtBtn('vt-sub-del', t('workbench.vt.remove'), s.id) + '</li>'
+    }).join('')
+    return '<h5>' + esc(t('workbench.vt.subtitles')) + '</h5>'
+      + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
+      + '<p><input type="text" size="34" data-vt="sub-text" placeholder="' + escA(t('workbench.vt.sub_text')) + '"> '
+      + vtNumField('sub-start', '', undefined, t('workbench.vt.from')) + vtNumField('sub-end', '', undefined, t('workbench.vt.to'))
+      + vtBtn('vt-sub-add', t('workbench.vt.add_sub')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.vt.sub_hint')) + '</p>'
+  }
+
+  function vtMusicHtml(doc) {
+    var m = doc.music
+    return '<h5>' + esc(t('workbench.vt.music')) + '</h5><p>'
+      + '<select data-vt="music-src"' + (m ? ' disabled' : '') + '>' + vtMediaOptions('audio', m && m.src) + '</select> '
+      + vtNumField('music-volume', '', Math.round((m ? m.volume : 0.5) * 100), t('workbench.vt.volume_pct'))
+      + '<label class="wb-muted"><input type="checkbox" data-vt="music-duck"' + (!m || m.duck ? ' checked' : '') + '> ' + esc(t('workbench.vt.duck')) + '</label> '
+      + (m ? vtBtn('vt-music-save', t('workbench.vt.save')) + vtBtn('vt-music-del', t('workbench.vt.remove')) : vtBtn('vt-music-set', t('workbench.vt.set_music')))
+      + '</p>'
+  }
+
+  function vtOverlaysHtml(doc) {
+    var pc = function (n) { return Math.round(n * 100) }
+    var rows = doc.overlays.map(function (o) {
+      return '<li class="wb-vt-row"><span>' + esc(o.src.split('/').pop()) + '</span> '
+        + vtNumField('start', o.id, o.start, t('workbench.vt.from')) + vtNumField('end', o.id, o.end, t('workbench.vt.to'))
+        + vtNumField('x', o.id, pc(o.x), 'x %') + vtNumField('y', o.id, pc(o.y), 'y %') + vtNumField('width', o.id, pc(o.width), t('workbench.vt.width_pct'))
+        + vtBtn('vt-ov-save', t('workbench.vt.save'), o.id) + vtBtn('vt-ov-del', t('workbench.vt.remove'), o.id) + '</li>'
+    }).join('')
+    return '<h5>' + esc(t('workbench.vt.overlays')) + '</h5>'
+      + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
+      + '<p><select data-vt="ov-src">' + vtMediaOptions('image') + '</select> '
+      + vtNumField('start', '', undefined, t('workbench.vt.from')) + vtNumField('end', '', undefined, t('workbench.vt.to'))
+      + vtNumField('x', '', 70, 'x %') + vtNumField('y', '', 5, 'y %') + vtNumField('width', '', 25, t('workbench.vt.width_pct'))
+      + vtBtn('vt-ov-add', t('workbench.vt.add_overlay')) + '</p>'
+  }
+
+  function videoTimelineHtml() {
+    var it = WB.detail && WB.detail.item
+    if (!it || it.type !== 'video') return ''
+    var headOf = function (extra) {
+      return '<div class="wb-can"><div class="wb-can-head"><h4>' + esc(t('workbench.vt.title')) + '</h4>' + (extra || '') + '</div>'
+    }
+    if (WB.vtError && !WB.vt) {
+      return headOf()
+        + '<p class="wb-preview-bad">' + esc(WB.vtError.message || '') + '</p>'
+        + (WB.vtError.detail ? '<p class="wb-hint">' + esc(WB.vtError.detail) + '</p>' : '')
+        + '<p>' + vtBtn('vt-refresh', t('workbench.canvas.refresh')) + '</p></div>'
+    }
+    if (!WB.vt) return headOf() + '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
+    var doc = vtDoc()
+    var h = WB.vt.history || {}
+    var aspects = ((WB.vt.limits && WB.vt.limits.aspects) || ['16:9', '9:16', '1:1']).map(function (a) {
+      return '<button type="button" class="wb-btn' + (doc.aspect === a ? ' wb-on' : '') + '" data-wb-act="vt-aspect" data-wb-v="' + escA(a) + '"'
+        + (WB.vtBusy || archived() ? ' disabled' : '') + '>' + esc(a) + '</button>'
+    }).join(' ')
+    var last = WB.vt.last_render
+    return headOf('<span class="wb-muted">' + esc(t('workbench.vt.length', { s: vtSecs(WB.vt.duration || 0) })) + '</span>')
+      + '<p class="wb-hint">' + esc(t('workbench.vt.intro')) + '</p>'
+      + (WB.vtError ? '<p class="wb-preview-bad">' + esc(WB.vtError.message || '') + '</p>' + (WB.vtError.detail ? '<p class="wb-hint">' + esc(WB.vtError.detail) + '</p>' : '') : '')
+      + '<p>' + aspects + ' '
+      + vtBtn('vt-undo', t('workbench.vt.undo'), '', h.can_undo ? '' : ' disabled')
+      + vtBtn('vt-redo', t('workbench.vt.redo'), '', h.can_redo ? '' : ' disabled')
+      + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
+      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtOverlaysHtml(doc)
+      + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
+      + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
+      + esc(WB.vtRender ? t('workbench.vt.rendering') : t('workbench.vt.render')) + '</button></p>'
+      + (last ? '<p class="wb-muted">' + esc(t(last.current ? 'workbench.vt.last_current' : 'workbench.vt.last_old')) + '</p>'
+        + '<video controls preload="metadata" style="max-width:100%" src="' + escA(last.url) + '"></video>' : '')
+      + '</div>'
+  }
+
   function canvasHtml() {
     var it = WB.detail && WB.detail.item
     if (!it) return ''
@@ -5883,6 +6232,7 @@
             ? 'workbench.upload.busy'
             : 'workbench.upload.drop_item')) + '</p>')
             + (canvasFirst ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
+            + videoTimelineHtml()
             + (partsAreTechnical(it) ? partsTechHtml() : partsHtml())
             + postPreviewHtml())
         + deadlinesBoxHtml()
@@ -9294,6 +9644,7 @@
         // Az agent a rajzon is dolgozhatott (canvas.edit): a munkapeldany, a
         // visszavonas es a "Mentve" jelzes is onnan jon.
         if (WB.canvas || canvasKind(r.data && r.data.item)) loadCanvas(itemId)
+        if (WB.vt || (r.data && r.data.item && r.data.item.type === 'video')) loadVideoTimeline(itemId)
         // az agens teendot is felvehetett (workItem.addTodo)
         loadTodos()
       })
@@ -9998,6 +10349,26 @@
     else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'canvas-start') { if (!archived()) startCanvas() }
     else if (a === 'canvas-refresh') loadCanvas(WB.selectedId)
+    else if (a === 'vt-refresh') loadVideoTimeline(WB.selectedId)
+    else if (a === 'vt-undo' || a === 'vt-redo') vtStep(a === 'vt-undo' ? 'undo' : 'redo')
+    else if (a === 'vt-version') vtVersion()
+    else if (a === 'vt-render') vtRenderNow()
+    else if (a === 'vt-aspect') vtOps([{ op: 'setAspect', aspect: act.getAttribute('data-wb-v') }])
+    else if (a === 'vt-clip-add') vtAddClip()
+    else if (a === 'vt-clip-trim') vtTrimClip(act.getAttribute('data-wb-id'))
+    else if (a === 'vt-clip-up' || a === 'vt-clip-down') vtMoveClip(act.getAttribute('data-wb-id'), a === 'vt-clip-up' ? -1 : 1)
+    else if (a === 'vt-clip-split') vtSplitClip(act.getAttribute('data-wb-id'))
+    else if (a === 'vt-clip-del') vtOps([{ op: 'removeClip', id: act.getAttribute('data-wb-id') }])
+    else if (a === 'vt-sub-add') vtAddSubtitle()
+    else if (a === 'vt-sub-save') vtSaveSubtitle(act.getAttribute('data-wb-id'))
+    else if (a === 'vt-sub-del') vtOps([{ op: 'removeSubtitle', id: act.getAttribute('data-wb-id') }])
+    else if (a === 'vt-music-set') vtSetMusic()
+    else if (a === 'vt-music-save') vtSaveMusic()
+    else if (a === 'vt-music-del') vtOps([{ op: 'clearMusic' }])
+    else if (a === 'vt-ov-add') vtAddOverlay()
+    else if (a === 'vt-ov-save') vtSaveOverlay(act.getAttribute('data-wb-id'))
+    else if (a === 'vt-ov-del') vtOps([{ op: 'removeOverlay', id: act.getAttribute('data-wb-id') }])
+    else if (a === 'vt-volume') vtSaveVolume()
     else if (a === 'canvas-undo') canvasStep('undo')
     else if (a === 'canvas-redo') canvasStep('redo')
     else if (a === 'canvas-version') canvasSaveVersion()
