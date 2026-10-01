@@ -1117,9 +1117,7 @@
     var box = wf.box
     var opts = ['<option value="">' + esc(t('workbench.move.label')) + '</option>',
       '<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>']
-    var ownFolder = itemOwnFolders(WB.items || [], wf.folders || [], box)
     ;(wf.folders || []).forEach(function (f) {
-      if (ownFolder[f]) return
       var depth = f.split('/').length - 1 - (box.split('/').length - 1)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
       opts.push('<option value="' + escA(f) + '">' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
@@ -1156,29 +1154,11 @@
   function dirOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? '' : String(path).slice(0, i) }
   function baseOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? String(path) : String(path).slice(i + 1) }
 
-  /** Where an item sits in the tree: its own folder when other things are filed
-   *  inside it (an old main item with content), else the folder it was filed in. */
+  /** Where an item sits in the tree: inside its own folder (always shown as a folder row), else the folder it was filed in. */
   function itemPlaces(items, folders, box) {
-    var occupied = {}
-    folders.forEach(function (f) { occupied[dirOf(f)] = true })
-    items.forEach(function (it) {
-      if (it.folder) occupied[dirOf(it.folder)] = true
-      else if (it.container_folder) occupied[it.container_folder] = true
-    })
     var place = {}
-    items.forEach(function (it) {
-      if (it.folder) place[it.id] = occupied[it.folder] ? it.folder : (dirOf(it.folder) || box)
-      else place[it.id] = it.container_folder || box
-    })
+    items.forEach(function (it) { place[it.id] = it.folder || it.container_folder || box })
     return place
-  }
-
-  /** Folders that are just a work item's own storage folder: the list shows them as the item, so no menu offers them as a target. */
-  function itemOwnFolders(items, folders, box) {
-    var place = itemPlaces(items, folders, box)
-    var own = {}
-    items.forEach(function (it) { if (it.folder && place[it.id] !== it.folder) own[it.folder] = true })
-    return own
   }
 
   function folderTreeRows() {
@@ -1187,10 +1167,7 @@
     var items = WB.items || []
     var folders = (wf.folders || []).slice()
     var place = itemPlaces(items, folders, box)
-    // A leaf folder that is exactly one work item's own folder IS that item, not a separate folder.
-    var itemFolder = {}
-    items.forEach(function (it) { if (it.folder && place[it.id] !== it.folder) itemFolder[it.folder] = true })
-    var shown = folders.filter(function (f) { return !itemFolder[f] })
+    var shown = folders
     var have = {}
     shown.forEach(function (f) { have[f] = true })
     // A place that is not in the folder list (list cut off, folder gone) falls back to the box.

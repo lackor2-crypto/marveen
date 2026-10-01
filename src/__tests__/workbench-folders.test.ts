@@ -354,14 +354,15 @@ describe('list UI', () => {
     expect(html).toContain('data-wb-act="folder-fold"')
     expect(html).toContain('data-wb-folder="Munkadarabok/LK"')
     expect(html).toContain('data-wb-folder="Munkadarabok/Ures"')
-    // a leaf folder that IS an item's own folder is not shown a second time
-    expect(html).not.toContain('data-wb-folder="Munkadarabok/LK/BL"')
-    expect(html).not.toContain('data-wb-folder="Munkadarabok/Egyeb"')
+    // an item's own folder is shown as a folder row too, with the item right under it
+    expect(html).toContain('data-wb-folder="Munkadarabok/LK/BL"')
+    expect(html).toContain('data-wb-folder="Munkadarabok/Egyeb"')
+    expect(html.indexOf('data-wb-folder="Munkadarabok/Egyeb"')).toBeLessThan(html.indexOf('data-wb-item="x1"'))
     expect(html.indexOf('data-wb-folder="Munkadarabok/LK"')).toBeLessThan(html.indexOf('data-wb-item="s1"'))
     expect(untranslatedHungarian(h.html(), ['Robotok', 'Egyeb', 'Ures', 'Munkadarabok', 'Kovács weboldal'])).toBe('')
   })
 
-  it('the Move menu does not offer an item\'s own storage folder as a separate folder', async () => {
+  it('the Move menu offers every folder in the list, including an item\'s own folder', async () => {
     const h = open(
       [item('s1', 'BL', `${box}/LK/BL`), item('x1', 'Egyeb', `${box}/Egyeb`)],
       [`${box}/LK`, `${box}/LK/BL`, `${box}/Egyeb`, `${box}/Ures`],
@@ -369,10 +370,7 @@ describe('list UI', () => {
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-move="s1"'))
     const sel = h.html().slice(h.html().indexOf('data-wb-move="s1"'))
     const menu = sel.slice(0, sel.indexOf('</select>'))
-    expect(menu).toContain('value="Munkadarabok/LK"')
-    expect(menu).toContain('value="Munkadarabok/Ures"')
-    expect(menu).not.toContain('value="Munkadarabok/LK/BL"')
-    expect(menu).not.toContain('value="Munkadarabok/Egyeb"')
+    for (const f of ['LK', 'LK/BL', 'Egyeb', 'Ures']) expect(menu).toContain(`value="Munkadarabok/${f}"`)
   })
 
   it('collapsing a folder hides its items', async () => {
@@ -392,7 +390,8 @@ describe('list UI', () => {
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="m1"'))
     const html = treeOf(h.html())
     expect(html.indexOf('data-wb-folder="Munkadarabok/LK"')).toBeLessThan(html.indexOf('data-wb-item="m1"'))
-    expect(html.indexOf('data-wb-item="m1"')).toBeLessThan(html.indexOf('data-wb-item="s1"'))
+    expect(html.indexOf('data-wb-folder="Munkadarabok/LK"')).toBeLessThan(html.indexOf('data-wb-item="s1"'))
+    expect(html).toContain('data-wb-folder="Munkadarabok/LK/BL"')
   })
 
   it('the new-item form asks which folder, also with no folder yet; no main-item question', async () => {
