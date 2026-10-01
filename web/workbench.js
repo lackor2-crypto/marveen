@@ -5753,6 +5753,37 @@
       + '</div>'
   }
 
+  /** Melyik felulet a munkadarab fo felulete (K-3.3). */
+  function surfaceOf(it) {
+    if (!it) return 'parts'
+    if (canvasKind(it) || (WB.canvas && WB.canvas.exists)) return 'canvas'
+    if (it.type === 'document') return 'document'
+    if (it.type === 'video') return 'player'
+    if (it.type === 'composite') return 'post'
+    return 'parts'
+  }
+
+  /** A belso tartalomreszek csak akkor technikai adat, ha a tartalmat mar egy
+   *  masik felulet mutatja: a vaszon, egy fajl-elonezet vagy a vazlat. Egy
+   *  jegyzetnel vagy egy meg ures munkadarabnal a reszlista MAGA a tartalom. */
+  function partsAreTechnical(it) {
+    if (!it || !partsOf().length) return false
+    if (WB.canvas && WB.canvas.exists) return true
+    var p = WB.preview
+    if (p && p.available && p.kind !== 'parts') return true
+    var o = WB.detail && WB.detail.outline
+    return !!(o && (o.sections || []).length)
+  }
+
+  function partsTechHtml() {
+    var open = !!WB.partsTechOpen
+    var n = partsOf().length
+    return '<div class="wb-parts-tech"><p class="wb-ctx-actions"><button type="button" class="wb-linklike" data-wb-act="parts-tech-toggle" aria-expanded="' + (open ? 'true' : 'false') + '">'
+      + '⋮ ' + esc(t('workbench.tech.parts', { n: n })) + '</button></p>'
+      + (open ? '<p class="wb-hint">' + esc(t('workbench.tech.parts_hint')) + '</p>' + partsHtml() : '')
+      + '</div>'
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
@@ -5762,9 +5793,13 @@
       inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
     } else {
       var it = WB.detail.item
+      // A munkatipus szerinti felulet (K-3.3): rajznal a vaszon all elol,
+      // dokumentumnal a vazlat es az elonezet, videonal a lejatszo. A belso
+      // tartalomreszek (K-3.2) a "Technikai reszletek" ala kerulnek, ha mar
+      // egy masik felulet mutatja a tartalmat -- torolve semmi nincs.
+      var canvasFirst = surfaceOf(it) === 'canvas'
       inner = '<div class="wb-editor-head"><h3>' + workSeqHtml(it) + esc(it.title) + '</h3>'
-        + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
-        + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
+        + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span></div>'
         + versionBarHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
@@ -5772,9 +5807,8 @@
           : (archived() ? '' : '<p class="wb-hint wb-drop-item-hint">' + esc(t(WB.upload
             ? 'workbench.upload.busy'
             : 'workbench.upload.drop_item')) + '</p>')
-            + previewHtml()
-            + canvasHtml()
-            + partsHtml()
+            + (canvasFirst ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
+            + (partsAreTechnical(it) ? partsTechHtml() : partsHtml())
             + postPreviewHtml())
         + deadlinesBoxHtml()
         + todosBoxHtml()
@@ -7060,13 +7094,32 @@
     return '<li><span class="wb-muted">' + esc(when(e.at)) + '</span> · <strong>' + esc(t('workbench.egress.service.' + e.service)) + '</strong>'
       + (who ? ' <span class="wb-muted">(' + esc(who) + ')</span>' : '') + '<br>' + esc(what) + st + '</li>'
   }
-  /** "⋮ Technikai reszletek" (K-1.33): mi ment ki, hova, mikor. */
+  /** A munkadarab technikai adatai (K-3.2): ami a fo feluletrol lekerult. */
+  function techMetaHtml() {
+    var it = WB.detail && WB.detail.item
+    if (!it) return ''
+    var cur = currentVersion()
+    var row = function (k, v) { return v == null || v === '' ? '' : '<li><span class="wb-muted">' + esc(t('workbench.tech.' + k)) + ':</span> ' + esc(String(v)) + '</li>' }
+    return '<ul class="wb-tech-meta">'
+      + row('status', statusLabel(it.status))
+      + row('type', it.type + (it.editor_type ? ' / ' + it.editor_type : ''))
+      + row('version', cur ? cur.version_no : null)
+      + row('file', it.source_path)
+      + row('folder', it.folder)
+      + row('created_by', it.created_by)
+      + row('id', it.id)
+      + '</ul>'
+  }
+
+  /** "⋮ Technikai reszletek" (K-1.33, K-3.2): a munkadarab technikai adatai,
+   *  es mi ment ki, hova, mikor. */
   function techDetailsHtml() {
     var open = !!WB.techOpen
     var e = WB.egress && WB.egress.itemId === WB.selectedId ? WB.egress : null
     var body = ''
     if (open) {
-      body = '<p class="wb-hint">' + esc(t('workbench.egress.hint')) + '</p>'
+      body = techMetaHtml()
+        + '<p class="wb-hint">' + esc(t('workbench.egress.hint')) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.egress.ocr_local')) + '</p>'
       if (!e || e.loading) body += '<p class="wb-muted">' + esc(t('workbench.egress.loading')) + '</p>'
       else if (e.error) body += '<p class="wb-doc-low">' + esc(t('workbench.egress.load_failed')) + ' ' + esc(e.error) + '</p>'
@@ -9488,6 +9541,7 @@
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
     else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
     else if (a === 'privacy-item') setPrivacy('item', act.getAttribute('data-wb-on') === '1')
+    else if (a === 'parts-tech-toggle') { WB.partsTechOpen = !WB.partsTechOpen; render() }
     else if (a === 'tech-toggle') { WB.techOpen = !WB.techOpen; if (WB.techOpen) loadEgress(); else render() }
     else if (a === 'item-purge-ask') { WB.warn = { kind: 'purge', id: act.getAttribute('data-wb-id') }; render() }
     else if (a === 'item-purge') purgeItem(act.getAttribute('data-wb-id'))
