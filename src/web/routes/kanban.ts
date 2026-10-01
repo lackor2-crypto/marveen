@@ -4,7 +4,7 @@ import {
   listKanbanCards, createKanbanCard, updateKanbanCard, KANBAN_WRITABLE_FIELDS,
   deleteKanbanCard, moveKanbanCard, archiveKanbanCard, unarchiveKanbanCard,
   getKanbanComments, addKanbanComment, getKanbanCardEvents, listKanbanProjects,
-  getKanbanCard, getChildCards, getDb,
+  getKanbanCard, getChildCards, getDb, parentWouldCycle,
   createAgentMessage, markKanbanCardDispatched,
   getKanbanSeqByIdPrefix,
   listLabels, getLabel, createLabel, updateLabel, deleteLabel,
@@ -356,6 +356,19 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       return true
     }
     if (data.project !== undefined) data.project = resolveProjectRef(data.project)
+    // Rebuilt from upstream 94765127: a re-parent that would close a loop is
+    // refused, and a parent that does not exist is a clean 404 (it used to reach
+    // the UPDATE and throw a FOREIGN KEY error).
+    if (typeof data.parent_id === 'string' && data.parent_id) {
+      if (!getKanbanCard(data.parent_id)) {
+        json(res, { error: 'A szülő kártya nem található / Parent card not found' }, 404)
+        return true
+      }
+      if (parentWouldCycle(id, data.parent_id)) {
+        json(res, { error: 'A szülő kártya hurkot zárna (a kártya a saját őse lenne) / That parent would make the card its own ancestor' }, 409)
+        return true
+      }
+    }
     if (updateKanbanCard(id, data)) {
       if (data.status === 'waiting') ensureApprovalForWaitingCard(id, data.actor)
       // ...and the symmetric half: leaving waiting closes the request that

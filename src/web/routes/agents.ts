@@ -11,6 +11,7 @@ import { isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from '../agent-message-wrap.js'
 import { ensureFederationClaudeMdSection } from '../federation/onboarding.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
+import { snapshotPersonaFile, writePersonaFileIfUnchanged } from '../persona-write-guard.js'
 import { CHANNEL_PLUGIN_IDS } from '../plugin-ids.js'
 import { getSecret, setSecret, deleteSecret, listSecrets } from '../vault.js'
 import { loadOpenRouterCatalog, fetchAllOpenRouterModels, openRouterModelsWithin, loadCuratedManual, addCuratedManual, removeCuratedManual } from '../openrouter-models.js'
@@ -1244,13 +1245,22 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     // a template-personality agent exists and is usable, so the fleet has to hear
     // about it for the same reason a fully generated one does.
     let personalityPendingDetail: string | null = null
+    // #456 (rebuilt from upstream 9ce20239): the agent dir is visible from
+    // scaffoldAgentDir() on and generation can run for minutes. Snapshot both
+    // files NOW and write only while each is still byte-identical: an operator
+    // who hand-wrote them in the meantime wins (a failed generation used to put
+    // the template over their file).
+    const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+    const soulMdPath = join(agentDir(name), 'SOUL.md')
+    const baseline = { claude: snapshotPersonaFile(claudeMdPath), soul: snapshotPersonaFile(soulMdPath) }
+    const personalitySkipped: string[] = []
     try {
       const [claudeMd, soulMd] = await Promise.all([
         generateClaudeMd(name, description, model),
         generateSoulMd(name, description),
       ])
-      atomicWriteFileSync(join(agentDir(name), 'CLAUDE.md'), claudeMd)
-      atomicWriteFileSync(join(agentDir(name), 'SOUL.md'), soulMd)
+      if (!writePersonaFileIfUnchanged(claudeMdPath, baseline.claude, claudeMd, { saveSidecarOnSkip: true }).written) personalitySkipped.push('CLAUDE.md')
+      if (!writePersonaFileIfUnchanged(soulMdPath, baseline.soul, soulMd, { saveSidecarOnSkip: true }).written) personalitySkipped.push('SOUL.md')
       logger.info({ name }, 'Agent created successfully')
     } catch (err) {
       // NO DESTRUCTIVE ROLLBACK. This used to be
@@ -1278,9 +1288,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       const detail = err instanceof Error ? err.message : 'Unknown error'
       logger.error({ err, name }, 'Agent personality generation failed -- falling back to template, agent kept')
       try {
-        atomicWriteFileSync(join(agentDir(name), 'CLAUDE.md'), fallbackClaudeMd(name, description, model))
-        atomicWriteFileSync(join(agentDir(name), 'SOUL.md'), fallbackSoulMd(name, description))
-        atomicWriteFileSync(join(agentDir(name), PERSONALITY_PENDING_SENTINEL), `${new Date().toISOString()}\n${detail}\n`)
+        const wroteClaude = writePersonaFileIfUnchanged(claudeMdPath, baseline.claude, fallbackClaudeMd(name, description, model), { saveSidecarOnSkip: false }).written
+        const wroteSoul = writePersonaFileIfUnchanged(soulMdPath, baseline.soul, fallbackSoulMd(name, description), { saveSidecarOnSkip: false }).written
+        if (!wroteClaude) personalitySkipped.push('CLAUDE.md')
+        if (!wroteSoul) personalitySkipped.push('SOUL.md')
+        // The sentinel says "a placeholder is on disk": only when a template landed.
+        if (wroteClaude || wroteSoul) atomicWriteFileSync(join(agentDir(name), PERSONALITY_PENDING_SENTINEL), `${new Date().toISOString()}\n${detail}\n`)
       } catch (fallbackErr) {
         // Even the template write failed (disk full, permissions). Still do NOT
         // delete: a half-built agent an operator can inspect beats a vanished
@@ -1288,6 +1301,15 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         logger.error({ err: fallbackErr, name }, 'Fallback template write failed; agent left in place for inspection')
       }
       personalityPendingDetail = detail
+    }
+
+    if (personalitySkipped.length > 0) {
+      logger.warn({ name, files: personalitySkipped }, 'Personality generation did not overwrite files changed while it ran')
+      try {
+        createAgentMessage('system', MAIN_AGENT_ID, `${name}: a ${personalitySkipped.join(' + ')} közben megváltozott, ezért a generálás nem írta felül (a generált szöveg *.generated.md-ben van, ha sikerült). / ${personalitySkipped.join(' + ')} changed while the personality was generated, so it was not overwritten.`)
+      } catch (err) {
+        logger.warn({ err, name }, 'Could not notify the main agent about the skipped personality write')
+      }
     }
 
     // Notifications are deliberately OUTSIDE the try above. They used to sit
@@ -1316,11 +1338,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       // What DOES exist is PUT /api/agents/:name with claudeMd/soulMd, so that is
       // what the message points at. The sentinel stays as a marker for whenever a
       // regeneration path gets built; it just must not be described as one today.
-      json(res, { ok: true, name, personalityPending: true, warning: 'Agent created with a template personality because generation failed. Edit CLAUDE.md and SOUL.md to replace it.', detail: personalityPendingDetail }, 200)
+      json(res, { ok: true, name, personalityPending: true, personalitySkipped, warning: 'Agent created with a template personality because generation failed. Edit CLAUDE.md and SOUL.md to replace it.', detail: personalityPendingDetail }, 200)
       return true
     }
 
-    json(res, { ok: true, name })
+    json(res, personalitySkipped.length > 0 ? { ok: true, name, personalitySkipped } : { ok: true, name })
     return true
   }
 
