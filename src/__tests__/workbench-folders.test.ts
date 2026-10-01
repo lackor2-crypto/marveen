@@ -104,6 +104,33 @@ describe('endpoints', () => {
     expect(typeof (bad.body as { message: string }).message).toBe('string')
   })
 
+  it('DELETE /folders removes an empty folder only; a used one is refused with what is in it; the box stays', async () => {
+    const mkf = async (name: string, parent = '') => (await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent, name })).body as { folder: string }
+    const empty = (await mkf('Ures')).folder
+    const full = (await mkf('Teli')).folder
+    const box = empty.split('/').slice(0, -1).join('/')
+    const sub = (await mkf('Al', full)).folder
+    const del = (folder: string) => callWorkbench('/api/workbench/folders', 'DELETE', { project_id: pid, folder })
+    const ok = await del(empty)
+    expect(ok.status).toBe(200)
+    expect((ok.body as { work_folders: { folders: string[] } }).work_folders.folders).not.toContain(empty)
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', empty))).toBe(false)
+    const withSub = await del(full)
+    expect(withSub.status).toBe(409)
+    expect((withSub.body as { error: string; message: string }).error).toBe('folder_not_empty')
+    expect((withSub.body as { message: string }).message).toContain('1 almappa')
+    await del(sub)
+    mk('Darab', full)
+    const withItem = await del(full)
+    expect(withItem.status).toBe(409)
+    expect((withItem.body as { message: string }).message).toContain('1 munkadarab')
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', full))).toBe(true)
+    const boxDel = await del(box)
+    expect(boxDel.status).toBe(400)
+    expect((boxDel.body as { error: string }).error).toBe('folder_is_box')
+    expect((await del('Mas/hely')).status).toBe(400)
+  })
+
   it('POST /items with a folder files the item there; a missing folder gives a human message', async () => {
     const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK' })
     const folder = (f.body as { folder: string }).folder

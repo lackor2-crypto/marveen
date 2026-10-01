@@ -116,6 +116,8 @@
 .wb-depth-8 { margin-left: 144px; }
 .wb-folder-row { list-style: none; margin: 6px 0 2px; }
 .wb-folder-toggle { background: none; border: 0; padding: 4px 2px; font: inherit; font-weight: 600; cursor: pointer; text-align: left; color: inherit; }
+.wb-folder-del { background: none; border: 0; padding: 2px 4px; cursor: pointer; opacity: .55; }
+.wb-folder-del:hover { opacity: 1; }
 .wb-folder-toggle:hover { color: var(--accent, #2563eb); }
 .wb-folder-new { display: flex; gap: 8px; align-items: center; }
 .wb-folder-new .wb-input { flex: 1; min-width: 0; }

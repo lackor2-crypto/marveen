@@ -114,6 +114,7 @@ import {
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
+  deleteWorkFolder,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -378,6 +379,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   folder_required: {
     hu: 'Nem tudom elmenteni: előbb az 1. lépésben válaszd ki (vagy hozd létre) azt a mappát, amelyik alá a munkadarab kerül. Mappát nem hozok létre magamtól.',
     en: 'I cannot save this yet: first, in step 1, choose (or create) the folder the work item goes under. I do not create folders on my own.',
+  },
+  folder_is_box: {
+    hu: 'Ez a munkadarabok közös mappája, ezt nem lehet törölni. Csak a benne lévő mappákat.',
+    en: 'This is the shared folder for all work items and cannot be deleted. Only the folders inside it can.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -1920,6 +1925,34 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = makeWorkFolder(project, body.parent, body.name)
     if (!r.ok) return failDetail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'folder_name' ? 'bad_folder_name' : r.code, lang, r.message || null)
     json(res, { ok: true, folder: r.folder, created: r.created, work_folders: listWorkFolders(project) }, 201)
+    return true
+  }
+
+  // A folder is deleted only when empty (no file, no subfolder, no work item in it): nothing goes with it.
+  if (path === '/api/workbench/folders' && method === 'DELETE') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body.project_id ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = deleteWorkFolder(project, body.folder)
+    if (!r.ok) {
+      if (r.code === 'folder_not_empty') {
+        const n = { items: r.items ?? 0, files: r.files ?? 0, folders: r.folders ?? 0 }
+        const parts = (l: 'hu' | 'en'): string => [
+          n.items ? (l === 'hu' ? `${n.items} munkadarab` : `${n.items} work item(s)`) : '',
+          n.files ? (l === 'hu' ? `${n.files} fájl` : `${n.files} file(s)`) : '',
+          n.folders ? (l === 'hu' ? `${n.folders} almappa` : `${n.folders} subfolder(s)`) : '',
+        ].filter(Boolean).join(', ')
+        const text = lang === 'en'
+          ? `This folder is not empty (${parts('en') || 'something is still in it'}). Move or delete those first, then the folder can go.`
+          : `Ez a mappa nem üres (${parts('hu') || 'van még benne valami'}). Előbb tedd át vagy töröld őket, utána törölhető a mappa.`
+        json(res, { error: 'folder_not_empty', message: text, ...n }, 409)
+        return true
+      }
+      return fail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'no_box' ? 'folder_gone' : r.code, lang)
+    }
+    json(res, { ok: true, folder: r.folder, work_folders: listWorkFolders(project) })
     return true
   }
 

@@ -28,7 +28,7 @@
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
@@ -276,6 +276,37 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
   const r = makeProjectFolder(project, parentRel, name)
   if (!r.ok) return r
   return { ok: true, folder: r.sub, created: r.created }
+}
+
+export type DeleteFolderResult =
+  | { ok: true; folder: string }
+  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_not_empty' | 'write_failed'; items?: number; files?: number; folders?: number }
+
+/**
+ * Deletes a folder inside the work items box, but only an EMPTY one: nothing
+ * on disk (no file, no subfolder) and no live work item filed under it. The
+ * box itself stays. Nothing is ever deleted together with its content, so the
+ * worst a mis-click can do is remove an empty folder.
+ */
+export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFolderResult {
+  const c = workFolderTarget(project, folder)
+  if (!c.ok) return c
+  const box = findWorkItemsBox(project)
+  if (!box || c.folder === box) return { ok: false, code: 'folder_is_box' }
+  const t = projectFileTarget(project, c.folder)
+  if (!t.ok) return t
+  let entries: import('node:fs').Dirent[] = []
+  try { entries = readdirSync(t.dirAbs, { withFileTypes: true }) } catch { return { ok: false, code: 'not_found' as FileErrorCode } }
+  ensureAssetTables()
+  const rows = getDb().prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
+  const under = (v: string | null): boolean => !!v && (v === c.folder || v.startsWith(c.folder + '/'))
+  const items = rows.filter((r) => under(r.cf) || under(r.f) || under(r.sp)).length
+  if (entries.length || items) {
+    const folders = entries.filter((e) => e.isDirectory()).length
+    return { ok: false, code: 'folder_not_empty', items, files: entries.length - folders, folders }
+  }
+  try { rmdirSync(t.dirAbs) } catch { return { ok: false, code: 'write_failed' } }
+  return { ok: true, folder: c.folder }
 }
 
 /**
