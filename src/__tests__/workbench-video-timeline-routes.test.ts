@@ -118,3 +118,69 @@ describe('video timeline: the routes', () => {
     expect(readdirSync(dir()).filter((n) => n.endsWith('.mp4')).sort()).toEqual(['a.mp4', 'Nyári reklám (2).mp4', 'Nyári reklám.mp4'].sort())
   })
 })
+
+import { runTool } from '../workbench-agent/execute.js'
+import { getTool } from '../workbench-agent/tools.js'
+
+describe('video timeline: the Workbench agent', () => {
+  let depot = ''
+  let pid = ''
+  let itemId = ''
+  const dir = () => join(depot, 'Projektek', 'teszt')
+  const ctx = () => ({ projectId: pid, workItemId: itemId, lang: 'en' as const })
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-tla-'))
+    mkdirSync(dir(), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const p = createProject({ name: 'Kovács ház' })
+    if (!p.ok) throw new Error('project')
+    pid = p.project.id
+    updateProject(pid, { folder_path: 'Projektek/teszt' })
+    const w = createWorkItem({ project_id: pid, title: 'Reklám', type: 'video' })
+    if (!w.ok) throw new Error('item')
+    itemId = w.item.id
+  })
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('the tools exist: read is free, edit and render are file writes', () => {
+    expect(getTool('timeline.get')?.autonomyCategory).toBeNull()
+    expect(getTool('timeline.edit')?.autonomyCategory).toBe('workbench_file_write')
+    expect(getTool('timeline.render')?.autonomyCategory).toBe('workbench_file_write')
+  })
+
+  it('get on a fresh item says there is no timeline yet; edit then get shows the clip; one request is one undo step', async () => {
+    const g: any = await runTool('timeline.get', {}, ctx())
+    expect(g.ok).toBe(true)
+    expect(g.data.exists).toBe(false)
+    expect(g.data.note).toMatch(/no timeline yet/)
+    const e: any = await runTool('timeline.edit', { ops: [
+      { op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 4 },
+      { op: 'addSubtitle', text: 'Hello', start: 0, end: 2 },
+      { op: 'setAspect', aspect: '9:16' },
+    ] }, { ...ctx(), turnId: 't1' })
+    expect(e.ok).toBe(true)
+    expect(e.data.summary).toContain('1 clips (4s)')
+    const g2: any = await runTool('timeline.get', {}, ctx())
+    expect(g2.data.timeline.aspect).toBe('9:16')
+    const u = await callWorkbench(`/api/workbench/items/${itemId}/timeline/undo`, 'POST')
+    expect(u.status).toBe(200)
+    expect(u.body.timeline.clips).toHaveLength(0)
+  })
+
+  it('a bad operation is a code and a reason, and changes nothing; a non-video item is refused', async () => {
+    const bad: any = await runTool('timeline.edit', { ops: [{ op: 'addClip', src: '../x.mp4', start: 0, end: 1 }] }, ctx())
+    expect(bad).toMatchObject({ ok: false, code: 'timeline_bad_media' })
+    const w = createWorkItem({ project_id: pid, title: 'Levél', type: 'document' })
+    if (!w.ok) throw new Error('item')
+    expect(await runTool('timeline.get', { id: w.item.id }, ctx())).toMatchObject({ ok: false, code: 'bad_input' })
+  })
+
+  it('render with no clips is a plain failure, with a code', async () => {
+    expect(await runTool('timeline.render', {}, ctx())).toMatchObject({ ok: false, code: 'render_empty' })
+  })
+})
