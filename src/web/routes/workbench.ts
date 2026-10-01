@@ -99,6 +99,7 @@ import {
 } from '../../workbench-graphic.js'
 import { listCanvasPlatforms, canvasPlatform, platformForSize } from '../../workbench-canvas-platforms.js'
 import { imageAiConfig, estimateImageEdit, editImageWithAI } from '../../workbench-image-ai.js'
+import { INTAKE_KINDS, INTAKE_TYPE, guessIntakeKind, intakeTitle, type IntakeKind } from '../../workbench-intake.js'
 import {
   readCanvas, renderCanvasForItem, commitCanvasChange, readCanvasImageFile, canvasOpsLabel, canvasHistory, canvasOrphans,
   undoCanvas, redoCanvas, saveCanvasVersion, flushCanvasDraft, restoreCanvasOrphan, discardCanvasOrphan,
@@ -661,6 +662,19 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   ai_edit_network: { hu: 'Nem értem el a Google szolgáltatását (hálózat). Próbáld újra.', en: 'I could not reach the Google service (network). Try again.' },
   ai_edit_failed: { hu: 'Az AI-szerkesztés nem sikerült. A részletekben a szolgáltató üzenete.', en: 'The AI edit failed. The provider message is in the details.' },
   ai_edit_write_failed: { hu: 'Az új képet nem tudtam elmenteni a projekt mappájába.', en: 'I could not save the new picture into the project folder.' },
+  intake_empty: { hu: 'Írd le egy mondatban, mit szeretnél, vagy válassz egy gombot.', en: 'Describe in one sentence what you want, or pick a button.' },
+  intake_ask: {
+    hu: 'Nem vagyok biztos benne, melyik legyen. Válaszd ki, és a mondatodat továbbadom a Marvinnak.',
+    en: 'I am not sure which one it should be. Pick one, and I pass your sentence on to Marvin.',
+  },
+  intake_ask_all: {
+    hu: 'Ebből még nem tudom, mit hozzak létre. Milyen munka lesz? Válassz, és a mondatodat továbbadom a Marvinnak.',
+    en: 'I cannot tell yet what to create from this. What kind of work is it? Pick one, and I pass your sentence on to Marvin.',
+  },
+  intake_presentation: {
+    hu: 'A prezentáció-szerkesztő még nem készült el (5. fázis), ezért vázlatként, dokumentumként indul. A diákra bontás később jön.',
+    en: 'The presentation editor is not built yet (phase 5), so it starts as an outline, as a document. Splitting into slides comes later.',
+  },
   canvas_old_version: {
     hu: 'Régebbi verziót nem lehet közvetlenül szerkeszteni. Állítsd vissza a verziólistából, és utána szerkeszd.',
     en: 'An older version cannot be edited directly. Restore it from the version list, then edit it.',
@@ -1902,6 +1916,39 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = makeWorkFolder(project, body.parent, body.name)
     if (!r.ok) return failDetail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'folder_name' ? 'bad_folder_name' : r.code, lang, r.message || null)
     json(res, { ok: true, folder: r.folder, created: r.created, work_folders: listWorkFolders(project) }, 201)
+    return true
+  }
+
+  // BELEPO (#441, K-3.1): "Mit szeretnel letrehozni?" -- egy mondat vagy egy
+  // gomb. `kind` nelkul a mondatbol talaljuk ki a munkatipust; ha nem biztos,
+  // NEM hozunk letre semmit, hanem visszakerdezunk (`ask`), a lehetseges
+  // tipusokkal. A mondatot a felulet utana az Agentnek adja at.
+  if (path === '/api/workbench/intake' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const text = String(body['text'] ?? '').trim().slice(0, 4000)
+    let kind = String(body['kind'] ?? '') as IntakeKind
+    if (!(INTAKE_KINDS as readonly string[]).includes(kind)) {
+      if (!text) return fail(res, 400, 'intake_empty', lang)
+      const g = guessIntakeKind(text)
+      if (!g.sure) {
+        json(res, { ok: true, ask: true, options: g.options, message: msg(g.options.length === INTAKE_KINDS.length ? 'intake_ask_all' : 'intake_ask', lang) })
+        return true
+      }
+      kind = g.kind
+    }
+    const r = createWorkItem({
+      project_id: project.id, type: INTAKE_TYPE[kind], title: intakeTitle(text, kind, lang),
+      prompt: text || undefined, created_by: actor(ctx),
+    })
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, {
+      ok: true, ask: false, kind, item: r.item, versions: [r.version], text,
+      message: kind === 'presentation' ? msg('intake_presentation', lang) : null,
+    }, 201)
     return true
   }
 
