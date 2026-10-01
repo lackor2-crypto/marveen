@@ -9,7 +9,9 @@ import { isRestartInFlight } from './restart-lock.js'
 import { quarantineFleetTokenIfDead } from './claude-credentials-guard.js'
 import { resolveAgentSession } from './channel-mcp-reconnect.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
-import { detectReauthNeeded } from './reauth-detect.js'
+import { detectReauthNeeded, type ReauthState } from './reauth-detect.js'
+import { readCredentialFreshness, type CredentialFreshness } from './credential-freshness.js'
+import { resolveAgentConfigDir } from './claude-plans.js'
 import { loginSequence, literalKeyArgs, specialKeyArgs } from './tmux-keys.js'
 import { exactTmuxTarget } from './tmux-target.js'
 import { withSessionSendLock } from './session-send-lock.js'
@@ -277,10 +279,28 @@ function sendNotify(msg: string): void {
   })
 }
 
+/**
+ * #455 (Boss 2026-10-01: "Please run /login" alert right after he had logged in
+ * and verified it). The 'status-line' source is DRAWN text that Claude Code does
+ * not repaint after a successful login, so it goes stale. The agent card already
+ * overrides it with a fresh on-disk measurement (routes/agents.ts); the healer
+ * did not, so it escalated a healthy, freshly logged-in agent to the owner. An
+ * unreadable/unknown disk state never overrides (no evidence != healthy), and
+ * 'transcript' / 'first-run-gate' events are never overridden.
+ */
+export function overrideStaleStatusLine(state: ReauthState, fresh: Pick<CredentialFreshness, 'verdict'>): ReauthState {
+  if (!state.needsReauth || state.source !== 'status-line') return state
+  if (fresh.verdict !== 'valid') return state
+  return { needsReauth: false, source: state.source, reason: `stale status line ("${state.reason}"), valid credentials on disk` }
+}
+
 function checkSession(label: string, session: string, isMain: boolean, quiet: boolean): void {
   const pane = capturePane(session)
   const sessionAlive = pane != null
-  const reauth = detectReauthNeeded(pane)
+  let reauth = detectReauthNeeded(pane)
+  if (reauth.needsReauth && reauth.source === 'status-line') {
+    reauth = overrideStaleStatusLine(reauth, readCredentialFreshness(resolveAgentConfigDir(label).configDir || null))
+  }
   const prev = watchState.get(session) ?? NO_REAUTH_STATE
   // The reasons produced by the two first-run-gate markers in reauth-detect.
   const isFirstRunGate = /onboarding picker|sign-in screen/i.test(reauth.reason ?? '')
