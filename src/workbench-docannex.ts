@@ -98,7 +98,9 @@ function refPattern(s: Pick<DocSettings, 'annex_scheme' | 'annex_prefix'>): stri
   if (s.annex_scheme === 'exhibit') return `${NB}Exhibit ([A-Z]{1,2})${NA}`
   const p = esc(s.annex_prefix)
   if (s.annex_scheme === 'anlage') return `${NB}(?:Anlage|Anl\\.) ?${p} ?(\\d{1,3})${NA}`
-  return `${NB}${p} ?(\\d{1,3})${NA}`
+  // Az "Anlage K1" mar a nemet sema cimkeje, nem K1-hivatkozas: kulonben a
+  // nemetre forditott szovegben semavaltaskor "Anlage Anlage K1" lenne belole.
+  return `${NB}(?<!(?:Anlage|Anl\\.)[ \\u00a0]?)${p} ?(\\d{1,3})${NA}`
 }
 
 function numberOf(s: Pick<DocSettings, 'annex_scheme'>, raw: string): number {
@@ -218,8 +220,11 @@ export function setDocSettings(itemId: string, patch: { annex_scheme?: unknown; 
   }
   let rewritten = 0
   if (next.annex_scheme !== cur.annex_scheme || next.annex_prefix !== cur.annex_prefix) {
-    const count = listAnnexRows(itemId).length
-    rewritten = rewriteAnnexRefs(itemId, cur, (n) => (n >= 1 && n <= count ? annexLabel(next, n) : null))
+    // A semavaltas csak a cimke ALAKJAT valtja, a sorszamot nem: a meg fel nem
+    // vett mellekletre mutato hivatkozas is atcimkezodik (a "nincs a jegyzekben"
+    // ellenorzes ugyanugy megallitja), nem lesz belole torolt-melleklet jeloles.
+    // Igy a forditas utan beallitott nemet sema sem rontja el a hivatkozasokat.
+    rewritten = rewriteAnnexRefs(itemId, cur, (n) => (n >= 1 ? annexLabel(next, n) : null))
   }
   getDb().prepare(`INSERT INTO wb_doc_settings (work_item_id, annex_scheme, annex_prefix, annex_mode, updated_at) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(work_item_id) DO UPDATE SET annex_scheme = excluded.annex_scheme, annex_prefix = excluded.annex_prefix,

@@ -39,6 +39,15 @@ describe('felismeres', () => {
     expect(parseAmount('abc')).toBeNull()
     expect(findAmounts('havi 150 000 Ft, összesen 1.800.000,- Ft, € 1.250,00 és 2 500 EUR; 12 hónap').map((a) => [a.cents, a.currency]))
       .toEqual([[15_000_000, 'HUF'], [180_000_000, 'HUF'], [125_000, 'EUR'], [250_000, 'EUR']])
+    // Az evszam utan allo osszeg nem olvad bele az evszamba (11. pont 1/B probaeset).
+    expect(findAmounts('Die Beklagte hat am 3. Januar 2026 900 Euro überwiesen.').map((a) => [a.cents, a.raw])).toEqual([[90_000, '900 Euro']])
+    expect(findAmounts('12345 678 EUR').map((a) => a.cents)).toEqual([67_800])
+    expect(findAmounts('2 026 900 Euro').map((a) => a.cents)).toEqual([202_690_000])
+    // A magyar ragos alak is osszeg -- kulonben az allitas-forras egyeztetes nemam kimaradna.
+    expect(findAmounts('900 eurót utalt, 100 000 forintot fizetett, 5000 forinttal kevesebb, 20 000 Ft-ot, 300 euróért').map((a) => [a.cents, a.currency]))
+      .toEqual([[90_000, 'EUR'], [10_000_000, 'HUF'], [500_000, 'HUF'], [2_000_000, 'HUF'], [30_000, 'EUR']])
+    // ...de nem minden "euro"-val kezdodo szo penznem.
+    expect(findAmounts('900 europäische Unternehmen, 50 Europaletten')).toEqual([])
   })
 
   it('nevek: a mondat eleji szo nem nev-resz, hacsak mondat belsejeben is az; a megszolitas lemarad', () => {
