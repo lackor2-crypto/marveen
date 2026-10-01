@@ -270,6 +270,9 @@ function lastIdleFooterIndex(lines: string[]): number {
 //
 // The pattern demands duration + `·` + arrow + digits + the literal word
 // `tokens`. That is dense UI chrome; reply prose does not reproduce it.
+const FOOTER_BACKGROUND_WORK_RX =
+  /·\s*[1-9]\d*\s+(?:monitors?|(?:background\s+|local\s+)?(?:shells?|tasks?|agents?|workflows?))\b/i
+
 const FLEETVIEW_AGENT_ROW_RX =
   /(?:^|\s)(?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·\s*[↓↑]\s*[\d.]+[kKmMgG]?\s*tokens\b/
 
@@ -326,6 +329,11 @@ export function detectsBackgroundAgentActivity(pane: string): boolean {
   const lines = pane.split('\n')
   const footerIdx = lastIdleFooterIndex(lines)
   if (footerIdx < 0) return false
+  // A turn that only WAITS on a background monitor / shell / task leaves the
+  // pane static, so neither the busy indicators nor the pane-change check see
+  // it. Claude Code names those in the footer itself, with a count:
+  // `bypass permissions on · 1 monitor · ← for agents`. Display only.
+  if (FOOTER_BACKGROUND_WORK_RX.test(lines[footerIdx])) return true
   return lines
     .slice(footerIdx + 1, footerIdx + 1 + BUSY_BELOW_FOOTER_LINES)
     .some(l => FLEETVIEW_AGENT_ROW_RX.test(l))

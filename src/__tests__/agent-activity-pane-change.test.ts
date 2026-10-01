@@ -145,3 +145,19 @@ describe('computeAgentActivityLabel: durable quota-exhausted signal', () => {
     expect(computeAgentActivityLabel(true, parked, key)).toBe('idle')
   })
 })
+
+describe('computeAgentActivityLabel: waiting on a background monitor', () => {
+  const pane = (footer: string) => ['● Waiting for CI.', '', '─'.repeat(78), '❯ ', '─'.repeat(78), '  Sonnet 5.5 | Ctx 10%', footer].join('\n')
+  it('a static pane with "1 monitor" in the footer is working on every poll', () => {
+    const p = pane('  ⏵⏵ bypass permissions on · 1 monitor · ← for agents')
+    for (let i = 0; i < 3; i++) {
+      expect(computeAgentActivityLabel(true, p, 'mon-test', false)).toBe('working')
+    }
+    expect(computeAgentActivityLabel(true, pane('  ⏵⏵ bypass permissions on · 2 shells · ← for agents'), 'mon-test2', false)).toBe('working')
+  })
+  it('the plain footer ("← for agents", no count) stays idle once settled', () => {
+    const p = pane('  ⏵⏵ bypass permissions on · ← for agents')
+    computeAgentActivityLabel(true, p, 'mon-idle', false)
+    expect(detectPaneState(p)).toBe('idle')
+  })
+})
