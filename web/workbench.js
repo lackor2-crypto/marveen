@@ -1139,7 +1139,7 @@
       if (d.items) WB.items = d.items
       if (WB.detail && d.item && WB.detail.item && WB.detail.item.id === d.item.id) WB.detail.item = d.item
       render()
-      window.showToast(t(d.moved ? 'workbench.move.done' : 'workbench.move.' + (d.reason === 'same_place' ? 'same' : 'blocked')))
+      window.showToast(t(d.moved ? 'workbench.move.done' : 'workbench.move.' + (d.reason === 'same_place' ? 'same' : d.reason === 'own_folder' ? 'own' : d.reason === 'missing' ? 'missing' : 'blocked')))
     })
   }
 

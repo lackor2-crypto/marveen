@@ -5633,6 +5633,8 @@ window._i18n.hu = {
   "workbench.move.done": "Áthelyezve a mappába.",
   "workbench.move.same": "Már ebben a mappában van.",
   "workbench.move.blocked": "Nem tudtam áthelyezni: a mappa fájljait másik munkadarab is használja, vagy rajz van benne. A munkadarab a helyén maradt.",
+  "workbench.move.own": "Ez a munkadarab már ebben a mappában van: ez a saját mappája, ide nem lehet áthelyezni.",
+  "workbench.move.missing": "Nem találom a munkadarab mappáját a lemezen, ezért nem tudtam áthelyezni. A munkadarab a helyén maradt.",
   "workbench.folder.new_hint": "Az új mappa a fent kijelölt mappán belül jön létre (ha semmit nem jelöltél ki, a Munkadarabok mappában). Mappán belül újabb mappát is nyithatsz. Ha beírsz egy nevet, a Létrehozásra a mappa is elkészül, és a munkadarab bekerül.",
   "workbench.folder.name_required": "Írd be az új mappa nevét.",
   "workbench.folder.expand": "Mappa megnyitása",

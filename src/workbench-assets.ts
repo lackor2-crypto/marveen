@@ -859,7 +859,7 @@ function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel:
 }
 
 export type MoveItemOutcome =
-  | { ok: true; moved: boolean; folder: string | null; reason?: 'same_place' | 'shared' | 'canvas' | 'missing' }
+  | { ok: true; moved: boolean; folder: string | null; reason?: 'same_place' | 'own_folder' | 'shared' | 'canvas' | 'missing' }
   | { ok: false; code: WorkFolderError | 'move_failed'; message?: string }
 
 /**
@@ -882,6 +882,8 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
   }
   const curParent = own.includes('/') ? own.slice(0, own.lastIndexOf('/')) : ''
   if (curParent === c.folder) return { ok: true, moved: false, folder: own, reason: 'same_place' }
+  // The target is the item's own folder (or inside it): it already lives there.
+  if (c.folder === own || c.folder.startsWith(own + '/')) return { ok: true, moved: false, folder: own, reason: 'own_folder' }
   const seg = own.includes('/') ? own.slice(own.lastIndexOf('/') + 1) : own
   const r = relocateWorkItemFolder(item, seg, c.folder)
   if (!r.ok) return { ok: false, code: 'move_failed', message: r.message }
