@@ -2161,6 +2161,27 @@ export function updateKanbanCard(id: string, fields: Partial<Omit<KanbanCard, 'i
   ).run(f.title, f.description, f.status, f.assignee, f.priority, f.project, f.parent_id, f.due_date, f.sort_order, f.updated_at, f.archived_at, id).changes > 0
 }
 
+// Rebuilt from upstream 94765127 (#456): a card could become its own ancestor
+// (A -> B -> A through PUT /api/kanban/:id). Walk upward from the PROPOSED parent
+// over the existing chain; if cardId is reachable, pointing cardId at that parent
+// would close a loop. A pre-existing cycle in the data (seen-set / depth cap)
+// also answers true instead of extending a broken chain.
+const PARENT_DEPTH_LIMIT = 16
+export function parentWouldCycle(cardId: string, parentId: string): boolean {
+  if (cardId === parentId) return true
+  const readParent = db.prepare('SELECT parent_id FROM kanban_cards WHERE id = ?')
+  const seen = new Set<string>()
+  let current: string | null = parentId
+  let depth = 0
+  while (current) {
+    if (current === cardId) return true
+    if (seen.has(current) || ++depth > PARENT_DEPTH_LIMIT) return true
+    seen.add(current)
+    current = (readParent.get(current) as { parent_id: string | null } | undefined)?.parent_id ?? null
+  }
+  return false
+}
+
 export function getChildCards(parentId: string): KanbanCard[] {
   return db.prepare('SELECT * FROM kanban_cards WHERE parent_id = ? AND archived_at IS NULL ORDER BY sort_order ASC').all(parentId) as KanbanCard[]
 }
