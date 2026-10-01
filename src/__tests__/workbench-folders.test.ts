@@ -169,6 +169,17 @@ describe('endpoints', () => {
     expect((own.body as { moved: boolean; reason: string }).reason).toBe('own_folder')
   })
 
+  it('POST /intake files the item into the folder picked in step 1; a missing folder gives a human message', async () => {
+    const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK' })
+    const folder = (f.body as { folder: string }).folder
+    const ok = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'Ajánlat Kovács úrnak', folder })
+    expect(ok.status).toBe(201)
+    expect((ok.body as { item: { container_folder: string } }).item.container_folder).toBe(folder)
+    const bad = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'X', folder: 'Projektek/nem-a-doboz' })
+    expect(bad.status).toBe(400)
+    expect(typeof (bad.body as { message: string }).message).toBe('string')
+  })
+
   it('new table goes into the chosen folder with its own folder and .xlsx', async () => {
     const f = await callWorkbench('/api/workbench/folders', 'POST', { project_id: pid, parent: '', name: 'LK' })
     const folder = (f.body as { folder: string }).folder

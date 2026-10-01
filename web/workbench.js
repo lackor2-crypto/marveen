@@ -1231,6 +1231,17 @@
       + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
   }
 
+  /** Step 1 of creating: the folder system. Always visible (not buried in the manual form),
+   *  so folders, sub folders and sibling folders can be made by hand before any work item. */
+  function folderStepHtml() {
+    return '<div class="wb-folder-step">'
+      + '<h3 class="wb-step-title">' + esc(t('workbench.step.folders')) + '</h3>'
+      + '<p class="wb-hint">' + esc(t('workbench.step.folders_hint')) + '</p>'
+      + folderPickHtml()
+      + '</div>'
+      + '<h3 class="wb-step-title">' + esc(t('workbench.step.item')) + '</h3>'
+  }
+
   function readNewDraft() {
     var ti = document.getElementById('wbNewTitle')
     var ty = document.getElementById('wbNewType')
@@ -1280,7 +1291,7 @@
       + body
       + (archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
-        : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
+        : folderStepHtml() + (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
           + templatesHtml()
           + uploadZoneHtml())
       + '</section>'
@@ -1480,6 +1491,9 @@
     if (!kind && !text) { window.showToast(t('workbench.intake.empty')); return }
     var payload = { project_id: WB.projectId, text: text }
     if (kind) payload.kind = kind
+    var pf = document.getElementById('wbNewFolder')
+    if (pf) WB.pickFolder = pf.value
+    if (WB.pickFolder) payload.folder = WB.pickFolder
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/intake', payload).then(function (r) {
@@ -1527,7 +1541,6 @@
       + types.map(function (ty) { return '<option value="' + escA(ty) + '"' + (WB.newDraft && WB.newDraft.type === ty ? ' selected' : '') + '>' + esc(typeLabel(ty)) + '</option>' }).join('')
       + '</select>'
       + '<p class="wb-hint">' + esc(t('workbench.new.type_hint')) + '</p>'
-      + folderPickHtml()
       + '<div class="wb-form-actions">'
       + '<button type="submit" class="btn-primary" data-wb-act="create"' + (WB.busy ? ' disabled' : '') + '>'
       + esc(WB.busy ? t('workbench.new.creating') : t('workbench.new.create')) + '</button>'

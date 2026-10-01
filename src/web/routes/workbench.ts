@@ -1940,11 +1940,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       kind = g.kind
     }
+    // The folder picked in step 1 ('' = the default box).
+    let intakeFolder: string | null = null
+    if (String(body['folder'] ?? '').trim()) {
+      const c = workFolderTarget(project, body['folder'])
+      if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
+      intakeFolder = c.folder
+    }
     const r = createWorkItem({
       project_id: project.id, type: INTAKE_TYPE[kind], title: intakeTitle(text, kind, lang),
-      prompt: text || undefined, created_by: actor(ctx),
+      prompt: text || undefined, container_folder: intakeFolder, created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
+    try { ensureWorkItemFolder(r.item) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] intake item folder failed') }
     json(res, {
       ok: true, ask: false, kind, item: r.item, versions: [r.version], text,
       message: kind === 'presentation' ? msg('intake_presentation', lang) : null,
