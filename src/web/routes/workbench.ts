@@ -56,6 +56,7 @@ import {
 import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { egressLog, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
+import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
@@ -2473,6 +2474,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
+      if (method !== 'GET') scheduleOutlineMirror(item.id)
       json(res, { ok: true, outline: outlineOrEmpty(item.id) }, created ? 201 : 200)
       return true
     }
