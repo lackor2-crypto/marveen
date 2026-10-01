@@ -5236,7 +5236,7 @@
         WB.vt = null
         WB.vtError = { message: r.message, detail: (r.data && r.data.detail) || '' }
       } else {
-        WB.vt = r.data
+        WB.vt = r.data && r.data.timeline ? r.data : null
       }
       render()
       loadVideoMedia()
@@ -5530,7 +5530,7 @@
         + (WB.vtError.detail ? '<p class="wb-hint">' + esc(WB.vtError.detail) + '</p>' : '')
         + '<p>' + vtBtn('vt-refresh', t('workbench.canvas.refresh')) + '</p></div>'
     }
-    if (!WB.vt) return headOf() + '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
+    if (!WB.vt || !WB.vt.timeline) return headOf() + '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
     var doc = vtDoc()
     var h = WB.vt.history || {}
     var aspects = ((WB.vt.limits && WB.vt.limits.aspects) || ['16:9', '9:16', '1:1']).map(function (a) {
