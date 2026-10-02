@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideReauthAction, NO_REAUTH_STATE, type ReauthHealerState } from '../web/reauth-healer.js'
+import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, type ReauthHealerState } from '../web/reauth-healer.js'
 
 const T = { threshold: 3, cooldownMs: 30 * 60 * 1000 }
 const base = (over: Partial<Parameters<typeof decideReauthAction>[0]> = {}) => ({
@@ -185,5 +185,22 @@ describe('decideReauthAction: restartMain (main agent dead-token restart)', () =
     }), T)
     expect(d.restartMain).toBe(true)
     expect(d.escalate).toBe(true)
+  })
+})
+
+// #455: a stale status line must not make the healer alert a freshly logged-in agent.
+describe('overrideStaleStatusLine', () => {
+  const stale = { needsReauth: true, source: 'status-line' as const, reason: 'Not logged in' }
+  it('valid credentials on disk retire a stale status-line signal', () => {
+    expect(overrideStaleStatusLine(stale, { verdict: 'valid' }).needsReauth).toBe(false)
+  })
+  it('expired / missing / unknown disk state keeps the signal', () => {
+    for (const verdict of ['expired', 'missing', 'unknown'] as const) {
+      expect(overrideStaleStatusLine(stale, { verdict }).needsReauth).toBe(true)
+    }
+  })
+  it('a transcript event is never overridden', () => {
+    const ev = { needsReauth: true, source: 'transcript' as const, reason: 'API Error: 401' }
+    expect(overrideStaleStatusLine(ev, { verdict: 'valid' }).needsReauth).toBe(true)
   })
 })
