@@ -64,6 +64,9 @@ describe('VOICEWHISPER910: every whisper call site pins condition_on_previous_te
   )
 
   it('still transcribes Hungarian (the flag was added next to language="hu", not instead of it)', () => {
-    for (const args of calls) expect(args).toContain('language="hu"')
+    // The live path takes the language from `lang`, whose default must stay "hu";
+    // any other call site (the canary) pins "hu" literally.
+    expect(body).toContain('def _whisper(path, words=False, lang="hu")')
+    for (const args of calls) expect(args).toMatch(/language="hu"|language=\(None if lang == "auto" else lang\)/)
   })
 })

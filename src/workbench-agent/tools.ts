@@ -432,6 +432,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
   },
   {
+    name: 'timeline.autoSubtitle',
+    description: 'Make subtitles from the speech in the clips with the LOCAL speech recogniser (the sound does not leave this machine). The subtitles are put on the timeline as ordinary, editable subtitles with the right times; the owner can undo it in one step. It takes about as long as the clips themselves (30 minutes of speech at most). Speech recognition makes mistakes, especially with names and numbers: after it, tell the owner to check the text. If the recogniser is not installed the answer says so.',
+    input: 'id: the video work item id (optional, defaults to the open one); language: "hu" (default), "en" or "de" -- the language spoken in the clips; replace: true to remove the existing subtitles first (default false: the new ones are added)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
+  {
     name: 'timeline.render',
     description: 'Make the finished video from the timeline: one NEW mp4 file in the project folder (nothing is overwritten) and a version that records it. It can take minutes for a long video. Subtitles are burnt into the picture. If something cannot be made (a missing file, no ffmpeg), the answer says exactly what; tell the owner in plain words.',
     input: 'id: the video work item id (optional, defaults to the open one)',
