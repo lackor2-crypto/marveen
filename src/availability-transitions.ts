@@ -79,7 +79,10 @@ export function measureAvailability(
   // the "you are back" edge by up to half an hour after the actual reset.
   const live = windows.filter((w) => w.usedPct !== null && (w.resetsAt === null || w.resetsAt > now))
   const effective: BrokerCandidate = windows.length
-    ? { ...candidate, usedPct: live.length ? Math.max(...live.map((w) => w.usedPct as number)) : null }
+    // usageAt = now: usedPct only grows inside a window, so a reading whose reset
+    // is still in the future stays true however old the snapshot is. Without
+    // this an idle agent's old 100% would age into "unknown" and read available.
+    ? { ...candidate, usageAt: now, usedPct: live.length ? Math.max(...live.map((w) => w.usedPct as number)) : null }
     : candidate
   const available = candidateUsable(effective, now)
   const reason: AvailabilityReason = available ? 'ok' : (candidate.running ? 'quota' : 'stopped')

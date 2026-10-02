@@ -95,7 +95,9 @@ export function readBrokerCandidate(agent: string): BrokerCandidate {
     agent,
     running: hasLiveSession(agent),
     usedPct,
-    usageAt: snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null,
+    // A window still in the future keeps its reading true however old the snapshot
+    // is (usedPct only grows until the reset), so it must not age into "unknown".
+    usageAt: windows.length ? now : (snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null),
   }
 }
 
