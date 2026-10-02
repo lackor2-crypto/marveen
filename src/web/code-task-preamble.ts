@@ -291,6 +291,13 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
  * pending approval (withdrawApprovalForCardLeavingWaiting), and 'done' is the
  * owner's decision alone. The dashboard URL is this install's own; from another
  * machine it is not measured, so point 4 (report the exact error) applies.
+ *
+ * #464: "waiting" is only for a card whose EVERY point is done. A session that
+ * finished one step of a larger card must leave it where it is, and the move
+ * itself needs `"all_points_done":true` -- the server answers 409 without it
+ * (src/web/waiting-completion-guard.ts). The fleet agents got this in their rule
+ * files; a code-bridge session reads only THIS text, and it still said "landed
+ * -> waiting" with a request body the server now refuses.
  */
 function cardLifecycleParagraph(root: string, port: number, hu: boolean): string {
   const base = `http://localhost:${port}`
@@ -298,20 +305,30 @@ function cardLifecycleParagraph(root: string, port: number, hu: boolean): string
   return hu
     ? '7. HA A FELADAT KANBAN KARTYARA SZOL (#N), a kartya oszlopa a TE dolgod: amikor a kod kesz es nekialsz a'
       + ' tesztelesnek (vitest, tsc, kiprobalas), told a kartyat "testing"-be; amikor landolt es kesz, AZONNAL told'
-      + ' "waiting"-be -- ugyanabban a lepesben, nem kesobb. Csak ELORE: "waiting"-bol vagy "done"-bol SOHA ne huzd'
-      + ' vissza (az visszavonja a tulajdonos fuggo jovahagyasat), es "done"-ba soha ne tedd -- azt csak a'
-      + ` tulajdonos. Hogyan: GET ${base}/api/kanban/card-ids megadja a sorszamhoz (seq) a kartya id-jet, utana`
+      + ' "waiting"-be -- ugyanabban a lepesben, nem kesobb. DE "waiting"-be CSAK az a kartya mehet, aminek MINDEN'
+      + ' pontja kesz: elotte nezd vegig az OSSZES pontjat (leiras, lepesek, kommentek, alfeladat-kartyak). Ha akar'
+      + ' egy is nyitott (pl. a feladatod a kartyanak csak egy lepese volt), a kartya NEM megy "waiting"-be: marad,'
+      + ' ahol van, es a zaro osszefoglaloban megmondod, mi van meg hatra. Csak ELORE: "waiting"-bol vagy "done"-bol'
+      + ' SOHA ne huzd vissza (az visszavonja a tulajdonos fuggo jovahagyasat), es "done"-ba soha ne tedd -- azt csak'
+      + ` a tulajdonos. Hogyan: GET ${base}/api/kanban/card-ids megadja a sorszamhoz (seq) a kartya id-jet, utana`
       + ` POST ${base}/api/kanban/<id>/move {"status":"testing","sort_order":0,"actor":"code-bridge"},`
-      + ` "Authorization: Bearer <a(z) ${token} tartalma>". Ez ennek a telepitesnek a sajat cime; ha masik gepen`
-      + ' futsz es nem ered el, a 4. pont all: a pontos hibauzenet a zaro osszefoglaloba.'
+      + ` "Authorization: Bearer <a(z) ${token} tartalma>". A "waiting"-be mozgatas keresebe ird bele azt is:`
+      + ' "all_points_done":true -- ezzel mondod ki, hogy mindent leellenoriztel; nelkule, vagy nyitott'
+      + ' alfeladat-kartya mellett a szerver 409-cel visszautasitja, es megirja, miert. Ez ennek a telepitesnek a'
+      + ' sajat cime; ha masik gepen futsz es nem ered el, a 4. pont all: a pontos hibauzenet a zaro osszefoglaloba.'
     : '7. IF THE TASK IS ABOUT A KANBAN CARD (#N), the card\'s column is YOUR job: when the code is done and you start'
       + ' testing (vitest, tsc, trying it out), move the card to "testing"; when it has landed and is done, move it to'
-      + ' "waiting" RIGHT AWAY -- in the same step, not later. Forward only: NEVER pull it back out of "waiting" or'
+      + ' "waiting" RIGHT AWAY -- in the same step, not later. BUT "waiting" is ONLY for a card whose EVERY point is'
+      + ' done: go through ALL of its points first (description, steps, comments, sub-cards). If even one is open'
+      + ' (e.g. your task was only one step of the card), the card does NOT go to "waiting": it stays where it is,'
+      + ' and the closing summary says what is still left. Forward only: NEVER pull it back out of "waiting" or'
       + ' "done" (that withdraws the owner\'s pending approval), and never put it in "done" -- only the owner does.'
       + ` How: GET ${base}/api/kanban/card-ids maps the number (seq) to the card id, then`
       + ` POST ${base}/api/kanban/<id>/move {"status":"testing","sort_order":0,"actor":"code-bridge"},`
-      + ` "Authorization: Bearer <contents of ${token}>". That is this install's own address; if you run on another`
-      + ' machine and cannot reach it, point 4 applies: put the exact error in the closing summary.'
+      + ` "Authorization: Bearer <contents of ${token}>". The move to "waiting" must also carry`
+      + ' "all_points_done":true -- that is you stating that you checked everything; without it, or while a'
+      + ' sub-card is open, the server refuses with 409 and says why. That is this install\'s own address; if you'
+      + ' run on another machine and cannot reach it, point 4 applies: put the exact error in the closing summary.'
 }
 
 /** The prompt as the executor should receive it. */
