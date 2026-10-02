@@ -8,6 +8,9 @@ import { Readable } from 'node:stream'
 
 const enqueued: { project: string; prompt: string; origin?: string; chatId?: string | null }[] = []
 let workerOnline = true
+/** The code project's folder and the WORKBENCH_WINDOWS_BRIDGE setting (Boss, 2026-10-02). */
+let codeProjectPath = '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen'
+let windowsBridgeSetting = ''
 /** Melyik beszelgetesen dolgozik meg egy korabbi kod-hid feladat (a hatterben). */
 let bgChatId: string | null = null
 const cancelledIds: string[] = []
@@ -17,7 +20,7 @@ let taskState: { status: string; result: string | null; summary: string | null; 
 
 vi.mock('../settings-store.js', async (orig) => {
   const actual = await orig<typeof import('../settings-store.js')>()
-  return { ...actual, getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_FULL_AGENT' ? '1' : k.startsWith('WORKBENCH_') ? '' : actual.getEffectiveSettingValue(k)) }
+  return { ...actual, getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_FULL_AGENT' ? '1' : k === 'WORKBENCH_WINDOWS_BRIDGE' ? windowsBridgeSetting : k.startsWith('WORKBENCH_') ? '' : actual.getEffectiveSettingValue(k)) }
 })
 vi.mock('../web/code-conversation.js', async (orig) => {
   const actual = await orig<typeof import('../web/code-conversation.js')>()
@@ -27,6 +30,7 @@ vi.mock('../web/code-bridge-store.js', async (orig) => {
   const actual = await orig<typeof import('../web/code-bridge-store.js')>()
   return {
     ...actual,
+    resolveProject: () => ({ session: { workspacePath: codeProjectPath } }) as unknown as ReturnType<typeof actual.resolveProject>,
     codeBridgeHealth: () => ({ workerOnline }) as unknown as ReturnType<typeof actual.codeBridgeHealth>,
     enqueueCodeTask: (i: { project: string; prompt: string; origin?: string; chatId?: string | null }) => { enqueued.push({ project: i.project, prompt: i.prompt, origin: i.origin, chatId: i.chatId }); return { task: { id: 'task-1' } } },
     getCodeTask: () => ({ id: 'task-1', ...taskState }),
@@ -435,6 +439,40 @@ process.stdin.on('data', (d) => {
   }
 })
 `
+
+describe('Boss 2026-10-02: a Windows-meghajtos projekt hidja valaszthato (WORKBENCH_WINDOWS_BRIDGE)', () => {
+  const ask = async (setting: string, path: string) => {
+    workerOnline = true
+    windowsBridgeSetting = setting
+    codeProjectPath = path
+    enqueued.length = 0
+    const dir = mkdtempSync(join(tmpdir(), 'wb-live-win-'))
+    const file = join(dir, 'fake-claude.cjs')
+    writeFileSync(file, FAKE_CLI)
+    const pool = new LiveSessionPool({
+      spawn: (s) => spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }),
+      now: () => Date.now(), loadIds: () => ({}), saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [file] }))
+    try { return await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' }) } finally {
+      pool.stopAll(); windowsBridgeSetting = ''; codeProjectPath = '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen'
+    }
+  }
+  it('windows (alap): a Windows-meghajtos projekt a Windows-hidra megy', async () => {
+    await ask('', 'f:\\Marveen\\Tozsde')
+    expect(enqueued).toHaveLength(1)
+  })
+  it('marvin: ugyanaz a projekt az elo munkamenetre megy, a legjobb fiokkal, a hidra nem', async () => {
+    const r = await ask('marvin', 'f:\\Marveen\\Tozsde')
+    expect(enqueued).toHaveLength(0)
+    expect(r.raw).toContain('valasz 1')
+  })
+  it('marvin: a WSL-mappas projekt a Marvin-oldali hidra megy tovabbra is', async () => {
+    await ask('marvin', '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen')
+    expect(enqueued).toHaveLength(1)
+  })
+})
 
 describe('#434: online kod-hid az elso, a helyi munkamenet csak tartalek (Boss, 2026-09-28)', () => {
   function livePool(dir: string, onSpawn: () => void): LiveSessionPool {

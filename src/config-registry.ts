@@ -588,6 +588,16 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     requiresRestart: false,
   },
   {
+    key: 'WORKBENCH_WINDOWS_BRIDGE',
+    type: 'string',
+    default: 'windows',
+    description: 'Melyik oldali Claude Code híd dolgozzon a Munkapad chatben azoknál a projekteknél, amiknek a mappája Windows-meghajtón van (pl. F:\\Marveen\\...\\Tőzsde). "windows": a Windows-oldali VS Code (és az abban bejelentkezett fiók) dolgozik, ez a megszokott működés. "marvin": a Marvin-oldali (WSL) rendszer dolgozik, a legtöbb kerettel bíró fiókkal. A WSL-mappás projektek mindig a Marvin-oldalon futnak. Ha a választott oldal fiókja kifogy, a munka akkor is átmegy egy másik, keretben lévő fiókra.',
+    module: 'munkapad',
+    secret: false,
+    requiresRestart: false,
+    valueSet: ['windows', 'marvin'],
+  },
+  {
     key: 'WORKBENCH_LIBREOFFICE_PATH',
     type: 'string',
     default: '',

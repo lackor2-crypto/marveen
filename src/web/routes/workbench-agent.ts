@@ -792,12 +792,14 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // rendszere); kifejezetten valasztott fioknal a helyi munkamenet fut.
     // An interrupted live turn continues in the live session that has its context.
     const resumeCount = resumingTurns.get(key)
-    // Boss (2026-10-02): the Windows-drive bridge is for his own coding, not for the
-    // Workbench chat -- that one takes the live session with the best account.
+    // Boss (2026-10-02): a project on a Windows drive uses the Windows-side bridge by default
+    // (his trading code); the Settings switch WORKBENCH_WINDOWS_BRIDGE=marvin sends it to the
+    // live session with the best account instead.
     let windowsDriveBridge = false
     try {
       const code = resolveProject(project.name || project.id)
       windowsDriveBridge = !('error' in code) && isWindowsDriveBridgePath(code.session.workspacePath)
+        && String(getEffectiveSettingValue('WORKBENCH_WINDOWS_BRIDGE') || 'windows') === 'marvin'
     } catch { windowsDriveBridge = false }
     const bridgeFirst = !account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil && !(windowsDriveBridge && !!liveSpec)
     // #455: a GLM / DeepSeek / OpenRouter / local Ollama model runs only in the
