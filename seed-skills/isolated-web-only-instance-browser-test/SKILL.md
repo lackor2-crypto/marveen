@@ -9,7 +9,7 @@ scope: global
 ## Mikor használd
 Egy kártya UI-funkcióját a felületen is ki kell próbálni (nem csak a source-contract
 teszttel), és az élő dashboardhoz, az élő adatokhoz nem szabad nyúlni. A kifogás
-"kockázatos, ezért kihagyom" NEM elég: Boss ezt visszakérdezte (2026-10-02, #460).
+"kockázatos, ezért kihagyom" NEM elég: {{OWNER_NAME}} ezt visszakérdezte (2026-10-02, #460).
 Ez az eljárás a kockázatot szűkíti, a próbát nem hagyja ki.
 
 ## Eljárás
