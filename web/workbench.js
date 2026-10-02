@@ -109,6 +109,11 @@
     // Illesztes huzaskor (K-2.7): segedvonalakhoz (a vaszon szeleihez,
     // kozepehez es a tobbi elemhez) alapbol igen, racsra alapbol nem. A
     // valasztast a bongeszo megjegyzi.
+    // Az Egyszeru nezet kerete (#462, 2. lepes): bal panel fule, megnyitott menu, chat-panel, nagyitas.
+    frTab: readPref('wb.fr.tab', 'elements'),
+    frMenu: null,
+    frChat: readPref('wb.fr.chat', '1') === '1',
+    frZoom: Number(readPref('wb.fr.zoom', '100')) || 100,
     canvasSnap: readPref('wb.canvas.snap', '1') === '1',
     canvasGrid: readPref('wb.canvas.grid', '0') === '1',
     // A verziolista kinyitott "apro modositasok" csoportjai (K-2.4), a csoport
@@ -1599,7 +1604,11 @@
     render()
     api('POST', '/api/workbench/intake', payload).then(function (r) {
       WB.intakeBusy = false
-      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (!r.ok) {
+        // Friss projekt: meg nincs mappa-rendszer, de a szerver mappat kovetel -- a valasztot MOST mutatjuk (nem zsakutca).
+        if (r.code === 'folder_required') WB.intakeNeedFolder = true
+        render(); window.showToast(r.message); return
+      }
       if (r.data.ask) {
         WB.intakeAsk = { options: r.data.options || INTAKE_KINDS, message: r.data.message || '' }
         render()
@@ -5148,7 +5157,7 @@
   /** A vaszon elonezete: a szerver rajzolta kep + (ha lehet) a huzogato reteg.
    *  Amikor a reteg NEM jelenik meg, azt KIMONDJUK, es megmondjuk, mi helyette
    *  az ut -- a nema hianyzas a legrosszabb valasz. */
-  function canvasStageHtml(name) {
+  function canvasStageHtml(name, bare) {
     var img = '<img class="wb-preview-image" src="' + escA(canvasSvgUrl(WB.selectedId, false)) + '"'
       + ' alt="' + escA(name) + '">'
     // A NULLA itt ket dolgot jelenthet: "meg nem toltottuk be a rajz adatait"
@@ -5174,14 +5183,15 @@
       + '</div>'
       + '<span class="wb-can-live" id="wbCanLive" aria-live="polite"></span>'
       + '</div>'
-      + (canvasPlatformNow() && canvasPlatformNow().safe
+      // Az Egyszeru nezet kereteben csak a lap all (a segedvonal-kapcsolok az Eszkozok panelen vannak).
+      + (bare ? '' : (canvasPlatformNow() && canvasPlatformNow().safe
         ? '<p class="wb-hint">' + esc(t('workbench.canvas.safe_hint', { name: platformLabel(canvasPlatformNow()) })) + '</p>' : '')
       + '<p class="wb-can-snapopts">'
       + '<label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
       + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label>'
       + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p>'
-      + '<p class="wb-hint">' + esc(t('workbench.canvas.drop_hint')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.canvas.drop_hint')) + '</p>')
   }
 
   function canvasFormHtml(o) {
@@ -10377,7 +10387,7 @@
       + (archived() ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : '<p><button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
           + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button></p>'
-          + (hasFolderSystem() ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
+          + (hasFolderSystem() || WB.intakeNeedFolder ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
       + (ask ? '<p><button type="button" class="btn-secondary" data-wb-act="intake-reset">' + esc(t('workbench.intake.all_kinds')) + '</button></p>' : '')
       + '</section>'
   }
@@ -10503,17 +10513,194 @@
       + '</section>'
   }
 
+  // ---- AZ EGYSZERU NEZET KERETE (#462, 2. lepes; Boss, 2026-10-02, TG 7299-7328) --------------------
+  //
+  // A Canva mintaja: felul egy sav (Fajl, Meretezes, visszavonas/ujra, Mentve, nev, Export), balra
+  // keskeny, feliratos ikonsav + egy panel, KOZEPEN a lap, alul nagyitas, jobbra a chat (osszecsukhato).
+  // A lap mellett semmilyen urlap nem all: a muveletek a panelen, a lebego eszkoztaron es a fejlecben vannak.
+
+  var FR_TABS = [
+    ['templates', '🖼️'], ['elements', '▦'], ['text', 'T'], ['brand', '🎨'],
+    ['uploads', '☁️'], ['tools', '⚙️'], ['projects', '📁'],
+  ]
+
+  function frIsCanvasItem(it) {
+    return !!it && !isDeckItem() && (!!canvasKind(it) || !!(WB.canvas && WB.canvas.exists))
+  }
+
+  function frCanvasReady() {
+    return !!(WB.canvas && WB.canvas.exists && WB.canvas.canvas) && !archived()
+  }
+
+  /** Fent: Fajl menu, Meretezes menu, visszavonas/ujra, Mentve, nev, chat-kapcsolo, nezet-valaszto, Export. */
+  function frTopHtml() {
+    var it = WB.detail ? WB.detail.item : null
+    var st = savedState()
+    var c = WB.canvas
+    var h = (c && c.history) || {}
+    var busy = WB.canvasBusy
+    var canvasOn = frCanvasReady() && c.current !== false
+    var menuBtn = function (key, label) {
+      return '<button type="button" class="wb-fr-tbtn' + (WB.frMenu === key ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-menu" data-wb-m="' + key + '"'
+        + ' aria-expanded="' + (WB.frMenu === key) + '">' + esc(label) + (key === 'file' || key === 'size' ? ' ▾' : '') + '</button>'
+    }
+    var out = '<div class="wb-fr-top">'
+      + '<button type="button" class="wb-fr-tbtn wb-fr-home" data-wb-act="back" title="' + escA(t('workbench.back_to_project')) + '" aria-label="' + escA(t('workbench.back_to_project')) + '">⌂</button>'
+      + menuBtn('file', t('workbench.fr.file'))
+      + (canvasOn ? menuBtn('size', t('workbench.fr.size')) : '')
+      + (canvasOn
+        ? '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-undo"' + (busy || !h.can_undo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.undo') + ' (Ctrl+Z)') + '" aria-label="' + escA(t('workbench.canvas.undo')) + '">↶</button>'
+          + '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-redo"' + (busy || !h.can_redo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.redo') + ' (Ctrl+Y)') + '" aria-label="' + escA(t('workbench.canvas.redo')) + '">↷</button>'
+        : '')
+      + '<span class="wb-sh-saved wb-sh-saved-' + st + '" role="status">' + esc(t('workbench.sh.saved.' + st)) + '</span>'
+      + '<span class="wb-fr-name">' + (it ? workSeqHtml(it) + esc(it.title) : '') + '</span>'
+      + '<button type="button" class="wb-fr-tbtn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
+      + viewSwitchHtml()
+      + '<button type="button" class="wb-fr-export" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '" aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
+      + '<button type="button" class="wb-fr-tbtn wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '" aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
+      + '</div>'
+    return out + frMenuHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + exportPanelHtml() + '</div>' : '')
+  }
+
+  /** A megnyitott menu (Fajl / Meretezes): a fejlec alatt lenyilo doboz. */
+  function frMenuHtml() {
+    if (!WB.frMenu) return ''
+    var it = WB.detail ? WB.detail.item : null
+    if (WB.frMenu === 'size') return '<div class="wb-fr-pop">' + canvasPlatformHtml() + '</div>'
+    var row = function (act, label, extra) {
+      return '<button type="button" class="wb-fr-mi" data-wb-act="' + act + '"' + (extra || '') + '>' + esc(label) + '</button>'
+    }
+    return '<div class="wb-fr-pop wb-fr-menu">'
+      + (archived() ? '' : row('sh-new', t('workbench.sh.new')))
+      + (frCanvasReady() && !archived() ? row('canvas-version', t('workbench.canvas.version_save')) : '')
+      + (frCanvasReady() && it ? '<a class="wb-fr-mi" href="' + escA(canvasSvgUrl(it.id, true)) + '" target="_blank" rel="noopener">' + esc(t('workbench.canvas.download')) + '</a>' : '')
+      + row('sh-more', t('workbench.fr.history'))
+      + '</div>'
+  }
+
+  /** Bal oldali keskeny, feliratos ikonsav. */
+  function frRailHtml() {
+    return '<nav class="wb-fr-rail" aria-label="' + escA(t('workbench.fr.rail')) + '">' + FR_TABS.map(function (x) {
+      var on = WB.frTab === x[0]
+      return '<button type="button" class="wb-fr-rb' + (on ? ' wb-fr-rb-on' : '') + '" data-wb-act="fr-tab" data-wb-tab="' + x[0] + '" aria-pressed="' + on + '">'
+        + '<span class="wb-fr-ri" aria-hidden="true">' + x[1] + '</span><span class="wb-fr-rl">' + esc(t('workbench.fr.tab.' + x[0])) + '</span></button>'
+    }).join('') + '</nav>'
+  }
+
+  /** A kepek, amik a lapra tehetok: ennek a munkadarabnak a kep-reszei (a projekt mappajaban vannak). */
+  function frImageThumbs() {
+    var imgs = canvasImageChoices()
+    if (!imgs.length) return '<p class="wb-hint">' + esc(t('workbench.fr.uploads_none')) + '</p>'
+    return '<div class="wb-fr-thumbs">' + imgs.map(function (p) {
+      return '<button type="button" class="wb-fr-thumb" draggable="true" data-wb-act="fr-add-image" data-wb-src="' + escA(p.asset_path) + '" title="' + escA(p.asset_path) + '">'
+        + '<img alt="" src="' + escA(partImageSrc(p)) + '" loading="lazy"></button>'
+    }).join('') + '</div>'
+  }
+
+  function frPanelBodyHtml() {
+    var can = frCanvasReady()
+    var needCanvas = '<p class="wb-hint">' + esc(t('workbench.fr.need_canvas')) + '</p>'
+    var add = function (act, label, arg) {
+      return '<button type="button" class="wb-fr-pbtn" data-wb-act="' + act + '"' + (arg ? ' data-wb-arg="' + escA(arg) + '"' : '') + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(label) + '</button>'
+    }
+    switch (WB.frTab) {
+      case 'templates': return templatesHtml()
+      case 'elements':
+        return can
+          ? '<div class="wb-fr-pgrid">' + add('canvas-add-rect', t('workbench.fr.el.rect')) + add('canvas-add-ellipse', t('workbench.fr.el.circle'))
+            + add('canvas-add-line', t('workbench.fr.el.line')) + add('canvas-add-button', t('workbench.fr.el.button')) + '</div>'
+            + '<p class="wb-hint">' + esc(t('workbench.fr.el.hint')) + '</p>'
+          : needCanvas
+      case 'text':
+        return can
+          ? add('fr-add-text', t('workbench.fr.text.box'), 'body')
+            + add('fr-add-text', t('workbench.fr.text.title'), 'title') + add('fr-add-text', t('workbench.fr.text.sub'), 'sub')
+            + '<p class="wb-hint">' + esc(t('workbench.fr.text.hint')) + '</p>'
+          : needCanvas
+      case 'brand':
+        return '<button type="button" class="wb-fr-pbtn" data-wb-act="brand-open">' + esc(WB.brandOpen ? t('workbench.fr.brand.hide') : t('workbench.fr.brand.show')) + '</button>' + brandPanelHtml()
+      case 'uploads':
+        return '<label class="wb-fr-upload"><input type="file" accept="image/*" id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
+          + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : needCanvas)
+      case 'tools':
+        return '<p class="wb-can-snapopts"><label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
+          + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label></p>'
+          + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p><p class="wb-hint">' + esc(t('workbench.canvas.drop_hint')) + '</p>'
+      case 'projects':
+        return (archived() ? '' : '<button type="button" class="wb-fr-pbtn" data-wb-act="sh-new">' + esc(t('workbench.fr.new')) + '</button>') + itemsPanelHtml()
+      default: return ''
+    }
+  }
+
+  function frPanelHtml() {
+    if (!WB.frTab) return ''
+    return '<aside class="wb-fr-panel"><h3 class="wb-fr-ptitle">' + esc(t('workbench.fr.tab.' + WB.frTab)) + '</h3>' + frPanelBodyHtml() + '</aside>'
+  }
+
+  /** Kozepen a lap. Rajz-fajtanal csak a LAP (az elemek listaja, urlapja a Technikai reszletekben van). */
+  function frCenterHtml() {
+    var it = WB.detail ? WB.detail.item : null
+    var inner
+    if (!it) inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
+    else if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) {
+      if (WB.canvas.exists) {
+        inner = canvasOrphansHtml() + '<div class="wb-fr-page">' + canvasStageHtml(it.title, true) + '</div>'
+      } else {
+        inner = '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.canvas.none_title')) + '</p>'
+          + '<p><button type="button" class="btn-primary" data-wb-act="canvas-start"' + (WB.canvasBusy || archived() ? ' disabled' : '') + '>'
+          + esc(WB.canvasBusy ? t('workbench.canvas.starting') : t('workbench.canvas.start')) + '</button></p></div>'
+      }
+    } else inner = simpleResultHtml()
+    return '<div class="wb-fr-center"><div class="wb-fr-scroll" style="--wb-zoom:' + (WB.frZoom / 100) + '">' + inner + '</div>' + frBottomHtml() + '</div>'
+  }
+
+  /** Alul: nagyitas, oldalszam. */
+  function frBottomHtml() {
+    return '<div class="wb-fr-bottom">'
+      + '<span class="wb-fr-zoomlbl">' + esc(t('workbench.fr.zoom')) + '</span>'
+      + '<input type="range" class="wb-fr-zoom" id="wbFrZoom" min="40" max="200" step="10" value="' + WB.frZoom + '" aria-label="' + escA(t('workbench.fr.zoom')) + '">'
+      + '<span class="wb-fr-zoomval">' + WB.frZoom + '%</span>'
+      + '</div>'
+  }
+
+  function frChatHtml() {
+    if (!WB.frChat) return ''
+    return '<aside class="wb-fr-chat">' + chatBarHtml() + '</aside>'
+  }
+
+  function frameHtml() {
+    return '<div class="wb-fr">' + frTopHtml()
+      + '<div class="wb-fr-body">' + frRailHtml() + frPanelHtml() + frCenterHtml() + frChatHtml() + '</div>'
+      + '</div>'
+  }
+
+  /** Szoveg hozzaadasa a lapra: cim / alcim / torzs, a lap kozepetol fuggo meretben. */
+  function frAddText(kind) {
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!doc || archived()) return
+    var size = kind === 'title' ? Math.round(doc.width * 0.08) : kind === 'sub' ? Math.round(doc.width * 0.045) : Math.round(doc.width * 0.03)
+    var label = t(kind === 'title' ? 'workbench.fr.text.title_ph' : kind === 'sub' ? 'workbench.fr.text.sub_ph' : 'workbench.fr.text.body_ph')
+    var w = Math.round(doc.width * 0.8)
+    var h = Math.round(size * 1.6)
+    canvasOps([{ op: 'add', object: { type: 'text', text: label, x: Math.round((doc.width - w) / 2), y: Math.round(doc.height * 0.3), width: w, height: h, fontSize: size, color: '#111111', bold: kind !== 'body', align: 'center' } }])
+  }
+
+  /** Kep a lapra a panelbol (kattintas vagy huzas). */
+  function frAddImage(src, clientX, clientY) {
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!doc || !src || archived()) return
+    var layer = typeof document.querySelector === 'function' ? document.querySelector('.wb-can-layer') : null
+    var rect = layer && typeof layer.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : null
+    var cx = doc.width / 2, cy = doc.height / 2
+    if (rect && rect.width && clientX != null) { cx = ((clientX - rect.left) / rect.width) * doc.width; cy = ((clientY - rect.top) / rect.height) * doc.height }
+    var w = Math.round(doc.width * 0.4), h = Math.round(w * 0.75)
+    canvasOps([{ op: 'add', object: { type: 'image', src: src, x: Math.round(Math.min(Math.max(cx - w / 2, 0), doc.width - w)), y: Math.round(Math.min(Math.max(cy - h / 2, 0), doc.height - h)), width: w, height: h, fit: 'contain' } }])
+  }
+
   function simpleHtml() {
     var hasItem = !!WB.selectedId
-    var main
-    if (!hasItem) main = simpleIntakeHtml()
-    else {
-      main = '<div class="wb-split wb-sh-split">'
-        + '<div class="wb-split-chat">' + chatBarHtml() + '</div>'
-        + '<div class="wb-split-work wb-sh-work">' + simpleResultHtml() + '</div>'
-        + '</div>' + simpleMaterialsHtml()
-    }
-    return simpleHeadHtml() + '<div class="wb-sh-main">' + main + '</div>' + (WB.shMore ? simpleTechHtml() : '')
+    if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
+    return simpleHeadHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
   }
 
   function render() {
@@ -11063,7 +11250,14 @@
     var act = e.target.closest('[data-wb-act]')
     if (!act) return
     var a = act.getAttribute('data-wb-act')
-    if (a === 'back') closeWorkbench()
+    // A Fajl / Meretezes menu bezarul, ha masra kattintasz (a menu sorai maguk is bezarjak).
+    if (WB.frMenu && a !== 'fr-menu') WB.frMenu = null
+    if (a === 'fr-menu') { var m = act.getAttribute('data-wb-m'); WB.frMenu = WB.frMenu === m ? null : m; render() }
+    else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); WB.frTab = WB.frTab === tb ? null : tb; writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
+    else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
+    else if (a === 'fr-add-text') frAddText(act.getAttribute('data-wb-arg'))
+    else if (a === 'fr-add-image') frAddImage(act.getAttribute('data-wb-src'), null, null)
+    else if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
@@ -11695,7 +11889,7 @@
   document.addEventListener('dragover', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     var stage = e.target.closest('[data-wb-stage]')
-    if (!stage || !e.dataTransfer || !e.dataTransfer.types || Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') < 0) return
+    if (!stage || !e.dataTransfer || !e.dataTransfer.types || (Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') < 0 && Array.prototype.indexOf.call(e.dataTransfer.types, 'text/wb-image') < 0)) return
     e.preventDefault()
     e.stopImmediatePropagation()
     if (stage.classList) stage.classList.add('wb-can-stage-drop')
@@ -11710,7 +11904,12 @@
     if (!stage) return
     if (stage.classList) stage.classList.remove('wb-can-stage-drop')
     var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
-    if (!f) return
+    if (!f) {
+      var psrc = ''
+      try { psrc = (e.dataTransfer && e.dataTransfer.getData('text/wb-image')) || '' } catch (_e) { psrc = '' }
+      if (psrc) { e.preventDefault(); e.stopImmediatePropagation(); frAddImage(psrc, e.clientX, e.clientY) }
+      return
+    }
     e.preventDefault()
     e.stopImmediatePropagation()
     canvasDropImage(f, e.clientX, e.clientY)
@@ -11738,6 +11937,28 @@
     var t0 = e.target
     if (t0.closest('[data-wb-box]') || t0.closest('[data-wb-float]') || t0.closest('textarea')) return
     if (t0.closest('[data-wb-stage]')) { WB.canvasSel = null; render() }
+  })
+
+  // Az Egyszeru nezet kerete: nagyitas-csuszka, feltoltes a panelrol, kep huzasa a panelrol a lapra.
+  document.addEventListener('input', function (e) {
+    if (!e.target || e.target.id !== 'wbFrZoom') return
+    var v = Number(e.target.value) || 100
+    WB.frZoom = v
+    writePref('wb.fr.zoom', String(v))
+    var sc = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-scroll') : null
+    if (sc && sc.style && typeof sc.style.setProperty === 'function') sc.style.setProperty('--wb-zoom', String(v / 100))
+    var lbl = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-zoomval') : null
+    if (lbl && 'textContent' in lbl) lbl.textContent = v + '%'
+  })
+  document.addEventListener('change', function (e) {
+    if (!e.target || e.target.id !== 'wbFrUpload') return
+    var f = e.target.files && e.target.files[0]
+    if (f) canvasDropImage(f, null, null)
+    try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+  })
+  document.addEventListener('dragstart', function (e) {
+    var th = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-act="fr-add-image"]') : null
+    if (th && e.dataTransfer) { try { e.dataTransfer.setData('text/wb-image', th.getAttribute('data-wb-src') || ''); e.dataTransfer.effectAllowed = 'copy' } catch (_e) { /* nem baj */ } }
   })
 
   // TG 1854: the overview's card rows open with Enter/Space too, not only a click.

@@ -88,22 +88,43 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     expect(h.html()).not.toContain('wbShTech')
   })
 
-  it('egyszerű nézet, kijelölt munka: balra chat, jobbra eredmény, alul Anyagok, Mentve jelzés', async () => {
+  it('egyszerű nézet, kijelölt munka: felül sáv, balra ikonsáv + panel, középen a lap, jobbra a chat, alul nagyítás, Mentve jelzés', async () => {
     const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
     await openWith(h, [ITEM])
     h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
     h.click({ 'data-wb-item': 'w1' })
-    await vi.waitFor(() => expect(h.html()).toContain('wb-sh-result'))
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-center'))
     const html = h.html()
-    const chat = html.indexOf('class="wb-split-chat"')
-    const work = html.indexOf('wb-sh-work')
-    expect(chat).toBeGreaterThan(-1)
-    expect(work).toBeGreaterThan(chat)
-    expect(html.slice(chat, work)).toContain('id="wbChat"')
-    expect(html).toContain('workbench.sh.materials')
+    // Canva-minta (#462, 2. lépés): felső sáv, bal ikonsáv + panel, közép, jobb chat.
+    const top = html.indexOf('wb-fr-top')
+    const rail = html.indexOf('wb-fr-rail')
+    const center = html.indexOf('wb-fr-center')
+    const chat = html.indexOf('wb-fr-chat')
+    expect(top).toBeGreaterThan(-1)
+    expect(rail).toBeGreaterThan(top)
+    expect(center).toBeGreaterThan(rail)
+    expect(chat).toBeGreaterThan(center)
+    expect(html.slice(chat)).toContain('id="wbChat"')
+    for (const tab of ['templates', 'elements', 'text', 'brand', 'uploads', 'tools', 'projects']) expect(html).toContain('data-wb-tab="' + tab + '"')
+    expect(html).toContain('id="wbFrZoom"')
     expect(html).toContain('workbench.sh.saved.saved')
+    expect(html).toContain('data-wb-act="export-open"')
     // nincs Agent/Manuális kapcsoló a munkadarabon belül, és a chat csak egyszer van
     expect(html.split('id="wbChat"').length).toBe(2)
+  })
+
+  it('a chat panel a fejlécből elrejthető, és a menü / fül kattintásra nyílik', async () => {
+    const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
+    await openWith(h, [ITEM])
+    h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-center'))
+    h.click({ 'data-wb-act': 'fr-chat' })
+    expect(h.html()).not.toContain('class="wb-fr-chat"')
+    h.click({ 'data-wb-act': 'fr-menu', 'data-wb-m': 'file' })
+    expect(h.html()).toContain('wb-fr-menu')
+    h.click({ 'data-wb-act': 'fr-tab', 'data-wb-tab': 'tools' })
+    expect(h.html()).toContain('workbench.fr.tab.tools')
   })
 
   it('dokumentum: Vázlat | Előnézet | Források | Hiányok fülek + Piszkozat PDF + Véglegesítés', async () => {
