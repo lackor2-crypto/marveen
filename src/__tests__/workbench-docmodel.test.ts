@@ -158,6 +158,22 @@ describe('forrasrendszer', () => {
     expect(documentCheck(itemId).items.find((i) => i.key === 'owner_written')?.count).toBe(1)
   })
 
+  it('#462: a blokk huzassal athelyezheto (ugyanabban a fejezetben es masikba), a szoveg es a "te irtad" jeloles valtozatlan', () => {
+    const { section: s1, block: b1 } = block('Első bekezdés.')
+    const b2 = addBlock(itemId, s1.id, { text: 'Második bekezdés.', author: 'agent' })
+    const b3 = addBlock(itemId, s1.id, { text: 'Harmadik bekezdés.', author: 'agent' })
+    const s2 = addSection(itemId, 'Második fejezet')
+    if (!b2.ok || !b3.ok || !s2.ok) throw new Error('setup')
+    const order = (sid: string) => documentOutline(itemId).sections.find((s) => s.id === sid)!.blocks.map((b) => b.text)
+    expect(updateBlock(itemId, b3.block.id, { position: 0, author: 'owner' }).ok).toBe(true)
+    expect(order(s1.id)).toEqual(['Harmadik bekezdés.', 'Első bekezdés.', 'Második bekezdés.'])
+    expect(documentOutline(itemId).sections[0].blocks[0].owner_edited_at).toBeNull()
+    expect(updateBlock(itemId, b1.id, { section: s2.section.id, position: 0, author: 'owner' }).ok).toBe(true)
+    expect(order(s1.id)).toEqual(['Harmadik bekezdés.', 'Második bekezdés.'])
+    expect(order(s2.section.id)).toEqual(['Első bekezdés.'])
+    expect(updateBlock(itemId, b1.id, { section: 'nincs-ilyen', author: 'owner' })).toMatchObject({ ok: false, code: 'not_found' })
+  })
+
   it('a fejezet torlese a blokkokat es az allitasokat is viszi', () => {
     const { section, block: b } = block('A tárgyalás márciusban volt.')
     addClaim(itemId, b.id, 'A tárgyalás márciusban volt.', [{ kind: 'owner', said: 'A tárgyalás márciusban volt' }], world(), null)

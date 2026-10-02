@@ -3021,13 +3021,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'glossary' && segs.length === 4 && method === 'DELETE') return done(removeGlossaryTerm(item.project_id, id))
     // VISSZAFORDITAS (K-1.30): a tulajdonos elvetheti (az agent ujat keszithet).
     if (sub === 'backchecks' && segs.length === 4 && method === 'DELETE') return done(removeBackTranslation(item.id, id))
-    if (sub === 'sections' && segs.length === 3 && method === 'POST') return done(addSection(item.id, body['title'], { status: body['status'] }), true)
+    if (sub === 'sections' && segs.length === 3 && method === 'POST') return done(addSection(item.id, body['title'], { status: body['status'], position: typeof body['position'] === 'number' ? body['position'] : undefined }), true)
     if (sub === 'sections' && segs.length === 4 && method === 'PATCH') return done(updateSection(item.id, id, { title: body['title'], status: body['status'], position: body['position'] }))
     if (sub === 'sections' && segs.length === 4 && method === 'DELETE') return done(removeSection(item.id, id))
     if (sub === 'blocks' && segs.length === 3 && method === 'POST') {
       return done(addBlock(item.id, String(body['section'] ?? ''), { kind: body['kind'], text: body['text'], position: body['position'], author: 'owner' }), true)
     }
-    if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], kind: body['kind'], author: 'owner' }))
+    if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))
     if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
     // MELLEKLETJEGYZEK (K-1.18): a szovegbeli hivatkozasok a listahoz igazodnak.
     if (sub === 'annexes' && segs.length === 3 && method === 'POST') {

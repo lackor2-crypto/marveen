@@ -148,6 +148,10 @@
     view: readView(),
     shMore: false,      // egyszeru nezet: a "Technikai reszletek" terulet nyitva
     shDocTab: 'draft',  // egyszeru nezet, dokumentum: draft | preview | sources | gaps
+    docDrafts: {},      // dokumentum-lap: mentetlen szoveg (kulcs: b:<id> | s:<id> | new:<sec>:<pos>)
+    docMenu: null,      // dokumentum-lap: nyitott + / fogantyu menu
+    docNew: null,       // dokumentum-lap: ures, uj sor a megadott helyen
+    docFocus: null,     // dokumentum-lap: ujrarajzolas utan ide kerul a fokusz
     shFinal: false,     // egyszeru nezet, dokumentum: a veglesites lepesei nyitva
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
@@ -10426,6 +10430,332 @@
       + (o.check ? outlineCheckHtml(o.check, o, ro) : '')
   }
 
+  // ---- A DOKUMENTUM LAPJA (#462, 4. lepes): a lap maga a szerkeszto --------------------------
+  //
+  // Kattintas a szovegre = gepeles, nincs kulon beviteli mezo. A sor mellett balra: "+" (beszuras
+  // ott) es egy fogantyu (huzas / menu). Az adat a vazlat (fejezetek + blokkok), ugyanaz, amit az
+  // agent is ir: a lap csak a kezi felulete. Mentes: a mezobol kilepeskor (blur) es Entert nyomva.
+
+  function dpPlainOk() {
+    if (WB.dpPlain === undefined) {
+      try { var probe = document.createElement('div'); probe.contentEditable = 'plaintext-only'; WB.dpPlain = probe.contentEditable === 'plaintext-only' } catch (_e) { WB.dpPlain = false }
+    }
+    return WB.dpPlain
+  }
+
+  function dpDraft(key, fallback) {
+    var d = WB.docDrafts && WB.docDrafts[key]
+    return d === undefined || d === null ? fallback : d
+  }
+
+  /** Egy szerkesztheto szovegmezo (blokk, cim vagy uj sor). */
+  function dpEditHtml(cls, id, attrs, text, ph, label, ro) {
+    return '<div class="wb-dp-edit ' + cls + '" id="' + escA(id) + '" ' + attrs
+      + (ro ? '' : ' contenteditable="' + (dpPlainOk() ? 'plaintext-only' : 'true') + '" spellcheck="true"')
+      + ' role="textbox" aria-multiline="true" aria-label="' + escA(label) + '" data-placeholder="' + escA(ph) + '">' + esc(text) + '</div>'
+  }
+
+  function dpMenuHtml(kind, bid, sid, idx, count) {
+    var m = WB.docMenu
+    if (!m || m.kind !== kind || m.block !== bid || m.sec !== sid) return ''
+    var item = function (act, label, extra, dis) {
+      return '<button type="button" class="wb-dp-mi" role="menuitem" data-wb-act="' + act + '" data-wb-block="' + escA(bid || '') + '" data-wb-sec="' + escA(sid) + '"'
+        + (extra || '') + (dis ? ' disabled' : '') + '>' + esc(label) + '</button>'
+    }
+    if (kind === 'add') {
+      return '<div class="wb-dp-menu" role="menu">' + item('dp-ins', t('workbench.dp.ins_text'), ' data-wb-kind="paragraph"')
+        + item('dp-ins', t('workbench.dp.ins_list'), ' data-wb-kind="list"') + item('dp-ins-section', t('workbench.dp.ins_section')) + '</div>'
+    }
+    return '<div class="wb-dp-menu" role="menu">' + item('dp-move', t('workbench.dp.up'), ' data-wb-dir="-1"', idx === 0 && !WB.docMenu.canPrevSec)
+      + item('dp-move', t('workbench.dp.down'), ' data-wb-dir="1"', idx >= count - 1 && !WB.docMenu.canNextSec)
+      + item('dp-del', t('workbench.dp.del')) + '</div>'
+  }
+
+  function dpGutterHtml(bid, sid, idx, count, ro) {
+    if (ro) return '<div class="wb-dp-gutter"></div>'
+    return '<div class="wb-dp-gutter">'
+      + '<button type="button" class="wb-dp-gbtn wb-dp-plus" data-wb-act="dp-add" data-wb-block="' + escA(bid || '') + '" data-wb-sec="' + escA(sid) + '" data-wb-idx="' + idx + '"'
+      + ' title="' + escA(t('workbench.dp.add')) + '" aria-label="' + escA(t('workbench.dp.add')) + '" aria-haspopup="menu">+</button>'
+      + (bid ? '<button type="button" class="wb-dp-gbtn wb-dp-handle" draggable="true" data-wb-act="dp-handle" data-wb-block="' + escA(bid) + '" data-wb-sec="' + escA(sid) + '"'
+        + ' title="' + escA(t('workbench.dp.handle')) + '" aria-label="' + escA(t('workbench.dp.handle')) + '" aria-haspopup="menu">&#8942;&#8942;</button>' : '')
+      + dpMenuHtml('add', bid, sid, idx, count) + (bid ? dpMenuHtml('handle', bid, sid, idx, count) : '')
+      + '</div>'
+  }
+
+  function dpGhostHtml(sid, pos, kind, count, ro) {
+    return '<div class="wb-dp-row wb-dp-ghost" data-wb-sec="' + escA(sid) + '">' + dpGutterHtml('', sid, pos, count, ro)
+      + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(kind || 'paragraph'), 'wbDpNew', 'data-wb-dp="new" data-wb-sec="' + escA(sid) + '" data-wb-pos="' + pos + '" data-wb-kind="' + escA(kind || 'paragraph') + '"',
+        dpDraft('new:' + sid + ':' + pos, ''), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro) + '</div>'
+  }
+
+  function dpSectionHtml(o, sec, si, ro) {
+    var blocks = sec.blocks || []
+    var nw = WB.docNew && WB.docNew.sec === sec.id ? WB.docNew : null
+    var rows = ''
+    blocks.forEach(function (b, i) {
+      if (nw && nw.pos === i) rows += dpGhostHtml(sec.id, i, nw.kind, blocks.length, ro)
+      rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+        + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"',
+          dpDraft('b:' + b.id, b.text), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro)
+        + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+        + (b.rewrite ? '<div class="wb-dp-extra">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
+    })
+    if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
+    else if (!blocks.length) rows += dpGhostHtml(sec.id, 0, 'paragraph', 0, ro)
+    var status = ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
+      : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
+        + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
+    return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
+      + '<div class="wb-dp-sechead">'
+      + dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro)
+      + '<span class="wb-dp-secbar">' + status
+      + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
+      + (ro ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
+      + '</span></div>'
+      + '<div class="wb-dp-secextra">' + langSectionHtml(o, sec, ro) + '</div>'
+      + rows
+      + '<div class="wb-dp-secextra">' + backcheckHtml(o, sec, ro) + '</div>'
+      + '</section>'
+  }
+
+  function docPageHtml() {
+    var d = WB.detail
+    if (!d || !d.item) return ''
+    var o = d.outline
+    var ro = archived()
+    var secs = (o && o.sections) || []
+    var body
+    if (!secs.length) {
+      // Meg nincs fejezet: a lap ures, az elso begepelt sor hozza letre az elsot.
+      body = dpGhostHtml('', 0, 'paragraph', 0, ro)
+    } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
+    return '<div class="wb-dp-wrap"><div class="wb-dp-page" role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
+      + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button></p>')
+      + '</div>'
+  }
+
+  /** A lap alatti kiegeszitok: nyelvi valtozatok, mellekletek, szoszedet (ezek nem a lap reszei). */
+  function docExtrasHtml() {
+    var o = WB.detail && WB.detail.outline
+    if (!o) return ''
+    var ro = archived()
+    var inner = langHeadHtml(o, ro) + annexHtml(o, ro) + glossaryHtml(o, ro)
+    if (!inner) return ''
+    return '<details class="wb-dp-more"><summary>' + esc(t('workbench.dp.more')) + '</summary>' + inner + '</details>'
+  }
+
+  // --- mentes es muveletek ---
+
+  function dpCall(method, sub, body) {
+    var id = WB.selectedId
+    if (!id || archived()) return Promise.resolve(null)
+    return api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/outline' + sub, body).then(function (r) {
+      if (!r.ok) {
+        window.showToast(r.message)
+        if (r.data && r.data.outline && WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+        return null
+      }
+      if (WB.selectedId === id && WB.detail) WB.detail.outline = r.data.outline
+      return r.data.outline
+    })
+  }
+
+  function dpText(el) {
+    return String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\r\n/g, '\n').replace(/ /g, ' ').replace(/\n+$/, '').trim()
+  }
+
+  function dpSections() { var o = WB.detail && WB.detail.outline; return (o && o.sections) || [] }
+
+  /** Egy mezo tartalmanak elmentese; a Promise az uj vazlattal (vagy null-lal) ter vissza. */
+  function dpSave(el) {
+    var kind = el.getAttribute('data-wb-dp')
+    var text = dpText(el)
+    if (kind === 'block') {
+      var bid = el.getAttribute('data-wb-block')
+      var b = findBlock(bid)
+      if (!b) return Promise.resolve(null)
+      if (text === b.text) { delete WB.docDrafts['b:' + bid]; return Promise.resolve(WB.detail.outline) }
+      if (!text) { delete WB.docDrafts['b:' + bid]; render(); return Promise.resolve(null) } // ures szoveg nem mentheto: marad a regi
+      return dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) delete WB.docDrafts['b:' + bid]; return o })
+    }
+    if (kind === 'sec') {
+      var sid = el.getAttribute('data-wb-sec')
+      var s = findSection(sid)
+      if (!s) return Promise.resolve(null)
+      if (text === s.title) { delete WB.docDrafts['s:' + sid]; return Promise.resolve(WB.detail.outline) }
+      if (!text) { delete WB.docDrafts['s:' + sid]; render(); return Promise.resolve(null) }
+      return dpCall('PATCH', '/sections/' + encodeURIComponent(sid), { title: text }).then(function (o) { if (o) delete WB.docDrafts['s:' + sid]; return o })
+    }
+    if (kind === 'new') {
+      var nsid = el.getAttribute('data-wb-sec')
+      var pos = Number(el.getAttribute('data-wb-pos')) || 0
+      var key = 'new:' + nsid + ':' + pos
+      if (!text) { delete WB.docDrafts[key]; return Promise.resolve(null) }
+      var kd = el.getAttribute('data-wb-kind') || 'paragraph'
+      var make = nsid ? Promise.resolve(nsid) : dpCall('POST', '/sections', { title: t('workbench.sh.seed.section') }).then(function (o) {
+        var last = o && o.sections && o.sections[o.sections.length - 1]
+        return last ? last.id : null
+      })
+      return make.then(function (sec) {
+        if (!sec) return null
+        return dpCall('POST', '/blocks', { section: sec, text: text, kind: kd, position: pos }).then(function (o) {
+          if (o) { el.setAttribute('data-wb-saved', '1'); delete WB.docDrafts[key]; if (WB.docNew && WB.docNew.sec === nsid && WB.docNew.pos === pos) WB.docNew = null }
+          return o
+        })
+      })
+    }
+    return Promise.resolve(null)
+  }
+
+  /** Kurzor-helyzet egy szerkesztheto mezoben (karakterekben), a render utani visszaallitashoz. */
+  function dpCaret(el) {
+    try {
+      var sel = window.getSelection()
+      if (!sel || !sel.rangeCount) return null
+      var r = sel.getRangeAt(0)
+      if (!el.contains(r.endContainer)) return null
+      var pre = r.cloneRange()
+      pre.selectNodeContents(el)
+      pre.setEnd(r.endContainer, r.endOffset)
+      return pre.toString().length
+    } catch (_e) { return null }
+  }
+
+  function dpPlaceCaret(el, off) {
+    try {
+      var sel = window.getSelection()
+      var r = document.createRange()
+      var left = off == null ? Infinity : off
+      var walker = document.createTreeWalker(el, 4)
+      var node = null
+      var n
+      while ((n = walker.nextNode())) {
+        node = n
+        if (left <= n.nodeValue.length) { r.setStart(n, left); r.collapse(true); sel.removeAllRanges(); sel.addRange(r); return }
+        left -= n.nodeValue.length
+      }
+      if (node) r.setStart(node, node.nodeValue.length)
+      else r.setStart(el, 0)
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+    } catch (_e) { /* nem baj */ }
+  }
+
+  /** A mentetlen szoveg a WB.docDrafts-ba kerul, hogy az ujrarajzolas ne torolje ki. */
+  function dpDraftKey(el) {
+    var k = el.getAttribute('data-wb-dp')
+    if (k === 'block') return 'b:' + el.getAttribute('data-wb-block')
+    if (k === 'sec') return 's:' + el.getAttribute('data-wb-sec')
+    if (k === 'new') return 'new:' + el.getAttribute('data-wb-sec') + ':' + el.getAttribute('data-wb-pos')
+    return ''
+  }
+  function dpKeepDraft(el) {
+    var key = dpDraftKey(el)
+    if (!key || el.getAttribute('data-wb-saved')) return
+    var txt = dpText(el)
+    var orig = key.charAt(0) === 'b' ? (findBlock(el.getAttribute('data-wb-block')) || {}).text
+      : key.charAt(0) === 's' ? (findSection(el.getAttribute('data-wb-sec')) || {}).title : ''
+    if (txt === (orig || '')) delete WB.docDrafts[key]
+    else WB.docDrafts[key] = String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\n+$/, '')
+  }
+
+  /** A render() hivja a kirajzolas elott / utan: a gepeles kozbeni ujrarajzolas ne vegye el a fokuszt. */
+  function dpFocusSnapshot() {
+    var a = document.activeElement
+    if (a && typeof a.getAttribute === 'function' && a.getAttribute('data-wb-dp') && a.id) {
+      dpKeepDraft(a)
+      return { id: a.id, off: dpCaret(a) }
+    }
+    return null
+  }
+  function dpFocusRestore(snap) {
+    var want = WB.docFocus || snap
+    WB.docFocus = null
+    if (!want) return
+    var el = document.getElementById(want.id)
+    if (!el || typeof el.focus !== 'function') return
+    el.focus()
+    if (want.select) {
+      try { var sel = window.getSelection(); var r = document.createRange(); r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r) } catch (_e) { /* nem baj */ }
+    } else dpPlaceCaret(el, want.end ? null : want.off)
+  }
+
+  function dpAddSection() {
+    if (archived()) return
+    dpCall('POST', '/sections', { title: t('workbench.sh.seed.section') }).then(function (o) {
+      var last = o && o.sections && o.sections[o.sections.length - 1]
+      if (last) WB.docFocus = { id: 'wbDpS_' + last.id, select: true }
+      if (o) render()
+    })
+  }
+
+  /** "+" menu: uj sor a megadott blokk ala (vagy a fejezet elejere, ha nincs blokk), kivalasztott fajtaval. */
+  function dpInsert(sid, bid, kind) {
+    var sec = findSection(sid)
+    var idx = 0
+    if (sec && bid) (sec.blocks || []).forEach(function (b, i) { if (b.id === bid) idx = i + 1 })
+    WB.docMenu = null
+    WB.docNew = { sec: sid, pos: idx, kind: kind || 'paragraph' }
+    WB.docFocus = { id: 'wbDpNew', end: true }
+    render()
+  }
+
+  function dpInsertSection(sid) {
+    var si = 0
+    dpSections().forEach(function (s, i) { if (s.id === sid) si = i })
+    WB.docMenu = null
+    dpCall('POST', '/sections', { title: t('workbench.sh.seed.section'), position: si + 1 }).then(function (o) {
+      if (!o) return
+      var sec = o.sections[si + 1]
+      if (sec) WB.docFocus = { id: 'wbDpS_' + sec.id, select: true }
+      render()
+    })
+  }
+
+  /** Blokk athelyezese: ugyanabban a fejezetben vagy masikba (a fogantyu menuje / huzas). */
+  function dpMoveBlock(bid, toSec, toPos) {
+    return dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { section: toSec, position: toPos }).then(function (o) { if (o) render(); return o })
+  }
+
+  function dpMoveStep(bid, dir) {
+    var secs = dpSections()
+    var si = -1, bi = -1
+    secs.forEach(function (s, i) { (s.blocks || []).forEach(function (b, j) { if (b.id === bid) { si = i; bi = j } }) })
+    if (si < 0) return
+    var n = bi + dir
+    var cur = secs[si].blocks || []
+    WB.docMenu = null
+    if (n >= 0 && n < cur.length) dpMoveBlock(bid, secs[si].id, n)
+    else if (dir < 0 && si > 0) dpMoveBlock(bid, secs[si - 1].id, (secs[si - 1].blocks || []).length)
+    else if (dir > 0 && si < secs.length - 1) dpMoveBlock(bid, secs[si + 1].id, 0)
+    else render()
+  }
+
+  function dpDeleteBlock(bid) {
+    WB.docMenu = null
+    var secs = dpSections()
+    var prev = null
+    secs.forEach(function (s) { var bl = s.blocks || []; bl.forEach(function (b, j) { if (b.id === bid && j > 0) prev = bl[j - 1].id }) })
+    dpCall('DELETE', '/blocks/' + encodeURIComponent(bid)).then(function (o) {
+      if (!o) return
+      delete WB.docDrafts['b:' + bid]
+      if (prev) WB.docFocus = { id: 'wbDpB_' + prev, end: true }
+      render()
+    })
+  }
+
+  function dpMenuOpen(kind, bid, sid) {
+    var m = WB.docMenu
+    if (m && m.kind === kind && m.block === bid && m.sec === sid) { WB.docMenu = null; render(); return }
+    var secs = dpSections()
+    var si = 0
+    secs.forEach(function (s, i) { if (s.id === sid) si = i })
+    WB.docMenu = { kind: kind, block: bid, sec: sid, canPrevSec: si > 0, canNextSec: si < secs.length - 1 }
+    render()
+  }
+
   function docTabsHtml() {
     var o = WB.detail && WB.detail.outline
     var ro = archived()
@@ -10448,7 +10778,7 @@
     var body = tab === 'preview' ? previewHtml()
       : tab === 'sources' ? (o ? docSourcesHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.sources_none')) + '</p>')
       : tab === 'gaps' ? (o ? docGapsHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.gaps_none')) + '</p>')
-      : outlineHtml() + canvasHtml() + postPreviewHtml()
+      : docPageHtml() + docExtrasHtml() + canvasHtml() + postPreviewHtml()
     return head + actions + '<div class="wb-sh-doc-body">' + body + '</div>'
   }
 
@@ -10723,6 +11053,8 @@
     var vidKeep = oldVid && typeof oldVid.currentTime === 'number' && oldVid.currentTime > 0 && oldVid.getAttribute
       ? { src: oldVid.getAttribute('src'), at: oldVid.currentTime } : null
     var chatScroll = chatScrollSnapshot()
+    var dpSnap = dpFocusSnapshot()
+    WB.rendering = true
     if (isSimple()) {
       el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
     } else el.innerHTML = '<div class="wb-root">'
@@ -10777,6 +11109,8 @@
     docEditMount()
     pdfEditMount()
     if (vidKeep) videoRestore(vidKeep)
+    WB.rendering = false
+    dpFocusRestore(dpSnap)
     if (keepCell) {
       var cell = document.getElementById(keepCell)
       if (cell && typeof cell.focus === 'function') {
@@ -12316,6 +12650,172 @@
     var inChat = false
     try { inChat = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { inChat = false }
     uploadFiles(files, WB.selectedId && WB.detail ? (inChat ? 'assets' : 'item') : 'new')
+  })
+
+  // ---- dokumentum-lap: esemenyek (#462, 4. lepes) ---------------------------------------------
+
+  function dpField(e) {
+    return e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-dp]') : null
+  }
+
+  document.addEventListener('click', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var act = e.target.closest('[data-wb-act]')
+    var a = act ? act.getAttribute('data-wb-act') : ''
+    if (WB.docMenu && (!a || a.indexOf('dp-') !== 0) && !e.target.closest('.wb-dp-menu')) { WB.docMenu = null; if (!a) render() }
+    if (!a || a.indexOf('dp-') !== 0) return
+    e.preventDefault()
+    var sid = act.getAttribute('data-wb-sec') || ''
+    var bid = act.getAttribute('data-wb-block') || ''
+    if (a === 'dp-add') dpMenuOpen('add', bid, sid)
+    else if (a === 'dp-handle') dpMenuOpen('handle', bid, sid)
+    else if (a === 'dp-ins') dpInsert(sid, bid, act.getAttribute('data-wb-kind'))
+    else if (a === 'dp-ins-section') dpInsertSection(sid)
+    else if (a === 'dp-move') dpMoveStep(bid, Number(act.getAttribute('data-wb-dir')) || 0)
+    else if (a === 'dp-del') dpDeleteBlock(bid)
+    else if (a === 'dp-add-section') dpAddSection()
+  })
+
+  // Mentes: a mezobol kilepve. Az ujrarajzolas altal okozott "kilepes" nem szamit.
+  document.addEventListener('focusout', function (e) {
+    if (!WB.open || WB.rendering) return
+    var el = dpField(e)
+    if (!el || !el.isConnected) return
+    var kind = el.getAttribute('data-wb-dp')
+    dpSave(el).then(function (o) { if (o && kind === 'new') render() })
+  })
+
+  document.addEventListener('input', function (e) {
+    if (!WB.open) return
+    var el = dpField(e)
+    if (el) dpKeepDraft(el)
+  })
+
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || e.isComposing) return
+    var el = dpField(e)
+    if (!el) return
+    var kind = el.getAttribute('data-wb-dp')
+    var sid = el.getAttribute('data-wb-sec') || ''
+    if (e.key === 'Escape') {
+      delete WB.docDrafts[dpDraftKey(el)]
+      if (kind === 'new') WB.docNew = null
+      WB.docMenu = null
+      if (typeof el.blur === 'function') { WB.rendering = true; el.blur(); WB.rendering = false }
+      render()
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault()
+      if (kind === 'sec') {
+        // A cim Entere az elso sorra ugrik.
+        dpSave(el).then(function () {
+          var s = findSection(sid)
+          var first = s && s.blocks && s.blocks[0]
+          if (first) { var n = document.getElementById('wbDpB_' + first.id); if (n) n.focus() }
+          else dpInsert(sid, '', 'paragraph')
+        })
+        return
+      }
+      var text = dpText(el)
+      var curKind = el.getAttribute('data-wb-kind') || (kind === 'block' ? (findBlock(el.getAttribute('data-wb-block')) || {}).kind : '') || 'paragraph'
+      if (!text) {
+        // Ures sor + Enter: kilepes a sorbol (lista vege).
+        if (kind === 'new') { WB.docNew = null; delete WB.docDrafts[dpDraftKey(el)]; WB.rendering = true; el.blur(); WB.rendering = false; render() }
+        return
+      }
+      var bid = el.getAttribute('data-wb-block')
+      var pos = Number(el.getAttribute('data-wb-pos')) || 0
+      dpSave(el).then(function (o) {
+        if (!o) return
+        var after = bid
+        if (kind === 'new') { var s2 = findSection(sid || (o.sections[o.sections.length - 1] || {}).id); after = s2 && s2.blocks[pos] ? s2.blocks[pos].id : '' ; sid = s2 ? s2.id : sid }
+        dpInsert(sid, after, curKind === 'list' ? 'list' : 'paragraph')
+      })
+      return
+    }
+    if (e.key === 'Backspace' && !dpText(el) && (kind === 'block' || kind === 'new')) {
+      e.preventDefault()
+      if (kind === 'new') { WB.docNew = null; delete WB.docDrafts[dpDraftKey(el)]; WB.rendering = true; el.blur(); WB.rendering = false; render() }
+      else dpDeleteBlock(el.getAttribute('data-wb-block'))
+    }
+  })
+
+  // Beillesztes: mindig sima szoveg (a masolt formazas nem kerul a vazlatba).
+  document.addEventListener('paste', function (e) {
+    if (!WB.open) return
+    var el = dpField(e)
+    if (!el || !e.clipboardData) return
+    var txt = e.clipboardData.getData('text/plain')
+    if (!txt && e.clipboardData.files && e.clipboardData.files.length) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    try { document.execCommand('insertText', false, txt) } catch (_e) { el.textContent = (el.textContent || '') + txt }
+  }, true)
+
+  // --- huzas: a fogantyuval a blokk mas helyre vihet (akar masik fejezetbe is) ---
+
+  document.addEventListener('dragstart', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var h = e.target.closest('[data-wb-act="dp-handle"]')
+    if (!h || !e.dataTransfer) return
+    WB.dpDrag = h.getAttribute('data-wb-block')
+    try { e.dataTransfer.setData('text/wb-block', WB.dpDrag); e.dataTransfer.effectAllowed = 'move' } catch (_e) { /* nem baj */ }
+    var row = h.closest('.wb-dp-row')
+    if (row) { row.classList.add('wb-dp-dragging'); try { e.dataTransfer.setDragImage(row, 10, 10) } catch (_e) { /* nem baj */ } }
+  })
+
+  function dpDropPoint(e) {
+    var t0 = e.target && typeof e.target.closest === 'function' ? e.target : null
+    if (!t0) return null
+    var row = t0.closest('[data-wb-row]')
+    var box = t0.closest('[data-wb-secbox]')
+    if (!box) return null
+    var sid = box.getAttribute('data-wb-secbox')
+    var sec = findSection(sid)
+    if (!sec) return null
+    var list = (sec.blocks || []).filter(function (b) { return b.id !== WB.dpDrag })
+    if (!row) return { sid: sid, pos: e.clientY < box.getBoundingClientRect().top + 60 ? 0 : list.length, el: box, after: false }
+    var rid = row.getAttribute('data-wb-row')
+    var r = row.getBoundingClientRect()
+    var after = e.clientY > r.top + r.height / 2
+    var idx = 0
+    list.forEach(function (b, i) { if (b.id === rid) idx = i })
+    if (rid === WB.dpDrag) return { sid: sid, pos: -1, el: row, after: false }
+    return { sid: sid, pos: idx + (after ? 1 : 0), el: row, after: after }
+  }
+
+  function dpClearMarks() {
+    Array.prototype.forEach.call(document.querySelectorAll('.wb-dp-drop-before,.wb-dp-drop-after'), function (n) { n.classList.remove('wb-dp-drop-before', 'wb-dp-drop-after') })
+  }
+
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || !WB.dpDrag) return
+    var p = dpDropPoint(e)
+    dpClearMarks()
+    if (!p || p.pos < 0) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    try { e.dataTransfer.dropEffect = 'move' } catch (_e) { /* nem baj */ }
+    p.el.classList.add(p.after ? 'wb-dp-drop-after' : 'wb-dp-drop-before')
+  }, true)
+
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || !WB.dpDrag) return
+    var bid = WB.dpDrag
+    var p = dpDropPoint(e)
+    WB.dpDrag = null
+    dpClearMarks()
+    if (!p || p.pos < 0) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    dpMoveBlock(bid, p.sid, p.pos)
+  }, true)
+
+  document.addEventListener('dragend', function () {
+    WB.dpDrag = null
+    dpClearMarks()
+    Array.prototype.forEach.call(document.querySelectorAll('.wb-dp-dragging'), function (n) { n.classList.remove('wb-dp-dragging') })
   })
 
   document.addEventListener('submit', function (e) {
