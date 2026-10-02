@@ -26,6 +26,7 @@ const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'file.rename': { hu: 'fájl átnevezése', en: 'rename a file' },
   'file.delete': { hu: 'fájl törlése (a Kukába)', en: 'delete a file (to the Trash)' },
   'canvas.edit': { hu: 'a vászon szerkesztése', en: 'edit the canvas' },
+  'brand.useTemplate': { hu: 'új grafika márka-sablonból', en: 'new drawing from a brand template' },
   'timeline.edit': { hu: 'a videó idővonal szerkesztése', en: 'edit the video timeline' },
   'timeline.render': { hu: 'a videó elkészítése az idővonalból (új fájl)', en: 'make the video from the timeline (a new file)' },
   'kanban.create': { hu: 'új kanban kártya nyitása', en: 'open a new kanban card' },
@@ -88,7 +89,7 @@ export function describeToolApproval(p: {
   const parts: string[] = []
   const proj = p.projectName ? `„${p.projectName}”` : p.projectId
   parts.push(`${w.head}: ${toolLabel(p.tool, p.lang)} — ${w.project} ${proj}${p.workItemTitle ? `, ${w.item} „${p.workItemTitle}”` : ''}`)
-  const target = ['path', 'title', 'name'].map((k) => p.input[k]).find((v) => typeof v === 'string' && v.trim()) as string | undefined
+  const target = ['path', 'title', 'name', 'template'].map((k) => p.input[k]).find((v) => typeof v === 'string' && v.trim()) as string | undefined
   if (target) parts.push(`${w.target}: ${oneLine(target, 160)}`)
   if (typeof p.input.to === 'string' && p.input.to.trim()) parts.push(`${w.to}: ${oneLine(p.input.to, 160)}`)
   const cards = cardRefs(p.input, p.seqOf ?? (() => null))

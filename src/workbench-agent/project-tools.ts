@@ -28,7 +28,8 @@ import { withCrossLink } from '../kanban-related.js'
 import { agentConfigRoot } from '../web/agent-config.js'
 import type { ToolResult } from './execute.js'
 import { addDecision, listDecisions, DECISION_MAX_CHARS } from '../workbench-decisions.js'
-import { getBrand, brandIsEmpty, checkCanvasBrand, BrandUnreadableError, type BrandRow } from '../workbench-brand.js'
+import { getBrand, brandIsEmpty, checkCanvasBrand, listBrandTemplates, BrandUnreadableError, type BrandRow } from '../workbench-brand.js'
+import { createFromBrandTemplate } from '../workbench-brand-templates.js'
 import { readCanvas } from '../workbench-canvas-store.js'
 import { addTodo, resolveAgentDue, TODO_TEXT_MAX, TODOS_PER_ITEM_MAX } from '../workbench-todos.js'
 import { getWorkItem } from '../workbench.js'
@@ -241,9 +242,34 @@ export function brandGet(project: ProjectRow): ToolResult {
   const r = readBrand(project)
   if ('error' in r) return r.error
   const b = r.brand
-  if (!b || brandIsEmpty(b)) return { ok: true, data: { empty: true, note: 'no Brand Kit has been set in this project yet; do not invent brand colours' } }
+  // K-4.1: the templates are listed even when no colours or rules are set yet.
+  const templates = listBrandTemplates(project.id).map((t) => ({ id: t.id, name: t.name, width: t.width, height: t.height, usable: !t.unreadable }))
+  if (!b || brandIsEmpty(b)) return { ok: true, data: { empty: true, templates, note: 'no Brand Kit has been set in this project yet; do not invent brand colours' } }
   const { project_id: _p, updated_at: _u, ...brand } = b
-  return { ok: true, data: { empty: false, brand } }
+  return { ok: true, data: { empty: false, brand, templates } }
+}
+
+/** K-4.1: a new drawing as a copy of a brand template. The template is not changed. */
+export function brandUseTemplate(project: ProjectRow, input: Record<string, unknown>): ToolResult {
+  const key = typeof input.template === 'string' ? input.template.trim() : ''
+  if (!key) return { ok: false, code: 'bad_input', detail: 'template is required: the id or the name of a brand template (brand.get lists them)' }
+  const r = createFromBrandTemplate(project, key, { title: input.title, createdBy: 'workbench-agent', source: 'agent' })
+  if (!r.ok) {
+    const known = listBrandTemplates(project.id).filter((t) => !t.unreadable).map((t) => `"${t.name}"`).join(', ')
+    const detail = r.code === 'template_not_found'
+      ? (known ? `no such brand template; this project has: ${known}` : 'this project has no brand templates yet; the owner saves one from a drawing with the "Save as brand template" button of the canvas toolbar')
+      : r.code === 'template_unreadable' ? `the drawing of this brand template cannot be read (${r.detail ?? 'no detail'}); tell the owner to remove it and save it again`
+      : r.code === 'title_too_long' ? 'the title is too long (at most 200 characters)'
+      : `the new drawing was not created: ${r.detail ?? r.code}`
+    return { ok: false, code: r.code, detail }
+  }
+  return {
+    ok: true,
+    data: {
+      item: r.item, version: r.version.version_no, template: r.template.name,
+      note: 'a new work item was created as a copy of the template; change it with canvas.edit (give its id), then run brand.check',
+    },
+  }
 }
 
 export function brandCheck(project: ProjectRow, itemId: string): ToolResult {

@@ -85,7 +85,8 @@ import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTod
 import { getReminderStatus, setReminderSettings } from '../../workbench-todo-reminder.js'
 import { gcalStatus, requestTodoCalendar, settleTodoCalendarApprovals } from '../../workbench-todo-gcal.js'
 import { sendOwnerChannelChecked } from '../../notify.js'
-import { getBrand, saveBrand, checkCanvasBrand, emptyBrand, brandIsEmpty, BrandUnreadableError, BRAND_FONTS, LOGO_CORNERS, BRAND_MAX_COLORS, BRAND_MAX_NOTES, BRAND_NOTE_MAX_CHARS } from '../../workbench-brand.js'
+import { getBrand, saveBrand, checkCanvasBrand, emptyBrand, brandIsEmpty, BrandUnreadableError, BRAND_FONTS, LOGO_CORNERS, BRAND_MAX_COLORS, BRAND_MAX_NOTES, BRAND_NOTE_MAX_CHARS, listBrandTemplates, deleteBrandTemplate, BRAND_MAX_TEMPLATES, BRAND_TEMPLATE_NAME_MAX } from '../../workbench-brand.js'
+import { brandTemplateFromItem, createFromBrandTemplate } from '../../workbench-brand-templates.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -377,6 +378,42 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   brand_item_not_found: {
     hu: 'Ez a munkadarab nem található, ezért nincs mit ellenőrizni.',
     en: 'This work item was not found, so there is nothing to check.',
+  },
+  brand_template_item_not_found: {
+    hu: 'Ez a munkadarab nem található, ezért nem lehet sablonként elmenteni. Frissítsd az oldalt, és nyisd meg újra a grafikát.',
+    en: 'This work item was not found, so it cannot be saved as a template. Reload the page and open the drawing again.',
+  },
+  brand_template_no_canvas: {
+    hu: 'Ezen a munkadarabon még nincs rajz, ezért nincs mit sablonként elmenteni. Előbb készítsd el a grafikát, utána mentsd el márka-sablonként.',
+    en: 'This work item has no drawing yet, so there is nothing to save as a template. Make the drawing first, then save it as a brand template.',
+  },
+  brand_template_name_required: {
+    hu: 'Adj nevet a sablonnak (például: Instagram poszt), ebből fogod megismerni a listában.',
+    en: 'Give the template a name (for example: Instagram post); this is how you will recognise it in the list.',
+  },
+  brand_template_name_too_long: {
+    hu: 'A sablon neve legfeljebb 80 karakter lehet. Adj rövidebb nevet.',
+    en: 'A template name can be at most 80 characters. Give it a shorter name.',
+  },
+  brand_template_name_taken: {
+    hu: 'Ilyen nevű márka-sablon már van ebben a projektben. Adj másik nevet, vagy írd felül a régit.',
+    en: 'This project already has a brand template with this name. Give another name, or replace the old one.',
+  },
+  brand_too_many_templates: {
+    hu: 'Egy projektben legfeljebb 30 márka-sablon lehet. Törölj egy régit a „Márka” panel „Sablonok” részénél, utána mentsd el az újat.',
+    en: 'A project can have at most 30 brand templates. Remove an old one in the "Templates" part of the "Brand" panel, then save the new one.',
+  },
+  brand_template_not_found: {
+    hu: 'Ez a márka-sablon már nincs meg (lehet, hogy közben törölték). Nyisd meg újra a „Márka” panelt, és válassz a listából.',
+    en: 'This brand template no longer exists (it may have been removed meanwhile). Open the "Brand" panel again and pick one from the list.',
+  },
+  brand_template_unreadable: {
+    hu: 'Ennek a márka-sablonnak a rajza nem olvasható, ezért nem lehet belőle új grafikát indítani. A sablon nem tűnt el: törölheted, és a jó rajzból újra elmentheted.',
+    en: 'The drawing of this brand template cannot be read, so no new drawing can be started from it. The template is not gone: you can remove it and save it again from a good drawing.',
+  },
+  brand_template_failed: {
+    hu: 'A sablonból nem sikerült elkészíteni az új grafikát, ezért semmi nem jött létre. Próbáld újra.',
+    en: 'The new drawing could not be made from the template, so nothing was created. Please try again.',
   },
   decision_text_required: {
     hu: 'Írd be, miben állapodtatok meg (például: „a logó kék marad”).',
@@ -1857,7 +1894,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       brand: brand ?? { ...emptyBrand(), project_id: project.id, updated_at: 0 },
       exists: brand != null || unreadable,
       unreadable,
-      limits: { max_colors: BRAND_MAX_COLORS, max_notes: BRAND_MAX_NOTES, note_max_chars: BRAND_NOTE_MAX_CHARS, fonts: BRAND_FONTS, corners: LOGO_CORNERS },
+      // K-4.1: the drawings saved as the brand's templates (kept apart from the brand row).
+      templates: listBrandTemplates(project.id),
+      limits: {
+        max_colors: BRAND_MAX_COLORS, max_notes: BRAND_MAX_NOTES, note_max_chars: BRAND_NOTE_MAX_CHARS, fonts: BRAND_FONTS, corners: LOGO_CORNERS,
+        max_templates: BRAND_MAX_TEMPLATES, template_name_max: BRAND_TEMPLATE_NAME_MAX,
+      },
     })
     return true
   }
@@ -1890,6 +1932,52 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       has_canvas: c.exists,
       findings: findings.map((f) => ({ code: f.code, object: f.object, message: f.message[lang] })),
     })
+    return true
+  }
+
+  // BRAND TEMPLATES (K-4.1): a drawing saved as the starting point of the next ones.
+  //   POST   /api/workbench/brand/templates {item, name, replace}   -- the drawing of a work item becomes a template
+  //   POST   /api/workbench/brand/templates/<id>/use {project, title} -- a new drawing (work item) from the template
+  //   DELETE /api/workbench/brand/templates/<id>?project=             -- the template goes, the drawings made from it stay
+  // The list itself comes with GET /api/workbench/brand.
+  const brandTemplateFail = (code: string, detail: string | null): true => {
+    const own = code.startsWith('template_') || code === 'too_many_templates'
+    const status = code === 'template_not_found' || code === 'not_found' ? 404 : code === 'template_failed' ? 500
+      : code === 'template_name_required' || code === 'template_name_too_long' || code === 'title_too_long' ? 400 : 409
+    return failDetail(res, status, own ? 'brand_' + code : code, lang, detail)
+  }
+  if (path === '/api/workbench/brand/templates' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const it = getWorkItem(typeof body['item'] === 'string' ? body['item'].trim() : '')
+    if (!it) return fail(res, 404, 'brand_template_item_not_found', lang)
+    const project = getProject(it.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = brandTemplateFromItem(it, body['name'], { replace: body['replace'] === true, createdBy: actor(ctx) })
+    if (!r.ok) return brandTemplateFail(r.code, r.detail)
+    json(res, { ok: true, template: r.template, replaced: r.replaced, templates: listBrandTemplates(project.id) }, r.replaced ? 200 : 201)
+    return true
+  }
+  const brandTemplateMatch = path.match(/^\/api\/workbench\/brand\/templates\/([^/]+)(\/use)?$/)
+  if (brandTemplateMatch && (brandTemplateMatch[2] ? method === 'POST' : method === 'DELETE')) {
+    const body = brandTemplateMatch[2] ? await readJson(req) : {}
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const rawPid = brandTemplateMatch[2] ? body['project'] : url.searchParams.get('project')
+    const pid = typeof rawPid === 'string' ? rawPid.trim() : ''
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const templateId = decodeURIComponent(brandTemplateMatch[1])
+    if (!brandTemplateMatch[2]) {
+      if (!deleteBrandTemplate(project.id, templateId)) return fail(res, 404, 'brand_template_not_found', lang)
+      json(res, { ok: true, templates: listBrandTemplates(project.id) })
+      return true
+    }
+    const r = createFromBrandTemplate(project, templateId, { title: body['title'], createdBy: actor(ctx), source: 'owner' })
+    if (!r.ok) return brandTemplateFail(r.code, r.detail)
+    json(res, { ok: true, item: r.item, versions: [r.version], template: r.template }, 201)
     return true
   }
 
