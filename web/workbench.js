@@ -11403,6 +11403,25 @@
   }
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) fitFrame() })
 
+  /** The page's scroll position across a full re-render (Boss, TG 7451: pressing "Vegleges torles"
+   *  threw the scrollbar to the top). Replacing the whole root briefly collapses the page, and the
+   *  browser clamps every scroll position above it; so the root keeps its height until the new
+   *  content is in, and every scrolled ancestor (and the window) is put back. */
+  function pageScrollSnapshot(el) {
+    var keep = { h: el && el.offsetHeight ? el.offsetHeight : 0, tops: [], wy: typeof window.scrollY === 'number' ? window.scrollY : 0 }
+    for (var n = el && el.parentNode; n && n.nodeType === 1; n = n.parentNode) {
+      if (n.scrollTop > 0) keep.tops.push([n, n.scrollTop])
+    }
+    if (keep.h && el.style) el.style.minHeight = keep.h + 'px'
+    return keep
+  }
+  function restorePageScroll(el, keep) {
+    if (!keep) return
+    keep.tops.forEach(function (e) { e[0].scrollTop = e[1] })
+    if (keep.wy && typeof window.scrollTo === 'function') window.scrollTo(window.scrollX || 0, keep.wy)
+    if (el && el.style) el.style.minHeight = ''
+  }
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -11428,6 +11447,7 @@
     // ugrana -- a 8-9-10. dia utan a 11.-re kattintva (Boss, TG 7426) nem szabad elvesznie a helynek.
     var oldStrip = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-strip') : null
     var stripLeft = oldStrip ? oldStrip.scrollLeft : null
+    var pageKeep = pageScrollSnapshot(el)
     WB.rendering = true
     if (isSimple()) {
       el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
@@ -11463,6 +11483,7 @@
       + '</div>'
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
+    restorePageScroll(el, pageKeep)
     restoreChatScroll(chatScroll)
     restoreStripScroll(stripLeft)
     fitFrame()
@@ -11983,7 +12004,12 @@
     else if (a === 'privacy-item') setPrivacy('item', act.getAttribute('data-wb-on') === '1')
     else if (a === 'parts-tech-toggle') { WB.partsTechOpen = !WB.partsTechOpen; render() }
     else if (a === 'tech-toggle') { WB.techOpen = !WB.techOpen; if (WB.techOpen) loadEgress(); else render() }
-    else if (a === 'item-purge-ask') { WB.warn = { kind: 'purge', id: act.getAttribute('data-wb-id') }; render() }
+    else if (a === 'item-purge-ask') {
+      WB.warn = { kind: 'purge', id: act.getAttribute('data-wb-id') }; render()
+      // The red confirm box opens under the row: bring it into view, but only as far as needed.
+      var wbox = typeof document.querySelector === 'function' ? document.querySelector('.wb-warn-box') : null
+      if (wbox && typeof wbox.scrollIntoView === 'function') wbox.scrollIntoView({ block: 'nearest' })
+    }
     else if (a === 'item-purge') purgeItem(act.getAttribute('data-wb-id'))
     else if (a === 'last-version-trash') { WB.warn = null; setTrashed(act.getAttribute('data-wb-id'), true) }
     else if (a === 'warn-cancel') { WB.warn = null; render() }
