@@ -437,6 +437,25 @@ export const TOOLS: ToolDef[] = [
     input: 'id: the video work item id (optional, defaults to the open one)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
   },
+  // v4 spec phase 5 (presentation): the deck. Every slide is a canvas; same working copy / undo / version store as the owner's editor.
+  {
+    name: 'deck.get',
+    description: 'Read the slide deck of a presentation work item: every slide with its stable id, its speaker notes and its canvas objects (the same objects as a drawing), and the size (16:9 or 4:3). If there is no deck yet, the answer says so and gives an empty one -- that is a starting point, not an error.',
+    input: 'id: the presentation work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'deck.edit',
+    description: 'Change the slide deck with a list of operations. All or nothing: one bad operation changes nothing. Saved at once to the working copy the owner sees (no new version); everything you do for one request is ONE undo step for the owner. Read the deck first with deck.get to learn the slide ids. A slide is a canvas of 1920x1080 (16:9) or 1440x1080 (4:3) pixels, so a slide is edited with the SAME canvas operations as a drawing. Keep text large (a title about 64 px, body text 40 px or more), few words per slide, one idea per slide. Put the speaker notes in setNotes, not on the slide. Apply the Brand Kit as on any drawing.',
+    input: 'id: the presentation work item id (optional, defaults to the open one); ops: the list of operations: {op:"addSlide", layout?:"title"|"content"|"blank", title?, body?, at?} (a title slide has a title and a subtitle, a content slide a title and a body text; at = position, 1 = first; the new slide gets an id), {op:"duplicateSlide", id}, {op:"removeSlide", id}, {op:"moveSlide", id, to} (1 = first), {op:"setNotes", id, notes}, {op:"setSize", size:"16:9"|"4:3"} (every slide is rearranged), {op:"slide", id, ops:[canvas operations]} (any canvas.edit operation on that one slide, e.g. {op:"add", object:{type:"image", src, x, y, width, height}} or {op:"update", id:"title", patch:{text:"..."}}; not "canvas" or "resize": the size follows the deck). The text objects of a layout have the ids "title", "subtitle" and "body".',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
+  {
+    name: 'deck.export',
+    description: 'Make the finished presentation as a file: one NEW pptx (an editable PowerPoint file) or pdf in the project folder (nothing is overwritten), and a version that records it. The PDF needs LibreOffice; if it is missing the answer says so and the pptx still works. Do it only when the owner asks for the file.',
+    input: 'id: the presentation work item id (optional, defaults to the open one); format: "pptx" (default) or "pdf"',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
   {
     name: 'kanban.create',
     description: 'Open a kanban card. Code fixes and development tasks are NOT work items: they belong on the kanban board. The card is always bound to THIS project, whatever the request says. ONE PROJECT = ONE CARD: if an open card already covers this work (a sub-task, a new bug in it, its next phase), do not open a new card -- the server refuses it; tell the owner to continue on that card.',

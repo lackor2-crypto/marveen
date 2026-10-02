@@ -34,6 +34,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
+import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
@@ -76,6 +77,8 @@ import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbenc
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, listProjectMedia } from '../../workbench-video-render.js'
+import { deckStore, applyDeckOps, deckSummary, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
+import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
 import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
@@ -829,6 +832,142 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A projektnek nincs mappája (vagy nem érem el), ezért nincs miből videót, hangot vagy képet választani. Állíts be mappát a projektnek, és tedd bele a fájlokat.',
     en: 'The project has no folder (or I cannot reach it), so there is nothing to pick videos, audio or pictures from. Set a folder for the project and put the files in it.',
   },
+  deck_not_presentation: {
+    hu: 'A diasor csak prezentáció típusú munkadarabon van. Hozz létre egy prezentációt.',
+    en: 'The slide deck only exists on a presentation work item. Create a presentation.',
+  },
+  deck_bad_shape: {
+    hu: 'A diasor adatát nem tudom értelmezni. Töltsd újra az oldalt, és próbáld újra.',
+    en: 'The slide deck data could not be understood. Reload the page and try again.',
+  },
+  deck_bad_op: {
+    hu: 'Ezt a módosítást nem tudom értelmezni. A részletek megmondják, melyik lépéssel van a baj.',
+    en: 'I cannot read this change. The details say which step is the problem.',
+  },
+  deck_slide_not_found: {
+    hu: 'Ez a dia nem található (lehet, hogy közben törölték). Töltsd újra az oldalt.',
+    en: 'That slide is not there (it may have been removed meanwhile). Reload the page.',
+  },
+  deck_too_many: {
+    hu: 'Egy prezentációban legfeljebb 100 dia lehet.',
+    en: 'A presentation can hold at most 100 slides.',
+  },
+  deck_bad_layout: {
+    hu: 'A dia elrendezése csak „cím”, „tartalom” vagy „üres” lehet.',
+    en: 'The slide layout can only be "title", "content" or "blank".',
+  },
+  deck_bad_value: {
+    hu: 'Az érték nem jó. A dia helye egy sorszám legyen (1 az első).',
+    en: 'The value is not valid. The position of a slide must be a number (1 is the first).',
+  },
+  deck_bad_size: {
+    hu: 'A prezentáció mérete csak 16:9 (szélesvásznú) vagy 4:3 lehet.',
+    en: 'The presentation size can only be 16:9 (widescreen) or 4:3.',
+  },
+  deck_notes_too_long: {
+    hu: 'A előadói jegyzet túl hosszú (legfeljebb 4000 karakter).',
+    en: 'The speaker notes are too long (4000 characters at most).',
+  },
+  deck_saved: {
+    hu: 'A prezentáció elmentve, új verzióként.',
+    en: 'The presentation is saved, as a new version.',
+  },
+  deck_version_saved: {
+    hu: 'Verzió mentve. A prezentáción tovább dolgozhatsz, a visszavonás is megmaradt.',
+    en: 'Version saved. You can keep working on the presentation, and undo still works.',
+  },
+  deck_version_unchanged: {
+    hu: 'Nincs új változás a legutóbbi verzió óta.',
+    en: 'There is no new change since the last version.',
+  },
+  deck_exported: {
+    hu: 'Kész a fájl. Új fájl lett belőle a projekt mappájában, a régi fájlok érintetlenek.',
+    en: 'The file is ready. It is a new file in the project folder; the old files are untouched.',
+  },
+  deck_bad_format: {
+    hu: 'Az exportálás csak PPTX (PowerPoint) vagy PDF lehet.',
+    en: 'The export can only be PPTX (PowerPoint) or PDF.',
+  },
+  deck_export_empty: {
+    hu: 'A prezentációban még nincs dia, így nincs mit exportálni. Adj hozzá legalább egy diát.',
+    en: 'The presentation has no slide yet, so there is nothing to export. Add at least one slide.',
+  },
+  deck_export_failed: {
+    hu: 'Az exportálás nem sikerült. A részletek megmondják, miért.',
+    en: 'The export did not work. The details say why.',
+  },
+  deck_pdf_not_installed: {
+    hu: 'A PDF-hez LibreOffice kell, de nincs telepítve ezen a gépen. A PPTX-et így is megkapod; a Képességek panel megmondja, hogyan telepítheted a LibreOffice-t.',
+    en: 'The PDF needs LibreOffice, which is not installed on this machine. You can still get the PPTX; the Capabilities panel says how to install LibreOffice.',
+  },
+  deck_pdf_check_failed: {
+    hu: 'A LibreOffice-t nem tudtam ellenőrizni, ezért a PDF nem készült el. A PPTX-et így is megkapod.',
+    en: 'I could not check LibreOffice, so the PDF was not made. You can still get the PPTX.',
+  },
+  deck_pdf_timeout: {
+    hu: 'A PDF készítése túl sokáig tartott, ezért megszakítottam. Próbáld újra, vagy kérj PPTX-et.',
+    en: 'Making the PDF took too long, so I stopped it. Try again, or ask for the PPTX.',
+  },
+  deck_pdf_convert_failed: {
+    hu: 'A LibreOffice nem tudta PDF-fé alakítani a prezentációt. Ha csak a LibreOffice szövegszerkesztő része (Writer) van telepítve, a bemutató része (Impress) is kell hozzá. A PPTX-et így is megkapod. A részletek megmondják, mit írt a program.',
+    en: 'LibreOffice could not turn the presentation into a PDF. If only the text part of LibreOffice (Writer) is installed, the presentation part (Impress) is needed as well. You can still get the PPTX. The details say what the program wrote.',
+  },
+  deck_pdf_no_output: {
+    hu: 'A LibreOffice lefutott, de nem készült PDF. Ha csak a LibreOffice szövegszerkesztő része (Writer) van telepítve, a bemutató része (Impress) is kell hozzá. A PPTX-et így is megkapod.',
+    en: 'LibreOffice ran, but no PDF was made. If only the text part of LibreOffice (Writer) is installed, the presentation part (Impress) is needed as well. You can still get the PPTX.',
+  },
+  deck_pdf_missing_source: {
+    hu: 'A PDF készítéséhez szükséges ideiglenes fájl eltűnt. Próbáld újra.',
+    en: 'The temporary file needed for the PDF disappeared. Try again.',
+  },
+  deck_nothing_to_undo: {
+    hu: 'Nincs mit visszavonni: a legutóbbi verzió óta nem történt változás ezen a prezentáción.',
+    en: 'There is nothing to undo: this presentation has not changed since the last version.',
+  },
+  deck_nothing_to_redo: {
+    hu: 'Nincs mit újra elvégezni: nincs visszavont lépés.',
+    en: 'There is nothing to redo: no step has been undone.',
+  },
+  deck_undo_conflict: {
+    hu: 'Ezt a lépést nem vonom vissza, mert közben a prezentáció más módon is megváltozott. A mostani prezentáció érintetlen.',
+    en: 'I am not undoing this step, because the presentation has changed in another way since. The presentation is untouched.',
+  },
+  deck_draft_unreadable: {
+    hu: 'A prezentáció munkapéldánya sérült az adatbázisban. A verziók érintetlenek: a verziólistából visszaállhatsz egyre.',
+    en: 'The working copy of the presentation is damaged in the database. The versions are untouched: you can go back to one from the version list.',
+  },
+  deck_nothing_to_version: {
+    hu: 'Még nincs prezentáció, így nincs miből verziót menteni. Adj hozzá egy diát.',
+    en: 'There is no presentation yet, so there is nothing to save as a version. Add a slide first.',
+  },
+  deck_orphan_not_found: {
+    hu: 'Ez az elhagyott munka már nem található.',
+    en: 'That abandoned work is no longer there.',
+  },
+  deck_missing: {
+    hu: 'A prezentáció fájlja nem található a lemezen.',
+    en: 'The presentation file cannot be found on disk.',
+  },
+  deck_unreachable: {
+    hu: 'A prezentáció fájljához nem látok oda (a Raktár vagy a mappa nem elérhető).',
+    en: 'I cannot reach the presentation file (the Depot or the folder is not available).',
+  },
+  deck_unreadable: {
+    hu: 'A prezentáció fájlját nem tudtam elolvasni.',
+    en: 'I could not read the presentation file.',
+  },
+  deck_too_large: {
+    hu: 'A prezentáció fájlja túl nagy.',
+    en: 'The presentation file is too large.',
+  },
+  deck_no_folder: {
+    hu: 'A projektnek nincs mappája, ezért nincs hová menteni a prezentációt.',
+    en: 'The project has no folder, so there is nowhere to save the presentation.',
+  },
+  deck_no_depot: {
+    hu: 'Nincs beállítva a Raktár ezen a gépen, ezért nincs hová menteni a prezentációt.',
+    en: 'The Depot is not set up on this machine, so there is nowhere to save the presentation.',
+  },
   canvas_autosaved: {
     hu: 'Mentve. Verzió akkor lesz belőle, ha a „Verzió mentése” gombra nyomsz.',
     en: 'Saved. It becomes a version when you press "Save version".',
@@ -922,10 +1061,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   intake_ask_all: {
     hu: 'Ebből még nem tudom, mit hozzak létre. Milyen munka lesz? Válassz, és a mondatodat továbbadom a Marvinnak.',
     en: 'I cannot tell yet what to create from this. What kind of work is it? Pick one, and I pass your sentence on to Marvin.',
-  },
-  intake_presentation: {
-    hu: 'A prezentáció-szerkesztő még nem készült el (5. fázis), ezért vázlatként, dokumentumként indul. A diákra bontás később jön.',
-    en: 'The presentation editor is not built yet (phase 5), so it starts as an outline, as a document. Splitting into slides comes later.',
   },
   canvas_old_version: {
     hu: 'Régebbi verziót nem lehet közvetlenül szerkeszteni. Állítsd vissza a verziólistából, és utána szerkeszd.',
@@ -2369,7 +2504,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, {
       ok: true, ask: false, kind, item: r.item, versions: [r.version], text,
-      message: kind === 'presentation' ? msg('intake_presentation', lang) : null,
+      message: null,
     }, 201)
     return true
   }
@@ -3994,6 +4129,136 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         ok: true, file: r.file, seconds: r.seconds, item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id),
         last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: true } : null,
         ...tlState(), message: msg('timeline_rendered', lang),
+      }, 201)
+      return true
+    }
+  }
+
+
+  // ============================================================================
+  // PRESENTATION DECK (v4 spec phase 5, presentation): slides, each one a canvas.
+  // Same shape as the canvas and the video timeline: edits save at once to a
+  // working copy, only a milestone makes a version, every step is undoable. The
+  // export makes a NEW pptx or pdf file in the project folder.
+  // ============================================================================
+  if (segs[1] === 'deck') {
+    if (item.type !== 'presentation') return fail(res, 409, 'deck_not_presentation', lang)
+    const store = deckStore()
+    const dkArchived = (): boolean => {
+      const owner = getProject(item.project_id)
+      return !!owner && owner.archived_at != null
+    }
+    const dkState = (): Record<string, unknown> => {
+      const r = store.read(item.id)
+      return { draft: r.ok ? r.draft : null, history: store.history(item.id), orphans: store.orphans(item.id) }
+    }
+    const dkStatus = (code: string): number => (/_(not_found|orphan_not_found)$/.test(code) ? 404 : 409)
+
+    if (segs.length === 2 && method === 'GET') {
+      const r = store.read(item.id, url.searchParams.get('version'))
+      if (!r.ok) return failDetail(res, dkStatus(r.code), r.code, lang, r.detail)
+      const fresh = getWorkItem(item.id) || item
+      const onCurrent = !r.version_id || r.version_id === fresh.current_version_id
+      json(res, {
+        deck: r.doc, exists: r.exists, rel: r.rel, name: r.name, version_id: r.version_id, version_no: r.version_no,
+        summary: deckSummary(r.doc),
+        limits: { slides: DECK_MAX_SLIDES, notes: DECK_NOTES_MAX, sizes: DECK_SIZES, layouts: DECK_LAYOUTS, formats: DECK_EXPORT_FORMATS },
+        current: onCurrent, draft: r.draft,
+        history: onCurrent ? store.history(item.id) : null, orphans: store.orphans(item.id),
+      })
+      return true
+    }
+
+    // One slide as a picture (SVG): the thumbnails and the big view.
+    if (segs.length === 4 && segs[2] === 'slide' && method === 'GET') {
+      const r = store.read(item.id, url.searchParams.get('version'))
+      if (!r.ok) return failDetail(res, dkStatus(r.code), r.code, lang, r.detail)
+      const slide = r.doc.slides.find((s) => s.id === (segs[3] || '').replace(/\.svg$/i, ''))
+      if (!slide) return fail(res, 404, 'deck_slide_not_found', lang)
+      const svg = renderCanvasForItem(item, slide.canvas)
+      // Thumbnails are asked for again at every redraw: the browser asks "is it still the same?" and gets a bodyless 304.
+      const etag = `"${createHash('sha1').update(svg).digest('hex').slice(0, 24)}"`
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { ETag: etag, 'Cache-Control': 'private, no-cache' })
+        res.end()
+        return true
+      }
+      res.writeHead(200, {
+        'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Content-Length': String(Buffer.byteLength(svg, 'utf-8')),
+        ETag: etag,
+        'Cache-Control': 'private, no-cache',
+      })
+      res.end(svg)
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'ops' && method === 'POST') {
+      if (dkArchived()) return fail(res, 409, 'project_archived', lang)
+      const body = await readJson(req)
+      if (!body) return fail(res, 400, 'bad_json', lang)
+      if (optionalBaseIsStale(item.id, body['base_version'])) return fail(res, 409, 'version_stale', lang)
+      const current = store.read(item.id)
+      if (!current.ok) return failDetail(res, dkStatus(current.code), current.code, lang, current.detail)
+      const applied = applyDeckOps(current.doc, body['ops'])
+      if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+      const group = typeof body['group'] === 'string' ? body['group'].trim().slice(0, 80) : ''
+      const commit = store.commit(item, applied.doc, {
+        source: 'owner', grp: group ? `ui:${group}` : null, label: opsLabel(body['ops']),
+        actor: actor(ctx), name: current.name, prompt: body['prompt'],
+      })
+      if (!commit.ok) return failDetail(res, commit.code === 'project_not_found' ? 404 : 400, commit.code, lang, commit.detail)
+      const created = commit.created
+      json(res, {
+        ok: true, deck: applied.doc, applied: applied.applied, changed: commit.changed, item: getWorkItem(item.id) || item,
+        versions: listWorkItemVersionsView(item.id), rel: created ? created.rel : current.rel, created: !!created,
+        summary: deckSummary(applied.doc), ...dkState(), message: msg(created ? 'deck_saved' : 'canvas_autosaved', lang),
+      }, created ? 201 : 200)
+      return true
+    }
+
+    if (segs.length === 3 && (segs[2] === 'undo' || segs[2] === 'redo') && method === 'POST') {
+      if (dkArchived()) return fail(res, 409, 'project_archived', lang)
+      const r = segs[2] === 'undo' ? store.undo(item, actor(ctx)) : store.redo(item, actor(ctx))
+      if (!r.ok) return failDetail(res, dkStatus(r.code), r.code, lang, r.detail)
+      json(res, { ok: true, deck: r.doc, step: { label: r.label, source: r.source }, item: getWorkItem(item.id) || item, summary: deckSummary(r.doc), ...dkState() })
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'version' && method === 'POST') {
+      if (dkArchived()) return fail(res, 409, 'project_archived', lang)
+      const body = (await readJson(req)) || {}
+      const v = store.saveVersion(item, { label: body['label'], reason: body['reason'], actor: actor(ctx) })
+      if (!v.ok) return failDetail(res, dkStatus(v.code), v.code, lang, v.detail)
+      json(res, {
+        ok: true, created: v.created, item: v.item, version: v.version, versions: listWorkItemVersionsView(item.id),
+        ...dkState(), message: msg(v.created ? 'deck_version_saved' : 'deck_version_unchanged', lang),
+      }, v.created ? 201 : 200)
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'export' && method === 'POST') {
+      if (dkArchived()) return fail(res, 409, 'project_archived', lang)
+      const body = (await readJson(req)) || {}
+      const format = String(body['format'] ?? '') as DeckExportFormat
+      if (!DECK_EXPORT_FORMATS.includes(format)) return fail(res, 400, 'deck_bad_format', lang)
+      const project = getProject(item.project_id)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const cur = store.read(item.id)
+      if (!cur.ok) return failDetail(res, dkStatus(cur.code), cur.code, lang, cur.detail)
+      const r = await exportDeck(project, item.title, cur.rel, cur.doc, format)
+      if (!r.ok) {
+        const status = r.code === 'deck_export_empty' ? 400 : r.code === 'deck_pdf_not_installed' || r.code === 'deck_pdf_check_failed' ? 503 : 500
+        return failDetail(res, status, r.code, lang, r.detail)
+      }
+      // The version that holds exactly the deck that was exported, with the file recorded on it.
+      const v = store.saveVersion(item, { reason: 'export', actor: actor(ctx), metadata: {} })
+      const versionId = v.ok ? v.version.id : cur.version_id
+      if (versionId) setWorkItemVersionMeta(versionId, { export: { rel: r.file.rel, name: r.file.name, format: r.format, slides: r.slides, bytes: r.file.bytes } })
+      json(res, {
+        ok: true, file: r.file, format: r.format, slides: r.slides, warnings: r.warnings,
+        url: `/api/life/file?rel=${encodeURIComponent(r.file.rel)}&lang=${lang}`,
+        item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id), ...dkState(), message: msg('deck_exported', lang),
       }, 201)
       return true
     }

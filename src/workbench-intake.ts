@@ -13,13 +13,13 @@ export const INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video',
 export type IntakeKind = typeof INTAKE_KINDS[number]
 
 /** Melyik munkadarab-fajta nyilik (K-3.3: a munkatipus szerinti felulet). A
- *  prezentacio az 5. fazisig vazlat-dokumentumkent indul -- a felulet kimondja. */
+ *  prezentacio sajat munkadarab-fajta (5. fazis): diasor, minden dia egy vaszon. */
 export const INTAKE_TYPE: Record<IntakeKind, string> = {
   social_post: 'graphic',
   document: 'document',
   court_filing: 'document',
   video: 'video',
-  presentation: 'document',
+  presentation: 'presentation',
 }
 
 // Szotovek (kisbetu, ekezet nelkul). Magyar, angol, nemet -- a Munkapad harom nyelve.
