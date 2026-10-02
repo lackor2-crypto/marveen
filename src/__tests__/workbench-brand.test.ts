@@ -1,12 +1,16 @@
 // v4 spec phase 4 -- BRAND KIT (K-4.1 .. K-4.3): storage and validation, the
 // pure brand check, the agent (sees the brand, can read and check), the routes
 // and the panel.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable, Writable } from 'node:stream'
-import { initDatabase } from '../db.js'
-import { createProject, getProject } from '../projects.js'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { initDatabase, getDb } from '../db.js'
+import { createProject, getProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
-import { getBrand, saveBrand, checkCanvasBrand, brandForContext, emptyBrand, isLogoPath, type Brand } from '../workbench-brand.js'
+import { getBrand, saveBrand, checkCanvasBrand, brandForContext, emptyBrand, isLogoPath, BrandUnreadableError, type Brand } from '../workbench-brand.js'
+import { callWorkbench } from './helpers/workbench-route-call.js'
 import { emptyCanvas, type CanvasDoc } from '../workbench-graphic.js'
 import { buildContext } from '../workbench-agent/context.js'
 import { executeTool } from '../workbench-agent/execute.js'
@@ -362,5 +366,169 @@ describe('brand kit: inside the canvas editor (K-4.2 manual side, K-4.3)', () =>
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="canvas-brand-check"'))
     h.click({ 'data-wb-act': 'canvas-brand-check' })
     await vi.waitFor(() => expect(h.html()).toContain('workbench.brand.check_ok'))
+  })
+})
+
+// ---- found by the verification of #458 ---------------------------------------
+
+describe('brand kit: one file, two spellings (project folder on disk)', () => {
+  let depot = ''
+  let file: { path: string; project_path: string }
+  let itemId = ''
+  const ctx = () => ({ projectId: pid, workItemId: itemId, lang: 'en' as const })
+
+  beforeEach(async () => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-brand-'))
+    process.env['MARVEEN_DEPOT'] = depot
+    mkdirSync(join(depot, 'Projektek', 'Freeber'), { recursive: true })
+    const up = updateProject(pid, { folder_path: 'Projektek/Freeber' })
+    if (!up.ok) throw new Error('folder')
+    const u = await callWorkbench(`/api/workbench/shared?project=${pid}&name=logo.png`, 'POST', Buffer.from('PNG'))
+    if (u.status !== 201) throw new Error('upload ' + u.status)
+    file = u.body.file
+    const w = createWorkItem({ project_id: pid, title: 'Poszt', type: 'graphic' })
+    if (!w.ok) throw new Error('item')
+    itemId = w.item.id
+    const saved = await call('PUT', '/api/workbench/brand', { project: pid, brand: { logo_light: file.path, logo_corner: 'bottom-right', logo_min_width_pct: 10 } })
+    if (saved.status !== 200) throw new Error('brand ' + saved.status)
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  function draw(src: string): void {
+    const r = executeTool('canvas.edit', {
+      id: itemId,
+      ops: [{ op: 'canvas', width: 1000, height: 1000 }, { op: 'add', type: 'image', id: 'logo', src, x: 850, y: 880, width: 120, height: 100 }],
+    }, ctx())
+    if (!r.ok) throw new Error(r.code + ': ' + r.detail)
+  }
+
+  it('the brand stores the Depot path, the agent\'s file list shows the project path: they differ', () => {
+    expect(file.path).toBe('Projektek/Freeber/' + file.project_path)
+    expect(getBrand(pid)!.logo_light).toBe(file.path)
+  })
+
+  it('a logo placed with the project-relative path (as the agent sees it) is NOT reported missing', async () => {
+    draw(file.project_path)
+    const tool: any = executeTool('brand.check', { id: itemId }, ctx())
+    expect(tool.data.checked).toBe(true)
+    expect(tool.data.findings).toEqual([])
+    const r = await call('GET', `/api/workbench/brand/check?item=${itemId}`, null)
+    expect(r.body).toMatchObject({ has_brand: true, has_canvas: true, findings: [] })
+  })
+
+  it('the Depot path and a "./" prefix count too; a same-named file elsewhere does not', () => {
+    const b = getBrand(pid)!
+    const at = (src: string) => checkCanvasBrand(doc({ objects: [logo({ src })] as any }), b, 'Projektek/Freeber').map((f) => f.code)
+    expect(at(file.path)).toEqual([])
+    expect(at('./' + file.project_path)).toEqual([])
+    expect(at('other/logo.png')).toEqual(['logo_missing'])
+    // without the project folder only the exact spelling can match
+    expect(checkCanvasBrand(doc({ objects: [logo({ src: file.project_path })] as any }), b).map((f) => f.code)).toEqual(['logo_missing'])
+  })
+})
+
+describe('brand kit: "nothing" is said only when it is true', () => {
+  it('a saved but EMPTY brand is not a brand to check against', async () => {
+    expect((await call('PUT', '/api/workbench/brand', { project: pid, brand: {} })).status).toBe(200)
+    const w = createWorkItem({ project_id: pid, title: 'Poszt', type: 'composite' })
+    if (!w.ok) throw new Error('item')
+    const r = await call('GET', `/api/workbench/brand/check?item=${w.item.id}`, null)
+    expect(r.status).toBe(200)
+    expect(r.body.has_brand).toBe(false)
+  })
+
+  it('a stored brand that cannot be read is never reported as "no brand"', async () => {
+    saveBrand(pid, BRAND)
+    for (const bad of ['{not json', '{"colors":"blue"}']) {
+      getDb().prepare('UPDATE workbench_brand SET data = ? WHERE project_id = ?').run(bad, pid)
+      expect(() => getBrand(pid)).toThrow(BrandUnreadableError)
+      const c = buildContext(getProject(pid)!, null, 'en')
+      expect(c.contextText).toMatch(/cannot be read/)
+      expect(c.contextText).not.toMatch(/none set yet/)
+      expect(executeTool('brand.get', {}, { projectId: pid, workItemId: null, lang: 'en' })).toMatchObject({ ok: false, code: 'brand_unreadable' })
+      const w = createWorkItem({ project_id: pid, title: 'Poszt', type: 'composite' })
+      if (!w.ok) throw new Error('item')
+      expect(executeTool('brand.check', { id: w.item.id }, { projectId: pid, workItemId: null, lang: 'en' })).toMatchObject({ ok: false, code: 'brand_unreadable' })
+      expect((await call('GET', `/api/workbench/brand/check?item=${w.item.id}`, null)).status).toBe(500)
+      // the panel gets the empty form WITH the warning, so the owner can set the brand again
+      const got = await call('GET', `/api/workbench/brand?project=${pid}`, null)
+      expect(got.status).toBe(200)
+      expect(got.body).toMatchObject({ exists: true, unreadable: true })
+      expect(got.body.brand.colors).toEqual([])
+    }
+    // saving again replaces the unreadable row
+    const fixed = await call('PUT', '/api/workbench/brand', { project: pid, brand: { colors: [{ hex: '#1a73e8' }] } })
+    expect(fixed.status).toBe(200)
+    expect(getBrand(pid)!.colors).toEqual([{ name: '', hex: '#1a73e8' }])
+    expect((await call('GET', `/api/workbench/brand?project=${pid}`, null)).body.unreadable).toBe(false)
+  })
+
+  it('"too small" never reads "10%, at least 10% is needed"', () => {
+    const r = saveBrand(pid, BRAND)
+    if (!r.ok) throw new Error(r.code)
+    const f = checkCanvasBrand(doc({ objects: [logo({ width: 96 })] as any }), r.brand).filter((x) => x.code === 'logo_small')
+    expect(f).toHaveLength(1)
+    expect(f[0].message.en).toContain('9.6%')
+    expect(f[0].message.hu).toContain('9.6%')
+  })
+})
+
+describe('brand kit: the panel keeps what the owner typed', () => {
+  const B = { colors: [{ name: 'main blue', hex: '#1a73e8' }], logo_light: '', logo_dark: '', font_heading: '', font_body: '', logo_corner: '', logo_min_width_pct: null, no_exclamation: false, notes: [], project_id: 'p1', updated_at: 5 }
+
+  function open(h: ReturnType<typeof workbenchHarness>, shared: { status: number; body: unknown }, extra: Record<string, unknown> = {}) {
+    h.respond((url) => {
+      if (url.includes('/api/workbench/brand')) return { status: 200, body: { brand: B, exists: true, unreadable: false, limits: {}, ...extra } }
+      if (url.includes('/api/workbench/shared')) return shared
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Freeber')
+    h.click({ 'data-wb-act': 'brand-open' })
+  }
+
+  it('an unrelated redraw of the page does not throw away the unsaved fields', async () => {
+    const h = workbenchHarness()
+    open(h, { status: 200, body: { folder: 'shared', files: [{ name: 'logo.png', path: 'Freeber/shared/logo.png' }] } })
+    await vi.waitFor(() => expect(h.html()).toContain('id="wbBrandForm"'))
+    h.inputs.wbBrandHex0 = { value: '#112233', focus() {} }
+    h.inputs.wbBrandName0 = { value: 'deep', focus() {} }
+    h.inputs.wbBrandLogoLight = { value: 'Freeber/shared/logo.png', focus() {} }
+    h.inputs.wbBrandNotes = { value: 'Be kind', focus() {} }
+    h.fire('input', { target: { id: 'wbBrandName0', value: 'deep' } })
+    // another part of the page redraws everything (here: the decisions panel opens)
+    h.click({ 'data-wb-act': 'dec-open' })
+    const html = h.html()
+    expect(html).toContain('value="deep"')
+    expect(html).toContain('value="#112233"')
+    expect(html).toContain('>Be kind</textarea>')
+    expect(html).toMatch(/<option value="Freeber\/shared\/logo\.png" selected>/)
+  })
+
+  it('a failed load of the shared materials is an error, not "no pictures yet"', async () => {
+    const h = workbenchHarness()
+    open(h, { status: 500, body: { message: 'cannot list the shared materials' } })
+    await vi.waitFor(() => expect(h.html()).toContain('id="wbBrandForm"'))
+    expect(h.html()).toContain('cannot list the shared materials')
+    expect(h.html()).not.toContain('workbench.brand.logos_none')
+  })
+
+  it('an unreadable stored brand: the form opens with a warning that saving replaces it', async () => {
+    const h = workbenchHarness()
+    open(h, { status: 200, body: { folder: null, files: [] } }, { unreadable: true })
+    await vi.waitFor(() => expect(h.html()).toContain('id="wbBrandForm"'))
+    expect(h.html()).toContain('workbench.brand.unreadable')
+  })
+
+  it('the brand colour buttons sit in the input column of the editor grid, they do not shift the fields after them', () => {
+    const css = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.css'), 'utf8')
+    const rule = css.match(/^\.wb-can-grid > \.wb-brand-sw \{[^}]*\}/m)
+    expect(rule).not.toBeNull()
+    expect(rule![0]).toMatch(/grid-column:\s*2/)
+    // one column on a phone: the buttons must not open a second column there
+    expect(css).toMatch(/@media \(max-width: 720px\) \{[^}]*\.wb-can-grid > \.wb-brand-sw \{ grid-column: 1; \}/)
   })
 })

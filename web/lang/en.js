@@ -5683,6 +5683,7 @@ window._i18n.en = {
   "workbench.brand.title": "Brand Kit",
   "workbench.brand.intro": "Set the look of the project once: colours, logo, fonts and a few rules. Marvin follows it on every graphic by itself, and your brand colours show up first in the colour picker. If you set nothing, Marvin does not make up brand colours.",
   "workbench.brand.loading": "Loading the brand...",
+  "workbench.brand.unreadable": "The brand saved earlier cannot be read, so the form opened empty. This does NOT mean there was no brand. Fill it in again and press \"Save the brand\": saving replaces the old, unreadable data. Until you save, Marvin uses no brand colours and does not invent any.",
   "workbench.brand.h_colors": "Colours",
   "workbench.brand.colors_help": "Enter the 3-5 main colours of the brand. Click the coloured square and pick the colour; add a name next to it (for example \"main blue\"). Black, white and greys are always allowed.",
   "workbench.brand.colors_none": "No brand colour yet. Use the \"Add colour\" button to add one.",

@@ -5761,6 +5761,7 @@ window._i18n.hu = {
   "workbench.brand.title": "Márka-csomag (Brand Kit)",
   "workbench.brand.intro": "Itt egyszer megadod, milyen a projekt arculata: színek, logó, betűtípus és néhány szabály. A Marvin ezt minden grafikánál magától betartja, és a színválasztóban a márkaszíneid jelennek meg először. Ha nem állítasz be semmit, a Marvin nem talál ki márkaszíneket.",
   "workbench.brand.loading": "A márka adatainak betöltése...",
+  "workbench.brand.unreadable": "A korábban elmentett márka adatai nem olvashatók, ezért az űrlap üresen nyílt meg. Ez NEM azt jelenti, hogy nem volt márka. Töltsd ki újra, és nyomd meg a „Márka mentése” gombot: a mentés felülírja a régi, olvashatatlan adatot. Amíg nem mented el, a Marvin nem használ márkaszíneket, és nem is talál ki.",
   "workbench.brand.h_colors": "Színek",
   "workbench.brand.colors_help": "Add meg a márka 3-5 fő színét. Kattints a színes négyzetre, és válaszd ki a színt; írj mellé egy nevet is (például „fő kék”). A fekete, a fehér és a szürkék mindig megengedettek.",
   "workbench.brand.colors_none": "Még nincs márkaszín. A „Szín hozzáadása” gombbal vehetsz fel egyet.",

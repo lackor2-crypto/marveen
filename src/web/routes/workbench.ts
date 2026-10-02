@@ -85,7 +85,7 @@ import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTod
 import { getReminderStatus, setReminderSettings } from '../../workbench-todo-reminder.js'
 import { gcalStatus, requestTodoCalendar, settleTodoCalendarApprovals } from '../../workbench-todo-gcal.js'
 import { sendOwnerChannelChecked } from '../../notify.js'
-import { getBrand, saveBrand, checkCanvasBrand, emptyBrand, BRAND_FONTS, LOGO_CORNERS, BRAND_MAX_COLORS, BRAND_MAX_NOTES, BRAND_NOTE_MAX_CHARS } from '../../workbench-brand.js'
+import { getBrand, saveBrand, checkCanvasBrand, emptyBrand, brandIsEmpty, BrandUnreadableError, BRAND_FONTS, LOGO_CORNERS, BRAND_MAX_COLORS, BRAND_MAX_NOTES, BRAND_NOTE_MAX_CHARS } from '../../workbench-brand.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -369,6 +369,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   brand_read_failed: {
     hu: 'A márka adatai most nem olvashatók. Ez NEM azt jelenti, hogy nincs márka: próbáld újra később.',
     en: 'The brand data cannot be read right now. This does NOT mean there is no brand: try again later.',
+  },
+  brand_unreadable: {
+    hu: 'A korábban elmentett márka adatai nem olvashatók, ezért most nincs mihez hasonlítani. Ez NEM azt jelenti, hogy nincs márka. Nyisd meg a „Márka” panelt, állítsd be újra, és mentsd el.',
+    en: 'The brand saved earlier cannot be read, so there is nothing to compare with right now. This does NOT mean there is no brand. Open the "Brand" panel, set it again and save it.',
   },
   brand_item_not_found: {
     hu: 'Ez a munkadarab nem található, ezért nincs mit ellenőrizni.',
@@ -1841,11 +1845,18 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!pid) return fail(res, 400, 'project_required', lang)
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
-    let brand: ReturnType<typeof getBrand>
-    try { brand = getBrand(project.id) } catch { return fail(res, 500, 'brand_read_failed', lang) }
+    // Three states, kept apart: nothing stored yet, a brand, and a stored brand
+    // that cannot be read (the panel then says so, and saving replaces it).
+    let brand: ReturnType<typeof getBrand> = null
+    let unreadable = false
+    try { brand = getBrand(project.id) } catch (e) {
+      if (!(e instanceof BrandUnreadableError)) return fail(res, 500, 'brand_read_failed', lang)
+      unreadable = true
+    }
     json(res, {
       brand: brand ?? { ...emptyBrand(), project_id: project.id, updated_at: 0 },
-      exists: brand != null,
+      exists: brand != null || unreadable,
+      unreadable,
       limits: { max_colors: BRAND_MAX_COLORS, max_notes: BRAND_MAX_NOTES, note_max_chars: BRAND_NOTE_MAX_CHARS, fonts: BRAND_FONTS, corners: LOGO_CORNERS },
     })
     return true
@@ -1867,12 +1878,15 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const it = getWorkItem((url.searchParams.get('item') || '').trim())
     if (!it) return fail(res, 404, 'brand_item_not_found', lang)
     let brand: ReturnType<typeof getBrand>
-    try { brand = getBrand(it.project_id) } catch { return fail(res, 500, 'brand_read_failed', lang) }
+    try { brand = getBrand(it.project_id) } catch (e) {
+      return fail(res, 500, e instanceof BrandUnreadableError ? 'brand_unreadable' : 'brand_read_failed', lang)
+    }
     const c = readCanvas(it.id)
     if (!c.ok) return failDetail(res, c.code === 'not_found' ? 404 : 409, c.code, lang, c.detail)
-    const findings = c.exists ? checkCanvasBrand(c.doc, brand) : []
+    const findings = c.exists ? checkCanvasBrand(c.doc, brand, getProject(it.project_id)?.folder_path) : []
     json(res, {
-      has_brand: brand != null,
+      // A saved but empty brand has nothing to compare with: "no deviations" would be a false all-clear.
+      has_brand: brand != null && !brandIsEmpty(brand),
       has_canvas: c.exists,
       findings: findings.map((f) => ({ code: f.code, object: f.object, message: f.message[lang] })),
     })

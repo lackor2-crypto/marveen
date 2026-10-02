@@ -201,6 +201,10 @@
     brand: null,
     brandDraft: null,
     brandFiles: [],
+    // The picture list failing to load is not "no pictures yet"; a stored brand
+    // that cannot be read is not "no brand yet". Both are said in words.
+    brandFilesError: null,
+    brandUnreadable: false,
     brandError: null,
     brandBusy: false,
     brandCheck: null,
@@ -9347,7 +9351,9 @@
       var b = rs[0]
       if (!b.ok) { WB.brandError = b.message; WB.brand = null; render(); return }
       WB.brand = b.data.brand
+      WB.brandUnreadable = !!b.data.unreadable
       WB.brandDraft = brandCopy(WB.brand)
+      WB.brandFilesError = rs[1].ok ? null : rs[1].message
       WB.brandFiles = rs[1].ok && rs[1].data && rs[1].data.files
         ? rs[1].data.files.filter(function (f) { return BRAND_IMG.test(f.name || '') }) : []
       render()
@@ -9374,21 +9380,24 @@
       }).join('') + '</span>'
   }
 
+  /** The form -> the draft. Called on every keystroke too: the page is redrawn
+   *  as a whole (chat stream, another panel), and a field only in the DOM would
+   *  be thrown away. A field that is not on the page keeps its value. */
   function brandSyncDraft() {
     var d = WB.brandDraft
     if (!d) return
-    var v = function (id) { var el = document.getElementById(id); return el ? el.value : '' }
+    var v = function (id, keep) { var el = document.getElementById(id); return el ? el.value : keep }
     var colors = []
     for (var i = 0; i < d.colors.length; i++) {
-      var hx = document.getElementById('wbBrandHex' + i)
-      colors.push({ name: v('wbBrandName' + i), hex: hx ? hx.value : d.colors[i].hex })
+      colors.push({ name: v('wbBrandName' + i, d.colors[i].name), hex: v('wbBrandHex' + i, d.colors[i].hex) })
     }
     d.colors = colors
-    d.logo_light = v('wbBrandLogoLight'); d.logo_dark = v('wbBrandLogoDark')
-    d.font_heading = v('wbBrandFontH'); d.font_body = v('wbBrandFontB')
-    d.logo_corner = v('wbBrandCorner'); d.logo_min_width_pct = v('wbBrandMinW')
-    var ex = document.getElementById('wbBrandNoExcl'); d.no_exclamation = !!(ex && ex.checked)
-    d.notes = v('wbBrandNotes').split('\n').map(function (x) { return x.trim() }).filter(Boolean)
+    d.logo_light = v('wbBrandLogoLight', d.logo_light); d.logo_dark = v('wbBrandLogoDark', d.logo_dark)
+    d.font_heading = v('wbBrandFontH', d.font_heading); d.font_body = v('wbBrandFontB', d.font_body)
+    d.logo_corner = v('wbBrandCorner', d.logo_corner); d.logo_min_width_pct = v('wbBrandMinW', d.logo_min_width_pct)
+    var ex = document.getElementById('wbBrandNoExcl'); if (ex) d.no_exclamation = !!ex.checked
+    // The text as typed (a trailing empty line is still being written); trimmed when saved.
+    var nt = document.getElementById('wbBrandNotes'); if (nt) d.notes = String(nt.value).split('\n')
   }
 
   function brandSelect(id, value, options, labelFn, emptyKey) {
@@ -9420,12 +9429,15 @@
           + '</li>'
       }).join('')
       body = '<form id="wbBrandForm" class="wb-brand-form">'
+        + (WB.brandUnreadable ? '<p class="wb-error">' + esc(t('workbench.brand.unreadable')) + '</p>' : '')
         + '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_colors')) + '</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.brand.colors_help')) + '</p>'
         + '<ul class="wb-brand-colors">' + (colors || '<li class="wb-hint">' + esc(t('workbench.brand.colors_none')) + '</li>') + '</ul>'
         + '<p><button type="button" class="wb-btn" data-wb-act="brand-add-color"' + (d.colors.length >= 12 || ro ? ' disabled' : '') + '>' + esc(t('workbench.brand.color_add')) + '</button></p>'
         + '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_logos')) + '</h3>'
-        + '<p class="wb-hint">' + esc(t(paths.length ? 'workbench.brand.logos_help' : 'workbench.brand.logos_none')) + '</p>'
+        + (WB.brandFilesError
+          ? '<p class="wb-error">' + esc(WB.brandFilesError) + '</p>'
+          : '<p class="wb-hint">' + esc(t(paths.length ? 'workbench.brand.logos_help' : 'workbench.brand.logos_none')) + '</p>')
         + '<div class="wb-can-grid">'
         + '<label class="wb-label" for="wbBrandLogoLight">' + esc(t('workbench.brand.logo_light')) + '</label>'
         + brandSelect('wbBrandLogoLight', d.logo_light, logoOpts(d.logo_light), nameOf, 'workbench.brand.none')
@@ -9470,7 +9482,8 @@
       font_heading: d.font_heading || null, font_body: d.font_body || null,
       logo_corner: d.logo_corner || null,
       logo_min_width_pct: d.logo_min_width_pct === '' ? null : Number(d.logo_min_width_pct),
-      no_exclamation: d.no_exclamation, notes: d.notes,
+      no_exclamation: d.no_exclamation,
+      notes: d.notes.map(function (x) { return String(x).trim() }).filter(Boolean),
     }
     WB.brandBusy = true
     render()
@@ -9479,6 +9492,7 @@
       if (WB.projectId !== pid) return
       if (!r.ok) { window.showToast(r.message); render(); return }
       WB.brand = r.data.brand
+      WB.brandUnreadable = false
       WB.brandDraft = brandCopy(WB.brand)
       WB.brandCheck = null
       window.showToast(t('workbench.brand.toast_saved'))
@@ -9655,7 +9669,7 @@
     // A tablazat egy cellajaban all a kurzor: az ujrarajzolas utan ugyanoda
     // tesszuk vissza (a chat streamelese kozben is lehessen gepelni).
     var active = document.activeElement
-    var keepCell = active && /^wb(Cell_|Img|TextEdit$|PartText$|PartNewText$|ChatInput$)/.test(String(active.id || '')) ? active.id : null
+    var keepCell = active && /^wb(Cell_|Img|TextEdit$|PartText$|PartNewText$|ChatInput$|BrandName\d+$|BrandNotes$|BrandMinW$)/.test(String(active.id || '')) ? active.id : null
     var caret = keepCell && typeof active.selectionStart === 'number' ? active.selectionStart : null
     // Az uj szoveges resz mezojet semmi mas nem tarolja: az ujrarajzolas (pl.
     // mentes kozben, diktalas indulasakor) kulonben kitorolne a begepelt szoveget.
@@ -10076,6 +10090,8 @@
     WB.brand = null
     WB.brandDraft = null
     WB.brandFiles = []
+    WB.brandFilesError = null
+    WB.brandUnreadable = false
     WB.brandError = null
     WB.brandBusy = false
     WB.brandCheck = null
@@ -10113,6 +10129,8 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
     if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
+    // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
+    if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) { brandSyncDraft(); return }
     var mv = e.target.getAttribute && e.target.getAttribute('data-wb-move')
     if (mv) { if (e.target.value) moveItemToFolder(mv, e.target.value); return }
     var rid = e.target.getAttribute && e.target.getAttribute('data-wb-redact-id')
@@ -10659,6 +10677,7 @@
     if (e.target.id === 'wbIntakeName') WB.intakeName = e.target.value
     if (e.target.id === 'wbCanAiText' && WB.canvasAi) WB.canvasAi.text = e.target.value
     if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
+    if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) brandSyncDraft()
   })
 
   // Enter kuld, Shift+Enter uj sort ir. (Telefonon a gomb marad a fo ut.)

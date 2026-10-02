@@ -897,6 +897,10 @@
 .wb-brand-color input[type="color"] { width: 44px; height: 32px; padding: 0; flex: none; }
 .wb-brand-color .wb-input { flex: 1; min-width: 0; }
 .wb-brand-sw { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-left: 6px; }
+/* In the editor's label | field grid the colour buttons go under the field. As a
+   plain third child they took the next label's cell and shifted every field after them. */
+.wb-can-grid > .wb-brand-sw { grid-column: 2; margin-left: 0; }
+@media (max-width: 720px) { .wb-can-grid > .wb-brand-sw { grid-column: 1; } }
 .wb-brand-swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border, #d0d7de); cursor: pointer; padding: 0; }
 .wb-brand-check { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border, #d0d7de); border-radius: 8px; }
 .wb-brand-findings { margin: 4px 0 0; padding-left: 18px; }
