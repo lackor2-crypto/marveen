@@ -11390,15 +11390,17 @@
     if (!body || typeof body.getBoundingClientRect !== 'function' || !window.innerHeight) return
     if (window.innerWidth <= 900) { body.style.height = ''; return }
     var fr = body.parentNode
+    // Independent of the scroll position (it was not, and the frame shrank while the owner scrolled,
+    // leaving a blank page below it): the body is the window height minus the frame's own header.
     function setHeight() {
-      var top = body.getBoundingClientRect().top
-      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(top, 0))) + 'px'
+      var hdr = fr && typeof fr.getBoundingClientRect === 'function' ? body.getBoundingClientRect().top - fr.getBoundingClientRect().top : 0
+      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(hdr, 0) - 2)) + 'px'
     }
     setHeight()
-    // The page can only scroll once the frame is tall enough: height first, then scroll, then measure again.
+    // Once per opened work: put the frame's top edge at the top of the window.
     if (WB.fitKey !== WB.selectedId) {
       WB.fitKey = WB.selectedId
-      if (fr && typeof fr.scrollIntoView === 'function') { fr.scrollIntoView({ block: 'start' }); setHeight() }
+      if (fr && typeof fr.scrollIntoView === 'function') fr.scrollIntoView({ block: 'start' })
     }
   }
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) fitFrame() })
