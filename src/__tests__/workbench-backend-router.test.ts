@@ -36,7 +36,7 @@ describe('decideWorkbenchBackend -- Munkapad chat ket hattere (#433, B opcio)', 
 import { isWindowsDriveBridgePath } from '../workbench-agent/backend-router.js'
 import { readFileSync as readSrc } from 'node:fs'
 import { join as joinPath } from 'node:path'
-describe('Windows-drive bridge switch (Boss, 2026-10-02)', () => {
+describe('Windows-drive bridge: each project has its own switch (Boss, 2026-10-02)', () => {
   it('tells a Windows drive folder from a WSL one', () => {
     expect(isWindowsDriveBridgePath('f:\\Marveen\\Család\\Projektek\\Tőzsde')).toBe(true)
     expect(isWindowsDriveBridgePath('C:/Users/x/proj')).toBe(true)
@@ -44,10 +44,10 @@ describe('Windows-drive bridge switch (Boss, 2026-10-02)', () => {
     expect(isWindowsDriveBridgePath('/home/boss/marveen')).toBe(false)
     expect(isWindowsDriveBridgePath(null)).toBe(false)
   })
-  it('the route skips the bridge-first path for such a project only when the setting says marvin', () => {
+  it('the route skips the bridge-first path for such a project only when the project says wsl', () => {
     const src = readSrc(joinPath(__dirname, '..', 'web', 'routes', 'workbench-agent.ts'), 'utf-8')
     expect(src).toContain('isWindowsDriveBridgePath(code.session.workspacePath)')
-    expect(src).toContain("getEffectiveSettingValue('WORKBENCH_WINDOWS_BRIDGE') || 'windows') === 'marvin'")
+    expect(src).toContain("project.bridge_side === 'wsl'")
     expect(src).toMatch(/bridgeFirst = [^\n]*!\(windowsDriveBridge && !!liveSpec\)/)
   })
 })
