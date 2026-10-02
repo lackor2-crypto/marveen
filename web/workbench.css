@@ -1502,3 +1502,8 @@
 .wb-fr-tbl .wb-hint { margin: 0; font-size: 12px; }
 @media (max-width: 900px) { .wb-fr-tbl { height: 60vh; flex: none; } }
 @media (max-width: 720px) { .wb-fr-tbl { padding: 6px; } }
+
+/* Technikai reszletek: grouped (this work item / the project / tools), nothing removed. */
+.wb-sh-tech-grp { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; border-top: 1px solid var(--border, #d0d7de); }
+.wb-sh-tech-h { margin: 0; font-size: 13px; font-weight: 600; opacity: .75; text-transform: uppercase; letter-spacing: .03em; }
+.wb-sh-tech-item { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; align-items: start; }

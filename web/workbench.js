@@ -10848,9 +10848,10 @@
         + approvalBoxHtml()
         + '</div>'
       : ''
-    return '<section class="wb-sh-tech" id="wbShTech" aria-label="' + escA(t('workbench.sh.tech')) + '">'
-      + '<h2 class="wb-panel-title">' + esc(t('workbench.sh.tech')) + '</h2>'
-      + '<div class="wb-head wb-sh-tech-actions">'
+    var grp = function (key, body) {
+      return body ? '<section class="wb-sh-tech-grp"><h3 class="wb-sh-tech-h">' + esc(t(key)) + '</h3>' + body + '</section>' : ''
+    }
+    var tools = '<div class="wb-head wb-sh-tech-actions">'
       + ['search', 'wk', 'tl', 'dec', 'brand', 'td', 'ho', 'caps'].map(function (k) {
         var open = { search: WB.searchOpen, wk: WB.wkOpen, tl: WB.tlOpen, dec: WB.decOpen, brand: WB.brandOpen, td: WB.tdOpen, ho: WB.hoOpen, caps: WB.capsOpen }[k]
         return '<button type="button" class="btn-secondary" data-wb-act="' + k + '-open" aria-pressed="' + !!open + '">' + esc(t('workbench.' + k + '.open')) + '</button>'
@@ -10858,9 +10859,13 @@
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
       + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml()
-      + brandPanelHtml() + todosPanelHtml() + handoffPanelHtml() + overviewHtml()
-      + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>'
-      + itemTech
+      + brandPanelHtml() + todosPanelHtml() + handoffPanelHtml()
+    // Arranged by what the person is looking at: this work item first, then the project, then the tools.
+    return '<section class="wb-sh-tech" id="wbShTech" aria-label="' + escA(t('workbench.sh.tech')) + '">'
+      + '<h2 class="wb-panel-title">' + esc(t('workbench.sh.tech')) + '</h2>'
+      + grp('workbench.sh.tech_item', itemTech)
+      + grp('workbench.sh.tech_project', overviewHtml() + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>')
+      + grp('workbench.sh.tech_tools', tools)
       + '</section>'
   }
 
