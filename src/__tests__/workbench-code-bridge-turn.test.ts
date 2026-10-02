@@ -353,3 +353,21 @@ describe('1/A: a teljes erteku ugynok az iratok oldal-szoveget kapja', () => {
     expect(prompt).toContain('Documents ... /document?path=')
   })
 })
+
+import { claimsPendingWork, codeBridgeFullyDone as fullyDoneForPending } from '../workbench-agent/code-bridge-turn.js'
+describe('a befejezes jele mellett kimondott hatralevo munka nem kesz (Boss, 2026-10-02)', () => {
+  it('detects pending-work wording in the closing words, Hungarian and English', () => {
+    expect(claimsPendingWork('Kesz a resz.\n\nAmi hátravan a tervből: a kijelzés. Ezzel folytatom.\n\n[MINDEN_KESZ]')).toBe(true)
+    expect(claimsPendingWork('Done with A. Still to do: B.\n[MINDEN_KESZ]')).toBe(true)
+    expect(claimsPendingWork('Mindent elvégeztem, a teszt zöld.\n\n[MINDEN_KESZ]')).toBe(false)
+  })
+  it('only the tail counts: an early mention in a long report does not cancel the marker', () => {
+    const long = 'A következő lépés volt a mentés.' + ' x'.repeat(800) + '\nMinden kész.\n[MINDEN_KESZ]'
+    expect(claimsPendingWork(long)).toBe(false)
+  })
+  it('a done task with the marker but with pending words is not fully done', () => {
+    const base = { status: 'done', error: null, summary: null }
+    expect(fullyDoneForPending({ ...base, result: 'Kész. [MINDEN_KESZ]' } as never)).toBe(true)
+    expect(fullyDoneForPending({ ...base, result: 'Ezzel folytatom. [MINDEN_KESZ]' } as never)).toBe(false)
+  })
+})

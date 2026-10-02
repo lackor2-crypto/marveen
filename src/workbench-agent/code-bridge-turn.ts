@@ -157,7 +157,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
     ...workItemFileLines(input.workItem),
     `Answer in ${language}, in plain sentences for a non-programmer.${input.lang === 'en' ? '' : ' Address the owner informally (tegezés: "te"), never with "Ön" or "Maga".'}`,
-    `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done. If you were cut off, ran out of steps, hit an error, have an open question, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. The owner never sees the marker; it is removed from your answer.`,
+    `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. If you were cut off, ran out of steps, hit an error, have an open question, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. The owner never sees the marker; it is removed from your answer.`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
   const historyIntro = '\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n'
@@ -209,11 +209,38 @@ export function codeBridgeErrorDetail(task: CodeBridgeTaskView): string {
  */
 export const COMPLETION_MARKER = '[MINDEN_KESZ]'
 
-/** True when the finished task's answer carries the whole-work-done marker. */
+/**
+ * The answer says, in its closing words, that work is still ahead ("Ami
+ * hátravan: ... ezzel folytatom") -- so a marker next to it is a mistake.
+ * Real case (Boss, 2026-10-02): the agent wrote exactly that AND the marker,
+ * and the chat stopped with the work half done. Only the tail before the
+ * marker is read, so a long report that merely mentions "next step" earlier
+ * is not misjudged.
+ */
+const PENDING_TAIL_CHARS = 900
+const PENDING_CUES = new RegExp([
+  'hátra\\s?van', 'hátravó', 'még hátra', 'ezzel folytatom', 'ezután folytatom', 'folytatom\\b',
+  'következő lépés', 'még nincs (?:kész|meg)\\b', 'majd (?:megcsinálom|elkészítem|folytatom)',
+  'still (?:to do|remaining|left)', 'remaining work', 'what(?:\'| i)s left', 'i(?:\'| wi)ll (?:now )?(?:continue|proceed)',
+  'next step', 'to be continued', 'not yet (?:done|finished)',
+].join('|'), 'i')
+
+export function claimsPendingWork(text: string): boolean {
+  const at = text.lastIndexOf(COMPLETION_MARKER)
+  const before = at >= 0 ? text.slice(0, at) : text
+  return PENDING_CUES.test(before.slice(-PENDING_TAIL_CHARS))
+}
+
+/** True when the finished task's answer carries the whole-work-done marker (and does not itself say work is left). */
 export function codeBridgeFullyDone(task: CodeBridgeTaskView): boolean {
   if (task.status !== 'done') return false
   const text = task.result ?? task.summary ?? ''
-  return text.includes(COMPLETION_MARKER)
+  return text.includes(COMPLETION_MARKER) && !claimsPendingWork(text)
+}
+
+/** The marker instruction, for prompts that continue an already running session. */
+export function completionInstruction(): string {
+  return `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do.`
 }
 
 /** The answer shown in the chat, with the marker removed (the owner never sees it). */

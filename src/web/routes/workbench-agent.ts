@@ -31,15 +31,15 @@ import { workbenchAccountStatuses, isKnownWorkbenchAccount, workbenchAccounts, n
 import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
-import { decideWorkbenchBackend } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeContinuable, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
+import { decideWorkbenchBackend, isWindowsDriveBridgePath } from '../../workbench-agent/backend-router.js'
+import { runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
   setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
 import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
 import { effectiveWorkbenchModel, liveModelLaunch, loggedInConfigDir, ollamaUnreachable, STRIPPED_ENV, workbenchRoute } from '../../workbench-agent/provider-anthropic.js'
 import { tryResolveFromPath } from '../../platform.js'
-import { codeBridgeHealth, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat, effectiveRunSessionId, findCodeTabLocation, type CodeTask } from '../code-bridge-store.js'
+import { codeBridgeHealth, resolveProject, enqueueCodeTask, getCodeTask, cancelCodeTask, activeWorkbenchTaskForChat, effectiveRunSessionId, findCodeTabLocation, type CodeTask } from '../code-bridge-store.js'
 import { projectFileTarget } from '../../project-files.js'
 import { updateWindowsClaudeForBridge, windowsUpdatePossible, type WindowsUpdateOutcome } from '../../windows-claude-updater.js'
 import {
@@ -194,6 +194,8 @@ interface InflightTurn {
 const INFLIGHT_MAX_AGE_MS = 2 * 60 * 60 * 1000
 /** A turn that keeps dying with the process is not retried forever. */
 const INFLIGHT_MAX_RESUMES = 2
+/** Continuations of one live turn when the work is not marked whole-done (progress required each time). */
+const LIVE_MAX_CONTINUES = 5
 /** Wait a little after startup so the rest of the server is up. */
 const INFLIGHT_RESUME_DELAY_MS = 5_000
 
@@ -790,7 +792,16 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // rendszere); kifejezetten valasztott fioknal a helyi munkamenet fut.
     // An interrupted live turn continues in the live session that has its context.
     const resumeCount = resumingTurns.get(key)
-    const bridgeFirst = !account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil
+    // Boss (2026-10-02): a project on a Windows drive uses the Windows-side bridge by default
+    // (his trading code); the Settings switch WORKBENCH_WINDOWS_BRIDGE=marvin sends it to the
+    // live session with the best account instead.
+    let windowsDriveBridge = false
+    try {
+      const code = resolveProject(project.name || project.id)
+      windowsDriveBridge = !('error' in code) && isWindowsDriveBridgePath(code.session.workspacePath)
+        && String(getEffectiveSettingValue('WORKBENCH_WINDOWS_BRIDGE') || 'windows') === 'marvin'
+    } catch { windowsDriveBridge = false }
+    const bridgeFirst = !account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil && !(windowsDriveBridge && !!liveSpec)
     // #455: a GLM / DeepSeek / OpenRouter / local Ollama model runs only in the
     // live session -- the code bridge has the worker's own Claude login.
     const modelRoute = fullAgentEnabled ? workbenchRoute(effectiveWorkbenchModel()) : 'claude'
@@ -858,8 +869,17 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         // ha mar nincs kire valtani.
         const limited = new Set<string>()
         let spec: LiveStartSpec | null = first
+        let lastSpec: LiveStartSpec = first
+        // Boss, 2026-10-02: "amig az EGESZ munka nincs kesz, folytasd" -- ez az
+        // ut (a masik fiokkal folytato, helyi munkamenet) eddig egy fordulo utan
+        // megallt. Egy fordulo akkor KESZ, ha a vegen ott a jel, a szoveg nem
+        // mond hatralevo munkat, vagy nem is dolgozott (sima valasz).
+        let rounds = 0
+        let toolsThisRound = 0
+        outer: for (;;) {
         while (spec) {
           const cur: LiveStartSpec = spec
+          lastSpec = cur
           spec = null
           for await (const ev of getLivePool().turn(
             cur,
@@ -872,7 +892,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 message: turnText,
                 lang,
               })
-              : turnText,
+              : `${turnText}\n\n${completionInstruction()}`,
             lang,
             ac.signal,
           )) {
@@ -885,7 +905,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               if (next && !limited.has(next.configDir)) {
                 if (answer.trim()) {
                   turnText = `${text}\n\n${msg('live_switch_continue', lang, { partial: answer.trim().slice(-3000) })}`
-                  addAgentMessage(session.id, 'assistant', answer.trim())
+                  addAgentMessage(session.id, 'assistant', stripCompletionMarker(answer))
                   answer = ''
                 }
                 // Boss, 2026-09-29: the chat says which account ran out and
@@ -899,14 +919,41 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             }
             if (ev.type === 'text') answer += ev.text
             if (ev.type === 'error') failed = ev.message
-            if (ev.type === 'tool') recordLiveTool(session.id, openTools, ev)
+            if (ev.type === 'tool') { toolsThisRound++; recordLiveTool(session.id, openTools, ev) }
             // A kliens elmenetele utan is vegigolvassuk: a valasz igy a
-            // beszelgetesbe kerul, nem szakad felbe.
-            send(ev.type, ev)
+            // beszelgetesbe kerul, nem szakad felbe. A befejezes jele nem a
+            // tulajdonosnak szol: a folyamból is kimarad.
+            send(ev.type, ev.type === 'text' && typeof ev.text === 'string' ? { ...ev, text: ev.text.split(COMPLETION_MARKER).join('') } : ev)
           }
         }
-        if (answer.trim()) addAgentMessage(session.id, 'assistant', answer.trim())
+        if (answer.trim()) addAgentMessage(session.id, 'assistant', stripCompletionMarker(answer))
         if (failed) addAgentMessage(session.id, 'system', failed)
+        // Folytatas-dontes. Csak Claude-modellnel (a masik modellek nem ismerik a
+        // jelet), hiba nelkul, es ha a tulajdonos nem allitotta le.
+        const worked = toolsThisRound > 0
+        const finished = answer.includes(COMPLETION_MARKER) && !claimsPendingWork(answer)
+        const wantsMore = !failed && !ac.signal.aborted && modelRoute === 'claude'
+          && !finished && (worked || claimsPendingWork(answer))
+        if (!wantsMore) break outer
+        if (rounds > 0 && !worked) {
+          addAgentMessage(session.id, 'system', msg('live_continue_stuck', lang))
+          send('notice', { type: 'notice', code: 'live_continue_stuck', message: msg('live_continue_stuck', lang) })
+          break outer
+        }
+        if (rounds >= LIVE_MAX_CONTINUES) {
+          addAgentMessage(session.id, 'system', msg('live_continue_stuck', lang))
+          send('notice', { type: 'notice', code: 'live_continue_stuck', message: msg('live_continue_stuck', lang) })
+          break outer
+        }
+        rounds++
+        const cont = msg('live_continue_note', lang)
+        addAgentMessage(session.id, 'system', cont)
+        send('notice', { type: 'notice', code: 'live_continue_note', message: cont })
+        turnText = msg('live_continue_prompt', lang)
+        answer = ''
+        toolsThisRound = 0
+        spec = lastSpec
+        }
       } finally {
         clearTimeout(hardCap)
         clearInflight(key)
