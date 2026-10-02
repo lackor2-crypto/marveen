@@ -13,9 +13,13 @@
  * Logos are references to pictures kept once in the project's shared
  * materials (K-0.19), never copies. The canvas only has three font families
  * (sans / serif / mono), so a brand font is one of those three.
+ *
+ * Brand templates (K-4.1) are drawings the owner saved as the starting point
+ * of the brand's next drawings; see the section at the end of this file.
  */
+import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
-import { safeColor, type CanvasDoc, type CanvasFont, type CanvasObject, type CanvasImage } from './workbench-graphic.js'
+import { safeColor, parseCanvas, type CanvasDoc, type CanvasFont, type CanvasObject, type CanvasImage } from './workbench-graphic.js'
 
 export const BRAND_MAX_COLORS = 12
 export const BRAND_MAX_NOTES = 20
@@ -70,6 +74,15 @@ export function ensureBrandTable(): void {
       data TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS workbench_brand_templates (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      doc TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      created_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_wb_brand_templates_project ON workbench_brand_templates(project_id);
   `)
   tablesDb = db
 }
@@ -142,7 +155,8 @@ export function parseBrand(raw: unknown, base: Brand = emptyBrand()): { ok: true
     const v = r.logo_min_width_pct
     if (v == null || v === '') b.logo_min_width_pct = null
     else {
-      const n = Number(v)
+      // A number, or a number typed as text. `true` or `[15]` is not a width.
+      const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
       if (!Number.isFinite(n) || n < 1 || n > 80) return { ok: false, code: 'bad_min_width' }
       b.logo_min_width_pct = Math.round(n * 10) / 10
     }
@@ -236,9 +250,24 @@ const CORNER_LABEL: Record<LogoCorner, Text> = {
 }
 
 function objLabel(o: CanvasObject): Text {
-  return o.type === 'text'
-    ? { hu: `A(z) „${o.text.slice(0, 30)}” szöveg`, en: `The text "${o.text.slice(0, 30)}"` }
-    : { hu: `A(z) ${o.id} elem`, en: `The element ${o.id}` }
+  if (o.type !== 'text') return { hu: `A(z) ${o.id} elem`, en: `The element ${o.id}` }
+  // One line, and a cut text says it was cut.
+  const flat = o.text.replace(/\s+/g, ' ').trim()
+  const s = flat.length > 30 ? flat.slice(0, 30).trimEnd() + '…' : flat
+  return { hu: `A(z) „${s}” szöveg`, en: `The text "${s}"` }
+}
+
+/**
+ * What cannot be seen is not on the drawing: a fully transparent element or an
+ * empty text is neither a deviation nor "the logo is there".
+ */
+function isVisible(o: CanvasObject): boolean {
+  return !(o.opacity <= 0) && (o.type !== 'text' || o.text.trim() !== '')
+}
+
+/** Which half the centre falls in; dead centre is neither (so it is in no corner). */
+function half(pos: number, low: string, high: string): string | null {
+  return Math.abs(pos - 0.5) < 1e-6 ? null : pos < 0.5 ? low : high
 }
 
 /**
@@ -262,12 +291,14 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
   if (!brand || brandIsEmpty(brand)) return []
   const out: BrandFinding[] = []
   const palette = new Set(brand.colors.map((c) => c.hex))
+  const objects = doc.objects.filter(isVisible)
 
   if (palette.size) {
     const colorsOf = (o: CanvasObject): string[] => {
       if (o.type === 'text') return [o.color]
       if (o.type === 'rect') return [o.fill]
-      if (o.type === 'ellipse') return [o.fill, o.stroke]
+      // An outline of zero width is not drawn (see renderCanvasSvg), so its colour is not on the drawing.
+      if (o.type === 'ellipse') return o.strokeWidth > 0 ? [o.fill, o.stroke] : [o.fill]
       if (o.type === 'line') return [o.stroke]
       return []
     }
@@ -280,7 +311,7 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
       })
     }
     check(doc.background, { hu: 'A háttér', en: 'The background' })
-    for (const o of doc.objects) {
+    for (const o of objects) {
       const seen = new Set<string>()
       for (const c of colorsOf(o)) {
         const hex = normHex(c)
@@ -297,7 +328,7 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
 
   const fonts = [brand.font_heading, brand.font_body].filter((f): f is CanvasFont => !!f)
   if (fonts.length) {
-    for (const o of doc.objects) {
+    for (const o of objects) {
       if (o.type === 'text' && !fonts.includes(o.font)) {
         out.push({
           code: 'off_font', object: o.id,
@@ -311,7 +342,7 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
   }
 
   if (brand.no_exclamation) {
-    for (const o of doc.objects) {
+    for (const o of objects) {
       if (o.type === 'text' && /[!！]/.test(o.text)) {
         out.push({
           code: 'exclamation', object: o.id,
@@ -323,7 +354,7 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
 
   const logos = [brand.logo_light, brand.logo_dark].filter((l): l is string => !!l)
   if (logos.length) {
-    const used = doc.objects.filter((o): o is CanvasImage => o.type === 'image' && logos.some((l) => isLogoSrc(o.src, l, projectFolder)))
+    const used = objects.filter((o): o is CanvasImage => o.type === 'image' && logos.some((l) => isLogoSrc(o.src, l, projectFolder)))
     if (!used.length) {
       out.push({
         code: 'logo_missing', object: null,
@@ -344,10 +375,11 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
         })
       }
       if (brand.logo_corner) {
-        const cx = (l.x + l.width / 2) / doc.width
-        const cy = (l.y + l.height / 2) / doc.height
-        const corner: LogoCorner = `${cy < 0.5 ? 'top' : 'bottom'}-${cx < 0.5 ? 'left' : 'right'}` as LogoCorner
-        if (corner !== brand.logo_corner) {
+        // The corner is the quarter the logo's centre falls in. A logo centred on
+        // an axis is in no corner: "centred at the bottom" is not "bottom right".
+        const v = half((l.y + l.height / 2) / doc.height, 'top', 'bottom')
+        const h = half((l.x + l.width / 2) / doc.width, 'left', 'right')
+        if (!v || !h || `${v}-${h}` !== brand.logo_corner) {
           out.push({
             code: 'logo_corner', object: l.id,
             message: {
@@ -367,7 +399,16 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
 /** The text block put in front of the Workbench agent in every turn (K-4.2). */
 export function brandForContext(projectId: string): string {
   const b = getBrand(projectId)
-  if (!b || brandIsEmpty(b)) return 'Brand Kit of this project: none set yet (it was read and it is empty). Do not invent brand colours.'
+  const usable = listBrandTemplates(projectId).filter((t) => !t.unreadable)
+  const shown = usable.slice(0, CONTEXT_TEMPLATES_MAX).map((t) => `"${t.name}" (${t.width}x${t.height})`).join(', ')
+  const templates = usable.length
+    ? '- Brand templates (start a new branded drawing from one with brand.useTemplate instead of an empty canvas): ' + shown
+      + (usable.length > CONTEXT_TEMPLATES_MAX ? `, and ${usable.length - CONTEXT_TEMPLATES_MAX} more (brand.get lists all)` : '')
+    : ''
+  if (!b || brandIsEmpty(b)) {
+    const none = 'Brand Kit of this project: none set yet (it was read and it is empty). Do not invent brand colours.'
+    return templates ? none + '\n' + templates : none
+  }
   const lines: string[] = ['Brand Kit of this project. Apply it by yourself to every post, drawing and document of this brand; do not ask the owner to repeat it:']
   if (b.colors.length) lines.push('- Colours: ' + b.colors.map((c) => (c.name ? `${c.name} ${c.hex}` : c.hex)).join(', ') + ' (use only these, plus black/white/grey)')
   if (b.logo_light) lines.push(`- Logo for light backgrounds (image src): ${b.logo_light}`)
@@ -378,6 +419,111 @@ export function brandForContext(projectId: string): string {
   if (b.logo_min_width_pct != null) lines.push(`- The logo is at least ${b.logo_min_width_pct}% of the drawing width`)
   if (b.no_exclamation) lines.push('- No exclamation marks in any text')
   for (const n of b.notes) lines.push(`- Rule: ${n}`)
+  if (templates) lines.push(templates)
   lines.push('After a canvas change, run brand.check; if it lists deviations, fix them or tell the owner why you left them.')
   return lines.join('\n')
+}
+
+// ---- brand templates (K-4.1) --------------------------------------------------------
+//
+// A brand template is a drawing the owner saved as the starting point of the
+// brand's next drawings ("Instagram post", "story"). It is a SNAPSHOT of the
+// canvas, not a link to the work item it was made from: that work item can be
+// changed, binned or purged without touching the template. (The table has no
+// work_item_id column on purpose -- purgeWorkItem sweeps every table that has one.)
+
+export const BRAND_MAX_TEMPLATES = 30
+export const BRAND_TEMPLATE_NAME_MAX = 80
+/** The agent sees this many template names in every turn; brand.get lists all. */
+const CONTEXT_TEMPLATES_MAX = 10
+
+export interface BrandTemplate {
+  id: string
+  name: string
+  /** Size and element count of the drawing; `null` when it cannot be read. */
+  width: number | null
+  height: number | null
+  objects: number | null
+  created_at: number
+  /** The stored drawing no longer validates: it is listed and can be removed, but not used. */
+  unreadable: boolean
+}
+
+interface TemplateRow { id: string; project_id: string; name: string; doc: string; created_at: number; created_by: string | null }
+
+function templateView(row: Pick<TemplateRow, 'id' | 'name' | 'doc' | 'created_at'>): BrandTemplate {
+  const p = parseCanvas(row.doc)
+  const base = { id: row.id, name: row.name, created_at: row.created_at }
+  return p.ok
+    ? { ...base, width: p.doc.width, height: p.doc.height, objects: p.doc.objects.length, unreadable: false }
+    : { ...base, width: null, height: null, objects: null, unreadable: true }
+}
+
+function templateRows(projectId: string): TemplateRow[] {
+  ensureBrandTable()
+  return getDb().prepare('SELECT * FROM workbench_brand_templates WHERE project_id = ? ORDER BY name COLLATE NOCASE, created_at, id')
+    .all(projectId) as TemplateRow[]
+}
+
+/** The project's brand templates by name. An unreadable one is listed too, marked. */
+export function listBrandTemplates(projectId: string): BrandTemplate[] {
+  return templateRows(projectId).map(templateView)
+}
+
+export type BrandTemplateCode = 'template_name_required' | 'template_name_too_long' | 'template_name_taken' | 'too_many_templates'
+
+export type BrandTemplateSave =
+  | { ok: true; template: BrandTemplate; replaced: boolean }
+  | { ok: false; code: BrandTemplateCode }
+
+const sameName = (a: string, b: string): boolean => a.toLocaleLowerCase() === b.toLocaleLowerCase()
+
+/**
+ * Saves a drawing as a brand template. A name is used once per project: saving
+ * under an existing name is refused unless `replace` says the owner meant it.
+ */
+export function saveBrandTemplate(
+  projectId: string,
+  rawName: unknown,
+  doc: CanvasDoc,
+  opts: { replace?: boolean; createdBy?: string | null } = {},
+): BrandTemplateSave {
+  const name = typeof rawName === 'string' ? rawName.replace(/\s+/g, ' ').trim() : ''
+  if (!name) return { ok: false, code: 'template_name_required' }
+  if (name.length > BRAND_TEMPLATE_NAME_MAX) return { ok: false, code: 'template_name_too_long' }
+  const rows = templateRows(projectId)
+  const old = rows.find((r) => sameName(r.name, name))
+  if (old && !opts.replace) return { ok: false, code: 'template_name_taken' }
+  if (!old && rows.length >= BRAND_MAX_TEMPLATES) return { ok: false, code: 'too_many_templates' }
+  const row = { id: old ? old.id : randomUUID().replace(/-/g, '').slice(0, 12), name, doc: JSON.stringify(doc), created_at: now() }
+  const db = getDb()
+  if (old) {
+    db.prepare('UPDATE workbench_brand_templates SET name = ?, doc = ?, created_at = ?, created_by = ? WHERE id = ?')
+      .run(row.name, row.doc, row.created_at, opts.createdBy ?? null, row.id)
+  } else {
+    db.prepare('INSERT INTO workbench_brand_templates (id, project_id, name, doc, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(row.id, projectId, row.name, row.doc, row.created_at, opts.createdBy ?? null)
+  }
+  return { ok: true, template: templateView(row), replaced: !!old }
+}
+
+export type BrandTemplateRead =
+  | { ok: true; template: BrandTemplate; doc: CanvasDoc }
+  | { ok: false; code: 'template_not_found' | 'template_unreadable'; detail: string | null }
+
+/** One template with its drawing, by id or (for the agent, who knows the names) by name. */
+export function getBrandTemplate(projectId: string, idOrName: unknown): BrandTemplateRead {
+  const key = typeof idOrName === 'string' ? idOrName.trim() : ''
+  const rows = key ? templateRows(projectId) : []
+  const row = rows.find((r) => r.id === key) ?? rows.find((r) => sameName(r.name, key))
+  if (!row) return { ok: false, code: 'template_not_found', detail: null }
+  const p = parseCanvas(row.doc)
+  if (!p.ok) return { ok: false, code: 'template_unreadable', detail: `${p.code}: ${p.detail}` }
+  return { ok: true, template: templateView(row), doc: p.doc }
+}
+
+/** Removes a template. The drawings made from it are work items of their own and stay. */
+export function deleteBrandTemplate(projectId: string, id: string): boolean {
+  ensureBrandTable()
+  return getDb().prepare('DELETE FROM workbench_brand_templates WHERE project_id = ? AND id = ?').run(projectId, id).changes > 0
 }

@@ -503,6 +503,13 @@ export const TOOLS: ToolDef[] = [
     input: 'id: the work item id (optional, defaults to the open one)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
+  // K-4.1: brand templates. The owner saves them (canvas toolbar); the agent starts new drawings from them.
+  {
+    name: 'brand.useTemplate',
+    description: 'Create a new drawing (a new work item) as a copy of one of the project\'s brand templates; the template itself is not changed. The templates are listed in the Brand Kit context and by brand.get. Use it when the owner asks for a new post or drawing of the brand and a template fits, then change the copy with canvas.edit.',
+    input: 'template: the id or the name of the brand template; title (optional): the name of the new work item, default is the template name',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
   // #406, 14. pont: kis teendo hataridovel. A `workItem.` elotag miatt a
   // felulet utana magatol frissul.
   {

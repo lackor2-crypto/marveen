@@ -208,6 +208,10 @@
     brandError: null,
     brandBusy: false,
     brandCheck: null,
+    // K-4.1: the drawings saved as brand templates; `brandTplBusy` is the id
+    // being used/removed, or 'save' while a drawing is being saved as one.
+    brandTemplates: [],
+    brandTplBusy: null,
     // --- atadocsomag (#406, 12. pont) ---
     hoOpen: false,
     // Betekinto linkek (#406, 18. pont): a projekt linkjei + a kivalasztott ervenyesseg.
@@ -4709,6 +4713,8 @@
       + esc(t('workbench.canvas.version_save')) + '</button>'
       + '<button type="button" class="wb-btn" data-wb-act="canvas-brand-check" title="' + escA(t('workbench.brand.check_title')) + '">'
       + esc(t('workbench.brand.check')) + '</button>'
+      + '<button type="button" class="wb-btn" data-wb-act="canvas-brand-tpl-save"' + (busy || WB.brandTplBusy ? ' disabled' : '')
+      + ' title="' + escA(t('workbench.brand.tpl_save_title')) + '">' + esc(t('workbench.brand.tpl_save')) + '</button>'
       + '</div>'
       + brandCheckHtml()
   }
@@ -9343,6 +9349,10 @@
     var pid = WB.projectId
     if (!pid) return Promise.resolve()
     WB.brandError = null
+    // The form is already on screen when the brand was loaded earlier (the
+    // canvas editor loads it for the colour buttons): what the owner types
+    // while this request is on its way must not be wiped by the answer.
+    var before = WB.brandDraft ? JSON.stringify(WB.brandDraft) : null
     return Promise.all([
       api('GET', '/api/workbench/brand?project=' + encodeURIComponent(pid)),
       api('GET', '/api/workbench/shared?project=' + encodeURIComponent(pid)),
@@ -9350,9 +9360,11 @@
       if (WB.projectId !== pid) return
       var b = rs[0]
       if (!b.ok) { WB.brandError = b.message; WB.brand = null; render(); return }
+      var typed = before !== null && !!WB.brandDraft && JSON.stringify(WB.brandDraft) !== before
       WB.brand = b.data.brand
       WB.brandUnreadable = !!b.data.unreadable
-      WB.brandDraft = brandCopy(WB.brand)
+      if (!typed) WB.brandDraft = brandCopy(WB.brand)
+      WB.brandTemplates = b.data.templates || []
       WB.brandFilesError = rs[1].ok ? null : rs[1].message
       WB.brandFiles = rs[1].ok && rs[1].data && rs[1].data.files
         ? rs[1].data.files.filter(function (f) { return BRAND_IMG.test(f.name || '') }) : []
@@ -9465,6 +9477,7 @@
         + (archived() ? '' : '<div class="wb-dec-btns"><button type="submit" class="btn-primary"' + (WB.brandBusy ? ' disabled' : '') + '>' + esc(t('workbench.brand.save')) + '</button>'
           + '<button type="button" class="btn-secondary" data-wb-act="brand-reset">' + esc(t('workbench.brand.reset')) + '</button></div>')
         + '</form>'
+        + brandTemplatesHtml()
     }
     return '<section class="wb-caps-panel wb-brand-panel" id="wbBrandPanel">'
       + '<div class="wb-caps-head"><h2>' + esc(t('workbench.brand.title')) + '</h2>'
@@ -9500,6 +9513,92 @@
     })
   }
 
+  /** K-4.1: the drawings saved as the brand's templates. Outside the brand
+   *  form: a template is saved from a drawing, not with "Save the brand". */
+  function brandTemplatesHtml() {
+    var list = WB.brandTemplates || []
+    var off = archived() || WB.brandTplBusy ? ' disabled' : ''
+    var rows = list.map(function (tp) {
+      var meta = tp.unreadable
+        ? '<span class="wb-error">' + esc(t('workbench.brand.tpl_unreadable')) + '</span>'
+        : '<span class="wb-hint">' + esc(t('workbench.brand.tpl_meta', { w: tp.width, h: tp.height, n: tp.objects, when: when(tp.created_at) })) + '</span>'
+      var buttons = archived() ? '' : '<div class="wb-dec-btns">'
+        + (tp.unreadable ? '' : '<button type="button" class="wb-btn" data-wb-act="brand-tpl-use" data-wb-tpl="' + escA(tp.id) + '"' + off + '>'
+          + esc(t(WB.brandTplBusy === tp.id ? 'workbench.brand.tpl_creating' : 'workbench.brand.tpl_use')) + '</button>')
+        + '<button type="button" class="wb-mini-btn wb-mini-danger" data-wb-act="brand-tpl-del" data-wb-tpl="' + escA(tp.id) + '"' + off + '>'
+        + esc(t('workbench.brand.tpl_del')) + '</button></div>'
+      return '<li class="wb-brand-tpl"><div class="wb-brand-tpl-text"><strong>' + esc(tp.name) + '</strong>' + meta + '</div>' + buttons + '</li>'
+    }).join('')
+    return '<h3 class="wb-search-group">' + esc(t('workbench.brand.h_templates')) + '</h3>'
+      + '<p class="wb-hint">' + esc(t(list.length ? 'workbench.brand.tpl_help' : 'workbench.brand.tpl_none')) + '</p>'
+      + (rows ? '<ul class="wb-brand-tpls">' + rows + '</ul>' : '')
+  }
+
+  /** The drawing on screen becomes a brand template: a snapshot, the work item
+   *  is not tied to it. A name that is taken is replaced only after a yes. */
+  function saveBrandTemplate(name, replace) {
+    var id = WB.selectedId, pid = WB.projectId
+    if (!id || WB.brandTplBusy || archived()) return
+    if (name == null) {
+      var title = (WB.detail && WB.detail.item && WB.detail.item.title) || ''
+      var typed = typeof window.prompt === 'function' ? window.prompt(t('workbench.brand.tpl_name_prompt'), title) : title
+      if (typed == null) return
+      name = String(typed).trim() || title
+    }
+    WB.brandTplBusy = 'save'
+    render()
+    api('POST', '/api/workbench/brand/templates', { item: id, name: name, replace: !!replace }).then(function (r) {
+      WB.brandTplBusy = null
+      if (WB.projectId !== pid) return
+      if (!r.ok) {
+        render()
+        if (r.code === 'brand_template_name_taken' && !replace) {
+          if (window.confirm(t('workbench.brand.tpl_replace_confirm', { name: name }))) saveBrandTemplate(name, true)
+        } else window.showToast(r.message)
+        return
+      }
+      WB.brandTemplates = r.data.templates || []
+      window.showToast(t(r.data.replaced ? 'workbench.brand.tpl_replaced' : 'workbench.brand.tpl_saved', { name: r.data.template.name }))
+      render()
+    })
+  }
+
+  /** A new drawing from a brand template; the template itself is not touched. */
+  function useBrandTemplate(tplId) {
+    var pid = WB.projectId
+    if (!tplId || WB.brandTplBusy || archived()) return
+    WB.brandTplBusy = tplId
+    render()
+    api('POST', '/api/workbench/brand/templates/' + encodeURIComponent(tplId) + '/use', { project: pid }).then(function (r) {
+      WB.brandTplBusy = null
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.brandOpen = false
+      WB.formOpen = false
+      window.showToast(t('workbench.brand.tpl_created', { name: r.data.template.name, title: r.data.item.title }))
+      // Opened at once: the copy is there, it can be changed.
+      selectItem(r.data.item.id)
+      load(pid)
+    })
+  }
+
+  function deleteBrandTemplate(tplId) {
+    var pid = WB.projectId
+    var tp = (WB.brandTemplates || []).filter(function (x) { return x.id === tplId })[0]
+    if (!tp || WB.brandTplBusy || archived()) return
+    if (!window.confirm(t('workbench.brand.tpl_del_confirm', { name: tp.name }))) return
+    WB.brandTplBusy = tplId
+    render()
+    api('DELETE', '/api/workbench/brand/templates/' + encodeURIComponent(tplId) + '?project=' + encodeURIComponent(pid)).then(function (r) {
+      WB.brandTplBusy = null
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.brandTemplates = r.data.templates || []
+      window.showToast(t('workbench.brand.tpl_deleted'))
+      render()
+    })
+  }
+
   function runBrandCheck() {
     var id = WB.selectedId
     if (!id) return
@@ -9519,6 +9618,8 @@
     if (c.loading) inner = '<p class="wb-hint">' + esc(t('workbench.brand.checking')) + '</p>'
     else if (c.error) inner = '<p class="wb-error">' + esc(c.error) + '</p>'
     else if (!c.data.has_brand) inner = '<p class="wb-hint">' + esc(t('workbench.brand.check_nobrand')) + '</p>'
+    // No drawing was compared: "no deviations" would be a false all-clear.
+    else if (c.data.has_canvas === false) inner = '<p class="wb-hint">' + esc(t('workbench.brand.check_nocanvas')) + '</p>'
     else if (!c.data.findings.length) inner = '<p class="wb-hint wb-brand-ok">' + esc(t('workbench.brand.check_ok')) + '</p>'
     else inner = '<p class="wb-hint">' + esc(t('workbench.brand.check_found', { n: c.data.findings.length })) + '</p>'
       + '<ul class="wb-brand-findings">' + c.data.findings.map(function (f) { return '<li>' + esc(f.message) + '</li>' }).join('') + '</ul>'
@@ -10095,6 +10196,8 @@
     WB.brandError = null
     WB.brandBusy = false
     WB.brandCheck = null
+    WB.brandTemplates = []
+    WB.brandTplBusy = null
     WB.chatForceBottom = true
     render()
     load(projectId)
@@ -10351,6 +10454,9 @@
       if (sw) sw.value = act.getAttribute('data-wb-hex')
     }
     else if (a === 'canvas-brand-check') runBrandCheck()
+    else if (a === 'canvas-brand-tpl-save') saveBrandTemplate(null, false)
+    else if (a === 'brand-tpl-use') useBrandTemplate(act.getAttribute('data-wb-tpl'))
+    else if (a === 'brand-tpl-del') deleteBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
     else if (a === 'dec-close') { WB.decOpen = false; WB.decEdit = null; render() }
     else if (a === 'dec-edit') { WB.decEdit = act.getAttribute('data-wb-dec'); render() }
