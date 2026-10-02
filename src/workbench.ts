@@ -34,7 +34,7 @@ import { getDb } from './db.js'
  *  (komment 1222/1223) szerint a fajta CSAK CIMKE, nem korlat: RESZEKET
  *  (`work_item_parts`) barmelyik fajta alá lehet tenni -- a `composite` csak
  *  azt mondja, hogy eleve vegyes tartalomnak indult. */
-export const WORK_ITEM_TYPES = ['document', 'image', 'graphic', 'video', 'note', 'composite'] as const
+export const WORK_ITEM_TYPES = ['document', 'image', 'graphic', 'video', 'presentation', 'note', 'composite'] as const
 export type WorkItemType = typeof WORK_ITEM_TYPES[number]
 
 /** Munkadarab-allapotok. Szandekosan keves: a kanban-statuszoktol fuggetlen,
@@ -49,6 +49,7 @@ export const EDITOR_BY_TYPE: Record<WorkItemType, string> = {
   image: 'image',
   graphic: 'graphic',
   video: 'video',
+  presentation: 'presentation',
   note: 'text',
   composite: 'composite',
 }

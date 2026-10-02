@@ -84,12 +84,13 @@ describe('belepo: a vegpont', () => {
     expect(listWorkItems(pid)).toEqual([])
   })
 
-  it('gomb (kind): mondat nelkul is letrejon; a prezentacio kimondja, hogy vazlat', async () => {
+  it('gomb (kind): mondat nelkul is letrejon; a prezentacio sajat fajta (diasor)', async () => {
     const b = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, kind: 'court_filing' })
     expect(b.status).toBe(201)
     expect(b.body.item).toMatchObject({ title: 'Új bírósági beadvány', type: 'document' })
     const p = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, kind: 'presentation', text: 'Diák a közgyűlésre' })
-    expect(p.body.message).toMatch(/vázlatként/)
+    expect(p.body.item.type).toBe('presentation')
+    expect(p.body.message).toBeNull()
   })
 
   it('hibak emberi mondattal: ures, nincs projekt, archivalt projekt', async () => {

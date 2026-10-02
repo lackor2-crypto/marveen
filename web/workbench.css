@@ -1230,3 +1230,10 @@
 .wb-folder-row[data-wb-drop-folder]:hover { outline: 1px dashed currentColor; }
 .wb-vt-list { list-style: none; margin: 4px 0; padding: 0; }
 .wb-vt-row { margin: 4px 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.wb-deck-strip { display: flex; gap: 10px; overflow-x: auto; padding: 8px 0; align-items: flex-start; }
+.wb-deck-thumb { flex: 0 0 auto; width: 170px; display: flex; flex-direction: column; gap: 4px; }
+.wb-deck-pick { padding: 0; border: 2px solid transparent; background: none; cursor: pointer; line-height: 0; border-radius: 4px; }
+.wb-deck-thumb-on .wb-deck-pick { border-color: var(--accent, #2f6fde); }
+.wb-deck-pick img { width: 100%; height: auto; border: 1px solid var(--border, #d0d7de); background: #fff; }
+.wb-deck-thumb-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-btn.wb-on { font-weight: 600; border-color: var(--accent, #2f6fde); }

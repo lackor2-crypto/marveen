@@ -36,6 +36,7 @@ import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { timelineGet, timelineEdit, timelineRender } from './timeline-tools.js'
+import { deckGet, deckEdit, deckExport } from './deck-tools.js'
 import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd, brandGet, brandCheck, brandUseTemplate } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { searchBlock } from '../workbench-privacy.js'
@@ -215,7 +216,7 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
  *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
  *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-  if (name !== 'web.search' && name !== 'document.toPdf' && name !== 'document.redact' && name !== 'timeline.render' && name !== 'timeline.edit') return executeTool(name, input, ctx)
+  if (name !== 'web.search' && name !== 'document.toPdf' && name !== 'document.redact' && name !== 'timeline.render' && name !== 'timeline.edit' && name !== 'deck.export') return executeTool(name, input, ctx)
 
   // #406 bugkereses 8.: a lassu eszkozok is UGYANAZON a kapun mennek at, mint
   // az executeTool -- kulonben egy uj async eszkoz csendben kikerulne.
@@ -224,6 +225,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
   const archived = archivedGate(name, project)
   if (archived) return archived
   if (name === 'timeline.render') return timelineRender(project, ctx, input)
+  if (name === 'deck.export') return deckExport(project, ctx, input)
   if (name === 'timeline.edit') return timelineEdit(project, ctx, input)
   if (name === 'web.search') {
     // ERZEKENY munkadarab/projekt (#441, K-1.32): a keresokifejezes nem vihet ki szemelyes adatot.
@@ -1049,6 +1051,8 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'brand.check': return brandCheck(project, asString(input.id) || ctx.workItemId || '')
     case 'brand.useTemplate': return brandUseTemplate(project, input)
     case 'timeline.get': return timelineGet(project, ctx, input)
+    case 'deck.get': return deckGet(project, ctx, input)
+    case 'deck.edit': return deckEdit(project, ctx, input)
     case 'decision.list': return decisionList(project)
     case 'decision.record': return decisionRecord(project, input)
     case 'workItem.addTodo': return todoAdd(project, input)

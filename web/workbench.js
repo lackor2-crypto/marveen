@@ -91,6 +91,12 @@
     vtBusy: false,
     vtRender: false,
     vtError: null,
+    // --- presentation deck (v4 spec phase 5): each slide is a canvas ---
+    deck: null,
+    deckSlide: null,
+    deckError: null,
+    deckExporting: null,
+    deckExported: null,
     // Melyik elemet jelolte ki a felhasznalo a vasznon (huzogatas, kartya
     // d4b05d82). Csak a KIEMELEST jelenti, a szerkeszto urlapot nem nyitja.
     canvasSel: null,
@@ -1090,6 +1096,10 @@
     WB.vt = null
     WB.vtError = null
     WB.vtBusy = false
+    WB.deck = null
+    WB.deckSlide = null
+    WB.deckError = null
+    WB.deckExported = null
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -1103,6 +1113,7 @@
       // megis rajz all mogotte.
       if (canvasKind(r.data && r.data.item)) loadCanvas(id)
       if (r.data && r.data.item && r.data.item.type === 'video') loadVideoTimeline(id)
+      if (r.data && r.data.item && r.data.item.type === 'presentation') loadDeck(id)
     })
   }
 
@@ -1602,7 +1613,7 @@
   }
 
   function newFormHtml() {
-    var types = ['document', 'image', 'graphic', 'video', 'note']
+    var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note']
     return intakeHtml()
       + '<details class="wb-new-manual"><summary>' + esc(t('workbench.intake.manual')) + '</summary>'
       + '<form class="wb-form" id="wbNewForm">'
@@ -3910,6 +3921,8 @@
     if (p.available && p.kind === 'parts') return ''
     // The timeline file is data: the timeline editor below shows it.
     if (p.available && p.kind === 'timeline') return ''
+    // The deck file is data: the slide editor below shows it.
+    if (p.available && p.kind === 'deck') return ''
     var head = '<div class="wb-preview-head"><h4>' + esc(t('workbench.preview.title')) + '</h4>'
       + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
       + previewVersionPickerHtml() + '</div>'
@@ -4351,6 +4364,7 @@
   }
 
   function canvasSvgUrl(itemId, download) {
+    if (deckMode() && deckCurrentSlide()) return deckSlideUrl(deckCurrentSlide().id)
     return '/api/workbench/items/' + encodeURIComponent(itemId) + '/canvas.svg'
       + '?lang=' + encodeURIComponent(window._lang || 'hu')
       + (WB.previewVersion ? '&version=' + encodeURIComponent(WB.previewVersion) : '')
@@ -4361,6 +4375,8 @@
   }
 
   function loadCanvas(itemId) {
+    // A slide deck keeps its drawings inside the deck file: the deck route loads them.
+    if (isDeckItem()) return loadDeck(itemId)
     WB.canvasError = null
     return api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/canvas').then(function (r) {
       if (WB.selectedId !== itemId) return
@@ -4391,6 +4407,7 @@
 
   /** Egy koteg muvelet elkuldese. UGYANAZ az ut, amit az agent hasznal. */
   function canvasOps(ops) {
+    if (deckMode()) return deckSlideOps(ops)
     if (!WB.selectedId || WB.canvasBusy) return
     WB.canvasBusy = true
     render()
@@ -4447,6 +4464,7 @@
   /** Visszavonas / ujra (K-2.1). A lepes lehet kezi vagy az agent egy egesz
    *  kerese -- a szerver tudja, mi tartozik egybe. */
   function canvasStep(dir) {
+    if (deckMode()) return deckStep(dir)
     if (!WB.selectedId || WB.canvasBusy || archived()) return
     var h = WB.canvas && WB.canvas.history
     if (!h || !(dir === 'undo' ? h.can_undo : h.can_redo)) return
@@ -4484,6 +4502,7 @@
 
   /** "Verzio mentese" (K-2.3): nevvel, ha a tulajdonos ad nevet. */
   function canvasSaveVersion() {
+    if (deckMode()) return deckSaveVersion()
     if (!WB.selectedId || WB.canvasBusy || archived()) return
     var label = typeof window.prompt === 'function' ? window.prompt(t('workbench.canvas.version_prompt'), '') : ''
     // Megse: nincs verzio. Az ures nev rendben van (nev nelkuli verzio).
@@ -4711,12 +4730,12 @@
       + esc(busy ? t('workbench.canvas.state_saving') : state) + '</span>'
       + '<button type="button" class="wb-btn" data-wb-act="canvas-version"' + (busy ? ' disabled' : '') + '>'
       + esc(t('workbench.canvas.version_save')) + '</button>'
-      + '<button type="button" class="wb-btn" data-wb-act="canvas-brand-check" title="' + escA(t('workbench.brand.check_title')) + '">'
-      + esc(t('workbench.brand.check')) + '</button>'
-      + '<button type="button" class="wb-btn" data-wb-act="canvas-brand-tpl-save"' + (busy || WB.brandTplBusy ? ' disabled' : '')
-      + ' title="' + escA(t('workbench.brand.tpl_save_title')) + '">' + esc(t('workbench.brand.tpl_save')) + '</button>'
+      + (deckMode() ? '' : '<button type="button" class="wb-btn" data-wb-act="canvas-brand-check" title="' + escA(t('workbench.brand.check_title')) + '">'
+        + esc(t('workbench.brand.check')) + '</button>'
+        + '<button type="button" class="wb-btn" data-wb-act="canvas-brand-tpl-save"' + (busy || WB.brandTplBusy ? ' disabled' : '')
+        + ' title="' + escA(t('workbench.brand.tpl_save_title')) + '">' + esc(t('workbench.brand.tpl_save')) + '</button>')
       + '</div>'
-      + brandCheckHtml()
+      + (deckMode() ? '' : brandCheckHtml())
   }
 
   /** A felbehagyott munkak sava. Nem tunik el szo nelkul semmi: a tulajdonos
@@ -5564,9 +5583,273 @@
       + '</div>'
   }
 
+  // ---- presentation deck (v4 spec phase 5) ------------------------------------
+  //
+  // Every slide is a canvas, so the slide editor IS the canvas editor: the picked
+  // slide's canvas is put into `WB.canvas`, and the canvas operations, undo, version
+  // and drag handles are redirected to the deck routes (`deckMode()`). The deck
+  // routes wrap the operations as {op:"slide", id, ops}.
+
+  function isDeckItem() {
+    return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'presentation')
+  }
+  function deckMode() { return isDeckItem() && !!(WB.deck && WB.deck.deck) }
+
+  function deckUrl(tail) {
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/deck' + (tail || '')
+  }
+
+  function deckSlides() { return (WB.deck && WB.deck.deck && WB.deck.deck.slides) || [] }
+  function deckCurrentSlide() {
+    var list = deckSlides()
+    for (var i = 0; i < list.length; i += 1) if (list[i].id === WB.deckSlide) return list[i]
+    return list[0] || null
+  }
+
+  function deckSlideUrl(slideId) {
+    return deckUrl('/slide/' + encodeURIComponent(slideId) + '.svg')
+      + '?lang=' + encodeURIComponent(window._lang || 'hu')
+      + (WB.previewVersion ? '&version=' + encodeURIComponent(WB.previewVersion) : '')
+  }
+
+  /** Puts the picked slide's canvas where the canvas editor reads it. */
+  function deckSyncCanvas() {
+    var s = deckCurrentSlide()
+    if (!s) { WB.canvas = null; return }
+    WB.deckSlide = s.id
+    var d = WB.deck
+    WB.canvas = {
+      canvas: s.canvas, exists: true, rel: d.rel, name: d.name, version_id: d.version_id, version_no: d.version_no,
+      current: d.current !== false, draft: d.draft, history: d.history, orphans: [], platforms: null,
+    }
+    bumpCanvasStamp()
+    WB.brandCheck = null
+    ensureBrand()
+  }
+
+  function loadDeck(itemId) {
+    WB.deckError = null
+    return api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/deck').then(function (r) {
+      if (WB.selectedId !== itemId) return
+      if (!r.ok) {
+        WB.deck = null
+        WB.canvas = null
+        WB.deckError = { message: r.message, detail: (r.data && r.data.detail) || '' }
+      } else if (r.data && r.data.deck) {
+        WB.deck = r.data
+        deckSyncCanvas()
+      }
+      render()
+    })
+  }
+
+  function deckTake(d) {
+    var old = WB.deck || {}
+    WB.deck = Object.assign({}, old, {
+      deck: d.deck || old.deck, exists: true, rel: d.rel || old.rel, name: d.name || old.name,
+      version_id: d.version ? d.version.id : old.version_id, version_no: d.version ? d.version.version_no : old.version_no,
+      summary: d.summary || old.summary,
+      draft: 'draft' in d ? d.draft : old.draft, history: 'history' in d ? d.history : old.history,
+      orphans: 'orphans' in d ? d.orphans : old.orphans, current: true,
+    })
+    if (WB.detail && d.item) WB.detail.item = d.item
+    if (WB.detail && d.versions) WB.detail.versions = d.versions
+    deckSyncCanvas()
+  }
+
+  /** A batch of deck operations: the same route the agent uses. `WB.canvasBusy` is the one busy flag (the drag handles read it). */
+  function deckOps(ops, then) {
+    if (!WB.selectedId || WB.canvasBusy || archived()) return
+    WB.canvasBusy = true
+    render()
+    api('POST', deckUrl('/ops'), { ops: ops }).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) { WB.deckError = { message: r.message, detail: (r.data && r.data.detail) || '' }; render(); return }
+      WB.deckError = null
+      WB.canvasEdit = null
+      deckTake(r.data)
+      if (r.data.created) window.showToast(r.data.message || t('workbench.deck.saved'))
+      if (then) then(r.data)
+      render()
+    })
+  }
+
+  /** What the canvas editor sends for the picked slide. */
+  function deckSlideOps(ops) {
+    var s = deckCurrentSlide()
+    if (s) deckOps([{ op: 'slide', id: s.id, ops: ops }])
+  }
+
+  function deckStep(dir) {
+    var h = WB.deck && WB.deck.history
+    if (!WB.selectedId || WB.canvasBusy || archived() || !h || !(dir === 'undo' ? h.can_undo : h.can_redo)) return
+    WB.canvasBusy = true
+    render()
+    api('POST', deckUrl('/' + dir), {}).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) {
+        window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+        loadDeck(WB.selectedId)
+        return
+      }
+      WB.canvasEdit = null
+      deckTake(r.data)
+      window.showToast(t(dir === 'undo' ? 'workbench.deck.undone' : 'workbench.deck.redone'))
+      render()
+    })
+  }
+
+  function deckSaveVersion() {
+    if (!WB.selectedId || WB.canvasBusy || archived()) return
+    var label = typeof window.prompt === 'function' ? window.prompt(t('workbench.canvas.version_prompt'), '') : ''
+    if (label === null) return
+    WB.canvasBusy = true
+    render()
+    api('POST', deckUrl('/version'), { label: label || '', reason: 'manual' }).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      deckTake(r.data)
+      window.showToast(r.data.message || t('workbench.deck.version_saved'))
+      render()
+    })
+  }
+
+  function deckExportNow(format) {
+    if (!WB.selectedId || WB.canvasBusy || WB.deckExporting || archived()) return
+    WB.deckExporting = format
+    WB.deckError = null
+    render()
+    api('POST', deckUrl('/export'), { format: format }).then(function (r) {
+      WB.deckExporting = null
+      if (!r.ok) { WB.deckError = { message: r.message, detail: (r.data && r.data.detail) || '' }; render(); return }
+      WB.deckExported = { name: r.data.file.name, rel: r.data.file.rel, url: r.data.url, format: r.data.format, warnings: r.data.warnings || [] }
+      deckTake(r.data)
+      window.showToast(r.data.message || t('workbench.deck.exported'))
+      render()
+    })
+  }
+
+  function deckSelectSlide(id) {
+    WB.deckSlide = id
+    WB.canvasEdit = null
+    WB.canvasSel = null
+    WB.canvasPick = {}
+    deckSyncCanvas()
+    render()
+  }
+
+  function deckAddSlide() {
+    var sel = document.getElementById('wbDeckLayout')
+    var layout = sel && sel.value ? sel.value : 'content'
+    var cur = deckCurrentSlide()
+    var at = cur ? deckSlides().indexOf(cur) + 2 : 1
+    deckOps([{ op: 'addSlide', layout: layout, at: at, title: t('workbench.deck.new_title'), body: layout === 'title' ? t('workbench.deck.new_subtitle') : t('workbench.deck.new_body') }], function (d) {
+      var ap = (d.applied || [])[0]
+      if (ap && ap.id) { WB.deckSlide = ap.id; deckSyncCanvas() }
+    })
+  }
+
+  function deckMoveSlide(id, delta) {
+    var list = deckSlides()
+    for (var i = 0; i < list.length; i += 1) {
+      if (list[i].id === id) { deckOps([{ op: 'moveSlide', id: id, to: i + 1 + delta }]); return }
+    }
+  }
+
+  function deckRemoveSlide(id) {
+    if (typeof window.confirm === 'function' && !window.confirm(t('workbench.deck.remove_confirm'))) return
+    deckOps([{ op: 'removeSlide', id: id }])
+  }
+
+  function deckSaveNotes() {
+    var s = deckCurrentSlide()
+    var el = document.getElementById('wbDeckNotes')
+    if (!s || !el) return
+    deckOps([{ op: 'setNotes', id: s.id, notes: String(el.value) }])
+  }
+
+  function deckBtn(act, label, id, extra) {
+    return '<button type="button" class="wb-btn" data-wb-act="' + act + '"' + (id ? ' data-wb-id="' + escA(id) + '"' : '')
+      + (extra || '') + (WB.canvasBusy || WB.deckExporting || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
+  }
+
+  function deckStripHtml() {
+    var list = deckSlides()
+    var cur = deckCurrentSlide()
+    return '<div class="wb-deck-strip">' + list.map(function (s, i) {
+      var on = cur && s.id === cur.id
+      return '<div class="wb-deck-thumb' + (on ? ' wb-deck-thumb-on' : '') + '">'
+        + '<button type="button" class="wb-deck-pick" data-wb-act="deck-pick" data-wb-id="' + escA(s.id) + '" aria-label="' + escA(t('workbench.deck.slide_n', { n: i + 1 })) + '"'
+        + (on ? ' aria-current="true"' : '') + '>'
+        + '<img loading="lazy" alt="' + escA(t('workbench.deck.slide_n', { n: i + 1 })) + '" src="' + escA(deckSlideUrl(s.id)) + '"></button>'
+        + '<span class="wb-muted">' + (i + 1) + '</span>'
+        + (on && !archived()
+          ? '<span class="wb-deck-thumb-actions">'
+            + deckBtn('deck-up', '↑', s.id, i === 0 ? ' disabled' : '') + deckBtn('deck-down', '↓', s.id, i === list.length - 1 ? ' disabled' : '')
+            + deckBtn('deck-dup', t('workbench.deck.duplicate'), s.id) + deckBtn('deck-del', t('workbench.deck.remove'), s.id) + '</span>'
+          : '')
+        + '</div>'
+    }).join('') + '</div>'
+  }
+
+  function deckHtml() {
+    if (!isDeckItem()) return ''
+    var headOf = function (extra) {
+      return '<div class="wb-can"><div class="wb-can-head"><h4>' + esc(t('workbench.deck.title')) + '</h4>' + (extra || '') + '</div>'
+    }
+    if (WB.deckError && !WB.deck) {
+      return headOf() + '<p class="wb-preview-bad">' + esc(WB.deckError.message || '') + '</p>'
+        + (WB.deckError.detail ? '<p class="wb-hint">' + esc(WB.deckError.detail) + '</p>' : '')
+        + '<p>' + deckBtn('deck-refresh', t('workbench.canvas.refresh')) + '</p></div>'
+    }
+    if (!WB.deck || !WB.deck.deck) return headOf() + '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
+    var doc = WB.deck.deck
+    var sizes = ((WB.deck.limits && WB.deck.limits.sizes) || ['16:9', '4:3']).map(function (a) {
+      return '<button type="button" class="wb-btn' + (doc.size === a ? ' wb-on' : '') + '" data-wb-act="deck-size" data-wb-v="' + escA(a) + '"'
+        + (WB.canvasBusy || archived() ? ' disabled' : '') + '>' + esc(a) + '</button>'
+    }).join(' ')
+    var layouts = ['title', 'content', 'blank'].map(function (l) {
+      return '<option value="' + l + '">' + esc(t('workbench.deck.layout_' + l)) + '</option>'
+    }).join('')
+    var err = WB.deckError
+      ? '<p class="wb-preview-bad">' + esc(WB.deckError.message || '') + '</p>' + (WB.deckError.detail ? '<p class="wb-hint">' + esc(WB.deckError.detail) + '</p>' : '')
+      : ''
+    var out = headOf('<span class="wb-muted">' + esc(t('workbench.deck.count', { n: doc.slides.length })) + '</span>')
+      + '<p class="wb-hint">' + esc(t('workbench.deck.intro')) + '</p>' + err
+      + (doc.slides.length ? canvasToolsHtml() : '')
+      + '<p>' + sizes + ' <select class="wb-input" id="wbDeckLayout" aria-label="' + escA(t('workbench.deck.layout')) + '">' + layouts + '</select> '
+      + deckBtn('deck-add', t('workbench.deck.add')) + '</p>'
+    if (!doc.slides.length) {
+      return out + '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.deck.none_title')) + '</p>'
+        + '<p class="wb-muted">' + esc(t('workbench.deck.none_hint')) + '</p></div></div>'
+    }
+    var cur = deckCurrentSlide()
+    var objects = canvasObjects()
+    out += deckStripHtml()
+      + canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(cur) + 1 }))
+      + '<p class="wb-hint">' + esc(t('workbench.canvas.intro')) + '</p>'
+      + (archived() ? '' : canvasAddHtml())
+      + (archived() || !objects.length ? '' : canvasPickBarHtml())
+      + (objects.length ? '<ul class="wb-can-objs">' + objects.map(canvasObjectHtml).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.canvas.empty')) + '</p>')
+      + '<h5>' + esc(t('workbench.deck.notes')) + '</h5>'
+      + '<p><textarea class="wb-input" id="wbDeckNotes" rows="3" style="width:100%" ' + (archived() ? 'disabled' : '') + ' placeholder="' + escA(t('workbench.deck.notes_placeholder')) + '">' + esc(cur.notes || '') + '</textarea></p>'
+      + '<p>' + deckBtn('deck-notes', t('workbench.deck.notes_save')) + '</p>'
+      + '<h5>' + esc(t('workbench.deck.export')) + '</h5>'
+      + '<p>' + deckBtn('deck-export', WB.deckExporting === 'pptx' ? t('workbench.deck.exporting') : t('workbench.deck.export_pptx'), '', ' data-wb-v="pptx"')
+      + deckBtn('deck-export', WB.deckExporting === 'pdf' ? t('workbench.deck.exporting') : t('workbench.deck.export_pdf'), '', ' data-wb-v="pdf"') + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.deck.export_hint')) + '</p>'
+    var ex = WB.deckExported
+    if (ex) {
+      out += '<p class="wb-muted">' + esc(t('workbench.deck.exported_file', { name: ex.name })) + ' <a href="' + escA(ex.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a></p>'
+        + (ex.warnings.length ? '<ul class="wb-hint">' + ex.warnings.map(function (w) { return '<li>' + esc(w) + '</li>' }).join('') + '</ul>' : '')
+    }
+    return out + '</div>'
+  }
+
   function canvasHtml() {
     var it = WB.detail && WB.detail.item
     if (!it) return ''
+    if (isDeckItem()) return ''
     var isCanvas = !!(WB.canvas && WB.canvas.exists) || (WB.preview && WB.preview.kind === 'canvas')
     // Nem rajz-fajta munkadarabnal es rajz nelkul nincs mit mutatni -- ne
     // alljon ott egy ures doboz.
@@ -6241,6 +6524,7 @@
             : 'workbench.upload.drop_item')) + '</p>')
             + (canvasFirst ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
             + videoTimelineHtml()
+            + deckHtml()
             + (partsAreTechnical(it) ? partsTechHtml() : partsHtml())
             + postPreviewHtml())
         + deadlinesBoxHtml()
@@ -9758,6 +10042,7 @@
         // visszavonas es a "Mentve" jelzes is onnan jon.
         if (WB.canvas || canvasKind(r.data && r.data.item)) loadCanvas(itemId)
         if (WB.vt || (r.data && r.data.item && r.data.item.type === 'video')) loadVideoTimeline(itemId)
+        if (r.data && r.data.item && r.data.item.type === 'presentation') loadDeck(itemId)
         // az agens teendot is felvehetett (workItem.addTodo)
         loadTodos()
       })
@@ -10471,6 +10756,15 @@
     else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'canvas-start') { if (!archived()) startCanvas() }
     else if (a === 'canvas-refresh') loadCanvas(WB.selectedId)
+    else if (a === 'deck-refresh') loadDeck(WB.selectedId)
+    else if (a === 'deck-pick') deckSelectSlide(act.getAttribute('data-wb-id'))
+    else if (a === 'deck-add') deckAddSlide()
+    else if (a === 'deck-up' || a === 'deck-down') deckMoveSlide(act.getAttribute('data-wb-id'), a === 'deck-up' ? -1 : 1)
+    else if (a === 'deck-dup') deckOps([{ op: 'duplicateSlide', id: act.getAttribute('data-wb-id') }])
+    else if (a === 'deck-del') deckRemoveSlide(act.getAttribute('data-wb-id'))
+    else if (a === 'deck-size') deckOps([{ op: 'setSize', size: act.getAttribute('data-wb-v') }])
+    else if (a === 'deck-notes') deckSaveNotes()
+    else if (a === 'deck-export') deckExportNow(act.getAttribute('data-wb-v'))
     else if (a === 'vt-refresh') loadVideoTimeline(WB.selectedId)
     else if (a === 'vt-undo' || a === 'vt-redo') vtStep(a === 'vt-undo' ? 'undo' : 'redo')
     else if (a === 'vt-version') vtVersion()

@@ -29,6 +29,8 @@ const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'brand.useTemplate': { hu: 'új grafika márka-sablonból', en: 'new drawing from a brand template' },
   'timeline.edit': { hu: 'a videó idővonal szerkesztése', en: 'edit the video timeline' },
   'timeline.render': { hu: 'a videó elkészítése az idővonalból (új fájl)', en: 'make the video from the timeline (a new file)' },
+  'deck.edit': { hu: 'a prezentáció szerkesztése', en: 'edit the presentation' },
+  'deck.export': { hu: 'a prezentáció exportálása fájlba (új fájl)', en: 'export the presentation to a file (a new file)' },
   'kanban.create': { hu: 'új kanban kártya nyitása', en: 'open a new kanban card' },
   'kanban.comment': { hu: 'komment egy kanban kártyára', en: 'comment on a kanban card' },
   'kanban.relate': { hu: 'kanban kártyák összekötése', en: 'link kanban cards' },
