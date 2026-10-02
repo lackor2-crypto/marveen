@@ -287,6 +287,14 @@
       return v === 'simple' ? 'simple' : 'manual'
     } catch (_e) { return 'manual' }
   }
+  /** Recent-works layout on the start screen (#462 step 5): 'grid' or 'list'. Per browser. */
+  function readRecentMode() {
+    try { return (window.localStorage && window.localStorage.getItem('marveen.workbench.recentMode')) === 'list' ? 'list' : 'grid' } catch (_e) { return 'grid' }
+  }
+  function saveRecentMode(v) {
+    try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.recentMode', v) } catch (_e) { /* nem baj: csak most ervenyes */ }
+  }
+
   function saveView(v) {
     try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.view', v) } catch (_e) { /* nem baj: csak most ervenyes */ }
   }
@@ -11312,10 +11320,35 @@
     canvasOps([{ op: 'add', object: { type: 'image', src: src, x: Math.round(Math.min(Math.max(cx - w / 2, 0), doc.width - w)), y: Math.round(Math.min(Math.max(cy - h / 2, 0), doc.height - h)), width: w, height: h, fit: 'contain' } }])
   }
 
+  var RECENT_ICON = { social_post: '🖼', document: '📄', court_filing: '⚖', video: '🎬', presentation: '🖥' }
+  var RECENT_MAX = 12
+
+  /** "Legutobbi munkaid": a start screen under the question -- one click opens a work.
+   *  Grid (tiles) or list, remembered per browser. Nothing here is new data: it is the
+   *  same item list the manual view shows, newest edit first. */
+  function simpleRecentHtml() {
+    var items = (WB.items || []).slice().sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0) }).slice(0, RECENT_MAX)
+    var mode = WB.recentMode || readRecentMode()
+    function btn(m) {
+      return '<button type="button" class="btn-secondary wb-sh-recent-mode' + (mode === m ? ' wb-sh-recent-on' : '') + '" data-wb-act="sh-recent-view" data-wb-mode="' + m + '"'
+        + ' aria-pressed="' + (mode === m) + '" title="' + escA(t('workbench.sh.recent_' + m)) + '">' + (m === 'grid' ? '&#9638;' : '&#9776;') + '</button>'
+    }
+    var out = '<section class="wb-sh-recent"><div class="wb-sh-recent-head"><h3>' + esc(t('workbench.sh.recent')) + '</h3>'
+      + (items.length ? '<span class="wb-sh-recent-modes">' + btn('grid') + btn('list') + '</span>' : '') + '</div>'
+    if (!items.length) return out + '<p class="wb-hint">' + esc(t('workbench.sh.recent_none')) + '</p></section>'
+    return out + '<ul class="wb-sh-recent-' + mode + '">' + items.map(function (it) {
+      return '<li><button type="button" class="wb-sh-recent-item" data-wb-item="' + escA(it.id) + '">'
+        + '<span class="wb-sh-recent-tile" aria-hidden="true">' + (RECENT_ICON[it.type] || '📁') + '</span>'
+        + '<span class="wb-sh-recent-name">' + esc(it.title) + '</span>'
+        + '<span class="wb-sh-recent-meta">' + esc(typeLabel(it.type)) + (it.updated_at ? ' · ' + esc(when(it.updated_at)) : '') + '</span>'
+        + '</button></li>'
+    }).join('') + '</ul></section>'
+  }
+
   function simpleHtml() {
     var hasItem = !!WB.selectedId
     if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
-    return simpleHeadHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
+    return simpleHeadHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
   }
 
   function render() {
@@ -11956,6 +11989,7 @@
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'view-set') setView(act.getAttribute('data-wb-view'))
     else if (a === 'sh-more') { WB.shMore = !WB.shMore; render() }
+    else if (a === 'sh-recent-view') { WB.recentMode = act.getAttribute('data-wb-mode') === 'list' ? 'list' : 'grid'; saveRecentMode(WB.recentMode); render() }
     else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
     else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; render() }
