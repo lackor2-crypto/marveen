@@ -51,6 +51,14 @@ describe('measureAvailability at the window boundary', () => {
   })
 })
 
+describe('stale snapshot with a future reset', () => {
+  it('an old 100% whose window has not rolled over is still blocked (lackor3 case)', () => {
+    const resetsAt = NOW + 3 * 86_400_000
+    const m = measureAvailability(cand({ usedPct: 100, usageAt: NOW - 3 * 3600_000 }), [{ usedPct: 100, resetsAt }], NOW)
+    expect(m).toMatchObject({ available: false, reason: 'quota', resetsAt })
+  })
+})
+
 describe('blockingResetsAt', () => {
   it('latest future reset among critical windows; ignores past and low ones', () => {
     expect(blockingResetsAt([
