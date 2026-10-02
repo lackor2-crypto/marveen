@@ -39,7 +39,7 @@ vi.mock('../web/code-bridge-store.js', async (orig) => {
 })
 
 import { initDatabase } from '../db.js'
-import { createProject, updateProject } from '../projects.js'
+import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } from '../workbench-agent/orchestrator.js'
 import { openSessionForWorkItem, addAgentMessage, listAgentMessages, listToolCalls } from '../workbench-agent/sessions.js'
@@ -474,6 +474,30 @@ describe('Boss 2026-10-02: a Windows-meghajtos projekt hidja valaszthato (projek
   it('windows: kifejezetten Windows -> a hidra megy', async () => {
     await ask('windows', 'f:\\Marveen\\Tozsde')
     expect(enqueued).toHaveLength(1)
+  })
+  it('chat switch: the `side` sent with the message is stored on the project and applied', async () => {
+    workerOnline = true
+    codeProjectPath = 'f:\\Marveen\\Tozsde'
+    enqueued.length = 0
+    updateProject(projectId, { bridge_side: null })
+    const dir = mkdtempSync(join(tmpdir(), 'wb-live-side-'))
+    const file = join(dir, 'fake-claude.cjs')
+    writeFileSync(file, FAKE_CLI)
+    const pool = new LiveSessionPool({
+      spawn: (s) => spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }),
+      now: () => Date.now(), loadIds: () => ({}), saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [file] }))
+    try {
+      await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello', side: 'wsl' })
+      expect(enqueued).toHaveLength(0)
+      expect(getProject(projectId)?.bridge_side).toBe('wsl')
+      await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello', side: '' })
+      expect(getProject(projectId)?.bridge_side).toBeNull()
+    } finally {
+      pool.stopAll(); updateProject(projectId, { bridge_side: null }); codeProjectPath = '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen'
+    }
   })
 })
 

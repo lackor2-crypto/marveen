@@ -19,7 +19,7 @@ import { Readable, Writable } from 'node:stream'
 import { json, readBody } from '../http-helpers.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_PORT } from '../../config.js'
-import { getProject } from '../../projects.js'
+import { getProject, updateProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
 import { familyLines } from '../../workbench-agent/context.js'
@@ -608,6 +608,10 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       // #426: MINDEN bejelentkezett fiok, elo zold/piros allapottal -- a
       // feluleti fiokvalasztohoz. Az elso a jelenlegi 'auto' valasztasa.
       accounts: workbenchAccountStatuses(),
+      // The chat's side switch (Boss, 2026-10-02): '' = off (the baked-in folder rule), 'wsl' | 'windows'.
+      side: (() => {
+        try { const pr = getProject(String(url.searchParams.get('project') || '')); return pr?.bridge_side || '' } catch { return '' }
+      })(),
       tools: TOOLS.map((t) => ({
         name: t.name, destructive: t.destructive, reversible: t.reversible,
         external_effect: t.external_effect, autonomyCategory: t.autonomyCategory,
@@ -716,7 +720,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     if (!body) return fail(res, 400, 'bad_json', lang, msg('bad_json', lang))
     const projectId = String(body.project_id ?? '').trim()
     if (!projectId) return fail(res, 400, 'project_required', lang)
-    const project = getProject(projectId)
+    let project = getProject(projectId)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const workItemId = body.work_item_id === undefined || body.work_item_id === null
       ? null
@@ -730,6 +734,17 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const account = wantAccount && wantAccount !== 'auto' && isKnownWorkbenchAccount(wantAccount)
       ? wantAccount
       : undefined
+
+    // The chat's side switch rides along with the message and is stored on the project, so the
+    // continuation turns (which carry no side of their own) use the same one.
+    if (body.side !== undefined) {
+      const wantSide = String(body.side ?? '').trim().toLowerCase()
+      const nextSide = wantSide === 'wsl' || wantSide === 'windows' ? wantSide : null
+      if ((project.bridge_side || null) !== nextSide) {
+        const upd = updateProject(project.id, { bridge_side: nextSide })
+        if (upd.ok) project = upd.project
+      }
+    }
 
     const input = {
       projectId: project.id,
@@ -801,7 +816,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       const code = resolveProject(project.name || project.id)
       windowsDriveBridge = !('error' in code) && isWindowsDriveBridgePath(code.session.workspacePath) && project.bridge_side === 'wsl'
     } catch { windowsDriveBridge = false }
-    const bridgeFirst = !account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil && !(windowsDriveBridge && !!liveSpec)
+    const forceWindows = project.bridge_side === 'windows' && !account
+    const bridgeFirst = forceWindows || (!account && resumeCount === undefined && Date.now() >= bridgeLimitedUntil && !(windowsDriveBridge && !!liveSpec))
     // #455: a GLM / DeepSeek / OpenRouter / local Ollama model runs only in the
     // live session -- the code bridge has the worker's own Claude login.
     const modelRoute = fullAgentEnabled ? workbenchRoute(effectiveWorkbenchModel()) : 'claude'

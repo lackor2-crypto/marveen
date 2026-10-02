@@ -47394,11 +47394,6 @@ function _prjFormHtml() {
         <label for="prjStatus">${escapeHtml(t('projects.form.status'))}</label>
         <select id="prjStatus" class="input">${['active', 'paused', 'closed'].map((s) => `<option value="${s}"${p.status === s ? ' selected' : ''}>${escapeHtml(t('projects.status.' + s))}</option>`).join('')}</select>
       </div>` : ''}
-      ${edit ? `<div class="form-group">
-        <label for="prjSide">${escapeHtml(t('projects.form.side'))}</label>
-        <select id="prjSide" class="input">${[['', t('projects.form.side_auto')], ['wsl', t('projects.form.side_wsl')], ['windows', t('projects.form.side_windows')]].map(([v, label]) => `<option value="${v}"${(p.bridge_side || '') === v ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select>
-        <p class="prj-field-hint">${escapeHtml(t('projects.form.side_hint'))}</p>
-      </div>` : ''}
       <div class="form-group">
         <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint" id="prjLabelReq">${escapeHtml(t(_prjLabelHintKey(!edit)))}</span></label>
         <select id="prjLabel" class="input">${labelOpts}</select>
@@ -47575,7 +47570,7 @@ async function _prjSubmitForm() {
     client: ov.querySelector('#prjClient').value,
     default_label_id: ov.querySelector('#prjLabel').value || null,
   }
-  if (f.mode === 'edit') { body.status = ov.querySelector('#prjStatus').value; body.bridge_side = ov.querySelector('#prjSide')?.value || null }
+  if (f.mode === 'edit') body.status = ov.querySelector('#prjStatus').value
   else {
     body.starter_card = !!ov.querySelector('#prjStarter')?.checked
     // A kezdo kartya a projekt alapertelmezett cimkejet kapja: ha van cimke a

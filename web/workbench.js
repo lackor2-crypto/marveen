@@ -8022,6 +8022,7 @@
   function loadChatStatus() {
     if (!WB.projectId) return
     WB.chatStatus = null
+    WB.chatSide = null
     WB.chatStatusError = null
     api('GET', '/api/workbench/agent/status?project=' + encodeURIComponent(WB.projectId)).then(function (r) {
       if (!WB.open) return
@@ -8493,6 +8494,22 @@
       + '</div>'
   }
 
+  /** The side switch (Boss, 2026-10-02): which side's Claude does this chat's work.
+   *  Off = the baked-in rule (the folder's location decides); Windows / WSL force it. */
+  function chatSideHtml() {
+    var cur = (WB.chatSide !== undefined && WB.chatSide !== null) ? WB.chatSide : ((WB.chatStatus && WB.chatStatus.side) || '')
+    var opts = [['', t('workbench.chat.side_off')], ['windows', t('workbench.chat.side_windows')], ['wsl', t('workbench.chat.side_wsl')]]
+    return '<div class="wb-chat-account-row">'
+      + '<label class="wb-chat-account-label" for="wbChatSide">' + esc(t('workbench.chat.side_label')) + '</label>'
+      + '<select class="wb-input wb-chat-account" id="wbChatSide" data-wb-act="chat-side" title="' + escA(t('workbench.chat.side_hint')) + '">'
+      + opts.map(function (o) { return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>' }).join('')
+      + '</select></div>'
+  }
+
+  function chatSideValue() {
+    return (WB.chatSide !== undefined && WB.chatSide !== null) ? WB.chatSide : ((WB.chatStatus && WB.chatStatus.side) || '')
+  }
+
   function chatInnerHtml() {
     var streaming = WB.chatStreaming
     var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000
@@ -8503,6 +8520,7 @@
       + '<button type="button" class="wb-mini-btn wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>'
       + '<div class="wb-chat-statusline">' + chatStatusHtml() + '</div>'
       + '</div>'
+      + chatSideHtml()
       + chatAccountHtml()
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
       + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
@@ -8749,7 +8767,7 @@
     startChatActivityTicker()
     renderChat()
 
-    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text, account: WB.chatAccount || 'auto' }
+    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text, account: WB.chatAccount || 'auto', side: chatSideValue() }
     var opts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -10554,6 +10572,8 @@
       render()
       return
     }
+    var sideSel = e.target.closest('[data-wb-act="chat-side"]')
+    if (sideSel) { WB.chatSide = sideSel.value; return }
     var sel = e.target.closest('[data-wb-act="chat-account"]')
     if (!sel) return
     WB.chatAccount = sel.value === 'auto' ? '' : sel.value
