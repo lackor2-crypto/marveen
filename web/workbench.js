@@ -11359,7 +11359,7 @@
   /** Puts the slide strip back where it was, and only moves it when the open slide would be
    *  out of view (then it is centered): clicking a slide must not throw the strip to the start. */
   function restoreStripScroll(left) {
-    var strip = document.querySelector('.wb-fr-strip')
+    var strip = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-strip') : null
     if (!strip) return
     if (left !== null) strip.scrollLeft = left
     var on = strip.querySelector('.wb-fr-cell-on')
@@ -11415,7 +11415,7 @@
     var dpSnap = dpFocusSnapshot()
     // A diasor-sav gorgetese: az ujrarajzolas uj elemet tesz a helyere, es a sav az elejere
     // ugrana -- a 8-9-10. dia utan a 11.-re kattintva (Boss, TG 7426) nem szabad elvesznie a helynek.
-    var oldStrip = document.querySelector('.wb-fr-strip')
+    var oldStrip = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-strip') : null
     var stripLeft = oldStrip ? oldStrip.scrollLeft : null
     WB.rendering = true
     if (isSimple()) {

@@ -1531,3 +1531,9 @@
 .wb-sh-recent-list .wb-sh-recent-tile { height: 36px; width: 36px; font-size: 18px; flex: none; }
 .wb-sh-recent-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-sh-recent-meta { font-size: 12px; opacity: 0.7; }
+
+/* Edit view: the selection handles were too big to see or edit under (Boss, TG 7446). The
+ * visible dot is a quarter of the area (6px); the finger-sized grab area (::after) is unchanged. */
+.wb-fr-fixed .wb-can-grip { width: 6px; height: 6px; border-width: 1px; border-radius: 1px; }
+.wb-fr-fixed .wb-can-rot { width: 10px; height: 10px; margin-left: -5px; top: -22px; border-width: 1px; }
+.wb-fr-fixed .wb-can-rot::before { height: 12px; width: 1px; margin-left: 0; }
