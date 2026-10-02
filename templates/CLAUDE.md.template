@@ -852,5 +852,5 @@ Mielőtt BÁRMIT mondasz egy ágens elérhetőségéről vagy kereteiről (fut-e
 vissza), nézd meg az ÉLŐ állapotot: `GET /api/agents/availability` (ágensenként: `available`,
 `reason`, `since`, `resetsAt`, `measuredAt`) vagy az üzenetküldés WARN-ját. A figyelő percenként
 mér és naplóz (`store/agent-availability.log`). Aki visszaáll, azt a rendszer maga értesíti a
-saját függő munkájával (`[ELÉRHETŐ]` üzenet): ő dolgozik tovább, nem kell a fő ágensre várnia.
+saját függő munkájával (`[ELERHETO]` kezdetű üzenet): ő dolgozik tovább, nem kell a fő ágensre várnia.
 Ha egy ágens elérhetővé vált és van várakozó munka, add ki neki AZONNAL.

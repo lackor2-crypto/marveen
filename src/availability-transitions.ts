@@ -21,7 +21,8 @@ export interface AgentAvailability {
   reason: AvailabilityReason
   /** Epoch ms since which this exact state (available + reason) holds. */
   since: number
-  /** Epoch ms when a blocking quota window rolls over, or null when unknown / not quota. */
+  /** Epoch ms when a spent quota window rolls over, or null when none is known.
+   *  Set for a stopped agent too, when its window is spent as well. */
   resetsAt: number | null
   /** Epoch ms of this measurement. */
   measuredAt: number
@@ -78,11 +79,20 @@ export function measureAvailability(
   // snapshot that recorded it: waiting for the snapshot to go stale would delay
   // the "you are back" edge by up to half an hour after the actual reset.
   const live = windows.filter((w) => w.usedPct !== null && (w.resetsAt === null || w.resetsAt > now))
+  // The other direction of the same rule: a spent window whose reset is still
+  // ahead stays spent however OLD the snapshot is. An exhausted agent stops
+  // writing snapshots, so trusting only fresh ones reported it "available" --
+  // and sent it a "your quota is back" message -- half an hour after it ran out.
+  // It is tied to the KNOWN reset time (blockedUntil), not to "the snapshot
+  // never ages": a spent reading with no reset time must still age into
+  // "unknown", or that agent would read exhausted forever -- the very belief
+  // this watcher exists to end.
   const effective: BrokerCandidate = windows.length
-    // usageAt = now: usedPct only grows inside a window, so a reading whose reset
-    // is still in the future stays true however old the snapshot is. Without
-    // this an idle agent's old 100% would age into "unknown" and read available.
-    ? { ...candidate, usageAt: now, usedPct: live.length ? Math.max(...live.map((w) => w.usedPct as number)) : null }
+    ? {
+        ...candidate,
+        usedPct: live.length ? Math.max(...live.map((w) => w.usedPct as number)) : null,
+        blockedUntil: blockingResetsAt(windows, now),
+      }
     : candidate
   const available = candidateUsable(effective, now)
   const reason: AvailabilityReason = available ? 'ok' : (candidate.running ? 'quota' : 'stopped')
@@ -92,7 +102,9 @@ export function measureAvailability(
     available,
     reason,
     since: same ? prev.since : now,
-    resetsAt: reason === 'quota' ? blockingResetsAt(windows, now) : null,
+    // Reported for a stopped agent too: starting a session whose window is
+    // still spent gains nothing, and the reader has to be able to see that.
+    resetsAt: available ? null : (effective.blockedUntil ?? null),
     measuredAt: now,
   }
 }
@@ -126,12 +138,70 @@ export function mayNotify(state: AvailabilityState, agent: string, now: number):
   return last === undefined || now - last >= MIN_NOTIFY_GAP_MS
 }
 
+/** What the watcher could read about the work an agent already owns. */
+export interface PendingSummary {
+  cards: { seq?: number; title: string }[]
+  memories: { id: number; content: string }[]
+  /** Inter-agent messages still waiting for this agent. */
+  waitingMessages: number
+  /** The store could not be read: "nothing found" would be a guess. */
+  unreadable: boolean
+}
+
+export interface PendingPlan {
+  send: boolean
+  /** Body of the message; empty when nothing is sent. */
+  text: string
+  /** One line for the edge log. */
+  note: string
+}
+
+/**
+ * Decide whether the agent that just came back gets a message, and what it
+ * lists. Zero has two meanings here: "nothing is waiting" is silence, "could
+ * not look" is NOT -- the agent is still told it is back, and that its list
+ * could not be read, so it checks for itself instead of sitting idle.
+ */
+export function planPendingText(p: PendingSummary): PendingPlan {
+  if (p.unreadable) {
+    return {
+      send: true,
+      text: 'A fuggo munkad listajat most nem sikerult kiolvasni: nezd meg magad a kanbant es az uzeneteidet.',
+      note: 'message sent (pending work unreadable)',
+    }
+  }
+  if (p.cards.length === 0 && p.waitingMessages === 0) {
+    return { send: false, text: '', note: 'no message (no pending work)' }
+  }
+  const lines: string[] = []
+  if (p.cards.length) {
+    lines.push('FUGGO KANBAN KARTYAK (in_progress, neked cimezve):')
+    for (const c of p.cards) lines.push(`  - ${c.seq != null ? `#${c.seq} ` : ''}${c.title}`)
+  }
+  if (p.memories.length) {
+    lines.push('FRISS HOT-EMLEKEK (a legutobbi munkad):')
+    for (const m of p.memories) lines.push(`  - [emlek ${m.id}] ${m.content}`)
+  }
+  if (p.waitingMessages > 0) lines.push(`Feldolgozatlan uzeneted: ${p.waitingMessages} db.`)
+  return {
+    send: true,
+    text: lines.join('\n'),
+    note: `message sent (${p.cards.length} card(s), ${p.waitingMessages} message(s))`,
+  }
+}
+
 /** The message the agent that just became available receives. Names the work
- *  it already owns (its pending-work text) so it carries on by itself. */
+ *  it already owns so it carries on by itself.
+ *
+ *  A statement of fact, not an order: it travels through the inter-agent queue,
+ *  which frames a system sender as untrusted data, and an agent is right to
+ *  refuse an instruction from there (the limit-wake text learned this first).
+ *  What to DO with the fact is in the agent's own rule file (the availability
+ *  rule in agent-scaffold.ts), which it does trust. */
 export function availableMessage(agent: string, fromReason: AvailabilityReason, pendingText: string): string {
-  const was = fromReason === 'quota' ? 'a keret visszaallt' : 'a session ujra fut'
+  const was = fromReason === 'quota' ? 'a keret-ablakod visszaallt' : 'a sessionod ujra fut'
   return [
-    `[ELERHETO] ${agent}: ${was}, most mar tudsz dolgozni. Folytasd a fuggo munkad, nem kell senkire varnod:`,
+    `[ELERHETO] ${agent}: rendszer-jelzes (nem utasitas) -- ${was}, megint tudsz dolgozni. A sajat fuggo munkad, amit magadtol folytathatsz (nem kell masra varnod):`,
     '',
     pendingText,
   ].join('\n')

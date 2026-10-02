@@ -18,6 +18,7 @@ import { listAgentNames } from './agent-config.js'
 import { agentSessionName, sessionExistsOnHost } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
+import { blockingResetsAt } from '../availability-transitions.js'
 import {
   normalizeBrokerConfig,
   resolveBroker,
@@ -85,8 +86,9 @@ export function readBrokerCandidate(agent: string): BrokerCandidate {
   // a window that rolled over minutes ago -- exactly the "still exhausted"
   // belief that kept a recovered agent idle.
   const now = Date.now()
-  const windows = [snap?.fiveHour, snap?.sevenDay]
-    .map((w) => (w && (w.resetsAt == null || w.resetsAt > now) ? w.usedPct : null))
+  const known = [snap?.fiveHour, snap?.sevenDay].filter((w): w is NonNullable<typeof w> => !!w)
+  const windows = known
+    .map((w) => (w.resetsAt == null || w.resetsAt > now ? w.usedPct : null))
     .filter((p): p is number => p !== null)
   // The fuller window decides: an agent whose weekly window is spent cannot
   // broker context however fresh its 5-hour one looks.
@@ -95,9 +97,10 @@ export function readBrokerCandidate(agent: string): BrokerCandidate {
     agent,
     running: hasLiveSession(agent),
     usedPct,
-    // A window still in the future keeps its reading true however old the snapshot
-    // is (usedPct only grows until the reset), so it must not age into "unknown".
-    usageAt: windows.length ? now : (snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null),
+    usageAt: snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null,
+    // The mirror image of the expired window above: a spent window whose reset
+    // is still ahead stays spent even once the snapshot goes stale.
+    blockedUntil: blockingResetsAt(known.map((w) => ({ usedPct: w.usedPct, resetsAt: w.resetsAt })), now),
   }
 }
 
