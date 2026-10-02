@@ -41,6 +41,8 @@ export interface Brand {
   logo_corner: LogoCorner | null
   /** The logo must be at least this wide, in percent of the drawing width. */
   logo_min_width_pct: number | null
+  /** Nothing else may come closer to the logo than this, in percent of the logo's own width. */
+  logo_clear_space_pct: number | null
   no_exclamation: boolean
   /** Free-text style rules; the agent follows them, the machine cannot check them. */
   notes: string[]
@@ -50,7 +52,7 @@ export interface BrandRow extends Brand { project_id: string; updated_at: number
 
 export type BrandCode =
   | 'bad_color' | 'too_many_colors' | 'bad_logo' | 'bad_font' | 'bad_corner'
-  | 'bad_min_width' | 'too_many_notes' | 'note_too_long' | 'bad_input'
+  | 'bad_min_width' | 'bad_clear_space' | 'too_many_notes' | 'note_too_long' | 'bad_input'
 
 export type BrandResult =
   | { ok: true; brand: BrandRow }
@@ -59,7 +61,7 @@ export type BrandResult =
 export function emptyBrand(): Brand {
   return {
     colors: [], logo_light: null, logo_dark: null, font_heading: null, font_body: null,
-    logo_corner: null, logo_min_width_pct: null, no_exclamation: false, notes: [],
+    logo_corner: null, logo_min_width_pct: null, logo_clear_space_pct: null, no_exclamation: false, notes: [],
   }
 }
 
@@ -161,6 +163,15 @@ export function parseBrand(raw: unknown, base: Brand = emptyBrand()): { ok: true
       b.logo_min_width_pct = Math.round(n * 10) / 10
     }
   }
+  if ('logo_clear_space_pct' in r) {
+    const v = r.logo_clear_space_pct
+    if (v == null || v === '') b.logo_clear_space_pct = null
+    else {
+      const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
+      if (!Number.isFinite(n) || n < 1 || n > 100) return { ok: false, code: 'bad_clear_space' }
+      b.logo_clear_space_pct = Math.round(n * 10) / 10
+    }
+  }
   if ('no_exclamation' in r) b.no_exclamation = r.no_exclamation === true
   if ('notes' in r) {
     if (!Array.isArray(r.notes)) return { ok: false, code: 'bad_input' }
@@ -201,7 +212,7 @@ export function getBrand(projectId: string): BrandRow | null {
 /** True when the brand holds nothing the agent or the check could use. */
 export function brandIsEmpty(b: Brand): boolean {
   return !b.colors.length && !b.logo_light && !b.logo_dark && !b.font_heading && !b.font_body
-    && !b.logo_corner && b.logo_min_width_pct == null && !b.no_exclamation && !b.notes.length
+    && !b.logo_corner && b.logo_min_width_pct == null && b.logo_clear_space_pct == null && !b.no_exclamation && !b.notes.length
 }
 
 /** Saves a (partial) change: only the keys present in `patch` are touched. */
@@ -224,7 +235,7 @@ export function saveBrand(projectId: string, patch: unknown): BrandResult {
 type Text = { hu: string; en: string }
 
 export interface BrandFinding {
-  code: 'off_palette' | 'off_font' | 'logo_missing' | 'logo_small' | 'logo_corner' | 'exclamation'
+  code: 'off_palette' | 'off_font' | 'logo_missing' | 'logo_small' | 'logo_corner' | 'logo_crowded' | 'exclamation'
   /** The canvas object the finding is about, when there is one. */
   object: string | null
   message: Text
@@ -374,6 +385,30 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFol
           },
         })
       }
+      if (brand.logo_clear_space_pct != null) {
+        // The free zone is a margin around the logo, a share of the logo's own
+        // width (the way brand guides draw it). An object that holds the whole
+        // logo (a background panel) is what the logo sits on, not a crowding one.
+        const m = (l.width * brand.logo_clear_space_pct) / 100
+        const zone = { x1: l.x - m, y1: l.y - m, x2: l.x + l.width + m, y2: l.y + l.height + m }
+        const crowding = objects.filter((o) => {
+          if (o.id === l.id || o.type === 'line') return false
+          const ox2 = o.x + o.width, oy2 = o.y + o.height
+          if (o.x <= l.x && o.y <= l.y && ox2 >= l.x + l.width && oy2 >= l.y + l.height) return false
+          return o.x < zone.x2 && ox2 > zone.x1 && o.y < zone.y2 && oy2 > zone.y1
+        })
+        if (crowding.length) {
+          const who = crowding[0]
+          const more = crowding.length - 1
+          out.push({
+            code: 'logo_crowded', object: l.id,
+            message: {
+              hu: `A logó körül nincs meg a szabad terület (a logó szélességének ${brand.logo_clear_space_pct}%-a): ${objLabel(who).hu}${more ? ` és még ${more} elem` : ''} túl közel van.`,
+              en: `The logo's clear space (${brand.logo_clear_space_pct}% of the logo width) is not free: ${objLabel(who).en}${more ? ` and ${more} more` : ''} is too close.`,
+            },
+          })
+        }
+      }
       if (brand.logo_corner) {
         // The corner is the quarter the logo's centre falls in. A logo centred on
         // an axis is in no corner: "centred at the bottom" is not "bottom right".
@@ -417,6 +452,7 @@ export function brandForContext(projectId: string): string {
   if (b.font_body) lines.push(`- Body font: ${b.font_body}`)
   if (b.logo_corner) lines.push(`- The logo always goes ${CORNER_LABEL[b.logo_corner].en}`)
   if (b.logo_min_width_pct != null) lines.push(`- The logo is at least ${b.logo_min_width_pct}% of the drawing width`)
+  if (b.logo_clear_space_pct != null) lines.push(`- Keep ${b.logo_clear_space_pct}% of the logo's width free around the logo (nothing else inside that margin)`)
   if (b.no_exclamation) lines.push('- No exclamation marks in any text')
   for (const n of b.notes) lines.push(`- Rule: ${n}`)
   if (templates) lines.push(templates)

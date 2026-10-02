@@ -10,7 +10,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, getProject, updateProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItems, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem } from '../workbench.js'
 import {
-  getBrand, saveBrand, checkCanvasBrand, brandForContext, emptyBrand, isLogoPath, BrandUnreadableError, type Brand,
+  getBrand, saveBrand, brandIsEmpty, checkCanvasBrand, brandForContext, emptyBrand, isLogoPath, BrandUnreadableError, type Brand,
   listBrandTemplates, saveBrandTemplate, getBrandTemplate, deleteBrandTemplate, BRAND_MAX_TEMPLATES,
 } from '../workbench-brand.js'
 import { createFromBrandTemplate } from '../workbench-brand-templates.js'
@@ -1036,5 +1036,51 @@ describe('brand kit: the editor colour field shows its colour', () => {
 
   it('on a phone the brand colour buttons are big enough for a fingertip', () => {
     expect(css).toMatch(/@media \(max-width: 720px\) \{ \.wb-brand-swatch \{ width: 32px; height: 32px; \}/)
+  })
+})
+
+describe('brand kit: clear space around the logo', () => {
+  const brand = (clear: unknown = 25): Brand => {
+    const r = saveBrand(pid, { ...BRAND, logo_clear_space_pct: clear })
+    if (!r.ok) throw new Error(r.code)
+    return r.brand
+  }
+  const crowded = (d: ReturnType<typeof doc>, b: Brand) => checkCanvasBrand(d, b).filter((x) => x.code === 'logo_crowded')
+
+  it('is a number from 1 to 100, or empty', () => {
+    expect(saveBrand(pid, { logo_clear_space_pct: 0 })).toMatchObject({ ok: false, code: 'bad_clear_space' })
+    expect(saveBrand(pid, { logo_clear_space_pct: 101 })).toMatchObject({ ok: false, code: 'bad_clear_space' })
+    expect(saveBrand(pid, { logo_clear_space_pct: true })).toMatchObject({ ok: false, code: 'bad_clear_space' })
+    expect(saveBrand(pid, { logo_clear_space_pct: '25' })).toMatchObject({ ok: true, brand: { logo_clear_space_pct: 25 } })
+    expect(saveBrand(pid, { logo_clear_space_pct: '' })).toMatchObject({ ok: true, brand: { logo_clear_space_pct: null } })
+  })
+
+  it('a brand with only a clear space is not empty, and the agent is told', () => {
+    const r = saveBrand(pid, { logo_clear_space_pct: 30 })
+    if (!r.ok) throw new Error(r.code)
+    expect(brandIsEmpty(r.brand)).toBe(false)
+    expect(brandForContext(pid)).toContain('30% of the logo')
+  })
+
+  it('flags an element inside the margin, in plain words', () => {
+    // logo 120 wide: the margin is 30 px, so the zone starts at x = 820
+    const d = doc({ objects: [logo(), text('t', { x: 700, y: 900, width: 140, height: 40 })] as any })
+    const f = crowded(d, brand())
+    expect(f).toHaveLength(1)
+    expect(f[0].object).toBe('logo')
+    expect(f[0].message.hu).toContain('szabad terület')
+    expect(f[0].message.en).toContain('too close')
+  })
+
+  it('an element outside the margin, a background panel and a line are fine', () => {
+    const far = text('t', { x: 700, y: 900, width: 100, height: 40 })
+    const panel = { id: 'bg', type: 'rect' as const, x: 0, y: 0, width: 1000, height: 1000, opacity: 1, fill: '#1a73e8', radius: 0 }
+    const line = { id: 'ln', type: 'line' as const, x: 800, y: 900, width: 100, height: 0, opacity: 1, stroke: '#000000', strokeWidth: 2 }
+    expect(crowded(doc({ objects: [panel, logo(), far, line] as any }), brand())).toEqual([])
+  })
+
+  it('no clear space set: no finding', () => {
+    const d = doc({ objects: [logo(), text('t', { x: 700, y: 900, width: 200, height: 40 })] as any })
+    expect(crowded(d, brand(null))).toEqual([])
   })
 })

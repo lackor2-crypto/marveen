@@ -9668,6 +9668,7 @@
       font_heading: x.font_heading || '', font_body: x.font_body || '',
       logo_corner: x.logo_corner || '',
       logo_min_width_pct: x.logo_min_width_pct == null ? '' : x.logo_min_width_pct,
+      logo_clear_space_pct: x.logo_clear_space_pct == null ? '' : x.logo_clear_space_pct,
       no_exclamation: !!x.no_exclamation,
       notes: (x.notes || []).slice(),
     }
@@ -9735,7 +9736,7 @@
     d.colors = colors
     d.logo_light = v('wbBrandLogoLight', d.logo_light); d.logo_dark = v('wbBrandLogoDark', d.logo_dark)
     d.font_heading = v('wbBrandFontH', d.font_heading); d.font_body = v('wbBrandFontB', d.font_body)
-    d.logo_corner = v('wbBrandCorner', d.logo_corner); d.logo_min_width_pct = v('wbBrandMinW', d.logo_min_width_pct)
+    d.logo_corner = v('wbBrandCorner', d.logo_corner); d.logo_min_width_pct = v('wbBrandMinW', d.logo_min_width_pct); d.logo_clear_space_pct = v('wbBrandClear', d.logo_clear_space_pct)
     var ex = document.getElementById('wbBrandNoExcl'); if (ex) d.no_exclamation = !!ex.checked
     // The text as typed (a trailing empty line is still being written); trimmed when saved.
     var nt = document.getElementById('wbBrandNotes'); if (nt) d.notes = String(nt.value).split('\n')
@@ -9799,6 +9800,8 @@
         + brandSelect('wbBrandCorner', d.logo_corner, BRAND_CORNERS, function (c) { return t('workbench.brand.corner_' + c) }, 'workbench.brand.any_place')
         + '<label class="wb-label" for="wbBrandMinW">' + esc(t('workbench.brand.logo_min')) + '</label>'
         + '<input class="wb-input" id="wbBrandMinW" type="number" min="1" max="80" step="0.5" value="' + escA(String(d.logo_min_width_pct)) + '" placeholder="10">'
+        + '<label class="wb-label" for="wbBrandClear">' + esc(t('workbench.brand.logo_clear')) + '</label>'
+        + '<input class="wb-input" id="wbBrandClear" type="number" min="1" max="100" step="1" value="' + escA(String(d.logo_clear_space_pct)) + '" placeholder="25">'
         + '</div>'
         + '<p class="wb-can-checks"><label><input type="checkbox" id="wbBrandNoExcl"' + (d.no_exclamation ? ' checked' : '') + '> ' + esc(t('workbench.brand.no_excl')) + '</label></p>'
         + '<label class="wb-label" for="wbBrandNotes">' + esc(t('workbench.brand.notes')) + '</label>'
@@ -9824,6 +9827,7 @@
       font_heading: d.font_heading || null, font_body: d.font_body || null,
       logo_corner: d.logo_corner || null,
       logo_min_width_pct: d.logo_min_width_pct === '' ? null : Number(d.logo_min_width_pct),
+      logo_clear_space_pct: d.logo_clear_space_pct === '' ? null : Number(d.logo_clear_space_pct),
       no_exclamation: d.no_exclamation,
       notes: d.notes.map(function (x) { return String(x).trim() }).filter(Boolean),
     }

@@ -5712,6 +5712,7 @@ window._i18n.en = {
   "workbench.brand.corner_bottom-left": "bottom left corner",
   "workbench.brand.corner_bottom-right": "bottom right corner",
   "workbench.brand.logo_min": "Smallest logo width (% of the drawing width)",
+  "workbench.brand.logo_clear": "Clear space around the logo (% of the logo width)",
   "workbench.brand.no_excl": "No exclamation marks in the texts",
   "workbench.brand.notes": "Other rules (one per line)",
   "workbench.brand.notes_ph": "for example:\nAlways address the reader informally.\nHeadlines are 6 words at most.",
