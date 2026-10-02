@@ -97,7 +97,7 @@ function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: st
 
 /** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441),
  *  es ha van kozottuk irat, hogyan kerje le az oldalak szoveget (1/A). */
-function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; folder: string | null; materials: string[]; documentsHint: string | null; family: string[] } {
+function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; file: string | null; folder: string | null; materials: string[]; documentsHint: string | null; family: string[] } {
   let materials: string[] = []
   let hasDoc = false
   try {
@@ -122,8 +122,12 @@ function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; f
   const privacyHint = privacy.sensitive
     ? `SENSITIVE: the owner marked this ${privacy.project ? 'project' : 'work item'} sensitive. Do not put personal data (names of the people in the case, case numbers, addresses, account numbers, e-mail, phone, date of birth) into any web search or web fetch, and do not send its files to any outside service (image editing, image generation, online text recognition); text recognition runs only on this machine.`
     : null
-  const hints = [privacyHint, documentsHint, item.type === 'document' ? docTools : null, item.type === 'document' ? langTools : null].filter(Boolean).join('\n')
-  return { title: item.title, type: item.type, folder: item.folder ?? null, materials, documentsHint: hints || null, family: familyLines(item) }
+  // No file yet: whatever file the agent makes for the item must be attached, or the preview stays empty.
+  const attachHint = item.source_path
+    ? null
+    : `This work item has no file yet. If you create a text, md or other file for it, put it in the work item folder${item.folder ? ` (${item.folder})` : ' (or the project folder)'} and then attach it so the owner sees it in the preview next to the chat: curl -s -X POST -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" -H "Content-Type: application/json" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/versions" -d '{"source_path":"<path inside the project folder>"}'. Never leave such a file only on disk.`
+  const hints = [privacyHint, attachHint, documentsHint, item.type === 'document' ? docTools : null, item.type === 'document' ? langTools : null].filter(Boolean).join('\n')
+  return { title: item.title, type: item.type, file: item.source_path ?? null, folder: item.folder ?? null, materials, documentsHint: hints || null, family: familyLines(item) }
 }
 
 /** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */

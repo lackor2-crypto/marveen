@@ -52,6 +52,8 @@ import { consistencyIssues } from '../workbench-doccheck.js'
 import { itemDeadlines } from '../workbench-deadlines.js'
 import { itemCourtState, proposeRule, setItemProfile } from '../workbench-courtprofile.js'
 import { listFinals } from '../workbench-docfinal.js'
+import { buildPreview } from '../workbench-preview.js'
+import { saveTextSourceAsNewVersion } from '../workbench-edit.js'
 import { scheduleOutlineMirror } from '../workbench-docmirror.js'
 import { sourceWorldFor } from '../workbench-docmodel-world.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
@@ -725,6 +727,23 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       })
       if (!r.ok) return { ok: false, code: r.code, detail: `the part was not added: ${r.code}` }
       return { ok: true, data: { part: r.part, count: listWorkItemParts(item.id).length } }
+    }
+
+    case 'workItem.writeText': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      if (typeof input.text !== 'string') return { ok: false, code: 'bad_input', detail: 'text is required (the whole new content of the file)' }
+      const p = buildPreview(item.id)
+      if (!p.available || p.kind !== 'text' || !p.rel) {
+        return { ok: false, code: 'no_text_file', detail: 'this work item has no md or txt file of its own; add the text as a part (workItem.addPart) instead' }
+      }
+      const r = saveTextSourceAsNewVersion(item, project, p.rel, input.text, { created_by: 'workbench-agent' })
+      if (!r.ok) return { ok: false, code: r.code, detail: r.detail || `the text was not saved: ${r.code}` }
+      return { ok: true, data: { name: r.file.name, version: r.version.version_no, note: 'saved as a new version; the owner sees it in the preview' } }
     }
 
     case 'file.preview': {

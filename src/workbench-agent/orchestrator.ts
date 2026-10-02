@@ -124,6 +124,22 @@ export function releaseTurn(key: string): void { running.delete(key) }
 /** A modell valasza tool-hivas-e. CSAK akkor, ha a TELJES valasz egy JSON
  *  objektum `tool` mezovel -- egy prozai valaszban emlitett JSON nem az. */
 export function parseToolCall(text: string): { tool: string; input: Record<string, unknown> } | null {
+  const whole = parseToolJson(text)
+  if (whole) return whole
+  // A model sometimes says a sentence first and puts the call on its own LAST line
+  // (real case, 2026-10-02: "Megcsinalom neked ... {"tool":"workItem.writeText",...}" was shown
+  // as text and nothing was written). A last line that is a complete call counts.
+  const lines = text.trimEnd().split('\n')
+  return lines.length > 1 ? parseToolJson(lines[lines.length - 1] || '') : null
+}
+
+/** Where a trailing line that may be a tool call starts (so the prose before it can be shown, the JSON never). */
+export function trailingCallStart(soFar: string): number | null {
+  const m = /(?:^|\n)([ \t]*\{[^\n]*)$/.exec(soFar)
+  return m ? soFar.length - (m[1] as string).length : null
+}
+
+function parseToolJson(text: string): { tool: string; input: Record<string, unknown> } | null {
   const s = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   if (!s.startsWith('{') || !s.endsWith('}')) return null
   let j: unknown
@@ -407,8 +423,10 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
               full += chunk.text
               // Amig tool-hivas is lehet belole, nem kuldunk ki semmit.
               if (!mayBeToolCall(full)) {
-                const pending = full.slice(emitted)
-                if (pending) { emitted = full.length; yield { type: 'text', text: pending } }
+                // A last line that starts like a call is held back too: prose before it goes out, the JSON never.
+                const limit = trailingCallStart(full) ?? full.length
+                const pending = full.slice(emitted, Math.max(emitted, limit))
+                if (pending) { emitted += pending.length; yield { type: 'text', text: pending } }
               }
             } else if (chunk.kind === 'done') {
               lastModel = chunk.model

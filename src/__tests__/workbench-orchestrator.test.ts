@@ -97,6 +97,10 @@ describe('tiszta logika', () => {
     // Prozai valasz, amiben JSON is van -> NEM tool-hivas.
     expect(parseToolCall('Ezt így hívnád: {"tool":"project.get"} — de most nem kell.')).toBeNull()
     expect(parseToolCall('Szia!')).toBeNull()
+    // Mondat + a hivas a UTOLSO sorban (valos eset, 2026-10-02): a hivas lefut.
+    expect(parseToolCall('Megcsinalom neked.\n{"tool":"workItem.writeText","input":{"text":"szia"}}')).toEqual({ tool: 'workItem.writeText', input: { text: 'szia' } })
+    // Ha az utolso sor nem teljes hivas, nem hivas.
+    expect(parseToolCall('Igy nez ki:\n{"tool":"x"} es meg szoveg')).toBeNull()
     expect(parseToolCall('{"nem_tool":1}')).toBeNull()
   })
 

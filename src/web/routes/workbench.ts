@@ -49,7 +49,7 @@ import {
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
-import { writeProjectFile, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { writeProjectFile, writeProjectNote, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import {
   hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
@@ -109,7 +109,7 @@ import {
 } from '../../workbench-graphic.js'
 import { listCanvasPlatforms, canvasPlatform, platformForSize } from '../../workbench-canvas-platforms.js'
 import { imageAiConfig, estimateImageEdit, editImageWithAI } from '../../workbench-image-ai.js'
-import { INTAKE_KINDS, INTAKE_TYPE, guessIntakeKind, intakeTitle, type IntakeKind } from '../../workbench-intake.js'
+import { INTAKE_KINDS, INTAKE_TYPE, guessIntakeKind, intakeTitle, type IntakeKind, type IntakeKindAny } from '../../workbench-intake.js'
 import {
   readCanvas, renderCanvasForItem, commitCanvasChange, readCanvasImageFile, canvasOpsLabel, canvasHistory, canvasOrphans,
   undoCanvas, redoCanvas, saveCanvasVersion, flushCanvasDraft, restoreCanvasOrphan, discardCanvasOrphan,
@@ -2515,7 +2515,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const text = String(body['text'] ?? '').trim().slice(0, 4000)
-    let kind = String(body['kind'] ?? '') as IntakeKind
+    let kind = String(body['kind'] ?? '') as IntakeKindAny
     if (!(INTAKE_KINDS as readonly string[]).includes(kind)) {
       if (!text) return fail(res, 400, 'intake_empty', lang)
       const g = guessIntakeKind(text)
@@ -2534,13 +2534,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     // Step 2 needs step 1: nothing is filed into a folder nobody chose, and no folder is made on the side.
     if (!intakeFolder && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
+    const title = String(body['title'] ?? '').trim().slice(0, 200) || intakeTitle(text, kind, lang)
+    // A jegyzet (md) kerese: a munkadarab SAJAT .md fajlt kap a mappajaban, es ez a tartalma --
+    // az ugynok ebbe ir, a jobb oldal ezt mutatja. (Nincs projektmappa -> fajl nelkul, mint eddig.)
+    let noteFile: { rel: string; name: string } | null = null
+    if (kind === 'note' && projectFileTarget(project, intakeFolder ?? '').ok) {
+      const w = writeProjectNote(project, intakeFolder ?? '', title, '', 'md')
+      if (!w.ok) return failDetail(res, w.code === 'write_failed' ? 500 : 400, MESSAGES['upload_' + w.code] ? 'upload_' + w.code : w.code, lang, 'message' in w ? (w.message || null) : null)
+      noteFile = { rel: w.rel, name: w.name }
+    }
     const r = createWorkItem({
-      project_id: project.id, type: INTAKE_TYPE[kind], title: String(body['title'] ?? '').trim().slice(0, 200) || intakeTitle(text, kind, lang),
-      prompt: text || undefined, container_folder: intakeFolder, created_by: actor(ctx),
+      project_id: project.id, type: kind === 'note' ? 'note' : INTAKE_TYPE[kind], title,
+      prompt: text || undefined, container_folder: intakeFolder, source_path: noteFile ? noteFile.rel : undefined, created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, {
-      ok: true, ask: false, kind, item: r.item, versions: [r.version], text,
+      ok: true, ask: false, kind, item: r.item, versions: [r.version], text, file: noteFile,
       message: null,
     }, 201)
     return true
