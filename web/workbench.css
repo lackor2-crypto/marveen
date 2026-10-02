@@ -1537,3 +1537,17 @@
 .wb-fr-fixed .wb-can-grip { width: 6px; height: 6px; border-width: 1px; border-radius: 1px; }
 .wb-fr-fixed .wb-can-rot { width: 10px; height: 10px; margin-left: -5px; top: -22px; border-width: 1px; }
 .wb-fr-fixed .wb-can-rot::before { height: 12px; width: 1px; margin-left: 0; }
+
+/* Left panel of the Simple view (Boss, TG 7460): star beside the name (not under it), name and type in at
+ * most two small lines, narrower icon rail so the project column gets the room. */
+.wb-fr-rail { flex-basis: 58px; }
+.wb-fr-rb { padding: 8px 2px; font-size: 0.66rem; }
+.wb-fr-panel { flex-basis: 320px; padding: 10px; }
+.wb-fr-panel .wb-item-row { flex-wrap: nowrap; align-items: center; gap: 4px; }
+.wb-fr-panel .wb-item-row .wb-item { order: 0; flex: 1 1 auto; min-width: 0; flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; font-size: 0.8rem; line-height: 1.25; }
+.wb-fr-panel .wb-item-title { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+.wb-fr-panel .wb-item-meta { font-size: 0.7rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* A text work in the Simple view (Boss, TG 7459): the text uses the whole centre window down to the
+ * zoom bar and scrolls inside it, instead of a 420px box with a "download for the rest" note. */
+.wb-fr-scroll .wb-preview-text { max-height: none; }

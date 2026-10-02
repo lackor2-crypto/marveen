@@ -8,6 +8,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, addWorkItemPart, listWorkItemParts, listWorkItemVersions, getWorkItem } from '../workbench.js'
 import { baseNameForNextVersion } from '../workbench-edit.js'
+import { PREVIEW_TEXT_MAX } from '../workbench-preview.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
 
@@ -160,11 +161,11 @@ describe('szovegfajl kozvetlen szerkesztese: UJ fajl + UJ verzio, a regi erintet
     expect(a.status).toBe(400)
     expect(a.body.error).toBe('text_source_unsupported')
 
-    const big = textItem('Projektek/teszt/nagy.txt', 'x'.repeat(30_000))
+    const big = textItem('Projektek/teszt/nagy.txt', 'x'.repeat(PREVIEW_TEXT_MAX + 5_000))
     const b = await callWorkbench(`/api/workbench/items/${big}/text`, 'POST', { text: 'rövid' })
     expect(b.status).toBe(400)
     expect(b.body.error).toBe('text_source_truncated')
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'nagy.txt'), 'utf-8')).toHaveLength(30_000)
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'nagy.txt'), 'utf-8')).toHaveLength(PREVIEW_TEXT_MAX + 5_000)
 
     const small = textItem('Projektek/teszt/kicsi.txt', 'a')
     setProjectArchived(pid, true)
