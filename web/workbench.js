@@ -11370,6 +11370,28 @@
     }
   }
 
+  /** The Simple-view frame reaches the very bottom of the window, like the left menu (Boss, TG 7444):
+   *  its height is what is left of the viewport below its top edge. When a work item is opened the
+   *  page is scrolled once so the frame's top sits at the top of the window. Phones keep the flow layout. */
+  function fitFrame() {
+    if (typeof document.querySelector !== 'function') return
+    var body = document.querySelector('.wb-fr-body')
+    if (!body || typeof body.getBoundingClientRect !== 'function' || !window.innerHeight) return
+    if (window.innerWidth <= 900) { body.style.height = ''; return }
+    var fr = body.parentNode
+    function setHeight() {
+      var top = body.getBoundingClientRect().top
+      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(top, 0))) + 'px'
+    }
+    setHeight()
+    // The page can only scroll once the frame is tall enough: height first, then scroll, then measure again.
+    if (WB.fitKey !== WB.selectedId) {
+      WB.fitKey = WB.selectedId
+      if (fr && typeof fr.scrollIntoView === 'function') { fr.scrollIntoView({ block: 'start' }); setHeight() }
+    }
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) fitFrame() })
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -11432,6 +11454,7 @@
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
     restoreChatScroll(chatScroll)
     restoreStripScroll(stripLeft)
+    fitFrame()
     fitHead()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
     if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(fitHead)
