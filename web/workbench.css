@@ -384,6 +384,7 @@
   .wb-panel { display: none; }
   .wb-panel-current { display: flex; }
   .wb-head h1 { font-size: 1.1rem; flex-basis: 100%; }
+  .wb-head-oneline { flex-wrap: wrap; }
 }
 
 /* --- reszek: vegyes munkadarab (3. fazis) --------------------------------- */
@@ -1267,4 +1268,15 @@
   .wb-sh-tech .wb-panel { display: flex; }
   .wb-sh-ask { font-size: 1.25rem; }
   .wb-view-btn { padding: 6px 8px; font-size: 0.8rem; }
+}
+
+/* A Munkapad fejlecenek gombjai egy sorba ferjenek (Boss, 2026-10-02, TG 7270): a gombok kisebbek,
+ * a cim levagodik, hogy a sor ne torjon. 1280px alatt (keskeny ablak, telefon) visszatorik. */
+.wb-head-oneline .btn-secondary { padding: 2px 5px; font-size: 0.66rem; min-height: 24px; white-space: nowrap; flex: 0 0 auto; }
+.wb-head-oneline .wb-view-btn { padding: 2px 6px; font-size: 0.66rem; min-height: 24px; }
+.wb-head-oneline .wb-view-switch { flex: 0 0 auto; }
+.wb-head-oneline .prj-back-link { white-space: nowrap; flex: 0 0 auto; font-size: 0.74rem; }
+@media (min-width: 1280px) {
+  .wb-head-oneline { flex-wrap: nowrap; gap: 4px; }
+  .wb-head-oneline h1 { font-size: 0.95rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0; }
 }

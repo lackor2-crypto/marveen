@@ -10396,7 +10396,7 @@
     if (isSimple()) {
       el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
     } else el.innerHTML = '<div class="wb-root">'
-      + '<div class="wb-head">'
+      + '<div class="wb-head wb-head-oneline">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
       + '<h1>' + esc(t('workbench.title', { project: WB.project ? WB.project.name : '' })) + '</h1>'
       + viewSwitchHtml()
