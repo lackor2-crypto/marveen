@@ -11134,6 +11134,20 @@
     return simpleHeadHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
   }
 
+  /** Puts the slide strip back where it was, and only moves it when the open slide would be
+   *  out of view (then it is centered): clicking a slide must not throw the strip to the start. */
+  function restoreStripScroll(left) {
+    var strip = document.querySelector('.wb-fr-strip')
+    if (!strip) return
+    if (left !== null) strip.scrollLeft = left
+    var on = strip.querySelector('.wb-fr-cell-on')
+    if (!on) return
+    var from = on.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft
+    if (from < strip.scrollLeft || from + on.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = Math.max(0, from - (strip.clientWidth - on.offsetWidth) / 2)
+    }
+  }
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -11155,6 +11169,10 @@
       ? { src: oldVid.getAttribute('src'), at: oldVid.currentTime } : null
     var chatScroll = chatScrollSnapshot()
     var dpSnap = dpFocusSnapshot()
+    // A diasor-sav gorgetese: az ujrarajzolas uj elemet tesz a helyere, es a sav az elejere
+    // ugrana -- a 8-9-10. dia utan a 11.-re kattintva (Boss, TG 7426) nem szabad elvesznie a helynek.
+    var oldStrip = document.querySelector('.wb-fr-strip')
+    var stripLeft = oldStrip ? oldStrip.scrollLeft : null
     WB.rendering = true
     if (isSimple()) {
       el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
@@ -11191,6 +11209,7 @@
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
     restoreChatScroll(chatScroll)
+    restoreStripScroll(stripLeft)
     fitHead()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
     if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(fitHead)
