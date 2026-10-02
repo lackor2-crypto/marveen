@@ -1556,7 +1556,7 @@
   // lehetseges tipusokat kinalja, es a mondat megmarad. A letrejott
   // munkadarab rogton megnyilik, a mondat pedig az Agenthez megy.
 
-  var INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation']
+  var INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation', 'business_card']
 
   function intakeHtml() {
     var ask = WB.intakeAsk
@@ -1625,7 +1625,7 @@
       window.showToast(r.data.message || t('workbench.new.created', { title: r.data.item.title }))
       var made = r.data.item
       // Az egyszeru nezet jobb oldala azonnal mutasson egy (akar ures) kiindulo munkadarabot.
-      seedEmptyStart(made).then(function () {
+      seedEmptyStart(made, r.data.kind).then(function () {
         selectItem(made.id)
         load(WB.projectId)
         // A mondat az Agenthez: o kezdi el a munkat az uj munkadarabon.
@@ -1637,11 +1637,18 @@
   /** Egy ures kiindulo munkadarab a jobb oldalra: ures vaszon, egy ures dia, egy
    *  ures fejezet. A jegyzetnek (md) a belepo mar letrehozta az ures fajlt; a
    *  videonak az idosav ures allapotban is latszik. Hiba nem akasztja meg a megnyitast. */
-  function seedEmptyStart(item) {
+  function seedEmptyStart(item, kind) {
     var base = '/api/workbench/items/' + encodeURIComponent(item.id)
     var call = null
     if (item.type === 'graphic') {
       call = api('PUT', base + '/canvas', { canvas: { width: 1080, height: 1080, background: '#ffffff', objects: [] } })
+    } else if (item.type === 'presentation' && kind === 'business_card') {
+      // Nevjegykartya: kartyameret (EU 85 x 55 mm), ket oldal -- elol a nev, hatul egy ures lap.
+      call = api('POST', base + '/deck/ops', { ops: [
+        { op: 'setSize', size: 'card-eu' },
+        { op: 'addSlide', layout: 'title', at: 1, title: t('workbench.card.front_title'), body: t('workbench.card.front_body') },
+        { op: 'addSlide', layout: 'blank', at: 2 },
+      ] })
     } else if (item.type === 'presentation') {
       call = api('POST', base + '/deck/ops', { ops: [{ op: 'addSlide', layout: 'title', at: 1, title: t('workbench.deck.new_title'), body: t('workbench.deck.new_subtitle') }] })
     } else if (item.type === 'document') {
@@ -5898,6 +5905,20 @@
       + (extra || '') + (WB.canvasBusy || WB.deckExporting || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
   }
 
+  /** Egy nevjegykartya ket oldala: Elol / Hatul; minden mas dasorban a sorszam. */
+  function deckIsCard() {
+    var d = WB.deck && WB.deck.deck
+    return !!(d && typeof d.size === 'string' && d.size.indexOf('card-') === 0)
+  }
+  function deckPageLabel(i) {
+    if (deckIsCard() && i < 2) return t(i === 0 ? 'workbench.card.front' : 'workbench.card.back')
+    return String(i + 1)
+  }
+
+  function deckSizeLabel(a) {
+    return a.indexOf('card-') === 0 ? t('workbench.card.size.' + a) : a
+  }
+
   function deckStripHtml() {
     var list = deckSlides()
     var cur = deckCurrentSlide()
@@ -5907,7 +5928,7 @@
         + '<button type="button" class="wb-deck-pick" data-wb-act="deck-pick" data-wb-id="' + escA(s.id) + '" aria-label="' + escA(t('workbench.deck.slide_n', { n: i + 1 })) + '"'
         + (on ? ' aria-current="true"' : '') + '>'
         + '<img loading="lazy" alt="' + escA(t('workbench.deck.slide_n', { n: i + 1 })) + '" src="' + escA(deckSlideUrl(s.id)) + '"></button>'
-        + '<span class="wb-muted">' + (i + 1) + '</span>'
+        + '<span class="wb-muted">' + esc(deckPageLabel(i)) + '</span>'
         + (on && !archived()
           ? '<span class="wb-deck-thumb-actions">'
             + deckBtn('deck-up', '↑', s.id, i === 0 ? ' disabled' : '') + deckBtn('deck-down', '↓', s.id, i === list.length - 1 ? ' disabled' : '')
@@ -5931,7 +5952,7 @@
     var doc = WB.deck.deck
     var sizes = ((WB.deck.limits && WB.deck.limits.sizes) || ['16:9', '4:3']).map(function (a) {
       return '<button type="button" class="wb-btn' + (doc.size === a ? ' wb-on' : '') + '" data-wb-act="deck-size" data-wb-v="' + escA(a) + '"'
-        + (WB.canvasBusy || archived() ? ' disabled' : '') + '>' + esc(a) + '</button>'
+        + (WB.canvasBusy || archived() ? ' disabled' : '') + '>' + esc(deckSizeLabel(a)) + '</button>'
     }).join(' ')
     var layouts = ['title', 'content', 'blank'].map(function (l) {
       return '<option value="' + l + '">' + esc(t('workbench.deck.layout_' + l)) + '</option>'
@@ -10889,7 +10910,7 @@
       + '<button type="button" class="wb-fr-export" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '" aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
       + '<button type="button" class="wb-fr-tbtn wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '" aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
       + '</div>'
-    return out + frMenuHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + exportPanelHtml() + '</div>' : '')
+    return out + frMenuHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + frDeckExportHtml() + exportPanelHtml() + '</div>' : '')
   }
 
   /** A megnyitott menu (Fajl / Meretezes): a fejlec alatt lenyilo doboz. */
@@ -10967,11 +10988,40 @@
     return '<aside class="wb-fr-panel"><h3 class="wb-fr-ptitle">' + esc(t('workbench.fr.tab.' + WB.frTab)) + '</h3>' + frPanelBodyHtml() + '</aside>'
   }
 
+  /** A dia-/kartya-export gombjai (PPTX, PDF) -- az Export-doboz tetejen, a deck-nek. */
+  function frDeckExportHtml() {
+    if (!deckMode()) return ''
+    var ex = WB.deckExported
+    return '<div class="wb-fr-exp"><p>' + deckBtn('deck-export', WB.deckExporting === 'pdf' ? t('workbench.deck.exporting') : t('workbench.deck.export_pdf'), '', ' data-wb-v="pdf"')
+      + deckBtn('deck-export', WB.deckExporting === 'pptx' ? t('workbench.deck.exporting') : t('workbench.deck.export_pptx'), '', ' data-wb-v="pptx"') + '</p>'
+      + (deckIsCard() ? '<p class="wb-hint">' + esc(t('workbench.card.export_hint')) + '</p>' : '<p class="wb-hint">' + esc(t('workbench.deck.export_hint')) + '</p>')
+      + (ex ? '<p class="wb-muted">' + esc(t('workbench.deck.exported_file', { name: ex.name })) + ' <a href="' + escA(ex.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a></p>'
+        + (ex.warnings.length ? '<ul class="wb-hint">' + ex.warnings.map(function (w) { return '<li>' + esc(w) + '</li>' }).join('') + '</ul>' : '') : '')
+      + '</div>'
+  }
+
+  /** A deck kozepe: a kijelolt oldal nagyban, alatta az oldal-sav (Elol / Hatul / dia-k) + "+ Oldal hozzaadasa". */
+  function frDeckCenterInner() {
+    if (WB.deckError && !WB.deck) {
+      return '<p class="wb-preview-bad">' + esc(WB.deckError.message || '') + '</p>' + deckBtn('deck-refresh', t('workbench.canvas.refresh'))
+    }
+    if (!WB.deck || !WB.deck.deck) return '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
+    var slides = deckSlides()
+    var add = archived() ? '' : '<button type="button" class="wb-fr-addpage" data-wb-act="deck-add-blank"' + (WB.canvasBusy ? ' disabled' : '') + '>+ ' + esc(t('workbench.fr.add_page')) + '</button>'
+    if (!slides.length) {
+      return '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.deck.none_title')) + '</p><p>' + add + '</p></div>'
+    }
+    var cur = deckCurrentSlide()
+    return '<div class="wb-fr-page">' + canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(cur) + 1 }), true) + '</div>'
+      + '<div class="wb-fr-pages">' + deckStripHtml() + add + '</div>'
+  }
+
   /** Kozepen a lap. Rajz-fajtanal csak a LAP (az elemek listaja, urlapja a Technikai reszletekben van). */
   function frCenterHtml() {
     var it = WB.detail ? WB.detail.item : null
     var inner
     if (!it) inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
+    else if (isDeckItem()) inner = frDeckCenterInner()
     else if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) {
       if (WB.canvas.exists) {
         inner = canvasOrphansHtml() + '<div class="wb-fr-page">' + canvasStageHtml(it.title, true) + '</div>'
@@ -11770,6 +11820,14 @@
     else if (a === 'deck-refresh') loadDeck(WB.selectedId)
     else if (a === 'deck-pick') deckSelectSlide(act.getAttribute('data-wb-id'))
     else if (a === 'deck-add') deckAddSlide()
+    else if (a === 'deck-add-blank') {
+      // Egy UJ, ures oldal a kijelolt utan (a Canva "+ Oldal hozzaadasa" mintaja).
+      var curp = deckCurrentSlide()
+      deckOps([{ op: 'addSlide', layout: 'blank', at: curp ? deckSlides().indexOf(curp) + 2 : 1 }], function (d) {
+        var ap = (d.applied || [])[0]
+        if (ap && ap.id) { WB.deckSlide = ap.id; deckSyncCanvas() }
+      })
+    }
     else if (a === 'deck-up' || a === 'deck-down') deckMoveSlide(act.getAttribute('data-wb-id'), a === 'deck-up' ? -1 : 1)
     else if (a === 'deck-dup') deckOps([{ op: 'duplicateSlide', id: act.getAttribute('data-wb-id') }])
     else if (a === 'deck-del') deckRemoveSlide(act.getAttribute('data-wb-id'))

@@ -21,12 +21,20 @@ export const DECK_MAX_SLIDES = 100
 export const DECK_NOTES_MAX = 4000
 export const DECK_FILE_MAX_BYTES = 8 * 1024 * 1024
 
-export const DECK_SIZES = ['16:9', '4:3'] as const
+export const DECK_SIZES = ['16:9', '4:3', 'card-eu', 'card-us', 'card-90'] as const
 export type DeckSize = (typeof DECK_SIZES)[number]
 export const DECK_PIXELS: Record<DeckSize, { width: number; height: number }> = {
   '16:9': { width: 1920, height: 1080 },
   '4:3': { width: 1440, height: 1080 },
+  // Business cards (Boss, 2026-10-02): the size in pixels at 300 dpi, so the PPTX / PDF come out at the real
+  // paper size (EU 85 x 55 mm, US 3.5 x 2 in, 90 x 50 mm). Data, dated: printers' own spec wins.
+  'card-eu': { width: 1004, height: 650 },
+  'card-us': { width: 1050, height: 600 },
+  'card-90': { width: 1063, height: 591 },
 }
+
+/** A business-card deck: its pixels are 300 dpi (real paper size), and it has a front and a back. */
+export const isCardSize = (size: string): boolean => size.startsWith('card-')
 export const DECK_LAYOUTS = ['title', 'content', 'blank'] as const
 export type DeckLayout = (typeof DECK_LAYOUTS)[number]
 

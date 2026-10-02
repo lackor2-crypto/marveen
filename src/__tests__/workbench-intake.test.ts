@@ -12,7 +12,7 @@ import { createProject, setProjectArchived, updateProject } from '../projects.js
 import { listWorkItems, createWorkItem } from '../workbench.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { buildPreview } from '../workbench-preview.js'
-import { guessIntakeKind, intakeTitle, INTAKE_KINDS } from '../workbench-intake.js'
+import { guessIntakeKind, intakeTitle, INTAKE_KINDS, INTAKE_TYPE } from '../workbench-intake.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import type { RouteContext } from '../web/routes/types.js'
 import { workbenchHarness, itemsBody } from './helpers/workbench-harness.js'
@@ -191,8 +191,8 @@ describe('belepo: md / jegyzet kerese (Boss, TG 7276)', () => {
     expect(guessIntakeKind('Jegyzet a tegnapi megbeszélésről')).toEqual({ sure: true, kind: 'note' })
     expect(intakeTitle('szeretnék egy md filet csinálni és beleírni hogy szia', 'note', 'hu')).toBe('Új jegyzet')
     expect(intakeTitle('x', 'note', 'en')).toBe('New note')
-    // Az otgombos lista valtozatlan.
-    expect([...INTAKE_KINDS]).toHaveLength(5)
+    // A gombos lista: öt eredeti fajta + a névjegykártya.
+    expect([...INTAKE_KINDS]).toHaveLength(6)
   })
 
   describe('a vegpont', () => {
@@ -273,5 +273,18 @@ describe('belepo: md / jegyzet kerese (Boss, TG 7276)', () => {
       expect(bad.ok).toBe(false)
       if (!bad.ok) expect(bad.detail).toMatch(/workItem\.addPart/)
     })
+  })
+})
+
+describe('névjegykártya (Boss, 2026-10-02): saját kérés-típus, kétoldalas kártya-méretű deck', () => {
+  it('az osztályozó a névjegy-szavakat névjegykártyának ismeri fel (nem prezentációnak)', () => {
+    expect(guessIntakeKind('Szeretnék egy névjegykártyát Kovács Annának')).toEqual({ sure: true, kind: 'business_card' })
+    expect(guessIntakeKind('make me a business card')).toEqual({ sure: true, kind: 'business_card' })
+    expect(guessIntakeKind('Visitenkarte für die Firma')).toEqual({ sure: true, kind: 'business_card' })
+  })
+  it('a munkadarab-fajta prezentáció (deck), a cím magyarul és angolul', () => {
+    expect(INTAKE_TYPE['business_card']).toBe('presentation')
+    expect(intakeTitle('', 'business_card', 'hu')).toBe('Új névjegykártya')
+    expect(intakeTitle('', 'business_card', 'en')).toBe('New business card')
   })
 })

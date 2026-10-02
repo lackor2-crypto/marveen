@@ -10,13 +10,17 @@
  */
 import { buildZip, type ZipEntry } from './web/zip-writer.js'
 import type { CanvasObject, CanvasText } from './workbench-graphic.js'
-import type { DeckDoc, DeckSlide } from './workbench-deck.js'
+import { isCardSize, type DeckDoc, type DeckSlide } from './workbench-deck.js'
 
 const EMU = 9525 // one slide pixel (96 dpi)
 /** A slide is 1920 px wide, 20 inches at 96 dpi. PowerPoint's own 16:9 slide is 13.33 inches (4:3: 10 inches
  *  for 1440 px), so everything is scaled by 2/3: sizes and fonts together, the look is the same and the file
  *  opens at the size the owner expects. */
 const FIT = 2 / 3
+/** Business cards are drawn at 300 dpi: one pixel is 914400 / 300 EMU, so the page is the real card size. */
+const FIT_CARD = (914400 / 300) / EMU
+/** The scale of the deck being built right now (set at the start of buildDeckPptx; the build is synchronous). */
+let fit = FIT
 
 export interface PptxImage { bytes: Buffer; mime: string }
 export interface PptxResult { bytes: Buffer; warnings: string[] }
@@ -27,7 +31,7 @@ const esc = (s: unknown): string => String(s ?? '')
   // eslint-disable-next-line no-control-regex
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
 
-const emu = (px: number): number => Math.round(px * EMU * FIT)
+const emu = (px: number): number => Math.round(px * EMU * fit)
 
 const FONT: Record<CanvasText['font'], string> = { sans: 'Arial', serif: 'Georgia', mono: 'Courier New' }
 
@@ -90,7 +94,7 @@ interface SlideCtx {
 
 function textShape(o: CanvasText, id: number): string {
   const algn = o.align === 'center' ? 'ctr' : o.align === 'right' ? 'r' : 'l'
-  const rpr = `lang="hu-HU" sz="${Math.max(100, Math.round(o.fontSize * 75 * FIT))}" b="${o.bold ? 1 : 0}" i="${o.italic ? 1 : 0}" dirty="0"`
+  const rpr = `lang="hu-HU" sz="${Math.max(100, Math.round(o.fontSize * 75 * fit))}" b="${o.bold ? 1 : 0}" i="${o.italic ? 1 : 0}" dirty="0"`
   const font = `<a:latin typeface="${FONT[o.font]}"/><a:cs typeface="${FONT[o.font]}"/>`
   const paras = String(o.text).split('\n').map((l) => l === ''
     ? `<a:p><a:pPr algn="${algn}"/><a:endParaRPr ${rpr}>${fill(o.color, o.opacity)}${font}</a:endParaRPr></a:p>`
@@ -192,6 +196,7 @@ const CLRMAP = '<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accen
 /** Build the PPTX of a deck. `loadImage` gives the bytes of a picture by its canvas `src` (null = not found). */
 export function buildDeckPptx(deck: DeckDoc, loadImage: (src: string) => PptxImage | null, modified?: Date): PptxResult {
   const warnings: string[] = []
+  fit = isCardSize(deck.size) ? FIT_CARD : FIT
   const slideCount = deck.slides.length
   if (!slideCount) throw new Error('deck_empty')
   const w = deck.slides[0].canvas.width
