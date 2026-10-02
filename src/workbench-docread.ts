@@ -31,7 +31,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { getDb } from './db.js'
-import { which, ocrLanguages } from './life-inbox-systools.js'
+import { which, ocrLanguages, toolEnv } from './life-inbox-systools.js'
 import { convertOfficeToPdf, isOfficeConvertible } from './office-convert.js'
 
 /** A feldolgozo verzioja: ha a modszer valtozik, a regi eredmenyt ujraolvassuk. */
@@ -168,7 +168,7 @@ function runAsync(bin: string, args: string[], timeout = TOOL_TIMEOUT_MS): Promi
   const exe = which(bin)
   if (!exe) return Promise.resolve({ ok: false, error: `${bin} is not installed` })
   return new Promise((resolve) => {
-    execFile(exe, args, { timeout, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(exe, args, { timeout, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: toolEnv(bin) }, (err, stdout, stderr) => {
       if (err) resolve({ ok: false, error: `${bin}: ${(stderr || err.message || '').toString().trim().slice(0, 300)}` })
       else resolve({ ok: true, out: stdout })
     })

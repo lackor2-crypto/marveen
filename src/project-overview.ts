@@ -13,7 +13,9 @@
  *   - `code_tasks` -- a kod-hid feladatai: az EGYENKENT a projekthez kotott
  *     feladat (`code_task` kotes), kulonben a kartya-hivatkozas VAGY a projekthez
  *     kotott alias (a kotes `since` idopontja utan) -- lasd `codeTaskMembership`,
- *   - `approvals` -- a kartyahoz kotott jovahagyas (`action_payload.kanban_card_id`),
+ *   - `approvals` -- a kartyahoz kotott jovahagyas (`action_payload.kanban_card_id`)
+ *     ES a Munkapad sajat jegye, ami a projektet nevezi meg (`action_payload.project`),
+ *   - `work_items` -- a Munkapad munkadarabjai (a Kanban ful ugyanezeket mutatja),
  *   - `kanban_card_events`, `kanban_comments`, `idea_status_log` -- az idovonal,
  *   - a projektmappa -- a legutobb modositott fajlok.
  *
@@ -22,13 +24,15 @@
  */
 import { readdirSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { getDb } from './db.js'
+import { getDb, listPendingApprovals } from './db.js'
+import { approvalCardId } from './kanban-related.js'
 import { explorerRoot, resolveLifePath } from './life-explorer.js'
 import { mountsInside } from './life-mounts.js'
 import {
   getProject, hasTable, projectCardIds, projectCodeAliases, projectIdeaIds,
   type ProjectRow,
 } from './projects.js'
+import { RECENT_DONE_DAYS, approvalBelongs } from './workbench-overview.js'
 
 const toMs = (v: number | null | undefined): number => {
   if (!v) return 0
@@ -52,7 +56,7 @@ export interface OverviewWorkItem {
   id: string
   seq: number | null
   title: string
-  /** draft / in_progress / review (done ones are not open work). */
+  /** draft / in_progress / review / done. */
   status: string
   updatedAt: number
 }
@@ -68,15 +72,20 @@ export interface CurrentWorkItem {
 
 export interface ApprovalItem {
   id: string
-  cardId: string
+  /** The kanban card the request is about; `null` for a Workbench request that
+   *  names the project (and usually a work item) instead of a card. */
+  cardId: string | null
   cardTitle: string
+  workItemId: string | null
+  workItemSeq: number | null
+  workItemTitle: string | null
   category: string
   description: string
   requestedAt: number
   agentId: string
 }
 
-export type ActivityKind = 'status' | 'comment' | 'approval' | 'idea' | 'code' | 'file' | 'card_created' | 'idea_created'
+export type ActivityKind = 'status' | 'comment' | 'approval' | 'idea' | 'code' | 'file' | 'card_created' | 'idea_created' | 'work'
 export interface ActivityItem {
   at: number
   kind: ActivityKind
@@ -89,6 +98,9 @@ export interface ActivityItem {
   text?: string | null
   name?: string | null
   rel?: string | null
+  /** `work`: the work item that changed (`name` = its title, `to` = its status). */
+  workItemId?: string | null
+  seq?: number | null
 }
 
 /**
@@ -103,6 +115,9 @@ export interface ProjectFacts {
   waiting: number
   overdue: number
   pendingApprovals: number
+  /** What the Kanban tab's Done column holds: the not archived done cards and
+   *  the work items finished in the last RECENT_DONE_DAYS days. */
+  done: number
   activeWork: number
   /** A legregebb, 14 napja nem mozdult nyitott kartya kora napban (vagy null). */
   staleOpenCards: number
@@ -116,6 +131,8 @@ export interface ProjectOverview {
   nextStepsTotal: number
   /** The project's open work items (draft / in progress / review), newest first. */
   workItems: OverviewWorkItem[]
+  /** Work items finished in the last RECENT_DONE_DAYS days, newest first. */
+  doneWorkItems: OverviewWorkItem[]
   activity: ActivityItem[]
   folder: { state: FolderState; path: string | null; recentFiles: number }
   facts: ProjectFacts
@@ -161,13 +178,16 @@ export function sortNextSteps(cards: OverviewCard[]): OverviewCard[] {
     || (b.updatedAt - a.updatedAt))
 }
 
-/** Open work items of the project. A fresh install has no table yet: that is
- *  "no work item", not an error. */
+const OPEN_WORK_STATUSES = ['draft', 'in_progress', 'review']
+
+/** Every live work item of the project, newest first -- the finished ones too:
+ *  a project whose work is all done still has work to show. A fresh install has
+ *  no table yet: that is "no work item", not an error. */
 function loadWorkItems(projectId: string): OverviewWorkItem[] {
   if (!hasTable('work_items')) return []
   const rows = getDb().prepare(
     `SELECT id, seq, title, status, updated_at FROM work_items
-      WHERE project_id = ? AND deleted_at IS NULL AND status IN ('draft', 'in_progress', 'review')
+      WHERE project_id = ? AND deleted_at IS NULL
       ORDER BY updated_at DESC`,
   ).all(projectId) as { id: string; seq: number | null; title: string; status: string; updated_at: number }[]
   return rows.map((r) => ({ id: r.id, seq: r.seq ?? null, title: r.title, status: r.status, updatedAt: toMs(r.updated_at) }))
@@ -236,27 +256,49 @@ function loadCodeTasks(projectId: string, cardIds: string[], where: string, limi
   }))
 }
 
-function loadApprovals(cards: OverviewCard[]): ApprovalItem[] {
-  if (!cards.length || !hasTable('approvals')) return []
+/** The work item a Workbench request names in its payload (`workItem`), if any. */
+function payloadWorkItemId(actionPayload: string | null): string | null {
+  if (!actionPayload) return null
+  try {
+    const p = JSON.parse(actionPayload) as Record<string, unknown> | null
+    return p && typeof p === 'object' && typeof p['workItem'] === 'string' ? p['workItem'] : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The project's undecided approval requests. A request belongs here in one of
+ * two ways: it is about one of the project's cards (`kanban_card_id`), or it is
+ * the Workbench's own request and names the project itself (`project`, with
+ * `project_id` as the older spelling). The decision is the Workbench strip's own
+ * `approvalBelongs`, not a second copy of it, so the two cannot show a different
+ * number for the same project.
+ */
+function loadApprovals(projectId: string, cards: OverviewCard[], items: OverviewWorkItem[]): ApprovalItem[] {
+  if (!hasTable('approvals')) return []
   const ids = cards.map((c) => c.id)
-  const byId = new Map(cards.map((c) => [c.id, c]))
-  const rows = getDb().prepare(
-    `SELECT id, agent_id, category, action_description, requested_at,
-            CASE WHEN json_valid(action_payload) THEN json_extract(action_payload, '$.kanban_card_id') END AS card_id
-       FROM approvals
-      WHERE status = 'pending'
-        AND CASE WHEN json_valid(action_payload) THEN json_extract(action_payload, '$.kanban_card_id') END IN (${placeholders(ids.length)})
-      ORDER BY requested_at ASC`,
-  ).all(...ids) as { id: string; agent_id: string; category: string; action_description: string; requested_at: number; card_id: string }[]
-  return rows.map((r) => ({
-    id: r.id,
-    cardId: r.card_id,
-    cardTitle: byId.get(r.card_id)?.title ?? '',
-    category: r.category,
-    description: String(r.action_description || '').slice(0, 300),
-    requestedAt: toMs(r.requested_at),
-    agentId: r.agent_id,
-  }))
+  const itemById = new Map(items.map((w) => [w.id, w]))
+  const rows = listPendingApprovals()
+    .filter((a) => approvalBelongs(a, projectId, ids))
+    .sort((a, b) => a.requested_at - b.requested_at)
+  return rows.map((r) => {
+    const ref = approvalCardId(r.action_payload, r.action_description || '')
+    const card = ref ? cards.find((c) => c.id === ref || c.id.startsWith(ref)) : undefined
+    const item = itemById.get(payloadWorkItemId(r.action_payload) ?? '')
+    return {
+      id: r.id,
+      cardId: card ? card.id : null,
+      cardTitle: card?.title ?? '',
+      workItemId: item ? item.id : null,
+      workItemSeq: item ? item.seq : null,
+      workItemTitle: item ? item.title : null,
+      category: r.category,
+      description: String(r.action_description || '').slice(0, 300),
+      requestedAt: toMs(r.requested_at),
+      agentId: r.agent_id,
+    }
+  })
 }
 
 /** A mappa legutobb modositott fajljai, korlatos bejarassal (melyseg + darabszam),
@@ -305,7 +347,7 @@ export function recentFiles(project: ProjectRow, limit: number): { state: Folder
   return { state: 'ok', files: files.slice(0, limit) }
 }
 
-function loadActivity(project: ProjectRow, cards: OverviewCard[], files: { rel: string; name: string; at: number }[], limit: number): ActivityItem[] {
+function loadActivity(project: ProjectRow, cards: OverviewCard[], items: OverviewWorkItem[], files: { rel: string; name: string; at: number }[], limit: number): ActivityItem[] {
   const db = getDb()
   const out: ActivityItem[] = []
   // Az archivalt kartyak esemenyei is a projekt tortenetehez tartoznak.
@@ -375,6 +417,11 @@ function loadActivity(project: ProjectRow, cards: OverviewCard[], files: { rel: 
   for (const t of loadCodeTasks(project.id, allIds, '', per)) {
     out.push({ at: t.at, kind: 'code', cardId: t.cardId, cardTitle: t.cardId ? titles.get(t.cardId) ?? null : null, to: t.status, text: t.excerpt, actor: t.alias })
   }
+  // A work item keeps no status history, only when it last changed: that moment
+  // and the status it stands in now is what is measured, so that is what is shown.
+  for (const w of items.slice(0, per)) {
+    out.push({ at: w.updatedAt, kind: 'work', workItemId: w.id, seq: w.seq, name: w.title, to: w.status })
+  }
   for (const f of files) out.push({ at: f.at, kind: 'file', name: f.name, rel: f.rel })
   return out.filter((a) => a.at > 0).sort((a, b) => b.at - a.at).slice(0, limit)
 }
@@ -410,12 +457,16 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
   }
   for (const t of cardless) currentWork.push({ card: null, claims: [], codeTasks: [t] })
 
-  const workItems = loadWorkItems(project.id)
-  const approvals = loadApprovals(cards)
+  const allWorkItems = loadWorkItems(project.id)
+  const workItems = allWorkItems.filter((w) => OPEN_WORK_STATUSES.includes(w.status))
+  // The same cut the Kanban tab's Done column makes (`listBoardWorkItems`).
+  const doneCut = now - RECENT_DONE_DAYS * 86400_000
+  const doneWorkItems = allWorkItems.filter((w) => w.status === 'done' && w.updatedAt >= doneCut)
+  const approvals = loadApprovals(project.id, cards, allWorkItems)
   const open = cards.filter((c) => OPEN_STATUSES.includes(c.status))
   const next = sortNextSteps(open)
   const folderScan = recentFiles(project, 5)
-  const activity = loadActivity(project, cards, folderScan.files, opts.activityLimit ?? 25)
+  const activity = loadActivity(project, cards, allWorkItems, folderScan.files, opts.activityLimit ?? 25)
 
   // Van-e a projektnek fejlesztesi munkaja: kotott alias, VAGY barmely (akar
   // archivalt kartyan at, akar egyenkent kotott) kodfeladat.
@@ -433,6 +484,7 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
     nextSteps: next.slice(0, 10),
     nextStepsTotal: next.length,
     workItems,
+    doneWorkItems,
     activity,
     folder: { state: folderScan.state, path: project.folder_path, recentFiles: folderScan.files.length },
     facts: {
@@ -444,6 +496,7 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
         + workItems.filter((w) => w.status === 'review').length,
       overdue: open.filter((c) => c.dueAt != null && c.dueAt < now).length,
       pendingApprovals: approvals.length,
+      done: cards.filter((c) => c.status === 'done').length + doneWorkItems.length,
       activeWork: currentWork.filter((w) => w.claims.length || w.codeTasks.length).length
         + workItems.filter((w) => w.status === 'in_progress').length,
       staleOpenCards: open.filter((c) => c.updatedAt > 0 && c.updatedAt < staleCut).length

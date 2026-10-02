@@ -2467,6 +2467,15 @@ function renderKanban() {
   document.getElementById('countTesting').textContent = grouped.testing.length
   document.getElementById('countWaiting').textContent = grouped.waiting.length
   document.getElementById('countDone').textContent = grouped.done.length
+  // The flat board also shows the work items in these columns, so the header
+  // counts them too (#457) -- a "0" over a framed work item reads as a bug.
+  if (kanbanGroupBy === 'none') {
+    const countIds = { planned: 'countPlanned', in_progress: 'countInProgress', testing: 'countTesting', waiting: 'countWaiting', done: 'countDone' }
+    for (const [status, elId] of Object.entries(countIds)) {
+      const n = kanbanWorkItems.filter((w) => w.column === status && kanbanWorkItemVisible(w)).length
+      if (n) document.getElementById(elId).textContent = grouped[status].length + n
+    }
+  }
 
   const flatBoard = document.getElementById('kanbanBoard')
   const swimlaneBoard = document.getElementById('kanbanSwimlaneBoard')
@@ -46428,6 +46437,7 @@ function _prjFactsHtml(ov) {
     ['in_progress', f.inProgress, false],
     ['waiting', f.waiting, false],
     ['approvals', f.pendingApprovals, false],
+    ['done', f.done, false],
     ['overdue', f.overdue, true],
     ['stale', f.staleOpenCards, true],
   ]
@@ -46447,11 +46457,20 @@ function _prjWorkRowHtml(ov, w) {
   return workItemBoardHtml({ id: w.id, seq: w.seq, title: w.title, project_id: p.id, project_name: p.name }, false)
 }
 
+/** A work item named inside a line of text ("13M Title"): opens it on the
+ *  Workbench, like the framed row does. */
+function _prjWorkLink(ov, w) {
+  const p = ov.project || {}
+  const label = (w.seq != null ? w.seq + 'M ' : '') + (w.title || w.id)
+  return `<a href="#" class="prj-card-link" data-work-open="${escapeAttr(w.id)}" data-work-project="${escapeAttr(p.id || '')}" data-work-project-name="${escapeAttr(p.name || '')}">${escapeHtml(label)}</a>`
+}
+
 function _prjCurrentHtml(ov) {
   const list = ov.currentWork || []
   const running = (ov.workItems || []).filter((w) => w.status === 'in_progress')
   if (!list.length && !running.length) return _prjEmptyLine('projects.current.empty')
   const runningHtml = running.map((w) => _prjWorkRowHtml(ov, w)).join('')
+  if (!list.length) return runningHtml
   return `${runningHtml}<ul class="prj-list">${list.map((w) => {
     const head = w.card
       ? `${_prjCardLink(w.card)} ${_prjStatusPill(w.card.status)}`
@@ -46483,7 +46502,11 @@ function _prjApprovalsHtml(ov) {
   if (!list.length) return _prjEmptyLine('projects.approvals.empty')
   return `<ul class="prj-list">${list.map((a) => `
     <li class="prj-item">
-      <div class="prj-item-head">${_prjCardLink({ id: a.cardId, title: a.cardTitle })}</div>
+      <div class="prj-item-head">${a.cardId
+        ? _prjCardLink({ id: a.cardId, title: a.cardTitle })
+        : a.workItemId
+          ? _prjWorkLink(ov, { id: a.workItemId, seq: a.workItemSeq, title: a.workItemTitle })
+          : `<span class="prj-item-title">${escapeHtml(t('projects.approvals.project_level'))}</span>`}</div>
       ${a.description ? `<div class="prj-item-sub prj-clamp" title="${escapeAttr(a.description)}">${escapeHtml(a.description)}</div>` : ''}
       <div class="prj-item-sub prj-muted">${escapeHtml(t('projects.approvals.requested', { who: a.agentId, when: _prjAgo(a.requestedAt) }))}</div>
     </li>`).join('')}</ul>
@@ -46496,6 +46519,7 @@ function _prjNextHtml(ov) {
   if (!list.length && !works.length) return _prjEmptyLine('projects.next.empty')
   const more = (ov.nextStepsTotal || 0) - list.length
   const worksHtml = works.map((w) => _prjWorkRowHtml(ov, w)).join('')
+  if (!list.length) return worksHtml
   return `${worksHtml}<ul class="prj-list">${list.map((c) => {
     const bits = [escapeHtml(_prjT('kanban.priority.' + c.priority, null, c.priority))]
     if (c.dueAt) bits.push(escapeHtml(t(c.dueAt < Date.now() ? 'projects.next.overdue' : 'projects.next.due', { date: _prjDate(c.dueAt) })))
@@ -46506,7 +46530,7 @@ function _prjNextHtml(ov) {
   ${more > 0 ? `<button type="button" class="btn-secondary btn-compact" data-prj-act="kanban">${escapeHtml(t('projects.next.more', { n: more }))}</button>` : ''}`
 }
 
-function _prjActivityLine(a) {
+function _prjActivityLine(a, ov) {
   const card = a.cardId ? _prjCardLink({ id: a.cardId, title: a.cardTitle || a.cardId }) : ''
   const st = (s) => _prjT('kanban.status.' + s, null, s || '-')
   switch (a.kind) {
@@ -46530,6 +46554,9 @@ function _prjActivityLine(a) {
       return _prjTHtml('projects.act.card_created', {}, { card })
     case 'idea_created':
       return escapeHtml(t('projects.act.idea_created', { name: a.name || '' }))
+    case 'work':
+      return _prjTHtml('projects.act.work', { status: _prjT('workbench.status.' + a.to, null, a.to || '-') },
+        { item: _prjWorkLink(ov || {}, { id: a.workItemId, seq: a.seq, title: a.name }) })
     default:
       return escapeHtml(a.kind)
   }
@@ -46540,7 +46567,7 @@ function _prjActivityHtml(ov) {
   if (!list.length) return _prjEmptyLine('projects.activity.empty')
   return `<ul class="prj-list prj-timeline">${list.map((a) => `
     <li class="prj-item"><span class="prj-when" title="${escapeAttr(_prjDate(a.at, true))}">${escapeHtml(_prjAgo(a.at))}</span>
-      <div class="prj-what">${_prjActivityLine(a)}</div></li>`).join('')}</ul>`
+      <div class="prj-what">${_prjActivityLine(a, ov)}</div></li>`).join('')}</ul>`
 }
 
 /** Fajlok ful: ha a mappa latszik, a meglevo Intezo nyilik meg ott. Ha nem,

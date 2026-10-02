@@ -88,7 +88,7 @@ function errText(e: unknown): string {
 
 /** A jegy ehhez a projekthez tartozik-e: a Munkapad sajat jegye (payload
  *  `project`), vagy a projekt egyik kanban-kartyajara hivatkozik. */
-function approvalBelongs(a: { action_payload: string | null; action_description: string }, projectId: string, cardIds: string[]): boolean {
+export function approvalBelongs(a: { action_payload: string | null; action_description: string }, projectId: string, cardIds: string[]): boolean {
   if (a.action_payload) {
     try {
       const p = JSON.parse(a.action_payload) as Record<string, unknown>

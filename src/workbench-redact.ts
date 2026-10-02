@@ -26,7 +26,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, copyFileS
 import { deflateSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
-import { which, ocrLanguages } from './life-inbox-systools.js'
+import { which, ocrLanguages, toolEnv } from './life-inbox-systools.js'
 import { sha256OfFile, TEXT_LAYER_MIN_CHARS, meaningfulChars } from './workbench-docread.js'
 
 /** Ekkora felbontasban keszul a masolat (pont/hüvelyk). 200: olvashato, nem tul nagy fajl. */
@@ -70,7 +70,7 @@ function runAsync(bin: string, args: string[], timeout = TOOL_TIMEOUT_MS): Promi
   const exe = which(bin)
   if (!exe) return Promise.resolve({ ok: false, error: `${bin} is not installed` })
   return new Promise((resolve) => {
-    execFile(exe, args, { timeout, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(exe, args, { timeout, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: toolEnv(bin) }, (err, stdout, stderr) => {
       if (err) resolve({ ok: false, error: `${bin}: ${(stderr || err.message || '').toString().trim().slice(0, 300)}` })
       else resolve({ ok: true, out: stdout })
     })
