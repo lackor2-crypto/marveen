@@ -55,7 +55,7 @@ import {
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
 import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
-import { egressLog, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
+import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
@@ -2841,7 +2841,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   GET .../privacy                 -- az allapot + mi ment ki, hova, mikor (K-1.33)
   //   PUT .../privacy {sensitive}     -- bekapcsolni barki (szigoritas), KIKAPCSOLNI csak a tulajdonos kattintasa
   if (segs.length === 2 && segs[1] === 'privacy' && method === 'GET') {
-    json(res, { privacy: privacyState(item.project_id, item.id), egress: egressLog(item.id), ocr: 'local' })
+    json(res, { privacy: privacyState(item.project_id, item.id), egress: egressLog(item.id), ai_cost: itemAiCost(item.id), ocr: 'local' })
     return true
   }
   if (segs.length === 2 && segs[1] === 'privacy' && method === 'PUT') {
@@ -3994,7 +3994,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!file.ok) return failDetail(res, 409, file.code, lang, file.detail)
     const cfg = imageAiConfig()!
     const out = await editImageWithAI({ bytes: file.bytes, mime: file.mime, instruction, cfg })
-    if (!out.ok) return failDetail(res, 502, out.code, lang, out.detail)
+    if (!out.ok) {
+      recordImageAiCall(item.id, { model: cfg.model, file: file.rel, instruction_chars: instruction.length, cost_usd: null, status: 'failed' })
+      return failDetail(res, 502, out.code, lang, out.detail)
+    }
+    recordImageAiCall(item.id, { model: out.model, file: file.rel, instruction_chars: instruction.length, cost_usd: out.cost_usd, status: 'sent' })
     // UJ fajl a regi mellett, a regi nevebol ("auto.png" -> "auto-ai.png").
     const ext = out.mime === 'image/jpeg' ? '.jpg' : out.mime === 'image/webp' ? '.webp' : '.png'
     const base = (file.rel.split('/').pop() || 'kep').replace(/\.[^.]+$/, '').replace(/-ai(?: \(\d+\))?$/, '')

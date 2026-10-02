@@ -7823,7 +7823,7 @@
     render()
     api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/privacy').then(function (r) {
       if (WB.selectedId !== id) return
-      WB.egress = r.ok ? { itemId: id, loading: false, rows: r.data.egress || [], error: null } : { itemId: id, loading: false, rows: [], error: r.message }
+      WB.egress = r.ok ? { itemId: id, loading: false, rows: r.data.egress || [], cost: r.data.ai_cost || null, error: null } : { itemId: id, loading: false, rows: [], error: r.message }
       render()
     })
   }
@@ -7831,6 +7831,7 @@
     var who = e.account === 'api_key' ? t('workbench.egress.api_key') : e.account ? t('workbench.egress.account', { account: e.account }) : ''
     var what
     if (e.service === 'web_search') what = t('workbench.egress.what_search', { query: e.query || '' })
+    else if (e.service === 'image_ai') what = t('workbench.egress.what_image', { file: e.file || '-', cost: e.cost_usd == null ? t('workbench.egress.cost_unknown') : '$' + Number(e.cost_usd).toFixed(3) })
     else if (e.service === 'google_calendar') what = t('workbench.egress.what_todo', { todo: e.todo || '', due: e.due || '-' })
     else what = t('workbench.egress.what_message', { n: e.message_chars || 0 })
       + ((e.files || []).length ? ' ' + t('workbench.egress.what_files', { files: e.files.join(', ') }) : '')
@@ -7867,6 +7868,10 @@
       body = techMetaHtml()
         + '<p class="wb-hint">' + esc(t('workbench.egress.hint')) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.egress.ocr_local')) + '</p>'
+      if (e && e.cost && e.cost.calls) {
+        body += '<p class="wb-hint">' + esc(t('workbench.egress.cost_total', { usd: '$' + Number(e.cost.usd).toFixed(3), n: e.cost.calls })
+          + (e.cost.unknown ? ' ' + t('workbench.egress.cost_total_unknown', { n: e.cost.unknown }) : '')) + '</p>'
+      }
       if (!e || e.loading) body += '<p class="wb-muted">' + esc(t('workbench.egress.loading')) + '</p>'
       else if (e.error) body += '<p class="wb-doc-low">' + esc(t('workbench.egress.load_failed')) + ' ' + esc(e.error) + '</p>'
       else if (!e.rows.length) body += '<p class="wb-muted">' + esc(t('workbench.egress.empty')) + '</p>'
@@ -8421,12 +8426,21 @@
       body += turn.notices.map(function (n) { return '<div class="wb-turn-notice">' + esc(n) + '</div>' }).join('')
     }
     if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
-    if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
+    if (turn.aborted) {
+      // K-0.8: a megallitott (felbehagyott) valaszt egy gombbal lehet folytattatni.
+      var st0 = chatState(), last = st0.turns.length - 1
+      var canContinue = typeof index === 'number' && index === last && turn.role === 'agent' && !st0.turns.some(function (x) { return x.queued })
+      body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped'))
+        + (canContinue ? ' <button type="button" class="btn-secondary wb-chat-unqueue" data-wb-act="chat-continue">' + esc(t('workbench.chat.continue')) + '</button>' : '')
+        + '</div>'
+    }
     if (turn.queued) {
       // Sorban allo uzenet: visszavonhato, amig el nem ment (#434).
       body += '<div class="wb-turn-notice wb-turn-queued">' + esc(t('workbench.chat.queued'))
         + (typeof index === 'number'
-          ? ' <button type="button" class="btn-secondary wb-chat-unqueue" data-wb-act="chat-unqueue" data-wb-turn="' + index + '">'
+          ? ' <button type="button" class="btn-secondary wb-chat-unqueue" data-wb-act="chat-edit-queued" data-wb-turn="' + index + '">'
+            + esc(t('workbench.chat.edit_queued')) + '</button>'
+            + ' <button type="button" class="btn-secondary wb-chat-unqueue" data-wb-act="chat-unqueue" data-wb-turn="' + index + '">'
             + esc(t('workbench.chat.unqueue')) + '</button>'
           : '')
         + '</div>'
@@ -8754,6 +8768,15 @@
     startChatTurn(text)
   }
 
+  /** A megallitott valasz folytatasa (K-0.8): sajat uzenet, a beiro mezo tartalmat nem erinti. */
+  function continueChat() {
+    if (WB.chatStreaming) return
+    var text = t('workbench.chat.continue_text')
+    WB.chatForceBottom = true
+    chatState().turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
+    startChatTurn(text)
+  }
+
   /** Egy fordulo inditasa: a user-sor mar a naploban van. */
   function startChatTurn(text) {
     var st = chatState()
@@ -8880,6 +8903,19 @@
     var st = chatState()
     var turn = st.turns[index]
     if (turn && turn.role === 'user' && turn.queued) st.turns.splice(index, 1)
+    renderChat()
+  }
+
+  /** Egy sorban allo uzenet szerkesztese (K-0.4): visszakerul a beiro mezobe, a sorbol kikerul. */
+  function editQueuedChat(index) {
+    var st = chatState()
+    var turn = st.turns[index]
+    if (!turn || turn.role !== 'user' || !turn.queued) return
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
+    if (el && typeof el.value === 'string') WB.chatDraft = el.value
+    var cur = WB.chatDraft || ''
+    WB.chatDraft = cur ? turn.text + '\n' + cur : turn.text
+    st.turns.splice(index, 1)
     renderChat()
   }
 
@@ -10902,6 +10938,8 @@
     else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))
+    else if (a === 'chat-continue') continueChat()
+    else if (a === 'chat-edit-queued') editQueuedChat(Number(act.getAttribute('data-wb-turn')))
     else if (a === 'chat-setup') { if (WB.chatSetupOpen) { WB.chatSetupOpen = false; renderChat() } else openChatSetup() }
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
     else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }
