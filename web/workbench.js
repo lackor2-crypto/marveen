@@ -10878,12 +10878,15 @@
   /** A video has no canvas: only the tabs that mean something for it (the video tools open by default). */
   function frTabs() {
     var it = WB.detail ? WB.detail.item : null
-    return frIsVideo(it) ? FR_TABS.filter(function (x) { return x[0] === 'tools' || x[0] === 'uploads' || x[0] === 'projects' }) : FR_TABS
+    if (frIsVideo(it)) return FR_TABS.filter(function (x) { return x[0] === 'tools' || x[0] === 'uploads' || x[0] === 'projects' })
+    // A table has no canvas: templates/elements/text/faces/tools make no sense next to it.
+    if (frIsTable(it)) return FR_TABS.filter(function (x) { return x[0] === 'uploads' || x[0] === 'projects' })
+    return FR_TABS
   }
   function frTabNow() {
     if (!WB.frTab) return WB.frTab
     var ok = frTabs().some(function (x) { return x[0] === WB.frTab })
-    return ok ? WB.frTab : 'tools'
+    return ok ? WB.frTab : (frTabs().some(function (x) { return x[0] === 'tools' }) ? 'tools' : 'uploads')
   }
 
   function frIsCanvasItem(it) {
@@ -11077,6 +11080,28 @@
 
   function frIsVideo(it) { return !!it && it.type === 'video' }
 
+  /** A table work item: the preview file is a spreadsheet (xlsx/csv/tsv). */
+  function frIsTable(it) {
+    var p = WB.preview
+    if (!it || it.type === 'video' || isDeckItem()) return false
+    if (it.source_path) return isTableName(it.source_path)
+    return !!p && p.available !== false && isTableName(p.name)
+  }
+
+  /** Simple view: open the grid by itself, and reopen it when a newer version
+   *  arrives (the agent edited the table) while the hand has no unsaved edits. */
+  function frTableEnsure(it) {
+    var tb = WB.table
+    var p = WB.preview
+    var want = !tb || tb.itemId !== it.id
+    if (!want && tb && !tb.loading && !tb.busy && !tb.dirty && tb.data && p && p.version_id && tb.data.version_id && tb.data.version_id !== p.version_id) want = true
+    if (!want) return
+    var key = it.id + ':' + (p && p.version_id || '')
+    if (WB.frTblKey === key) return
+    WB.frTblKey = key
+    setTimeout(function () { if (WB.selectedId === it.id) openTable(it.id, null) }, 0)
+  }
+
   function frVtSelClip() {
     var doc = vtDoc()
     var clips = (doc && doc.clips) || []
@@ -11173,6 +11198,7 @@
     var page = ''
     var scrolling = ''
     var strip = ''
+    var tbl = ''
     var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
     if (!it) scrolling = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
     else if (isDeckItem()) {
@@ -11181,6 +11207,9 @@
       doc = doc || (WB.deck && WB.deck.deck && deckSlides().length ? deckCurrentSlide().canvas : null)
     } else if (frIsVideo(it)) {
       strip = frVideoStripHtml()
+    } else if (frIsTable(it)) {
+      frTableEnsure(it)
+      tbl = '<div class="wb-fr-tbl">' + (WB.table && WB.table.itemId === it.id ? tableHtml() : '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>') + '</div>'
     } else if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) {
       if (WB.canvas.exists) page = canvasStageHtml(it.title, true)
       else {
@@ -11191,10 +11220,10 @@
     } else scrolling = simpleResultHtml()
     var zoom = Math.min(100, Math.max(30, WB.frZoom || 100)) / 100
     var isVid = !!it && frIsVideo(it) && !isDeckItem()
-    var main = isVid ? '<div class="wb-fr-vid">' + frVideoPageHtml() + '</div>' : page
+    var main = tbl ? tbl : isVid ? '<div class="wb-fr-vid">' + frVideoPageHtml() + '</div>' : page
       ? '<div class="wb-fr-fixed" style="--wb-zoom:' + zoom + ';--ar:' + (doc ? (doc.width / doc.height).toFixed(4) : '1') + '"><div class="wb-fr-page">' + page + '</div></div>'
       : '<div class="wb-fr-scroll">' + scrolling + '</div>'
-    return '<div class="wb-fr-center">' + main + strip + (isVid ? '' : frBottomHtml()) + '</div>'
+    return '<div class="wb-fr-center">' + main + strip + (isVid || tbl ? '' : frBottomHtml()) + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */

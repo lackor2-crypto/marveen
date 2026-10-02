@@ -1493,3 +1493,12 @@
 .wb-sh-tech .wb-item-row { flex-wrap: wrap; }
 .wb-sh-tech .wb-item-row .wb-item { order: -1; flex: 1 1 100%; flex-wrap: wrap; }
 .wb-sh-tech .wb-item-meta { margin-left: 0; white-space: normal; }
+
+/* Simple view: the table grid fills the fixed middle window; only the grid scrolls inside it. */
+.wb-fr-tbl { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px; overflow-y: auto; }
+.wb-fr-tbl .wb-table { flex: 1 0 auto; display: flex; flex-direction: column; gap: 8px; }
+.wb-fr-tbl .wb-table-scroll { flex: 1 1 0; min-height: 200px; max-height: none; }
+.wb-fr-tbl .wb-table-tools, .wb-fr-tbl .wb-table-tabs, .wb-fr-tbl .wb-form-actions { flex: 0 0 auto; flex-wrap: wrap; }
+.wb-fr-tbl .wb-hint { margin: 0; font-size: 12px; }
+@media (max-width: 900px) { .wb-fr-tbl { height: 60vh; flex: none; } }
+@media (max-width: 720px) { .wb-fr-tbl { padding: 6px; } }
