@@ -1038,7 +1038,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               },
               {
                 enqueue: (i) => {
-                  const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'workbench', requestedBy: i.requestedBy, chatId: i.chatId })
+                  const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'workbench', requestedBy: i.requestedBy, chatId: i.chatId, side: project.bridge_side })
                   if ('error' in r) return { ok: false, message: r.error }
                   // While this turn watches the task, IT continues the work on
                   // another account if needed (bridge-continuation.ts).
