@@ -1610,11 +1610,32 @@
       WB.intakeName = ''
       WB.formOpen = false
       window.showToast(r.data.message || t('workbench.new.created', { title: r.data.item.title }))
-      selectItem(r.data.item.id)
-      load(WB.projectId)
-      // A mondat az Agenthez: o kezdi el a munkat az uj munkadarabon.
-      if (text) handOffToAgent(text)
+      var made = r.data.item
+      // Az egyszeru nezet jobb oldala azonnal mutasson egy (akar ures) kiindulo munkadarabot.
+      seedEmptyStart(made).then(function () {
+        selectItem(made.id)
+        load(WB.projectId)
+        // A mondat az Agenthez: o kezdi el a munkat az uj munkadarabon.
+        if (text) handOffToAgent(text)
+      })
     })
+  }
+
+  /** Egy ures kiindulo munkadarab a jobb oldalra: ures vaszon, egy ures dia, egy
+   *  ures fejezet. A jegyzetnek (md) a belepo mar letrehozta az ures fajlt; a
+   *  videonak az idosav ures allapotban is latszik. Hiba nem akasztja meg a megnyitast. */
+  function seedEmptyStart(item) {
+    var base = '/api/workbench/items/' + encodeURIComponent(item.id)
+    var call = null
+    if (item.type === 'graphic') {
+      call = api('PUT', base + '/canvas', { canvas: { width: 1080, height: 1080, background: '#ffffff', objects: [] } })
+    } else if (item.type === 'presentation') {
+      call = api('POST', base + '/deck/ops', { ops: [{ op: 'addSlide', layout: 'title', at: 1, title: t('workbench.deck.new_title'), body: t('workbench.deck.new_subtitle') }] })
+    } else if (item.type === 'document') {
+      call = api('POST', base + '/outline/sections', { title: t('workbench.sh.seed.section') })
+    }
+    if (!call) return Promise.resolve()
+    return call.then(function () {}, function () {})
   }
 
   /** Egy mondat az Agentnek, mintha a tulajdonos a chatbe irta volna. Futo
@@ -8168,6 +8189,7 @@
   /** A naplo ujratoltese a szerverrol; a meg el nem kuldott (sorban allo)
    *  uzenetek megmaradnak, es a betoltes utan elmennek. */
   function reloadChatHistory() {
+    refreshSelectedAfterTurn()
     var st = chatState()
     st.turns = st.turns.filter(function (x) { return x.queued })
     st.loaded = false
@@ -8721,6 +8743,17 @@
     setTimeout(function () { reconnectChat(turn) }, delay)
   }
 
+  /** Az ugynok irhatott a kijelolt munkadarab fajljaba (vagy uj fajlt csatolt
+   *  hozza): a jobb oldali elonezet es a verziok a szerver mostani allapotat
+   *  mutassak, ne a fordulo elottit. Nem talalgatunk, ujra lekerdezzuk. */
+  function refreshSelectedAfterTurn() {
+    var id = WB.selectedId
+    if (!id) return
+    var hadFile = !!(WB.detail && WB.detail.item && WB.detail.item.source_path)
+    if (!hadFile) loadDetail(id)
+    else loadPreview(id, null, true)
+  }
+
   function finishChatTurn(turn) {
     stopChatActivityTicker()
     WB.chatStreaming = false
@@ -8750,6 +8783,7 @@
       load(WB.projectId)
       if (WB.selectedId) loadDetail(WB.selectedId)
     }
+    refreshSelectedAfterTurn()
     // A keret allapota a fordulo utan mar mas: ujramerjuk, nem emlekezetbol irjuk.
     loadChatStatus()
     // A valasz kozben irt uzenet most megy el.
@@ -10313,10 +10347,13 @@
     if (WB.compare && WB.compare.itemId === WB.selectedId) inner = compareHtml()
     else if (it.type === 'document') inner = docTabsHtml()
     else {
-      inner = (surfaceOf(it) === 'canvas' ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
-        + videoTimelineHtml()
-        + deckHtml()
-        + (partsAreTechnical(it) ? '' : partsHtml())
+      // Egyszeru nezet: a kesz kep/oldal van legfelul, a szerkeszto gombok alatta (ures vaszon is latszik azonnal).
+      // Videonal es diasornal az idosav / a diak a fo tartalom, az (ilyenkor ures) elonezet csak alattuk jon.
+      inner = (it.type === 'video' || it.type === 'presentation'
+        ? videoTimelineHtml() + deckHtml() + previewHtml() + canvasHtml()
+        : previewHtml() + canvasHtml() + videoTimelineHtml() + deckHtml())
+        // A sajat .md/.txt fajlu jegyzet tartalma a fajl: az elonezet mutatja, az "ures Tartalom" doboz felesleges.
+        + (partsAreTechnical(it) || (it.type === 'note' && it.source_path) ? '' : partsHtml())
         + postPreviewHtml()
     }
     return '<div class="wb-sh-result wb-sh-type-' + escA(it.type) + '"' + (!archived() ? ' data-wb-drop="item"' : '') + '>' + inner + '</div>'

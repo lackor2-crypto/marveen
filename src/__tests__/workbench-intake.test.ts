@@ -1,11 +1,17 @@
 // #441, K-3.1 -- BELEPO: "Mit szeretnel letrehozni?". Az osztalyozo (egy mondat ->
 // munkatipus, vagy visszakerdezes), a vegpont, es a felulet vegig: mondat ->
 // kerdes -> valasztas -> megnyilo munkadarab -> a mondat az Agenthez megy.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable, Writable } from 'node:stream'
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { buildCodeBridgePrompt } from '../workbench-agent/code-bridge-turn.js'
 import { initDatabase } from '../db.js'
-import { createProject, setProjectArchived } from '../projects.js'
-import { listWorkItems } from '../workbench.js'
+import { createProject, setProjectArchived, updateProject } from '../projects.js'
+import { listWorkItems, createWorkItem } from '../workbench.js'
+import { executeTool } from '../workbench-agent/execute.js'
+import { buildPreview } from '../workbench-preview.js'
 import { guessIntakeKind, intakeTitle, INTAKE_KINDS } from '../workbench-intake.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import type { RouteContext } from '../web/routes/types.js'
@@ -175,5 +181,97 @@ describe('belepo: a felulet', () => {
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w1'))).toBe(true))
     expect(intakes(h)).toEqual([{ project_id: 'p1', text: '', kind: 'video' }])
     expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(false)
+  })
+})
+
+describe('belepo: md / jegyzet kerese (Boss, TG 7276)', () => {
+  it('az osztalyozo egy md-kerest jegyzetnek ismer fel (nem gomb), a cim fix es rovid', () => {
+    expect(guessIntakeKind('szeretnék egy md filet csinálni és beleírni hogy szia')).toEqual({ sure: true, kind: 'note' })
+    expect(guessIntakeKind('Make a markdown note about the meeting')).toEqual({ sure: true, kind: 'note' })
+    expect(guessIntakeKind('Jegyzet a tegnapi megbeszélésről')).toEqual({ sure: true, kind: 'note' })
+    expect(intakeTitle('szeretnék egy md filet csinálni és beleírni hogy szia', 'note', 'hu')).toBe('Új jegyzet')
+    expect(intakeTitle('x', 'note', 'en')).toBe('New note')
+    // Az otgombos lista valtozatlan.
+    expect([...INTAKE_KINDS]).toHaveLength(5)
+  })
+
+  describe('a vegpont', () => {
+    let depot = ''
+    let pid = ''
+    beforeEach(() => {
+      initDatabase(':memory:')
+      depot = mkdtempSync(join(tmpdir(), 'marveen-wb-intake-md-'))
+      mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+      process.env['MARVEEN_DEPOT'] = depot
+      const a = createProject({ name: 'Kovács ház' })
+      if (!a.ok) throw new Error('projekt')
+      pid = a.project.id
+    })
+    afterEach(() => { delete process.env['MARVEEN_DEPOT']; rmSync(depot, { recursive: true, force: true }) })
+
+    it('mappas projekt: jegyzet-munkadarab sajat .md fajllal, ami a forrasa', async () => {
+      const up = updateProject(pid, { folder_path: 'Projektek/teszt' })
+      if (!up.ok) throw new Error('mappa')
+      const folder = (await call('POST', '/api/workbench/folders', { project_id: pid, parent: '', name: 'Jegyzetek' })).body.folder as string
+      const r = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, folder, text: 'szeretnék egy md filet csinálni és beleírni hogy szia' })
+      expect(r.status).toBe(201)
+      expect(r.body).toMatchObject({ kind: 'note', item: { type: 'note', title: 'Új jegyzet' }, file: { name: 'Új jegyzet.md' } })
+      expect(r.body.item.source_path).toBe(r.body.file.rel)
+      expect(r.body.versions[0].source_path).toBe(r.body.file.rel)
+      expect(existsSync(join(depot, r.body.file.rel))).toBe(true)
+      expect(r.body.file.rel).toContain('Jegyzetek/')
+      // Ugyanaz a nev masodszor: uj fajl, nem feluliras.
+      const r2 = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, folder, text: 'még egy md fájl' })
+      expect(r2.body.file.name).not.toBe('Új jegyzet.md')
+    })
+
+    it('projektmappa nelkul is letrejon a jegyzet (fajl nelkul), nem hibazik', async () => {
+      const r = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, text: 'csinálj egy md jegyzetet' })
+      expect(r.status).toBe(201)
+      expect(r.body.item.type).toBe('note')
+      expect(r.body.file).toBeNull()
+    })
+  })
+
+  it('az ugynok promptja megnevezi a fajlt: abba irjon, ne kulon fajlba', () => {
+    const base = { projectName: 'P', projectFolder: '/x', history: [], message: 'md fájl, benne: szia', lang: 'hu' as const }
+    const md = buildCodeBridgePrompt({ ...base, workItem: { title: 'Új jegyzet', type: 'note', file: 'Projektek/teszt/Új jegyzet.md', folder: null } })
+    expect(md).toContain('Work item file')
+    expect(md).toContain('Projektek/teszt/Új jegyzet.md')
+    expect(md).toContain('WRITE IT INTO THIS FILE')
+    // Irodai dokumentum forrasanal NEM mondjuk, hogy irja felul.
+    const docx = buildCodeBridgePrompt({ ...base, workItem: { title: 'Ajánlat', type: 'document', file: 'Projektek/teszt/a.docx', folder: null } })
+    expect(docx).not.toContain('Work item file')
+  })
+
+  describe('workItem.writeText: az ugynok a munkadarab SAJAT fajljaba ir', () => {
+    let depot = ''
+    afterEach(() => { delete process.env['MARVEEN_DEPOT']; rmSync(depot, { recursive: true, force: true }) })
+
+    it('a szoveg uj verzio lesz es az elonezet ezt mutatja; fajl nelkuli munkadarabra emberi hiba', async () => {
+      initDatabase(':memory:')
+      depot = mkdtempSync(join(tmpdir(), 'marveen-wb-intake-tool-'))
+      mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+      process.env['MARVEEN_DEPOT'] = depot
+      const a = createProject({ name: 'Kovács ház' })
+      if (!a.ok) throw new Error('projekt')
+      const up = updateProject(a.project.id, { folder_path: 'Projektek/teszt' })
+      if (!up.ok) throw new Error('mappa')
+      const folder = (await call('POST', '/api/workbench/folders', { project_id: a.project.id, parent: '', name: 'Jegyzetek' })).body.folder as string
+      const made = await call('POST', '/api/workbench/intake?lang=hu', { project_id: a.project.id, folder, text: 'csinálj egy md filet' })
+      const itemId = made.body.item.id as string
+      const ctxt = { projectId: a.project.id, workItemId: itemId, lang: 'hu' as const }
+      const w = executeTool('workItem.writeText', { text: 'szia' }, ctxt)
+      expect(w.ok).toBe(true)
+      const p = buildPreview(itemId)
+      expect(p.kind).toBe('text')
+      expect(p.text).toBe('szia')
+      // Fajl nelkuli munkadarab: nem csendes siker, hanem megmondja, mit tegyen helyette.
+      const bare = createWorkItem({ project_id: a.project.id, type: 'note', title: 'fajl nelkul' })
+      if (!bare.ok) throw new Error('item')
+      const bad = executeTool('workItem.writeText', { id: bare.item.id, text: 'x' }, ctxt)
+      expect(bad.ok).toBe(false)
+      if (!bad.ok) expect(bad.detail).toMatch(/workItem\.addPart/)
+    })
   })
 })

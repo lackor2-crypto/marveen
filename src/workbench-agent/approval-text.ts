@@ -16,6 +16,7 @@ const TOOL_LABELS: Record<string, { hu: string; en: string }> = {
   'workItem.create': { hu: 'új munkadarab létrehozása', en: 'create a new work item' },
   'workItem.fromTemplate': { hu: 'új munkadarab sablonból', en: 'new work item from a template' },
   'workItem.update': { hu: 'munkadarab módosítása', en: 'change a work item' },
+  'workItem.writeText': { hu: 'a jegyzet szövegének megírása', en: 'write the text of the note' },
   'workItem.addPart': { hu: 'rész hozzáadása a munkadarabhoz', en: 'add a part to the work item' },
   'workItem.createVersion': { hu: 'új verzió mentése', en: 'save a new version' },
   'workItem.restoreVersion': { hu: 'korábbi verzió visszaállítása', en: 'restore an earlier version' },

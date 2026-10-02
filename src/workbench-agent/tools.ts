@@ -143,6 +143,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'workItem.writeText',
+    description: 'Write the text of a note work item that has its own md/txt file (a note, "an md file"). The text REPLACES the content of that file as a NEW VERSION (the old one stays); the owner sees it at once in the preview next to the chat. Use this instead of file.write when the owner asks for an md or text file inside the open work item: file.write would make a separate loose file that the work item does not show.',
+    input: 'id: the work item id (optional, defaults to the open one); text: the whole new content of the file',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'document.pages',
     description: 'Overview of a document of the project folder: a PDF (text or scanned), an office document (docx, odt, ...), a photographed paper (jpg, png, tiff) or an e-mail (eml). Every page is read on this machine (text layer, or text recognition for scanned pages) once and kept. Gives the number of pages, per page how it was read and how reliable the text recognition is, and the first words of each page -- for a long document this is its table of contents. Pages marked low are hard to read: never use them as a source of facts until the owner has checked them. If the answer says the document is still being read, tell the owner and ask again later; never guess the content.',
     input: 'path: the file path relative to the project folder; retry (optional): true to read it again after a failure',

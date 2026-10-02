@@ -7322,6 +7322,7 @@ window._i18n.hu = {
   "workbench.sh.doc.gaps": "Hiányok",
   "workbench.sh.doc.draft_pdf": "Piszkozat PDF",
   "workbench.sh.doc.finalize": "Véglegesítés",
+  "workbench.sh.seed.section": "Új fejezet",
   "workbench.sh.doc.no_draft": "Még nincs vázlat: előbb kérd meg az Agentet, hogy készítsen egyet.",
   "workbench.sh.doc.sources_none": "Még nincs állítás forrással. A források az Agent munkája közben gyűlnek ide.",
   "workbench.sh.doc.gaps_none": "Nincs jelölt hiány a vázlatban.",

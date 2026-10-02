@@ -118,7 +118,7 @@ export interface CodeBridgePromptInput {
   projectFolder: string | null
   /** `folder`: a munkadarab sajat mappaja (projekt-relativ); `materials`: a
    *  csatolt anyagai, projekt-relativ uttal es tamogatasi allapottal (#441). */
-  workItem: { title: string; type: string; folder?: string | null; materials?: string[]; documentsHint?: string | null; family?: string[] } | null
+  workItem: { title: string; type: string; file?: string | null; folder?: string | null; materials?: string[]; documentsHint?: string | null; family?: string[] } | null
   /** A beszelgetes eddigi sorai, idorendben, az UJ uzenet NELKUL. */
   history: { role: string; content: string }[]
   message: string
@@ -138,6 +138,11 @@ function workItemFileLines(w: CodeBridgePromptInput['workItem']): string[] {
   if (!w) return []
   const out: string[] = []
   if (w.folder) out.push(`Work item folder (inside the project folder): ${w.folder}`)
+  // A szovegfajl-munkadarab tartalma MAGA a fajl: ebbe kell irni, nem uj, szabad fajlba -- a
+  // jobb oldali elonezet ezt mutatja (Boss, 2026-10-02: "md filet" kereser a szia.md egy masik mappaba kerult).
+  if (w.file && /\.(md|txt)$/i.test(w.file)) {
+    out.push(`Work item file (the CONTENT of this work item, shown to the owner in the preview next to this chat): ${w.file} (path inside the project folder). When the owner asks for a note, a text or an md file, WRITE IT INTO THIS FILE (edit it in place). Do NOT create a separate new file elsewhere, and do not ask where to save it.`)
+  }
   const m = w.materials || []
   if (m.length) {
     const shown = m.slice(0, MATERIALS_IN_PROMPT)

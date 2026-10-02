@@ -7244,6 +7244,7 @@ window._i18n.en = {
   "workbench.sh.doc.gaps": "Gaps",
   "workbench.sh.doc.draft_pdf": "Draft PDF",
   "workbench.sh.doc.finalize": "Finalize",
+  "workbench.sh.seed.section": "New section",
   "workbench.sh.doc.no_draft": "There is no draft yet: ask the Agent to write one first.",
   "workbench.sh.doc.sources_none": "No claim has a source yet. Sources collect here as the Agent works.",
   "workbench.sh.doc.gaps_none": "No marked gap in the draft.",
