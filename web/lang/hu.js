@@ -5944,7 +5944,7 @@ window._i18n.hu = {
   "workbench.deck.export_pptx": "PPTX (PowerPoint)",
   "workbench.deck.export_pdf": "PDF",
   "workbench.deck.exporting": "Készül...",
-  "workbench.deck.export_hint": "A PPTX szerkeszthető PowerPointban és LibreOffice-ban is. A PDF-hez LibreOffice kell a gépen.",
+  "workbench.deck.export_hint": "A PPTX szerkeszthető PowerPointban és LibreOffice-ban is. A PDF-hez LibreOffice kell a gépen, a bemutató részével (Impress) együtt.",
   "workbench.deck.exported_file": "Elkészült: {name}",
   "workbench.tool.decision.list": "A döntésnapló olvasása",
   "workbench.tool.decision.record": "Döntés rögzítése a döntésnaplóba",

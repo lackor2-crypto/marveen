@@ -1,15 +1,30 @@
 // Presentation deck over HTTP: working copy, undo, versions, slide pictures, PPTX/PDF export.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
+import { applyDeckOps, emptyDeck } from '../workbench-deck.js'
+import { buildDeckPptx } from '../workbench-deck-pptx.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
 const HAVE_SOFFICE = spawnSync('soffice', ['--version']).status === 0
+/** A LibreOffice with only the text part (Writer) installed cannot open a PPTX: the PDF test needs the presentation part (Impress). */
+function haveImpress(): boolean {
+  if (!HAVE_SOFFICE) return false
+  const d = mkdtempSync(join(tmpdir(), 'marveen-impress-'))
+  try {
+    const deck = applyDeckOps(emptyDeck(), [{ op: 'addSlide', layout: 'title', title: 'x' }])
+    if (!deck.ok) return false
+    writeFileSync(join(d, 'p.pptx'), buildDeckPptx(deck.doc, () => null).bytes)
+    const r = spawnSync('soffice', ['--headless', '--norestore', `-env:UserInstallation=file://${d}/profile`, '--convert-to', 'pdf', '--outdir', d, join(d, 'p.pptx')], { timeout: 120_000 })
+    return r.status === 0 && existsSync(join(d, 'p.pdf'))
+  } catch { return false } finally { rmSync(d, { recursive: true, force: true }) }
+}
+const HAVE_IMPRESS = haveImpress()
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAEUlEQVR4nGM4ISeHFTFQTwIAbv4ggUBHKgEAAAAASUVORK5CYII=', 'base64')
 
 describe('presentation deck: the routes', () => {
@@ -131,7 +146,7 @@ describe('presentation deck: the routes', () => {
     expect(bad.body.message).toMatch(/PPTX/)
   })
 
-  it.skipIf(!HAVE_SOFFICE)('exports a PDF with one page per slide (LibreOffice converts the same PPTX)', async () => {
+  it.skipIf(!HAVE_IMPRESS)('exports a PDF with one page per slide (LibreOffice converts the same PPTX)', async () => {
     await ops([{ op: 'addSlide', layout: 'title', title: 'Egy' }, { op: 'addSlide', layout: 'content', title: 'Kettő', body: 'x' }, { op: 'addSlide', layout: 'blank' }])
     const r = await callWorkbench(url('/export'), 'POST', JSON.stringify({ format: 'pdf' }), json)
     expect(r.status).toBe(201)

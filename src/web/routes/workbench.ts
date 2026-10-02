@@ -909,12 +909,12 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'Making the PDF took too long, so I stopped it. Try again, or ask for the PPTX.',
   },
   deck_pdf_convert_failed: {
-    hu: 'A LibreOffice nem tudta PDF-fé alakítani a prezentációt. A részletek megmondják, mit írt.',
-    en: 'LibreOffice could not turn the presentation into a PDF. The details say what it wrote.',
+    hu: 'A LibreOffice nem tudta PDF-fé alakítani a prezentációt. Ha csak a LibreOffice szövegszerkesztő része (Writer) van telepítve, a bemutató része (Impress) is kell hozzá. A PPTX-et így is megkapod. A részletek megmondják, mit írt a program.',
+    en: 'LibreOffice could not turn the presentation into a PDF. If only the text part of LibreOffice (Writer) is installed, the presentation part (Impress) is needed as well. You can still get the PPTX. The details say what the program wrote.',
   },
   deck_pdf_no_output: {
-    hu: 'A LibreOffice lefutott, de nem készült PDF. A részletek megmondják, mit írt.',
-    en: 'LibreOffice ran, but no PDF was made. The details say what it wrote.',
+    hu: 'A LibreOffice lefutott, de nem készült PDF. Ha csak a LibreOffice szövegszerkesztő része (Writer) van telepítve, a bemutató része (Impress) is kell hozzá. A PPTX-et így is megkapod.',
+    en: 'LibreOffice ran, but no PDF was made. If only the text part of LibreOffice (Writer) is installed, the presentation part (Impress) is needed as well. You can still get the PPTX.',
   },
   deck_pdf_missing_source: {
     hu: 'A PDF készítéséhez szükséges ideiglenes fájl eltűnt. Próbáld újra.',

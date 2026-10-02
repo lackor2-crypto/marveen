@@ -5866,7 +5866,7 @@ window._i18n.en = {
   "workbench.deck.export_pptx": "PPTX (PowerPoint)",
   "workbench.deck.export_pdf": "PDF",
   "workbench.deck.exporting": "Making it...",
-  "workbench.deck.export_hint": "The PPTX can be edited in PowerPoint and in LibreOffice. The PDF needs LibreOffice on this machine.",
+  "workbench.deck.export_hint": "The PPTX can be edited in PowerPoint and in LibreOffice. The PDF needs LibreOffice on this machine, with its presentation part (Impress).",
   "workbench.deck.exported_file": "Made: {name}",
   "workbench.tool.decision.list": "Reading the decision log",
   "workbench.tool.decision.record": "Recording a decision in the decision log",
