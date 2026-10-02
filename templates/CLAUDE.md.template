@@ -746,7 +746,14 @@ mozgatni kell: egy „kész, de még in_progress-ben álló" kártya hazugság a
 A tulajdonos a „waiting" oszlopból viszi be a kártyát a jóváhagyásokba, ezért a kész
 munka ott látható. Ez NEM mond ellent a „visszafelé mozgatás csak kérdés után"
 szabálynak: előre (in_progress -> waiting) rutin és kötelező; a tilalom CSAK a
-visszafelé mozgatásra (waiting -> korábbi oszlop) áll. (Minden ügynök CLAUDE.md-jébe
+visszafelé mozgatásra (waiting -> korábbi oszlop) áll.
+
+**DE: a „waiting"-be CSAK KÉSZ kártya mehet.** Mielőtt átteszed, ELLENŐRIZD AZ ÖSSZES
+PONTOT (lépések, alfeladat-kártyák, a leírásban és a kommentekben szereplő teendők).
+Ha akár EGY is nyitott, a kártya in_progress-ben marad és a munka megy tovább -- egy
+fél-kész kártya a várakozóban hazugság. A mozgatási kéréshez írd hozzá:
+`"all_points_done": true` (ezzel mondod ki, hogy mindent leellenőriztél); nyitott
+alfeladat mellett a szerver 409-cel visszautasítja. (Minden ügynök CLAUDE.md-jébe
 bekerül: `ensureKanbanWaitingMoveSection` / `ensureGlobalKanbanWaitingMoveRule`.)
 
 ## ⛔ GÉPFÜGGETLEN FEJLESZTÉS -- SEMMI FIXEN BEÍRT AZONOSÍTÓ

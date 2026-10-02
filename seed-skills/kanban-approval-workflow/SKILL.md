@@ -88,12 +88,14 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
    git add <érintett fájlok>
    git commit -m "..."
    ```
-2. **Kártya -> waiting**
+2. **Kártya -> waiting** -- CSAK ha az ÖSSZES pont kész (lépések, alfeladatok, leírás és
+   kommentek teendői); ha akár egy nyitott, a kártya in_progress-ben marad. A kéréshez
+   kötelező az `"all_points_done": true`, nyitott alfeladatnál a szerver 409-et ad.
    ```bash
    curl -s -X POST "http://localhost:3420/api/kanban/<id>/move" \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer $(cat store/.dashboard-token)" \
-     -d '{"status":"waiting","sort_order":0,"actor":"<agent_id>"}'
+     -d '{"status":"waiting","sort_order":0,"actor":"<agent_id>","all_points_done":true}'
    ```
    **A waiting-be mozgatás ÖNMAGÁBAN felvesz egy jóváhagyás-kérést** ({{OWNER_NAME}},
    2026-08-11: "az hogy betesz barki barmit a varakozoba, az valtja ki hogy a

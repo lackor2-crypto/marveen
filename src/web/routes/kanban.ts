@@ -28,6 +28,7 @@ import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
+import { checkWaitingMove } from '../waiting-completion-guard.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
 import { resolveProjectRef, listActiveProjectIds } from '../../projects.js'
 
@@ -121,7 +122,24 @@ function fireKanbanDispatch(id: string, actor?: string | null): void {
 // arrays and `actor`. Read from the live schema so a new column never 400s.
 function kanbanPutAcceptedKeys(): Set<string> {
   const cols = (getDb().prepare('PRAGMA table_info(kanban_cards)').all() as { name: string }[]).map((c) => c.name)
-  return new Set<string>([...KANBAN_WRITABLE_FIELDS, ...cols, 'seq', 'last_status_at', 'labels', 'blockers', 'actor'])
+  return new Set<string>([...KANBAN_WRITABLE_FIELDS, ...cols, 'seq', 'last_status_at', 'labels', 'blockers', 'actor', 'all_points_done', 'confirm_open_parts'])
+}
+
+/** #464: refuse a move to waiting while the card has open points. Returns true when it answered 409. */
+function refuseUnfinishedWaiting(ctx: RouteContext, id: string, newStatus: unknown, body: Record<string, unknown>): boolean {
+  if (newStatus !== 'waiting') return false
+  const prev = getKanbanCard(id)?.status
+  const refusal = checkWaitingMove({
+    prevStatus: prev,
+    newStatus: 'waiting',
+    agentCaller: ctx.auth?.kind !== 'session',
+    allPointsDone: body.all_points_done,
+    confirmOpenParts: body.confirm_open_parts,
+    children: getChildCards(id).map((c) => ({ seq: c.seq, title: c.title, status: c.status })),
+  })
+  if (!refusal) return false
+  json(ctx.res, refusal, 409)
+  return true
 }
 
 // #419 (rebuilt from upstream HBKANBANDRIFT819): the heartbeat-summary payload,
@@ -369,6 +387,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
         return true
       }
     }
+    if (refuseUnfinishedWaiting(ctx, id, data.status, data)) return true
     if (updateKanbanCard(id, data)) {
       if (data.status === 'waiting') ensureApprovalForWaitingCard(id, data.actor)
       // ...and the symmetric half: leaving waiting closes the request that
@@ -396,7 +415,9 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   if (kanbanMoveMatch && method === 'POST') {
     const id = decodeURIComponent(kanbanMoveMatch[1])
     const body = await readBody(req)
-    const { status, sort_order, actor } = JSON.parse(body.toString())
+    const parsed = JSON.parse(body.toString())
+    const { status, sort_order, actor } = parsed
+    if (refuseUnfinishedWaiting(ctx, id, status, parsed)) return true
     if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
       // Wake the assigned agent once when the card enters in_progress -- unless
       // that agent is the one who moved it (self-pickup needs no wake-up).

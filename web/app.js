@@ -2963,6 +2963,24 @@ function createCardEl(card, embeddedChildren = []) {
 // 4 static flat-board columns at load time, and again for every swimlane
 // column-body created dynamically in renderSwimlaneBoard (those elements
 // don't exist yet when this module first runs).
+// #464: moving a card to "waiting" is refused while it has open sub-cards. The person
+// (a browser session) may still decide to do it: ask, and resend with the confirmation.
+async function kanbanMoveRequest(cardId, status, sortOrder) {
+  const url = `/api/kanban/${encodeURIComponent(cardId)}/move`
+  const post = (extra) => fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, sort_order: sortOrder, ...extra }),
+  })
+  const r = await post({})
+  if (r.status !== 409) return r
+  let body = null
+  try { body = await r.clone().json() } catch { body = null }
+  if (!body || body.error !== 'open_subtasks') return r
+  if (!window.confirm(String(body.message || '') + '\n\n' + t('kanban.waiting.open_parts_confirm'))) return r
+  return post({ confirm_open_parts: true })
+}
+
 function wireKanbanColumnDnD(col) {
   col.addEventListener('dragover', (e) => {
     e.preventDefault()
@@ -2996,11 +3014,7 @@ function wireKanbanColumnDnD(col) {
     let sortOrder = idx
 
     try {
-      await fetch(`/api/kanban/${encodeURIComponent(cardId)}/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus, sort_order: sortOrder }),
-      })
+      await kanbanMoveRequest(cardId, newStatus, sortOrder)
       loadKanban()
     } catch {
       showToast(t('kanban.toast.move_error'))
@@ -3162,11 +3176,7 @@ async function kanbanTouchEnd(e) {
   // that is a reorder within the column, which is just as valid a move.
   if (!newStatus) return
   try {
-    const r = await fetch(`/api/kanban/${encodeURIComponent(cardId)}/move`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus, sort_order: sortOrder }),
-    })
+    const r = await kanbanMoveRequest(cardId, newStatus, sortOrder)
     if (!r.ok) throw new Error('move failed')
     loadKanban()
   } catch {
@@ -3605,11 +3615,7 @@ async function showCardDetail(card) {
       const newVal = sel.value
       if (newVal === current) { restore(current); return }
       try {
-        const r = await fetch(`/api/kanban/${encodeURIComponent(card.id)}/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newVal, sort_order: 0 }),
-        })
+        const r = await kanbanMoveRequest(card.id, newVal, 0)
         if (!r.ok) throw new Error('move failed')
         card.status = newVal
         restore(newVal)
