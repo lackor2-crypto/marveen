@@ -2266,6 +2266,29 @@ describe('huzogatos szerkesztes a vasznon (kartya d4b05d82)', () => {
     expect(lastOps()).toEqual([{ op: 'update', id: 'headline', patch: { x: 50, y: 20, width: 800, height: 120 } }])
   })
 
+  it('kijeloles: forgato fogantyu + lebego eszkoztar jelenik meg, a gombok UGYANAZT a vaszon-muveletet kuldik (#462)', async () => {
+    await open()
+    // Kijeloles nelkul nincs eszkoztar.
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-float="1"')
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-grip="rot"')
+    // Egy sima kattintas (nulla elmozdulas) kijeloli az elemet.
+    h.drag('headline', 0, 0, { steps: 1, alt: true })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-float="1"'))
+    expect(h.rootEl.innerHTML).toContain('data-wb-grip="rot"')
+    // Szoveg-elemnel: betumeret, felkover, szin is van az eszkoztaron.
+    expect(h.rootEl.innerHTML).toContain('data-wb-fop="bold"')
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="can-float-color"')
+    const before = opsCalls().length
+    h.click({ 'data-wb-act': 'can-float', 'data-wb-fop': 'bigger' })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(before + 1))
+    expect(lastOps()).toEqual([{ op: 'scale', id: 'headline', factor: 1.3 }])
+    // A korabbi muvelet lezarulta utan (a vaszon nem foglalt) jon a kovetkezo.
+    await new Promise((r) => setTimeout(r, 80))
+    h.click({ 'data-wb-act': 'can-float', 'data-wb-fop': 'bold' })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(before + 2))
+    expect(lastOps()).toEqual([{ op: 'update', id: 'headline', patch: { bold: true } }])
+  })
+
   it('SAROK: atmeretezeskor az ATELLENES sarok helyben marad', async () => {
     await open()
     // Bal felso sarok befele: a jobb also sarok (800,120) NEM mozdulhat.

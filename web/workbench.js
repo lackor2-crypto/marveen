@@ -5092,14 +5092,57 @@
 
   function canvasBoxHtml(o, doc) {
     return '<div class="wb-can-box' + (WB.canvasSel === o.id ? ' wb-can-box-sel' : '') + (WB.canvasPick[o.id] ? ' wb-can-box-picked' : '') + '"'
-      + ' data-wb-box="' + escA(o.id) + '" tabindex="0" role="button"'
+      + ' data-wb-box="' + escA(o.id) + '" data-wb-type="' + escA(o.type || '') + '" tabindex="0" role="button"'
       + ' title="' + escA(canvasObjectLabel(o)) + '"'
       + ' aria-label="' + escA(t('workbench.canvas.drag_aria', { name: canvasObjectLabel(o) })) + '"'
       + ' style="' + escA(canvasBoxStyle(o, doc)) + '">'
       + CANVAS_GRIPS.map(function (g) {
         return '<span class="wb-can-grip wb-can-grip-' + g + '" data-wb-grip="' + g + '" aria-hidden="true"></span>'
       }).join('')
+      // Forgato fogantyu (Boss, 2026-10-02, TG 7319: "ott helyben forgatom, nagyitom"): a kijelolt elem
+      // folott egy pottyel. Ugyanazt a `rotate` muveletet kuldi, mint a gomb es az agent.
+      + (WB.canvasSel === o.id ? '<span class="wb-can-rot" data-wb-grip="rot" title="' + escA(t('workbench.canvas.rot_title')) + '" aria-hidden="true"></span>' : '')
       + '</div>'
+  }
+
+  /** A kijelolt elem LEBEGO eszkoztara (Canva-minta): a kijelolt elem folott all, a lapon. Minden gomb
+   *  ugyanazt a vaszon-muveletet kuldi, amit az agent is kuldene. */
+  function canvasFloatHtml(doc) {
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || WB.canvasEditId === o.id) return ''
+    var flip = o.y < doc.height * 0.14
+    var pct = function (v, total) { return (Math.round((10000 * v) / total) / 100) + '%' }
+    var btn = function (op, label, title, on) {
+      return '<button type="button" class="wb-can-fb' + (on ? ' wb-can-fb-on' : '') + '" data-wb-act="can-float" data-wb-fop="' + op + '"'
+        + ' title="' + escA(title) + '" aria-label="' + escA(title) + '">' + label + '</button>'
+    }
+    var h = ''
+    if (o.type === 'text') {
+      h += btn('smaller', 'A\u2212', t('workbench.canvas.fl_smaller'))
+        + '<span class="wb-can-fsize" title="' + escA(t('workbench.canvas.fl_size')) + '">' + esc(String(Math.round(o.fontSize || 0))) + '</span>'
+        + btn('bigger', 'A+', t('workbench.canvas.fl_bigger'))
+        + btn('bold', '<b>B</b>', t('workbench.canvas.fl_bold'), !!o.bold)
+        + btn('italic', '<i>I</i>', t('workbench.canvas.fl_italic'), !!o.italic)
+        + btn('alignleft', '\u2B05', t('workbench.canvas.fl_left'), o.align === 'left' || !o.align)
+        + btn('aligncenter', '\u2194', t('workbench.canvas.fl_center'), o.align === 'center')
+        + btn('alignright', '\u27A1', t('workbench.canvas.fl_right'), o.align === 'right')
+        + '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-color" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.color || '') ? o.color : '#111111') + '"'
+        + ' title="' + escA(t('workbench.canvas.fl_color')) + '" aria-label="' + escA(t('workbench.canvas.fl_color')) + '">'
+    } else if (o.type === 'rect' || o.type === 'ellipse') {
+      h += '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-fill" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.fill || '') ? o.fill : '#dddddd') + '"'
+        + ' title="' + escA(t('workbench.canvas.fl_fill')) + '" aria-label="' + escA(t('workbench.canvas.fl_fill')) + '">'
+        + btn('smaller', '\u2212', t('workbench.canvas.fl_smaller')) + btn('bigger', '+', t('workbench.canvas.fl_bigger'))
+    } else {
+      h += btn('smaller', '\u2212', t('workbench.canvas.fl_smaller')) + btn('bigger', '+', t('workbench.canvas.fl_bigger'))
+    }
+    h += '<span class="wb-can-fsep"></span>'
+      + btn('rotate', '\u21BB', t('workbench.canvas.fl_rotate'))
+      + btn('front', '\u2B06', t('workbench.canvas.fl_front'))
+      + btn('back', '\u2B07', t('workbench.canvas.fl_back'))
+      + btn('duplicate', '\u29C9', t('workbench.canvas.fl_duplicate'))
+      + btn('remove', '\uD83D\uDDD1', t('workbench.canvas.fl_remove'))
+    return '<div class="wb-can-float' + (flip ? ' wb-can-float-below' : '') + '" data-wb-float="1"'
+      + ' style="left:' + pct(o.x + o.width / 2, doc.width) + ';top:' + pct(flip ? o.y + o.height : o.y, doc.height) + '">' + h + '</div>'
   }
 
   /** A vaszon elonezete: a szerver rajzolta kep + (ha lehet) a huzogato reteg.
@@ -5127,6 +5170,7 @@
       + '<span class="wb-can-guide wb-can-guide-x" id="wbCanGuideX" hidden></span>'
       + '<span class="wb-can-guide wb-can-guide-y" id="wbCanGuideY" hidden></span>'
       + canvasObjects().map(function (o) { return canvasBoxHtml(o, doc) }).join('')
+      + canvasFloatHtml(doc)
       + '</div>'
       + '<span class="wb-can-live" id="wbCanLive" aria-live="polite"></span>'
       + '</div>'
@@ -5137,6 +5181,7 @@
       + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label>'
       + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.canvas.drop_hint')) + '</p>'
   }
 
   function canvasFormHtml(o) {
@@ -11252,6 +11297,7 @@
     else if (a === 'canvas-add-image') { if (!archived()) canvasAddImage() }
     else if (a === 'canvas-remove') canvasRemoveObject(act.getAttribute('data-wb-obj'))
     else if (a === 'canvas-op') canvasQuickOp(act.getAttribute('data-wb-op'), act.getAttribute('data-wb-obj'))
+    else if (a === 'can-float') canvasFloatOp(act.getAttribute('data-wb-fop'))
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
@@ -11365,6 +11411,23 @@
     // (X, Y, Szelesseg, Magassag) tovabbra is ott van.
     if (!rect || !rect.width || !rect.height) return
     var gripEl = target.closest('[data-wb-grip]')
+    if (gripEl && gripEl.getAttribute('data-wb-grip') === 'rot' && typeof boxEl.getBoundingClientRect === 'function') {
+      // Forgatas: a doboz kozepe korul; a kezdo szog a mutato iranya a kozepponthoz kepest.
+      var br = boxEl.getBoundingClientRect()
+      var rcx = br.left + br.width / 2
+      var rcy = br.top + br.height / 2
+      canvasDrag = {
+        id: o.id, mode: 'rot', el: boxEl, doc: doc, moved: false, startX: e.clientX, startY: e.clientY,
+        cx: rcx, cy: rcy, a0: Math.atan2(e.clientY - rcy, e.clientX - rcx), rot0: o.rotation || 0, rot: o.rotation || 0,
+        from: { x: o.x, y: o.y, width: o.width, height: o.height }, box: { x: o.x, y: o.y, width: o.width, height: o.height },
+      }
+      WB.canvasSel = o.id
+      if (typeof gripEl.setPointerCapture === 'function' && e.pointerId != null) {
+        try { gripEl.setPointerCapture(e.pointerId) } catch (err) { /* nem all meg tole a forgatas */ }
+      }
+      if (typeof e.preventDefault === 'function') e.preventDefault()
+      return
+    }
     var from = { x: o.x, y: o.y, width: o.width, height: o.height }
     canvasDrag = {
       id: o.id,
@@ -11382,6 +11445,8 @@
       others: canvasObjects().filter(function (x) { return x.id !== o.id && !x.rotation }),
       rotated: !!o.rotation,
     }
+    var wasSel = WB.canvasSel === o.id
+    canvasDrag.wasSel = wasSel
     WB.canvasSel = o.id
     // Shift+kattintas: hozzaadja a kijeloleshez (vagy kiveszi) -- ahogy minden
     // rajzoloprogramban. Huzas ilyenkor nincs.
@@ -11407,6 +11472,19 @@
     if (!d) return
     var sx = e.clientX - d.startX
     var sy = e.clientY - d.startY
+    if (d.mode === 'rot') {
+      if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return
+      d.moved = true
+      var deg = d.rot0 + ((Math.atan2(e.clientY - d.cy, e.clientX - d.cx) - d.a0) * 180) / Math.PI
+      if (e.shiftKey) deg = Math.round(deg / 15) * 15
+      deg = ((Math.round(deg) % 360) + 360) % 360
+      d.rot = deg
+      if (d.el && d.el.style) d.el.style.transform = 'rotate(' + deg + 'deg)'
+      var live = document.getElementById('wbCanLive')
+      if (live && 'textContent' in live) live.textContent = t('workbench.canvas.rot_live', { deg: deg })
+      if (typeof e.preventDefault === 'function') e.preventDefault()
+      return
+    }
     // Par pixel meg nem huzas, hanem kattintas (kijelolés). Kulonben minden
     // erintes elmozditana az elemet.
     if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return
@@ -11432,16 +11510,235 @@
     var d = canvasDrag
     if (!d) return
     canvasDrag = null
+    if (d.mode === 'rot') {
+      if (!commit || !d.moved || d.rot === d.rot0) { render(); return }
+      canvasOps([{ op: 'rotate', id: d.id, angle: d.rot }])
+      return
+    }
     canvasGuides([], d.doc)
     var b = d.box
     var f = d.from
     var same = b.x === f.x && b.y === f.y && b.width === f.width && b.height === f.height
+    // Egyszeru kattintas egy MAR kijelolt elemen: nincs mit ujrarajzolni -- es ne is rajzoljuk, mert a
+    // dupla kattintas (helyben szerkesztes) csak akkor jon letre, ha az elem a ket kattintas kozott
+    // nem cserelodik ki.
+    if (commit && !d.moved && d.wasSel) return
     if (!commit || !d.moved || same) { render(); return }
     canvasOps([{ op: 'update', id: d.id, patch: { x: b.x, y: b.y, width: b.width, height: b.height } }])
   }
 
   document.addEventListener('pointerup', function () { canvasDragFinish(true) })
   document.addEventListener('pointercancel', function () { canvasDragFinish(false) })
+
+  // ---- helyben szerkesztes a lapon (Boss, 2026-10-02, TG 7286/7319) ----------
+  //
+  // "A diaban helyben beirom a cimet, helyben betoltom a fotot, helyben forgatom, kicsinyitem,
+  // nagyitom." Minden itteni muvelet UGYANAZT a vaszon-muveletet kuldi (`update`, `rotate`, `add`,
+  // `scale`, `order`, `duplicate`, `remove`), amit a gombok es az agent is kuldene: egy allapot.
+
+  WB.canvasEditId = null
+
+  /** A lebego eszkoztar gombjai. */
+  function canvasFloatOp(op) {
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || archived() || WB.canvasBusy) return
+    if (op === 'smaller' || op === 'bigger' || op === 'rotate' || op === 'front' || op === 'back' || op === 'duplicate') canvasQuickOp(op, o.id)
+    else if (op === 'remove') canvasRemoveObject(o.id)
+    else if (op === 'bold') canvasOps([{ op: 'update', id: o.id, patch: { bold: !o.bold } }])
+    else if (op === 'italic') canvasOps([{ op: 'update', id: o.id, patch: { italic: !o.italic } }])
+    else if (op === 'alignleft') canvasOps([{ op: 'update', id: o.id, patch: { align: 'left' } }])
+    else if (op === 'aligncenter') canvasOps([{ op: 'update', id: o.id, patch: { align: 'center' } }])
+    else if (op === 'alignright') canvasOps([{ op: 'update', id: o.id, patch: { align: 'right' } }])
+  }
+
+  var CANVAS_CSS_FONT = { sans: 'system-ui, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'ui-monospace, Consolas, monospace' }
+
+  /** Szoveg szerkesztese HELYBEN: egy szovegmezo kerul az elem helyere, ugyanazzal a betumerettel es
+   *  szinnel, mint amit a lapon latsz. Enter = uj sor, Ctrl+Enter vagy kattintas mellé = kesz, Esc = elvet. */
+  function canvasEditText(id) {
+    if (archived() || WB.canvasBusy || typeof document.querySelector !== 'function') return
+    var o = canvasObject(id)
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!o || o.type !== 'text' || !doc) return
+    var layer = document.querySelector('.wb-can-layer')
+    if (!layer || typeof layer.getBoundingClientRect !== 'function' || typeof document.createElement !== 'function') return
+    var rect = layer.getBoundingClientRect()
+    // Meret nelkul nem tudjuk a betumeretet a lapra szamolni: inkabb nem nyitjuk meg.
+    if (!rect.width) return
+    WB.canvasSel = id
+    WB.canvasEditId = id
+    // NEM rajzoljuk ujra a lapot (a kep ujratoltodne): csak a lebego eszkoztar tunik el, amig irsz.
+    var fl = typeof document.querySelector === 'function' ? document.querySelector('[data-wb-float]') : null
+    if (fl && typeof fl.remove === 'function') fl.remove()
+    var k = rect.width / doc.width
+    var ta = document.createElement('textarea')
+    ta.className = 'wb-can-edit'
+    ta.value = o.text || ''
+    ta.setAttribute('aria-label', t('workbench.canvas.edit_text_aria'))
+    ta.setAttribute('data-wb-edit', id)
+    ta.style.cssText = 'position:absolute;left:' + (Math.round((10000 * o.x) / doc.width) / 100) + '%;top:' + (Math.round((10000 * o.y) / doc.height) / 100) + '%;'
+      + 'width:' + (Math.round((10000 * o.width) / doc.width) / 100) + '%;height:' + (Math.round((10000 * o.height) / doc.height) / 100) + '%;'
+      + 'font-size:' + (o.fontSize * k) + 'px;line-height:1.25;color:' + (o.color || '#111') + ';text-align:' + (o.align || 'left') + ';'
+      + 'font-weight:' + (o.bold ? '700' : '400') + ';font-style:' + (o.italic ? 'italic' : 'normal') + ';font-family:' + (CANVAS_CSS_FONT[o.font] || CANVAS_CSS_FONT.sans) + ';'
+      + (o.rotation ? 'transform:rotate(' + o.rotation + 'deg);' : '')
+    var done = false
+    function finish(commit) {
+      if (done) return
+      done = true
+      WB.canvasEditId = null
+      var val = ta.value
+      if (typeof ta.remove === 'function') ta.remove()
+      if (commit && val.trim() && val !== (o.text || '')) canvasOps([{ op: 'update', id: id, patch: { text: val } }])
+      else render()
+    }
+    ta.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); finish(false) }
+      else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); finish(true) }
+      ev.stopPropagation()
+    })
+    ta.addEventListener('blur', function () { finish(true) })
+    layer.appendChild(ta)
+    if (typeof ta.focus === 'function') ta.focus()
+    if (typeof ta.select === 'function') ta.select()
+  }
+
+  document.addEventListener('dblclick', function (e) {
+    if (!WB.open || archived() || !e.target || typeof e.target.closest !== 'function') return
+    var boxEl = e.target.closest('[data-wb-box]')
+    if (!boxEl) return
+    var o = canvasObject(boxEl.getAttribute('data-wb-box'))
+    if (o && o.type === 'text') { if (typeof e.preventDefault === 'function') e.preventDefault(); canvasEditText(o.id) }
+  })
+
+  // Enter vagy F2 a kijelolt szoveg-dobozon: szerkesztes (billentyuvel is elerheto).
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || archived() || !e.target || typeof e.target.closest !== 'function') return
+    if (e.key !== 'Enter' && e.key !== 'F2') return
+    var boxEl = e.target.closest('[data-wb-box]')
+    if (!boxEl) return
+    var o = canvasObject(boxEl.getAttribute('data-wb-box'))
+    if (o && o.type === 'text') { e.preventDefault(); canvasEditText(o.id) }
+  })
+
+  // A szinvalasztok (szoveg-szin, kitoltes): a valasztas elengedesekor megy a muvelet.
+  document.addEventListener('change', function (e) {
+    var el = e.target
+    if (!el || typeof el.getAttribute !== 'function') return
+    var a = el.getAttribute('data-wb-act')
+    if (a !== 'can-float-color' && a !== 'can-float-fill') return
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || archived() || WB.canvasBusy) return
+    canvasOps([{ op: 'update', id: o.id, patch: a === 'can-float-color' ? { color: el.value } : { fill: el.value } }])
+  })
+
+  /** Kep a lapra: egy fajl a lapra HUZVA vagy a vagolapbol beillesztve. A fajl a projekt mappajaba kerul
+   *  (ott keresi a felhasznalo), a lapra pedig egy kep-elem, a leejtes helyen. */
+  function canvasDropImage(file, clientX, clientY) {
+    if (!file || !/^image\//.test(file.type || '')) { window.showToast(t('workbench.canvas.drop_not_image')); return }
+    if (!WB.selectedId || WB.partBusy || WB.canvasBusy || archived()) return
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!doc) return
+    var layer = typeof document.querySelector === 'function' ? document.querySelector('.wb-can-layer') : null
+    var rect = layer && typeof layer.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : null
+    var cx = doc.width / 2
+    var cy = doc.height / 2
+    if (rect && rect.width && clientX != null) {
+      cx = ((clientX - rect.left) / rect.width) * doc.width
+      cy = ((clientY - rect.top) / rect.height) * doc.height
+    }
+    function place(nw, nh) {
+      var w = Math.round(doc.width * 0.4)
+      var h = Math.round(w * (nh && nw ? nh / nw : 0.75))
+      var maxH = Math.round(doc.height * 0.9)
+      if (h > maxH) { w = Math.round(w * maxH / h); h = maxH }
+      var x = Math.round(Math.min(Math.max(cx - w / 2, 0), Math.max(doc.width - w, 0)))
+      var y = Math.round(Math.min(Math.max(cy - h / 2, 0), Math.max(doc.height - h, 0)))
+      uploadAndPlace(file, { x: x, y: y, width: w, height: h })
+    }
+    var natural = function () { place(0, 0) }
+    if (typeof Image === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
+      var img = new Image()
+      var u = URL.createObjectURL(file)
+      img.onload = function () { try { URL.revokeObjectURL(u) } catch (_e) { /* mindegy */ } place(img.naturalWidth, img.naturalHeight) }
+      img.onerror = function () { try { URL.revokeObjectURL(u) } catch (_e) { /* mindegy */ } natural() }
+      img.src = u
+    } else natural()
+  }
+
+  function uploadAndPlace(file, box) {
+    WB.partBusy = true
+    render()
+    // A fajl a projekt mappajaba kerul, a rajz-elem pedig az utjara mutat. Itt NEM keszul uj verzio (nem
+    // `new_version`): egy uj verzio a rajz mentetlen allapotat nem vinne magaval.
+    var url = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/parts/image'
+      + '?name=' + encodeURIComponent(file.name || 'kep.png')
+      + '&type=' + encodeURIComponent(file.type || '')
+      + '&lang=' + encodeURIComponent(window._lang || 'hu')
+    fetch(url, { method: 'POST', body: file }).then(function (res) {
+      return res.json().catch(function () { return null }).then(function (data) {
+        WB.partBusy = false
+        if (!res.ok || !data || !data.part || !data.part.asset_path) {
+          render()
+          window.showToast((data && data.message) || t('workbench.err.http', { status: res.status }))
+          return
+        }
+        applyParts(data)
+        canvasOps([{ op: 'add', object: { type: 'image', src: data.part.asset_path, x: box.x, y: box.y, width: box.width, height: box.height, fit: 'contain' } }])
+      })
+    }).catch(function () {
+      WB.partBusy = false
+      render()
+      window.showToast(t('workbench.err.network'))
+    })
+  }
+
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var stage = e.target.closest('[data-wb-stage]')
+    if (!stage || !e.dataTransfer || !e.dataTransfer.types || Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') < 0) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    if (stage.classList) stage.classList.add('wb-can-stage-drop')
+  })
+  document.addEventListener('dragleave', function (e) {
+    var stage = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-stage]') : null
+    if (stage && stage.classList) stage.classList.remove('wb-can-stage-drop')
+  })
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var stage = e.target.closest('[data-wb-stage]')
+    if (!stage) return
+    if (stage.classList) stage.classList.remove('wb-can-stage-drop')
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
+    if (!f) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    canvasDropImage(f, e.clientX, e.clientY)
+  })
+
+  // Beillesztes (Ctrl+V): a vagolapon levo kep a lap kozepere kerul -- csak ha a lap latszik es nem
+  // szovegmezo van fokuszban.
+  document.addEventListener('paste', function (e) {
+    if (!WB.open || archived() || typeof document.querySelector !== 'function' || !document.querySelector('[data-wb-stage]')) return
+    var tg = e.target
+    if (tg && (tg.tagName === 'TEXTAREA' || tg.tagName === 'INPUT')) return
+    var items = e.clipboardData && e.clipboardData.items
+    if (!items) return
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file' && /^image\//.test(items[i].type || '')) {
+        var f = items[i].getAsFile()
+        if (f) { e.preventDefault(); e.stopImmediatePropagation(); canvasDropImage(f, null, null); return }
+      }
+    }
+  })
+
+  // Kattintas az ures lapra: nincs kijeloles (a lebego eszkoztar eltunik).
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !WB.canvasSel || !e.target || typeof e.target.closest !== 'function') return
+    var t0 = e.target
+    if (t0.closest('[data-wb-box]') || t0.closest('[data-wb-float]') || t0.closest('textarea')) return
+    if (t0.closest('[data-wb-stage]')) { WB.canvasSel = null; render() }
+  })
 
   // TG 1854: the overview's card rows open with Enter/Space too, not only a click.
   document.addEventListener('keydown', function (e) {
