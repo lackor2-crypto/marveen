@@ -40,7 +40,7 @@ import {
 } from './workbench.js'
 
 /** Szovegbol ennyi karaktert mutatunk (a tobbit a "nyisd meg" ut adja). */
-export const PREVIEW_TEXT_MAX = 20_000
+export const PREVIEW_TEXT_MAX = 1_000_000
 /** Ennel nagyobb fajlt nem agyazunk be -- ott a letoltes a jo valasz. */
 export const PREVIEW_MAX_BYTES = 200 * 1024 * 1024
 
