@@ -47,7 +47,10 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
   L.push(line('For (client)', p.client))
   L.push(`Project status: ${p.status}${p.archived_at ? ' (archived)' : ''}`)
   const f = ov.facts
-  L.push(`Counts: open cards ${f.openCards}, in progress ${f.inProgress}, waiting ${f.waiting}, pending approvals ${f.pendingApprovals}, overdue ${f.overdue}, untouched for 14+ days ${f.staleOpenCards}`)
+  // The counts hold cards AND work items together (as the page does), so the
+  // label says so and both lists follow -- a number with nothing under it reads
+  // as an invitation to make something up.
+  L.push(`Counts (kanban cards and Workbench work items together): open ${f.openCards}, in progress ${f.inProgress}, waiting ${f.waiting}, pending approval requests ${f.pendingApprovals}, done ${f.done}, overdue ${f.overdue}, untouched for 14+ days ${f.staleOpenCards}`)
   L.push('')
   L.push('Open cards (ordered by priority, due date, status):')
   if (!ov.nextSteps.length) L.push('- none')
@@ -60,6 +63,15 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
   }
   if (ov.nextStepsTotal > ov.nextSteps.length) L.push(`- ... and ${ov.nextStepsTotal - ov.nextSteps.length} more open cards`)
   L.push('')
+  L.push('Open work items (Workbench; newest change first):')
+  if (!ov.workItems.length) L.push('- none')
+  for (const w of ov.workItems) L.push(`- "${w.title}" (status ${w.status}, last change ${isoDay(w.updatedAt)})`)
+  if (ov.doneWorkItems.length) {
+    L.push('')
+    L.push('Work items finished recently:')
+    for (const w of ov.doneWorkItems) L.push(`- "${w.title}" (last change ${isoDay(w.updatedAt)})`)
+  }
+  L.push('')
   L.push('Work measured as running right now:')
   const running = ov.currentWork.filter((w) => w.claims.length || w.codeTasks.length)
   if (!running.length) L.push('- none (no agent claim, no running code task)')
@@ -71,7 +83,10 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
   L.push('')
   L.push('Waiting for the owner\'s approval:')
   if (!ov.approvals.length) L.push('- none')
-  for (const a of ov.approvals) L.push(`- "${a.cardTitle}" (requested ${isoDay(a.requestedAt)})`)
+  for (const a of ov.approvals) {
+    const what = a.cardId ? `"${a.cardTitle}"` : a.workItemTitle ? `work item "${a.workItemTitle}"` : a.category
+    L.push(`- ${what} (requested ${isoDay(a.requestedAt)})`)
+  }
   L.push('')
   L.push('Recent events (newest first):')
   if (!ov.activity.length) L.push('- none')
@@ -83,6 +98,7 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
       : a.kind === 'code' ? `code task ${a.to}${a.cardTitle ? ` for "${a.cardTitle}"` : ''}`
       : a.kind === 'card_created' ? `new card "${a.cardTitle ?? ''}"`
       : a.kind === 'idea_created' ? `new idea "${a.name ?? ''}"`
+      : a.kind === 'work' ? `work item "${a.name ?? ''}" last changed, now ${a.to}`
       : `file changed: ${a.name ?? ''}`
     L.push(`- ${isoDay(a.at)} ${what}`)
   }

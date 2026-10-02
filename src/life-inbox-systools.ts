@@ -47,10 +47,22 @@ export function resetToolCache(): void {
   ocrLangCache = null
 }
 
+/**
+ * The environment a tool is started with. tesseract gets ONE OpenMP thread
+ * unless the operator set a limit: recognitions running at the same time
+ * otherwise fight for the cores instead of sharing them. Measured 2026-10-02 on
+ * 8 cores, one 300 dpi page: alone 1.7 s; eight at once did not finish in 400 s
+ * with the default four threads each, and took 6.8 s with one (alone: 1.8 s).
+ */
+export function toolEnv(bin: string): NodeJS.ProcessEnv {
+  if (bin !== 'tesseract' || process.env.OMP_THREAD_LIMIT) return process.env
+  return { ...process.env, OMP_THREAD_LIMIT: '1' }
+}
+
 function run(bin: string, args: string[], timeout = TOOL_TIMEOUT_MS): string | null {
   const exe = which(bin)
   if (!exe) return null
-  const r = spawnSync(exe, args, { timeout, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+  const r = spawnSync(exe, args, { timeout, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, env: toolEnv(bin) })
   if (r.error || r.status !== 0) return null
   return r.stdout
 }
@@ -172,7 +184,7 @@ function runAsync(bin: string, args: string[], timeout = TOOL_TIMEOUT_MS): Promi
   const exe = which(bin)
   if (!exe) return Promise.resolve(null)
   return new Promise((resolve) => {
-    execFile(exe, args, { timeout, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
+    execFile(exe, args, { timeout, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, env: toolEnv(bin) }, (err, stdout) => {
       resolve(err ? null : stdout)
     })
   })

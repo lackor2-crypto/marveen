@@ -167,6 +167,30 @@ describe('initVisionAdapters', () => {
     expect(await getOcrAdapter().extractTextAsync!(img)).toContain('SYSTEM_OCR')
   })
 
+  // Recognitions running at once fight for the cores unless each keeps to one
+  // thread (measured: eight pages 400+ s against 6.8 s), so the limit has to
+  // reach the child -- on the blocking and on the non-blocking path.
+  it('a tesseract egy szalon indul; az uzemelteto sajat korlatja megmarad', async () => {
+    const tess = join(binDir, 'tesseract')
+    writeFileSync(tess, '#!/bin/sh\nif [ "$1" = "--list-langs" ]; then printf "List of available languages:\\neng\\n"; exit 0; fi\necho "OMP=${OMP_THREAD_LIMIT:-unset}"\n')
+    chmodSync(tess, 0o755)
+    const { ocrFile, ocrFileAsync, toolEnv } = await import('../life-inbox-systools.js')
+    const img = join(workDir, 'kep.png')
+    writeFileSync(img, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    const before = process.env.OMP_THREAD_LIMIT
+    try {
+      delete process.env.OMP_THREAD_LIMIT
+      expect(ocrFile(img, false)).toContain('OMP=1')
+      expect(await ocrFileAsync(img, false)).toContain('OMP=1')
+      expect(toolEnv('pdftoppm').OMP_THREAD_LIMIT).toBeUndefined()
+      process.env.OMP_THREAD_LIMIT = '3'
+      expect(ocrFile(img, false)).toContain('OMP=3')
+    } finally {
+      if (before === undefined) delete process.env.OMP_THREAD_LIMIT
+      else process.env.OMP_THREAD_LIMIT = before
+    }
+  })
+
   it('nem koti be az adaptereket, ha a venv nincs telepitve (marad az alapertelmezett)', async () => {
     process.env.MARVEEN_VISION_DIR = join(workDir, 'nem-letezik')
     const { initVisionAdapters } = await import('../life-vision-adapter.js')
