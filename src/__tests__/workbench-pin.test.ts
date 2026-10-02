@@ -5,7 +5,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, listWorkItems, setWorkItemPinned, getWorkItem } from '../workbench.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
-import { workbenchHarness, eventFor, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
+import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
 
 let pid = ''
 const ids: Record<string, string> = {}
@@ -120,44 +120,39 @@ describe('kituzes: a felulet', () => {
     return h
   }
 
-  /** The star lives in the right-click menu (Boss, TG 2164): open the menu of one row. */
-  async function openMenu(h: ReturnType<typeof workbenchHarness>, id: string) {
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="' + id + '"'))
-    h.fire('contextmenu', { ...eventFor({ 'data-wb-ctx-item': id }), clientX: 10, clientY: 10 })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-pin="' + id + '"'))
-  }
-
-  it('a csillag NINCS a soron, a jobb-klikk menuben van; a kituzott lenyomva; forditva', async () => {
+  it('csillag minden soron, a kituzott lenyomva; forditva', async () => {
     const h = open({ status: 200, body: {} })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
-    // The rows carry only the name (+ type/status line): no star button at all.
-    expect(h.html()).not.toContain('data-wb-act="item-pin"')
-    await openMenu(h, 'w1')
-    expect(h.html()).toMatch(/data-wb-pin="w1" aria-pressed="false"/)
-    expect(h.html()).toContain('workbench.pin.add')
-    h.fire('keydown', { key: 'Escape' })
-    await openMenu(h, 'w2')
-    expect(h.html()).toMatch(/data-wb-pin="w2" aria-pressed="true"/)
-    expect(h.html()).toContain('workbench.pin.remove')
-    expect(untranslatedHungarian(h.html(), ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-pin"'))
+    const html = h.html()
+    expect(html).toMatch(/data-wb-pin="w1" aria-pressed="false"/)
+    expect(html).toMatch(/data-wb-pin="w2" aria-pressed="true"/)
+    expect(html).toContain('workbench.pin.add')
+    expect(html).toContain('workbench.pin.remove')
+    // A csillag nem a munkadarab-gomb belsejeben van (gombba gomb nem agyazhato).
+    const rows = html.match(/<li class="wb-item-row[^"]*"[^>]*>[^]*?<\/li>/g) || []
+    expect(rows.length).toBe(2)
+    for (const row of rows) expect(row).toMatch(/^<li[^>]*><button[^>]*data-wb-act="item-pin"[^>]*>[^<]*<\/button><button[^>]*data-wb-item=/)
+    expect(untranslatedHungarian(html, ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')
   })
 
   it('kattintas: POST a jo ertekkel, a szerver listaja kerul ki', async () => {
     const h = open({ status: 200, body: { item: item('w1', 'Ajánlat', 9), items: [item('w1', 'Ajánlat', 9), item('w2', 'Logó', 5)] } })
-    await openMenu(h, 'w1')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-pin="w1"'))
     h.click({ 'data-wb-act': 'item-pin', 'data-wb-pin': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.pin.added⟧'))
     const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/items/w1/pin'))
     expect(call?.init?.method).toBe('POST')
     expect(JSON.parse(String(call?.init?.body))).toEqual({ pinned: true })
+    expect(h.html()).toMatch(/data-wb-pin="w1" aria-pressed="true"/)
     // A csillag nem nyitotta meg a munkadarabot.
     expect(h.fetchCalls.some((c) => /\/api\/workbench\/items\/w1(\?|$)/.test(c.url))).toBe(false)
   })
 
-  it('hiba: a szerver mondata a toastban', async () => {
+  it('hiba: a szerver mondata a toastban, a lista valtozatlan', async () => {
     const h = open({ status: 409, body: { error: 'project_archived', message: 'Archivalt projekt' } })
-    await openMenu(h, 'w1')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-pin="w1"'))
     h.click({ 'data-wb-act': 'item-pin', 'data-wb-pin': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('Archivalt projekt'))
+    expect(h.html()).toMatch(/data-wb-pin="w1" aria-pressed="false"/)
   })
 })
