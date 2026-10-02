@@ -8351,6 +8351,9 @@
         extra = t('workbench.chat.act_stalled', { s: Math.round(silent / 1000) })
         kind = 'stalled'
       }
+      // K-0.7: "Sorban: N" -- hany uzenet var a futo valasz mogott.
+      var waiting = st.turns.filter(function (x) { return x.role === 'user' && x.queued }).length
+      if (waiting) extra += ' · ' + t('workbench.chat.act_queued', { n: waiting })
       return { kind: kind, label: label, extra: extra }
     }
     if (!last) return { kind: 'idle', label: t('workbench.chat.act_idle'), extra: '' }

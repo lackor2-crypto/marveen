@@ -2720,6 +2720,7 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     let x: RegExpExecArray | null
     while ((x = m.exec(h.rootEl.innerHTML))) idx.push(x[1])
     expect(idx).toHaveLength(2)
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.act_queued')
     h.click({ 'data-wb-act': 'chat-unqueue', 'data-wb-turn': idx[1] })
     expect(h.rootEl.innerHTML).not.toContain('mégse ötlet')
     expect(h.rootEl.innerHTML).toContain('első ötlet')
