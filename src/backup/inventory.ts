@@ -136,7 +136,7 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   'agent-parity-alert.json', 'command-task-health.json', 'commit-push-dispatch.json',
   'context-broker.json', /^context-guard-last-pane-/, 'context-restart-gate.json',
   'context-restart-gate-status.json', 'drive-delete-queue.json', 'external-ops-last-run',
-  'pr-ledger-status.json',
+  'pr-ledger-status.json', 'agent-availability.json',
   // #434: the live Workbench session's scratch cwd and its Claude session ids --
   // both point at the OLD machine's Claude transcripts, useless after a restore.
   'workbench-live', 'workbench-live-sessions.json',

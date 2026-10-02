@@ -845,3 +845,12 @@ a három létrehozó végpont `skill_scope_required` hibával utasítja vissza a
 kérést, a `startGlobalSkillSeeder()` pedig menet közben is átviszi a `scope: global`
 skilleket a `seed-skills/` alá (meglévőt sosem ír felül). Részletek: `src/web/skill-scope.ts`,
 `skill-factory` / `skill-management` skill.
+
+## ⛔ ELÉRHETŐSÉGRŐL ÉLŐ ÁLLAPOTOT NÉZZ, KORÁBBI MÉRÉS NEM FORRÁS
+
+Mielőtt BÁRMIT mondasz egy ágens elérhetőségéről vagy kereteiről (fut-e, kimerült-e, mikor áll
+vissza), nézd meg az ÉLŐ állapotot: `GET /api/agents/availability` (ágensenként: `available`,
+`reason`, `since`, `resetsAt`, `measuredAt`) vagy az üzenetküldés WARN-ját. A figyelő percenként
+mér és naplóz (`store/agent-availability.log`). Aki visszaáll, azt a rendszer maga értesíti a
+saját függő munkájával (`[ELÉRHETŐ]` üzenet): ő dolgozik tovább, nem kell a fő ágensre várnia.
+Ha egy ágens elérhetővé vált és van várakozó munka, add ki neki AZONNAL.
