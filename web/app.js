@@ -1286,6 +1286,31 @@ function callPageLoader(name) {
 // sidebar in over a backdrop.
 const sidebarEl = document.querySelector('.sidebar')
 const sidebarBackdrop = document.getElementById('sidebarBackdrop')
+// Menusav elrejtese (Boss, 2026-10-02, TG 7362): a bal oldali menu balra becsukhato, a szelen marado fule
+// visszanyitja. A valasztas ebben a bongeszoben megmarad.
+;(() => {
+  const btn = document.getElementById('sidebarCollapseBtn')
+  if (!btn) return
+  const KEY = 'marveen.sidebar.collapsed'
+  const apply = (collapsed) => {
+    document.body.classList.toggle('sidebar-collapsed', collapsed)
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+    const label = t(collapsed ? 'nav.sidebar_expand' : 'nav.sidebar_collapse')
+    btn.title = label
+    btn.setAttribute('aria-label', label)
+    const arrow = btn.querySelector('span')
+    if (arrow) arrow.textContent = collapsed ? '\u203A' : '\u2039'
+  }
+  let collapsed = false
+  try { collapsed = window.localStorage.getItem(KEY) === '1' } catch (_e) { collapsed = false }
+  apply(collapsed)
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed
+    try { window.localStorage.setItem(KEY, collapsed ? '1' : '0') } catch (_e) { /* nem baj: csak most ervenyes */ }
+    apply(collapsed)
+  })
+})()
+
 const mobileMenuBtn = document.getElementById('mobileMenuBtn')
 function setSidebarOpen(open) {
   if (sidebarEl) sidebarEl.classList.toggle('open', open)
