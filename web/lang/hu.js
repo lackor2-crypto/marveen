@@ -6457,6 +6457,7 @@ window._i18n.hu = {
   "workbench.tool.project.listFiles": "Fájlok listázása",
   "workbench.tool.project.listKanban": "Kártyák listázása",
   "workbench.tool.project.listWorkItems": "Munkadarabok listázása",
+  "workbench.tool.workItem.writeText": "A jegyzet szövegének megírása",
   "workbench.tool.workItem.addPart": "Rész hozzáadása a munkadarabhoz",
   "workbench.tool.workItem.compareVersions": "Verziók összehasonlítása",
   "workbench.tool.workItem.create": "Munkadarab létrehozása",
