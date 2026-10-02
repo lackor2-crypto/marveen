@@ -204,7 +204,8 @@ describe('lomtar: a felulet', () => {
 
   it('Lomtar: Vegleges torles piros kerettel, Megse nem kuld semmit, megerositesre POST /purge', async () => {
     const h = open({ status: 200, body: { item: item('w1', 'Ajánlat'), items: [item('w2', 'Logó')], deleted: [item('w1', 'Ajánlat')] } })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-id="w1"'))
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
+    h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 'w1' })
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.done⟧'))
     // No toggle click: the trash is already open after the delete.
@@ -223,19 +224,21 @@ describe('lomtar: a felulet', () => {
     expect(h.html()).not.toContain('data-wb-act="trash-toggle"')
   })
 
-  it('Torles gomb minden sor vegen, forditva', async () => {
+  it('a Torles a jobb egeres menuben van (nem a soron), forditva', async () => {
     const h = open({ status: 200, body: {} })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-trash"'))
-    const html = h.html()
-    const rows = html.match(/<li class="wb-item-row[^"]*"[^>]*>[^]*?<\/li>/g) || []
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
+    const rows = h.html().match(/<li class="wb-item-row[^"]*"[^>]*>[^]*?<\/li>/g) || []
     expect(rows.length).toBe(2)
-    for (const row of rows) expect(row).toMatch(/data-wb-act="item-trash"[^>]*>[^<]*<\/button><\/li>$/)
-    expect(untranslatedHungarian(html, ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')
+    for (const row of rows) expect(row).not.toContain('data-wb-act="item-trash"')
+    h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 'w1' })
+    expect(h.html()).toMatch(/wb-ctx-menu[^]*data-wb-act="item-trash"/)
+    expect(untranslatedHungarian(h.html(), ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')
   })
 
   it('kattintas: rakerdezes nelkul POST, eltunik, a Lomtarbol visszaallithato', async () => {
     const h = open({ status: 200, body: { item: item('w1', 'Ajánlat'), items: [item('w2', 'Logó')], deleted: [item('w1', 'Ajánlat')] } })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-id="w1"'))
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
+    h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 'w1' })
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.done⟧'))
     const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/items/w1/trash'))
@@ -252,7 +255,8 @@ describe('lomtar: a felulet', () => {
 
   it('hiba: a szerver mondata a toastban, a lista valtozatlan', async () => {
     const h = open({ status: 409, body: { error: 'project_archived', message: 'Archivalt projekt' } })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-id="w1"'))
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
+    h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 'w1' })
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('Archivalt projekt'))
     expect(h.html()).toContain('data-wb-item="w1"')

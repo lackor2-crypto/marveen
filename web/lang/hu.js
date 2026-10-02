@@ -5628,6 +5628,7 @@ window._i18n.hu = {
   "workbench.pin.remove": "Csillag levétele: visszakerül a helyére a listában",
   "workbench.pin.added": "Kitűzve: a lista tetején marad.",
   "workbench.pin.removed": "Csillag levéve.",
+  "workbench.ctx.hint": "Jobb egérgomb (telefonon hosszú nyomás): szerkesztés, törlés, áthelyezés mappába",
   "workbench.trash.delete": "Törlés",
   "workbench.trash.delete_hint": "A Munkapad lomtárába teszi: eltűnik a listából, de a lista alján, a Munkapad lomtárából visszaállítható. A verziók megmaradnak.",
   "workbench.trash.done": "A Munkapad lomtárába került. Ott van a munkadarab-lista alján, a Visszaállítás gombbal visszahozhatod. (Ez nem az Életfa lomtára.)",

@@ -5550,6 +5550,7 @@ window._i18n.en = {
   "workbench.pin.remove": "Remove the star: it goes back to its normal place in the list",
   "workbench.pin.added": "Pinned: it stays at the top of the list.",
   "workbench.pin.removed": "Star removed.",
+  "workbench.ctx.hint": "Right-click (long press on a phone): rename, delete, move to a folder",
   "workbench.trash.delete": "Delete",
   "workbench.trash.delete_hint": "Moves it to the Workbench trash: it leaves the list but can be restored from the Workbench trash at the bottom of the list. Versions are kept.",
   "workbench.trash.done": "Moved to the Workbench trash. It is at the bottom of the work item list; Restore brings it back. (This is not the file tree Trash.)",
