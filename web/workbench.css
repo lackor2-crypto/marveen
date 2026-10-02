@@ -1426,3 +1426,29 @@
 .wb-fr-pages .wb-deck-strip { margin: 0; }
 .wb-fr-addpage { padding: 10px 14px; border: 1px dashed #6d28d9; border-radius: 8px; background: rgba(109, 40, 217, 0.08); color: #6d28d9; cursor: pointer; font-weight: 600; }
 .wb-fr-exp { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+/* ---- A kozepso ablak FIX (Boss, 2026-10-02, TG 7393): nincs gorgetes, a lap felul kezdodik es alul er veget ------- */
+.wb-fr-body { height: 82vh; min-height: 520px; }
+.wb-fr-center { min-height: 0; overflow: hidden; }
+.wb-fr-fixed { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; align-items: flex-start; justify-content: center; container-type: size; }
+.wb-fr-fixed .wb-fr-page {
+  flex: none; margin: 0; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, 0.22); aspect-ratio: var(--ar, 1);
+  width: calc(min(100cqw, 100cqh * var(--ar, 1)) * var(--wb-zoom, 1));
+}
+.wb-fr-fixed .wb-can-stage, .wb-fr-fixed .wb-preview-image { width: 100%; height: 100%; display: block; }
+.wb-fr-fixed .wb-preview-image { object-fit: fill; }
+.wb-fr-scroll { flex: 1 1 0; min-height: 0; overflow: auto; padding: 14px; }
+.wb-fr-panel, .wb-fr-chat { max-height: none; height: 100%; }
+.wb-fr-strip { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px; overflow-x: auto; overflow-y: hidden; border-top: 1px solid var(--border); background: var(--bg-card); }
+.wb-fr-cell { position: relative; flex: 0 0 auto; }
+.wb-fr-cellpick { display: block; width: 96px; height: 60px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: #fff; cursor: pointer; overflow: hidden; position: relative; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+.wb-fr-cell-on .wb-fr-cellpick { border-color: #7c3aed; }
+.wb-fr-cellpick img { width: 100%; height: 100%; object-fit: contain; display: block; background: #fff; }
+.wb-fr-cellno { position: absolute; left: 3px; top: 2px; padding: 0 5px; border-radius: 4px; background: rgba(17, 24, 39, 0.72); color: #fff; font-size: 0.68rem; }
+.wb-fr-cellact { position: absolute; right: 2px; bottom: 2px; display: flex; gap: 2px; }
+.wb-fr-ca { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: rgba(17, 24, 39, 0.78); color: #fff; font-size: 0.65rem; cursor: pointer; line-height: 20px; }
+.wb-fr-ca:disabled { opacity: 0.35; cursor: default; }
+.wb-fr-addcell { flex: 0 0 auto; width: 60px; height: 60px; border: 1px dashed #7c3aed; border-radius: 6px; background: rgba(124, 58, 237, 0.08); color: #7c3aed; font-size: 1.4rem; cursor: pointer; }
+.wb-fr-sub { margin: 12px 0 6px; font-size: 0.9rem; }
+.wb-fr-mi-on { background: rgba(79, 108, 240, 0.18); font-weight: 600; }
+@media (max-width: 900px) { .wb-fr-body { height: auto; min-height: 0; } .wb-fr-fixed { height: 60vh; flex: none; } }

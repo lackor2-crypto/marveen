@@ -10891,6 +10891,7 @@
     var h = (c && c.history) || {}
     var busy = WB.canvasBusy
     var canvasOn = frCanvasReady() && c.current !== false
+    var sizeOn = canvasOn || deckMode()
     var menuBtn = function (key, label) {
       return '<button type="button" class="wb-fr-tbtn' + (WB.frMenu === key ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-menu" data-wb-m="' + key + '"'
         + ' aria-expanded="' + (WB.frMenu === key) + '">' + esc(label) + (key === 'file' || key === 'size' ? ' ▾' : '') + '</button>'
@@ -10898,7 +10899,7 @@
     var out = '<div class="wb-fr-top">'
       + '<button type="button" class="wb-fr-tbtn wb-fr-home" data-wb-act="back" title="' + escA(t('workbench.back_to_project')) + '" aria-label="' + escA(t('workbench.back_to_project')) + '">⌂</button>'
       + menuBtn('file', t('workbench.fr.file'))
-      + (canvasOn ? menuBtn('size', t('workbench.fr.size')) : '')
+      + (sizeOn ? menuBtn('size', t('workbench.fr.size')) : '')
       + (canvasOn
         ? '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-undo"' + (busy || !h.can_undo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.undo') + ' (Ctrl+Z)') + '" aria-label="' + escA(t('workbench.canvas.undo')) + '">↶</button>'
           + '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-redo"' + (busy || !h.can_redo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.redo') + ' (Ctrl+Y)') + '" aria-label="' + escA(t('workbench.canvas.redo')) + '">↷</button>'
@@ -10917,7 +10918,15 @@
   function frMenuHtml() {
     if (!WB.frMenu) return ''
     var it = WB.detail ? WB.detail.item : null
-    if (WB.frMenu === 'size') return '<div class="wb-fr-pop">' + canvasPlatformHtml() + '</div>'
+    if (WB.frMenu === 'size') {
+      if (deckMode()) {
+        var sz = ((WB.deck.limits && WB.deck.limits.sizes) || ['16:9', '4:3']).map(function (a) {
+          return '<button type="button" class="wb-fr-mi' + (WB.deck.deck.size === a ? ' wb-fr-mi-on' : '') + '" data-wb-act="deck-size" data-wb-v="' + escA(a) + '"' + (WB.canvasBusy || archived() ? ' disabled' : '') + '>' + esc(deckSizeLabel(a)) + '</button>'
+        }).join('')
+        return '<div class="wb-fr-pop wb-fr-menu">' + sz + '</div>'
+      }
+      return '<div class="wb-fr-pop">' + canvasPlatformHtml() + '</div>'
+    }
     var row = function (act, label, extra) {
       return '<button type="button" class="wb-fr-mi" data-wb-act="' + act + '"' + (extra || '') + '>' + esc(label) + '</button>'
     }
@@ -10955,7 +10964,13 @@
       return '<button type="button" class="wb-fr-pbtn" data-wb-act="' + act + '"' + (arg ? ' data-wb-arg="' + escA(arg) + '"' : '') + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(label) + '</button>'
     }
     switch (WB.frTab) {
-      case 'templates': return templatesHtml()
+      case 'templates':
+        if (deckMode() && !archived()) {
+          return ['title', 'content', 'blank'].map(function (l) {
+            return '<button type="button" class="wb-fr-pbtn" data-wb-act="fr-deck-layout" data-wb-arg="' + l + '"' + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(t('workbench.deck.layout_' + l)) + '</button>'
+          }).join('') + '<p class="wb-hint">' + esc(t('workbench.fr.layout_hint')) + '</p>'
+        }
+        return templatesHtml()
       case 'elements':
         return can
           ? '<div class="wb-fr-pgrid">' + add('canvas-add-rect', t('workbench.fr.el.rect')) + add('canvas-add-ellipse', t('workbench.fr.el.circle'))
@@ -10977,6 +10992,10 @@
         return '<p class="wb-can-snapopts"><label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
           + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label></p>'
           + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p><p class="wb-hint">' + esc(t('workbench.canvas.drop_hint')) + '</p>'
+          + canvasOrphansHtml()
+          + (deckMode() && deckCurrentSlide() && !archived()
+            ? '<h4 class="wb-fr-sub">' + esc(t('workbench.deck.notes')) + '</h4><textarea class="wb-input" id="wbDeckNotes" rows="4" placeholder="' + escA(t('workbench.deck.notes_placeholder')) + '">' + esc(deckCurrentSlide().notes || '') + '</textarea>'
+              + '<p>' + deckBtn('deck-notes', t('workbench.deck.notes_save')) + '</p>' : '')
       case 'projects':
         return (archived() ? '' : '<button type="button" class="wb-fr-pbtn" data-wb-act="sh-new">' + esc(t('workbench.fr.new')) + '</button>') + itemsPanelHtml()
       default: return ''
@@ -11000,45 +11019,75 @@
       + '</div>'
   }
 
-  /** A deck kozepe: a kijelolt oldal nagyban, alatta az oldal-sav (Elol / Hatul / dia-k) + "+ Oldal hozzaadasa". */
-  function frDeckCenterInner() {
+  /** Egy oldal kicsi negyzete az oldal-savban (Canva-minta): a kijelolt kiemelve, rajta apro muveletek. */
+  function frStripHtml() {
+    var list = deckSlides()
+    var cur = deckCurrentSlide()
+    var cells = list.map(function (s, i) {
+      var on = cur && s.id === cur.id
+      var act = function (a, label, title, dis) {
+        return '<button type="button" class="wb-fr-ca" data-wb-act="' + a + '" data-wb-id="' + escA(s.id) + '" title="' + escA(title) + '" aria-label="' + escA(title) + '"'
+          + (dis || WB.canvasBusy ? ' disabled' : '') + '>' + label + '</button>'
+      }
+      return '<div class="wb-fr-cell' + (on ? ' wb-fr-cell-on' : '') + '">'
+        + '<button type="button" class="wb-fr-cellpick" data-wb-act="deck-pick" data-wb-id="' + escA(s.id) + '" aria-label="' + escA(deckPageLabel(i)) + '"' + (on ? ' aria-current="true"' : '') + '>'
+        + '<img loading="lazy" alt="" src="' + escA(deckSlideUrl(s.id)) + '"><span class="wb-fr-cellno">' + esc(deckPageLabel(i)) + '</span></button>'
+        + (on && !archived()
+          ? '<span class="wb-fr-cellact">' + act('deck-up', '◀', t('workbench.fr.page_left'), i === 0) + act('deck-down', '▶', t('workbench.fr.page_right'), i === list.length - 1)
+            + act('deck-dup', '⧉', t('workbench.deck.duplicate')) + act('deck-del', '🗑', t('workbench.deck.remove')) + '</span>'
+          : '')
+        + '</div>'
+    }).join('')
+    var add = archived() ? '' : '<button type="button" class="wb-fr-addcell" data-wb-act="deck-add-blank" title="' + escA(t('workbench.fr.add_page')) + '" aria-label="' + escA(t('workbench.fr.add_page')) + '"' + (WB.canvasBusy ? ' disabled' : '') + '>+</button>'
+    return '<div class="wb-fr-strip">' + cells + add + '</div>'
+  }
+
+  /** A deck oldala (a kozepso fix terulet): csak a kijelolt oldal. */
+  function frDeckPageHtml() {
     if (WB.deckError && !WB.deck) {
       return '<p class="wb-preview-bad">' + esc(WB.deckError.message || '') + '</p>' + deckBtn('deck-refresh', t('workbench.canvas.refresh'))
     }
     if (!WB.deck || !WB.deck.deck) return '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
-    var slides = deckSlides()
-    var add = archived() ? '' : '<button type="button" class="wb-fr-addpage" data-wb-act="deck-add-blank"' + (WB.canvasBusy ? ' disabled' : '') + '>+ ' + esc(t('workbench.fr.add_page')) + '</button>'
-    if (!slides.length) {
-      return '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.deck.none_title')) + '</p><p>' + add + '</p></div>'
+    if (!deckSlides().length) {
+      return '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.deck.none_title')) + '</p><p>'
+        + (archived() ? '' : '<button type="button" class="wb-fr-addpage" data-wb-act="deck-add-blank">+ ' + esc(t('workbench.fr.add_page')) + '</button>') + '</p></div>'
     }
-    var cur = deckCurrentSlide()
-    return '<div class="wb-fr-page">' + canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(cur) + 1 }), true) + '</div>'
-      + '<div class="wb-fr-pages">' + deckStripHtml() + add + '</div>'
+    return canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(deckCurrentSlide()) + 1 }), true)
   }
 
-  /** Kozepen a lap. Rajz-fajtanal csak a LAP (az elemek listaja, urlapja a Technikai reszletekben van). */
+  /** A kozepso ablak: FIX, nincs gorgetes. A lap felul kezdodik es alul er veget (a Canva mintaja); az oldal-sav alul,
+   *  kis negyzetekben; alatta a nagyitas. Dokumentum / video / jegyzet: a sajat teruleten gorgethet. */
   function frCenterHtml() {
     var it = WB.detail ? WB.detail.item : null
-    var inner
-    if (!it) inner = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
-    else if (isDeckItem()) inner = frDeckCenterInner()
-    else if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) {
-      if (WB.canvas.exists) {
-        inner = canvasOrphansHtml() + '<div class="wb-fr-page">' + canvasStageHtml(it.title, true) + '</div>'
-      } else {
-        inner = '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.canvas.none_title')) + '</p>'
+    var page = ''
+    var scrolling = ''
+    var strip = ''
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!it) scrolling = '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
+    else if (isDeckItem()) {
+      page = frDeckPageHtml()
+      if (WB.deck && WB.deck.deck && deckSlides().length) strip = frStripHtml()
+      doc = doc || (WB.deck && WB.deck.deck && deckSlides().length ? deckCurrentSlide().canvas : null)
+    } else if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) {
+      if (WB.canvas.exists) page = canvasStageHtml(it.title, true)
+      else {
+        scrolling = '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.canvas.none_title')) + '</p>'
           + '<p><button type="button" class="btn-primary" data-wb-act="canvas-start"' + (WB.canvasBusy || archived() ? ' disabled' : '') + '>'
           + esc(WB.canvasBusy ? t('workbench.canvas.starting') : t('workbench.canvas.start')) + '</button></p></div>'
       }
-    } else inner = simpleResultHtml()
-    return '<div class="wb-fr-center"><div class="wb-fr-scroll" style="--wb-zoom:' + (WB.frZoom / 100) + '">' + inner + '</div>' + frBottomHtml() + '</div>'
+    } else scrolling = simpleResultHtml()
+    var zoom = Math.min(100, Math.max(30, WB.frZoom || 100)) / 100
+    var main = page
+      ? '<div class="wb-fr-fixed" style="--wb-zoom:' + zoom + ';--ar:' + (doc ? (doc.width / doc.height).toFixed(4) : '1') + '"><div class="wb-fr-page">' + page + '</div></div>'
+      : '<div class="wb-fr-scroll">' + scrolling + '</div>'
+    return '<div class="wb-fr-center">' + main + strip + frBottomHtml() + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */
   function frBottomHtml() {
     return '<div class="wb-fr-bottom">'
       + '<span class="wb-fr-zoomlbl">' + esc(t('workbench.fr.zoom')) + '</span>'
-      + '<input type="range" class="wb-fr-zoom" id="wbFrZoom" min="40" max="200" step="10" value="' + WB.frZoom + '" aria-label="' + escA(t('workbench.fr.zoom')) + '">'
+      + '<input type="range" class="wb-fr-zoom" id="wbFrZoom" min="30" max="100" step="10" value="' + Math.min(100, Math.max(30, WB.frZoom || 100)) + '" aria-label="' + escA(t('workbench.fr.zoom')) + '">'
       + '<span class="wb-fr-zoomval">' + WB.frZoom + '%</span>'
       + '</div>'
   }
@@ -11820,6 +11869,14 @@
     else if (a === 'deck-refresh') loadDeck(WB.selectedId)
     else if (a === 'deck-pick') deckSelectSlide(act.getAttribute('data-wb-id'))
     else if (a === 'deck-add') deckAddSlide()
+    else if (a === 'fr-deck-layout') {
+      var lay = act.getAttribute('data-wb-arg') || 'content'
+      var curl = deckCurrentSlide()
+      deckOps([{ op: 'addSlide', layout: lay, at: curl ? deckSlides().indexOf(curl) + 2 : 1, title: t('workbench.deck.new_title'), body: lay === 'title' ? t('workbench.deck.new_subtitle') : t('workbench.deck.new_body') }], function (d) {
+        var ap = (d.applied || [])[0]
+        if (ap && ap.id) { WB.deckSlide = ap.id; deckSyncCanvas() }
+      })
+    }
     else if (a === 'deck-add-blank') {
       // Egy UJ, ures oldal a kijelolt utan (a Canva "+ Oldal hozzaadasa" mintaja).
       var curp = deckCurrentSlide()
