@@ -73,7 +73,7 @@ function reminderPrompt(row: ApprovalVerification): string {
  *   olvashato es tetlen                       -> 'idle'
  *   olvashato es nem tetlen                   -> 'busy'
  */
-async function probeAgentActivity(agent: string): Promise<AgentActivity> {
+export async function probeAgentActivity(agent: string): Promise<AgentActivity> {
   // A kod-hid executornak nincs panelje, amit el lehetne olvasni -- rola
   // sosem allitjuk, hogy tetlen. (Nudge-ot amugy sem kap, lasd sendReminder.)
   if (codeBridgeProjectOf(agent) !== null) return 'unknown'
