@@ -10875,6 +10875,17 @@
     ['uploads', '☁️'], ['tools', '⚙️'], ['projects', '📁'],
   ]
 
+  /** A video has no canvas: only the tabs that mean something for it (the video tools open by default). */
+  function frTabs() {
+    var it = WB.detail ? WB.detail.item : null
+    return frIsVideo(it) ? FR_TABS.filter(function (x) { return x[0] === 'tools' || x[0] === 'uploads' || x[0] === 'projects' }) : FR_TABS
+  }
+  function frTabNow() {
+    if (!WB.frTab) return WB.frTab
+    var ok = frTabs().some(function (x) { return x[0] === WB.frTab })
+    return ok ? WB.frTab : 'tools'
+  }
+
   function frIsCanvasItem(it) {
     return !!it && !isDeckItem() && (!!canvasKind(it) || !!(WB.canvas && WB.canvas.exists))
   }
@@ -10940,8 +10951,8 @@
 
   /** Bal oldali keskeny, feliratos ikonsav. */
   function frRailHtml() {
-    return '<nav class="wb-fr-rail" aria-label="' + escA(t('workbench.fr.rail')) + '">' + FR_TABS.map(function (x) {
-      var on = WB.frTab === x[0]
+    return '<nav class="wb-fr-rail" aria-label="' + escA(t('workbench.fr.rail')) + '">' + frTabs().map(function (x) {
+      var on = frTabNow() === x[0]
       return '<button type="button" class="wb-fr-rb' + (on ? ' wb-fr-rb-on' : '') + '" data-wb-act="fr-tab" data-wb-tab="' + x[0] + '" aria-pressed="' + on + '">'
         + '<span class="wb-fr-ri" aria-hidden="true">' + x[1] + '</span><span class="wb-fr-rl">' + esc(t('workbench.fr.tab.' + x[0])) + '</span></button>'
     }).join('') + '</nav>'
@@ -10965,7 +10976,7 @@
     var add = function (act, label, arg) {
       return '<button type="button" class="wb-fr-pbtn" data-wb-act="' + act + '"' + (arg ? ' data-wb-arg="' + escA(arg) + '"' : '') + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(label) + '</button>'
     }
-    switch (WB.frTab) {
+    switch (frTabNow()) {
       case 'templates':
         if (deckMode() && !archived()) {
           return ['title', 'content', 'blank'].map(function (l) {
@@ -10991,6 +11002,7 @@
         return '<label class="wb-fr-upload"><input type="file" accept="image/*" id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
           + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : needCanvas)
       case 'tools':
+        if (frIsVideo(WB.detail && WB.detail.item)) return videoTimelineHtml()
         return '<p class="wb-can-snapopts"><label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
           + '<label><input type="checkbox" data-wb-act="canvas-grid"' + (WB.canvasGrid ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_grid', { n: CANVAS_GRID })) + '</label></p>'
           + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p><p class="wb-hint">' + esc(t('workbench.canvas.drop_hint')) + '</p>'
@@ -11006,7 +11018,7 @@
 
   function frPanelHtml() {
     if (!WB.frTab) return ''
-    return '<aside class="wb-fr-panel"><h3 class="wb-fr-ptitle">' + esc(t('workbench.fr.tab.' + WB.frTab)) + '</h3>' + frPanelBodyHtml() + '</aside>'
+    return '<aside class="wb-fr-panel"><h3 class="wb-fr-ptitle">' + esc(t('workbench.fr.tab.' + frTabNow())) + '</h3>' + frPanelBodyHtml() + '</aside>'
   }
 
   /** A dia-/kartya-export gombjai (PPTX, PDF) -- az Export-doboz tetejen, a deck-nek. */
@@ -11057,6 +11069,103 @@
     return canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(deckCurrentSlide()) + 1 }), true)
   }
 
+  // ---- VIDEO A KOZEPSO ABLAKBAN (#462, 6. lepes (a)) --------------------------------------------------
+  //
+  // Felul a lejatszo (a kijelolt klip), alul az IDOSAV: a klipek aranyos blokkok. Kattintas = kijeloles,
+  // a blokk huzasa = sorrend (moveClip), a szelek huzasa = vagas (trimClip), a lejatszofejnel "Szetvagas"
+  // (splitClip). MINDEN ugyanazokat a `vtOps` muveleteket kuldi, amiket az ugynok is: egy allapot.
+
+  function frIsVideo(it) { return !!it && it.type === 'video' }
+
+  function frVtSelClip() {
+    var doc = vtDoc()
+    var clips = (doc && doc.clips) || []
+    for (var i = 0; i < clips.length; i += 1) if (clips[i].id === WB.vtSel) return clips[i]
+    return clips[0] || null
+  }
+
+  function frVtSrcUrl(c) {
+    return '/api/life/file?rel=' + encodeURIComponent(c.src) + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      + '#t=' + c.start + ',' + c.end
+  }
+
+  function frVtAddRowHtml() {
+    var busy = WB.vtBusy || WB.vtRender || archived()
+    return '<select id="wbFrVtSrc" class="wb-input" aria-label="' + escA(t('workbench.vt.pick_file')) + '">' + vtMediaOptions('video') + '</select> '
+      + '<button type="button" class="wb-fr-pbtn wb-fr-vt-add" data-wb-act="fr-vt-add"' + (busy ? ' disabled' : '') + '>+ ' + esc(t('workbench.vt.add_clip')) + '</button>'
+  }
+
+  /** The fixed middle window of a video: the player of the picked clip (or the empty start). */
+  function frVideoPageHtml() {
+    if (WB.vtError && !WB.vt) {
+      return '<div class="wb-fr-vid-empty"><p class="wb-preview-bad">' + esc(WB.vtError.message || '') + '</p>'
+        + (WB.vtError.detail ? '<p class="wb-hint">' + esc(WB.vtError.detail) + '</p>' : '')
+        + '<p>' + vtBtn('vt-refresh', t('workbench.canvas.refresh')) + '</p></div>'
+    }
+    if (!vtDoc()) return '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
+    var c = frVtSelClip()
+    if (!c) {
+      return '<div class="wb-fr-vid-empty"><p class="wb-empty-title">' + esc(t('workbench.fr.vid.empty_title')) + '</p>'
+        + '<p class="wb-hint">' + esc(t('workbench.fr.vid.empty_hint')) + '</p>'
+        + (archived() ? '' : '<p>' + frVtAddRowHtml() + '</p>') + '</div>'
+    }
+    return '<video class="wb-fr-video" id="wbVideo" src="' + escA(frVtSrcUrl(c)) + '" controls preload="metadata" playsinline></video>'
+  }
+
+  /** The timeline under the player: toolbar + proportional clip blocks. */
+  function frVideoStripHtml() {
+    var doc = vtDoc()
+    if (!doc) return ''
+    var clips = doc.clips || []
+    var sel = frVtSelClip()
+    var h = (WB.vt && WB.vt.history) || {}
+    var busy = WB.vtBusy || WB.vtRender || archived()
+    var total = clips.reduce(function (a, c) { return a + Math.max(0.1, c.end - c.start) }, 0) || 1
+    var btn = function (act, label, title, dis, id) {
+      return '<button type="button" class="wb-fr-tbtn2" data-wb-act="' + act + '"' + (id ? ' data-wb-id="' + escA(id) + '"' : '')
+        + (dis || busy ? ' disabled' : '') + ' title="' + escA(title || label) + '"' + (label.length <= 2 ? ' aria-label="' + escA(title || label) + '"' : '') + '>' + label + '</button>'
+    }
+    var blocks = clips.map(function (c, i) {
+      var dur = Math.max(0.1, c.end - c.start)
+      var on = sel && sel.id === c.id
+      return '<div class="wb-tl-clip' + (on ? ' wb-tl-on' : '') + '" data-wb-tl="' + escA(c.id) + '" style="width:' + (dur / total * 100).toFixed(3) + '%" title="' + escA(c.src.split('/').pop()) + '">'
+        + (archived() ? '' : '<span class="wb-tl-h wb-tl-hl" data-wb-tlh="l" aria-hidden="true"></span>')
+        + '<span class="wb-tl-no">' + (i + 1) + '</span><span class="wb-tl-name">' + esc(c.src.split('/').pop()) + '</span><span class="wb-tl-dur">' + esc(vtSecs(dur)) + ' s</span>'
+        + (archived() ? '' : '<span class="wb-tl-h wb-tl-hr" data-wb-tlh="r" aria-hidden="true"></span>')
+        + '</div>'
+    }).join('')
+    return '<div class="wb-fr-tl">'
+      + '<div class="wb-fr-tl-bar">'
+      + btn('vt-undo', '↶', t('workbench.vt.undo'), !h.can_undo) + btn('vt-redo', '↷', t('workbench.vt.redo'), !h.can_redo)
+      + btn('fr-vt-split', '✂ ' + esc(t('workbench.fr.vid.split')), t('workbench.fr.vid.split_hint'), !sel)
+      + btn('vt-clip-del', '🗑 ' + esc(t('workbench.vt.remove')), t('workbench.vt.remove'), !sel, sel && sel.id)
+      + '<span class="wb-fr-tl-sp"></span>'
+      + '<span class="wb-muted wb-fr-tl-len">' + esc(t('workbench.vt.length', { s: vtSecs((WB.vt && WB.vt.duration) || 0) })) + '</span>'
+      + (archived() ? '' : frVtAddRowHtml())
+      + '</div>'
+      + (clips.length
+        ? '<div class="wb-tl-track" id="wbTlTrack">' + blocks + '</div><p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
+        : '')
+      + '</div>'
+  }
+
+  /** "Szetvagas": the playhead of the player, inside the picked clip. */
+  function frVtSplitAtPlayhead() {
+    var c = frVtSelClip()
+    var v = document.getElementById('wbVideo')
+    if (!c || !v || typeof v.currentTime !== 'number') return
+    var at = Math.round(v.currentTime * 10) / 10
+    if (!(at > c.start + 0.1 && at < c.end - 0.1)) { window.showToast(t('workbench.fr.vid.split_range')); return }
+    vtOps([{ op: 'splitClip', id: c.id, at: at }])
+  }
+
+  function frVtAddFromStrip() {
+    var el = document.getElementById('wbFrVtSrc')
+    var src = el ? String(el.value) : ''
+    if (!src) { window.showToast(t('workbench.vt.pick_file')); return }
+    vtOps([{ op: 'addClip', src: src, start: 0 }])
+  }
+
   /** A kozepso ablak: FIX, nincs gorgetes. A lap felul kezdodik es alul er veget (a Canva mintaja); az oldal-sav alul,
    *  kis negyzetekben; alatta a nagyitas. Dokumentum / video / jegyzet: a sajat teruleten gorgethet. */
   function frCenterHtml() {
@@ -11070,6 +11179,8 @@
       page = frDeckPageHtml()
       if (WB.deck && WB.deck.deck && deckSlides().length) strip = frStripHtml()
       doc = doc || (WB.deck && WB.deck.deck && deckSlides().length ? deckCurrentSlide().canvas : null)
+    } else if (frIsVideo(it)) {
+      strip = frVideoStripHtml()
     } else if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) {
       if (WB.canvas.exists) page = canvasStageHtml(it.title, true)
       else {
@@ -11079,10 +11190,11 @@
       }
     } else scrolling = simpleResultHtml()
     var zoom = Math.min(100, Math.max(30, WB.frZoom || 100)) / 100
-    var main = page
+    var isVid = !!it && frIsVideo(it) && !isDeckItem()
+    var main = isVid ? '<div class="wb-fr-vid">' + frVideoPageHtml() + '</div>' : page
       ? '<div class="wb-fr-fixed" style="--wb-zoom:' + zoom + ';--ar:' + (doc ? (doc.width / doc.height).toFixed(4) : '1') + '"><div class="wb-fr-page">' + page + '</div></div>'
       : '<div class="wb-fr-scroll">' + scrolling + '</div>'
-    return '<div class="wb-fr-center">' + main + strip + frBottomHtml() + '</div>'
+    return '<div class="wb-fr-center">' + main + strip + (isVid ? '' : frBottomHtml()) + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */
@@ -11893,6 +12005,8 @@
     else if (a === 'deck-size') deckOps([{ op: 'setSize', size: act.getAttribute('data-wb-v') }])
     else if (a === 'deck-notes') deckSaveNotes()
     else if (a === 'deck-export') deckExportNow(act.getAttribute('data-wb-v'))
+    else if (a === 'fr-vt-split') frVtSplitAtPlayhead()
+    else if (a === 'fr-vt-add') frVtAddFromStrip()
     else if (a === 'vt-refresh') loadVideoTimeline(WB.selectedId)
     else if (a === 'vt-undo' || a === 'vt-redo') vtStep(a === 'vt-undo' ? 'undo' : 'redo')
     else if (a === 'vt-version') vtVersion()
@@ -12174,6 +12288,87 @@
 
   document.addEventListener('pointerup', function () { canvasDragFinish(true) })
   document.addEventListener('pointercancel', function () { canvasDragFinish(false) })
+
+  // ---- the video timeline: select / reorder / trim by pointer (no render while dragging) ------------
+  var tlDrag = null
+
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var blk = e.target.closest('[data-wb-tl]')
+    if (!blk || WB.vtBusy || WB.vtRender) return
+    var h = e.target.closest('[data-wb-tlh]')
+    var rect = blk.getBoundingClientRect()
+    var c = null
+    var clips = (vtDoc() || {}).clips || []
+    for (var i = 0; i < clips.length; i += 1) if (clips[i].id === blk.getAttribute('data-wb-tl')) c = clips[i]
+    if (!c || !rect.width) return
+    tlDrag = { id: c.id, el: blk, kind: h ? h.getAttribute('data-wb-tlh') : 'move', x0: e.clientX, moved: false, clip: c, secPerPx: Math.max(0.1, c.end - c.start) / rect.width, dx: 0 }
+    if (typeof blk.setPointerCapture === 'function') { try { blk.setPointerCapture(e.pointerId) } catch (_e) { /* synthetic event */ } }
+  })
+
+  document.addEventListener('pointermove', function (e) {
+    if (!tlDrag) return
+    var d = tlDrag
+    d.dx = e.clientX - d.x0
+    if (!d.moved && Math.abs(d.dx) < 4) return
+    d.moved = true
+    if (archived()) return
+    if (d.kind === 'move') {
+      d.el.style.transform = 'translateX(' + d.dx + 'px)'
+      d.el.style.zIndex = '3'
+      d.el.classList.add('wb-tl-drag')
+    } else {
+      var r = d.el.getBoundingClientRect()
+      // The visual feedback only: the block grows or shrinks with the handle.
+      var base = d.el.getAttribute('data-w0') || String(r.width)
+      d.el.setAttribute('data-w0', base)
+      var w = Math.max(24, Number(base) + (d.kind === 'r' ? d.dx : -d.dx))
+      d.el.style.width = w + 'px'
+      d.el.style.flex = 'none'
+    }
+  })
+
+  function tlFinish() {
+    var d = tlDrag
+    tlDrag = null
+    if (!d) return
+    d.el.style.transform = ''
+    d.el.classList.remove('wb-tl-drag')
+    if (!d.moved) {
+      WB.vtSel = d.id
+      render()
+      return
+    }
+    if (archived()) { render(); return }
+    if (d.kind === 'move') {
+      var from = -1
+      var blocks = Array.prototype.slice.call(document.querySelectorAll('[data-wb-tl]'))
+      var mid = d.el.getBoundingClientRect().left + d.el.getBoundingClientRect().width / 2 + d.dx
+      var to = 0
+      blocks.forEach(function (b, i) {
+        if (b === d.el) { from = i; return }
+        var r = b.getBoundingClientRect()
+        if (r.left + r.width / 2 < mid) to += 1
+      })
+      WB.vtSel = d.id
+      if (from < 0 || to === from) { render(); return }
+      vtOps([{ op: 'moveClip', id: d.id, to: to + 1 }])
+      return
+    }
+    var secs = Math.round(d.dx * d.secPerPx * 10) / 10
+    WB.vtSel = d.id
+    if (d.kind === 'l') {
+      var ns = Math.max(0, Math.round((d.clip.start + secs) * 10) / 10)
+      if (ns >= d.clip.end - 0.1 || ns === d.clip.start) { render(); return }
+      vtOps([{ op: 'trimClip', id: d.id, start: ns }])
+    } else {
+      var ne = Math.round((d.clip.end + secs) * 10) / 10
+      if (ne <= d.clip.start + 0.1 || ne === d.clip.end) { render(); return }
+      vtOps([{ op: 'trimClip', id: d.id, end: ne }])
+    }
+  }
+  document.addEventListener('pointerup', tlFinish)
+  document.addEventListener('pointercancel', function () { if (tlDrag) { tlDrag.el.style.transform = ''; tlDrag = null; render() } })
 
   // ---- helyben szerkesztes a lapon (Boss, 2026-10-02, TG 7286/7319) ----------
   //
