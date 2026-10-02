@@ -157,7 +157,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
     ...workItemFileLines(input.workItem),
     `Answer in ${language}, in plain sentences for a non-programmer.${input.lang === 'en' ? '' : ' Address the owner informally (tegezés: "te"), never with "Ön" or "Maga".'}`,
-    `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. If you were cut off, ran out of steps, hit an error, have an open question, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. The owner never sees the marker; it is removed from your answer.`,
+    `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. If you were cut off, ran out of steps, hit an error, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. NEVER ask the owner which part to do first, whether to continue, or for permission to do what the request already covers: decide yourself and do ALL of it. Ask only when you are truly blocked on something only the owner can give (a secret, a payment, a choice that cannot be undone). The owner never sees the marker; it is removed from your answer.`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
   const historyIntro = '\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n'
@@ -223,6 +223,11 @@ const PENDING_CUES = new RegExp([
   'következő lépés', 'még nincs (?:kész|meg)\\b', 'majd (?:megcsinálom|elkészítem|folytatom)',
   'still (?:to do|remaining|left)', 'remaining work', 'what(?:\'| i)s left', 'i(?:\'| wi)ll (?:now )?(?:continue|proceed)',
   'next step', 'to be continued', 'not yet (?:done|finished)',
+  // Asking the owner which part to do, or whether to go on, is not finishing (Boss, 2026-10-02:
+  // "melyikkel kezdjem" -- the owner does not care which, the agent just does it all).
+  'nem kezdtem el', 'ha folytatni akarod', 'szólj,? (?:ha|melyik)', 'melyikkel (?:kezdjem|folytassam)',
+  'melyiket (?:csináljam|kezdjem)', 'folytassam', 'kezdjem(?: el)?\\?',
+  'let me know (?:if|which|whether)', 'which (?:one )?(?:should|shall) i', 'shall i (?:continue|proceed|start)', 'do you want me to',
 ].join('|'), 'i')
 
 export function claimsPendingWork(text: string): boolean {
@@ -240,7 +245,7 @@ export function codeBridgeFullyDone(task: CodeBridgeTaskView): boolean {
 
 /** The marker instruction, for prompts that continue an already running session. */
 export function completionInstruction(): string {
-  return `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do.`
+  return `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. Never ask the owner which part to start with or whether to go on: decide and do all of it.`
 }
 
 /** The answer shown in the chat, with the marker removed (the owner never sees it). */

@@ -361,6 +361,11 @@ describe('a befejezes jele mellett kimondott hatralevo munka nem kesz (Boss, 202
     expect(claimsPendingWork('Done with A. Still to do: B.\n[MINDEN_KESZ]')).toBe(true)
     expect(claimsPendingWork('Mindent elvégeztem, a teszt zöld.\n\n[MINDEN_KESZ]')).toBe(false)
   })
+  it('asking the owner which part to do is not finishing (Boss, 2026-10-02)', () => {
+    expect(claimsPendingWork('Két dolog maradt. Ezeket nem kezdtem el. Ha folytatni akarod, szólj, melyikkel kezdjem.\n\n[MINDEN_KESZ]')).toBe(true)
+    expect(claimsPendingWork('Shall I continue with B?')).toBe(true)
+    expect(claimsPendingWork('Mindent elvégeztem, semmi nem maradt ki.\n\n[MINDEN_KESZ]')).toBe(false)
+  })
   it('only the tail counts: an early mention in a long report does not cancel the marker', () => {
     const long = 'A következő lépés volt a mentés.' + ' x'.repeat(800) + '\nMinden kész.\n[MINDEN_KESZ]'
     expect(claimsPendingWork(long)).toBe(false)

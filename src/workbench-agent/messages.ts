@@ -119,8 +119,8 @@ export const MESSAGES = {
     en: 'The whole work is not finished yet, so I keep going.',
   },
   live_continue_prompt: {
-    hu: 'Az előző fordulód nem zárta le a TELJES munkát (hiányzott a befejezés jele, vagy a szövegedben még hátralévő munka állt). Folytasd onnan, ahol abbamaradt (a munkakönyvtár állapotából látod, meddig jutott), ne kezdd elölről, és ne ígérd a folytatást, hanem csináld.',
-    en: 'Your previous turn did not close the WHOLE work (the completion marker was missing, or your text said work was still left). Continue from where it stopped (the working folder shows how far it got), do not start over, and do not promise to continue -- do it.',
+    hu: 'Az előző fordulód nem zárta le a TELJES munkát (hiányzott a befejezés jele, vagy a szövegedben még hátralévő munka állt). Folytasd onnan, ahol abbamaradt (a munkakönyvtár állapotából látod, meddig jutott), ne kezdd elölről, és ne ígérd a folytatást, hanem csináld. Ne kérdezd meg, melyik résszel kezdd, és ne kérj engedélyt: döntsd el magad, és csináld végig az összeset.',
+    en: 'Your previous turn did not close the WHOLE work (the completion marker was missing, or your text said work was still left). Continue from where it stopped (the working folder shows how far it got), do not start over, and do not promise to continue -- do it. Do not ask which part to start with and do not ask permission: decide yourself and do all of it.',
   },
   live_continue_stuck: {
     hu: 'Nem tudtam tovább haladni: a folytatás nem hozott új munkát, ezért megálltam. Írj egy sort, és onnan megyek tovább.',
