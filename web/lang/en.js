@@ -6410,7 +6410,7 @@ window._i18n.en = {
   "workbench.chat.approval_id": "(approval {id} -- you can decide on the Approvals page)",
   "workbench.chat.setup": "Set up",
   "workbench.chat.account_label": "Account:",
-  "workbench.chat.side_label": "Side:",
+  "workbench.chat.side_label": "Windows or WSL side work:",
   "workbench.chat.side_off": "Automatic (the folder's location decides)",
   "workbench.chat.side_windows": "Windows",
   "workbench.chat.side_wsl": "WSL (Marvin side)",

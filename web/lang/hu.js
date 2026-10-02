@@ -6488,7 +6488,7 @@ window._i18n.hu = {
   "workbench.chat.approval_id": "(jóváhagyás {id} -- a Jóváhagyások oldalon dönthetsz róla)",
   "workbench.chat.setup": "Beállítás",
   "workbench.chat.account_label": "Fiók:",
-  "workbench.chat.side_label": "Oldal:",
+  "workbench.chat.side_label": "Windows vagy WSL oldali munkák:",
   "workbench.chat.side_off": "Automatikus (a mappa helye dönt)",
   "workbench.chat.side_windows": "Windows",
   "workbench.chat.side_wsl": "WSL (Marvin-oldal)",
