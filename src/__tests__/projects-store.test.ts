@@ -11,7 +11,7 @@ import { initDatabase, createKanbanCard, getKanbanCard, getDb, createIdea, creat
 import {
   createProject, updateProject, getProject, listProjects, deleteProject, projectDeletePreview,
   resolveProjectRef, slugify, uniqueSlug, linkObject, unlinkObject, projectForObject,
-  setProjectArchived, listActiveProjectIds, projectIdeaIds, projectNameMap, cleanFolderRel,
+  setProjectArchived, listActiveProjectIds, projectIdeaIds, projectNameMap, cleanFolderRel, validateProjectInput,
 } from '../projects.js'
 
 beforeEach(() => {
@@ -172,5 +172,23 @@ describe('project_links', () => {
     linkObject(b.id, 'idea', 'i2')
     expect(projectIdeaIds(a.id)).toEqual(['i1'])
     expect(projectIdeaIds(b.id)).toEqual(['i2'])
+  })
+})
+
+describe('bridge_side: per-project Workbench side (Boss, 2026-10-02)', () => {
+  it('accepts auto/wsl/windows, stores null for auto, rejects anything else', () => {
+    expect(validateProjectInput({ bridge_side: 'wsl' }, true)).toEqual({ ok: true, fields: { bridge_side: 'wsl' } })
+    expect(validateProjectInput({ bridge_side: 'Windows' }, true)).toEqual({ ok: true, fields: { bridge_side: 'windows' } })
+    expect(validateProjectInput({ bridge_side: '' }, true)).toEqual({ ok: true, fields: { bridge_side: null } })
+    expect(validateProjectInput({ bridge_side: 'auto' }, true)).toEqual({ ok: true, fields: { bridge_side: null } })
+    expect(validateProjectInput({ bridge_side: 'mac' }, true)).toEqual({ ok: false, code: 'bad_bridge_side' })
+  })
+  it('is saved on the project and cleared back to automatic', () => {
+    const p = mustCreate({ name: 'Tozsde' })
+    expect(p.bridge_side).toBeNull()
+    const a = updateProject(p.id, { bridge_side: 'wsl' })
+    expect(a.ok && a.project.bridge_side).toBe('wsl')
+    const b = updateProject(p.id, { bridge_side: null })
+    expect(b.ok && b.project.bridge_side).toBeNull()
   })
 })

@@ -8,9 +8,8 @@ import { Readable } from 'node:stream'
 
 const enqueued: { project: string; prompt: string; origin?: string; chatId?: string | null }[] = []
 let workerOnline = true
-/** The code project's folder and the WORKBENCH_WINDOWS_BRIDGE setting (Boss, 2026-10-02). */
+/** The code project's folder (Boss, 2026-10-02); the side switch lives on the project itself. */
 let codeProjectPath = '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen'
-let windowsBridgeSetting = ''
 /** Melyik beszelgetesen dolgozik meg egy korabbi kod-hid feladat (a hatterben). */
 let bgChatId: string | null = null
 const cancelledIds: string[] = []
@@ -20,7 +19,7 @@ let taskState: { status: string; result: string | null; summary: string | null; 
 
 vi.mock('../settings-store.js', async (orig) => {
   const actual = await orig<typeof import('../settings-store.js')>()
-  return { ...actual, getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_FULL_AGENT' ? '1' : k === 'WORKBENCH_WINDOWS_BRIDGE' ? windowsBridgeSetting : k.startsWith('WORKBENCH_') ? '' : actual.getEffectiveSettingValue(k)) }
+  return { ...actual, getEffectiveSettingValue: (k: string) => (k === 'WORKBENCH_FULL_AGENT' ? '1' : k.startsWith('WORKBENCH_') ? '' : actual.getEffectiveSettingValue(k)) }
 })
 vi.mock('../web/code-conversation.js', async (orig) => {
   const actual = await orig<typeof import('../web/code-conversation.js')>()
@@ -40,7 +39,7 @@ vi.mock('../web/code-bridge-store.js', async (orig) => {
 })
 
 import { initDatabase } from '../db.js'
-import { createProject } from '../projects.js'
+import { createProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { resetRunningForTest, claimTurn, releaseTurn, turnKey, isTurnRunning } from '../workbench-agent/orchestrator.js'
 import { openSessionForWorkItem, addAgentMessage, listAgentMessages, listToolCalls } from '../workbench-agent/sessions.js'
@@ -440,10 +439,10 @@ process.stdin.on('data', (d) => {
 })
 `
 
-describe('Boss 2026-10-02: a Windows-meghajtos projekt hidja valaszthato (WORKBENCH_WINDOWS_BRIDGE)', () => {
+describe('Boss 2026-10-02: a Windows-meghajtos projekt hidja valaszthato (projekt-kapcsolo)', () => {
   const ask = async (setting: string, path: string) => {
     workerOnline = true
-    windowsBridgeSetting = setting
+    updateProject(projectId, { bridge_side: setting || null })
     codeProjectPath = path
     enqueued.length = 0
     const dir = mkdtempSync(join(tmpdir(), 'wb-live-win-'))
@@ -456,20 +455,24 @@ describe('Boss 2026-10-02: a Windows-meghajtos projekt hidja valaszthato (WORKBE
     setWorkbenchLivePoolForTest(pool)
     setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [file] }))
     try { return await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hello' }) } finally {
-      pool.stopAll(); windowsBridgeSetting = ''; codeProjectPath = '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen'
+      pool.stopAll(); updateProject(projectId, { bridge_side: null }); codeProjectPath = '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen'
     }
   }
-  it('windows (alap): a Windows-meghajtos projekt a Windows-hidra megy', async () => {
+  it('auto (alap): a Windows-meghajtos projekt a Windows-hidra megy', async () => {
     await ask('', 'f:\\Marveen\\Tozsde')
     expect(enqueued).toHaveLength(1)
   })
-  it('marvin: ugyanaz a projekt az elo munkamenetre megy, a legjobb fiokkal, a hidra nem', async () => {
-    const r = await ask('marvin', 'f:\\Marveen\\Tozsde')
+  it('wsl: ugyanaz a projekt az elo munkamenetre megy, a legjobb fiokkal, a hidra nem', async () => {
+    const r = await ask('wsl', 'f:\\Marveen\\Tozsde')
     expect(enqueued).toHaveLength(0)
     expect(r.raw).toContain('valasz 1')
   })
-  it('marvin: a WSL-mappas projekt a Marvin-oldali hidra megy tovabbra is', async () => {
-    await ask('marvin', '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen')
+  it('wsl: a WSL-mappas projekt a Marvin-oldali hidra megy tovabbra is', async () => {
+    await ask('wsl', '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen')
+    expect(enqueued).toHaveLength(1)
+  })
+  it('windows: kifejezetten Windows -> a hidra megy', async () => {
+    await ask('windows', 'f:\\Marveen\\Tozsde')
     expect(enqueued).toHaveLength(1)
   })
 })
