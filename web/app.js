@@ -1779,9 +1779,37 @@ function stopActivityPoll() {
   }
 }
 
+// #463: live availability per agent (GET /api/agents/availability), keyed by
+// agent id. A failed fetch leaves the previous map: the chip is an extra, the
+// activity list must render without it.
+let activityAvailability = {}
+async function loadAvailability() {
+  try {
+    const res = await fetch('/api/agents/availability')
+    if (!res.ok) return
+    const body = await res.json()
+    const map = {}
+    for (const a of (body.agents || [])) map[a.agent] = a
+    activityAvailability = map
+  } catch (e) { /* keep the last map */ }
+}
+
+function availabilityChip(agentId) {
+  const av = activityAvailability[agentId]
+  if (!av) return ''
+  if (av.available) {
+    return '<span class="act-avail act-avail-ok" title="' + escapeHtml(t('activity.avail.ok_tip')) + '">' + escapeHtml(t('activity.avail.ok')) + '</span>'
+  }
+  const label = av.reason === 'stopped' ? t('activity.avail.stopped') : t('activity.avail.quota')
+  const resets = av.resetsAt
+    ? ' · ' + t('activity.avail.resets', { time: new Date(av.resetsAt).toLocaleString('hu-HU', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })
+    : ''
+  return '<span class="act-avail act-avail-off" title="' + escapeHtml(t('activity.avail.off_tip')) + '">' + escapeHtml(label + resets) + '</span>'
+}
+
 async function loadActivity() {
   try {
-    const res = await fetch('/api/agents/activity')
+    const [res] = await Promise.all([fetch('/api/agents/activity'), loadAvailability()])
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const entries = await res.json()
     renderActivity(entries)
@@ -1856,6 +1884,7 @@ function renderActivity(entries) {
         '<div class="activity-card-head">' +
           '<span class="activity-name">' + escapeHtml(a.displayName || a.name) + mainBadge + '</span>' +
           '<span style="display:flex;align-items:center;gap:8px">' +
+            availabilityChip(a.name) +
             modeChip +
             termIcon +
             '<span class="activity-badge ' + meta.cls + '" title="' + escapeHtml(meta.tip || '') + '">' + meta.label + '</span>' +

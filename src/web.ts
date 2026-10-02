@@ -20,7 +20,7 @@ import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
-import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureStatusLine } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -45,6 +45,7 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { startAvailabilityWatch } from './web/agent-availability-watch.js'
 import { listMounts } from './life-mounts.js'
 import { reconcileMountLinks } from './life-mount-links.js'
 import { liveSweepDeps, sweepWorktrees, SWEEP_INTERVAL_MS } from './web/worktree-sweeper.js'
@@ -706,6 +707,10 @@ export function startWebServer(port = 3420): http.Server {
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
 
+  // #463: ki er most ra dolgozni -- 60 mp-enkent merve; aki visszaall, ugyanaz
+  // kap uzenetet a sajat fuggo munkajaval (nem a fo agens).
+  const availabilityInterval = startAvailabilityWatch()
+
   // Boss, 2026-10-01: a bekotott git-repo a Windows Intezoben is latszodjon a
   // projekt alatt. Indulaskor a mar meglevo bekotesek hivatkozasat potoljuk.
   setTimeout(() => {
@@ -979,6 +984,10 @@ export function startWebServer(port = 3420): http.Server {
         const ownerLang = ensureOwnerLanguageSection(agentName)
         if (ownerLang === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (ownerLang === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es az "elerhetosegrol elo allapotot nezz" szabaly (kanban #463).
+        const availability = ensureAvailabilitySection(agentName)
+        if (availability === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (availability === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -996,6 +1005,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalKanbanWaitingMoveRule()
       ensureGlobalCardReferenceRule()
       ensureGlobalOwnerLanguageRule()
+      ensureGlobalAvailabilityRule()
       // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).
       // Amit a telepites configja nem ismer, azt a rendszer "nincs jog"-nak
       // veszi -- helyesen --, DE akkor a tulajdonos a Beallitasok / Onallosag
@@ -1098,6 +1108,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(kukaSepresInterval)
     stopBackupScheduler()
     clearInterval(skillSeederInterval)
+    if (availabilityInterval) clearInterval(availabilityInterval)
     clearTimeout(worktreeSweepStart)
     clearInterval(worktreeSweepInterval)
     clearInterval(weeklySummaryInterval)

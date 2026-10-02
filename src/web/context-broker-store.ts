@@ -80,7 +80,13 @@ function hasLiveSession(agent: string): boolean {
  */
 export function readBrokerCandidate(agent: string): BrokerCandidate {
   const snap = readRateLimitSnapshot(agent)
-  const windows = [snap?.fiveHour?.usedPct ?? null, snap?.sevenDay?.usedPct ?? null]
+  // A window whose reset time has passed no longer counts (#463): the snapshot
+  // only refreshes while the agent works, so a fresh-looking 100% can describe
+  // a window that rolled over minutes ago -- exactly the "still exhausted"
+  // belief that kept a recovered agent idle.
+  const now = Date.now()
+  const windows = [snap?.fiveHour, snap?.sevenDay]
+    .map((w) => (w && (w.resetsAt == null || w.resetsAt > now) ? w.usedPct : null))
     .filter((p): p is number => p !== null)
   // The fuller window decides: an agent whose weekly window is spent cannot
   // broker context however fresh its 5-hour one looks.

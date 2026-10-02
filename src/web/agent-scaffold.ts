@@ -2923,6 +2923,89 @@ export function ensureGlobalOwnerLanguageRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+// --- Availability rule (kanban #463, owner 2026-10-02) ----------------------
+//
+// An agent's quota reset went unnoticed for hours because the main agent kept
+// repeating an old "exhausted" reading. The watcher (src/web/agent-availability-
+// watch.ts) now measures every agent every minute; this rule tells every agent
+// to read THAT, never its own earlier statement, and to hand work to whoever
+// just became available.
+const AVAILABILITY_BEGIN = '<!-- BEGIN GENERATED: availability-rule (auto-generated, do not edit by hand) -->'
+const AVAILABILITY_END = '<!-- END GENERATED: availability-rule -->'
+const AVAILABILITY_BLOCK_RE = new RegExp(
+  `${AVAILABILITY_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${AVAILABILITY_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildAvailabilityBody(): string {
+  return [
+    '## ELERHETOSEGROL ELO ALLAPOTOT NEZZ, KORABBI MERES NEM FORRAS',
+    '',
+    'Mielott BARMIT mondasz egy masik agens elerhetosegerol vagy kereterol (fut-e,',
+    'kimerult-e, mikor all vissza), nezd meg az ELO allapotot: GET /api/agents/availability',
+    '(agensenkent: available, reason, since, resetsAt, measuredAt) vagy az uzenetkuldes',
+    'WARN-ja. A sajat korabbi mondatod es egy regi meres NEM forras. Ha egy agens',
+    'elerhetove valt es van varakozo munka, add ki neki AZONNAL: nem kell, hogy a',
+    'tulajdonos ra kerdezzen. Aki felebred, maga is folytatja a sajat fuggo munkajat',
+    '("[ELERHETO]" uzenet a rendszertol): arra nem kell masra varnia.',
+  ].join('\n')
+}
+
+/** Beviszi az elerhetoseg-szabalyt egy agens sajat CLAUDE.md-jebe. */
+export function ensureAvailabilitySection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${AVAILABILITY_BEGIN}\n${buildAvailabilityBody()}\n${AVAILABILITY_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = AVAILABILITY_BLOCK_RE.test(existing)
+    ? existing.replace(AVAILABILITY_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalAvailabilityRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${AVAILABILITY_BEGIN}\n${buildAvailabilityBody()}\n${AVAILABILITY_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = AVAILABILITY_BLOCK_RE.test(existing)
+    ? existing.replace(AVAILABILITY_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;

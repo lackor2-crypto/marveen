@@ -2910,6 +2910,12 @@ window._i18n.en = {
 
   // --- Additional parity keys ---
   'activity.badge.main':			'main',
+  'activity.avail.ok':			'available',
+  'activity.avail.ok_tip':		'Running and its quota allows work (measured every minute).',
+  'activity.avail.quota':		'quota exhausted',
+  'activity.avail.stopped':		'not running',
+  'activity.avail.resets':		'back at: {time}',
+  'activity.avail.off_tip':		'Cannot work right now. Once it is back, the system tells it and it carries on with its pending work.',
   'activity.tooltip.mode':		'Permission mode: {mode}. In this mode the agent stops and waits for approval before calling a tool -- with nobody watching it can sit there for hours while still looking idle.',
   'activity.empty':			'No agents.',
   'activity.error_load':			'Failed to load activity',

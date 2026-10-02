@@ -220,6 +220,10 @@ function effectiveTier(c: BrokerCandidate, now: number): RateLimitTier {
 }
 
 /** Usable = alive and not at the "no real work" end of its plan window. */
+export function candidateUsable(c: BrokerCandidate, now: number): boolean {
+  return usable(c, now)
+}
+
 function usable(c: BrokerCandidate, now: number): boolean {
   return c.running && effectiveTier(c, now) !== 'critical'
 }

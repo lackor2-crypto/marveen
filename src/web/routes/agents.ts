@@ -142,6 +142,7 @@ import { sanitizeAgentName, safeJoin } from '../sanitize.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, jsonMaybeGzip, serveFile } from '../http-helpers.js'
 import { getPendingWork } from '../pending-work.js'
+import { currentAvailability } from '../agent-availability-watch.js'
 import { buildAbandonedWorktreeContext, getAbandonedWorktrees, liveAbandonedDeps, withScanBudget } from '../abandoned-worktrees.js'
 import { getWakeGreetingDecision } from '../wake-greeting-signal.js'
 import { buildWakeGreetingContext, composeSessionStartContext } from '../../wake-greeting.js'
@@ -907,6 +908,15 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
   // separate surface.
   if (path === '/api/claude-plans' && method === 'GET') {
     json(res, readClaudePlans())
+    return true
+  }
+
+  // GET /api/agents/availability -- #463: who can work RIGHT NOW (session alive,
+  // quota window not exhausted), when that state began and when a blocking
+  // window rolls over. The watcher keeps it fresh every minute; a stale or
+  // missing state is measured live, so a fresh install answers at once too.
+  if (path === '/api/agents/availability' && method === 'GET') {
+    json(res, { agents: currentAvailability() })
     return true
   }
 
