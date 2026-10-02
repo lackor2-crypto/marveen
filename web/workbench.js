@@ -10166,6 +10166,47 @@
 
   function isSimple() { return WB.view === 'simple' }
 
+  /** A fejlec gombjai: a legnagyobb meret, amelyiknel a sor egy sorban elfer (Boss, TG 7284: ne
+   *  legyenek feleslegesen kicsik). Szint 0 = eredeti, 3 = a legkisebb; ha egyik sem fer, torik. */
+  function fitHead() {
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return
+    var head = document.querySelector('.wb-head-oneline')
+    if (!head || !head.parentElement) return
+    var kids = []
+    for (var i = 0; i < head.children.length; i++) if (head.children[i].tagName !== 'H1') kids.push(head.children[i])
+    var avail = head.clientWidth, chosen = -1
+    // Rejtett / meg nem kiszamolt elrendezes: nincs mit merni, kesobb ujra.
+    if (!avail) { setTimeout(fitHead, 250); return }
+    for (var lvl = 0; lvl <= 3; lvl++) {
+      head.className = 'wb-head wb-head-oneline wb-fit-' + lvl
+      var gap = parseFloat(window.getComputedStyle(head).columnGap) || 12
+      var need = 60 + gap * kids.length
+      for (var k = 0; k < kids.length; k++) need += kids[k].getBoundingClientRect().width
+      if (need <= avail) { chosen = lvl; break }
+    }
+    head.className = chosen >= 0 ? 'wb-head wb-head-oneline wb-fit-ok wb-fit-' + chosen : 'wb-head wb-head-oneline wb-fit-3'
+  }
+  var headObserver = null
+  function observeHeadWidth() {
+    if (typeof window.ResizeObserver !== 'function' || typeof document.querySelector !== 'function') return
+    var head = document.querySelector('.wb-head-oneline')
+    if (!head || !head.parentElement) return
+    if (headObserver) headObserver.disconnect()
+    var last = head.clientWidth
+    headObserver = new window.ResizeObserver(function () {
+      var w = head.clientWidth
+      if (w !== last) { last = w; fitHead() }
+    })
+    headObserver.observe(head)
+    headObserver.observe(head.parentElement)
+    if (document.fonts && document.fonts.ready && document.fonts.ready.then) document.fonts.ready.then(fitHead)
+  }
+  if (!window.__wbFitBound && typeof window.addEventListener === 'function') {
+    window.__wbFitBound = true
+    var fitTimer = null
+    window.addEventListener('resize', function () { clearTimeout(fitTimer); fitTimer = setTimeout(fitHead, 120) })
+  }
+
   /** A valaszto a fejlecben: ket allas, az aktualis jelolve. */
   function viewSwitchHtml() {
     function btn(v) {
@@ -10396,7 +10437,7 @@
     if (isSimple()) {
       el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
     } else el.innerHTML = '<div class="wb-root">'
-      + '<div class="wb-head wb-head-oneline">'
+      + '<div class="wb-head wb-head-oneline wb-fit-0">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
       + '<h1>' + esc(t('workbench.title', { project: WB.project ? WB.project.name : '' })) + '</h1>'
       + viewSwitchHtml()
@@ -10428,6 +10469,12 @@
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
     restoreChatScroll(chatScroll)
+    fitHead()
+    // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(fitHead)
+    setTimeout(fitHead, 400)
+    setTimeout(fitHead, 1500)
+    observeHeadWidth()
     if (WB.formOpen && !WB.intakeFocused) {
       // Egyszer, a megnyitaskor: a kesobbi ujrarajzolas nem rantja el a fokuszt.
       WB.intakeFocused = true
