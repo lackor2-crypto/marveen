@@ -1160,24 +1160,62 @@
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '"'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '" data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
-      + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + '>'
+      + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + (archived() ? '' : ' title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
       + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
       + '</button>'
-      // Torles (#443): lomtarba, visszaallithato -- ezert nincs megerosito ablak.
-      + (archived() ? '' : '<button type="button" class="wb-item-del wb-item-edit" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '"'
-        + ' title="' + escA(t('workbench.rename.row_hint')) + '">' + esc(t('workbench.rename.row_label')) + '</button>')
-      + '<button type="button" class="wb-item-del" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
-      + ' title="' + escA(t('workbench.trash.delete_hint')) + '"' + (archived() || WB.trashBusy ? ' disabled' : '') + '>'
-      + esc(t('workbench.trash.delete')) + '</button>'
-      + moveSelectHtml(it)
+      + itemMenuHtml(it)
       + '</li>'
   }
+
+  // ---- jobb egergomb menu a munkadarab soron (Boss, TG 7428): atnevezes, torles, athelyezes ---------
+  //
+  // A sor csak a csillagot es a nevet mutatja; a ritka muveletek (Szerkesztes, Torles, Athelyezes
+  // mappaba) a jobb egerrel (telefonon hosszu nyomassal) nyilo menuben vannak. A gombok ugyanazok a
+  // data-wb-act-ok, mint korabban a soron: a kozos esemenykezelo viszi vegig.
+
+  /** The menu lives in the row's own <li> (state: WB.ctx), so it is part of the normal render. */
+  function itemMenuHtml(it) {
+    var c = WB.ctx
+    if (!c || c.id !== it.id || archived()) return ''
+    var w = 210, h = 150
+    var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - w - 4))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - h - 4))
+    return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + '<button type="button" role="menuitem" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.rename.row_label')) + '</button>'
+      + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
+      + (WB.trashBusy ? ' disabled' : '') + ' title="' + escA(t('workbench.trash.delete_hint')) + '">' + esc(t('workbench.trash.delete')) + '</button>'
+      + moveSelectHtml(it)
+      + '</div>'
+  }
+
+  function closeItemMenu() {
+    if (!WB.ctx) return
+    WB.ctx = null
+    render()
+  }
+
+  document.addEventListener('contextmenu', function (e) {
+    if (!WB.open || archived() || !e.target || !e.target.closest) return
+    var row = e.target.closest('[data-wb-ctx-item]')
+    if (!row) return
+    e.preventDefault()
+    WB.ctx = { id: row.getAttribute('data-wb-ctx-item'), x: e.clientX || 0, y: e.clientY || 0 }
+    render()
+  })
+  // Capturing: an outside click closes the menu; a click on a menu button lets the shared handler
+  // run first, then the menu goes.
+  document.addEventListener('click', function (e) {
+    if (!WB.ctx || !e.target || !e.target.closest) return
+    if (!e.target.closest('.wb-ctx-menu')) closeItemMenu()
+    else if (e.target.closest('button')) setTimeout(closeItemMenu, 0)
+  }, true)
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeItemMenu() })
 
   /** A compact "Move to folder..." list on every item row (the drag is the other way to do the same). */
   function moveSelectHtml(it) {
@@ -12122,6 +12160,7 @@
       if (dropList && dropAt >= 0 && dropAt < dropList.length) { dropList.splice(dropAt, 1); renderChat() }
     }
     else if (a === 'item-rename') renameItem()
+    else if (a === 'item-ctx') { var cr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { id: act.getAttribute('data-wb-id'), x: cr.left, y: cr.bottom }; render() }
     else if (a === 'item-rename-row') renameItem(act.getAttribute('data-wb-id'))
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'version-delete') deleteVersion(act.getAttribute('data-wb-version'))

@@ -367,6 +367,8 @@ describe('list UI', () => {
       [item('s1', 'BL', `${box}/LK/BL`), item('x1', 'Egyeb', `${box}/Egyeb`)],
       [`${box}/LK`, `${box}/LK/BL`, `${box}/Egyeb`, `${box}/Ures`],
     )
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="s1"'))
+    h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 's1' })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-move="s1"'))
     const sel = h.html().slice(h.html().indexOf('data-wb-move="s1"'))
     const menu = sel.slice(0, sel.indexOf('</select>'))

@@ -1507,3 +1507,10 @@
 .wb-sh-tech-grp { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; border-top: 1px solid var(--border, #d0d7de); }
 .wb-sh-tech-h { margin: 0; font-size: 13px; font-weight: 600; opacity: .75; text-transform: uppercase; letter-spacing: .03em; }
 .wb-sh-tech-item { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; align-items: start; }
+
+/* Right-click menu on a work item row (Boss, TG 7428): rename / delete / move out of the crowded row. */
+.wb-ctx-menu { position: fixed; z-index: 10000; min-width: 190px; max-width: 260px; display: flex; flex-direction: column; gap: 2px; padding: 6px; background: var(--bg-card, #fff); color: var(--text, #111); border: 1px solid var(--border, rgba(128,128,128,0.35)); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28); }
+.wb-ctx-menu button { text-align: left; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.wb-ctx-menu button:hover:not(:disabled), .wb-ctx-menu button:focus-visible { background: rgba(79, 108, 240, 0.14); outline: none; }
+.wb-ctx-menu .wb-ctx-danger { color: #dc2626; }
+.wb-ctx-menu .wb-item-move { margin: 4px 2px 2px; width: calc(100% - 4px); }
