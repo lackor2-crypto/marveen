@@ -6254,6 +6254,7 @@ window._i18n.hu = {
   "workbench.fr.tab.uploads": "Feltöltések",
   "workbench.fr.tab.tools": "Eszközök",
   "workbench.fr.tab.projects": "Projektek",
+  "workbench.fr.thumb_remove": "Kivétel a munkából (a fájl a projekt mappájában marad)",
   "workbench.fr.uploads_none": "Még nincs feltöltött kép ehhez a munkához. Tölts fel egyet, vagy húzz egy képfájlt a lapra.",
   "workbench.fr.need_canvas": "Ehhez előbb hozz létre egy lapot (üres vászon a lap közepén).",
   "workbench.fr.el.rect": "Doboz",

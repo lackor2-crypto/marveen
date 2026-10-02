@@ -6176,6 +6176,7 @@ window._i18n.en = {
   "workbench.fr.tab.uploads": "Uploads",
   "workbench.fr.tab.tools": "Tools",
   "workbench.fr.tab.projects": "Projects",
+  "workbench.fr.thumb_remove": "Take out of this work (the file stays in the project folder)",
   "workbench.fr.uploads_none": "No uploaded image for this work yet. Upload one, or drag an image file onto the page.",
   "workbench.fr.need_canvas": "Create a page first (an empty canvas in the middle).",
   "workbench.fr.el.rect": "Box",

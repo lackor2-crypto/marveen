@@ -1365,6 +1365,10 @@
 .wb-fr-upload { display: block; margin: 0 0 8px; padding: 12px; border-radius: 8px; background: #7c3aed; color: #fff; text-align: center; font-weight: 600; cursor: pointer; }
 .wb-fr-thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .wb-fr-thumb { padding: 0; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: grab; overflow: hidden; aspect-ratio: 4 / 3; }
+.wb-fr-thumbwrap { position: relative; }
+.wb-fr-thumbwrap .wb-fr-thumb { width: 100%; }
+.wb-fr-thumb-del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-size: 16px; line-height: 22px; cursor: pointer; }
+.wb-fr-thumb-del:hover { background: #c0392b; }
 .wb-fr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .wb-fr-center { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #e9ecf1; }
 .wb-fr-scroll { flex: 1 1 auto; overflow: auto; padding: 18px; max-height: 80vh; }

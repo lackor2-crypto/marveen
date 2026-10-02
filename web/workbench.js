@@ -10952,8 +10952,10 @@
     var imgs = canvasImageChoices()
     if (!imgs.length) return '<p class="wb-hint">' + esc(t('workbench.fr.uploads_none')) + '</p>'
     return '<div class="wb-fr-thumbs">' + imgs.map(function (p) {
-      return '<button type="button" class="wb-fr-thumb" draggable="true" data-wb-act="fr-add-image" data-wb-src="' + escA(p.asset_path) + '" title="' + escA(p.asset_path) + '">'
+      return '<div class="wb-fr-thumbwrap"><button type="button" class="wb-fr-thumb" draggable="true" data-wb-act="fr-add-image" data-wb-src="' + escA(p.asset_path) + '" title="' + escA(p.asset_path) + '">'
         + '<img alt="" src="' + escA(partImageSrc(p)) + '" loading="lazy"></button>'
+        + (archived() ? '' : '<button type="button" class="wb-fr-thumb-del" data-wb-act="part-remove" data-wb-part="' + escA(p.id) + '" title="' + escA(t('workbench.fr.thumb_remove')) + '" aria-label="' + escA(t('workbench.fr.thumb_remove')) + '">&times;</button>')
+        + '</div>'
     }).join('') + '</div>'
   }
 
