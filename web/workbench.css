@@ -1453,7 +1453,7 @@
 .wb-fr-strip { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px; overflow-x: auto; overflow-y: hidden; border-top: 1px solid var(--border); background: var(--bg-card); }
 .wb-fr-cell { position: relative; flex: 0 0 auto; }
 .wb-fr-cellpick { display: block; width: 96px; height: 60px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: #fff; cursor: pointer; overflow: hidden; position: relative; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
-.wb-fr-cell-on .wb-fr-cellpick { border-color: #7c3aed; }
+.wb-fr-cell-on .wb-fr-cellpick { width: 118px; height: 74px; border: 3px solid #111827; box-shadow: 0 0 0 2px #7c3aed, 0 2px 8px rgba(0, 0, 0, 0.35); }
 .wb-fr-cellpick img { width: 100%; height: 100%; object-fit: contain; display: block; background: #fff; }
 .wb-fr-cellno { position: absolute; left: 3px; top: 2px; padding: 0 5px; border-radius: 4px; background: rgba(17, 24, 39, 0.72); color: #fff; font-size: 0.68rem; }
 .wb-fr-cellact { position: absolute; right: 2px; bottom: 2px; display: flex; gap: 2px; }
