@@ -8161,6 +8161,8 @@
         return
       }
       endChatWatch()
+      // The answer that finished meanwhile may have changed the open work item (#462).
+      scheduleLiveRefresh()
       reloadChatHistory()
     })
   }
@@ -8666,7 +8668,7 @@
       }
       if (found) { found.status = ev.status; found.detail = ev.detail || found.detail; found.approvalId = ev.approvalId || found.approvalId }
       else turn.tools.push({ name: ev.name, status: ev.status, detail: ev.detail || '', approvalId: ev.approvalId || '' })
-      if (ev.status === 'ok' && /^(workItem|canvas)\./.test(String(ev.name || ''))) scheduleLiveRefresh()
+      if (toolChangedWork(ev)) scheduleLiveRefresh()
       return
     }
     if (ev.type === 'notice') {
@@ -8910,6 +8912,8 @@
         stopChatActivityTicker()
         WB.chatStreaming = false
         WB.chatAbort = null
+        // ...and with it whatever it changed on the open work item (#462).
+        scheduleLiveRefresh()
         reloadChatHistory()
         return
       }
@@ -10128,6 +10132,22 @@
       + '<div class="wb-split-work">' + editorPanelHtml() + '</div>'
       + '</div>'
       + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>'
+  }
+
+  /** Did this tool event change what the right side shows? A deck, a video
+   *  timeline, a document outline and a project file are work items like a
+   *  drawing (#462: after `deck.edit` the slides stayed stale). A tool that only
+   *  reads is left out: a refresh redraws the editor under the owner's hands.
+   *  `code-bridge` is the full agent -- it works on the files and the API by
+   *  itself, no tool of ours reports what it did, so however it ended (done,
+   *  stopped, failed half way) the server is asked again. */
+  var LIVE_READ_TOOL = /\.(get|read|pages|outline|preview|check|annexes|court|annexSettings|variants|glossary|deadlines)$/
+  function toolChangedWork(ev) {
+    var name = String(ev.name || '')
+    if (name === 'code-bridge') return ev.status === 'ok' || ev.status === 'error'
+    if (ev.status !== 'ok') return false
+    if (/^(workItem|canvas)\./.test(name)) return true
+    return /^(deck|timeline|doc|document|file)\./.test(name) && !LIVE_READ_TOOL.test(name)
   }
 
   /** ELO elonezet: amikor az agens egy munkadarab-eszkozt SIKERESEN lefuttat,
