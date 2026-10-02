@@ -30,3 +30,12 @@ describe('Simple view: live view switch', () => {
     }
   })
 })
+
+describe('project list: only names, actions in the right-click menu (TG 2164)', () => {
+  it('a folder row carries no pencil / bin, and has its own right-click menu', () => {
+    expect(js).not.toContain('wb-folder-ctl')
+    expect(js).toContain('data-wb-ctx-folder')
+    expect(js).toContain('function folderMenuHtml')
+    expect(js).toContain("e.target.closest('[data-wb-ctx-folder]')")
+  })
+})

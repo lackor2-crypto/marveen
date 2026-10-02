@@ -1171,9 +1171,6 @@
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
     return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '" data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
-      + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
-      + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
-      + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + (archived() ? '' : ' title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
       + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
@@ -1192,14 +1189,30 @@
   function itemMenuHtml(it) {
     var c = WB.ctx
     if (!c || c.id !== it.id || archived()) return ''
-    var w = 210, h = 150
+    var w = 210, h = 185
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - w - 4))
     var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - h - 4))
+    var pinned = it.pinned_at != null
+    var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + '<button type="button" role="menuitem" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
+      + (WB.pinBusy ? ' disabled' : '') + '>' + (pinned ? '★ ' : '☆ ') + esc(pinLabel) + '</button>'
       + '<button type="button" role="menuitem" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.rename.row_label')) + '</button>'
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + (WB.trashBusy ? ' disabled' : '') + ' title="' + escA(t('workbench.trash.delete_hint')) + '">' + esc(t('workbench.trash.delete')) + '</button>'
       + moveSelectHtml(it)
+      + '</div>'
+  }
+
+  /** The folder's right-click menu (rename / delete): the pencil and bin no longer sit on the row. */
+  function folderMenuHtml(f) {
+    var c = WB.ctx
+    if (!c || c.folder !== f || archived()) return ''
+    var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 100))
+    return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + '<button type="button" role="menuitem" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.rename')) + '</button>'
+      + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.delete')) + '</button>'
       + '</div>'
   }
 
@@ -1212,9 +1225,11 @@
   document.addEventListener('contextmenu', function (e) {
     if (!WB.open || archived() || !e.target || !e.target.closest) return
     var row = e.target.closest('[data-wb-ctx-item]')
-    if (!row) return
+    var frow = row ? null : e.target.closest('[data-wb-ctx-folder]')
+    if (!row && !frow) return
     e.preventDefault()
-    WB.ctx = { id: row.getAttribute('data-wb-ctx-item'), x: e.clientX || 0, y: e.clientY || 0 }
+    WB.ctx = row ? { id: row.getAttribute('data-wb-ctx-item'), x: e.clientX || 0, y: e.clientY || 0 }
+      : { folder: frow.getAttribute('data-wb-ctx-folder'), x: e.clientX || 0, y: e.clientY || 0 }
     render()
   })
   // Capturing: an outside click closes the menu; a click on a menu button lets the shared handler
@@ -1301,14 +1316,11 @@
     function walk(path, depth) {
       ;(kids[path] || []).forEach(function (f) {
         var collapsed = !!WB.collapsedFolder[f]
-        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '" data-wb-drop-folder="' + escA(f) + '">'
+        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '" data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
-          + (archived() ? '' : ' <span class="wb-folder-ctl"><button type="button" class="wb-folder-del" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '"'
-            + ' title="' + escA(t('workbench.folder.rename')) + '" aria-label="' + escA(t('workbench.folder.rename')) + '">✏️</button>'
-            + '<button type="button" class="wb-folder-del wb-folder-trash" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '"'
-            + ' title="' + escA(t('workbench.folder.delete')) + '" aria-label="' + escA(t('workbench.folder.delete')) + '">🗑</button></span>') + '</li>')
+          + folderMenuHtml(f) + '</li>')
         if (!collapsed) walk(f, depth + 1)
       })
       ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth)) })
