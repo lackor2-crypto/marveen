@@ -176,6 +176,11 @@ const defaultFilters: Filters = (ffmpegPath) => new Promise((resolve) => {
 let probe: Probe = defaultProbe
 let filters: Filters = defaultFilters
 /** Tests only. */
+/** What ffprobe says about a file (audio stream? length?); null when it cannot be read. */
+export function probeMedia(ffmpegPath: string, abs: string): Promise<MediaProbe | null> {
+  return probe(ffmpegPath, abs)
+}
+
 export function _setRenderDeps(d: { probe?: Probe; filters?: Filters } = {}): void {
   probe = d.probe || defaultProbe
   filters = d.filters || defaultFilters
@@ -186,7 +191,7 @@ export type RenderResult =
   | VideoFail | RenderFail
 
 /** Resolves a media `src` to a real file INSIDE the project folder. */
-function resolveMedia(project: ProjectRow, src: string): { ok: true; abs: string } | RenderFail {
+export function resolveMedia(project: ProjectRow, src: string): { ok: true; abs: string } | RenderFail {
   const folder = (project.folder_path || '').replace(/\/+$/, '')
   if (!folder || !(src === folder || src.startsWith(folder + '/'))) return { ok: false, code: 'render_source_outside', detail: src }
   const abs = resolveLifePath(src)

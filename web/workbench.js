@@ -90,6 +90,7 @@
     vtMedia: null,
     vtBusy: false,
     vtRender: false,
+    vtAuto: false,
     vtError: null,
     // --- presentation deck (v4 spec phase 5): each slide is a canvas ---
     deck: null,
@@ -5365,6 +5366,26 @@
     })
   }
 
+  /** Subtitles from the speech, by the recogniser on THIS machine: one request, takes about as long as the clips. */
+  function vtAutoSubtitle() {
+    if (!WB.selectedId || WB.vtBusy || WB.vtRender || WB.vtAuto || archived()) return
+    var lang = vtText('auto-lang') || 'hu'
+    var rep = vtInput('auto-replace')
+    var replace = !!(rep && rep.checked)
+    if (replace && typeof window.confirm === 'function' && !window.confirm(t('workbench.vt.auto_replace_confirm'))) return
+    WB.vtAuto = true
+    WB.vtError = null
+    render()
+    api('POST', vtUrl('/autosubtitle'), { language: lang, replace: replace }).then(function (r) {
+      WB.vtAuto = false
+      if (!r.ok) { vtFail(r); render(); return }
+      vtTake(r.data)
+      var skipped = r.data.skipped || []
+      window.showToast((r.data.message || '') + (skipped.length ? ' ' + t('workbench.vt.auto_skipped', { n: skipped.length }) : ''))
+      render()
+    })
+  }
+
   function vtInput(name, id) {
     return document.getElementById('wbVt-' + name + (id ? '-' + id : ''))
   }
@@ -5519,6 +5540,12 @@
       + vtNumField('sub-start', '', undefined, t('workbench.vt.from')) + vtNumField('sub-end', '', undefined, t('workbench.vt.to'))
       + vtBtn('vt-sub-add', t('workbench.vt.add_sub')) + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.sub_hint')) + '</p>'
+      + (doc.clips.length ? '<p><select class="wb-input" id="wbVt-auto-lang" aria-label="' + escA(t('workbench.vt.auto_lang')) + '">'
+        + ['hu', 'en', 'de'].map(function (l) { return '<option value="' + l + '"' + (l === (window._lang || 'hu') ? ' selected' : '') + '>' + esc(t('workbench.vt.auto_lang_' + l)) + '</option>' }).join('') + '</select> '
+        + '<label class="wb-muted"><input type="checkbox" id="wbVt-auto-replace"> ' + esc(t('workbench.vt.auto_replace')) + '</label> '
+        + '<button type="button" class="wb-btn" data-wb-act="vt-autosub"' + (WB.vtBusy || WB.vtRender || WB.vtAuto || archived() ? ' disabled' : '') + '>'
+        + esc(WB.vtAuto ? t('workbench.vt.auto_busy') : t('workbench.vt.auto')) + '</button></p>'
+        + '<p class="wb-hint">' + esc(t('workbench.vt.auto_hint')) + '</p>' : '')
   }
 
   function vtMusicHtml(doc) {
@@ -10769,6 +10796,7 @@
     else if (a === 'vt-undo' || a === 'vt-redo') vtStep(a === 'vt-undo' ? 'undo' : 'redo')
     else if (a === 'vt-version') vtVersion()
     else if (a === 'vt-render') vtRenderNow()
+    else if (a === 'vt-autosub') vtAutoSubtitle()
     else if (a === 'vt-aspect') vtOps([{ op: 'setAspect', aspect: act.getAttribute('data-wb-v') }])
     else if (a === 'vt-clip-add') vtAddClip()
     else if (a === 'vt-clip-trim') vtTrimClip(act.getAttribute('data-wb-id'))

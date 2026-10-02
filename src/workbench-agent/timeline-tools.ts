@@ -11,6 +11,7 @@ import {
 } from '../workbench-video-timeline.js'
 import { opsLabel } from '../workbench-draft-store.js'
 import { renderTimeline, lastRenderOf, fillClipEnds } from '../workbench-video-render.js'
+import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../workbench-video-autosub.js'
 import type { ToolContext, ToolResult } from './execute.js'
 
 function videoItem(project: ProjectRow, id: string): { ok: true; item: NonNullable<ReturnType<typeof getWorkItem>> } | Extract<ToolResult, { ok: false }> {
@@ -75,4 +76,30 @@ export async function timelineRender(project: ProjectRow, ctx: ToolContext, inpu
   const versionId = ver.ok ? ver.version.id : cur.version_id
   if (versionId) setWorkItemVersionMeta(versionId, { render: { rel: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes } })
   return { ok: true, data: { path: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes, note: 'a NEW mp4 file was made in the project folder; nothing was overwritten' } }
+}
+
+export async function timelineAutoSubtitle(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
+  const v = videoItem(project, String(input.id ?? '').trim() || ctx.workItemId || '')
+  if (!v.ok) return v
+  const language = String(input.language ?? 'hu') as AutoSubLang
+  if (!(AUTOSUB_LANGS as readonly string[]).includes(language)) return { ok: false, code: 'autosub_bad_language', detail: `language must be one of ${AUTOSUB_LANGS.join(', ')}` }
+  const store = timelineStore()
+  const cur = store.read(v.item.id)
+  if (!cur.ok) return { ok: false, code: cur.code, detail: cur.detail || cur.code }
+  const heard = await recogniseTimeline(project, v.item.id, cur.doc, language)
+  if (!heard.ok) return { ok: false, code: heard.code, detail: heard.detail || heard.code }
+  if (!heard.lines.length) return { ok: true, data: { added: 0, skipped: heard.skipped, note: 'no speech was found in the clips; nothing was added' } }
+  const applied = applySubtitleLines(cur.doc, heard.lines, input.replace === true)
+  if (!applied.ok) return { ok: false, code: applied.code, detail: applied.detail || applied.code }
+  const saved = store.commit(v.item, applied.doc, {
+    source: 'agent', grp: ctx.turnId ? `agent:${ctx.turnId}` : null, label: 'autoSubtitle', actor: 'workbench-agent', name: cur.name, versionBeforeBig: true,
+  })
+  if (!saved.ok) return { ok: false, code: saved.code, detail: saved.detail || saved.code }
+  return {
+    ok: true,
+    data: {
+      ...view(applied.doc), added: applied.added, skippedClipsWithoutSound: heard.skipped,
+      note: 'subtitles recognised on THIS machine (the sound did not leave it) and put on the timeline; speech recognition makes mistakes, especially with names and numbers: tell the owner to check them. The owner can undo this in one step.',
+    },
+  }
 }

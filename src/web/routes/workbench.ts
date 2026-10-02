@@ -79,6 +79,7 @@ import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, cli
 import { renderTimeline, lastRenderOf, fillClipEnds, listProjectMedia } from '../../workbench-video-render.js'
 import { deckStore, applyDeckOps, deckSummary, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
+import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../../workbench-video-autosub.js'
 import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
@@ -751,6 +752,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   timeline_version_unchanged: {
     hu: 'Nincs új változás a legutóbbi verzió óta.',
     en: 'There is no new change since the last version.',
+  },
+  autosub_not_installed: {
+    hu: 'A helyi beszédfelismerő nincs telepítve ezen a gépen, ezért nem tudok automatikus feliratot készíteni. A feliratokat addig is beírhatod kézzel. A telepítés a Képességek panelben található (hangüzenet-felismerés).',
+    en: 'The local speech recogniser is not installed on this machine, so I cannot make automatic subtitles. You can still type them by hand. The installation is in the Capabilities panel (voice message recognition).',
+  },
+  autosub_old_toolkit: {
+    hu: 'A gépen lévő beszédfelismerő csomag régebbi, és még nem tud időbélyeges felismerést. Futtasd újra a hangcsomag telepítőjét (scripts/install-voice.sh), utána működni fog.',
+    en: 'The speech recogniser package on this machine is older and cannot recognise with times yet. Run the voice package installer again (scripts/install-voice.sh); then it will work.',
+  },
+  autosub_failed: {
+    hu: 'A beszédfelismerés nem sikerült. A részletek megmondják, mit írt a program.',
+    en: 'The speech recognition did not work. The details say what the program wrote.',
+  },
+  autosub_timeout: {
+    hu: 'A beszédfelismerés túl sokáig tartott, ezért megszakítottam. Rövidebb idővonallal próbáld újra.',
+    en: 'The speech recognition took too long, so I stopped it. Try again with a shorter timeline.',
+  },
+  autosub_too_long: {
+    hu: 'Az idővonal túl hosszú az automatikus feliratnak (legfeljebb 30 perc beszéd). Készítsd el részletekben.',
+    en: 'The timeline is too long for automatic subtitles (30 minutes at most). Do it in parts.',
+  },
+  autosub_bad_language: {
+    hu: 'Az automatikus felirat nyelve magyar, angol vagy német lehet.',
+    en: 'The language of the automatic subtitles can be Hungarian, English or German.',
+  },
+  autosub_no_speech: {
+    hu: 'Nem találtam beszédet a klipekben, ezért nem került fel felirat.',
+    en: 'I found no speech in the clips, so no subtitles were added.',
+  },
+  timeline_autosub_done: {
+    hu: 'Kész az automatikus felirat. Nézd át: a beszédfelismerés téved, főleg nevekben és számokban. Szerkesztheted vagy törölheted őket.',
+    en: 'The automatic subtitles are ready. Please check them: speech recognition makes mistakes, especially with names and numbers. You can edit or delete them.',
   },
   timeline_rendered: {
     hu: 'Kész a videó. Új fájl lett belőle a projekt mappájában, a régi videók érintetlenek.',
@@ -4104,6 +4137,40 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         ok: true, created: v.created, item: v.item, version: v.version, versions: listWorkItemVersionsView(item.id),
         ...tlState(), message: msg(v.created ? 'timeline_version_saved' : 'timeline_version_unchanged', lang),
       }, v.created ? 201 : 200)
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'autosubtitle' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const project = getProject(item.project_id)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const body = (await readJson(req)) || {}
+      const language = String(body['language'] ?? 'hu') as AutoSubLang
+      if (!(AUTOSUB_LANGS as readonly string[]).includes(language)) return fail(res, 400, 'autosub_bad_language', lang)
+      const cur = store.read(item.id)
+      if (!cur.ok) return failDetail(res, tlStatus(cur.code), cur.code, lang, cur.detail)
+      const heard = await recogniseTimeline(project, item.id, cur.doc, language)
+      if (!heard.ok) {
+        const status = heard.code === 'autosub_not_installed' || heard.code === 'video_no_ffmpeg' || heard.code === 'video_ffmpeg_check_failed' ? 503
+          : heard.code === 'autosub_too_long' || heard.code === 'autosub_bad_language' || heard.code === 'render_empty' ? 400
+          : heard.code === 'video_busy' || heard.code === 'autosub_old_toolkit' ? 409 : 500
+        return failDetail(res, status, heard.code, lang, heard.detail)
+      }
+      if (!heard.lines.length) {
+        json(res, { ok: true, added: 0, skipped: heard.skipped, timeline: cur.doc, ...tlState(), message: msg('autosub_no_speech', lang) })
+        return true
+      }
+      const applied = applySubtitleLines(cur.doc, heard.lines, body['replace'] === true)
+      if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+      const commit = store.commit(item, applied.doc, {
+        source: 'owner', grp: 'ui:autosubtitle', label: 'autoSubtitle', actor: actor(ctx), name: cur.name,
+      })
+      if (!commit.ok) return failDetail(res, commit.code === 'project_not_found' ? 404 : 400, commit.code, lang, commit.detail)
+      json(res, {
+        ok: true, added: applied.added, skipped: heard.skipped, timeline: applied.doc, changed: commit.changed, item: getWorkItem(item.id) || item,
+        versions: listWorkItemVersionsView(item.id), summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
+        ...tlState(), message: msg('timeline_autosub_done', lang),
+      }, commit.created ? 201 : 200)
       return true
     }
 

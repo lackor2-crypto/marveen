@@ -269,7 +269,7 @@ def _pick_model(path):
     return _setting("MARVEEN_STT_MODEL_SHORT", "medium")
 
 
-def _whisper(path, words=False):
+def _whisper(path, words=False, lang="hu"):
     # words=True (upstream, 2026-09-12) is a SEPARATE output (JSON with per-word
     # `end` times) for the cut-boundary check; the plain-text words=False path
     # that stt.sh and the canary rely on is unchanged. Word timestamps only come
@@ -304,7 +304,9 @@ def _whisper(path, words=False):
     # initial_prompt gives the local engine the same domain vocabulary the cloud
     # path gets -- otherwise the two engines would spell Boss's names differently
     # depending on which one happened to run.
-    segs, _ = m.transcribe(path, language="hu", beam_size=5,
+    # lang "auto" lets the model detect the language (None); anything else is a
+    # two-letter code. Only transcribe-words-lang passes a non-Hungarian value.
+    segs, _ = m.transcribe(path, language=(None if lang == "auto" else lang), beam_size=5,
                            condition_on_previous_text=False, vad_filter=True,
                            temperature=0, initial_prompt=(_stt_vocabulary() or None),
                            word_timestamps=words)
@@ -490,7 +492,11 @@ if __name__ == "__main__":
         # Lokalis fajl -> JSON szo-szintu idokkel. Telegram file_id-t NEM fogad: a hivoi (pl. a
         # vagas-hatar verify) maguk vagjak ki a klipet ffmpeg-gel.
         _whisper(sys.argv[2], words=True)
+    elif cmd == "transcribe-words-lang":
+        # Same as transcribe-words, in the given language (hu, en, de, ... or auto): the
+        # video editor's automatic subtitles. Local engine only, nothing leaves the machine.
+        _whisper(sys.argv[2], words=True, lang=sys.argv[3] if len(sys.argv) > 3 else "hu")
     elif cmd == "canary":
         canary(sys.argv[2], " ".join(sys.argv[3:]))
     else:
-        sys.exit("usage: _vtools.py transcribe <file_id> <state_dir> | transcribe-words <file> | speak <voice_onnx> <state_dir> <chat_id> <text...> | canary <voice_onnx> <expected_text...>")
+        sys.exit("usage: _vtools.py transcribe <file_id> <state_dir> | transcribe-words <file> | transcribe-words-lang <file> <lang> | speak <voice_onnx> <state_dir> <chat_id> <text...> | canary <voice_onnx> <expected_text...>")
