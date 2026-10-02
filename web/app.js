@@ -2959,28 +2959,54 @@ function createCardEl(card, embeddedChildren = []) {
 }
 
 // === Drag & Drop ===
+// #464: "waiting" means EVERY point of the card is done, and the server refuses the move
+// in two cases. The person at the dashboard may still decide: ask, resend with the answer.
+//  - open_subtasks: the card has unfinished sub-cards -> "move it anyway?"
+//  - completion_unconfirmed: the server wants the "all points done" statement from every
+//    caller that is not a password session. A dashboard opened with the access token (every
+//    fresh install until a password is set) or with a device key IS such a caller, so the
+//    person is asked for it here -- before this the card just snapped back, unexplained.
+// Which question a refusal turns into, or null when it is not ours to ask (or was asked).
+function kanbanWaitingQuestion(body, asked) {
+  if (!body) return null
+  const col = t('kanban.col.waiting')
+  if (body.error === 'open_subtasks' && !asked.confirm_open_parts) {
+    const open = Array.isArray(body.open) ? body.open : []
+    const list = open.map((c) => '- ' + (c.seq != null ? '#' + c.seq + ' ' : '') + String(c.title || '')).join('\n')
+    return { field: 'confirm_open_parts', text: t('kanban.waiting.open_parts_question', { n: open.length, list, col }) }
+  }
+  if (body.error === 'completion_unconfirmed' && !asked.all_points_done) {
+    return { field: 'all_points_done', text: t('kanban.waiting.all_done_question', { col }) }
+  }
+  return null
+}
+
+// Returns the server's last Response -- or { ok: false, cancelled: true } when the person
+// answered no. That is their decision, not a failure: callers must not toast it as an error.
+async function kanbanMoveRequest(cardId, status, sortOrder) {
+  const url = `/api/kanban/${encodeURIComponent(cardId)}/move`
+  const asked = {}
+  for (;;) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, sort_order: sortOrder, ...asked }),
+    })
+    if (r.status !== 409) return r
+    let body = null
+    try { body = await r.clone().json() } catch { body = null }
+    // Each question is asked at most once, so this ends after three requests at the latest.
+    const question = kanbanWaitingQuestion(body, asked)
+    if (!question) return r
+    if (!window.confirm(question.text)) return { ok: false, status: 409, cancelled: true }
+    asked[question.field] = true
+  }
+}
+
 // Wires the drag/drop handlers for one column-body element. Used for the
 // 4 static flat-board columns at load time, and again for every swimlane
 // column-body created dynamically in renderSwimlaneBoard (those elements
 // don't exist yet when this module first runs).
-// #464: moving a card to "waiting" is refused while it has open sub-cards. The person
-// (a browser session) may still decide to do it: ask, and resend with the confirmation.
-async function kanbanMoveRequest(cardId, status, sortOrder) {
-  const url = `/api/kanban/${encodeURIComponent(cardId)}/move`
-  const post = (extra) => fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status, sort_order: sortOrder, ...extra }),
-  })
-  const r = await post({})
-  if (r.status !== 409) return r
-  let body = null
-  try { body = await r.clone().json() } catch { body = null }
-  if (!body || body.error !== 'open_subtasks') return r
-  if (!window.confirm(String(body.message || '') + '\n\n' + t('kanban.waiting.open_parts_confirm'))) return r
-  return post({ confirm_open_parts: true })
-}
-
 function wireKanbanColumnDnD(col) {
   col.addEventListener('dragover', (e) => {
     e.preventDefault()
@@ -3014,7 +3040,9 @@ function wireKanbanColumnDnD(col) {
     let sortOrder = idx
 
     try {
-      await kanbanMoveRequest(cardId, newStatus, sortOrder)
+      // A refused move used to snap back without a word; a declined question is not an error.
+      const r = await kanbanMoveRequest(cardId, newStatus, sortOrder)
+      if (!r.ok && !r.cancelled) showToast(t('kanban.toast.move_error'))
       loadKanban()
     } catch {
       showToast(t('kanban.toast.move_error'))
@@ -3177,7 +3205,7 @@ async function kanbanTouchEnd(e) {
   if (!newStatus) return
   try {
     const r = await kanbanMoveRequest(cardId, newStatus, sortOrder)
-    if (!r.ok) throw new Error('move failed')
+    if (!r.ok && !r.cancelled) throw new Error('move failed')
     loadKanban()
   } catch {
     showToast(t('kanban.toast.move_error'))
@@ -3616,6 +3644,7 @@ async function showCardDetail(card) {
       if (newVal === current) { restore(current); return }
       try {
         const r = await kanbanMoveRequest(card.id, newVal, 0)
+        if (r.cancelled) { restore(current); return }
         if (!r.ok) throw new Error('move failed')
         card.status = newVal
         restore(newVal)

@@ -39,6 +39,28 @@ planned -> in_progress -> testing -> waiting -> done
    magától jóváhagyás-kérést nyit a tulajdonosnak.
 3. **done** -- SOHA te. Azt csak a tulajdonos.
 
+## A waiting-be CSAK kész kártya mehet
+
+2026-10-02: egy kártya (#462) a várakozóba került, pedig csak az egyik
+lépése készült el. A tulajdonos: mielőtt bárki bármit a várakozóba tesz,
+ellenőrizze az ÖSSZES pontot; ha valami nyitott, a kártya marad, és a munka
+megy tovább.
+
+Mielőtt `waiting`-be tolod, nézd végig a kártya MINDEN pontját: a leírást, a
+lépéseket, a kommentekben kért dolgokat és az alfeladat-kártyákat. Ha akár egy
+is nyitott (például a te feladatod a kártyának csak egy lépése volt), a kártya
+NEM megy `waiting`-be -- marad, ahol van, és megmondod, mi van még hátra. Egy
+fél-kész kártya a várakozóban hazugság a táblán.
+
+Ezt a szerver ki is kényszeríti:
+
+- a `waiting`-be mozgató kérésbe bele kell írnod: `"all_points_done": true`
+  -- ezzel mondod ki, hogy mindent leellenőriztél. Nélküle a válasz
+  `409 completion_unconfirmed`;
+- nyitott alfeladat-kártya mellett a válasz `409 open_subtasks`, és
+  felsorolja, melyik nyitott. Ilyenkor nem a kérést kell ügyesebben megírni,
+  hanem az alfeladatot befejezni.
+
 Csak ELŐRE. Ha a kártya már `waiting`-ben vagy `done`-ban áll, NE mozgasd
 vissza (a kilépés a waitingből visszavonja a függő jóváhagyást) -- a munkát
 mozgatás nélkül is elvégezheted, kommentet írsz a kártyára. Visszafelé csak
@@ -55,10 +77,15 @@ BASE=http://localhost:3420            # a telepítés saját WEB_PORT-ja
 curl -s -H "Authorization: Bearer $T" "$BASE/api/kanban/card-ids" \
   | python3 -c "import json,sys; [print(c['id']) for c in json.load(sys.stdin) if c['seq']==N]"
 
-# mozgatás
+# mozgatás testing-be
 curl -s -X POST "$BASE/api/kanban/<id>/move" \
   -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
   -d '{"status":"testing","sort_order":0,"actor":"<ki vagy>"}'
+
+# mozgatás waiting-be -- CSAK ha minden pontja kész, és ezt ki is mondod
+curl -s -X POST "$BASE/api/kanban/<id>/move" \
+  -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+  -d '{"status":"waiting","sort_order":0,"actor":"<ki vagy>","all_points_done":true}'
 ```
 
 Utána OLVASD VISSZA (`GET $BASE/api/kanban/<id>`), hogy tényleg ott áll -- a
@@ -71,6 +98,8 @@ hogy a kártya NEM került át.
 ## Ellenőrzőlista a "kész" előtt
 
 - [ ] a kártya `testing`-ben volt a teszt alatt
+- [ ] a kártya MINDEN pontját végignézted (leírás, lépések, kommentek,
+      alfeladat-kártyák), és egyik sem nyitott -- ha igen, NEM megy waiting-be
 - [ ] landolt (PR MERGE-ELVE sor), és a kártya most `waiting`-ben áll --
       visszaolvasva
 - [ ] a záró üzenetben a kártya sorszámmal (#N) szerepel, nem belső id-vel

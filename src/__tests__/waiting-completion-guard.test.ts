@@ -35,4 +35,13 @@ describe('waiting completion guard (#464)', () => {
   it('lets the person confirm that open sub-cards may stay open', () => {
     expect(checkWaitingMove({ ...base, agentCaller: false, allPointsDone: undefined, confirmOpenParts: true, children: [{ seq: 3, title: 'c', status: 'planned' }] })).toBeNull()
   })
+  it('the override of open sub-cards covers the statement: a token-mode dashboard is asked once', () => {
+    // The dashboard opened with the access token is a token caller. After "open, move it
+    // anyway" a second "is every point done?" would contradict the answer just given.
+    expect(checkWaitingMove({ ...base, allPointsDone: undefined, confirmOpenParts: true, children: [{ seq: 3, title: 'c', status: 'planned' }] })).toBeNull()
+  })
+  it('the bare override field with nothing open does not stand in for the statement', () => {
+    expect(checkWaitingMove({ ...base, allPointsDone: undefined, confirmOpenParts: true })?.error).toBe('completion_unconfirmed')
+    expect(checkWaitingMove({ ...base, allPointsDone: undefined, confirmOpenParts: true, children: [{ seq: 4, title: 'd', status: 'done' }] })?.error).toBe('completion_unconfirmed')
+  })
 })
