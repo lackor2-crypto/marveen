@@ -1171,6 +1171,9 @@
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
     return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '" data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
+      + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
+      + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
+      + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + (archived() ? '' : ' title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
       + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
@@ -1189,14 +1192,10 @@
   function itemMenuHtml(it) {
     var c = WB.ctx
     if (!c || c.id !== it.id || archived()) return ''
-    var w = 210, h = 185
+    var w = 210, h = 150
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - w - 4))
     var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - h - 4))
-    var pinned = it.pinned_at != null
-    var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
-      + '<button type="button" role="menuitem" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
-      + (WB.pinBusy ? ' disabled' : '') + '>' + (pinned ? '★ ' : '☆ ') + esc(pinLabel) + '</button>'
       + '<button type="button" role="menuitem" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.rename.row_label')) + '</button>'
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + (WB.trashBusy ? ' disabled' : '') + ' title="' + escA(t('workbench.trash.delete_hint')) + '">' + esc(t('workbench.trash.delete')) + '</button>'
