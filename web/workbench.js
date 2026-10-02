@@ -113,6 +113,7 @@
     frTab: readPref('wb.fr.tab', 'elements'),
     frMenu: null,
     frChat: readPref('wb.fr.chat', '1') === '1',
+    frLive: false, // Elo nezet (#462): csak a kesz kep, kijelolo-pontok nelkul
     frZoom: Number(readPref('wb.fr.zoom', '100')) || 100,
     canvasSnap: readPref('wb.canvas.snap', '1') === '1',
     canvasGrid: readPref('wb.canvas.grid', '0') === '1',
@@ -5183,6 +5184,9 @@
       return '<div class="wb-can-stage">' + img + '</div>'
         + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_archived')) + '</p>'
     }
+    // Elo nezet (Egyszeru nezet kerete): CSAK a kesz kep, ahogy exportalva is latszik -- se doboz, se kijelolo-pont,
+    // se huzas (nincs data-wb-stage, igy a huzo-kezelo sem kapcsol ra).
+    if (bare && WB.frLive) return '<div class="wb-can-stage wb-can-stage-live">' + img + '</div>'
     return '<div class="wb-can-stage" data-wb-stage="1">' + img
       + '<div class="wb-can-layer' + (WB.canvasGrid ? ' wb-can-layer-grid' : '') + '"'
       + (WB.canvasGrid ? ' style="background-size:' + (Math.round(10000 * CANVAS_GRID / doc.width) / 100) + '% ' + (Math.round(10000 * CANVAS_GRID / doc.height) / 100) + '%"' : '') + '>'
@@ -10926,6 +10930,7 @@
       + '<span class="wb-sh-saved wb-sh-saved-' + st + '" role="status">' + esc(t('workbench.sh.saved.' + st)) + '</span>'
       + '<span class="wb-fr-name">' + (it ? workSeqHtml(it) + esc(it.title) : '') + '</span>'
       + '<button type="button" class="wb-fr-tbtn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
+      + (sizeOn ? '<button type="button" class="wb-fr-tbtn' + (WB.frLive ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-live" aria-pressed="' + !!WB.frLive + '" title="' + escA(t('workbench.fr.live_title')) + '">&#128065; ' + esc(t(WB.frLive ? 'workbench.fr.live_on' : 'workbench.fr.live_off')) + '</button>' : '')
       + viewSwitchHtml()
       + '<button type="button" class="wb-fr-export" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '" aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
       + '<button type="button" class="wb-fr-tbtn wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '" aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
@@ -11835,6 +11840,7 @@
     if (WB.frMenu && a !== 'fr-menu') WB.frMenu = null
     if (a === 'fr-menu') { var m = act.getAttribute('data-wb-m'); WB.frMenu = WB.frMenu === m ? null : m; render() }
     else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); WB.frTab = WB.frTab === tb ? null : tb; writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
+    else if (a === 'fr-live') { WB.frLive = !WB.frLive; render() }
     else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
     else if (a === 'fr-add-text') frAddText(act.getAttribute('data-wb-arg'))
     else if (a === 'fr-add-image') frAddImage(act.getAttribute('data-wb-src'), null, null)
