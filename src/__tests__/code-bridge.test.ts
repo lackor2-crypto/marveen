@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  initDatabase, createApproval, createKanbanCard,
+  initDatabase, getDb, createApproval, createKanbanCard,
   createOrResetApprovalVerification, resolveApprovalVerification,
 } from '../db.js'
 import {
@@ -194,6 +194,40 @@ describe('dispatch routing', () => {
       const s = pickFallbackSession()
       expect(s).not.toBeNull()
       expect(getCodeSession(s!.project)).not.toBeNull()
+    })
+  })
+
+  describe('side-aware fallback (Boss, 2026-10-02)', () => {
+    const WSL = { project: 'marveen', workspacePath: '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen', sessionId: 'dddddddd-0000-4000-8000-000000000004' }
+    const WIN = { project: 'tozsde', workspacePath: 'f:\\Marveen\\Tozsde', sessionId: 'eeeeeeee-0000-4000-8000-000000000005' }
+    const failLimit = (project: string, finishedAt: number): void => {
+      getDb().prepare(
+        `INSERT INTO code_tasks (id, project, prompt, status, origin, created_at, finished_at, error, result) VALUES (?, ?, 'x', 'error', 'workbench', ?, ?, ?, ?)`,
+      ).run(`t-${project}-${finishedAt}`, project, finishedAt - 1000, finishedAt, "Claude Code reported an error: You've hit your weekly limit", "You've hit your weekly limit")
+    }
+
+    it('prefers the WSL-side session by default, even when the Windows one was active more recently', () => {
+      upsertCodeSession({ ...WSL, transcriptMtime: 1000 })
+      upsertCodeSession({ ...WIN, transcriptMtime: 9000 })
+      expect(pickFallbackSession()!.project).toBe('marveen')
+      expect(pickFallbackSession('windows')!.project).toBe('tozsde')
+    })
+
+    it('a session whose newest task hit the usage limit goes behind a working one', () => {
+      upsertCodeSession({ ...WSL, transcriptMtime: 1000 })
+      upsertCodeSession({ ...WIN, transcriptMtime: 9000 })
+      failLimit('marveen', Date.now() - 60_000)
+      expect(pickFallbackSession('wsl')!.project).toBe('tozsde')
+    })
+
+    it('the chat switch overrides the project\'s own session', () => {
+      upsertCodeSession(WSL)
+      upsertCodeSession(WIN)
+      const out = enqueueCodeTask({ project: 'tozsde', prompt: 'do it', side: 'wsl' })
+      expect('error' in out).toBe(false)
+      if (!('error' in out)) expect(out.task.project).toBe('marveen')
+      const back = enqueueCodeTask({ project: 'marveen', prompt: 'do it', side: 'windows' })
+      if (!('error' in back)) expect(back.task.project).toBe('tozsde')
     })
   })
 

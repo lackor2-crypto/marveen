@@ -476,11 +476,42 @@ export function resolveProject(raw: string): { session: CodeSession } | CodeBrid
  * `null` -- a hivo ilyenkor a valodi "nincs regisztralt session" hibat adja
  * (nem talalgat: a nulla itt "nem latok oda", nem "van hova kuldeni").
  */
-export function pickFallbackSession(): CodeSession | null {
+export function pickFallbackSession(side: CodeSessionSide = 'wsl'): CodeSession | null {
   const usable = listCodeSessions().filter((s) => !isExcludedProject(s.project))
   if (usable.length === 0) return null
   const recency = (s: CodeSession): number => s.transcriptMtime ?? s.updatedAt ?? 0
-  return usable.sort((a, b) => (recency(b) - recency(a)) || a.project.localeCompare(b.project))[0]!
+  // Boss, 2026-10-02: the session on the wanted side comes first (default: the Marvin / WSL side,
+  // its VS Code has its own, live account); the Windows-side session -- whose login may be
+  // exhausted -- is only the last resort, however recently it was active.
+  // LIVE data, not memory: a session whose newest task ended on a usage-limit sentence (and was
+  // not followed by a success) is exhausted right now, so it goes behind every working one.
+  const limited = new Set(usable.filter((s) => sessionLimitedNow(s.project)).map((s) => s.project))
+  const sideRank = (s: CodeSession): number => (limited.has(s.project) ? 2 : sessionSide(s.workspacePath) === side ? 0 : 1)
+  return usable.sort((a, b) => (sideRank(a) - sideRank(b)) || (recency(b) - recency(a)) || a.project.localeCompare(b.project))[0]!
+}
+
+const LIMIT_SENTENCE = /(hit|reached) your .{0,24}limit|weekly limit|usage limit reached/i
+/** How long a limit sentence keeps a session out of the automatic pick (the newest task decides). */
+const SESSION_LIMIT_WINDOW_MS = 6 * 3600_000
+
+/** True when the project's newest finished task failed with the CLI's own usage-limit sentence
+ *  within the window -- i.e. its login is exhausted right now. */
+export function sessionLimitedNow(project: string, nowMs: number = Date.now()): boolean {
+  try {
+    const row = getDb().prepare(
+      `SELECT status, error, result, finished_at FROM code_tasks WHERE project = ? AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1`,
+    ).get(project) as { status: string; error: string | null; result: string | null; finished_at: number } | undefined
+    if (!row || row.status === 'done') return false
+    if (nowMs - Number(row.finished_at) > SESSION_LIMIT_WINDOW_MS) return false
+    return LIMIT_SENTENCE.test(`${row.error ?? ''} ${row.result ?? ''}`)
+  } catch { return false }
+}
+
+/** Which side's VS Code a session lives on: a Windows drive path (`f:\...`) = Windows, anything
+ *  else (`\\wsl.localhost\...`, `/home/...`) = the Marvin / WSL side. */
+export type CodeSessionSide = 'wsl' | 'windows'
+export function sessionSide(workspacePath: string | null | undefined): CodeSessionSide {
+  return /^[A-Za-z]:[\\/]/.test(String(workspacePath ?? '').trim()) ? 'windows' : 'wsl'
 }
 
 export interface UpsertSessionInput {
@@ -850,6 +881,9 @@ export interface EnqueueInput {
    *  kartya korabbi chatjetol -- a tema-folytatast a claim ilyenkor atugorja.
    *  Cimzett fulnel (`sessionId`) nincs ertelme, ott a cimzes eros. */
   startFresh?: boolean
+  /** The chat's side switch (Workbench): `wsl` | `windows` forces the VS Code session of that
+   *  side, even over the project's own pinned session; empty = by the project / the default. */
+  side?: CodeSessionSide | null
 }
 
 /** Amit a kiadas melle MONDANI kell, de nem allitja meg: mar landolt munka a
@@ -870,7 +904,7 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
   // munka. A tobbi hiba (ambiguous, empty, no-sessions) valodi, azt tovabbadjuk.
   let pinFallback: EnqueueWarning | undefined
   if ('error' in resolved && resolved.errorKey === 'cb.err.unknown_project') {
-    const fallback = pickFallbackSession()
+    const fallback = pickFallbackSession(input.side ?? 'wsl')
     if (fallback) {
       pinFallback = cardWorkNotice('cb.warn.project_not_pinned', {
         project: normalizeAlias(input.project),
@@ -878,6 +912,11 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
       })
       resolved = { session: fallback }
     }
+  }
+  // The switch wins over the project's own session: the other side's VS Code takes the work.
+  if (input.side && !('error' in resolved) && sessionSide(resolved.session.workspacePath) !== input.side) {
+    const other = pickFallbackSession(input.side)
+    if (other && sessionSide(other.workspacePath) === input.side) resolved = { session: other }
   }
   if ('error' in resolved) return resolved
   if (isExcludedProject(resolved.session.project)) {
