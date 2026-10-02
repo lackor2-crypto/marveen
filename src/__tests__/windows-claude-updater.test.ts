@@ -107,7 +107,7 @@ describe('code bridge turn repairs an outdated bridge (#446)', () => {
   it('updates, starts the task again and returns the second answer', async () => {
     const tasks: Record<string, CodeBridgeTaskView> = {
       t1: { status: 'error', result: null, summary: null, error: ERR },
-      t2: { status: 'done', result: 'Kész.', summary: null, error: null },
+      t2: { status: 'done', result: 'Kész. [MINDEN_KESZ]', summary: null, error: null },
     }
     let n = 0
     const enqueue = vi.fn(() => ({ ok: true as const, id: `t${++n}` }))

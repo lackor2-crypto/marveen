@@ -343,7 +343,9 @@ function continueOnAnotherAccount(task: CodeTask): boolean {
       ? msg('code_bridge_outdated_fallback', turn.lang, { to })
       : kind === 'error'
         ? msg('code_bridge_error_fallback', turn.lang, { to })
-        : msg('code_bridge_stalled_fallback', turn.lang, { to })
+        : kind === 'incomplete'
+          ? msg('code_bridge_incomplete_fallback', turn.lang, { to })
+          : msg('code_bridge_stalled_fallback', turn.lang, { to })
   const actorName = task.requestedBy || 'dashboard'
   void (async () => {
     const until = Date.now() + CONTINUE_LOCK_WAIT_MS
@@ -945,6 +947,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             let bridgeStalled = false
             let bridgeOutdated = false
             let bridgeError = false
+            let bridgeIncomplete = false
             const liveDir = liveFolder && liveFolder.ok ? liveFolder.dirAbs : null
             let bridgeFeed: TranscriptToolFeed | null = null
             const bridgeOpenTools: LiveOpenTool[] = []
@@ -1025,7 +1028,11 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               // Boss, 2026-10-02: a sima hiba (`code_bridge_error`) is folytatodik
               // egy masik fiokkal, nem csak a keret/elakadas/elavult -- amig a
               // munka nincs kesz. Ha nincs szabad fiok, a hiba kiirodik (lenti ag).
-              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_error')) {
+              // Boss, 2026-10-02: a sima hiba (`code_bridge_error`) ES a befejezetlen
+              // futas (`code_bridge_incomplete` -- hianyzik a teljes-kesz jel) is
+              // folytatodik egy masik fiokkal, nem csak a keret/elakadas/elavult --
+              // amig a munka nincs kesz. Ha nincs szabad fiok, a sor kiirodik (lent).
+              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_error' || ev.code === 'code_bridge_incomplete')) {
                 if (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_outdated') bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
                 const fallback = !account && !ac.signal.aborted ? liveResolver(key, liveDir, account) : null
                 if (fallback) {
@@ -1033,6 +1040,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                   bridgeStalled = ev.code === 'code_bridge_stalled'
                   bridgeOutdated = ev.code === 'code_bridge_outdated'
                   bridgeError = ev.code === 'code_bridge_error'
+                  bridgeIncomplete = ev.code === 'code_bridge_incomplete'
                   if (bridgeTaskId) markBridgeTaskContinued(bridgeTaskId)
                   break
                 }
@@ -1050,7 +1058,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                   ? msg('code_bridge_outdated_fallback', lang, { to })
                   : bridgeError
                     ? msg('code_bridge_error_fallback', lang, { to })
-                    : msg('code_bridge_limit_fallback', lang, { to })
+                    : bridgeIncomplete
+                      ? msg('code_bridge_incomplete_fallback', lang, { to })
+                      : msg('code_bridge_limit_fallback', lang, { to })
               addAgentMessage(session.id, 'system', switched)
               send('notice', { type: 'notice', code: 'code_bridge_limit_fallback', message: switched })
               await runLive(liveFallback, history, msg('bridge_continue_note', lang))

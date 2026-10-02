@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeErrorDetail, CODE_BRIDGE_HISTORY_TURNS,
+  runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeErrorDetail, CODE_BRIDGE_HISTORY_TURNS, COMPLETION_MARKER,
   type CodeBridgeTurnDeps, type CodeBridgeTaskView, type CodeBridgeStatus,
 } from '../workbench-agent/code-bridge-turn.js'
 import type { OrchestratorEvent } from '../workbench-agent/orchestrator.js'
@@ -38,9 +38,15 @@ function fakeTasks(states: CodeBridgeTaskView[]): { getTask(): CodeBridgeTaskVie
   }
 }
 
-const task = (status: CodeBridgeStatus, extra: Partial<CodeBridgeTaskView> = {}): CodeBridgeTaskView => ({
-  status, result: null, summary: null, error: null, ...extra,
-})
+const task = (status: CodeBridgeStatus, extra: Partial<CodeBridgeTaskView> = {}): CodeBridgeTaskView => {
+  const t: CodeBridgeTaskView = { status, result: null, summary: null, error: null, ...extra }
+  // Boss, 2026-10-02: a 'done' fixtura egy SIKERES, TELJESEN kesz futast jelent,
+  // ezert hordozza a teljes-kesz markert (hacsak mar benne van vagy ures a result).
+  if (status === 'done' && typeof t.result === 'string' && t.result.trim() && !t.result.includes(COMPLETION_MARKER)) {
+    t.result = `${t.result} ${COMPLETION_MARKER}`
+  }
+  return t
+}
 
 const baseInput = { projectRef: 'p1', message: 'olvasd el a fajlt', lang: 'hu' as const, requestedBy: 'boss' }
 
@@ -66,7 +72,7 @@ describe('runCodeBridgeTurn -- Munkapad chat a kod-hidon (#433, B opcio)', () =>
 
   it('ures valasz: kesz, de nincs result -> nem hallgat el, notice megy', async () => {
     const clock = fakeClock(1000)
-    const tasks = fakeTasks([task('done', { result: '   ', summary: '' })])
+    const tasks = fakeTasks([task('done', { result: `   ${COMPLETION_MARKER}`, summary: '' })])
     const evs = await collect(runCodeBridgeTurn(baseInput, {
       enqueue: () => ({ ok: true, id: 't' }), getTask: tasks.getTask, now: clock.now, sleep: clock.sleep,
     }))
