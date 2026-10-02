@@ -1802,7 +1802,7 @@ function availabilityChip(agentId) {
   }
   const label = av.reason === 'stopped' ? t('activity.avail.stopped') : t('activity.avail.quota')
   const resets = av.resetsAt
-    ? ' · ' + t('activity.avail.resets', { time: new Date(av.resetsAt).toLocaleString('hu-HU', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })
+    ? ' · ' + t('activity.avail.resets', { time: new Date(av.resetsAt).toLocaleString((window._lang || 'hu') === 'en' ? 'en-US' : 'hu-HU', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })
     : ''
   return '<span class="act-avail act-avail-off" title="' + escapeHtml(t('activity.avail.off_tip')) + '">' + escapeHtml(label + resets) + '</span>'
 }
@@ -1883,7 +1883,7 @@ function renderActivity(entries) {
       '<div class="activity-card ' + meta.cls + (canOpen ? ' act-clickable' : '') + '" data-agent="' + escapeHtml(a.name) + '"' + codeAttrs + '>' +
         '<div class="activity-card-head">' +
           '<span class="activity-name">' + escapeHtml(a.displayName || a.name) + mainBadge + '</span>' +
-          '<span style="display:flex;align-items:center;gap:8px">' +
+          '<span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
             availabilityChip(a.name) +
             modeChip +
             termIcon +

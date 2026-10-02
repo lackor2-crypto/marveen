@@ -17,19 +17,25 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { createAgentMessage, getPendingMessages } from '../db.js'
 import { listBrokerCandidateNames, readBrokerCandidate } from './context-broker-store.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
-import { getPendingWork } from './pending-work.js'
+import { defaultPendingWorkDeps, getPendingWork } from './pending-work.js'
 import {
   availableMessage,
   mayNotify,
   measureAvailability,
+  planPendingText,
   planTransitions,
   type AgentAvailability,
   type AvailabilityState,
   type AvailabilityTransition,
+  type PendingSummary,
 } from '../availability-transitions.js'
 
 export const AVAILABILITY_INTERVAL_MS = 60_000
 export const AVAILABILITY_INITIAL_DELAY_MS = 20_000
+/** How many ticks in a row a failed "you are back" message is tried again
+ *  before the edge is given up: a store that stays broken must not turn the
+ *  edge log into one line a minute, forever. */
+export const MAX_NOTIFY_ATTEMPTS = 5
 
 const STATE_PATH = join(STORE_DIR, 'agent-availability.json')
 const LOG_PATH = join(STORE_DIR, 'agent-availability.log')
@@ -76,16 +82,33 @@ function notifyAvailable(t: AvailabilityTransition, state: AvailabilityState): s
   // SessionStart hook; a second message for the same moment would only repeat it.
   if (t.fromReason === 'stopped') return 'no message (session start replays pending work)'
   if (!mayNotify(state, t.agent, t.at)) return 'no message (within the gap since the last one)'
-  const pending = getPendingWork(t.agent)
-  const waiting = getPendingMessages(t.agent).length
-  if (pending.cards.length === 0 && waiting === 0) return 'no message (no pending work)'
-  const lines: string[] = []
-  if (pending.additionalContext) lines.push(pending.additionalContext)
-  else if (pending.cards.length) lines.push(pending.cards.map((c) => `- #${c.seq} ${c.title}`).join('\n'))
-  if (waiting > 0) lines.push(`Feldolgozatlan uzeneted: ${waiting} db.`)
-  createAgentMessage('system', t.agent, availableMessage(t.agent, t.fromReason, lines.join('\n')), 'availability-watch')
+  const plan = planPendingText(readPendingSummary(t.agent))
+  if (!plan.send) return plan.note
+  createAgentMessage('system', t.agent, availableMessage(t.agent, t.fromReason, plan.text), 'availability-watch')
   state.notifiedAt[t.agent] = t.at
-  return `message sent (${pending.cards.length} card(s), ${waiting} message(s))`
+  return plan.note
+}
+
+/** What this agent already owns, read from the live store.
+ *
+ *  The list is built here rather than taken from getPendingWork's ready-made
+ *  SessionStart text: that one opens with "this session started idle after a
+ *  restart" and the greeting rules of a fresh session, neither of which is
+ *  true for a session that ran all along and merely got its quota back. The
+ *  task-state check is switched off for the same reason -- it exists so a
+ *  SessionStart does not inject the same work twice, and there is no
+ *  SessionStart here: with it on, an agent holding a saved task state would be
+ *  read as having nothing to do. */
+function readPendingSummary(agent: string): PendingSummary {
+  const pending = getPendingWork(agent, { ...defaultPendingWorkDeps, hasActiveTaskState: () => false })
+  let waitingMessages = 0
+  let unreadable = pending.olvashatatlan
+  try {
+    waitingMessages = getPendingMessages(agent).length
+  } catch {
+    unreadable = true
+  }
+  return { cards: pending.cards, memories: pending.memories, waitingMessages, unreadable }
 }
 
 /** The served view: the watcher's state when fresh, otherwise a live measurement. */
@@ -96,19 +119,42 @@ export function currentAvailability(now: number = Date.now()): AgentAvailability
   return fresh ? stored : measureFleet(state.agents, now)
 }
 
+/** Failed sends in a row per agent. In memory on purpose: a dashboard restart
+ *  is a fair reason to try again from the start. */
+const notifyFailures = new Map<string, number>()
+
 export function availabilityTick(now: number = Date.now()): void {
   try {
     const state = readAvailabilityState()
-    const next = measureFleet(state.agents, now)
-    for (const t of planTransitions(state.agents, next)) {
+    const prev = state.agents
+    const next = measureFleet(prev, now)
+    const retry = new Set<string>()
+    for (const t of planTransitions(prev, next)) {
       let note = 'logged'
       if (t.to === 'available') {
-        try { note = notifyAvailable(t, state) } catch (err) { note = `notify failed: ${(err as Error)?.message}` }
+        try {
+          note = notifyAvailable(t, state)
+          notifyFailures.delete(t.agent)
+        } catch (err) {
+          const attempts = (notifyFailures.get(t.agent) ?? 0) + 1
+          if (attempts < MAX_NOTIFY_ATTEMPTS) {
+            notifyFailures.set(t.agent, attempts)
+            retry.add(t.agent)
+            note = `notify failed, will retry: ${(err as Error)?.message}`
+          } else {
+            notifyFailures.delete(t.agent)
+            note = `notify failed ${attempts} times, giving up: ${(err as Error)?.message}`
+          }
+        }
       }
       logEdge(t, note)
       logger.info({ availability: true, agent: t.agent, to: t.to, reason: t.reason }, `agent availability: ${note}`)
     }
-    state.agents = Object.fromEntries(next.map((a) => [a.agent, a]))
+    // An edge whose message could not be sent is not consumed: that agent keeps
+    // its previous entry, so the next tick sees the same edge and tries again.
+    // Consuming it would lose the one message this watcher exists to deliver --
+    // no second edge comes while the agent sits idle.
+    state.agents = Object.fromEntries(next.map((a) => [a.agent, retry.has(a.agent) ? prev[a.agent]! : a]))
     writeAvailabilityState(state)
   } catch (err) {
     logger.warn({ err }, 'agent availability: tick error')

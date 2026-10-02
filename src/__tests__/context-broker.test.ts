@@ -150,6 +150,14 @@ describe('resolveBroker', () => {
     expect(resolveBroker(cfg, [stale, candidate('other')], NOW).effective).toBe('broker')
   })
 
+  it('but a spent window whose reset is still ahead benches it, stale or not (#463)', () => {
+    const cfg = { ...DEFAULT_BROKER_CONFIG, designated: 'broker', updatedAt: NOW }
+    const spent = candidate('broker', { usedPct: 100, usageAt: NOW - STALE_AFTER_MS - 1, blockedUntil: NOW + 1 })
+    expect(resolveBroker(cfg, [spent, candidate('other')], NOW)).toMatchObject({ effective: 'other', reason: 'fallback-quota' })
+    // ...and not one millisecond past the reset.
+    expect(resolveBroker(cfg, [spent, candidate('other')], NOW + 1).effective).toBe('broker')
+  })
+
   it('picks the stand-in with the most allowance left, ties broken by name', () => {
     const cfg = { ...DEFAULT_BROKER_CONFIG, designated: 'broker', updatedAt: NOW }
     const res = resolveBroker(
@@ -282,5 +290,10 @@ describe('recipientAvailability (kartya #451)', () => {
   it('a stale usage snapshot does not disqualify the recipient', () => {
     const res = recipientAvailability('a', [candidate('a', { usedPct: 100, usageAt: NOW - STALE_AFTER_MS - 1 })], NOW)
     expect(res).toEqual({ ok: true })
+  })
+
+  it('a stale snapshot of a window that is known to be spent still warns the sender (#463)', () => {
+    const spent = candidate('a', { usedPct: 100, usageAt: NOW - STALE_AFTER_MS - 1, blockedUntil: NOW + 3600_000 })
+    expect(recipientAvailability('a', [spent, candidate('b')], NOW)).toEqual({ ok: false, reason: 'quota', standIn: 'b' })
   })
 })

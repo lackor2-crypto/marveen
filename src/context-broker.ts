@@ -183,6 +183,9 @@ export interface BrokerCandidate {
   usedPct: number | null
   /** Epoch ms of the usage snapshot, or null when there is none. */
   usageAt: number | null
+  /** Epoch ms until which a spent window is KNOWN to hold (its reset time is
+   *  in the future), or null/absent when no such window is known. */
+  blockedUntil?: number | null
 }
 
 export type BrokerReason =
@@ -212,8 +215,15 @@ export interface BrokerResolution {
  * rather than as its frozen number: an idle agent stops writing statusline
  * snapshots, and a stale 96% would otherwise disqualify an agent that has long
  * since had its window reset.
+ *
+ * The exception is a spent window whose reset time is known and still ahead
+ * (#463): usage cannot fall before the window rolls over, so that reading
+ * stays true however old the snapshot is. Without it an exhausted agent --
+ * which by definition stops writing snapshots -- read as usable again half an
+ * hour after it ran out, days before its weekly window actually reset.
  */
 function effectiveTier(c: BrokerCandidate, now: number): RateLimitTier {
+  if (c.blockedUntil != null && c.blockedUntil > now) return 'critical'
   if (c.usedPct === null) return 'normal'
   if (c.usageAt !== null && now - c.usageAt > STALE_AFTER_MS) return 'normal'
   return tierForPct(c.usedPct)

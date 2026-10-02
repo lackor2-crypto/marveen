@@ -8486,7 +8486,12 @@ a.link-waiting {
 .activity-card.act-clickable:hover { background: var(--bg-card-hover, var(--bg-card)); box-shadow: 0 0 0 2px var(--accent); }
 .act-term-icon { color: var(--text-muted); flex-shrink: 0; opacity: 0.6; }
 .activity-card.act-clickable:hover .act-term-icon { opacity: 1; color: var(--accent); }
-.activity-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.activity-card-head {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+  /* #463: the availability chip ("quota exhausted · back at ...") is long and
+     nowrap; without wrapping it pushed the card wider than a phone screen. */
+  flex-wrap: wrap; gap: 6px 8px;
+}
 .activity-name { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .act-main-badge {
   font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;

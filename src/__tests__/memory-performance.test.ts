@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import {
   initDatabase,
   getDb,
@@ -117,26 +117,38 @@ describe('getAgentMemories in-process cache', () => {
 // 3. Embedding backfill
 // ---------------------------------------------------------------------------
 describe('backfillEmbeddings', () => {
-  it('returns 0 when all memories already have embeddings or Ollama is unreachable', async () => {
-    // The function must complete gracefully either way and return 0 (no
-    // memories left that it could successfully embed).
-    //
-    // The 30s timeout is not padding. This assertion carried the default 5s
-    // because "in the test environment Ollama is not running" -- an assumption
-    // that stopped being true the moment Ollama went live (2026-08-15). The
-    // call now really crosses the network: measured 1.4s on its own, but red at
-    // 5s inside the full parallel suite. That failure said nothing about the
-    // code under test.
-    const count = await backfillEmbeddings()
-    expect(typeof count).toBe('number')
-    expect(count).toBeGreaterThanOrEqual(0)
-  }, 30_000)
+  // Both cases answer for the embedding server themselves. They used to call
+  // whatever was listening on OLLAMA_URL: with no server (CI) that was instant,
+  // but on a machine where Ollama is live every memory row saved earlier in
+  // this file became a real embedding request, and under the full parallel
+  // suite that ran past the timeout -- first at 5s, then, after the limit was
+  // raised, at 30s (2026-10-02, twice in a row). A unit test that passes or
+  // fails with the load on the host says nothing about the code under test.
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns 0 when Ollama is unreachable, and leaves the rows alone', async () => {
+    const fetchMock = vi.fn(async () => { throw new TypeError('fetch failed') })
+    vi.stubGlobal('fetch', fetchMock)
+    const pending = () => (getDb().prepare('SELECT COUNT(*) AS n FROM memories WHERE embedding IS NULL').get() as { n: number }).n
+    const before = pending()
+    expect(before).toBeGreaterThan(0)
+
+    expect(await backfillEmbeddings()).toBe(0)
+    expect(pending()).toBe(before)
+    // The cheap probe answered the question; no row was asked about one by one.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 
   it('processes rows without embeddings and updates them when Ollama responds', async () => {
     const BACKFILL_AGENT = 'backfill-test-agent'
+    const db = getDb()
+    // Rows left without a vector by the cases above are not this case's
+    // subject: give them one, so exactly one candidate remains.
+    db.prepare("UPDATE memories SET embedding = '[0]' WHERE embedding IS NULL").run()
 
     // Insert a memory bypassing saveAgentMemory so embedding stays NULL.
-    const db = getDb()
     const now = Math.floor(Date.now() / 1000)
     const result = db.prepare(
       `INSERT INTO memories (chat_id, topic_key, content, sector, salience,
@@ -145,24 +157,22 @@ describe('backfillEmbeddings', () => {
     ).run('test-chat', 'Backfill target content', now, now, BACKFILL_AGENT)
     const id = Number(result.lastInsertRowid)
 
-    // Stub generateEmbedding so the test does not depend on a live Ollama.
-    // We reach into the module internals via the DB update path and verify
-    // the row stays untouched when the stub returns null (Ollama unavailable).
     const rowBefore = db.prepare('SELECT embedding FROM memories WHERE id = ?').get(id) as { embedding: string | null }
     expect(rowBefore.embedding).toBeNull()
 
-    // backfillEmbeddings calls generateEmbedding internally; without Ollama
-    // it returns null and the row remains NULL — that is the correct no-op path.
-    await backfillEmbeddings()
+    const VECTOR = [0.25, -0.5, 0.75]
+    const prompts: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { body?: string }) => {
+      if (String(url).endsWith('/api/tags')) {
+        return new Response(JSON.stringify({ models: [{ name: 'nomic-embed-text:latest' }] }), { status: 200 })
+      }
+      prompts.push(JSON.parse(init?.body ?? '{}').prompt)
+      return new Response(JSON.stringify({ embedding: VECTOR }), { status: 200 })
+    }))
 
-    // No assertion on count here: it depends on whether Ollama is reachable.
-    // We just assert no exception is thrown and the row is still valid.
+    expect(await backfillEmbeddings()).toBe(1)
+    expect(prompts).toEqual(['Backfill target content'])
     const rowAfter = db.prepare('SELECT embedding FROM memories WHERE id = ?').get(id) as { embedding: string | null }
-    // Embedding is either still null (Ollama unreachable) or a valid JSON array string.
-    if (rowAfter.embedding !== null) {
-      expect(() => JSON.parse(rowAfter.embedding!)).not.toThrow()
-      const parsed = JSON.parse(rowAfter.embedding!)
-      expect(Array.isArray(parsed)).toBe(true)
-    }
+    expect(JSON.parse(rowAfter.embedding!)).toEqual(VECTOR)
   })
 })
