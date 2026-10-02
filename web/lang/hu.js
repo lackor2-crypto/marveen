@@ -5790,6 +5790,7 @@ window._i18n.hu = {
   "workbench.brand.corner_bottom-left": "bal alsó sarok",
   "workbench.brand.corner_bottom-right": "jobb alsó sarok",
   "workbench.brand.logo_min": "A logó legkisebb szélessége (a grafika szélességének %-a)",
+  "workbench.brand.logo_clear": "A logó körüli szabad terület (a logó szélességének %-a)",
   "workbench.brand.no_excl": "Nem lehet felkiáltójel a szövegekben",
   "workbench.brand.notes": "Egyéb szabályok (soronként egy)",
   "workbench.brand.notes_ph": "például:\nMindig tegezzük az olvasót.\nA címsor legfeljebb 6 szó.",

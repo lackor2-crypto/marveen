@@ -359,6 +359,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A logó legkisebb szélessége 1 és 80 közötti százalék legyen (például 10).',
     en: 'The smallest logo width must be a percentage between 1 and 80 (for example 10).',
   },
+  brand_bad_clear_space: {
+    hu: 'A logó körüli szabad terület 1 és 100 közötti százalék legyen a logó szélességéből (például 25).',
+    en: 'The clear space around the logo must be a percentage between 1 and 100 of the logo width (for example 25).',
+  },
   brand_too_many_notes: {
     hu: 'Legfeljebb 20 stílusszabályt lehet felírni. Vond össze a hasonlókat.',
     en: 'At most 20 style rules can be written down. Merge similar ones.',
