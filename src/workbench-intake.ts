@@ -9,7 +9,7 @@
  * Nem talalgatunk: egy rosszul megnyitott felulet rosszabb, mint egy kerdes.
  */
 
-export const INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation'] as const
+export const INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation', 'business_card'] as const
 export type IntakeKind = typeof INTAKE_KINDS[number]
 /** A jegyzet (md / txt fajl) NEM gomb: csak a mondatbol ismerjuk fel ("csinalj egy md filet"). */
 export type IntakeKindAny = IntakeKind | 'note'
@@ -22,6 +22,8 @@ export const INTAKE_TYPE: Record<IntakeKind, string> = {
   court_filing: 'document',
   video: 'video',
   presentation: 'presentation',
+  // A business card is a two-page deck (front, back) in the card size (Boss, 2026-10-02).
+  business_card: 'presentation',
 }
 
 /** A jegyzet-szavak: egy sima szovegfajl a kero szavaval ("md fajl", "jegyzet", "txt"). */
@@ -38,6 +40,7 @@ const WORDS: Record<IntakeKind, string[]> = {
     'poszt', 'facebook', 'instagram', 'insta', 'story', 'reel', 'tiktok', 'linkedin', 'kozossegi', 'hirdetes', 'plakat',
     'banner', 'social', 'post', 'beitrag', 'werbung', 'flyer', 'szorolap',
   ],
+  business_card: ['nevjegy', 'vizitkartya', 'business card', 'businesscard', 'visiting card', 'visitenkarte', 'visitkarte'],
   video: ['video', 'film', 'vagas', 'klip', 'youtube', 'felvetel', 'clip', 'footage', 'schnitt'],
   presentation: ['prezentacio', 'diasor', 'dia ', 'diak', 'eloadas', 'powerpoint', 'pptx', 'slide', 'presentation', 'deck', 'prasentation', 'vortrag', 'folien'],
   document: [
@@ -91,6 +94,7 @@ export function intakeTitle(text: unknown, kind: IntakeKindAny, lang: 'hu' | 'en
     court_filing: { hu: 'Új bírósági beadvány', en: 'New court filing' },
     video: { hu: 'Új videó', en: 'New video' },
     presentation: { hu: 'Új prezentáció', en: 'New presentation' },
+    business_card: { hu: 'Új névjegykártya', en: 'New business card' },
   }
   return names[kind][lang]
 }

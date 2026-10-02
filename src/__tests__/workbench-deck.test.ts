@@ -131,3 +131,52 @@ describe('deck undo patches', () => {
     if (!r.ok) expect(r.code).toBe('deck_undo_conflict')
   })
 })
+
+describe('business-card decks (Boss, 2026-10-02): card sizes at 300 dpi, front and back', () => {
+  it('the card sizes are data: 85 x 55 mm, 3.5 x 2 in, 90 x 50 mm at 300 dpi', () => {
+    expect(DECK_PIXELS['card-eu']).toEqual({ width: 1004, height: 650 })
+    expect(DECK_PIXELS['card-us']).toEqual({ width: 1050, height: 600 })
+    expect(DECK_PIXELS['card-90']).toEqual({ width: 1063, height: 591 })
+  })
+
+  it('setSize + two addSlide give a front (title layout) and a blank back in the card size', () => {
+    const d = ok(emptyDeck(), [{ op: 'setSize', size: 'card-eu' }, { op: 'addSlide', layout: 'title', at: 1, title: 'Kovács Anna', body: 'x' }, { op: 'addSlide', layout: 'blank', at: 2 }])
+    expect(d.size).toBe('card-eu')
+    expect(d.slides).toHaveLength(2)
+    expect(d.slides[0].canvas.width).toBe(1004)
+    expect(d.slides[0].canvas.height).toBe(650)
+    expect(d.slides[1].canvas.objects).toHaveLength(0)
+  })
+
+  it('the PPTX of a card deck has the real paper size (85 x 55 mm), a 16:9 deck keeps its size', async () => {
+    const { buildDeckPptx } = await import('../workbench-deck-pptx.js')
+    const { inflateRawSync } = await import('node:zlib')
+    /** Reads one file out of a ZIP via its central directory (handles stored and deflated entries). */
+    const readEntry = (zip: Buffer, name: string): string => {
+      let eocd = zip.length - 22
+      while (eocd >= 0 && zip.readUInt32LE(eocd) !== 0x06054b50) eocd -= 1
+      const count = zip.readUInt16LE(eocd + 10)
+      let p = zip.readUInt32LE(eocd + 16)
+      for (let i = 0; i < count; i += 1) {
+        const method = zip.readUInt16LE(p + 10)
+        const csize = zip.readUInt32LE(p + 20)
+        const nlen = zip.readUInt16LE(p + 28)
+        const xlen = zip.readUInt16LE(p + 30)
+        const clen = zip.readUInt16LE(p + 32)
+        const lho = zip.readUInt32LE(p + 42)
+        const entry = zip.toString('utf8', p + 46, p + 46 + nlen)
+        if (entry === name) {
+          const dataAt = lho + 30 + zip.readUInt16LE(lho + 26) + zip.readUInt16LE(lho + 28)
+          const raw = zip.subarray(dataAt, dataAt + csize)
+          return (method === 8 ? inflateRawSync(raw) : raw).toString('utf8')
+        }
+        p += 46 + nlen + xlen + clen
+      }
+      throw new Error('no entry ' + name)
+    }
+    const card = ok(emptyDeck(), [{ op: 'setSize', size: 'card-eu' }, { op: 'addSlide', layout: 'blank' }])
+    expect(readEntry(buildDeckPptx(card, () => null).bytes, 'ppt/presentation.xml')).toContain('<p:sldSz cx="3060192" cy="1981200"/>')
+    const wide = ok(emptyDeck(), [{ op: 'addSlide', layout: 'blank' }])
+    expect(readEntry(buildDeckPptx(wide, () => null).bytes, 'ppt/presentation.xml')).toContain('<p:sldSz cx="12192000" cy="6858000"/>')
+  })
+})

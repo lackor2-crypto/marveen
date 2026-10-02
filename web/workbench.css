@@ -1422,3 +1422,7 @@
   .wb-dp-row, .wb-dp-sechead { margin-left: -40px; padding-left: 44px; }
   .wb-dp-gbtn { width: 20px; height: 28px; }
 }
+.wb-fr-pages { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px auto 0; width: calc(var(--wb-zoom, 1) * 100%); }
+.wb-fr-pages .wb-deck-strip { margin: 0; }
+.wb-fr-addpage { padding: 10px 14px; border: 1px dashed #6d28d9; border-radius: 8px; background: rgba(109, 40, 217, 0.08); color: #6d28d9; cursor: pointer; font-weight: 600; }
+.wb-fr-exp { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
