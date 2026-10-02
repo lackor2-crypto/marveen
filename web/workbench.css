@@ -1370,6 +1370,9 @@
 .wb-fr-scroll { flex: 1 1 auto; overflow: auto; padding: 18px; max-height: 80vh; }
 .wb-fr-page { width: calc(var(--wb-zoom, 1) * 100%); margin: 0 auto; background: #fff; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); }
 .wb-fr-page .wb-preview-image { width: 100%; height: auto; display: block; }
+/* The stage must fill the page: as a shrink-to-fit inline-block its overflow:hidden clipped everything right of a vertical line. */
+.wb-fr-page .wb-can-stage { display: block; width: 100%; max-width: none; }
+.wb-fr-page .wb-preview-image { max-width: none; max-height: none; }
 .wb-fr-bottom { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 14px; border-top: 1px solid var(--border); background: var(--bg-card); font-size: 0.82rem; color: var(--text-muted); }
 .wb-fr-zoom { width: 160px; }
 .wb-fr-chat { flex: 0 0 340px; border-left: 1px solid var(--border); padding: 8px; overflow: auto; max-height: 80vh; background: var(--bg-card); }

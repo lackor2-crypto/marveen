@@ -149,4 +149,13 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     await openWith(h, [ITEM])
     expect(typeof h.win.MarvinWorkbench.viewSettingCard).toBe('function')
   })
+
+  it('a lap kitölti a vásznat: a stage nem zsugorodhat a lapnál keskenyebbre (levágta a dobozokat)', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync(new URL('../../web/workbench.css', import.meta.url), 'utf8')
+    const rule = css.match(/\.wb-fr-page \.wb-can-stage\s*\{([^}]*)\}/)
+    expect(rule).not.toBeNull()
+    expect(rule![1]).toMatch(/display:\s*block/)
+    expect(rule![1]).toMatch(/width:\s*100%/)
+  })
 })
