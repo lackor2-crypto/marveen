@@ -1380,3 +1380,45 @@
   .wb-fr-panel, .wb-fr-chat { flex: 0 0 auto; width: auto; max-height: none; border-right: 0; border-left: 0; border-bottom: 1px solid var(--border); }
   .wb-fr-name { order: 9; flex-basis: 100%; }
 }
+
+/* ---- Dokumentum lapja (#462, 4. lepes): a lap maga a szerkeszto ---- */
+.wb-dp-wrap { padding: 8px 0 24px; }
+.wb-dp-page { width: min(100%, 794px); min-height: 1000px; margin: 0 auto; box-sizing: border-box; padding: 56px 64px 72px 72px; background: #fff; color: #1b1b1f; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); border-radius: 2px; font-size: 15px; line-height: 1.6; }
+.wb-dp-sec { margin-bottom: 18px; position: relative; }
+.wb-dp-sechead { display: flex; align-items: baseline; gap: 8px; margin-left: -48px; padding-left: 48px; }
+.wb-dp-title { flex: 1; min-width: 0; font-size: 1.5em; font-weight: 700; line-height: 1.3; }
+.wb-dp-secbar { display: inline-flex; gap: 6px; align-items: center; opacity: 0.35; transition: opacity 0.15s; flex-shrink: 0; }
+.wb-dp-sechead:hover .wb-dp-secbar, .wb-dp-sechead:focus-within .wb-dp-secbar { opacity: 1; }
+.wb-dp-secdel { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.wb-dp-secdel:hover { background: rgba(0, 0, 0, 0.08); }
+.wb-dp-row { position: relative; margin-left: -48px; padding-left: 48px; border-radius: 4px; }
+.wb-dp-row:hover, .wb-dp-row:focus-within { background: rgba(80, 100, 220, 0.04); }
+.wb-dp-edit { outline: none; min-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px; padding: 1px 4px; margin: 0 -4px; cursor: text; }
+.wb-dp-edit:focus { background: rgba(80, 100, 220, 0.08); }
+.wb-dp-edit:empty::before { content: attr(data-placeholder); color: #8b8b95; pointer-events: none; }
+.wb-dp-block.wb-outline-kind-list { padding-left: 22px; position: relative; }
+.wb-dp-block.wb-outline-kind-list::after { content: "\2022"; position: absolute; left: 6px; top: 1px; }
+.wb-dp-block.wb-outline-kind-footnote { font-size: 0.85em; color: #55555f; border-top: 1px solid #ddd; padding-top: 4px; }
+.wb-dp-gutter { position: absolute; left: 0; top: 1px; width: 48px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.wb-dp-row:hover .wb-dp-gutter, .wb-dp-row:focus-within .wb-dp-gutter, .wb-dp-gutter:focus-within { opacity: 1; }
+.wb-dp-gbtn { width: 22px; height: 24px; border: 0; background: transparent; color: #666; border-radius: 4px; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+.wb-dp-gbtn:hover { background: rgba(0, 0, 0, 0.1); color: #111; }
+.wb-dp-handle { cursor: grab; font-size: 11px; letter-spacing: -2px; }
+.wb-dp-menu { position: absolute; left: 0; top: 28px; z-index: 30; min-width: 150px; display: flex; flex-direction: column; background: #fff; color: #1b1b1f; border: 1px solid rgba(0, 0, 0, 0.18); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); padding: 4px; }
+.wb-dp-mi { text-align: left; border: 0; background: transparent; color: #1b1b1f; padding: 7px 10px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+.wb-dp-mi:hover:not(:disabled) { background: rgba(80, 100, 220, 0.14); }
+.wb-dp-mi:disabled { opacity: 0.4; cursor: default; }
+.wb-dp-extra, .wb-dp-secextra { font-size: 13px; }
+.wb-dp-secextra:empty { display: none; }
+.wb-dp-dragging { opacity: 0.4; }
+.wb-dp-drop-before { box-shadow: 0 -2px 0 0 #5064dc; }
+.wb-dp-drop-after { box-shadow: 0 2px 0 0 #5064dc; }
+.wb-dp-foot { max-width: 794px; margin: 12px auto 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.wb-dp-more { max-width: 794px; margin: 12px auto; }
+.wb-dp-more > summary { cursor: pointer; padding: 6px 0; }
+@media (max-width: 900px) {
+  .wb-dp-page { padding: 28px 18px 40px 44px; min-height: 0; }
+  .wb-dp-gutter { opacity: 1; width: 44px; }
+  .wb-dp-row, .wb-dp-sechead { margin-left: -40px; padding-left: 44px; }
+  .wb-dp-gbtn { width: 20px; height: 28px; }
+}

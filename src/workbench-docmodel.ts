@@ -293,7 +293,7 @@ export function addBlock(itemId: string, sectionId: string, input: { kind?: unkn
  * maradhat ott a regi forras. Kezi atirasnal (K-1.16) a blokk "tulajdonos
  * irta" jelolest kap.
  */
-export function updateBlock(itemId: string, id: string, input: { text?: unknown; kind?: unknown; author: 'agent' | 'owner' }): ModelResult<{ block: BlockRow; dropped_claims: number }> {
+export function updateBlock(itemId: string, id: string, input: { text?: unknown; kind?: unknown; section?: unknown; position?: unknown; author: 'agent' | 'owner' }): ModelResult<{ block: BlockRow; dropped_claims: number }> {
   ensureDocModelTables()
   const b = getBlock(itemId, String(id || ''))
   if (!b) return { ok: false, code: 'not_found', detail: 'no block with this id in this work item' }
@@ -307,11 +307,18 @@ export function updateBlock(itemId: string, id: string, input: { text?: unknown;
     if (!BLOCK_KINDS.includes(input.kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
     kind = input.kind as BlockKind
   }
+  // Moving (drag handle on the page): a new section and/or a new position inside it.
+  const wantsMove = (input.section !== undefined && input.section !== null && input.section !== '') || (input.position !== undefined && input.position !== null && input.position !== '')
+  let target: SectionRow | undefined
+  if (wantsMove) {
+    target = getSection(itemId, input.section !== undefined && input.section !== null && input.section !== '' ? String(input.section) : b.section_id)
+    if (!target) return { ok: false, code: 'not_found', detail: 'no section with this id in this work item' }
+  }
   const db = getDb()
   let dropped = 0
   db.transaction(() => {
-    db.prepare('UPDATE wb_doc_blocks SET text = ?, kind = ?, updated_at = ?, owner_edited_at = CASE WHEN ? = \'owner\' THEN ? ELSE owner_edited_at END WHERE id = ?')
-      .run(text, kind, now(), input.author, now(), b.id)
+    db.prepare('UPDATE wb_doc_blocks SET text = ?, kind = ?, updated_at = ?, owner_edited_at = CASE WHEN ? = \'owner\' AND ? = 1 THEN ? ELSE owner_edited_at END WHERE id = ?')
+      .run(text, kind, now(), input.author, text !== b.text ? 1 : 0, now(), b.id)
     const norm = normalizeForMatch(text)
     for (const c of db.prepare('SELECT id, text FROM wb_doc_claims WHERE block_id = ?').all(b.id) as { id: string; text: string }[]) {
       if (!norm.includes(normalizeForMatch(c.text))) {
@@ -319,6 +326,17 @@ export function updateBlock(itemId: string, id: string, input: { text?: unknown;
         db.prepare('DELETE FROM wb_doc_claims WHERE id = ?').run(c.id)
         dropped++
       }
+    }
+    if (target) {
+      const siblings = (db.prepare('SELECT * FROM wb_doc_blocks WHERE section_id = ? AND id != ? ORDER BY position').all(target.id, b.id) as BlockRow[])
+      const want = Number(input.position)
+      const pos = input.position !== undefined && input.position !== null && input.position !== '' && Number.isFinite(want)
+        ? Math.max(0, Math.min(siblings.length, Math.floor(want))) : siblings.length
+      siblings.splice(pos, 0, b)
+      db.prepare('UPDATE wb_doc_blocks SET section_id = ? WHERE id = ?').run(target.id, b.id)
+      const upd = db.prepare('UPDATE wb_doc_blocks SET position = ? WHERE id = ?')
+      siblings.forEach((x, i) => upd.run(i, x.id))
+      if (target.id !== b.section_id) reorder('wb_doc_blocks', 'section_id', b.section_id)
     }
   })()
   return { ok: true, block: getBlock(itemId, b.id) as BlockRow, dropped_claims: dropped }
