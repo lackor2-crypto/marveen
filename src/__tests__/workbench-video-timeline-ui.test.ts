@@ -19,6 +19,9 @@ const TL = {
 async function open(extra: Record<string, unknown> = {}) {
   const h = workbenchHarness()
   h.respond((url, init) => {
+    if (url.includes('/timeline/autosubtitle')) {
+      return { status: 200, body: { ok: true, timeline: DOC, duration: 14, offsets: [0, 10], added: 2, skipped: ['x.mp4'], message: 'Kész az automatikus felirat.' } }
+    }
     if (url.includes('/timeline/ops')) {
       return { status: 200, body: { ok: true, timeline: DOC, summary: '', duration: 14, offsets: [0, 10], created: false, ...extra } }
     }
@@ -103,5 +106,36 @@ describe('video timeline editor (phase 5)', () => {
     await vi.waitFor(() => expect(h.html()).toMatch(/wb-items/))
     h.click({ 'data-wb-item': 'w1' })
     await vi.waitFor(() => expect(h.html()).toContain('Nincs mappa.'))
+  })
+
+  it('the automatic subtitle button sends the language and the replace choice, and says how many clips had no sound', async () => {
+    const h = await open()
+    expect(h.html()).toContain('data-wb-act="vt-autosub"')
+    h.inputs['wbVt-auto-lang'] = { value: 'de', focus() {} } as never
+    h.inputs['wbVt-auto-replace'] = { value: 'on', checked: false, focus() {} } as never
+    h.click({ 'data-wb-act': 'vt-autosub' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/autosubtitle'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/timeline/autosubtitle'))!
+    expect(JSON.parse(String(call.init!.body))).toEqual({ language: 'de', replace: false })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.vt.auto_skipped'))
+  })
+
+  it('a failed recognition shows the server sentence and the page stays usable', async () => {
+    const h = workbenchHarness()
+    h.respond((url) => {
+      if (url.includes('/timeline/autosubtitle')) return { status: 503, body: { error: 'autosub_not_installed', message: 'Nincs telepítve a felismerő.', detail: null } }
+      if (url.includes('/timeline')) return { status: 200, body: TL }
+      if (url.includes('/api/workbench/media')) return { status: 200, body: { files: [] } }
+      if (url.includes('/preview')) return { status: 200, body: { available: true, kind: 'timeline' } }
+      if (url.includes('/api/workbench/items/w1')) return { status: 200, body: { item: VIDEO, versions: [], parts: [], project: PROJECT } }
+      return { status: 200, body: itemsBody([VIDEO]) }
+    })
+    h.win.MarvinWorkbench.open('p1', PROJECT.name)
+    await vi.waitFor(() => expect(h.html()).toMatch(/wb-items/))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('vt-autosub'))
+    h.click({ 'data-wb-act': 'vt-autosub' })
+    await vi.waitFor(() => expect(h.html()).toContain('Nincs telepítve a felismerő.'))
+    expect(h.html()).toContain('data-wb-act="vt-autosub"')
   })
 })

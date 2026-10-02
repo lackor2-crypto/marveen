@@ -27,8 +27,8 @@ import { PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import type { RouteContext } from './types.js'
 
 const VOICE_DIR = join(homedir(), '.local', 'share', 'marveen-voice')
-const VTOOLS_PY = join(VOICE_DIR, '_vtools.py')
-const VENV_PY = join(VOICE_DIR, 'venv', 'bin', 'python')
+export const VTOOLS_PY = join(VOICE_DIR, '_vtools.py')
+export const VENV_PY = join(VOICE_DIR, 'venv', 'bin', 'python')
 
 // Telegram file_ids are base64url + some punctuation; reject anything else.
 const SAFE_FILE_ID_RE = /^[A-Za-z0-9_\-]{10,200}$/
