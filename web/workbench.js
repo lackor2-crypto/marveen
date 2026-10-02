@@ -11367,6 +11367,42 @@
     return simpleHeadHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
   }
 
+  /** Puts the slide strip back where it was, and only moves it when the open slide would be
+   *  out of view (then it is centered): clicking a slide must not throw the strip to the start. */
+  function restoreStripScroll(left) {
+    var strip = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-strip') : null
+    if (!strip) return
+    if (left !== null) strip.scrollLeft = left
+    var on = strip.querySelector('.wb-fr-cell-on')
+    if (!on) return
+    var from = on.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft
+    if (from < strip.scrollLeft || from + on.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = Math.max(0, from - (strip.clientWidth - on.offsetWidth) / 2)
+    }
+  }
+
+  /** The Simple-view frame reaches the very bottom of the window, like the left menu (Boss, TG 7444):
+   *  its height is what is left of the viewport below its top edge. When a work item is opened the
+   *  page is scrolled once so the frame's top sits at the top of the window. Phones keep the flow layout. */
+  function fitFrame() {
+    if (typeof document.querySelector !== 'function') return
+    var body = document.querySelector('.wb-fr-body')
+    if (!body || typeof body.getBoundingClientRect !== 'function' || !window.innerHeight) return
+    if (window.innerWidth <= 900) { body.style.height = ''; return }
+    var fr = body.parentNode
+    function setHeight() {
+      var top = body.getBoundingClientRect().top
+      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(top, 0))) + 'px'
+    }
+    setHeight()
+    // The page can only scroll once the frame is tall enough: height first, then scroll, then measure again.
+    if (WB.fitKey !== WB.selectedId) {
+      WB.fitKey = WB.selectedId
+      if (fr && typeof fr.scrollIntoView === 'function') { fr.scrollIntoView({ block: 'start' }); setHeight() }
+    }
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) fitFrame() })
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -11388,6 +11424,10 @@
       ? { src: oldVid.getAttribute('src'), at: oldVid.currentTime } : null
     var chatScroll = chatScrollSnapshot()
     var dpSnap = dpFocusSnapshot()
+    // A diasor-sav gorgetese: az ujrarajzolas uj elemet tesz a helyere, es a sav az elejere
+    // ugrana -- a 8-9-10. dia utan a 11.-re kattintva (Boss, TG 7426) nem szabad elvesznie a helynek.
+    var oldStrip = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-strip') : null
+    var stripLeft = oldStrip ? oldStrip.scrollLeft : null
     WB.rendering = true
     if (isSimple()) {
       el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
@@ -11424,6 +11464,8 @@
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
     restoreChatScroll(chatScroll)
+    restoreStripScroll(stripLeft)
+    fitFrame()
     fitHead()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
     if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(fitHead)
