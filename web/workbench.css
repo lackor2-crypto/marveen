@@ -1237,3 +1237,34 @@
 .wb-deck-pick img { width: 100%; height: auto; border: 1px solid var(--border, #d0d7de); background: #fff; }
 .wb-deck-thumb-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .wb-btn.wb-on { font-weight: 600; border-color: var(--accent, #2f6fde); }
+
+/* --- Egyszeru nezet (#462) ------------------------------------------------
+ * A terv szerinti kinezet: egyszeru fejlec, indulaskor egy kerdes, balra a
+ * chat, jobbra az eredmeny. A technikai reszletek a "⋮" menu mogott allnak. */
+.wb-view-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.wb-view-btn {
+  background: var(--bg-card); color: var(--text-muted); border: 0; padding: 6px 12px;
+  font-size: 0.85rem; cursor: pointer; min-height: 32px;
+}
+.wb-view-btn + .wb-view-btn { border-left: 1px solid var(--border); }
+.wb-view-on { background: var(--accent, #3b82f6); color: #fff; }
+.wb-sh-head .wb-sh-title { font-size: 1.15rem; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.wb-sh-saved { font-size: 0.85rem; color: var(--text-muted); }
+.wb-sh-saved-editing { color: var(--warn, #b45309); }
+.wb-sh-more { min-width: 36px; font-size: 1.2rem; line-height: 1; }
+.wb-sh-main { display: flex; flex-direction: column; gap: 12px; }
+.wb-sh-intake { max-width: 720px; margin: 24px auto; display: flex; flex-direction: column; gap: 12px; }
+.wb-sh-ask { margin: 0; font-size: 1.5rem; }
+.wb-sh-intake .wb-intake-text { width: 100%; }
+.wb-sh-result { display: flex; flex-direction: column; gap: 10px; }
+.wb-sh-doc-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.wb-sh-doc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; }
+.wb-sh-materials { border-top: 1px solid var(--border); padding-top: 8px; }
+.wb-sh-materials h3 { margin: 0 0 6px; font-size: 0.95rem; }
+.wb-sh-tech { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.wb-sh-tech .wb-panel { display: flex; }
+@media (max-width: 900px) {
+  .wb-sh-tech .wb-panel { display: flex; }
+  .wb-sh-ask { font-size: 1.25rem; }
+  .wb-view-btn { padding: 6px 8px; font-size: 0.8rem; }
+}

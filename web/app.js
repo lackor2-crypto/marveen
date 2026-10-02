@@ -27271,6 +27271,10 @@ async function loadSettings() {
         group.appendChild(buildSettingRow(def))
       }
       panel.appendChild(group)
+      // The Workbench look is a per-browser choice (#462), not a server key.
+      if (mod === 'system' && window.MarvinWorkbench && window.MarvinWorkbench.viewSettingCard) {
+        panel.appendChild(window.MarvinWorkbench.viewSettingCard())
+      }
       tabPanels.appendChild(panel)
     }
 
