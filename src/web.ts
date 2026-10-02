@@ -46,6 +46,7 @@ import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
+import { startCardNudge } from './web/card-work-nudge-job.js'
 import { listMounts } from './life-mounts.js'
 import { reconcileMountLinks } from './life-mount-links.js'
 import { liveSweepDeps, sweepWorktrees, SWEEP_INTERVAL_MS } from './web/worktree-sweeper.js'
@@ -710,6 +711,9 @@ export function startWebServer(port = 3420): http.Server {
   // #463: ki er most ra dolgozni -- 60 mp-enkent merve; aki visszaall, ugyanaz
   // kap uzenetet a sajat fuggo munkajaval (nem a fo agens).
   const availabilityInterval = startAvailabilityWatch()
+  // #461 fazis 2b: aki tetlen, tud dolgozni es nyitott kartyaja van, azt a dashboard
+  // noszogatja (novekvo szunetekkel, plafonnal); nincs keret = nem szol.
+  const cardNudgeInterval = startCardNudge()
 
   // Boss, 2026-10-01: a bekotott git-repo a Windows Intezoben is latszodjon a
   // projekt alatt. Indulaskor a mar meglevo bekotesek hivatkozasat potoljuk.
@@ -1109,6 +1113,7 @@ export function startWebServer(port = 3420): http.Server {
     stopBackupScheduler()
     clearInterval(skillSeederInterval)
     if (availabilityInterval) clearInterval(availabilityInterval)
+    if (cardNudgeInterval) clearInterval(cardNudgeInterval)
     clearTimeout(worktreeSweepStart)
     clearInterval(worktreeSweepInterval)
     clearInterval(weeklySummaryInterval)
