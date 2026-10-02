@@ -139,6 +139,11 @@
     // bevett "chat + artifact" elrendezes); 'classic' = a harom panel, alatta a
     // chat. A valasztas a bongeszoben marad meg (nincs szerver-oldali allapot).
     layout: readLayout(),
+    // --- kinezet: manualis | egyszeru (#462) ---
+    view: readView(),
+    shMore: false,      // egyszeru nezet: a "Technikai reszletek" terulet nyitva
+    shDocTab: 'draft',  // egyszeru nezet, dokumentum: draft | preview | sources | gaps
+    shFinal: false,     // egyszeru nezet, dokumentum: a veglesites lepesei nyitva
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
     // `tl === null` = meg nem kerdeztuk meg; ures tomb = megkerdeztuk, es
@@ -262,6 +267,19 @@
   }
   function saveOvOpen(v) {
     try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.ovOpen', v ? '1' : '0') } catch (_e) { /* nem baj: csak most ervenyes */ }
+  }
+
+  /** The look of the Workbench (#462): 'manual' = the technical screen as it
+   *  has been, 'simple' = the planned one-question screen. Per browser; the
+   *  default is manual so nothing changes until the owner flips it. */
+  function readView() {
+    try {
+      var v = window.localStorage && window.localStorage.getItem('marveen.workbench.view')
+      return v === 'simple' ? 'simple' : 'manual'
+    } catch (_e) { return 'manual' }
+  }
+  function saveView(v) {
+    try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.view', v) } catch (_e) { /* nem baj: csak most ervenyes */ }
   }
 
   function saveLayout(v) {
@@ -10137,6 +10155,224 @@
     }, 400)
   }
 
+
+  // ---- EGYSZERU NEZET (#462) ------------------------------------------------
+  //
+  // A terv szerinti kinezet (v1 terv 2-4. pont, v4 spec 6.1, K-3.1-3.3): felul
+  // egy egyszeru fejlec, indulaskor EGY kerdes ("Mit szeretnel letrehozni?"),
+  // balra a chat, jobbra az eredmeny munkatipus szerint. MINDEN technikai elem
+  // a tobbpontos menu mogott van -- ugyanazok a fuggvenyek rajzoljak, mint a
+  // manualis nezetben, semmi nem torlodik, csak mas a helye.
+
+  function isSimple() { return WB.view === 'simple' }
+
+  /** A valaszto a fejlecben: ket allas, az aktualis jelolve. */
+  function viewSwitchHtml() {
+    function btn(v) {
+      var on = WB.view === v
+      return '<button type="button" class="wb-view-btn' + (on ? ' wb-view-on' : '') + '" data-wb-act="view-set" data-wb-view="' + v + '"'
+        + ' aria-pressed="' + on + '">' + esc(t('workbench.view.' + v)) + '</button>'
+    }
+    return '<div class="wb-view-switch" role="group" aria-label="' + escA(t('workbench.view.label')) + '"'
+      + ' title="' + escA(t('workbench.view.hint')) + '">' + btn('manual') + btn('simple') + '</div>'
+  }
+
+  function setView(v) {
+    v = v === 'simple' ? 'simple' : 'manual'
+    if (WB.view === v) return
+    WB.view = v
+    saveView(v)
+    WB.shMore = false
+    render()
+  }
+
+  /** Mentve / Mentes... / szerkesztes alatt. Az allapotot a FELULET valos
+   *  allapotabol szamoljuk (nyitott szerkeszto, folyamatban levo muvelet), nem
+   *  allitjuk "Mentve"-nek mindig. */
+  function savedState() {
+    if (WB.busy || WB.versionBusy || WB.partBusy || WB.upload || WB.docFinalizing) return 'saving'
+    var editing = WB.docEdit || WB.pdfEdit || WB.textEdit || WB.partEdit || WB.partNewOpen || WB.canvasEdit
+      || (WB.table && WB.table.dirty) || (WB.img && WB.img.dirty)
+    return editing ? 'editing' : 'saved'
+  }
+
+  function simpleHeadHtml() {
+    var it = WB.selectedId && WB.detail ? WB.detail.item : null
+    var title = it ? it.title : (WB.project ? WB.project.name : '')
+    var st = savedState()
+    var out = '<div class="wb-head wb-sh-head">'
+      + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
+      + '<h1 class="wb-sh-title">' + (it ? workSeqHtml(it) : '') + esc(title) + '</h1>'
+    if (it) out += '<span class="wb-sh-saved wb-sh-saved-' + st + '" role="status">' + esc(t('workbench.sh.saved.' + st)) + '</span>'
+    if (it && !archived()) {
+      out += '<button type="button" class="btn-secondary" data-wb-act="sh-new">' + esc(t('workbench.sh.new')) + '</button>'
+    }
+    if (it) {
+      out += '<button type="button" class="btn-secondary" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '"'
+        + ' aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
+    }
+    out += viewSwitchHtml()
+      + '<button type="button" class="btn-secondary wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '"'
+      + ' aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
+      + '</div>'
+    return out + (it && exportIsOpen() ? exportPanelHtml() : '')
+  }
+
+  /** Az indulo kep: egy kerdes, egy szovegmezo, ot gomb. A mappa-valasztas
+   *  (ha a projektnek van mappa-rendszere) a Technikai reszletek helyett itt
+   *  marad, mert nelkule a letrehozas nem engedelyezett. */
+  function simpleIntakeHtml() {
+    var ask = WB.intakeAsk
+    var kinds = ask ? ask.options : INTAKE_KINDS
+    var busy = !!WB.intakeBusy
+    return '<section class="wb-sh-intake">'
+      + '<h2 class="wb-sh-ask">' + esc(t('workbench.sh.ask')) + '</h2>'
+      + '<textarea class="wb-input wb-intake-text" id="wbIntakeText" rows="3" maxlength="4000" placeholder="'
+      + escA(t('workbench.sh.placeholder')) + '" aria-label="' + escA(t('workbench.sh.ask')) + '">' + esc(WB.intakeDraft || '') + '</textarea>'
+      + (ask ? '<div class="info-box wb-intake-ask" role="status">' + esc(ask.message) + '</div>' : '')
+      + '<div class="wb-intake-kinds">' + kinds.map(function (k) {
+        return '<button type="button" class="btn-secondary wb-intake-kind" data-wb-act="intake-kind" data-wb-kind="' + escA(k) + '"'
+          + (busy ? ' disabled' : '') + '>' + esc(t('workbench.intake.kind.' + k)) + '</button>'
+      }).join('') + '</div>'
+      + (archived() ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
+        : '<p><button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
+          + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button></p>'
+          + (hasFolderSystem() ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
+      + (ask ? '<p><button type="button" class="btn-secondary" data-wb-act="intake-reset">' + esc(t('workbench.intake.all_kinds')) + '</button></p>' : '')
+      + '</section>'
+  }
+
+  // --- dokumentum: Vazlat | Elonezet | Forrasok | Hianyok ---
+
+  var DOC_MISSING_RE = /⚠\s*(Hiányzó adat|Forrás nem található|Missing data|Source not found)[^\n⚠]*/g
+
+  function docSourcesHtml(o, ro) {
+    var rows = []
+    ;(o.sections || []).forEach(function (sec) {
+      var claims = []
+      ;(sec.blocks || []).forEach(function (b) { (b.claims || []).forEach(function (c) { claims.push(c) }) })
+      if (claims.length) rows.push('<h4>' + esc(sec.title) + '</h4><ul class="wb-outline-claims">' + claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>')
+    })
+    return rows.length ? rows.join('') : '<p class="wb-hint">' + esc(t('workbench.sh.doc.sources_none')) + '</p>'
+  }
+
+  function docGapsHtml(o, ro) {
+    var rows = []
+    ;(o.sections || []).forEach(function (sec) {
+      var lines = []
+      ;(sec.blocks || []).forEach(function (b) {
+        ;(String(b.text || '').match(DOC_MISSING_RE) || []).forEach(function (m) {
+          lines.push('<li><mark class="wb-outline-missing">' + esc(m) + '</mark></li>')
+        })
+        ;(b.claims || []).forEach(function (c) {
+          if (c.strength === 'unverified' || c.strength === 'owner_unconfirmed' || c.strength === 'inference') {
+            lines.push('<li>' + esc(claimIcon(c)) + ' ' + esc(c.text) + ' <span class="wb-muted">' + esc(t('workbench.outline.strength.' + c.strength)) + '</span></li>')
+          }
+        })
+      })
+      if (lines.length) rows.push('<h4>' + esc(sec.title) + '</h4><ul class="wb-outline-claims">' + lines.join('') + '</ul>')
+    })
+    return (rows.length ? rows.join('') : '<p class="wb-hint">' + esc(t('workbench.sh.doc.gaps_none')) + '</p>')
+      + (o.check ? outlineCheckHtml(o.check, o, ro) : '')
+  }
+
+  function docTabsHtml() {
+    var o = WB.detail && WB.detail.outline
+    var ro = archived()
+    var tab = WB.shDocTab
+    var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview'], ['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps']]
+    var head = '<div class="wb-sh-doc-tabs" role="tablist">' + tabs.map(function (x) {
+      return '<button type="button" class="tab-btn' + (tab === x[0] ? ' active' : '') + '" role="tab" aria-selected="' + (tab === x[0]) + '"'
+        + ' data-wb-act="sh-doc-tab" data-wb-tab="' + x[0] + '">' + esc(t(x[1])) + '</button>'
+    }).join('') + '</div>'
+    var base = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline'
+    // A ket gomb vazlat nelkul is ott van (kiszurkitve): a tulajdonos lassa, mi
+    // jon a vegen, es azt is, miert nem nyomhato meg meg.
+    var actions = '<p class="wb-sh-doc-actions">'
+      + (o ? '<a class="btn-secondary btn-compact" href="' + escA(base + '/pdf?lang=' + encodeURIComponent(window._lang || 'hu')) + '" target="_blank" rel="noopener"'
+        + ' title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</a> '
+        : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
+      + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
+        + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>')
+      + '</p>' + (o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : '')
+    var body = tab === 'preview' ? previewHtml()
+      : tab === 'sources' ? (o ? docSourcesHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.sources_none')) + '</p>')
+      : tab === 'gaps' ? (o ? docGapsHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.gaps_none')) + '</p>')
+      : outlineHtml() + canvasHtml() + postPreviewHtml()
+    return head + actions + '<div class="wb-sh-doc-body">' + body + '</div>'
+  }
+
+  /** A jobb oldal: az eredmeny a munkatipus szerint. A poszt a vaszonnal
+   *  EGYUTT latszik (nem gomb mogott), a video lejatszoval es idosavval, a
+   *  prezentacio a diakkal. */
+  function simpleResultHtml() {
+    if (!WB.selectedId) return '<p class="wb-muted wb-center">' + esc(t('workbench.sh.none')) + '</p>'
+    if (!WB.detail) return '<p class="wb-muted wb-center">' + esc(t('workbench.loading')) + '</p>'
+    var it = WB.detail.item
+    var inner
+    if (WB.compare && WB.compare.itemId === WB.selectedId) inner = compareHtml()
+    else if (it.type === 'document') inner = docTabsHtml()
+    else {
+      inner = (surfaceOf(it) === 'canvas' ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
+        + videoTimelineHtml()
+        + deckHtml()
+        + (partsAreTechnical(it) ? '' : partsHtml())
+        + postPreviewHtml()
+    }
+    return '<div class="wb-sh-result wb-sh-type-' + escA(it.type) + '"' + (!archived() ? ' data-wb-drop="item"' : '') + '>' + inner + '</div>'
+  }
+
+  /** Alul: az Anyagok (a behuzas/feltoltes helye). */
+  function simpleMaterialsHtml() {
+    if (archived()) return ''
+    return '<section class="wb-sh-materials"><h3>📎 ' + esc(t('workbench.sh.materials')) + '</h3>' + uploadZoneHtml() + '</section>'
+  }
+
+  /** A Technikai reszletek: a teljes manualis felulet (minden gomb, panel,
+   *  lista), a kijelolt munkadarab belso reszeivel egyutt. Ide kerul a chat es
+   *  a jobb oldali eredmeny KIVETELEVEL minden: azok az egyszeru nezet
+   *  fo teruleten allnak, ketszer nem rajzoljuk ki (azonos azonositok). */
+  function simpleTechHtml() {
+    var it = WB.selectedId && WB.detail ? WB.detail.item : null
+    var itemTech = it
+      ? '<div class="wb-sh-tech-item">'
+        + versionBarHtml()
+        + (it.type === 'document' ? '' : outlineHtml())
+        + (partsAreTechnical(it) ? partsTechHtml() : '')
+        + deadlinesBoxHtml()
+        + todosBoxHtml()
+        + approvalBoxHtml()
+        + '</div>'
+      : ''
+    return '<section class="wb-sh-tech" id="wbShTech" aria-label="' + escA(t('workbench.sh.tech')) + '">'
+      + '<h2 class="wb-panel-title">' + esc(t('workbench.sh.tech')) + '</h2>'
+      + '<div class="wb-head wb-sh-tech-actions">'
+      + ['search', 'wk', 'tl', 'dec', 'brand', 'td', 'ho', 'caps'].map(function (k) {
+        var open = { search: WB.searchOpen, wk: WB.wkOpen, tl: WB.tlOpen, dec: WB.decOpen, brand: WB.brandOpen, td: WB.tdOpen, ho: WB.hoOpen, caps: WB.capsOpen }[k]
+        return '<button type="button" class="btn-secondary" data-wb-act="' + k + '-open" aria-pressed="' + !!open + '">' + esc(t('workbench.' + k + '.open')) + '</button>'
+      }).join('')
+      + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
+      + '</div>'
+      + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml()
+      + brandPanelHtml() + todosPanelHtml() + handoffPanelHtml() + overviewHtml()
+      + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>'
+      + itemTech
+      + '</section>'
+  }
+
+  function simpleHtml() {
+    var hasItem = !!WB.selectedId
+    var main
+    if (!hasItem) main = simpleIntakeHtml()
+    else {
+      main = '<div class="wb-split wb-sh-split">'
+        + '<div class="wb-split-chat">' + chatBarHtml() + '</div>'
+        + '<div class="wb-split-work wb-sh-work">' + simpleResultHtml() + '</div>'
+        + '</div>' + simpleMaterialsHtml()
+    }
+    return simpleHeadHtml() + '<div class="wb-sh-main">' + main + '</div>' + (WB.shMore ? simpleTechHtml() : '')
+  }
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -10157,10 +10393,13 @@
     var vidKeep = oldVid && typeof oldVid.currentTime === 'number' && oldVid.currentTime > 0 && oldVid.getAttribute
       ? { src: oldVid.getAttribute('src'), at: oldVid.currentTime } : null
     var chatScroll = chatScrollSnapshot()
-    el.innerHTML = '<div class="wb-root">'
+    if (isSimple()) {
+      el.innerHTML = '<div class="wb-root wb-root-simple">' + simpleHtml() + '</div>'
+    } else el.innerHTML = '<div class="wb-root">'
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
       + '<h1>' + esc(t('workbench.title', { project: WB.project ? WB.project.name : '' })) + '</h1>'
+      + viewSwitchHtml()
       + '<button type="button" class="btn-secondary" data-wb-act="layout-toggle" aria-pressed="' + (WB.layout === 'split') + '"'
       + ' title="' + escA(t('workbench.layout.hint')) + '">'
       + esc(t(WB.layout === 'split' ? 'workbench.layout.to_classic' : 'workbench.layout.to_split')) + '</button>'
@@ -10753,6 +10992,11 @@
     else if (a === 'create-table') { e.preventDefault(); createTable() }
     else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
+    else if (a === 'view-set') setView(act.getAttribute('data-wb-view'))
+    else if (a === 'sh-more') { WB.shMore = !WB.shMore; render() }
+    else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
+    else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
+    else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
@@ -11513,8 +11757,41 @@
     WB.overviewError = null
   }
 
+
+  /** The same two-way choice for the Settings page (#462): a small card with
+   *  two radio buttons. It writes the same per-browser value as the Workbench
+   *  header switch, so the two always agree. */
+  function viewSettingCard() {
+    var card = document.createElement('div')
+    card.className = 'settings-row wb-view-setting'
+    card.style.cssText = 'padding:12px 0;border-top:1px solid var(--border)'
+    var title = document.createElement('div')
+    title.style.fontWeight = '600'
+    title.textContent = t('workbench.view.label')
+    var hint = document.createElement('div')
+    hint.style.cssText = 'font-size:13px;color:var(--text-muted);margin:4px 0 8px'
+    hint.textContent = t('workbench.view.hint')
+    card.appendChild(title)
+    card.appendChild(hint)
+    ;['manual', 'simple'].forEach(function (v) {
+      var label = document.createElement('label')
+      label.style.cssText = 'display:block;margin:4px 0;cursor:pointer'
+      var input = document.createElement('input')
+      input.type = 'radio'
+      input.name = 'wbViewSetting'
+      input.value = v
+      input.checked = WB.view === v
+      input.addEventListener('change', function () { if (input.checked) setView(v) })
+      label.appendChild(input)
+      label.appendChild(document.createTextNode(' ' + t('workbench.view.' + v)))
+      card.appendChild(label)
+    })
+    return card
+  }
+
   window.MarvinWorkbench = {
     open: openWorkbench,
+    viewSettingCard: viewSettingCard,
     close: closeWorkbench,
     reset: resetWorkbench,
     isOpen: function () { return WB.open },
