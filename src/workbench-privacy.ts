@@ -49,10 +49,39 @@ export function ensurePrivacyTables(): void {
       set_by TEXT
     )
   `)
+  // Every call to the external image-editing service: what went out, to whom, what it cost (K-1.33, K-X.1).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wb_ai_image_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      work_item_id TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      file TEXT,
+      instruction_chars INTEGER NOT NULL,
+      cost_usd REAL,
+      status TEXT NOT NULL
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_wb_ai_image_log_item ON wb_ai_image_log(work_item_id, at)')
   tablesDb = db
 }
 
 const now = (): number => Math.floor(Date.now() / 1000)
+
+/** Notes one call of the external image-editing service for a work item. */
+export function recordImageAiCall(itemId: string, call: { model: string; file: string | null; instruction_chars: number; cost_usd: number | null; status: 'sent' | 'failed' }): void {
+  ensurePrivacyTables()
+  getDb().prepare('INSERT INTO wb_ai_image_log (work_item_id, at, model, file, instruction_chars, cost_usd, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(itemId, now(), call.model, call.file, call.instruction_chars, call.cost_usd, call.status)
+}
+
+/** What the paid AI steps of a work item cost so far (K-X.1). `unknown` counts calls whose price could not be worked out. */
+export function itemAiCost(itemId: string): { usd: number; calls: number; unknown: number } {
+  ensurePrivacyTables()
+  const r = getDb().prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls, SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS unknown
+    FROM wb_ai_image_log WHERE work_item_id = ? AND status = 'sent'`).get(itemId) as { usd: number; calls: number; unknown: number | null }
+  return { usd: Math.round(r.usd * 10000) / 10000, calls: r.calls, unknown: r.unknown ?? 0 }
+}
 
 export function projectSensitive(projectId: string): boolean {
   ensurePrivacyTables()
@@ -227,7 +256,7 @@ export function searchBlock(projectId: string, itemId: string | null, query: str
 // Kimeno adatok naploja (K-1.33)
 // ---------------------------------------------------------------------------
 
-export type EgressService = 'claude' | 'web_search' | 'claude_code' | 'google_calendar'
+export type EgressService = 'claude' | 'web_search' | 'claude_code' | 'google_calendar' | 'image_ai'
 
 export interface EgressRow {
   /** Masodperc. */
@@ -242,6 +271,10 @@ export interface EgressRow {
   todo?: string
   due?: string | null
   status: 'sent' | 'blocked' | 'failed'
+  /** image_ai: model, the picture that went out, and what the call cost (null = price unknown). */
+  model?: string
+  file?: string | null
+  cost_usd?: number | null
 }
 
 /** Az eszkozok, amelyek fajl-tartalmat adnak vissza (ami igy a Claude ele kerul). */
@@ -316,6 +349,11 @@ export function egressLog(itemId: string): EgressRow[] {
         rows.push({ at: at > 1e12 ? Math.floor(at / 1000) : at, service: 'google_calendar', account: t.gcal_account, todo: t.text, due: t.due_date, status: 'sent' })
       }
     }
+  }
+  ensurePrivacyTables()
+  for (const r of db.prepare('SELECT at, model, file, cost_usd, status FROM wb_ai_image_log WHERE work_item_id = ?').all(itemId) as
+    { at: number; model: string; file: string | null; cost_usd: number | null; status: string }[]) {
+    rows.push({ at: r.at, service: 'image_ai', account: null, model: r.model, file: r.file, cost_usd: r.cost_usd, status: r.status === 'failed' ? 'failed' : 'sent' })
   }
   rows.sort((a, b) => b.at - a.at)
   return rows.slice(0, EGRESS_MAX)

@@ -11,7 +11,7 @@ import { createWorkItem, getWorkItem, purgeWorkItem, setWorkItemDeleted } from '
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import {
   privacyState, setItemSensitive, setProjectSensitive, sensitiveItemIds, personalDataIn, knownNames, searchBlock,
-  externalServiceAllowed, egressLog,
+  externalServiceAllowed, egressLog, recordImageAiCall, itemAiCost,
 } from '../workbench-privacy.js'
 import { runTool } from '../workbench-agent/execute.js'
 import { buildContext } from '../workbench-agent/context.js'
@@ -123,6 +123,24 @@ describe('erzekeny jeloles es szemelyes adat a keresesben', () => {
     setWorkItemDeleted(itemId, true)
     expect(purgeWorkItem(itemId).ok).toBe(true)
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM wb_item_privacy').get()).toEqual({ n: 0 })
+  })
+
+  it('K-1.33 + K-X.1: a kepszerkeszto AI hivasa bekerul a naploba, a munkadarab AI-koltsege osszesitve latszik, torleskor eltunik', () => {
+    expect(itemAiCost(itemId)).toEqual({ usd: 0, calls: 0, unknown: 0 })
+    recordImageAiCall(itemId, { model: 'gemini-x', file: 'Freeber/auto.png', instruction_chars: 20, cost_usd: 0.039, status: 'sent' })
+    recordImageAiCall(itemId, { model: 'gemini-x', file: 'Freeber/auto-ai.png', instruction_chars: 10, cost_usd: 0.04, status: 'sent' })
+    recordImageAiCall(itemId, { model: 'gemini-y', file: 'Freeber/logo.png', instruction_chars: 10, cost_usd: null, status: 'sent' })
+    recordImageAiCall(itemId, { model: 'gemini-x', file: 'Freeber/x.png', instruction_chars: 10, cost_usd: null, status: 'failed' })
+    // a sikertelen hivas nem szamit koltsegnek, az ismeretlen arut kulon jelzi
+    expect(itemAiCost(itemId)).toEqual({ usd: 0.079, calls: 3, unknown: 1 })
+    const rows = egressLog(itemId).filter((r) => r.service === 'image_ai')
+    expect(rows).toHaveLength(4)
+    expect(rows.map((r) => r.status).sort()).toEqual(['failed', 'sent', 'sent', 'sent'])
+    expect(rows.find((r) => r.file === 'Freeber/auto.png')).toMatchObject({ model: 'gemini-x', cost_usd: 0.039 })
+    expect(purgeWorkItem(itemId).ok).toBe(false)
+    setWorkItemDeleted(itemId, true)
+    expect(purgeWorkItem(itemId).ok).toBe(true)
+    expect(itemAiCost(itemId).calls).toBe(0)
   })
 
   it('kimeno adatok naploja (K-1.33): Agent-kor az olvasott fajlokkal, kereses (letiltott is), teljes erteku ugynok, Google Naptar', () => {

@@ -152,6 +152,8 @@ function harness(): Harness {
     const r = responder(url, init)
     // status 0 = a halozat/szerver nem erheto el (pl. ujraindul): a valodi fetch ilyenkor elutasit.
     if (r.status === 0) return Promise.reject(new TypeError('Failed to fetch'))
+    // status -1 = a kerest a felhasznalo megallitotta (AbortError).
+    if (r.status === -1) return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
     // Ha a valasz SZOVEG, akkor SSE-folyam (agent-chat): a `text()` adja vissza.
     const isText = typeof r.body === 'string'
     const chunks = r.chunks ? r.chunks.slice() : null
@@ -2729,6 +2731,25 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     expect(JSON.parse(String(calls[0].init?.body)).message).toBe('első ötlet')
   })
 
+  // K-0.4: a sorban allo uzenet nemcsak visszavonhato, hanem szerkesztheto is.
+  it('K-0.4: a sorban allo uzenet szerkesztese visszateszi a szoveget a beiro mezobe, a sorbol kikerul', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running: true, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    h.inputs.wbChatInput = { value: 'javitani valo uzenet', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    const m = /data-wb-act="chat-edit-queued" data-wb-turn="(\d+)"/.exec(h.rootEl.innerHTML)
+    expect(m).not.toBeNull()
+    h.inputs.wbChatInput = { value: '', focus() {} }
+    h.click({ 'data-wb-act': 'chat-edit-queued', 'data-wb-turn': m![1] })
+    expect(h.rootEl.innerHTML).not.toContain('chat-edit-queued')
+    expect(h.rootEl.innerHTML).toContain('javitani valo uzenet</textarea>')
+  })
+
   // #434, valos eset: 12:12:05-kor az automatikus elesites ujrainditotta a
   // dashboardot, a chat "Nem erem el a Marveent" hibat irt, pedig csak frissult.
   it('#434: megszakadt kapcsolatnal nem ir rogton hibat, megvarja a szervert, es betolti a mentett valaszt', async () => {
@@ -2777,6 +2798,29 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     expect(h.rootEl.innerHTML).not.toContain('workbench.err.network')
     expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-send"')
     expect(h.rootEl.innerHTML).not.toContain('data-wb-act="chat-stop"')
+  })
+
+  it('K-0.8: a megallitott valasz alatt Folytatas gomb van, ami uj kerdeskent elkuldi a folytatast', async () => {
+    let aborted = true
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        if (aborted) return { status: -1, body: null }
+        return { status: 200, body: sse([{ type: 'text', text: 'Folytatom.' }, { type: 'done', model: 'm' }]) }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running: false, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+    h.inputs.wbChatInput = { value: 'hosszu kerdes', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="chat-continue"'))
+    aborted = false
+    h.click({ 'data-wb-act': 'chat-continue' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Folytatom.'))
+    const calls = posted('/api/workbench/agent/message')
+    expect(JSON.parse(String(calls[calls.length - 1].init?.body)).message).toContain('workbench.chat.continue_text')
   })
 
   it('az Allj gomb a SZERVEREN is leallit (POST /agent/stop), nem csak a bongeszoben', async () => {
