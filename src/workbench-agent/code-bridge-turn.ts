@@ -370,10 +370,16 @@ export function codeBridgeOutdatedDetail(task: CodeBridgeTaskView): string | nul
 /** A limit, an outdated worker or a stalled run: the work was NOT finished and another account
  *  can take it over (Boss, 2026-09-29: "Az elso dolog az legyen, hogy megnezi,
  *  hogy milyen masik fiokban van limit es tud dolgozni"). */
-export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'stalled' | null {
+export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'stalled' | 'error' | null {
   if (codeBridgeLimitDetail(task)) return 'limit'
   if (codeBridgeOutdatedDetail(task)) return 'outdated'
   if (codeBridgeStallDetail(task)) return 'stalled'
+  // Boss, 2026-10-02 (TG 7117 + 7127): ANY other error-stop is continued too,
+  // not only the three recognized kinds -- as long as the work is not done, the
+  // dashboard keeps it going. The run only truly stops when no account can work
+  // (the limit floor, handled by the caller) or when it stops making progress
+  // (a repeating error -- capped by the continuation layer, not here).
+  if (task.status === 'error') return 'error'
   return null
 }
 

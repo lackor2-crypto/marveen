@@ -98,6 +98,10 @@ export const MESSAGES = {
     hu: 'A VS Code kódhíd Claude Code programja elavult, ezt a modellt nem ismeri (nem keretprobléma). A munkát a(z) {to} fiókkal folytatom.',
     en: 'The VS Code code bridge Claude Code is out of date and does not know this model (not a quota problem). I continue the work with the {to} account.',
   },
+  code_bridge_error_fallback: {
+    hu: 'A VS Code kódhíd futása hibával állt le (nem keretprobléma), a munka viszont még nincs kész. A(z) {to} fiókkal folytatom.',
+    en: 'The VS Code code bridge run stopped with an error (not a quota problem), but the work is not finished. I continue it with the {to} account.',
+  },
   live_account_switched: {
     hu: 'A(z) {from} fiók kerete kifogyott, a munkát a(z) {to} fiókkal folytatom.',
     en: 'The {from} account ran out of quota, I continue the work with the {to} account.',

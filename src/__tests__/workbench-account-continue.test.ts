@@ -33,12 +33,15 @@ const task = (extra: Partial<CodeTask>): CodeTask => ({
 } as unknown as CodeTask)
 
 describe('codeBridgeContinuable', () => {
-  it('limit, idle stop and hard stop are continuable; a real error is not', () => {
+  it('limit, idle stop, hard stop, outdated AND any plain error are continuable; a finished task is not', () => {
     expect(codeBridgeContinuable(LIMIT)).toBe('limit')
     expect(codeBridgeContinuable(STALL)).toBe('stalled')
     expect(codeBridgeContinuable(HARD)).toBe('stalled')
     expect(codeBridgeContinuable(OUTDATED)).toBe('outdated')
-    expect(codeBridgeContinuable(view({ error: 'tsc failed: 3 errors' }))).toBeNull()
+    // Boss, 2026-10-02 (TG 7117 + 7127): any OTHER error-stop is continued too,
+    // not left dead -- the work only stops when no account can work (the limit
+    // floor) or when it stops making progress (capped by the continuation layer).
+    expect(codeBridgeContinuable(view({ error: 'tsc failed: 3 errors' }))).toBe('error')
     expect(codeBridgeContinuable(view({ status: 'done', result: 'ok' }))).toBeNull()
   })
 })
@@ -134,10 +137,33 @@ describe('continueBridgeTaskElsewhere -- the completion hook', () => {
     expect(continueBridgeTaskElsewhere(task({ origin: 'telegram' as CodeTask['origin'], error: STALL.error }))).toBe(false)
   })
 
-  it('a real error or a finished task is delivered as usual', () => {
+  it('a plain error is continued too now (Boss, 2026-10-02); a finished task is delivered as usual', () => {
     setBridgeContinuationHandler(() => true)
-    expect(continueBridgeTaskElsewhere(task({ error: 'tsc failed' }))).toBe(false)
-    expect(continueBridgeTaskElsewhere(task({ status: 'done', result: 'ok' } as Partial<CodeTask>))).toBe(false)
+    expect(continueBridgeTaskElsewhere(task({ id: 'pe1', chatId: 'c1', error: 'tsc failed' }))).toBe(true)
+    expect(continueBridgeTaskElsewhere(task({ id: 'pd1', chatId: 'c2', status: 'done', result: 'ok' } as Partial<CodeTask>))).toBe(false)
+  })
+
+  it('a repeating plain error is capped per chat; after the cap the real error is delivered', () => {
+    setBridgeContinuationHandler(() => true)
+    for (let i = 0; i < 5; i++) {
+      expect(continueBridgeTaskElsewhere(task({ id: 'cap' + i, chatId: 'capc', error: 'boom' }))).toBe(true)
+    }
+    // 6th time with no 'done' in between: no progress is itself "cannot work" -> stop.
+    expect(continueBridgeTaskElsewhere(task({ id: 'cap5', chatId: 'capc', error: 'boom' }))).toBe(false)
+  })
+
+  it('a finished answer resets the per-chat error streak, so work can continue again', () => {
+    setBridgeContinuationHandler(() => true)
+    for (let i = 0; i < 5; i++) continueBridgeTaskElsewhere(task({ id: 'rs' + i, chatId: 'rsc', error: 'boom' }))
+    expect(continueBridgeTaskElsewhere(task({ id: 'rsdone', chatId: 'rsc', status: 'done', result: 'ok' } as Partial<CodeTask>))).toBe(false)
+    expect(continueBridgeTaskElsewhere(task({ id: 'rs6', chatId: 'rsc', error: 'boom' }))).toBe(true)
+  })
+
+  it('the cap is PER chat: a different chat is not affected', () => {
+    setBridgeContinuationHandler(() => true)
+    for (let i = 0; i < 5; i++) continueBridgeTaskElsewhere(task({ id: 'a' + i, chatId: 'chatA', error: 'boom' }))
+    expect(continueBridgeTaskElsewhere(task({ id: 'a5', chatId: 'chatA', error: 'boom' }))).toBe(false)
+    expect(continueBridgeTaskElsewhere(task({ id: 'b0', chatId: 'chatB', error: 'boom' }))).toBe(true)
   })
 })
 
@@ -147,6 +173,15 @@ describe('the chat names the accounts (Boss, 2026-09-29)', () => {
     expect(msg('live_account_switched', 'en', { from: 'a1', to: 'a2' })).toContain('a2')
     expect(msg('code_bridge_limit_fallback', 'hu', { to: 'a2' })).toContain('a(z) a2 fiókkal folytatom')
     expect(msg('code_bridge_stalled_fallback', 'en', { to: 'a2' })).toContain('a2')
+    // Boss, 2026-10-02: a plain bridge error also continues on another account.
+    expect(msg('code_bridge_error_fallback', 'hu', { to: 'a2' })).toContain('a2 fiókkal folytatom')
+    expect(msg('code_bridge_error_fallback', 'en', { to: 'a2' })).toContain('a2')
+  })
+
+  it('the live route continues on a plain bridge error too, not only limit/stall/outdated', () => {
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench-agent.ts'), 'utf-8')
+    expect(src).toContain("ev.code === 'code_bridge_error'")
+    expect(src).toContain("code_bridge_error_fallback")
   })
 
   it('the route wires it: mid-answer switch, stalled fallback, background handler, idle cap', () => {
