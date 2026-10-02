@@ -157,6 +157,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
     ...workItemFileLines(input.workItem),
     `Answer in ${language}, in plain sentences for a non-programmer.${input.lang === 'en' ? '' : ' Address the owner informally (tegezés: "te"), never with "Ön" or "Maga".'}`,
+    `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done. If you were cut off, ran out of steps, hit an error, have an open question, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. The owner never sees the marker; it is removed from your answer.`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
   const historyIntro = '\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n'
@@ -196,6 +197,28 @@ export function codeBridgeErrorDetail(task: CodeBridgeTaskView): string {
   const why = (task.result ?? task.summary ?? '').trim()
   if (err && why && !err.includes(why)) return `${err}: ${why}`
   return err || why
+}
+
+/**
+ * THE WHOLE WORK, NOT A SUB-STEP (Boss, 2026-10-02, TG 7137 + 7143): a run counts
+ * as finished only when the agent DELIBERATELY marks it so, by ending its answer
+ * with this marker. Its ABSENCE means the run was cut off (error, usage limit,
+ * step cap) or only a sub-step was done -- then the dashboard continues the work.
+ * A normal, concluded answer (including answering a question) carries the marker;
+ * so absence = "did not get to conclude", never "just chatting".
+ */
+export const COMPLETION_MARKER = '[MINDEN_KESZ]'
+
+/** True when the finished task's answer carries the whole-work-done marker. */
+export function codeBridgeFullyDone(task: CodeBridgeTaskView): boolean {
+  if (task.status !== 'done') return false
+  const text = task.result ?? task.summary ?? ''
+  return text.includes(COMPLETION_MARKER)
+}
+
+/** The answer shown in the chat, with the marker removed (the owner never sees it). */
+export function stripCompletionMarker(text: string): string {
+  return text.split(COMPLETION_MARKER).join('').replace(/[ \t]+\n/g, '\n').trim()
 }
 
 /**
@@ -370,7 +393,7 @@ export function codeBridgeOutdatedDetail(task: CodeBridgeTaskView): string | nul
 /** A limit, an outdated worker or a stalled run: the work was NOT finished and another account
  *  can take it over (Boss, 2026-09-29: "Az elso dolog az legyen, hogy megnezi,
  *  hogy milyen masik fiokban van limit es tud dolgozni"). */
-export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'stalled' | 'error' | null {
+export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'stalled' | 'error' | 'incomplete' | null {
   if (codeBridgeLimitDetail(task)) return 'limit'
   if (codeBridgeOutdatedDetail(task)) return 'outdated'
   if (codeBridgeStallDetail(task)) return 'stalled'
@@ -380,6 +403,9 @@ export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outd
   // (the limit floor, handled by the caller) or when it stops making progress
   // (a repeating error -- capped by the continuation layer, not here).
   if (task.status === 'error') return 'error'
+  // Boss, 2026-10-02 (TG 7137 + 7143): a finished run WITHOUT the whole-work-done
+  // marker is not really done (cut off, or only a sub-step) -- continue it too.
+  if (task.status === 'done' && !codeBridgeFullyDone(task)) return 'incomplete'
   return null
 }
 
@@ -398,8 +424,20 @@ function* finishedEvents(
     return
   }
   if (task.status === 'done') {
+    const raw = (task.result ?? task.summary ?? '').trim()
+    if (!codeBridgeFullyDone(task)) {
+      // Finished WITHOUT the whole-work-done marker: the work is not really over
+      // (cut off, or only a sub-step). Keep the partial answer (it shows only when
+      // no account can continue -- `record` is a no-op while continuing), and emit
+      // a continue event so the route hands the work on.
+      const partial = stripCompletionMarker(raw)
+      if (partial) record('assistant', partial)
+      yield { type: 'tool', name: 'code-bridge', status: 'error' }
+      yield { type: 'error', code: 'code_bridge_incomplete', message: msg('code_bridge_incomplete', lang) }
+      return
+    }
     yield { type: 'tool', name: 'code-bridge', status: 'ok' }
-    const answer = (task.result ?? task.summary ?? '').trim()
+    const answer = stripCompletionMarker(raw)
     if (answer) {
       record('assistant', answer)
       yield { type: 'text', text: answer }

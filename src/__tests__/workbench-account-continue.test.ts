@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  runCodeBridgeTurn, codeBridgeContinuable,
+  runCodeBridgeTurn, codeBridgeContinuable, COMPLETION_MARKER,
   type CodeBridgeTaskView,
 } from '../workbench-agent/code-bridge-turn.js'
 import {
@@ -42,7 +42,10 @@ describe('codeBridgeContinuable', () => {
     // not left dead -- the work only stops when no account can work (the limit
     // floor) or when it stops making progress (capped by the continuation layer).
     expect(codeBridgeContinuable(view({ error: 'tsc failed: 3 errors' }))).toBe('error')
-    expect(codeBridgeContinuable(view({ status: 'done', result: 'ok' }))).toBeNull()
+    // Boss, 2026-10-02 (TG 7137 + 7143): a finished run is "done" ONLY with the
+    // whole-work-done marker; without it the whole work is not over -> continue.
+    expect(codeBridgeContinuable(view({ status: 'done', result: 'ok' }))).toBe('incomplete')
+    expect(codeBridgeContinuable(view({ status: 'done', result: `ok ${COMPLETION_MARKER}` }))).toBeNull()
   })
 })
 
@@ -137,10 +140,13 @@ describe('continueBridgeTaskElsewhere -- the completion hook', () => {
     expect(continueBridgeTaskElsewhere(task({ origin: 'telegram' as CodeTask['origin'], error: STALL.error }))).toBe(false)
   })
 
-  it('a plain error is continued too now (Boss, 2026-10-02); a finished task is delivered as usual', () => {
+  it('a plain error is continued too now (Boss, 2026-10-02); only a MARKED finished task is delivered as done', () => {
     setBridgeContinuationHandler(() => true)
     expect(continueBridgeTaskElsewhere(task({ id: 'pe1', chatId: 'c1', error: 'tsc failed' }))).toBe(true)
-    expect(continueBridgeTaskElsewhere(task({ id: 'pd1', chatId: 'c2', status: 'done', result: 'ok' } as Partial<CodeTask>))).toBe(false)
+    // a finished run WITHOUT the whole-work-done marker is not really over -> continue
+    expect(continueBridgeTaskElsewhere(task({ id: 'pi1', chatId: 'c3', status: 'done', result: 'ok' } as Partial<CodeTask>))).toBe(true)
+    // only the marked finish is truly done -> delivered, not continued
+    expect(continueBridgeTaskElsewhere(task({ id: 'pd1', chatId: 'c2', status: 'done', result: `ok ${COMPLETION_MARKER}` } as Partial<CodeTask>))).toBe(false)
   })
 
   it('a repeating plain error is capped per chat; after the cap the real error is delivered', () => {
@@ -152,11 +158,20 @@ describe('continueBridgeTaskElsewhere -- the completion hook', () => {
     expect(continueBridgeTaskElsewhere(task({ id: 'cap5', chatId: 'capc', error: 'boom' }))).toBe(false)
   })
 
-  it('a finished answer resets the per-chat error streak, so work can continue again', () => {
+  it('a MARKED (whole-work-done) finish resets the per-chat streak, so work can continue again', () => {
     setBridgeContinuationHandler(() => true)
     for (let i = 0; i < 5; i++) continueBridgeTaskElsewhere(task({ id: 'rs' + i, chatId: 'rsc', error: 'boom' }))
-    expect(continueBridgeTaskElsewhere(task({ id: 'rsdone', chatId: 'rsc', status: 'done', result: 'ok' } as Partial<CodeTask>))).toBe(false)
+    expect(continueBridgeTaskElsewhere(task({ id: 'rsdone', chatId: 'rsc', status: 'done', result: `done ${COMPLETION_MARKER}` } as Partial<CodeTask>))).toBe(false)
     expect(continueBridgeTaskElsewhere(task({ id: 'rs6', chatId: 'rsc', error: 'boom' }))).toBe(true)
+  })
+
+  it('a finished run WITHOUT the marker is continued (whole work not over), and the streak counts it', () => {
+    setBridgeContinuationHandler(() => true)
+    for (let i = 0; i < 5; i++) {
+      expect(continueBridgeTaskElsewhere(task({ id: 'inc' + i, chatId: 'incc', status: 'done', result: 'part done' } as Partial<CodeTask>))).toBe(true)
+    }
+    // 6th unmarked finish with no whole-done in between: stop (no progress).
+    expect(continueBridgeTaskElsewhere(task({ id: 'inc5', chatId: 'incc', status: 'done', result: 'part done' } as Partial<CodeTask>))).toBe(false)
   })
 
   it('the cap is PER chat: a different chat is not affected', () => {

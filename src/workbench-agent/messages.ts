@@ -102,6 +102,14 @@ export const MESSAGES = {
     hu: 'A VS Code kódhíd futása hibával állt le (nem keretprobléma), a munka viszont még nincs kész. A(z) {to} fiókkal folytatom.',
     en: 'The VS Code code bridge run stopped with an error (not a quota problem), but the work is not finished. I continue it with the {to} account.',
   },
+  code_bridge_incomplete: {
+    hu: 'A futás a teljes munka befejezése előtt megállt (csak egy rész készült el). Amint felszabadul egy dolgozó fiók, folytatom onnan, ahol abbamaradt.',
+    en: 'The run stopped before the whole work was finished (only a part is done). As soon as a working account frees up, I continue from where it stopped.',
+  },
+  code_bridge_incomplete_fallback: {
+    hu: 'A futás a teljes munka befejezése előtt megállt, a munkát a(z) {to} fiókkal folytatom, amíg az egész kész nincs.',
+    en: 'The run stopped before the whole work was finished, I continue it with the {to} account until the whole task is done.',
+  },
   live_account_switched: {
     hu: 'A(z) {from} fiók kerete kifogyott, a munkát a(z) {to} fiókkal folytatom.',
     en: 'The {from} account ran out of quota, I continue the work with the {to} account.',

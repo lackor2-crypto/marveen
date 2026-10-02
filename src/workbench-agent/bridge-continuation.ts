@@ -18,7 +18,7 @@
  * utemez egy hatter-folytatast. Egy feladat EGYSZER folytatodik (`continued`).
  */
 import type { CodeTask } from '../web/code-bridge-store.js'
-import { codeBridgeContinuable } from './code-bridge-turn.js'
+import { codeBridgeContinuable, codeBridgeFullyDone } from './code-bridge-turn.js'
 
 /** Feladatok, amiket most egy elo chat-fordulo figyel: azok folytatasa az o dolga. */
 const watching = new Set<string>()
@@ -29,9 +29,10 @@ const continued = new Set<string>()
  * Boss, 2026-10-02 (TG 7117 + 7127): "amig a munka nincs kesz, barmilyen hibaval
  * all le, a dashboard adja ki ujra, hogy folytasd". Ezert MINDEN hibas leallas
  * folytatodik, nem csak a keret/elavult/elakadas. De egy DETERMINISZTIKUS hiba,
- * ami ujra meg ujra ugyanugy bukik (sosem lesz 'done'), maga is a "nem tud
+ * ami ujra meg ujra ugyanugy bukik (sosem lesz teljesen kesz), maga is a "nem tud
  * dolgozni" allapot: ennyiszer egymas utan folytatjuk chatenkent, utana a valodi
- * hiba kerul a beszelgetesbe. Egy sikeres (`done`) lezaras nullazza a szamlalot. */
+ * ok kerul a beszelgetesbe. Ugyanez all a befejezetlen ('incomplete') futasra is.
+ * Egy TELJESEN KESZ (marker) lezaras nullazza a szamlalot. */
 const MAX_ERROR_CONTINUES = 5
 const errorContinues = new Map<string, number>()
 
@@ -65,24 +66,26 @@ export function resetBridgeContinuationForTest(): void {
 export function continueBridgeTaskElsewhere(task: CodeTask): boolean {
   if (task.origin !== 'workbench' || !task.chatId) return false
   if (continued.has(task.id)) return true
-  // Egy befejezett valasz azt jelenti, hogy a munka haladt: a chat hiba-szamlaloja nullazodik.
-  if (task.status === 'done') { errorContinues.delete(task.chatId); return false }
+  // A TELJESEN kesz (marker) futas azt jelenti, hogy a munka tenyleg veget ert:
+  // a chat folytatas-szamlaloja nullazodik, es nincs tovabbi folytatas.
+  if (codeBridgeFullyDone(task)) { errorContinues.delete(task.chatId); return false }
   const kind = codeBridgeContinuable(task)
   if (!kind) return false
-  // Sima hiba is folytatodik, de nem a vegtelensegig: ha ugyanaz a hiba ismetlodik
-  // 'done' nelkul, az maga is "nem tud dolgozni" -> megall, es a valodi ok kiirodik.
-  if (kind === 'error' && (errorContinues.get(task.chatId) ?? 0) >= MAX_ERROR_CONTINUES) {
+  // Sima hiba es befejezetlen (marker nelkuli) futas is folytatodik, de nem a
+  // vegtelensegig: ha haladas (= teljesen kesz) nelkul ismetlodik, az maga is
+  // "nem tud dolgozni" -> megall, es a valodi ok kerul a beszelgetesbe.
+  if ((kind === 'error' || kind === 'incomplete') && (errorContinues.get(task.chatId) ?? 0) >= MAX_ERROR_CONTINUES) {
     errorContinues.delete(task.chatId)
     return false
   }
-  // Az elo fordulo maga dont: ha van fiok, folytat, ha nincs, o irja ki a hibat.
+  // Az elo fordulo maga dont: ha van fiok, folytat, ha nincs, o irja ki az okot.
   if (watching.has(task.id)) return true
   if (!handler) return false
   let started = false
   try { started = handler(task) } catch { started = false }
   if (started) {
     continued.add(task.id)
-    if (kind === 'error') errorContinues.set(task.chatId, (errorContinues.get(task.chatId) ?? 0) + 1)
+    if (kind === 'error' || kind === 'incomplete') errorContinues.set(task.chatId, (errorContinues.get(task.chatId) ?? 0) + 1)
   }
   return started
 }

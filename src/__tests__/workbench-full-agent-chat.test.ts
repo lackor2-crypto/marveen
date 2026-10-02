@@ -13,7 +13,7 @@ let bgChatId: string | null = null
 const cancelledIds: string[] = []
 /** A kod-hid futasanak transzkriptje ezen a gepen (#434: egyenkenti eszkozfutasok). */
 let localTranscript: string | null = null
-let taskState: { status: string; result: string | null; summary: string | null; error: string | null; startedAt?: number; runSessionId?: string } = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
+let taskState: { status: string; result: string | null; summary: string | null; error: string | null; startedAt?: number; runSessionId?: string } = { status: 'done', result: 'Kész: végigolvastam. [MINDEN_KESZ]', summary: null, error: null }
 
 vi.mock('../settings-store.js', async (orig) => {
   const actual = await orig<typeof import('../settings-store.js')>()
@@ -96,7 +96,7 @@ beforeEach(() => {
   cancelledIds.length = 0
   workerOnline = true
   resetWorkbenchBridgeLimitForTest()
-  taskState = { status: 'done', result: 'Kész: végigolvastam.', summary: null, error: null }
+  taskState = { status: 'done', result: 'Kész: végigolvastam. [MINDEN_KESZ]', summary: null, error: null }
   const p = createProject({ name: 'Iroda fejlesztese' })
   if (!p.ok) throw new Error('projekt')
   projectId = p.project.id
@@ -198,7 +198,7 @@ describe('Munkapad chat teljes erteku modban (kod-hid)', () => {
       taskState = { status: 'running', result: null, summary: null, error: null }
       const pending = post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'hosszú munka' })
       await vi.advanceTimersByTimeAsync(SSE_PING_MS * 2 + 100)
-      taskState = { status: 'done', result: 'Kész a hosszú munka.', summary: null, error: null }
+      taskState = { status: 'done', result: 'Kész a hosszú munka. [MINDEN_KESZ]', summary: null, error: null }
       await vi.advanceTimersByTimeAsync(5000)
       const r = await pending
       expect(r.raw.match(/^: ping$/gm)?.length).toBeGreaterThanOrEqual(2)
