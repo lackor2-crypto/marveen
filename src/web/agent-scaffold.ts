@@ -2694,6 +2694,13 @@ function buildKanbanWaitingMoveBody(): string {
     'kesz munka ott lathato. Ez NEM mond ellent a "visszafele mozgatas csak kerdes',
     'utan" szabalynak: elore (in_progress -> waiting) rutin es kotelezo; a tilalom CSAK',
     'a visszafele mozgatasra (waiting -> korabbi oszlop) all.',
+    '',
+    'DE: a "waiting"-be CSAK KESZ kartya mehet. Mielott atteszed, ELLENORIZD AZ OSSZES',
+    'PONTOT (lepesek, alfeladat-kartyak, a leirasban es a kommentekben szereplo',
+    'teendok). Ha akar EGY is nyitott, a kartya in_progress-ben marad es a munka megy',
+    'tovabb -- egy fel-kesz kartya a varakozoban hazugsag. A mozgatasi kereshez ird',
+    'hozza: "all_points_done": true (ezzel mondod ki, hogy mindent leellenoriztel);',
+    'nyitott alfeladat mellett a szerver 409-cel visszautasitja.',
   ].join('\n')
 }
 

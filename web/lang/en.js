@@ -1416,6 +1416,7 @@ window._i18n.en = {
   'kanban.dialog.similar_cards.desc': 'The following open cards may be related to this work. Review them: they might already cover this task, in whole or in part.',
   'kanban.dialog.similar_cards.reviewed_none': 'I reviewed them, none are related',
   'kanban.dialog.similar_cards.reviewed_selected': 'I reviewed them, marked the relevant ones',
+  'kanban.waiting.open_parts_confirm': 'Move it to waiting anyway?',
   'kanban.toast.move_error':     'Error moving card',
   'kanban.toast.save_error':     'Error saving',
   'kanban.toast.comment_error':  'Error saving comment',

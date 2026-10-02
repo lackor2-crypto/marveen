@@ -66,7 +66,7 @@ export function reminderLine(title, cardsJson, lookupError) {
     return `land-pr: (a #${ref} nem szerepel a kanban tablan, archivumban sem -- ha ez kartya-azonosito volt, nezz utana.)`
   }
   if (res.status === 'waiting' || res.status === 'done') return ''
-  return `land-pr: >>> EMLEKEZTETO: a #${ref} kartya meg '${res.status}' -- a munka LANDOLT, tedd at 'waiting'-be (a 'done'-t a tulajdonos teszi). <<<`
+  return `land-pr: >>> EMLEKEZTETO: a #${ref} kartya meg '${res.status}' -- a munka LANDOLT, ha MINDEN pontja kesz, tedd at 'waiting'-be (all_points_done:true; a 'done'-t a tulajdonos teszi). <<<`
 }
 
 // CLI: csak akkor fut, ha kozvetlenul hivjak (a teszt importalja a fuggvenyeket).

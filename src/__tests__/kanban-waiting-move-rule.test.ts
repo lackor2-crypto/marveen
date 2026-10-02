@@ -39,6 +39,9 @@ describe('ensureKanbanWaitingMoveSection', () => {
     const out = readFileSync(path, 'utf-8')
     expect(out).toContain('KESZ KARTYA AZONNAL A VARAKOZOBA')
     expect(out).toContain('hazugsag a tablan')
+    // The completeness duty: check every point, state all_points_done.
+    expect(out).toContain('all_points_done')
+    expect(out).toContain('OSSZES')
     // The original content survives.
     expect(out).toContain('Sajat tartalom.')
     // Host-agnostic: the generated block names no owner and no path.

@@ -1444,6 +1444,7 @@ window._i18n.hu = {
   'kanban.dialog.similar_cards.desc': 'Ez a kártya előtt a következő, még nyitott kártyák hasonlóak lehetnek. Nézd át őket: lehet, hogy ezt a munkát már lefedik vagy részben lefedik.',
   'kanban.dialog.similar_cards.reviewed_none': 'Átnéztem, egyik sem kapcsolódik',
   'kanban.dialog.similar_cards.reviewed_selected': 'Átnéztem, jelöltem a relevánsakat',
+  'kanban.waiting.open_parts_confirm': 'Mégis a várakozóba teszed?',
   'kanban.toast.move_error':     'Hiba az áthelyezés során',
   'kanban.toast.save_error':     'Hiba a mentésnél',
   'kanban.toast.comment_error':  'Hiba a megjegyzés mentése során',
