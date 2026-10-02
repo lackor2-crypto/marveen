@@ -99,3 +99,17 @@ export function decideWorkbenchBackend(input: BackendDecisionInput): BackendDeci
   }
   return { backend: 'code-bridge', reason: 'ok', needsWorkerSetup: false }
 }
+
+/**
+ * Which Claude login a code-bridge project runs with is decided by where its
+ * folder lives (Boss, 2026-10-02): a Windows drive path (`f:\...`) belongs to
+ * the Windows-side VS Code, which Boss keeps for his own trading-code work and
+ * which may be signed in with another account; a WSL path (`\\wsl.localhost\...`
+ * or `/home/...`) is the Marveen-side bridge. The Workbench chat does NOT go
+ * through the Windows-drive bridge: it uses the live session with the best
+ * account (the one with the most free quota), so an exhausted Windows login
+ * can never stop it.
+ */
+export function isWindowsDriveBridgePath(workspacePath: string | null | undefined): boolean {
+  return /^[A-Za-z]:[\\/]/.test(String(workspacePath ?? '').trim())
+}

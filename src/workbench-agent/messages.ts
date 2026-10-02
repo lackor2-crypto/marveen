@@ -83,8 +83,8 @@ export const MESSAGES = {
     en: 'The VS Code code bridge account hit its usage limit: {detail}',
   },
   code_bridge_limit_fallback: {
-    hu: 'A VS Code kódhíd fiókjának kerete kifogyott, a munkát a(z) {to} fiókkal folytatom.',
-    en: 'The VS Code code bridge account ran out of quota, I continue the work with the {to} account.',
+    hu: 'A VS Code kódhíd (a Windows-oldali bejelentkezés) fiókjának kerete kifogyott. A munkát a(z) {to} fiókkal folytatom, annak a kerete rendben van.',
+    en: 'The quota of the account the VS Code code bridge (the Windows-side login) is signed in with ran out. I continue the work with the {to} account, its quota is fine.',
   },
   code_bridge_stalled_fallback: {
     hu: 'A VS Code kódhíd futása elakadt (időkorlát), a munkát a(z) {to} fiókkal folytatom.',
@@ -113,6 +113,18 @@ export const MESSAGES = {
   live_account_switched: {
     hu: 'A(z) {from} fiók kerete kifogyott, a munkát a(z) {to} fiókkal folytatom.',
     en: 'The {from} account ran out of quota, I continue the work with the {to} account.',
+  },
+  live_continue_note: {
+    hu: 'Az egész munka még nincs kész, ezért folytatom.',
+    en: 'The whole work is not finished yet, so I keep going.',
+  },
+  live_continue_prompt: {
+    hu: 'Az előző fordulód nem zárta le a TELJES munkát (hiányzott a befejezés jele, vagy a szövegedben még hátralévő munka állt). Folytasd onnan, ahol abbamaradt (a munkakönyvtár állapotából látod, meddig jutott), ne kezdd elölről, és ne ígérd a folytatást, hanem csináld.',
+    en: 'Your previous turn did not close the WHOLE work (the completion marker was missing, or your text said work was still left). Continue from where it stopped (the working folder shows how far it got), do not start over, and do not promise to continue -- do it.',
+  },
+  live_continue_stuck: {
+    hu: 'Nem tudtam tovább haladni: a folytatás nem hozott új munkát, ezért megálltam. Írj egy sort, és onnan megyek tovább.',
+    en: 'I could not make progress: the continuation brought no new work, so I stopped. Write a line and I go on from there.',
   },
   live_switch_continue: {
     hu: 'Az előző fiók kerete e válasz közben fogyott ki. Eddig ezt írta:\n---\n{partial}\n---\nFolytasd innen (a munkakönyvtár állapotából is látod, meddig jutott), ne kezdd elölről.',

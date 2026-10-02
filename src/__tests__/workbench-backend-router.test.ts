@@ -32,3 +32,21 @@ describe('decideWorkbenchBackend -- Munkapad chat ket hattere (#433, B opcio)', 
     expect(d.needsWorkerSetup).toBe(false)
   })
 })
+
+import { isWindowsDriveBridgePath } from '../workbench-agent/backend-router.js'
+import { readFileSync as readSrc } from 'node:fs'
+import { join as joinPath } from 'node:path'
+describe('the Workbench chat does not use the Windows-drive bridge (Boss, 2026-10-02)', () => {
+  it('tells a Windows drive folder from a WSL one', () => {
+    expect(isWindowsDriveBridgePath('f:\\Marveen\\Család\\Projektek\\Tőzsde')).toBe(true)
+    expect(isWindowsDriveBridgePath('C:/Users/x/proj')).toBe(true)
+    expect(isWindowsDriveBridgePath('\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen')).toBe(false)
+    expect(isWindowsDriveBridgePath('/home/boss/marveen')).toBe(false)
+    expect(isWindowsDriveBridgePath(null)).toBe(false)
+  })
+  it('the route skips the bridge-first path for such a project when a live account exists', () => {
+    const src = readSrc(joinPath(__dirname, '..', 'web', 'routes', 'workbench-agent.ts'), 'utf-8')
+    expect(src).toContain('isWindowsDriveBridgePath(code.session.workspacePath)')
+    expect(src).toMatch(/bridgeFirst = [^\n]*!\(windowsDriveBridge && !!liveSpec\)/)
+  })
+})

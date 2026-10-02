@@ -226,7 +226,7 @@ process.stdin.on('data', (d) => {
     if (n === 1) w({ type: 'system', subtype: 'init', session_id: 'sess-live', model: 'fake-model' })
     w({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't' + n, name: 'Read', input: { file_path: '/p/terv.md' } }] } })
     w({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't' + n }] } })
-    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'valasz ' + n + ' (' + m.message.content.length + ' char)' } } })
+    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'valasz ' + n + ' (' + m.message.content.split('\\n\\nWhen you have finished EVERYTHING')[0].length + ' char) [MINDEN_KESZ]' } } })
     w({ type: 'result', subtype: 'success', result: 'x', session_id: 'sess-live' })
   }
 })
@@ -332,6 +332,89 @@ describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
     expect(r.raw).not.toContain('weekly limit')
     expect(r.raw).toContain('"type":"done"')
     pool.stopAll()
+  })
+})
+
+describe('Boss 2026-10-02: a helyi munkamenet is folytat, amig az EGESZ munka nincs kesz', () => {
+  beforeEach(() => { workerOnline = false })
+  const run = async (script: string, message: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'wb-live-cont-'))
+    const file = join(dir, 'fake-claude.cjs')
+    writeFileSync(file, script)
+    const pool = new LiveSessionPool({
+      spawn: (s) => spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }),
+      now: () => Date.now(),
+      loadIds: () => ({}),
+      saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [file] }))
+    const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message })
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const msgs = listAgentMessages(session.id).map((m) => [m.role, m.content] as const)
+    pool.stopAll()
+    return { r, msgs }
+  }
+  // Round 1: tool + "ami hatravan ... folytatom" WITH the marker (the real case);
+  // round 2: tool + a finished answer with the marker.
+  const SCRIPT = `
+let buf = '', n = 0
+process.stdin.on('data', (d) => {
+  buf += d
+  let i
+  while ((i = buf.indexOf('\\n')) >= 0) {
+    buf = buf.slice(i + 1); n++
+    const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+    w({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't' + n, name: 'Read', input: { file_path: '/p/a' } }] } })
+    w({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't' + n }] } })
+    const text = n === 1 ? 'Az elso resz kesz.\\n\\nAmi hatravan: a koltseg-kijelzes. Ezzel folytatom.\\n\\n[MINDEN_KESZ]' : 'Minden elkeszult.\\n\\n[MINDEN_KESZ]'
+    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } })
+    w({ type: 'result', subtype: 'success', result: 'x' })
+  }
+})
+`
+  it('a jel mellett kimondott hatralevo munka nem szamit kesznek: a fordulo folytatodik, a jel nem latszik a chatben', async () => {
+    const { r, msgs } = await run(SCRIPT, 'csinald meg az egeszet')
+    const assistant = msgs.filter(([role]) => role === 'assistant').map(([, c]) => c)
+    expect(assistant).toHaveLength(2)
+    expect(assistant[0]).toContain('Ezzel folytatom')
+    expect(assistant[1]).toBe('Minden elkeszult.')
+    expect(msgs.some(([role, c]) => role === 'system' && c.includes('nincs kész, ezért folytatom'))).toBe(true)
+    expect(msgs.every(([, c]) => !c.includes('MINDEN_KESZ'))).toBe(true)
+    expect(r.raw).not.toContain('MINDEN_KESZ')
+  })
+
+  it('sima kerdes-valasz (nem dolgozott, nincs hatralevo munka) nem indit folytatast', async () => {
+    const plain = `
+process.stdin.on('data', () => {
+  const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+  w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Igen, ez a helyes.' } } })
+  w({ type: 'result', subtype: 'success', result: 'x' })
+})
+`
+    const { msgs } = await run(plain, 'jo ez?')
+    expect(msgs.filter(([role]) => role === 'assistant')).toHaveLength(1)
+    expect(msgs.some(([role, c]) => role === 'system' && c.includes('folytatom'))).toBe(false)
+  })
+
+  it('ha a folytatas sem hoz uj munkat, megall es megmondja', async () => {
+    const stuck = `
+let buf = '', n = 0
+process.stdin.on('data', (d) => {
+  buf += d
+  let i
+  while ((i = buf.indexOf('\\n')) >= 0) {
+    buf = buf.slice(i + 1); n++
+    const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+    if (n === 1) { w({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/p/a' } }] } }); w({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] } }) }
+    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Ezzel folytatom.' } } })
+    w({ type: 'result', subtype: 'success', result: 'x' })
+  }
+})
+`
+    const { msgs } = await run(stuck, 'csinald')
+    expect(msgs.some(([role, c]) => role === 'system' && c.includes('Nem tudtam tovább haladni'))).toBe(true)
+    expect(msgs.filter(([role]) => role === 'assistant').length).toBeLessThanOrEqual(2)
   })
 })
 
