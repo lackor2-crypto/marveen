@@ -28,7 +28,7 @@ import { withCrossLink } from '../kanban-related.js'
 import { agentConfigRoot } from '../web/agent-config.js'
 import type { ToolResult } from './execute.js'
 import { addDecision, listDecisions, DECISION_MAX_CHARS } from '../workbench-decisions.js'
-import { getBrand, brandIsEmpty, checkCanvasBrand } from '../workbench-brand.js'
+import { getBrand, brandIsEmpty, checkCanvasBrand, BrandUnreadableError, type BrandRow } from '../workbench-brand.js'
 import { readCanvas } from '../workbench-canvas-store.js'
 import { addTodo, resolveAgentDue, TODO_TEXT_MAX, TODOS_PER_ITEM_MAX } from '../workbench-todos.js'
 import { getWorkItem } from '../workbench.js'
@@ -224,8 +224,23 @@ export function todoAdd(project: ProjectRow, input: Record<string, unknown>): To
 
 // ---- Brand Kit (K-4.2, K-4.3) ---------------------------------------------------------
 
+const BRAND_UNREADABLE: ToolResult = {
+  ok: false, code: 'brand_unreadable',
+  detail: 'the stored Brand Kit of this project cannot be read. This does NOT mean there is none: do not invent brand colours, and tell the owner to open the Brand panel and save the brand again',
+}
+
+/** The brand, or the tool error to return when the stored one cannot be read. */
+function readBrand(project: ProjectRow): { brand: BrandRow | null } | { error: ToolResult } {
+  try { return { brand: getBrand(project.id) } } catch (e) {
+    if (e instanceof BrandUnreadableError) return { error: BRAND_UNREADABLE }
+    throw e
+  }
+}
+
 export function brandGet(project: ProjectRow): ToolResult {
-  const b = getBrand(project.id)
+  const r = readBrand(project)
+  if ('error' in r) return r.error
+  const b = r.brand
   if (!b || brandIsEmpty(b)) return { ok: true, data: { empty: true, note: 'no Brand Kit has been set in this project yet; do not invent brand colours' } }
   const { project_id: _p, updated_at: _u, ...brand } = b
   return { ok: true, data: { empty: false, brand } }
@@ -235,12 +250,14 @@ export function brandCheck(project: ProjectRow, itemId: string): ToolResult {
   if (!itemId) return { ok: false, code: 'bad_input', detail: 'id is required' }
   const item = getWorkItem(itemId)
   if (!item || item.project_id !== project.id) return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
-  const b = getBrand(project.id)
+  const r = readBrand(project)
+  if ('error' in r) return r.error
+  const b = r.brand
   if (!b || brandIsEmpty(b)) return { ok: true, data: { checked: false, note: 'this project has no Brand Kit yet, so there is nothing to check against' } }
   const c = readCanvas(item.id)
   if (!c.ok) return { ok: false, code: c.code, detail: c.detail || c.code }
   if (!c.exists) return { ok: true, data: { checked: false, note: 'this work item has no drawing yet' } }
-  const findings = checkCanvasBrand(c.doc, b)
+  const findings = checkCanvasBrand(c.doc, b, project.folder_path)
   return {
     ok: true,
     data: {

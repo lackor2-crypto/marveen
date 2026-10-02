@@ -163,16 +163,25 @@ export function parseBrand(raw: unknown, base: Brand = emptyBrand()): { ok: true
   return { ok: true, brand: b }
 }
 
+/** There IS a stored brand, but it cannot be understood. Never the same as "no brand yet". */
+export class BrandUnreadableError extends Error {
+  constructor(public readonly projectId: string) {
+    super('the stored Brand Kit of this project cannot be read')
+    this.name = 'BrandUnreadableError'
+  }
+}
+
+/** `null` = nothing stored yet. Throws BrandUnreadableError when a stored brand no longer validates. */
 export function getBrand(projectId: string): BrandRow | null {
   ensureBrandTable()
   const row = getDb().prepare('SELECT data, updated_at FROM workbench_brand WHERE project_id = ?')
     .get(projectId) as { data: string; updated_at: number } | undefined
   if (!row) return null
   let parsed: unknown
-  try { parsed = JSON.parse(row.data) } catch { return null }
+  try { parsed = JSON.parse(row.data) } catch { throw new BrandUnreadableError(projectId) }
   const p = parseBrand(parsed)
-  // A stored brand that no longer validates is treated as "not read", never as an empty brand.
-  return p.ok ? { ...p.brand, project_id: projectId, updated_at: row.updated_at } : null
+  if (!p.ok) throw new BrandUnreadableError(projectId)
+  return { ...p.brand, project_id: projectId, updated_at: row.updated_at }
 }
 
 /** True when the brand holds nothing the agent or the check could use. */
@@ -183,7 +192,9 @@ export function brandIsEmpty(b: Brand): boolean {
 
 /** Saves a (partial) change: only the keys present in `patch` are touched. */
 export function saveBrand(projectId: string, patch: unknown): BrandResult {
-  const cur = getBrand(projectId)
+  // An unreadable stored brand is replaced: saving again is the owner's way out of it.
+  let cur: BrandRow | null = null
+  try { cur = getBrand(projectId) } catch (e) { if (!(e instanceof BrandUnreadableError)) throw e }
   const p = parseBrand(patch, cur ?? emptyBrand())
   if (!p.ok) return p
   const t = now()
@@ -231,10 +242,23 @@ function objLabel(o: CanvasObject): Text {
 }
 
 /**
+ * A canvas picture can be written two ways (as the drawing itself resolves it):
+ * the Depot-relative path the brand stores, or relative to the project folder,
+ * which is how the agent sees the project's files. Both are the same file.
+ */
+function isLogoSrc(src: string, logo: string, projectFolder: string | null | undefined): boolean {
+  const s = src.trim()
+  if (s === logo) return true
+  const base = projectFolder ? projectFolder.replace(/\/+$/, '') : ''
+  return !!base && `${base}/${s.replace(/^[./\\]+/, '')}` === logo
+}
+
+/**
  * Compares a drawing with the brand. Returns [] when everything is in order or
  * when the brand has nothing to check against. Pure: no database, no files.
+ * `projectFolder` (the project's folder_path) lets a project-relative logo path match.
  */
-export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null): BrandFinding[] {
+export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null, projectFolder?: string | null): BrandFinding[] {
   if (!brand || brandIsEmpty(brand)) return []
   const out: BrandFinding[] = []
   const palette = new Set(brand.colors.map((c) => c.hex))
@@ -299,7 +323,7 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null): BrandFind
 
   const logos = [brand.logo_light, brand.logo_dark].filter((l): l is string => !!l)
   if (logos.length) {
-    const used = doc.objects.filter((o): o is CanvasImage => o.type === 'image' && logos.includes(o.src))
+    const used = doc.objects.filter((o): o is CanvasImage => o.type === 'image' && logos.some((l) => isLogoSrc(o.src, l, projectFolder)))
     if (!used.length) {
       out.push({
         code: 'logo_missing', object: null,
@@ -309,11 +333,13 @@ export function checkCanvasBrand(doc: CanvasDoc, brand: Brand | null): BrandFind
     for (const l of used) {
       const pct = (l.width / doc.width) * 100
       if (brand.logo_min_width_pct != null && pct < brand.logo_min_width_pct) {
+        // Rounded DOWN to one decimal: 9.6% must not read "10%, at least 10% is needed".
+        const shown = Math.floor(pct * 10 + 1e-6) / 10
         out.push({
           code: 'logo_small', object: l.id,
           message: {
-            hu: `A logó túl kicsi: a grafika szélességének ${Math.round(pct)}%-a, legalább ${brand.logo_min_width_pct}% kell.`,
-            en: `The logo is too small: ${Math.round(pct)}% of the drawing width, at least ${brand.logo_min_width_pct}% is needed.`,
+            hu: `A logó túl kicsi: a grafika szélességének ${shown}%-a, legalább ${brand.logo_min_width_pct}% kell.`,
+            en: `The logo is too small: ${shown}% of the drawing width, at least ${brand.logo_min_width_pct}% is needed.`,
           },
         })
       }
