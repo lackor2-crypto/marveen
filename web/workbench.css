@@ -1322,3 +1322,61 @@
   background: rgba(255, 255, 255, 0.92); border: 2px solid #2563eb; border-radius: 3px; outline: none;
   pointer-events: auto;
 }
+
+/* ---- AZ EGYSZERU NEZET KERETE (#462, 2. lepes) -------------------------------------------------
+ * Canva-minta: felso sav, bal ikonsav + panel, kozepen a lap, alul nagyitas, jobbra a chat. */
+.wb-fr { position: relative; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+.wb-fr-top {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; border-radius: 12px 12px 0 0;
+  background: linear-gradient(90deg, #0ea5a0 0%, #4f6cf0 55%, #8b5cf6 100%); color: #fff;
+}
+.wb-fr-tbtn { background: rgba(255, 255, 255, 0.16); color: #fff; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 0.9rem; min-height: 32px; }
+.wb-fr-tbtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.3); }
+.wb-fr-tbtn:disabled { opacity: 0.45; cursor: default; }
+.wb-fr-tbtn-on { background: rgba(255, 255, 255, 0.34); }
+.wb-fr-home { font-size: 1.1rem; padding: 4px 10px; }
+.wb-fr-top .wb-sh-saved { color: rgba(255, 255, 255, 0.85); font-size: 0.8rem; }
+.wb-fr-name { flex: 1 1 120px; min-width: 0; text-align: center; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-fr-export { background: #fff; color: #4c1d95; font-weight: 700; border: 0; border-radius: 8px; padding: 7px 16px; cursor: pointer; min-height: 32px; }
+.wb-fr-top .wb-view-switch { border-color: rgba(255, 255, 255, 0.5); }
+.wb-fr-top .wb-view-btn { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.wb-fr-top .wb-view-on { background: #fff; color: #4c1d95; }
+.wb-fr-pop {
+  position: absolute; z-index: 30; top: 52px; left: 56px; width: min(520px, 92%); padding: 10px; background: var(--bg-card);
+  color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  max-height: 70vh; overflow: auto;
+}
+.wb-fr-pop-export { left: auto; right: 12px; width: min(560px, 92%); }
+.wb-fr-menu { display: flex; flex-direction: column; width: 260px; padding: 6px; }
+.wb-fr-mi { display: block; text-align: left; padding: 9px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font-size: 0.92rem; text-decoration: none; }
+.wb-fr-mi:hover { background: rgba(79, 108, 240, 0.12); }
+.wb-fr-body { display: flex; min-height: 72vh; align-items: stretch; }
+.wb-fr-rail { flex: 0 0 76px; display: flex; flex-direction: column; border-right: 1px solid var(--border); padding: 6px 0; background: var(--bg-card); }
+.wb-fr-rb { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 4px; border: 0; background: none; cursor: pointer; color: var(--text-muted); font-size: 0.72rem; }
+.wb-fr-rb:hover { color: var(--text); }
+.wb-fr-rb-on { color: #6d28d9; background: rgba(109, 40, 217, 0.1); }
+.wb-fr-ri { font-size: 1.25rem; line-height: 1.2; }
+.wb-fr-panel { flex: 0 0 300px; border-right: 1px solid var(--border); padding: 12px; overflow: auto; max-height: 80vh; background: var(--bg-card); }
+.wb-fr-ptitle { margin: 0 0 10px; font-size: 1rem; }
+.wb-fr-pbtn { display: block; width: 100%; margin: 0 0 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text); cursor: pointer; text-align: left; font-size: 0.92rem; }
+.wb-fr-pbtn:hover:not(:disabled) { border-color: #6d28d9; }
+.wb-fr-pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wb-fr-pgrid .wb-fr-pbtn { margin: 0; text-align: center; }
+.wb-fr-upload { display: block; margin: 0 0 8px; padding: 12px; border-radius: 8px; background: #7c3aed; color: #fff; text-align: center; font-weight: 600; cursor: pointer; }
+.wb-fr-thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wb-fr-thumb { padding: 0; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: grab; overflow: hidden; aspect-ratio: 4 / 3; }
+.wb-fr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wb-fr-center { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #e9ecf1; }
+.wb-fr-scroll { flex: 1 1 auto; overflow: auto; padding: 18px; max-height: 80vh; }
+.wb-fr-page { width: calc(var(--wb-zoom, 1) * 100%); margin: 0 auto; background: #fff; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); }
+.wb-fr-page .wb-preview-image { width: 100%; height: auto; display: block; }
+.wb-fr-bottom { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 14px; border-top: 1px solid var(--border); background: var(--bg-card); font-size: 0.82rem; color: var(--text-muted); }
+.wb-fr-zoom { width: 160px; }
+.wb-fr-chat { flex: 0 0 340px; border-left: 1px solid var(--border); padding: 8px; overflow: auto; max-height: 80vh; background: var(--bg-card); }
+@media (max-width: 900px) {
+  .wb-fr-body { flex-direction: column; }
+  .wb-fr-rail { flex-direction: row; flex: 0 0 auto; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 0 4px; }
+  .wb-fr-rb { flex: 0 0 auto; min-width: 64px; }
+  .wb-fr-panel, .wb-fr-chat { flex: 0 0 auto; width: auto; max-height: none; border-right: 0; border-left: 0; border-bottom: 1px solid var(--border); }
+  .wb-fr-name { order: 9; flex-basis: 100%; }
+}
