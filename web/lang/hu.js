@@ -5697,6 +5697,7 @@ window._i18n.hu = {
   "workbench.folder.rename_prompt": "A(z) \"{name}\" mappa új neve:",
   "workbench.folder.renamed": "A mappa át lett nevezve.",
   "workbench.folder.expand": "Mappa megnyitása",
+  "workbench.file.open": "Fájl megnyitása (nem munkadarab, csak a mappában van)",
   "workbench.folder.collapse": "Mappa összecsukása",
   "workbench.warn.cancel": "Mégse",
   "workbench.trash.purge": "Végleges törlés",

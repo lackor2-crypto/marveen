@@ -233,18 +233,41 @@ export function workFolderTarget(project: ProjectRow, folder: unknown): { ok: tr
 export const WORK_FOLDER_MAX_DEPTH = 8
 export const WORK_FOLDER_MAX = 600
 
-/** Every folder inside the work items box, project-relative, parents before children. */
-export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean } {
+/** A plain file lying in a work folder (not a work item): shown in the list with a preview link. */
+export type WorkFolderFile = { name: string; size: number; rel: string }
+/** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
+const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
+export const WORK_FOLDER_FILES_MAX = 200
+export const WORK_FILES_TOTAL_MAX = 3000
+
+/** Every folder inside the work items box, project-relative, parents before children.
+ *  `files` holds the plain files of the box and of each folder (key = folder path), so a folder
+ *  that is full on disk does not look empty; work item containers (they hold marveen-item.json) are skipped. */
+export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]> } {
   const box = findWorkItemsBox(project)
-  if (!box) return { box: null, folders: [], truncated: false }
+  if (!box) return { box: null, folders: [], truncated: false, files: {} }
   const t = projectFileTarget(project, box)
-  if (!t.ok) return { box, folders: [], truncated: false }
+  if (!t.ok) return { box, folders: [], truncated: false, files: {} }
   const out: string[] = []
+  const files: Record<string, WorkFolderFile[]> = {}
+  let fileTotal = 0
   let truncated = false
   const walk = (abs: string, rel: string, depth: number): void => {
     if (depth > WORK_FOLDER_MAX_DEPTH) return
     let entries: import('node:fs').Dirent[]
     try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    if (!entries.some((d) => d.isFile() && d.name === ITEM_SNAPSHOT_NAME)) {
+      const plain = entries.filter((d) => d.isFile() && !d.name.startsWith('.'))
+        .sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
+      for (const f of plain) {
+        if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
+        let size = 0
+        try { size = statSync(join(abs, f.name)).size } catch { /* gone meanwhile */ }
+        const lifeRel = `${t.dirRel}${rel.slice(box.length)}/${f.name}`
+        ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: lifeRel })
+        fileTotal++
+      }
+    }
     const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
       .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
     for (const d of dirs) {
@@ -257,7 +280,7 @@ export function listWorkFolders(project: ProjectRow): { box: string | null; fold
     }
   }
   walk(t.dirAbs, box, 1)
-  return { box, folders: out, truncated }
+  return { box, folders: out, truncated, files }
 }
 
 /** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */
