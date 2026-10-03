@@ -103,17 +103,34 @@ describe('planLifeTree', () => {
     expect(nodes.some((r) => r.startsWith('Példa-Kovács Anna/Jogi/Németország'))).toBe(false)
   })
 
-  it('a media is orszagra bomlik, ha a szemely azt kerte', () => {
-    // "a fotok is kulon kellene szedni. mert nekem 3 orszagbol van fotok is
-    // videok is." -- ezert kapcsolhato a MEDIA kulon.
+  it('a media UJ modellben tipus-szint NELKUL, orszag -> csoport (#464 B)', () => {
+    // #464 B: a tipus (foto/video/hang) SZURO, nem mappa. Az ures mediaKinds (uj
+    // alapertelmezes) eseten a media kozvetlenul `Média/[ország/]csoport`.
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes).toContain('Teszt Elek/Média/Fotók/Németország')
-    // A videok is a Fotok alatt elnek (#464): nincs Videok tipus-mappa.
-    expect(nodes.some((r) => r.includes('/Videók'))).toBe(false)
-    // Anna nem kerte: nala a FOTOK alatt CSOPORT all, nem orszag. (Maga a
-    // `Fotók/` elotag nala is letezik -- a csoportok miatt --, ezert a
-    // konkret orszagnevre kell kerdezni, kulonben a teszt semmit sem mer.)
-    expect(nodes.some((r) => r.startsWith('Példa-Kovács Anna/Média/Fotók/Magyarország'))).toBe(false)
+    expect(nodes).toContain('Teszt Elek/Média/Németország')
+    expect(nodes).toContain('Teszt Elek/Média/Németország/Első család')
+    expect(nodes).toContain('Teszt Elek/Média/Magyarország/Első család')
+    expect(nodes.some((r) => /\/Média\/(Fotók|Videók|Audió|Szkennek)(\/|$)/.test(r))).toBe(false)
+    // Anna nem bontja orszagra: a csoportok KOZVETLENUL a Média alatt (az ures
+    // mediaGroups az alapertelmezettre valt), tipus- es orszag-szint nelkul.
+    expect(nodes).toContain('Példa-Kovács Anna/Média/Család')
+    expect(nodes.some((r) => r.startsWith('Példa-Kovács Anna/Média/Magyarország'))).toBe(false)
+  })
+
+  it('a REGI modell (explicit mediaKinds) valtozatlan marad, amig nem allitjak at (#464 B)', () => {
+    const legacy = {
+      persons: [{
+        id: 'x', name: 'Régi Gábor', role: 'owner' as const,
+        countries: ['Magyarország', 'Németország'],
+        countrySplit: [...defaultCountrySplit(), MEDIA_COUNTRY_KEY],
+        mediaKinds: ['photos'],
+        mediaGroups: ['Első család'],
+        projects: [],
+      }],
+      companies: [],
+    }
+    const nodes = planLifeTree(legacy, 'hu').map((n) => n.rel)
+    expect(nodes).toContain('Régi Gábor/Média/Fotók/Németország/Első család')
   })
 
   it('a szemelyes projekt a specifikacio szerinti helyen all', () => {

@@ -304,20 +304,25 @@ export function defaultCountrySplit(): string[] {
 /**
  * A valaszthato media-tipusok (specifikacio 18. pont).
  *
- * CSAK `photos` (Boss, 2026-10-03, #464): egy esemeny fotoi, videoi es hangjai
- * osszetartoznak (Vallopere, Amerika, Ismerkedes), a tipus szerinti bontas
- * ugyanazt a csoportot tobb helyen hozta letre. A `photos` ("Fotók") a fotok, a
- * videok ES a hangfelvetelek kozos helye; a tipus keresesi szuro, nem mappa. A
- * szkennek kikerultek a Mediabol: a beszkennelt papir irat, a Beerkezobe megy es
- * a rendezo kategoria szerint besorolja. A regi `Videók` / `Audió` / `Szkennek`
- * mappak neve (`LIFE_NAMES`) csak azert marad meg, hogy a meglevo telepitesek
- * tartalmat at lehessen tenni (`life-media-legacy.ts`).
+ * A tipus (foto/video/hang) SZURO, NEM mappa (Boss, 2026-10-03, #464: "a Fotók/
+ * Videók tipus-mappa megszunik, foto es video egyutt el"). Egy esemeny fotoi,
+ * videoi es hangjai osszetartoznak (Vallopere, Amerika, Ismerkedes), ezert a
+ * media kozvetlenul `Média/[ország/]csoport/esemeny` -- nincs tipus-szint. A
+ * szkennek is kikerultek a Mediabol: a beszkennelt papir irat, a Beerkezon at
+ * sorolodik be kategoria szerint. A `MEDIA_KINDS` es a tipus-nevek (`LIFE_NAMES`)
+ * csak azert maradnak meg, hogy a meglevo telepitesek tartalmat fel lehessen
+ * huzni a Média ala (`life-media-legacy.ts`).
  */
 export const MEDIA_KINDS = ['photos'] as const
 
-/** A media-tipusok alapertelmezese: csak a Fotok. */
+/**
+ * A media-tipusok alapertelmezese UJ telepitesen: URES -- nincs tipus-szint, a
+ * media `Média/[ország/]csoport`. A MEGLEVO telepitesek mentett `mediaKinds`-e
+ * valtozatlan marad (a `normalizeLifeConfig` az `allowed` listara szur, nem erre
+ * az alapertelmezesre), amig a tulajdonos le nem futtatja az atallitast.
+ */
 export function defaultMediaKinds(): string[] {
-  return [...MEDIA_KINDS]
+  return []
 }
 
 /** Egy ceg kategoriai, sorrendben (specifikacio 15. pont). */
@@ -515,7 +520,9 @@ export function normalizeLifeConfig(raw: any): LifeConfig {
           [...PERSON_CATEGORIES, MEDIA_COUNTRY_KEY],
           defaultCountrySplit(),
         ),
-        mediaKinds: keyList(p.mediaKinds, defaultMediaKinds(), defaultMediaKinds()),
+        // allowed = MEDIA_KINDS (a meglevo mentett ertekek megmaradnak), fallback =
+        // defaultMediaKinds() (= ures) CSAK a hianyzo mezore (uj/nagyon regi config).
+        mediaKinds: keyList(p.mediaKinds, [...MEDIA_KINDS], defaultMediaKinds()),
         mediaGroups: groups.length ? groups : defaultMediaGroups(),
         projects: Array.isArray(p.projects)
           ? p.projects.filter((x: any) => x && String(x.name || '').trim()).map((x: any) => ({
@@ -691,17 +698,38 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
       // valtozatlan: tipus / orszag / csaladi csoport.
       if (key === 'media') {
         const mediaCountries = p.countrySplit.includes(MEDIA_COUNTRY_KEY) ? p.countries : []
-        for (const m of p.mediaKinds) {
-          const sub = `${cat}/${lifeName(m, lang)}`
-          add(sub, 'media', m, p.id)
+        if (p.mediaKinds.length === 0) {
+          // UJ modell (#464): a tipus nem mappa, hanem szuro. A csoport (es az
+          // alatta az esemeny, amit a felhasznalo keszit) KOZVETLENUL a Média
+          // (vagy a Média/ország) alatt all -- `Média/[ország/]csoport`. A
+          // `media` kulcs itt "media-mappa" jelolo, nem tipus; a kereses a FAJL
+          // tipusa szerint szur. A Média kategoria-mappa maga a media-gyoker
+          // (lasd `mediaTargets` tartalek-aga).
           if (mediaCountries.length) {
             for (const c of mediaCountries) {
-              const cd = `${sub}/${safeLifeName(c)}`
-              add(cd, 'country', m, p.id)
-              for (const g of p.mediaGroups) add(`${cd}/${safeLifeName(g)}`, 'media', m, p.id)
+              const cd = `${cat}/${safeLifeName(c)}`
+              add(cd, 'country', 'media', p.id)
+              for (const g of p.mediaGroups) add(`${cd}/${safeLifeName(g)}`, 'media', 'media', p.id)
             }
           } else {
-            for (const g of p.mediaGroups) add(`${sub}/${safeLifeName(g)}`, 'media', m, p.id)
+            for (const g of p.mediaGroups) add(`${cat}/${safeLifeName(g)}`, 'media', 'media', p.id)
+          }
+        } else {
+          // REGI modell: `Média/<típus>/[ország/]csoport`. Megmarad, amig a
+          // tulajdonos le nem futtatja az atallitast; akkor a mentett
+          // `mediaKinds` kiurul es a fenti agra valt.
+          for (const m of p.mediaKinds) {
+            const sub = `${cat}/${lifeName(m, lang)}`
+            add(sub, 'media', m, p.id)
+            if (mediaCountries.length) {
+              for (const c of mediaCountries) {
+                const cd = `${sub}/${safeLifeName(c)}`
+                add(cd, 'country', m, p.id)
+                for (const g of p.mediaGroups) add(`${cd}/${safeLifeName(g)}`, 'media', m, p.id)
+              }
+            } else {
+              for (const g of p.mediaGroups) add(`${sub}/${safeLifeName(g)}`, 'media', m, p.id)
+            }
           }
         }
       }
@@ -736,13 +764,11 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
       // A fejlesztes ala megy a tudasbazis es a repok helye. A Marveen a
       // repok SAJAT dokumentacios retegehez nem nyul -- csak a helyet adja.
       if (key === 'development') addDevelopmentBranch(add, cat, lang, c.id, true)
-      // A ceg MEDIA-ja is a CEG ALATT all, sajat kategoriakent -- ugyanaz a
-      // rendezoelv, mint a szemelyeknel. Korabban a marketing ala volt
-      // bujtatva; a Boss faja a FEJLESZTES melle, onallo agkent teszi.
-      if (key === 'media') {
-        // Egy mappa a ceg fotoinak ES videoinak (BusPro-pelda, Boss 2026-10-03: #464).
-        add(`${cat}/${lifeName('photos', lang)}`, 'media', 'photos', c.id)
-      }
+      // A ceg MEDIA-ja is a CEG ALATT all, kategoriakent. A Média kategoria-mappa
+      // MAGA a media-gyoker: nincs alatta `Fotók` tipus-szint (#464, "Média egy
+      // mappa", BusPro-pelda). A tipus kereso szuro; a mediaTargets a kategoria-
+      // mappat adja media-bazisnak (tartalek-ag). A meglevo `Média/Fotók` a
+      // lemezen marad, az atallitas huzza fel a tartalmat; itt nem toroljuk.
     }
   }
 
@@ -1250,6 +1276,16 @@ export function mediaTargets(input: LifeConfig = loadLifeConfig(), lang: string 
     if (!t || !(MEDIA_KINDS as readonly string[]).includes(k)) continue
     const cur = t.media[k]
     if (!cur || n.rel.split('/').length < cur.split('/').length) t.media[k] = n.rel
+  }
+  // UJ modell (#464): nincs tipus-mappa, ezert a fenti ciklus nem talal media-
+  // tipus node-ot. Ilyenkor a Média KATEGORIA-mappa maga a media-gyoker ->
+  // `photos` bazis, hogy a "Mozgatás személyhez" (ami a media.photos-ra epul)
+  // tovabbra is mukodjon. A regi modellt nem erinti: ott a media.photos mar be
+  // van allitva, ezt nem irjuk felul.
+  for (const n of plan) {
+    if (n.kind !== 'category' || n.key !== 'media' || !n.ownerId) continue
+    const t = byOwner.get(n.ownerId)
+    if (t && !t.media.photos) t.media.photos = n.rel
   }
   return out.filter((t) => Object.keys(t.media).length > 0)
 }
