@@ -300,7 +300,7 @@ export function listWorkItems(projectId: string): WorkItemRow[] {
   const pid = String(projectId || '').trim()
   if (!pid) return []
   return getDb()
-    .prepare('SELECT * FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY (pinned_at IS NULL), pinned_at DESC, updated_at DESC, created_at DESC')
+    .prepare('SELECT * FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY (pinned_at IS NULL), pinned_at DESC, updated_at DESC, created_at DESC, seq ASC, rowid ASC')
     .all(pid) as WorkItemRow[]
 }
 

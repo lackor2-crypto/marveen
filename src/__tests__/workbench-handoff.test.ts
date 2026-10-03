@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, addWorkItemPart } from '../workbench.js'
+import { createWorkItem, addWorkItemPart, listWorkItems } from '../workbench.js'
+import { getDb } from '../db.js'
 import { addDecision } from '../workbench-decisions.js'
 import { planHandoff, buildHandoffZip, safeName } from '../workbench-handoff.js'
 import { buildZip } from '../web/zip-writer.js'
@@ -65,6 +66,12 @@ describe('atadocsomag: a szerver', () => {
     const plan = planHandoff(pid, 'done')!
     expect(plan).toMatchObject({ all_count: 0, done_count: 0, items: [], files: 0 })
     expect(buildHandoffZip(pid, 'done', 'hu', NOW)).toMatchObject({ ok: false, code: 'handoff_no_items' })
+  })
+
+  it('#473: items with identical timestamps list in a fixed order (creation sequence), so folder numbers never flip', () => {
+    const ids = ['C', 'A', 'B'].map((t) => item(t, 'done'))
+    getDb().prepare('UPDATE work_items SET updated_at = 1000, created_at = 1000 WHERE project_id = ?').run(pid)
+    for (let i = 0; i < 5; i++) expect(listWorkItems(pid).map((x) => x.id)).toEqual(ids)
   })
 
   it('van munka, de semmi sincs kesz: kulon kod, a "mind" viszont mukodik', () => {
