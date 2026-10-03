@@ -5635,6 +5635,7 @@ window._i18n.en = {
   "workbench.step.item": "2. Create a work item",
   "workbench.folder.pick_label": "Which group (folder) should it go in?",
   "workbench.folder.pick_none": "(no group: the Work items folder)",
+  "workbench.folder.pick_project": "(directly in the project folder, no group)",
   "workbench.folder.pick_default": "(the Work items folder, at the top)",
   "workbench.folder.pick_hint": "This lists the groups (folders) of the project. You may pick one, but you do not have to: without a group the work item goes into the shared Work items folder.",
   "workbench.folder.new_placeholder": "New group name",
