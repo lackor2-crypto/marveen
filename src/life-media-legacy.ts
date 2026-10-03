@@ -19,13 +19,21 @@
 //  - never overwrite: a same-name file stays where it is and is reported;
 //  - never delete: the (then empty) type folders are left for the owner;
 //  - labels / archived marks / the paper register follow the file, because the
-//    move goes through `moveLife()` itself.
+//    move goes through `moveLife()` itself; a FOLDER's own mark (an archived or
+//    renamed event folder) follows its folder, and an empty event folder is
+//    created under Média too, so the structure moves up whole.
+//
+// An install still on the type-folder model with NOTHING to move (an old, empty
+// skeleton) gets the same button: the run then only switches the model.
 import { mkdirSync, type Dirent } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { APP_LANG } from './config.js'
 import { lifeName, loadLifeConfig, saveLifeConfig, planLifeTree, type LifeConfig } from './life-tree.js'
 import { moveLife, resolveLifePath } from './life-explorer.js'
+import { moveArchivedPrefix } from './life-archived.js'
+import { moveDisplayLabels } from './life-labels.js'
+import { movePhysical } from './life-documents.js'
 import { logger } from './logger.js'
 
 /** One file that would move: both are paths relative to the life-tree root. */
@@ -36,10 +44,16 @@ export interface LegacyMediaPlan {
   moves: FileMove[]
   /** Files whose target name is already taken: they stay, nothing is overwritten. */
   clashes: FileMove[]
+  /**
+   * Every sub-folder of a legacy type folder and its place under Média. The run
+   * creates each (so an EMPTY event folder moves up too) and carries the folder's
+   * own label / archived mark / paper record to it.
+   */
+  dirs: FileMove[]
   /** The legacy folders that still hold files that can move (relative paths). */
   folders: string[]
   /**
-   * Folders directly under `Fotók` that do not exist yet and would be created
+   * Folders directly under Média that do not exist yet and would be created
    * (e.g. a group name spelled differently from the existing folder): the
    * preview shows them so a near-duplicate never appears silently.
    */
@@ -48,6 +62,11 @@ export interface LegacyMediaPlan {
   scans: number
   /** True when the walk stopped at the safety cap: run it again after the move. */
   truncated: boolean
+  /**
+   * True while a person's saved config still plans the type folders: the run
+   * switches it to the flat model even when there is no file to move.
+   */
+  pending: boolean
 }
 
 /** Type folders whose files move UP under Média. `scans` is NOT here (paperwork). */
@@ -82,7 +101,10 @@ export async function planLegacyMedia(
   cfg: LifeConfig = loadLifeConfig(),
   lang: string = APP_LANG,
 ): Promise<LegacyMediaPlan> {
-  const out: LegacyMediaPlan = { moves: [], clashes: [], folders: [], newFolders: [], scans: 0, truncated: false }
+  const out: LegacyMediaPlan = {
+    moves: [], clashes: [], dirs: [], folders: [], newFolders: [], scans: 0, truncated: false,
+    pending: cfg.persons.some((p) => (p.mediaKinds || []).length > 0),
+  }
   let seen = 0
   let sinceYield = 0
   const yieldMaybe = async (): Promise<void> => {
@@ -101,8 +123,12 @@ export async function planLegacyMedia(
     return set
   }
 
-  /** Calls `onFile` for every real file under `rootRel`; stops at the cap; yields. */
-  const eachFile = async (rootRel: string, onFile: (fileRel: string) => Promise<void> | void): Promise<void> => {
+  /** Calls `onFile` for every real file (and `onDir` for every sub-folder) under `rootRel`; stops at the cap; yields. */
+  const eachFile = async (
+    rootRel: string,
+    onFile: (fileRel: string) => Promise<void> | void,
+    onDir?: (dirRel: string) => void,
+  ): Promise<void> => {
     const walk = async (dirRel: string): Promise<void> => {
       if (out.truncated) return
       const abs = resolveLifePath(dirRel)
@@ -113,7 +139,7 @@ export async function planLegacyMedia(
         if (out.truncated) return
         if (ignorable(e.name)) continue
         const childRel = `${dirRel}/${e.name}`
-        if (e.isDirectory()) { await walk(childRel); continue }
+        if (e.isDirectory()) { onDir?.(childRel); await walk(childRel); continue }
         // Symlinks and other special entries are not ours to move.
         if (!e.isFile()) continue
         if (++seen > MAX_FILES) { out.truncated = true; return }
@@ -128,6 +154,12 @@ export async function planLegacyMedia(
     if (node.kind !== 'category' || node.key !== 'media') continue
     const mediaRel = node.rel // the target base: files move straight under Média
     const mediaListing = await listing(mediaRel) // which top folders already exist under Média
+
+    /** `top` is the first folder under Média on the way to a moved item: note it when it is new. */
+    const noteNew = (top: string): void => {
+      const topRel = `${mediaRel}/${top}`
+      if ((!mediaListing || !mediaListing.has(top)) && !out.newFolders.includes(topRel)) out.newFolders.push(topRel)
+    }
 
     for (const kind of MOVE_KINDS) {
       const legacyRel = `${mediaRel}/${lifeName(kind, lang)}`
@@ -144,11 +176,11 @@ export async function planLegacyMedia(
         const targetSet = await listing(toDirRel)
         if (targetSet && targetSet.has(name)) { out.clashes.push({ from: childRel, to }); return }
         out.moves.push({ from: childRel, to })
-        // The first folder under Média on the way to the file: new?
-        if (parts.length > 1) {
-          const topRel = `${mediaRel}/${parts[0]}`
-          if ((!mediaListing || !mediaListing.has(parts[0])) && !out.newFolders.includes(topRel)) out.newFolders.push(topRel)
-        }
+        if (parts.length > 1) noteNew(parts[0])
+      }, (dirRel) => {
+        const sub = dirRel.slice(legacyRel.length + 1)
+        out.dirs.push({ from: dirRel, to: `${mediaRel}/${sub}` })
+        noteNew(sub.split('/')[0])
       })
       if (hadFiles) out.folders.push(legacyRel)
     }
@@ -186,9 +218,9 @@ export function switchToFlatMedia(cfg: LifeConfig): boolean {
 }
 
 /**
- * Move the legacy videos and recordings under `Fotók`, file by file, through
- * `moveLife()`. A failure of one file does not stop the others; the end says
- * what did not go.
+ * Move the files of the legacy `Fotók`, `Videók` and `Audió` folders up under
+ * Média (group/event sub-structure kept), file by file, through `moveLife()`. A
+ * failure of one file does not stop the others; the end says what did not go.
  */
 export async function moveLegacyMedia(
   cfg: LifeConfig = loadLifeConfig(),
@@ -223,9 +255,32 @@ export async function moveLegacyMedia(
     else failed.push({ rel: m.from, error: r.code || r.message })
   }
 
-  // Switch to the flat model only when nothing failed: a half-moved folder must
-  // not lose its type level in the plan while files are still stuck in it.
-  const switched = failed.length === 0 ? switchToFlatMedia(cfg) : false
+  // The folders themselves: an EMPTY event folder moves up too (created under
+  // Média), and a folder's OWN label / archived mark / paper record goes to its new
+  // place. `exact`: the marks of the files under it already went with each file (and
+  // a same-name file left in place keeps its own), and a mark the target folder
+  // already has is never overwritten.
+  for (const d of plan.dirs) {
+    const toAbs = resolveLifePath(d.to)
+    if (!toAbs) { failed.push({ rel: d.from, error: 'outside' }); continue }
+    try {
+      mkdirSync(toAbs, { recursive: true })
+    } catch (err: any) {
+      failed.push({ rel: d.from, error: String(err?.code || err?.message || err) })
+      continue
+    }
+    movePhysical(d.from, d.to, true)
+    moveDisplayLabels(d.from, d.to, true)
+    moveArchivedPrefix(d.from, d.to, true)
+  }
+
+  // Switch to the flat model only when nothing failed and the walk saw everything:
+  // a half-moved folder must not lose its type level in the plan while files are
+  // still stuck in it.
+  const switched = failed.length === 0 && !plan.truncated ? switchToFlatMedia(cfg) : false
+  const more = plan.truncated
+    ? (hu ? ' Még maradt áthelyeznivaló: indítsd újra.' : ' There is more to move: run it again.')
+    : ''
 
   const message = failed.length
     ? (hu
@@ -233,8 +288,8 @@ export async function moveLegacyMedia(
       : `${moved} file${moved === 1 ? '' : 's'} moved under Media, ${failed.length} failed. Check the permissions and run it again.`)
     : moved
       ? (hu
-        ? `Kész: ${moved} fájl átkerült a Média alá.${skipped.length ? ` ${skipped.length} azonos nevű fájlt nem írtam felül.` : ''} A Szkennek mappát nem bántottam.`
-        : `Done: ${moved} file${moved === 1 ? '' : 's'} moved under Media.${skipped.length ? ` ${skipped.length} same-name file${skipped.length === 1 ? ' was' : 's were'} left alone.` : ''} The Scans folder was left untouched.`)
+        ? `Kész: ${moved} fájl átkerült a Média alá.${skipped.length ? ` ${skipped.length} azonos nevű fájlt nem írtam felül.` : ''}${plan.scans ? ' A Szkennek mappát nem bántottam.' : ''}${more}`
+        : `Done: ${moved} file${moved === 1 ? '' : 's'} moved under Media.${skipped.length ? ` ${skipped.length} same-name file${skipped.length === 1 ? ' was' : 's were'} left alone.` : ''}${plan.scans ? ' The Scans folder was left untouched.' : ''}${more}`)
       : switched
         ? (hu ? 'Nem volt mit áthelyezni; a média mostantól típus-mappa nélkül épül.' : 'There was nothing to move; media is now built without a type level.')
         : (hu ? 'Nem volt mit áthelyezni.' : 'There was nothing to move.')

@@ -39518,9 +39518,10 @@ function _intezoAbandonedBox(st) {
   if (list) list.innerHTML = rels.map((r) => escapeHtml(r)).join('<br>')
 }
 
-/** A regi `Media/Videok` es `Media/Audio` mappak maradek fajljai (#464): a
- *  videok es a hangok a Fotok ala kerulnek. Semleges doboz, csak ha tenyleg maradt benne fajl; a mozgatast
- *  a felhasznalo inditja, elonezet utan (nem ir felul, nem torol). */
+/** A regi media tipus-mappak (`Fotok`, `Videok`, `Audio`) maradek fajljai (#464 B):
+ *  a csoport/esemeny szerkezettel egyutt felkerulnek a Media ala. Semleges doboz, csak
+ *  ha tenyleg maradt benne fajl; a mozgatast a felhasznalo inditja, elonezet utan
+ *  (nem ir felul, nem torol). */
 async function _intezoLegacyMediaBox() {
   const box = document.getElementById('intezoLegacyMediaBox')
   if (!box) return
@@ -39530,16 +39531,21 @@ async function _intezoLegacyMediaBox() {
     const movable = (lv && lv.movable) || 0
     const clashes = (lv && lv.clashes) || 0
     const scans = (lv && lv.scans) || 0
-    if (!movable && !clashes && !scans) return
+    // A mentett beallitas meg a regi, tipus-mappas modellt tervezi: fajl nelkul
+    // is fel kell ajanlani az atallast, kulonben egy ures regi vazzal soha nem
+    // jutna el a lapos modellig.
+    const pending = !!(lv && lv.pending)
+    if (!movable && !clashes && !scans && !pending) return
     const txt = document.getElementById('intezoLegacyMediaText')
     const btn = document.getElementById('intezoLegacyMediaBtn')
     const parts = []
     if (movable) parts.push(t('intezo.legacymedia_n', { n: movable }))
+    else if (pending) parts.push(t('intezo.legacymedia_switch'))
     if (clashes) parts.push(t('intezo.legacymedia_clash', { n: clashes }))
     // A szkenneket NEM mozgatjuk (papir, besorolas kell): csak jelezzuk.
     if (scans) parts.push(t('intezo.legacymedia_scans', { n: scans }))
     if (txt) txt.textContent = parts.join(' ')
-    if (btn) btn.hidden = !movable
+    if (btn) btn.hidden = !movable && !pending
     box.hidden = false
   } catch (e) { box.hidden = true }
 }
@@ -39551,12 +39557,13 @@ async function _intezoLegacyMediaMove() {
     // ELONEZET: a szamot es a peldakat a szerver mondja, mielott barmi mozdul.
     const lv = await _intezoGet('/api/life/legacy-media')
     const n = (lv && lv.movable) || 0
-    if (!n) { await _intezoLegacyMediaBox(); return }
+    const pending = !!(lv && lv.pending)
+    if (!n && !pending) { await _intezoLegacyMediaBox(); return }
     const ex = ((lv && lv.examples) || []).map((m) => m.from.split('/').slice(-3).join(' › ') + '  →  ' + m.to.split('/').slice(-4).join(' › ')).join('\n')
     // Az uj mappakat KI KELL MONDANI: egy kicsit mashogy irt csoportnev
     // (Jutka csaladja / Jutka csalad) csendben ket mappat csinalna.
     const fresh = ((lv && lv.newFolders) || []).map((r) => r.split('/').pop()).join(', ')
-    if (!confirm(t('intezo.legacymedia_confirm', { n: n })
+    if (!confirm((n ? t('intezo.legacymedia_confirm', { n: n }) : t('intezo.legacymedia_switch_confirm'))
       + (fresh ? '\n\n' + t('intezo.legacymedia_new', { list: fresh }) : '')
       + (ex ? '\n\n' + ex : ''))) return
     const r = await _depoPost('/api/life/legacy-media/move', {})

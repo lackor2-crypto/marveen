@@ -22,6 +22,9 @@ const {
   planLifeTree, ensureLifeTree, defaultMediaKinds, MEDIA_KINDS, defaultCountrySplit,
 } = await import('../life-tree.js')
 const { planLegacyMedia, moveLegacyMedia, switchToFlatMedia } = await import('../life-media-legacy.js')
+const { setArchived, isArchived } = await import('../life-archived.js')
+const { setDisplayLabel, displayLabelFor } = await import('../life-labels.js')
+const { setPhysical, getPhysical } = await import('../life-documents.js')
 
 /** A fresh (flat) person: empty mediaKinds -> Média/[ország/]csoport. */
 function flatCfg() {
@@ -163,6 +166,69 @@ describe('flattening the legacy type folders up under Média', () => {
     const r = await moveLegacyMedia(flatCfg(), 'hu')
     expect(r.moved).toBe(0)
     expect(readFileSync(join(media, 'Szkennek', 'Egyéb', 'szerzodes.pdf'), 'utf8')).toBe('paper')
+  })
+
+  it("a FOLDER's own archived mark, display name and paper record follow it up under Média", async () => {
+    const ev = 'Teszt Elek/Média/Fotók/Mykael család/Vállóper'
+    put(`${ev}/a.jpg`)
+    setArchived(ev, true)
+    setDisplayLabel(ev, 'Válóper 2021')
+    setPhysical(ev, { physical: true, location: 'Jogi/Magyarország', note: 'kek dosszie' })
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
+    expect(r.ok).toBe(true)
+    const to = 'Teszt Elek/Média/Mykael család/Vállóper'
+    expect(isArchived(to)).toBe(true)
+    expect(displayLabelFor(to)).toBe('Válóper 2021')
+    expect(getPhysical(to).note).toBe('kek dosszie')
+    // Nothing is left on the emptied old folder.
+    expect(isArchived(ev)).toBe(false)
+    expect(displayLabelFor(ev)).toBe(null)
+    expect(getPhysical(ev).physical).toBe(false)
+  })
+
+  it("a same-name file left in place keeps its own mark, and the target folder's own mark is never overwritten", async () => {
+    put('Teszt Elek/Média/Videók/Barátok/a.mp4', 'LEGACY')
+    put('Teszt Elek/Média/Barátok/a.mp4', 'ALREADY-THERE')
+    setArchived('Teszt Elek/Média/Videók/Barátok/a.mp4', true)
+    setDisplayLabel('Teszt Elek/Média/Videók/Barátok', 'Régi név')
+    setDisplayLabel('Teszt Elek/Média/Barátok', 'Barátaim')
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
+    expect(r.skipped).toHaveLength(1)
+    // The clashed file stayed, and so did its mark -- it was NOT pinned on the other file.
+    expect(isArchived('Teszt Elek/Média/Videók/Barátok/a.mp4')).toBe(true)
+    expect(isArchived('Teszt Elek/Média/Barátok/a.mp4')).toBe(false)
+    // The target folder keeps the name it already had.
+    expect(displayLabelFor('Teszt Elek/Média/Barátok')).toBe('Barátaim')
+  })
+
+  it('an EMPTY event folder moves up too, and is named when it is new', async () => {
+    mkdirSync(join(media, 'Fotók', 'Utazás', 'Amerika 2019'), { recursive: true })
+    const plan = await planLegacyMedia(flatCfg(), 'hu')
+    expect(plan.moves).toEqual([])
+    expect(plan.newFolders).toContain('Teszt Elek/Média/Utazás')
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
+    expect(r.ok).toBe(true)
+    expect(existsSync(join(media, 'Utazás', 'Amerika 2019'))).toBe(true)
+    // The old (empty) folder is left on disk: nothing here deletes.
+    expect(existsSync(join(media, 'Fotók', 'Utazás', 'Amerika 2019'))).toBe(true)
+  })
+
+  it('an old install with an EMPTY type-folder skeleton is still offered the switch (pending), and the run switches it', async () => {
+    const cfg = legacyCfg()
+    ensureLifeTree(cfg, 'hu') // Média/Fotók/<csoport>, no file anywhere
+    const plan = await planLegacyMedia(cfg, 'hu')
+    expect(plan.moves).toEqual([])
+    expect(plan.pending).toBe(true)
+    const r = await moveLegacyMedia(cfg, 'hu')
+    expect(r.ok).toBe(true)
+    expect(r.switched).toBe(true)
+    expect(cfg.persons[0].mediaKinds).toEqual([])
+    expect(existsSync(join(media, 'Mykael család'))).toBe(true)
+    expect((await planLegacyMedia(cfg, 'hu')).pending).toBe(false)
+  })
+
+  it('a fresh (flat) install is never pending', async () => {
+    expect((await planLegacyMedia(flatCfg(), 'hu')).pending).toBe(false)
   })
 
   it('covers a company too: its Fotók content moves up to the company Média', async () => {

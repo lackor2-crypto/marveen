@@ -102,15 +102,19 @@ export function setDisplayLabel(rel: string, name: string): SetLabelResult {
  * under it -- follow it. Without this a moved folder silently loses its
  * display name, and a stray entry stays behind on a path that no longer
  * exists. Returns how many labels moved.
+ *
+ * `exact`: only the folder's OWN label moves (not the labels under it), and a
+ * label already on the target is kept -- see `moveArchivedPrefix` (#464).
  */
-export function moveDisplayLabels(fromRel: string, toRel: string): number {
+export function moveDisplayLabels(fromRel: string, toRel: string, exact = false): number {
   const from = normRel(fromRel)
   const to = normRel(toRel)
   if (!from || !to || from === to) return 0
   const map = { ...load() }
   let moved = 0
   for (const key of Object.keys(map)) {
-    if (key !== from && !key.startsWith(from + '/')) continue
+    if (key !== from && (exact || !key.startsWith(from + '/'))) continue
+    if (exact && to in map) continue
     map[to + key.slice(from.length)] = map[key]
     delete map[key]
     moved++

@@ -165,9 +165,10 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  // The retired Média/Videók and Média/Audió folders (#464): what still sits in
-  // them, the Szkennek count, and the owner-triggered move under Fotók. The GET only reads; the POST never
-  // overwrites and never deletes (same-name files stay and are reported).
+  // The retired Média type folders (#464 B: Fotók, Videók, Audió): what still sits
+  // in them, the Szkennek count, and the owner-triggered move up under Média. The GET
+  // only reads; the POST never overwrites and never deletes (same-name files stay and
+  // are reported).
   if (path === '/api/life/legacy-media' && method === 'GET') {
     try {
       const plan = await planLegacyMedia(loadLifeConfig(), APP_LANG)
@@ -176,6 +177,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
         clashes: plan.clashes.length,
         scans: plan.scans,
         truncated: plan.truncated,
+        // The saved config still plans the type folders: the button switches it
+        // even when there is no file to move (an old, empty skeleton).
+        pending: plan.pending,
         folders: plan.folders,
         newFolders: plan.newFolders,
         examples: plan.moves.slice(0, 5),
@@ -184,8 +188,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       send(res, 500, {
         error: 'failed',
         message: T(uiLang(url),
-          `Nem sikerült megnézni a régi Videók és Audió mappákat: ${String(err?.message || err)}`,
-          `The old Videos and Audio folders could not be checked: ${String(err?.message || err)}`),
+          `Nem sikerült megnézni a régi média típus-mappákat (Fotók/Videók/Audió): ${String(err?.message || err)}`,
+          `The old media type folders (Photos/Videos/Audio) could not be checked: ${String(err?.message || err)}`),
       })
     }
     return true
