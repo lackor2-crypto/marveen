@@ -334,7 +334,7 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFo
 
 export type RenameFolderResult =
   | { ok: true; folder: string; renamed: boolean; item?: WorkItemRow }
-  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_name' | 'folder_exists' | 'folder_has_items' | 'write_failed'; items?: number; message?: string }
+  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_name' | 'folder_exists' | 'folder_has_canvas' | 'write_failed'; items?: number; message?: string }
 
 /**
  * Renames a plain folder inside the work items box (same parent, new last
@@ -363,38 +363,66 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
   if (blocked) return { ok: false, code: 'write_failed', message: blocked }
   ensureAssetTables()
   const db = getDb()
-  // #471: names stay one name. A folder that is exactly ONE work item's own folder is renamed together
-  // with that item (the item takes the folder's new name); the item's paths follow in one transaction.
-  // A folder shared with other items still refuses: their paths would break.
-  const owners = db.prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder = ?').all(project.id, c.folder) as { id: string }[]
-  if (owners.length === 1) {
-    const owner = getWorkItem((owners[0] as { id: string }).id)
-    const othersUnder = (db.prepare('SELECT id, container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND id != ?')
-      .all(project.id, (owners[0] as { id: string }).id) as { id: string; cf: string | null; f: string | null; sp: string | null }[])
-      .filter((r) => [r.cf, r.f, r.sp].some((v) => !!v && (v === c.folder || v.startsWith(c.folder + '/') || v === t.dirRel || v.startsWith(t.dirRel + '/')))).length
-    if (owner && !othersUnder && clean.length <= TITLE_MAX) {
-      const r = relocateWorkItemFolder(owner, clean, null)
-      if (!r.ok) return { ok: false, code: 'write_failed', message: r.message }
-      if (r.renamed) {
-        db.prepare('UPDATE work_items SET title = ?, updated_at = ? WHERE id = ?').run(clean, Math.floor(Date.now() / 1000), owner.id)
-        return { ok: true, folder: r.to, renamed: true, item: getWorkItem(owner.id) as WorkItemRow }
-      }
-    }
-  }
-  const like = (t.dirRel + '/').replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
-  const likeBare = (c.folder + '/').replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
-  const rows = db.prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
-  const under = (v: string | null): boolean => !!v && (v === c.folder || v.startsWith(c.folder + '/') || v === t.dirRel || v.startsWith(t.dirRel + '/'))
-  let items = rows.filter((r) => under(r.cf) || under(r.f) || under(r.sp)).length
-  const refs = db.prepare(`SELECT COUNT(*) AS n FROM (
-    SELECT 1 FROM work_item_versions WHERE source_path LIKE ? ESCAPE '\\' OR source_path LIKE ? ESCAPE '\\'
-    UNION ALL SELECT 1 FROM work_item_parts WHERE asset_path LIKE ? ESCAPE '\\' OR asset_path LIKE ? ESCAPE '\\'
-    UNION ALL SELECT 1 FROM work_item_assets WHERE (path LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\') AND removed_at IS NULL)`)
-    .get(like, likeBare, like, likeBare, like, likeBare) as { n: number }
-  items += refs.n
-  if (items) return { ok: false, code: 'folder_has_items', items }
+  // #478: a folder is a named GROUP. Renaming it only renames the group: no work item changes its name, and
+  // every path the registry keeps under the folder (items, versions, parts, materials, deck pictures) follows.
+  // A drawing (.canvas.json) calls its pictures by path and is not rewritten blindly: the folder stays as it is.
+  if (folderHasCanvas(t.dirAbs)) return { ok: false, code: 'folder_has_canvas' }
+  const newFolder = parentRel ? `${parentRel}/${clean}` : clean
   try { renameSync(t.dirAbs, newAbs) } catch (e) { return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) } }
-  return { ok: true, folder: parentRel ? `${parentRel}/${clean}` : clean, renamed: true }
+  const newPrefix = (toLifeRel(newAbs) || `${parentT.dirRel}/${clean}`) + '/'
+  try {
+    rewriteFolderRefs(project, c.folder, newFolder, t.dirRel + '/', newPrefix)
+  } catch (e) {
+    try { renameSync(newAbs, t.dirAbs) } catch { /* the error below goes on */ }
+    return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
+  }
+  return { ok: true, folder: newFolder, renamed: true }
+}
+
+/** True when a drawing file lies anywhere inside the folder (depth-limited walk). */
+function folderHasCanvas(abs: string, depth = 0): boolean {
+  if (depth > WORK_FOLDER_MAX_DEPTH) return false
+  let entries: import('node:fs').Dirent[]
+  try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return false }
+  for (const d of entries) {
+    if (d.isFile() && isCanvasFile(d.name)) return true
+    if (d.isDirectory() && folderHasCanvas(join(abs, d.name), depth + 1)) return true
+  }
+  return false
+}
+
+/**
+ * After a folder moved on disk: every path the registry keeps under it follows, in one transaction.
+ * `oldRel`/`newRel` are project-relative folder paths (work_items.folder / container_folder),
+ * `oldPrefix`/`newPrefix` Depot-relative with a trailing slash (everything else).
+ */
+function rewriteFolderRefs(project: ProjectRow, oldRel: string, newRel: string, oldPrefix: string, newPrefix: string): void {
+  const db = getDb()
+  const swapRel = (p: string | null): string | null => (p === oldRel ? newRel : p && p.startsWith(oldRel + '/') ? newRel + p.slice(oldRel.length) : p)
+  const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
+  const ids: string[] = []
+  db.transaction(() => {
+    const items = db.prepare('SELECT id, folder, container_folder, source_path FROM work_items WHERE project_id = ?').all(project.id) as { id: string; folder: string | null; container_folder: string | null; source_path: string | null }[]
+    for (const it of items) {
+      const f = swapRel(it.folder), cf = swapRel(it.container_folder), sp = swap(it.source_path)
+      if (f !== it.folder || cf !== it.container_folder || sp !== it.source_path) db.prepare('UPDATE work_items SET folder = ?, container_folder = ?, source_path = ? WHERE id = ?').run(f, cf, sp, it.id)
+      ids.push(it.id)
+    }
+    for (const id of ids) {
+      for (const v of db.prepare('SELECT id, source_path FROM work_item_versions WHERE work_item_id = ?').all(id) as { id: string; source_path: string | null }[]) {
+        if (v.source_path && v.source_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(swap(v.source_path), v.id)
+      }
+      for (const r of db.prepare('SELECT id, asset_path FROM work_item_parts WHERE work_item_id = ?').all(id) as { id: string; asset_path: string | null }[]) {
+        if (r.asset_path && r.asset_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE id = ?').run(swap(r.asset_path), r.id)
+      }
+      for (const a of db.prepare('SELECT id, path FROM work_item_assets WHERE work_item_id = ?').all(id) as { id: string; path: string }[]) {
+        if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
+      }
+      moveDocModelPaths(getWorkItem(id) as WorkItemRow, project.id, `${oldRel}/`, `${newRel}/`, swap)
+      moveDraftDocPaths(id, oldPrefix, newPrefix)
+    }
+  })()
+  for (const id of ids) moveVersionFilePaths(id, oldPrefix, newPrefix)
 }
 
 /**
@@ -886,40 +914,29 @@ export function listWorkItemAssetsSynced(itemId: string): WorkItemAssetView[] {
 }
 
 // ---------------------------------------------------------------------------
-// Atnevezes: a mappa is megy (K-0.11)
+// Atnevezes: #478 -- a munkadarab neve FUGGETLEN a mappa nevetol
 
 export type RenameItemOutcome =
   | { ok: true; item: WorkItemRow; folder: FolderRenameOutcome }
-  | { ok: false; code: 'title_required' | 'title_too_long' | 'folder_exists' }
+  | { ok: false; code: 'title_required' | 'title_too_long' }
 
-/** A munkadarab uj neve + a mappaja (a felulet "Atnevezes" gombja es az agent is ezt hasznalja). */
+/**
+ * #478 (Boss, grouping model): the work item's name is its own. Renaming it never touches a folder,
+ * and renaming a folder (a named group) never touches a work item's name. The `folder` field is kept
+ * in the answer so older callers keep working; it always says "independent".
+ */
 export function renameWorkItem(item: WorkItemRow, rawTitle: unknown): RenameItemOutcome {
   ensureAssetTables()
   const title = String(rawTitle ?? '').trim()
   if (!title) return { ok: false, code: 'title_required' }
   if (title.length > TITLE_MAX) return { ok: false, code: 'title_too_long' }
-  // #471: a taken folder name is the owner's call, not an automatic "name (2)": nothing changes until a free name is chosen.
-  if (title !== item.title && folderNameTaken(item, folderNameFromTitle(title))) return { ok: false, code: 'folder_exists' }
   getDb().prepare('UPDATE work_items SET title = ?, updated_at = ? WHERE id = ?').run(title, Math.floor(Date.now() / 1000), item.id)
-  const folder = title !== item.title ? renameWorkItemFolder(item, title) : { ok: true as const, renamed: false as const, reason: 'same_name' as const }
-  return { ok: true, item: getWorkItem(item.id) as WorkItemRow, folder }
+  return { ok: true, item: getWorkItem(item.id) as WorkItemRow, folder: { ok: true, renamed: false, reason: 'independent' } }
 }
 // ---------------------------------------------------------------------------
 
-/** True when the item's own folder would have to take a name that another folder already holds next to it. */
-function folderNameTaken(item: WorkItemRow, wanted: string): boolean {
-  const folder = workItemFolder(item.id)
-  const project = folder ? getProject(item.project_id) : null
-  if (!folder || !project) return false
-  const lastSeg = folder.includes('/') ? folder.slice(folder.lastIndexOf('/') + 1) : folder
-  if (wanted === lastSeg) return false
-  const parentRel = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : ''
-  const parentT = projectFileTarget(project, parentRel)
-  return parentT.ok && existsSync(join(parentT.dirAbs, wanted))
-}
-
 export type FolderRenameOutcome =
-  | { ok: true; renamed: false; reason: 'no_folder' | 'same_name' | 'missing' | 'shared' | 'canvas' }
+  | { ok: true; renamed: false; reason: 'no_folder' | 'same_name' | 'missing' | 'shared' | 'canvas' | 'independent' }
   | { ok: true; renamed: true; from: string; to: string }
   | { ok: false; code: 'move_failed'; message: string }
 
@@ -1032,7 +1049,7 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
   const seg = own.includes('/') ? own.slice(own.lastIndexOf('/') + 1) : own
   const r = relocateWorkItemFolder(item, seg, c.folder)
   if (!r.ok) return { ok: false, code: 'move_failed', message: r.message }
-  if (!r.renamed) return { ok: true, moved: false, folder: own, reason: r.reason === 'same_name' ? 'same_place' : r.reason === 'no_folder' ? 'missing' : r.reason }
+  if (!r.renamed) return { ok: true, moved: false, folder: own, reason: r.reason === 'same_name' ? 'same_place' : r.reason === 'no_folder' || r.reason === 'independent' ? 'missing' : r.reason }
   getDb().prepare('UPDATE work_items SET container_folder = ?, updated_at = ? WHERE id = ?').run(c.folder, Math.floor(Date.now() / 1000), item.id)
   return { ok: true, moved: true, folder: r.to }
 }

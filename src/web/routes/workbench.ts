@@ -510,9 +510,9 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ilyen nevű mappa már van ezen a helyen. Válassz másik nevet.',
     en: 'A folder with this name already exists here. Choose another name.',
   },
-  folder_has_items: {
-    hu: 'Ebben a mappában több munkadarab anyaga van együtt, ezért nem nevezhető át (az útvonalaik elromlanának). Egy munkadarab saját mappáját viszont átnevezheted: a munkadarab neve vele együtt változik.',
-    en: 'This folder holds the material of several work items, so it cannot be renamed (their paths would break). A folder that belongs to a single work item can be renamed, and the work item takes the new name with it.',
+  folder_has_canvas: {
+    hu: 'Ebben a mappában rajz van, ami a képeit útvonallal hívja, ezért a mappa most nem nevezhető át (a rajz elromlana). A munkadarabok nevét viszont szabadon átírhatod.',
+    en: 'This folder holds a drawing that refers to its pictures by path, so the folder cannot be renamed now (the drawing would break). You can still rename the work items freely.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -2543,7 +2543,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = renameWorkFolder(project, body.folder, body.name)
     if (!r.ok) {
       const code = r.code === 'folder_name' ? 'bad_folder_name' : r.code === 'folder_is_box' ? 'folder_box_rename' : r.code === 'no_box' ? 'folder_gone' : r.code
-      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' || r.code === 'folder_has_items' ? 409 : 400, code, lang, r.message || null)
+      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' || r.code === 'folder_has_canvas' ? 409 : 400, code, lang, r.message || null)
     }
     json(res, { ok: true, folder: r.folder, renamed: r.renamed, item: r.item ?? null, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
@@ -3337,7 +3337,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = renameWorkItem(item, body['title'])
-    if (!r.ok) return fail(res, r.code === 'folder_exists' ? 409 : 400, r.code, lang)
+    if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: assetsOut(item.id) })
     return true
   }

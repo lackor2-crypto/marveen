@@ -1,4 +1,5 @@
-// Card #471: item and folder names stay one name. Repro of the deck-from-folder case first.
+// Card #478 (replaces the #471 two-way name link): a work item's name and its folder's name are independent.
+// A folder is a named group; renaming it renames only the group, and every path under it follows.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -41,77 +42,86 @@ async function deckFromFolder(name: string, adopt = true): Promise<{ id: string;
 }
 const onDisk = (rel: string): boolean => existsSync(join(dir, 'Projektek', 'Diak', ...rel.split('/')))
 
-describe('one name for the work item and its folder (#471)', () => {
-  it('item -> folder: a deck made from an existing folder renames that folder (the reported case)', async () => {
+const slideSrcs = async (id: string): Promise<string[]> => {
+  const deck = await callWorkbench('/api/workbench/items/' + id + '/deck', 'GET')
+  return (deck.body.deck.slides as { canvas: { objects: { src: string }[] } }[]).map((sl) => sl.canvas.objects[0]!.src)
+}
+
+describe('work item name and folder name are independent (#478)', () => {
+  it('item rename touches only the item: the folder and the pictures stay', async () => {
     const d = await deckFromFolder('diak')
+    const before = await slideSrcs(d.id)
     const r = await callWorkbench('/api/workbench/items/' + d.id + '/rename', 'POST', { title: 'ggg' })
-    expect(r.body.folder_rename).toMatchObject({ renamed: true })
-    const to = String(r.body.folder_rename.to)
-    expect(to.endsWith('/ggg')).toBe(true)
-    expect(onDisk(to)).toBe(true)
-    expect(onDisk(d.folder)).toBe(false)
-    // the slide pictures follow the folder
-    const deck = await callWorkbench('/api/workbench/items/' + d.id + '/deck', 'GET')
-    const srcs = (deck.body.deck.slides as { canvas: { objects: { src: string }[] } }[]).map((sl) => sl.canvas.objects[0]!.src)
-    expect(srcs.every((x) => x.includes('/ggg/'))).toBe(true)
+    expect(r.status).toBe(200)
+    expect(r.body.item.title).toBe('ggg')
+    expect(r.body.folder_rename).toMatchObject({ renamed: false, reason: 'independent' })
+    expect(onDisk(d.folder)).toBe(true)
+    expect(await slideSrcs(d.id)).toEqual(before)
   })
 
-  it('folder -> item: renaming the folder directly renames its work item with it', async () => {
+  it('a taken name is no problem for the item: the item name is its own, nothing is refused or suffixed', async () => {
+    const d = await deckFromFolder('diak')
+    const other = makeWorkFolder(getProject(pid)!, '', 'ggg')
+    if (!other.ok) throw new Error('mk')
+    const r = await callWorkbench('/api/workbench/items/' + d.id + '/rename', 'POST', { title: 'ggg' })
+    expect(r.status).toBe(200)
+    expect(onDisk(d.folder)).toBe(true)
+    expect(onDisk(other.folder)).toBe(true)
+  })
+
+  it('folder rename touches only the folder: the item keeps its name, its pictures and its saved paths follow', async () => {
     const d = await deckFromFolder('diak')
     const r = await callWorkbench('/api/workbench/folders/rename', 'POST', { project_id: pid, folder: d.folder, name: 'ggg' })
     expect(r.status).toBe(200)
     expect(r.body.renamed).toBe(true)
-    expect(r.body.item).toMatchObject({ id: d.id, title: 'ggg' })
     expect(onDisk(String(r.body.folder))).toBe(true)
     expect(onDisk(d.folder)).toBe(false)
+    const item = (r.body.items as { id: string; title: string; folder: string | null }[]).find((x) => x.id === d.id)!
+    expect(item.title).toBe('diak')
+    expect(item.folder).toBe(r.body.folder)
+    expect((await slideSrcs(d.id)).every((x) => x.includes('/ggg/'))).toBe(true)
   })
 
-  it('a taken folder name is a clear error both ways, nothing changes and nothing gets a suffix', async () => {
+  it('a taken folder name is a clear error, nothing changes and nothing gets a suffix', async () => {
     const d = await deckFromFolder('diak')
     const other = makeWorkFolder(getProject(pid)!, '', 'ggg')
     if (!other.ok) throw new Error('mk')
-    const r1 = await callWorkbench('/api/workbench/items/' + d.id + '/rename', 'POST', { title: 'ggg' })
-    expect(r1.status).toBe(409)
-    expect(r1.body.message).toMatch(/már van|already exists/)
-    const item = await callWorkbench('/api/workbench/items/' + d.id, 'GET')
-    expect(item.body.item.title).toBe('diak')
-    expect(onDisk(d.folder)).toBe(true)
-    const r2 = await callWorkbench('/api/workbench/folders/rename', 'POST', { project_id: pid, folder: d.folder, name: 'ggg' })
-    expect(r2.status).toBe(409)
-    expect(onDisk(d.folder)).toBe(true)
-  })
-
-  it('a deck from a folder that another item already owns just stays a container (no second owner)', async () => {
-    const d = await deckFromFolder('diak')
-    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'presentation', title: 'masik', folder: d.folder, adopt_folder: true })
-    expect(c.status).toBe(201)
     const r = await callWorkbench('/api/workbench/folders/rename', 'POST', { project_id: pid, folder: d.folder, name: 'ggg' })
     expect(r.status).toBe(409)
+    expect(r.body.message).toMatch(/már van|already exists/)
     expect(onDisk(d.folder)).toBe(true)
   })
 
-  it('a folder shared by several items refuses the direct rename with a sentence, not a code', async () => {
+  it('a folder with several items in it renames fine: every item keeps its name and its paths follow', async () => {
     const f = makeWorkFolder(getProject(pid)!, '', 'kozos')
     if (!f.ok) throw new Error('mk')
-    writeFileSync(join(dir, 'Projektek', 'Diak', ...f.folder.split('/'), 'a.txt'), 'a')
-    writeFileSync(join(dir, 'Projektek', 'Diak', ...f.folder.split('/'), 'b.txt'), 'b')
+    for (const n of ['a', 'b']) writeFileSync(join(dir, 'Projektek', 'Diak', ...f.folder.split('/'), n + '.txt'), n)
+    const ids: string[] = []
     for (const n of ['a', 'b']) {
       const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'note', title: n, source_path: 'Projektek/Diak/' + f.folder + '/' + n + '.txt', folder: f.folder })
       expect(c.status).toBe(201)
+      ids.push(c.body.item.id)
     }
     const r = await callWorkbench('/api/workbench/folders/rename', 'POST', { project_id: pid, folder: f.folder, name: 'uj' })
-    expect(r.status).toBe(409)
-    expect(r.body.message).toMatch(/több munkadarab|several work items/)
-    expect(onDisk(f.folder)).toBe(true)
+    expect(r.status).toBe(200)
+    const items = r.body.items as { id: string; title: string; source_path: string; container_folder: string }[]
+    for (const id of ids) {
+      const it = items.find((x) => x.id === id)!
+      expect(it.source_path.includes('/uj/')).toBe(true)
+      expect(it.container_folder).toBe(r.body.folder)
+      expect(onDisk(it.source_path.replace('Projektek/Diak/', ''))).toBe(true)
+    }
+    expect(items.filter((x) => ids.includes(x.id)).map((x) => x.title).sort()).toEqual(['a', 'b'])
   })
 
-  it('an item with no folder of its own renames fine and the response says why the folder stayed', async () => {
+  it('an item without a folder of its own renames fine', async () => {
     const f = makeWorkFolder(getProject(pid)!, '', 'kozos')
     if (!f.ok) throw new Error('mk')
     writeFileSync(join(dir, 'Projektek', 'Diak', ...f.folder.split('/'), 'a.txt'), 'a')
     const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'note', title: 'a', source_path: 'Projektek/Diak/' + f.folder + '/a.txt', folder: f.folder })
     const r = await callWorkbench('/api/workbench/items/' + c.body.item.id + '/rename', 'POST', { title: 'b' })
-    expect(r.body.folder_rename).toMatchObject({ renamed: false, reason: 'no_folder' })
+    expect(r.status).toBe(200)
+    expect(r.body.item.title).toBe('b')
     expect(onDisk(f.folder)).toBe(true)
   })
 })
