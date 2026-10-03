@@ -11536,7 +11536,41 @@
       WB.fitKey = WB.selectedId
       if (fr && typeof fr.scrollIntoView === 'function') fr.scrollIntoView({ block: 'start' })
     }
+    fitMdSplit()
   }
+  /** The markdown split (editor + live preview) fills the frame down to the window bottom: both
+   *  boxes are exactly as tall as what is left, so the page itself never scrolls, only the boxes do
+   *  (Boss, TG 2239). Whatever follows the split (save buttons, hint) keeps its own room. */
+  function fitMdSplit() {
+    if (typeof document.querySelector !== 'function') return
+    var split = document.querySelector('.wb-md-split')
+    var body = document.querySelector('.wb-fr-body')
+    if (!split || !body || window.innerWidth <= 900) { if (split) split.style.height = ''; return }
+    var scroller = split.closest ? split.closest('.wb-fr-scroll') : null
+    if (scroller) scroller.scrollTop = 0
+    var after = 0
+    for (var n = split.nextElementSibling; n; n = n.nextElementSibling) after += n.offsetHeight + 12
+    var room = Math.min(body.getBoundingClientRect().bottom, window.innerHeight - 4) - split.getBoundingClientRect().top - after - 16
+    split.style.height = Math.max(240, Math.floor(room)) + 'px'
+  }
+
+  /** Editor and preview scroll together: whatever the owner edits is what the preview shows
+   *  (proportional position; Boss, TG 2237). The element we move ourselves is not echoed back. */
+  var mdSyncSkip = null
+  if (typeof document.addEventListener === 'function') document.addEventListener('scroll', function (e) {
+    var from = e.target
+    if (!from || (from.id !== 'wbTextEdit' && from.id !== 'wbTextEditLive')) return
+    if (from === mdSyncSkip) { mdSyncSkip = null; return }
+    var to = document.getElementById(from.id === 'wbTextEdit' ? 'wbTextEditLive' : 'wbTextEdit')
+    if (!to) return
+    var span = from.scrollHeight - from.clientHeight
+    var target = span > 0 ? Math.round((from.scrollTop / span) * (to.scrollHeight - to.clientHeight)) : 0
+    if (Math.abs(to.scrollTop - target) < 2) return
+    mdSyncSkip = to
+    to.scrollTop = target
+    setTimeout(function () { if (mdSyncSkip === to) mdSyncSkip = null }, 80)
+  }, true)
+
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) fitFrame() })
 
   /** The page's scroll position across a full re-render (Boss, TG 7451: pressing "Vegleges torles"
