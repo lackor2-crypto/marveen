@@ -64,6 +64,11 @@ describe('no-live-tree-delete guard', () => {
     // a relative target after a cd is judged against the live cwd too: the cd may fail (the incident)
     expect(runHook(bash(live, 'cd /tmp && rm -f a.txt')).status).toBe(2)
   })
+  it('does not mistake other words of the command line for targets', () => {
+    expect(runHook(bash(live, 'printf x >> /tmp/n.md; rm -f /tmp/a.txt')).status).toBe(0)
+    expect(runHook(bash(live, 'echo src; rm -f /tmp/a.txt')).status).toBe(0)
+    expect(runHook(bash(live, 'printf x; rm -f src/a.ts')).status).toBe(2)
+  })
   it('ignores commands that do not destroy', () => {
     for (const c of ['ls src', 'cp src/db.ts /tmp/x', 'git status', 'cat web/app.js']) {
       expect(runHook(bash(live, c)).status, c).toBe(0)

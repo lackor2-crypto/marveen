@@ -105,14 +105,31 @@ def main():
             bases.append(os.path.realpath(d if os.path.isabs(d) else os.path.join(cwd, d)))
     if re.search(r"\bgit\s+clean\b", command) and any(os.path.realpath(b) == root for b in bases):
         deny(MSG.format(root=root, hit="git clean"))
+    # Only the arguments AFTER a destructive verb are targets (so `printf x; rm /tmp/a` does not
+    # judge `printf` as a path). A segment ends at ; && || |.
+    VERBS = {"rm", "unlink", "shred", "truncate", "mv"}
+    segs, cur = [], []
     for t in tokens:
-        t = os.path.expanduser(t.strip("\"'"))
-        if not t or t.startswith("-") or t in SKIP_WORDS:
-            continue
-        cands = [t] if os.path.isabs(t) else [os.path.join(b, t) for b in bases]
-        for c in cands:
-            if under(c, root) and not allowed(c, root):
-                deny(MSG.format(root=root, hit=t))
+        if t in (";", "&&", "||", "|"):
+            segs.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    segs.append(cur)
+    for seg in segs:
+        active = False
+        for t in seg:
+            if not active:
+                if t in VERBS or (t == "find" and "-delete" in seg):
+                    active = True
+                continue
+            t = os.path.expanduser(t.strip("\"'"))
+            if not t or t.startswith("-") or t in SKIP_WORDS:
+                continue
+            cands = [t] if os.path.isabs(t) else [os.path.join(b, t) for b in bases]
+            for c in cands:
+                if under(c, root) and not allowed(c, root):
+                    deny(MSG.format(root=root, hit=t))
     allow()
 
 
