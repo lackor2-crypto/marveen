@@ -39,6 +39,7 @@ import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
+import { ol } from './owner-lang.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -440,13 +441,13 @@ function rewriteFolderRefs(project: ProjectRow, oldRel: string, newRel: string, 
  * the new one in one transaction -- the file links must not break. `newFolder` is project-relative in the
  * NEW project, or null when the file sits in that project's root. Only this item's records are touched.
  */
-export function rehomeWorkItem(item: WorkItemRow, from: ProjectRow, to: ProjectRow, newFolder: string | null): void {
-  if (!from.folder_path || !to.folder_path) return
+export function rehomeWorkItem(item: WorkItemRow, from: ProjectRow, to: ProjectRow, newFolder: string | null, prefixes?: { old: string; new: string }): void {
+  if (!prefixes && (!from.folder_path || !to.folder_path)) return
   const db = getDb()
   const oldRel = item.folder ?? ''
-  const base = (p: ProjectRow): string => p.folder_path!.replace(/\/+$/, '')
-  const oldPrefix = (oldRel ? `${base(from)}/${oldRel}` : base(from)) + '/'
-  const newPrefix = (newFolder ? `${base(to)}/${newFolder}` : base(to)) + '/'
+  const base = (p: ProjectRow): string => (p.folder_path ?? '').replace(/\/+$/, '')
+  const oldPrefix = prefixes?.old ?? (oldRel ? `${base(from)}/${oldRel}` : base(from)) + '/'
+  const newPrefix = prefixes?.new ?? (newFolder ? `${base(to)}/${newFolder}` : base(to)) + '/'
   const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
   const container = newFolder ? (newFolder.includes('/') ? newFolder.slice(0, newFolder.lastIndexOf('/')) : null) : PROJECT_ROOT_PLACE
   db.transaction(() => {
@@ -1073,6 +1074,58 @@ function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel:
   return { ok: true, renamed: true, from: folder, to: newFolder }
 }
 
+/**
+ * An existing item whose own folder sits inside a group: make the GROUP its folder. The files of the own
+ * sub-folder move up into the group (nothing is ever overwritten: a name clash aborts before anything
+ * moves), the emptied sub-folder goes away, and every registry path follows (rehomeWorkItem, project
+ * unchanged). Refused (no change) when another item uses either folder, a drawing refers to the folder by
+ * path, or another item's paths point into it.
+ */
+function flattenIntoGroup(item: WorkItemRow, project: ProjectRow, own: string, group: string): MoveItemOutcome {
+  const db = getDb()
+  const others = db.prepare("SELECT 1 FROM work_items WHERE id != ? AND (folder = ? OR folder = ? OR folder LIKE ? ESCAPE '\\') LIMIT 1")
+    .get(item.id, group, own, own.replace(/[\\%_]/g, (ch) => '\\' + ch) + '/%')
+  if (others) return { ok: true, moved: false, folder: own, reason: 'shared' }
+  const cur = projectFileTarget(project, own)
+  const grp = projectFileTarget(project, group)
+  if (!cur.ok || !grp.ok) return { ok: true, moved: false, folder: own, reason: 'missing' }
+  const oldPrefix = cur.dirRel + '/'
+  const newPrefix = grp.dirRel + '/'
+  const like = oldPrefix.replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
+  const shared = db.prepare(`SELECT 1 FROM work_items WHERE id != ? AND source_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_versions WHERE work_item_id != ? AND source_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_parts WHERE work_item_id != ? AND asset_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_assets WHERE work_item_id != ? AND path LIKE ? ESCAPE '\\' AND removed_at IS NULL LIMIT 1`)
+    .get(item.id, like, item.id, like, item.id, like, item.id, like)
+  if (shared) return { ok: true, moved: false, folder: own, reason: 'shared' }
+  let names: string[]
+  try { names = readdirSync(cur.dirAbs) } catch { return { ok: true, moved: false, folder: own, reason: 'missing' } }
+  if (names.some((n) => isCanvasFile(n))) return { ok: true, moved: false, folder: own, reason: 'canvas' }
+  const blocked = writeBlockReason(grp.dirRel)
+  if (blocked) return { ok: false, code: 'move_failed', message: blocked }
+  const moving = names.filter((n) => n !== FOLDER_MARKER)
+  const clash = moving.find((n) => existsSync(join(grp.dirAbs, n)))
+  if (clash) {
+    return { ok: false, code: 'move_failed', message: ol(
+      `A(z) "${clash}" már van a csoportban, ezért nem tettem át semmit (nem írok felül fájlt). Nevezd át az egyiket, és próbáld újra.`,
+      `"${clash}" already exists in the group, so nothing was moved (I never overwrite a file). Rename one of them and try again.`) }
+  }
+  const done: string[] = []
+  const undo = (): void => { for (const n of done.reverse()) { try { renameSync(join(grp.dirAbs, n), join(cur.dirAbs, n)) } catch { /* best effort */ } } }
+  try {
+    for (const n of moving) { renameSync(join(cur.dirAbs, n), join(grp.dirAbs, n)); done.push(n) }
+    rehomeWorkItem(item, project, project, group, { old: oldPrefix, new: newPrefix })
+  } catch (e) {
+    undo()
+    return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
+  }
+  // The emptied sub-folder (and its auto-managed id file) goes away; the owner's own content never does.
+  try { unlinkSync(join(cur.dirAbs, FOLDER_MARKER)) } catch { /* no marker */ }
+  try { rmdirSync(cur.dirAbs) } catch { /* not empty after all (a file appeared meanwhile): it stays */ }
+  db.prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND path = ?').run(project.id, own)
+  return { ok: true, moved: true, folder: group }
+}
+
 export type MoveItemOutcome =
   | { ok: true; moved: boolean; folder: string | null; reason?: 'same_place' | 'own_folder' | 'shared' | 'canvas' | 'missing' }
   | { ok: false; code: WorkFolderError | 'move_failed'; message?: string }
@@ -1096,7 +1149,13 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
     return f.ok ? { ok: true, moved: true, folder: f.folder } : { ok: false, code: 'move_failed', message: 'message' in f ? f.message : undefined }
   }
   const curParent = own.includes('/') ? own.slice(0, own.lastIndexOf('/')) : ''
-  if (curParent === c.folder) return { ok: true, moved: false, folder: own, reason: 'same_place' }
+  // The target is the PARENT of the item's own folder: the owner wants the item directly in that group
+  // (a folder is a named group, an own sub-folder is not mandatory) -> flatten. Only the work items box
+  // itself is no group: there the item is simply where it belongs.
+  if (curParent === c.folder) {
+    if (curParent === (findWorkItemsBox(project) ?? '')) return { ok: true, moved: false, folder: own, reason: 'same_place' }
+    return flattenIntoGroup(item, project, own, c.folder)
+  }
   // The target is the item's own folder (or inside it): it already lives there.
   if (c.folder === own || c.folder.startsWith(own + '/')) return { ok: true, moved: false, folder: own, reason: 'own_folder' }
   const seg = own.includes('/') ? own.slice(own.lastIndexOf('/') + 1) : own
