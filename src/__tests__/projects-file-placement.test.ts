@@ -65,6 +65,23 @@ describe('javasolt hely -- tiszta fuggveny', () => {
     expect(suggestPlacement('szerzodes.pdf', null, [], 'hu')).toEqual({ type: 'new', kind: 'contract', name: 'Jogi', parent: '' })
   })
 
+  it('video es hang a fotok helyere megy, uj Videok / Hangok mappat nem javasol (#464)', () => {
+    // Van fotos mappa: a video es a hang oda kerul (meglevo mappa).
+    expect(suggestPlacement('klip.mp4', null, ['Média', 'Média/Fotók'], 'hu'))
+      .toEqual({ type: 'existing', kind: 'video', sub: 'Média/Fotók' })
+    expect(suggestPlacement('interju.m4a', null, ['Média', 'Média/Fotók'], 'hu'))
+      .toEqual({ type: 'existing', kind: 'audio', sub: 'Média/Fotók' })
+    // Csak a gyujto van meg: az ALA kerul az uj Fotok mappa, nem Videok.
+    expect(suggestPlacement('klip.mp4', null, ['Media', 'Jogi'], 'hu'))
+      .toEqual({ type: 'new', kind: 'video', name: 'Fotók', parent: 'Media' })
+    // Ures projekt: Media/Photos, angol telepiteson is.
+    expect(suggestPlacement('klip.mp4', null, [], 'hu')).toEqual({ type: 'new', kind: 'video', name: 'Média/Fotók', parent: '' })
+    expect(suggestPlacement('song.mp3', null, [], 'en')).toEqual({ type: 'new', kind: 'audio', name: 'Media/Photos', parent: '' })
+    // A felhasznalo MEGLEVO Videok mappajat tovabbra is hasznaljuk.
+    expect(suggestPlacement('klip.mp4', null, ['Média', 'Média/Fotók', 'Média/Videók'], 'hu'))
+      .toEqual({ type: 'existing', kind: 'video', sub: 'Média/Videók' })
+  })
+
   it('friss, ures projektmappa: minden fajtara van (uj mappa) javaslat', () => {
     for (const n of ['a.jpg', 'a.mp4', 'a.mp3', 'poszt.png', 'a.html', 'szerzodes.pdf', 'a.pdf', 'a.xyz']) {
       const s = suggestPlacement(n, null, [], 'hu')
