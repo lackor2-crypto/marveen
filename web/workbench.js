@@ -1682,7 +1682,10 @@
     body += trashHtml()
     body += rescueHtml()
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
-      + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
+      + '<div class="wb-panel-head"><h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
+      // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
+      + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
+      + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button></div>'
       + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
       + body
       + (archived()
