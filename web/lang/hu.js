@@ -5713,6 +5713,7 @@ window._i18n.hu = {
   "workbench.step.item": "2. Munkadarab létrehozása",
   "workbench.folder.pick_label": "Melyik csoportba (mappába) kerüljön?",
   "workbench.folder.pick_none": "(nincs csoport: a Munkadarabok mappa)",
+  "workbench.folder.pick_project": "(közvetlenül a projekt mappájában, csoport nélkül)",
   "workbench.folder.pick_default": "(a Munkadarabok mappa, legfelül)",
   "workbench.folder.pick_hint": "Itt látod a projekt csoportjait (mappáit). Választhatsz egyet, de nem kötelező: csoport nélkül a munkadarab a közös Munkadarabok mappába kerül.",
   "workbench.folder.new_placeholder": "Új csoport neve",

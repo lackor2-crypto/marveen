@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, type FolderReconcile,
+  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, PROJECT_ROOT_PLACE, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -2596,7 +2596,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     // The folder picked in step 1 ('' = the default box).
     let intakeFolder: string | null = null
-    if (String(body['folder'] ?? '').trim()) {
+    const intakeRoot = String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE
+    if (intakeRoot) intakeFolder = PROJECT_ROOT_PLACE
+    else if (String(body['folder'] ?? '').trim()) {
       const c = workFolderTarget(project, body['folder'])
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       intakeFolder = c.folder
@@ -2606,8 +2608,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // A jegyzet (md) kerese: a munkadarab SAJAT .md fajlt kap a mappajaban, es ez a tartalma --
     // az ugynok ebbe ir, a jobb oldal ezt mutatja. (Nincs projektmappa -> fajl nelkul, mint eddig.)
     let noteFile: { rel: string; name: string } | null = null
-    if (kind === 'note' && projectFileTarget(project, intakeFolder ?? '').ok) {
-      const w = writeProjectNote(project, intakeFolder ?? '', title, '', 'md')
+    const noteDir = intakeRoot ? '' : (intakeFolder ?? '')
+    if (kind === 'note' && projectFileTarget(project, noteDir).ok) {
+      const w = writeProjectNote(project, noteDir, title, '', 'md')
       if (!w.ok) return failDetail(res, w.code === 'write_failed' ? 500 : 400, MESSAGES['upload_' + w.code] ? 'upload_' + w.code : w.code, lang, 'message' in w ? (w.message || null) : null)
       noteFile = { rel: w.rel, name: w.name }
     }
@@ -2662,7 +2665,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // points at it where it is; the folder only says where the file is, not where the item box goes.
     const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true || body.from_files === true
     let existingFolder: string | null = null
-    if (String(body.folder ?? '').trim()) {
+    // #479: "directly in the project folder" is a place of its own, not a group of the box.
+    if (String(body.folder ?? '').trim() === PROJECT_ROOT_PLACE && String(body.new_folder ?? '').trim()) body.folder = '' // a typed new group wins
+    const rootPlace = String(body.folder ?? '').trim() === PROJECT_ROOT_PLACE && !String(body.new_folder ?? '').trim()
+    if (rootPlace) containerFolder = PROJECT_ROOT_PLACE
+    else if (String(body.folder ?? '').trim()) {
       const c = workFolderTarget(project, body.folder)
       if (c.ok) containerFolder = c.folder
       else if (fromExisting && (c.code === 'bad_folder' || c.code === 'no_box')) {
@@ -2725,7 +2732,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let folderExisted = false
     let containerFolder: string | null = null
     const newFolderName = String(body['new_folder'] ?? '').trim()
-    if (String(body['folder'] ?? '').trim() || newFolderName) {
+    if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE && newFolderName) body['folder'] = ''
+    if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE) {
+      containerFolder = PROJECT_ROOT_PLACE // the .xlsx lies directly in the project folder
+    } else if (String(body['folder'] ?? '').trim() || newFolderName) {
       let c = workFolderTarget(project, body['folder'])
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       if (newFolderName) {

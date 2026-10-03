@@ -1454,7 +1454,8 @@
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
     var pick = WB.pickFolder || ''
-    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>']
+    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>',
+      '<option value="@project"' + (pick === '@project' ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_project')) + '</option>']
     ;(wf.folders || []).forEach(function (f) {
       var depth = f.split('/').length - 1 - (box ? box.split('/').length - 1 : 0)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0\u00a0')
@@ -1498,7 +1499,7 @@
     var pid = WB.projectId
     WB.folderBusy = true
     render()
-    api('POST', '/api/workbench/folders', { project_id: pid, parent: WB.pickFolder || '', name: name }).then(function (r) {
+    api('POST', '/api/workbench/folders', { project_id: pid, parent: WB.pickFolder === '@project' ? '' : (WB.pickFolder || ''), name: name }).then(function (r) {
       WB.folderBusy = false
       if (WB.projectId !== pid) return
       if (!r.ok) { render(); window.showToast(r.message); return }

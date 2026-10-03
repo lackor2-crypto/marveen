@@ -43,6 +43,9 @@ import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, t
 import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
+/** #479: the create form's "directly in the project folder" place (not a group of the work items box). Stored in container_folder. */
+export const PROJECT_ROOT_PLACE = '@project'
+
 /** Egy mappanev hossza (a Windows teljes-ut korlatja miatt rovidebb, mint a fajlnev). */
 export const FOLDER_NAME_MAX = 80
 /** Egy munkadarab legfeljebb ennyi anyagot tarthat (egy vegtelen lista nem anyag, hanem hiba). */
@@ -491,7 +494,7 @@ export function migrateWorkItemFolders(project: ProjectRow): FolderMigration {
   if (!box.ok) return { moved: 0, skipped: 0, container: null }
   let moved = 0
   let skipped = 0
-  const items = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(project.id) as { id: string }[]
+  const items = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != '' AND COALESCE(container_folder, '') != ?").all(project.id, PROJECT_ROOT_PLACE) as { id: string }[]
   for (const { id } of items) {
     const item = getWorkItem(id)
     const folder = item ? workItemFolder(id) : null
@@ -521,6 +524,15 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
   // #454: the folder the owner picked in the new-item form (must still exist
   // inside the work items box); otherwise the default box.
   let parentFolder: string | null = null
+  if (item.container_folder === PROJECT_ROOT_PLACE) {
+    // #479: made directly in the project folder, not in the work items box.
+    const root = projectFileTarget(project, '')
+    if (!root.ok) return root
+    const rr = makeProjectFolder(project, '', freeFileName(root.dirAbs, folderNameFromTitle(item.title)))
+    if (!rr.ok) return rr
+    setItemFolder(item.id, rr.sub)
+    return { ok: true, folder: rr.sub, created: rr.created }
+  }
   if (item.container_folder) {
     const c = workFolderTarget(project, item.container_folder)
     if (c.ok) parentFolder = c.folder
@@ -755,7 +767,7 @@ export function workbenchPlace(project: ProjectRow, item: WorkItemRow | null, pl
   // that has no files yet still sits in a real folder; "no folder" was a lie).
   const itemDir = (): string | null => {
     for (const f of [workItemFolder(item.id), item.container_folder]) {
-      if (!f) continue
+      if (!f || f === PROJECT_ROOT_PLACE) continue
       const t = projectFileTarget(project, f)
       if (t.ok && inside(t.dirAbs)) return t.dirAbs
     }
