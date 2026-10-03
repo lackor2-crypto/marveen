@@ -2572,6 +2572,10 @@ function renderKanban() {
     flatBoard.hidden = false
     for (const [status, cards] of Object.entries(grouped)) {
       const col = document.querySelector(`#kanbanBoard .kanban-col-body[data-status="${status}"]`)
+      // #482: the column body stays the same element, so emptying it throws its
+      // scroll to the top -- a filter toggle or a refresh then loses where the
+      // owner had scrolled in a long column. Keep it and put it back.
+      const keepTop = col.scrollTop
       col.innerHTML = ''
       cards.sort(kanbanColumnSort(status))
 
@@ -2583,6 +2587,7 @@ function renderKanban() {
       }
       const works = kanbanWorkItems.filter((w) => w.column === status && kanbanWorkItemVisible(w))
       if (works.length) col.insertAdjacentHTML('beforeend', works.map((w) => workItemBoardHtml(w, true)).join(''))
+      if (keepTop) col.scrollTop = keepTop
     }
     // Hide/show flat-board columns based on visibility set
     const allColsHidden = KANBAN_STATUS_DEFS.every(d => kanbanHiddenColumns.has(d.status))
@@ -2690,6 +2695,18 @@ function kanbanSwimlaneMeta(key) {
 
 function renderSwimlaneBoard(grouped, embeddedSubtaskIds) {
   const board = document.getElementById('kanbanSwimlaneBoard')
+  // #482: the swimlanes are rebuilt from scratch, so every lane column would
+  // scroll back to the top (and the board itself to its corner). Remember where
+  // each lane column (keyed by lane + status) and the board were, put them back
+  // after the rebuild; a key that is no longer present is simply skipped.
+  const keepCols = {}
+  board.querySelectorAll('.kanban-swimlane').forEach((lane) => {
+    lane.querySelectorAll('.kanban-swimlane-col-body').forEach((cb) => {
+      if (cb.scrollTop) keepCols[(lane.dataset.group || '') + '::' + (cb.dataset.status || '')] = cb.scrollTop
+    })
+  })
+  const keepBoardTop = board.scrollTop
+  const keepBoardLeft = board.scrollLeft
   board.innerHTML = ''
 
   const presentKeys = new Set()
@@ -2770,6 +2787,16 @@ function renderSwimlaneBoard(grouped, embeddedSubtaskIds) {
     lane.appendChild(body)
     board.appendChild(lane)
   }
+
+  // #482: put each lane column and the board back where they were.
+  board.querySelectorAll('.kanban-swimlane').forEach((lane) => {
+    lane.querySelectorAll('.kanban-swimlane-col-body').forEach((cb) => {
+      const top = keepCols[(lane.dataset.group || '') + '::' + (cb.dataset.status || '')]
+      if (top) cb.scrollTop = top
+    })
+  })
+  if (keepBoardTop) board.scrollTop = keepBoardTop
+  if (keepBoardLeft) board.scrollLeft = keepBoardLeft
 
   updateSubtaskBadges(embeddedSubtaskIds)
 
