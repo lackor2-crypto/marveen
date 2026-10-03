@@ -102,6 +102,36 @@ export async function htmlToDocBytes(html: string, ext: string): Promise<{ ok: t
   }
 }
 
+/** Formats the printable page can be exported to (Boss, TG 2243: "amibe csak lehet"): file
+ *  extension -> LibreOffice target filter and download MIME type. */
+export const DOC_EXPORT_FORMATS: Record<string, { filter: string; mime: string }> = {
+  docx: { filter: 'docx:MS Word 2007 XML', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  doc: { filter: 'doc:MS Word 97', mime: 'application/msword' },
+  odt: { filter: 'odt:writer8', mime: 'application/vnd.oasis.opendocument.text' },
+  rtf: { filter: 'rtf:Rich Text Format', mime: 'application/rtf' },
+  txt: { filter: 'txt:Text (encoded):UTF8', mime: 'text/plain; charset=utf-8' },
+  epub: { filter: 'epub:EPUB', mime: 'application/epub+zip' },
+}
+
+/** The printable page HTML -> the bytes of one of DOC_EXPORT_FORMATS. */
+export async function htmlToExportBytes(html: string, ext: string): Promise<{ ok: true; data: Buffer } | DocEditFail> {
+  const fmt = DOC_EXPORT_FORMATS[ext]
+  if (!fmt) return { ok: false, code: 'convert_failed', detail: `unsupported target format: ${ext}` }
+  let dir: string
+  try { dir = scratchDir('export') } catch (e) {
+    return { ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) }
+  }
+  try {
+    const src = join(dir, 'document.html')
+    writeFileSync(src, sanitizeDocHtml(html), 'utf-8')
+    const r = await sofficeConvertFile(src, fmt.filter, { outExt: ext, infilter: 'HTML (StarWriter)' })
+    if (!r.ok) return r
+    return { ok: true, data: r.data }
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* cleanup failure is not the user's problem */ }
+  }
+}
+
 /** Van-e Poppler `pdftohtml` ezen a gepen? */
 export function probePdfToHtml(opts: { force?: boolean; candidates?: string[] } = {}): Promise<CommandProbe> {
   return probeCommand({
