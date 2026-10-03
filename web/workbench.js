@@ -11458,7 +11458,7 @@
     var isVid = !!it && frIsVideo(it) && !isDeckItem()
     var main = tbl ? tbl : isVid ? '<div class="wb-fr-vid">' + frVideoPageHtml() + '</div>' : page
       ? '<div class="wb-fr-fixed" style="--wb-zoom:' + zoom + ';--ar:' + (doc ? (doc.width / doc.height).toFixed(4) : '1') + '"><div class="wb-fr-page">' + page + '</div></div>'
-      : '<div class="wb-fr-scroll">' + scrolling + '</div>'
+      : '<div class="wb-fr-scroll" style="--wb-zoom:' + zoom + '">' + scrolling + '</div>'
     // The zoom bar is no longer inside this column: it sits slim at the very bottom of the frame
     // (frameHtml), so the content above gets the room (Boss, TG 2252/2258).
     WB.frShowBar = !(isVid || tbl)
