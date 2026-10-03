@@ -58,6 +58,7 @@ import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-wor
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
@@ -2576,6 +2577,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // #461: work item snapshot files. Status for the settings line; the owner's button rebuilds missing items.
+  if (path === '/api/workbench/snapshot/status' && method === 'GET') {
+    json(res, snapshotStatus())
+    return true
+  }
+  if (path === '/api/workbench/snapshot/restore' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    sweepSnapshots({ force: true }) // first save what is there, so a rebuild never races a stale file
+    const r = restoreFromFolders({ adoptOrphans: body['adopt_orphans'] === true, deep: body['deep'] === true })
+    json(res, { ok: true, ...r })
+    return true
+  }
+
   if (path === '/api/workbench/items' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
@@ -3318,6 +3333,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 2 && segs[1] === 'purge' && method === 'POST') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    tombstoneSnapshot(item)
     const r = purgeWorkItem(item.id)
     if (!r.ok) return r.code === 'item_not_found' ? fail(res, 404, 'not_found', lang) : fail(res, 409, r.code, lang)
     json(res, { ok: true, items: listWorkItems(r.projectId), deleted: listDeletedWorkItems(r.projectId) })

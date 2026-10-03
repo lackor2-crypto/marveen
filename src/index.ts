@@ -33,6 +33,7 @@ import { startInviteMonitor, stopInviteMonitor } from './web/channel-invites.js'
 import { ensureDiscordChannelGroup } from './web/discord-group-bootstrap.js'
 import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/channel-request-watcher.js'
 import { startStoreWatcher, stopStoreWatcher, isBenignWatchError } from './store-watcher.js'
+import { startWorkbenchSnapshots, stopWorkbenchSnapshots } from './workbench-snapshot.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
 import {
   acquirePortLock,
@@ -414,6 +415,7 @@ const shutdown = (): void => {
     try { stopInviteMonitor() } catch (err) { logger.warn({ err }, 'stopInviteMonitor threw during shutdown') }
     try { stopChannelRequestWatcher() } catch (err) { logger.warn({ err }, 'stopChannelRequestWatcher threw during shutdown') }
     try { stopStoreWatcher() } catch (err) { logger.warn({ err }, 'stopStoreWatcher threw during shutdown') }
+    try { stopWorkbenchSnapshots() } catch (err) { logger.warn({ err }, 'stopWorkbenchSnapshots threw during shutdown') }
     try { stopMainInboxReceipt() } catch (err) { logger.warn({ err }, 'stopMainInboxReceipt threw during shutdown') }
     if (gitSyncInterval) clearInterval(gitSyncInterval)
     if (googleLiveInterval) clearInterval(googleLiveInterval)
@@ -633,6 +635,9 @@ async function main(): Promise<void> {
 
   // Store file audit watcher
   startStoreWatcher()
+
+  // #461: work item snapshot files in the project folders (sweep + rebuild of missing rows)
+  startWorkbenchSnapshots()
 
   // Web dashboard
   webServer = startWebServer(WEB_PORT)

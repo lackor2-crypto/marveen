@@ -161,6 +161,8 @@
 .wb-trash-row .wb-item-del:hover:not(:disabled) { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
 .wb-item-del:disabled { cursor: default; opacity: 0.4; }
 .wb-trash { margin-top: 10px; }
+.wb-rescue .wb-actions { margin: 6px 0 10px; }
+.wb-rescue .wb-mini { white-space: normal; text-align: left; }
 .wb-trash-toggle { background: none; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; padding: 6px 10px; color: inherit; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
 .wb-trash-toggle:hover { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
 .wb-trash-item { cursor: default; opacity: 0.7; }

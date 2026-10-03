@@ -444,6 +444,43 @@
     })
   }
 
+  /** #461: work items are also kept as files in the project folder; this box rebuilds the ones missing from the list. */
+  function rescueHtml() {
+    var res = WB.rescueResult
+    var note = ''
+    if (res) {
+      note = '<p class="wb-hint">' + esc(res.restored || res.adopted || res.projectsRebuilt
+        ? t('workbench.rescue.done', { n: (res.restored || 0) + (res.adopted || 0) })
+        : t('workbench.rescue.none')) + '</p>'
+    }
+    return '<div class="wb-trash wb-rescue">'
+      + '<button type="button" class="wb-trash-toggle" data-wb-act="rescue-toggle" aria-expanded="' + !!WB.rescueOpen + '">'
+      + (WB.rescueOpen ? '▾ ' : '▸ ') + esc(t('workbench.rescue.title')) + '</button>'
+      + (WB.rescueOpen
+        ? '<p class="wb-hint">' + esc(t('workbench.rescue.why')) + '</p>'
+          + '<p class="wb-hint">' + esc(t('workbench.rescue.how')) + '</p>'
+          + '<div class="wb-actions"><button type="button" class="wb-mini" data-wb-act="rescue-restore"' + (WB.rescueBusy ? ' disabled' : '') + '>' + esc(t('workbench.rescue.restore')) + '</button></div>'
+          + '<p class="wb-hint">' + esc(t('workbench.rescue.adopt_why')) + '</p>'
+          + '<div class="wb-actions"><button type="button" class="wb-mini" data-wb-act="rescue-adopt"' + (WB.rescueBusy ? ' disabled' : '') + '>' + esc(t('workbench.rescue.adopt')) + '</button></div>'
+          + note
+        : '')
+      + '</div>'
+  }
+
+  function runRescue(adopt) {
+    if (WB.rescueBusy) return
+    var pid = WB.projectId
+    WB.rescueBusy = true
+    render()
+    return api('POST', '/api/workbench/snapshot/restore', { adopt_orphans: !!adopt, deep: true }).then(function (r) {
+      WB.rescueBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.rescueResult = r.data
+      if (pid && WB.projectId === pid) return load(pid)
+      render()
+    })
+  }
+
   function trashHtml() {
     var list = WB.deleted || []
     if (!list.length) return ''
@@ -1468,6 +1505,7 @@
       body = '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
     body += trashHtml()
+    body += rescueHtml()
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
       + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
@@ -12066,6 +12104,9 @@
     else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
+    else if (a === 'rescue-toggle') { WB.rescueOpen = !WB.rescueOpen; render() }
+    else if (a === 'rescue-restore') runRescue(false)
+    else if (a === 'rescue-adopt') runRescue(true)
     else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
     else if (a === 'privacy-item') setPrivacy('item', act.getAttribute('data-wb-on') === '1')
     else if (a === 'parts-tech-toggle') { WB.partsTechOpen = !WB.partsTechOpen; render() }
