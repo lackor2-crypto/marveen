@@ -22,7 +22,7 @@ import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
 import { convertOfficeToPdf, isOfficeConvertible } from '../office-convert.js'
-import { ensureWorkItemFolder, listWorkItemAssetsSynced, renameWorkItemFolder, listSharedFiles, linkSharedAsset } from '../workbench-assets.js'
+import { ensureWorkItemFolder, listWorkItemAssetsSynced, listSharedFiles, linkSharedAsset } from '../workbench-assets.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,

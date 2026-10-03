@@ -8403,7 +8403,7 @@
     })
   }
 
-  /** ATNEVEZES (#441, K-0.11): az uj nevvel a munkadarab mappaja is atnevezodik. */
+  /** ATNEVEZES (#441, #478): csak a munkadarab neve valtozik, a mappaja nem (a nevek fuggetlenek). */
   function renameItem(rowId) {
     var id = rowId || WB.selectedId
     if (!id || archived()) return

@@ -941,13 +941,14 @@ export type FolderRenameOutcome =
   | { ok: false; code: 'move_failed'; message: string }
 
 /**
- * A munkadarab uj neve utan a mappaja is atnevezodik, es MINDEN hivatkozas
+ * A munkadarab mappajat a megadott nevre nevezi at, es MINDEN hivatkozas
  * (a munkadarab, a verzioi, a reszei, az anyagai) az uj helyre mutat.
  * Nem nevezzuk at (es megmondjuk, miert), ha:
  *   - nincs sajat mappa / a mappa nincs meg,
  *   - egy MASIK munkadarab is hivatkozik a mappa valamelyik fajljara,
  *   - rajz (.canvas.json) van benne: a rajz a kepeit utvonallal hivja, azt
  *     nem irjuk at vakon -- a mappa ilyenkor a regi neven marad.
+ * #478: a munkadarab atnevezese (felulet + Agent) mar NEM hivja; a nevek fuggetlenek.
  */
 export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): FolderRenameOutcome {
   return relocateWorkItemFolder(item, folderNameFromTitle(newTitle), null)
