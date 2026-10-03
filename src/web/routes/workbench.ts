@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder,
+  renameWorkFolder, adoptExistingFolder,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -511,8 +511,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'A folder with this name already exists here. Choose another name.',
   },
   folder_has_items: {
-    hu: 'Ebben a mappában munkadarab van, ezért itt nem nevezhető át (a munkadarab útvonalai elromlanának). Nevezd át a munkadarabot: a mappája vele együtt átnevezódik.',
-    en: 'A work item lives in this folder, so it cannot be renamed here (the work item paths would break). Rename the work item instead: its folder is renamed with it.',
+    hu: 'Ebben a mappában több munkadarab anyaga van együtt, ezért nem nevezhető át (az útvonalaik elromlanának). Egy munkadarab saját mappáját viszont átnevezheted: a munkadarab neve vele együtt változik.',
+    en: 'This folder holds the material of several work items, so it cannot be renamed (their paths would break). A folder that belongs to a single work item can be renamed, and the work item takes the new name with it.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -2545,7 +2545,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'folder_name' ? 'bad_folder_name' : r.code === 'folder_is_box' ? 'folder_box_rename' : r.code === 'no_box' ? 'folder_gone' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' || r.code === 'folder_has_items' ? 409 : 400, code, lang, r.message || null)
     }
-    json(res, { ok: true, folder: r.folder, renamed: r.renamed, work_folders: listWorkFolders(project) })
+    json(res, { ok: true, folder: r.folder, renamed: r.renamed, item: r.item ?? null, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
   }
 
@@ -2693,6 +2693,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
     if (ownFolder) assignWorkItemFolder(r.item.id, ownFolder)
+    // #471: a deck made from an existing folder of pictures owns that folder, so renaming one renames the other.
+    // A folder another item already owns stays a plain container (adoptExistingFolder refuses it).
+    if (!ownFolder && body.adopt_folder === true && containerFolder && containerFolder.includes('/')) adoptExistingFolder(r.item, project, containerFolder)
     json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted }, 201)
     return true
   }
@@ -3326,7 +3329,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = renameWorkItem(item, body['title'])
-    if (!r.ok) return fail(res, 400, r.code, lang)
+    if (!r.ok) return fail(res, r.code === 'folder_exists' ? 409 : 400, r.code, lang)
     json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: assetsOut(item.id) })
     return true
   }

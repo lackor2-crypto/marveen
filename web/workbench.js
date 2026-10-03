@@ -1524,7 +1524,14 @@
       if (!r.ok) { window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
       if (WB.pickFolder === folder) WB.pickFolder = r.data.folder
-      window.showToast(t('workbench.folder.renamed'))
+      // The folder belonged to one work item: the item took the new name too (one name, always in step).
+      var renamedItem = r.data && r.data.item
+      window.showToast(renamedItem ? t('workbench.folder.renamed_item', { name: renamedItem.title }) : t('workbench.folder.renamed'))
+      if (renamedItem) {
+        if (r.data.items) WB.items = r.data.items
+        if (WB.selectedId === renamedItem.id) loadDetail(renamedItem.id)
+        load(pid)
+      }
       render()
     })
   }
@@ -1563,7 +1570,7 @@
     var pid = WB.projectId
     WB.fileBusy = true
     window.showToast(t('workbench.folder.to_deck_working', { n: imgs.length }))
-    api('POST', '/api/workbench/items', { project_id: pid, type: 'presentation', title: baseOf(folder), folder: folder }).then(function (r) {
+    api('POST', '/api/workbench/items', { project_id: pid, type: 'presentation', title: baseOf(folder), folder: folder, adopt_folder: true }).then(function (r) {
       if (!r.ok) { WB.fileBusy = false; render(); window.showToast(r.message); return null }
       var item = r.data.item
       var base = '/api/workbench/items/' + encodeURIComponent(item.id) + '/deck/ops'
@@ -8314,7 +8321,7 @@
       var f = r.data.folder_rename || {}
       window.showToast(f.renamed
         ? t('workbench.rename.done_folder', { folder: f.to })
-        : (f.reason === 'shared' || f.reason === 'canvas'
+        : (f.reason === 'shared' || f.reason === 'canvas' || f.reason === 'no_folder' || f.reason === 'missing'
           ? t('workbench.rename.done_folder_kept_' + f.reason)
           : t('workbench.rename.done')))
       if (WB.selectedId === id) loadDetail(id)
