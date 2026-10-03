@@ -29,6 +29,7 @@ import { resolveLifePath } from '../../life-explorer.js'
 import { trashRelPath } from '../../life-tree.js'
 import { depotAccountDir, DEPOT_MEGA } from '../../depot.js'
 import { mkdirSync } from 'node:fs'
+import { listMegaRemoteSized, planMegaDownload, runMegaDownload, walkMirrorForDownload, freeDiskBytes, type RemoteFile } from '../../mega-download.js'
 import type { RouteContext } from './types.js'
 
 export interface BackupAccount {
@@ -82,6 +83,15 @@ interface MegaJob {
 /** One upload at a time: a free MEGA account has a per-IP transfer quota. */
 let megaJob: MegaJob | null = null
 
+/** MEGA -> machine (sub-card e801eee8): the last download preview per account, and the one running job. */
+const downPreviews = new Map<string, { at: number; dest: string; files: RemoteFile[] }>()
+interface MegaDownJob {
+  account: string; running: boolean
+  startedAt: string; finishedAt: string | null
+  total: number; downloaded: number; failed: number; error: string | null
+}
+let megaDownJob: MegaDownJob | null = null
+
 function megaRuleFor(path: string): { rule: BackupRule | null; rules: BackupRule[]; broken: string | null } {
   const { rules, broken } = loadBackupRules()
   return { rule: rules.find((r) => r.path === path) ?? null, rules, broken }
@@ -99,6 +109,8 @@ function megaErrorText(lang: 'hu' | 'en', code: string, raw = ''): string {
     case 'no_preview': return L(lang, 'Előbb nézd meg az előnézetet: a feltöltés pontosan azt viszi fel, amit ott láttál.', 'Look at the preview first: the upload takes exactly what you saw there.')
     case 'no_depot': return L(lang, 'Még nincs beállítva a Raktár mappa, ezért nincs hova tenni a MEGA-fiók fájljait. A Raktár lapon állíthatod be.', 'The Depot folder is not set up yet, so there is no place for the MEGA account files. Set it up on the Depot page.')
     case 'busy': return L(lang, 'Már fut egy MEGA-feltöltés. Megvárom, amíg véget ér.', 'A MEGA upload is already running. Wait until it ends.')
+    case 'busy_down': return L(lang, 'Már fut egy MEGA-letöltés vagy -feltöltés. Megvárom, amíg véget ér.', 'A MEGA download or upload is already running. Wait until it ends.')
+    case 'no_space': return L(lang, `Nincs elég szabad hely a lemezen a letöltéshez${tail}. Semmit nem töltök le.`, `There is not enough free disk space for the download${tail}. Nothing is downloaded.`)
     case 'not_found': return L(lang, 'Ez a tétel már nincs a listában.', 'This item is not in the list any more.')
     default: return L(lang, `A MEGA hibát jelzett${tail}.`, `MEGA reported an error${tail}.`)
   }
@@ -114,6 +126,63 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
 
   if (path === '/api/backup-rules/mega/status' && method === 'GET') {
     json(res, { job: megaJob })
+    return true
+  }
+
+  if (path === '/api/backup-rules/mega/download/status' && method === 'GET') {
+    json(res, { job: megaDownJob })
+    return true
+  }
+
+  if ((path === '/api/backup-rules/mega/download/preview' || path === '/api/backup-rules/mega/download/run') && method === 'POST') {
+    const data = await readJson(ctx)
+    const account = readMegaAccounts().find((a) => a.name === String(data.account ?? ''))
+    if (!account) return fail('no_account', 400)
+    const bin = rcloneBin()
+    if (!bin) return fail('rclone_missing', 400)
+    if (path.endsWith('/run')) {
+      if (megaDownJob?.running || megaJob?.running) return fail('busy_down', 409)
+      const pv = downPreviews.get(account.name)
+      if (!pv || Date.now() - pv.at > PREVIEW_TTL_MS) return fail('no_preview', 409)
+      downPreviews.delete(account.name)
+      const free = freeDiskBytes(pv.dest)
+      const need = pv.files.reduce((n, f) => n + f.size, 0)
+      if (free !== null && need > free) return fail('no_space', 409, `${need} > ${free}`)
+      megaDownJob = { account: account.name, running: true, startedAt: new Date().toISOString(), finishedAt: null, total: pv.files.length, downloaded: 0, failed: 0, error: null }
+      const job = megaDownJob
+      void runMegaDownload({ bin, remote: account.remote, dest: pv.dest, files: pv.files })
+        .then((r) => { job.downloaded = r.downloaded; job.failed = r.failed.length; job.error = r.error })
+        .catch((e) => { job.error = String(e?.message || e); job.failed = job.total })
+        .finally(() => {
+          job.running = false
+          job.finishedAt = new Date().toISOString()
+          logger.info({ account: job.account, downloaded: job.downloaded, failed: job.failed }, '[mega-download] download finished')
+        })
+      json(res, { ok: true, job })
+      return true
+    }
+    // --- preview: downloads nothing ---
+    const dest = depotAccountDir(account.name, DEPOT_MEGA)
+    if (!dest) return fail('no_depot', 400)
+    try { mkdirSync(dest, { recursive: true }) } catch { return fail('no_dir', 404) }
+    const local = walkMirrorForDownload(dest)
+    if (local.unreachable) return fail('no_dir', 404)
+    const remote = await listMegaRemoteSized(bin, megaRemoteDir(account.remote, MEGA_MIRROR), defaultRunner)
+    if (!remote.ok) return fail('remote_failed', 502, remote.error)
+    const plan = planMegaDownload(remote.files, local)
+    const free = freeDiskBytes(dest)
+    downPreviews.set(account.name, { at: Date.now(), dest, files: plan.download })
+    json(res, {
+      account: account.name,
+      files: plan.download.length,
+      bytes: plan.downloadBytes,
+      skippedExisting: plan.skippedExisting,
+      skippedBackupDir: plan.skippedBackupDir,
+      localIncomplete: plan.localIncomplete,
+      free,
+      fits: free === null ? null : plan.downloadBytes <= free,
+      dest,
+    })
     return true
   }
 
