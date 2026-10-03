@@ -6778,6 +6778,8 @@ window._i18n.en = {
   "workbench.table.new": "New empty table (Excel)",
   "workbench.table.new_hint": "Starting with a table (a budget, a list)? Type its name above and click here: an empty Excel file is made in the project folder, ready to edit.",
   "workbench.table.title_required": "First type the name of the new table above.",
+  "workbench.intake.kind.table": "Table",
+  "workbench.table.default_title": "New table",
   "workbench.table.created": "The new table is ready: {name}",
   "workbench.upload.drop_new": "Drop files here (image, document, video) -- each one becomes a new work item.",
   "workbench.upload.pick": "Choose files…",
