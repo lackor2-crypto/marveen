@@ -1,7 +1,7 @@
 // An existing work item whose own folder sits inside a group can be put DIRECTLY in that group
 // (#477/#479/#480): the group becomes its folder, the files move up, the emptied sub-folder goes away.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
@@ -102,5 +102,38 @@ describe('put an existing item directly into its parent group', () => {
     const r = moveWorkItemToFolder(getWorkItem(a.id)!, g)
     expect(r).toMatchObject({ ok: true, moved: false, reason: 'shared' })
     expect(getWorkItem(a.id)!.folder).toBe(a.folder)
+  })
+  it('a TOMBSTONE of a deleted item in the group is no clash; the item keeps its content that sits OUTSIDE its folder', () => {
+    const g = group('Prezentacio2')
+    const { id, folder } = itemIn(g, 'Munkakpad prezentacio')
+    // The item's own folder holds only its registration file; the deck lives in the project root.
+    writeFileSync(join(abs(folder), 'marveen-item.json'), JSON.stringify({ format: 1, id, item: { id } }))
+    writeFileSync(join(root(), 'diak.deck.json'), '{}')
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run('Projektek/Robotok/diak.deck.json', id)
+    // The group holds the tombstone of a thrown-away item.
+    writeFileSync(join(abs(g), 'marveen-item.json'), JSON.stringify({ format: 1, tombstone: true, id: '535316fa', at: 'x' }))
+
+    const r = moveWorkItemToFolder(getWorkItem(id)!, g)
+
+    expect(r).toMatchObject({ ok: true, moved: true, folder: g })
+    expect(getWorkItem(id)!.folder).toBe(g)
+    expect(getWorkItem(id)!.source_path).toBe('Projektek/Robotok/diak.deck.json') // outside the folder: untouched
+    expect(existsSync(join(root(), 'diak.deck.json'))).toBe(true) // nothing lost
+    const snap = JSON.parse(readFileSync(join(abs(g), 'marveen-item.json'), 'utf8')) as { tombstone?: boolean; id: string }
+    expect(snap.tombstone).toBeUndefined()
+    expect(snap.id).toBe(id) // the item's own registration file replaced the stale tombstone
+    expect(existsSync(abs(folder))).toBe(false)
+  })
+
+  it('a LIVE registration file of another item in the group is a real clash: nothing moves', () => {
+    const g = group('Utkozes2')
+    const { id, folder } = itemIn(g, 'Sajat')
+    writeFileSync(join(abs(folder), 'marveen-item.json'), JSON.stringify({ format: 1, id, item: { id } }))
+    writeFileSync(join(abs(g), 'marveen-item.json'), JSON.stringify({ format: 1, id: 'masik', item: { id: 'masik' } }))
+    const r = moveWorkItemToFolder(getWorkItem(id)!, g)
+    expect(r.ok).toBe(false)
+    expect(existsSync(join(abs(folder), 'marveen-item.json'))).toBe(true)
+    expect(JSON.parse(readFileSync(join(abs(g), 'marveen-item.json'), 'utf8')).id).toBe('masik')
+    expect(getWorkItem(id)!.folder).toBe(folder)
   })
 })

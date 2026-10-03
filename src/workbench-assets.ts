@@ -40,6 +40,7 @@ import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
+import { SNAPSHOT_FILE } from './workbench-snapshot.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -1104,15 +1105,31 @@ function flattenIntoGroup(item: WorkItemRow, project: ProjectRow, own: string, g
   const blocked = writeBlockReason(grp.dirRel)
   if (blocked) return { ok: false, code: 'move_failed', message: blocked }
   const moving = names.filter((n) => n !== FOLDER_MARKER)
-  const clash = moving.find((n) => existsSync(join(grp.dirAbs, n)))
+  // The group may hold a leftover registration file of an item that was deleted for good (a tombstone), or an
+  // earlier copy of THIS item's own: that is bookkeeping, not owner content, so it is no name clash. It is
+  // replaced by this item's own file moving up (the snapshot sweep never writes next to a tombstone).
+  let staleSnapshot: string | null = null
+  const groupSnap = join(grp.dirAbs, SNAPSHOT_FILE)
+  if (moving.includes(SNAPSHOT_FILE) && existsSync(groupSnap)) {
+    try {
+      const text = readFileSync(groupSnap, 'utf8')
+      const j = JSON.parse(text) as { tombstone?: boolean; id?: unknown }
+      if (j.tombstone === true || String(j.id ?? '') === item.id) staleSnapshot = text
+    } catch { /* unreadable: treated as a real clash below */ }
+  }
+  const clash = moving.find((n) => existsSync(join(grp.dirAbs, n)) && !(n === SNAPSHOT_FILE && staleSnapshot !== null))
   if (clash) {
     return { ok: false, code: 'move_failed', message: ol(
       `A(z) "${clash}" már van a csoportban, ezért nem tettem át semmit (nem írok felül fájlt). Nevezd át az egyiket, és próbáld újra.`,
       `"${clash}" already exists in the group, so nothing was moved (I never overwrite a file). Rename one of them and try again.`) }
   }
   const done: string[] = []
-  const undo = (): void => { for (const n of done.reverse()) { try { renameSync(join(grp.dirAbs, n), join(cur.dirAbs, n)) } catch { /* best effort */ } } }
+  const undo = (): void => {
+    for (const n of done.reverse()) { try { renameSync(join(grp.dirAbs, n), join(cur.dirAbs, n)) } catch { /* best effort */ } }
+    if (staleSnapshot !== null) { try { writeFileSync(groupSnap, staleSnapshot) } catch { /* best effort */ } }
+  }
   try {
+    if (staleSnapshot !== null) unlinkSync(groupSnap)
     for (const n of moving) { renameSync(join(cur.dirAbs, n), join(grp.dirAbs, n)); done.push(n) }
     rehomeWorkItem(item, project, project, group, { old: oldPrefix, new: newPrefix })
   } catch (e) {
