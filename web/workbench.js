@@ -4000,9 +4000,13 @@
     return ''
   }
 
-  function dictSetValue(targetId, v) {
+  function dictSetValue(targetId, v, caret) {
     var el = document.getElementById(targetId)
-    if (el && 'value' in el) el.value = v
+    if (el && 'value' in el) {
+      el.value = v
+      // Keep the caret right after the dictated text, so the next words (and the user's typing) continue there.
+      if (typeof caret === 'number' && typeof el.setSelectionRange === 'function') { try { el.setSelectionRange(caret, caret) } catch (_e) { /* not a text field */ } }
+    }
     if (targetId === 'wbChatInput') WB.chatDraft = v
     else if (targetId === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = v
     else if (targetId === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: v }
@@ -4015,11 +4019,32 @@
     return base + (base && !/\s$/.test(base) ? ' ' : '') + said
   }
 
+  /** The dictated words go AT THE CURSOR: d.before is the text left of it, d.after the text right of it
+   *  (the selection, if any, is replaced). Returns the whole new value and where the caret belongs. */
+  function dictCompose(d, parts) {
+    var head = dictJoin(d.before, parts)
+    var said = head !== d.before
+    var tail = d.after
+    if (said && tail && !/^\s/.test(tail)) tail = ' ' + tail
+    return { value: head + tail, caret: head.length }
+  }
+  window._wbDictCompose = dictCompose
+
+  function dictApply(d, parts) {
+    var c = dictCompose(d, parts)
+    dictSetValue(d.target, c.value, c.caret)
+    // The editor's own input handler keeps the draft and the live markdown preview in step.
+    var el = document.getElementById(d.target)
+    if (el && typeof el.dispatchEvent === 'function' && typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
   var DICT_ERRORS = { 'not-allowed': 'denied', 'service-not-allowed': 'denied', 'no-speech': 'no_speech', 'audio-capture': 'no_mic', network: 'network', 'language-not-supported': 'lang' }
 
   function dictStop() {
     var d = WB.dict
     WB.dict = null
+    // The browser still delivers the last words after stop(); onresult must accept them (d.stopping).
+    if (d) d.stopping = true
     if (d && d.rec) { try { d.rec.stop() } catch (_e) { /* mar all */ } }
     render()
   }
@@ -4037,9 +4062,13 @@
     rec.lang = speechLang()
     rec.interimResults = true
     rec.continuous = true
-    var d = { target: targetId, rec: rec, base: dictValue(targetId), finals: [], error: null }
+    var cur = dictValue(targetId)
+    var field = document.getElementById(targetId)
+    var selA = field && typeof field.selectionStart === 'number' ? field.selectionStart : cur.length
+    var selB = field && typeof field.selectionEnd === 'number' ? field.selectionEnd : selA
+    var d = { target: targetId, rec: rec, before: cur.slice(0, selA), after: cur.slice(selB), finals: [], interim: '', error: null, stopping: false }
     rec.onresult = function (ev) {
-      if (WB.dict !== d) return
+      if (WB.dict !== d && !(d.stopping && !WB.dict)) return
       var interim = ''
       for (var i = ev.resultIndex || 0; i < ev.results.length; i++) {
         var r = ev.results[i]
@@ -4047,12 +4076,13 @@
         if (r.isFinal) d.finals.push(tx)
         else interim += tx
       }
-      dictSetValue(targetId, dictJoin(d.base, d.finals.concat([interim])))
+      d.interim = interim
+      dictApply(d, d.finals.concat([interim]))
     }
     rec.onerror = function (ev) { d.error = ev && ev.error ? String(ev.error) : 'other' }
     rec.onend = function () {
-      // A vegleges szoveg marad (a felig hallott resz nem).
-      dictSetValue(targetId, dictJoin(d.base, d.finals))
+      // The final text stays (the half-heard part does not); stop() still delivers the last final words, accepted above.
+      dictApply(d, d.finals)
       if (WB.dict === d) { WB.dict = null; render() }
       if (d.error && d.error !== 'aborted') {
         var k = DICT_ERRORS[d.error] || 'other'
