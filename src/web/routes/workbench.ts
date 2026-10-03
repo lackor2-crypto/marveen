@@ -2659,10 +2659,18 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     // #454: "Which folder should it go in?" -- '' = the project's default box.
     let containerFolder: string | null = null
+    // #474: an item made from a file (or folder) that already lies somewhere in the project (e.g. 'Munkapad terv/diak')
+    // points at it where it is; the folder only says where the file is, not where the item box goes.
+    const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true
+    let existingFolder: string | null = null
     if (String(body.folder ?? '').trim()) {
       const c = workFolderTarget(project, body.folder)
-      if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
-      containerFolder = c.folder
+      if (c.ok) containerFolder = c.folder
+      else if (fromExisting && (c.code === 'bad_folder' || c.code === 'no_box')) {
+        const t = projectFileTarget(project, String(body.folder).replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''))
+        if (!t.ok) return fail(res, 400, t.code, lang)
+        existingFolder = String(body.folder).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      } else return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
     }
     // A typed "new folder" name is made for real right now (it used to need the
     // extra button), inside the picked folder, and the item goes into it.
@@ -2680,7 +2688,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       folderExisted = !mf.created
     }
     // Step 2 needs step 1: no folder chosen (or typed) -> nothing is saved, and none is made on the side.
-    if (containerFolder === null && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
+    if (containerFolder === null && !existingFolder && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
@@ -2695,7 +2703,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (ownFolder) assignWorkItemFolder(r.item.id, ownFolder)
     // #471: a deck made from an existing folder of pictures owns that folder, so renaming one renames the other.
     // A folder another item already owns stays a plain container (adoptExistingFolder refuses it).
-    if (!ownFolder && body.adopt_folder === true && containerFolder && containerFolder.includes('/')) adoptExistingFolder(r.item, project, containerFolder)
+    if (!ownFolder && body.adopt_folder === true && (containerFolder || existingFolder) && (containerFolder || existingFolder)!.includes('/')) adoptExistingFolder(r.item, project, (containerFolder || existingFolder)!)
     json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted }, 201)
     return true
   }
