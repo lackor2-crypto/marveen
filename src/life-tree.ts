@@ -208,7 +208,7 @@ export interface LifePerson {
    * SZEMELYENKENT allithato lista, nem a kodba drotozott harmas.
    */
   countrySplit: string[]
-  /** A media-agban keszulo tipusok (`photos`, `audio`, `scans`). Videok nincsenek: a `photos` a fotok ES videok kozos helye. */
+  /** A media-agban keszulo tipusok: csak `photos`, a fotok, videok ES hangok kozos helye. */
   mediaKinds: string[]
   /** A media-tipusok alatti bontas (`Ági családja`, `Utazás`, ...). */
   mediaGroups: string[]
@@ -304,16 +304,18 @@ export function defaultCountrySplit(): string[] {
 /**
  * A valaszthato media-tipusok (specifikacio 18. pont).
  *
- * NINCS `videos` (Boss, 2026-10-03, #464): egy esemeny fotoi es videoi
+ * CSAK `photos` (Boss, 2026-10-03, #464): egy esemeny fotoi, videoi es hangjai
  * osszetartoznak (Vallopere, Amerika, Ismerkedes), a tipus szerinti bontas
- * ugyanazt a csoportot tobb helyen hozta letre. A `photos` ("Fotók") a fotok ES
- * a videok kozos helye; a tipus keresesi szuro, nem mappa. A regi `Videók`
- * mappa neve (`LIFE_NAMES.videos`) csak azert marad meg, hogy a meglevo
- * telepitesek tartalmat at lehessen tenni a Fotok ala (`life-media-videos.ts`).
+ * ugyanazt a csoportot tobb helyen hozta letre. A `photos` ("Fotók") a fotok, a
+ * videok ES a hangfelvetelek kozos helye; a tipus keresesi szuro, nem mappa. A
+ * szkennek kikerultek a Mediabol: a beszkennelt papir irat, a Beerkezobe megy es
+ * a rendezo kategoria szerint besorolja. A regi `Videók` / `Audió` / `Szkennek`
+ * mappak neve (`LIFE_NAMES`) csak azert marad meg, hogy a meglevo telepitesek
+ * tartalmat at lehessen tenni (`life-media-legacy.ts`).
  */
-export const MEDIA_KINDS = ['photos', 'audio', 'scans'] as const
+export const MEDIA_KINDS = ['photos'] as const
 
-/** A media-tipusok alapertelmezese: mind a harom. */
+/** A media-tipusok alapertelmezese: csak a Fotok. */
 export function defaultMediaKinds(): string[] {
   return [...MEDIA_KINDS]
 }
@@ -1217,7 +1219,7 @@ export interface MediaTarget {
   /** The folder name on disk (the person's / company's branch). */
   name: string
   rel: string
-  /** Base media folder per media kind (`photos`, `audio`, ...), when planned. */
+  /** Base media folder per media kind (`photos`), when planned. */
   media: Partial<Record<(typeof MEDIA_KINDS)[number], string>>
 }
 

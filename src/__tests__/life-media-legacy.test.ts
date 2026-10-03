@@ -1,7 +1,8 @@
-// #464 (Boss 2026-10-03): the `Média/Videók` folder is gone. Photos AND videos
-// of one event live together under `Fotók`; the legacy folder is never planned
-// again, and what is still inside it can be moved under `Fotók` -- without
-// overwriting and without deleting anything.
+// #464 (Boss 2026-10-03): the `Média/Videók`, `Audió` and `Szkennek` type
+// folders are gone. Photos, videos AND recordings of one event live together
+// under `Fotók`; the legacy folders are never planned again, the videos and
+// sounds still inside them can be moved under `Fotók` (no overwrite, no delete),
+// and the scans (paperwork) are only counted, never moved.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,7 +21,7 @@ vi.mock('../config.js', async () => {
 const {
   planLifeTree, ensureLifeTree, defaultMediaKinds, MEDIA_KINDS, defaultCountrySplit,
 } = await import('../life-tree.js')
-const { planLegacyVideos, moveLegacyVideos } = await import('../life-media-videos.js')
+const { planLegacyMedia, moveLegacyMedia } = await import('../life-media-legacy.js')
 
 const cfg = {
   persons: [
@@ -49,39 +50,45 @@ beforeEach(() => {
   }
 })
 
-describe('no Videók type folder is planned', () => {
-  it('MEDIA_KINDS and the default have no videos', () => {
-    expect([...MEDIA_KINDS]).not.toContain('videos')
-    expect(defaultMediaKinds()).toEqual(['photos', 'audio', 'scans'])
+describe('no Videók / Audió / Szkennek type folder is planned', () => {
+  it('MEDIA_KINDS and the default are just photos', () => {
+    expect([...MEDIA_KINDS]).toEqual(['photos'])
+    expect(defaultMediaKinds()).toEqual(['photos'])
   })
 
-  it('a fresh tree has Fotók/<group> for the person and one Fotók for the company, never Videók', () => {
+  it('a fresh tree has Fotók/<group> for the person and one Fotók for the company, no type folders', () => {
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
     expect(rels).toContain('Teszt Elek/Média/Fotók/Mykael család')
     expect(rels).toContain('Cégek/Teszt Kft/Média/Fotók')
-    expect(rels.some((r) => r.includes('Videók'))).toBe(false)
+    for (const gone of ['Videók', 'Audió', 'Szkennek']) {
+      expect(rels.some((r) => r.includes(gone))).toBe(false)
+    }
   })
 
-  it('an old saved config that still lists videos does not bring the folder back', () => {
-    const old = { ...cfg, persons: [{ ...cfg.persons[0], mediaKinds: ['photos', 'videos', 'audio'] }] }
+  it('an old saved config that still lists the retired kinds does not bring the folders back', () => {
+    const old = { ...cfg, persons: [{ ...cfg.persons[0], mediaKinds: ['photos', 'videos', 'audio', 'scans'] }] }
     const rels = planLifeTree(old as any, 'hu').map((n) => n.rel)
-    expect(rels.some((r) => r.includes('Videók'))).toBe(false)
+    for (const gone of ['Videók', 'Audió', 'Szkennek']) {
+      expect(rels.some((r) => r.includes(gone))).toBe(false)
+    }
     expect(rels).toContain('Teszt Elek/Média/Fotók/Mykael család')
   })
 
-  it('"Create the structure" does not make a Videók folder on a fresh install', () => {
+  it('"Create the structure" makes only Fotók on a fresh install', () => {
     const r = ensureLifeTree(cfg, 'hu')
     expect(r.failed).toEqual([])
     expect(existsSync(join(media, 'Fotók', 'Mykael család'))).toBe(true)
-    expect(existsSync(join(media, 'Videók'))).toBe(false)
-    expect(existsSync(join(depot, 'Cégek', 'Teszt Kft', 'Média', 'Videók'))).toBe(false)
+    for (const gone of ['Videók', 'Audió', 'Szkennek']) {
+      expect(existsSync(join(media, gone))).toBe(false)
+      expect(existsSync(join(depot, 'Cégek', 'Teszt Kft', 'Média', gone))).toBe(false)
+    }
   })
 })
 
-describe('the legacy Videók folder', () => {
+describe('the legacy Videók / Audió / Szkennek folders', () => {
   it('on a fresh install there is nothing to move', () => {
     ensureLifeTree(cfg, 'hu')
-    const plan = planLegacyVideos(cfg, 'hu')
+    const plan = planLegacyMedia(cfg, 'hu')
     expect(plan.moves).toEqual([])
     expect(plan.clashes).toEqual([])
     expect(plan.folders).toEqual([])
@@ -89,12 +96,12 @@ describe('the legacy Videók folder', () => {
 
   it('moves a video to the same family under Fotók, creating the event folder', () => {
     put('Teszt Elek/Média/Videók/Mykael család/Vállóper/b.mp4', 'video-b')
-    const plan = planLegacyVideos(cfg, 'hu')
+    const plan = planLegacyMedia(cfg, 'hu')
     expect(plan.moves).toEqual([{
       from: 'Teszt Elek/Média/Videók/Mykael család/Vállóper/b.mp4',
       to: 'Teszt Elek/Média/Fotók/Mykael család/Vállóper/b.mp4',
     }])
-    const r = moveLegacyVideos(cfg, 'hu')
+    const r = moveLegacyMedia(cfg, 'hu')
     expect(r.ok).toBe(true)
     expect(r.moved).toBe(1)
     expect(readFileSync(join(media, 'Fotók', 'Mykael család', 'Vállóper', 'b.mp4'), 'utf8')).toBe('video-b')
@@ -105,7 +112,7 @@ describe('the legacy Videók folder', () => {
     put('Teszt Elek/Média/Fotók/Jutka család/x.jpg')
     put('Teszt Elek/Média/Videók/Jutka családja/juci.mp4')
     put('Teszt Elek/Média/Videók/Jutka család/ok.mp4')
-    const plan = planLegacyVideos(cfg, 'hu')
+    const plan = planLegacyMedia(cfg, 'hu')
     expect(plan.newFolders).toEqual(['Teszt Elek/Média/Fotók/Jutka családja'])
   })
 
@@ -113,7 +120,7 @@ describe('the legacy Videók folder', () => {
     put('Teszt Elek/Média/Videók/Mykael család/a.mp4', 'LEGACY')
     put('Teszt Elek/Média/Fotók/Mykael család/a.mp4', 'ALREADY-THERE')
     put('Teszt Elek/Média/Videók/Barátok/c.mp4', 'video-c')
-    const r = moveLegacyVideos(cfg, 'hu')
+    const r = moveLegacyMedia(cfg, 'hu')
     expect(r.moved).toBe(1)
     expect(r.skipped.map((m) => m.from)).toEqual(['Teszt Elek/Média/Videók/Mykael család/a.mp4'])
     expect(readFileSync(join(media, 'Fotók', 'Mykael család', 'a.mp4'), 'utf8')).toBe('ALREADY-THERE')
@@ -121,7 +128,7 @@ describe('the legacy Videók folder', () => {
     // The emptied folders are left for the owner: nothing here deletes.
     expect(existsSync(join(media, 'Videók', 'Barátok'))).toBe(true)
     // A second run finds only the clash.
-    const again = planLegacyVideos(cfg, 'hu')
+    const again = planLegacyMedia(cfg, 'hu')
     expect(again.moves).toEqual([])
     expect(again.clashes.length).toBe(1)
   })
@@ -129,15 +136,40 @@ describe('the legacy Videók folder', () => {
   it('ignores Windows housekeeping files, so an "empty" folder reports nothing to move', () => {
     put('Teszt Elek/Média/Videók/Barátok/desktop.ini', '[.ShellClassInfo]')
     put('Teszt Elek/Média/Videók/Barátok/Thumbs.db', 'x')
-    const plan = planLegacyVideos(cfg, 'hu')
+    const plan = planLegacyMedia(cfg, 'hu')
     expect(plan.moves).toEqual([])
     expect(plan.clashes).toEqual([])
     expect(plan.folders).toEqual([])
   })
 
+  it('moves a recording from the old Audió folder to the same group under Fotók', () => {
+    put('Teszt Elek/Média/Fotók/Barátok/x.jpg')
+    put('Teszt Elek/Média/Audió/Barátok/Álomteszt.m4a', 'sound')
+    const plan = planLegacyMedia(cfg, 'hu')
+    expect(plan.moves).toEqual([{
+      from: 'Teszt Elek/Média/Audió/Barátok/Álomteszt.m4a',
+      to: 'Teszt Elek/Média/Fotók/Barátok/Álomteszt.m4a',
+    }])
+    expect(plan.newFolders).toEqual([])
+    const r = moveLegacyMedia(cfg, 'hu')
+    expect(r.moved).toBe(1)
+    expect(readFileSync(join(media, 'Fotók', 'Barátok', 'Álomteszt.m4a'), 'utf8')).toBe('sound')
+  })
+
+  it('Szkennek is only COUNTED: paperwork is never moved or guessed a folder for', () => {
+    put('Teszt Elek/Média/Szkennek/Egyéb/szerzodes.pdf', 'paper')
+    put('Teszt Elek/Média/Szkennek/Egyéb/szamla.pdf', 'paper2')
+    const plan = planLegacyMedia(cfg, 'hu')
+    expect(plan.scans).toBe(2)
+    expect(plan.moves).toEqual([])
+    const r = moveLegacyMedia(cfg, 'hu')
+    expect(r.moved).toBe(0)
+    expect(readFileSync(join(media, 'Szkennek', 'Egyéb', 'szerzodes.pdf'), 'utf8')).toBe('paper')
+  })
+
   it('covers a company too', () => {
     put('Cégek/Teszt Kft/Média/Videók/bemutato.mp4', 'v')
-    const r = moveLegacyVideos(cfg, 'hu')
+    const r = moveLegacyMedia(cfg, 'hu')
     expect(r.moved).toBe(1)
     expect(existsSync(join(depot, 'Cégek', 'Teszt Kft', 'Média', 'Fotók', 'bemutato.mp4'))).toBe(true)
   })

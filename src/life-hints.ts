@@ -51,8 +51,8 @@ const HINTS: Record<string, Hint> = {
     en: 'anything belonging to your online life: domains, devices, subscriptions, licence keys, accounts (never passwords!)',
   },
   media: {
-    hu: 'a nagy fájlok helye: fotók és videók (együtt, családonként és eseményenként), hangfelvételek, szkennek, képernyőmentések',
-    en: 'where the large files live: photos and videos (together, by family and event), audio recordings, scans, screenshots',
+    hu: 'a nagy fájlok helye: fotók, videók és hangfelvételek (együtt, családonként és eseményenként)',
+    en: 'where the large files live: photos, videos and audio recordings (together, by family and event)',
   },
   shared: {
     hu: 'amit másokkal közösen használtok: családi iratok, közös projektek, átadott anyagok, megosztott listák',
@@ -171,8 +171,8 @@ const HINTS: Record<string, Hint> = {
 
   // ---- Media alatt ----
   photos: {
-    hu: 'fényképek ÉS videók: telefonról, fényképezőről, régi papírképek szkennelve; egy esemény fotói és videói egy mappában vannak',
-    en: 'photographs AND videos: from your phone, from a camera, old prints scanned in; the photos and videos of one event live in one folder',
+    hu: 'fényképek, videók ÉS hangfelvételek: telefonról, fényképezőről, régi papírképek szkennelve; egy esemény fotói, videói és hangjai egy mappában vannak',
+    en: 'photographs, videos AND audio recordings: from your phone, from a camera, old prints scanned in; the photos, videos and sounds of one event live in one folder',
   },
   // A regi `Videók` mappa (mar nem keszul): a meglevo telepiteseken az Intezo
   // felajanlja a tartalom athelyezeset a Fotok ala.
@@ -180,13 +180,17 @@ const HINTS: Record<string, Hint> = {
     hu: 'régi videó-mappa: a videók mostantól a Fotók mappába kerülnek, az Intéző felajánlja az áthelyezést',
     en: 'old videos folder: videos now go into the Photos folder, the Explorer offers to move them',
   },
+  // A regi `Audió` mappa (mar nem keszul): a hang az esemeny mappajaba, a Fotok
+  // ala kerul; az Intezo felajanlja a tartalom athelyezeset.
   audio: {
-    hu: 'hangfelvételek: diktált jegyzetek, telefonbeszélgetések, zene, hangoskönyv',
-    en: 'audio recordings: dictated notes, phone calls, music, audiobooks',
+    hu: 'régi hang-mappa: a hangfelvételek mostantól a Fotók mappába kerülnek, az Intéző felajánlja az áthelyezést',
+    en: 'old audio folder: recordings now go into the Photos folder, the Explorer offers to move them',
   },
+  // A regi `Szkennek` mappa (mar nem keszul): a beszkennelt papir irat, a
+  // Beerkezobe megy, onnan a rendezo besorolja.
   scans: {
-    hu: 'beszkennelt papírok: szerződések, számlák, levelek, orvosi papírok',
-    en: 'scanned paperwork: contracts, invoices, letters, medical papers',
+    hu: 'régi szken-mappa: a beszkennelt papír irat, ezentúl a Beérkezőbe kerül, onnan a rendező besorolja',
+    en: 'old scans folder: scanned paperwork is a document, it now goes into the Inbox and the sorter files it',
   },
 
   // ---- Rendszer alatt ----
