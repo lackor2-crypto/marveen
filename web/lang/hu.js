@@ -6856,6 +6856,8 @@ window._i18n.hu = {
   "workbench.table.new": "Új üres táblázat (Excel)",
   "workbench.table.new_hint": "Táblázattal kezdenél (költségvetés, lista)? Írd be fent a nevét, és kattints ide: egy üres Excel-fájl készül a projekt mappájába, és rögtön szerkesztheted.",
   "workbench.table.title_required": "Előbb írd be fent az új táblázat nevét.",
+  "workbench.intake.kind.table": "Táblázat",
+  "workbench.table.default_title": "Új táblázat",
   "workbench.table.created": "Kész az új táblázat: {name}",
   "workbench.upload.drop_new": "Húzd ide a fájlokat (kép, dokumentum, videó) -- mindegyikből új munkadarab lesz.",
   "workbench.upload.pick": "Fájlok kiválasztása…",

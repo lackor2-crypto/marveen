@@ -1637,10 +1637,12 @@
   // munkadarab rogton megnyilik, a mondat pedig az Agenthez megy.
 
   var INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation', 'business_card']
+  // The start screens also offer a table (the plan's six buttons); the server's own guess never returns it.
+  var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table'])
 
   function intakeHtml() {
     var ask = WB.intakeAsk
-    var kinds = ask ? ask.options : INTAKE_KINDS
+    var kinds = ask ? ask.options : INTAKE_UI_KINDS
     var busy = !!WB.intakeBusy
     return '<div class="wb-intake">'
       + '<label class="wb-label" for="wbIntakeName">' + esc(t('workbench.intake.name_label')) + '</label>'
@@ -1677,6 +1679,7 @@
     if (nameEl && typeof nameEl.value === 'string') WB.intakeName = nameEl.value
     var name = String(WB.intakeName || '').trim()
     if (!kind && !text) { window.showToast(t('workbench.intake.empty')); return }
+    if (kind === 'table') { intakeCreateTable(text, name); return }
     var payload = { project_id: WB.projectId, text: text }
     if (kind) payload.kind = kind
     if (name) payload.title = name
@@ -1711,6 +1714,30 @@
         // A mondat az Agenthez: o kezdi el a munkat az uj munkadarabon.
         if (text) handOffToAgent(text)
       })
+    })
+  }
+
+  /** The "Table" start button: an empty spreadsheet work item (xlsx next to the project files); the
+   *  sentence, if any, goes to the agent to fill it, like for the other kinds. */
+  function intakeCreateTable(text, name) {
+    var payload = { project_id: WB.projectId, title: name || t('workbench.table.default_title') }
+    var pf = document.getElementById('wbNewFolder')
+    if (pf) WB.pickFolder = pf.value
+    if (WB.pickFolder) payload.folder = WB.pickFolder
+    if (!payload.folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
+    WB.intakeBusy = true
+    render()
+    api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
+      WB.intakeBusy = false
+      if (!r.ok) {
+        if (r.code === 'folder_required') WB.intakeNeedFolder = true
+        render(); window.showToast(r.message); return
+      }
+      WB.intakeAsk = null; WB.intakeDraft = ''; WB.intakeName = ''; WB.formOpen = false
+      window.showToast(t('workbench.table.created', { name: r.data.name || '' }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
+      selectItem(r.data.item.id)
+      load(WB.projectId)
+      if (text) handOffToAgent(text)
     })
   }
 
@@ -10481,7 +10508,7 @@
    *  marad, mert nelkule a letrehozas nem engedelyezett. */
   function simpleIntakeHtml() {
     var ask = WB.intakeAsk
-    var kinds = ask ? ask.options : INTAKE_KINDS
+    var kinds = ask ? ask.options : INTAKE_UI_KINDS
     var busy = !!WB.intakeBusy
     return '<section class="wb-sh-intake">'
       + '<h2 class="wb-sh-ask">' + esc(t('workbench.sh.ask')) + '</h2>'

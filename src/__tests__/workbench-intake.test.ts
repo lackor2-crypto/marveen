@@ -3,7 +3,7 @@
 // kerdes -> valasztas -> megnyilo munkadarab -> a mondat az Agenthez megy.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable, Writable } from 'node:stream'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildCodeBridgePrompt } from '../workbench-agent/code-bridge-turn.js'
@@ -286,5 +286,16 @@ describe('névjegykártya (Boss, 2026-10-02): saját kérés-típus, kétoldalas
     expect(INTAKE_TYPE['business_card']).toBe('presentation')
     expect(intakeTitle('', 'business_card', 'hu')).toBe('Új névjegykártya')
     expect(intakeTitle('', 'business_card', 'en')).toBe('New business card')
+  })
+})
+
+// The Simple view's start screen offers a Table button (the plan's sixth type next to the five);
+// it creates an empty spreadsheet through /items/new-table, not through the intake guess.
+describe('intake: table button', () => {
+  const src = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
+  it('is offered next to the server kinds and routed to new-table', () => {
+    expect(src).toContain("var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table'])")
+    expect(src).toContain("if (kind === 'table') { intakeCreateTable(text, name); return }")
+    expect(src).toContain("'/api/workbench/items/new-table'")
   })
 })
