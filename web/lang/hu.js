@@ -5724,6 +5724,8 @@ window._i18n.hu = {
   "workbench.move.own": "Ez a munkadarab már ebben a mappában van: ez a saját mappája, ide nem lehet áthelyezni.",
   "workbench.move.missing": "Nem találom a munkadarab mappáját a lemezen, ezért nem tudtam áthelyezni. A munkadarab a helyén maradt.",
   "workbench.folder.new_hint": "Az új csoport a fent kijelölt csoporton belül jön létre (ha semmit nem jelöltél ki, a Munkadarabok mappában). Csoporton belül újabb csoportot is nyithatsz. Ha beírsz egy nevet, a Létrehozásra a csoport is elkészül, és a munkadarab bekerül.",
+  "workbench.folder.found_again": "A(z) „{from}” csoport (mappa) át lett nevezve vagy mozgatva a programon kívül, megtaláltam „{to}” néven, és a munkadarabok követték.",
+  "workbench.folder.lost": "Nem találom a(z) „{name}” csoportot (mappát): a(z) „{where}” mappában és alatta kerestem, de sehol nincs. Ha kívülről áthelyezted, tedd vissza ide, vagy írd meg, merre vitted.",
   "workbench.folder.name_required": "Írd be az új mappa nevét.",
   "workbench.folder.delete": "Üres mappa törlése",
   "workbench.folder.delete_confirm": "Biztosan törlöd a(z) \"{name}\" mappát? Csak akkor törölhető, ha üres; a tartalma nem törlődik.",

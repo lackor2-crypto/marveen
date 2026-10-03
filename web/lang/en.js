@@ -5646,6 +5646,8 @@ window._i18n.en = {
   "workbench.move.own": "This work item is already in this folder: it is its own folder, so there is nothing to move.",
   "workbench.move.missing": "I could not find the work item's folder on disk, so I could not move it. The work item stayed where it was.",
   "workbench.folder.new_hint": "The new group is made inside the group chosen above (in the Work items folder if you chose nothing). You can make a group inside a group too. If you type a name, Create makes the group as well and puts the work item in it.",
+  "workbench.folder.found_again": "The group (folder) \"{from}\" was renamed or moved outside the app. I found it again as \"{to}\" and the work items followed.",
+  "workbench.folder.lost": "I cannot find the group (folder) \"{name}\": I looked in \"{where}\" and everything below it, and it is nowhere. If you moved it from outside, put it back here, or tell me where you took it.",
   "workbench.folder.name_required": "Type the name of the new folder.",
   "workbench.folder.delete": "Delete empty folder",
   "workbench.folder.delete_confirm": "Delete the folder \"{name}\"? It can only be deleted when empty; nothing inside is ever deleted.",
