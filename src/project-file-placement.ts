@@ -38,6 +38,14 @@ interface KindRule {
   newName: { hu: string; en: string }
   /** Uj gyujto-mappa, ha az sincs (a projekt fomappaja ala). */
   newContainer?: { hu: string; en: string }
+  /**
+   * Ha a projektben NINCS sajat mappaja ehhez a fajtahoz, ennek a masik fajtanak
+   * a helyere kerul (#464, Boss 2026-10-03: a videok es hangok a fotokkal egy
+   * mappaban elnek, nincs kulon Videok / Hangok mappa). Egy MAR LETEZO sajat
+   * mappat (pl. `Media/Videok`) tovabbra is hasznalunk: a felhasznalo szerkezetehez
+   * nem nyulunk, csak uj Videok/Hangok mappat nem javaslunk.
+   */
+  sameAs?: FileKind
 }
 
 const MEDIA = ['media', 'mediak', 'mediatar']
@@ -54,12 +62,14 @@ const RULES: Record<FileKind, KindRule> = {
     containers: MEDIA,
     newName: { hu: 'Videók', en: 'Videos' },
     newContainer: { hu: 'Média', en: 'Media' },
+    sameAs: 'photo',
   },
   audio: {
     folders: ['hang', 'hangok', 'hanganyag', 'audio', 'zene', 'zenek', 'music', 'sound', 'sounds'],
     containers: MEDIA,
     newName: { hu: 'Hangok', en: 'Audio' },
     newContainer: { hu: 'Média', en: 'Media' },
+    sameAs: 'photo',
   },
   post: {
     folders: ['marketing', 'poszt', 'posztok', 'post', 'posts', 'social', 'socialmedia', 'kampany', 'kampanyok', 'campaign', 'campaigns', 'hirdetes', 'hirdetesek', 'ads', 'reklam'],
@@ -140,13 +150,26 @@ export function suggestPlacement(name: string, mime: string | null | undefined, 
   // kapjon ketfele nevu mappat ugyanarra a celra.
   const lang: 'hu' | 'en' = diskLang === 'en' ? 'en' : 'hu'
   const kind = fileKind(name, mime)
-  const rule = RULES[kind]
   const subs = subfolders.filter(Boolean)
+  const own = placeIn(RULES[kind], kind, subs, lang, true)
+  if (own) return own
+  // Nincs sajat mappa: a video / hang a fotok helyere megy (`sameAs`).
+  const via = RULES[kind].sameAs
+  if (via) return { ...placeIn(RULES[via], via, subs, lang, false)!, kind }
+  return placeIn(RULES[kind], kind, subs, lang, false)!
+}
+
+/**
+ * Egy szabaly szerinti hely. `existingOnly`: csak MEGLEVO illo mappa (vagy
+ * null); kulonben mindig ad javaslatot (meglevo / uj a gyujto ala / uj gyujtovel).
+ */
+function placeIn(rule: KindRule, kind: FileKind, subs: string[], lang: 'hu' | 'en', existingOnly: boolean): Placement | null {
   const hits = subs.filter((s) => rule.folders.includes(placeKey(lastSeg(s))))
   if (hits.length) {
     hits.sort((a, b) => (b.split('/').length - a.split('/').length) || a.length - b.length || a.localeCompare(b))
     return { type: 'existing', kind, sub: hits[0] }
   }
+  if (existingOnly) return null
   const containers = subs.filter((s) => rule.containers.includes(placeKey(lastSeg(s))))
   if (containers.length) {
     containers.sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
