@@ -1318,6 +1318,9 @@
 .wb-can-fsize { min-width: 26px; text-align: center; font-size: 0.78rem; color: var(--text-muted, #555); }
 .wb-can-fsep { width: 1px; height: 18px; margin: 0 4px; background: var(--border, #d4d4d8); }
 .wb-can-fcolor { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+/* The brand colours in front of the toolbar's colour field (K-4.2): one row, the toolbar scrolls sideways
+   instead of growing a second line over the drawing. */
+.wb-can-float > .wb-can-fsw { flex: none; flex-wrap: nowrap; margin: 0 2px; }
 /* Szoveg szerkesztese helyben: a szovegmezo a lapon, az elem helyen all. */
 .wb-can-edit {
   position: absolute; z-index: 7; box-sizing: border-box; margin: 0; padding: 0; resize: none; overflow: hidden;

@@ -5581,10 +5581,12 @@
         + btn('alignleft', '\u2B05', t('workbench.canvas.fl_left'), o.align === 'left' || !o.align)
         + btn('aligncenter', '\u2194', t('workbench.canvas.fl_center'), o.align === 'center')
         + btn('alignright', '\u27A1', t('workbench.canvas.fl_right'), o.align === 'right')
+        + brandFloatSwatchesHtml('color')
         + '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-color" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.color || '') ? o.color : '#111111') + '"'
         + ' title="' + escA(t('workbench.canvas.fl_color')) + '" aria-label="' + escA(t('workbench.canvas.fl_color')) + '">'
     } else if (o.type === 'rect' || o.type === 'ellipse') {
-      h += '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-fill" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.fill || '') ? o.fill : '#dddddd') + '"'
+      h += brandFloatSwatchesHtml('fill')
+        + '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-fill" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.fill || '') ? o.fill : '#dddddd') + '"'
         + ' title="' + escA(t('workbench.canvas.fl_fill')) + '" aria-label="' + escA(t('workbench.canvas.fl_fill')) + '">'
         + btn('smaller', '\u2212', t('workbench.canvas.fl_smaller')) + btn('bigger', '+', t('workbench.canvas.fl_bigger'))
     } else {
@@ -10358,16 +10360,28 @@
     }
   }
 
-  /** Brand colour buttons under a colour field; a click puts the colour into the field. */
-  function brandSwatchesHtml(targetId) {
+  /** One button per brand colour; `act` is the data-wb-act (and its arguments) a click sends. */
+  function brandSwatchRow(act, cls) {
     var cs = (WB.brand && WB.brand.colors) || []
     if (!cs.length) return ''
-    return '<span class="wb-brand-sw" role="group" aria-label="' + escA(t('workbench.brand.swatches')) + '">'
+    return '<span class="wb-brand-sw' + (cls ? ' ' + cls : '') + '" role="group" aria-label="' + escA(t('workbench.brand.swatches')) + '">'
       + cs.map(function (c) {
-        return '<button type="button" class="wb-brand-swatch" data-wb-act="brand-swatch" data-wb-target="' + escA(targetId) + '"'
+        return '<button type="button" class="wb-brand-swatch" ' + act
           + ' data-wb-hex="' + escA(c.hex) + '" style="background:' + escA(c.hex) + '"'
           + ' title="' + escA((c.name ? c.name + ' ' : '') + c.hex) + '" aria-label="' + escA((c.name ? c.name + ' ' : '') + c.hex) + '"></button>'
       }).join('') + '</span>'
+  }
+
+  /** Brand colour buttons under a colour field; a click puts the colour into the field. */
+  function brandSwatchesHtml(targetId) {
+    return brandSwatchRow('data-wb-act="brand-swatch" data-wb-target="' + escA(targetId) + '"', '')
+  }
+
+  /** The same brand colours on the floating toolbar, IN FRONT OF its colour field (K-4.2: the brand
+   *  colours come first in every colour picker of manual editing). There is no form here to fill: a
+   *  click recolours the selected element at once, like the colour field next to them does. */
+  function brandFloatSwatchesHtml(prop) {
+    return brandSwatchRow('data-wb-act="can-float-swatch" data-wb-fprop="' + prop + '"', 'wb-can-fsw')
   }
 
   /** The form -> the draft. Called on every keystroke too: the page is redrawn
@@ -12724,6 +12738,7 @@
     else if (a === 'canvas-remove') canvasRemoveObject(act.getAttribute('data-wb-obj'))
     else if (a === 'canvas-op') canvasQuickOp(act.getAttribute('data-wb-op'), act.getAttribute('data-wb-obj'))
     else if (a === 'can-float') canvasFloatOp(act.getAttribute('data-wb-fop'))
+    else if (a === 'can-float-swatch') canvasFloatColor(act.getAttribute('data-wb-fprop'), act.getAttribute('data-wb-hex'))
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
@@ -13059,6 +13074,15 @@
     else if (op === 'alignright') canvasOps([{ op: 'update', id: o.id, patch: { align: 'right' } }])
   }
 
+  /** A colour from the floating toolbar -- its colour field or a brand colour button -- onto the selected element. */
+  function canvasFloatColor(prop, hex) {
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || archived() || WB.canvasBusy || (prop !== 'color' && prop !== 'fill') || !hex) return
+    var patch = {}
+    patch[prop] = hex
+    canvasOps([{ op: 'update', id: o.id, patch: patch }])
+  }
+
   var CANVAS_CSS_FONT = { sans: 'system-ui, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'ui-monospace, Consolas, monospace' }
 
   /** Szoveg szerkesztese HELYBEN: egy szovegmezo kerul az elem helyere, ugyanazzal a betumerettel es
@@ -13134,9 +13158,7 @@
     if (!el || typeof el.getAttribute !== 'function') return
     var a = el.getAttribute('data-wb-act')
     if (a !== 'can-float-color' && a !== 'can-float-fill') return
-    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
-    if (!o || archived() || WB.canvasBusy) return
-    canvasOps([{ op: 'update', id: o.id, patch: a === 'can-float-color' ? { color: el.value } : { fill: el.value } }])
+    canvasFloatColor(a === 'can-float-color' ? 'color' : 'fill', el.value)
   })
 
   /** Kep a lapra: egy fajl a lapra HUZVA vagy a vagolapbol beillesztve. A fajl a projekt mappajaba kerul
