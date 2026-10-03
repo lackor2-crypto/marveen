@@ -11567,13 +11567,23 @@
     function setHeight() {
       var hdr = fr && typeof fr.getBoundingClientRect === 'function' ? body.getBoundingClientRect().top - fr.getBoundingClientRect().top : 0
       var bar = body.nextElementSibling && body.nextElementSibling.classList && body.nextElementSibling.classList.contains('wb-fr-bottom') ? body.nextElementSibling.offsetHeight : 0
-      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(hdr, 0) - bar - 2)) + 'px'
+      // The frame starts below the dashboard's own header, so the room is the window minus where the frame
+      // begins on the page (page scroll position removed): the frame then ends exactly at the window bottom
+      // and the page itself has nothing to scroll (Boss, TG 2261).
+      var frTop = fr && typeof fr.getBoundingClientRect === 'function' ? fr.getBoundingClientRect().top + (window.pageYOffset || 0) : 0
+      // What the page keeps free below the frame (the main area's bottom padding) counts too.
+      var below = 0
+      for (var a = fr && fr.parentElement; a && a !== document.documentElement && typeof window.getComputedStyle === 'function'; a = a.parentElement) {
+        var cs = window.getComputedStyle(a)
+        below += (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.marginBottom) || 0)
+      }
+      body.style.height = Math.max(420, Math.floor(window.innerHeight - Math.max(frTop, 0) - Math.max(hdr, 0) - bar - below - 4)) + 'px'
     }
     setHeight()
-    // Once per opened work: put the frame's top edge at the top of the window.
+    // Once per opened work: back to the top of the page (the frame fits the window, nothing to scroll).
     if (WB.fitKey !== WB.selectedId) {
       WB.fitKey = WB.selectedId
-      if (fr && typeof fr.scrollIntoView === 'function') fr.scrollIntoView({ block: 'start' })
+      try { window.scrollTo(0, 0) } catch (_e) { /* old browser: harmless */ }
     }
     fitMdSplit()
   }

@@ -1569,3 +1569,6 @@
 .wb-md-live { overflow-wrap: anywhere; }
 .wb-md-live pre { overflow-x: auto; }
 @media (max-width: 900px) { .wb-md-split { grid-template-columns: 1fr; height: auto; } .wb-md-split .wb-text-edit { flex: none; height: 240px; } .wb-md-live-wrap { height: 300px; } }
+
+/* The Simple-view frame fills the window to its bottom edge: no free strip under it (Boss, TG 2261). */
+main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { padding-bottom: 6px; }
