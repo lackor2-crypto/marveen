@@ -2052,6 +2052,14 @@ main.kanban-active, main.email-active { max-width: none; padding-left: 16px; pad
 main.email-active { height: 100vh; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box; }
 main.email-active #emailPage { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 main.email-active .page-header { flex-shrink: 0; }
+/* Projects page (list, project view, Workbench): `main` itself is the one scroll owner on wide screens,
+   so the document has no scrollbar of its own and the left menu + its collapse button stay put in every
+   browser, with no empty strip under the content (Boss, TG 7643, #470). Phones keep the normal page
+   scroll: there the menu is an off-canvas drawer and the top bar is sticky. */
+@media (min-width: 769px) {
+  /* position: relative keeps absolutely placed bits (the hidden file inputs) inside main, so they cannot grow the document. */
+  main.projects-active { height: 100vh; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; position: relative; }
+}
 
 .page-header-row {
   display: flex;
