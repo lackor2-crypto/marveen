@@ -45730,6 +45730,50 @@ document.getElementById('megadepotNewFolderBtn')?.addEventListener('click', () =
   _megaNewFolder(_megaAccount, st[st.length - 1].path, loadMegaFolder)
 })
 document.getElementById('megadepotRefreshBtn')?.addEventListener('click', () => loadMegaFolder())
+
+// "Sync now" on the MEGA page (sub-card e801eee8): the new files of the account come down into its mirror folder.
+// Preview first (count, size, free space), the owner confirms, then it polls until the job ends so the toast
+// carries the real result. A file with the same name is skipped, nothing is overwritten or deleted.
+async function _megaSyncNow() {
+  const btn = document.getElementById('megadepotSyncNowBtn')
+  const label = document.getElementById('megadepotSyncNowLabel')
+  const accounts = _megaAllMode ? _megaAccountsAll.map((a) => a.name) : (_megaAccount ? [_megaAccount] : [])
+  if (!accounts.length) { showToast(t('megadepot.sync_no_account')); return }
+  if (btn) btn.disabled = true
+  if (label) label.textContent = t('megadepot.sync_running')
+  try {
+    for (const account of accounts) {
+      const pv = await _depoPost('/api/backup-rules/mega/download/preview', { account })
+      if (!pv.files) {
+        showToast(t('megadepot.sync_nothing', { account, existing: pv.skippedExisting || 0 }))
+        continue
+      }
+      const ok = confirm(t('megadepot.sync_confirm', {
+        account, n: pv.files, size: _depoBytes(pv.bytes), existing: pv.skippedExisting || 0, dest: pv.dest,
+      }) + (pv.fits === false ? '\n\n' + t('megadepot.sync_no_space', { free: _depoBytes(pv.free) }) : ''))
+      if (!ok || pv.fits === false) continue
+      await _depoPost('/api/backup-rules/mega/download/run', { account })
+      let job = null
+      for (let i = 0; i < 14400; i++) { // 1.5 s steps, 6 h cap
+        await new Promise((r) => setTimeout(r, 1500))
+        try { job = (await _depoGet('/api/backup-rules/mega/download/status')).job } catch (e) { continue }
+        if (!(job && job.running)) break
+      }
+      if (job && !job.running) {
+        showToast(job.error
+          ? t('megadepot.sync_done_err', { account, down: job.downloaded || 0, failed: job.failed || 0, reason: job.error })
+          : t('megadepot.sync_done', { account, down: job.downloaded || 0, failed: job.failed || 0 }))
+      }
+    }
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('megadepot.sync_failed'))
+  } finally {
+    if (btn) btn.disabled = false
+    if (label) label.textContent = t('megadepot.sync_now_btn')
+    if (typeof loadMegaFolder === 'function') loadMegaFolder()
+  }
+}
+document.getElementById('megadepotSyncNowBtn')?.addEventListener('click', _megaSyncNow)
 document.getElementById('megadepotUploadInput')?.addEventListener('change', (ev) => {
   const files = [...(ev.target.files || [])]
   ev.target.value = ''
