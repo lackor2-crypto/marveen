@@ -3584,6 +3584,8 @@ window._i18n.hu = {
   'drive.sync_failed':           'Nem sikerült elindítani a szinkronizálást.',
   'drive.sync_stopped':          'A szinkronizálás félúton megállt: {reason}. Addig {down} fájl jött le és {up} ment fel; a következő futás onnan folytatja.',
   'drive.sync_pending_deletes':  '{n} törlés vár a döntésedre: tételenként mondod meg, mehet-e.',
+  'drive.sync_partial':          'Nem jött le minden: {n} beállított Drive-mappánál a bejárás félbemaradt (elértük a felső határt, vagy egy mappát nem tudtam kiolvasni), ami utána jött volna, kimaradt. Ott ezért most semmit nem töltöttem fel és nem töröltem.',
+  'drive.sync_remaining':        'Még {n} fájl vár feltöltésre: egy futás egyszerre ennyit nem visz fel, a következő futás onnan folytatja.',
   'drive.sync_where':            'Hogy mi miért nem sikerült, és a teendők: Beállítások → Raktár beállítások, „A Drive-om a gépemen” kártya.',
   'drive.sync_no_pairs':         'Még nincs beállítva, melyik Drive-mappa jöjjön le a gépedre, ezért nincs mit szinkronizálni. A Beállítások → Raktár beállítások alatt, „A Drive-om a gépemen” kártyán választhatod ki a mappát (vagy az egész Drive-ot).',
   'drive.sync_open_settings':    'Megnyitom',

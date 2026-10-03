@@ -70,9 +70,34 @@ describe('Drive page Sync now (#462)', () => {
     expect(r.type).toBe('error')
   })
 
+  it('a Drive walk that stopped early is a warning with the way to the depot card, never a plain "Done"', () => {
+    const r = result({ running: false, downloaded: 120, uploaded: 0, upToDate: 0, failed: 0, partial: 1 })
+    expect(r.text).toContain('drive.sync_partial{"n":1}')
+    expect(r.text).toContain('drive.sync_where')
+    expect(r.type).toBe('warn')
+    expect(r.toSettings).toBe(true)
+  })
+
+  it('files left for the next run are a warning, but no fault to look up', () => {
+    const r = result({ running: false, downloaded: 0, uploaded: 2000, upToDate: 10, failed: 0, remaining: 6900 })
+    expect(r.text).toContain('drive.sync_remaining{"n":6900}')
+    expect(r.text).not.toContain('drive.sync_where')
+    expect(r.type).toBe('warn')
+    expect(r.toSettings).toBe(false)
+  })
+
   it('the server marks a stopped run, so the page can tell it from a clean one', () => {
     expect(server).toMatch(/fatal\?: string/)
     expect(server).toMatch(/runSync\(pairs\)\.catch\(\(err\) => \{[\s\S]{0,300}job\.fatal = String\(err\?\.message \|\| err\)/)
+  })
+
+  it('the server carries a partial walk and the files left over into the run, not only into the pair line', () => {
+    expect(server).toMatch(/partial\?: number/)
+    expect(server).toMatch(/remaining\?: number/)
+    const run = server.slice(server.indexOf('async function runSync('), server.indexOf('pair.lastResult = brake'))
+    expect(run).toContain('const { csonkolt, brake, maradt } = await syncPair(pair, cfg)')
+    expect(run).toContain('if (job && csonkolt.length) job.partial = (job.partial || 0) + 1')
+    expect(run).toContain('if (job && maradt) job.remaining = (job.remaining || 0) + maradt')
   })
 
   it('fresh install (no Drive folder linked): own sentence and a button to the settings', () => {
@@ -98,7 +123,8 @@ describe('Drive page Sync now (#462)', () => {
   it('every sentence exists in both languages', () => {
     for (const k of ['drive.sync_now_btn', 'drive.sync_now_title', 'drive.sync_running', 'drive.sync_started',
       'drive.sync_already', 'drive.sync_done', 'drive.sync_failed', 'drive.sync_stopped', 'drive.sync_pending_deletes',
-      'drive.sync_where', 'drive.sync_no_pairs', 'drive.sync_open_settings', 'dsync.brake_warn']) {
+      'drive.sync_where', 'drive.sync_no_pairs', 'drive.sync_open_settings', 'drive.sync_partial', 'drive.sync_remaining',
+      'dsync.brake_warn']) {
       expect(hu).toContain("'" + k + "'")
       expect(en).toContain("'" + k + "'")
     }

@@ -14346,11 +14346,15 @@ function _driveSyncResult(job) {
   const parts = [t('drive.sync_done', n)]
   if (job.deleteBrake) parts.push(t('dsync.brake_warn', { n: job.deleteBrake.wouldDelete, tracked: job.deleteBrake.tracked }))
   if (job.pendingDeletes) parts.push(t('drive.sync_pending_deletes', { n: job.pendingDeletes }))
-  const todo = !!(job.deleteBrake || n.failed || job.pendingDeletes)
-  // One "where" sentence for all of them: the failed list, the brake and the
-  // deletion queue are on the same card.
+  if (job.partial) parts.push(t('drive.sync_partial', { n: job.partial }))
+  // Files left for the next run are not a fault (the depot card shows them as
+  // "in progress", not red), but not a clean "Done" either.
+  if (job.remaining) parts.push(t('drive.sync_remaining', { n: job.remaining }))
+  const todo = !!(job.deleteBrake || n.failed || job.pendingDeletes || job.partial)
+  // One "where" sentence for all of them: the failed list, the brake, the
+  // deletion queue and the "what was left out" list are on the same card.
   if (todo) parts.push(t('drive.sync_where'))
-  return { text: parts.join(' '), type: todo ? 'warn' : '', toSettings: todo }
+  return { text: parts.join(' '), type: (todo || job.remaining) ? 'warn' : '', toSettings: todo }
 }
 
 function _driveSyncToast(text, type, toSettings) {
