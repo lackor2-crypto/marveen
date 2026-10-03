@@ -1551,3 +1551,7 @@
 /* A text work in the Simple view (Boss, TG 7459): the text uses the whole centre window down to the
  * zoom bar and scrolls inside it, instead of a 420px box with a "download for the rest" note. */
 .wb-fr-scroll .wb-preview-text { max-height: none; }
+
+/* "..." on a work item row: only where there is no right mouse button (touch / narrow screens). */
+.wb-item-more { display: none; flex: 0 0 auto; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border, rgba(128,128,128,0.35)); border-radius: 6px; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+@media (hover: none), (pointer: coarse), (max-width: 900px) { .wb-item-more { display: inline-flex; align-items: center; justify-content: center; } }

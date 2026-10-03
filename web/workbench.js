@@ -1178,6 +1178,10 @@
       + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
       + '</button>'
+      // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
+      // (shown only on touch / narrow screens by the CSS) opens the same menu.
+      + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="item-ctx" data-wb-id="' + escA(it.id) + '" aria-haspopup="menu"'
+        + ' aria-label="' + escA(t('workbench.ctx.more')) + '" title="' + escA(t('workbench.ctx.more')) + '">&#8943;</button>')
       + itemMenuHtml(it)
       + '</li>'
   }
