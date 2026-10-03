@@ -6363,6 +6363,11 @@
     if (p.kind === 'office' && p.url) {
       rows.push('<div class="wb-exp-row"><a class="btn-secondary" href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">' + esc(t('workbench.exp.office_pdf')) + '</a></div>')
     }
+    rows.push('<div class="wb-exp-row wb-exp-docs"><span class="wb-hint">' + esc(t('workbench.exp.docs')) + '</span> '
+      + ['docx', 'odt', 'doc', 'rtf', 'txt', 'epub'].map(function (f) {
+        return '<button type="button" class="btn-secondary" data-wb-act="export-doc" data-wb-fmt="' + f + '"'
+          + (WB.docBusy ? ' disabled' : '') + '>' + esc(WB.docBusy === f ? t('workbench.exp.doc_busy') : t('workbench.exp.doc_' + f)) + '</button>'
+      }).join('') + '</div>')
     rows.push('<div class="wb-exp-row">'
       + (png ? '<button type="button" class="btn-secondary" data-wb-act="export-png"' + (WB.pngBusy ? ' disabled' : '') + '>'
         + esc(WB.pngBusy ? t('workbench.exp.png_busy') : t('workbench.exp.png')) + '</button>' : '')
@@ -6532,6 +6537,36 @@
 
   /** A munkadarab kepe PNG-ben. A kep-fajtanal az eredeti fajl jon (nincs
    *  minosegromlas); a rajzot es a vegyes tartalmat a bongeszo rajzolja ki. */
+  /** Download the printable page as a Word / LibreOffice / RTF / text / EPUB file. */
+  function exportDoc(fmt) {
+    if (WB.docBusy || !WB.selectedId) return
+    WB.docBusy = fmt
+    render()
+    var finish = function (msg) { WB.docBusy = null; render(); window.showToast(msg) }
+    fetch(itemUrl('/export-doc') + '?fmt=' + encodeURIComponent(fmt) + '&lang=' + encodeURIComponent(window._lang || 'hu')
+      + (WB.previewVersion ? '&version=' + encodeURIComponent(WB.previewVersion) : '')).then(function (res) {
+      if (!res.ok) {
+        return res.json().catch(function () { return null }).then(function (d) {
+          finish(t('workbench.exp.doc_failed', { message: (d && d.message) || t('workbench.err.http', { status: res.status }) }))
+        })
+      }
+      var cd = res.headers.get('Content-Disposition') || ''
+      var m = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+      var name = 'munkadarab.' + fmt
+      try { if (m) name = decodeURIComponent(m[1]) } catch (_e) { /* keep the fallback name */ }
+      return res.blob().then(function (blob) {
+        var a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = name
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(function () { URL.revokeObjectURL(a.href) }, 10000)
+        finish(t('workbench.exp.doc_done', { name: name }))
+      })
+    }).catch(function () { finish(t('workbench.exp.doc_failed', { message: t('workbench.err.network') })) })
+  }
+
   function exportPng() {
     var src = pngSource()
     if (!src || WB.pngBusy || !WB.detail) return
@@ -12162,6 +12197,7 @@
     else if (a === 'export-close') { WB.exportOpen = null; render() }
     else if (a === 'export-print') openPrint()
     else if (a === 'export-png') exportPng()
+    else if (a === 'export-doc') { var df = act.getAttribute('data-wb-fmt'); if (df) exportDoc(df) }
     else if (a === 'send-request') { e.preventDefault(); sendRequest() }
     else if (a === 'send-refresh') refreshSendStatus()
     else if (a === 'send-new') { WB.send = null; render() }

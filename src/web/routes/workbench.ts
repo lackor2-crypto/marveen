@@ -72,7 +72,7 @@ import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
-import { docEditExt, docToEditableHtml, htmlToDocBytes, pdfToDocxBytes, looksLikePdf, DOC_EDIT_HTML_MAX } from '../../workbench-docedit.js'
+import { docEditExt, docToEditableHtml, htmlToDocBytes, htmlToExportBytes, DOC_EXPORT_FORMATS, pdfToDocxBytes, looksLikePdf, DOC_EDIT_HTML_MAX } from '../../workbench-docedit.js'
 import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
@@ -1163,6 +1163,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   docedit_not_installed: {
     hu: 'A dokumentum szerkesztéséhez a LibreOffice kell, és az ezen a gépen nincs telepítve. Linuxon: „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető. Ha máshova telepítetted, add meg az útvonalát a Munkapad „Mi működik ezen a gépen?” paneljén.',
     en: 'Editing the document needs LibreOffice, and it is not installed on this machine. On Linux: "sudo apt install libreoffice-writer", on Windows/macOS from libreoffice.org. If you installed it elsewhere, give its path on the Workbench "What works on this machine?" panel.',
+  },
+  docexport_not_installed: {
+    hu: 'A Word/LibreOffice formátumokhoz a LibreOffice kell, és az ezen a gépen nincs telepítve. Linuxon: „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető. A PDF, a kép és a HTML export enélkül is működik.',
+    en: 'The Word/LibreOffice formats need LibreOffice, and it is not installed on this machine. On Linux: "sudo apt install libreoffice-writer", on Windows/macOS from libreoffice.org. The PDF, image and HTML exports work without it.',
+  },
+  docexport_bad_format: {
+    hu: 'Ismeretlen exportformátum.',
+    en: 'Unknown export format.',
   },
   docedit_check_failed: {
     hu: 'Nem tudtam megállapítani, van-e LibreOffice ezen a gépen, tehát ez NEM azt jelenti, hogy nincs. A pontos hibaüzenet a részleteknél olvasható.',
@@ -3571,6 +3579,29 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(page.fileName)}`,
     })
     res.end(page.html)
+    return true
+  }
+
+  // EXPORT MAS DOKUMENTUMFORMATUMBA (Boss, TG 2243): ugyanaz a nyomtathato lap, de
+  // docx / doc / odt / rtf / txt / epub fajlkent (LibreOffice). OLVASAS.
+  if (segs.length === 2 && segs[1] === 'export-doc' && method === 'GET') {
+    const fmt = (url.searchParams.get('fmt') || '').toLowerCase()
+    const spec = Object.prototype.hasOwnProperty.call(DOC_EXPORT_FORMATS, fmt) ? DOC_EXPORT_FORMATS[fmt] : null
+    if (!spec) return fail(res, 400, 'docexport_bad_format', lang)
+    const page = buildExportPage(item, url.searchParams.get('version'), lang, { toolbar: false })
+    const r = await htmlToExportBytes(page.html, fmt)
+    if (!r.ok) {
+      const status = r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500
+      return failDetail(res, status, r.code === 'not_installed' ? 'docexport_not_installed' : 'docedit_' + r.code, lang, r.detail)
+    }
+    const base = page.fileName.replace(/\.[^./\\]+$/, '') || 'export'
+    res.writeHead(200, {
+      'Content-Type': spec.mime,
+      'Content-Length': String(r.data.length),
+      'Cache-Control': 'private, no-store',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(base + '.' + fmt)}`,
+    })
+    res.end(r.data)
     return true
   }
 
