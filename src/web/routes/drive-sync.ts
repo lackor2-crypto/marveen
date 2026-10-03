@@ -842,6 +842,11 @@ export interface SyncJob {
   deleteBrake?: { wouldDelete: number; tracked: number }
   /** Hany tetel var a torles-megerosito sorban a futas vegen (#301). */
   pendingDeletes?: number
+  /**
+   * The whole run stopped (not one file): the reason. Without it a stopped run
+   * shows `failed: 0` and the Drive page toast would read as a clean "Done" (#462).
+   */
+  fatal?: string
 }
 
 let job: SyncJob | null = null
@@ -2095,7 +2100,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     }
     void runSync(pairs).catch((err) => {
       logger.error({ err: err?.message }, '[drive-sync] a futas megallt')
-      if (job) { job.running = false; job.finishedAt = new Date().toISOString(); job.errors.push(String(err?.message || err)) }
+      if (job) { job.running = false; job.finishedAt = new Date().toISOString(); job.fatal = String(err?.message || err); job.errors.push(job.fatal) }
     })
     json(res, { ok: true, job })
     return true
