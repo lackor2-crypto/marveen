@@ -1250,7 +1250,10 @@
     if (!c || c.folder !== f || archived()) return ''
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
     var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 100))
+    var imgs = folderImages(f).length
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + (imgs ? '<button type="button" role="menuitem" data-wb-act="folder-to-deck" data-wb-folder="' + escA(f) + '"' + (WB.fileBusy ? ' disabled' : '')
+        + ' title="' + escA(t('workbench.folder.to_deck_hint', { n: imgs })) + '">' + esc(t('workbench.folder.to_deck', { n: imgs })) + '</button>' : '')
       + '<button type="button" role="menuitem" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.rename')) + '</button>'
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.delete')) + '</button>'
       + '</div>'
@@ -1266,10 +1269,12 @@
     if (!WB.open || archived() || !e.target || !e.target.closest) return
     var row = e.target.closest('[data-wb-ctx-item]')
     var frow = row ? null : e.target.closest('[data-wb-ctx-folder]')
-    if (!row && !frow) return
+    var xrow = row || frow ? null : e.target.closest('[data-wb-ctx-file]')
+    if (!row && !frow && !xrow) return
     e.preventDefault()
     WB.ctx = row ? { id: row.getAttribute('data-wb-ctx-item'), x: e.clientX || 0, y: e.clientY || 0 }
-      : { folder: frow.getAttribute('data-wb-ctx-folder'), x: e.clientX || 0, y: e.clientY || 0 }
+      : frow ? { folder: frow.getAttribute('data-wb-ctx-folder'), x: e.clientX || 0, y: e.clientY || 0 }
+      : { file: xrow.getAttribute('data-wb-ctx-file'), x: e.clientX || 0, y: e.clientY || 0 }
     render()
   })
   // Capturing: an outside click closes the menu; a click on a menu button lets the shared handler
@@ -1338,10 +1343,32 @@
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth) {
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
-    return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '">'
+    return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '"' + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '"') + '>'
       + '<a class="wb-item wb-file-link" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
       + '<span class="wb-item-title">\ud83d\udcc4 ' + esc(f.name) + '</span>'
-      + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
+      + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
+      + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="file-ctx" data-wb-rel="' + escA(f.rel) + '" aria-haspopup="menu"'
+        + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>')
+      + fileMenuHtml(f.rel)
+      + '</li>'
+  }
+
+  /** The loose file's menu (right-click / the "..." button): make it a work item (Boss, TG 7626). */
+  function fileMenuHtml(rel) {
+    var c = WB.ctx
+    if (!c || c.file !== rel || archived()) return ''
+    var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 80))
+    return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
+      + '</div>'
+  }
+
+  /** The images lying directly in a work folder, in natural order (s2 before s10). */
+  function folderImages(folder) {
+    var wf = WB.workFolders || { files: {} }
+    var list = ((wf.files || {})[folder] || []).filter(function (f) { return isImageFile({ name: f.name }) })
+    return list.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) })
   }
 
   function folderTreeRows() {
@@ -1378,6 +1405,8 @@
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
+          + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="folder-ctx" data-wb-folder="' + escA(f) + '" aria-haspopup="menu"'
+            + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
           + folderMenuHtml(f) + '</li>')
         if (!collapsed) walk(f, depth + 1)
       })
@@ -1499,6 +1528,71 @@
       render()
     })
   }
+
+  /** A loose file -> a work item of its natural type (the file stays where it is; the item points at it).
+   *  A file that already is an item's source opens that item instead of making a second one. */
+  function fileToItem(rel) {
+    if (WB.fileBusy || archived() || !rel) return
+    var have = (WB.items || []).filter(function (it) { return it.source_path === rel })[0]
+    if (have) { selectItem(have.id); window.showToast(t('workbench.file.already_item', { title: have.title })); return }
+    var name = baseOf(rel)
+    var ext = (name.match(/\.([^.]+)$/) || [])[1] || ''
+    ext = ext.toLowerCase()
+    var type = isImageFile({ name: name }) ? (ext === 'svg' ? 'graphic' : 'image')
+      : /^(md|txt)$/.test(ext) ? 'note'
+      : /^(mp4|mov|webm|mkv|avi|m4v)$/.test(ext) ? 'video' : 'document'
+    var pid = WB.projectId
+    WB.fileBusy = true
+    api('POST', '/api/workbench/items', { project_id: pid, type: type, title: name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || name, source_path: rel, folder: dirOf(rel) }).then(function (r) {
+      WB.fileBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      window.showToast(t('workbench.new.created', { title: r.data.item.title }))
+      selectItem(r.data.item.id)
+      load(pid)
+    })
+  }
+
+  /** A folder of pictures -> ONE flippable deck: one slide per picture, in file-name order (Boss, TG 7636). */
+  function folderToDeck(folder) {
+    if (WB.fileBusy || archived() || !folder) return
+    var imgs = folderImages(folder)
+    if (!imgs.length) { window.showToast(t('workbench.folder.to_deck_none')); return }
+    var cut = imgs.length > DECK_FROM_FOLDER_MAX
+    if (cut) imgs = imgs.slice(0, DECK_FROM_FOLDER_MAX)
+    var pid = WB.projectId
+    WB.fileBusy = true
+    window.showToast(t('workbench.folder.to_deck_working', { n: imgs.length }))
+    api('POST', '/api/workbench/items', { project_id: pid, type: 'presentation', title: baseOf(folder), folder: folder }).then(function (r) {
+      if (!r.ok) { WB.fileBusy = false; render(); window.showToast(r.message); return null }
+      var item = r.data.item
+      var base = '/api/workbench/items/' + encodeURIComponent(item.id) + '/deck/ops'
+      // A fresh deck is empty and ids run d1..dN, so slide i is 'd'+i. 20 pictures a call = 40 ops (limit 100).
+      var chain = Promise.resolve({ ok: true })
+      for (var from = 0; from < imgs.length; from += 20) {
+        (function (start) {
+          chain = chain.then(function (prev) {
+            if (!prev.ok) return prev
+            var ops = []
+            imgs.slice(start, start + 20).forEach(function () { ops.push({ op: 'addSlide', layout: 'blank' }) })
+            imgs.slice(start, start + 20).forEach(function (f, k) {
+              ops.push({ op: 'slide', id: 'd' + (start + k + 1), ops: [{ op: 'add', object: { type: 'image', src: f.rel, x: 0, y: 0, width: 1920, height: 1080, fit: 'contain', alt: f.name } }] })
+            })
+            return api('POST', base, { ops: ops })
+          })
+        })(from)
+      }
+      return chain.then(function (last) {
+        WB.fileBusy = false
+        if (WB.projectId !== pid) return
+        if (!last.ok) { render(); window.showToast(last.message); load(pid); return }
+        window.showToast(t('workbench.folder.to_deck_done', { n: imgs.length }) + (cut ? ' ' + t('workbench.folder.to_deck_cut', { max: DECK_FROM_FOLDER_MAX }) : ''))
+        selectItem(item.id)
+        load(pid)
+      })
+    })
+  }
+  var DECK_FROM_FOLDER_MAX = 100
 
   function itemsPanelHtml() {
     var body
@@ -12227,6 +12321,10 @@
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'ov-kanban') openProjectKanban()
     else if (a === 'folder-delete') { deleteFolder(act.getAttribute('data-wb-folder')) }
+    else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
+    else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
+    else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'))
+    else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }
     else if (a === 'mkfolder') { makeFolder() }
