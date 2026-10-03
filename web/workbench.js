@@ -1344,6 +1344,8 @@
   function plainFileRowHtml(f, depth) {
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
     return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '"' + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '"') + '>'
+      + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
+        + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
       + '<span class="wb-item-title">\ud83d\udcc4 ' + esc(f.name) + '</span>'
       + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
@@ -1560,17 +1562,77 @@
     })
   }
 
+  /** #475: the ticked files that still exist, split into pictures (file-name order) and the rest. */
+  function selectedFiles() {
+    var wf = WB.workFolders || { files: {} }
+    var have = {}
+    Object.keys(wf.files || {}).forEach(function (k) { (wf.files[k] || []).forEach(function (f) { have[f.rel] = f }) })
+    var imgs = []
+    var other = 0
+    Object.keys(WB.fileSel || {}).forEach(function (rel) {
+      var f = have[rel]
+      if (!f) { delete WB.fileSel[rel]; return }
+      if (isImageFile({ name: f.name })) imgs.push(f); else other++
+    })
+    imgs.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) || (a.rel < b.rel ? -1 : 1) })
+    return { imgs: imgs, other: other, total: imgs.length + other }
+  }
+
+  /** The bar above the list while files are ticked: name the deck, make it, or clear the ticks. */
+  function selectionBarHtml() {
+    if (archived()) return ''
+    var sel = selectedFiles()
+    if (!sel.total) return ''
+    return '<div class="wb-sel-bar" role="group" aria-label="' + escA(t('workbench.sel.count', { n: sel.total })) + '">'
+      + '<span class="wb-sel-count">' + esc(t('workbench.sel.count', { n: sel.total })) + '</span>'
+      + '<input type="text" id="wbSelDeckName" class="wb-sel-name" maxlength="120" value="' + escA(WB.selName || '') + '" placeholder="' + escA(t('workbench.sel.name_ph')) + '" aria-label="' + escA(t('workbench.sel.name_label')) + '">'
+      + '<button type="button" class="btn-primary" data-wb-act="sel-to-deck"' + (WB.fileBusy || !sel.imgs.length ? ' disabled' : '') + '>' + esc(t('workbench.sel.to_deck', { n: sel.imgs.length })) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="sel-clear">' + esc(t('workbench.sel.clear')) + '</button>'
+      + (sel.other ? '<span class="wb-hint wb-sel-note">' + esc(t('workbench.sel.not_images', { n: sel.other })) + '</span>' : '')
+      + '</div>'
+  }
+
+  function keepSelName() {
+    var el = document.getElementById('wbSelDeckName')
+    if (el) WB.selName = el.value
+  }
+
+  function toggleFileSel(rel) {
+    if (!rel) return
+    keepSelName()
+    WB.fileSel = WB.fileSel || {}
+    if (WB.fileSel[rel]) delete WB.fileSel[rel]; else WB.fileSel[rel] = true
+    render()
+  }
+
+  /** The ticked pictures -> ONE deck, one slide per picture in file-name order, named by the user. */
+  function selectionToDeck() {
+    keepSelName()
+    var sel = selectedFiles()
+    if (WB.fileBusy || archived()) return
+    if (!sel.imgs.length) { window.showToast(t('workbench.sel.no_images')); return }
+    var name = String(WB.selName || '').trim() || t('workbench.sel.default_name')
+    buildDeck(name, sel.imgs, { from_files: true, folder: (WB.workFolders && WB.workFolders.box) || '' }, function () { WB.fileSel = {}; WB.selName = '' })
+  }
+
   /** A folder of pictures -> ONE flippable deck: one slide per picture, in file-name order (Boss, TG 7636). */
   function folderToDeck(folder) {
     if (WB.fileBusy || archived() || !folder) return
     var imgs = folderImages(folder)
     if (!imgs.length) { window.showToast(t('workbench.folder.to_deck_none')); return }
+    buildDeck(baseOf(folder), imgs, { folder: folder, adopt_folder: true })
+  }
+
+  /** One deck work item with one slide per picture (in the order given); `extra` goes into the create call. */
+  function buildDeck(title, imgs, extra, done) {
     var cut = imgs.length > DECK_FROM_FOLDER_MAX
     if (cut) imgs = imgs.slice(0, DECK_FROM_FOLDER_MAX)
     var pid = WB.projectId
     WB.fileBusy = true
     window.showToast(t('workbench.folder.to_deck_working', { n: imgs.length }))
-    api('POST', '/api/workbench/items', { project_id: pid, type: 'presentation', title: baseOf(folder), folder: folder, adopt_folder: true }).then(function (r) {
+    var create = { project_id: pid, type: 'presentation', title: title }
+    Object.keys(extra || {}).forEach(function (k) { create[k] = extra[k] })
+    api('POST', '/api/workbench/items', create).then(function (r) {
       if (!r.ok) { WB.fileBusy = false; render(); window.showToast(r.message); return null }
       var item = r.data.item
       var base = '/api/workbench/items/' + encodeURIComponent(item.id) + '/deck/ops'
@@ -1594,6 +1656,7 @@
         if (WB.projectId !== pid) return
         if (!last.ok) { render(); window.showToast(last.message); load(pid); return }
         window.showToast(t('workbench.folder.to_deck_done', { n: imgs.length }) + (cut ? ' ' + t('workbench.folder.to_deck_cut', { max: DECK_FROM_FOLDER_MAX }) : ''))
+        if (done) done()
         selectItem(item.id)
         load(pid)
       })
@@ -1614,7 +1677,7 @@
         + '</div>'
     } else {
       var rows = folderTreeRows()
-      body = '<ul class="wb-items">' + rows.join('') + '</ul>'
+      body = selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
     body += trashHtml()
     body += rescueHtml()
@@ -12324,6 +12387,8 @@
     if (!projectId) return
     WB.open = true
     WB.projectId = projectId
+    WB.fileSel = {}
+    WB.selName = ''
     WB.shares = null; WB.sharesFor = null; WB.sharesError = null; WB.sharesLoading = null
     WB.project = projectName ? { id: projectId, name: projectName } : null
     WB.items = null
@@ -12513,6 +12578,9 @@
     else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
     else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
     else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'))
+    else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'))
+    else if (a === 'sel-to-deck') selectionToDeck()
+    else if (a === 'sel-clear') { WB.fileSel = {}; WB.selName = ''; render() }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }

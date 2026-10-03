@@ -80,3 +80,35 @@ describe('folder of pictures -> one deck', () => {
     expect(untranslatedHungarian(h.html(), ['diak', 'Régi', 'Kovács', 'ajanlat.docx', 'jegyzet.txt', 'Projektek', 'Munkadarabok'])).toBe('')
   })
 })
+
+describe('tick files -> one named presentation (#475)', () => {
+  const tick = (h: Awaited<ReturnType<typeof open>>, rel: string) => h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': rel })
+  it('every plain file row has a tick box, and the bar appears with the count once something is ticked', async () => {
+    const h = await open()
+    expect(h.html()).toContain('data-wb-act="file-sel"')
+    expect(h.html()).not.toContain('wb-sel-bar')
+    tick(h, FOLDER + '/s2.png')
+    expect(h.html()).toContain('wb-sel-bar')
+    expect(h.html()).toContain('data-wb-act="sel-to-deck"')
+  })
+  it('makes ONE presentation from the ticked pictures in file-name order, with the typed name, and ignores non-images', async () => {
+    const h = await open()
+    tick(h, FOLDER + '/s10.png'); tick(h, FOLDER + '/s1.png'); tick(h, FOLDER + '/s2.png'); tick(h, FOLDER + '/jegyzet.txt')
+    h.inputs['wbSelDeckName'] = { value: 'Ajánlat képek', focus: () => {} }
+    h.click({ 'data-wb-act': 'sel-to-deck' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/deck/ops'))).toBe(true))
+    const creates = h.fetchCalls.filter((c) => isCreate(c))
+    expect(creates).toHaveLength(1)
+    expect(JSON.parse(String(creates[0]!.init!.body))).toMatchObject({ type: 'presentation', title: 'Ajánlat képek', from_files: true })
+    const ops = JSON.parse(String(h.fetchCalls.find((c) => c.url.includes('/deck/ops'))!.init!.body)).ops
+    const srcs = ops.filter((o: { op: string }) => o.op === 'slide').map((o: { ops: { object: { src: string } }[] }) => o.ops[0]!.object.src)
+    expect(srcs).toEqual([FOLDER + '/s1.png', FOLDER + '/s2.png', FOLDER + '/s10.png'])
+  })
+  it('clearing drops the bar; no raw Hungarian with the bar open', async () => {
+    const h = await open()
+    tick(h, FOLDER + '/s1.png')
+    expect(untranslatedHungarian(h.html(), ['diak', 'Régi', 'Kovács', 'ajanlat.docx', 'jegyzet.txt', 'Projektek', 'Munkadarabok'])).toBe('')
+    h.click({ 'data-wb-act': 'sel-clear' })
+    expect(h.html()).not.toContain('wb-sel-bar')
+  })
+})
