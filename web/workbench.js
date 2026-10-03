@@ -1291,6 +1291,9 @@
     return place
   }
 
+  /** The key of the fixed Favorites folder in WB.collapsedFolder (a real folder path never contains a star). */
+  var FAV_KEY = '*favorites*'
+
   function folderTreeRows() {
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
@@ -1306,6 +1309,11 @@
     shown.forEach(function (f) { var d = dirOf(f); if (d !== box && !have[d]) d = box; (kids[d] = kids[d] || []).push(f) })
     var byPlace = {}
     items.forEach(function (it) { (byPlace[place[it.id]] = byPlace[place[it.id]] || []).push(it) })
+    // A star no longer floats an item to the top of its own folder (Boss, TG 2173): inside a folder the
+    // order is by recency; the starred ones are collected in the fixed Favorites folder instead.
+    Object.keys(byPlace).forEach(function (k) {
+      byPlace[k].sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0) || (b.created_at || 0) - (a.created_at || 0) || String(a.title || '').localeCompare(String(b.title || '')) })
+    })
     function count(path) {
       var n = (byPlace[path] || []).length
       ;(kids[path] || []).forEach(function (k) { n += count(k) })
@@ -1325,6 +1333,16 @@
       ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
+    var favs = items.filter(function (it) { return it.pinned_at != null })
+    var favShut = !!WB.collapsedFolder[FAV_KEY]
+    rows.push('<li class="wb-folder-row wb-fav-row wb-depth-0">'
+      + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(FAV_KEY) + '" aria-expanded="' + (!favShut) + '"'
+      + ' title="' + escA(t(favShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
+      + (favShut ? '▸ ' : '▾ ') + '⭐ ' + esc(t('workbench.fav.title')) + ' <span class="wb-muted">(' + favs.length + ')</span></button></li>')
+    if (!favShut) {
+      if (!favs.length) rows.push('<li class="wb-fav-empty wb-depth-1"><span class="wb-muted">' + esc(t('workbench.fav.empty')) + '</span></li>')
+      favs.forEach(function (it) { rows.push(itemRowHtml(it, 1)) })
+    }
     walk(box, 0)
     return rows
   }

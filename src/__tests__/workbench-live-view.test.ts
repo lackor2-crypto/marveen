@@ -39,3 +39,16 @@ describe('project list: only names, actions in the right-click menu (TG 2164)', 
     expect(js).toContain("e.target.closest('[data-wb-ctx-folder]')")
   })
 })
+
+describe('project list: the fixed Favorites folder (TG 2173)', () => {
+  it('is rendered first, collects the starred items, and the star no longer pins inside a folder', () => {
+    expect(js).toContain("var FAV_KEY = '*favorites*'")
+    expect(js).toContain("t('workbench.fav.title')")
+    expect(js).toContain('byPlace[k].sort(')
+    for (const lang of ['hu', 'en']) {
+      const l = readFileSync(join(PROJECT_ROOT, 'web', 'lang', `${lang}.js`), 'utf-8')
+      expect(l).toContain('"workbench.fav.title"')
+      expect(l).toContain('"workbench.fav.empty"')
+    }
+  })
+})
