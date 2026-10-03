@@ -2555,7 +2555,7 @@
     var busy = WB.textEdit && WB.textEdit.busy
     var md = isMarkdownPreview(WB.preview)
     var area = '<textarea class="wb-input wb-part-input wb-text-edit" id="wbTextEdit" rows="16">' + esc(WB.textEdit.value) + '</textarea>'
-    return '<form class="wb-part-form" id="wbTextEditForm">'
+    return '<form class="wb-part-form' + (md ? ' wb-md-form' : '') + '" id="wbTextEditForm">'
       + (md ? '' : '<label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>')
       + (md
         ? '<div class="wb-md-split"><div class="wb-md-live-wrap"><label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>' + area + '</div><div class="wb-md-live-wrap"><p class="wb-label">' + esc(t('workbench.edit.md_live')) + '</p><div id="wbTextEditLive">' + mdLiveHtml(WB.textEdit.value) + '</div></div></div>'
