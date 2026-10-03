@@ -46693,7 +46693,6 @@ function _prjFactsHtml(ov) {
     ['open', f.openCards, false],
     ['in_progress', f.inProgress, false],
     ['waiting', f.waiting, false],
-    ['approvals', f.pendingApprovals, false],
     ['done', f.done, false],
     ['overdue', f.overdue, true],
     ['stale', f.staleOpenCards, true],

@@ -297,6 +297,8 @@ describe('a felulet rajzolja is, amit a szerver megszamolt', () => {
     const html = facts({ facts: { openCards: 0, inProgress: 0, waiting: 0, pendingApprovals: 0, done: 3, overdue: 0, staleOpenCards: 0 } })
     expect(html).toMatch(/<span class="prj-fact-n">3<\/span><span class="prj-fact-l">projects\.fact\.done<\/span>/)
     expect(html).toContain('projects.fact.done_hint')
+    // the pending-approval tile duplicated the waiting tile (Boss TG 2222); the list below shows the requests
+    expect(html).not.toContain('projects.fact.approvals')
   })
 
   it('a munkadarab jovahagyasi kerese a munkadarabra mutat, nem ures kartya-linkre', () => {

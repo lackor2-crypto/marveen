@@ -5287,8 +5287,6 @@ window._i18n.hu = {
   "projects.fact.in_progress_hint": "„Folyamatban” vagy „Tesztelés” állapotú kártyák, plusz a „Folyamatban” munkadarabok.",
   "projects.fact.waiting": "jóváhagyásra vár",
   "projects.fact.waiting_hint": "A „Jóváhagyásra vár” oszlopban álló kártyák és munkadarabok (a Kanban fülön ezek vannak abban az oszlopban).",
-  "projects.fact.approvals": "jóváhagyási kérés",
-  "projects.fact.approvals_hint": "A projekt kártyáihoz és munkadarabjaihoz tartozó, még el nem bírált jóváhagyási kérések (a Jóváhagyások oldalon bírálhatod el). Más, mint az oszlopban várakozó tétel.",
   "projects.fact.done": "kész",
   "projects.fact.done_hint": "Amit a Kanban fül „Kész” oszlopa mutat: a kész (nem archivált) kártyák és az utóbbi 14 napban elkészült munkadarabok.",
   "projects.fact.overdue": "lejárt határidő",

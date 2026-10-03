@@ -5209,8 +5209,6 @@ window._i18n.en = {
   "projects.fact.in_progress_hint": "Cards in \"In progress\" or \"Testing\", plus work items in \"In progress\".",
   "projects.fact.waiting": "awaiting approval",
   "projects.fact.waiting_hint": "Cards and work items standing in the \"Awaiting approval\" column (the same ones the Kanban tab shows there).",
-  "projects.fact.approvals": "approval requests",
-  "projects.fact.approvals_hint": "Approval requests for this project's cards and work items that have not been decided yet (decide them on the Approvals page). Not the same as an item waiting in the column.",
   "projects.fact.done": "done",
   "projects.fact.done_hint": "What the \"Done\" column of the Kanban tab shows: the done (not archived) cards and the work items finished in the last 14 days.",
   "projects.fact.overdue": "overdue",
