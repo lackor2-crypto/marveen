@@ -3568,6 +3568,13 @@ window._i18n.hu = {
 
   // --- Drive fájlböngésző ---
   'drive.page_title':          'Drive fájlok',
+  'drive.sync_now_btn':          'Szinkronizálás most',
+  'drive.sync_now_title':        'A Drive-ból lehozza az újat a gépedre, ugyanoda, ahová az éjszakai szinkron is teszi',
+  'drive.sync_running':          'Fut...',
+  'drive.sync_started':          'A szinkronizálás elindult.',
+  'drive.sync_already':          'A szinkronizálás már fut, megvárom.',
+  'drive.sync_done':             'Kész: {down} letöltve, {up} feltöltve, {ok} már naprakész, {failed} nem sikerült.',
+  'drive.sync_failed':           'Nem sikerült elindítani a szinkronizálást.',
   'drive.page_subtitle':       'Google Drive böngésző -- mappák, feltöltés, letöltés',
   'drive.upload_btn':          'Feltöltés',
   'drive.new_folder_btn':      'Új mappa',

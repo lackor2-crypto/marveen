@@ -2708,6 +2708,13 @@ window._i18n.en = {
 
   // --- Drive file browser ---
   'drive.page_title':          'Drive files',
+  'drive.sync_now_btn':          'Sync now',
+  'drive.sync_now_title':        'Pulls what is new from Drive onto your computer, into the same folder the nightly sync uses',
+  'drive.sync_running':          'Running...',
+  'drive.sync_started':          'The sync has started.',
+  'drive.sync_already':          'A sync is already running, waiting for it.',
+  'drive.sync_done':             'Done: {down} downloaded, {up} uploaded, {ok} already up to date, {failed} failed.',
+  'drive.sync_failed':           'Could not start the sync.',
   'drive.page_subtitle':       'Google Drive browser -- folders, upload, download',
   'drive.upload_btn':          'Upload',
   'drive.new_folder_btn':      'New folder',

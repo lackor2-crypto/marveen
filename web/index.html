@@ -3122,6 +3122,12 @@
                  fiok (legordulo) VAGY minden fiok egymas mellett, hasabokban.
                  Tiz hasab egy laptopon olvashatatlan, ezert a hasabok kikapcsolhatok. -->
             <a class="btn-secondary btn-compact raktar-open-site" href="https://drive.google.com" target="_blank" rel="noopener" data-i18n-title="raktar.open_service_title" title="A szolgáltatás főoldala új lapon (bejelentkezéshez)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span data-i18n="raktar.open_service">Megnyitás</span></a>
+            <!-- Boss TG 2188: a Drive-rol lehozas kezzel is menjen innen, ne csak az ejszakai futas.
+                 Ugyanaz a vegpont, mint a "A Drive-om a gepemen" kartya gombja: a letoltes oda kerul, ahova az. -->
+            <button class="btn-secondary btn-compact" id="driveSyncNowBtn" data-i18n-title="drive.sync_now_title" title="A Drive-ból lehozza az újat a gépedre, ugyanoda, ahová az éjszakai szinkron is teszi">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span id="driveSyncNowLabel" data-i18n="drive.sync_now_btn">Szinkronizálás most</span>
+            </button>
             <button class="btn-secondary btn-compact" id="driveAllToggle" aria-pressed="false">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="5" height="16"/><rect x="10" y="4" width="5" height="16"/><rect x="17" y="4" width="4" height="16"/></svg>
               <span id="driveAllToggleLabel" data-i18n="drive.all_accounts_btn">Összes fiók</span>
