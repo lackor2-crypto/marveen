@@ -327,6 +327,28 @@ nem állította a fát tiszta origin/main-re. A `no-live-tree-commit` guard hook
 közvetlen commit/add-ot az élő main checkoutban meg is állítja, és megnevezi a
 helyes utat.
 
+### ⛔ TÖRLÉS AZ ÉLŐ FÁBAN TILOS ({{OWNER_NAME}}, 2026-10-03)
+
+{{OWNER_NAME}}: „erre tegyél egy tiltást, hogy egyik agent se tudjon törölni az élő
+mappában! mindenhova írd bele!!!"
+
+Az élő checkoutban (a fő munkafa) NEM törölsz, nem helyezel át, nem csonkítasz
+semmit: `rm`, `unlink`, `shred`, `truncate`, `mv`, `find -delete`, `git clean`.
+**Mért eset (2026-10-03 02:28):** egy tesztelő
+`cd <worktree> && ...; rm -rf store/claudeclaw.db*` láncban a `cd` elbukott, a
+törlés az élő fán futott le, és ~23 óra adat ment el (kártyák, memóriák,
+projektek, jóváhagyások, a tulajdonos prezentációja és névjegye); a legutóbbi
+jó mentés 23 órás volt. Törlés csak worktree-ben, ABSZOLÚT úttal:
+`rm -rf /abs/út/.worktrees/<név>/...`; ideiglenes fájl `/tmp` vagy a session
+scratch-könyvtára. Soha ne láncolj törlést `cd` után.
+
+Gép is kikényszeríti: `scripts/hooks/no-live-tree-delete.py` (a teljes fára) és
+`scripts/hooks/no-live-store-delete.py` (az adatbázisra), mindkettő PreToolUse,
+a `templates/settings.json.template`-ből minden ágensnek. Kivétel csak a
+kidobható helyek (`.worktrees/`, `store/tmp/`, `node_modules/`, `dist/`,
+`agents/`). Kikapcsoló: `MARVEEN_NO_LIVE_TREE_DELETE_GATE=0` (csak a
+tulajdonos döntésére). Skill: `no-live-tree-delete`.
+
 ## Ütemezett feladatok
 
 Az ütemezett feladatok a `~/.claude/scheduled-tasks/` mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
