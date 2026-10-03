@@ -88,10 +88,16 @@ const warnedNeutral = new Set<string>()
 const warnedDuplicate = new Set<string>()
 
 let running = false
-let lastRun: { at: number; rehomed: number; neutral: number; duplicates: number; ms: number } | null = null
+let lastRun: { at: number; rehomed: number; renamed: number; neutral: number; duplicates: number; ms: number } | null = null
 export function relocateStatus(): typeof lastRun { return lastRun }
 
 type Found = { file: string; itemId: string; effectiveDir: string }
+
+/** The item's own folder, project-relative with forward slashes, or null when the file sits in the project root. */
+function folderRelOf(projDirAbs: string, effectiveDir: string): string | null {
+  const rel = relative(projDirAbs, effectiveDir).split(sep).join('/')
+  return rel === '' || rel === '.' ? null : rel
+}
 
 async function rehome(item: WorkItemRow, dir: ProjDir, effectiveDir: string): Promise<void> {
   const projTarget = projectFileTarget(dir.project, '')
@@ -133,6 +139,7 @@ export async function reconcileItemLocations(): Promise<void> {
   running = true
   const t0 = Date.now()
   let rehomed = 0
+  let renamed = 0
   let neutral = 0
   let duplicates = 0
   try {
@@ -178,6 +185,20 @@ export async function reconcileItemLocations(): Promise<void> {
         continue
       }
 
+      // Same project, single file: the owner renamed/moved the item's folder from outside -- follow the
+      // folder silently (no Telegram; it never left its project). Only with one file, so a stray second
+      // copy never makes us guess the wrong folder.
+      if (inProject && placements.length === 1 && inProject.proj!.project.id === item.project_id) {
+        const newFolder = folderRelOf(inProject.proj!.abs, inProject.effectiveDir)
+        const cur = item.folder ?? null
+        if (newFolder !== cur && !(newFolder && newFolder.startsWith('..'))) {
+          getDb().prepare('UPDATE work_items SET folder = ?, updated_at = ? WHERE id = ?').run(newFolder, nowSec(), item.id)
+          logger.info({ item: item.id, from: cur, to: newFolder }, 'workbench-relocate: followed an external folder rename within the same project')
+          renamed++
+        }
+        continue
+      }
+
       for (const n of placements) {
         if (n.proj) continue // this copy is in a project folder (its home) -> fine
         const key = `${itemId}@${n.effectiveDir}`
@@ -192,7 +213,7 @@ export async function reconcileItemLocations(): Promise<void> {
     // Forget warnings whose misplacement is gone, so a recurrence is raised again (but never every pass).
     for (const k of [...warnedNeutral]) if (!seenNeutral.has(k)) warnedNeutral.delete(k)
     for (const k of [...warnedDuplicate]) if (!seenDuplicate.has(k)) warnedDuplicate.delete(k)
-    lastRun = { at: Date.now(), rehomed, neutral, duplicates, ms: Date.now() - t0 }
+    lastRun = { at: Date.now(), rehomed, renamed, neutral, duplicates, ms: Date.now() - t0 }
   } catch (err) {
     logger.warn({ err }, 'workbench-relocate: reconcile failed')
   } finally {

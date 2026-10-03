@@ -123,9 +123,29 @@ describe('workbench-relocate', () => {
 
   it('does nothing for an item already at home', async () => {
     const { id } = itemInA()
+    const folderBefore = getWorkItem(id)!.folder
     await reconcileItemLocations()
     expect(getWorkItem(id)!.project_id).toBe(pidA)
+    expect(getWorkItem(id)!.folder).toBe(folderBefore) // no churn: folder untouched
     expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  it('follows an external RENAME of the folder within the same project (no Telegram)', async () => {
+    const { id, file } = itemInA()
+    const folder = getWorkItem(id)!.folder! // e.g. "Munkadarabok/Nevjegy"
+    const parts = folder.split('/')
+    const newParts = [...parts.slice(0, -1), parts[parts.length - 1] + '-atnevezve']
+    const newDir = join(dirA, ...newParts)
+    mkdirSync(newDir, { recursive: true })
+    writeFileSync(join(newDir, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
+    unlinkSync(file)
+
+    await reconcileItemLocations()
+
+    const after = getWorkItem(id)!
+    expect(after.project_id).toBe(pidA) // never left its project
+    expect(after.folder).toBe(newParts.join('/'))
+    expect(notifyMock).not.toHaveBeenCalled() // a same-project rename is silent
   })
 
   it('leaves a project that still exists untouched when its file never moved (guards getProject)', async () => {
