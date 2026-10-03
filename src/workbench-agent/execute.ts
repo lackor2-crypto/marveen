@@ -620,11 +620,12 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       getDb().prepare(
         'UPDATE work_items SET title = COALESCE(?, title), status = COALESCE(?, status), updated_at = ? WHERE id = ?',
       ).run(title, status, now, item.id)
-      // K-0.11 (#441): uj nev -> a munkadarab mappaja is atnevezodik (ha lehet;
-      // ha nem, a valasz megmondja, miert maradt a regi neven).
-      const folder = title !== null && title !== item.title ? renameWorkItemFolder(item, title) : null
+      // #478: a munkadarab neve FUGGETLEN a mappajatol -- az atnevezes NEM nevezi
+      // at a mappat (sem a UI-vegponton, sem itt az Agent-nel). A mappa nevet a
+      // mappa sajat atnevezese valtoztatja (a folderek fuggetlen nevu csoportok).
+      const renamedTitle = title !== null && title !== item.title
       const updated = getWorkItem(item.id) as WorkItemRow
-      return { ok: true, data: folder ? { ...updated, folder_rename: folder } : updated }
+      return { ok: true, data: renamedTitle ? { ...updated, folder_rename: { ok: true, renamed: false, reason: 'independent' } } : updated }
     }
 
     case 'workItem.listAssets': {

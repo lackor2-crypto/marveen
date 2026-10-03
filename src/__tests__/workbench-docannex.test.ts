@@ -225,7 +225,7 @@ describe('a mellekletjegyzek a dokumentumban', () => {
     expect(buildFodt(renderInputFor(item), { title: 'B', author: null, draft: false, lang: 'hu' })).toContain('>Anlagen</text:h>')
   })
 
-  it('a munkadarab atnevezesekor a mellekletek, az irat-forrasok es a vegleges PDF utja is a mappaval megy', () => {
+  it('#478: a munkadarab atnevezese NEM mozgatja a mappat -- a mellekletek, irat-forrasok es a vegleges PDF utja a helyen marad', () => {
     const item = getWorkItem(itemId)
     if (!item) throw new Error('munkadarab')
     const f = ensureWorkItemFolder(item)
@@ -249,13 +249,16 @@ describe('a mellekletjegyzek a dokumentumban', () => {
     createWorkItemVersion(itemId, { prompt: 'Végleges – 2026-09-29', metadata_json: JSON.stringify({ final: true, content_hash: 'x', pdf_path: depotRel }) })
 
     const r = renameWorkItem(item, 'Válasz a keresetre')
-    expect(r.ok && r.folder.ok && r.folder.renamed).toBe(true)
-    const newFolder = getWorkItem(itemId)?.folder as string
-    expect(newFolder).not.toBe(f.folder)
-    expect(listAnnexes(itemId, resolve).map((a) => [a.path, a.exists])).toEqual([[`${newFolder}/idezes.pdf`, true]])
-    expect(listClaims(itemId)[0]!.sources[0]!.path).toBe(`${newFolder}/idezes.pdf`)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.folder).toMatchObject({ ok: true, renamed: false, reason: 'independent' })
+    expect(getWorkItem(itemId)?.title).toBe('Válasz a keresetre')
+    // #478: a munkadarab neve fuggetlen a mappatol -- a mappa es MINDEN hivatkozas (mellekletek, forrasok, vegleges PDF) a helyen marad.
+    const folderAfter = getWorkItem(itemId)?.folder as string
+    expect(folderAfter).toBe(f.folder)
+    expect(listAnnexes(itemId, resolve).map((a) => [a.path, a.exists])).toEqual([[`${f.folder}/idezes.pdf`, true]])
+    expect(listClaims(itemId)[0]!.sources[0]!.path).toBe(`${f.folder}/idezes.pdf`)
     const meta = JSON.parse((getDb().prepare("SELECT metadata_json FROM work_item_versions WHERE work_item_id = ? AND metadata_json LIKE '%pdf_path%'").get(itemId) as { metadata_json: string }).metadata_json)
-    expect(meta.pdf_path).toBe(`Projektek/Iroda/${newFolder}/Beadvány – Végleges – 2026-09-29.pdf`)
+    expect(meta.pdf_path).toBe(`Projektek/Iroda/${f.folder}/Beadvány – Végleges – 2026-09-29.pdf`)
     expect(existsSync(join(depot, meta.pdf_path))).toBe(true)
   })
 
