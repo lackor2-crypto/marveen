@@ -1856,6 +1856,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //
   // A beallitas-iras SZUK: csak az a kulcs irhato, amit a kepesseg leirasa
   // megnevez (`writableSettingKeys`) -- ez a vegpont nem altalanos config-iro.
+  // #461: work item snapshot files. Status for the settings line; the owner's button rebuilds missing items.
+  if (path === '/api/workbench/snapshot/status' && method === 'GET') {
+    json(res, snapshotStatus())
+    return true
+  }
+  if (path === '/api/workbench/snapshot/restore' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    sweepSnapshots({ force: true }) // first save what is there, so a rebuild never races a stale file
+    const r = restoreFromFolders({ adoptOrphans: body['adopt_orphans'] === true, deep: body['deep'] === true })
+    json(res, { ok: true, ...r })
+    return true
+  }
+
   if (path === '/api/workbench/capabilities' && method === 'GET') {
     const force = url.searchParams.get('force') === '1'
     json(res, { capabilities: await describeAllCapabilities(lang, force) })
@@ -2574,20 +2588,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       types: WORK_ITEM_TYPES,
       statuses: WORK_ITEM_STATUSES,
     })
-    return true
-  }
-
-  // #461: work item snapshot files. Status for the settings line; the owner's button rebuilds missing items.
-  if (path === '/api/workbench/snapshot/status' && method === 'GET') {
-    json(res, snapshotStatus())
-    return true
-  }
-  if (path === '/api/workbench/snapshot/restore' && method === 'POST') {
-    let body: Record<string, unknown> = {}
-    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
-    sweepSnapshots({ force: true }) // first save what is there, so a rebuild never races a stale file
-    const r = restoreFromFolders({ adoptOrphans: body['adopt_orphans'] === true, deep: body['deep'] === true })
-    json(res, { ok: true, ...r })
     return true
   }
 
