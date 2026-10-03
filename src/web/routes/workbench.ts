@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, PROJECT_ROOT_PLACE, type FolderReconcile,
+  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, PROJECT_ROOT_PLACE, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -509,6 +509,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   folder_has_canvas: {
     hu: 'Ebben a mappában rajz van, ami a képeit útvonallal hívja, ezért a mappa most nem nevezhető át (a rajz elromlana). A munkadarabok nevét viszont szabadon átírhatod.',
     en: 'This folder holds a drawing that refers to its pictures by path, so the folder cannot be renamed now (the drawing would break). You can still rename the work items freely.',
+  },
+  folder_still_there: {
+    hu: 'Ez a mappa megvan (vagy a tároló most nem érhető el), ezért nem vezettem ki a nyilvántartásból. Csak az eltűnt mappa vezethető ki.',
+    en: 'This folder is there (or the storage cannot be reached right now), so I did not drop it from the registry. Only a vanished folder can be dropped.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -2570,6 +2574,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return fail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'no_box' ? 'folder_gone' : r.code, lang)
     }
     json(res, { ok: true, folder: r.folder, work_folders: listWorkFolders(project) })
+    return true
+  }
+
+  // #481: the owner confirmed that a folder reported as lost is really gone -> drop its id row (never automatic).
+  if (path === '/api/workbench/folder-forget' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (!forgetLostFolder(project, String(body['path'] ?? ''))) return fail(res, 409, 'folder_still_there', lang)
+    json(res, { ok: true })
     return true
   }
 

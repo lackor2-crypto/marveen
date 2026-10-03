@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, renameSync, cpSync, writeFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import {
-  makeWorkFolder, ensureWorkItemFolder, reconcileFolderMarkers, resetFolderReconcileThrottleForTests, deleteWorkFolder, FOLDER_MARKER,
+  makeWorkFolder, ensureWorkItemFolder, reconcileFolderMarkers, forgetLostFolder, resetFolderReconcileThrottleForTests, deleteWorkFolder, FOLDER_MARKER,
 } from '../workbench-assets.js'
 
 let pid = ''
@@ -83,13 +83,23 @@ describe('folder ids (.marveen-id)', () => {
     expect(getWorkItem(it1.id)!.container_folder).toBe(`${b}/A`)
   })
 
-  it('a folder that is gone for good is reported once and forgotten, nothing is deleted', () => {
+  it('a folder that is gone is reported once but NOT forgotten until the owner confirms', () => {
     const g = group('eltunt')
     recon()
     rmSync(abs(g), { recursive: true, force: true })
     const r = recon()
     expect(r.lost).toEqual([g])
-    expect(recon().lost).toEqual([])
+    expect(recon().lost).toEqual([]) // reported once per process
+    const rows = () => (getDb().prepare('SELECT 1 FROM work_folder_ids WHERE project_id = ? AND path = ?').all(proj().id, g) as unknown[]).length
+    expect(rows()).toBe(1) // the row is kept (it may be an unmounted disk)
+    expect(forgetLostFolder(proj(), g)).toBe(true)
+    expect(rows()).toBe(0)
+  })
+
+  it('forgetLostFolder refuses a folder that is still on disk', () => {
+    const g = group('megvan')
+    recon()
+    expect(forgetLostFolder(proj(), g)).toBe(false)
   })
 
   it('a copy of a folder gets a fresh id, the original keeps its own', () => {

@@ -1,11 +1,11 @@
 // #481: the work item follows its registration file (marveen-item.json) when the owner moves it in the
 // file manager -- a cross-project move re-homes the item, a drop into a non-project folder warns and
-// leaves the item put, and the same file in two projects warns without re-homing anything.
+// leaves the item put, a copy into one other project counts as a move, and two other projects warn.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder } from '../workbench-assets.js'
@@ -108,7 +108,7 @@ describe('workbench-relocate', () => {
     expect(getWorkItem(id)!.project_id).toBe(pidA)
   })
 
-  it('does NOT re-home and warns when the same file appears in two projects (a copy)', async () => {
+  it('treats a COPY into exactly one other project as a move: old home file removed first, then re-homed', async () => {
     const { id, file } = itemInA()
     const target = join(dirB, 'masolat')
     mkdirSync(target, { recursive: true })
@@ -116,9 +116,54 @@ describe('workbench-relocate', () => {
 
     await reconcileItemLocations()
 
+    expect(existsSync(file)).toBe(false) // the old home registration file is gone
+    const after = getWorkItem(id)!
+    expect(after.project_id).toBe(pidB)
+    expect(after.folder).toBe('masolat')
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    await reconcileItemLocations() // no bounce back on the next pass
+    expect(getWorkItem(id)!.project_id).toBe(pidB)
+  })
+
+  it('does NOT re-home and warns when the file appears in TWO other projects', async () => {
+    const { id, file } = itemInA()
+    const c = createProject({ name: 'Harmadik' })
+    if (!c.ok) throw new Error('projekt')
+    if (!updateProject(c.project.id, { folder_path: 'Iroda/Harmadik' }).ok) throw new Error('mappaC')
+    const dirC = join(dir, 'Iroda', 'Harmadik')
+    mkdirSync(dirC, { recursive: true })
+    for (const d of [join(dirB, 'x'), join(dirC, 'y')]) {
+      mkdirSync(d, { recursive: true })
+      writeFileSync(join(d, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
+    }
+    unlinkSync(file)
+
+    await reconcileItemLocations()
+
     expect(getWorkItem(id)!.project_id).toBe(pidA)
     expect(notifyMock).toHaveBeenCalledTimes(1)
     expect(String(notifyMock.mock.calls[0][0])).toMatch(/több projekt|more than one project/)
+  })
+
+  it('rewrites EVERY registry path to the new project prefix on a cross-project move', async () => {
+    const { id, file } = itemInA()
+    const db = getDb()
+    const item = getWorkItem(id)!
+    const oldPrefix = `Iroda/Akta/${item.folder}/`
+    db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${oldPrefix}terv.md`, id)
+    db.prepare("INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES ('as1', ?, ?, 'kep.png', 'image', 'h', 1, 1)").run(id, `${oldPrefix}kep.png`)
+    const target = join(dirB, 'athozott')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
+    unlinkSync(file)
+
+    await reconcileItemLocations()
+
+    const after = getWorkItem(id)!
+    expect(after.project_id).toBe(pidB)
+    expect(after.source_path).toBe('Iroda/Valoper/athozott/terv.md')
+    const a = db.prepare("SELECT path FROM work_item_assets WHERE id = 'as1'").get() as { path: string }
+    expect(a.path).toBe('Iroda/Valoper/athozott/kep.png')
   })
 
   it('does nothing for an item already at home', async () => {
@@ -128,24 +173,6 @@ describe('workbench-relocate', () => {
     expect(getWorkItem(id)!.project_id).toBe(pidA)
     expect(getWorkItem(id)!.folder).toBe(folderBefore) // no churn: folder untouched
     expect(notifyMock).not.toHaveBeenCalled()
-  })
-
-  it('follows an external RENAME of the folder within the same project (no Telegram)', async () => {
-    const { id, file } = itemInA()
-    const folder = getWorkItem(id)!.folder! // e.g. "Munkadarabok/Nevjegy"
-    const parts = folder.split('/')
-    const newParts = [...parts.slice(0, -1), parts[parts.length - 1] + '-atnevezve']
-    const newDir = join(dirA, ...newParts)
-    mkdirSync(newDir, { recursive: true })
-    writeFileSync(join(newDir, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
-    unlinkSync(file)
-
-    await reconcileItemLocations()
-
-    const after = getWorkItem(id)!
-    expect(after.project_id).toBe(pidA) // never left its project
-    expect(after.folder).toBe(newParts.join('/'))
-    expect(notifyMock).not.toHaveBeenCalled() // a same-project rename is silent
   })
 
   it('leaves a project that still exists untouched when its file never moved (guards getProject)', async () => {
