@@ -2538,6 +2538,16 @@ function buildNoLiveTreeBody(): string {
     'Ha veletlenul megis az elo faban kezdtel: NE commitolj ott, nyiss worktree-t es',
     'vidd at oda a valtoztatast. A guard hook (`no-live-tree-commit.py`) a kozvetlen',
     'commit/add-ot az elo main checkoutban meg is allitja.',
+    '',
+    '**TORLES AZ ELO FABAN TILOS.** Az elo checkoutban nem torolsz, nem helyezel at,',
+    'nem csonkitasz semmit (`rm`, `unlink`, `mv`, `truncate`, `find -delete`, `git clean`).',
+    'A mert eset (2026-10-03): `cd <worktree> && ...; rm -rf store/<adatbazis>*` -- a `cd`',
+    'elbukott, a torles az elo fan futott le, es ~23 ora adat ment el (kartyak, memoriak,',
+    'projektek, a tulajdonos prezentacioja es nevjegye). Torles csak worktree-ben,',
+    'ABSZOLUT uttal (`rm -rf /abs/ut/.worktrees/<nev>/...`); ideiglenes fajl: /tmp vagy a',
+    'session scratch-konyvtara. A `scripts/hooks/no-live-tree-delete.py` es a',
+    '`no-live-store-delete.py` az elo faban megallitja; az elo fan torles csak a tulajdonos',
+    'dontesevel.',
   ].join('\n')
 }
 
