@@ -28,7 +28,7 @@
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
@@ -333,7 +333,7 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFo
 }
 
 export type RenameFolderResult =
-  | { ok: true; folder: string; renamed: boolean }
+  | { ok: true; folder: string; renamed: boolean; item?: WorkItemRow }
   | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_name' | 'folder_exists' | 'folder_has_items' | 'write_failed'; items?: number; message?: string }
 
 /**
@@ -363,6 +363,24 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
   if (blocked) return { ok: false, code: 'write_failed', message: blocked }
   ensureAssetTables()
   const db = getDb()
+  // #471: names stay one name. A folder that is exactly ONE work item's own folder is renamed together
+  // with that item (the item takes the folder's new name); the item's paths follow in one transaction.
+  // A folder shared with other items still refuses: their paths would break.
+  const owners = db.prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder = ?').all(project.id, c.folder) as { id: string }[]
+  if (owners.length === 1) {
+    const owner = getWorkItem((owners[0] as { id: string }).id)
+    const othersUnder = (db.prepare('SELECT id, container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND id != ?')
+      .all(project.id, (owners[0] as { id: string }).id) as { id: string; cf: string | null; f: string | null; sp: string | null }[])
+      .filter((r) => [r.cf, r.f, r.sp].some((v) => !!v && (v === c.folder || v.startsWith(c.folder + '/') || v === t.dirRel || v.startsWith(t.dirRel + '/')))).length
+    if (owner && !othersUnder && clean.length <= TITLE_MAX) {
+      const r = relocateWorkItemFolder(owner, clean, null)
+      if (!r.ok) return { ok: false, code: 'write_failed', message: r.message }
+      if (r.renamed) {
+        db.prepare('UPDATE work_items SET title = ?, updated_at = ? WHERE id = ?').run(clean, Math.floor(Date.now() / 1000), owner.id)
+        return { ok: true, folder: r.to, renamed: true, item: getWorkItem(owner.id) as WorkItemRow }
+      }
+    }
+  }
   const like = (t.dirRel + '/').replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
   const likeBare = (c.folder + '/').replace(/[\\%_]/g, (ch) => '\\' + ch) + '%'
   const rows = db.prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
@@ -866,7 +884,7 @@ export function listWorkItemAssetsSynced(itemId: string): WorkItemAssetView[] {
 
 export type RenameItemOutcome =
   | { ok: true; item: WorkItemRow; folder: FolderRenameOutcome }
-  | { ok: false; code: 'title_required' | 'title_too_long' }
+  | { ok: false; code: 'title_required' | 'title_too_long' | 'folder_exists' }
 
 /** A munkadarab uj neve + a mappaja (a felulet "Atnevezes" gombja es az agent is ezt hasznalja). */
 export function renameWorkItem(item: WorkItemRow, rawTitle: unknown): RenameItemOutcome {
@@ -874,11 +892,25 @@ export function renameWorkItem(item: WorkItemRow, rawTitle: unknown): RenameItem
   const title = String(rawTitle ?? '').trim()
   if (!title) return { ok: false, code: 'title_required' }
   if (title.length > TITLE_MAX) return { ok: false, code: 'title_too_long' }
+  // #471: a taken folder name is the owner's call, not an automatic "name (2)": nothing changes until a free name is chosen.
+  if (title !== item.title && folderNameTaken(item, folderNameFromTitle(title))) return { ok: false, code: 'folder_exists' }
   getDb().prepare('UPDATE work_items SET title = ?, updated_at = ? WHERE id = ?').run(title, Math.floor(Date.now() / 1000), item.id)
   const folder = title !== item.title ? renameWorkItemFolder(item, title) : { ok: true as const, renamed: false as const, reason: 'same_name' as const }
   return { ok: true, item: getWorkItem(item.id) as WorkItemRow, folder }
 }
 // ---------------------------------------------------------------------------
+
+/** True when the item's own folder would have to take a name that another folder already holds next to it. */
+function folderNameTaken(item: WorkItemRow, wanted: string): boolean {
+  const folder = workItemFolder(item.id)
+  const project = folder ? getProject(item.project_id) : null
+  if (!folder || !project) return false
+  const lastSeg = folder.includes('/') ? folder.slice(folder.lastIndexOf('/') + 1) : folder
+  if (wanted === lastSeg) return false
+  const parentRel = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : ''
+  const parentT = projectFileTarget(project, parentRel)
+  return parentT.ok && existsSync(join(parentT.dirAbs, wanted))
+}
 
 export type FolderRenameOutcome =
   | { ok: true; renamed: false; reason: 'no_folder' | 'same_name' | 'missing' | 'shared' | 'canvas' }
@@ -955,7 +987,9 @@ function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel:
         if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
       }
       moveDocModelPaths(item, project.id, `${folder}/`, `${newFolder}/`, swap)
+      moveDraftDocPaths(item.id, oldPrefix, newPrefix)
     })()
+    moveVersionFilePaths(item.id, oldPrefix, newPrefix)
   } catch (e) {
     try { renameSync(newAbs, cur.dirAbs) } catch { /* a hibauzenet megy tovabb */ }
     return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
@@ -1005,6 +1039,39 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
  * a melleklet "eltunt fajl", a vegleges PDF linkje pedig halott. A tablak csak
  * akkor leteznek, ha a dokumentummodellt mar hasznaltak -- ezert nezzuk meg elobb.
  */
+/**
+ * #471: a deck (or timeline) keeps its pictures as Depot-relative paths inside its JSON: in the working
+ * draft and its undo steps (database), and in every saved version (a JSON file in the item's folder).
+ * When the folder moves, those strings follow, otherwise every slide picture would be a dead link.
+ */
+function moveDraftDocPaths(itemId: string, oldPrefix: string, newPrefix: string): void {
+  const db = getDb()
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'work_item_[a-z]*_drafts'").all() as { name: string }[]
+  for (const { name } of tables) {
+    if (!/^work_item_[a-z]+_drafts$/.test(name)) continue
+    db.prepare(`UPDATE ${name} SET doc = replace(doc, ?, ?) WHERE work_item_id = ? AND instr(doc, ?) > 0`).run(oldPrefix, newPrefix, itemId, oldPrefix)
+    const steps = name.replace(/_drafts$/, '_steps')
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(steps)) {
+      db.prepare(`UPDATE ${steps} SET patch = replace(patch, ?, ?) WHERE work_item_id = ? AND instr(patch, ?) > 0`).run(oldPrefix, newPrefix, itemId, oldPrefix)
+    }
+  }
+}
+
+/** The saved versions' JSON files (already moved with the folder) get the same path swap. Best effort per file. */
+function moveVersionFilePaths(itemId: string, oldPrefix: string, newPrefix: string): void {
+  const db = getDb()
+  for (const v of db.prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ?').all(itemId) as { source_path?: string | null }[]) {
+    const rel = v.source_path
+    if (!rel || !rel.startsWith(newPrefix) || !/\.json$/i.test(rel)) continue
+    try {
+      const abs = resolveLifePath(rel)
+      if (!abs) continue
+      const text = readFileSync(abs, 'utf8')
+      if (text.includes(oldPrefix)) writeFileSync(abs, text.split(oldPrefix).join(newPrefix))
+    } catch { /* an unreadable or vanished version file: the rename itself already succeeded */ }
+  }
+}
+
 function moveDocModelPaths(item: WorkItemRow, projectId: string, oldProj: string, newProj: string, swapDepot: (p: string | null) => string | null): void {
   const db = getDb()
   const has = (t: string): boolean => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
