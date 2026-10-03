@@ -64,13 +64,13 @@ describe('a sablonok', () => {
     }
   })
 
-  it('a tobb-orszagos sablonban a MEDIA is orszagra bomlik', () => {
+  it('a tobb-orszagos sablonban a MEDIA is orszagra bomlik, tipus-szint nelkul (#464 B)', () => {
     const cfg = findLifeTemplate('multi-country')!.build('hu')
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
     const p = cfg.persons[0].name
-    expect(rels).toContain(`${p}/Média/Fotók/${cfg.persons[0].countries[2]}`)
-    // Nincs kulon Videok mappa (#464): a Fotok a fotok ES a videok kozos helye.
-    expect(rels.some((r) => r.includes('/Videók'))).toBe(false)
+    // Uj modell: az orszag KOZVETLENUL a Média alatt, nincs Fotók/Videók/stb.
+    expect(rels).toContain(`${p}/Média/${cfg.persons[0].countries[2]}`)
+    expect(rels.some((r) => /\/Média\/(Fotók|Videók|Audió|Szkennek)(\/|$)/.test(r))).toBe(false)
   })
 
   it('a teljes sablonban a szemelyes es a ceges repo KULON all', () => {

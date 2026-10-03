@@ -174,17 +174,17 @@ const HINTS: Record<string, Hint> = {
     hu: 'fényképek, videók ÉS hangfelvételek: telefonról, fényképezőről, régi papírképek szkennelve; egy esemény fotói, videói és hangjai egy mappában vannak',
     en: 'photographs, videos AND audio recordings: from your phone, from a camera, old prints scanned in; the photos, videos and sounds of one event live in one folder',
   },
-  // A regi `Videók` mappa (mar nem keszul): a meglevo telepiteseken az Intezo
-  // felajanlja a tartalom athelyezeset a Fotok ala.
+  // A regi `Videók` mappa (mar nem keszul): a tipus szuro, nem mappa (#464 B),
+  // ezert a tartalom kozvetlenul a Média ala kerul; az Intezo felajanlja.
   videos: {
-    hu: 'régi videó-mappa: a videók mostantól a Fotók mappába kerülnek, az Intéző felajánlja az áthelyezést',
-    en: 'old videos folder: videos now go into the Photos folder, the Explorer offers to move them',
+    hu: 'régi videó-mappa: a videók mostantól közvetlenül a Média alá kerülnek, a csoport/esemény mappába; az Intéző felajánlja az áthelyezést',
+    en: 'old videos folder: videos now go straight under Media, into the group/event folder; the Explorer offers to move them',
   },
-  // A regi `Audió` mappa (mar nem keszul): a hang az esemeny mappajaba, a Fotok
+  // A regi `Audió` mappa (mar nem keszul): a hang az esemeny mappajaba, a Média
   // ala kerul; az Intezo felajanlja a tartalom athelyezeset.
   audio: {
-    hu: 'régi hang-mappa: a hangfelvételek mostantól a Fotók mappába kerülnek, az Intéző felajánlja az áthelyezést',
-    en: 'old audio folder: recordings now go into the Photos folder, the Explorer offers to move them',
+    hu: 'régi hang-mappa: a hangfelvételek mostantól közvetlenül a Média alá kerülnek, a csoport/esemény mappába; az Intéző felajánlja az áthelyezést',
+    en: 'old audio folder: recordings now go straight under Media, into the group/event folder; the Explorer offers to move them',
   },
   // A regi `Szkennek` mappa (mar nem keszul): a beszkennelt papir irat, a
   // Beerkezobe megy, onnan a rendezo besorolja.

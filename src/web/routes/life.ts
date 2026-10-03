@@ -2,8 +2,8 @@
 //
 //   GET  /api/life/status     -- all-e mar a fa, mi hianyzik beloele
 //   POST /api/life/ensure     -- a hianyzo mappak letrehozasa (SOSE torol)
-//   GET  /api/life/legacy-media       -- a regi Videok/Audio mappak maradek fajljai, a Szkennek darabszama (#464)
-//   POST /api/life/legacy-media/move  -- a videok/hangok athelyezese a Fotok ala (nem ir felul, nem torol)
+//   GET  /api/life/legacy-media       -- a media tipus-mappaiban (Fotok/Videok/Audio) maradt fajlok, a Szkennek darabszama (#464 B)
+//   POST /api/life/legacy-media/move  -- ezek felhuzasa a Média ala + atallas a lapos modellre (nem ir felul, nem torol)
 //   GET  /api/life/config     -- kik/mely cegek szerepelnek a faban
 //   POST /api/life/config     -- ezek szerkesztese
 //   GET  /api/life/list       -- egy mappa tartalma, forrasjelvenyekkel

@@ -39482,7 +39482,7 @@ async function _intezoLegacyMediaMove() {
       + (fresh ? '\n\n' + t('intezo.legacymedia_new', { list: fresh }) : '')
       + (ex ? '\n\n' + ex : ''))) return
     const r = await _depoPost('/api/life/legacy-media/move', {})
-    showToast(r.ok ? t('intezo.legacymedia_done', { n: r.moved }) : (r.message || t('intezo.legacymedia_failed')))
+    showToast(r.ok ? (r.message || t('intezo.legacymedia_done', { n: r.moved })) : (r.message || t('intezo.legacymedia_failed')))
     await _intezoLegacyMediaBox()
     await _intezoOpen(_intezoPath)
   } catch (e) {
@@ -43352,7 +43352,14 @@ function _intezoTplCount(cfg) {
     const split = (p.countrySplit || []).length
     const c = (p.countries || []).length
     n += 1 + cats + split * c
-    n += 1 + (p.mediaKinds || []).length * (1 + c) * Math.max(1, (p.mediaGroups || []).length)
+    // Media: #464 B ota alapbol tipus-szint NELKUL (Média/[ország/]csoport). Ha a
+    // mentett config meg felsorol tipusokat (regi modell), azokat szamoljuk.
+    const groups = Math.max(1, (p.mediaGroups || []).length)
+    const kinds = (p.mediaKinds || []).length
+    const mediaCountry = (p.countrySplit || []).includes('media') ? c : 0
+    n += 1 + (kinds > 0
+      ? kinds * (1 + c) * groups
+      : (mediaCountry ? mediaCountry * groups : groups))
     n += (p.projects || []).length * 6
   }
   n += (cfg.companies || []).length * 12
