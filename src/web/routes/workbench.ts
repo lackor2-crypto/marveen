@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, PROJECT_ROOT_PLACE, type FolderReconcile,
+  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, PROJECT_ROOT_PLACE, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -513,6 +513,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   folder_still_there: {
     hu: 'Ez a mappa megvan (vagy a tároló most nem érhető el), ezért nem vezettem ki a nyilvántartásból. Csak az eltűnt mappa vezethető ki.',
     en: 'This folder is there (or the storage cannot be reached right now), so I did not drop it from the registry. Only a vanished folder can be dropped.',
+  },
+  files_no_files: {
+    hu: 'Nincs kijelölt fájl. Pipáld be a fájlokat, amiket át akarsz tenni.',
+    en: 'No file is ticked. Tick the files you want to move.',
+  },
+  files_target_is_item: {
+    hu: 'Ez a mappa egy munkadarab saját mappája, ide nem teszek fájlt. Válassz sima mappát.',
+    en: 'This folder belongs to a work item, so I will not put files in it. Choose a plain folder.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -2585,6 +2593,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (!forgetLostFolder(project, String(body['path'] ?? ''))) return fail(res, 409, 'folder_still_there', lang)
     json(res, { ok: true })
+    return true
+  }
+
+  // Ticked loose files -> another folder of the box. Never overwrites, never moves a file the registry names.
+  if (path === '/api/workbench/files-move' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = moveLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'])
+    if (!r.ok) {
+      const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code === 'target_is_item' ? 'files_target_is_item' : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'target_is_item' ? 409 : 400, code, lang, null)
+    }
+    json(res, { ok: true, moved: r.moved, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
   }
 

@@ -389,6 +389,75 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
   return { ok: true, folder: newFolder, renamed: true }
 }
 
+export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'failed' }
+export type MoveFilesResult =
+  | { ok: true; moved: string[]; skipped: MoveFilesSkip[] }
+  | { ok: false; code: WorkFolderError | 'no_files' | 'target_is_item' }
+
+/** True when the registry (an item, a version, a part, a material, a deck draft or a saved version file) names the file. */
+function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
+  const db = getDb()
+  const used = new Set<string>()
+  const ids = (db.prepare('SELECT id FROM work_items WHERE project_id = ?').all(project.id) as { id: string }[]).map((r) => r.id)
+  const hay: string[] = []
+  const eq = new Set<string>()
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'work_item_[a-z]*_drafts'").all() as { name: string }[]
+  for (const id of ids) {
+    const it = db.prepare('SELECT source_path FROM work_items WHERE id = ?').get(id) as { source_path: string | null }
+    if (it.source_path) eq.add(it.source_path)
+    for (const v of db.prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ?').all(id) as { source_path: string | null }[]) {
+      if (!v.source_path) continue
+      eq.add(v.source_path)
+      if (/\.json$/i.test(v.source_path)) {
+        try { const abs = resolveLifePath(v.source_path); if (abs) hay.push(readFileSync(abs, 'utf8')) } catch { /* unreadable: nothing to scan */ }
+      }
+    }
+    for (const r of db.prepare('SELECT asset_path FROM work_item_parts WHERE work_item_id = ?').all(id) as { asset_path: string | null }[]) if (r.asset_path) eq.add(r.asset_path)
+    for (const r of db.prepare('SELECT path FROM work_item_assets WHERE work_item_id = ?').all(id) as { path: string }[]) eq.add(r.path)
+    for (const { name } of tables) {
+      if (!/^work_item_[a-z]+_drafts$/.test(name)) continue
+      for (const r of db.prepare(`SELECT doc FROM ${name} WHERE work_item_id = ?`).all(id) as { doc: string | null }[]) if (r.doc) hay.push(r.doc)
+    }
+  }
+  for (const rel of rels) if (eq.has(rel) || hay.some((h) => h.includes(rel))) used.add(rel)
+  return used
+}
+
+/**
+ * Move loose files (listed in the box, not work items) into another folder of the box: the Workbench
+ * list's "move to folder" for ticked files. Never overwrites (a taken name is skipped) and never moves a
+ * file the registry names (a deck picture would break): such files are reported, not moved.
+ */
+export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown): MoveFilesResult {
+  const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
+  if (!want.length) return { ok: false, code: 'no_files' }
+  const c = workFolderTarget(project, folder)
+  if (!c.ok) return c
+  const target = projectFileTarget(project, c.folder)
+  if (!target.ok) return target
+  try { if (existsSync(join(target.dirAbs, ITEM_SNAPSHOT_NAME))) return { ok: false, code: 'target_is_item' } } catch { /* unreadable: the move below fails per file */ }
+  const wf = listWorkFolders(project)
+  const loose = new Map<string, string>()
+  for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.set(f.rel, k)
+  const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r)))
+  const moved: string[] = []
+  const skipped: MoveFilesSkip[] = []
+  for (const rel of want) {
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    const from = loose.get(rel)
+    if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
+    if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
+    if (inUse.has(rel)) { skipped.push({ name, reason: 'in_use' }); continue }
+    const src = resolveLifePath(rel)
+    const dst = join(target.dirAbs, name)
+    const blocked = writeBlockReason(`${target.dirRel}/${name}`)
+    if (!src || blocked) { skipped.push({ name, reason: 'failed' }); continue }
+    if (existsSync(dst)) { skipped.push({ name, reason: 'name_taken' }); continue }
+    try { renameSync(src, dst); moved.push(name) } catch { skipped.push({ name, reason: 'failed' }) }
+  }
+  return { ok: true, moved, skipped }
+}
+
 /** True when a drawing file lies anywhere inside the folder (depth-limited walk). */
 function folderHasCanvas(abs: string, depth = 0): boolean {
   if (depth > WORK_FOLDER_MAX_DEPTH) return false
