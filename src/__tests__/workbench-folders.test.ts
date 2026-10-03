@@ -347,9 +347,10 @@ describe('list UI', () => {
 
   function open(items: unknown[], folders: string[]) {
     const h = workbenchHarness()
-    h.respond((url) => {
+    h.respond((url, init) => {
       // The request body is what the tests check; new-table gets a clean refusal.
       if (url.includes('/api/workbench/items/new-table')) return { status: 400, body: { error: 'x', message: 'nem most' } }
+      if (url.split('?')[0] === '/api/workbench/items' && init?.method === 'POST') return { status: 400, body: { error: 'x', message: 'nem most' } }
       if (url.includes('/api/workbench/folders')) return { status: 201, body: { ok: true, folder: `${box}/Uj`, created: true, work_folders: { box, folders: [...folders, `${box}/Uj`], truncated: false } } }
       if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(items), work_folders: { box, folders, truncated: false } } }
       if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
