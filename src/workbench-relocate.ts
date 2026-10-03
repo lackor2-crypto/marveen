@@ -13,20 +13,21 @@
 //      that removal fails nothing is re-homed (no bounce back). Two or more other projects -> ambiguous,
 //      nothing is re-homed and the owner is asked to keep only one.
 //
-// A rename/move INSIDE one project is not handled here: the folder ids of workbench-assets.ts
-// (reconcileFolderMarkers, .marveen-id) follow it, with every registry path.
+// A rename/move INSIDE one project is normally followed by the folder ids of workbench-assets.ts
+// (reconcileFolderMarkers, .marveen-id). This reconciler additionally SELF-HEALS stale pointers that
+// predate those ids (healHome): the physical place of marveen-item.json is the truth for the item's folder.
 //
 // The physical location is the source of truth: the folder that holds the file decides which project the
 // item belongs to. The walk is async and yields between directories -- the depot can live on a slow mount
 // (/mnt/f), and a synchronous walk here would freeze the whole dashboard (see life-tree-scan-must-be-async).
 
-import { readFile, readdir, unlink } from 'node:fs/promises'
+import { readFile, readdir, unlink, stat } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { projectFileTarget } from './project-files.js'
-import { explorerRoot } from './life-explorer.js'
+import { explorerRoot, resolveLifePath, toLifeRel } from './life-explorer.js'
 import { rehomeWorkItem, reconcileFolderMarkers } from './workbench-assets.js'
 import { ensureWorkbenchTables, type WorkItemRow } from './workbench.js'
 import { SNAPSHOT_FALLBACK_DIR, SNAPSHOT_FILE, SNAPSHOT_FORMAT } from './workbench-snapshot.js'
@@ -94,7 +95,7 @@ const warnedNeutral = new Set<string>()
 const warnedDuplicate = new Set<string>()
 
 let running = false
-let lastRun: { at: number; rehomed: number; neutral: number; duplicates: number; ms: number } | null = null
+let lastRun: { at: number; rehomed: number; healed: number; neutral: number; duplicates: number; ms: number } | null = null
 export function relocateStatus(): typeof lastRun { return lastRun }
 
 type Found = { file: string; itemId: string; effectiveDir: string }
@@ -119,6 +120,63 @@ async function rehome(item: WorkItemRow, dir: ProjDir, effectiveDir: string): Pr
     `Moved the work item ${itemLabel(item)} under the "${dir.project.name}" project: you put its registration file (marveen-item.json) there, so the work item followed.`,
   ))
   return true
+}
+
+/** True when a path exists on disk (any kind). */
+async function exists(abs: string): Promise<boolean> {
+  try { await stat(abs); return true } catch { return false }
+}
+
+/**
+ * Self-heal for an item whose single registration file sits in its home project (#481). Two stale-pointer
+ * classes, both DB-only fixes (no file is moved or deleted, nothing is written unless the target exists):
+ *  1. The item's folder was renamed/moved inside the project before folder ids existed: the recorded
+ *     work_items.folder no longer exists on disk but the file sits somewhere else -> follow it, with every
+ *     registry path (same full rewrite as a cross-project move, project unchanged).
+ *  2. A source_path (item or version) points at a missing file, and the item's real folder holds EXACTLY ONE
+ *     file with that base name -> point there. Zero or several matches: left alone, never guessed.
+ * Idempotent: when everything already matches the disk, nothing is written.
+ */
+async function healHome(item: WorkItemRow, dir: ProjDir, effectiveDir: string): Promise<number> {
+  let changed = 0
+  let cur = item
+  const actual = relative(dir.abs, effectiveDir).split(sep).join('/')
+  const actualRel: string | null = actual === '' || actual === '.' ? null : actual
+  if (actualRel && actualRel.startsWith('..')) return 0
+  if (cur.folder && cur.folder !== actualRel && actualRel && !(await exists(join(dir.abs, ...cur.folder.split('/'))))) {
+    try {
+      rehomeWorkItem(cur, dir.project, dir.project, actualRel)
+      cur = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(item.id) as WorkItemRow
+      logger.info({ item: item.id, to: actualRel }, 'workbench-relocate: followed a pre-id folder move inside the project')
+      changed++
+    } catch (err) { logger.warn({ err, item: item.id }, 'workbench-relocate: in-project folder follow failed, nothing changed') }
+  }
+  // 2) source_path self-heal. Candidates: direct children of the item's real folder.
+  let names: string[] | null = null
+  const candidate = async (src: string | null): Promise<string | null> => {
+    if (!src) return null
+    const abs = resolveLifePath(src)
+    if (!abs || await exists(abs)) return null // resolves and exists (or unresolvable): nothing to heal
+    const base = basename(src)
+    if (names === null) {
+      try { names = (await readdir(effectiveDir, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name) } catch { names = [] }
+    }
+    const same = names.filter((n) => n === base)
+    if (same.length !== 1) return null
+    const target = join(effectiveDir, same[0])
+    const rel = toLifeRel(target)
+    if (!rel || rel === src || !(await exists(target))) return null
+    return rel
+  }
+  const db = getDb()
+  const fixed = await candidate(cur.source_path ?? null)
+  if (fixed) { db.prepare('UPDATE work_items SET source_path = ?, updated_at = ? WHERE id = ?').run(fixed, nowSec(), cur.id); changed++ }
+  for (const v of db.prepare('SELECT id, source_path FROM work_item_versions WHERE work_item_id = ?').all(cur.id) as { id: string; source_path: string | null }[]) {
+    const f = await candidate(v.source_path)
+    if (f) { db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(f, v.id); changed++ }
+  }
+  if (changed) logger.info({ item: item.id, changed }, 'workbench-relocate: healed stale pointers')
+  return changed
 }
 
 async function warnNeutral(item: WorkItemRow, depot: string, neutralDir: string, home: ProjectRow | undefined): Promise<void> {
@@ -153,6 +211,7 @@ export async function reconcileItemLocations(): Promise<void> {
   const t0 = Date.now()
   let rehomed = 0
   let neutral = 0
+  let healed = 0
   let duplicates = 0
   try {
     ensureWorkbenchTables()
@@ -207,6 +266,11 @@ export async function reconcileItemLocations(): Promise<void> {
         continue
       }
 
+      if (homes.length === 1 && placements.length === 1) {
+        healed += await healHome(item, homes[0].proj!, homes[0].effectiveDir)
+        continue
+      }
+
       for (const n of placements) {
         if (n.proj) continue // this copy is in a project folder (its home) -> fine
         const key = `${itemId}@${n.effectiveDir}`
@@ -227,7 +291,7 @@ export async function reconcileItemLocations(): Promise<void> {
       try { lost = reconcileFolderMarkers(p).lost } catch { continue }
       if (lost.length) await warnLost(p, lost)
     }
-    lastRun = { at: Date.now(), rehomed, neutral, duplicates, ms: Date.now() - t0 }
+    lastRun = { at: Date.now(), rehomed, healed, neutral, duplicates, ms: Date.now() - t0 }
   } catch (err) {
     logger.warn({ err }, 'workbench-relocate: reconcile failed')
   } finally {
