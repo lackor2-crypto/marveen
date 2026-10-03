@@ -3321,7 +3321,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     json(res, { ok: true, assets: assetsOut(item.id) })
     return true
   }
-  // ATNEVEZES (#441, K-0.11): a munkadarab uj neve, es vele a mappaja is.
+  // ATNEVEZES (#441, #478): a munkadarab uj neve -- a mappaja NEM nevezodik at (a nevek fuggetlenek).
   if (segs.length === 2 && segs[1] === 'rename' && method === 'POST') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
