@@ -490,6 +490,36 @@ const _netStatus = (() => {
     return res
   }
 
+  // TOKEN MODE (no dashboard login set up yet, the state of a fresh install): an <img> or <audio>
+  // cannot send the Authorization header, so every /api/... picture the page asks for answers 401 and
+  // shows as a broken image (Workbench pages and slide thumbnails, Explorer previews). The session
+  // cookie of a signed-in user does carry it, which is why this never showed on a logged-in install.
+  // When such an element fails, load the SAME address through the token-adding fetch above and hand the
+  // element the result. Once per address, images and audio only (a video would be downloaded whole).
+  const authBlobCache = new Map() // address -> blob URL; bounded, so a long session cannot pile up pictures
+  document.addEventListener('error', (e) => {
+    const el = e.target
+    if (!el || !el.tagName || (el.tagName !== 'IMG' && el.tagName !== 'AUDIO')) return
+    const src = el.getAttribute('src') || ''
+    if (!src.startsWith('/api/') || el.dataset.authBlobFor === src) return
+    const cached = authBlobCache.get(src)
+    if (cached) { el.dataset.authBlobFor = src; el.src = cached; return }
+    let token = sessionToken
+    if (!token) { try { token = localStorage.getItem(TOKEN_KEY) } catch { token = '' } }
+    if (!token) return
+    el.dataset.authBlobFor = src
+    window.fetch(src).then((r) => (r.ok ? r.blob() : Promise.reject(new Error('HTTP ' + r.status)))).then((blob) => {
+      const url = URL.createObjectURL(blob)
+      authBlobCache.set(src, url)
+      if (authBlobCache.size > 80) {
+        const oldest = authBlobCache.keys().next().value
+        URL.revokeObjectURL(authBlobCache.get(oldest))
+        authBlobCache.delete(oldest)
+      }
+      if ((el.getAttribute('src') || '') === src) el.src = url // else the page moved on to another address
+    }).catch(() => { /* stays broken: the real error is already visible in the network log */ })
+  }, true)
+
   // On a 401, ask the public status probe whether a username+password login is
   // available on this instance. If so, show the login overlay; otherwise fall
   // back to the existing token flows (PWA paste field or the console-URL alert).
