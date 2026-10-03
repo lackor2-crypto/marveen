@@ -8,20 +8,26 @@
 //   2. The file was dropped into a NON-project (neutral) folder, e.g. "Korpas Laszlo media/Fotok" -> the
 //      work item is LEFT where it is in the database (never silently moved into a non-project place), and
 //      a Telegram message asks the owner to put the file back or into a project folder.
-//   3. The same file turns up in two different project folders (a copy, not a move) -> ambiguous, so
+//   3. The file turns up in its home project AND in exactly one other project (a copy, which the owner
+//      means as a move) -> the old home registration file is removed FIRST, then the item is re-homed. If
+//      that removal fails nothing is re-homed (no bounce back). Two or more other projects -> ambiguous,
 //      nothing is re-homed and the owner is asked to keep only one.
+//
+// A rename/move INSIDE one project is not handled here: the folder ids of workbench-assets.ts
+// (reconcileFolderMarkers, .marveen-id) follow it, with every registry path.
 //
 // The physical location is the source of truth: the folder that holds the file decides which project the
 // item belongs to. The walk is async and yields between directories -- the depot can live on a slow mount
 // (/mnt/f), and a synchronous walk here would freeze the whole dashboard (see life-tree-scan-must-be-async).
 
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, unlink } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
-import { listProjects, type ProjectRow } from './projects.js'
+import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { projectFileTarget } from './project-files.js'
 import { explorerRoot } from './life-explorer.js'
+import { rehomeWorkItem, reconcileFolderMarkers } from './workbench-assets.js'
 import { ensureWorkbenchTables, type WorkItemRow } from './workbench.js'
 import { SNAPSHOT_FALLBACK_DIR, SNAPSHOT_FILE, SNAPSHOT_FORMAT } from './workbench-snapshot.js'
 import { notifyChannel } from './notify.js'
@@ -88,31 +94,31 @@ const warnedNeutral = new Set<string>()
 const warnedDuplicate = new Set<string>()
 
 let running = false
-let lastRun: { at: number; rehomed: number; renamed: number; neutral: number; duplicates: number; ms: number } | null = null
+let lastRun: { at: number; rehomed: number; neutral: number; duplicates: number; ms: number } | null = null
 export function relocateStatus(): typeof lastRun { return lastRun }
 
 type Found = { file: string; itemId: string; effectiveDir: string }
 
-/** The item's own folder, project-relative with forward slashes, or null when the file sits in the project root. */
-function folderRelOf(projDirAbs: string, effectiveDir: string): string | null {
-  const rel = relative(projDirAbs, effectiveDir).split(sep).join('/')
-  return rel === '' || rel === '.' ? null : rel
-}
-
-async function rehome(item: WorkItemRow, dir: ProjDir, effectiveDir: string): Promise<void> {
+async function rehome(item: WorkItemRow, dir: ProjDir, effectiveDir: string): Promise<boolean> {
   const projTarget = projectFileTarget(dir.project, '')
-  if (!projTarget.ok) return
+  if (!projTarget.ok) return false
   let folderRel: string | null = relative(projTarget.dirAbs, effectiveDir).split(sep).join('/')
   if (folderRel === '' || folderRel === '.') folderRel = null
-  if (folderRel && folderRel.startsWith('..')) return // defensive: never escape the project folder
-  const from = item.project_id
-  getDb().prepare('UPDATE work_items SET project_id = ?, folder = ?, updated_at = ? WHERE id = ?')
-    .run(dir.project.id, folderRel, nowSec(), item.id)
-  logger.info({ item: item.id, from, to: dir.project.id, folder: folderRel }, 'workbench-relocate: re-homed work item to the project its file now sits in')
+  if (folderRel && folderRel.startsWith('..')) return false // defensive: never escape the project folder
+  const fromProject = getProject(item.project_id)
+  if (!fromProject) return false
+  try {
+    rehomeWorkItem(item, fromProject, dir.project, folderRel)
+  } catch (err) {
+    logger.warn({ err, item: item.id }, 'workbench-relocate: re-home failed, nothing changed')
+    return false
+  }
+  logger.info({ item: item.id, from: item.project_id, to: dir.project.id, folder: folderRel }, 'workbench-relocate: re-homed work item to the project its file now sits in')
   await notifyChannel(ol(
     `Áthelyeztem a(z) ${itemLabel(item)} munkadarabot a(z) "${dir.project.name}" projekt alá: a nyilvántartó fájlját (marveen-item.json) oda tetted, így a munkadarab is odakerült.`,
     `Moved the work item ${itemLabel(item)} under the "${dir.project.name}" project: you put its registration file (marveen-item.json) there, so the work item followed.`,
   ))
+  return true
 }
 
 async function warnNeutral(item: WorkItemRow, depot: string, neutralDir: string, home: ProjectRow | undefined): Promise<void> {
@@ -121,6 +127,13 @@ async function warnNeutral(item: WorkItemRow, depot: string, neutralDir: string,
   await notifyChannel(ol(
     `Rossz helyre került egy munkadarab fájlja. A(z) ${itemLabel(item)} nyilvántartó fájlja (marveen-item.json) ide került: "${rel}" -- ez nem egy projekt mappája, így nem vittem át a munkadarabot sehová, a helyén maradt ("${homeName}"). Tedd vissza, vagy rakd egy projekt mappa alá, és akkor magától átkerül.`,
     `A work item's file landed in the wrong place. The registration file (marveen-item.json) of ${itemLabel(item)} is now in "${rel}" -- that is not a project folder, so I did not move the work item anywhere; it stayed in "${homeName}". Put it back, or drop it into a project folder and it will move on its own.`,
+  ))
+}
+
+async function warnLost(project: ProjectRow, paths: string[]): Promise<void> {
+  await notifyChannel(ol(
+    `Nem találom ezeket a mappákat a(z) "${project.name}" projektben: ${paths.join(', ')}. Nem töröltem semmit a nyilvántartásból (lehet, hogy csak le van csatolva a tároló). Ha tényleg törölted őket, szólj, és kivezetem a nyilvántartásból.`,
+    `I cannot find these folders in the "${project.name}" project: ${paths.join(', ')}. I deleted nothing from the registry (the storage may just be unmounted). If you really deleted them, tell me and I will drop them from the registry.`,
   ))
 }
 
@@ -139,7 +152,6 @@ export async function reconcileItemLocations(): Promise<void> {
   running = true
   const t0 = Date.now()
   let rehomed = 0
-  let renamed = 0
   let neutral = 0
   let duplicates = 0
   try {
@@ -168,34 +180,30 @@ export async function reconcileItemLocations(): Promise<void> {
       const item = db.prepare('SELECT * FROM work_items WHERE id = ?').get(itemId) as WorkItemRow | undefined
       if (!item || item.deleted_at) continue // missing -> restoreFromFolders rebuilds; trashed -> leave it
       const placements = group.map((g) => ({ ...g, proj: matchProject(g.effectiveDir, dirs) }))
-      const projectIds = new Set(placements.filter((p) => p.proj).map((p) => p.proj!.project.id))
+      const others = placements.filter((p) => p.proj && p.proj.project.id !== item.project_id)
+      const homes = placements.filter((p) => p.proj && p.proj.project.id === item.project_id)
+      const otherIds = new Set(others.map((p) => p.proj!.project.id))
 
-      if (projectIds.size > 1) {
-        const places = placements.filter((p) => p.proj).map((p) => p.proj!.project.name)
-        const key = `${itemId}@${[...projectIds].sort().join('|')}`
+      if (otherIds.size > 1) {
+        const places = others.map((p) => p.proj!.project.name)
+        const key = `${itemId}@${[...otherIds].sort().join('|')}`
         seenDuplicate.add(key)
         if (!warnedDuplicate.has(key)) { await warnDuplicate(item, places); warnedDuplicate.add(key); duplicates++ }
         continue
       }
 
-      const inProject = placements.find((p) => p.proj)
-      if (inProject && inProject.proj!.project.id !== item.project_id) {
-        await rehome(item, inProject.proj!, inProject.effectiveDir)
-        rehomed++
-        continue
-      }
-
-      // Same project, single file: the owner renamed/moved the item's folder from outside -- follow the
-      // folder silently (no Telegram; it never left its project). Only with one file, so a stray second
-      // copy never makes us guess the wrong folder.
-      if (inProject && placements.length === 1 && inProject.proj!.project.id === item.project_id) {
-        const newFolder = folderRelOf(inProject.proj!.abs, inProject.effectiveDir)
-        const cur = item.folder ?? null
-        if (newFolder !== cur && !(newFolder && newFolder.startsWith('..'))) {
-          getDb().prepare('UPDATE work_items SET folder = ?, updated_at = ? WHERE id = ?').run(newFolder, nowSec(), item.id)
-          logger.info({ item: item.id, from: cur, to: newFolder }, 'workbench-relocate: followed an external folder rename within the same project')
-          renamed++
+      if (otherIds.size === 1) {
+        // A copy into one other project is a move: drop the old home registration file(s) first, so the
+        // next pass cannot see two places; if that fails, do not re-home at all.
+        let cleaned = true
+        for (const h of homes) {
+          try { await unlink(h.file) } catch (err) {
+            if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') { cleaned = false; logger.warn({ err, file: h.file }, 'workbench-relocate: could not remove the old home registration file, not re-homing') }
+          }
         }
+        if (!cleaned) continue
+        const target = others[0]
+        if (await rehome(item, target.proj!, target.effectiveDir)) rehomed++
         continue
       }
 
@@ -213,7 +221,13 @@ export async function reconcileItemLocations(): Promise<void> {
     // Forget warnings whose misplacement is gone, so a recurrence is raised again (but never every pass).
     for (const k of [...warnedNeutral]) if (!seenNeutral.has(k)) warnedNeutral.delete(k)
     for (const k of [...warnedDuplicate]) if (!seenDuplicate.has(k)) warnedDuplicate.delete(k)
-    lastRun = { at: Date.now(), rehomed, renamed, neutral, duplicates, ms: Date.now() - t0 }
+    // Folders with a known id that vanished from the disk: ask the owner, never forget them on our own.
+    for (const p of listProjects({ includeArchived: false })) {
+      let lost: string[] = []
+      try { lost = reconcileFolderMarkers(p).lost } catch { continue }
+      if (lost.length) await warnLost(p, lost)
+    }
+    lastRun = { at: Date.now(), rehomed, neutral, duplicates, ms: Date.now() - t0 }
   } catch (err) {
     logger.warn({ err }, 'workbench-relocate: reconcile failed')
   } finally {

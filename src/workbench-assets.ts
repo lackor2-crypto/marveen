@@ -434,6 +434,41 @@ function rewriteFolderRefs(project: ProjectRow, oldRel: string, newRel: string, 
 }
 
 /**
+ * #481: a work item's folder now physically sits in ANOTHER project (the owner moved it in the file
+ * manager). Re-homes the item: project_id + folder + container_folder, and EVERY path the registry keeps for
+ * it (source_path, versions, parts, assets, doc model, drafts) moves from the old project's depot prefix to
+ * the new one in one transaction -- the file links must not break. `newFolder` is project-relative in the
+ * NEW project, or null when the file sits in that project's root. Only this item's records are touched.
+ */
+export function rehomeWorkItem(item: WorkItemRow, from: ProjectRow, to: ProjectRow, newFolder: string | null): void {
+  if (!from.folder_path || !to.folder_path) return
+  const db = getDb()
+  const oldRel = item.folder ?? ''
+  const base = (p: ProjectRow): string => p.folder_path!.replace(/\/+$/, '')
+  const oldPrefix = (oldRel ? `${base(from)}/${oldRel}` : base(from)) + '/'
+  const newPrefix = (newFolder ? `${base(to)}/${newFolder}` : base(to)) + '/'
+  const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
+  const container = newFolder ? (newFolder.includes('/') ? newFolder.slice(0, newFolder.lastIndexOf('/')) : null) : PROJECT_ROOT_PLACE
+  db.transaction(() => {
+    // Doc model rows are looked up through the item's project, so they go first, while it is still the old one.
+    moveDocModelPaths(item, from.id, `${oldRel}/`, `${newFolder ?? ''}/`, swap)
+    moveDraftDocPaths(item.id, oldPrefix, newPrefix)
+    for (const v of db.prepare('SELECT id, source_path FROM work_item_versions WHERE work_item_id = ?').all(item.id) as { id: string; source_path: string | null }[]) {
+      if (v.source_path && v.source_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(swap(v.source_path), v.id)
+    }
+    for (const r of db.prepare('SELECT id, asset_path FROM work_item_parts WHERE work_item_id = ?').all(item.id) as { id: string; asset_path: string | null }[]) {
+      if (r.asset_path && r.asset_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE id = ?').run(swap(r.asset_path), r.id)
+    }
+    for (const a of db.prepare('SELECT id, path FROM work_item_assets WHERE work_item_id = ?').all(item.id) as { id: string; path: string }[]) {
+      if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
+    }
+    db.prepare('UPDATE work_items SET project_id = ?, folder = ?, container_folder = ?, source_path = ?, updated_at = ? WHERE id = ?')
+      .run(to.id, newFolder, container, swap(item.source_path ?? null), Math.floor(Date.now() / 1000), item.id)
+  })()
+  moveVersionFilePaths(item.id, oldPrefix, newPrefix)
+}
+
+/**
  * #454 (Boss: "fő munkadarab és almunkadarab nem lesz többé"): converts every old
  * main/sub link into folders. A sub item keeps its folder (already inside the
  * main item's folder) and just loses the link. A main item that has no own
@@ -1362,6 +1397,7 @@ export interface FolderReconcile {
 }
 
 const reconciledAt = new Map<string, number>()
+const lostReported = new Set<string>()
 /** At most one disk walk per project in this many ms (the list endpoint calls this on every load). */
 export const RECONCILE_MIN_GAP_MS = 4000
 
@@ -1369,7 +1405,7 @@ export const RECONCILE_MIN_GAP_MS = 4000
  * Pairs the folders of the work items box with the ids the registry knows (by the .marveen-id file, not by
  * path): a folder renamed or moved outside Marvin gets every registry path rewritten to follow it; a folder
  * without an id gets one; a copy of a folder (same id twice) keeps the id on the original and gets a fresh one.
- * A folder that is gone for good is reported once (`lost`) and forgotten. Never deletes or moves anything on disk.
+ * A folder that cannot be found any more is reported once per process (`lost`) but its row is KEPT (the disk may be unmounted); forgetLostFolder() drops it after the owner confirms. Never deletes or moves anything on disk.
  */
 export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: boolean } = {}): FolderReconcile {
   const out: FolderReconcile = { moved: [], lost: [] }
@@ -1412,8 +1448,9 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
   const setPath = db.prepare('UPDATE work_folder_ids SET path = ? WHERE project_id = ? AND id = ?')
   for (const r of rows) {
     const cands = byId.get(r.id) ?? []
-    if (cands.some((d) => d.rel === r.path)) continue
+    if (cands.some((d) => d.rel === r.path)) { lostReported.delete(`${project.id}:${r.id}`); continue }
     if (cands.length === 1) {
+      lostReported.delete(`${project.id}:${r.id}`)
       const to = cands[0].rel
       try { rewriteFolderRefs(project, r.path, to, lifeRel(r.path) + '/', lifeRel(to) + '/') } catch { continue }
       setPath.run(to, project.id, r.id)
@@ -1422,8 +1459,10 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
       const here = dirs.find((d) => d.rel === r.path)
       if (here && !here.id) { stamp(here, r.id); continue } // the marker was deleted, the folder is still there
       if (here) continue
-      db.prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND id = ?').run(project.id, r.id)
-      out.lost.push(r.path)
+      // Never forget it on our own: the disk may just be unmounted (a detached /mnt/f); #461 rebuilds from it.
+      // Reported once per process; the owner confirms, and only then forgetLostFolder() drops the row.
+      const key = `${project.id}:${r.id}`
+      if (!lostReported.has(key)) { lostReported.add(key); out.lost.push(r.path) }
     }
     // more than one candidate and none at the known path: ambiguous, left for the next look
   }
@@ -1443,3 +1482,19 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
 
 /** Test hook: forget the throttle. */
 export function resetFolderReconcileThrottleForTests(): void { reconciledAt.clear() }
+
+/**
+ * The owner confirmed that a lost folder is really gone: drop its id row. Refuses (false) when the folder is
+ * there after all, so a confirmation given for an unmounted disk can never forget a live folder.
+ */
+export function forgetLostFolder(project: ProjectRow, path: string): boolean {
+  ensureAssetTables()
+  const box = findWorkItemsBox(project)
+  const t = box ? projectFileTarget(project, box) : null
+  if (!box || !t || !t.ok) return false // the box itself is unreachable: that is "not looked", not "gone"
+  const rel = path.startsWith(box + '/') ? path.slice(box.length + 1) : null
+  if (rel === null || rel.includes('..')) return false
+  if (existsSync(join(t.dirAbs, ...rel.split('/')))) return false
+  const r = getDb().prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND path = ?').run(project.id, path)
+  return r.changes > 0
+}
