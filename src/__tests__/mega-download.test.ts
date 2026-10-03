@@ -11,7 +11,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listMegaRemoteSized, planMegaDownload, runMegaDownload, walkMirrorForDownload } from '../mega-download.js'
+import { listMegaRemoteSized, planMegaDownload, runMegaDownload, walkMirrorForDownload, megaTransferBusyCode } from '../mega-download.js'
 import type { Runner } from '../mega.js'
 
 const root = mkdtempSync(join(tmpdir(), 'marveen-megadown-'))
@@ -94,5 +94,21 @@ describe('runMegaDownload', () => {
     const r = await runMegaDownload({ bin: 'rclone', remote: 'm', dest: root, files: [], run: m.run })
     expect(r).toEqual({ downloaded: 0, failed: [], error: null })
     expect(m.calls.length).toBe(0)
+  })
+})
+
+describe('megaTransferBusyCode (one per-IP transfer budget, both directions)', () => {
+  it('a free account lets a transfer start', () => {
+    expect(megaTransferBusyCode(false, false)).toBeNull()
+  })
+  it('a running upload blocks a new transfer and names the upload', () => {
+    expect(megaTransferBusyCode(true, false)).toBe('busy')
+  })
+  it('a running download blocks a new transfer and names the download', () => {
+    // The regression: the upload endpoint used to ignore this case and start a second transfer.
+    expect(megaTransferBusyCode(false, true)).toBe('busy_down')
+  })
+  it('with both running (should not happen) the upload is reported first', () => {
+    expect(megaTransferBusyCode(true, true)).toBe('busy')
   })
 })

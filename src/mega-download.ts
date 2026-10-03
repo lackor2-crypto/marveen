@@ -24,6 +24,19 @@ import { MEGA_TRANSFERS, rcloneConfigPath, type Runner } from './mega.js'
 export interface RemoteFile { rel: string; size: number }
 export type SizedRemoteList = { ok: true; files: RemoteFile[] } | { ok: false; error: string }
 
+/**
+ * One MEGA account carries a single per-IP transfer budget, so an upload and a download must never run
+ * together -- in EITHER direction. Given what runs now, returns the error code that blocks a new transfer
+ * (`busy` = an upload is running, `busy_down` = a download is running), or null when the account is free.
+ * Both the upload and the download run endpoint ask this before starting, so neither direction can slip past
+ * the other (card #463 added the download side; the upload side used to check uploads only).
+ */
+export function megaTransferBusyCode(uploadRunning: boolean, downloadRunning: boolean): 'busy' | 'busy_down' | null {
+  if (uploadRunning) return 'busy'
+  if (downloadRunning) return 'busy_down'
+  return null
+}
+
 /** Every file in the account with its size. A missing folder is an empty account, not an error. */
 export async function listMegaRemoteSized(bin: string, remoteDir: string, run: Runner): Promise<SizedRemoteList> {
   const r = await run(bin, ['lsjson', '-R', '--files-only', '--no-mimetype', '--config', rcloneConfigPath(), remoteDir])

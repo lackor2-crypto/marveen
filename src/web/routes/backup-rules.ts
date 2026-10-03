@@ -29,7 +29,7 @@ import { resolveLifePath } from '../../life-explorer.js'
 import { trashRelPath } from '../../life-tree.js'
 import { depotAccountDir, DEPOT_MEGA } from '../../depot.js'
 import { mkdirSync } from 'node:fs'
-import { listMegaRemoteSized, planMegaDownload, runMegaDownload, walkMirrorForDownload, freeDiskBytes, type RemoteFile } from '../../mega-download.js'
+import { listMegaRemoteSized, planMegaDownload, runMegaDownload, walkMirrorForDownload, freeDiskBytes, megaTransferBusyCode, type RemoteFile } from '../../mega-download.js'
 import type { RouteContext } from './types.js'
 
 export interface BackupAccount {
@@ -141,7 +141,9 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
     const bin = rcloneBin()
     if (!bin) return fail('rclone_missing', 400)
     if (path.endsWith('/run')) {
-      if (megaDownJob?.running || megaJob?.running) return fail('busy_down', 409)
+      // Same single transfer budget: block a download while an upload or another download runs.
+      const busy = megaTransferBusyCode(!!megaJob?.running, !!megaDownJob?.running)
+      if (busy) return fail(busy, 409)
       const pv = downPreviews.get(account.name)
       if (!pv || Date.now() - pv.at > PREVIEW_TTL_MS) return fail('no_preview', 409)
       downPreviews.delete(account.name)
@@ -234,7 +236,9 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
     const pvKey = `${account.name}\u0000${key}`
 
     if (isRun) {
-      if (megaJob?.running) return fail('busy', 409)
+      // A running download holds the same per-IP transfer budget: block an upload while either runs.
+      const busy = megaTransferBusyCode(!!megaJob?.running, !!megaDownJob?.running)
+      if (busy) return fail(busy, 409)
       const pv = previews.get(pvKey)
       if (!pv || pv.account !== account.name || Date.now() - pv.at > PREVIEW_TTL_MS) return fail('no_preview', 409)
       previews.delete(pvKey)
