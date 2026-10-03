@@ -10668,7 +10668,21 @@
   function dpSections() { var o = WB.detail && WB.detail.outline; return (o && o.sections) || [] }
 
   /** Egy mezo tartalmanak elmentese; a Promise az uj vazlattal (vagy null-lal) ter vissza. */
+  /** One save per field at a time: Enter starts the save and the blur that follows (a click elsewhere
+   *  a moment later) must not send the same new line a second time. */
   function dpSave(el) {
+    var key = dpDraftKey(el)
+    if (!key) return dpSaveNow(el)
+    WB.dpInflight = WB.dpInflight || {}
+    if (WB.dpInflight[key]) return WB.dpInflight[key]
+    var p = dpSaveNow(el)
+    WB.dpInflight[key] = p
+    var done = function () { if (WB.dpInflight[key] === p) delete WB.dpInflight[key] }
+    p.then(done, done)
+    return p
+  }
+
+  function dpSaveNow(el) {
     var kind = el.getAttribute('data-wb-dp')
     var text = dpText(el)
     if (kind === 'block') {
@@ -10691,6 +10705,7 @@
       var nsid = el.getAttribute('data-wb-sec')
       var pos = Number(el.getAttribute('data-wb-pos')) || 0
       var key = 'new:' + nsid + ':' + pos
+      if (el.getAttribute('data-wb-saved')) return Promise.resolve(null)
       if (!text) { delete WB.docDrafts[key]; return Promise.resolve(null) }
       var kd = el.getAttribute('data-wb-kind') || 'paragraph'
       var make = nsid ? Promise.resolve(nsid) : dpCall('POST', '/sections', { title: t('workbench.sh.seed.section') }).then(function (o) {
