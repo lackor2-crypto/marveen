@@ -2661,7 +2661,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let containerFolder: string | null = null
     // #474: an item made from a file (or folder) that already lies somewhere in the project (e.g. 'Munkapad terv/diak')
     // points at it where it is; the folder only says where the file is, not where the item box goes.
-    const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true
+    const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true || body.from_files === true
     let existingFolder: string | null = null
     if (String(body.folder ?? '').trim()) {
       const c = workFolderTarget(project, body.folder)
@@ -2688,7 +2688,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       folderExisted = !mf.created
     }
     // Step 2 needs step 1: no folder chosen (or typed) -> nothing is saved, and none is made on the side.
-    if (containerFolder === null && !existingFolder && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
+    if (containerFolder === null && !existingFolder && !fromExisting && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
