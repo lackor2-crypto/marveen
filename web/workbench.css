@@ -1379,7 +1379,7 @@
 /* The stage must fill the page: as a shrink-to-fit inline-block its overflow:hidden clipped everything right of a vertical line. */
 .wb-fr-page .wb-can-stage { display: block; width: 100%; max-width: none; }
 .wb-fr-page .wb-preview-image { max-width: none; max-height: none; }
-.wb-fr-bottom { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 14px; border-top: 1px solid var(--border); background: var(--bg-card); font-size: 0.82rem; color: var(--text-muted); }
+.wb-fr-bottom { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 3px 14px; border-top: 1px solid var(--border); background: var(--bg-card); font-size: 0.82rem; color: var(--text-muted); }
 .wb-fr-zoom { width: 160px; }
 /* Narrow left panel (300px): the item row must wrap, otherwise the title gets squeezed to one letter per line (the 700px media rule is viewport based, not panel based). The title button takes its own full-width line, the pin/edit/delete buttons sit under it. */
 .wb-fr-panel .wb-item-row { flex-wrap: wrap; }

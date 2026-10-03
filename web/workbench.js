@@ -11459,7 +11459,10 @@
     var main = tbl ? tbl : isVid ? '<div class="wb-fr-vid">' + frVideoPageHtml() + '</div>' : page
       ? '<div class="wb-fr-fixed" style="--wb-zoom:' + zoom + ';--ar:' + (doc ? (doc.width / doc.height).toFixed(4) : '1') + '"><div class="wb-fr-page">' + page + '</div></div>'
       : '<div class="wb-fr-scroll">' + scrolling + '</div>'
-    return '<div class="wb-fr-center">' + main + strip + (isVid || tbl ? '' : frBottomHtml()) + '</div>'
+    // The zoom bar is no longer inside this column: it sits slim at the very bottom of the frame
+    // (frameHtml), so the content above gets the room (Boss, TG 2252/2258).
+    WB.frShowBar = !(isVid || tbl)
+    return '<div class="wb-fr-center">' + main + strip + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */
@@ -11477,9 +11480,9 @@
   }
 
   function frameHtml() {
-    return '<div class="wb-fr">' + frTopHtml()
-      + '<div class="wb-fr-body">' + frRailHtml() + frPanelHtml() + frCenterHtml() + frChatHtml() + '</div>'
-      + '</div>'
+    var top = frTopHtml()
+    var bodyHtml = '<div class="wb-fr-body">' + frRailHtml() + frPanelHtml() + frCenterHtml() + frChatHtml() + '</div>'
+    return '<div class="wb-fr">' + top + bodyHtml + (WB.frShowBar ? frBottomHtml() : '') + '</div>'
   }
 
   /** Szoveg hozzaadasa a lapra: cim / alcim / torzs, a lap kozepetol fuggo meretben. */
@@ -11563,7 +11566,8 @@
     // leaving a blank page below it): the body is the window height minus the frame's own header.
     function setHeight() {
       var hdr = fr && typeof fr.getBoundingClientRect === 'function' ? body.getBoundingClientRect().top - fr.getBoundingClientRect().top : 0
-      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(hdr, 0) - 2)) + 'px'
+      var bar = body.nextElementSibling && body.nextElementSibling.classList && body.nextElementSibling.classList.contains('wb-fr-bottom') ? body.nextElementSibling.offsetHeight : 0
+      body.style.height = Math.max(520, Math.floor(window.innerHeight - Math.max(hdr, 0) - bar - 2)) + 'px'
     }
     setHeight()
     // Once per opened work: put the frame's top edge at the top of the window.
