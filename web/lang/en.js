@@ -6183,6 +6183,8 @@ window._i18n.en = {
   "workbench.fr.history": "Version history and technical details",
   "workbench.fr.chat": "Assistant",
   "workbench.fr.chat_toggle": "Show / hide the assistant (chat)",
+  "workbench.fav.title": "Favorites",
+  "workbench.fav.empty": "No favorites yet: click the star next to a work item.",
   "workbench.fr.live_off": "Live view",
   "workbench.fr.live_on": "Editor view",
   "workbench.fr.live_title": "Switch between the editor and the live view: the live view shows the finished picture as it looks when exported (no selection handles)",

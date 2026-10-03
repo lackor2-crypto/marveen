@@ -6261,6 +6261,8 @@ window._i18n.hu = {
   "workbench.fr.history": "Verzióelőzmények és technikai részletek",
   "workbench.fr.chat": "Asszisztens",
   "workbench.fr.chat_toggle": "Az asszisztens (chat) megjelenítése / elrejtése",
+  "workbench.fav.title": "Kedvencek",
+  "workbench.fav.empty": "Még nincs kedvenc: kattints egy munkadarab melletti csillagra.",
   "workbench.fr.live_off": "Élő nézet",
   "workbench.fr.live_on": "Szerkesztő nézet",
   "workbench.fr.live_title": "Váltás a szerkesztő és az élő nézet között: az élő nézet a kész képet mutatja, ahogy exportálva is látszik (kijelölő-pontok nélkül)",
