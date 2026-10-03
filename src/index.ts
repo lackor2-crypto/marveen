@@ -34,6 +34,7 @@ import { ensureDiscordChannelGroup } from './web/discord-group-bootstrap.js'
 import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/channel-request-watcher.js'
 import { startStoreWatcher, stopStoreWatcher, isBenignWatchError } from './store-watcher.js'
 import { startWorkbenchSnapshots, stopWorkbenchSnapshots } from './workbench-snapshot.js'
+import { startWorkbenchRelocate, stopWorkbenchRelocate } from './workbench-relocate.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
 import {
   acquirePortLock,
@@ -416,6 +417,7 @@ const shutdown = (): void => {
     try { stopChannelRequestWatcher() } catch (err) { logger.warn({ err }, 'stopChannelRequestWatcher threw during shutdown') }
     try { stopStoreWatcher() } catch (err) { logger.warn({ err }, 'stopStoreWatcher threw during shutdown') }
     try { stopWorkbenchSnapshots() } catch (err) { logger.warn({ err }, 'stopWorkbenchSnapshots threw during shutdown') }
+    try { stopWorkbenchRelocate() } catch (err) { logger.warn({ err }, 'stopWorkbenchRelocate threw during shutdown') }
     try { stopMainInboxReceipt() } catch (err) { logger.warn({ err }, 'stopMainInboxReceipt threw during shutdown') }
     if (gitSyncInterval) clearInterval(gitSyncInterval)
     if (googleLiveInterval) clearInterval(googleLiveInterval)
@@ -638,6 +640,10 @@ async function main(): Promise<void> {
 
   // #461: work item snapshot files in the project folders (sweep + rebuild of missing rows)
   startWorkbenchSnapshots()
+
+  // #481: react to a work item's file being moved in the file manager -- re-home a cross-project move,
+  // warn on a drop into a non-project folder, flag a copy that appears in two projects.
+  startWorkbenchRelocate()
 
   // Web dashboard
   webServer = startWebServer(WEB_PORT)
