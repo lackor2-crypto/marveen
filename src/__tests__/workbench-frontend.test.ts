@@ -1547,6 +1547,30 @@ describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
   })
 })
 
+// The Word editor builds its own DOM (DOMParser, contenteditable), which this harness's
+// DOM stand-in cannot run -- these guard the source, the browser run is in the card's report.
+describe('Word-szerkeszto a Munkapadon (#444, #458)', () => {
+  it('a beolvasott dokumentum torzset ATMOZGATJA a lapra, nem masolja vegtelen ciklusban', () => {
+    // importNode only COPIES: doc.body.firstChild never changed and the tab froze on every
+    // document with content. adoptNode moves the node out of the parsed document.
+    expect(SRC).not.toMatch(/while \(doc\.body\.firstChild\)[^\n]*importNode/)
+    expect(SRC).toContain('while (doc.body.firstChild) page.appendChild(document.adoptNode(doc.body.firstChild))')
+  })
+
+  it('K-4.2: a szovegszin es a kiemeles mezo ELOTT a markaszinek allnak, egy kattintas a kijelolesre teszi', () => {
+    // The slot comes before the colour label in the toolbar, for both colour tools.
+    expect(SRC).toMatch(/'<span class="wb-docedit-brand" data-de-brand="' \+ c \+ '"><\/span>'\s*\+ '<label class="wb-docedit-color"/)
+    // It is filled from the project's brand, with the same buttons as every other colour picker,
+    // and refilled on render (the toolbar is built once, the brand may arrive later).
+    expect(SRC).toMatch(/function docBrandFill\(st\)[\s\S]{0,700}brandSwatchRow\('data-de-swatch="'/)
+    expect(SRC).toMatch(/function docEditMount\(\)[\s\S]{0,300}docBrandFill\(st\)/)
+    // Opening the editor loads the brand; the button keeps the text selection and applies the colour.
+    expect(SRC).toMatch(/function openDocEdit\(\)[\s\S]{0,700}ensureBrand\(\)/)
+    expect(SRC).toContain("e.target.closest('[data-de], [data-de-swatch]')) e.preventDefault()")
+    expect(SRC).toMatch(/closest\('\[data-de-swatch\]'\)[\s\S]{0,400}docExec\(cmd, hex\)/)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // 8. FAZIS -- "Mi mukodik ezen a gepen?" panel. A felhasznalo nem programozo:
 // allapot-cimke + emberi mondat + SZAMOZOTT lepesek + LINK + beiro mezo, es
@@ -2209,9 +2233,12 @@ describe('huzogatos szerkesztes a vasznon (kartya d4b05d82)', () => {
     limits: { max_objects: 200, text_max: 2000 }, summary: '2 elem',
   }
 
-  /** A `canvas` a rajz vegpont valasza, a `project` a projekt (archivalashoz). */
-  async function open(canvas: unknown = CANVAS_OK, status = 200, project: unknown = PROJECT) {
+  /** A `canvas` a rajz vegpont valasza, a `project` a projekt (archivalashoz), a `brand` a projekt
+   *  Marka-csomagja (null: a marka-vegpont nem kap kulon valaszt, mint eddig). */
+  async function open(canvas: unknown = CANVAS_OK, status = 200, project: unknown = PROJECT, brand: unknown = null) {
     h.respond((url) => {
+      if (brand && url.indexOf('/api/workbench/brand') === 0) return { status: 200, body: { brand, exists: true, templates: [] } }
+      if (brand && url.indexOf('/api/workbench/shared') === 0) return { status: 200, body: { folder: null, files: [] } }
       if (url.indexOf('/canvas/ops') > 0) {
         return { status: 201, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], message: 'Mentve' } }
       }
@@ -2278,6 +2305,8 @@ describe('huzogatos szerkesztes a vasznon (kartya d4b05d82)', () => {
     // Szoveg-elemnel: betumeret, felkover, szin is van az eszkoztaron.
     expect(h.rootEl.innerHTML).toContain('data-wb-fop="bold"')
     expect(h.rootEl.innerHTML).toContain('data-wb-act="can-float-color"')
+    // Marka nelkul nincs marka-szin gomb az eszkoztaron.
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="can-float-swatch"')
     const before = opsCalls().length
     h.click({ 'data-wb-act': 'can-float', 'data-wb-fop': 'bigger' })
     await vi.waitFor(() => expect(opsCalls().length).toBe(before + 1))
@@ -2287,6 +2316,39 @@ describe('huzogatos szerkesztes a vasznon (kartya d4b05d82)', () => {
     h.click({ 'data-wb-act': 'can-float', 'data-wb-fop': 'bold' })
     await vi.waitFor(() => expect(opsCalls().length).toBe(before + 2))
     expect(lastOps()).toEqual([{ op: 'update', id: 'headline', patch: { bold: true } }])
+  })
+
+  it('K-4.2 (#458): a lebego eszkoztar szinvalasztoja ELOTT a markaszinek allnak, egy kattintas atszinezi az elemet', async () => {
+    const BRAND = {
+      colors: [{ name: 'fo kek', hex: '#1a73e8' }, { name: '', hex: '#ff6600' }],
+      logo_light: null, logo_dark: null, font_heading: null, font_body: null,
+      logo_corner: null, logo_min_width_pct: null, logo_clear_space_pct: null, no_exclamation: false, notes: [],
+    }
+    await open(CANVAS_OK, 200, PROJECT, BRAND)
+    h.drag('headline', 0, 0, { steps: 1, alt: true })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="can-float-swatch"'))
+    const float = h.rootEl.innerHTML.slice(h.rootEl.innerHTML.indexOf('data-wb-float="1"'))
+    // Mindket markaszin ott van, es a szinmezo ELOTT (a "masik szin" a vegen).
+    const field = float.indexOf('data-wb-act="can-float-color"')
+    expect(float.indexOf('data-wb-hex="#1a73e8"')).toBeGreaterThan(-1)
+    expect(float.indexOf('data-wb-hex="#1a73e8"')).toBeLessThan(field)
+    expect(float.indexOf('data-wb-hex="#ff6600"')).toBeLessThan(field)
+    expect(float).toContain('title="fo kek #1a73e8"')
+    // Szovegnel a gomb a szoveg szinet allitja -- ugyanazzal a muvelettel, mint a szinmezo.
+    const before = opsCalls().length
+    h.click({ 'data-wb-act': 'can-float-swatch', 'data-wb-fprop': 'color', 'data-wb-hex': '#1a73e8' })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(before + 1))
+    expect(lastOps()).toEqual([{ op: 'update', id: 'headline', patch: { color: '#1a73e8' } }])
+    // Teglalapnal a kitoltest.
+    await new Promise((r) => setTimeout(r, 80))
+    h.drag('keret', 0, 0, { steps: 1, alt: true })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="can-float-fill"'))
+    const fl2 = h.rootEl.innerHTML.slice(h.rootEl.innerHTML.indexOf('data-wb-float="1"'))
+    expect(fl2.indexOf('data-wb-fprop="fill"')).toBeGreaterThan(-1)
+    expect(fl2.indexOf('data-wb-fprop="fill"')).toBeLessThan(fl2.indexOf('data-wb-act="can-float-fill"'))
+    h.click({ 'data-wb-act': 'can-float-swatch', 'data-wb-fprop': 'fill', 'data-wb-hex': '#ff6600' })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(before + 2))
+    expect(lastOps()).toEqual([{ op: 'update', id: 'keret', patch: { fill: '#ff6600' } }])
   })
 
   it('SAROK: atmeretezeskor az ATELLENES sarok helyben marad', async () => {

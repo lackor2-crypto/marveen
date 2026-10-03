@@ -2801,7 +2801,9 @@
     var ext = docEditableExt(p)
     if (!ext || !docCanEdit(p)) return
     var itemId = WB.selectedId
-    WB.docEdit = { itemId: itemId, ext: ext, name: p.name || '', loading: true, busy: false, error: null, detail: null, dirty: false, host: null, page: null, head: '', baseVersion: null, range: null }
+    WB.docEdit = { itemId: itemId, ext: ext, name: p.name || '', loading: true, busy: false, error: null, detail: null, dirty: false, host: null, page: null, head: '', baseVersion: null, range: null, brandKey: null }
+    // The toolbar shows the brand colours first (K-4.2), so the brand is loaded in the background.
+    ensureBrand()
     render()
     api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/doc-html').then(function (r) {
       var st = WB.docEdit
@@ -2872,7 +2874,9 @@
           }).join('') + '</select>'
       }
       if (c === 'foreColor' || c === 'hiliteColor') {
-        return '<label class="wb-docedit-color" title="' + escA(t('workbench.docedit.t_' + c)) + '">'
+        // The project's brand colours go in front of the colour field (K-4.2); docBrandFill fills the slot.
+        return '<span class="wb-docedit-brand" data-de-brand="' + c + '"></span>'
+          + '<label class="wb-docedit-color" title="' + escA(t('workbench.docedit.t_' + c)) + '">'
           + (c === 'foreColor' ? 'A' : '&#9608;')
           + '<input type="color" data-de-color="' + c + '" value="' + (c === 'foreColor' ? '#c00000' : '#ffff00') + '"></label>'
       }
@@ -2889,7 +2893,10 @@
     page.setAttribute('role', 'textbox')
     page.setAttribute('aria-multiline', 'true')
     page.setAttribute('aria-label', st.name || t('workbench.docedit.open'))
-    while (doc.body.firstChild) page.appendChild(document.importNode(doc.body.firstChild, true))
+    // adoptNode MOVES the node out of the parsed document. importNode only copied it, so
+    // doc.body.firstChild never changed and the loop never ended: the tab froze on any document
+    // that had content.
+    while (doc.body.firstChild) page.appendChild(document.adoptNode(doc.body.firstChild))
     paper.appendChild(page)
     var foot = document.createElement('div')
     foot.className = 'wb-docedit-foot'
@@ -2904,11 +2911,20 @@
     // Sajat figyelok: a gepeles es a formazas NEM rajzolja ujra a Munkapadot.
     bar.addEventListener('mousedown', function (e) {
       // A gomb ne vegye el a kijelolest a szovegtol.
-      if (e.target && e.target.closest && e.target.closest('[data-de]')) e.preventDefault()
+      if (e.target && e.target.closest && e.target.closest('[data-de], [data-de-swatch]')) e.preventDefault()
     })
     bar.addEventListener('click', function (e) {
       var b = e.target && e.target.closest ? e.target.closest('[data-de]') : null
-      if (b) docExec(b.getAttribute('data-de'))
+      if (b) { docExec(b.getAttribute('data-de')); return }
+      var sw = e.target && e.target.closest ? e.target.closest('[data-de-swatch]') : null
+      if (!sw) return
+      var cmd = sw.getAttribute('data-de-swatch')
+      var hex = sw.getAttribute('data-wb-hex')
+      if ((cmd !== 'foreColor' && cmd !== 'hiliteColor') || !/^#[0-9a-fA-F]{6}$/.test(hex || '')) return
+      docExec(cmd, hex)
+      // The colour field next to the buttons shows the colour just used, as after picking it there.
+      var field = bar.querySelector('[data-de-color="' + cmd + '"]')
+      if (field) field.value = hex
     })
     bar.addEventListener('change', function (e) {
       var el = e.target
@@ -2930,6 +2946,22 @@
     })
     st.host = host
     st.page = page
+    docBrandFill(st)
+  }
+
+  /** The brand colour buttons in front of the editor's colour fields (K-4.2: brand colours first in
+   *  every colour picker). The toolbar is built once, when the document opens, and the brand may
+   *  arrive (or change) later -- so every render calls this, and it rewrites the slots only when the
+   *  brand colours changed. Without a brand the slots stay empty. */
+  function docBrandFill(st) {
+    if (!st || !st.host) return
+    var key = JSON.stringify((WB.brand && WB.brand.colors) || [])
+    if (st.brandKey === key) return
+    st.brandKey = key
+    var slots = st.host.querySelectorAll('[data-de-brand]')
+    for (var i = 0; i < slots.length; i++) {
+      slots[i].innerHTML = brandSwatchRow('data-de-swatch="' + escA(slots[i].getAttribute('data-de-brand')) + '"', '')
+    }
   }
 
   function docSaveRange(st) {
@@ -2974,6 +3006,7 @@
     var st = WB.docEdit
     var slot = document.querySelector('[data-wb-docedit]')
     if (!st || !st.host || !slot) return
+    docBrandFill(st)
     if (st.host.parentNode !== slot) {
       var had = document.activeElement === st.page || (st.host.parentNode == null && st.range)
       slot.appendChild(st.host)
@@ -5581,10 +5614,12 @@
         + btn('alignleft', '\u2B05', t('workbench.canvas.fl_left'), o.align === 'left' || !o.align)
         + btn('aligncenter', '\u2194', t('workbench.canvas.fl_center'), o.align === 'center')
         + btn('alignright', '\u27A1', t('workbench.canvas.fl_right'), o.align === 'right')
+        + brandFloatSwatchesHtml('color')
         + '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-color" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.color || '') ? o.color : '#111111') + '"'
         + ' title="' + escA(t('workbench.canvas.fl_color')) + '" aria-label="' + escA(t('workbench.canvas.fl_color')) + '">'
     } else if (o.type === 'rect' || o.type === 'ellipse') {
-      h += '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-fill" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.fill || '') ? o.fill : '#dddddd') + '"'
+      h += brandFloatSwatchesHtml('fill')
+        + '<input type="color" class="wb-can-fcolor" data-wb-act="can-float-fill" value="' + escA(/^#[0-9a-fA-F]{6}$/.test(o.fill || '') ? o.fill : '#dddddd') + '"'
         + ' title="' + escA(t('workbench.canvas.fl_fill')) + '" aria-label="' + escA(t('workbench.canvas.fl_fill')) + '">'
         + btn('smaller', '\u2212', t('workbench.canvas.fl_smaller')) + btn('bigger', '+', t('workbench.canvas.fl_bigger'))
     } else {
@@ -10358,16 +10393,28 @@
     }
   }
 
-  /** Brand colour buttons under a colour field; a click puts the colour into the field. */
-  function brandSwatchesHtml(targetId) {
+  /** One button per brand colour; `act` is the data-wb-act (and its arguments) a click sends. */
+  function brandSwatchRow(act, cls) {
     var cs = (WB.brand && WB.brand.colors) || []
     if (!cs.length) return ''
-    return '<span class="wb-brand-sw" role="group" aria-label="' + escA(t('workbench.brand.swatches')) + '">'
+    return '<span class="wb-brand-sw' + (cls ? ' ' + cls : '') + '" role="group" aria-label="' + escA(t('workbench.brand.swatches')) + '">'
       + cs.map(function (c) {
-        return '<button type="button" class="wb-brand-swatch" data-wb-act="brand-swatch" data-wb-target="' + escA(targetId) + '"'
+        return '<button type="button" class="wb-brand-swatch" ' + act
           + ' data-wb-hex="' + escA(c.hex) + '" style="background:' + escA(c.hex) + '"'
           + ' title="' + escA((c.name ? c.name + ' ' : '') + c.hex) + '" aria-label="' + escA((c.name ? c.name + ' ' : '') + c.hex) + '"></button>'
       }).join('') + '</span>'
+  }
+
+  /** Brand colour buttons under a colour field; a click puts the colour into the field. */
+  function brandSwatchesHtml(targetId) {
+    return brandSwatchRow('data-wb-act="brand-swatch" data-wb-target="' + escA(targetId) + '"', '')
+  }
+
+  /** The same brand colours on the floating toolbar, IN FRONT OF its colour field (K-4.2: the brand
+   *  colours come first in every colour picker of manual editing). There is no form here to fill: a
+   *  click recolours the selected element at once, like the colour field next to them does. */
+  function brandFloatSwatchesHtml(prop) {
+    return brandSwatchRow('data-wb-act="can-float-swatch" data-wb-fprop="' + prop + '"', 'wb-can-fsw')
   }
 
   /** The form -> the draft. Called on every keystroke too: the page is redrawn
@@ -12724,6 +12771,7 @@
     else if (a === 'canvas-remove') canvasRemoveObject(act.getAttribute('data-wb-obj'))
     else if (a === 'canvas-op') canvasQuickOp(act.getAttribute('data-wb-op'), act.getAttribute('data-wb-obj'))
     else if (a === 'can-float') canvasFloatOp(act.getAttribute('data-wb-fop'))
+    else if (a === 'can-float-swatch') canvasFloatColor(act.getAttribute('data-wb-fprop'), act.getAttribute('data-wb-hex'))
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
@@ -13059,6 +13107,15 @@
     else if (op === 'alignright') canvasOps([{ op: 'update', id: o.id, patch: { align: 'right' } }])
   }
 
+  /** A colour from the floating toolbar -- its colour field or a brand colour button -- onto the selected element. */
+  function canvasFloatColor(prop, hex) {
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || archived() || WB.canvasBusy || (prop !== 'color' && prop !== 'fill') || !hex) return
+    var patch = {}
+    patch[prop] = hex
+    canvasOps([{ op: 'update', id: o.id, patch: patch }])
+  }
+
   var CANVAS_CSS_FONT = { sans: 'system-ui, Arial, sans-serif', serif: 'Georgia, "Times New Roman", serif', mono: 'ui-monospace, Consolas, monospace' }
 
   /** Szoveg szerkesztese HELYBEN: egy szovegmezo kerul az elem helyere, ugyanazzal a betumerettel es
@@ -13134,9 +13191,7 @@
     if (!el || typeof el.getAttribute !== 'function') return
     var a = el.getAttribute('data-wb-act')
     if (a !== 'can-float-color' && a !== 'can-float-fill') return
-    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
-    if (!o || archived() || WB.canvasBusy) return
-    canvasOps([{ op: 'update', id: o.id, patch: a === 'can-float-color' ? { color: el.value } : { fill: el.value } }])
+    canvasFloatColor(a === 'can-float-color' ? 'color' : 'fill', el.value)
   })
 
   /** Kep a lapra: egy fajl a lapra HUZVA vagy a vagolapbol beillesztve. A fajl a projekt mappajaba kerul
