@@ -1561,7 +1561,7 @@
 .wb-file-link:hover { text-decoration: underline; }
 
 /* Markdown work item: editor and live preview side by side, the same height, each scrolling on its own (stacked on narrow screens). */
-.wb-md-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; height: max(420px, calc(100vh - 330px)); }
+.wb-md-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; align-items: stretch; height: max(420px, calc(100vh - 330px)); }
 .wb-md-split .wb-text-edit { flex: 1; min-height: 0; height: auto; resize: none; box-sizing: border-box; }
 .wb-md-live-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .wb-md-live-wrap > .wb-label { margin: 0 0 4px; }
