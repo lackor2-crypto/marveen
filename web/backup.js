@@ -575,7 +575,8 @@
     var head = ''
     if (st && st.channelsHeld) {
       head = '<div class="bk-row bk-tone-warn"><div class="bk-row-info"><div class="bk-row-title">' + h(tr('fbk.r.held_title')) + '</div>' +
-        '<div class="bk-row-desc">' + h(tr('fbk.channels.paused')) + '</div></div>' +
+        '<div class="bk-row-desc">' + h(tr('fbk.channels.paused')) + '</div>' +
+        '<div class="bk-row-desc"><b>' + h(tr('fbk.channels.paused_steps')) + '</b></div></div>' +
         '<div class="bk-row-actions"><button class="btn-primary" data-bk="r-release">' + h(tr('fbk.r.release')) + '</button></div></div>'
     }
     if (R.step === 'running') {
