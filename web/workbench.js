@@ -1526,14 +1526,11 @@
       if (!r.ok) { window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
       if (WB.pickFolder === folder) WB.pickFolder = r.data.folder
-      // The folder belonged to one work item: the item took the new name too (one name, always in step).
-      var renamedItem = r.data && r.data.item
-      window.showToast(renamedItem ? t('workbench.folder.renamed_item', { name: renamedItem.title }) : t('workbench.folder.renamed'))
-      if (renamedItem) {
-        if (r.data.items) WB.items = r.data.items
-        if (WB.selectedId === renamedItem.id) loadDetail(renamedItem.id)
-        load(pid)
-      }
+      // #478: a folder is a named group: its work items keep their own names; their paths followed the folder.
+      window.showToast(t('workbench.folder.renamed'))
+      if (r.data && r.data.items) WB.items = r.data.items
+      if (WB.selectedId) loadDetail(WB.selectedId)
+      load(pid)
       render()
     })
   }
@@ -8419,12 +8416,7 @@
     if (!title || title === cur) return
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/rename', { title: title }).then(function (r) {
       if (!r.ok) { window.showToast(r.message); return }
-      var f = r.data.folder_rename || {}
-      window.showToast(f.renamed
-        ? t('workbench.rename.done_folder', { folder: f.to })
-        : (f.reason === 'shared' || f.reason === 'canvas' || f.reason === 'no_folder' || f.reason === 'missing'
-          ? t('workbench.rename.done_folder_kept_' + f.reason)
-          : t('workbench.rename.done')))
+      window.showToast(t('workbench.rename.done'))
       if (WB.selectedId === id) loadDetail(id)
       if (WB.projectId) load(WB.projectId)
     })

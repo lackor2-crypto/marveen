@@ -495,13 +495,19 @@ describe('renaming a plain folder', () => {
     expect(renameWorkFolder(p, `${box}/Uj`, 'Uj')).toMatchObject({ ok: true, renamed: false })
   })
 
-  it('refuses a folder a work item lives in', () => {
+  it('#478: renames a folder even when a work item lives in it (the item keeps its own name)', () => {
     const p = getProjectRow()
     const a = makeWorkFolder(p, '', 'Gyujto')
     if (!a.ok) throw new Error('mk')
-    mk('Valami', a.folder)
-    expect(renameWorkFolder(p, a.folder, 'Atnevezett')).toMatchObject({ ok: false, code: 'folder_has_items' })
-    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...a.folder.split('/')))).toBe(true)
+    const itemId = mk('Valami', a.folder)
+    const r = renameWorkFolder(p, a.folder, 'Atnevezett')
+    expect(r).toMatchObject({ ok: true, renamed: true })
+    // A munkadarab a SAJAT nevet tartja -- a nevek fuggetlenek (#478).
+    expect(getWorkItem(itemId)?.title).toBe('Valami')
+    // A regi mappa eltunik, az uj megjelenik a lemezen.
+    const box = a.folder.slice(0, a.folder.lastIndexOf('/'))
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...a.folder.split('/')))).toBe(false)
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...`${box}/Atnevezett`.split('/')))).toBe(true)
   })
 })
 
