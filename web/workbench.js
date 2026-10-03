@@ -2472,7 +2472,8 @@
       return (canEdit
         ? '<p><button type="button" class="btn-secondary" data-wb-act="text-edit">' + esc(t('workbench.edit.text_open')) + '</button> ' + ttsButtonHtml('preview') + '</p>'
         : (p.text ? '<p>' + ttsButtonHtml('preview') + '</p>' : ''))
-        + (isMarkdownPreview(p) ? mdLiveHtml(p.text || '') : '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>')
+        + (p.text ? '<div class="wb-tr-head wb-tr-reader">' + trRightControlsHtml(false) + '</div>' : '')
+        + (WB.tr.mode === 'translation' && p.text ? trResultHtml(isMarkdownPreview(p)) : (isMarkdownPreview(p) ? mdLiveHtml(p.text || '') : '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>'))
         + (p.truncated ? '<p class="wb-hint">' + esc(t('workbench.preview.truncated')) + '</p>' : '')
         + (!archived() && !current ? '<p class="wb-hint">' + esc(t('workbench.edit.text_old_version')) + '</p>' : '')
     }
@@ -2642,7 +2643,7 @@
   /** A szerkeszto melletti elo elonezet frissitese gepeleskor (ujrarajzolas nelkul). */
   function updateMdLive(value) {
     var el = document.getElementById('wbTextEditLive')
-    if (el) el.innerHTML = mdLiveHtml(value)
+    if (el && WB.tr.mode !== 'translation') el.innerHTML = mdLiveHtml(value)
   }
 
   function textEditHtml() {
@@ -2652,7 +2653,8 @@
     return '<form class="wb-part-form' + (md ? ' wb-md-form' : '') + '" id="wbTextEditForm">'
       + (md ? '' : '<label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>')
       + (md
-        ? '<div class="wb-md-split"><div class="wb-md-live-wrap"><label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>' + area + '</div><div class="wb-md-live-wrap"><p class="wb-label">' + esc(t('workbench.edit.md_live')) + '</p><div id="wbTextEditLive">' + mdLiveHtml(WB.textEdit.value) + '</div></div></div>'
+        ? '<div class="wb-md-split"><div class="wb-md-live-wrap"><div class="wb-tr-head"><label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>' + trLeftControlsHtml() + '</div>' + area + '</div>'
+          + '<div class="wb-md-live-wrap"><div class="wb-tr-head"><p class="wb-label">' + esc(t('workbench.edit.md_live')) + '</p>' + trRightControlsHtml(true) + '</div>' + trRightBodyHtml(WB.textEdit.value) + '</div></div>'
         : area)
       + '<div class="wb-form-actions">'
       + micButtonHtml('wbTextEdit')
@@ -4194,6 +4196,128 @@
     if (el && typeof el.focus === 'function') el.focus()
   }
 
+  // ---- ketnyelvu fordito + felolvasas a szerkesztoben es az olvasoban (#467, Boss TG 7607/7619) --------
+  //
+  // Bal oszlop: a forras (szerkesztheto), nyelvvalasztoval. Jobb oszlop: KULON kapcsolo "Vegeredmeny" /
+  // "Fordites": a formazott vegeredmeny megmarad, a fordites sajat modban jon elo a valasztott nyelven.
+  // A fordito az e-mail fordito motorja (POST /api/workbench/translate -> translateEmailContent): a
+  // nyelvlista es a nevek is onnan jonnek (app.js), nem masoljuk le.
+
+  var TR_FALLBACK_CODES = ['en', 'de', 'hu', 'es', 'fr', 'it', 'pt', 'nl', 'pl', 'ro', 'ru', 'uk', 'tr', 'ar', 'zh', 'ja']
+  var TR_SPEECH = { hu: 'hu-HU', en: 'en-US', de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT', pt: 'pt-PT', nl: 'nl-NL', pl: 'pl-PL', ro: 'ro-RO', ru: 'ru-RU', uk: 'uk-UA', tr: 'tr-TR', ar: 'ar-SA', zh: 'zh-CN', ja: 'ja-JP' }
+  function trCodes() { return (typeof EMAIL_TRANSLATE_CODES !== 'undefined' && EMAIL_TRANSLATE_CODES) || TR_FALLBACK_CODES }
+  function trLangName(code) {
+    if (code === 'auto') return t('workbench.tr.auto')
+    return typeof emailLangName === 'function' ? emailLangName(code) : String(code).toUpperCase()
+  }
+  function trOtherLang() { return window._lang === 'en' ? 'hu' : 'en' }
+  WB.tr = { src: readPref('wb.tr.src', 'auto'), dst: readPref('wb.tr.dst', trOtherLang()), mode: 'final', result: null, forText: null, forSrc: null, forDst: null, detected: null, busy: false, error: null }
+
+  function trCurrentText() {
+    if (WB.textEdit && WB.textEdit.itemId === WB.selectedId) return WB.textEdit.value || ''
+    return (WB.preview && WB.preview.text) || ''
+  }
+  function trFresh() {
+    var tr = WB.tr
+    return tr.result != null && tr.forText === trCurrentText() && tr.forSrc === tr.src && tr.forDst === tr.dst
+  }
+  /** The language the text on the left is in: the picked one, else what the translator detected, else the dashboard's. */
+  function trLeftLang() {
+    if (WB.tr.src !== 'auto') return WB.tr.src
+    return WB.tr.detected || (window._lang === 'en' ? 'en' : 'hu')
+  }
+  function ttsLangFor(key) {
+    var code = key === 'tr-left' ? trLeftLang()
+      : key === 'tr-right' ? (WB.tr.mode === 'translation' ? WB.tr.dst : trLeftLang())
+      : key === 'tr-read' ? WB.tr.dst : ''
+    return TR_SPEECH[code] || speechLang()
+  }
+  function trSelectHtml(id, kind, value, withAuto) {
+    var opts = (withAuto ? ['auto'] : []).concat(trCodes())
+    return '<select class="btn-secondary btn-compact wb-tr-lang" id="' + id + '" data-wb-tr="' + kind + '" title="' + escA(t(kind === 'src' ? 'workbench.tr.src_title' : 'workbench.tr.dst_title')) + '">'
+      + opts.map(function (c) { return '<option value="' + escA(c) + '"' + (c === value ? ' selected' : '') + '>' + esc(trLangName(c)) + '</option>' }).join('') + '</select>'
+  }
+  function trLeftControlsHtml() {
+    return '<span class="wb-tr-ctl">' + trSelectHtml('wbTrSrc', 'src', WB.tr.src, true) + ttsButtonHtml('tr-left') + '</span>'
+  }
+  /** `edit`: the editor's right column (adds the swap button); the reader gets the same switch without it. */
+  function trRightControlsHtml(edit) {
+    var tr = WB.tr
+    function mbtn(m, label) {
+      return '<button type="button" class="btn-secondary btn-compact wb-tr-mode' + (tr.mode === m ? ' wb-tr-mode-on' : '') + '" data-wb-act="tr-mode" data-wb-mode="' + m + '" aria-pressed="' + (tr.mode === m) + '">' + esc(label) + '</button>'
+    }
+    return '<span class="wb-tr-ctl">' + mbtn('final', t(edit ? 'workbench.tr.final' : 'workbench.tr.original')) + mbtn('translation', t('workbench.tr.translation'))
+      + trSelectHtml('wbTrDst', 'dst', tr.dst, false)
+      + (tr.mode === 'translation' ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="tr-run"' + (tr.busy ? ' disabled' : '') + '>' + esc(tr.busy ? t('workbench.tr.working') : t(trFresh() ? 'workbench.tr.again' : 'workbench.tr.run')) + '</button>' : '')
+      + (edit && tr.mode === 'translation' ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="tr-swap" title="' + escA(t('workbench.tr.swap_hint')) + '">&#8646;</button>' : '')
+      + (tr.mode === 'translation' ? (tr.result ? ttsButtonHtml(edit ? 'tr-right' : 'tr-read') : '') : (edit && trCurrentText() ? ttsButtonHtml('tr-right') : ''))
+      + '</span>'
+  }
+  /** The translated text (or why there is none yet), as the right column / reader shows it. */
+  function trResultHtml(md) {
+    var tr = WB.tr
+    if (tr.busy) return '<p class="wb-muted wb-tr-note" id="wbTrOut">' + esc(t('workbench.tr.working')) + '</p>'
+    if (tr.error) return '<div class="info-box depo-bad wb-tr-note" id="wbTrOut">' + esc(tr.error) + '</div>'
+    if (tr.result == null) return '<p class="wb-muted wb-tr-note" id="wbTrOut">' + esc(t('workbench.tr.press_run', { lang: trLangName(tr.dst) })) + '</p>'
+    return '<div id="wbTrOut">' + (trFresh() ? '' : '<p class="wb-hint wb-tr-stale">' + esc(t('workbench.tr.stale')) + '</p>')
+      + (md ? mdLiveHtml(tr.result) : '<pre class="wb-preview-text">' + esc(tr.result) + '</pre>') + '</div>'
+  }
+  function trRightBodyHtml(value) {
+    if (WB.tr.mode === 'translation') return '<div id="wbTextEditLive" class="wb-tr-out">' + trResultHtml(true) + '</div>'
+    return '<div id="wbTextEditLive">' + mdLiveHtml(value) + '</div>'
+  }
+  function trRun() {
+    var tr = WB.tr
+    var text = trCurrentText()
+    if (tr.busy) return
+    if (!String(text).trim()) { window.showToast(t('workbench.tr.empty')); return }
+    var itemId = WB.selectedId
+    tr.busy = true; tr.error = null
+    render()
+    api('POST', '/api/workbench/translate', { text: text, source_lang: tr.src, target_lang: tr.dst }).then(function (r) {
+      tr.busy = false
+      if (WB.selectedId !== itemId) return
+      if (!r.ok) { tr.error = r.message; render(); return }
+      tr.error = null
+      tr.result = r.data.translation || ''
+      tr.forText = text; tr.forSrc = tr.src; tr.forDst = tr.dst
+      if (r.data.source_lang && r.data.source_lang !== 'unknown') tr.detected = r.data.source_lang
+      render()
+    })
+  }
+  function trSetMode(mode) {
+    WB.tr.mode = mode === 'translation' ? 'translation' : 'final'
+    if (WB.tr.mode === 'translation' && !trFresh() && !WB.tr.busy && String(trCurrentText()).trim()) { trRun(); return }
+    render()
+  }
+  function trSetLang(kind, value) {
+    WB.tr[kind] = value
+    writePref('wb.tr.' + kind, value)
+    if (kind === 'src') WB.tr.detected = null
+    if (WB.tr.mode === 'translation' && !WB.tr.busy && String(trCurrentText()).trim()) { trRun(); return }
+    render()
+  }
+  /** Back-and-forth: the translation becomes the editable source, the languages swap, the old text is now the "translation". */
+  function trSwap() {
+    var tr = WB.tr
+    if (!WB.textEdit || !trFresh()) { window.showToast(t('workbench.tr.swap_need')); return }
+    var oldText = WB.textEdit.value
+    var oldLeft = trLeftLang()
+    WB.textEdit.value = tr.result
+    tr.src = tr.dst; tr.dst = oldLeft
+    writePref('wb.tr.src', tr.src); writePref('wb.tr.dst', tr.dst)
+    tr.detected = null
+    tr.result = oldText; tr.forText = WB.textEdit.value; tr.forSrc = tr.src; tr.forDst = tr.dst
+    render()
+  }
+  /** Typing in the source makes a shown translation "old" without a full redraw (the textarea keeps its caret). */
+  function trMarkStale() {
+    if (WB.tr.mode !== 'translation' || WB.tr.result == null || typeof document.getElementById !== 'function') return
+    var out = document.getElementById('wbTrOut')
+    if (!out || trFresh() || (out.querySelector && out.querySelector('.wb-tr-stale'))) return
+    if (out.insertAdjacentHTML) out.insertAdjacentHTML('afterbegin', '<p class="wb-hint wb-tr-stale">' + esc(t('workbench.tr.stale')) + '</p>')
+  }
+
   function ttsSupported() { return !!(window.speechSynthesis && window.SpeechSynthesisUtterance) }
 
   function ttsButtonHtml(key) {
@@ -4205,6 +4329,9 @@
 
   function ttsTextFor(key) {
     var k = String(key || '')
+    if (k === 'tr-left') return trCurrentText()
+    if (k === 'tr-right') return WB.tr.mode === 'translation' && WB.tr.result ? WB.tr.result : trCurrentText()
+    if (k === 'tr-read') return WB.tr.result || ''
     if (k === 'preview') return (WB.preview && WB.preview.text) || ''
     if (k.indexOf('turn:') === 0) {
       var turn = chatState().turns[Number(k.slice(5))]
@@ -4247,7 +4374,7 @@
     if (same) { render(); return }
     var chunks = ttsChunks(ttsTextFor(key))
     if (!chunks.length) { window.showToast(t('workbench.voice.tts_empty')); render(); return }
-    var lang = speechLang()
+    var lang = ttsLangFor(key)
     var voices = []
     try { voices = window.speechSynthesis.getVoices() || [] } catch (_e) { voices = [] }
     var prefix = lang.slice(0, 2).toLowerCase()
@@ -12237,6 +12364,8 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
     if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
+    var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')
+    if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
     if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) { brandSyncDraft(); return }
     var mv = e.target.getAttribute && e.target.getAttribute('data-wb-move')
@@ -12321,6 +12450,9 @@
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'ov-kanban') openProjectKanban()
     else if (a === 'folder-delete') { deleteFolder(act.getAttribute('data-wb-folder')) }
+    else if (a === 'tr-mode') trSetMode(act.getAttribute('data-wb-mode'))
+    else if (a === 'tr-run') trRun()
+    else if (a === 'tr-swap') trSwap()
     else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
     else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
     else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'))
@@ -13235,7 +13367,7 @@
     }
     if (WB.table && tableCellInput(e.target.id, e.target.value)) return
     if (WB.img && /^wbImg/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
-    if (e.target.id === 'wbTextEdit' && WB.textEdit) { WB.textEdit.value = e.target.value; updateMdLive(e.target.value) }
+    if (e.target.id === 'wbTextEdit' && WB.textEdit) { WB.textEdit.value = e.target.value; updateMdLive(e.target.value); trMarkStale() }
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
 

@@ -197,6 +197,9 @@ export const SUPPORTED_TRANSLATION_LANGS: Record<string, string> = {
 
 export const DEFAULT_TARGET_LANG = 'hu'
 
+/** The text a failed translation starts with (the source follows it): callers that are not the email reader use it to tell failure from a result. */
+export const TRANSLATION_FAILED_MARKER = '[Fordítás sikertelen'
+
 /** Coerce a requested target code to a supported one, defaulting to Hungarian. */
 export function resolveTargetLang(code: string | null | undefined): string {
   return code && SUPPORTED_TRANSLATION_LANGS[code] ? code : DEFAULT_TARGET_LANG
@@ -315,7 +318,7 @@ export async function translateEmailContent(
     // poison that email permanently: every later attempt returned the cached
     // "[Fordítás sikertelen]" instead of retrying once the cause cleared.
     return {
-      translation: `[Fordítás sikertelen: ${e instanceof Error ? e.message : 'ismeretlen hiba'}]\n\n${sourceContent}`,
+      translation: `${TRANSLATION_FAILED_MARKER}: ${e instanceof Error ? e.message : 'ismeretlen hiba'}]\n\n${sourceContent}`,
       sourceLang,
       targetLang,
       fromCache: false,
