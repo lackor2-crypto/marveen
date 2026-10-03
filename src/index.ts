@@ -32,7 +32,7 @@ import { startMainInboxReceipt, stopMainInboxReceipt } from './web/main-inbox-re
 import { startInviteMonitor, stopInviteMonitor } from './web/channel-invites.js'
 import { ensureDiscordChannelGroup } from './web/discord-group-bootstrap.js'
 import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/channel-request-watcher.js'
-import { startStoreWatcher, stopStoreWatcher } from './store-watcher.js'
+import { startStoreWatcher, stopStoreWatcher, isBenignWatchError } from './store-watcher.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
 import {
   acquirePortLock,
@@ -459,6 +459,7 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
   process.on('uncaughtException', (err) => {
+    if (isBenignWatchError(err)) { logger.warn({ err }, 'store watcher: unwatchable entry ignored'); return }
     logger.error({ err }, 'uncaughtException')
     exitCode = 1
     shutdown()

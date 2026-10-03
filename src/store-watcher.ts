@@ -89,6 +89,18 @@ function isSystemFile(rel: string): boolean {
   return SYSTEM_FILES.has(name) || SYSTEM_RE.test(name)
 }
 
+/**
+ * fs.watch({ recursive }) on Linux walks the tree in userland and THROWS from an
+ * event handler when it meets an entry it cannot watch (a mode-000 file inside a
+ * restore stage, a vanished dir). That throw cannot be caught around watch() and
+ * reaches process 'uncaughtException'; it is watcher noise, not a reason to take
+ * the dashboard down (incident 2026-10-03: a restore crashed the dashboard twice).
+ */
+export function isBenignWatchError(err: unknown): boolean {
+  const e = err as { syscall?: string; code?: string } | null
+  return !!e && e.syscall === 'watch' && (e.code === 'EACCES' || e.code === 'ENOENT' || e.code === 'EPERM')
+}
+
 export function startStoreWatcher(): void {
   if (watcher) return
 
