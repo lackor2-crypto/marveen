@@ -1300,20 +1300,64 @@
   }, true)
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeItemMenu() })
 
-  /** A compact "Move to folder..." list on every item row (the drag is the other way to do the same). */
-  function moveSelectHtml(it) {
+  /** The "Move to folder..." options: a prompt line, the box itself, then every folder indented by depth. */
+  function folderOptionsHtml() {
     var wf = WB.workFolders || { box: null, folders: [] }
-    if (archived() || !wf.box) return ''
     var box = wf.box
     var opts = ['<option value="">' + esc(t('workbench.move.label')) + '</option>',
       '<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>']
     ;(wf.folders || []).forEach(function (f) {
       var depth = f.split('/').length - 1 - (box.split('/').length - 1)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
-      opts.push('<option value="' + escA(f) + '">' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
+      opts.push('<option value="' + escA(f) + '">' + pad + '\ud83d\udcc1 ' + esc(baseOf(f)) + '</option>')
     })
+    return opts.join('')
+  }
+
+  /** A compact "Move to folder..." list on every item row (the drag is the other way to do the same). */
+  function moveSelectHtml(it) {
+    var wf = WB.workFolders || { box: null, folders: [] }
+    if (archived() || !wf.box) return ''
     return '<select class="wb-item-move" data-wb-move="' + escA(it.id) + '" aria-label="' + escA(t('workbench.move.label')) + '"'
-      + (WB.moveBusy ? ' disabled' : '') + '>' + opts.join('') + '</select>'
+      + (WB.moveBusy ? ' disabled' : '') + '>' + folderOptionsHtml() + '</select>'
+  }
+
+  /** The same list for loose files: `which` is a file's rel, or '*' for every ticked file. */
+  function moveFilesSelectHtml(which) {
+    var wf = WB.workFolders || { box: null, folders: [] }
+    if (archived() || !wf.box) return ''
+    return '<select class="wb-item-move" data-wb-move-files="' + escA(which) + '" aria-label="' + escA(t('workbench.files.move_label')) + '"'
+      + (WB.fileBusy ? ' disabled' : '') + '>' + folderOptionsHtml().replace(esc(t('workbench.move.label')), esc(t('workbench.files.move_label'))) + '</select>'
+  }
+
+  /** Ticked loose files (or one) -> a folder of the box; the server skips what would overwrite or break. */
+  function moveFilesToFolder(which, folder) {
+    if (!which || WB.fileBusy || archived()) return
+    keepSelName()
+    var rels = which === '*' ? Object.keys(WB.fileSel || {}) : [which]
+    if (!rels.length) { window.showToast(t('workbench.files.none')); return }
+    var pid = WB.projectId
+    WB.fileBusy = true
+    render()
+    api('POST', '/api/workbench/files-move', { project_id: pid, rels: rels, folder: folder }).then(function (r) {
+      WB.fileBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      var d = r.data || {}
+      if (d.work_folders) WB.workFolders = d.work_folders
+      if (d.items) WB.items = d.items
+      // A moved file's old path is no longer ticked; skipped ones stay ticked so the user sees what is left.
+      var skippedNames = {}
+      ;(d.skipped || []).forEach(function (s) { skippedNames[s.name] = true })
+      Object.keys(WB.fileSel || {}).forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
+      render()
+      var sk = d.skipped || []
+      var why = { name_taken: 0, in_use: 0, same_place: 0, not_loose: 0, failed: 0 }
+      sk.forEach(function (s) { why[s.reason] = (why[s.reason] || 0) + 1 })
+      var msg = t('workbench.files.moved', { n: (d.moved || []).length })
+      if (sk.length) msg += ' ' + t('workbench.files.skipped', { n: sk.length, taken: why.name_taken, used: why.in_use, same: why.same_place, other: why.not_loose + why.failed })
+      window.showToast(msg)
+    })
   }
 
   function moveItemToFolder(itemId, folder) {
@@ -1374,9 +1418,11 @@
     var c = WB.ctx
     if (!c || c.file !== rel || archived()) return ''
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
-    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 80))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 120))
+    var many = WB.fileSel && WB.fileSel[rel] && Object.keys(WB.fileSel).length > 1
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
       + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
+      + moveFilesSelectHtml(many ? '*' : rel)
       + '</div>'
   }
 
@@ -1599,6 +1645,7 @@
       + '<span class="wb-sel-count">' + esc(t('workbench.sel.count', { n: sel.total })) + '</span>'
       + '<input type="text" id="wbSelDeckName" class="wb-sel-name" maxlength="120" value="' + escA(WB.selName || '') + '" placeholder="' + escA(t('workbench.sel.name_ph')) + '" aria-label="' + escA(t('workbench.sel.name_label')) + '">'
       + '<button type="button" class="btn-primary" data-wb-act="sel-to-deck"' + (WB.fileBusy || !sel.imgs.length ? ' disabled' : '') + '>' + esc(t('workbench.sel.to_deck', { n: sel.imgs.length })) + '</button>'
+      + moveFilesSelectHtml('*')
       + '<button type="button" class="btn-secondary" data-wb-act="sel-clear">' + esc(t('workbench.sel.clear')) + '</button>'
       + (sel.other ? '<span class="wb-hint wb-sel-note">' + esc(t('workbench.sel.not_images', { n: sel.other })) + '</span>' : '')
       + '</div>'
@@ -12556,6 +12603,8 @@
     if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
     if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) { brandSyncDraft(); return }
+    var mvf = e.target.getAttribute && e.target.getAttribute('data-wb-move-files')
+    if (mvf) { if (e.target.value) moveFilesToFolder(mvf, e.target.value); return }
     var mv = e.target.getAttribute && e.target.getAttribute('data-wb-move')
     if (mv) { if (e.target.value) moveItemToFolder(mv, e.target.value); return }
     var rid = e.target.getAttribute && e.target.getAttribute('data-wb-redact-id')
