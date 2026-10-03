@@ -120,6 +120,8 @@ import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync, rmdirSync } from 'node:fs'
 import { logger } from '../../logger.js'
+import { getSecret } from '../vault.js'
+import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
 import {
   makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
@@ -136,6 +138,22 @@ function uiLang(url: URL): 'hu' | 'en' {
 }
 
 const MESSAGES: Record<string, { hu: string; en: string }> = {
+  translate_no_key: {
+    hu: 'A fordításhoz egy OpenRouter-kulcs kell, és még nincs beállítva. Állítsd be a bal oldali menü OpenRouter oldalán (a beérkező levelek fordítása is ezt a kulcsot használja).',
+    en: 'Translating needs an OpenRouter key, and none is set yet. Set it on the OpenRouter page in the left menu (translating incoming emails uses the same key).',
+  },
+  translate_failed: {
+    hu: 'A fordítás nem sikerült. Próbáld újra egy perc múlva.',
+    en: 'The translation did not work. Try again in a minute.',
+  },
+  translate_empty: {
+    hu: 'Nincs mit fordítani: a szöveg üres.',
+    en: 'There is nothing to translate: the text is empty.',
+  },
+  translate_too_long: {
+    hu: 'Ez a szöveg túl hosszú egy lépésben fordításhoz (legfeljebb 30 000 karakter). Fordítsd részletekben.',
+    en: 'This text is too long to translate in one go (at most 30,000 characters). Translate it in parts.',
+  },
   project_required: {
     hu: 'Nincs megadva, melyik projekt Munkapadját nyitod meg.',
     en: 'It is not given which project\'s Workbench you are opening.',
@@ -2471,6 +2489,38 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   }
 
   // #454: a new folder inside the project's work items box (the picker's "New folder").
+  // Ketnyelvu fordito (#467): ugyanaz a motor, mint az e-mail fordito (kulcs, gyorsitotar, nyelvlista) --
+  // csak nem levelhez kotott. A hosszu szoveg bekezdes-hatarokon darabolodik (a modell valasza korlatos).
+  if (path === '/api/workbench/translate' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const text = String(body['text'] ?? '')
+    if (!text.trim()) return fail(res, 400, 'translate_empty', lang)
+    if (text.length > 30_000) return fail(res, 413, 'translate_too_long', lang)
+    const apiKey = getSecret('openrouter-fleet-key')
+    if (!apiKey) return fail(res, 503, 'translate_no_key', lang)
+    const targetLang = resolveTargetLang(String(body['target_lang'] ?? ''))
+    const sourceLang = String(body['source_lang'] ?? 'auto')
+    const pieces: string[] = []
+    let cur = ''
+    for (const para of text.split(/\n{2,}/)) {
+      if (cur && cur.length + para.length > 3000) { pieces.push(cur); cur = para } else cur = cur ? cur + '\n\n' + para : para
+    }
+    if (cur.trim()) pieces.push(cur)
+    const out: string[] = []
+    let detected = 'unknown'
+    let allCached = true
+    for (const piece of pieces) {
+      const r = await translateEmailContent(piece, '', apiKey, { targetLang, sourceLang })
+      if (r.translation.startsWith(TRANSLATION_FAILED_MARKER)) return fail(res, 502, 'translate_failed', lang)
+      if (detected === 'unknown' && r.sourceLang !== 'unknown') detected = r.sourceLang
+      if (!r.fromCache) allCached = false
+      out.push(r.translation)
+    }
+    json(res, { translation: out.join('\n\n'), source_lang: detected, target_lang: targetLang, from_cache: allCached, langs: Object.keys(SUPPORTED_TRANSLATION_LANGS) })
+    return true
+  }
+
   if (path === '/api/workbench/folders' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)

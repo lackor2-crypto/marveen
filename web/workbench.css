@@ -1593,3 +1593,13 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
    (set on .wb-fr-scroll), the layout and the buttons stay put, so there is no transform and no scroll drift. */
 .wb-fr-scroll .wb-md-live, .wb-fr-scroll .wb-preview-text { zoom: var(--wb-zoom, 1); }
 .wb-fr-scroll .wb-text-edit { font-size: calc(0.9rem * var(--wb-zoom, 1)); }
+
+/* Bilingual translator + read-aloud in the text editor and reader (#467) */
+.wb-tr-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin: 0 0 4px; }
+.wb-tr-head > .wb-label { margin: 0; }
+.wb-tr-ctl { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.wb-tr-mode-on { background: var(--accent, #2563eb); color: #fff; }
+.wb-tr-lang { max-width: 9rem; }
+.wb-tr-note { margin: 8px 0; }
+.wb-tr-stale { margin: 0 0 6px; color: var(--warn, #b45309); }
+.wb-tr-reader { justify-content: flex-start; margin: 8px 0; }
