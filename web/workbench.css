@@ -1580,3 +1580,11 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-fr-chat .wb-chat > .wb-chat-log { flex: 1 1 0; min-height: 60px; max-height: none; }
 .wb-fr-chat .wb-chat > .wb-chat-tools { flex: 0 1 28%; min-height: 48px; max-height: none; }
 @media (max-width: 900px) { .wb-fr-chat { overflow: visible; display: block; } .wb-fr-chat .wb-chat { display: block; overflow: visible; } }
+
+/* Markdown edit: save / cancel / dictate sit in ONE compact row right under the boxes, the hint is one small line,
+   and nothing in the middle column scrolls: only the two boxes do (Boss, TG 2275). */
+.wb-md-form .wb-form-actions { flex-wrap: nowrap; align-items: center; margin-top: 4px; }
+.wb-md-form .wb-form-actions .btn-primary, .wb-md-form .wb-form-actions .btn-secondary { width: auto; flex: 0 0 auto; }
+.wb-md-form .wb-hint { margin: 2px 0 0; font-size: 0.78rem; }
+.wb-fr-scroll { max-height: none; }
+.wb-fr-scroll:has(.wb-md-split) { overflow: hidden; }
