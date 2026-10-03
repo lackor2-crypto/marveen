@@ -108,7 +108,8 @@ describe('planLifeTree', () => {
     // videok is." -- ezert kapcsolhato a MEDIA kulon.
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
     expect(nodes).toContain('Teszt Elek/Média/Fotók/Németország')
-    expect(nodes).toContain('Teszt Elek/Média/Videók/Németország')
+    // A videok is a Fotok alatt elnek (#464): nincs Videok tipus-mappa.
+    expect(nodes.some((r) => r.includes('/Videók'))).toBe(false)
     // Anna nem kerte: nala a FOTOK alatt CSOPORT all, nem orszag. (Maga a
     // `Fotók/` elotag nala is letezik -- a csoportok miatt --, ezert a
     // konkret orszagnevre kell kerdezni, kulonben a teszt semmit sem mer.)

@@ -208,7 +208,7 @@ export interface LifePerson {
    * SZEMELYENKENT allithato lista, nem a kodba drotozott harmas.
    */
   countrySplit: string[]
-  /** A media-agban keszulo tipusok (`photos`, `videos`, `audio`, `scans`). */
+  /** A media-agban keszulo tipusok (`photos`, `audio`, `scans`). Videok nincsenek: a `photos` a fotok ES videok kozos helye. */
   mediaKinds: string[]
   /** A media-tipusok alatti bontas (`Ági családja`, `Utazás`, ...). */
   mediaGroups: string[]
@@ -301,10 +301,19 @@ export function defaultCountrySplit(): string[] {
   return ['legal', 'finance', 'authorities']
 }
 
-/** A valaszthato media-tipusok (specifikacio 18. pont). */
-export const MEDIA_KINDS = ['photos', 'videos', 'audio', 'scans'] as const
+/**
+ * A valaszthato media-tipusok (specifikacio 18. pont).
+ *
+ * NINCS `videos` (Boss, 2026-10-03, #464): egy esemeny fotoi es videoi
+ * osszetartoznak (Vallopere, Amerika, Ismerkedes), a tipus szerinti bontas
+ * ugyanazt a csoportot tobb helyen hozta letre. A `photos` ("Fotók") a fotok ES
+ * a videok kozos helye; a tipus keresesi szuro, nem mappa. A regi `Videók`
+ * mappa neve (`LIFE_NAMES.videos`) csak azert marad meg, hogy a meglevo
+ * telepitesek tartalmat at lehessen tenni a Fotok ala (`life-media-videos.ts`).
+ */
+export const MEDIA_KINDS = ['photos', 'audio', 'scans'] as const
 
-/** A media-tipusok alapertelmezese: mind a negy. */
+/** A media-tipusok alapertelmezese: mind a harom. */
 export function defaultMediaKinds(): string[] {
   return [...MEDIA_KINDS]
 }
@@ -729,7 +738,8 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
       // rendezoelv, mint a szemelyeknel. Korabban a marketing ala volt
       // bujtatva; a Boss faja a FEJLESZTES melle, onallo agkent teszi.
       if (key === 'media') {
-        for (const m of ['photos', 'videos']) add(`${cat}/${lifeName(m, lang)}`, 'media', m, c.id)
+        // Egy mappa a ceg fotoinak ES videoinak (BusPro-pelda, Boss 2026-10-03: #464).
+        add(`${cat}/${lifeName('photos', lang)}`, 'media', 'photos', c.id)
       }
     }
   }
@@ -1207,7 +1217,7 @@ export interface MediaTarget {
   /** The folder name on disk (the person's / company's branch). */
   name: string
   rel: string
-  /** Base media folder per media kind (`photos`, `videos`, ...), when planned. */
+  /** Base media folder per media kind (`photos`, `audio`, ...), when planned. */
   media: Partial<Record<(typeof MEDIA_KINDS)[number], string>>
 }
 

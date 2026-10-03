@@ -69,7 +69,8 @@ describe('a sablonok', () => {
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
     const p = cfg.persons[0].name
     expect(rels).toContain(`${p}/Média/Fotók/${cfg.persons[0].countries[2]}`)
-    expect(rels).toContain(`${p}/Média/Videók/${cfg.persons[0].countries[2]}`)
+    // Nincs kulon Videok mappa (#464): a Fotok a fotok ES a videok kozos helye.
+    expect(rels.some((r) => r.includes('/Videók'))).toBe(false)
   })
 
   it('a teljes sablonban a szemelyes es a ceges repo KULON all', () => {
