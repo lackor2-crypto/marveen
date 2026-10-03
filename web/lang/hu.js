@@ -7421,6 +7421,8 @@ window._i18n.hu = {
   "kanban.filter.show_work": "Munkadarabok mutatása",
   "kanban.filter.show_work_title": "A Munkapad munkadarabjai is látszanak a táblán, keretezve. Kikapcsolva csak a kanbankártyák.",
   "workbench.work_seq.title": "{n}: munkadarab-sorszám (nem kanbankártya). A chatben így hivatkozhatsz rá, például: „csináld meg a {n}-et”.",
+  "workbench.head_open.item_hint": "Megnyitja az Intézőt ott, ahol ez a munkadarab van.",
+  "workbench.head_open.box_hint": "Megnyitja az Intézőt a projekt munkadarab-mappájánál.",
   "workbench.folder.open_short": "Megnyitás",
   "workbench.folder.short.intezo": "Megnyitás a {bot} Intézőjében",
   "workbench.folder.short.system.windows": "Megnyitás a Windows Intézőjében",

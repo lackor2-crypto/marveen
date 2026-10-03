@@ -711,6 +711,12 @@ export function workbenchPlace(project: ProjectRow, item: WorkItemRow | null, pl
     if (!sh.ok) return { ok: false, code: 'no_shared_folder' }
     return out(sh.dirAbs, null)
   }
+  // #476: no item picked -> the project's work items box, else the project folder itself (never a dead end).
+  if (place === 'box') {
+    const box = findWorkItemsBox(project)
+    const t = box ? projectFileTarget(project, box) : root
+    return out(t.ok && inside(t.dirAbs) ? t.dirAbs : root.dirAbs, null)
+  }
   if (!item || item.project_id !== project.id) return { ok: false, code: 'not_found' }
   // The item's own folder, else the folder it is filed in (Boss #455: an item
   // that has no files yet still sits in a real folder; "no folder" was a lie).

@@ -7343,6 +7343,8 @@ window._i18n.en = {
   "kanban.filter.show_work": "Show work items",
   "kanban.filter.show_work_title": "The Workbench's work items also show on the board, framed. Off: kanban cards only.",
   "workbench.work_seq.title": "{n}: work item number (not a kanban card). Use it in the chat, e.g. \"finish {n}\".",
+  "workbench.head_open.item_hint": "Opens the Explorer where this work item is.",
+  "workbench.head_open.box_hint": "Opens the Explorer at the project's work items folder.",
   "workbench.folder.open_short": "Open",
   "workbench.folder.short.intezo": "Open in {bot} Explorer",
   "workbench.folder.short.system.windows": "Open in Windows Explorer",

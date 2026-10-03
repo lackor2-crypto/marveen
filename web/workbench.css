@@ -1617,3 +1617,8 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-sel-count { font-weight: 600; }
 .wb-sel-name { flex: 1 1 160px; min-width: 0; }
 .wb-sel-note { flex: 1 0 100%; margin: 0; }
+
+/* #476: Open button next to the work items heading */
+.wb-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.wb-panel-head .wb-panel-title { margin: 0; }
+.wb-head-open { flex: 0 0 auto; }
