@@ -38642,7 +38642,7 @@ async function loadIntezoPage() {
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
   bind('intezoRestoreBtn', 'click', () => _intezoRestore())
-  bind('intezoLegacyVideosBtn', 'click', () => _intezoLegacyVideosMove())
+  bind('intezoLegacyMediaBtn', 'click', () => _intezoLegacyMediaMove())
   bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
   bind('intezoTreeBtn', 'click', () => _intezoTreeSetShown(!_intezoTreeShown()))
   bind('intezoClipPasteBtn', 'click', () => _intezoPaste(_intezoPath))
@@ -39410,7 +39410,7 @@ async function _intezoStatus() {
     }
     if (ensure) ensure.hidden = false
     if (toDepo) toDepo.hidden = true
-    void _intezoLegacyVideosBox()
+    void _intezoLegacyMediaBox()
     if (!st.exists || (st.missing || []).length) {
       box.hidden = false
       txt.textContent = st.exists
@@ -39440,50 +39440,53 @@ function _intezoAbandonedBox(st) {
   if (list) list.innerHTML = rels.map((r) => escapeHtml(r)).join('<br>')
 }
 
-/** A regi `Media/Videok` mappa maradek fajljai (#464): a videok a Fotok ala
- *  kerulnek. Semleges doboz, csak ha tenyleg maradt benne fajl; a mozgatast
+/** A regi `Media/Videok` es `Media/Audio` mappak maradek fajljai (#464): a
+ *  videok es a hangok a Fotok ala kerulnek. Semleges doboz, csak ha tenyleg maradt benne fajl; a mozgatast
  *  a felhasznalo inditja, elonezet utan (nem ir felul, nem torol). */
-async function _intezoLegacyVideosBox() {
-  const box = document.getElementById('intezoLegacyVideosBox')
+async function _intezoLegacyMediaBox() {
+  const box = document.getElementById('intezoLegacyMediaBox')
   if (!box) return
   box.hidden = true
   try {
-    const lv = await _intezoGet('/api/life/legacy-videos')
+    const lv = await _intezoGet('/api/life/legacy-media')
     const movable = (lv && lv.movable) || 0
     const clashes = (lv && lv.clashes) || 0
-    if (!movable && !clashes) return
-    const txt = document.getElementById('intezoLegacyVideosText')
-    const btn = document.getElementById('intezoLegacyVideosBtn')
+    const scans = (lv && lv.scans) || 0
+    if (!movable && !clashes && !scans) return
+    const txt = document.getElementById('intezoLegacyMediaText')
+    const btn = document.getElementById('intezoLegacyMediaBtn')
     const parts = []
-    if (movable) parts.push(t('intezo.legacyvid_n', { n: movable }))
-    if (clashes) parts.push(t('intezo.legacyvid_clash', { n: clashes }))
+    if (movable) parts.push(t('intezo.legacymedia_n', { n: movable }))
+    if (clashes) parts.push(t('intezo.legacymedia_clash', { n: clashes }))
+    // A szkenneket NEM mozgatjuk (papir, besorolas kell): csak jelezzuk.
+    if (scans) parts.push(t('intezo.legacymedia_scans', { n: scans }))
     if (txt) txt.textContent = parts.join(' ')
     if (btn) btn.hidden = !movable
     box.hidden = false
   } catch (e) { box.hidden = true }
 }
 
-async function _intezoLegacyVideosMove() {
-  const btn = document.getElementById('intezoLegacyVideosBtn')
+async function _intezoLegacyMediaMove() {
+  const btn = document.getElementById('intezoLegacyMediaBtn')
   if (btn) btn.disabled = true
   try {
     // ELONEZET: a szamot es a peldakat a szerver mondja, mielott barmi mozdul.
-    const lv = await _intezoGet('/api/life/legacy-videos')
+    const lv = await _intezoGet('/api/life/legacy-media')
     const n = (lv && lv.movable) || 0
-    if (!n) { await _intezoLegacyVideosBox(); return }
+    if (!n) { await _intezoLegacyMediaBox(); return }
     const ex = ((lv && lv.examples) || []).map((m) => m.from.split('/').slice(-3).join(' › ') + '  →  ' + m.to.split('/').slice(-4).join(' › ')).join('\n')
     // Az uj mappakat KI KELL MONDANI: egy kicsit mashogy irt csoportnev
     // (Jutka csaladja / Jutka csalad) csendben ket mappat csinalna.
     const fresh = ((lv && lv.newFolders) || []).map((r) => r.split('/').pop()).join(', ')
-    if (!confirm(t('intezo.legacyvid_confirm', { n: n })
-      + (fresh ? '\n\n' + t('intezo.legacyvid_new', { list: fresh }) : '')
+    if (!confirm(t('intezo.legacymedia_confirm', { n: n })
+      + (fresh ? '\n\n' + t('intezo.legacymedia_new', { list: fresh }) : '')
       + (ex ? '\n\n' + ex : ''))) return
-    const r = await _depoPost('/api/life/legacy-videos/move', {})
-    showToast(r.ok ? t('intezo.legacyvid_done', { n: r.moved }) : (r.message || t('intezo.legacyvid_failed')))
-    await _intezoLegacyVideosBox()
+    const r = await _depoPost('/api/life/legacy-media/move', {})
+    showToast(r.ok ? t('intezo.legacymedia_done', { n: r.moved }) : (r.message || t('intezo.legacymedia_failed')))
+    await _intezoLegacyMediaBox()
     await _intezoOpen(_intezoPath)
   } catch (e) {
-    showToast((e && e.message) ? e.message : t('intezo.legacyvid_failed'))
+    showToast((e && e.message) ? e.message : t('intezo.legacymedia_failed'))
   } finally {
     if (btn) btn.disabled = false
   }
@@ -43399,6 +43402,8 @@ function _intezoSplitBoxes(p, i) {
 /** Melyik media-tipusok keszuljenek el. */
 function _intezoKindBoxes(p, i) {
   if (!_intezoOpts) return ''
+  // Egyetlen tipus (Fotok) mellett nincs mit valasztani (#464): a sor eltunik.
+  if ((_intezoOpts.mediaKinds || []).length < 2) return ''
   return _intezoBoxRow(_intezoOpts.mediaKinds, p.mediaKinds, 'pkinds', i,
     t('intezo.cfg_kinds_title'), t('intezo.cfg_kinds_hint'))
 }

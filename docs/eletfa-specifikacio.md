@@ -269,13 +269,15 @@ Fotók / Videók
 A rendszer **ne feltételezze**, hogy minden felhasználónak ilyen családi
 csoportjai vannak – telepítéskor konfigurálhatók.
 
-> **Frissítés (Boss, 2026-10-03, #464): nincs `Videók` típus-mappa.** Egy
-> esemény fotói és videói összetartoznak (Vállóper, Amerika, Ismerkedés), ezért a
-> `Fotók` a fotók ÉS a videók közös helye (`Média/Fotók/<csoport>/<esemény>`), a
-> típus keresési szűrő, nem mappa. Az új telepítés nem hozza létre a `Videók`
-> mappát. A meglévő telepítéseken az Intéző felajánlja a régi `Videók` tartalmának
-> áthelyezését a `Fotók` alá (nem ír felül, nem töröl). A cégnél is egy `Média/Fotók`
-> mappa van.
+> **Frissítés (Boss, 2026-10-03, #464): nincs `Videók`, `Audió` és `Szkennek`
+> típus-mappa.** Egy esemény fotói, videói és hangjai összetartoznak (Vállóper,
+> Amerika, Ismerkedés), ezért a `Fotók` a fotók, videók ÉS hangfelvételek közös
+> helye (`Média/Fotók/<csoport>/<esemény>`), a típus keresési szűrő, nem mappa. A
+> beszkennelt papír irat, nem emlék: a Beérkezőbe megy, és a rendező kategória
+> szerint besorolja. Az új telepítés csak a `Fotók` mappát hozza létre. A
+> meglévő telepítéseken az Intéző felajánlja a régi `Videók` és `Audió` tartalmának
+> áthelyezését a `Fotók` alá (nem ír felül, nem töröl); a régi `Szkennek` tartalmát
+> csak jelzi, nem mozgatja. A cégnél is egy `Média/Fotók` mappa van.
 
 ### 20. Drive-ok és a Média kapcsolata
 

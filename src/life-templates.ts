@@ -74,7 +74,7 @@ export const LIFE_TEMPLATES: LifeTemplate[] = [
     highlights: [
       '1 személy a teljes 12 kategóriával',
       'Nincs ország-szint (egy országban élsz)',
-      'Média ág: fotók és videók együtt, audió, szken',
+      'Média ág: fotók, videók és hangfelvételek együtt',
     ],
     build(lang) {
       const ph = placeholders(lang)
