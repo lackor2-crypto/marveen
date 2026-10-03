@@ -1547,6 +1547,30 @@ describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
   })
 })
 
+// The Word editor builds its own DOM (DOMParser, contenteditable), which this harness's
+// DOM stand-in cannot run -- these guard the source, the browser run is in the card's report.
+describe('Word-szerkeszto a Munkapadon (#444, #458)', () => {
+  it('a beolvasott dokumentum torzset ATMOZGATJA a lapra, nem masolja vegtelen ciklusban', () => {
+    // importNode only COPIES: doc.body.firstChild never changed and the tab froze on every
+    // document with content. adoptNode moves the node out of the parsed document.
+    expect(SRC).not.toMatch(/while \(doc\.body\.firstChild\)[^\n]*importNode/)
+    expect(SRC).toContain('while (doc.body.firstChild) page.appendChild(document.adoptNode(doc.body.firstChild))')
+  })
+
+  it('K-4.2: a szovegszin es a kiemeles mezo ELOTT a markaszinek allnak, egy kattintas a kijelolesre teszi', () => {
+    // The slot comes before the colour label in the toolbar, for both colour tools.
+    expect(SRC).toMatch(/'<span class="wb-docedit-brand" data-de-brand="' \+ c \+ '"><\/span>'\s*\+ '<label class="wb-docedit-color"/)
+    // It is filled from the project's brand, with the same buttons as every other colour picker,
+    // and refilled on render (the toolbar is built once, the brand may arrive later).
+    expect(SRC).toMatch(/function docBrandFill\(st\)[\s\S]{0,700}brandSwatchRow\('data-de-swatch="'/)
+    expect(SRC).toMatch(/function docEditMount\(\)[\s\S]{0,300}docBrandFill\(st\)/)
+    // Opening the editor loads the brand; the button keeps the text selection and applies the colour.
+    expect(SRC).toMatch(/function openDocEdit\(\)[\s\S]{0,700}ensureBrand\(\)/)
+    expect(SRC).toContain("e.target.closest('[data-de], [data-de-swatch]')) e.preventDefault()")
+    expect(SRC).toMatch(/closest\('\[data-de-swatch\]'\)[\s\S]{0,400}docExec\(cmd, hex\)/)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // 8. FAZIS -- "Mi mukodik ezen a gepen?" panel. A felhasznalo nem programozo:
 // allapot-cimke + emberi mondat + SZAMOZOTT lepesek + LINK + beiro mezo, es

@@ -2801,7 +2801,9 @@
     var ext = docEditableExt(p)
     if (!ext || !docCanEdit(p)) return
     var itemId = WB.selectedId
-    WB.docEdit = { itemId: itemId, ext: ext, name: p.name || '', loading: true, busy: false, error: null, detail: null, dirty: false, host: null, page: null, head: '', baseVersion: null, range: null }
+    WB.docEdit = { itemId: itemId, ext: ext, name: p.name || '', loading: true, busy: false, error: null, detail: null, dirty: false, host: null, page: null, head: '', baseVersion: null, range: null, brandKey: null }
+    // The toolbar shows the brand colours first (K-4.2), so the brand is loaded in the background.
+    ensureBrand()
     render()
     api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/doc-html').then(function (r) {
       var st = WB.docEdit
@@ -2872,7 +2874,9 @@
           }).join('') + '</select>'
       }
       if (c === 'foreColor' || c === 'hiliteColor') {
-        return '<label class="wb-docedit-color" title="' + escA(t('workbench.docedit.t_' + c)) + '">'
+        // The project's brand colours go in front of the colour field (K-4.2); docBrandFill fills the slot.
+        return '<span class="wb-docedit-brand" data-de-brand="' + c + '"></span>'
+          + '<label class="wb-docedit-color" title="' + escA(t('workbench.docedit.t_' + c)) + '">'
           + (c === 'foreColor' ? 'A' : '&#9608;')
           + '<input type="color" data-de-color="' + c + '" value="' + (c === 'foreColor' ? '#c00000' : '#ffff00') + '"></label>'
       }
@@ -2889,7 +2893,10 @@
     page.setAttribute('role', 'textbox')
     page.setAttribute('aria-multiline', 'true')
     page.setAttribute('aria-label', st.name || t('workbench.docedit.open'))
-    while (doc.body.firstChild) page.appendChild(document.importNode(doc.body.firstChild, true))
+    // adoptNode MOVES the node out of the parsed document. importNode only copied it, so
+    // doc.body.firstChild never changed and the loop never ended: the tab froze on any document
+    // that had content.
+    while (doc.body.firstChild) page.appendChild(document.adoptNode(doc.body.firstChild))
     paper.appendChild(page)
     var foot = document.createElement('div')
     foot.className = 'wb-docedit-foot'
@@ -2904,11 +2911,20 @@
     // Sajat figyelok: a gepeles es a formazas NEM rajzolja ujra a Munkapadot.
     bar.addEventListener('mousedown', function (e) {
       // A gomb ne vegye el a kijelolest a szovegtol.
-      if (e.target && e.target.closest && e.target.closest('[data-de]')) e.preventDefault()
+      if (e.target && e.target.closest && e.target.closest('[data-de], [data-de-swatch]')) e.preventDefault()
     })
     bar.addEventListener('click', function (e) {
       var b = e.target && e.target.closest ? e.target.closest('[data-de]') : null
-      if (b) docExec(b.getAttribute('data-de'))
+      if (b) { docExec(b.getAttribute('data-de')); return }
+      var sw = e.target && e.target.closest ? e.target.closest('[data-de-swatch]') : null
+      if (!sw) return
+      var cmd = sw.getAttribute('data-de-swatch')
+      var hex = sw.getAttribute('data-wb-hex')
+      if ((cmd !== 'foreColor' && cmd !== 'hiliteColor') || !/^#[0-9a-fA-F]{6}$/.test(hex || '')) return
+      docExec(cmd, hex)
+      // The colour field next to the buttons shows the colour just used, as after picking it there.
+      var field = bar.querySelector('[data-de-color="' + cmd + '"]')
+      if (field) field.value = hex
     })
     bar.addEventListener('change', function (e) {
       var el = e.target
@@ -2930,6 +2946,22 @@
     })
     st.host = host
     st.page = page
+    docBrandFill(st)
+  }
+
+  /** The brand colour buttons in front of the editor's colour fields (K-4.2: brand colours first in
+   *  every colour picker). The toolbar is built once, when the document opens, and the brand may
+   *  arrive (or change) later -- so every render calls this, and it rewrites the slots only when the
+   *  brand colours changed. Without a brand the slots stay empty. */
+  function docBrandFill(st) {
+    if (!st || !st.host) return
+    var key = JSON.stringify((WB.brand && WB.brand.colors) || [])
+    if (st.brandKey === key) return
+    st.brandKey = key
+    var slots = st.host.querySelectorAll('[data-de-brand]')
+    for (var i = 0; i < slots.length; i++) {
+      slots[i].innerHTML = brandSwatchRow('data-de-swatch="' + escA(slots[i].getAttribute('data-de-brand')) + '"', '')
+    }
   }
 
   function docSaveRange(st) {
@@ -2974,6 +3006,7 @@
     var st = WB.docEdit
     var slot = document.querySelector('[data-wb-docedit]')
     if (!st || !st.host || !slot) return
+    docBrandFill(st)
     if (st.host.parentNode !== slot) {
       var had = document.activeElement === st.page || (st.host.parentNode == null && st.range)
       slot.appendChild(st.host)
