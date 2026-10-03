@@ -32,6 +32,14 @@ Ez az eljárás a kockázatot szűkíti, a próbát nem hagyja ki.
 - Ha a port foglalt, a szerver megpróbálja felszabadítani: ellenőrizd, hogy a régi példányodat állítottad le (a `pkill -f` mintája nem biztos, hogy illeszkedik, a `lsof -ti :<port>` biztos).
 - A teljes suite ugyanígy futtatható izoláltan: `nice -n 19 npx vitest run --maxWorkers=2 > <scratch>/full.log 2>&1 &` (860 fájl ~9,5 perc).
 
+- A friss példányon NINCS dashboard-belépés (token mód): a `<img>`/`<iframe>` az `/api/` címekre 401-et kap, a képek üresek -- ez NEM a próbád hibája, hanem a termék fogyatéka (a `web/app.js` globális `error`-figyelője az img/audio-t már pótolja; videó és PDF-iframe nem).
+- A "Van már mentésed?" / onboarding ablak a `document.body.style.overflow='hidden'`-t állítja: ha csak az `#onboardingOverlay`-t távolítod el, a body marad `overflow:hidden`, és minden `position:sticky` (pl. a bal menü) a próbában hamisan elmozdulónak látszik. Töröld az overflow-t is (`document.body.style.overflow=''`), vagy kattints a "Nem, új kezdés" gombra.
+- Munkadarab létrehozásához mappa kell (`folder_required`): előbb `#wbNewFolderName` + `mkfolder`, majd minden új létrehozás előtt újra `#wbNewFolder` kiválasztás (az `sh-new` után elveszik).
+- A teszt-suite megtagadja a futást, ha a worktree-ben `store/claudeclaw.db` / `store/.dashboard-token` van (élő telepítésnek néz): a próba után `lsof -ti :<port> | xargs -r kill; rm -rf store/claudeclaw.db* store/.dashboard-token`.
+- A raktár (`MARVEEN_DEPOT`) a próbák közt megmarad: új próba előtt `rm -rf $D/Projektek/teszt/*`, különben maradék mappák/`(2)` nevek zavarják az eredményt.
+- A rail-fül (`fr-tab`) újrakattintása BEZÁRJA a panelt (Canva-minta): ellenőrizd az aktív állapotot, mielőtt kattintasz.
+- A `land-pr.sh` kimenetében a `MERGE-ELVE` sort keresd; a `PR -> .../pull/N` szám a SAJÁT PR-ed, a `gh pr view N` más repóra (alapértelmezett remote) mutathat.
+
 ## Ellenőrzés
 - Minden lépésre `OK`/`FAIL` sor, `pageerror` számláló 0, és a kimenetet mérd (pl. `ffprobe` a renderelt videóra), ne a gomb állapotából következtess.
 - A jelentésben nevezd meg, mit NEM mértél (telefonos nézet, stb.).
