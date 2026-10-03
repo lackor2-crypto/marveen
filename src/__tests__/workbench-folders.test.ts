@@ -208,8 +208,6 @@ describe('endpoints', () => {
     expect(moved.item.folder).toBe(folder + '/BL szignal')
     expect(moved.item.container_folder).toBe(folder)
     expect(existsSync(join(dir, 'Projektek', 'Robotok', ...moved.item.folder.split('/')))).toBe(true)
-    const again = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder })
-    expect((again.body as { moved: boolean; reason: string }).reason).toBe('same_place')
     const gone = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder: 'Projektek/nem-a-doboz' })
     expect(gone.status).toBe(400)
     // its own folder as the target: it already lives there, not "in use by something else"
@@ -217,6 +215,16 @@ describe('endpoints', () => {
     expect(own.status).toBe(200)
     expect((own.body as { moved: boolean; reason: string }).moved).toBe(false)
     expect((own.body as { moved: boolean; reason: string }).reason).toBe('own_folder')
+    // the group itself as the target again: the owner wants the item DIRECTLY in the group (no own sub-folder)
+    const flat = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder })
+    expect(flat.status).toBe(200)
+    expect((flat.body as { moved: boolean; item: { folder: string } }).moved).toBe(true)
+    expect((flat.body as { moved: boolean; item: { folder: string } }).item.folder).toBe(folder)
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', ...moved.item.folder.split('/')))).toBe(false)
+    // and once it IS the group's own folder, asking for the group again is the real "already there"
+    const again = await callWorkbench(`/api/workbench/items/${id}/folder`, 'POST', { folder })
+    expect((again.body as { moved: boolean; reason: string }).moved).toBe(false)
+    expect((again.body as { moved: boolean; reason: string }).reason).toBe('own_folder')
   })
 
   it('POST /intake files the item into the folder picked in step 1; a missing folder gives a human message', async () => {
