@@ -58,12 +58,12 @@ beforeEach(() => {
 })
 
 describe('the flat media model (no type folder)', () => {
-  it('MEDIA_KINDS stays photos (for legacy); the default is empty (flat)', () => {
+  it('MEDIA_KINDS stays photos (for legacy); the default is empty (flat)', async () => {
     expect([...MEDIA_KINDS]).toEqual(['photos'])
     expect(defaultMediaKinds()).toEqual([])
   })
 
-  it('a fresh tree builds Média/<csoport> for the person and a single Média for the company, no type folder', () => {
+  it('a fresh tree builds Média/<csoport> for the person and a single Média for the company, no type folder', async () => {
     const rels = planLifeTree(flatCfg(), 'hu').map((n) => n.rel)
     expect(rels).toContain('Teszt Elek/Média/Mykael család')
     expect(rels).toContain('Cégek/Teszt Kft/Média')
@@ -72,12 +72,12 @@ describe('the flat media model (no type folder)', () => {
     }
   })
 
-  it('a legacy saved config (explicit mediaKinds) keeps Média/Fotók until migrated', () => {
+  it('a legacy saved config (explicit mediaKinds) keeps Média/Fotók until migrated', async () => {
     const rels = planLifeTree(legacyCfg(), 'hu').map((n) => n.rel)
     expect(rels).toContain('Teszt Elek/Média/Fotók/Mykael család')
   })
 
-  it('"Create the structure" makes Média/<csoport> on a fresh install, no type folder', () => {
+  it('"Create the structure" makes Média/<csoport> on a fresh install, no type folder', async () => {
     const r = ensureLifeTree(flatCfg(), 'hu')
     expect(r.failed).toEqual([])
     expect(existsSync(join(media, 'Mykael család'))).toBe(true)
@@ -88,24 +88,24 @@ describe('the flat media model (no type folder)', () => {
 })
 
 describe('flattening the legacy type folders up under Média', () => {
-  it('on a fresh flat install there is nothing to move', () => {
+  it('on a fresh flat install there is nothing to move', async () => {
     ensureLifeTree(flatCfg(), 'hu')
-    const plan = planLegacyMedia(flatCfg(), 'hu')
+    const plan = await planLegacyMedia(flatCfg(), 'hu')
     expect(plan.moves).toEqual([])
     expect(plan.clashes).toEqual([])
     expect(plan.folders).toEqual([])
   })
 
-  it('moves photos, a video and a recording straight under Média, keeping the group/event', () => {
+  it('moves photos, a video and a recording straight under Média, keeping the group/event', async () => {
     put('Teszt Elek/Média/Fotók/Mykael család/a.jpg', 'photo-a')
     put('Teszt Elek/Média/Videók/Mykael család/Vállóper/b.mp4', 'video-b')
     put('Teszt Elek/Média/Audió/Barátok/hang.m4a', 'sound')
-    const plan = planLegacyMedia(flatCfg(), 'hu')
+    const plan = await planLegacyMedia(flatCfg(), 'hu')
     const tos = plan.moves.map((m) => m.to).sort()
     expect(tos).toContain('Teszt Elek/Média/Mykael család/a.jpg')
     expect(tos).toContain('Teszt Elek/Média/Mykael család/Vállóper/b.mp4')
     expect(tos).toContain('Teszt Elek/Média/Barátok/hang.m4a')
-    const r = moveLegacyMedia(flatCfg(), 'hu')
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
     expect(r.ok).toBe(true)
     expect(r.moved).toBe(3)
     expect(readFileSync(join(media, 'Mykael család', 'a.jpg'), 'utf8')).toBe('photo-a')
@@ -115,10 +115,10 @@ describe('flattening the legacy type folders up under Média', () => {
     expect(existsSync(join(media, 'Fotók', 'Mykael család', 'a.jpg'))).toBe(false)
   })
 
-  it('switches a legacy config to the flat model after a successful move', () => {
+  it('switches a legacy config to the flat model after a successful move', async () => {
     put('Teszt Elek/Média/Fotók/Mykael család/a.jpg')
     const cfg = legacyCfg()
-    const r = moveLegacyMedia(cfg, 'hu')
+    const r = await moveLegacyMedia(cfg, 'hu')
     expect(r.ok).toBe(true)
     expect(r.switched).toBe(true)
     expect(cfg.persons[0].mediaKinds).toEqual([])
@@ -126,18 +126,18 @@ describe('flattening the legacy type folders up under Média', () => {
     expect(rels.some((rel) => /\/Média\/(Fotók|Videók|Audió|Szkennek)(\/|$)/.test(rel))).toBe(false)
   })
 
-  it('names a folder that would be NEW under Média, so a near-duplicate is never silent', () => {
+  it('names a folder that would be NEW under Média, so a near-duplicate is never silent', async () => {
     put('Teszt Elek/Média/Mykael család/x.jpg')
     put('Teszt Elek/Média/Videók/Mykael családja/juci.mp4')
-    const plan = planLegacyMedia(flatCfg(), 'hu')
+    const plan = await planLegacyMedia(flatCfg(), 'hu')
     expect(plan.newFolders).toEqual(['Teszt Elek/Média/Mykael családja'])
   })
 
-  it('NEVER overwrites a same-name file and never deletes: the clash stays, reported', () => {
+  it('NEVER overwrites a same-name file and never deletes: the clash stays, reported', async () => {
     put('Teszt Elek/Média/Videók/Mykael család/a.mp4', 'LEGACY')
     put('Teszt Elek/Média/Mykael család/a.mp4', 'ALREADY-THERE')
     put('Teszt Elek/Média/Videók/Barátok/c.mp4', 'video-c')
-    const r = moveLegacyMedia(flatCfg(), 'hu')
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
     expect(r.moved).toBe(1)
     expect(r.skipped.map((m) => m.from)).toEqual(['Teszt Elek/Média/Videók/Mykael család/a.mp4'])
     expect(readFileSync(join(media, 'Mykael család', 'a.mp4'), 'utf8')).toBe('ALREADY-THERE')
@@ -146,28 +146,28 @@ describe('flattening the legacy type folders up under Média', () => {
     expect(existsSync(join(media, 'Videók', 'Barátok'))).toBe(true)
   })
 
-  it('ignores Windows housekeeping files, so an "empty" folder reports nothing to move', () => {
+  it('ignores Windows housekeeping files, so an "empty" folder reports nothing to move', async () => {
     put('Teszt Elek/Média/Videók/Barátok/desktop.ini', '[.ShellClassInfo]')
     put('Teszt Elek/Média/Videók/Barátok/Thumbs.db', 'x')
-    const plan = planLegacyMedia(flatCfg(), 'hu')
+    const plan = await planLegacyMedia(flatCfg(), 'hu')
     expect(plan.moves).toEqual([])
     expect(plan.folders).toEqual([])
   })
 
-  it('Szkennek is only COUNTED: paperwork is never moved or guessed a folder for', () => {
+  it('Szkennek is only COUNTED: paperwork is never moved or guessed a folder for', async () => {
     put('Teszt Elek/Média/Szkennek/Egyéb/szerzodes.pdf', 'paper')
     put('Teszt Elek/Média/Szkennek/Egyéb/szamla.pdf', 'paper2')
-    const plan = planLegacyMedia(flatCfg(), 'hu')
+    const plan = await planLegacyMedia(flatCfg(), 'hu')
     expect(plan.scans).toBe(2)
     expect(plan.moves).toEqual([])
-    const r = moveLegacyMedia(flatCfg(), 'hu')
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
     expect(r.moved).toBe(0)
     expect(readFileSync(join(media, 'Szkennek', 'Egyéb', 'szerzodes.pdf'), 'utf8')).toBe('paper')
   })
 
-  it('covers a company too: its Fotók content moves up to the company Média', () => {
+  it('covers a company too: its Fotók content moves up to the company Média', async () => {
     put('Cégek/Teszt Kft/Média/Fotók/bemutato.mp4', 'v')
-    const r = moveLegacyMedia(flatCfg(), 'hu')
+    const r = await moveLegacyMedia(flatCfg(), 'hu')
     expect(r.ok).toBe(true)
     expect(r.moved).toBe(1)
     expect(existsSync(join(depot, 'Cégek', 'Teszt Kft', 'Média', 'bemutato.mp4'))).toBe(true)
@@ -175,7 +175,7 @@ describe('flattening the legacy type folders up under Média', () => {
 })
 
 describe('switchToFlatMedia', () => {
-  it('empties non-empty mediaKinds and reports the change', () => {
+  it('empties non-empty mediaKinds and reports the change', async () => {
     const cfg = legacyCfg()
     expect(switchToFlatMedia(cfg)).toBe(true)
     expect(cfg.persons[0].mediaKinds).toEqual([])

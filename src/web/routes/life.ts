@@ -170,7 +170,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   // overwrites and never deletes (same-name files stay and are reported).
   if (path === '/api/life/legacy-media' && method === 'GET') {
     try {
-      const plan = planLegacyMedia(loadLifeConfig(), APP_LANG)
+      const plan = await planLegacyMedia(loadLifeConfig(), APP_LANG)
       send(res, 200, {
         movable: plan.moves.length,
         clashes: plan.clashes.length,
@@ -193,8 +193,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/legacy-media/move' && method === 'POST') {
     try {
-      const result = moveLegacyMedia(loadLifeConfig(), APP_LANG, uiLang(url))
-      const plan = planLegacyMedia(loadLifeConfig(), APP_LANG)
+      const result = await moveLegacyMedia(loadLifeConfig(), APP_LANG, uiLang(url))
+      const plan = await planLegacyMedia(loadLifeConfig(), APP_LANG)
       send(res, 200, { ...result, remaining: plan.moves.length, clashes: plan.clashes.length })
     } catch (err: any) {
       send(res, 500, {

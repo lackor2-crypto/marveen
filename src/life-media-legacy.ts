@@ -20,7 +20,8 @@
 //  - never delete: the (then empty) type folders are left for the owner;
 //  - labels / archived marks / the paper register follow the file, because the
 //    move goes through `moveLife()` itself.
-import { existsSync, mkdirSync, readdirSync, type Dirent } from 'node:fs'
+import { mkdirSync, type Dirent } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { APP_LANG } from './config.js'
 import { lifeName, loadLifeConfig, saveLifeConfig, planLifeTree, type LifeConfig } from './life-tree.js'
@@ -63,73 +64,97 @@ function ignorable(name: string): boolean {
 }
 
 /**
- * Every file still inside a legacy `Média/Videók` or `Média/Audió` folder and
- * where it goes, plus the count of files left in `Média/Szkennek`. Reads the
- * disk only; nothing is touched. The folders are located through the same plan
- * the tree is built from, so a person or company added later is covered with no
- * hand-kept list.
+ * Yield to the event loop this often while walking, so a huge tree on a SLOW
+ * mount (the life tree can live on a WSL `/mnt` drive) never blocks the dashboard.
+ * The old synchronous walk froze every request for minutes on a 14k-photo folder.
  */
-export function planLegacyMedia(
+const YIELD_EVERY = 400
+
+/**
+ * Every file still inside a legacy `Média/Fotók|Videók|Audió` folder and where it
+ * goes, plus the count of files left in `Média/Szkennek`. Reads the disk only;
+ * nothing is touched. ASYNC and yielding on purpose: the walk must not block the
+ * single Node event loop (see YIELD_EVERY). Clash detection reads each TARGET
+ * directory ONCE (cached Set), never one `exists` call per file -- on a 14k-file
+ * folder that is the difference between a few directory reads and 14k slow stats.
+ */
+export async function planLegacyMedia(
   cfg: LifeConfig = loadLifeConfig(),
   lang: string = APP_LANG,
-): LegacyMediaPlan {
+): Promise<LegacyMediaPlan> {
   const out: LegacyMediaPlan = { moves: [], clashes: [], folders: [], newFolders: [], scans: 0, truncated: false }
   let seen = 0
+  let sinceYield = 0
+  const yieldMaybe = async (): Promise<void> => {
+    if (++sinceYield >= YIELD_EVERY) { sinceYield = 0; await new Promise((r) => setImmediate(r)) }
+  }
 
-  /** Calls `onFile` for every real file under `rootRel`; stops at the cap. */
-  const eachFile = (rootRel: string, onFile: (fileRel: string) => void): void => {
-    const walk = (dirRel: string): void => {
+  /** A directory's entry-name Set, read once (async). null = the folder does not exist. */
+  const dirCache = new Map<string, Set<string> | null>()
+  const listing = async (rel: string): Promise<Set<string> | null> => {
+    const cached = dirCache.get(rel)
+    if (cached !== undefined) return cached
+    const abs = resolveLifePath(rel)
+    let set: Set<string> | null = null
+    if (abs) { try { set = new Set(await readdir(abs)) } catch { set = null } }
+    dirCache.set(rel, set)
+    return set
+  }
+
+  /** Calls `onFile` for every real file under `rootRel`; stops at the cap; yields. */
+  const eachFile = async (rootRel: string, onFile: (fileRel: string) => Promise<void> | void): Promise<void> => {
+    const walk = async (dirRel: string): Promise<void> => {
       if (out.truncated) return
       const abs = resolveLifePath(dirRel)
       if (!abs) return
       let entries: Dirent[] = []
-      try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+      try { entries = await readdir(abs, { withFileTypes: true }) } catch { return }
       for (const e of entries) {
         if (out.truncated) return
         if (ignorable(e.name)) continue
         const childRel = `${dirRel}/${e.name}`
-        if (e.isDirectory()) { walk(childRel); continue }
+        if (e.isDirectory()) { await walk(childRel); continue }
         // Symlinks and other special entries are not ours to move.
         if (!e.isFile()) continue
         if (++seen > MAX_FILES) { out.truncated = true; return }
-        onFile(childRel)
+        await yieldMaybe()
+        await onFile(childRel)
       }
     }
-    walk(rootRel)
+    await walk(rootRel)
   }
 
   for (const node of planLifeTree(cfg, lang)) {
     if (node.kind !== 'category' || node.key !== 'media') continue
     const mediaRel = node.rel // the target base: files move straight under Média
+    const mediaListing = await listing(mediaRel) // which top folders already exist under Média
 
     for (const kind of MOVE_KINDS) {
       const legacyRel = `${mediaRel}/${lifeName(kind, lang)}`
-      const legacyAbs = resolveLifePath(legacyRel)
-      if (!legacyAbs || !existsSync(legacyAbs)) continue
-
       let hadFiles = false
-      eachFile(legacyRel, (childRel) => {
+      await eachFile(legacyRel, async (childRel) => {
         hadFiles = true
         const sub = childRel.slice(legacyRel.length + 1)
         const to = `${mediaRel}/${sub}`
-        const toAbs = resolveLifePath(to)
-        if (toAbs && existsSync(toAbs)) { out.clashes.push({ from: childRel, to }); return }
+        const parts = sub.split('/')
+        const name = parts[parts.length - 1]
+        const toDirRel = to.slice(0, to.length - name.length - 1)
+        // Clash = the target directory already has a file of this name. One cached
+        // directory read instead of a stat per file.
+        const targetSet = await listing(toDirRel)
+        if (targetSet && targetSet.has(name)) { out.clashes.push({ from: childRel, to }); return }
         out.moves.push({ from: childRel, to })
         // The first folder under Média on the way to the file: new?
-        const first = sub.split('/')
-        if (first.length > 1) {
-          const topRel = `${mediaRel}/${first[0]}`
-          const topAbs = resolveLifePath(topRel)
-          if (topAbs && !existsSync(topAbs) && !out.newFolders.includes(topRel)) out.newFolders.push(topRel)
+        if (parts.length > 1) {
+          const topRel = `${mediaRel}/${parts[0]}`
+          if ((!mediaListing || !mediaListing.has(parts[0])) && !out.newFolders.includes(topRel)) out.newFolders.push(topRel)
         }
       })
       if (hadFiles) out.folders.push(legacyRel)
     }
 
     // Paperwork is only counted: it needs filing by category, not a guess.
-    const scansRel = `${node.rel}/${lifeName('scans', lang)}`
-    const scansAbs = resolveLifePath(scansRel)
-    if (scansAbs && existsSync(scansAbs)) eachFile(scansRel, () => { out.scans++ })
+    await eachFile(`${mediaRel}/${lifeName('scans', lang)}`, () => { out.scans++ })
   }
   return out
 }
@@ -165,22 +190,26 @@ export function switchToFlatMedia(cfg: LifeConfig): boolean {
  * `moveLife()`. A failure of one file does not stop the others; the end says
  * what did not go.
  */
-export function moveLegacyMedia(
+export async function moveLegacyMedia(
   cfg: LifeConfig = loadLifeConfig(),
   lang: string = APP_LANG,
   msgLang: string = lang,
-): LegacyMediaResult {
+): Promise<LegacyMediaResult> {
   const hu = msgLang !== 'en'
-  const plan = planLegacyMedia(cfg, lang)
+  const plan = await planLegacyMedia(cfg, lang)
   const skipped: FileMove[] = [...plan.clashes]
   const failed: Array<{ rel: string; error: string }> = []
   let moved = 0
+  let sinceYield = 0
 
   for (const m of plan.moves) {
+    // moveLife is synchronous; yield between files so a big move keeps the
+    // dashboard responsive on a slow mount.
+    if (++sinceYield >= YIELD_EVERY) { sinceYield = 0; await new Promise((r) => setImmediate(r)) }
     const toAbs = resolveLifePath(m.to)
     if (!toAbs) { failed.push({ rel: m.from, error: 'outside' }); continue }
     try {
-      // The target family folder may not exist under Fotók yet.
+      // The target group/event folder may not exist under Média yet.
       mkdirSync(dirname(toAbs), { recursive: true })
     } catch (err: any) {
       failed.push({ rel: m.from, error: String(err?.code || err?.message || err) })
