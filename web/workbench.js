@@ -11821,7 +11821,8 @@
       // The frame starts below the dashboard's own header, so the room is the window minus where the frame
       // begins on the page (page scroll position removed): the frame then ends exactly at the window bottom
       // and the page itself has nothing to scroll (Boss, TG 2261).
-      var frTop = fr && typeof fr.getBoundingClientRect === 'function' ? fr.getBoundingClientRect().top + (window.pageYOffset || 0) : 0
+      var scrollHost = fr && typeof fr.closest === 'function' ? fr.closest('main.projects-active') : null
+      var frTop = fr && typeof fr.getBoundingClientRect === 'function' ? fr.getBoundingClientRect().top + (window.pageYOffset || 0) + (scrollHost ? scrollHost.scrollTop || 0 : 0) : 0
       // What the page keeps free below the frame (the main area's bottom padding) counts too.
       var below = 0
       for (var a = fr && fr.parentElement; a && a !== document.documentElement && typeof window.getComputedStyle === 'function'; a = a.parentElement) {
@@ -11835,6 +11836,8 @@
     if (WB.fitKey !== WB.selectedId) {
       WB.fitKey = WB.selectedId
       try { window.scrollTo(0, 0) } catch (_e) { /* old browser: harmless */ }
+      var host = fr && typeof fr.closest === 'function' ? fr.closest('main.projects-active') : null
+      if (host) host.scrollTop = 0
     }
     fitMdSplit()
   }

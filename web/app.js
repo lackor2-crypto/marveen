@@ -1224,6 +1224,9 @@ function switchPage(pageId) {
   // Kanban and Email need full-width layout (overrides main's max-width: 1200px)
   document.querySelector('main').classList.toggle('kanban-active', pageId === 'kanban')
   document.querySelector('main').classList.toggle('email-active', pageId === 'email')
+  // Projects (and its Workbench): the content area scrolls, never the page, so the left menu and its
+  // collapse button cannot slide away with it (Boss, TG 7643, #470).
+  document.querySelector('main').classList.toggle('projects-active', pageId === 'projects')
   // Activity page runs a live poll; stop it whenever we navigate away.
   if (pageId !== 'activity') stopActivityPoll()
   if (pageId === 'activity') startActivityPoll()
