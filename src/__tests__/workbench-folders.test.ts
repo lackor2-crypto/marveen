@@ -2,7 +2,7 @@
 // create endpoints, the folder list, the conversion of old sub items, the agent
 // context by folder, and the tree in the list UI.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
@@ -47,7 +47,7 @@ describe('folders in the work items box', () => {
   afterEach(teardown)
 
   it('no box yet: the list is empty and nothing is created', () => {
-    expect(listWorkFolders(getProjectRow())).toEqual({ box: null, folders: [], truncated: false })
+    expect(listWorkFolders(getProjectRow())).toEqual({ box: null, folders: [], truncated: false, files: {} })
     expect(workFolderTarget(getProjectRow(), 'Projektek')).toMatchObject({ ok: false, code: 'no_box' })
   })
 
@@ -63,6 +63,25 @@ describe('folders in the work items box', () => {
     expect(makeWorkFolder(p, '..', 'x')).toMatchObject({ ok: false })
     expect(makeWorkFolder(p, 'Egyeb', 'x')).toMatchObject({ ok: false, code: 'bad_folder' })
     expect(makeWorkFolder(p, a.folder, 'a/../../b')).toMatchObject({ ok: false })
+  })
+
+  it('plain files in a folder are listed (a folder full on disk must not look empty); item containers and dotfiles are not', () => {
+    const p = getProjectRow()
+    const a = makeWorkFolder(p, '', 'Diak')
+    if (!a.ok) throw new Error('mk: ' + a.code)
+    const abs = join(dir, 'Projektek', 'Robotok', ...a.folder.split('/'))
+    writeFileSync(join(abs, 's10.png'), 'x')
+    writeFileSync(join(abs, 's2.png'), 'xx')
+    writeFileSync(join(abs, '.hidden'), 'x')
+    const box = listWorkFolders(p).box as string
+    const item = mk('Egy jegyzet', a.folder)
+    void item
+    const r = listWorkFolders(p)
+    expect(r.files[a.folder]?.map((f) => f.name)).toEqual(['s2.png', 's10.png'])
+    expect(r.files[a.folder]?.[0]).toMatchObject({ size: 2, rel: expect.stringContaining('/Diak/s2.png') })
+    // the item container (marveen-item.json) is not a folder of plain files
+    expect(Object.values(r.files).flat().some((f) => f.name === 'marveen-item.json')).toBe(false)
+    expect(box).toBeTruthy()
   })
 
   it('an item made in a chosen folder gets its own folder INSIDE it', () => {

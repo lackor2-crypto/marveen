@@ -1335,6 +1335,15 @@
   /** The key of the fixed Favorites folder in WB.collapsedFolder (a real folder path never contains a star). */
   var FAV_KEY = '*favorites*'
 
+  /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
+  function plainFileRowHtml(f, depth) {
+    var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
+    return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '">'
+      + '<a class="wb-item wb-file-link" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
+      + '<span class="wb-item-title">\ud83d\udcc4 ' + esc(f.name) + '</span>'
+      + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
+  }
+
   function folderTreeRows() {
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
@@ -1355,8 +1364,9 @@
     Object.keys(byPlace).forEach(function (k) {
       byPlace[k].sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0) || (b.created_at || 0) - (a.created_at || 0) || String(a.title || '').localeCompare(String(b.title || '')) })
     })
+    var plainFiles = wf.files || {}
     function count(path) {
-      var n = (byPlace[path] || []).length
+      var n = (byPlace[path] || []).length + (plainFiles[path] || []).length
       ;(kids[path] || []).forEach(function (k) { n += count(k) })
       return n
     }
@@ -1372,6 +1382,7 @@
         if (!collapsed) walk(f, depth + 1)
       })
       ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth)) })
+      ;(plainFiles[path] || []).forEach(function (f) { rows.push(plainFileRowHtml(f, depth)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favs = items.filter(function (it) { return it.pinned_at != null })

@@ -5619,6 +5619,7 @@ window._i18n.en = {
   "workbench.folder.rename_prompt": "New name for the folder \"{name}\":",
   "workbench.folder.renamed": "Folder renamed.",
   "workbench.folder.expand": "Open folder",
+  "workbench.file.open": "Open file (not a work item, it just lies in the folder)",
   "workbench.folder.collapse": "Collapse folder",
   "workbench.warn.cancel": "Cancel",
   "workbench.trash.purge": "Delete permanently",
