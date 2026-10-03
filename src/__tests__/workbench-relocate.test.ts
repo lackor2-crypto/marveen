@@ -2,7 +2,7 @@
 // file manager -- a cross-project move re-homes the item, a drop into a non-project folder warns and
 // leaves the item put, a copy into one other project counts as a move, and two other projects warn.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
@@ -180,5 +180,64 @@ describe('workbench-relocate', () => {
     expect(getProject(pidA)).toBeTruthy()
     await reconcileItemLocations()
     expect(getWorkItem(id)!.project_id).toBe(pidA)
+  })
+  describe('self-heal of stale pointers (inside one project)', () => {
+    const srcOf = (id: string): string | null => getWorkItem(id)!.source_path ?? null
+
+    it('follows a folder that was moved/renamed BEFORE folder ids existed, rewriting every path', async () => {
+      const { id } = itemInA()
+      const db = getDb()
+      const folder = getWorkItem(id)!.folder!
+      const oldAbs = join(dirA, ...folder.split('/'))
+      writeFileSync(join(oldAbs, 'terv.md'), 'x')
+      db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`Iroda/Akta/${folder}/terv.md`, id)
+      db.prepare("INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES ('as2', ?, ?, 'terv.md', 'text', 'h', 1, 1)").run(id, `Iroda/Akta/${folder}/terv.md`)
+      const newFolder = 'Uj hely/Atnevezett'
+      mkdirSync(join(dirA, 'Uj hely'), { recursive: true })
+      renameSync(oldAbs, join(dirA, ...newFolder.split('/')))
+
+      await reconcileItemLocations()
+
+      const after = getWorkItem(id)!
+      expect(after.project_id).toBe(pidA)
+      expect(after.folder).toBe(newFolder)
+      expect(after.source_path).toBe(`Iroda/Akta/${newFolder}/terv.md`)
+      expect((db.prepare("SELECT path FROM work_item_assets WHERE id = 'as2'").get() as { path: string }).path).toBe(`Iroda/Akta/${newFolder}/terv.md`)
+      expect(notifyMock).not.toHaveBeenCalled()
+      await reconcileItemLocations() // idempotent
+      expect(getWorkItem(id)!.folder).toBe(newFolder)
+    })
+
+    it('points a missing source_path (item and version) at the ONE same-named file in the real folder', async () => {
+      const { id } = itemInA()
+      const db = getDb()
+      const folder = getWorkItem(id)!.folder!
+      writeFileSync(join(dirA, ...folder.split('/'), 'deck.pptx'), 'x') // moved from the project root into the folder
+      db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run('Iroda/Akta/deck.pptx', id)
+      db.prepare("INSERT INTO work_item_versions (id, work_item_id, version_no, source_path, created_at) VALUES ('v1', ?, 99, 'Iroda/Akta/deck.pptx', 1)").run(id)
+
+      await reconcileItemLocations()
+
+      expect(srcOf(id)).toBe(`Iroda/Akta/${folder}/deck.pptx`)
+      expect((db.prepare("SELECT source_path FROM work_item_versions WHERE id = 'v1'").get() as { source_path: string }).source_path).toBe(`Iroda/Akta/${folder}/deck.pptx`)
+    })
+
+    it('never writes when the target does not exist, or when there is no candidate', async () => {
+      const { id } = itemInA()
+      const db = getDb()
+      db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run('Iroda/Akta/nincs.pptx', id)
+      await reconcileItemLocations()
+      expect(srcOf(id)).toBe('Iroda/Akta/nincs.pptx') // zero matches: left alone
+    })
+
+    it('leaves a pointer that already matches the disk untouched (no churn)', async () => {
+      const { id } = itemInA()
+      const folder = getWorkItem(id)!.folder!
+      writeFileSync(join(dirA, ...folder.split('/'), 'jo.md'), 'x')
+      getDb().prepare('UPDATE work_items SET source_path = ?, updated_at = 5 WHERE id = ?').run(`Iroda/Akta/${folder}/jo.md`, id)
+      await reconcileItemLocations()
+      expect(srcOf(id)).toBe(`Iroda/Akta/${folder}/jo.md`)
+      expect(getWorkItem(id)!.updated_at).toBe(5)
+    })
   })
 })
