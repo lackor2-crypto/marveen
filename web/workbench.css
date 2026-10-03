@@ -1559,3 +1559,11 @@
 @media (hover: none), (pointer: coarse), (max-width: 900px) { .wb-item-more { display: inline-flex; align-items: center; justify-content: center; } }
 .wb-file-link { display: flex; flex-direction: column; text-decoration: none; color: inherit; cursor: pointer; }
 .wb-file-link:hover { text-decoration: underline; }
+
+/* Markdown work item: editor and live preview side by side (stacked on narrow screens). */
+.wb-md-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.wb-md-split .wb-text-edit { min-height: 420px; }
+.wb-md-live-wrap { min-width: 0; }
+.wb-md-live { border: 1px solid var(--border, #ddd); border-radius: 8px; padding: 10px 14px; background: var(--card-bg, #fff); overflow-wrap: anywhere; }
+.wb-md-live pre { overflow-x: auto; }
+@media (max-width: 900px) { .wb-md-split { grid-template-columns: 1fr; } .wb-md-split .wb-text-edit { min-height: 220px; } }
