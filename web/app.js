@@ -14306,6 +14306,43 @@ function bindDriveRowActions(list, account, stack, reload) {
   })
 }
 
+// "Sync now" on the Drive page: the same endpoint and the same target folder
+// as the "My Drive on my computer" card. Polls until the job ends so the toast
+// carries the real result, not just "started".
+async function _driveSyncNow() {
+  const btn = document.getElementById('driveSyncNowBtn')
+  const label = document.getElementById('driveSyncNowLabel')
+  if (btn) btn.disabled = true
+  if (label) label.textContent = t('drive.sync_running')
+  try {
+    try {
+      await _depoPost('/api/drive/sync/run', {})
+      showToast(t('drive.sync_started'))
+    } catch (e) {
+      // Already running is not a failure: just wait for that run.
+      if (!(e && e.data && e.data.code === 'already_running')) throw e
+      showToast(t('drive.sync_already'))
+    }
+    let job = null
+    for (let i = 0; i < 14400; i++) { // 1.5 s steps, 6 h cap
+      await new Promise((r) => setTimeout(r, 1500))
+      try { job = (await _depoGet('/api/drive/sync')).job } catch (e) { continue }
+      if (!(job && job.running)) break
+    }
+    if (job && !job.running) {
+      showToast(t('drive.sync_done', {
+        down: job.downloaded || 0, up: job.uploaded || 0, ok: job.upToDate || 0, failed: job.failed || 0,
+      }))
+    }
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('drive.sync_failed'))
+  } finally {
+    if (btn) btn.disabled = false
+    if (label) label.textContent = t('drive.sync_now_btn')
+  }
+}
+document.getElementById('driveSyncNowBtn')?.addEventListener('click', _driveSyncNow)
+
 document.getElementById('driveNewFolderBtn')?.addEventListener('click', async () => {
   const name = prompt(t('drive.prompt.new_folder'))
   if (!name) return
