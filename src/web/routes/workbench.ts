@@ -1220,8 +1220,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'This section or block no longer exists.',
   },
   outline_bad_input: {
-    hu: 'Hiányos adat: a cím vagy a szöveg nem lehet üres.',
-    en: 'Incomplete input: the title or the text cannot be empty.',
+    hu: 'Hibás adat: a cím vagy a szöveg nem lehet üres, és nem lehet túl hosszú sem (egy bekezdés legfeljebb 20 000 karakter). A részletek megmondják, melyik a baj.',
+    en: 'Invalid input: the title or the text cannot be empty, and cannot be too long either (a paragraph is 20,000 characters at most). The details say which one it is.',
   },
   outline_too_many: {
     hu: 'Ez a dokumentum már túl nagy. Oszd több munkadarabra.',
