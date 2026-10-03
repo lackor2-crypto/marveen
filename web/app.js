@@ -14309,6 +14309,43 @@ function bindDriveRowActions(list, account, stack, reload) {
   })
 }
 
+// The toast of a finished Drive sync run. A stopped run and the emergency brake
+// must not read as a plain "Done" (the depot card shows the brake as its own
+// warning for the same reason), and failed files say where to see which ones.
+// `toSettings`: the next step is on the depot card, the toast gets a button there.
+function _driveSyncResult(job) {
+  const n = { down: job.downloaded || 0, up: job.uploaded || 0, ok: job.upToDate || 0, failed: job.failed || 0 }
+  if (job.fatal) return { text: t('drive.sync_stopped', { ...n, reason: job.fatal }), type: 'error', toSettings: false }
+  const parts = [t('drive.sync_done', n)]
+  if (job.deleteBrake) parts.push(t('dsync.brake_warn', { n: job.deleteBrake.wouldDelete, tracked: job.deleteBrake.tracked }))
+  if (job.pendingDeletes) parts.push(t('drive.sync_pending_deletes', { n: job.pendingDeletes }))
+  const todo = !!(job.deleteBrake || n.failed || job.pendingDeletes)
+  // One "where" sentence for all of them: the failed list, the brake and the
+  // deletion queue are on the same card.
+  if (todo) parts.push(t('drive.sync_where'))
+  return { text: parts.join(' '), type: todo ? 'warn' : '', toSettings: todo }
+}
+
+function _driveSyncToast(text, type, toSettings) {
+  showToast(text, toSettings
+    ? { type, action: { label: t('drive.sync_open_settings'), onClick: _driveSyncOpenDepotCard } }
+    : type)
+}
+
+// The "My Drive on my computer" card sits far down the depot settings (a whole
+// screen of scrolling on a phone): land on it, once the sections above it have
+// loaded and stopped pushing it down.
+async function _driveSyncOpenDepotCard() {
+  switchPage('irodaSettings')
+  try { await openIrodaDepotSettings() } catch (e) { /* the depot page shows its own error */ }
+  const title = document.querySelector('#irodaSettingsDepotView h2[data-i18n="dsync.title"]')
+  if (!title) return
+  // The phone's sticky top bar would cover the title (hidden on desktop: 0).
+  const bar = document.querySelector('.mobile-topbar')
+  title.style.scrollMarginTop = (((bar && bar.offsetHeight) || 0) + 12) + 'px'
+  title.scrollIntoView({ block: 'start' })
+}
+
 // "Sync now" on the Drive page: the same endpoint and the same target folder
 // as the "My Drive on my computer" card. Polls until the job ends so the toast
 // carries the real result, not just "started".
@@ -14333,12 +14370,16 @@ async function _driveSyncNow() {
       if (!(job && job.running)) break
     }
     if (job && !job.running) {
-      showToast(t('drive.sync_done', {
-        down: job.downloaded || 0, up: job.uploaded || 0, ok: job.upToDate || 0, failed: job.failed || 0,
-      }))
+      const r = _driveSyncResult(job)
+      _driveSyncToast(r.text, r.type, r.toSettings)
     }
   } catch (e) {
-    showToast((e && e.message) ? e.message : t('drive.sync_failed'))
+    // Fresh install: no Drive folder is linked yet. The server's short
+    // sentence does not say where to link one, this one does (and the button
+    // goes there). An unreachable depot is fixed on the same settings page.
+    const code = e && e.data && e.data.code
+    if (code === 'no_pairs') _driveSyncToast(t('drive.sync_no_pairs'), 'error', true)
+    else _driveSyncToast((e && e.message) ? e.message : t('drive.sync_failed'), 'error', code === 'depot_unreachable')
   } finally {
     if (btn) btn.disabled = false
     if (label) label.textContent = t('drive.sync_now_btn')
@@ -30643,7 +30684,7 @@ function openIrodaDepotSettings() {
   document.getElementById('irodaSettingsDetailView').hidden = true
   const depotView = document.getElementById('irodaSettingsDepotView')
   if (depotView) depotView.hidden = false
-  loadDepoPage()
+  return loadDepoPage()
 }
 
 function renderIrodaSettingsTabs() {

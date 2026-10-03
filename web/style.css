@@ -3720,6 +3720,10 @@ main.email-active .page-header { flex-shrink: 0; }
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  /* `left: 50%` alone would cap a shrink-to-fit box at half the viewport: a
+     long toast was a ~190 px column on a phone. max-content + max-width lets
+     it use the screen. */
+  width: max-content;
   max-width: min(92vw, 560px);
   white-space: normal;
   overflow-wrap: anywhere;
