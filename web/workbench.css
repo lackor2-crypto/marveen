@@ -1588,3 +1588,8 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-md-form .wb-hint { margin: 2px 0 0; font-size: 0.78rem; }
 .wb-fr-scroll { max-height: none; }
 .wb-fr-scroll:has(.wb-md-split) { overflow: hidden; }
+
+/* The bottom zoom slider also scales text documents (Boss, card #466): the text shrinks with --wb-zoom
+   (set on .wb-fr-scroll), the layout and the buttons stay put, so there is no transform and no scroll drift. */
+.wb-fr-scroll .wb-md-live, .wb-fr-scroll .wb-preview-text { zoom: var(--wb-zoom, 1); }
+.wb-fr-scroll .wb-text-edit { font-size: calc(0.9rem * var(--wb-zoom, 1)); }
