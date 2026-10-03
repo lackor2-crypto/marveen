@@ -51,8 +51,8 @@ const HINTS: Record<string, Hint> = {
     en: 'anything belonging to your online life: domains, devices, subscriptions, licence keys, accounts (never passwords!)',
   },
   media: {
-    hu: 'a nagy fájlok helye: fotók, videók, hangfelvételek, szkennek, képernyőmentések',
-    en: 'where the large files live: photos, videos, audio recordings, scans, screenshots',
+    hu: 'a nagy fájlok helye: fotók és videók (együtt, családonként és eseményenként), hangfelvételek, szkennek, képernyőmentések',
+    en: 'where the large files live: photos and videos (together, by family and event), audio recordings, scans, screenshots',
   },
   shared: {
     hu: 'amit másokkal közösen használtok: családi iratok, közös projektek, átadott anyagok, megosztott listák',
@@ -171,12 +171,14 @@ const HINTS: Record<string, Hint> = {
 
   // ---- Media alatt ----
   photos: {
-    hu: 'fényképek: telefonról, fényképezőről, régi papírképek szkennelve',
-    en: 'photographs: from your phone, from a camera, old prints scanned in',
+    hu: 'fényképek ÉS videók: telefonról, fényképezőről, régi papírképek szkennelve; egy esemény fotói és videói egy mappában vannak',
+    en: 'photographs AND videos: from your phone, from a camera, old prints scanned in; the photos and videos of one event live in one folder',
   },
+  // A regi `Videók` mappa (mar nem keszul): a meglevo telepiteseken az Intezo
+  // felajanlja a tartalom athelyezeset a Fotok ala.
   videos: {
-    hu: 'mozgóképek: felvételek, kamerafelvételek, letöltött videók',
-    en: 'moving pictures: recordings, camera footage, downloaded videos',
+    hu: 'régi videó-mappa: a videók mostantól a Fotók mappába kerülnek, az Intéző felajánlja az áthelyezést',
+    en: 'old videos folder: videos now go into the Photos folder, the Explorer offers to move them',
   },
   audio: {
     hu: 'hangfelvételek: diktált jegyzetek, telefonbeszélgetések, zene, hangoskönyv',

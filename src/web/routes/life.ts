@@ -2,6 +2,8 @@
 //
 //   GET  /api/life/status     -- all-e mar a fa, mi hianyzik beloele
 //   POST /api/life/ensure     -- a hianyzo mappak letrehozasa (SOSE torol)
+//   GET  /api/life/legacy-videos       -- a regi Videok mappa maradek fajljai (#464)
+//   POST /api/life/legacy-videos/move  -- ezek athelyezese a Fotok ala (nem ir felul, nem torol)
 //   GET  /api/life/config     -- kik/mely cegek szerepelnek a faban
 //   POST /api/life/config     -- ezek szerkesztese
 //   GET  /api/life/list       -- egy mappa tartalma, forrasjelvenyekkel
@@ -45,6 +47,7 @@ import {
   sanitizeCustodianIds, personRel,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
+import { planLegacyVideos, moveLegacyVideos } from '../../life-media-videos.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
 import { classifyWithAi, mergeAiIntoSuggestion } from '../../life-inbox-ai.js'
 import { analyzeInboxAsync, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox-analyze.js'
@@ -159,6 +162,47 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/status' && method === 'GET') {
     send(res, 200, lifeTreeStatus())
+    return true
+  }
+
+  // The retired Média/Videók folder (#464): what still sits in it, and the
+  // owner-triggered move under Fotók. The GET only reads; the POST never
+  // overwrites and never deletes (same-name files stay and are reported).
+  if (path === '/api/life/legacy-videos' && method === 'GET') {
+    try {
+      const plan = planLegacyVideos(loadLifeConfig(), APP_LANG)
+      send(res, 200, {
+        movable: plan.moves.length,
+        clashes: plan.clashes.length,
+        truncated: plan.truncated,
+        folders: plan.folders,
+        newFolders: plan.newFolders,
+        examples: plan.moves.slice(0, 5),
+      })
+    } catch (err: any) {
+      send(res, 500, {
+        error: 'failed',
+        message: T(uiLang(url),
+          `Nem sikerült megnézni a régi Videók mappát: ${String(err?.message || err)}`,
+          `The old Videos folder could not be checked: ${String(err?.message || err)}`),
+      })
+    }
+    return true
+  }
+
+  if (path === '/api/life/legacy-videos/move' && method === 'POST') {
+    try {
+      const result = moveLegacyVideos(loadLifeConfig(), APP_LANG, uiLang(url))
+      const plan = planLegacyVideos(loadLifeConfig(), APP_LANG)
+      send(res, 200, { ...result, remaining: plan.moves.length, clashes: plan.clashes.length })
+    } catch (err: any) {
+      send(res, 500, {
+        error: 'failed',
+        message: T(uiLang(url),
+          `Nem sikerült áthelyezni a videókat: ${String(err?.message || err)}`,
+          `The videos could not be moved: ${String(err?.message || err)}`),
+      })
+    }
     return true
   }
 

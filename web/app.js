@@ -38642,6 +38642,7 @@ async function loadIntezoPage() {
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
   bind('intezoRestoreBtn', 'click', () => _intezoRestore())
+  bind('intezoLegacyVideosBtn', 'click', () => _intezoLegacyVideosMove())
   bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
   bind('intezoTreeBtn', 'click', () => _intezoTreeSetShown(!_intezoTreeShown()))
   bind('intezoClipPasteBtn', 'click', () => _intezoPaste(_intezoPath))
@@ -39409,6 +39410,7 @@ async function _intezoStatus() {
     }
     if (ensure) ensure.hidden = false
     if (toDepo) toDepo.hidden = true
+    void _intezoLegacyVideosBox()
     if (!st.exists || (st.missing || []).length) {
       box.hidden = false
       txt.textContent = st.exists
@@ -39436,6 +39438,55 @@ function _intezoAbandonedBox(st) {
   box.hidden = false
   if (txt) txt.textContent = t('intezo.abandoned_n', { n: rels.length })
   if (list) list.innerHTML = rels.map((r) => escapeHtml(r)).join('<br>')
+}
+
+/** A regi `Media/Videok` mappa maradek fajljai (#464): a videok a Fotok ala
+ *  kerulnek. Semleges doboz, csak ha tenyleg maradt benne fajl; a mozgatast
+ *  a felhasznalo inditja, elonezet utan (nem ir felul, nem torol). */
+async function _intezoLegacyVideosBox() {
+  const box = document.getElementById('intezoLegacyVideosBox')
+  if (!box) return
+  box.hidden = true
+  try {
+    const lv = await _intezoGet('/api/life/legacy-videos')
+    const movable = (lv && lv.movable) || 0
+    const clashes = (lv && lv.clashes) || 0
+    if (!movable && !clashes) return
+    const txt = document.getElementById('intezoLegacyVideosText')
+    const btn = document.getElementById('intezoLegacyVideosBtn')
+    const parts = []
+    if (movable) parts.push(t('intezo.legacyvid_n', { n: movable }))
+    if (clashes) parts.push(t('intezo.legacyvid_clash', { n: clashes }))
+    if (txt) txt.textContent = parts.join(' ')
+    if (btn) btn.hidden = !movable
+    box.hidden = false
+  } catch (e) { box.hidden = true }
+}
+
+async function _intezoLegacyVideosMove() {
+  const btn = document.getElementById('intezoLegacyVideosBtn')
+  if (btn) btn.disabled = true
+  try {
+    // ELONEZET: a szamot es a peldakat a szerver mondja, mielott barmi mozdul.
+    const lv = await _intezoGet('/api/life/legacy-videos')
+    const n = (lv && lv.movable) || 0
+    if (!n) { await _intezoLegacyVideosBox(); return }
+    const ex = ((lv && lv.examples) || []).map((m) => m.from.split('/').slice(-3).join(' › ') + '  →  ' + m.to.split('/').slice(-4).join(' › ')).join('\n')
+    // Az uj mappakat KI KELL MONDANI: egy kicsit mashogy irt csoportnev
+    // (Jutka csaladja / Jutka csalad) csendben ket mappat csinalna.
+    const fresh = ((lv && lv.newFolders) || []).map((r) => r.split('/').pop()).join(', ')
+    if (!confirm(t('intezo.legacyvid_confirm', { n: n })
+      + (fresh ? '\n\n' + t('intezo.legacyvid_new', { list: fresh }) : '')
+      + (ex ? '\n\n' + ex : ''))) return
+    const r = await _depoPost('/api/life/legacy-videos/move', {})
+    showToast(r.ok ? t('intezo.legacyvid_done', { n: r.moved }) : (r.message || t('intezo.legacyvid_failed')))
+    await _intezoLegacyVideosBox()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.legacyvid_failed'))
+  } finally {
+    if (btn) btn.disabled = false
+  }
 }
 
 async function _intezoRestore() {
@@ -41240,13 +41291,9 @@ function _intezoMenuHint(btn, text) {
   btn.appendChild(s)
 }
 
-/** Video-e az elem (a lista `media` mezoje alapjan) -- ezek mehetnek a Videok ala. */
-function _intezoIsVideo(item) { return !item.isDir && item.media === 'video' }
-
 async function _intezoMoveToPersonDialog() {
   if (!_intezoMulti || !_intezoMulti.size) { showToast(t('intezo.multi_pick_first')); return }
   const items = [..._intezoMulti.values()]
-  const hasVideo = items.some(_intezoIsVideo)
   const ov = document.createElement('div')
   ov.className = 'modal-overlay active'
   ov.innerHTML = '<div class="modal" style="max-width:560px;width:calc(100% - 32px)" role="dialog" aria-modal="true">'
@@ -41316,8 +41363,6 @@ async function _intezoMoveToPersonDialog() {
       if (L && (L.ok === false || (L.message && !subs.length))) missing = true
     } catch (e) { missing = true }
     const atBase = rel === base
-    const vidRel = x.media.videos
-    const offerVideos = atBase && hasVideo && !!vidRel
     const nice = (r) => r.split('/').join(' › ')
     body.innerHTML = '<p style="margin:0 0 6px">' + escapeHtml(t('intezo.mp_where', { path: nice(rel) })) + '</p>'
       + (missing ? '<p style="margin:0 0 6px;color:var(--text-muted)">' + escapeHtml(t('intezo.mp_missing')) + '</p>' : '')
@@ -41330,9 +41375,6 @@ async function _intezoMoveToPersonDialog() {
         : '')
       + (!atBase ? '<p style="margin:8px 0 0"><button type="button" class="btn-secondary" data-mp="up">'
         + escapeHtml(t('intezo.mp_up')) + '</button></p>' : '')
-      + (offerVideos ? '<label style="display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">'
-        + '<input type="checkbox" data-mp="videos" checked style="margin-top:3px"> <span>'
-        + escapeHtml(t('intezo.mp_videos', { path: nice(vidRel) })) + '</span></label>' : '')
     setFoot('<button type="button" class="btn-secondary" data-mp="back">' + escapeHtml(t('intezo.mp_back')) + '</button>'
       + '<button type="button" class="btn-primary" data-mp="go">' + escapeHtml(t('intezo.mp_go', { n: items.length })) + '</button>')
     body.querySelectorAll('[data-sub]').forEach((b) => b.addEventListener('click', () => void showFolder(x, b.getAttribute('data-sub'))))
@@ -41341,10 +41383,9 @@ async function _intezoMoveToPersonDialog() {
     foot.querySelector('[data-mp="back"]').addEventListener('click', showPeople)
     const go = foot.querySelector('[data-mp="go"]')
     go.addEventListener('click', () => {
-      const vb = body.querySelector('[data-mp="videos"]')
-      const vids = offerVideos && vb && vb.checked
       close()
-      void _intezoBulkMove(items, (it) => (vids && _intezoIsVideo(it) ? vidRel : rel))
+      // A fotok ES a videok egy mappaba mennek (#464): nincs kulon Videok mappa.
+      void _intezoBulkMove(items, () => rel)
     })
     go.focus()
   }
