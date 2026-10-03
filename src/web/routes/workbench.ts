@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, adoptExistingFolder,
+  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -2632,9 +2632,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!project) return fail(res, 404, 'project_not_found', lang)
     // #454: old main/sub links become folders (no-op once done).
     try { migrateSubItemsToFolders() } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] sub item -> folder migration failed') }
+    // #481: a folder renamed or moved outside Marvin is found again by its hidden id before the list is built.
+    let folderMoves: FolderReconcile = { moved: [], lost: [] }
+    try { folderMoves = reconcileFolderMarkers(project) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] folder id reconcile failed') }
     json(res, {
       project: { id: project.id, name: project.name, archived: project.archived_at != null, sensitive: projectSensitive(project.id) },
       sensitive_items: sensitiveItemIds(project.id),
+      folder_moves: folderMoves,
       work_folders: listWorkFolders(project),
       items: listWorkItems(project.id),
       deleted: listDeletedWorkItems(project.id),

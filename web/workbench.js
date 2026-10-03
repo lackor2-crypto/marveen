@@ -348,6 +348,19 @@
 
   // ---- adatbetoltes ---------------------------------------------------------
 
+  /** #481: a folder renamed or moved outside the app was found again (or not): say so in plain words. */
+  function announceFolderMoves(fm, wf) {
+    if (!fm) return
+    var box = (wf && wf.box) || ''
+    var short = function (p) { return box && p.indexOf(box + '/') === 0 ? p.slice(box.length + 1) : p }
+    ;(fm.moved || []).forEach(function (m) {
+      window.showToast(t('workbench.folder.found_again', { from: short(m.from), to: short(m.to) }))
+    })
+    ;(fm.lost || []).forEach(function (p) {
+      window.showToast(t('workbench.folder.lost', { name: short(p), where: box || '' }))
+    })
+  }
+
   function load(projectId) {
     return api('GET', '/api/workbench/items?project=' + encodeURIComponent(projectId)).then(function (r) {
       if (WB.projectId !== projectId) return
@@ -358,6 +371,7 @@
       WB.deleted = r.data.deleted || []
       WB.workFolders = r.data.work_folders || null
       WB.sensitiveIds = r.data.sensitive_items || []
+      announceFolderMoves(r.data.folder_moves, r.data.work_folders)
       loadOverview(projectId)
       loadTodos(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()

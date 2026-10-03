@@ -61,6 +61,9 @@ export function ensureAssetTables(): void {
   if (tablesDb === db) return
   const iCols = new Set((db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).map((c) => c.name))
   if (!iCols.has('folder')) db.exec('ALTER TABLE work_items ADD COLUMN folder TEXT')
+  // #481: a stable hidden id per folder (the .marveen-id file inside it), so a folder renamed or moved outside
+  // Marvin is found again by id and not only by path.
+  db.exec('CREATE TABLE IF NOT EXISTS work_folder_ids (project_id TEXT NOT NULL, id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY (project_id, id))')
   db.exec(`
     CREATE TABLE IF NOT EXISTS work_item_assets (
       id TEXT PRIMARY KEY,
@@ -319,7 +322,7 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFo
   const t = projectFileTarget(project, c.folder)
   if (!t.ok) return t
   let entries: import('node:fs').Dirent[] = []
-  try { entries = readdirSync(t.dirAbs, { withFileTypes: true }) } catch { return { ok: false, code: 'not_found' as FileErrorCode } }
+  try { entries = readdirSync(t.dirAbs, { withFileTypes: true }).filter((e) => e.name !== FOLDER_MARKER) } catch { return { ok: false, code: 'not_found' as FileErrorCode } }
   ensureAssetTables()
   const rows = getDb().prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
   const under = (v: string | null): boolean => !!v && (v === c.folder || v.startsWith(c.folder + '/'))
@@ -328,7 +331,9 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFo
     const folders = entries.filter((e) => e.isDirectory()).length
     return { ok: false, code: 'folder_not_empty', items, files: entries.length - folders, folders }
   }
+  try { unlinkSync(join(t.dirAbs, FOLDER_MARKER)) } catch { /* no marker, or already gone */ }
   try { rmdirSync(t.dirAbs) } catch { return { ok: false, code: 'write_failed' } }
+  getDb().prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND path = ?').run(project.id, c.folder)
   return { ok: true, folder: c.folder }
 }
 
@@ -1327,3 +1332,102 @@ export function startPendingDocReads(assets: WorkItemAssetView[]): number {
   }
   return n
 }
+
+
+// ---------------------------------------------------------------------------
+// #481: folders renamed or moved OUTSIDE Marvin (Explorer, a sync client) are found again by a hidden id
+// ---------------------------------------------------------------------------
+
+/** The hidden file inside every folder of the work items box that holds the folder's stable id. */
+export const FOLDER_MARKER = '.marveen-id'
+const MARKER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export interface FolderReconcile {
+  /** Folders found again under a new place: the registry paths already follow. */
+  moved: { from: string; to: string }[]
+  /** Folders with a known id that could not be found anywhere under the work items box any more. */
+  lost: string[]
+}
+
+const reconciledAt = new Map<string, number>()
+/** At most one disk walk per project in this many ms (the list endpoint calls this on every load). */
+export const RECONCILE_MIN_GAP_MS = 4000
+
+/**
+ * Pairs the folders of the work items box with the ids the registry knows (by the .marveen-id file, not by
+ * path): a folder renamed or moved outside Marvin gets every registry path rewritten to follow it; a folder
+ * without an id gets one; a copy of a folder (same id twice) keeps the id on the original and gets a fresh one.
+ * A folder that is gone for good is reported once (`lost`) and forgotten. Never deletes or moves anything on disk.
+ */
+export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: boolean } = {}): FolderReconcile {
+  const out: FolderReconcile = { moved: [], lost: [] }
+  ensureAssetTables()
+  const box = findWorkItemsBox(project)
+  if (!box) return out
+  const t = projectFileTarget(project, box)
+  if (!t.ok) return out
+  const last = reconciledAt.get(project.id) ?? 0
+  if (!opts.force && Date.now() - last < RECONCILE_MIN_GAP_MS) return out
+  reconciledAt.set(project.id, Date.now())
+
+  type Dir = { rel: string; abs: string; id: string | null }
+  const dirs: Dir[] = []
+  const walk = (abs: string, rel: string, depth: number): void => {
+    if (depth > WORK_FOLDER_MAX_DEPTH || dirs.length >= WORK_FOLDER_MAX) return
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    for (const d of entries) {
+      if (!d.isDirectory() || d.name.startsWith('.') || d.name === 'node_modules') continue
+      const cAbs = join(abs, d.name)
+      if (existsSync(join(cAbs, '.git'))) continue
+      let id: string | null = null
+      try { const v = readFileSync(join(cAbs, FOLDER_MARKER), 'utf8').trim(); if (MARKER_RE.test(v)) id = v } catch { /* no marker yet */ }
+      const cRel = `${rel}/${d.name}`
+      dirs.push({ rel: cRel, abs: cAbs, id })
+      walk(cAbs, cRel, depth + 1)
+    }
+  }
+  walk(t.dirAbs, box, 1)
+
+  const db = getDb()
+  const lifeRel = (rel: string): string => `${t.dirRel}${rel.slice(box.length)}`
+  const byId = new Map<string, Dir[]>()
+  for (const d of dirs) if (d.id) byId.set(d.id, [...(byId.get(d.id) ?? []), d])
+  const stamp = (d: Dir, id: string): boolean => {
+    try { writeFileSync(join(d.abs, FOLDER_MARKER), id + '\n', 'utf8'); d.id = id; return true } catch { return false }
+  }
+  const rows = db.prepare('SELECT id, path FROM work_folder_ids WHERE project_id = ?').all(project.id) as { id: string; path: string }[]
+  const setPath = db.prepare('UPDATE work_folder_ids SET path = ? WHERE project_id = ? AND id = ?')
+  for (const r of rows) {
+    const cands = byId.get(r.id) ?? []
+    if (cands.some((d) => d.rel === r.path)) continue
+    if (cands.length === 1) {
+      const to = cands[0].rel
+      try { rewriteFolderRefs(project, r.path, to, lifeRel(r.path) + '/', lifeRel(to) + '/') } catch { continue }
+      setPath.run(to, project.id, r.id)
+      out.moved.push({ from: r.path, to })
+    } else if (cands.length === 0) {
+      const here = dirs.find((d) => d.rel === r.path)
+      if (here && !here.id) { stamp(here, r.id); continue } // the marker was deleted, the folder is still there
+      if (here) continue
+      db.prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND id = ?').run(project.id, r.id)
+      out.lost.push(r.path)
+    }
+    // more than one candidate and none at the known path: ambiguous, left for the next look
+  }
+  const known = new Map((db.prepare('SELECT id, path FROM work_folder_ids WHERE project_id = ?').all(project.id) as { id: string; path: string }[]).map((r) => [r.id, r.path]))
+  const put = db.prepare('INSERT OR REPLACE INTO work_folder_ids (project_id, id, path) VALUES (?, ?, ?)')
+  for (const d of dirs) {
+    const dup = d.id !== null && known.has(d.id) && known.get(d.id) !== d.rel
+    if (d.id && !dup) {
+      if (!known.has(d.id)) put.run(project.id, d.id, d.rel)
+      continue
+    }
+    const fresh = randomUUID()
+    if (stamp(d, fresh)) put.run(project.id, fresh, d.rel)
+  }
+  return out
+}
+
+/** Test hook: forget the throttle. */
+export function resetFolderReconcileThrottleForTests(): void { reconciledAt.clear() }
