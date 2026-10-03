@@ -40,6 +40,7 @@ import { homedir } from 'node:os'
 import { logger } from '../logger.js'
 import { PROJECT_ROOT, APP_LANG, MAIN_INBOX_RECEIPT, MAIN_INBOX_RECEIPT_GRACE_SEC } from '../config.js'
 import { mainChannelsRunState } from './agent-process.js'
+import { mainAgentEffectiveConfigDir } from './agent-config.js'
 import type { AgentRunState } from './ssh-tmux.js'
 import { channelStateDir } from '../channel-provider.js'
 
@@ -59,6 +60,11 @@ export function receiptText(lang: string): string {
  *  fork installed anywhere finds its own directory. */
 export function transcriptDirFor(projectRoot: string, home: string = homedir()): string {
   return join(home, '.claude', 'projects', projectRoot.replace(/[^A-Za-z0-9]/g, '-'))
+}
+
+/** The same directory, for a given Claude config root (the main agent's isolated CLAUDE_CONFIG_DIR). */
+export function transcriptDirInConfig(projectRoot: string, configDir: string): string {
+  return join(configDir, 'projects', projectRoot.replace(/[^A-Za-z0-9]/g, '-'))
 }
 
 export interface Arrival {
@@ -350,7 +356,12 @@ export function startMainInboxReceipt(): NodeJS.Timeout | null {
   }
   const state = createReceiptState()
   const deps: ReceiptDeps = {
-    transcriptDir: transcriptDirFor(PROJECT_ROOT),
+    // The main channels session runs on its OWN CLAUDE_CONFIG_DIR (e.g. ~/.claude-marvin), so its
+    // transcript is under THAT root, not under the shared ~/.claude: reading the shared one found a
+    // file 20 days old, no queue-operation ever appeared, and a message that arrived during a long
+    // turn never got its "Megkaptam, sorban all" receipt (Boss, TG 7461). Resolved on every read,
+    // like stateDir: the dir can be provisioned after the dashboard started.
+    get transcriptDir() { return transcriptDirInConfig(PROJECT_ROOT, mainAgentEffectiveConfigDir()) },
     // #915 / card #407: the main agent's channel dir the way channels.sh
     // resolves it (install-scoped once migrated) -- the same dir the tee writes
     // its seen-arrival markers into (TELEGRAM_STATE_DIR). A fixed
