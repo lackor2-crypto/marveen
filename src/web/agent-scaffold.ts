@@ -2263,6 +2263,17 @@ function buildLandingBody(): string {
     'ne kerüld meg. Veszhelyzeti kapu-kihagyas CSAK a lokalis gyors-kapunal',
     '(`MARVEEN_SKIP_TEST_GATE=1`); a CI-t megkerulni nem lehet. A landolt kod az elo',
     'peldanyra a `scripts/deploy-live.sh`-val kerul ki.',
+    '',
+    '**A DEPLOY-T MINDIG MEG KELL CSINALNI, DE MAS AGENSEKET NEM AKADALYOZHATOD.**',
+    'Landolas utan a munka nem kesz, amig az elo peldany nem futtatja (a tulajdonos szabalya).',
+    'Ellenorizd: `store/.deployed-sha` egyezik-e az `origin/main` hash-sel, vagy a',
+    '`store/deploy.log` utolso sora `DEPLOYED`. Ha nem, futtasd a `scripts/deploy-live.sh`-t.',
+    'Szabalyok: (1) CSAK a `deploy-live.sh`, kezi service-ujrainditas nincs; (2) ha a',
+    'zarat mas deploy tartja, NEM erőlteted, nem varod ki idegesen: vagy megvarod, vagy',
+    'a kovetkezo tick viszi ki, de ellenorizd utana; (3) masik agens tmux-at,',
+    'folyamatat, worktree-jet nem allitod le es nem nyulsz hozza; (4) ha REFUSING-et',
+    'ir (piszkos elo fa), NEM tisztitod el, nem force-olod: jelentsd; (5) a dashboard',
+    'egy pillanatra ujraindul, ez normalis, nem hiba.',
   ].join('\n')
 }
 

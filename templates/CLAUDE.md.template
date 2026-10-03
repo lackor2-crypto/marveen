@@ -300,6 +300,17 @@ Ha a CI piros a PR-en: a helper nyitva hagyja a PR-t; javítsd a hibát és push
 újra a branchet -- ne kerüld meg. Vészhelyzeti kapu-kihagyás CSAK a lokális
 gyors-kapunál van (`MARVEEN_SKIP_TEST_GATE=1`); a CI-t megkerülni nem lehet.
 
+### ⛔ A DEPLOY-T MINDIG MEG KELL CSINÁLNI, DE MÁS ÁGENSEKET NEM AKADÁLYOZHATSZ ({{OWNER_NAME}}, TG 2273)
+
+Landolás után a munka nem kész, amíg az élő példány nem futtatja. Ellenőrizd:
+`store/.deployed-sha` egyezik-e az `origin/main` hash-sel, vagy a `store/deploy.log`
+utolsó sora `DEPLOYED`. Ha nem, futtasd a `scripts/deploy-live.sh`-t. Szabályok:
+(1) CSAK a `deploy-live.sh`, kézi service-újraindítás nincs; (2) ha a zárat másik
+deploy tartja, nem erőlteted: megvárod, vagy a következő tick viszi ki, de utána
+ellenőrzöd; (3) másik ágens tmux-át, folyamatát, worktree-jét nem állítod le és nem
+nyúlsz hozzá; (4) ha REFUSING-et ír (piszkos élő fa), NEM tisztítod el és nem
+force-olod, hanem jelented; (5) a dashboard egy pillanatra újraindul, ez normális.
+
 ### ⛔ SOHA NE DOLGOZZ KÖZVETLENÜL AZ ÉLŐ TREE-BEN ({{OWNER_NAME}}, 2026-09-12)
 
 {{OWNER_NAME}} szó szerint: "sohasem dolgozunk közvetlenül az élő tree ben!
