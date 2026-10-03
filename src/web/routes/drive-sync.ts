@@ -847,6 +847,15 @@ export interface SyncJob {
    * shows `failed: 0` and the Drive page toast would read as a clean "Done" (#462).
    */
   fatal?: string
+  /**
+   * How many folders' Drive walk stopped early (a limit, or a folder that could
+   * not be read): not everything came down, and that folder sent nothing up.
+   * The pair's own line says "részleges"; the run has to say it too, or the
+   * Drive page toast reads as a clean "Done" (#462).
+   */
+  partial?: number
+  /** Files left for the next run by the per-run upload budget (`MAX_UPLOADS`). */
+  remaining?: number
 }
 
 let job: SyncJob | null = null
@@ -1656,6 +1665,8 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
     try {
       const { csonkolt, brake, maradt } = await syncPair(pair, cfg)
       const hibas = (job?.failed || 0) - hibaElotte
+      if (job && csonkolt.length) job.partial = (job.partial || 0) + 1
+      if (job && maradt) job.remaining = (job.remaining || 0) + maradt
       // Csonka mentesre NEM irhatunk "rendben"-t: a listaban ez az egy szo
       // mondja meg, megbizhat-e benne. A hatarok a naplo-dobozban is ott
       // vannak, de oda csak az nez, aki eppen figyeli a futast.

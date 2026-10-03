@@ -2724,6 +2724,8 @@ window._i18n.en = {
   'drive.sync_failed':           'Could not start the sync.',
   'drive.sync_stopped':          'The sync stopped halfway: {reason}. Until then {down} files came down and {up} went up; the next run continues from there.',
   'drive.sync_pending_deletes':  '{n} deletions wait for your decision: you say one by one whether they may go.',
+  'drive.sync_partial':          'Not everything came down: for {n} linked Drive folder(s) the walk stopped early (a limit was reached, or a folder could not be read), and what would have come after it was left out. So nothing went up or was deleted there this time.',
+  'drive.sync_remaining':        '{n} files still wait to go up: one run does not take that many at once, the next run continues from there.',
   'drive.sync_where':            'What failed and why, and what to do: Settings → Depot settings, "My Drive on my computer" card.',
   'drive.sync_no_pairs':         'No Drive folder is set to come down to your computer yet, so there is nothing to sync. Under Settings → Depot settings, on the "My Drive on my computer" card, pick the folder (or the whole Drive).',
   'drive.sync_open_settings':    'Open it',
