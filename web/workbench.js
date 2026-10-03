@@ -2378,7 +2378,7 @@
       return (canEdit
         ? '<p><button type="button" class="btn-secondary" data-wb-act="text-edit">' + esc(t('workbench.edit.text_open')) + '</button> ' + ttsButtonHtml('preview') + '</p>'
         : (p.text ? '<p>' + ttsButtonHtml('preview') + '</p>' : ''))
-        + '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>'
+        + (isMarkdownPreview(p) ? mdLiveHtml(p.text || '') : '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>')
         + (p.truncated ? '<p class="wb-hint">' + esc(t('workbench.preview.truncated')) + '</p>' : '')
         + (!archived() && !current ? '<p class="wb-hint">' + esc(t('workbench.edit.text_old_version')) + '</p>' : '')
     }
@@ -2534,11 +2534,32 @@
     })
   }
 
+  /** A markdown fajl: a .md/.markdown kiterjesztes vagy a markdown mime. */
+  function isMarkdownPreview(p) {
+    return !!p && p.kind === 'text' && (/\.(md|markdown)$/i.test(String(p.name || '')) || /markdown/i.test(String(p.mime || '')))
+  }
+
+  /** A markdown kirajzolasa (a dashboard sajat, HTML-t escape-elo renderere). */
+  function mdLiveHtml(text) {
+    if (typeof window.renderMarkdown !== 'function') return '<pre class="wb-preview-text">' + esc(text || '') + '</pre>'
+    return '<div class="wb-md-live">' + window.renderMarkdown(text || '') + '</div>'
+  }
+
+  /** A szerkeszto melletti elo elonezet frissitese gepeleskor (ujrarajzolas nelkul). */
+  function updateMdLive(value) {
+    var el = document.getElementById('wbTextEditLive')
+    if (el) el.innerHTML = mdLiveHtml(value)
+  }
+
   function textEditHtml() {
     var busy = WB.textEdit && WB.textEdit.busy
+    var md = isMarkdownPreview(WB.preview)
+    var area = '<textarea class="wb-input wb-part-input wb-text-edit" id="wbTextEdit" rows="16">' + esc(WB.textEdit.value) + '</textarea>'
     return '<form class="wb-part-form" id="wbTextEditForm">'
       + '<label class="wb-label" for="wbTextEdit">' + esc(t('workbench.edit.text_label')) + '</label>'
-      + '<textarea class="wb-input wb-part-input wb-text-edit" id="wbTextEdit" rows="16">' + esc(WB.textEdit.value) + '</textarea>'
+      + (md
+        ? '<div class="wb-md-split">' + area + '<div class="wb-md-live-wrap"><p class="wb-label">' + esc(t('workbench.edit.md_live')) + '</p><div id="wbTextEditLive">' + mdLiveHtml(WB.textEdit.value) + '</div></div></div>'
+        : area)
       + '<div class="wb-form-actions">'
       + micButtonHtml('wbTextEdit')
       + '<button type="submit" class="btn-primary" data-wb-act="text-save"' + (busy ? ' disabled' : '') + '>'
@@ -11155,7 +11176,7 @@
 
   function frPanelBodyHtml() {
     var can = frCanvasReady()
-    var needCanvas = '<p class="wb-hint">' + esc(t('workbench.fr.need_canvas')) + '</p>'
+    var needCanvas = '<p class="wb-hint">' + esc(t(WB.preview && WB.preview.kind === 'text' ? 'workbench.fr.need_canvas_text' : 'workbench.fr.need_canvas')) + '</p>'
     var add = function (act, label, arg) {
       return '<button type="button" class="wb-fr-pbtn" data-wb-act="' + act + '"' + (arg ? ' data-wb-arg="' + escA(arg) + '"' : '') + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(label) + '</button>'
     }
@@ -13019,7 +13040,7 @@
     }
     if (WB.table && tableCellInput(e.target.id, e.target.value)) return
     if (WB.img && /^wbImg/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
-    if (e.target.id === 'wbTextEdit' && WB.textEdit) WB.textEdit.value = e.target.value
+    if (e.target.id === 'wbTextEdit' && WB.textEdit) { WB.textEdit.value = e.target.value; updateMdLive(e.target.value) }
     else if (e.target.id === 'wbPartText' && WB.partEdit) WB.partDraft = { id: WB.partEdit, value: e.target.value }
   })
 

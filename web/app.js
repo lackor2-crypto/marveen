@@ -35267,7 +35267,10 @@ function renderMarkdown(md) {
       continue
     }
     if (/^\s*$/.test(line)) { i++; continue }
-    const para = []
+    // Always consume the current line: a block-looking line no branch above took (e.g. a `| a |` row
+    // without a separator row) would otherwise never advance `i` and hang the page.
+    const para = [lines[i]]
+    i++
     while (i < lines.length && !isBlockStart(lines[i])) { para.push(lines[i]); i++ }
     if (para.length) out.push('<p>' + para.map(mdInline).join('<br>') + '</p>')
   }
