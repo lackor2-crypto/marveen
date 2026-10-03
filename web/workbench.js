@@ -11990,6 +11990,65 @@
     if (el && el.style) el.style.minHeight = ''
   }
 
+  /** #482: EVERY scrollable box inside the frame keeps its place across a re-render, not only the
+   *  slide strip and the chat. Clicking a slide in the deck strip or ticking a picture in the file
+   *  list rebuilds the whole root (innerHTML), and the browser puts the new boxes back at 0; so the
+   *  horizontal AND vertical offset of each scrolled box is captured first and restored after. The
+   *  box is found again by a structural key (id, else tag + classes + position among like siblings),
+   *  because the re-render is deterministic and rebuilds the same tree. The box-specific handlers
+   *  (restoreStripScroll centres the open slide, fitFrame/fitMdSplit reset once per opened item) run
+   *  AFTER this and still win for their own boxes. A class name that is an SVGAnimatedString, a box
+   *  that no longer scrolls, or a key that does not match any new box is simply skipped -- safe. */
+  function scrollKeyOf(node, root) {
+    var parts = []
+    for (var n = node; n && n !== root && n.nodeType === 1; n = n.parentNode) {
+      if (n.id) { parts.unshift('#' + n.id); break }
+      var cls = typeof n.className === 'string' ? n.className : (n.className && typeof n.className.baseVal === 'string' ? n.className.baseVal : '')
+      var idx = 0
+      var p = n.parentNode
+      if (p && p.children) {
+        for (var i = 0; i < p.children.length; i++) {
+          var sib = p.children[i]
+          if (sib === n) break
+          if (sib.tagName === n.tagName && (typeof sib.className === 'string' ? sib.className : (sib.className && sib.className.baseVal) || '') === cls) idx++
+        }
+      }
+      parts.unshift(n.tagName + '.' + cls.replace(/\s+/g, ' ').trim() + '[' + idx + ']')
+    }
+    return parts.join('>')
+  }
+  function canScroll(n) {
+    return (n.scrollHeight - n.clientHeight > 1) || (n.scrollWidth - n.clientWidth > 1)
+  }
+  function genericScrollSnapshot(root) {
+    var out = []
+    if (!root || typeof root.querySelectorAll !== 'function') return out
+    var all = root.querySelectorAll('*')
+    for (var i = 0; i < all.length; i++) {
+      var n = all[i]
+      if ((n.scrollTop > 0 || n.scrollLeft > 0) && canScroll(n)) {
+        out.push({ key: scrollKeyOf(n, root), top: n.scrollTop, left: n.scrollLeft })
+      }
+    }
+    return out
+  }
+  function genericScrollRestore(root, snaps) {
+    if (!root || !snaps || !snaps.length || typeof root.querySelectorAll !== 'function') return
+    var all = root.querySelectorAll('*')
+    var map = {}
+    for (var i = 0; i < all.length; i++) {
+      if (!canScroll(all[i])) continue
+      var k = scrollKeyOf(all[i], root)
+      if (!(k in map)) map[k] = all[i]
+    }
+    for (var j = 0; j < snaps.length; j++) {
+      var box = map[snaps[j].key]
+      if (!box) continue
+      if (snaps[j].top) box.scrollTop = snaps[j].top
+      if (snaps[j].left) box.scrollLeft = snaps[j].left
+    }
+  }
+
   function render() {
     var el = root()
     if (!el || !WB.open) return
@@ -12015,6 +12074,8 @@
     // ugrana -- a 8-9-10. dia utan a 11.-re kattintva (Boss, TG 7426) nem szabad elvesznie a helynek.
     var oldStrip = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-strip') : null
     var stripLeft = oldStrip ? oldStrip.scrollLeft : null
+    // #482: minden gorgetheto doboz (diasor-szerkeszto csikja, fajllista, panelek) helyben marad.
+    var genScroll = genericScrollSnapshot(el)
     var pageKeep = pageScrollSnapshot(el)
     WB.rendering = true
     if (isSimple()) {
@@ -12051,6 +12112,7 @@
       + '</div>'
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
+    genericScrollRestore(el, genScroll)
     restorePageScroll(el, pageKeep)
     restoreChatScroll(chatScroll)
     restoreStripScroll(stripLeft)
