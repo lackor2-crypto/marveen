@@ -494,10 +494,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a mappanév nem jó: ne legyen benne \\ / : * ? " < > | jel, és ne kezdődjön ponttal.',
     en: 'This folder name will not do: no \\ / : * ? " < > | characters, and it must not start with a dot.',
   },
-  folder_required: {
-    hu: 'Nem tudom elmenteni: előbb az 1. lépésben válaszd ki (vagy hozd létre) azt a mappát, amelyik alá a munkadarab kerül. Mappát nem hozok létre magamtól.',
-    en: 'I cannot save this yet: first, in step 1, choose (or create) the folder the work item goes under. I do not create folders on my own.',
-  },
   folder_is_box: {
     hu: 'Ez a munkadarabok közös mappája, ezt nem lehet törölni. Csak a benne lévő mappákat.',
     en: 'This is the shared folder for all work items and cannot be deleted. Only the folders inside it can.',
@@ -2605,8 +2601,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       intakeFolder = c.folder
     }
-    // Step 2 needs step 1: nothing is filed into a folder nobody chose, and no folder is made on the side.
-    if (!intakeFolder && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
+    // No group chosen: the item goes to the shared work items folder (a folder is a named group, never mandatory).
     const title = String(body['title'] ?? '').trim().slice(0, 200) || intakeTitle(text, kind, lang)
     // A jegyzet (md) kerese: a munkadarab SAJAT .md fajlt kap a mappajaban, es ez a tartalma --
     // az ugynok ebbe ir, a jobb oldal ezt mutatja. (Nincs projektmappa -> fajl nelkul, mint eddig.)
@@ -2687,8 +2682,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       containerFolder = mf.folder
       folderExisted = !mf.created
     }
-    // Step 2 needs step 1: no folder chosen (or typed) -> nothing is saved, and none is made on the side.
-    if (containerFolder === null && !existingFolder && !fromExisting && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
@@ -2728,8 +2721,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let folderExisted = false
     let containerFolder: string | null = null
     const newFolderName = String(body['new_folder'] ?? '').trim()
-    // Step 2 needs step 1: no folder chosen (or typed) -> nothing is saved, and none is made on the side.
-    if (!String(body['folder'] ?? '').trim() && !newFolderName && projectFileTarget(project, '').ok) return fail(res, 400, 'folder_required', lang)
     if (String(body['folder'] ?? '').trim() || newFolderName) {
       let c = workFolderTarget(project, body['folder'])
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)

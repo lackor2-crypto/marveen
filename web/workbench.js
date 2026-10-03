@@ -1899,14 +1899,12 @@
     var pf = document.getElementById('wbNewFolder')
     if (pf) WB.pickFolder = pf.value
     if (WB.pickFolder) payload.folder = WB.pickFolder
-    if (!payload.folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/intake', payload).then(function (r) {
       WB.intakeBusy = false
       if (!r.ok) {
         // Friss projekt: meg nincs mappa-rendszer, de a szerver mappat kovetel -- a valasztot MOST mutatjuk (nem zsakutca).
-        if (r.code === 'folder_required') WB.intakeNeedFolder = true
         render(); window.showToast(r.message); return
       }
       if (r.data.ask) {
@@ -1937,13 +1935,11 @@
     var pf = document.getElementById('wbNewFolder')
     if (pf) WB.pickFolder = pf.value
     if (WB.pickFolder) payload.folder = WB.pickFolder
-    if (!payload.folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
       WB.intakeBusy = false
       if (!r.ok) {
-        if (r.code === 'folder_required') WB.intakeNeedFolder = true
         render(); window.showToast(r.message); return
       }
       WB.intakeAsk = null; WB.intakeDraft = ''; WB.intakeName = ''; WB.formOpen = false
@@ -3749,7 +3745,6 @@
     if (folderEl && folderEl.value) payload.folder = folderEl.value
     var newFolderEl = document.getElementById('wbNewFolderName')
     if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
-    if (!payload.folder && !payload.new_folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.busy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
@@ -10990,7 +10985,7 @@
       + (archived() ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : '<p><button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
           + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button></p>'
-          + (hasFolderSystem() || WB.intakeNeedFolder ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
+          + (hasFolderSystem() ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
       + (ask ? '<p><button type="button" class="btn-secondary" data-wb-act="intake-reset">' + esc(t('workbench.intake.all_kinds')) + '</button></p>' : '')
       + '</section>'
   }
@@ -12160,7 +12155,6 @@
     if (folderEl && folderEl.value) payload.folder = folderEl.value
     var newFolderEl = document.getElementById('wbNewFolderName')
     if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
-    if (!payload.folder && !payload.new_folder && hasFolderSystem()) { window.showToast(t('workbench.folder.required')); return }
     WB.busy = true
     render()
     api('POST', '/api/workbench/items', payload).then(function (r) {

@@ -161,20 +161,16 @@ describe('endpoints', () => {
     expect(typeof (bad.body as { message: string }).message).toBe('string')
   })
 
-  it('POST /items without a folder is refused with a human message and makes no folder on its own', async () => {
+  it('POST /items without a folder is accepted (#479): the folder is an optional named group, none is made on its own', async () => {
     const before = readdirSync(join(dir, 'Projektek', 'Robotok'))
     const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
-    expect(r.status).toBe(400)
-    expect((r.body as { error: string }).error).toBe('folder_required')
-    expect(typeof (r.body as { message: string }).message).toBe('string')
+    expect(r.status).toBe(201)
+    expect((r.body as { item: { container_folder: string | null } }).item.container_folder).toBeNull()
     expect(readdirSync(join(dir, 'Projektek', 'Robotok'))).toEqual(before)
     const i = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'Ajánlat' })
-    expect(i.status).toBe(400)
-    expect((i.body as { error: string }).error).toBe('folder_required')
+    expect((i.body as { error?: string }).error).not.toBe('folder_required')
     const t = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Onallo' })
-    expect(t.status).toBe(400)
-    expect((t.body as { error: string }).error).toBe('folder_required')
-    expect(readdirSync(join(dir, 'Projektek', 'Robotok'))).toEqual(before)
+    expect((t.body as { error?: string }).error).not.toBe('folder_required')
   })
 
   it('POST /items with a typed new folder name makes that folder and files the item into it', async () => {
@@ -441,20 +437,21 @@ describe('list UI', () => {
     expect(h.html()).toContain('value="Tervezet"')
   })
 
-  it('step 2 without a folder chosen in step 1 sends nothing and says so (intake, manual form, table)', async () => {
-    const h = open([], [`${box}/LK`])
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="new"'))
-    h.click({ 'data-wb-act': 'new' })
-    h.inputs['wbNewTitle'] = { value: 'Osszesito', focus() {} }
-    h.inputs['wbNewType'] = { value: 'note', focus() {} }
-    await vi.waitFor(() => expect(h.html()).toContain('Munkadarabok/LK'))
-    h.click({ 'data-wb-act': 'create-table' })
-    h.click({ 'data-wb-act': 'create' })
-    h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'video' })
-    expect(h.toasts.filter((x) => x === '⟦workbench.folder.required⟧')).toHaveLength(3)
-    expect(h.fetchCalls.some((c) => /\/api\/workbench\/(intake|items\/new-table)/.test(c.url))).toBe(false)
-    expect(h.fetchCalls.some((c) => c.url.endsWith('/api/workbench/items') && c.init?.method === 'POST')).toBe(false)
-  })
+  for (const [act, urlPart] of [['create-table', '/api/workbench/items/new-table'], ['create', '/api/workbench/items']] as const) {
+    it(`step 2 without a group chosen still sends the request (${act}), with no folder and no refusal toast (#479)`, async () => {
+      const h = open([], [`${box}/LK`])
+      await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="new"'))
+      h.click({ 'data-wb-act': 'new' })
+      h.inputs['wbNewTitle'] = { value: 'Osszesito', focus() {} }
+      h.inputs['wbNewType'] = { value: 'note', focus() {} }
+      await vi.waitFor(() => expect(h.html()).toContain('Munkadarabok/LK'))
+      h.click({ 'data-wb-act': act })
+      expect(h.toasts.filter((x) => x === '⟦workbench.folder.required⟧')).toHaveLength(0)
+      const call = h.fetchCalls.find((c) => c.url.split('?')[0] === urlPart && c.init?.method === 'POST')
+      expect(call).toBeTruthy()
+      expect(JSON.parse(String(call!.init!.body)).folder).toBeUndefined()
+    })
+  }
 
   it('"New table" files the table under the chosen folder', async () => {
     const h = open([], [`${box}/LK`])
