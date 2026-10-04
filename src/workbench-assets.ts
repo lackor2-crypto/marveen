@@ -390,6 +390,49 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
 }
 
 export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'failed' }
+
+/**
+ * #486: a loose file that a work item references -- typically a deck's slide picture, whose Depot-relative
+ * path lives in the canvas object's `src` inside the draft JSON (and the saved version files) -- can be
+ * moved too. Every reference to it is repointed from oldRel to newRel in one transaction, so nothing turns
+ * into a dead link and the deck keeps working. Exact file path, project-wide (another item may cite the same
+ * picture), covering the same places loosePathsInUse scans: the item/version/part/asset columns and the
+ * deck/timeline JSON (working draft + undo steps), plus the saved version JSON files on disk (best effort).
+ */
+function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: string): void {
+  if (!oldRel || !newRel || oldRel === newRel) return
+  const db = getDb()
+  const ids = (db.prepare('SELECT id FROM work_items WHERE project_id = ?').all(project.id) as { id: string }[]).map((r) => r.id)
+  const draftTables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'work_item_[a-z]*_drafts'").all() as { name: string }[])
+    .filter((t) => /^work_item_[a-z]+_drafts$/.test(t.name))
+  db.transaction(() => {
+    db.prepare('UPDATE work_items SET source_path = ? WHERE project_id = ? AND source_path = ?').run(newRel, project.id, oldRel)
+    for (const id of ids) {
+      db.prepare('UPDATE work_item_versions SET source_path = ? WHERE work_item_id = ? AND source_path = ?').run(newRel, id, oldRel)
+      db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE work_item_id = ? AND asset_path = ?').run(newRel, id, oldRel)
+      db.prepare('UPDATE work_item_assets SET path = ? WHERE work_item_id = ? AND path = ?').run(newRel, id, oldRel)
+      for (const { name } of draftTables) {
+        db.prepare(`UPDATE ${name} SET doc = replace(doc, ?, ?) WHERE work_item_id = ? AND instr(doc, ?) > 0`).run(oldRel, newRel, id, oldRel)
+        const steps = name.replace(/_drafts$/, '_steps')
+        if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(steps)) {
+          db.prepare(`UPDATE ${steps} SET patch = replace(patch, ?, ?) WHERE work_item_id = ? AND instr(patch, ?) > 0`).run(oldRel, newRel, id, oldRel)
+        }
+      }
+    }
+  })()
+  for (const id of ids) {
+    for (const v of db.prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ?').all(id) as { source_path: string | null }[]) {
+      const rel = v.source_path
+      if (!rel || !/\.json$/i.test(rel)) continue
+      try {
+        const abs = resolveLifePath(rel)
+        if (!abs) continue
+        const text = readFileSync(abs, 'utf8')
+        if (text.includes(oldRel)) writeFileSync(abs, text.split(oldRel).join(newRel))
+      } catch { /* unreadable or vanished version file: the move itself already succeeded */ }
+    }
+  }
+}
 export type MoveFilesResult =
   | { ok: true; moved: string[]; skipped: MoveFilesSkip[] }
   | { ok: false; code: WorkFolderError | 'no_files' }
@@ -425,10 +468,11 @@ function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
 
 /**
  * Move loose files (listed in the box, not work items) into another folder of the box: the Workbench
- * list's "move to folder" for ticked files. Never overwrites (a taken name is skipped) and never moves a
- * file the registry names (a deck picture would break): such files are reported, not moved.
- * The target may be a folder that already holds a (flattened) work item (#486, Boss TG 2026-10-04): the
- * files simply sit alongside it, which is the whole point of seeing what belongs together in one folder.
+ * list's "move to folder" for ticked files. Never overwrites (a taken name is skipped). A file a work item
+ * references (a deck's slide picture) moves too: its reference is repointed to the new path so the deck is
+ * not broken (#486, Boss TG 2026-10-04 "a diákat a prezentáció mellé akartam rakni, nem engedte").
+ * The target may be a folder that already holds a (flattened) work item: the files simply sit alongside it,
+ * which is the whole point of seeing what belongs together in one folder.
  */
 export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown): MoveFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
@@ -448,13 +492,18 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     const from = loose.get(rel)
     if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
     if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
-    if (inUse.has(rel)) { skipped.push({ name, reason: 'in_use' }); continue }
     const src = resolveLifePath(rel)
+    const newRel = `${target.dirRel}/${name}`
     const dst = join(target.dirAbs, name)
-    const blocked = writeBlockReason(`${target.dirRel}/${name}`)
+    const blocked = writeBlockReason(newRel)
     if (!src || blocked) { skipped.push({ name, reason: 'failed' }); continue }
     if (existsSync(dst)) { skipped.push({ name, reason: 'name_taken' }); continue }
-    try { renameSync(src, dst); moved.push(name) } catch { skipped.push({ name, reason: 'failed' }) }
+    try {
+      renameSync(src, dst)
+      // #486: if a work item references this file, its reference follows to the new path (no dead link).
+      if (inUse.has(rel)) repointMovedFileRefs(project, rel, newRel)
+      moved.push(name)
+    } catch { skipped.push({ name, reason: 'failed' }) }
   }
   return { ok: true, moved, skipped }
 }
