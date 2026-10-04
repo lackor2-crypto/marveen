@@ -67,6 +67,22 @@ describe('moveLooseFiles', () => {
     expect(existsSync(join(abs(b), 'marveen-item.json'))).toBe(true)
   })
 
+  it('#485: into a folder that holds a work item a taken name is still skipped, nothing is overwritten', () => {
+    const a = group('Forras')
+    const b = group('Prezentacio')
+    const snapshot = JSON.stringify({ format: 1, id: 'x', item: { id: 'x' } })
+    writeFileSync(join(abs(b), 'marveen-item.json'), snapshot)
+    writeFileSync(join(abs(b), 'S01.png'), 'regi')
+    const r1 = loose(a, 'S01.png', 'uj')
+    const r2 = loose(a, 'S02.png')
+    const r = moveLooseFiles(proj(), [r1, r2], b)
+    expect(r).toEqual({ ok: true, moved: ['S02.png'], skipped: [{ name: 'S01.png', reason: 'name_taken' }] })
+    expect(readFileSync(join(abs(b), 'S01.png'), 'utf8')).toBe('regi')
+    expect(readFileSync(join(abs(a), 'S01.png'), 'utf8')).toBe('uj')
+    expect(existsSync(join(abs(b), 'S02.png'))).toBe(true)
+    expect(readFileSync(join(abs(b), 'marveen-item.json'), 'utf8')).toBe(snapshot)
+  })
+
   it('never overwrites: a taken name is skipped and both files stay', () => {
     const a = group('Forras')
     const b = group('Cel')
