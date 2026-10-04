@@ -1418,12 +1418,71 @@
     var c = WB.ctx
     if (!c || c.file !== rel || archived()) return ''
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
-    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 120))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 210))
     var many = WB.fileSel && WB.fileSel[rel] && Object.keys(WB.fileSel).length > 1
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
       + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
       + moveFilesSelectHtml(many ? '*' : rel)
+      + (many ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
+      + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="file-delete" data-wb-rel="' + escA(many ? '*' : rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t(many ? 'workbench.file.delete_many' : 'workbench.file.delete')) + '</button>'
       + '</div>'
+  }
+
+  /** #483: delete one loose file (or every ticked one when `which` is '*'), only after the user confirms by name/count. */
+  function deleteFiles(which) {
+    if (!which || WB.fileBusy || archived()) return
+    var rels = which === '*' ? Object.keys(WB.fileSel || {}) : [which]
+    if (!rels.length) { window.showToast(t('workbench.files.none')); return }
+    var ask = rels.length === 1 ? t('workbench.file.delete_confirm', { name: baseOf(rels[0]) }) : t('workbench.file.delete_confirm_many', { n: rels.length })
+    if (!window.confirm(ask)) { WB.ctx = null; render(); return }
+    keepSelName()
+    var pid = WB.projectId
+    WB.fileBusy = true
+    WB.ctx = null
+    render()
+    api('POST', '/api/workbench/files-delete', { project_id: pid, rels: rels }).then(function (r) {
+      WB.fileBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      var d = r.data || {}
+      if (d.work_folders) WB.workFolders = d.work_folders
+      if (d.items) WB.items = d.items
+      // A deleted file is no longer ticked; skipped ones stay ticked so the user sees what is left.
+      var skippedNames = {}
+      ;(d.skipped || []).forEach(function (s) { skippedNames[s.name] = true })
+      Object.keys(WB.fileSel || {}).forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
+      render()
+      var sk = d.skipped || []
+      var msg = t('workbench.file.deleted', { n: (d.deleted || []).length })
+      if (sk.length) msg += ' ' + t('workbench.file.delete_skipped', { n: sk.length })
+      window.showToast(msg)
+    })
+  }
+
+  /** #483: rename one loose file in place; the server refuses a taken name and keeps a deck picture's links alive. */
+  function renameFile(rel) {
+    if (!rel || WB.fileBusy || archived()) return
+    WB.ctx = null
+    var cur = baseOf(rel)
+    var name = window.prompt(t('workbench.file.rename_prompt', { name: cur }), cur)
+    if (name == null) { render(); return }
+    name = String(name).trim()
+    if (!name || name === cur) { render(); return }
+    var pid = WB.projectId
+    WB.fileBusy = true
+    render()
+    api('POST', '/api/workbench/files-rename', { project_id: pid, rel: rel, name: name }).then(function (r) {
+      WB.fileBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      var d = r.data || {}
+      if (d.work_folders) WB.workFolders = d.work_folders
+      if (d.items) WB.items = d.items
+      // The ticked state follows the new path.
+      if (WB.fileSel && WB.fileSel[rel]) { delete WB.fileSel[rel]; WB.fileSel[dirOf(rel) + '/' + d.name] = true }
+      render()
+      window.showToast(t('workbench.file.renamed', { name: d.name }))
+    })
   }
 
   /** The images lying directly in a work folder, in natural order (s2 before s10). */
@@ -12696,6 +12755,8 @@
     else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
     else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
     else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'))
+    else if (a === 'file-delete') deleteFiles(act.getAttribute('data-wb-rel'))
+    else if (a === 'file-rename') renameFile(act.getAttribute('data-wb-rel'))
     else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'))
     else if (a === 'sel-to-deck') selectionToDeck()
     else if (a === 'sel-clear') { WB.fileSel = {}; WB.selName = ''; render() }
