@@ -1974,6 +1974,29 @@
   // The start screens also offer a table (the plan's six buttons); the server's own guess never returns it.
   var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table'])
 
+  // The social post asks for its platform at creation: the empty canvas gets that size (#493).
+  // Sizes match the server's platform list (src/workbench-canvas-platforms.ts); the id is only a UI key.
+  var INTAKE_PLATFORMS = [
+    { id: 'facebook_post', w: 1200, h: 630 },
+    { id: 'instagram_square', w: 1080, h: 1080 },
+    { id: 'linkedin_post', w: 1200, h: 627 },
+  ]
+
+  function intakePlatformNow() {
+    var id = WB.intakePlatform || INTAKE_PLATFORMS[0].id
+    return INTAKE_PLATFORMS.filter(function (p) { return p.id === id })[0] || INTAKE_PLATFORMS[0]
+  }
+
+  function intakePlatformHtml() {
+    var cur = intakePlatformNow()
+    return '<div class="wb-intake-platform"><label class="wb-label" for="wbIntakePlatform">' + esc(t('workbench.intake.platform_label')) + '</label>'
+      + '<select class="wb-input" id="wbIntakePlatform">' + INTAKE_PLATFORMS.map(function (p) {
+        return '<option value="' + escA(p.id) + '"' + (p.id === cur.id ? ' selected' : '') + '>'
+          + esc(t('workbench.intake.platform.' + p.id) + ' · ' + p.w + ' × ' + p.h) + '</option>'
+      }).join('') + '</select>'
+      + '<p class="wb-hint">' + esc(t('workbench.intake.platform_hint')) + '</p></div>'
+  }
+
   function intakeHtml() {
     var ask = WB.intakeAsk
     var kinds = ask ? ask.options : INTAKE_UI_KINDS
@@ -1989,6 +2012,7 @@
         return '<button type="button" class="btn-secondary wb-intake-kind" data-wb-act="intake-kind" data-wb-kind="' + escA(k) + '"'
           + (busy ? ' disabled' : '') + '>' + esc(t('workbench.intake.kind.' + k)) + '</button>'
       }).join('') + '</div>'
+      + intakePlatformHtml()
       + '<div class="wb-form-actions">'
       + '<button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
       + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button>'
@@ -2078,7 +2102,8 @@
     var base = '/api/workbench/items/' + encodeURIComponent(item.id)
     var call = null
     if (item.type === 'graphic') {
-      call = api('PUT', base + '/canvas', { canvas: { width: 1080, height: 1080, background: '#ffffff', objects: [] } })
+      var pf = kind === 'social_post' ? intakePlatformNow() : { w: 1080, h: 1080 }
+      call = api('PUT', base + '/canvas', { canvas: { width: pf.w, height: pf.h, background: '#ffffff', objects: [] } })
     } else if (item.type === 'presentation' && kind === 'business_card') {
       // Nevjegykartya: kartyameret (EU 85 x 55 mm), ket oldal -- elol a nev, hatul egy ures lap.
       call = api('POST', base + '/deck/ops', { ops: [
@@ -11103,6 +11128,7 @@
         return '<button type="button" class="btn-secondary wb-intake-kind" data-wb-act="intake-kind" data-wb-kind="' + escA(k) + '"'
           + (busy ? ' disabled' : '') + '>' + esc(t('workbench.intake.kind.' + k)) + '</button>'
       }).join('') + '</div>'
+      + intakePlatformHtml()
       + (archived() ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : '<p><button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
           + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button></p>'
@@ -13650,6 +13676,7 @@
     if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
     if (e.target.id === 'wbIntakeText') WB.intakeDraft = e.target.value
     if (e.target.id === 'wbIntakeName') WB.intakeName = e.target.value
+    if (e.target.id === 'wbIntakePlatform') WB.intakePlatform = e.target.value
     if (e.target.id === 'wbCanAiText' && WB.canvasAi) WB.canvasAi.text = e.target.value
     if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
     if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) brandSyncDraft()
