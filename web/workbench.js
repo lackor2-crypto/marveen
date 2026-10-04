@@ -1199,7 +1199,7 @@
       // A rajz-fajta munkadarabnal magatol megnezzuk, van-e mar vaszon. Mas
       // fajtanal nem kerdezunk feleslegesen -- ott az elonezet mondja meg, ha
       // megis rajz all mogotte.
-      if (canvasKind(r.data && r.data.item)) loadCanvas(id)
+      if (canvasKind(r.data && r.data.item) || (r.data && r.data.item && r.data.item.type === 'composite')) loadCanvas(id)
       if (r.data && r.data.item && r.data.item.type === 'video') loadVideoTimeline(id)
       if (r.data && r.data.item && r.data.item.type === 'presentation') loadDeck(id)
     })
@@ -11938,6 +11938,59 @@
 
   /** A kozepso ablak: FIX, nincs gorgetes. A lap felul kezdodik es alul er veget (a Canva mintaja); az oldal-sav alul,
    *  kis negyzetekben; alatta a nagyitas. Dokumentum / video / jegyzet: a sajat teruleten gorgethet. */
+  /** A composite (parts list) post can be brought onto a sized canvas on request (#493). Never automatic:
+   *  composite is a general type, so the owner opts in per item. The parts stay as they are. */
+  function postToCanvasOfferHtml(it) {
+    if (!it || it.type !== 'composite' || archived() || !WB.canvas || WB.canvas.exists || WB.canvasError) return ''
+    return '<section class="wb-post-tocanvas"><h3>' + esc(t('workbench.post.tocanvas_title')) + '</h3>'
+      + '<p class="wb-hint">' + esc(t('workbench.post.tocanvas_hint')) + '</p>'
+      + intakePlatformHtml()
+      + '<p><button type="button" class="btn-primary" data-wb-act="post-to-canvas"' + (WB.canvasBusy ? ' disabled' : '') + '>'
+      + esc(WB.canvasBusy ? t('workbench.canvas.starting') : t('workbench.post.tocanvas_go')) + '</button></p></section>'
+  }
+
+  /** The canvas document for a post: the first picture on top (cover), the first text as a headline, the rest as body text. */
+  function postCanvasDoc(parts, pf) {
+    var W = pf.w, H = pf.h
+    var texts = parts.filter(function (p) { return p.kind === 'text' && (p.text || '').trim() }).map(function (p) { return p.text.trim() })
+    var img = null
+    parts.forEach(function (p) { if (!img && p.kind === 'image' && p.asset_path) img = p })
+    var objects = []
+    var pad = Math.round(W * 0.06)
+    var top = img ? Math.round(H * 0.5) : pad
+    if (img) objects.push({ type: 'image', src: img.asset_path, x: 0, y: 0, width: W, height: Math.round(H * 0.5), fit: 'cover', alt: img.caption || '' })
+    if (texts.length) {
+      var head = Math.round(W * 0.05)
+      objects.push({ type: 'text', text: texts[0], x: pad, y: top + Math.round(pad / 2), width: W - 2 * pad, height: Math.round(head * 2.6), fontSize: head, color: '#111111', bold: true, align: 'left' })
+    }
+    if (texts.length > 1) {
+      var body = Math.round(W * 0.028)
+      var y = top + Math.round(pad / 2) + Math.round(W * 0.05 * 2.8)
+      objects.push({ type: 'text', text: texts.slice(1).join('\n\n'), x: pad, y: y, width: W - 2 * pad, height: Math.max(body * 2, H - y - pad), fontSize: body, color: '#333333', align: 'left' })
+    }
+    return { width: W, height: H, background: '#ffffff', objects: objects }
+  }
+
+  function postToCanvas() {
+    if (!WB.selectedId || WB.canvasBusy || archived()) return
+    var sel = document.getElementById('wbIntakePlatform')
+    if (sel) WB.intakePlatform = sel.value
+    var doc = postCanvasDoc(partsOf(), intakePlatformNow())
+    WB.canvasBusy = true
+    render()
+    api('PUT', '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/canvas', {
+      canvas: doc,
+      base_version: (WB.detail && WB.detail.item && WB.detail.item.current_version_id) || undefined,
+    }).then(function (r) {
+      WB.canvasBusy = false
+      if (!r.ok) { WB.canvasError = { message: r.message, detail: (r.data && r.data.detail) || '' }; render(); return }
+      WB.canvasError = null
+      canvasTake(r.data)
+      loadPreview(WB.selectedId, null)
+      render()
+    })
+  }
+
   function frCenterHtml() {
     var it = WB.detail ? WB.detail.item : null
     var page = ''
@@ -11962,7 +12015,7 @@
           + '<p><button type="button" class="btn-primary" data-wb-act="canvas-start"' + (WB.canvasBusy || archived() ? ' disabled' : '') + '>'
           + esc(WB.canvasBusy ? t('workbench.canvas.starting') : t('workbench.canvas.start')) + '</button></p></div>'
       }
-    } else scrolling = simpleResultHtml()
+    } else scrolling = postToCanvasOfferHtml(it) + simpleResultHtml()
     var zoom = Math.min(100, Math.max(30, WB.frZoom || 100)) / 100
     var isVid = !!it && frIsVideo(it) && !isDeckItem()
     var main = tbl ? tbl : isVid ? '<div class="wb-fr-vid">' + frVideoPageHtml() + '</div>' : page
@@ -12970,6 +13023,7 @@
     else if (a === 'cap-test') testCap(act.getAttribute('data-wb-cap'))
     else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'canvas-start') { if (!archived()) startCanvas() }
+    else if (a === 'post-to-canvas') postToCanvas()
     else if (a === 'canvas-refresh') loadCanvas(WB.selectedId)
     else if (a === 'deck-refresh') loadDeck(WB.selectedId)
     else if (a === 'deck-pick') deckSelectSlide(act.getAttribute('data-wb-id'))
