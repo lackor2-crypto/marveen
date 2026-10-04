@@ -1930,7 +1930,7 @@
         load(projectId)
       } else {
         load(projectId)
-        // Egy fajl = egy uj munkadarab: azt nyitjuk meg, hogy latsszon.
+        // #491: a feltoltes nyers anyag, nem munkadarab (created ures); a hibatlan agon csak ujrarajzolunk.
         if (created.length === 1) selectItem(created[0].id)
         else render()
       }

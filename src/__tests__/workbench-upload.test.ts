@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject, setProjectArchived } from '../projects.js'
 import { listWorkItems } from '../workbench.js'
+import { lifeName } from '../life-tree.js'
 import { workItemTypeForFile, titleFromFileName } from '../workbench-upload.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
@@ -55,33 +56,33 @@ describe('POST /api/workbench/items/upload', () => {
     if (!up.ok) throw new Error('projektmappa: ' + up.code)
   }
 
-  it('#441: a fajl a munkadarab SAJAT mappajaba kerul (a munkadarab nevevel), es uj munkadarab lesz belole, aminek ez a forrasa', async () => {
+  it('#491: a feltoltes NYERS ANYAG: a projekt anyag-mappajaba kerul, nem lesz belole munkadarab es nincs a fajlrol elnevezett mappa', async () => {
     useDepot()
+    const mat = lifeName('moreMaterial')
     const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=${encodeURIComponent('nyári fotó.jpg')}&type=image/jpeg`, 'POST', Buffer.from('JPEGBYTES'))
     expect(r.status).toBe(201)
-    expect(r.body.item.type).toBe('image')
-    expect(r.body.item.title).toBe('nyári fotó')
-    expect(r.body.folder).toBe('Munkadarabok/nyári fotó')
-    expect(r.body.item.folder).toBe('Munkadarabok/nyári fotó')
-    expect(r.body.item.source_path).toBe('Projektek/teszt/Munkadarabok/nyári fotó/nyári fotó.jpg')
-    expect(r.body.versions[0].source_path).toBe('Projektek/teszt/Munkadarabok/nyári fotó/nyári fotó.jpg')
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'nyári fotó', 'nyári fotó.jpg'), 'utf-8')).toBe('JPEGBYTES')
-    expect(listWorkItems(pid)).toHaveLength(1)
-    // A forrasfajl az anyagok kozott is ott van.
-    const d = await callWorkbench(`/api/workbench/items/${r.body.item.id}`, 'GET')
-    expect(d.body.assets.map((a: { name: string }) => a.name)).toEqual(['nyári fotó.jpg'])
+    expect(r.body.item).toBe(null)
+    expect(r.body.folder).toBe(mat)
+    expect(listWorkItems(pid)).toHaveLength(0)
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', mat, 'nyári fotó.jpg'), 'utf-8')).toBe('JPEGBYTES')
+    // Nincs auto-mappa: a projektben csak az anyag-mappa jott letre, benne egyetlen fajl.
+    expect(readdirSync(join(depot, 'Projektek', 'teszt'))).toEqual([mat])
+    expect(readdirSync(join(depot, 'Projektek', 'teszt', mat))).toEqual(['nyári fotó.jpg'])
   })
 
-  it('SOSE ir felul es mas mappajat sem veszi at: ugyanaz a nev masodszorra `nev (2)` mappat kap', async () => {
+  it('SOSE ir felul: ugyanaz a nev masodszorra uj nevet kap az anyag-mappaban, a projekt gyokerenek fajlja erintetlen', async () => {
     useDepot()
+    const mat = lifeName('moreMaterial')
     writeFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.docx'), 'EREDETI')
     const a = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=ajanlat.docx`, 'POST', Buffer.from('UJ1'))
     const b = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=ajanlat.docx`, 'POST', Buffer.from('UJ2'))
-    expect(a.body.folder).toBe('Munkadarabok/ajanlat')
-    expect(b.body.folder).toBe('Munkadarabok/ajanlat (2)')
+    expect(a.body.name).toBe('ajanlat.docx')
+    expect(b.body.name).not.toBe('ajanlat.docx')
+    expect(b.body.renamed).toBe(true)
     expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.docx'), 'utf-8')).toBe('EREDETI')
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'ajanlat', 'ajanlat.docx'), 'utf-8')).toBe('UJ1')
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'ajanlat (2)', 'ajanlat.docx'), 'utf-8')).toBe('UJ2')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', mat, 'ajanlat.docx'), 'utf-8')).toBe('UJ1')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', mat, b.body.name), 'utf-8')).toBe('UJ2')
+    expect(listWorkItems(pid)).toHaveLength(0)
   })
 
   it('kifejezett almappa (`sub`) eseten a regi viselkedes marad: foglalt nevnel uj nevet kap, es ezt ki is mondja', async () => {

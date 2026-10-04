@@ -162,10 +162,23 @@ export function workItemFolder(itemId: string): string | null {
  * work item's own folder); otherwise it is created.
  */
 export function projectWorkItemsFolder(project: ProjectRow): SharedFolderOutcome {
+  return projectNamedFolder(project, 'workItems')
+}
+
+/**
+ * #491: the project's raw-material folder ("Tovabbi anyagok" / "More material", part of the project
+ * skeleton). An upload lands here as a plain file: no work item, no folder named after the file. The
+ * owner turns a file into a work item later and picks its folder then.
+ */
+export function projectMaterialsFolder(project: ProjectRow): SharedFolderOutcome {
+  return projectNamedFolder(project, 'moreMaterial')
+}
+
+function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMaterial'): SharedFolderOutcome {
   ensureAssetTables()
   const root = projectFileTarget(project, '')
   if (!root.ok) return root
-  const names = [lifeName('workItems'), lifeName('workItems', APP_LANG === 'hu' ? 'en' : 'hu')]
+  const names = [lifeName(key), lifeName(key, APP_LANG === 'hu' ? 'en' : 'hu')]
   for (const n of names) {
     const abs = join(root.dirAbs, n)
     let isDir = false
