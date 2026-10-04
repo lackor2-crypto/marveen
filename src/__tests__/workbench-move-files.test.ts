@@ -154,6 +154,43 @@ describe('moveLooseFiles', () => {
     expect(parsed.b).toBe(sibling)      // the sibling ".bak" path is left exactly as it was
   })
 
+  it('#489: when the references cannot be rewritten the file goes back, is reported failed, and no link dies', () => {
+    const db = getDb()
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
+    // a broken undo-steps table (no `patch` column) makes the repoint transaction throw half way through
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_steps (work_item_id TEXT)')
+    const a = group('Forras')
+    const b = group('Prezentacio')
+    const rel = loose(a, 's1.png')
+    const it = createWorkItem({ project_id: pid, title: 'Prezi', type: 'note', container_folder: b })
+    if (!it.ok) throw new Error('item')
+    const before = JSON.stringify({ src: rel })
+    db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, before)
+    const r = moveLooseFiles(proj(), [rel], b)
+    expect(r).toEqual({ ok: true, moved: [], skipped: [{ name: 's1.png', reason: 'failed' }] })
+    // the file is back where the deck still points: not a dead link, and 'failed' is the truth
+    expect(existsSync(join(abs(a), 's1.png'))).toBe(true)
+    expect(existsSync(join(abs(b), 's1.png'))).toBe(false)
+    const doc = (db.prepare('SELECT doc FROM work_item_deck_drafts WHERE work_item_id = ?').get(it.item.id) as { doc: string }).doc
+    expect(doc).toBe(before)
+  })
+
+  it('#489: a name stored escaped in the JSON (with a quote) is found, repointed, and the JSON stays valid', () => {
+    const db = getDb()
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
+    const a = group('Forras')
+    const b = group('Prezentacio')
+    const rel = loose(a, 'dia "1".png')
+    const it = createWorkItem({ project_id: pid, title: 'Prezi', type: 'note', container_folder: b })
+    if (!it.ok) throw new Error('item')
+    db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, JSON.stringify({ src: rel }))
+    const r = moveLooseFiles(proj(), [rel], b)
+    expect(r).toEqual({ ok: true, moved: ['dia "1".png'], skipped: [] })
+    const newRel = (listWorkFolders(proj()).files[b] ?? []).find((x) => x.name === 'dia "1".png')!.rel
+    const doc = (db.prepare('SELECT doc FROM work_item_deck_drafts WHERE work_item_id = ?').get(it.item.id) as { doc: string }).doc
+    expect((JSON.parse(doc) as { src: string }).src).toBe(newRel)
+  })
+
   it('same place and unknown paths are skipped, not moved', () => {
     const a = group('Forras')
     const rel = loose(a, 'S01.png')

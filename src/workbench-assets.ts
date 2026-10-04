@@ -413,7 +413,9 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
   // In the JSON (deck/timeline draft, undo steps, saved version files) the path is a quoted string value,
   // so swap the QUOTED form. This way a longer path that merely ENDS with oldRel (e.g. "diak/s1.png.bak"
   // vs "diak/s1.png") is left untouched -- a raw substring replace would corrupt it (usalackor, #487).
-  const oldQ = `"${oldRel}"`, newQ = `"${newRel}"`
+  // JSON-encoded, not hand-quoted: a name with `"` or `\` is stored escaped, and the new path must not
+  // break the JSON it is written into.
+  const oldQ = JSON.stringify(oldRel), newQ = JSON.stringify(newRel)
   db.transaction(() => {
     db.prepare('UPDATE work_items SET source_path = ? WHERE project_id = ? AND source_path = ?').run(newRel, project.id, oldRel)
     for (const id of ids) {
@@ -429,8 +431,12 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
       }
     }
   })()
+  // The registry is repointed now, so nothing below may throw: a caller treats a throw as "nothing was
+  // rewritten" and puts the file back, which would leave these new references pointing at an empty place.
   for (const id of ids) {
-    for (const v of db.prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ?').all(id) as { source_path: string | null }[]) {
+    let versions: { source_path: string | null }[] = []
+    try { versions = db.prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ?').all(id) as { source_path: string | null }[] } catch { continue }
+    for (const v of versions) {
       const rel = v.source_path
       if (!rel || !/\.json$/i.test(rel)) continue
       try {
@@ -471,7 +477,11 @@ function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
       for (const r of db.prepare(`SELECT doc FROM ${name} WHERE work_item_id = ?`).all(id) as { doc: string | null }[]) if (r.doc) hay.push(r.doc)
     }
   }
-  for (const rel of rels) if (eq.has(rel) || hay.some((h) => h.includes(rel))) used.add(rel)
+  for (const rel of rels) {
+    // Inside JSON a name with `"` or `\` is stored escaped, so look for that form too.
+    const enc = JSON.stringify(rel).slice(1, -1)
+    if (eq.has(rel) || hay.some((h) => h.includes(rel) || (enc !== rel && h.includes(enc)))) used.add(rel)
+  }
   return used
 }
 
@@ -508,11 +518,18 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     if (!src || blocked) { skipped.push({ name, reason: 'failed' }); continue }
     if (existsSync(dst)) { skipped.push({ name, reason: 'name_taken' }); continue }
     try { renameSync(src, dst) } catch { skipped.push({ name, reason: 'failed' }); continue }
-    // The file is on disk at the new place now, so it counts as moved whatever follows (usalackor, #487):
-    // a later repoint error must not report this as 'failed' and leave the file half-moved in the tally.
-    moved.push(name)
     // #486: if a work item references this file, its reference follows to the new path (no dead link).
-    if (inUse.has(rel)) { try { repointMovedFileRefs(project, rel, newRel) } catch { /* file already moved; refs are best effort */ } }
+    // The registry repoint is one transaction, so a throw means nothing was rewritten: the file goes back to
+    // where its references still point, and then 'failed' is the truth (as in renameLooseFile). Only if even
+    // that is impossible does it stay -- it really is in the new place then, so it counts as moved (#487).
+    if (inUse.has(rel)) {
+      try { repointMovedFileRefs(project, rel, newRel) } catch {
+        let back = false
+        try { renameSync(dst, src); back = true } catch { /* it stays in the new place */ }
+        if (back) { skipped.push({ name, reason: 'failed' }); continue }
+      }
+    }
+    moved.push(name)
   }
   return { ok: true, moved, skipped }
 }
