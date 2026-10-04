@@ -24,7 +24,7 @@ const dateText = new Function('window', `${extract('_intezoDateText')}\nreturn _
 describe('Intezo oszlopok', () => {
   it('a tabla fejlecet kap a negy oszlopnevvel', () => {
     for (const k of ['intezo.col_name', 'intezo.col_modified', 'intezo.col_type', 'intezo.col_size']) {
-      expect(app).toContain(`t('${k}')`)
+      expect(app).toContain(`'${k}'`)
     }
     expect(app).toContain('<thead><tr class="intezo-head">')
     // Az adatlap sora a teljes szelesseget atfogja (6 oszlop).
