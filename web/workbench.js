@@ -1296,7 +1296,7 @@
   document.addEventListener('click', function (e) {
     if (!WB.ctx || !e.target || !e.target.closest) return
     if (!e.target.closest('.wb-ctx-menu')) closeItemMenu()
-    else if (e.target.closest('button')) setTimeout(closeItemMenu, 0)
+    else if (e.target.closest('button, a')) setTimeout(closeItemMenu, 0)
   }, true)
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeItemMenu() })
 
@@ -1413,14 +1413,18 @@
       + '</li>'
   }
 
-  /** The loose file's menu (right-click / the "..." button): make it a work item (Boss, TG 7626). */
+  /** The loose file's menu (right-click / the "..." button): open, download, make it a work item (Boss, TG 7626), move, rename, delete. */
   function fileMenuHtml(rel) {
     var c = WB.ctx
     if (!c || c.file !== rel || archived()) return ''
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
-    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 210))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 290))
     var many = WB.fileSel && WB.fileSel[rel] && Object.keys(WB.fileSel).length > 1
+    var href = '/api/life/file?rel=' + encodeURIComponent(rel)
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      // #483 "every usable function": Open and Download act on this one file, so they are not offered for a multi-selection.
+      + (many ? '' : '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open_menu')) + '</a>'
+        + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
       + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
       + moveFilesSelectHtml(many ? '*' : rel)
       + (many ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')

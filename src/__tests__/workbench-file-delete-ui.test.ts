@@ -46,6 +46,28 @@ describe('loose file menu: rename + delete', () => {
     expect(h.html()).toContain('workbench.file.delete')
   })
 
+  it('the menu also opens and downloads the file itself, as real links to the file', async () => {
+    const h = await open()
+    ctx(h, 'data-wb-ctx-file', BOX + '/ajanlat.docx')
+    const menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
+    const href = '/api/life/file?rel=' + encodeURIComponent(BOX + '/ajanlat.docx')
+    expect(menu).toMatch(new RegExp('data-wb-file-open="1" href="' + href.replace(/[?.*+^$()[\]{}|\\]/g, '\\$&') + '" target="_blank"'))
+    expect(menu).toContain('href="' + href + '&download=1" download="ajanlat.docx"')
+    expect(menu).toContain('workbench.file.open_menu')
+    expect(menu).toContain('workbench.file.download')
+  })
+
+  it('with several files ticked the menu acts on the selection: no single-file Open / Download / Rename', async () => {
+    const h = await open()
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': FOLDER + '/s1.png' })
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': FOLDER + '/s2.png' })
+    ctx(h, 'data-wb-ctx-file', FOLDER + '/s1.png')
+    expect(h.html()).toContain('workbench.file.delete_many')
+    expect(h.html()).not.toContain('data-wb-file-open')
+    expect(h.html()).not.toContain('data-wb-file-download')
+    expect(h.html()).not.toContain('data-wb-act="file-rename"')
+  })
+
   it('delete asks first: a "no" sends nothing', async () => {
     const h = await open(false)
     ctx(h, 'data-wb-ctx-file', BOX + '/ajanlat.docx')
