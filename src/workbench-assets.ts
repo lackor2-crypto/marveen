@@ -250,7 +250,8 @@ export const WORK_FILES_TOTAL_MAX = 3000
 
 /** Every folder inside the work items box, project-relative, parents before children.
  *  `files` holds the plain files of the box and of each folder (key = folder path), so a folder
- *  that is full on disk does not look empty; work item containers (they hold marveen-item.json) are skipped. */
+ *  that is full on disk does not look empty. A folder that also holds a work item lists its files too (#488);
+ *  only the item's own snapshot (marveen-item.json) and dotfiles are never listed. */
 export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]> } {
   const box = findWorkItemsBox(project)
   if (!box) return { box: null, folders: [], truncated: false, files: {} }
