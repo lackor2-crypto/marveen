@@ -409,6 +409,10 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
   const ids = (db.prepare('SELECT id FROM work_items WHERE project_id = ?').all(project.id) as { id: string }[]).map((r) => r.id)
   const draftTables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'work_item_[a-z]*_drafts'").all() as { name: string }[])
     .filter((t) => /^work_item_[a-z]+_drafts$/.test(t.name))
+  // In the JSON (deck/timeline draft, undo steps, saved version files) the path is a quoted string value,
+  // so swap the QUOTED form. This way a longer path that merely ENDS with oldRel (e.g. "diak/s1.png.bak"
+  // vs "diak/s1.png") is left untouched -- a raw substring replace would corrupt it (usalackor, #487).
+  const oldQ = `"${oldRel}"`, newQ = `"${newRel}"`
   db.transaction(() => {
     db.prepare('UPDATE work_items SET source_path = ? WHERE project_id = ? AND source_path = ?').run(newRel, project.id, oldRel)
     for (const id of ids) {
@@ -416,10 +420,10 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
       db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE work_item_id = ? AND asset_path = ?').run(newRel, id, oldRel)
       db.prepare('UPDATE work_item_assets SET path = ? WHERE work_item_id = ? AND path = ?').run(newRel, id, oldRel)
       for (const { name } of draftTables) {
-        db.prepare(`UPDATE ${name} SET doc = replace(doc, ?, ?) WHERE work_item_id = ? AND instr(doc, ?) > 0`).run(oldRel, newRel, id, oldRel)
+        db.prepare(`UPDATE ${name} SET doc = replace(doc, ?, ?) WHERE work_item_id = ? AND instr(doc, ?) > 0`).run(oldQ, newQ, id, oldQ)
         const steps = name.replace(/_drafts$/, '_steps')
         if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(steps)) {
-          db.prepare(`UPDATE ${steps} SET patch = replace(patch, ?, ?) WHERE work_item_id = ? AND instr(patch, ?) > 0`).run(oldRel, newRel, id, oldRel)
+          db.prepare(`UPDATE ${steps} SET patch = replace(patch, ?, ?) WHERE work_item_id = ? AND instr(patch, ?) > 0`).run(oldQ, newQ, id, oldQ)
         }
       }
     }
@@ -432,7 +436,7 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
         const abs = resolveLifePath(rel)
         if (!abs) continue
         const text = readFileSync(abs, 'utf8')
-        if (text.includes(oldRel)) writeFileSync(abs, text.split(oldRel).join(newRel))
+        if (text.includes(oldQ)) writeFileSync(abs, text.split(oldQ).join(newQ))
       } catch { /* unreadable or vanished version file: the move itself already succeeded */ }
     }
   }
@@ -502,12 +506,12 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     const blocked = writeBlockReason(newRel)
     if (!src || blocked) { skipped.push({ name, reason: 'failed' }); continue }
     if (existsSync(dst)) { skipped.push({ name, reason: 'name_taken' }); continue }
-    try {
-      renameSync(src, dst)
-      // #486: if a work item references this file, its reference follows to the new path (no dead link).
-      if (inUse.has(rel)) repointMovedFileRefs(project, rel, newRel)
-      moved.push(name)
-    } catch { skipped.push({ name, reason: 'failed' }) }
+    try { renameSync(src, dst) } catch { skipped.push({ name, reason: 'failed' }); continue }
+    // The file is on disk at the new place now, so it counts as moved whatever follows (usalackor, #487):
+    // a later repoint error must not report this as 'failed' and leave the file half-moved in the tally.
+    moved.push(name)
+    // #486: if a work item references this file, its reference follows to the new path (no dead link).
+    if (inUse.has(rel)) { try { repointMovedFileRefs(project, rel, newRel) } catch { /* file already moved; refs are best effort */ } }
   }
   return { ok: true, moved, skipped }
 }
