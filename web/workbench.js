@@ -15,6 +15,7 @@
 (function () {
   'use strict'
 
+  var FR_ZOOM_DEFAULT = 90
   var WB = {
     open: false,
     // VIDEOMUNKA (#406, 19. pont): FFmpeg-allapot es a mostani video vagas-urlapja.
@@ -114,7 +115,7 @@
     frMenu: null,
     frChat: readPref('wb.fr.chat', '1') === '1',
     frLive: false, // Elo nezet (#462): csak a kesz kep, kijelolo-pontok nelkul
-    frZoom: Number(readPref('wb.fr.zoom', '100')) || 100,
+    frZoom: FR_ZOOM_DEFAULT,
     canvasSnap: readPref('wb.canvas.snap', '1') === '1',
     canvasGrid: readPref('wb.canvas.grid', '0') === '1',
     // A verziolista kinyitott "apro modositasok" csoportjai (K-2.4), a csoport
@@ -1148,6 +1149,7 @@
   function selectItem(id) {
     if (!id) return
     WB.selectedId = id
+    WB.frZoom = FR_ZOOM_DEFAULT
     WB.panel = 'editor'
     // Mas munkadarab: a felig nyitott resz-szerkesztes nem szivaroghat at.
     WB.partEdit = null
@@ -3905,6 +3907,7 @@
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false
       WB.selectedId = r.data.item.id
+      WB.frZoom = FR_ZOOM_DEFAULT
       WB.panel = 'editor'
       WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
       window.showToast(t('workbench.table.created', { name: r.data.name || '' }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
@@ -12386,6 +12389,7 @@
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false
       WB.selectedId = r.data.item.id
+      WB.frZoom = FR_ZOOM_DEFAULT
       WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
       window.showToast(t('workbench.new.created', { title: r.data.item.title }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
       load(WB.projectId)
@@ -13661,7 +13665,6 @@
     if (!e.target || e.target.id !== 'wbFrZoom') return
     var v = Number(e.target.value) || 100
     WB.frZoom = v
-    writePref('wb.fr.zoom', String(v))
     var sc = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-scroll') : null
     if (sc && sc.style && typeof sc.style.setProperty === 'function') sc.style.setProperty('--wb-zoom', String(v / 100))
     var lbl = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-zoomval') : null
