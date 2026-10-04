@@ -68,6 +68,26 @@ describe('deleteLooseFiles', () => {
     expect(existsSync(join(abs(a), 's01.png'))).toBe(true)
   })
 
+  it('#488: in a folder that also holds a work item, a now-visible picture the deck uses is still never deleted, and the item snapshot is never a loose file', () => {
+    const db = getDb()
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
+    const a = group('Prezentacio')
+    // a flattened work item sits directly in the folder (its snapshot), next to the slide pictures
+    writeFileSync(join(abs(a), 'marveen-item.json'), JSON.stringify({ format: 1, id: 'x', item: { id: 'x' } }))
+    const used = loose(a, 's01.png')
+    const free = loose(a, 'jegyzet.txt')
+    const it = createWorkItem({ project_id: pid, title: 'Prezi', type: 'note', container_folder: a })
+    if (!it.ok) throw new Error('item')
+    db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, JSON.stringify({ src: used }))
+    const snap = `${used.slice(0, used.lastIndexOf('/'))}/marveen-item.json`
+    const r = deleteLooseFiles(proj(), [used, free, snap])
+    expect(r).toEqual({ ok: true, deleted: ['jegyzet.txt'], skipped: [{ name: 's01.png', reason: 'in_use' }, { name: 'marveen-item.json', reason: 'not_loose' }] })
+    expect(existsSync(join(abs(a), 's01.png'))).toBe(true)
+    expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(true)
+    expect(renameLooseFile(proj(), snap, 'mas.json')).toEqual({ ok: false, code: 'file_not_loose' })
+    expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(true)
+  })
+
   it('unknown or outside paths are skipped, and an empty list is refused', () => {
     const a = group('Forras')
     loose(a, 'S01.png')
