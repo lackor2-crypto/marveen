@@ -38581,8 +38581,21 @@ function _intezoSetViewMode(mode) {
  * sorrendje, valtozatlanul.
  */
 const _INTEZO_SORT_KEYS = ['name', 'modified', 'type', 'size']
-let _intezoDirSizes = {}      // rel -> { bytes, mtime } | { err: true }
+let _intezoDirSizes = {}      // rel -> { bytes, partial, mtime } | { err: true }
 let _intezoSizeRun = null     // the listing a measurement run belongs to
+// TYPE FILTER (#484, the Explorer's column filter): '' = every type. It
+// belongs to ONE folder, like in the Explorer -- `_intezoTypeFilterAt` is
+// that folder, so however the page navigates, a filter never follows the
+// user into another folder and hides files there.
+let _intezoTypeFilter = ''
+let _intezoTypeFilterAt = null
+// What the list last DREW, in that order (sorted, grouped, filtered). The
+// selection logic (Shift range, arrows, Ctrl+A) must walk this, not the raw
+// server order.
+let _intezoShown = null
+function _intezoActiveTypeFilter() {
+  return _intezoTypeFilter && _intezoTypeFilterAt === _intezoPath ? _intezoTypeFilter : ''
+}
 function _intezoSortState() {
   let key = 'name', dir = 'asc', group = false
   try {
@@ -38629,10 +38642,32 @@ function _intezoBytes(n) {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
   return (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + u[i]
 }
-function _intezoKnownDirBytes(e) {
+/** The measurement that still holds for this folder (a failed one always does). */
+function _intezoDirSizeEntry(e) {
   const c = _intezoDirSizes[e.rel]
-  if (c && !c.err && (!e.mtime || c.mtime === e.mtime)) return c.bytes
+  return c && (c.err || !e.mtime || c.mtime === e.mtime) ? c : null
+}
+function _intezoKnownDirBytes(e) {
+  const c = _intezoDirSizeEntry(e)
+  // partial + nothing counted = "could not look", NOT an empty folder.
+  if (c && !c.err && !(c.partial && !c.bytes)) return c.bytes
   return e.isDir && e.content && e.content.state === 'empty' ? 0 : -1
+}
+/**
+ * '' (failed, say nothing) | '…' (measuring) | '1.5 GB' | '≥ 1.5 GB' (some
+ * subfolders could not be read or the walk ran out of time: a lower bound) |
+ * '?' (nothing could be measured). A lower bound is never shown as the total.
+ */
+function _intezoDirSizeText(e) {
+  const c = _intezoDirSizeEntry(e)
+  if (c && c.err) return ''
+  const b = _intezoKnownDirBytes(e)
+  if (b >= 0) return (c && c.partial ? '≥ ' : '') + _intezoBytes(b)
+  return c ? '?' : '…'
+}
+function _intezoDirSizeTitle(text) {
+  return t(text === '?' ? 'intezo.dirsize_unknown_title'
+    : text.indexOf('≥') === 0 ? 'intezo.dirsize_partial_title' : 'intezo.dirsize_title')
 }
 function _intezoCompare(key, a, b, sign) {
   const nameCmp = () => String(a.displayName || a.name).localeCompare(String(b.displayName || b.name), undefined, { numeric: true, sensitivity: 'base' })
@@ -38647,7 +38682,9 @@ function _intezoCompare(key, a, b, sign) {
 /** -> { rows, heads: { rel: label } } ; heads only when grouping is on. */
 function _intezoOrder(L) {
   const st = _intezoSortState()
-  const folders = (L.folders || []).slice(), files = (L.files || []).slice()
+  const only = _intezoActiveTypeFilter()
+  const keep = (e) => !only || _intezoTypeText(e) === only
+  const folders = (L.folders || []).filter(keep), files = (L.files || []).filter(keep)
   const heads = {}
   if (st.key === 'name' && st.dir === 'asc' && !st.group) return { rows: folders.concat(files), heads: heads }
   const sign = st.dir === 'desc' ? -1 : 1
@@ -38685,16 +38722,65 @@ function _intezoGroupHeadHtml(label, details) {
     : '<div class="intezo-group-head">' + escapeHtml(label) + '</div>'
 }
 function _intezoDirSizeHtml(e) {
-  const b = _intezoKnownDirBytes(e)
-  const c = _intezoDirSizes[e.rel]
-  const body = b >= 0 ? _intezoBytes(b) : (c && c.err ? '' : '…')
+  const body = _intezoDirSizeText(e)
   return body ? ' <span class="intezo-dirsize" data-dsz="' + escapeHtml(e.rel) + '" title="'
-    + escapeHtml(t('intezo.dirsize_title')) + '">· ' + escapeHtml(body) + '</span>' : ''
+    + escapeHtml(_intezoDirSizeTitle(body)) + '">· ' + escapeHtml(body) + '</span>' : ''
+}
+/** The icon views have no size column: a folder's size goes in its tooltip. */
+function _intezoTileTip(e) {
+  const size = e.isDir ? _intezoDirSizeText(e) : e.sizeHuman
+  return [e.displayName || e.name, _faSugo(e), e.caution, size === '…' ? '' : size, _intezoDateText(e)]
+    .filter(Boolean).join('\n')
+}
+/**
+ * The type filter's options: the types THIS listing has, with counts. A type
+ * that left the folder (moved, deleted) drops the filter -- it must not keep
+ * the list empty with nothing on screen saying why.
+ */
+function _intezoSyncTypeFilter(L) {
+  const counts = {}
+  ;[].concat(L.folders || [], L.files || []).forEach((e) => {
+    const k = _intezoTypeText(e)
+    counts[k] = (counts[k] || 0) + 1
+  })
+  if (_intezoActiveTypeFilter() && !counts[_intezoTypeFilter]) _intezoTypeFilter = ''
+  const sel = document.getElementById('intezoTypeFilter')
+  if (!sel) return
+  // Rebuilt only when the folder's types changed: a redraw (a folder size
+  // arriving) must not snap shut a dropdown the user has open.
+  const sig = (window._lang || '') + JSON.stringify(counts)
+  if (sel.getAttribute('data-sig') !== sig) {
+    sel.setAttribute('data-sig', sig)
+    sel.innerHTML = '<option value="">' + escapeHtml(t('intezo.filter_all')) + '</option>'
+      + Object.keys(counts).sort((a, b) => a.localeCompare(b)).map((k) => '<option value="' + escapeHtml(k) + '">'
+        + escapeHtml(t('intezo.group_head', { type: k, n: counts[k] })) + '</option>').join('')
+  }
+  sel.value = _intezoActiveTypeFilter()
+  sel.classList.toggle('intezo-filter-on', !!sel.value)
+}
+function _intezoSetTypeFilter(type) {
+  _intezoTypeFilter = type || ''
+  _intezoTypeFilterAt = _intezoPath
+  // A hidden item must not stay selected: Delete / move would act on
+  // something the user can no longer see (the Explorer drops it too).
+  const L = _intezoListing
+  const seen = L ? new Set(_intezoOrder(L).rows.map((e) => e.rel)) : null
+  if (seen && _intezoMulti) [..._intezoMulti.keys()].forEach((rel) => { if (!seen.has(rel)) _intezoMulti.delete(rel) })
+  if (seen && _intezoSelected && !seen.has(_intezoSelected.rel)) _intezoClearSelection() // redraws the list
+  else _intezoRender()
+  _intezoRenderMultiBar()
+}
+function _intezoFilterNoteHtml(shown, total) {
+  const only = _intezoActiveTypeFilter()
+  if (!only) return ''
+  return '<div class="intezo-filter-note" role="status">'
+    + escapeHtml(t('intezo.filter_note', { type: only, n: shown, total: total }))
+    + ' <button type="button" class="btn-secondary" data-filter-clear>' + escapeHtml(t('intezo.filter_clear')) + '</button></div>'
 }
 /** Measure the visible folders two at a time; never blocks the list. */
 function _intezoMeasureDirs(L) {
   if (_intezoSizeRun === L) return
-  const todo = (L.folders || []).filter((e) => _intezoKnownDirBytes(e) < 0 && !(_intezoDirSizes[e.rel] && _intezoDirSizes[e.rel].err))
+  const todo = (L.folders || []).filter((e) => _intezoKnownDirBytes(e) < 0 && !_intezoDirSizeEntry(e))
   if (!todo.length) return
   _intezoSizeRun = L
   let next = 0, active = 0
@@ -38708,13 +38794,16 @@ function _intezoMeasureDirs(L) {
       const e = todo[next++]
       try {
         const d = await _intezoGet('/api/life/dirsize?path=' + encodeURIComponent(e.rel))
-        _intezoDirSizes[e.rel] = { bytes: d.bytes, mtime: e.mtime }
+        _intezoDirSizes[e.rel] = { bytes: d.bytes, partial: !!d.partial, mtime: e.mtime }
       } catch (err) { _intezoDirSizes[e.rel] = { err: true } }
+      const txt = _intezoDirSizeText(e)
       document.querySelectorAll('#intezoList .intezo-dirsize').forEach((el) => {
-        if (el.getAttribute('data-dsz') === e.rel) {
-          const b = _intezoKnownDirBytes(e)
-          el.textContent = b >= 0 ? '· ' + _intezoBytes(b) : ''
-        }
+        if (el.getAttribute('data-dsz') !== e.rel) return
+        el.textContent = txt ? '· ' + txt : ''
+        el.title = _intezoDirSizeTitle(txt)
+      })
+      document.querySelectorAll('#intezoList .intezo-tile[data-pick]').forEach((el) => {
+        if (el.getAttribute('data-rel') === e.rel) el.title = _intezoTileTip(e)
       })
     }
     done()
@@ -38919,6 +39008,7 @@ async function loadIntezoPage() {
   bind('intezoSortKey', 'change', () => _intezoSortSave({ key: document.getElementById('intezoSortKey').value }))
   bind('intezoSortDir', 'click', () => _intezoSortSave({ dir: _intezoSortState().dir === 'asc' ? 'desc' : 'asc' }))
   bind('intezoGroupBy', 'change', () => _intezoSortSave({ group: !!document.getElementById('intezoGroupBy').checked }))
+  bind('intezoTypeFilter', 'change', () => _intezoSetTypeFilter(document.getElementById('intezoTypeFilter').value))
   _intezoSyncSortControls()
   const viewSel = document.getElementById('intezoViewMode')
   if (viewSel) {
@@ -40124,8 +40214,7 @@ function _intezoGridHtml(rows, view, heads) {
     + rows.map((e) => {
       const head = heads && heads[e.rel] ? _intezoGroupHeadHtml(heads[e.rel], false) : ''
       const name = e.displayName || e.name
-      const tip = [name, _faSugo(e), e.caution, e.isDir ? '' : e.sizeHuman, _intezoDateText(e)]
-        .filter(Boolean).join('\n')
+      const tip = _intezoTileTip(e)
       const media = !e.isDir && (e.media === 'image' || e.media === 'video') ? e.media : ''
       const bg = (_intezoSelected && _intezoSelected.rel === e.rel) || (_intezoMulti && _intezoMulti.has(e.rel)) ? ' intezo-tile-selected'
         : (_faBeerkezo(e) ? ' intezo-tile-inbox' : '')
@@ -40190,9 +40279,11 @@ function _intezoRender() {
     }
   }
 
+  _intezoSyncTypeFilter(L)
   const ordered = _intezoOrder(L)
   const rows = ordered.rows
   const heads = ordered.heads
+  _intezoShown = { L: L, rows: rows }
   if (!rows.length) {
     list.innerHTML = L.message ? '' : '<p style="opacity:.7" data-i18n="intezo.empty">Ez a mappa üres.</p>'
     return
@@ -40208,7 +40299,8 @@ function _intezoRender() {
   // kezelok (kijeloles, belepes, jobb klikk, archival, Info) mindket nezetben
   // ugyanazok -- a [data-rel]/[data-pick] elemekre ulnek, nem a <tr>-re.
   const view = _intezoViewMode()
-  list.innerHTML = view !== 'details' ? _intezoGridHtml(rows, view, heads)
+  const total = (L.folders || []).length + (L.files || []).length
+  list.innerHTML = _intezoFilterNoteHtml(rows.length, total) + (view !== 'details' ? _intezoGridHtml(rows, view, heads)
     : '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse">'
     + '<thead><tr class="intezo-head">'
     + '<th></th>'
@@ -40281,8 +40373,9 @@ function _intezoRender() {
       + 'style="padding:1px 7px;font-size:11px;line-height:1.5;min-height:0;height:auto" '
       + 'data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
       + '</tr>').join('')
-    + '</tbody></table>'
+    + '</tbody></table>')
 
+  list.querySelectorAll('[data-filter-clear]').forEach((b) => b.addEventListener('click', () => _intezoSetTypeFilter('')))
   list.querySelectorAll('th[data-sort]').forEach((th) => {
     const go = () => _intezoSortHeader(th.getAttribute('data-sort'))
     th.addEventListener('click', go)
@@ -41014,8 +41107,8 @@ function _intezoMultiAll(on) {
   if (!_intezoMulti) return
   if (!on) _intezoMulti.clear()
   else {
-    const L = _intezoListing || {}
-    ;[].concat(L.folders || [], L.files || []).forEach((e) => _intezoMulti.set(e.rel, _intezoMultiEntry(e)))
+    // Csak a LATHATO elemek: egy szuro mogott rejtett fajl nem kerulhet a kijelolesbe.
+    _intezoVisibleRows().forEach((e) => _intezoMulti.set(e.rel, _intezoMultiEntry(e)))
   }
   _intezoRender()
   _intezoRenderMultiBar()
@@ -41061,10 +41154,17 @@ function _intezoRenderMultiBar() {
    egyforman latja.
    =========================================================================== */
 
-/** A lathato sorrend: elol a mappak, utana a fajlok -- ahogy a lista mutatja. */
+/**
+ * A lathato sorrend: PONTOSAN ahogy a lista kirajzolta (#484 ota rendezve,
+ * csoportositva, szurve). A nyers szerver-sorrend itt azt okozta, hogy
+ * rendezes utan a Shift+kattintas mas tartomanyt jelolt ki, mint ami a
+ * kepernyon a ket kattintas kozott all -- es a Kukaba/athelyezes azokra ment.
+ */
 function _intezoVisibleRows() {
-  const L = _intezoListing || {}
-  return [].concat(L.folders || [], L.files || [])
+  const L = _intezoListing
+  if (!L) return []
+  if (_intezoShown && _intezoShown.L === L) return _intezoShown.rows
+  return _intezoOrder(L).rows
 }
 
 /**

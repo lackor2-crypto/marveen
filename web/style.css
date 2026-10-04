@@ -12671,6 +12671,10 @@ tr.intezo-archived a[data-open] { text-decoration: line-through; text-decoration
    Depot -> Photos grid. The thumbnail is a server-side 320px JPEG, scaled here. */
 .intezo-group-head { grid-column: 1 / -1; font-weight: 600; font-size: 13px; opacity: .8; padding: 6px 8px 2px; border-bottom: 1px solid rgba(127,127,127,.3); }
 tr.intezo-group-head td { font-weight: 600; font-size: 13px; opacity: .8; padding: 8px 8px 2px; border-bottom: 1px solid rgba(127,127,127,.3); }
+/* #484 type filter: an active filter must be impossible to miss (hidden files look like missing files). */
+.intezo-filter-note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; padding: 6px 10px; margin-bottom: 8px; border-radius: 6px; background: rgba(37,99,235,.10); border: 1px solid rgba(37,99,235,.35); }
+.intezo-filter-note .btn-secondary { padding: 2px 8px; font-size: 12px; }
+#intezoTypeFilter.intezo-filter-on { border: 2px solid var(--accent,#2563eb); font-weight: 600; }
 .intezo-grid { display: grid; gap: 8px; align-items: start; }
 .intezo-grid-small { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .intezo-grid-medium { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
