@@ -12018,8 +12018,11 @@
     var split = document.querySelector('.wb-md-split')
     var body = document.querySelector('.wb-fr-body')
     if (!split || !body || window.innerWidth <= 900) { if (split) split.style.height = ''; return }
+    // #482: reset the editor scroller to the top ONLY on a real item switch, not on every
+    // same-item re-render. Otherwise this ran after genericScrollRestore had already put the
+    // scroller back, and threw it to the top again on each redraw (chat stream, save, tick).
     var scroller = split.closest ? split.closest('.wb-fr-scroll') : null
-    if (scroller) scroller.scrollTop = 0
+    if (scroller && WB.mdFitKey !== WB.selectedId) { WB.mdFitKey = WB.selectedId; scroller.scrollTop = 0 }
     var after = 0
     for (var n = split.nextElementSibling; n; n = n.nextElementSibling) after += n.offsetHeight + 12
     var room = Math.min(body.getBoundingClientRect().bottom, window.innerHeight - 4) - split.getBoundingClientRect().top - after - 16
