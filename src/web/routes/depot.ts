@@ -188,7 +188,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
   // altalanos fajlbongeszove.
   if (path === '/api/depot/browse' && method === 'GET') {
     const wanted = ctx.url.searchParams.get('path')
-    const r = browseFolders(wanted)
+    const r = await browseFolders(wanted)
     json(res, {
       ...r,
       drives: r.drives.map((d) => ({ ...d, freeHuman: humanBytes(d.freeBytes), totalHuman: humanBytes(d.totalBytes) })),
@@ -265,7 +265,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
     const saved = setOverride('MARVEEN_DEPOT', target)
     if (!saved.ok) { json(res, { error: saved.error, code: 'save_failed' }, 400); return true }
 
-    const space = diskSpace(target)
+    const space = await diskSpace(target)
     logger.info({ target }, '[depo] uj depo-hely mentve')
     json(res, {
       ok: true,

@@ -20,8 +20,8 @@
 //     felhasznalonak nem. A felulet mindenutt `D:\Marveen` alakot mutat, es a
 //     ket alak kozott ez a modul fordit oda-vissza. Ha valaki megis begepel
 //     egy `D:\Marveen`-t a Beallitasoknal, azt is elfogadjuk.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import * as fs from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { statfs as statfsAsync, readdir as readdirAsync, stat as statAsync } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 
 /** Egy csatolt Windows-lemez, ahogy a WSL latja. */
@@ -46,10 +46,14 @@ export interface DriveInfo {
  * a drvfs-atjaro meghal, a mappa marad, es minden muvelet hibara fut). Ami a
  * `/proc/mounts`-ban drvfs-kent szerepel, az tenylegesen csatolva van.
  */
-export function listDrives(mountsFile = '/proc/mounts'): DriveInfo[] {
+// ASZINKRON, szandekosan: a `statfs` egy lassu halozati csatolason (9p, drvfs)
+// nehany szaz ms-ig is elhuzodhat. A dashboard EGY szalon fut, igy egy szinkron
+// statfs a mappavalasztokor az OSSZES tobbi kerest es a hatter-pollokat is
+// megfagyasztana. Az aszinkron valtozat csak ezt a valaszt kesleltetheti.
+export async function listDrives(mountsFile = '/proc/mounts'): Promise<DriveInfo[]> {
   let text = ''
   try { text = readFileSync(mountsFile, 'utf8') } catch { return [] }
-  const out: DriveInfo[] = []
+  const picked: { mount: string; letter: string }[] = []
   const seen = new Set<string>()
   for (const line of text.split('\n')) {
     const parts = line.split(/\s+/)
@@ -61,25 +65,28 @@ export function listDrives(mountsFile = '/proc/mounts'): DriveInfo[] {
     const m = /^\/mnt\/([a-z])$/.exec(mount)
     if (!m || seen.has(mount)) continue
     seen.add(mount)
-    const letter = m[1].toUpperCase()
-    const { freeBytes, totalBytes } = diskSpace(mount)
-    out.push({
+    picked.push({ mount, letter: m[1].toUpperCase() })
+  }
+  // A lemezek szabad-helyet parhuzamosan merjuk: igy ket lemeznel nem adodik
+  // ossze a ket statfs varakozasa.
+  const out = await Promise.all(picked.map(async ({ mount, letter }) => {
+    const { freeBytes, totalBytes } = await diskSpace(mount)
+    return {
       path: mount,
       display: `${letter}:`,
       label: `${letter}: lemez`,
       freeBytes,
       totalBytes,
-    })
-  }
+    }
+  }))
   return out.sort((a, b) => a.display.localeCompare(b.display))
 }
 
-/** Szabad/teljes hely, ha a Node-unk tudja. Sose dob. */
-export function diskSpace(path: string): { freeBytes: number | null; totalBytes: number | null } {
+/** Szabad/teljes hely, ha a Node-unk tudja. Sose dob. Aszinkron: lasd listDrives. */
+export async function diskSpace(path: string): Promise<{ freeBytes: number | null; totalBytes: number | null }> {
   try {
-    const statfs = (fs as unknown as { statfsSync?: (p: string) => { bsize: number; blocks: number; bavail: number } }).statfsSync
-    if (typeof statfs !== 'function') return { freeBytes: null, totalBytes: null }
-    const s = statfs(path)
+    if (typeof statfsAsync !== 'function') return { freeBytes: null, totalBytes: null }
+    const s = await statfsAsync(path)
     return { freeBytes: s.bsize * s.bavail, totalBytes: s.bsize * s.blocks }
   } catch {
     return { freeBytes: null, totalBytes: null }
@@ -157,8 +164,11 @@ export interface BrowseResult {
  * adunk vissza -- a valaszto mappat valaszt, a fajlneveknek itt semmi
  * keresnivalojuk, es igy a vegpont nem is valik altalanos fajlbongeszove.
  */
-export function browseFolders(path: string | null | undefined): BrowseResult {
-  const drives = listDrives()
+// ASZINKRON, szandekosan: a readdir + mappankenti stat egy lassu csatolason
+// (9p/drvfs) blokkolna az egyetlen Node-szalat, es vele az egesz dashboardot.
+// Igy a lassu meghajto csak ezt a valaszt kesleltetheti, a tobbit nem.
+export async function browseFolders(path: string | null | undefined): Promise<BrowseResult> {
+  const drives = await listDrives()
   if (!path) {
     return { path: null, display: 'Saját gép', parent: null, drives, folders: [], message: null }
   }
@@ -173,32 +183,55 @@ export function browseFolders(path: string | null | undefined): BrowseResult {
     folders: [],
     message: null,
   }
-  if (!existsSync(target)) {
-    return { ...base, message: `Ez a mappa nincs meg: ${toDisplayPath(target)}` }
-  }
+  // Egyetlen stat donti el: letezik-e, es mappa-e. ENOENT -> "nincs meg";
+  // barmi mas hiba (pl. jogosultsag, lecsatolt atjaro) -> "most nem érhető el".
   try {
-    if (!statSync(target).isDirectory()) {
+    const st = await statAsync(target)
+    if (!st.isDirectory()) {
       return { ...base, message: 'Ez nem mappa, hanem fájl.' }
     }
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return { ...base, message: `Ez a mappa nincs meg: ${toDisplayPath(target)}` }
+    }
     return { ...base, message: `Ez a mappa most nem érhető el: ${toDisplayPath(target)}` }
   }
   let names: string[] = []
   try {
-    names = readdirSync(target)
+    names = await readdirAsync(target)
   } catch {
     return { ...base, message: 'Ebbe a mappába nincs betekintési jogom.' }
   }
+  // A rejtett es rendszermappak csak zajt visznek a listaba -- ezeket meg a
+  // (draga) stat ELOTT kiszurjuk.
+  const candidates = names.filter(
+    (name) => !(name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information'),
+  )
+  // A statokat korlatozott parhuzamossaggal, a readdir sorrendjeben futtatjuk,
+  // es amint 500 mappat osszegyujtottunk, megallunk: egy tulzsufolt mappa
+  // (tizezernyi bejegyzes) igy sem futtat tizezernyi statot egyszerre.
   const folders: FolderEntry[] = []
-  for (const name of names) {
-    // A rejtett es rendszermappak csak zajt visznek a listaba.
-    if (name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information') continue
-    const full = join(target, name)
-    try { if (!statSync(full).isDirectory()) continue } catch { continue }
-    folders.push({ name, path: full, display: toDisplayPath(full) })
-    // Egy tulzsufolt mappa listaja se a felulet, se az ember szamara nem
-    // hasznalhato; a valasztashoz boven eleg ennyi.
-    if (folders.length >= 500) break
+  const CAP = 500
+  const CONCURRENCY = 16
+  for (let i = 0; i < candidates.length && folders.length < CAP; i += CONCURRENCY) {
+    const batch = candidates.slice(i, i + CONCURRENCY)
+    const checked = await Promise.all(
+      batch.map(async (name) => {
+        const full = join(target, name)
+        try {
+          return (await statAsync(full)).isDirectory() ? { name, full } : null
+        } catch {
+          return null
+        }
+      }),
+    )
+    for (const hit of checked) {
+      if (!hit) continue
+      folders.push({ name: hit.name, path: hit.full, display: toDisplayPath(hit.full) })
+      // Egy tulzsufolt mappa listaja se a felulet, se az ember szamara nem
+      // hasznalhato; a valasztashoz boven eleg ennyi.
+      if (folders.length >= CAP) break
+    }
   }
   folders.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
   return { ...base, folders }
