@@ -226,6 +226,32 @@ export function extractThoughts(jsonlLines: string[], lang: Lang = 'hu', sinceMs
     .filter(t => inOwnerLanguage(t, lang))
 }
 
+/**
+ * #495: the synthetic "You've hit your weekly limit ..." lines Claude Code writes for every
+ * refused turn. The owner wants to hear it ONCE, not on every scheduled prompt, so this only
+ * returns the distinct texts of a span; the runner remembers the last one it sent per agent.
+ */
+export function extractLimitNotices(jsonlLines: string[], sinceMs?: number): string[] {
+  const out: string[] = []
+  for (const line of jsonlLines) {
+    let d: any
+    try { d = JSON.parse(line) } catch { continue }
+    if (!d || d.type !== 'assistant') continue
+    if (!(d.isApiErrorMessage === true || d.message?.model === '<synthetic>')) continue
+    if (sinceMs !== undefined) {
+      const ts = Date.parse(String(d.timestamp ?? ''))
+      if (!Number.isFinite(ts) || ts < sinceMs) continue
+    }
+    const content = d.message?.content
+    if (!Array.isArray(content)) continue
+    for (const c of content) {
+      const text = c?.type === 'text' && typeof c.text === 'string' ? c.text.trim() : ''
+      if (text && !out.includes(text)) out.push(text)
+    }
+  }
+  return out
+}
+
 export function thoughtMessage(text: string, max = 600): string {
   return `▸ ${text.length <= max ? text : text.slice(0, max) + '…'}`
 }

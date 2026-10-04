@@ -32,6 +32,7 @@ import {
   backgroundText,
   classifyPane,
   extractThoughts,
+  extractLimitNotices,
   langOf,
   parseProgressMode,
   placeholderLiveText,
@@ -55,17 +56,21 @@ type Target = { agent: string; stateDir: string; session: string }
 
 // Persisted: only what must survive a dashboard restart -- the background
 // messages, so a restart never leaves a "⏳" behind that nobody deletes.
-type Persisted = { background: Record<string, { chatId: string; messageId: number; text: string }> }
+type Persisted = {
+  background: Record<string, { chatId: string; messageId: number; text: string }>
+  // #495: the last rate-limit notice sent per agent, so the same one goes out only once.
+  limitNotice: Record<string, string>
+}
 
 const edits = new Map<string, { text: string; at: number }>()
 const offsets = new Map<string, number>()
-let persisted: Persisted = { background: {} }
+let persisted: Persisted = { background: {}, limitNotice: {} }
 let running = false
 
 function loadState(): void {
   try {
     const raw = JSON.parse(readFileSync(STATE_PATH, 'utf-8'))
-    if (raw && typeof raw.background === 'object') persisted = { background: raw.background }
+    if (raw && typeof raw.background === 'object') persisted = { background: raw.background, limitNotice: raw.limitNotice && typeof raw.limitNotice === 'object' ? raw.limitNotice : {} }
   } catch { /* fresh install or unreadable: start empty */ }
 }
 
@@ -194,8 +199,15 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
         // its pending file's mtime is the closest honest bound.
         let since = typeof p.created_at === 'number' ? p.created_at : undefined
         if (since === undefined) { try { since = statSync(p.file).mtimeMs } catch { /* gone: no bound */ } }
-        for (const th of extractThoughts(newTranscriptLines(p.transcript_path), lang, since)) {
+        const lines = newTranscriptLines(p.transcript_path)
+        for (const th of extractThoughts(lines, lang, since)) {
           await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })
+        }
+        // A rate-limit notice goes out once; the same text is never repeated (#495).
+        for (const n of extractLimitNotices(lines, since)) {
+          if (persisted.limitNotice[t.agent] === n) continue
+          const r = await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(n), disable_notification: true })
+          if (r?.ok) { persisted.limitNotice[t.agent] = n; saveState() }
         }
       }
     }
