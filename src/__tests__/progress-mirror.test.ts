@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   langOf, classifyPane, placeholderLiveText, backgroundText, shouldEdit,
-  extractThoughts, thoughtMessage, parseProgressMode,
+  extractThoughts, extractLimitNotices, thoughtMessage, parseProgressMode,
 } from '../progress-mirror.js'
 import { readPending } from '../web/progress-mirror-runner.js'
 import { SETTINGS_REGISTRY } from '../config-registry.js'
@@ -150,6 +150,15 @@ describe('verbose thoughts', () => {
     const real = JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Megnézem a naplót.' }] } })
     expect(extractThoughts([limit, limit, real], 'hu')).toEqual(['Megnézem a naplót.'])
     expect(extractThoughts([limit], 'en')).toEqual([])
+  })
+  it('#495: the rate-limit notice is returned once per distinct text, so the runner can send it only once', () => {
+    const mk = (text: string) => JSON.stringify({
+      type: 'assistant', isApiErrorMessage: true, error: 'rate_limit',
+      message: { model: '<synthetic>', content: [{ type: 'text', text }] },
+    })
+    const real = JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Megnézem.' }] } })
+    expect(extractLimitNotices([mk('A'), mk('A'), real, mk('B')])).toEqual(['A', 'B'])
+    expect(extractLimitNotices([real])).toEqual([])
   })
   it('never posts an English narration block to a Hungarian owner (2026-09-27)', () => {
     const lines = [
