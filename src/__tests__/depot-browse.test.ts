@@ -35,18 +35,18 @@ function mounts(lines: string): string {
 }
 
 describe('milyen lemezeket lat a gep', () => {
-  it('a Windows-lemezeket felsorolja, emberi nevvel', () => {
+  it('a Windows-lemezeket felsorolja, emberi nevvel', async () => {
     const p = mounts([
       'C:\\134 /mnt/c drvfs rw,noatime 0 0',
       'D:\\134 /mnt/d drvfs rw,noatime 0 0',
     ].join('\n'))
-    const d = listDrives(p)
+    const d = await listDrives(p)
     expect(d.map((x) => x.display)).toEqual(['C:', 'D:'])
     expect(d[1].label).toBe('D: lemez')
     expect(d[1].path).toBe('/mnt/d')
   })
 
-  it('ami nem lemez, az nem kerul a listaba', () => {
+  it('ami nem lemez, az nem kerul a listaba', async () => {
     // A linuxos sajat mappak (/, /proc, /sys) es a WSL belso csatolasai
     // semmit nem jelentenek annak, aki egy lemezt keres.
     //
@@ -61,24 +61,24 @@ describe('milyen lemezeket lat a gep', () => {
       'tmpfs /mnt/e tmpfs rw 0 0',
       'C:\\134 /mnt/c drvfs rw 0 0',
     ].join('\n'))
-    expect(listDrives(p).map((x) => x.display)).toEqual(['C:'])
+    expect((await listDrives(p)).map((x) => x.display)).toEqual(['C:'])
   })
 
-  it('a lecsatolt lemez ELTUNIK a listabol, akkor is, ha a mappaja megvan', () => {
+  it('a lecsatolt lemez ELTUNIK a listabol, akkor is, ha a mappaja megvan', async () => {
     // Ez a mert hibamod: a drvfs-atjaro meghal, a `/mnt/d` mappa ottmarad, es
     // minden muvelet hibara fut. Ha a `/mnt` listazasabol dolgoznank, a lemez
     // valaszthato maradna -- es a kepek egy halott mappaba mennenek.
     const p = mounts('C:\\134 /mnt/c drvfs rw 0 0\n')
-    expect(listDrives(p).find((x) => x.path === '/mnt/d')).toBeUndefined()
+    expect((await listDrives(p)).find((x) => x.path === '/mnt/d')).toBeUndefined()
   })
 
-  it('hianyzo /proc/mounts eseten ures lista, nem osszeomlas', () => {
-    expect(listDrives(join(tmp, 'nincs-ilyen'))).toEqual([])
+  it('hianyzo /proc/mounts eseten ures lista, nem osszeomlas', async () => {
+    expect(await listDrives(join(tmp, 'nincs-ilyen'))).toEqual([])
   })
 
   it('a kod a /proc/mounts-bol dolgozik, nem a /mnt listazasabol', () => {
     const src = read(join(ROOT, 'src', 'depot-browse.ts'), 'utf8')
-    const fn = src.slice(src.indexOf('export function listDrives'), src.indexOf('export function diskSpace'))
+    const fn = src.slice(src.indexOf('export async function listDrives'), src.indexOf('export async function diskSpace'))
     expect(fn).toContain('readFileSync(mountsFile')
     expect(fn).not.toMatch(/readdirSync/)
   })
@@ -121,82 +121,82 @@ describe('amit a felhasznalo lat', () => {
 })
 
 describe('a mappak felsorolasa', () => {
-  it('csak mappakat ad vissza, fajlokat nem', () => {
+  it('csak mappakat ad vissza, fajlokat nem', async () => {
     mkdirSync(join(tmp, 'Kepek'))
     mkdirSync(join(tmp, 'Zene'))
     writeFileSync(join(tmp, 'jegyzet.txt'), 'x')
-    const r = browseFolders(tmp)
+    const r = await browseFolders(tmp)
     expect(r.folders.map((f) => f.name)).toEqual(['Kepek', 'Zene'])
   })
 
-  it('a rejtett es rendszermappak nem zavarnak be', () => {
+  it('a rejtett es rendszermappak nem zavarnak be', async () => {
     mkdirSync(join(tmp, '.git'))
     mkdirSync(join(tmp, '$RECYCLE.BIN'))
     mkdirSync(join(tmp, 'System Volume Information'))
     mkdirSync(join(tmp, 'Dokumentumok'))
-    expect(browseFolders(tmp).folders.map((f) => f.name)).toEqual(['Dokumentumok'])
+    expect((await browseFolders(tmp)).folders.map((f) => f.name)).toEqual(['Dokumentumok'])
   })
 
-  it('minden mappa mellett ott a Windows-alak is', () => {
+  it('minden mappa mellett ott a Windows-alak is', async () => {
     mkdirSync(join(tmp, 'Kepek'))
-    const f = browseFolders(tmp).folders[0]
+    const f = (await browseFolders(tmp)).folders[0]
     expect(f.path).toBe(join(tmp, 'Kepek'))
     expect(f.display).toBe(toDisplayPath(join(tmp, 'Kepek')))
   })
 
-  it('nem letezo mappa: emberi uzenet, nem osszeomlas', () => {
-    const r = browseFolders(join(tmp, 'nincs-ilyen'))
+  it('nem letezo mappa: emberi uzenet, nem osszeomlas', async () => {
+    const r = await browseFolders(join(tmp, 'nincs-ilyen'))
     expect(r.folders).toEqual([])
     expect(r.message).toMatch(/nincs meg/i)
   })
 
-  it('fajlra mutatva megmondja, hogy az nem mappa', () => {
+  it('fajlra mutatva megmondja, hogy az nem mappa', async () => {
     const f = join(tmp, 'kep.jpg')
     writeFileSync(f, 'x')
-    expect(browseFolders(f).message).toMatch(/nem mappa/i)
+    expect((await browseFolders(f)).message).toMatch(/nem mappa/i)
   })
 
-  it('utvonal nelkul a lemezlista jon, es semmi mas', () => {
-    const r = browseFolders(null)
+  it('utvonal nelkul a lemezlista jon, es semmi mas', async () => {
+    const r = await browseFolders(null)
     expect(r.path).toBeNull()
     expect(r.display).toBe('Saját gép')
     expect(r.folders).toEqual([])
     expect(r.parent).toBeNull()
   })
 
-  it('a lemez gyokerebol a lemezlistara lepunk vissza, nem a /mnt-be', () => {
+  it('a lemez gyokerebol a lemezlistara lepunk vissza, nem a /mnt-be', async () => {
     // A `/mnt` egy linuxos reszlet. Aki a D: gyokerebol visszalep, az a
     // gepe lemezeit akarja latni, nem egy linuxos belso mappat.
-    expect(browseFolders('/mnt/d').parent).toBeNull()
-    expect(browseFolders('D:').parent).toBeNull()
+    expect((await browseFolders('/mnt/d')).parent).toBeNull()
+    expect((await browseFolders('D:')).parent).toBeNull()
   })
 
-  it('mappan belul viszont van hova visszalepni', () => {
+  it('mappan belul viszont van hova visszalepni', async () => {
     mkdirSync(join(tmp, 'Kepek'))
-    expect(browseFolders(join(tmp, 'Kepek')).parent).toBe(tmp)
+    expect((await browseFolders(join(tmp, 'Kepek'))).parent).toBe(tmp)
   })
 
-  it('a felsorolas NEM modosit semmit', () => {
+  it('a felsorolas NEM modosit semmit', async () => {
     mkdirSync(join(tmp, 'Kepek'))
-    browseFolders(tmp)
-    browseFolders(join(tmp, 'Kepek'))
+    await browseFolders(tmp)
+    await browseFolders(join(tmp, 'Kepek'))
     // Egy valaszto olvas. Ha barmit letrehozna, az egy kattintgatas kozben
     // szemetet szorna szet a felhasznalo lemezen.
     const src = read(join(ROOT, 'src', 'depot-browse.ts'), 'utf8')
     expect(src).not.toMatch(/mkdirSync|writeFileSync|rmSync|renameSync|unlinkSync/)
   })
 
-  it('a tulzsufolt mappa sem fagyasztja le a feluletet', () => {
+  it('a tulzsufolt mappa sem fagyasztja le a feluletet', async () => {
     const big = join(tmp, 'sok')
     mkdirSync(big)
     for (let i = 0; i < 520; i++) mkdirSync(join(big, 'm' + String(i).padStart(4, '0')))
-    expect(browseFolders(big).folders.length).toBe(500)
+    expect((await browseFolders(big)).folders.length).toBe(500)
   })
 
-  it('egy torott jelzolanc nem viszi el az egesz listat', () => {
+  it('egy torott jelzolanc nem viszi el az egesz listat', async () => {
     mkdirSync(join(tmp, 'Jo'))
     symlinkSync(join(tmp, 'nincs-ilyen'), join(tmp, 'Torott'))
-    const r = browseFolders(tmp)
+    const r = await browseFolders(tmp)
     expect(r.folders.map((f) => f.name)).toEqual(['Jo'])
   })
 })
