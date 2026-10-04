@@ -3034,6 +3034,88 @@ export function ensureGlobalAvailabilityRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+// --- Short-reply rule (kanban #494, owner 2026-10-04) ------------------------
+//
+// The owner answered "A" to an A/B question and the agent asked back which
+// question that was, though its own question sat in its transcript. A short
+// reply is only ambiguous if the agent does not look back; the rule makes the
+// look-back mandatory before any counter-question.
+const SHORT_REPLY_BEGIN = '<!-- BEGIN GENERATED: short-reply-rule (auto-generated, do not edit by hand) -->'
+const SHORT_REPLY_END = '<!-- END GENERATED: short-reply-rule -->'
+const SHORT_REPLY_BLOCK_RE = new RegExp(
+  `${SHORT_REPLY_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${SHORT_REPLY_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildShortReplyBody(): string {
+  return [
+    '## ROVID VALASZ ELOTT VISSZANEZ A SAJAT UZENETEDRE, ES CSAK UTANA KERDEZZ',
+    '',
+    'Ha a tulajdonos egy rovid valaszt kuld ("A", "B", "igen", "nem", "jo", "mehet"),',
+    'az VALASZ a SAJAT utolso kimeno kerdesedre. ELOSZOR nezd vissza a sajat utolso',
+    '10-20 kimeno uzeneted (a session-naplod, vagy a csatorna sajat uzenetei), keresd',
+    'meg a nyitott A/B vagy igen/nem kerdest, es azzal dolgozz tovabb. Visszakerdezni',
+    'CSAK akkor szabad, ha a visszanezes utan is tobb nyitott kerdes illene a valaszra,',
+    'vagy egy sem; ilyenkor mondd meg, MIT talaltal, es mit kerdezel. A "nem latom,',
+    'melyik kerdesre valaszol" hiba, nem ovatossag: a sajat uzeneted a naplodban van.',
+  ].join('\n')
+}
+
+/** Beviszi a rovid-valasz szabalyt egy agens sajat CLAUDE.md-jebe. */
+export function ensureShortReplySection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${SHORT_REPLY_BEGIN}\n${buildShortReplyBody()}\n${SHORT_REPLY_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = SHORT_REPLY_BLOCK_RE.test(existing)
+    ? existing.replace(SHORT_REPLY_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalShortReplyRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${SHORT_REPLY_BEGIN}\n${buildShortReplyBody()}\n${SHORT_REPLY_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = SHORT_REPLY_BLOCK_RE.test(existing)
+    ? existing.replace(SHORT_REPLY_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;
