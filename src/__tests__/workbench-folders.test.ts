@@ -84,6 +84,22 @@ describe('folders in the work items box', () => {
     expect(box).toBeTruthy()
   })
 
+  it('#488: a folder that ALSO holds a work item still lists its loose files (not just the item)', () => {
+    const p = getProjectRow()
+    const a = makeWorkFolder(p, '', 'Prezentacio')
+    if (!a.ok) throw new Error('mk: ' + a.code)
+    const abs = join(dir, 'Projektek', 'Robotok', ...a.folder.split('/'))
+    // a flattened work item sits directly in the folder (its snapshot), next to the moved pictures
+    writeFileSync(join(abs, 'marveen-item.json'), JSON.stringify({ format: 1, id: 'x', item: { id: 'x' } }))
+    writeFileSync(join(abs, 's1.png'), 'x')
+    writeFileSync(join(abs, 's2.png'), 'xx')
+    const r = listWorkFolders(p)
+    // the loose pictures show up even though the folder holds a work item
+    expect(r.files[a.folder]?.map((f) => f.name)).toEqual(['s1.png', 's2.png'])
+    // but the item's own snapshot file is never listed as a loose file
+    expect(Object.values(r.files).flat().some((f) => f.name === 'marveen-item.json')).toBe(false)
+  })
+
   it('an item made in a chosen folder gets its own folder INSIDE it', () => {
     const p = getProjectRow()
     const a = makeWorkFolder(p, '', 'LK Trendvonal EA')

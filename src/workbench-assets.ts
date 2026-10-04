@@ -264,8 +264,12 @@ export function listWorkFolders(project: ProjectRow): { box: string | null; fold
     if (depth > WORK_FOLDER_MAX_DEPTH) return
     let entries: import('node:fs').Dirent[]
     try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
-    if (!entries.some((d) => d.isFile() && d.name === ITEM_SNAPSHOT_NAME)) {
-      const plain = entries.filter((d) => d.isFile() && !d.name.startsWith('.'))
+    // #488: list the loose files in EVERY folder, even one that also holds a work item (its snapshot
+    // sits directly in it after the #479 flatten). Only the snapshot file and dotfiles are kept out,
+    // so a folder where Boss put pictures next to the presentation no longer looks empty (Boss TG
+    // 2026-10-04 "a prezentacioba tette de nem latom ott").
+    {
+      const plain = entries.filter((d) => d.isFile() && !d.name.startsWith('.') && d.name !== ITEM_SNAPSHOT_NAME)
         .sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
       for (const f of plain) {
         if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
