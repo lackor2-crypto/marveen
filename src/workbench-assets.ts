@@ -512,6 +512,75 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   return { ok: true, moved, skipped }
 }
 
+export type DeleteFilesResult =
+  | { ok: true; deleted: string[]; skipped: MoveFilesSkip[] }
+  | { ok: false; code: 'no_files' | 'no_box' }
+
+/**
+ * #483: delete ticked loose files (the Workbench list's "Delete" for files, always behind a confirmation in the UI).
+ * Only a file that really is loose in the box is deleted; a file the registry names (a deck picture, a version file,
+ * a material) is skipped as `in_use`, because deleting it would break the work item that calls it.
+ */
+export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFilesResult {
+  const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
+  if (!want.length) return { ok: false, code: 'no_files' }
+  if (!findWorkItemsBox(project)) return { ok: false, code: 'no_box' }
+  const wf = listWorkFolders(project)
+  const loose = new Set<string>()
+  for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.add(f.rel)
+  const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r)))
+  const deleted: string[] = []
+  const skipped: MoveFilesSkip[] = []
+  for (const rel of want) {
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    if (!loose.has(rel)) { skipped.push({ name, reason: 'not_loose' }); continue }
+    if (inUse.has(rel)) { skipped.push({ name, reason: 'in_use' }); continue }
+    const src = resolveLifePath(rel)
+    if (!src || writeBlockReason(rel)) { skipped.push({ name, reason: 'failed' }); continue }
+    try { unlinkSync(src); deleted.push(name) } catch { skipped.push({ name, reason: 'failed' }) }
+  }
+  return { ok: true, deleted, skipped }
+}
+
+export type RenameFileResult =
+  | { ok: true; name: string; renamed: boolean }
+  | { ok: false; code: 'file_name' | 'file_not_loose' | 'file_name_taken' | 'write_failed' | 'no_box'; message?: string }
+
+/**
+ * #483: rename a loose file in place (same folder, never overwrites). A file a work item references (a deck
+ * picture) is renamed too and every reference follows the new path, exactly like a move (#487); if the
+ * references cannot be rewritten the rename is undone, so no link is left dead.
+ */
+export function renameLooseFile(project: ProjectRow, rel: unknown, newName: unknown): RenameFileResult {
+  if (!findWorkItemsBox(project)) return { ok: false, code: 'no_box' }
+  const from = String(rel ?? '')
+  const seg = String(newName ?? '').trim()
+  const clean = safeLifeName(seg)
+  if (!seg || seg.includes('/') || seg.includes('\\') || !clean || clean === '_' || clean.startsWith('.') || clean.length > 120 || clean !== seg) return { ok: false, code: 'file_name' }
+  const wf = listWorkFolders(project)
+  let folder: string | null = null
+  for (const k of Object.keys(wf.files)) if ((wf.files[k] ?? []).some((f) => f.rel === from)) { folder = k; break }
+  if (folder === null) return { ok: false, code: 'file_not_loose' }
+  const oldName = from.slice(from.lastIndexOf('/') + 1)
+  if (clean === oldName) return { ok: true, name: clean, renamed: false }
+  const src = resolveLifePath(from)
+  const newRel = `${from.slice(0, from.lastIndexOf('/'))}/${clean}`
+  const dst = resolveLifePath(newRel)
+  const blocked = writeBlockReason(newRel)
+  if (!src || !dst || blocked) return { ok: false, code: 'write_failed', message: blocked ?? undefined }
+  // A case-only rename ("a.png" -> "A.png") names the same file on a case-insensitive disk: not a clash.
+  if (clean.toLowerCase() !== oldName.toLowerCase() && existsSync(dst)) return { ok: false, code: 'file_name_taken' }
+  const used = loosePathsInUse(project, [from]).has(from)
+  try { renameSync(src, dst) } catch (e) { return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) } }
+  if (used) {
+    try { repointMovedFileRefs(project, from, newRel) } catch (e) {
+      try { renameSync(dst, src) } catch { /* the error below goes on */ }
+      return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
+    }
+  }
+  return { ok: true, name: clean, renamed: true }
+}
+
 /** True when a drawing file lies anywhere inside the folder (depth-limited walk). */
 function folderHasCanvas(abs: string, depth = 0): boolean {
   if (depth > WORK_FOLDER_MAX_DEPTH) return false

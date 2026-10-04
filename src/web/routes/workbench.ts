@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, PROJECT_ROOT_PLACE, type FolderReconcile,
+  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -517,6 +517,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   files_no_files: {
     hu: 'Nincs kijelölt fájl. Pipáld be a fájlokat, amiket át akarsz tenni.',
     en: 'No file is ticked. Tick the files you want to move.',
+  },
+  files_delete_none: {
+    hu: 'Nincs kijelölt fájl, amit törölhetnék.',
+    en: 'No file is selected to delete.',
+  },
+  file_name: {
+    hu: 'Ez a fájlnév nem jó: nem lehet üres, nem kezdődhet ponttal, és nem tartalmazhat ilyen jeleket: / \\ : * ? " < > |',
+    en: 'This file name is not valid: it cannot be empty or start with a dot, and it cannot contain any of these characters: / \\ : * ? " < > |',
+  },
+  file_name_taken: {
+    hu: 'Ebben a mappában már van ilyen nevű fájl. Válassz másik nevet, nem írom felül.',
+    en: 'A file with this name already exists in this folder. Choose another name, I will not overwrite it.',
+  },
+  file_not_loose: {
+    hu: 'Ez a fájl már nincs a listán (átnevezték, áthelyezték vagy törölték). Frissítsd az oldalt.',
+    en: 'This file is no longer on the list (renamed, moved or deleted). Refresh the page.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -2605,6 +2621,35 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
     }
     json(res, { ok: true, moved: r.moved, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    return true
+  }
+
+  // #483: delete ticked loose files. Never deletes a file the registry names (a deck picture): it is reported.
+  if (path === '/api/workbench/files-delete' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = deleteLooseFiles(project, body['rels'])
+    if (!r.ok) return failDetail(res, 400, r.code === 'no_box' ? 'folder_gone' : 'files_delete_none', lang, null)
+    json(res, { ok: true, deleted: r.deleted, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    return true
+  }
+
+  // #483: rename one loose file in place. Never overwrites; a referenced file's references follow the new name.
+  if (path === '/api/workbench/files-rename' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = renameLooseFile(project, body['rel'], body['name'])
+    if (!r.ok) {
+      const code = r.code === 'no_box' ? 'folder_gone' : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'file_name_taken' ? 409 : 400, code, lang, r.message ?? null)
+    }
+    json(res, { ok: true, name: r.name, renamed: r.renamed, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
   }
 
