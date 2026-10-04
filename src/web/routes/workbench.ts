@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
+  renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -501,6 +501,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   folder_box_rename: {
     hu: 'Ez a munkadarabok közös mappája, ezt nem lehet átnevezni. Csak a benne lévő mappákat.',
     en: 'This is the shared folder for all work items and cannot be renamed. Only the folders inside it can.',
+  },
+  folder_box_move: {
+    hu: 'Ez a munkadarabok közös mappája, ezt nem lehet áthelyezni. Csak a benne lévő mappákat.',
+    en: 'This is the shared folder for all work items and cannot be moved. Only the folders inside it can.',
+  },
+  folder_into_itself: {
+    hu: 'A mappát nem lehet saját magába (vagy a saját almappájába) áthelyezni. Válassz másik helyet.',
+    en: 'A folder cannot be moved into itself (or into one of its own subfolders). Choose another place.',
   },
   folder_exists: {
     hu: 'Ilyen nevű mappa már van ezen a helyen. Válassz másik nevet.',
@@ -2570,6 +2578,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   }
 
   // A folder is deleted only when empty (no file, no subfolder, no work item in it): nothing goes with it.
+  // Move a folder of the box, with everything in it, into another folder of the box ('' = the box itself).
+  if (path === '/api/workbench/folders/move' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body.project_id ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = moveWorkFolder(project, body.folder, body.parent)
+    if (!r.ok) {
+      const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'folder_is_box' ? 'folder_box_move' : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' ? 409 : 400, code, lang, r.message || null)
+    }
+    json(res, { ok: true, folder: r.folder, moved: r.moved, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    return true
+  }
+
   if (path === '/api/workbench/folders' && method === 'DELETE') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)

@@ -421,6 +421,66 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
   return { ok: true, folder: newFolder, renamed: true }
 }
 
+export type MoveFolderResult =
+  | { ok: true; folder: string; moved: boolean }
+  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_exists' | 'folder_into_itself' | 'write_failed'; message?: string }
+
+/** Swaps a Depot-relative path prefix inside every drawing file under `abs` (best effort, depth-limited). */
+function rewriteCanvasFilesUnder(abs: string, oldPrefix: string, newPrefix: string, depth = 0): void {
+  if (depth > WORK_FOLDER_MAX_DEPTH) return
+  let entries: import('node:fs').Dirent[]
+  try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+  for (const d of entries) {
+    const full = join(abs, d.name)
+    if (d.isDirectory()) { rewriteCanvasFilesUnder(full, oldPrefix, newPrefix, depth + 1); continue }
+    if (!d.isFile() || !isCanvasFile(d.name)) continue
+    try {
+      const text = readFileSync(full, 'utf8')
+      if (text.includes(oldPrefix)) writeFileSync(full, text.split(oldPrefix).join(newPrefix))
+    } catch { /* an unreadable drawing file: the move itself already succeeded */ }
+  }
+}
+
+/**
+ * Moves a folder of the work items box, WITH everything in it, into another folder of the box (`parent`
+ * '' = the box itself). Work items, files and subfolders move along; every path the registry keeps under
+ * the folder follows in one transaction (same as a rename), and the drawing files inside get the same path
+ * swap, so a drawing's pictures stay linked. Never overwrites: a name clash at the target refuses.
+ */
+export function moveWorkFolder(project: ProjectRow, folder: unknown, parent: unknown): MoveFolderResult {
+  const c = workFolderTarget(project, folder)
+  if (!c.ok) return c
+  const box = findWorkItemsBox(project)
+  if (!box || c.folder === box) return { ok: false, code: 'folder_is_box' }
+  const p = workFolderTarget(project, parent)
+  if (!p.ok) return p
+  if (p.folder === c.folder || p.folder.startsWith(c.folder + '/')) return { ok: false, code: 'folder_into_itself' }
+  const curParent = c.folder.slice(0, c.folder.lastIndexOf('/'))
+  if (curParent === p.folder) return { ok: true, folder: c.folder, moved: false }
+  const lastSeg = c.folder.slice(c.folder.lastIndexOf('/') + 1)
+  const t = projectFileTarget(project, c.folder)
+  if (!t.ok) return t
+  const parentT = projectFileTarget(project, p.folder)
+  if (!parentT.ok) return parentT
+  const newAbs = join(parentT.dirAbs, lastSeg)
+  if (existsSync(newAbs)) return { ok: false, code: 'folder_exists' }
+  const blocked = writeBlockReason(`${parentT.dirRel}/${lastSeg}`)
+  if (blocked) return { ok: false, code: 'write_failed', message: blocked }
+  ensureAssetTables()
+  const newFolder = `${p.folder}/${lastSeg}`
+  try { renameSync(t.dirAbs, newAbs) } catch (e) { return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) } }
+  const oldPrefix = t.dirRel + '/'
+  const newPrefix = (toLifeRel(newAbs) || `${parentT.dirRel}/${lastSeg}`) + '/'
+  try {
+    rewriteFolderRefs(project, c.folder, newFolder, oldPrefix, newPrefix)
+  } catch (e) {
+    try { renameSync(newAbs, t.dirAbs) } catch { /* the error below goes on */ }
+    return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
+  }
+  rewriteCanvasFilesUnder(newAbs, oldPrefix, newPrefix)
+  return { ok: true, folder: newFolder, moved: true }
+}
+
 export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'failed' }
 
 /**

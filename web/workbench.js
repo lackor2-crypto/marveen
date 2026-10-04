@@ -1272,6 +1272,7 @@
       + (imgs ? '<button type="button" role="menuitem" data-wb-act="folder-to-deck" data-wb-folder="' + escA(f) + '"' + (WB.fileBusy ? ' disabled' : '')
         + ' title="' + escA(t('workbench.folder.to_deck_hint', { n: imgs })) + '">' + esc(t('workbench.folder.to_deck', { n: imgs })) + '</button>' : '')
       + '<button type="button" role="menuitem" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.rename')) + '</button>'
+      + folderMoveSelectHtml(f)
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.delete')) + '</button>'
       + '</div>'
   }
@@ -1315,6 +1316,24 @@
       opts.push('<option value="' + escA(f) + '">' + pad + '\ud83d\udcc1 ' + esc(baseOf(f)) + '</option>')
     })
     return opts.join('')
+  }
+
+  /** The folder's own "Move to folder..." list: every folder of the box except itself and its subfolders (#492, TG 2472). */
+  function folderMoveSelectHtml(f) {
+    var wf = WB.workFolders || { box: null, folders: [] }
+    if (archived() || !wf.box) return ''
+    var box = wf.box
+    var opts = ['<option value="">' + esc(t('workbench.folder.move_label')) + '</option>']
+    if (f.lastIndexOf('/') !== box.length) opts.push('<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>')
+    ;(wf.folders || []).forEach(function (g) {
+      if (g === f || g.indexOf(f + '/') === 0) return
+      if (g === f.slice(0, f.lastIndexOf('/'))) return
+      var depth = g.split('/').length - 1 - (box.split('/').length - 1)
+      var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
+      opts.push('<option value="' + escA(g) + '">' + pad + '\ud83d\udcc1 ' + esc(baseOf(g)) + '</option>')
+    })
+    return '<select class="wb-item-move" data-wb-move-folder="' + escA(f) + '" aria-label="' + escA(t('workbench.folder.move_label')) + '"'
+      + (WB.folderBusy ? ' disabled' : '') + '>' + opts.join('') + '</select>'
   }
 
   /** A compact "Move to folder..." list on every item row (the drag is the other way to do the same). */
@@ -1529,7 +1548,7 @@
     function walk(path, depth) {
       ;(kids[path] || []).forEach(function (f) {
         var collapsed = !!WB.collapsedFolder[f]
-        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '" data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
+        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '" data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
@@ -1659,6 +1678,29 @@
       // #478: a folder is a named group: its work items keep their own names; their paths followed the folder.
       window.showToast(t('workbench.folder.renamed'))
       if (r.data && r.data.items) WB.items = r.data.items
+      if (WB.selectedId) loadDetail(WB.selectedId)
+      load(pid)
+      render()
+    })
+  }
+
+  /** Moves a folder WITH everything in it into another folder of the box ('\u0000box' = the box itself). */
+  function moveFolder(folder, target) {
+    if (WB.folderBusy || archived() || !folder) return
+    var wf = WB.workFolders || { box: null }
+    var parent = target === '\u0000box' ? (wf.box || '') : target
+    var pid = WB.projectId
+    WB.ctx = null
+    WB.folderBusy = true
+    render()
+    api('POST', '/api/workbench/folders/move', { project_id: pid, folder: folder, parent: parent }).then(function (r) {
+      WB.folderBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
+      if (r.data && r.data.items) WB.items = r.data.items
+      if (WB.pickFolder === folder || String(WB.pickFolder || '').indexOf(folder + '/') === 0) WB.pickFolder = (r.data && r.data.folder ? r.data.folder : '') + String(WB.pickFolder).slice(folder.length)
+      window.showToast(t(r.data && r.data.moved ? 'workbench.folder.moved' : 'workbench.folder.move_same'))
       if (WB.selectedId) loadDetail(WB.selectedId)
       load(pid)
       render()
@@ -12793,6 +12835,8 @@
     if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
     if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) { brandSyncDraft(); return }
+    var mvd = e.target.getAttribute && e.target.getAttribute('data-wb-move-folder')
+    if (mvd) { if (e.target.value) moveFolder(mvd, e.target.value); return }
     var mvf = e.target.getAttribute && e.target.getAttribute('data-wb-move-files')
     if (mvf) { if (e.target.value) moveFilesToFolder(mvf, e.target.value); return }
     var mv = e.target.getAttribute && e.target.getAttribute('data-wb-move')
@@ -14016,7 +14060,29 @@
     WB.dragItem = row.getAttribute('data-wb-drag-item')
     try { e.dataTransfer.setData('text/x-wb-item', WB.dragItem); e.dataTransfer.effectAllowed = 'move' } catch (_e) { /* nem baj */ }
   })
-  document.addEventListener('dragend', function () { WB.dragItem = null })
+  document.addEventListener('dragend', function () { WB.dragItem = null; WB.dragFolder = null })
+  // A folder row dragged onto another folder row moves the folder with everything in it (TG 2478).
+  document.addEventListener('dragstart', function (e) {
+    if (!WB.open || WB.dragItem || !e.target || !e.target.closest || !e.dataTransfer) return
+    var row = e.target.closest('[data-wb-drag-folder]')
+    if (!row) return
+    WB.dragFolder = row.getAttribute('data-wb-drag-folder')
+    try { e.dataTransfer.setData('text/x-wb-folder', WB.dragFolder); e.dataTransfer.effectAllowed = 'move' } catch (_e) { /* nem baj */ }
+  })
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || !WB.dragFolder || !e.target || !e.target.closest) return
+    if (e.target.closest('[data-wb-drop-folder]')) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move' } catch (_e) { /* nem baj */ } }
+  })
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || !WB.dragFolder || !e.target || !e.target.closest) return
+    var z = e.target.closest('[data-wb-drop-folder]')
+    if (!z) return
+    e.preventDefault()
+    var f = WB.dragFolder
+    WB.dragFolder = null
+    var to = z.getAttribute('data-wb-drop-folder') || ''
+    if (to && to !== f) moveFolder(f, to)
+  })
   document.addEventListener('dragover', function (e) {
     if (!WB.open || !WB.dragItem || !e.target || !e.target.closest) return
     if (e.target.closest('[data-wb-drop-folder]')) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move' } catch (_e) { /* nem baj */ } }
