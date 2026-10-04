@@ -518,10 +518,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Nincs kijelölt fájl. Pipáld be a fájlokat, amiket át akarsz tenni.',
     en: 'No file is ticked. Tick the files you want to move.',
   },
-  files_target_is_item: {
-    hu: 'Ez a mappa egy munkadarab saját mappája, ide nem teszek fájlt. Válassz sima mappát.',
-    en: 'This folder belongs to a work item, so I will not put files in it. Choose a plain folder.',
-  },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
     en: 'The chosen folder is gone (renamed or deleted). Choose a folder again.',
@@ -2605,8 +2601,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = moveLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'])
     if (!r.ok) {
-      const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code === 'target_is_item' ? 'files_target_is_item' : r.code
-      return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'target_is_item' ? 409 : 400, code, lang, null)
+      const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
     }
     json(res, { ok: true, moved: r.moved, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
