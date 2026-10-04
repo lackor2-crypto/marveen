@@ -166,9 +166,15 @@
 .wb-trash-toggle { background: none; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; padding: 6px 10px; color: inherit; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
 .wb-trash-toggle:hover { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
 .wb-trash-item { cursor: default; opacity: 0.7; }
-/* #492: the title gets its own full-width line; the two buttons sit below it, so the name is always readable. */
-.wb-trash-row { flex-wrap: wrap; }
-.wb-trash-row .wb-trash-item { flex: 1 1 100%; }
+/* #492: one framed card per trashed item: the name on its own full-width line (wraps, never a dot),
+   the type below it, and the Restore / Delete forever buttons together on the last line. */
+.wb-trash-card { list-style: none; display: block; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border, #d0d7de); border-radius: 8px; }
+.wb-trash-card-title { display: block; width: 100%; font-weight: 600; word-break: break-word; overflow-wrap: anywhere; }
+.wb-trash-card-meta { display: block; font-size: 0.8rem; opacity: 0.7; margin: 2px 0 8px; }
+.wb-trash-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.wb-trash-card-actions .wb-item-del { padding: 6px 12px; }
+.wb-trash-card-actions .wb-item-del:hover:not(:disabled) { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
+.wb-trash-card-actions .wb-mini-danger:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; }
 
 .wb-empty {
   border: 1px dashed var(--border, #d0d7de);
@@ -1629,3 +1635,5 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .wb-panel-head .wb-panel-title { margin: 0; }
 .wb-head-open { flex: 0 0 auto; }
+/* Simple view: the frame fits the window; no page scroll until the technical details are opened (TG 2469). */
+main.projects-active.wb-sh-locked { overflow-y: hidden; }

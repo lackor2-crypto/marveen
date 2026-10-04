@@ -505,15 +505,16 @@
     return '<div class="wb-trash">' + head
       + '<p class="wb-hint">' + esc(t('workbench.trash.hint')) + '</p>'
       + '<ul class="wb-items">' + list.map(function (it) {
-        return '<li class="wb-item-row wb-trash-row">'
-          + '<span class="wb-item wb-trash-item"><span class="wb-item-title">' + esc(it.title) + '</span>'
-          + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span></span>'
+        return '<li class="wb-trash-card">'
+          + '<div class="wb-trash-card-title">' + esc(it.title) + '</div>'
+          + '<div class="wb-trash-card-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</div>'
+          + '<div class="wb-trash-card-actions">'
           + '<button type="button" class="wb-item-del" data-wb-act="item-restore" data-wb-id="' + escA(it.id) + '"'
           + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.restore')) + '</button>'
           + '<button type="button" class="wb-item-del wb-mini-danger" data-wb-act="item-purge-ask" data-wb-id="' + escA(it.id) + '"'
           + ' title="' + escA(t('workbench.trash.purge_title')) + '"'
           + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.purge')) + '</button>'
-          + '</li>'
+          + '</div></li>'
           + (WB.warn && WB.warn.kind === 'purge' && WB.warn.id === it.id
             ? '<li>' + warnBoxHtml(t('workbench.trash.purge_warn', { title: it.title }), 'item-purge', t('workbench.trash.purge'), it.id) + '</li>'
             : '')
@@ -12138,6 +12139,28 @@
   /** The Simple-view frame reaches the very bottom of the window, like the left menu (Boss, TG 7444):
    *  its height is what is left of the viewport below its top edge. When a work item is opened the
    *  page is scrolled once so the frame's top sits at the top of the window. Phones keep the flow layout. */
+  /** The Simple view's frame fits the window, so while the technical details are closed the page
+   *  itself must not scroll (Boss, TG 2469). Opening them frees the scroll; leaving the frame
+   *  (or a narrow phone screen, where the frame is as tall as its content) frees it too. */
+  function lockFrameScroll() {
+    if (typeof document.querySelector !== 'function') return
+    var frame = document.querySelector('.wb-fr-body')
+    var lock = !!frame && !WB.shMore && window.innerWidth > 900
+    var host = document.querySelector('main.projects-active')
+    // A class (not an inline style) and only effective under .projects-active: leaving the tab leaks nothing.
+    if (host && host.classList) host.classList.toggle('wb-sh-locked', lock)
+    if (lock) { if (host) host.scrollTop = 0; try { window.scrollTo(0, 0) } catch (_e) { /* harmless */ } }
+  }
+
+  /** After "Technical details" opens: the page scrolls itself up to where they start, so the
+   *  click visibly does something. */
+  function scrollTechIntoView() {
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbShTech') : null
+    if (el && typeof el.scrollIntoView === 'function') {
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } catch (_e) { el.scrollIntoView() }
+    }
+  }
+
   function fitFrame() {
     if (typeof document.querySelector !== 'function') return
     var body = document.querySelector('.wb-fr-body')
@@ -12339,6 +12362,7 @@
     restoreChatScroll(chatScroll)
     restoreStripScroll(stripLeft)
     fitFrame()
+    lockFrameScroll()
     fitHead()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
     if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(fitHead)
@@ -12947,7 +12971,7 @@
     else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'view-set') setView(act.getAttribute('data-wb-view'))
-    else if (a === 'sh-more') { WB.shMore = !WB.shMore; render() }
+    else if (a === 'sh-more') { WB.shMore = !WB.shMore; render(); if (WB.shMore) scrollTechIntoView() }
     else if (a === 'sh-recent-view') { WB.recentMode = act.getAttribute('data-wb-mode') === 'list' ? 'list' : 'grid'; saveRecentMode(WB.recentMode); render() }
     else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
