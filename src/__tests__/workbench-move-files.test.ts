@@ -118,6 +118,26 @@ describe('moveLooseFiles', () => {
     expect(existsSync(join(abs(b), 's01.png'))).toBe(true)
   })
 
+  it('#487: moving a file does not corrupt a sibling path that merely ends with the same name', () => {
+    const db = getDb()
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
+    const a = group('Forras')
+    const b = group('Prezentacio')
+    const rel = loose(a, 's1.png')
+    const sibling = rel + '.bak' // a different path that CONTAINS rel as a prefix
+    const it = createWorkItem({ project_id: pid, title: 'Prezi', type: 'note', container_folder: b })
+    if (!it.ok) throw new Error('item')
+    db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)')
+      .run(it.item.id, JSON.stringify({ a: rel, b: sibling }))
+    const r = moveLooseFiles(proj(), [rel], b)
+    expect((r as { moved: string[] }).moved).toEqual(['s1.png'])
+    const newRel = (listWorkFolders(proj()).files[b] ?? []).find((x) => x.name === 's1.png')!.rel
+    const doc = (db.prepare('SELECT doc FROM work_item_deck_drafts WHERE work_item_id = ?').get(it.item.id) as { doc: string }).doc
+    const parsed = JSON.parse(doc) as { a: string; b: string }
+    expect(parsed.a).toBe(newRel)       // the moved path was repointed
+    expect(parsed.b).toBe(sibling)      // the sibling ".bak" path is left exactly as it was
+  })
+
   it('same place and unknown paths are skipped, not moved', () => {
     const a = group('Forras')
     const rel = loose(a, 'S01.png')
