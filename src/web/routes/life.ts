@@ -67,6 +67,7 @@ import { existsSync, statSync, createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
 import { listLifeOffThread, clearOffThreadListings } from '../../life-list-offthread.js'
+import { lifeDirSize } from '../../life-dirsize.js'
 import {
   listLife, listLifeCached, lifeInfo, moveLife, copyLife, pasteLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
   clearContentCache,
@@ -376,6 +377,22 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
         detail: String((e as Error)?.message || e),
       })
     }
+    return true
+  }
+
+  // #484: egy mappa teljes merete. KULON, aszinkron hivas, hogy egy lassu
+  // meghajto ne a listat kesleltesse; a felulet mappankent kerdezi.
+  if (path === '/api/life/dirsize' && method === 'GET') {
+    const abs = resolveLifePath(url.searchParams.get('path') || '')
+    let isDir = false
+    try { isDir = !!abs && statSync(abs).isDirectory() } catch { /* below */ }
+    if (!abs || !isDir) {
+      send(res, 404, { ok: false, code: 'not_a_folder', message: T(uiLang(url),
+        'Ez nem mappa, vagy nem létezik.', 'This is not a folder, or it does not exist.') })
+      return true
+    }
+    const size = await lifeDirSize(abs, url.searchParams.get('fresh') === '1')
+    send(res, 200, { ok: true, bytes: size.bytes, partial: size.partial })
     return true
   }
 

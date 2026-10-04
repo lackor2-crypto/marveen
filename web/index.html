@@ -3352,6 +3352,16 @@
               <option value="small" data-i18n="intezo.view_small">Kis ikonok</option>
               <option value="medium" data-i18n="intezo.view_medium">Közepes ikonok</option>
             </select></label>
+          <!-- #484: rendezes + csoportositas, mint a Windows Intezoben. -->
+          <label><span data-i18n="intezo.sort_label">Rendezés:</span>
+            <select id="intezoSortKey" style="font-size:13px;padding:2px 6px">
+              <option value="name" data-i18n="intezo.col_name">Név</option>
+              <option value="modified" data-i18n="intezo.col_modified">Módosítás dátuma</option>
+              <option value="type" data-i18n="intezo.col_type">Típus</option>
+              <option value="size" data-i18n="intezo.col_size">Méret</option>
+            </select></label>
+          <button type="button" id="intezoSortDir" class="btn-secondary" style="padding:2px 8px;font-size:13px" data-i18n-title="intezo.sort_dir_asc">↑</button>
+          <label><input type="checkbox" id="intezoGroupBy"> <span data-i18n="intezo.group_by_type">Csoportosítás típus szerint</span></label>
         </div>
 
 

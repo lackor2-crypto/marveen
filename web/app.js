@@ -38574,6 +38574,155 @@ function _intezoSetViewMode(mode) {
 }
 
 /**
+ * #484 SORBA RENDEZES, CSOPORTOSITAS, MAPPAMERET (Boss: "mint a Windows
+ * Intezo": mappak elol, az azonos tipusu fajlok egyutt, a mappa merete is
+ * latszik). A mappak MINDIG a fajlok elott maradnak; az archivaltak a sor
+ * vegen. Alapbeallitas (nev szerint, novekvo, csoportositas nelkul) = a szerver
+ * sorrendje, valtozatlanul.
+ */
+const _INTEZO_SORT_KEYS = ['name', 'modified', 'type', 'size']
+let _intezoDirSizes = {}      // rel -> { bytes, mtime } | { err: true }
+let _intezoSizeRun = null     // the listing a measurement run belongs to
+function _intezoSortState() {
+  let key = 'name', dir = 'asc', group = false
+  try {
+    key = localStorage.getItem('intezoSortKey') || 'name'
+    dir = localStorage.getItem('intezoSortDir') || 'asc'
+    group = localStorage.getItem('intezoGroup') === '1'
+  } catch (e) { /* privat mod */ }
+  if (_INTEZO_SORT_KEYS.indexOf(key) < 0) key = 'name'
+  return { key: key, dir: dir === 'desc' ? 'desc' : 'asc', group: group }
+}
+function _intezoSortSave(patch) {
+  const cur = _intezoSortState()
+  const next = Object.assign({}, cur, patch)
+  try {
+    localStorage.setItem('intezoSortKey', next.key)
+    localStorage.setItem('intezoSortDir', next.dir)
+    localStorage.setItem('intezoGroup', next.group ? '1' : '0')
+  } catch (e) { /* privat mod */ }
+  _intezoSyncSortControls()
+  _intezoRender()
+}
+function _intezoSortHeader(key) {
+  const st = _intezoSortState()
+  _intezoSortSave(st.key === key ? { dir: st.dir === 'asc' ? 'desc' : 'asc' } : { key: key, dir: 'asc' })
+}
+function _intezoSyncSortControls() {
+  const st = _intezoSortState()
+  const sel = document.getElementById('intezoSortKey')
+  if (sel) sel.value = st.key
+  const dirBtn = document.getElementById('intezoSortDir')
+  if (dirBtn) {
+    dirBtn.textContent = st.dir === 'asc' ? '↑' : '↓'
+    dirBtn.title = t(st.dir === 'asc' ? 'intezo.sort_dir_asc' : 'intezo.sort_dir_desc')
+    dirBtn.setAttribute('aria-label', dirBtn.title)
+  }
+  const grp = document.getElementById('intezoGroupBy')
+  if (grp) grp.checked = st.group
+}
+function _intezoBytes(n) {
+  if (!(n >= 0)) return ''
+  if (n < 1024) return n + ' B'
+  const u = ['KB', 'MB', 'GB', 'TB']
+  let v = n / 1024, i = 0
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + u[i]
+}
+function _intezoKnownDirBytes(e) {
+  const c = _intezoDirSizes[e.rel]
+  if (c && !c.err && (!e.mtime || c.mtime === e.mtime)) return c.bytes
+  return e.isDir && e.content && e.content.state === 'empty' ? 0 : -1
+}
+function _intezoCompare(key, a, b, sign) {
+  const nameCmp = () => String(a.displayName || a.name).localeCompare(String(b.displayName || b.name), undefined, { numeric: true, sensitivity: 'base' })
+  let c = 0
+  if (key === 'name') c = nameCmp()
+  else if (key === 'modified') c = (Date.parse(a.mtime) || 0) - (Date.parse(b.mtime) || 0)
+  else if (key === 'type') c = _intezoTypeText(a).localeCompare(_intezoTypeText(b))
+  else if (key === 'size') c = (a.isDir ? _intezoKnownDirBytes(a) : (a.size || 0)) - (b.isDir ? _intezoKnownDirBytes(b) : (b.size || 0))
+  // Ties fall back to the name, ALWAYS ascending (like the Explorer).
+  return sign * c || nameCmp()
+}
+/** -> { rows, heads: { rel: label } } ; heads only when grouping is on. */
+function _intezoOrder(L) {
+  const st = _intezoSortState()
+  const folders = (L.folders || []).slice(), files = (L.files || []).slice()
+  const heads = {}
+  if (st.key === 'name' && st.dir === 'asc' && !st.group) return { rows: folders.concat(files), heads: heads }
+  const sign = st.dir === 'desc' ? -1 : 1
+  const sorter = (list) => {
+    const live = list.filter((e) => !e.archived), arch = list.filter((e) => e.archived)
+    const cmp = (a, b) => _intezoCompare(st.key, a, b, sign)
+    return live.sort(cmp).concat(arch.sort(cmp))
+  }
+  const sf = sorter(folders)
+  let rows = sf
+  if (st.group) {
+    const typed = sorter(files)
+    const buckets = {}
+    typed.forEach((e) => { (buckets[_intezoTypeText(e)] = buckets[_intezoTypeText(e)] || []).push(e) })
+    if (sf.length) heads[sf[0].rel] = t('intezo.group_head', { type: t('intezo.type_folder'), n: sf.length })
+    rows = sf.slice()
+    Object.keys(buckets).sort((x, y) => x.localeCompare(y)).forEach((label) => {
+      heads[buckets[label][0].rel] = t('intezo.group_head', { type: label, n: buckets[label].length })
+      rows = rows.concat(buckets[label])
+    })
+  } else rows = sf.concat(sorter(files))
+  return { rows: rows, heads: heads }
+}
+function _intezoSortTh(key, labelKey, cls, style) {
+  const st = _intezoSortState()
+  const on = st.key === key
+  return '<th class="intezo-sort-th ' + (cls || '') + '" data-sort="' + key + '" role="columnheader" tabindex="0"'
+    + ' aria-sort="' + (on ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"'
+    + ' style="cursor:pointer;user-select:none;' + (style || '') + '">'
+    + escapeHtml(t(labelKey)) + (on ? (st.dir === 'asc' ? ' ▲' : ' ▼') : '') + '</th>'
+}
+function _intezoGroupHeadHtml(label, details) {
+  return details
+    ? '<tr class="intezo-group-head"><td colspan="6">' + escapeHtml(label) + '</td></tr>'
+    : '<div class="intezo-group-head">' + escapeHtml(label) + '</div>'
+}
+function _intezoDirSizeHtml(e) {
+  const b = _intezoKnownDirBytes(e)
+  const c = _intezoDirSizes[e.rel]
+  const body = b >= 0 ? _intezoBytes(b) : (c && c.err ? '' : '…')
+  return body ? ' <span class="intezo-dirsize" data-dsz="' + escapeHtml(e.rel) + '" title="'
+    + escapeHtml(t('intezo.dirsize_title')) + '">· ' + escapeHtml(body) + '</span>' : ''
+}
+/** Measure the visible folders two at a time; never blocks the list. */
+function _intezoMeasureDirs(L) {
+  if (_intezoSizeRun === L) return
+  const todo = (L.folders || []).filter((e) => _intezoKnownDirBytes(e) < 0 && !(_intezoDirSizes[e.rel] && _intezoDirSizes[e.rel].err))
+  if (!todo.length) return
+  _intezoSizeRun = L
+  let next = 0, active = 0
+  const done = () => {
+    if (--active > 0) return
+    if (_intezoSizeRun === L) _intezoSizeRun = null
+    if (_intezoListing === L && _intezoSortState().key === 'size') _intezoRender()
+  }
+  const worker = async () => {
+    while (next < todo.length && _intezoListing === L) {
+      const e = todo[next++]
+      try {
+        const d = await _intezoGet('/api/life/dirsize?path=' + encodeURIComponent(e.rel))
+        _intezoDirSizes[e.rel] = { bytes: d.bytes, mtime: e.mtime }
+      } catch (err) { _intezoDirSizes[e.rel] = { err: true } }
+      document.querySelectorAll('#intezoList .intezo-dirsize').forEach((el) => {
+        if (el.getAttribute('data-dsz') === e.rel) {
+          const b = _intezoKnownDirBytes(e)
+          el.textContent = b >= 0 ? '· ' + _intezoBytes(b) : ''
+        }
+      })
+    }
+    done()
+  }
+  for (let i = 0; i < 2; i++) { active++; worker() }
+}
+
+/**
  * BELYEGKEPEK. A szerver (`/api/life/thumb`) keszit egy kicsinyitett JPEG-et;
  * a bongeszo a Bearer-es fetch-csel kerheti le, ezert blob URL lesz belole (egy
  * sima <img src=/api/...> 401-et kapna).
@@ -38767,6 +38916,10 @@ async function loadIntezoPage() {
   if (active) active.checked = true
   // #350: the backup map (every folder rule in one list).
   bind('intezoBackupMapBtn', 'click', () => { void _bkOpenMap() })
+  bind('intezoSortKey', 'change', () => _intezoSortSave({ key: document.getElementById('intezoSortKey').value }))
+  bind('intezoSortDir', 'click', () => _intezoSortSave({ dir: _intezoSortState().dir === 'asc' ? 'desc' : 'asc' }))
+  bind('intezoGroupBy', 'change', () => _intezoSortSave({ group: !!document.getElementById('intezoGroupBy').checked }))
+  _intezoSyncSortControls()
   const viewSel = document.getElementById('intezoViewMode')
   if (viewSel) {
     viewSel.value = _intezoViewMode()
@@ -39966,16 +40119,17 @@ function _faBeerkezo(entry) {
  * ugyanazokat a data-* jeloloket viseli, mint a tablazat sora, igy a kezelok
  * kozosek.
  */
-function _intezoGridHtml(rows, view) {
+function _intezoGridHtml(rows, view, heads) {
   return '<div class="intezo-grid intezo-grid-' + (view === 'small' ? 'small' : 'medium') + '">'
     + rows.map((e) => {
+      const head = heads && heads[e.rel] ? _intezoGroupHeadHtml(heads[e.rel], false) : ''
       const name = e.displayName || e.name
       const tip = [name, _faSugo(e), e.caution, e.isDir ? '' : e.sizeHuman, _intezoDateText(e)]
         .filter(Boolean).join('\n')
       const media = !e.isDir && (e.media === 'image' || e.media === 'video') ? e.media : ''
       const bg = (_intezoSelected && _intezoSelected.rel === e.rel) || (_intezoMulti && _intezoMulti.has(e.rel)) ? ' intezo-tile-selected'
         : (_faBeerkezo(e) ? ' intezo-tile-inbox' : '')
-      return '<div class="intezo-tile ' + (e.isDir ? 'intezo-dir' : 'intezo-file')
+      return head + '<div class="intezo-tile ' + (e.isDir ? 'intezo-dir' : 'intezo-file')
         + (e.archived ? ' intezo-archived' : '') + (_intezoFocus === e.rel ? ' intezo-focus' : '') + bg + '"'
         + ' data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '" data-pick="1"'
         + ' title="' + escapeHtml(tip) + '">'
@@ -40036,7 +40190,9 @@ function _intezoRender() {
     }
   }
 
-  const rows = [].concat(L.folders || [], L.files || [])
+  const ordered = _intezoOrder(L)
+  const rows = ordered.rows
+  const heads = ordered.heads
   if (!rows.length) {
     list.innerHTML = L.message ? '' : '<p style="opacity:.7" data-i18n="intezo.empty">Ez a mappa üres.</p>'
     return
@@ -40052,17 +40208,18 @@ function _intezoRender() {
   // kezelok (kijeloles, belepes, jobb klikk, archival, Info) mindket nezetben
   // ugyanazok -- a [data-rel]/[data-pick] elemekre ulnek, nem a <tr>-re.
   const view = _intezoViewMode()
-  list.innerHTML = view !== 'details' ? _intezoGridHtml(rows, view)
+  list.innerHTML = view !== 'details' ? _intezoGridHtml(rows, view, heads)
     : '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse">'
     + '<thead><tr class="intezo-head">'
     + '<th></th>'
-    + '<th>' + escapeHtml(t('intezo.col_name')) + '</th>'
-    + '<th class="intezo-col-date">' + escapeHtml(t('intezo.col_modified')) + '</th>'
-    + '<th class="intezo-col-type">' + escapeHtml(t('intezo.col_type')) + '</th>'
-    + '<th style="text-align:right">' + escapeHtml(t('intezo.col_size')) + '</th>'
+    + _intezoSortTh('name', 'intezo.col_name', '')
+    + _intezoSortTh('modified', 'intezo.col_modified', 'intezo-col-date')
+    + _intezoSortTh('type', 'intezo.col_type', 'intezo-col-type')
+    + _intezoSortTh('size', 'intezo.col_size', '', 'text-align:right')
     + '<th></th>'
     + '</tr></thead><tbody>'
     + rows.map((e, i) =>
+      (heads[e.rel] ? _intezoGroupHeadHtml(heads[e.rel], true) : '') +
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
       // The folder's explanation is the FIRST line of the row tooltip (owner,
       // 2026-09-24: inline it wrapped long rows and made them uneven).
@@ -40109,7 +40266,7 @@ function _intezoRender() {
       + '<td class="intezo-col-type" style="padding:2px 8px;opacity:.7;white-space:nowrap">' + escapeHtml(_intezoTypeText(e)) + '</td>'
       + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap"'
       + (e.isDir && e.content && e.content.reason ? ' title="' + escapeHtml(e.content.reason) + '"' : '')
-      + '>' + escapeHtml(e.isDir ? _intezoCountText(e) : e.sizeHuman) + '</td>'
+      + '>' + escapeHtml(e.isDir ? _intezoCountText(e) : e.sizeHuman) + (e.isDir ? _intezoDirSizeHtml(e) : '') + '</td>'
       + '<td style="padding:0 8px;white-space:nowrap">'
       // THE ARCHIVE TOGGLE (card 4f3471f1): one press = archived (grey, to the
       // end), a second press = back in its place. Nothing moves on disk.
@@ -40125,6 +40282,13 @@ function _intezoRender() {
       + 'data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
       + '</tr>').join('')
     + '</tbody></table>'
+
+  list.querySelectorAll('th[data-sort]').forEach((th) => {
+    const go = () => _intezoSortHeader(th.getAttribute('data-sort'))
+    th.addEventListener('click', go)
+    th.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go() } })
+  })
+  _intezoMeasureDirs(L)
 
   list.querySelectorAll('a[data-open]').forEach((a) => {
     a.addEventListener('click', (e) => {
