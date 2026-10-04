@@ -1,11 +1,12 @@
 // #483: loose files can be deleted (never one the registry names) and renamed in place (never overwriting).
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
+import { trashRelPath } from '../life-tree.js'
 import { makeWorkFolder, listWorkFolders, deleteLooseFiles, renameLooseFile } from '../workbench-assets.js'
 
 let pid = ''
@@ -53,6 +54,18 @@ describe('deleteLooseFiles', () => {
     expect(existsSync(join(abs(a), 'S02.png'))).toBe(false)
     expect(existsSync(join(abs(a), 'S03.png'))).toBe(true)
     expect(keep).toContain('S03.png')
+  })
+
+  it('#492: a deleted file goes to the Kuka (restorable), its content intact, not into oblivion', () => {
+    const a = group('Forras')
+    loose(a, 'S01.png', 'PIXELS')
+    const rel = listWorkFolders(proj()).files[a]![0]!.rel
+    expect(deleteLooseFiles(proj(), [rel])).toEqual({ ok: true, deleted: ['S01.png'], skipped: [] })
+    expect(existsSync(join(abs(a), 'S01.png'))).toBe(false)
+    const kuka = join(dir, trashRelPath())
+    const stamps = readdirSync(kuka)
+    expect(stamps).toHaveLength(1)
+    expect(readFileSync(join(kuka, stamps[0]!, 'S01.png'), 'utf8')).toBe('PIXELS')
   })
 
   it('never deletes a file a work item references (a deck picture): it is reported as in_use', () => {

@@ -2576,7 +2576,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body.project_id ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = deleteWorkFolder(project, body.folder)
+    const r = deleteWorkFolder(project, body.folder, { trash: body['trash'] === true })
     if (!r.ok) {
       if (r.code === 'folder_not_empty') {
         const n = { items: r.items ?? 0, files: r.files ?? 0, folders: r.folders ?? 0 }
@@ -2593,7 +2593,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       return fail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'no_box' ? 'folder_gone' : r.code, lang)
     }
-    json(res, { ok: true, folder: r.folder, work_folders: listWorkFolders(project) })
+    json(res, { ok: true, folder: r.folder, trashed: r.trashed ?? null, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
   }
 

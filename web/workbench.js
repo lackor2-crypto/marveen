@@ -1624,13 +1624,16 @@
     if (!window.confirm(t('workbench.folder.delete_confirm', { name: baseOf(folder) }))) return
     var pid = WB.projectId
     WB.folderBusy = true
-    api('DELETE', '/api/workbench/folders', { project_id: pid, folder: folder }).then(function (r) {
+    api('DELETE', '/api/workbench/folders', { project_id: pid, folder: folder, trash: true }).then(function (r) {
       WB.folderBusy = false
       if (WB.projectId !== pid) return
       if (!r.ok) { window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
+      if (r.data && r.data.items) WB.items = r.data.items
       if (WB.pickFolder === folder || String(WB.pickFolder || '').indexOf(folder + '/') === 0) WB.pickFolder = ''
-      window.showToast(t('workbench.folder.deleted'))
+      window.showToast(t(r.data && r.data.trashed ? 'workbench.folder.trashed' : 'workbench.folder.deleted'))
+      if (WB.selectedId && !(WB.items || []).some(function (x) { return x.id === WB.selectedId })) { WB.selectedId = null; WB.detail = null }
+      load(pid)
       render()
     })
   }
