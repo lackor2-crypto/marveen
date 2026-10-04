@@ -5849,7 +5849,21 @@
   /** A vaszon elonezete: a szerver rajzolta kep + (ha lehet) a huzogato reteg.
    *  Amikor a reteg NEM jelenik meg, azt KIMONDJUK, es megmondjuk, mi helyette
    *  az ut -- a nema hianyzas a legrosszabb valasz. */
-  function canvasStageHtml(name, bare) {
+  function canvasStageHtml(name, bare, noCaption) {
+    return (noCaption ? '' : canvasSizeCaptionHtml()) + canvasStageInnerHtml(name, bare)
+  }
+
+  /** A vaszon fole kiirt meret: melyik platform, es a pontos meret pixelben (#493).
+   *  Ha egyik platformhoz sem illik, ezt KIMONDJUK ("Egyedi meret"), nem hagyjuk uresen. */
+  function canvasSizeCaptionHtml() {
+    var doc = WB.canvas && WB.canvas.exists && WB.canvas.canvas
+    if (!doc) return ''
+    var p = canvasPlatformNow()
+    var size = doc.width + ' \u00D7 ' + doc.height + ' px'
+    return '<p class="wb-can-sizecap" id="wbCanSizeCap">' + esc((p ? platformLabel(p) : t('workbench.canvas.size_custom')) + ' \u00B7 ' + size) + '</p>'
+  }
+
+  function canvasStageInnerHtml(name, bare) {
     var img = '<img class="wb-preview-image" src="' + escA(canvasSvgUrl(WB.selectedId, false)) + '"'
       + ' alt="' + escA(name) + '">'
     // A NULLA itt ket dolgot jelenthet: "meg nem toltottuk be a rajz adatait"
@@ -6656,7 +6670,7 @@
     var cur = deckCurrentSlide()
     var objects = canvasObjects()
     out += deckStripHtml()
-      + canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(cur) + 1 }))
+      + canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(cur) + 1 }), false, true)
       + '<p class="wb-hint">' + esc(t('workbench.canvas.intro')) + '</p>'
       + (archived() ? '' : canvasAddHtml())
       + (archived() || !objects.length ? '' : canvasPickBarHtml())
@@ -11817,7 +11831,7 @@
       return '<div class="wb-empty"><p class="wb-empty-title">' + esc(t('workbench.deck.none_title')) + '</p><p>'
         + (archived() ? '' : '<button type="button" class="wb-fr-addpage" data-wb-act="deck-add-blank">+ ' + esc(t('workbench.fr.add_page')) + '</button>') + '</p></div>'
     }
-    return canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(deckCurrentSlide()) + 1 }), true)
+    return canvasStageHtml(t('workbench.deck.slide_n', { n: deckSlides().indexOf(deckCurrentSlide()) + 1 }), true, true)
   }
 
   // ---- VIDEO A KOZEPSO ABLAKBAN (#462, 6. lepes (a)) --------------------------------------------------

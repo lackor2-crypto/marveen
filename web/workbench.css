@@ -560,6 +560,7 @@
 .wb-can-ai-pill { background: #6b3fd4; color: #fff; }
 .wb-can-ai-notice { border-left: 3px solid #6b3fd4; padding-left: 8px; margin: 8px 0; }
 .wb-can-snapopts { display: flex; flex-wrap: wrap; gap: 14px; margin: 6px 0; font-size: 0.9em; }
+.wb-can-sizecap { margin: 0 0 6px; font-size: 0.85em; color: var(--muted, #888); }
 .wb-can-box {
   position: absolute;
   box-sizing: border-box;
