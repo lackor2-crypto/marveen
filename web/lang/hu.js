@@ -6309,6 +6309,7 @@ window._i18n.hu = {
   "workbench.canvas.ai_notice_some": "A rajzon AI-val szerkesztett kép is van. Hogy ezt kötelező-e jelölni, azt a Marvin nem minősíti.",
   "workbench.canvas.ai_download_labeled": "Letöltés „AI által készített” jelöléssel a fájlban (IPTC)",
   "workbench.canvas.op_ai_edit": "AI-szerkesztés",
+  "workbench.canvas.size_custom": "Egyedi méret",
   "workbench.canvas.platform_label": "Méret és platform",
   "workbench.canvas.platform_resize": "Átméretezés erre",
   "workbench.canvas.platform_variant": "Változat készítése",

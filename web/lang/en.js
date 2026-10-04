@@ -6231,6 +6231,7 @@ window._i18n.en = {
   "workbench.canvas.ai_notice_some": "The drawing contains an AI-edited picture. Whether this must be labelled is not something Marvin judges.",
   "workbench.canvas.ai_download_labeled": "Download with an \"AI-generated\" label in the file (IPTC)",
   "workbench.canvas.op_ai_edit": "AI edit",
+  "workbench.canvas.size_custom": "Custom size",
   "workbench.canvas.platform_label": "Size and platform",
   "workbench.canvas.platform_resize": "Resize to this",
   "workbench.canvas.platform_variant": "Make a variant",

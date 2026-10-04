@@ -34,3 +34,15 @@ describe('social post platform at creation', () => {
     }
   })
 })
+
+// #493: the canvas shows which platform and the exact size above it.
+describe('canvas size caption', () => {
+  it('is rendered above the stage with a custom-size fallback', () => {
+    expect(js).toContain("(noCaption ? '' : canvasSizeCaptionHtml()) + canvasStageInnerHtml(name, bare)")
+    expect(js).toContain("t('workbench.canvas.size_custom')")
+  })
+  it('has the fallback label in Hungarian and English', () => {
+    expect(hu).toContain('"workbench.canvas.size_custom"')
+    expect(en).toContain('"workbench.canvas.size_custom"')
+  })
+})
