@@ -269,15 +269,21 @@ Fotók / Videók
 A rendszer **ne feltételezze**, hogy minden felhasználónak ilyen családi
 csoportjai vannak – telepítéskor konfigurálhatók.
 
-> **Frissítés (Boss, 2026-10-03, #464): nincs `Videók`, `Audió` és `Szkennek`
-> típus-mappa.** Egy esemény fotói, videói és hangjai összetartoznak (Vállóper,
-> Amerika, Ismerkedés), ezért a `Fotók` a fotók, videók ÉS hangfelvételek közös
-> helye (`Média/Fotók/<csoport>/<esemény>`), a típus keresési szűrő, nem mappa. A
-> beszkennelt papír irat, nem emlék: a Beérkezőbe megy, és a rendező kategória
-> szerint besorolja. Az új telepítés csak a `Fotók` mappát hozza létre. A
-> meglévő telepítéseken az Intéző felajánlja a régi `Videók` és `Audió` tartalmának
-> áthelyezését a `Fotók` alá (nem ír felül, nem töröl); a régi `Szkennek` tartalmát
-> csak jelzi, nem mozgatja. A cégnél is egy `Média/Fotók` mappa van.
+> **Frissítés (Boss, 2026-10-03, #464, „B” változat): a Média alatt nincs
+> típus-mappa — sem `Fotók`, sem `Videók`, `Audió` vagy `Szkennek`.** Egy esemény
+> fotói, videói és hangjai összetartoznak (Vállóper, Amerika, Ismerkedés), ezért a
+> csoport közvetlenül a Média alatt áll: `Média/[<ország>/]<csoport>/<esemény>`.
+> A típus (fotó / videó / hang) keresési szűrő, nem mappa. A beszkennelt papír
+> irat, nem emlék: a Beérkezőbe megy, és a rendező kategória szerint besorolja.
+> Az új telepítés típus-mappa nélkül építi a Médiát; a cégnél a `Média` maga a
+> média-mappa. A meglévő telepítéseken a régi típus-mappák a lemezen maradnak,
+> amíg a tulajdonos az Intéző „Átrendezem a Média alá” gombjával át nem állítja
+> őket: előnézet után a `Fotók`, `Videók` és `Audió` tartalma a csoport- és
+> esemény-szerkezettel együtt felkerül a Média alá (azonos nevű fájlt nem ír
+> felül, semmit nem töröl, a címke / archív jelölés / papír-nyilvántartás követi
+> a fájlt), és utána a fa a lapos modell szerint épül. A régi `Szkennek` tartalmát
+> csak jelzi, nem mozgatja. A fenti (és a lenti, 2026-08-21-es) ábrák a korábbi,
+> típus-mappás szerkezetet mutatják.
 
 ### 20. Drive-ok és a Média kapcsolata
 
@@ -494,7 +500,7 @@ a terv a szándék, ez a mérleg.
 | 11. | 11 személyi kategória, **minden** személynek, üresen is (Boss felülírása) |
 | 12–13. | `<személy>/Projektek/<projekt>/{Tudásbázis, További anyagok, Fejlesztés/{…, GIT_REPOS}}` |
 | 15–16. | 8 céges kategória, `Fejlesztés/GIT_REPOS` valódi repóknak |
-| 18. | `Média/<személy>/<típus>/<ország>/<csoport>` |
+| 18. | `Média/<személy>/<típus>/<ország>/<csoport>` (2026-08-21 óta a személy alatt; #464 óta típus-szint nélkül: `<személy>/Média/[<ország>/]<csoport>`) |
 | 21. | `Digitális/{Domainek, Eszközök, Digitális szolgáltatások}` — jelszó nélkül |
 | 25–26. | `Archív`, `Megosztott` |
 | 28. | Az országszintek **előre** elkészülnek (a Boss felülírása), a konkrét ügymappák továbbra is szükség szerint |

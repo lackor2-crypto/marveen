@@ -1030,6 +1030,8 @@ window._i18n.hu = {
   'intezo.legacymedia_new': 'Új mappa jön létre a Média alatt: {list}. Ha ez egy már meglévő mappa másképp írt neve, szakítsd meg és helyezd át kézzel.',
   'intezo.legacymedia_done': 'Kész: {n} fájl átkerült a Média alá.',
   'intezo.legacymedia_failed': 'Nem sikerült áthelyezni a fájlokat.',
+  'intezo.legacymedia_switch': 'A Média még a régi szerkezet szerint épül: a csoportok a Fotók (Videók, Audió) mappán belül vannak. A típus mostantól csak keresési szűrő, nem mappa, ezért a csoportok közvetlenül a Média alá kerülnek. A régi mappákban nincs áthelyezendő fájl, így csak a szerkezet vált át.',
+  'intezo.legacymedia_switch_confirm': 'A Média átáll az új szerkezetre: a csoportok (és a régi típus-mappák alatti üres mappák) közvetlenül a Média alá kerülnek. Fájl nem mozdul. Semmit nem törlök és nem írok felül.',
   'intezo.no_tree_yet': 'Még nem áll a könyvtárszerkezet. Egy gombnyomás, és felépítem.',
   'intezo.tree_check_failed': 'Nem sikerült megnézni a könyvtárszerkezetet.',
   'intezo.create_failed': 'Nem sikerült létrehozni a mappákat.',

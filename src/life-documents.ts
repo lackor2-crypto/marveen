@@ -121,14 +121,17 @@ export function listPhysical(): Array<PhysicalRecord & { path: string }> {
  * maradna, vagyis a semmin -- a felhasznalo pedig azt latna, hogy "nincs
  * fizikai peldany", holott van. Mappat is kezel: ami alatta volt, az is jon.
  */
-export function movePhysical(fromRel: string, toRel: string): number {
+export function movePhysical(fromRel: string, toRel: string, exact = false): number {
+  // `exact`: csak a mappa SAJAT bejegyzese megy (az alatta levoke nem), es a celon
+  // mar meglevo bejegyzest nem irja felul -- lasd `moveArchivedPrefix` (#464).
   const from = normalizeKey(fromRel)
   const to = normalizeKey(toRel)
   if (!from || from === to) return 0
   const store = load()
   let moved = 0
   for (const key of Object.keys(store)) {
-    if (key !== from && !key.startsWith(from + '/')) continue
+    if (key !== from && (exact || !key.startsWith(from + '/'))) continue
+    if (exact && to in store) continue
     const suffix = key.slice(from.length)
     store[to + suffix] = store[key]
     delete store[key]

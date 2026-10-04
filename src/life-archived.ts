@@ -99,15 +99,20 @@ export function setArchived(rel: string, archived: boolean): SetArchivedResult {
  * it -- follow it. Without this a moved archived folder would silently come
  * back as "active", and a stale mark would wait on the old path for the next
  * item that happens to get the same name. Returns how many marks moved.
+ *
+ * `exact`: only the item's OWN mark moves (not the marks under it), and a mark
+ * already on the target is kept. For a folder whose files were moved one by one
+ * (the #464 media flattening), so only the folder's own mark is left to carry.
  */
-export function moveArchivedPrefix(fromRel: string, toRel: string): number {
+export function moveArchivedPrefix(fromRel: string, toRel: string, exact = false): number {
   const from = normRel(fromRel)
   const to = normRel(toRel)
   if (!from || !to || from === to || corrupt()) return 0
   const map = { ...load() }
   let moved = 0
   for (const key of Object.keys(map)) {
-    if (key !== from && !key.startsWith(from + '/')) continue
+    if (key !== from && (exact || !key.startsWith(from + '/'))) continue
+    if (exact && to in map) continue
     map[to + key.slice(from.length)] = map[key]
     delete map[key]
     moved++

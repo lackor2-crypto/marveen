@@ -1002,6 +1002,8 @@ window._i18n.en = {
   'intezo.legacymedia_new': 'A new folder will be created under Media: {list}. If that is an existing folder spelled differently, cancel and move the files by hand.',
   'intezo.legacymedia_done': 'Done: {n} files moved under Media.',
   'intezo.legacymedia_failed': 'The files could not be moved.',
+  'intezo.legacymedia_switch': 'Media is still built the old way: the groups sit inside the Photos (Videos, Audio) folder. The type is now only a search filter, not a folder, so the groups go straight under Media. There is no file to move in the old folders, so only the structure switches.',
+  'intezo.legacymedia_switch_confirm': 'Media switches to the new structure: the groups (and the empty folders under the old type folders) go straight under Media. No file moves. Nothing is deleted or overwritten.',
   'intezo.no_tree_yet': 'The directory structure is not built yet. One click and I will build it.',
   'intezo.tree_check_failed': 'Could not check the directory structure.',
   'intezo.create_failed': 'Could not create the folders.',
