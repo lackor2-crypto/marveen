@@ -3362,6 +3362,12 @@
             </select></label>
           <button type="button" id="intezoSortDir" class="btn-secondary" style="padding:2px 8px;font-size:13px" data-i18n-title="intezo.sort_dir_asc">↑</button>
           <label><input type="checkbox" id="intezoGroupBy"> <span data-i18n="intezo.group_by_type">Csoportosítás típus szerint</span></label>
+          <!-- #484: szures tipus szerint (a Windows Intezo oszlopszuroje). A
+               lehetosegeket a mostani mappa adja; masik mappaban magatol kikapcsol. -->
+          <label data-i18n-title="intezo.filter_title" title="Csak a kiválasztott típusú elemek látszanak ebben a mappában (például csak a PNG képek). Ha másik mappába lépsz, a szűrő magától kikapcsol."><span data-i18n="intezo.filter_label">Szűrés:</span>
+            <select id="intezoTypeFilter" style="font-size:13px;padding:2px 6px">
+              <option value="" data-i18n="intezo.filter_all">Minden típus</option>
+            </select></label>
         </div>
 
 
