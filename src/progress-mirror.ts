@@ -199,6 +199,10 @@ export function extractThoughts(jsonlLines: string[], lang: Lang = 'hu', sinceMs
     let d: any
     try { d = JSON.parse(line) } catch { continue }
     if (!d || d.type !== 'assistant') continue
+    // #495: Claude Code writes a synthetic assistant line ("You've hit your weekly limit ...",
+    // isApiErrorMessage / model <synthetic>) for every refused turn. It is a system notice, not
+    // the agent's progress, and it repeats on every scheduled prompt.
+    if (d.isApiErrorMessage === true || d.message?.model === '<synthetic>') continue
     // Text written before the owner's current turn began is history, not
     // progress. The transcript is only read while a placeholder is out, so
     // text from an idle stretch piles up unread and would otherwise go out

@@ -166,6 +166,9 @@
 .wb-trash-toggle { background: none; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; padding: 6px 10px; color: inherit; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
 .wb-trash-toggle:hover { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
 .wb-trash-item { cursor: default; opacity: 0.7; }
+/* #492: the title gets its own full-width line; the two buttons sit below it, so the name is always readable. */
+.wb-trash-row { flex-wrap: wrap; }
+.wb-trash-row .wb-trash-item { flex: 1 1 100%; }
 
 .wb-empty {
   border: 1px dashed var(--border, #d0d7de);

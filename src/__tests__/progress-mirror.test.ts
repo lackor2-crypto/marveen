@@ -141,6 +141,16 @@ describe('verbose thoughts', () => {
     ]
     expect(extractThoughts(lines)).toEqual(['Megnézem a naplót.'])
   })
+
+  it('#495: a synthetic rate-limit notice is not progress and is never forwarded', () => {
+    const limit = JSON.stringify({
+      type: 'assistant', isApiErrorMessage: true, error: 'rate_limit',
+      message: { model: '<synthetic>', content: [{ type: 'text', text: "You've hit your weekly limit · resets Oct 9, 9am (Europe/Budapest)" }] },
+    })
+    const real = JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Megnézem a naplót.' }] } })
+    expect(extractThoughts([limit, limit, real], 'hu')).toEqual(['Megnézem a naplót.'])
+    expect(extractThoughts([limit], 'en')).toEqual([])
+  })
   it('never posts an English narration block to a Hungarian owner (2026-09-27)', () => {
     const lines = [
       asst([{ type: 'text', text: 'Now let me check the runner and fix the test.' }]),
