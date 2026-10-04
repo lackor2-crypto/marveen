@@ -1452,7 +1452,7 @@ function groupHoldsOtherItem(itemId: string, group: string): boolean {
  */
 /**
  * #471: a deck (or timeline) keeps its pictures as Depot-relative paths inside its JSON: in the working
- * draft and its undo steps (database), and in every saved version (a JSON file in the item's folder).
+ * draft and its undo steps (database), and in every saved version (a JSON file, in or outside the item's folder).
  * When the folder moves, those strings follow, otherwise every slide picture would be a dead link.
  */
 function moveDraftDocPaths(itemId: string, oldPrefix: string, newPrefix: string): void {
@@ -1468,12 +1468,18 @@ function moveDraftDocPaths(itemId: string, oldPrefix: string, newPrefix: string)
   }
 }
 
-/** The saved versions' JSON files (already moved with the folder) get the same path swap. Best effort per file. */
+/**
+ * The saved versions' JSON files get the same path swap. Best effort per file. Wherever the file sits: a
+ * deck's moved with the folder, but a drawing (.canvas.json) is saved in the project folder while its
+ * pictures live in the item's folder (#491) -- skipping it left every saved version with a dead picture.
+ */
 function moveVersionFilePaths(itemId: string, oldPrefix: string, newPrefix: string): void {
   const db = getDb()
+  const seen = new Set<string>()
   for (const v of db.prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ?').all(itemId) as { source_path?: string | null }[]) {
     const rel = v.source_path
-    if (!rel || !rel.startsWith(newPrefix) || !/\.json$/i.test(rel)) continue
+    if (!rel || seen.has(rel) || !/\.json$/i.test(rel)) continue
+    seen.add(rel)
     try {
       const abs = resolveLifePath(rel)
       if (!abs) continue
