@@ -53,6 +53,20 @@ describe('moveLooseFiles', () => {
     expect(existsSync(join(abs(a), 'S01.png'))).toBe(false)
   })
 
+  it('moves into a folder that already holds a (flattened) work item (#486)', () => {
+    const a = group('Forras')
+    const b = group('Prezentacio')
+    // the group folder also holds a flattened work item: its snapshot sits directly in it
+    writeFileSync(join(abs(b), 'marveen-item.json'), JSON.stringify({ format: 1, id: 'x', item: { id: 'x' } }))
+    const r1 = loose(a, 'S01.png')
+    const r = moveLooseFiles(proj(), [r1], b)
+    expect(r).toEqual({ ok: true, moved: ['S01.png'], skipped: [] })
+    expect(existsSync(join(abs(b), 'S01.png'))).toBe(true)
+    expect(existsSync(join(abs(a), 'S01.png'))).toBe(false)
+    // the item's snapshot is untouched
+    expect(existsSync(join(abs(b), 'marveen-item.json'))).toBe(true)
+  })
+
   it('never overwrites: a taken name is skipped and both files stay', () => {
     const a = group('Forras')
     const b = group('Cel')

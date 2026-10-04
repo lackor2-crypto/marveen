@@ -392,7 +392,7 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
 export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'failed' }
 export type MoveFilesResult =
   | { ok: true; moved: string[]; skipped: MoveFilesSkip[] }
-  | { ok: false; code: WorkFolderError | 'no_files' | 'target_is_item' }
+  | { ok: false; code: WorkFolderError | 'no_files' }
 
 /** True when the registry (an item, a version, a part, a material, a deck draft or a saved version file) names the file. */
 function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
@@ -427,6 +427,8 @@ function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
  * Move loose files (listed in the box, not work items) into another folder of the box: the Workbench
  * list's "move to folder" for ticked files. Never overwrites (a taken name is skipped) and never moves a
  * file the registry names (a deck picture would break): such files are reported, not moved.
+ * The target may be a folder that already holds a (flattened) work item (#486, Boss TG 2026-10-04): the
+ * files simply sit alongside it, which is the whole point of seeing what belongs together in one folder.
  */
 export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown): MoveFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
@@ -435,7 +437,6 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   if (!c.ok) return c
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
-  try { if (existsSync(join(target.dirAbs, ITEM_SNAPSHOT_NAME))) return { ok: false, code: 'target_is_item' } } catch { /* unreadable: the move below fails per file */ }
   const wf = listWorkFolders(project)
   const loose = new Map<string, string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.set(f.rel, k)
