@@ -78,16 +78,44 @@ describe('moveLooseFiles', () => {
     expect(readFileSync(join(abs(a), 'S01.png'), 'utf8')).toBe('uj')
   })
 
-  it('a file the registry names (a work item source) is not moved', () => {
+  it('#486: a file a work item references moves too, and the reference (source_path) follows', () => {
     const a = group('Forras')
-    const b = group('Cel')
+    const b = group('Prezentacio')
     const rel = loose(a, 'doc.md')
     const it = createWorkItem({ project_id: pid, title: 'Jegyzet', type: 'note', container_folder: a })
     if (!it.ok) throw new Error('item')
     getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(rel, it.item.id)
     const r = moveLooseFiles(proj(), [rel], b)
-    expect(r).toEqual({ ok: true, moved: [], skipped: [{ name: 'doc.md', reason: 'in_use' }] })
-    expect(existsSync(join(abs(a), 'doc.md'))).toBe(true)
+    expect(r).toEqual({ ok: true, moved: ['doc.md'], skipped: [] })
+    // the file physically moved into the folder that holds the work item
+    expect(existsSync(join(abs(a), 'doc.md'))).toBe(false)
+    expect(existsSync(join(abs(b), 'doc.md'))).toBe(true)
+    // the reference follows to the new path, so nothing becomes a dead link
+    const newRel = (listWorkFolders(proj()).files[b] ?? []).find((x) => x.name === 'doc.md')!.rel
+    const sp = getDb().prepare('SELECT source_path FROM work_items WHERE id = ?').get(it.item.id) as { source_path: string }
+    expect(sp.source_path).toBe(newRel)
+    expect(newRel).not.toBe(rel)
+  })
+
+  it('#486: a deck slide picture moves too, and the deck JSON path follows (no dead link)', () => {
+    const db = getDb()
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
+    const a = group('Forras')
+    const b = group('Prezentacio')
+    const rel = loose(a, 's01.png')
+    const it = createWorkItem({ project_id: pid, title: 'Prezi', type: 'note', container_folder: b })
+    if (!it.ok) throw new Error('item')
+    // the deck keeps the picture as a Depot-relative path inside its draft JSON (canvas object `src`)
+    db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)')
+      .run(it.item.id, JSON.stringify({ slides: [{ canvas: { objects: [{ op: 'picture', src: rel }] } }] }))
+    const r = moveLooseFiles(proj(), [rel], b)
+    expect(r.ok).toBe(true)
+    expect((r as { moved: string[] }).moved).toEqual(['s01.png'])
+    const newRel = (listWorkFolders(proj()).files[b] ?? []).find((x) => x.name === 's01.png')!.rel
+    const doc = (db.prepare('SELECT doc FROM work_item_deck_drafts WHERE work_item_id = ?').get(it.item.id) as { doc: string }).doc
+    expect(doc).toContain(newRel)
+    expect(doc).not.toContain('"' + rel + '"')
+    expect(existsSync(join(abs(b), 's01.png'))).toBe(true)
   })
 
   it('same place and unknown paths are skipped, not moved', () => {
