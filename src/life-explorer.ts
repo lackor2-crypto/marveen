@@ -24,6 +24,7 @@ import {
 import { cp } from 'node:fs/promises'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
+import { getDb } from './db.js'
 import { depotRoot, DEPOT_PROJECTS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
@@ -1226,6 +1227,20 @@ function nameClash(dir: string, name: string, isDir: boolean, lang: string, from
   }
 }
 
+/** #492: is this directory a live work item's own folder (work_items.folder under its project folder)? */
+function isWorkItemFolderAbs(dirAbs: string): boolean {
+  try {
+    const rows = getDb().prepare(
+      'SELECT w.folder AS folder, p.folder_path AS base FROM work_items w JOIN projects p ON p.id = w.project_id WHERE w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != \'\' AND p.folder_path IS NOT NULL',
+    ).all() as { folder: string; base: string }[]
+    const want = resolve(dirAbs)
+    return rows.some((r) => {
+      const abs = resolveLifePath(`${r.base.replace(/\/+$/, '')}/${r.folder}`)
+      return !!abs && resolve(abs) === want
+    })
+  } catch { return false }
+}
+
 /**
  * Athelyezes a fan belul.
  *
@@ -1251,6 +1266,13 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opt
   try { toIsDir = statSync(toDir).isDirectory() } catch { toIsDir = false }
   if (!toIsDir) {
     return { ok: false, rel: '', code: 'no_target', message: T(lang, 'A célként megadott hely nem mappa.', 'The place you gave as the target is not a folder.') }
+  }
+  // #492: a file that belongs to a work item (it lives in the item's own folder, marked by .marveen-id)
+  // can be copied elsewhere but not moved out: the item would lose its asset.
+  if (statSafe(from)?.isFile() && resolve(dirname(from)) !== resolve(toDir) && isWorkItemFolderAbs(dirname(from))) {
+    return { ok: false, rel: '', code: 'work_item_file', message: T(lang,
+      'Áthelyezni nem tudod, csak másolni, mert ez a fájl a munkadarabhoz tartozik. Másolatként más munkadarabnál felhasználhatod.',
+      'You cannot move it, only copy it, because this file belongs to the work item. You can use the copy in another work item.') }
   }
   let name = basename(from)
   let target = join(toDir, name)

@@ -33,7 +33,7 @@ import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
-import { resolveLifePath, toLifeRel } from './life-explorer.js'
+import { resolveLifePath, toLifeRel, trashLife } from './life-explorer.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -42,7 +42,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE } from './workbench-snapshot.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
-import { ensureWorkbenchTables, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
+import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** #479: the create form's "directly in the project folder" place (not a group of the work items box). Stored in container_folder. */
@@ -328,7 +328,7 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
 }
 
 export type DeleteFolderResult =
-  | { ok: true; folder: string }
+  | { ok: true; folder: string; trashed?: { items: number; kuka: string } }
   | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_not_empty' | 'write_failed'; items?: number; files?: number; folders?: number }
 
 /**
@@ -337,7 +337,7 @@ export type DeleteFolderResult =
  * box itself stays. Nothing is ever deleted together with its content, so the
  * worst a mis-click can do is remove an empty folder.
  */
-export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFolderResult {
+export function deleteWorkFolder(project: ProjectRow, folder: unknown, opts: { trash?: boolean } = {}): DeleteFolderResult {
   const c = workFolderTarget(project, folder)
   if (!c.ok) return c
   const box = findWorkItemsBox(project)
@@ -349,7 +349,21 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown): DeleteFo
   ensureAssetTables()
   const rows = getDb().prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
   const under = (v: string | null): boolean => !!v && (v === c.folder || v.startsWith(c.folder + '/'))
-  const items = rows.filter((r) => under(r.cf) || under(r.f) || under(r.sp)).length
+  const underIds = (getDb().prepare('SELECT id, container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { id: string; cf: string | null; f: string | null; sp: string | null }[])
+    .filter((r) => under(r.cf) || under(r.f) || under(r.sp)).map((r) => r.id)
+  const items = underIds.length
+  if ((entries.length || items) && opts.trash) {
+    // #492: a folder with content goes to the Kuka (restorable) with everything in it; its work items go to the
+    // Workbench trash first, so none of them points at a folder that is gone. Undone if the move fails.
+    for (const id of underIds) setWorkItemDeleted(id, true)
+    const moved = trashLife(t.dirRel)
+    if (!moved.ok) {
+      for (const id of underIds) setWorkItemDeleted(id, false)
+      return { ok: false, code: 'write_failed' }
+    }
+    getDb().prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND (path = ? OR path LIKE ?)').run(project.id, c.folder, c.folder + '/%')
+    return { ok: true, folder: c.folder, trashed: { items, kuka: moved.rel } }
+  }
   if (entries.length || items) {
     const folders = entries.filter((e) => e.isDirectory()).length
     return { ok: false, code: 'folder_not_empty', items, files: entries.length - folders, folders }
@@ -572,7 +586,10 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
     if (inUse.has(rel)) { skipped.push({ name, reason: 'in_use' }); continue }
     const src = resolveLifePath(rel)
     if (!src || writeBlockReason(rel)) { skipped.push({ name, reason: 'failed' }); continue }
-    try { unlinkSync(src); deleted.push(name) } catch { skipped.push({ name, reason: 'failed' }) }
+    // #492: a loose file goes to the Kuka (restorable), never straight to oblivion.
+    const t = trashLife(rel)
+    if (t.ok) deleted.push(name)
+    else skipped.push({ name, reason: 'failed' })
   }
   return { ok: true, deleted, skipped }
 }
