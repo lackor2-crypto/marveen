@@ -123,7 +123,7 @@ import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
 import {
-  makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, registerAsset, sha256Of, attachAsset,
+  makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
@@ -2867,45 +2867,25 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     if (!data.length) return fail(res, 400, 'upload_empty', lang)
     const name = url.searchParams.get('name') || ''
-    // #441 (K-0.10): a feltoltesbol szuletett munkadarab SAJAT mappat kap a
-    // projekt mappajaban, a munkadarab nevevel -- a fajl oda kerul, nem
-    // omlesztve a projekt fomappajaba. Ha a hivo kifejezetten megad egy
-    // almappat (`sub`), az marad.
-    const title = titleFromFileName(name)
+    // #491 (Boss): an upload is RAW MATERIAL, not a work item. The file lands in the project's materials folder
+    // (or in the explicit `sub`), never in a folder named after it, and no work item is made: the owner turns
+    // it into one later (from file) and picks its folder there.
     const explicitSub = url.searchParams.get('sub')
     let folder: string | null = null
-    let folderCreated = false
     if (!explicitSub) {
-      const f = makeFreshFolder(project, title)
-      if (!f.ok) {
-        const code = MESSAGES['upload_' + f.code] ? 'upload_' + f.code : f.code
-        return failDetail(res, f.code === 'write_failed' ? 500 : 400, code, lang, 'message' in f ? (f.message || null) : null)
+      const m = projectMaterialsFolder(project)
+      if (!m.ok) {
+        const code = MESSAGES['upload_' + m.code] ? 'upload_' + m.code : m.code
+        return failDetail(res, m.code === 'write_failed' ? 500 : 400, code, lang, 'message' in m ? (m.message || null) : null)
       }
-      folder = f.folder
-      folderCreated = f.created
+      folder = m.folder
     }
     const out = writeProjectFile(project, folder ?? explicitSub, name, data)
     if (!out.ok) {
-      // A most nyitott, URES mappat nem hagyjuk ott arvanak.
-      if (folder && folderCreated) {
-        const t = projectFileTarget(project, folder)
-        if (t.ok) { try { rmdirSync(t.dirAbs) } catch { /* nem ures / nem torolheto: marad */ } }
-      }
       const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
       return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
     }
-    const r = createWorkItem({
-      project_id: project.id,
-      type: workItemTypeForFile(out.name, url.searchParams.get('type')),
-      title: titleFromFileName(out.name),
-      source_path: out.rel,
-      created_by: actor(ctx),
-    })
-    if (!r.ok) return fail(res, 400, r.code, lang)
-    if (folder) assignWorkItemFolder(r.item.id, folder)
-    registerAsset(r.item.id, out.rel, out.name, sha256Of(data), out.bytes, actor(ctx))
-    const item = getWorkItem(r.item.id) ?? r.item
-    json(res, { ok: true, item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name }, 201)
+    json(res, { ok: true, item: null, versions: [], file: out, folder, renamed: out.renamed, name: out.name }, 201)
     return true
   }
 
