@@ -137,3 +137,48 @@ describe('put an existing item directly into its parent group', () => {
     expect(getWorkItem(id)!.folder).toBe(folder)
   })
 })
+
+// #491: dropping an item from ELSEWHERE onto an empty group must not leave a title-named sub-folder under it.
+describe('moving an item into another group (#491)', () => {
+  it('goes directly into the empty target group: no title-named sub-folder, every path follows', () => {
+    const from = group('Innen')
+    const to = group('Kozossegi poszt')
+    const { id, folder } = itemIn(from, 'Kozossegi poszt')
+    writeFileSync(join(abs(folder), 'kep.png'), 'x')
+    const rel = `Projektek/Robotok/${folder}`
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${rel}/kep.png`, id)
+
+    const r = moveWorkItemToFolder(getWorkItem(id)!, to)
+
+    expect(r).toMatchObject({ ok: true, moved: true, folder: to })
+    expect(getWorkItem(id)!.folder).toBe(to)
+    expect(existsSync(join(abs(to), 'kep.png'))).toBe(true)
+    expect(existsSync(abs(`${to}/Kozossegi poszt`))).toBe(false) // no self-named sub-folder
+    expect(existsSync(abs(folder))).toBe(false)
+    expect(getWorkItem(id)!.source_path).toBe(`Projektek/Robotok/${to}/kep.png`)
+  })
+
+  it('a group that already holds another item keeps one sub-folder per item', () => {
+    const from = group('Innen2')
+    const to = group('Kozos')
+    const other = itemIn(to, 'Mar itt van')
+    const { id, folder } = itemIn(from, 'Uj')
+    const r = moveWorkItemToFolder(getWorkItem(id)!, to)
+    expect(r.ok && r.moved).toBe(true)
+    expect(getWorkItem(id)!.folder).toBe(`${to}/Uj`)
+    expect(existsSync(abs(other.folder))).toBe(true)
+    expect(existsSync(abs(folder))).toBe(false)
+  })
+
+  it('on a name clash in the target group nothing is lost: the item stays in its own sub-folder there', () => {
+    const from = group('Innen3')
+    const to = group('Utkozo')
+    const { id, folder } = itemIn(from, 'Elem')
+    writeFileSync(join(abs(folder), 'kep.png'), 'a')
+    writeFileSync(join(abs(to), 'kep.png'), 'b')
+    const r = moveWorkItemToFolder(getWorkItem(id)!, to)
+    expect(r).toMatchObject({ ok: true, moved: true, folder: `${to}/Elem` })
+    expect(readFileSync(join(abs(to), 'kep.png'), 'utf8')).toBe('b')
+    expect(readFileSync(join(abs(`${to}/Elem`), 'kep.png'), 'utf8')).toBe('a')
+  })
+})

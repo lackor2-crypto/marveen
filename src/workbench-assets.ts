@@ -1377,7 +1377,22 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
   if (!r.ok) return { ok: false, code: 'move_failed', message: r.message }
   if (!r.renamed) return { ok: true, moved: false, folder: own, reason: r.reason === 'same_name' ? 'same_place' : r.reason === 'no_folder' || r.reason === 'independent' ? 'missing' : r.reason }
   getDb().prepare('UPDATE work_items SET container_folder = ?, updated_at = ? WHERE id = ?').run(c.folder, Math.floor(Date.now() / 1000), item.id)
+  // #491 (Boss: "ne csinaljon mappat maganak!"): dropped on a group that holds no other work item, the item
+  // goes DIRECTLY into the group; the title-named sub-folder the relocation just made would be pure nesting.
+  // The flatten refuses (and the item then simply stays in its own sub-folder, nothing lost) on a name clash,
+  // a drawing, or shared paths. A group that already holds other items keeps one sub-folder per item.
+  if (c.folder !== (findWorkItemsBox(project) ?? '') && !groupHoldsOtherItem(item.id, c.folder)) {
+    const fresh = getWorkItem(item.id) as WorkItemRow
+    const flat = flattenIntoGroup(fresh, project, r.to, c.folder)
+    if (flat.ok && flat.moved) return flat
+  }
   return { ok: true, moved: true, folder: r.to }
+}
+
+/** True when a work item other than `itemId` lives in the group folder or anywhere below it. */
+function groupHoldsOtherItem(itemId: string, group: string): boolean {
+  const like = group.replace(/[\\%_]/g, (ch) => '\\' + ch) + '/%'
+  return !!getDb().prepare("SELECT 1 FROM work_items WHERE id != ? AND (folder = ? OR folder LIKE ? ESCAPE '\\') LIMIT 1").get(itemId, group, like)
 }
 
 /**
