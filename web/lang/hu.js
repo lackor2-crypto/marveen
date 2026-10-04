@@ -5699,6 +5699,8 @@ window._i18n.hu = {
   "workbench.file.deleted": "{n} fájl törölve.",
   "workbench.file.delete_skipped": "{n} fájlt nem töröltem (valamelyik munkadarab használja, vagy már nincs a listán).",
   "workbench.file.to_item": "Munkadarabba tétel",
+  "workbench.file.open_menu": "Megnyitás",
+  "workbench.file.download": "Letöltés",
   "workbench.file.already_item": "Ez a fájl már munkadarab: „{title}”, megnyitottam.",
   "workbench.folder.to_deck": "Prezentációvá ({n} kép)",
   "workbench.folder.to_deck_hint": "A mappa {n} képéből egy lapozható prezentáció lesz, fájlnév szerinti sorrendben, egy dia egy kép.",

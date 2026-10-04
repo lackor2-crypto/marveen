@@ -5621,6 +5621,8 @@ window._i18n.en = {
   "workbench.file.deleted": "{n} file(s) deleted.",
   "workbench.file.delete_skipped": "{n} file(s) were not deleted (a work item uses them, or they are no longer on the list).",
   "workbench.file.to_item": "Make it a work item",
+  "workbench.file.open_menu": "Open",
+  "workbench.file.download": "Download",
   "workbench.file.already_item": "This file already is a work item: \"{title}\", opened it.",
   "workbench.folder.to_deck": "Make a presentation ({n} images)",
   "workbench.folder.to_deck_hint": "The {n} images of this folder become one flippable presentation, in file-name order, one slide per image.",
