@@ -84,6 +84,8 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     }
     expect(html).toContain('wb-panel-items')
     expect(html).toContain('wb-panel-context')
+    // Tools and search sit at the top of the technical details, above the project lists (Boss, TG 2397).
+    expect(html.indexOf('data-wb-act="search-open"')).toBeLessThan(html.indexOf('wb-panel-items'))
     h.click({ 'data-wb-act': 'sh-more' })
     expect(h.html()).not.toContain('wbShTech')
   })
