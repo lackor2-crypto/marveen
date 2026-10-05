@@ -1419,6 +1419,7 @@
 
   /** The key of the fixed Favorites folder in WB.collapsedFolder (a real folder path never contains a star). */
   var FAV_KEY = '*favorites*'
+  var ROOT_KEY = '*root*'
 
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth) {
@@ -1563,15 +1564,23 @@
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favs = items.filter(function (it) { return it.pinned_at != null })
     var favShut = !!WB.collapsedFolder[FAV_KEY]
-    rows.push('<li class="wb-folder-row wb-fav-row wb-depth-0">'
+    // The project itself is the root of the tree (Boss, TG 2399): everything lives under its name.
+    var rootShut = !!WB.collapsedFolder[ROOT_KEY]
+    var rootName = (WB.project && WB.project.name) || t('workbench.root.fallback')
+    rows.push('<li class="wb-folder-row wb-root-row wb-depth-0" data-wb-drop-folder="" data-wb-drop-box="1" title="' + escA(t('workbench.root.hint')) + '">'
+      + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(ROOT_KEY) + '" aria-expanded="' + (!rootShut) + '"'
+      + ' title="' + escA(t(rootShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
+      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + count(box) + ')</span></button></li>')
+    if (rootShut) return rows
+    rows.push('<li class="wb-folder-row wb-fav-row wb-depth-1">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(FAV_KEY) + '" aria-expanded="' + (!favShut) + '"'
       + ' title="' + escA(t(favShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
       + (favShut ? '▸ ' : '▾ ') + '⭐ ' + esc(t('workbench.fav.title')) + ' <span class="wb-muted">(' + favs.length + ')</span></button></li>')
     if (!favShut) {
-      if (!favs.length) rows.push('<li class="wb-fav-empty wb-depth-1"><span class="wb-muted">' + esc(t('workbench.fav.empty')) + '</span></li>')
-      favs.forEach(function (it) { rows.push(itemRowHtml(it, 1)) })
+      if (!favs.length) rows.push('<li class="wb-fav-empty wb-depth-2"><span class="wb-muted">' + esc(t('workbench.fav.empty')) + '</span></li>')
+      favs.forEach(function (it) { rows.push(itemRowHtml(it, 2)) })
     }
-    walk(box, 0)
+    walk(box, 1)
     return rows
   }
 
@@ -11679,7 +11688,7 @@
 
   var FR_TABS = [
     ['templates', '🖼️'], ['elements', '▦'], ['text', 'T'], ['brand', '🎨'],
-    ['uploads', '☁️'], ['tools', '⚙️'], ['projects', '📁'],
+    ['uploads', '☁️'], ['layers', '☰'], ['tools', '⚙️'], ['projects', '📁'],
   ]
 
   /** A video has no canvas: only the tabs that mean something for it (the video tools open by default). */
@@ -11781,6 +11790,29 @@
     }).join('') + '</div>'
   }
 
+  /** The Layers panel (Boss, TG 2402): every element of the page in one column, top layer first. A click
+   *  selects it (it shows in another colour on the page, even when it is hidden behind something); the
+   *  tick marks several, which then move together. */
+  function frLayersHtml() {
+    var objs = canvasObjects().slice().reverse()
+    if (!objs.length) return '<p class="wb-hint">' + esc(t('workbench.fr.layers_none')) + '</p>'
+    var picked = canvasPicked().length
+    var rows = objs.map(function (o) {
+      var on = WB.canvasSel === o.id
+      var lab = canvasObjectLabel(o)
+      return '<li class="wb-fr-layer' + (on ? ' wb-fr-layer-on' : '') + (WB.canvasPick[o.id] ? ' wb-fr-layer-picked' : '') + '">'
+        + (archived() ? '' : '<input type="checkbox" data-wb-act="canvas-pick" data-wb-obj="' + escA(o.id) + '"' + (WB.canvasPick[o.id] ? ' checked' : '')
+          + ' aria-label="' + escA(t('workbench.canvas.pick_aria', { name: lab })) + '">')
+        + '<button type="button" class="wb-fr-layer-btn" data-wb-act="fr-layer-sel" data-wb-obj="' + escA(o.id) + '" aria-pressed="' + on + '" title="' + escA(lab) + '">'
+        + '<span class="wb-pill">' + esc(t('workbench.canvas.type_' + o.type)) + '</span> <span class="wb-fr-layer-name">' + esc(lab) + '</span></button></li>'
+    }).join('')
+    return '<p class="wb-hint">' + esc(t('workbench.fr.layers_hint')) + '</p>'
+      + (archived() ? '' : '<p><button type="button" class="wb-mini-btn" data-wb-act="fr-layer-all">' + esc(t('workbench.fr.layers_all')) + '</button> '
+        + (picked ? '<button type="button" class="wb-mini-btn" data-wb-act="canvas-unpick">' + esc(t('workbench.canvas.unpick')) + '</button>' : '') + '</p>')
+      + '<ul class="wb-fr-layers">' + rows + '</ul>'
+      + (archived() || !picked ? '' : canvasPickBarHtml())
+  }
+
   function frPanelBodyHtml() {
     var can = frCanvasReady()
     var needCanvas = '<p class="wb-hint">' + esc(t(WB.preview && WB.preview.kind === 'text' ? 'workbench.fr.need_canvas_text' : 'workbench.fr.need_canvas')) + '</p>'
@@ -11812,6 +11844,8 @@
       case 'uploads':
         return '<label class="wb-fr-upload"><input type="file" accept="image/*" id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
           + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : needCanvas)
+      case 'layers':
+        return can ? frLayersHtml() : needCanvas
       case 'tools':
         if (frIsVideo(WB.detail && WB.detail.item)) return videoTimelineHtml()
         return '<p class="wb-can-snapopts"><label><input type="checkbox" data-wb-act="canvas-snap"' + (WB.canvasSnap ? ' checked' : '') + '> ' + esc(t('workbench.canvas.snap_guides')) + '</label>'
@@ -12914,6 +12948,8 @@
     else if (a === 'fr-live') { WB.frLive = !WB.frLive; render() }
     else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
     else if (a === 'fr-add-text') frAddText(act.getAttribute('data-wb-arg'))
+    else if (a === 'fr-layer-sel') { WB.canvasSel = act.getAttribute('data-wb-obj'); WB.canvasPick = {}; render() }
+    else if (a === 'fr-layer-all') { WB.canvasPick = {}; canvasObjects().forEach(function (o) { WB.canvasPick[o.id] = true }); render() }
     else if (a === 'fr-add-image') frAddImage(act.getAttribute('data-wb-src'), null, null)
     else if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
@@ -13419,6 +13455,13 @@
     // nem cserelodik ki.
     if (commit && !d.moved && d.wasSel) return
     if (!commit || !d.moved || same) { render(); return }
+    // Several ticked elements move together: the dragged one's shift is applied to every ticked one.
+    var pk = d.mode === 'move' && WB.canvasPick[d.id] ? canvasPicked() : []
+    if (pk.length > 1) {
+      var mdx = b.x - f.x, mdy = b.y - f.y
+      canvasOps(pk.map(function (id) { return { op: 'move', id: id, dx: mdx, dy: mdy } }))
+      return
+    }
     canvasOps([{ op: 'update', id: d.id, patch: { x: b.x, y: b.y, width: b.width, height: b.height } }])
   }
 
@@ -13616,7 +13659,7 @@
 
   /** Kep a lapra: egy fajl a lapra HUZVA vagy a vagolapbol beillesztve. A fajl a projekt mappajaba kerul
    *  (ott keresi a felhasznalo), a lapra pedig egy kep-elem, a leejtes helyen. */
-  function canvasDropImage(file, clientX, clientY) {
+  function canvasDropImage(file, clientX, clientY, uploadOnly) {
     if (!file || !/^image\//.test(file.type || '')) { window.showToast(t('workbench.canvas.drop_not_image')); return }
     if (!WB.selectedId || WB.partBusy || WB.canvasBusy || archived()) return
     var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
@@ -13636,7 +13679,7 @@
       if (h > maxH) { w = Math.round(w * maxH / h); h = maxH }
       var x = Math.round(Math.min(Math.max(cx - w / 2, 0), Math.max(doc.width - w, 0)))
       var y = Math.round(Math.min(Math.max(cy - h / 2, 0), Math.max(doc.height - h, 0)))
-      uploadAndPlace(file, { x: x, y: y, width: w, height: h })
+      uploadAndPlace(file, { x: x, y: y, width: w, height: h }, uploadOnly)
     }
     var natural = function () { place(0, 0) }
     if (typeof Image === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
@@ -13648,7 +13691,7 @@
     } else natural()
   }
 
-  function uploadAndPlace(file, box) {
+  function uploadAndPlace(file, box, uploadOnly) {
     WB.partBusy = true
     render()
     // A fajl a projekt mappajaba kerul, a rajz-elem pedig az utjara mutat. Itt NEM keszul uj verzio (nem
@@ -13666,6 +13709,9 @@
           return
         }
         applyParts(data)
+        // The panel upload only stores the file (Boss, TG 2402): it appears in the thumbnails and the
+        // hand places it on the page when wanted.
+        if (uploadOnly) { render(); window.showToast(t('workbench.fr.uploaded')); return }
         canvasOps([{ op: 'add', object: { type: 'image', src: data.part.asset_path, x: box.x, y: box.y, width: box.width, height: box.height, fit: 'contain' } }])
       })
     }).catch(function () {
@@ -13741,7 +13787,7 @@
   document.addEventListener('change', function (e) {
     if (!e.target || e.target.id !== 'wbFrUpload') return
     var f = e.target.files && e.target.files[0]
-    if (f) canvasDropImage(f, null, null)
+    if (f) canvasDropImage(f, null, null, true)
     try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
   })
   document.addEventListener('dragstart', function (e) {
@@ -14081,6 +14127,7 @@
     var f = WB.dragFolder
     WB.dragFolder = null
     var to = z.getAttribute('data-wb-drop-folder') || ''
+    if (!to && z.getAttribute('data-wb-drop-box')) to = (WB.workFolders && WB.workFolders.box) || ''
     if (to && to !== f) moveFolder(f, to)
   })
   document.addEventListener('dragover', function (e) {

@@ -1637,3 +1637,10 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-head-open { flex: 0 0 auto; }
 /* Simple view: the frame fits the window; no page scroll until the technical details are opened (TG 2469). */
 main.projects-active.wb-sh-locked { overflow-y: hidden; }
+.wb-root-row .wb-folder-toggle { font-size: 1.05rem; }
+.wb-fr-layers { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.wb-fr-layer { display: flex; align-items: center; gap: 6px; border-radius: 6px; padding: 2px 4px; }
+.wb-fr-layer-btn { flex: 1 1 auto; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 6px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-fr-layer-on { background: rgba(255, 140, 0, .22); outline: 1px solid #ff8c00; }
+.wb-fr-layer-picked { background: rgba(0, 120, 255, .16); }
+.wb-can-box-sel { outline-color: #ff8c00; }
