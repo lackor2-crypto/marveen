@@ -11662,12 +11662,12 @@
       + '</div>'
       + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml()
       + brandPanelHtml() + todosPanelHtml() + handoffPanelHtml()
-    // Arranged by what the person is looking at: this work item first, then the project, then the tools.
+    // Tools and search first (Boss, TG 2397: they belong at the top of the technical details), then this work item, then the project.
     return '<section class="wb-sh-tech" id="wbShTech" aria-label="' + escA(t('workbench.sh.tech')) + '">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.sh.tech')) + '</h2>'
+      + grp('workbench.sh.tech_tools', tools)
       + grp('workbench.sh.tech_item', itemTech)
       + grp('workbench.sh.tech_project', overviewHtml() + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>')
-      + grp('workbench.sh.tech_tools', tools)
       + '</section>'
   }
 
