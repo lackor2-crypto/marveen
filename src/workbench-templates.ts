@@ -16,9 +16,12 @@
 import { getDb } from './db.js'
 import type { ProjectRow } from './projects.js'
 import {
-  createWorkItem, addWorkItemPart, listWorkItemParts, TITLE_MAX,
+  createWorkItem, addWorkItemPart, listWorkItemParts, getWorkItem, TITLE_MAX,
   type WorkItemType, type WorkItemRow, type WorkItemVersionRow, type WorkItemPartRow,
 } from './workbench.js'
+import { parseCanvas, type CanvasDoc } from './workbench-graphic.js'
+import { commitCanvasChange, type CanvasStepSource } from './workbench-canvas-store.js'
+import { canvasPlatform } from './workbench-canvas-platforms.js'
 
 type Lang = 'hu' | 'en'
 type Text = { hu: string; en: string }
@@ -30,7 +33,13 @@ export interface WorkbenchTemplate {
   description: Text
   /** A reszek sorrendben; mindegyik egy szoveg-blokk. */
   parts: Text[]
+  /** #493: the item opens on a platform-sized canvas with the parts' text laid on it, not on the
+   *  parts list. The parts stay, as with the "convert to canvas post" button. */
+  canvas?: boolean
 }
+
+/** The size a canvas template starts at when the caller names no (known) platform. */
+export const TEMPLATE_CANVAS_PLATFORM = 'facebook_post'
 
 export const WORKBENCH_TEMPLATES: readonly WorkbenchTemplate[] = [
   {
@@ -88,10 +97,11 @@ export const WORKBENCH_TEMPLATES: readonly WorkbenchTemplate[] = [
   {
     id: 'social_post',
     type: 'composite',
+    canvas: true,
     name: { hu: 'Közösségi poszt', en: 'Social post' },
     description: {
-      hu: 'Facebook- vagy Instagram-bejegyzés: figyelemfelkeltő első sor, szöveg, felhívás, címkék. Képet a "Kép hozzáadása" gombbal tehetsz mellé.',
-      en: 'A Facebook or Instagram post: an eye-catching first line, text, call to action, hashtags. Add a picture with the "Add picture" button.',
+      hu: 'Facebook-, Instagram- vagy LinkedIn-bejegyzés a választott méretű vásznon: figyelemfelkeltő első sor, szöveg, felhívás, címkék. Mindet közvetlenül a vásznon írod át; képet a bal oldali „Feltöltések” fülről teszel rá.',
+      en: 'A Facebook, Instagram or LinkedIn post on a canvas of the chosen size: an eye-catching first line, text, call to action, hashtags. You rewrite them right on the canvas; add a picture from the "Uploads" tab on the left.',
     },
     parts: [
       { hu: '[Figyelemfelkeltő első mondat]', en: '[Eye-catching first sentence]' },
@@ -144,6 +154,8 @@ export interface TemplateView {
   part_count: number
   /** Az elso resz, hogy a felulet megmutathassa, mivel indul. */
   first_line: string
+  /** #493: starts on a platform-sized canvas -- the front end offers the platform picker for it. */
+  canvas: boolean
 }
 
 /** A sablonok a felulet nyelven. */
@@ -155,21 +167,56 @@ export function listTemplates(lang: Lang): TemplateView[] {
     description: t.description[lang],
     part_count: t.parts.length,
     first_line: (t.parts[0]?.[lang] ?? '').split('\n')[0],
+    canvas: !!t.canvas,
   }))
 }
 
+/**
+ * The post layout on a canvas: the first text as a headline, the rest as body text below it.
+ * Same placement as the "convert to canvas post" button lays out a post without a picture
+ * (web/workbench.js postCanvasDoc), so a post looks the same whichever way it reached the canvas.
+ */
+export function postCanvasFromTexts(texts: readonly string[], width: number, height: number): CanvasDoc {
+  const W = width, H = height
+  const lines = texts.map((s) => s.trim()).filter(Boolean)
+  const objects: Record<string, unknown>[] = []
+  const pad = Math.round(W * 0.06)
+  const top = pad
+  if (lines.length) {
+    const head = Math.round(W * 0.05)
+    objects.push({ type: 'text', text: lines[0], x: pad, y: top + Math.round(pad / 2), width: W - 2 * pad, height: Math.round(head * 2.6), fontSize: head, color: '#111111', bold: true, align: 'left' })
+  }
+  if (lines.length > 1) {
+    const body = Math.round(W * 0.028)
+    const y = top + Math.round(pad / 2) + Math.round(W * 0.05 * 2.8)
+    objects.push({ type: 'text', text: lines.slice(1).join('\n\n'), x: pad, y, width: W - 2 * pad, height: Math.max(body * 2, H - y - pad), fontSize: body, color: '#333333', align: 'left' })
+  }
+  const parsed = parseCanvas({ width: W, height: H, background: '#ffffff', objects })
+  if (!parsed.ok) throw new Error(`post canvas layout rejected: ${parsed.detail}`)
+  return parsed.doc
+}
+
 export type CreateFromTemplateResult =
-  | { ok: true; item: WorkItemRow; version: WorkItemVersionRow; parts: WorkItemPartRow[]; template: string }
+  | {
+    ok: true; item: WorkItemRow; version: WorkItemVersionRow; parts: WorkItemPartRow[]; template: string
+    /** Canvas template only: the canvas was written. False = it stayed a parts list (e.g. the project has
+     *  no folder yet); the item is still made, and its page offers the convert button. */
+    canvas?: boolean
+  }
   | { ok: false; code: 'template_not_found' | 'title_too_long' | 'template_failed'; detail?: string }
 
 /**
  * Uj munkadarab a sablonbol, a projektben. A cim a megadott, vagy ha ures, a
  * sablon neve (a felulet nyelven) -- igy tenyleg egy kattintas.
+ *
+ * A canvas template (#493) also gets its canvas at the `platform` size (default: Facebook post).
+ * The canvas is written after the item and its parts, outside their transaction: it is a file in
+ * the project folder, and a project without one keeps the old parts-list post rather than nothing.
  */
 export function createFromTemplate(
   project: Pick<ProjectRow, 'id'>,
   templateId: unknown,
-  opts: { title?: unknown; lang: Lang; created_by?: string | null },
+  opts: { title?: unknown; lang: Lang; created_by?: string | null; platform?: unknown; source?: CanvasStepSource },
 ): CreateFromTemplateResult {
   const tpl = getTemplate(templateId)
   if (!tpl) return { ok: false, code: 'template_not_found' }
@@ -179,8 +226,9 @@ export function createFromTemplate(
 
   class Abort extends Error {}
   const db = getDb()
+  let made: CreateFromTemplateResult
   try {
-    return db.transaction((): CreateFromTemplateResult => {
+    made = db.transaction((): CreateFromTemplateResult => {
       const r = createWorkItem({
         project_id: project.id,
         type: tpl.type,
@@ -198,5 +246,24 @@ export function createFromTemplate(
   } catch (e) {
     if (e instanceof Abort) return { ok: false, code: 'template_failed', detail: e.message }
     throw e
+  }
+  if (!made.ok || !tpl.canvas) return made
+
+  const size = canvasPlatform(opts.platform) ?? canvasPlatform(TEMPLATE_CANVAS_PLATFORM)
+  const doc = postCanvasFromTexts(made.parts.map((p) => p.text ?? ''), size?.width ?? 1200, size?.height ?? 630)
+  let laid: ReturnType<typeof commitCanvasChange>
+  try {
+    laid = commitCanvasChange(made.item, doc, { source: opts.source ?? 'owner', label: 'replace', actor: opts.created_by ?? null })
+  } catch {
+    // The item is already made: a failed canvas write leaves the parts-list post, never an error page.
+    return { ...made, canvas: false }
+  }
+  if (!laid.ok || !laid.created) return { ...made, canvas: false }
+  return {
+    ...made,
+    item: getWorkItem(made.item.id) ?? made.item,
+    version: laid.created.version,
+    parts: listWorkItemParts(made.item.id),
+    canvas: true,
   }
 }

@@ -2441,9 +2441,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = createFromTemplate(project, body['template'], { title: body['title'], lang, created_by: actor(ctx) })
+    const r = createFromTemplate(project, body['template'], { title: body['title'], lang, created_by: actor(ctx), platform: body['platform'] })
     if (!r.ok) return fail(res, r.code === 'template_not_found' ? 404 : r.code === 'template_failed' ? 500 : 400, r.code, lang)
-    json(res, { ok: true, item: r.item, versions: [r.version], parts: r.parts, template: r.template }, 201)
+    json(res, { ok: true, item: r.item, versions: [r.version], parts: r.parts, template: r.template, canvas: r.canvas ?? null }, 201)
     return true
   }
 

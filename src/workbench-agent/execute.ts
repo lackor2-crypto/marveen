@@ -595,12 +595,12 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     }
 
     case 'workItem.fromTemplate': {
-      const r = createFromTemplate(project, input.template, { title: input.title, lang: ctx.lang, created_by: 'workbench-agent' })
+      const r = createFromTemplate(project, input.template, { title: input.title, lang: ctx.lang, created_by: 'workbench-agent', platform: input.platform, source: 'agent' })
       if (!r.ok) {
         const known = WORKBENCH_TEMPLATES.map((t) => t.id).join(', ')
         return { ok: false, code: r.code, detail: r.code === 'template_not_found' ? `no such template; use one of: ${known}` : `the work item was not created: ${r.detail ?? r.code}` }
       }
-      return { ok: true, data: { item: r.item, version: r.version, parts: r.parts.map((p) => ({ id: p.id, text: p.text })) } }
+      return { ok: true, data: { item: r.item, version: r.version, parts: r.parts.map((p) => ({ id: p.id, text: p.text })), ...(r.canvas === undefined ? {} : { canvas: r.canvas }) } }
     }
 
     case 'workItem.update': {

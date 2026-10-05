@@ -2039,14 +2039,16 @@
     return INTAKE_PLATFORMS.filter(function (p) { return p.id === id })[0] || INTAKE_PLATFORMS[0]
   }
 
-  function intakePlatformHtml() {
+  /** `id`/`hintKey`: the template list has its own picker (it can sit next to the intake one), sharing the choice. */
+  function intakePlatformHtml(id, hintKey) {
     var cur = intakePlatformNow()
-    return '<div class="wb-intake-platform"><label class="wb-label" for="wbIntakePlatform">' + esc(t('workbench.intake.platform_label')) + '</label>'
-      + '<select class="wb-input" id="wbIntakePlatform">' + INTAKE_PLATFORMS.map(function (p) {
+    var el = id || 'wbIntakePlatform'
+    return '<div class="wb-intake-platform"><label class="wb-label" for="' + escA(el) + '">' + esc(t('workbench.intake.platform_label')) + '</label>'
+      + '<select class="wb-input" id="' + escA(el) + '">' + INTAKE_PLATFORMS.map(function (p) {
         return '<option value="' + escA(p.id) + '"' + (p.id === cur.id ? ' selected' : '') + '>'
           + esc(t('workbench.intake.platform.' + p.id) + ' · ' + p.w + ' × ' + p.h) + '</option>'
       }).join('') + '</select>'
-      + '<p class="wb-hint">' + esc(t('workbench.intake.platform_hint')) + '</p></div>'
+      + '<p class="wb-hint">' + esc(t(hintKey || 'workbench.intake.platform_hint')) + '</p></div>'
   }
 
   function intakeHtml() {
@@ -2244,6 +2246,8 @@
           + '<span class="wb-tpl-desc">' + esc(tp.description) + '</span>'
           + '</button>'
       }).join('') + '</div>'
+        // #493: the social post template starts on a canvas of this size.
+        + (WB.templates.some(function (tp) { return tp.canvas }) ? intakePlatformHtml('wbTplPlatform', 'workbench.tpl.platform_hint') : '')
         + '<p class="wb-hint">' + esc(t('workbench.tpl.hint')) + '</p>'
     }
     return '<div class="wb-tpl">'
@@ -2255,8 +2259,11 @@
   function useTemplate(id) {
     if (!id || WB.tplBusy || archived()) return
     WB.tplBusy = id
+    var body = { project_id: WB.projectId, template: id }
+    var tp = (WB.templates || []).filter(function (x) { return x.id === id })[0]
+    if (tp && tp.canvas) body.platform = intakePlatformNow().id
     render()
-    api('POST', '/api/workbench/templates/use', { project_id: WB.projectId, template: id }).then(function (r) {
+    api('POST', '/api/workbench/templates/use', body).then(function (r) {
       WB.tplBusy = null
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false
@@ -13822,7 +13829,12 @@
     if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
     if (e.target.id === 'wbIntakeText') WB.intakeDraft = e.target.value
     if (e.target.id === 'wbIntakeName') WB.intakeName = e.target.value
-    if (e.target.id === 'wbIntakePlatform') WB.intakePlatform = e.target.value
+    if (e.target.id === 'wbIntakePlatform' || e.target.id === 'wbTplPlatform') {
+      WB.intakePlatform = e.target.value
+      // #493: the new-item form shows both pickers at once; they share one choice, so the other one follows.
+      var twin = document.getElementById(e.target.id === 'wbTplPlatform' ? 'wbIntakePlatform' : 'wbTplPlatform')
+      if (twin) twin.value = e.target.value
+    }
     if (e.target.id === 'wbCanAiText' && WB.canvasAi) WB.canvasAi.text = e.target.value
     if (e.target.id === 'wbRedactTerms' && WB.redact) WB.redact.terms = e.target.value
     if (/^wbBrand/.test(String(e.target.id || '')) && WB.brandOpen) brandSyncDraft()
