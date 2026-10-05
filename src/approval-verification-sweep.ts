@@ -141,6 +141,9 @@ export const VERIFICATION_TIMEOUT_MS = 4 * 60 * 60 * 1000
  *  language the sweep happened to be written in. */
 export const NO_RESPONSE_TIMEOUT = 'noresponse:timeout'
 export const NO_RESPONSE_AGENT_GONE = 'noresponse:agent_gone'
+/** The VS Code executor took the task but it ended in an error (e.g. "worker stopped responding after 3
+ *  attempts"): nothing is still working on it, so the row must not keep showing an hourglass (Boss, TG 2425). */
+export const NO_RESPONSE_WORKER_ERROR = 'noresponse:worker_error'
 /**
  * A feladat MEGSZUNT, nem az agens hallgatott: a jovahagyas lezarult, vagy a
  * kartyaja kikerult a varakozobol.
