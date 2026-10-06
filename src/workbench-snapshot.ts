@@ -130,6 +130,8 @@ export function sweepSnapshots(opts: { force?: boolean } = {}): number {
     }
   }
   const projects = new Map<string, ProjectRow | undefined>()
+  const optedOut = new Set<string>()
+  try { for (const r of db.prepare('SELECT work_item_id AS id FROM work_item_snapshot_off').all() as { id: string }[]) optedOut.add(r.id) } catch { /* table appears with the first deleted snapshot */ }
   let n = 0
   for (const item of items) {
     try {
@@ -141,6 +143,7 @@ export function sweepSnapshots(opts: { force?: boolean } = {}): number {
       const snap: Snapshot = { format: SNAPSHOT_FORMAT, id: item.id, item: clean(item as unknown as Row), project: clean(project as unknown as Row), schema, tables: tbl, doc_sources: docSources }
       const hash = sha(JSON.stringify(snap))
       if (written.get(item.id) === hash) continue
+      if (optedOut.has(item.id)) continue // the owner deleted this item's snapshot: it is NOT written back
       const path = snapshotPath(item, project, true)
       if (!path) continue
       const existing = existsSync(path) ? readJson(path) : null

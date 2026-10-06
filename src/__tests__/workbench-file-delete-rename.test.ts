@@ -7,6 +7,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { trashRelPath } from '../life-tree.js'
+import { sweepSnapshots } from '../workbench-snapshot.js'
 import { makeWorkFolder, listWorkFolders, deleteLooseFiles, renameLooseFile } from '../workbench-assets.js'
 
 let pid = ''
@@ -68,7 +69,7 @@ describe('deleteLooseFiles', () => {
     expect(readFileSync(join(kuka, stamps[0]!, 'S01.png'), 'utf8')).toBe('PIXELS')
   })
 
-  it('never deletes a file a work item references (a deck picture): it is reported as in_use', () => {
+  it('deletes a file a work item references too (to the Kuka), and the item forgets it', () => {
     const db = getDb()
     db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
     const a = group('Forras')
@@ -77,11 +78,11 @@ describe('deleteLooseFiles', () => {
     if (!it.ok) throw new Error('item')
     db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, JSON.stringify({ src: rel }))
     const r = deleteLooseFiles(proj(), [rel])
-    expect(r).toEqual({ ok: true, deleted: [], skipped: [{ name: 's01.png', reason: 'in_use' }] })
-    expect(existsSync(join(abs(a), 's01.png'))).toBe(true)
+    expect(r).toEqual({ ok: true, deleted: ['s01.png'], skipped: [] })
+    expect(existsSync(join(abs(a), 's01.png'))).toBe(false)
   })
 
-  it('#488: in a folder that also holds a work item, a now-visible picture the deck uses is still never deleted, and the item snapshot is never a loose file', () => {
+  it('#488: in a folder that also holds a work item, a now-visible picture the deck uses is deleted too, and the item snapshot file is deletable too', () => {
     const db = getDb()
     db.exec('CREATE TABLE IF NOT EXISTS work_item_deck_drafts (work_item_id TEXT, doc TEXT)')
     const a = group('Prezentacio')
@@ -94,11 +95,12 @@ describe('deleteLooseFiles', () => {
     db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, JSON.stringify({ src: used }))
     const snap = `${used.slice(0, used.lastIndexOf('/'))}/marveen-item.json`
     const r = deleteLooseFiles(proj(), [used, free, snap])
-    expect(r).toEqual({ ok: true, deleted: ['jegyzet.txt'], skipped: [{ name: 's01.png', reason: 'in_use' }, { name: 'marveen-item.json', reason: 'not_loose' }] })
-    expect(existsSync(join(abs(a), 's01.png'))).toBe(true)
-    expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(true)
+    expect(r).toEqual({ ok: true, deleted: ['s01.png', 'jegyzet.txt', 'marveen-item.json'], skipped: [] })
+    expect(existsSync(join(abs(a), 's01.png'))).toBe(false)
+    expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(false)
+    sweepSnapshots({ force: true }) // the owner's deletion sticks: the snapshot is not written back
+    expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(false)
     expect(renameLooseFile(proj(), snap, 'mas.json')).toEqual({ ok: false, code: 'file_not_loose' })
-    expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(true)
   })
 
   it('unknown or outside paths are skipped, and an empty list is refused', () => {

@@ -5700,7 +5700,7 @@ window._i18n.hu = {
   "workbench.file.delete_confirm": "Biztosan törlöd a(z) \"{name}\" fájlt? A Kukába kerül, onnan visszaállíthatod.",
   "workbench.file.delete_confirm_many": "Biztosan törlöd a kijelölt {n} fájlt? A Kukába kerülnek, onnan visszaállíthatod.",
   "workbench.file.deleted": "{n} fájl törölve.",
-  "workbench.file.delete_skipped": "{n} fájlt nem töröltem (valamelyik munkadarab használja, vagy már nincs a listán).",
+  "workbench.file.delete_skipped": "{n} fájlt nem töröltem (már nincs a listán, vagy a munkadarab saját adatfájlja).",
   "workbench.file.to_item": "Munkadarabba tétel",
   "workbench.file.open_menu": "Megnyitás",
   "workbench.file.download": "Letöltés",
