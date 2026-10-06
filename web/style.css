@@ -13066,3 +13066,25 @@ body.sidebar-collapsed { grid-template-columns: 1fr; }
 body.sidebar-collapsed .sidebar { display: none; }
 body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 @media (max-width: 768px) { .sidebar-collapse-btn { display: none; } }
+
+/* Intezo: tighter top area so the file list starts higher (Boss TG 2556, 2558): smaller gaps, smaller buttons. */
+#intezoPage .page-header { margin-bottom: 4px; padding-bottom: 0; }
+#intezoPage .page-header h1 { font-size: 20px; margin: 0 0 2px; }
+#intezoPage .page-header .subtitle { margin: 0; font-size: 12px; }
+#intezoPage #intezoHelp { margin-bottom: 6px !important; padding: 4px 10px; }
+#intezoPage #intezoHelp > summary { font-size: 13px; }
+#intezoPage > .card { padding: 8px 12px; }
+#intezoPage .intezo-head { padding-top: 0; }
+#intezoPage .intezo-head > div { margin-bottom: 4px !important; gap: 6px !important; }
+#intezoPage .intezo-head .btn-secondary,
+#intezoPage .intezo-head .btn-danger,
+#intezoPage .intezo-head .btn-primary,
+#intezoPage .intezo-head input[type="search"],
+#intezoPage .intezo-head select,
+#intezoPage #intezoRefreshBtn { padding: 2px 8px; font-size: 12px; min-height: 0; line-height: 1.4; }
+#intezoPage .intezo-head input[type="search"] { min-width: 140px !important; }
+#intezoPage #intezoCrumbs { line-height: 1.5 !important; font-size: 13px !important; min-width: 160px !important; }
+#intezoPage .intezo-actions { padding: 4px 0; gap: 6px; }
+#intezoPage .intezo-actions .btn-secondary,
+#intezoPage .intezo-actions .btn-danger,
+#intezoPage .intezo-actions .btn-primary { padding: 3px 10px; font-size: 12px; min-height: 0; }
