@@ -1667,3 +1667,14 @@ main.projects-active.wb-sh-locked { overflow-y: hidden; }
 /* Boss, TG 2531: everything that belongs to one top-level group shares a base tint (like the Intezo tree). */
 .wb-grp { background: color-mix(in srgb, var(--wb-grp) 14%, transparent); border-left: 3px solid var(--wb-grp); border-radius: 4px; }
 .wb-grp.wb-item-active, .wb-grp:has(> .wb-item-active) { background: color-mix(in srgb, var(--wb-grp) 26%, transparent); }
+
+.wb-fr-layer-off .wb-fr-layer-btn { opacity: .45; text-decoration: line-through; }
+.wb-fr-layer-eye, .wb-fr-layer-mv { background: none; border: 0; color: inherit; cursor: pointer; padding: 4px 5px; border-radius: 4px; font: inherit; line-height: 1; }
+.wb-fr-layer-eye:hover, .wb-fr-layer-mv:hover { background: rgba(127, 127, 127, .2); }
+.wb-fr-layer-mvs { display: inline-flex; flex: 0 0 auto; }
+.wb-fr-fmt { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(127, 127, 127, .3); }
+.wb-fr-fmt-title { font-size: 13px; margin: 0 0 8px; }
+.wb-fr-fmt-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; font-size: 12px; }
+.wb-fr-fmt-row input[type="number"] { width: 72px; }
+.wb-fr-fmt-row input[type="range"] { flex: 0 1 110px; }
+.wb-fr-fmt-btns { display: flex; gap: 4px; margin: 6px 0; }
