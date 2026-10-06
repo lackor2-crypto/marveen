@@ -109,9 +109,8 @@ describe('Attekinto: upstream-szinkron doboz', () => {
       expect(lang).toContain("'overview.upstream.out_clean'")
       expect(lang).toContain("'overview.upstream.out_conflicts'")
     }
-    expect(hu).toMatch(/'overview\.upstream\.commits':\s*'[^']*fájl/)
-    expect(en).toMatch(/'overview\.upstream\.commits':\s*'[^']*file/)
-    expect(code).toContain("t('overview.upstream.commits', { c: behind })")
+    // Boss (TG 2455/2457): the commit line and the reverted note are gone from the box.
+    expect(code).not.toContain('overview.upstream.commits')
   })
 
   it('nincs doboz, ha egyaltalan nincs meres', () => {
@@ -169,10 +168,7 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     const refs = readFileSync(join(__dirname, '..', 'upstream-refs.ts'), 'utf8')
     expect(refs).toContain('This reverts commit')
     expect(refs).toContain("'merge-base', '--is-ancestor'")
-    // Es a doboz nem hagyhatja magyarazat nelkul, hogy a szam 1-rol 137-re ugrott.
-    expect(code).toContain('upstreamSync.revertedMerge')
-    expect(code).toContain('overview.upstream.reverted')
-    for (const lang of [hu, en]) expect(lang).toContain("'overview.upstream.reverted'")
+    expect(code).not.toContain('overview.upstream.reverted')
   })
 
   it('az utkozo fajlok NEVE nem a dobozban all', () => {
