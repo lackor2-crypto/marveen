@@ -1683,11 +1683,7 @@
   /** Step 1 of creating: the folder system. Always visible (not buried in the manual form),
    *  so folders, sub folders and sibling folders can be made by hand before any work item. */
   function folderStepHtml() {
-    return '<div class="wb-folder-step">'
-      + '<h3 class="wb-step-title">' + esc(t('workbench.step.folders')) + '</h3>'
-      + '<p class="wb-hint">' + esc(t('workbench.step.folders_hint')) + '</p>'
-      + folderPickHtml()
-      + '</div>'
+    return '<button type="button" class="btn-secondary btn-compact wb-folder-quick" data-wb-act="mkfolder"' + (WB.folderBusy ? ' disabled' : '') + '>' + esc(t('workbench.folder.new_btn')) + '</button>'
       + '<h3 class="wb-step-title">' + esc(t('workbench.step.item')) + '</h3>'
   }
 
@@ -1702,7 +1698,7 @@
   function makeFolder() {
     if (WB.folderBusy || archived()) return
     var nameEl = document.getElementById('wbNewFolderName')
-    var name = nameEl ? String(nameEl.value || '').trim() : ''
+    var name = nameEl ? String(nameEl.value || '').trim() : String(window.prompt(t('workbench.folder.new_prompt')) || '').trim()
     if (!name) { window.showToast(t('workbench.folder.name_required')); return }
     readNewDraft()
     var pid = WB.projectId
