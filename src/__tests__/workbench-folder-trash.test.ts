@@ -81,18 +81,17 @@ describe('deleteWorkFolder with trash', () => {
   })
 })
 
-describe('#492 a work item file cannot be moved out of the Intéző, only copied', () => {
-  it('moveLife refuses a file inside a work item folder; copyLife works; a loose file still moves', async () => {
+describe('Boss TG 2522: a work item file can be moved in the Intéző too (no restriction)', () => {
+  it('moveLife moves a file inside a work item folder; copyLife works; a loose file moves', async () => {
     const { moveLife, copyLife } = await import('../life-explorer.js')
     const x = filled()
     const base = 'Projektek/Robotok'
     mkdirSync(abs('Cel'), { recursive: true })
     const m = moveLife(`${base}/${x.itemFolder}/kep.png`, `${base}/Cel`, 'hu')
-    expect(m).toMatchObject({ ok: false, code: 'work_item_file' })
-    expect(m.message).toContain('csak másolni')
-    expect(existsSync(join(abs(x.itemFolder), 'kep.png'))).toBe(true)
-    expect((await copyLife(`${base}/${x.itemFolder}/kep.png`, `${base}/Cel`, 'hu')).ok).toBe(true)
+    expect(m.ok).toBe(true)
+    expect(existsSync(join(abs(x.itemFolder), 'kep.png'))).toBe(false)
     expect(existsSync(abs('Cel/kep.png'))).toBe(true)
+    expect((await copyLife(`${base}/Cel/kep.png`, `${base}/${x.group}`, 'hu')).ok).toBe(true)
     expect(moveLife(`${base}/${x.group}/laza.txt`, `${base}/Cel`, 'hu').ok).toBe(true)
   })
 })
