@@ -35,6 +35,17 @@ describe('importPptx', () => {
     expect(saved).toHaveLength(1)
   })
 
+  it('a business card pptx keeps its card size (no white strip), a normal slide stays 16:9', () => {
+    const r0 = applyDeckOps(emptyDeck(), [{ op: 'setSize', size: 'card-eu' }, { op: 'addSlide', layout: 'blank' }])
+    if (!r0.ok) throw new Error(r0.detail)
+    const card = importPptx(buildDeckPptx(r0.doc, () => null).bytes, () => null)
+    if (!card.ok) throw new Error(card.detail)
+    expect(card.deck.size).toBe('card-eu')
+    const wide = importPptx(buildDeckPptx(sample(), () => ({ bytes: PNG, mime: 'image/png' })).bytes, () => 'x.png')
+    if (!wide.ok) throw new Error(wide.detail)
+    expect(wide.deck.size).toBe('16:9')
+  })
+
   it('says so for a file that is not a pptx', () => {
     const r = importPptx(Buffer.from('nope'), () => null)
     expect(r.ok).toBe(false)

@@ -185,7 +185,13 @@ export function importPptx(
   const sz = /<p:sldSz\b[^>]*>/.exec(pres)
   const cx = Number(sz ? attr(sz[0], 'cx') : 0) || 12192000
   const cy = Number(sz ? attr(sz[0], 'cy') : 0) || 6858000
-  const size: DeckSize = cx / cy >= 1.6 ? '16:9' : '4:3'
+  // A small page (under 6 inches wide) is a business card: the card size whose shape is nearest (Boss TG 2527: the
+  // card imported as 4:3 left a white strip). Anything bigger is a slide: 16:9 or 4:3.
+  const ratio = cx / cy
+  const cardSizes = (['card-eu', 'card-us', 'card-90'] as const)
+  const size: DeckSize = cx < 5_486_400
+    ? cardSizes.reduce((best, c) => (Math.abs(DECK_PIXELS[c].width / DECK_PIXELS[c].height - ratio) < Math.abs(DECK_PIXELS[best].width / DECK_PIXELS[best].height - ratio) ? c : best))
+    : ratio >= 1.6 ? '16:9' : '4:3'
   const px = DECK_PIXELS[size]
   const scale = px.width / cx
   const theme = themeColors(files)
