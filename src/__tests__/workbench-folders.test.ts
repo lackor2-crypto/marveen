@@ -65,6 +65,17 @@ describe('folders in the work items box', () => {
     expect(makeWorkFolder(p, a.folder, 'a/../../b')).toMatchObject({ ok: false })
   })
 
+  it('a folder written with the project path in front (derived from a loose file rel) is the same folder (TG 2480)', () => {
+    const p = getProjectRow()
+    const a = makeWorkFolder(p, '', 'Nevjegy')
+    if (!a.ok) throw new Error('mk: ' + a.code)
+    const own = workFolderTarget(p, a.folder)
+    const long = workFolderTarget(p, 'Projektek/Robotok/' + a.folder)
+    expect(own).toMatchObject({ ok: true, folder: a.folder })
+    expect(long).toEqual(own)
+    expect(workFolderTarget(p, 'Projektek/Robotok/Egyeb')).toMatchObject({ ok: false, code: 'bad_folder' })
+  })
+
   it('plain files in a folder are listed (a folder full on disk must not look empty); item containers and dotfiles are not', () => {
     const p = getProjectRow()
     const a = makeWorkFolder(p, '', 'Diak')

@@ -243,7 +243,12 @@ export type WorkFolderError = FileErrorCode | 'no_box'
 export function workFolderTarget(project: ProjectRow, folder: unknown): { ok: true; folder: string } | { ok: false; code: WorkFolderError } {
   const box = findWorkItemsBox(project)
   if (!box) return { ok: false, code: 'no_box' }
-  const raw = String(folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  let raw = String(folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  // A loose file's `rel` is a path from the library root ('Family/Owner/Projects/X/Box/sub/file.pptx'), so the
+  // folder the page derives from it carries the project's own path in front. Take that prefix off (TG 2480):
+  // without it "make a work item from this file" answered "the sub-folder cannot be used" for a folder that exists.
+  const own = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (own && raw.startsWith(own + '/')) raw = raw.slice(own.length + 1)
   if (!raw) return { ok: true, folder: box }
   if (raw !== box && !raw.startsWith(box + '/')) return { ok: false, code: 'bad_folder' }
   const t = projectFileTarget(project, raw)
