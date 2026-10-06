@@ -1498,7 +1498,7 @@
   }
 
   /** The loose file's menu (right-click / the "..." button): open, download, make it a work item (Boss, TG 7626), move, rename, delete. */
-  function fileMenuHtml(rel) {
+  function fileMenuHtml(rel, extra) {
     var c = WB.ctx
     if (!c || c.file !== rel || archived()) return ''
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
@@ -1506,6 +1506,7 @@
     var many = WB.fileSel && WB.fileSel[rel] && Object.keys(WB.fileSel).length > 1
     var href = '/api/life/file?rel=' + encodeURIComponent(rel)
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + (extra || '')
       // #483 "every usable function": Open and Download act on this one file, so they are not offered for a multi-selection.
       + (many ? '' : '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open_menu')) + '</a>'
         + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
@@ -11930,11 +11931,26 @@
     var imgs = canvasImageChoices()
     if (!imgs.length) return '<p class="wb-hint">' + esc(t('workbench.fr.uploads_none')) + '</p>'
     return '<div class="wb-fr-thumbs">' + imgs.map(function (p) {
-      return '<div class="wb-fr-thumbwrap"><button type="button" class="wb-fr-thumb" draggable="true" data-wb-act="fr-add-image" data-wb-src="' + escA(p.asset_path) + '" title="' + escA(p.asset_path) + '">'
-        + '<img alt="" src="' + escA(partImageSrc(p)) + '" loading="lazy"></button>'
-        + (archived() ? '' : '<button type="button" class="wb-fr-thumb-del" data-wb-act="part-remove" data-wb-part="' + escA(p.id) + '" title="' + escA(t('workbench.fr.thumb_remove')) + '" aria-label="' + escA(t('workbench.fr.thumb_remove')) + '">&times;</button>')
+      var more = t('workbench.ctx.more_file')
+      // A click does NOT put the picture on the page (Boss, TG 2603): drag it onto the page, or use the "..." menu.
+      return '<div class="wb-fr-thumbwrap"><div class="wb-fr-thumb" draggable="true" data-wb-drag-img="1" data-wb-src="' + escA(p.asset_path) + '" title="' + escA(t('workbench.fr.thumb_drag')) + '">'
+        + '<img alt="" src="' + escA(partImageSrc(p)) + '" loading="lazy" draggable="false"></div>'
+        + (archived() ? '' : '<button type="button" class="wb-fr-thumb-more" data-wb-act="file-ctx" data-wb-rel="' + escA(p.asset_path) + '" aria-haspopup="menu" title="' + escA(more) + '" aria-label="' + escA(more) + '">&#8943;</button>'
+          + '<button type="button" class="wb-fr-thumb-del" data-wb-act="part-remove" data-wb-part="' + escA(p.id) + '" title="' + escA(t('workbench.fr.thumb_remove')) + '" aria-label="' + escA(t('workbench.fr.thumb_remove')) + '">&times;</button>')
+        + fileMenuHtml(p.asset_path, frThumbDetailsHtml(p))
         + '</div>'
     }).join('') + '</div>'
+  }
+
+  /** The top of a picture's menu: its name, when it was uploaded, how big, and the one action that is about the work item. */
+  function frThumbDetailsHtml(p) {
+    var kb = p.size >= 1048576 ? (p.size / 1048576).toFixed(1) + ' MB' : p.size ? Math.max(1, Math.round(p.size / 1024)) + ' KB' : ''
+    var when = p.created_at ? new Date(p.created_at * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU') : ''
+    return '<div class="wb-ctx-details"><strong>' + esc(baseOf(p.asset_path)) + '</strong>'
+      + (when ? '<span>' + esc(t('workbench.fr.thumb_uploaded', { when: when })) + '</span>' : '')
+      + (kb ? '<span>' + esc(kb) + '</span>' : '') + '</div>'
+      + '<button type="button" role="menuitem" data-wb-act="fr-add-image" data-wb-src="' + escA(p.asset_path) + '">' + esc(t('workbench.fr.thumb_place')) + '</button>'
+      + '<button type="button" role="menuitem" data-wb-act="part-remove" data-wb-part="' + escA(p.id) + '">' + esc(t('workbench.fr.thumb_remove')) + '</button>'
   }
 
   /** #rgb / #rrggbb -> #rrggbb for <input type=color>; anything else (none, empty) -> the fallback. */
@@ -14027,7 +14043,7 @@
     try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
   })
   document.addEventListener('dragstart', function (e) {
-    var th = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-act="fr-add-image"]') : null
+    var th = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drag-img]') : null
     if (th && e.dataTransfer) { try { e.dataTransfer.setData('text/wb-image', th.getAttribute('data-wb-src') || ''); e.dataTransfer.effectAllowed = 'copy' } catch (_e) { /* nem baj */ } }
   })
 
