@@ -423,7 +423,7 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
 export function queueNote(project: string, taskId: string): string {
   const open = listCodeTasks({ project, limit: 50 }).filter((t) => (t.status === 'running' || t.status === 'queued') && t.id !== taskId)
   const running = open.find((t) => t.status === 'running')
-  const waiting = open.filter((t) => t.status === 'queued' && t.createdAt < (getCodeTask(taskId)?.createdAt ?? Infinity)).length
+  const waiting = open.filter((t) => t.status === 'queued' && t.createdAt <= (getCodeTask(taskId)?.createdAt ?? Infinity)).length
   if (!running && waiting === 0) return ''
   const lines: string[] = []
   if (running) {
