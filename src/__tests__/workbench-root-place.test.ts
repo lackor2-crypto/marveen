@@ -4,9 +4,8 @@ import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
-import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
-import { getWorkItem } from '../workbench.js'
-import { ensureWorkItemFolder, migrateWorkItemFolders, PROJECT_ROOT_PLACE } from '../workbench-assets.js'
+import { createProject, updateProject } from '../projects.js'
+import { PROJECT_ROOT_PLACE } from '../workbench-assets.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
 let pid = ''
@@ -29,26 +28,13 @@ afterEach(() => {
 })
 
 describe('place "directly in the project folder"', () => {
-  it('POST /items with folder @project files the item there; its own folder is made in the project folder, not the box', async () => {
+  it('TG 2622: a new item is never loose in the project folder; @project still lands it in its own folder under the box', async () => {
     const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Terv', type: 'note', folder: PROJECT_ROOT_PLACE })
     expect(r.status).toBe(201)
-    const item = (r.body as { item: { id: string; container_folder: string } }).item
-    expect(item.container_folder).toBe(PROJECT_ROOT_PLACE)
-    const f = ensureWorkItemFolder(getWorkItem(item.id)!)
-    if (!f.ok) throw new Error('folder ' + f.code)
-    expect(f.folder.includes('/')).toBe(false)
-    expect(existsSync(join(root(), f.folder))).toBe(true)
-  })
-
-  it('the startup migration does not pull such an item back into the Work items box', async () => {
-    const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Terv', type: 'note', folder: PROJECT_ROOT_PLACE })
-    const id = (r.body as { item: { id: string } }).item.id
-    const f = ensureWorkItemFolder(getWorkItem(id)!)
-    if (!f.ok) throw new Error('folder')
-    const res = migrateWorkItemFolders(getProject(pid) as ProjectRow)
-    expect(res.moved).toBe(0)
-    expect(getWorkItem(id)!.folder).toBe(f.folder)
-    expect(existsSync(join(root(), f.folder))).toBe(true)
+    const item = (r.body as { item: { id: string; folder: string; container_folder: string } }).item
+    expect(item.container_folder).not.toBe(PROJECT_ROOT_PLACE)
+    expect(item.folder.startsWith('Munkadarabok/')).toBe(true)
+    expect(item.folder.endsWith('/Terv')).toBe(true)
   })
 
   it('a typed new group wins over @project (the item goes into the new group)', async () => {
@@ -57,14 +43,14 @@ describe('place "directly in the project folder"', () => {
     expect((r.body as { item: { container_folder: string } }).item.container_folder.endsWith('/Csoport')).toBe(true)
   })
 
-  it('intake and a new table accept @project too', async () => {
-    const i = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'note', text: 'Jegyzet', folder: PROJECT_ROOT_PLACE })
+  it('intake and a new table also file into their own folder under the box', async () => {
+    const i = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'note', text: 'Jegyzet', title: 'Jegyzet', folder: PROJECT_ROOT_PLACE })
     expect(i.status).toBe(201)
-    expect((i.body as { item: { container_folder: string } }).item.container_folder).toBe(PROJECT_ROOT_PLACE)
+    expect((i.body as { item: { container_folder: string } }).item.container_folder.endsWith('/Jegyzet')).toBe(true)
     const t = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Tabla', folder: PROJECT_ROOT_PLACE })
     expect(t.status).toBe(201)
-    expect((t.body as { item: { container_folder: string } }).item.container_folder).toBe(PROJECT_ROOT_PLACE)
-    expect(existsSync(join(root(), 'Tabla.xlsx'))).toBe(true)
+    expect((t.body as { item: { container_folder: string } }).item.container_folder.endsWith('/Tabla')).toBe(true)
+    expect(existsSync(join(root(), 'Tabla.xlsx'))).toBe(false)
   })
 
   it('a plain group name is still checked against the box (nonsense folder refused)', async () => {

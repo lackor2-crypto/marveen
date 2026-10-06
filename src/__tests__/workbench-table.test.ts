@@ -202,7 +202,7 @@ describe('a szerver', () => {
     expect(c.status).toBe(201)
     expect(c.body.name).toBe('Költségvetés.xlsx')
     const itemId = c.body.item.id
-    const firstBytes = readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés.xlsx'))
+    const firstBytes = readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés', 'Költségvetés.xlsx'))
 
     const g = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     expect(g.status).toBe(200)
@@ -214,8 +214,8 @@ describe('a szerver', () => {
     expect(s.status).toBe(201)
     expect(s.body.name).toBe('Költségvetés (2).xlsx')
     expect(s.body.version.version_no).toBe(2)
-    expect(readdirSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla')).sort()).toEqual(['Költségvetés (2).xlsx', 'Költségvetés.xlsx'])
-    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés.xlsx')).equals(firstBytes)).toBe(true)
+    expect(readdirSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés')).sort()).toEqual(['Költségvetés (2).xlsx', 'Költségvetés.xlsx'])
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés', 'Költségvetés.xlsx')).equals(firstBytes)).toBe(true)
 
     const g2 = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
     expect(g2.body.sheets[0].rows).toEqual([['Tétel', 'Ár'], ['Tégla', '120']])

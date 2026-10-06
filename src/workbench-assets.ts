@@ -279,11 +279,54 @@ function liveItemFolders(project: ProjectRow): Set<string> {
  *  `files` holds the plain files of the box and of each folder (key = folder path), so a folder
  *  that is full on disk does not look empty. A folder that also holds a work item lists its files too (#488);
  *  only the item's own snapshot (marveen-item.json) and dotfiles are never listed. */
-export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]> } {
+/** #501 (TG 2626): the rest of the project folder, outside the work items box, so the left tree can show the
+ *  whole project like the Explorer does. Keys and folders are project-relative; a file's `rel` is the library path. */
+export type ProjectOutside = { folders: string[]; files: Record<string, WorkFolderFile[]>; truncated: boolean }
+
+export function listProjectOutside(project: ProjectRow, box: string | null): ProjectOutside {
+  const none: ProjectOutside = { folders: [], files: {}, truncated: false }
+  const t = projectFileTarget(project, '')
+  if (!t.ok) return none
+  const folders: string[] = []
+  const files: Record<string, WorkFolderFile[]> = {}
+  let truncated = false
+  let fileTotal = 0
+  const walk = (abs: string, rel: string, depth: number): void => {
+    if (depth > WORK_FOLDER_MAX_DEPTH) return
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    const plain = entries.filter((d) => d.isFile() && !d.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
+    for (const f of plain) {
+      if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
+      let size = 0
+      try { size = statSync(join(abs, f.name)).size } catch { /* gone meanwhile */ }
+      ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: `${t.dirRel}${rel ? '/' + rel : ''}/${f.name}` })
+      fileTotal++
+    }
+    const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+      .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+    for (const d of dirs) {
+      const childRel = rel ? `${rel}/${d.name}` : d.name
+      if (childRel === box) continue // the work items box has its own, richer listing
+      if (folders.length >= WORK_FOLDER_MAX) { truncated = true; return }
+      const childAbs = join(abs, d.name)
+      if (existsSync(join(childAbs, '.git'))) continue
+      folders.push(childRel)
+      walk(childAbs, childRel, depth + 1)
+    }
+  }
+  walk(t.dirAbs, '', 1)
+  return { folders, files, truncated }
+}
+
+export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string } {
   const box = findWorkItemsBox(project)
-  if (!box) return { box: null, folders: [], truncated: false, files: {} }
+  const outside = listProjectOutside(project, box)
+  // The real folder name of the project (it can differ from the project's display name).
+  const rootName = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/\/+$/g, '').split('/').pop() || ''
+  if (!box) return { box: null, folders: [], truncated: false, files: {}, outside, root_name: rootName }
   const t = projectFileTarget(project, box)
-  if (!t.ok) return { box, folders: [], truncated: false, files: {} }
+  if (!t.ok) return { box, folders: [], truncated: false, files: {}, outside, root_name: rootName }
   const out: string[] = []
   const files: Record<string, WorkFolderFile[]> = {}
   const itemFolders = liveItemFolders(project)
@@ -321,7 +364,7 @@ export function listWorkFolders(project: ProjectRow): { box: string | null; fold
     }
   }
   walk(t.dirAbs, box, 1)
-  return { box, folders: out, truncated, files }
+  return { box, folders: out, truncated, files, outside, root_name: rootName }
 }
 
 /** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */

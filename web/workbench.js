@@ -1229,7 +1229,7 @@
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + (archived() ? '' : ' title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
-      + '<span class="wb-item-title">' + workSeqHtml(it) + esc(it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
+      + '<span class="wb-item-title">' + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
       + '</button>'
       // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
@@ -1639,13 +1639,25 @@
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favs = items.filter(function (it) { return it.pinned_at != null })
     var favShut = !!WB.collapsedFolder[FAV_KEY]
-    // The project itself is the root of the tree (Boss, TG 2399): everything lives under its name.
+    // The project folder is the root of the tree (Boss, TG 2399, 2626): everything under it is shown the way the
+    // Explorer shows it: the work items box as a real folder, and every other folder and file of the project.
     var rootShut = !!WB.collapsedFolder[ROOT_KEY]
-    var rootName = (WB.project && WB.project.name) || t('workbench.root.fallback')
+    var rootName = wf.root_name || (WB.project && WB.project.name) || t('workbench.root.fallback')
+    var out = wf.outside || { folders: [], files: {} }
+    var outHave = {}
+    ;(out.folders || []).forEach(function (f) { outHave[f] = true })
+    var outKids = {}
+    ;(out.folders || []).forEach(function (f) { var d = dirOf(f); if (d && !outHave[d]) d = ''; (outKids[d] = outKids[d] || []).push(f) })
+    function outCount(path) {
+      var n = ((out.files || {})[path] || []).length
+      ;(outKids[path] || []).forEach(function (k) { n += outCount(k) })
+      return n
+    }
+    var rootCount = count(box) + outCount('')
     rows.push('<li class="wb-folder-row wb-root-row wb-depth-0" data-wb-drop-folder="" data-wb-drop-box="1" title="' + escA(t('workbench.root.hint')) + '">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(ROOT_KEY) + '" aria-expanded="' + (!rootShut) + '"'
       + ' title="' + escA(t(rootShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + count(box) + ')</span></button></li>')
+      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + rootCount + ')</span></button></li>')
     if (rootShut) return rows
     rows.push('<li class="wb-folder-row wb-fav-row wb-depth-1">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(FAV_KEY) + '" aria-expanded="' + (!favShut) + '"'
@@ -1655,7 +1667,29 @@
       if (!favs.length) rows.push('<li class="wb-fav-empty wb-depth-2"><span class="wb-muted">' + esc(t('workbench.fav.empty')) + '</span></li>')
       favs.forEach(function (it) { rows.push(itemRowHtml(it, 2)) })
     }
-    walk(box, 1, null)
+    if (box) {
+      var boxShut = !!WB.collapsedFolder[box]
+      rows.push('<li class="wb-folder-row wb-depth-1" data-wb-drop-folder="' + escA(box) + '" data-wb-drop-box="1">'
+        + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(box) + '" aria-expanded="' + (!boxShut) + '"'
+        + ' title="' + escA(t(boxShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
+        + (boxShut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(box)) + ' <span class="wb-muted">(' + count(box) + ')</span></button></li>')
+      if (!boxShut) walk(box, 2, null)
+    } else {
+      walk(box, 1, null)
+    }
+    // The rest of the project folder, read-only here: open a file, use its menu, or find it in the Explorer.
+    function walkOutside(path, depth) {
+      ;(outKids[path] || []).forEach(function (f) {
+        var shut = !!WB.collapsedFolder[f]
+        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '">'
+          + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
+          + ' title="' + escA(t(shut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
+          + (shut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + outCount(f) + ')</span></button></li>')
+        if (!shut) walkOutside(f, depth + 1)
+      })
+      ;((out.files || {})[path] || []).forEach(function (f) { rows.push(plainFileRowHtml(f, depth, null)) })
+    }
+    walkOutside('', 1)
     return rows
   }
 

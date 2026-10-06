@@ -5601,6 +5601,7 @@ window._i18n.en = {
   "workbench.empty.title": "No work item yet.",
   "workbench.empty.hint": "Create one: give it a name, pick what it will be (document, image, graphic, video or note), and the Workbench starts keeping its versions.",
   "workbench.new_item": "+ New work",
+  "workbench.item.mark_title": "Work item (editable in the Workbench)",
   "workbench.pin.add": "Pin to the top of the list (star)",
   "workbench.pin.remove": "Remove the star: it goes back to its normal place in the list",
   "workbench.pin.added": "Pinned: it stays at the top of the list.",

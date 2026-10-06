@@ -130,6 +130,7 @@ import {
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
+  folderNameFromTitle,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -2777,9 +2778,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     // The folder picked in step 1 ('' = the default box).
     let intakeFolder: string | null = null
-    const intakeRoot = String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE
+    const intakeRoot = false // TG 2622: never loose in the project root
     if (intakeRoot) intakeFolder = PROJECT_ROOT_PLACE
-    else if (String(body['folder'] ?? '').trim()) {
+    else if (String(body['folder'] ?? '').trim() && String(body['folder'] ?? '').trim() !== PROJECT_ROOT_PLACE) {
       const c = workFolderTarget(project, body['folder'])
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       intakeFolder = c.folder
@@ -2789,6 +2790,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // A jegyzet (md) kerese: a munkadarab SAJAT .md fajlt kap a mappajaban, es ez a tartalma --
     // az ugynok ebbe ir, a jobb oldal ezt mutatja. (Nincs projektmappa -> fajl nelkul, mint eddig.)
     let noteFile: { rel: string; name: string } | null = null
+    // TG 2622: the new item gets its own folder, named after it, under the box (or the picked folder).
+    {
+      const mf = makeWorkFolder(project, intakeFolder ?? '', folderNameFromTitle(title))
+      if (mf.ok) intakeFolder = mf.folder
+    }
     const noteDir = intakeRoot ? '' : (intakeFolder ?? '')
     if (kind === 'note' && projectFileTarget(project, noteDir).ok) {
       const w = writeProjectNote(project, noteDir, title, '', 'md')
@@ -2846,6 +2852,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // points at it where it is; the folder only says where the file is, not where the item box goes.
     const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true || body.from_files === true
     let existingFolder: string | null = null
+    // TG 2622: a NEW item (not one made from an existing file) always gets its own folder named after it, under the box.
+    let autoFolder = false
+    if (!fromExisting && !String(body.new_folder ?? '').trim()) {
+      const t0 = String(body.title ?? '').trim()
+      if (t0) { body.new_folder = folderNameFromTitle(t0); autoFolder = true }
+    }
     // #479: "directly in the project folder" is a place of its own, not a group of the box.
     if (String(body.folder ?? '').trim() === PROJECT_ROOT_PLACE && String(body.new_folder ?? '').trim()) body.folder = '' // a typed new group wins
     const rootPlace = String(body.folder ?? '').trim() === PROJECT_ROOT_PLACE && !String(body.new_folder ?? '').trim()
@@ -2866,13 +2878,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const newFolderName = String(body.new_folder ?? '').trim()
     if (newFolderName) {
       const mf = makeWorkFolder(project, containerFolder ?? '', newFolderName)
-      if (!mf.ok) {
+      if (!mf.ok && autoFolder) { /* the automatic own folder is best effort (e.g. a project without a folder) */ }
+      else if (!mf.ok) {
         const code = mf.code === 'no_box' ? 'folder_gone' : mf.code === 'folder_name' ? 'bad_folder_name' : mf.code
         return failDetail(res, mf.code === 'write_failed' ? 500 : 400, code, lang, 'message' in mf ? (mf.message || null) : null)
       }
-      ownFolder = mf.folder
-      containerFolder = mf.folder
-      folderExisted = !mf.created
+      if (mf.ok) {
+        ownFolder = mf.folder
+        containerFolder = mf.folder
+        folderExisted = !mf.created
+      }
     }
     // #501: a PowerPoint file becomes a real presentation (its slides read into cards), not an empty document.
     // The file itself stays untouched; the slides go into a .deck.json next to it. Done BEFORE the item exists, so a
@@ -2929,7 +2944,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let folderCreated = false
     let folderExisted = false
     let containerFolder: string | null = null
-    const newFolderName = String(body['new_folder'] ?? '').trim()
+    const newFolderName = String(body['new_folder'] ?? '').trim() || folderNameFromTitle(title)
     if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE && newFolderName) body['folder'] = ''
     if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE) {
       containerFolder = PROJECT_ROOT_PLACE // the .xlsx lies directly in the project folder
