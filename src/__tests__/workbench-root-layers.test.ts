@@ -50,3 +50,13 @@ describe('#501 picture to work item asks which kind (TG 2569)', () => {
     expect(js).toContain("kind === 'presentation'")
   })
 })
+
+describe('#501 Layers clicks during a save wait their turn (TG 2612)', () => {
+  const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+  it('order and visibility go through the queue, and the buttons are not disabled while busy', () => {
+    expect(js).toContain("layerOp([{ op: 'order'")
+    expect(js).toContain('function layerQueueFlush()')
+    const start = js.indexOf('var mv = function (to, label)')
+    expect(js.slice(start, start + 600)).not.toContain('disabled')
+  })
+})

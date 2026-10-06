@@ -5351,6 +5351,7 @@
         // talaljuk ki helyette.
         WB.canvasError = { message: r.message, detail: (r.data && r.data.detail) || '' }
         render()
+        layerQueueFlush()
         return
       }
       WB.canvasError = null
@@ -5367,6 +5368,7 @@
       // mostani kep a helyen marad, amig az uj meg nem jon (nincs villogas).
       loadPreview(WB.selectedId, null, true)
       render()
+      layerQueueFlush()
     })
   }
 
@@ -6709,14 +6711,28 @@
     render()
     api('POST', deckUrl('/ops'), { ops: ops }).then(function (r) {
       WB.canvasBusy = false
-      if (!r.ok) { WB.deckError = { message: r.message, detail: (r.data && r.data.detail) || '' }; render(); return }
+      if (!r.ok) { WB.deckError = { message: r.message, detail: (r.data && r.data.detail) || '' }; render(); layerQueueFlush(); return }
       WB.deckError = null
       WB.canvasEdit = null
       deckTake(r.data)
       if (r.data.created) window.showToast(r.data.message || t('workbench.deck.saved'))
       if (then) then(r.data)
       render()
+      layerQueueFlush()
     })
+  }
+
+  /** #501 (TG 2612): a Layers click that lands while the previous one is still being saved used to be dropped
+   *  (the arrow button is disabled, or the busy check returns), so "one forward" seemed to do nothing. It now waits
+   *  its turn: the operations are relative (by object id), so replaying them one after another is safe. */
+  function layerOp(ops) {
+    if (archived()) return
+    if (WB.canvasBusy) { (WB.layerQueue = WB.layerQueue || []).push(ops); return }
+    canvasOps(ops)
+  }
+  function layerQueueFlush() {
+    if (!WB.layerQueue || !WB.layerQueue.length || WB.canvasBusy) return
+    canvasOps(WB.layerQueue.shift())
   }
 
   /** What the canvas editor sends for the picked slide. */
@@ -12075,10 +12091,10 @@
       var lab = canvasObjectLabel(o)
       var vis = !o.hidden
       var mv = function (to, label) {
-        return '<button type="button" class="wb-fr-layer-mv" data-wb-act="fr-layer-order" data-wb-obj="' + escA(o.id) + '" data-wb-arg="' + to + '" title="' + escA(t('workbench.fr.layer.' + to)) + '" aria-label="' + escA(t('workbench.fr.layer.' + to)) + '"' + (WB.canvasBusy ? ' disabled' : '') + '>' + label + '</button>'
+        return '<button type="button" class="wb-fr-layer-mv" data-wb-act="fr-layer-order" data-wb-obj="' + escA(o.id) + '" data-wb-arg="' + to + '" title="' + escA(t('workbench.fr.layer.' + to)) + '" aria-label="' + escA(t('workbench.fr.layer.' + to)) + '">' + label + '</button>'
       }
       return '<li class="wb-fr-layer' + (on ? ' wb-fr-layer-on' : '') + (WB.canvasPick[o.id] ? ' wb-fr-layer-picked' : '') + (vis ? '' : ' wb-fr-layer-off') + '">'
-        + (archived() ? '' : '<button type="button" class="wb-fr-layer-eye" data-wb-act="fr-layer-vis" data-wb-obj="' + escA(o.id) + '" aria-pressed="' + vis + '" title="' + escA(t(vis ? 'workbench.fr.layer.hide' : 'workbench.fr.layer.show')) + '" aria-label="' + escA(t(vis ? 'workbench.fr.layer.hide' : 'workbench.fr.layer.show')) + '"' + (WB.canvasBusy ? ' disabled' : '') + '>' + (vis ? '\ud83d\udc41' : '\u2715') + '</button>')
+        + (archived() ? '' : '<button type="button" class="wb-fr-layer-eye" data-wb-act="fr-layer-vis" data-wb-obj="' + escA(o.id) + '" aria-pressed="' + vis + '" title="' + escA(t(vis ? 'workbench.fr.layer.hide' : 'workbench.fr.layer.show')) + '" aria-label="' + escA(t(vis ? 'workbench.fr.layer.hide' : 'workbench.fr.layer.show')) + '">' + (vis ? '\ud83d\udc41' : '\u2715') + '</button>')
         + (archived() ? '' : '<input type="checkbox" data-wb-act="canvas-pick" data-wb-obj="' + escA(o.id) + '"' + (WB.canvasPick[o.id] ? ' checked' : '')
           + ' aria-label="' + escA(t('workbench.canvas.pick_aria', { name: lab })) + '">')
         + '<button type="button" class="wb-fr-layer-btn" data-wb-act="fr-layer-sel" data-wb-obj="' + escA(o.id) + '" aria-pressed="' + on + '" title="' + escA(lab) + '">'
@@ -13233,10 +13249,10 @@
     else if (a === 'fr-layer-sel') { WB.canvasSel = act.getAttribute('data-wb-obj'); WB.canvasPick = {}; render() }
     else if (a === 'fr-layer-vis') {
       var lo = canvasObject(act.getAttribute('data-wb-obj'))
-      if (lo && !archived() && !WB.canvasBusy) canvasOps([{ op: 'update', id: lo.id, patch: { hidden: !lo.hidden } }])
+      if (lo && !archived()) layerOp([{ op: 'update', id: lo.id, patch: { hidden: !lo.hidden } }])
     }
     else if (a === 'fr-layer-order') {
-      if (!archived() && !WB.canvasBusy) canvasOps([{ op: 'order', id: act.getAttribute('data-wb-obj'), to: act.getAttribute('data-wb-arg') }])
+      layerOp([{ op: 'order', id: act.getAttribute('data-wb-obj'), to: act.getAttribute('data-wb-arg') }])
     }
     else if (a === 'fr-fmt-op') canvasFloatOp(act.getAttribute('data-wb-arg'))
     else if (a === 'fr-layer-all') { WB.canvasPick = {}; canvasObjects().forEach(function (o) { WB.canvasPick[o.id] = true }); render() }
