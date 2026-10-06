@@ -1327,29 +1327,12 @@ export function workbenchPlace(project: ProjectRow, item: WorkItemRow | null, pl
 // Rendrakas: az omlesztett forrasfajl a sajat mappaba (K-0.12)
 // ---------------------------------------------------------------------------
 
-export type TidyOutcome =
-  | { ok: true; folder: string; moved: { from: string; to: string }[]; skipped: { path: string; reason: 'shared' | 'missing' | 'outside' | 'already' }[] }
-  | { ok: false; code: 'not_found' | 'folder_name' | 'folder_taken' | 'move_failed' | FileErrorCode; message?: string }
-
-/**
- * A munkadarab forrasfajlja(i) -- a jelenlegi es a verziokban hivatkozottak --
- * atkerulnek a munkadarab sajat mappajaba. A munkadarab es MINDEN verzio
- * utvonala ugyanabban a lepesben frissul. Kimarad (es megmondjuk, miert):
- *   - amit egy MASIK munkadarab is hasznal (`shared`),
- *   - ami mar nincs meg (`missing`),
- *   - ami a projekt mappajan kivul van (`outside`),
- *   - ami mar a mappaban van (`already`).
- */
-export function tidyWorkItemIntoFolder(item: WorkItemRow, opts: { folder?: unknown } = {}): TidyOutcome {
-  ensureAssetTables()
-  const project = getProject(item.project_id)
-  if (!project) return { ok: false, code: 'not_found' }
-  const f = opts.folder === undefined || opts.folder === null || String(opts.folder).trim() === ''
-    ? ensureWorkItemFolder(item)
-    : adoptExistingFolder(item, project, opts.folder)
-  if (!f.ok) return f
-  const target = projectFileTarget(project, f.folder)
-  if (!target.ok) return target
+/** Moves the work item's source file(s) (the current one and the ones its versions point at) into the project folder
+ *  `folderRel`/`folderAbs` and repoints the registry in ONE transaction. A file another item uses, a file that is gone,
+ *  one outside the project and one already there are skipped (and reported). Shared by the tidy and the item move. */
+function relocateItemFiles(item: WorkItemRow, project: ProjectRow, folderRel: string, folderAbs: string):
+  { ok: true; moved: { from: string; to: string }[]; skipped: { path: string; reason: 'shared' | 'missing' | 'outside' | 'already' }[] } | { ok: false; code: 'move_failed'; message?: string } {
+  const target = { dirRel: folderRel, dirAbs: folderAbs }
   const db = getDb()
   const paths = new Set<string>()
   if (item.source_path) paths.add(item.source_path)
@@ -1358,7 +1341,6 @@ export function tidyWorkItemIntoFolder(item: WorkItemRow, opts: { folder?: unkno
   }
   const moved: { from: string; to: string }[] = []
   const skipped: { path: string; reason: 'shared' | 'missing' | 'outside' | 'already' }[] = []
-  const folderRel = target.dirRel
   for (const p of paths) {
     if (p === folderRel || p.startsWith(folderRel + '/')) { skipped.push({ path: p, reason: 'already' }); continue }
     if (!projectRelative(project, p)) { skipped.push({ path: p, reason: 'outside' }); continue }
@@ -1390,6 +1372,35 @@ export function tidyWorkItemIntoFolder(item: WorkItemRow, opts: { folder?: unkno
     }
     moved.push({ from: p, to })
   }
+  return { ok: true, moved, skipped }
+}
+
+export type TidyOutcome =
+  | { ok: true; folder: string; moved: { from: string; to: string }[]; skipped: { path: string; reason: 'shared' | 'missing' | 'outside' | 'already' }[] }
+  | { ok: false; code: 'not_found' | 'folder_name' | 'folder_taken' | 'move_failed' | FileErrorCode; message?: string }
+
+/**
+ * A munkadarab forrasfajlja(i) -- a jelenlegi es a verziokban hivatkozottak --
+ * atkerulnek a munkadarab sajat mappajaba. A munkadarab es MINDEN verzio
+ * utvonala ugyanabban a lepesben frissul. Kimarad (es megmondjuk, miert):
+ *   - amit egy MASIK munkadarab is hasznal (`shared`),
+ *   - ami mar nincs meg (`missing`),
+ *   - ami a projekt mappajan kivul van (`outside`),
+ *   - ami mar a mappaban van (`already`).
+ */
+export function tidyWorkItemIntoFolder(item: WorkItemRow, opts: { folder?: unknown } = {}): TidyOutcome {
+  ensureAssetTables()
+  const project = getProject(item.project_id)
+  if (!project) return { ok: false, code: 'not_found' }
+  const f = opts.folder === undefined || opts.folder === null || String(opts.folder).trim() === ''
+    ? ensureWorkItemFolder(item)
+    : adoptExistingFolder(item, project, opts.folder)
+  if (!f.ok) return f
+  const target = projectFileTarget(project, f.folder)
+  if (!target.ok) return target
+  const rl = relocateItemFiles(item, project, target.dirRel, target.dirAbs)
+  if (!rl.ok) return rl
+  const { moved, skipped } = rl
   // A forrasfajl is anyag: ha meg nincs a listan, felvesszuk (a tartalom-ujjlenyomattal).
   const fresh = getWorkItem(item.id)
   if (fresh?.source_path) ensureSourceListed(fresh, fresh.source_path)
@@ -1650,6 +1661,13 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
   if (!own) {
     // Boss TG 2516: moving never makes a folder. The item has none of its own, so it only gets its new place.
     getDb().prepare('UPDATE work_items SET container_folder = ?, updated_at = ? WHERE id = ?').run(c.folder, Math.floor(Date.now() / 1000), item.id)
+    // Boss TG 2692 (A): the item's file really goes there too and the item follows it (the tree shows an item where its
+    // file lies, so only changing the registry looked like "it was not moved"). No folder is made.
+    const tgt = projectFileTarget(project, c.folder)
+    if (tgt.ok) {
+      const rl = relocateItemFiles(item, project, tgt.dirRel, tgt.dirAbs)
+      if (!rl.ok) return { ok: false, code: 'move_failed', message: rl.message }
+    }
     return { ok: true, moved: true, folder: c.folder }
   }
   const curParent = own.includes('/') ? own.slice(0, own.lastIndexOf('/')) : ''
