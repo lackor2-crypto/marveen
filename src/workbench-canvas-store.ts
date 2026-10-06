@@ -37,7 +37,7 @@ import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { resolveLifePath } from './life-explorer.js'
 import { fileKind } from './file-kind.js'
-import { writeProjectFile } from './project-files.js'
+import { writeProjectFile, versionsFolderFor } from './project-files.js'
 import {
   getWorkItem, getWorkItemVersion, createWorkItemVersion, setWorkItemVersionLabel, VERSION_LABEL_MAX,
   type WorkItemRow, type WorkItemVersionRow,
@@ -278,7 +278,7 @@ export function saveCanvas(
   const data = Buffer.from(JSON.stringify(doc, null, 2), 'utf-8')
   // Boss TG 2545: the saved file lives in the item's own folder, so it moves with the item and a deleted
   // stray file in the project root can no longer orphan it. A folder that is gone falls back to the root.
-  let out = writeProjectFile(project, opts.sub ?? item.folder ?? null, name, data)
+  let out = writeProjectFile(project, opts.sub ?? versionsFolderFor(project, item.folder, !!item.source_path), name, data)
   if (!out.ok && out.code === 'bad_folder' && opts.sub == null && item.folder) out = writeProjectFile(project, null, name, data)
   if (!out.ok) return { ok: false, code: out.code, detail: out.message || null }
   const v = createWorkItemVersion(item.id, {
