@@ -26,4 +26,13 @@ describe('Workbench tree root + layers (TG 2399/2402)', () => {
     expect(js).toContain("el.getAttribute('data-wb-act') !== 'fr-fmt'")
     for (const k of ['text_color', 'size', 'background', 'transparent', 'opacity']) expect(js).toContain('workbench.fr.fmt.' + k)
   })
+  it('an uploaded picture is not placed by a click: it is dragged, and has a "..." menu with details (TG 2603)', () => {
+    const i = js.indexOf('function frImageThumbs')
+    const body = js.slice(i, js.indexOf('function frThumbDetailsHtml'))
+    expect(body).toContain('data-wb-drag-img="1"')
+    expect(body).not.toMatch(/class="wb-fr-thumb"[^>]*data-wb-act="fr-add-image"/)
+    expect(body).toContain('data-wb-act="file-ctx"')
+    expect(js).toContain("closest('[data-wb-drag-img]')")
+    expect(js).toContain('workbench.fr.thumb_uploaded')
+  })
 })
