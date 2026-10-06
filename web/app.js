@@ -38954,7 +38954,7 @@ async function loadIntezoPage() {
   bind('intezoMultiAllBtn', 'click', () => _intezoMultiAll(true))
   bind('intezoMultiNoneBtn', 'click', () => _intezoMultiAll(false))
   bind('intezoMultiMoveBtn', 'click', () => void _intezoMoveToPersonDialog())
-  bind('intezoMultiDelBtn', 'click', () => void _intezoTrashMany(_intezoSelectionItems()))
+  bind('intezoMultiDelBtn', 'click', () => void _intezoTrashMany(_intezoMulti && _intezoMulti.size ? _intezoMultiHere() : _intezoSelectionItems()))
   bind('intezoMultiEmptyBtn', 'click', () => void _intezoEmptyKuka())
   _intezoRenderMultiBar()
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
@@ -41097,18 +41097,28 @@ function _intezoMultiAll(on) {
   _intezoRenderMultiBar()
 }
 
+/** Boss TG 2533: the ticked items that lie in the folder on screen (the rest were ticked in other folders). */
+function _intezoMultiHere() {
+  const all = _intezoMulti ? [..._intezoMulti.values()] : []
+  if (!all.length || (_intezoListing && _intezoListing.searching)) return all
+  const here = (_intezoPath || '').replace(/\/+$/, '')
+  return all.filter((x) => x && typeof x.rel === 'string' && x.rel.slice(0, Math.max(0, x.rel.lastIndexOf('/'))) === here)
+}
+
 function _intezoRenderMultiBar() {
   const bar = document.getElementById('intezoMultiBar')
   if (!bar) return
   bar.hidden = !_intezoMulti
   if (!_intezoMulti) return
   const n = _intezoMulti.size
+  const here = _intezoMultiHere().length
   const txt = document.getElementById('intezoMultiText')
   // A levagott mappanal a szamlalo kimondja, hogy ez NEM az egesz mappa
   // (#389, Boss TG 1509: "2000 elem kijelolve ... itt valami bug van").
   const L = _intezoListing
   if (txt) txt.textContent = !n ? t('intezo.multi_hint')
     : (L && L.truncated && L.total) ? t('intezo.multi_count_partial', { n, total: L.total })
+    : here !== n ? t('intezo.multi_count_other', { here, other: n - here })
     : t('intezo.multi_count', { n })
   const mv = document.getElementById('intezoMultiMoveBtn')
   if (mv) mv.disabled = !n
@@ -41117,8 +41127,9 @@ function _intezoRenderMultiBar() {
   const bent = _intezoKukaban(_intezoPath)
   const del = document.getElementById('intezoMultiDelBtn')
   if (del) {
-    del.disabled = !n
-    del.textContent = (bent ? '🔥 ' : '🗑 ') + t(bent ? 'intezo.menu_purge_n' : 'intezo.menu_trash_n', { n })
+    // The bin acts on what is ticked in THIS folder (the count says so); items ticked elsewhere are only moved, never deleted by surprise.
+    del.disabled = !here
+    del.textContent = (bent ? '🔥 ' : '🗑 ') + t(bent ? 'intezo.menu_purge_n' : 'intezo.menu_trash_n', { n: here })
   }
   const ures = document.getElementById('intezoMultiEmptyBtn')
   if (ures) ures.hidden = !bent
