@@ -68,6 +68,21 @@ describe('loose file menu: rename + delete', () => {
     expect(h.html()).not.toContain('data-wb-act="file-rename"')
   })
 
+  it('Shift+click ticks every file between the last clicked one and this one; Shift again on a ticked one unticks the range', async () => {
+    const h = await open()
+    const rel = (n: string) => FOLDER + '/' + n
+    const shiftClick = (n: string) => h.fire('click', { ...(eventFor({ 'data-wb-act': 'file-sel', 'data-wb-rel': rel(n) }) as object), shiftKey: true })
+    const ticked = () => (h.html().match(/class="wb-file-sel"[^>]*data-wb-rel="([^"]*)"[^>]* checked/g) || []).length
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': rel('s10.png') })
+    expect(ticked()).toBe(1)
+    shiftClick('s1.png')
+    expect(ticked()).toBe(3)
+    shiftClick('s2.png')
+    expect(ticked()).toBe(1)
+    h.click({ 'data-wb-act': 'sel-clear' })
+    expect(ticked()).toBe(0)
+  })
+
   it('delete asks first: a "no" sends nothing', async () => {
     const h = await open(false)
     ctx(h, 'data-wb-ctx-file', BOX + '/ajanlat.docx')

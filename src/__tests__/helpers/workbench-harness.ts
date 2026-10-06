@@ -80,6 +80,15 @@ export function workbenchHarness(opts: { storage?: Record<string, string>; confi
       return inputs[id] || null
     },
     querySelector() { return null },
+    // Only what the Shift-range tick needs: the ticked-file boxes of the current render, in page order.
+    querySelectorAll(sel: string) {
+      if (!sel.startsWith('.wb-file-sel')) return []
+      const out: { getAttribute: (n: string) => string | null }[] = []
+      const re = /class="wb-file-sel"[^>]*data-wb-rel="([^"]*)"/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(rootEl.innerHTML))) { const rel = m[1]; out.push({ getAttribute: (n) => (n === 'data-wb-rel' ? rel : null) }) }
+      return out
+    },
   }
 
   const win: Record<string, any> = {

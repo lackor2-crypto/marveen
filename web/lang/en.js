@@ -6363,7 +6363,6 @@ window._i18n.en = {
   "workbench.fr.brand.hide": "Hide brand",
   "workbench.fr.upload": "Upload files",
   "workbench.fr.upload_hint": "The file goes to the project folder, NOT onto the page by itself. Drag the thumbnail onto the page, or click it.",
-  "workbench.fr.new": "+ New work",
   "workbench.fr.zoom": "Zoom",
   "workbench.canvas.fl_smaller": "Smaller",
   "workbench.canvas.fl_bigger": "Bigger",
