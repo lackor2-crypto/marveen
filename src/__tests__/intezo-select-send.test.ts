@@ -237,10 +237,10 @@ describe('#389 felulet -- kijeloles, mint a Windows Intezoben', () => {
     const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf-8')
     expect(html).toContain('id="intezoMultiDelBtn"')
     expect(html).toContain('id="intezoMultiEmptyBtn"')
-    expect(app).toContain("bind('intezoMultiDelBtn', 'click', () => void _intezoTrashMany(_intezoSelectionItems()))")
+    expect(app).toContain("bind('intezoMultiDelBtn', 'click', () => void _intezoTrashMany(_intezoMulti && _intezoMulti.size ? _intezoMultiHere() : _intezoSelectionItems()))")
     expect(app).toContain("bind('intezoMultiEmptyBtn', 'click', () => void _intezoEmptyKuka())")
     const bar = fnBody('function _intezoRenderMultiBar(')
-    expect(bar).toContain("t(bent ? 'intezo.menu_purge_n' : 'intezo.menu_trash_n', { n })")
+    expect(bar).toContain("t(bent ? 'intezo.menu_purge_n' : 'intezo.menu_trash_n', { n: here })")
     expect(bar).toContain('ures.hidden = !bent')
   })
 

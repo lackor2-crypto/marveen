@@ -1106,6 +1106,7 @@ window._i18n.en = {
   'intezo.multi_btn_title': "Checkboxes on every file and folder, so you can move several at once",
   'intezo.multi_cb_aria': "Select {name}",
   'intezo.multi_count': "{n} item(s) selected",
+  'intezo.multi_count_other': "{here} item(s) selected in this folder (+{other} from other folders, those can only be moved from here)",
   'intezo.multi_count_partial': "{n} item(s) selected out of {total} in this folder -- the rest is not loaded",
   'intezo.multi_hint': "Tick what you want to move (clicking the row or the picture ticks it too). You can collect from other folders as well.",
   'intezo.multi_to_person': "Move to a person…",

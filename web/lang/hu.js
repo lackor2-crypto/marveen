@@ -1134,6 +1134,7 @@ window._i18n.hu = {
   'intezo.multi_btn_title': "Pipák minden fájlon és mappán, hogy többet egyszerre áthelyezhess",
   'intezo.multi_cb_aria': "{name} kijelölése",
   'intezo.multi_count': "{n} elem kijelölve",
+  'intezo.multi_count_other': "{here} elem kijelölve ebben a mappában (+{other} másik mappából, azokat csak áthelyezni lehet innen)",
   'intezo.multi_count_partial': "{n} elem kijelölve a mappa {total} eleméből -- a többi nincs betöltve",
   'intezo.multi_hint': "Pipáld ki, amit át akarsz tenni (a sorra vagy a képre kattintás is pipál). Más mappából is gyűjthetsz.",
   'intezo.multi_to_person': "Áthelyezés személyhez…",
