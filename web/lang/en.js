@@ -5622,7 +5622,7 @@ window._i18n.en = {
   "workbench.file.delete_confirm": "Delete the file \"{name}\"? It goes to the Trash, where you can restore it from.",
   "workbench.file.delete_confirm_many": "Delete the {n} selected files? They go to the Trash, where you can restore them from.",
   "workbench.file.deleted": "{n} file(s) deleted.",
-  "workbench.file.delete_skipped": "{n} file(s) were not deleted (a work item uses them, or they are no longer on the list).",
+  "workbench.file.delete_skipped": "{n} file(s) were not deleted (no longer on the list, or a work item's own data file).",
   "workbench.file.to_item": "Make it a work item",
   "workbench.file.open_menu": "Open",
   "workbench.file.download": "Download",

@@ -710,6 +710,31 @@ export async function copyLooseFiles(project: ProjectRow, rels: unknown, folder:
   return { ok: true, copied, skipped }
 }
 
+/** After a file went to the Kuka: work items, versions, parts and materials stop pointing at the vanished path. */
+function detachDeletedFileRefs(rel: string): void {
+  const db = getDb()
+  try {
+    db.prepare('UPDATE work_items SET source_path = NULL WHERE source_path = ?').run(rel)
+    db.prepare('UPDATE work_item_versions SET source_path = NULL WHERE source_path = ?').run(rel)
+    db.prepare('UPDATE work_item_parts SET asset_path = NULL WHERE asset_path = ?').run(rel)
+    db.prepare('DELETE FROM work_item_assets WHERE path = ?').run(rel)
+  } catch { /* the file is already in the Kuka; a stale reference only shows as a missing picture */ }
+}
+
+/** The owner deleted an item's snapshot file: remember it, so the snapshot sweep never writes it back. */
+function optOutSnapshot(project: ProjectRow, rel: string): void {
+  const db = getDb()
+  try {
+    db.exec('CREATE TABLE IF NOT EXISTS work_item_snapshot_off (work_item_id TEXT PRIMARY KEY)')
+    const dir = rel.slice(0, rel.lastIndexOf('/'))
+    const rows = db.prepare("SELECT id, folder FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(project.id) as { id: string; folder: string }[]
+    for (const r of rows) {
+      const t = projectFileTarget(project, r.folder)
+      if (t.ok && t.dirRel.replace(/\/+$/, '') === dir) db.prepare('INSERT OR IGNORE INTO work_item_snapshot_off (work_item_id) VALUES (?)').run(r.id)
+    }
+  } catch { /* worst case the snapshot is written again: never a failed delete */ }
+}
+
 export type DeleteFilesResult =
   | { ok: true; deleted: string[]; skipped: MoveFilesSkip[] }
   | { ok: false; code: 'no_files' | 'no_box' }
@@ -717,7 +742,7 @@ export type DeleteFilesResult =
 /**
  * #483: delete ticked loose files (the Workbench list's "Delete" for files, always behind a confirmation in the UI).
  * Only a file that really is loose in the box is deleted; a file the registry names (a deck picture, a version file,
- * a material) is skipped as `in_use`, because deleting it would break the work item that calls it.
+ * a material) is deleted too, and the work items forget it (no limits; the Kuka keeps a copy).
  */
 export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
@@ -726,18 +751,31 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
   const wf = listWorkFolders(project)
   const loose = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.add(f.rel)
-  const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r)))
+  // A work item's own snapshot file (marveen-item.json) is deletable too, and it is NOT written back (Boss 2511).
+  const boxT = wf.box ? projectFileTarget(project, wf.box) : null
+  const boxRel = boxT && boxT.ok ? boxT.dirRel.replace(/\/+$/, '') + '/' : null
+  const snapshots = new Set<string>()
+  for (const r of want) {
+    if (loose.has(r) || !boxRel || !r.startsWith(boxRel) || r.slice(r.lastIndexOf('/') + 1) !== ITEM_SNAPSHOT_NAME) continue
+    const a = resolveLifePath(r)
+    if (a && existsSync(a)) { loose.add(r); snapshots.add(r) }
+  }
+  const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r) && !snapshots.has(r)))
   const deleted: string[] = []
   const skipped: MoveFilesSkip[] = []
   for (const rel of want) {
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     if (!loose.has(rel)) { skipped.push({ name, reason: 'not_loose' }); continue }
-    if (inUse.has(rel)) { skipped.push({ name, reason: 'in_use' }); continue }
     const src = resolveLifePath(rel)
     if (!src || writeBlockReason(rel)) { skipped.push({ name, reason: 'failed' }); continue }
     // #492: a loose file goes to the Kuka (restorable), never straight to oblivion.
     const t = trashLife(rel)
-    if (t.ok) deleted.push(name)
+    if (t.ok) {
+      deleted.push(name)
+      // A file a work item names is deletable too: the item simply forgets it, so nothing is "missing" later.
+      if (inUse.has(rel)) detachDeletedFileRefs(rel)
+      if (snapshots.has(rel)) optOutSnapshot(project, rel)
+    }
     else skipped.push({ name, reason: 'failed' })
   }
   return { ok: true, deleted, skipped }
