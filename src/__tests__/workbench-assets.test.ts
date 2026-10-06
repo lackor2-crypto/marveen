@@ -257,8 +257,9 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
 
       const c = newItem('C nev')
       attachAsset(c, 'rajz.canvas.json', Buffer.from('{}'))
-      expect(renameWorkItemFolder(getWorkItem(c.id)!, 'Rajz uj')).toEqual({ ok: true, renamed: false, reason: 'canvas' })
-      expect(existsSync(join(projDir(), 'Munkadarabok', 'C nev'))).toBe(true)
+      // A drawing no longer blocks the rename: its saved versions live in the item's folder and follow it (TG 2545).
+      expect(renameWorkItemFolder(getWorkItem(c.id)!, 'Rajz uj')).toEqual({ ok: true, renamed: true, from: 'Munkadarabok/C nev', to: 'Munkadarabok/Rajz uj' })
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Rajz uj', 'rajz.canvas.json'))).toBe(true)
     })
   })
 
@@ -353,14 +354,14 @@ describe('Munkadarabok mappa (1A, 2A): minden projektnek van, a regi munkadarab-
     expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 0, skipped: 0 })
   })
 
-  it('a masik munkadarab altal hivatkozott vagy rajzot tarto mappa marad, es a szamlalo megmondja', () => {
+  it('a masik munkadarab altal hivatkozott mappa marad; a rajzot tarto mappa is koltozik (TG 2545)', () => {
     const a = createWorkItem({ project_id: pid, title: 'Rajzos', type: 'note' })
     if (!a.ok) throw new Error('mw')
     mkdirSync(join(projDir(), 'Rajzos'))
     writeFileSync(join(projDir(), 'Rajzos', 'r.canvas.json'), '{}')
     adoptExistingFolder(getWorkItem(a.item.id)!, getProject(pid) as ProjectRow, 'Rajzos')
-    expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 0, skipped: 1 })
-    expect(existsSync(join(projDir(), 'Rajzos', 'r.canvas.json'))).toBe(true)
+    expect(migrateAllWorkItemFolders()).toEqual({ projects: 1, moved: 1, skipped: 0 })
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Rajzos', 'r.canvas.json'))).toBe(true)
   })
 
   it('egy angol nevu, mar meglevo "Work items" mappat atvesz, nem csinal mellette masodikat', () => {

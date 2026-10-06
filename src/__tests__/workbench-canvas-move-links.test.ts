@@ -83,8 +83,9 @@ function expectLinksFollow(id: string, folder: string): void {
   const files = versionFiles(id)
   expect(files.length).toBeGreaterThanOrEqual(2)
   for (const f of files) {
-    // The drawing itself stays where it was saved: in the project folder, not in the moved item folder.
-    expect(f.rel.startsWith('Projektek/Robotok/') && !f.rel.includes('/Munkadarabok/')).toBe(true)
+    // The drawing's saved versions live in the item's own folder and move with it (Boss TG 2545).
+    expect(f.rel.startsWith(`Projektek/Robotok/${folder}/`)).toBe(true)
+    expect(existsSync(join(dir, ...f.rel.split('/')))).toBe(true)
     const srcs = imageSrcs(f.doc)
     expect(srcs).toHaveLength(1)
     for (const s of srcs) {

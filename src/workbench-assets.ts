@@ -436,13 +436,13 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
   const db = getDb()
   // #478: a folder is a named GROUP. Renaming it only renames the group: no work item changes its name, and
   // every path the registry keeps under the folder (items, versions, parts, materials, deck pictures) follows.
-  // A drawing (.canvas.json) calls its pictures by path and is not rewritten blindly: the folder stays as it is.
-  if (folderHasCanvas(t.dirAbs)) return { ok: false, code: 'folder_has_canvas' }
+  // A drawing (.canvas.json) lives in its item's folder (Boss TG 2545): its picture paths are rewritten after the rename.
   const newFolder = parentRel ? `${parentRel}/${clean}` : clean
   try { renameSync(t.dirAbs, newAbs) } catch (e) { return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) } }
   const newPrefix = (toLifeRel(newAbs) || `${parentT.dirRel}/${clean}`) + '/'
   try {
     rewriteFolderRefs(project, c.folder, newFolder, t.dirRel + '/', newPrefix)
+    rewriteCanvasFilesUnder(newAbs, t.dirRel + '/', newPrefix)
   } catch (e) {
     try { renameSync(newAbs, t.dirAbs) } catch { /* the error below goes on */ }
     return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
@@ -1466,9 +1466,9 @@ function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel:
     UNION SELECT 1 FROM work_item_assets WHERE work_item_id != ? AND path LIKE ? ESCAPE '\\' AND removed_at IS NULL LIMIT 1`)
     .get(item.id, like, item.id, like, item.id, like, item.id, like)
   if (shared) return { ok: true, renamed: false, reason: 'shared' }
-  let hasCanvas = false
-  try { hasCanvas = readdirSync(cur.dirAbs).some((n) => isCanvasFile(n)) } catch { return { ok: true, renamed: false, reason: 'missing' } }
-  if (hasCanvas) return { ok: true, renamed: false, reason: 'canvas' }
+  // A drawing's saved versions now live in this folder too (Boss TG 2545): they move with it, and the paths
+  // inside them follow (moveVersionFilePaths), so a drawing no longer blocks the move.
+  try { readdirSync(cur.dirAbs) } catch { return { ok: true, renamed: false, reason: 'missing' } }
   const parentT = projectFileTarget(project, parentRel)
   if (!parentT.ok) return { ok: true, renamed: false, reason: 'missing' }
   const parentAbs = parentT.dirAbs
@@ -1532,7 +1532,6 @@ function flattenIntoGroup(item: WorkItemRow, project: ProjectRow, own: string, g
   if (shared) return { ok: true, moved: false, folder: own, reason: 'shared' }
   let names: string[]
   try { names = readdirSync(cur.dirAbs) } catch { return { ok: true, moved: false, folder: own, reason: 'missing' } }
-  if (names.some((n) => isCanvasFile(n))) return { ok: true, moved: false, folder: own, reason: 'canvas' }
   const blocked = writeBlockReason(grp.dirRel)
   if (blocked) return { ok: false, code: 'move_failed', message: blocked }
   const moving = names.filter((n) => n !== FOLDER_MARKER)
