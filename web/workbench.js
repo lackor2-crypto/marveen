@@ -1512,7 +1512,7 @@
         + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
       + (isImageFile({ name: baseOf(rel) }) && !many
         // #501 (TG 2569): a picture can become several kinds of work item, so ask which one instead of guessing.
-        ? ['image', 'presentation', 'graphic'].map(function (k) {
+        ? '<div class="wb-ctx-head" role="presentation">' + esc(t('workbench.file.to_item_head')) + '</div>' + ['image', 'presentation', 'graphic'].map(function (k) {
           return '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-kind="' + k + '" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item_' + k)) + '</button>'
         }).join('')
         : '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>')
