@@ -439,30 +439,27 @@ describe('list UI', () => {
     expect(html).toContain('data-wb-folder="Munkadarabok/LK/BL"')
   })
 
-  it('the new-item form asks which folder, also with no folder yet; no main-item question', async () => {
+  it('the create panel has no group step and no hint text, only a quick "new group" button', async () => {
     const h = open([], [])
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items?'))).toBe(true))
     h.click({ 'data-wb-act': 'new' })
     const html = h.html()
-    expect(html).toContain('id="wbNewFolder"')
-    expect(html).toContain('id="wbNewFolderName"')
+    expect(html).not.toContain('id="wbNewFolderName"')
+    expect(html).not.toContain('workbench.step.folders')
+    expect(html).toContain('data-wb-act="mkfolder"')
     expect(html).not.toContain('wbNewParent')
     expect(untranslatedHungarian(html, ['Robotok'])).toBe('')
   })
 
-  it('"New folder" posts the name under the chosen folder and selects the new one', async () => {
+  it('"New group" asks only for the name and posts it', async () => {
     const h = open([], [`${box}/LK`])
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items?'))).toBe(true))
+    h.win.prompt = () => 'Uj'
     h.click({ 'data-wb-act': 'new' })
-    h.inputs['wbNewTitle'] = { value: 'Tervezet', focus() {} }
-    h.inputs['wbNewFolder'] = { value: `${box}/LK`, focus() {} }
-    h.inputs['wbNewFolderName'] = { value: 'Uj', focus() {} }
     h.click({ 'data-wb-act': 'mkfolder' })
     const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/folders'))
     expect(call).toBeTruthy()
-    expect(JSON.parse(String(call!.init!.body))).toMatchObject({ project_id: 'p1', parent: `${box}/LK`, name: 'Uj' })
-    await vi.waitFor(() => expect(h.html()).toContain(`value="${box}/Uj" selected`))
-    expect(h.html()).toContain('value="Tervezet"')
+    expect(JSON.parse(String(call!.init!.body))).toMatchObject({ project_id: 'p1', parent: '', name: 'Uj' })
   })
 
   for (const [act, urlPart] of [['create-table', '/api/workbench/items/new-table'], ['create', '/api/workbench/items']] as const) {
@@ -472,7 +469,6 @@ describe('list UI', () => {
       h.click({ 'data-wb-act': 'new' })
       h.inputs['wbNewTitle'] = { value: 'Osszesito', focus() {} }
       h.inputs['wbNewType'] = { value: 'note', focus() {} }
-      await vi.waitFor(() => expect(h.html()).toContain('Munkadarabok/LK'))
       h.click({ 'data-wb-act': act })
       expect(h.toasts.filter((x) => x === '⟦workbench.folder.required⟧')).toHaveLength(0)
       const call = h.fetchCalls.find((c) => c.url.split('?')[0] === urlPart && c.init?.method === 'POST')
