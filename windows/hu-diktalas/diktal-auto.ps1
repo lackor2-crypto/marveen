@@ -490,6 +490,20 @@ public static extern short GetAsyncKeyState(int vKey);
   if ($txt.Length -ge 1000) {
     Log "FIGYELEM: $($txt.Length) karakter -- kepes Telegram-uzenetnel 1024 felett a Telegram levagja a veget; kulon uzenetben kuldd, kep nelkul"
   }
+  # Tobb diktalas ugyanabba a kepaláirasba: a HATART az egymas utan beillesztett szovegek OSSZEGE adja
+  # (Boss TG 2675: 1254 karakter, 3 diktalas). Az utolso 5 percben ugyanabba az alkalmazasba illesztett
+  # karaktereket szamoljuk; ha az osszeg eleri a 900-at, hallhato + lathato figyelmeztetes jon.
+  $capWarn = $false; $capTotal = $txt.Length
+  try {
+    $capFile = Join-Path $Base 'caption-count.json'
+    $capProc = ''
+    try { $cfg = [HuDikt.U32]::GetForegroundWindow(); $cpid = 0; [void][HuDikt.U32]::GetWindowThreadProcessId($cfg, [ref]$cpid); $capProc = (Get-Process -Id $cpid -ErrorAction SilentlyContinue).ProcessName } catch { }
+    $prev = $null
+    if (Test-Path $capFile) { try { $prev = Get-Content $capFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { } }
+    if ($prev -and $prev.proc -eq $capProc -and ((Get-Date) - [datetime]$prev.t).TotalMinutes -lt 5) { $capTotal += [int]$prev.n }
+    (@{ t = (Get-Date).ToString('o'); proc = $capProc; n = $capTotal } | ConvertTo-Json -Compress) | Set-Content $capFile -Encoding UTF8
+    if ($capTotal -ge 900) { $capWarn = $true; Log "FIGYELEM: az utolso 5 percben $capTotal karakter ment ugyanabba az alkalmazasba ($capProc) -- kepes Telegram-uzenetnel 1024 felett levagja" }
+  } catch { }
   Set-Clipboard -Value $txt
   if ($env:HU_DIKTALAS_DRYRUN -eq '1') {
     Log "DRY-RUN: NEM illesztek be. Szoveg lett volna: $txt"
@@ -512,6 +526,19 @@ public static extern short GetAsyncKeyState(int vKey);
     Log "kesz: $txt"
   }
   Beep2 1200 90
+  if ($capWarn) {
+    # Harom mely sip + buborek-ertesites: a szoveg MAR bekerult, de a kepes uzenet vege levagodhat.
+    try {
+      Beep2 300 250; Beep2 300 250; Beep2 300 250
+      Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+      $ni = New-Object System.Windows.Forms.NotifyIcon
+      $ni.Icon = [System.Drawing.SystemIcons]::Warning
+      $ni.Visible = $true
+      $ni.ShowBalloonTip(5000, 'Telegram: 1024 karakter felett levagja', "Eddig $capTotal karakter. Kepes uzenetnel a veget levagja: kuldd a szoveget kulon uzenetben, kep nelkul.", [System.Windows.Forms.ToolTipIcon]::Warning)
+      Start-Sleep -Milliseconds 2500
+      $ni.Dispose()
+    } catch { }
+  }
 }
 catch {
   Log ("HIBA: " + $_.Exception.Message)
