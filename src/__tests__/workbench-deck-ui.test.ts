@@ -75,14 +75,16 @@ describe('slide editor (phase 5, presentation)', () => {
     expect(Array.isArray(body.ops[0].ops)).toBe(true)
   })
 
-  it('the slide pictures get a new address after every edit, so the browser cannot keep the old picture', async () => {
-    const h = await open()
-    const stamp = () => (/\/deck\/slide\/d1\.svg\?[^"]*?v=([^"&]+)/.exec(h.html()) || [])[1]
-    const before = stamp()
-    expect(before).toBeTruthy()
+  it('only the slide that changed gets a new picture address; the others keep theirs, so nothing blinks out (TG 2606)', async () => {
+    const moved = { ...DECK, slides: [{ ...DECK.slides[0], canvas: canvas([{ ...TITLE, x: 300 }]) }, DECK.slides[1]] }
+    const h = await open({ deck: moved })
+    const stamp = (id: string) => (new RegExp('/deck/slide/' + id + '\\.svg\\?[^"]*?v=([^"&]+)').exec(h.html()) || [])[1]
+    const before = { d1: stamp('d1'), d2: stamp('d2') }
+    expect(before.d1).toBeTruthy()
     h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'center', 'data-wb-obj': 'title' })
     await vi.waitFor(() => expect(opsCall(h)).toHaveLength(1))
-    await vi.waitFor(() => expect(stamp()).not.toBe(before))
+    await vi.waitFor(() => expect(stamp('d1')).not.toBe(before.d1))
+    expect(stamp('d2')).toBe(before.d2)
   })
 
   it('moving a slide, duplicating, resizing the deck send the deck operations', async () => {

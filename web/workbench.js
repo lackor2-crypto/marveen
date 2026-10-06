@@ -6619,12 +6619,31 @@
     return list[0] || null
   }
 
+  /** A short fingerprint of one slide's content. The picture URL carries it, so ONLY a slide that really changed
+   *  gets a new URL (and is fetched again); every other slide keeps its URL and stays on screen (Boss, TG 2606:
+   *  a small move of a photo made every picture blink out, because one global stamp changed on every edit). */
+  var slideSigCache = typeof WeakMap === 'function' ? new WeakMap() : null
+  function slideSig(slide) {
+    if (!slide || !slide.canvas) return '0'
+    var hit = slideSigCache && slideSigCache.get(slide.canvas)
+    if (hit) return hit
+    var str = JSON.stringify(slide.canvas)
+    var h = 5381
+    for (var i = 0; i < str.length; i += 1) h = ((h << 5) + h + str.charCodeAt(i)) | 0
+    var sig = (h >>> 0).toString(36) + '-' + str.length.toString(36)
+    if (slideSigCache) slideSigCache.set(slide.canvas, sig)
+    return sig
+  }
+
   function deckSlideUrl(slideId) {
+    var sl = null
+    var list = deckSlides()
+    for (var i = 0; i < list.length; i += 1) if (list[i].id === slideId) { sl = list[i]; break }
     return deckUrl('/slide/' + encodeURIComponent(slideId) + '.svg')
       + '?lang=' + encodeURIComponent(window._lang || 'hu')
       + (WB.previewVersion ? '&version=' + encodeURIComponent(WB.previewVersion) : '')
-      // Same as the drawing: without a changing stamp the browser keeps showing the picture from before the edit.
-      + '&v=' + encodeURIComponent(WB.canvasStamp || '0')
+      // Without a changing mark the browser keeps showing the picture from before the edit.
+      + '&v=' + encodeURIComponent(slideSig(sl))
   }
 
   /** Puts the picked slide's canvas where the canvas editor reads it. */
@@ -11927,17 +11946,32 @@
   }
 
   /** A kepek, amik a lapra tehetok: ennek a munkadarabnak a kep-reszei (a projekt mappajaban vannak). */
+  /** Every picture of the work item for the Uploads tab: the picture parts AND the image files that lie next to the
+   *  work item (its materials), each once (Boss, TG 2608: the PNGs beside the work item are files too). */
+  function frUploadImages() {
+    var out = []
+    var seen = {}
+    canvasImageChoices().forEach(function (p) { seen[p.asset_path] = true; out.push({ path: p.asset_path, part: p, size: p.size, created_at: p.created_at }) })
+    ;((WB.detail && WB.detail.assets) || []).forEach(function (a) {
+      if (a.present === false || !a.path || seen[a.path] || !isImageFile({ name: a.name })) return
+      seen[a.path] = true
+      out.push({ path: a.path, part: null, size: a.bytes, created_at: a.created_at })
+    })
+    return out
+  }
+
   function frImageThumbs() {
-    var imgs = canvasImageChoices()
+    var imgs = frUploadImages()
     if (!imgs.length) return '<p class="wb-hint">' + esc(t('workbench.fr.uploads_none')) + '</p>'
     return '<div class="wb-fr-thumbs">' + imgs.map(function (p) {
       var more = t('workbench.ctx.more_file')
+      var src = '/api/life/file?rel=' + encodeURIComponent(p.path) + '&lang=' + encodeURIComponent(window._lang || 'hu')
       // A click does NOT put the picture on the page (Boss, TG 2603): drag it onto the page, or use the "..." menu.
-      return '<div class="wb-fr-thumbwrap"><div class="wb-fr-thumb" draggable="true" data-wb-drag-img="1" data-wb-src="' + escA(p.asset_path) + '" title="' + escA(t('workbench.fr.thumb_drag')) + '">'
-        + '<img alt="" src="' + escA(partImageSrc(p)) + '" loading="lazy" draggable="false"></div>'
-        + (archived() ? '' : '<button type="button" class="wb-fr-thumb-more" data-wb-act="file-ctx" data-wb-rel="' + escA(p.asset_path) + '" aria-haspopup="menu" title="' + escA(more) + '" aria-label="' + escA(more) + '">&#8943;</button>'
-          + '<button type="button" class="wb-fr-thumb-del" data-wb-act="part-remove" data-wb-part="' + escA(p.id) + '" title="' + escA(t('workbench.fr.thumb_remove')) + '" aria-label="' + escA(t('workbench.fr.thumb_remove')) + '">&times;</button>')
-        + fileMenuHtml(p.asset_path, frThumbDetailsHtml(p))
+      return '<div class="wb-fr-thumbwrap"><div class="wb-fr-thumb" draggable="true" data-wb-drag-img="1" data-wb-src="' + escA(p.path) + '" title="' + escA(t('workbench.fr.thumb_drag')) + '">'
+        + '<img alt="" src="' + escA(src) + '" loading="lazy" draggable="false"></div>'
+        + (archived() ? '' : '<button type="button" class="wb-fr-thumb-more" data-wb-act="file-ctx" data-wb-rel="' + escA(p.path) + '" aria-haspopup="menu" title="' + escA(more) + '" aria-label="' + escA(more) + '">&#8943;</button>'
+          + (p.part ? '<button type="button" class="wb-fr-thumb-del" data-wb-act="part-remove" data-wb-part="' + escA(p.part.id) + '" title="' + escA(t('workbench.fr.thumb_remove')) + '" aria-label="' + escA(t('workbench.fr.thumb_remove')) + '">&times;</button>' : ''))
+        + fileMenuHtml(p.path, frThumbDetailsHtml(p))
         + '</div>'
     }).join('') + '</div>'
   }
@@ -11946,11 +11980,11 @@
   function frThumbDetailsHtml(p) {
     var kb = p.size >= 1048576 ? (p.size / 1048576).toFixed(1) + ' MB' : p.size ? Math.max(1, Math.round(p.size / 1024)) + ' KB' : ''
     var when = p.created_at ? new Date(p.created_at * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU') : ''
-    return '<div class="wb-ctx-details"><strong>' + esc(baseOf(p.asset_path)) + '</strong>'
+    return '<div class="wb-ctx-details"><strong>' + esc(baseOf(p.path)) + '</strong>'
       + (when ? '<span>' + esc(t('workbench.fr.thumb_uploaded', { when: when })) + '</span>' : '')
       + (kb ? '<span>' + esc(kb) + '</span>' : '') + '</div>'
-      + '<button type="button" role="menuitem" data-wb-act="fr-add-image" data-wb-src="' + escA(p.asset_path) + '">' + esc(t('workbench.fr.thumb_place')) + '</button>'
-      + '<button type="button" role="menuitem" data-wb-act="part-remove" data-wb-part="' + escA(p.id) + '">' + esc(t('workbench.fr.thumb_remove')) + '</button>'
+      + '<button type="button" role="menuitem" data-wb-act="fr-add-image" data-wb-src="' + escA(p.path) + '">' + esc(t('workbench.fr.thumb_place')) + '</button>'
+      + (p.part ? '<button type="button" role="menuitem" data-wb-act="part-remove" data-wb-part="' + escA(p.part.id) + '">' + esc(t('workbench.fr.thumb_remove')) + '</button>' : '')
   }
 
   /** #rgb / #rrggbb -> #rrggbb for <input type=color>; anything else (none, empty) -> the fallback. */
