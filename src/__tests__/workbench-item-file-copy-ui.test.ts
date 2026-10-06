@@ -44,15 +44,17 @@ const pick = (h: H, attr: string, which: string, value: string) => {
 const calls = (h: H, kind: 'copy' | 'move') => h.fetchCalls.filter((c) => c.init?.method === 'POST' && c.url.includes('/api/workbench/files-' + kind))
 
 describe('#492 a work item file in the Workbench list: copy only', () => {
-  it('the file menu offers "Copy to folder..." next to "Move to folder...", both through t()', async () => {
+  it('the file menu has ONE folder list (Boss TG 2514): copy for a work item file, move for any other', async () => {
     const { h } = await open()
     ctx(h, ITEM_FILE)
-    const menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
-    expect(menu).toContain('data-wb-move-files="' + ITEM_FILE + '"')
+    let menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
     expect(menu).toContain('data-wb-copy-files="' + ITEM_FILE + '"')
+    expect(menu).not.toContain('data-wb-move-files="' + ITEM_FILE + '"')
     expect(menu).toContain('workbench.files.copy_label')
-    // the move list already says why it will not move this one
-    expect(menu).toMatch(/data-wb-move-files="[^"]*"[^>]*title="⟦workbench\.file\.copy_only/)
+    ctx(h, LOOSE)
+    menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
+    expect(menu).toContain('data-wb-move-files="' + LOOSE + '"')
+    expect(menu).not.toContain('data-wb-copy-files="' + LOOSE + '"')
   })
 
   it('"Move" on it tells the owner it can only be copied; OK copies it, nothing is moved', async () => {

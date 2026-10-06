@@ -1510,8 +1510,8 @@
       + (many ? '' : '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open_menu')) + '</a>'
         + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
       + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
-      + moveFilesSelectHtml(many ? '*' : rel)
-      + moveFilesSelectHtml(many ? '*' : rel, true)
+      // ONE folder list (Boss TG 2514: the second one looked like a duplicate): a work item's own file is copied (it stays with its item), any other file is moved.
+      + moveFilesSelectHtml(many ? '*' : rel, !many && isItemFile(rel))
       + (many ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="file-delete" data-wb-rel="' + escA(many ? '*' : rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t(many ? 'workbench.file.delete_many' : 'workbench.file.delete')) + '</button>'
       + '</div>'
