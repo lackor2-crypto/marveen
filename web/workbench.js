@@ -1601,8 +1601,15 @@
     var kids = {}
     shown.forEach(function (f) { var d = dirOf(f); if (d !== box && !have[d]) d = box; (kids[d] = kids[d] || []).push(f) })
     Object.keys(kids).forEach(function (k) { kids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
+    // TG 2654: a work item whose own file lies outside the box (e.g. loose in the project folder) is shown ONCE, at the
+    // place where the file really is, with the work item marker; it is not repeated inside the box.
+    var outRels = {}
+    var outFilesAll = (wf.outside && wf.outside.files) || {}
+    Object.keys(outFilesAll).forEach(function (k) { (outFilesAll[k] || []).forEach(function (f) { outRels[f.rel] = true }) })
+    var outItemByRel = {}
+    items.forEach(function (it) { if (it.source_path && outRels[it.source_path]) outItemByRel[it.source_path] = it })
     var byPlace = {}
-    items.forEach(function (it) { (byPlace[place[it.id]] = byPlace[place[it.id]] || []).push(it) })
+    items.forEach(function (it) { if (it.source_path && outItemByRel[it.source_path] === it) return; (byPlace[place[it.id]] = byPlace[place[it.id]] || []).push(it) })
     // A star no longer floats an item to the top of its own folder (Boss, TG 2173): inside a folder the
     // order is by recency; the starred ones are collected in the fixed Favorites folder instead.
     Object.keys(byPlace).forEach(function (k) {
@@ -1700,7 +1707,7 @@
           + (shut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + outCount(f) + ')</span></button></li>')
         if (!shut) walkOutside(f, depth + 1)
       })
-      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(plainFileRowHtml(f, depth, null)) })
+      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, null) : plainFileRowHtml(f, depth, null)) })
     }
     if (box) walkOutside('', 1)
     else { walk(box, 1, null); walkOutside('', 1) }
