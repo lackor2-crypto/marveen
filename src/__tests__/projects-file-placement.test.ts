@@ -148,11 +148,13 @@ describe('mappak a lemezen', () => {
     // Most mar a meglevot javasolja.
     expect((await call('POST', `/api/projects/${p.id}/placement`, { name: 'b.png' })).body.placement).toMatchObject({ type: 'existing', sub: 'Média/Fotók' })
     // Rossz nevek, kivezeto utak, nem letezo szulo -- emberi hibauzenettel.
-    for (const bad of ['..', '../kint', '.rejtett', 'a:b', '', 'a/b/c/d/e']) {
+    for (const bad of ['..', '../kint', '.rejtett', 'a:b', '']) {
       const r = await call('POST', `/api/projects/${p.id}/mkdir?lang=hu`, { parent: '', name: bad })
       expect(r.status, bad).toBe(400)
       expect(typeof r.body.message).toBe('string')
     }
+    // Boss (TG 2447): no depth cap -- five levels in one name is fine now.
+    expect((await call('POST', `/api/projects/${p.id}/mkdir`, { parent: '', name: 'a/b/c/d/e' })).status).toBe(200)
     expect((await call('POST', `/api/projects/${p.id}/mkdir`, { parent: '../..', name: 'x' })).body.error).toBe('bad_folder')
     expect((await call('POST', `/api/projects/${p.id}/mkdir`, { parent: 'Nincs', name: 'x' })).body.error).toBe('bad_folder')
     expect(existsSync(join(depot, 'Projektek', 'kint'))).toBe(false)
