@@ -383,12 +383,8 @@ describe('a kartya nem kever ossze ket mertekegyseget', () => {
     expect(app).toContain('function upstreamSplitIntro(')
   })
 
-  it('a commit-szam kulon sorban all, es kimondja, hogy mas mertekegyseg', () => {
-    expect(app).toContain("t('overview.upstream.commits', { c: behind })")
-    for (const [nev, forras] of [['hu', hu], ['en', en]] as const) {
-      expect(forras, `${nev}: hianyzik a commits kulcs`).toContain("'overview.upstream.commits'")
-    }
-    expect(hu).toMatch(/'overview\.upstream\.commits':\s*'[^']*\{c\}[^']*mértékegység/)
+  it('a commit-szam nem all a dobozban (Boss TG 2455)', () => {
+    expect(app).not.toContain("t('overview.upstream.commits'")
   })
 
   it('a magyarazat LATHATO szoveg, nem tooltip', () => {

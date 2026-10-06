@@ -23572,17 +23572,6 @@ function renderOverviewUpstreamSync(upstreamSync) {
     if (changesBtn) changesBtn.hidden = true
     return
   }
-  // ★ A KOMMIT-TAVOLSAG HAZUDIK EGY VISSZAVONT BEHUZAS UTAN, es ezt a mero
-  //   szkript javitja ki: ha egy upstream-behuzast kesobb visszavontunk, a
-  //   szamokat a behuzas ELOTTI allapotbol meri (kulonben 137 helyett 1 commit
-  //   allna itt). A felulet dolga annyi, hogy ezt KI IS MONDJA -- egy szam, ami
-  //   magyarazat nelkul ugrik 1-rol 137-re, ugyanolyan megbizhatatlan, mint egy
-  //   rossz szam.
-  const revertedNote = upstreamSync.revertedMerge
-    ? '<div class="upstream-sync-commits">'
-      + escapeHtml(t('overview.upstream.reverted', { sha: upstreamSync.revertedMerge }))
-      + '</div>'
-    : ''
   if (behind === 0) {
     // Ez a JO nulla -- de csak akkor mondhatjuk ki, ha a meres elerte a halot.
     // Halozat nelkul a nulla csak az utoljara letoltott allapotra igaz, es ezt
@@ -23598,7 +23587,6 @@ function renderOverviewUpstreamSync(upstreamSync) {
           ? '<div class="upstream-sync-commits">' + escapeHtml(t('overview.upstream.ahead', { n: ahead })) + '</div>'
           : '')
       + fetchErrorHtml(upstreamSync)
-      + revertedNote
       + upstreamRepoHtml(upstreamSync)
       + (pairHtml(upstreamSync) || '')
     // Nincs mit felsorolni: a "Mi valtozott?" gomb ilyenkor ures listara nyilna.
@@ -23674,7 +23662,6 @@ function renderOverviewUpstreamSync(upstreamSync) {
   const skipErr = (typeof upstreamSync.skipListError === 'string' && upstreamSync.skipListError)
     ? `<div class="upstream-sync-offline">${escapeHtml(t('overview.upstream.skiplist_error', { why: upstreamSync.skipListError }))}</div>`
     : ''
-  const commitLine = `<div class="upstream-sync-commits">${escapeHtml(t('overview.upstream.commits', { c: behind }))}</div>`
   // #379 (Boss): KINT csak a ket teendo-szam marad -- "utkozes nelkul
   // athuzhato" es "utkozo". Az osszes erintett, a mar behuzott es a
   // szandekosan kihagyott szam (a magyarazo mondattal egyutt) a Reszletek
@@ -23685,9 +23672,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
       <span class="upstream-stat"${cleanTitle}>${escapeHtml(t('overview.upstream.out_clean'))}: <strong>${clean}</strong></span>
       <span class="upstream-stat ${badgeClass}"${conflictTitle}>${escapeHtml(t('overview.upstream.out_conflicts'))}: <strong>${conflicts}</strong></span>
     </div>
-    ${commitLine}
     ${skipErr}
-    ${revertedNote}
     ${upstreamRepoHtml(upstreamSync)}
     ${pair}
     ${offline}
