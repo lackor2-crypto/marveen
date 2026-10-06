@@ -14,6 +14,7 @@
  *   - meglevo fajlt SOHA nem irunk felul: ha a nev foglalt, `nev (2).ext` lesz,
  *     es a felulet megmondja, milyen neven mentettuk.
  */
+import { ol } from './owner-lang.js'
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { extname, join, sep } from 'node:path'
@@ -372,4 +373,20 @@ export async function findProjectFiles(p: ProjectRow, q: unknown, budgetMs: numb
   const indexing = !idx.done
   const more = matched.length > FIND_MAX_HITS
   return { ok: true, q: query, hits, truncated: indexing || idx.capped || more, indexing, more, capped: idx.capped }
+}
+
+/** Boss TG 2696: the versions of a work item are kept together in a "Verziók" folder inside the item's own folder
+ *  (made on demand), not scattered next to the first file. The first save stays in the item's folder.
+ *  Returns the project-relative folder to write into, or null when the item has no usable folder. */
+export function versionsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, hasVersion: boolean): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  if (!hasVersion) return base
+  // The folder follows the owner's language, but a folder that already exists under the other name is reused.
+  for (const n of ['Verzi\u00f3k', 'Versions']) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) return `${base}/${n}`
+  }
+  const r = makeProjectFolder(p, base, ol('Verzi\u00f3k', 'Versions'))
+  return r.ok ? r.sub : base
 }
