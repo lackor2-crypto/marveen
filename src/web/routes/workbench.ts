@@ -2852,9 +2852,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // points at it where it is; the folder only says where the file is, not where the item box goes.
     const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true || body.from_files === true
     let existingFolder: string | null = null
-    // TG 2622: a NEW item (not one made from an existing file) always gets its own folder named after it, under the box.
+    // TG 2622/2675: a NEW item (not one made from an existing file) always gets its own folder named after it, under the box;
+    // so does a deck made from a ticked set of pictures (the pictures stay where they are).
     let autoFolder = false
-    if (!fromExisting && !String(body.new_folder ?? '').trim()) {
+    if ((!fromExisting || body.from_files === true) && !String(body.new_folder ?? '').trim()) {
       const t0 = String(body.title ?? '').trim()
       if (t0) { body.new_folder = folderNameFromTitle(t0); autoFolder = true }
     }
