@@ -7,7 +7,7 @@ import { join } from 'node:path'
  * also runs the slow discovery pass. A pass longer than 180 s made the 5-minute restarter take the worker over (123
  * times since 2026-10-02) and every kill burnt one attempt of the running task. A separate runspace now carries both.
  */
-const PS1 = readFileSync(join(__dirname, '..', '..', 'scripts', 'windows', 'marvin-code-worker.ps1'), 'utf8')
+const PS1 = readFileSync(join(__dirname, '..', '..', 'scripts', 'windows', 'marvin-code-worker.ps1'), 'utf8').replace(/\r\n/g, '\n')
 
 describe('worker script: the life thread', () => {
   it('starts only in the instance that holds the mutex, right before the loop', () => {
