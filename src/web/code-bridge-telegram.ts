@@ -415,7 +415,26 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
   // kulonben a tulaj csak akkor venne eszre a rossz fulet, amikor a valasz
   // mar egy masik beszelgetesben all.
   const into = out.task.targetSessionId ? ` -> ${tabTitle(out.task.targetSessionId)}` : ''
-  return `⏳ ${ol('Atadva', 'Handed over')}: ${out.task.project}${into} (${shortId(out.task.id)})`
+  return `⏳ ${ol('Atadva', 'Handed over')}: ${out.task.project}${into} (${shortId(out.task.id)})` + queueNote(out.task.project, out.task.id)
+}
+
+/** Boss (TG 2409): a question sent while the project was busy got only "Handed over" and then silence.
+ *  One task per project runs at a time, so say what is ahead of this one instead of leaving the wait unexplained. */
+export function queueNote(project: string, taskId: string): string {
+  const open = listCodeTasks({ project, limit: 50 }).filter((t) => (t.status === 'running' || t.status === 'queued') && t.id !== taskId)
+  const running = open.find((t) => t.status === 'running')
+  const waiting = open.filter((t) => t.status === 'queued' && t.createdAt <= (getCodeTask(taskId)?.createdAt ?? Infinity)).length
+  if (!running && waiting === 0) return ''
+  const lines: string[] = []
+  if (running) {
+    const since = formatDuration(Date.now() - (running.startedAt ?? running.createdAt))
+    lines.push(ol(
+      `Mar fut egy feladat ebben a projektben (${shortId(running.id)}, ${since} ota), a tied utana kovetkezik.`,
+      `A task is already running in this project (${shortId(running.id)}, for ${since}); yours comes after it.`,
+    ))
+  }
+  if (waiting > 0) lines.push(ol(`Elotted meg ${waiting} varakozik.`, `${waiting} more waiting ahead of yours.`))
+  return '\n' + lines.join(' ')
 }
 
 /**

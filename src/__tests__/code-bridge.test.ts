@@ -593,6 +593,20 @@ describe('telegram command surface', () => {
       expect(replyForInbound('nezd at', '1', 'owner', true)).toMatch(/Atadva: marvin/)
     })
 
+    // Boss (TG 2409): "dolgozol?" got only "Atadva" while a long task was running ahead of it.
+    it('the receipt says a task is running ahead, and how many wait', () => {
+      upsertCodeSession(MARVIN)
+      const first = replyForInbound('elso feladat', '1', 'owner', true)!
+      expect(first).toMatch(/Atadva: marvin/)
+      expect(first).not.toMatch(/fut egy feladat|varakozik/)
+      claimNextCodeTask('test-host')
+      const second = replyForInbound('dolgozol?', '1', 'owner', true)!
+      expect(second).toMatch(/Atadva: marvin/)
+      expect(second).toMatch(/fut egy feladat/)
+      const third = replyForInbound('harmadik', '1', 'owner', true)!
+      expect(third).toMatch(/Elotted meg 1 varakozik/)
+    })
+
     it('ambiguous (several projects, no single pin): asks with the list, enqueues nothing', () => {
       seedThree()
       const r = replyForInbound('nezd at', '1', 'owner', true)!
