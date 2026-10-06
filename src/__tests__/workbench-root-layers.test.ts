@@ -35,4 +35,9 @@ describe('Workbench tree root + layers (TG 2399/2402)', () => {
     expect(js).toContain("closest('[data-wb-drag-img]')")
     expect(js).toContain('workbench.fr.thumb_uploaded')
   })
+  it('the Uploads tab also lists the image files lying next to the work item (TG 2608)', () => {
+    expect(js).toContain('function frUploadImages')
+    expect(js).toContain('WB.detail.assets')
+    expect(js).toContain('isImageFile({ name: a.name })')
+  })
 })
