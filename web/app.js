@@ -46978,6 +46978,7 @@ function _prjRenderProject() {
         ${status}
         <button type="button" class="btn-secondary" data-prj-act="refresh" title="${escapeAttr(t('projects.refresh_hint'))}">${escapeHtml(t('common.refresh'))}</button>
         <button type="button" class="btn-secondary" data-prj-act="edit">${escapeHtml(t('projects.edit_btn'))}</button>
+        ${p.archived_at ? '' : `<button type="button" class="btn-secondary" data-prj-act="archive" title="${escapeAttr(t('projects.archive_hint'))}">${escapeHtml(t('projects.archive'))}</button>`}
         <button type="button" class="btn-primary" data-wb-open="${escapeAttr(p.id)}" data-wb-open-name="${escapeAttr(p.name)}" title="${escapeAttr(t('workbench.open_hint'))}">${escapeHtml(t('workbench.open'))}</button>
         ${p.archived_at ? '' : _prjNewMenuHtml()}
       </div>

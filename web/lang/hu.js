@@ -5196,6 +5196,7 @@ window._i18n.hu = {
   "projects.back_to_project": "← Vissza a projekthez: {name}",
   "projects.archived_banner": "Ez a projekt archivált: nem látszik a listában, de minden kártyája és a mappája megvan.",
   "projects.archive": "Archiválás",
+  "projects.archive_hint": "Archiválás: a projekt eltűnik a listából, de minden tartalma megmarad, és visszahozható.",
   "projects.unarchive": "Visszahozás",
   "projects.edit_btn": "Szerkesztés",
   "projects.refresh_hint": "Az adatok újraolvasása (a lap magától nem frissül).",

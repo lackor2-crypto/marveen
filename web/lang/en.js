@@ -5118,6 +5118,7 @@ window._i18n.en = {
   "projects.back_to_project": "← Back to project: {name}",
   "projects.archived_banner": "This project is archived: it is hidden from the list, but all its cards and its folder are still there.",
   "projects.archive": "Archive",
+  "projects.archive_hint": "Archive: the project leaves the list but keeps all its content and can be restored.",
   "projects.unarchive": "Restore",
   "projects.edit_btn": "Edit",
   "projects.refresh_hint": "Reload the data (the page does not refresh on its own).",
