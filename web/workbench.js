@@ -1344,41 +1344,102 @@
       + (WB.moveBusy ? ' disabled' : '') + '>' + folderOptionsHtml() + '</select>'
   }
 
-  /** The same list for loose files: `which` is a file's rel, or '*' for every ticked file. */
-  function moveFilesSelectHtml(which) {
+  /** The same list for loose files: `which` is a file's rel, or '*' for every ticked file. `copy`: the "Copy to folder..." list (#492). */
+  function moveFilesSelectHtml(which, copy) {
     var wf = WB.workFolders || { box: null, folders: [] }
     if (archived() || !wf.box) return ''
-    return '<select class="wb-item-move" data-wb-move-files="' + escA(which) + '" aria-label="' + escA(t('workbench.files.move_label')) + '"'
-      + (WB.fileBusy ? ' disabled' : '') + '>' + folderOptionsHtml().replace(esc(t('workbench.move.label')), esc(t('workbench.files.move_label'))) + '</select>'
+    var label = t(copy ? 'workbench.files.copy_label' : 'workbench.files.move_label')
+    var hint = !copy && which !== '*' && isItemFile(which) ? ' title="' + escA(t('workbench.file.copy_only', { name: baseOf(which) })) + '"' : ''
+    return '<select class="wb-item-move" ' + (copy ? 'data-wb-copy-files' : 'data-wb-move-files') + '="' + escA(which) + '" aria-label="' + escA(label) + '"' + hint
+      + (WB.fileBusy ? ' disabled' : '') + '>' + folderOptionsHtml().replace(esc(t('workbench.move.label')), esc(label)) + '</select>'
   }
 
-  /** Ticked loose files (or one) -> a folder of the box; the server skips what would overwrite or break. */
+  /** #492: the file lies in a work item's own folder (the server marks it), so it belongs to that item: copy only. */
+  function isItemFile(rel) {
+    var files = (WB.workFolders && WB.workFolders.files) || {}
+    return Object.keys(files).some(function (k) { return (files[k] || []).some(function (f) { return f.rel === rel && f.item }) })
+  }
+
+  /** The box folder (project-relative, as in work_folders) a listed file lies in, or null. */
+  function fileFolderOf(rel) {
+    var files = (WB.workFolders && WB.workFolders.files) || {}
+    var keys = Object.keys(files)
+    for (var i = 0; i < keys.length; i++) if ((files[keys[i]] || []).some(function (f) { return f.rel === rel })) return keys[i]
+    return null
+  }
+
+  /** Ticked loose files (or one) -> a folder of the box; the server skips what would overwrite or break.
+   *  A work item's own file is never taken away from it (#492, Boss TG 7948): the owner is told so, and on
+   *  OK it is copied there instead; the other files move as before. */
   function moveFilesToFolder(which, folder) {
     if (!which || WB.fileBusy || archived()) return
     keepSelName()
     var rels = which === '*' ? Object.keys(WB.fileSel || {}) : [which]
     if (!rels.length) { window.showToast(t('workbench.files.none')); return }
+    // A work item's file dropped back onto its own folder is not a copy: the move call says "already there".
+    var to = folder === '\u0000box' ? (WB.workFolders && WB.workFolders.box) : folder
+    var own = rels.filter(function (r) { return isItemFile(r) && fileFolderOf(r) !== to })
+    var rest = rels.filter(function (r) { return own.indexOf(r) < 0 })
+    if (own.length) {
+      var ask = (own.length === 1 ? t('workbench.file.copy_only', { name: baseOf(own[0]) }) : t('workbench.file.copy_only_many', { n: own.length }))
+        + '\n\n' + t('workbench.file.copy_only_ask', { folder: folder === '\u0000box' ? t('workbench.folder.pick_default') : baseOf(folder) })
+        + (rest.length ? '\n' + t('workbench.file.copy_only_rest', { n: rest.length }) : '')
+      if (!window.confirm(ask)) { WB.ctx = null; render(); return }
+    }
+    runFiles(rest, own, folder)
+  }
+
+  /** #492: copy ticked files (or one) into a folder of the box; the originals stay where they are. */
+  function copyFilesToFolder(which, folder) {
+    if (!which || WB.fileBusy || archived()) return
+    keepSelName()
+    var rels = which === '*' ? Object.keys(WB.fileSel || {}) : [which]
+    if (!rels.length) { window.showToast(t('workbench.files.none')); return }
+    runFiles([], rels, folder)
+  }
+
+  /** Copies `copyRels`, then moves `moveRels` into `folder`; one toast says what happened to each. */
+  function runFiles(moveRels, copyRels, folder) {
     var pid = WB.projectId
+    var notes = []
     WB.fileBusy = true
+    WB.ctx = null
     render()
-    api('POST', '/api/workbench/files-move', { project_id: pid, rels: rels, folder: folder }).then(function (r) {
+    var first = copyRels.length ? filesCall('copy', pid, copyRels, folder, notes) : Promise.resolve()
+    first.then(function () {
+      return moveRels.length && WB.projectId === pid ? filesCall('move', pid, moveRels, folder, notes) : null
+    }).then(function () {
       WB.fileBusy = false
       if (WB.projectId !== pid) return
-      if (!r.ok) { render(); window.showToast(r.message); return }
+      render()
+      if (notes.length) window.showToast(notes.join(' '))
+    })
+  }
+
+  /** One files-move / files-copy call: takes over the fresh lists and pushes its sentence onto `notes`. */
+  function filesCall(kind, pid, rels, folder, notes) {
+    return api('POST', '/api/workbench/files-' + kind, { project_id: pid, rels: rels, folder: folder }).then(function (r) {
+      if (WB.projectId !== pid) return
+      if (!r.ok) { notes.push(r.message); return }
       var d = r.data || {}
       if (d.work_folders) WB.workFolders = d.work_folders
       if (d.items) WB.items = d.items
-      // A moved file's old path is no longer ticked; skipped ones stay ticked so the user sees what is left.
+      // A done file is no longer ticked; skipped ones stay ticked so the user sees what is left.
       var skippedNames = {}
       ;(d.skipped || []).forEach(function (s) { skippedNames[s.name] = true })
-      Object.keys(WB.fileSel || {}).forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
-      render()
+      if (WB.fileSel) rels.forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
       var sk = d.skipped || []
-      var why = { name_taken: 0, in_use: 0, same_place: 0, not_loose: 0, failed: 0 }
+      if (kind === 'copy') {
+        notes.push(t('workbench.files.copied', { n: (d.copied || []).length }) + (sk.length ? ' ' + t('workbench.files.copy_skipped', { n: sk.length }) : ''))
+        return
+      }
+      var why = { name_taken: 0, in_use: 0, same_place: 0, not_loose: 0, item_file: 0, failed: 0 }
       sk.forEach(function (s) { why[s.reason] = (why[s.reason] || 0) + 1 })
       var msg = t('workbench.files.moved', { n: (d.moved || []).length })
-      if (sk.length) msg += ' ' + t('workbench.files.skipped', { n: sk.length, taken: why.name_taken, used: why.in_use, same: why.same_place, other: why.not_loose + why.failed })
-      window.showToast(msg)
+      var other = sk.length - why.item_file
+      if (other) msg += ' ' + t('workbench.files.skipped', { n: other, taken: why.name_taken, used: why.in_use, same: why.same_place, other: why.not_loose + why.failed })
+      if (why.item_file) msg += ' ' + t('workbench.files.item_kept', { n: why.item_file })
+      notes.push(msg)
     })
   }
 
@@ -1424,7 +1485,7 @@
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth) {
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
-    return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '"' + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '"') + '>'
+    return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '"' + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
@@ -1441,7 +1502,7 @@
     var c = WB.ctx
     if (!c || c.file !== rel || archived()) return ''
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
-    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 290))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 330))
     var many = WB.fileSel && WB.fileSel[rel] && Object.keys(WB.fileSel).length > 1
     var href = '/api/life/file?rel=' + encodeURIComponent(rel)
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
@@ -1450,6 +1511,7 @@
         + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
       + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
       + moveFilesSelectHtml(many ? '*' : rel)
+      + moveFilesSelectHtml(many ? '*' : rel, true)
       + (many ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="file-delete" data-wb-rel="' + escA(many ? '*' : rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t(many ? 'workbench.file.delete_many' : 'workbench.file.delete')) + '</button>'
       + '</div>'
@@ -1650,14 +1712,19 @@
   }
 
   // A folder goes only when empty; the server says what is still inside when it is not.
-  function deleteFolder(folder) {
+  // `force`: the owner already said yes to the "another work item uses it" question (#492).
+  function deleteFolder(folder, force) {
     if (WB.folderBusy || archived() || !folder) return
-    if (!window.confirm(t('workbench.folder.delete_confirm', { name: baseOf(folder) }))) return
+    if (!force && !window.confirm(t('workbench.folder.delete_confirm', { name: baseOf(folder) }))) return
     var pid = WB.projectId
     WB.folderBusy = true
-    api('DELETE', '/api/workbench/folders', { project_id: pid, folder: folder, trash: true }).then(function (r) {
+    api('DELETE', '/api/workbench/folders', { project_id: pid, folder: folder, trash: true, force: !!force }).then(function (r) {
       WB.folderBusy = false
       if (WB.projectId !== pid) return
+      if (!r.ok && r.code === 'folder_used_elsewhere') {
+        if (window.confirm(r.message + '\n\n' + t('workbench.folder.used_elsewhere_ask'))) deleteFolder(folder, true)
+        return
+      }
       if (!r.ok) { window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
       if (r.data && r.data.items) WB.items = r.data.items
@@ -12880,6 +12947,8 @@
     if (mvd) { if (e.target.value) moveFolder(mvd, e.target.value); return }
     var mvf = e.target.getAttribute && e.target.getAttribute('data-wb-move-files')
     if (mvf) { if (e.target.value) moveFilesToFolder(mvf, e.target.value); return }
+    var cpf = e.target.getAttribute && e.target.getAttribute('data-wb-copy-files')
+    if (cpf) { if (e.target.value) copyFilesToFolder(cpf, e.target.value); return }
     var mv = e.target.getAttribute && e.target.getAttribute('data-wb-move')
     if (mv) { if (e.target.value) moveItemToFolder(mv, e.target.value); return }
     var rid = e.target.getAttribute && e.target.getAttribute('data-wb-redact-id')
@@ -14118,7 +14187,30 @@
     WB.dragItem = row.getAttribute('data-wb-drag-item')
     try { e.dataTransfer.setData('text/x-wb-item', WB.dragItem); e.dataTransfer.effectAllowed = 'move' } catch (_e) { /* nem baj */ }
   })
-  document.addEventListener('dragend', function () { WB.dragItem = null; WB.dragFolder = null })
+  document.addEventListener('dragend', function () { WB.dragItem = null; WB.dragFolder = null; WB.dragFile = null })
+  // #492: a file row dragged onto a folder row: a loose file moves there, a work item's own file is only
+  // offered as a copy (moveFilesToFolder asks). A ticked file drags every ticked one with it.
+  document.addEventListener('dragstart', function (e) {
+    if (!WB.open || WB.dragItem || WB.dragFolder || !e.target || !e.target.closest || !e.dataTransfer) return
+    var row = e.target.closest('[data-wb-drag-file]')
+    if (!row) return
+    WB.dragFile = row.getAttribute('data-wb-drag-file')
+    try { e.dataTransfer.setData('text/x-wb-file', WB.dragFile); e.dataTransfer.effectAllowed = 'copyMove' } catch (_e) { /* nem baj */ }
+  })
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || !WB.dragFile || !e.target || !e.target.closest) return
+    if (e.target.closest('[data-wb-drop-folder]')) { e.preventDefault(); try { e.dataTransfer.dropEffect = isItemFile(WB.dragFile) ? 'copy' : 'move' } catch (_e) { /* nem baj */ } }
+  })
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || !WB.dragFile || !e.target || !e.target.closest) return
+    var z = e.target.closest('[data-wb-drop-folder]')
+    if (!z) return
+    e.preventDefault()
+    var rel = WB.dragFile
+    WB.dragFile = null
+    var many = WB.fileSel && WB.fileSel[rel] && Object.keys(WB.fileSel).length > 1
+    moveFilesToFolder(many ? '*' : rel, z.getAttribute('data-wb-drop-folder') || '\u0000box')
+  })
   // A folder row dragged onto another folder row moves the folder with everything in it (TG 2478).
   document.addEventListener('dragstart', function (e) {
     if (!WB.open || WB.dragItem || !e.target || !e.target.closest || !e.dataTransfer) return

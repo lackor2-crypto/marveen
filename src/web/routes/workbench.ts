@@ -128,7 +128,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
-  renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
+  renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
 } from '../../workbench-assets.js'
 import type { RouteContext } from './types.js'
 
@@ -2600,8 +2600,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body.project_id ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = deleteWorkFolder(project, body.folder, { trash: body['trash'] === true })
+    const r = deleteWorkFolder(project, body.folder, { trash: body['trash'] === true, force: body['force'] === true })
     if (!r.ok) {
+      if (r.code === 'folder_used_elsewhere') {
+        // #492: another work item shows something from this folder; the UI asks once more, then sends force.
+        const names = (r.users ?? []).slice(0, 5)
+        const text = lang === 'en'
+          ? `Another work item uses something from this folder (${names.map((x) => `"${x}"`).join(', ')}). If you delete the folder, those files disappear from it until you restore the folder from the Trash.`
+          : `Egy másik munkadarab is használ valamit ebből a mappából (${names.map((x) => `„${x}”`).join(', ')}). Ha törlöd a mappát, onnan eltűnnek ezek a fájlok, amíg vissza nem állítod a mappát a Kukából.`
+        json(res, { error: 'folder_used_elsewhere', message: text, users: r.users ?? [] }, 409)
+        return true
+      }
       if (r.code === 'folder_not_empty') {
         const n = { items: r.items ?? 0, files: r.files ?? 0, folders: r.folders ?? 0 }
         const parts = (l: 'hu' | 'en'): string => [
@@ -2645,6 +2654,22 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
     }
     json(res, { ok: true, moved: r.moved, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    return true
+  }
+
+  // #492: copy ticked files into another folder of the box (a work item's picture is copied, never moved away).
+  if (path === '/api/workbench/files-copy' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = await copyLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'], lang)
+    if (!r.ok) {
+      const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code
+      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
+    }
+    json(res, { ok: true, copied: r.copied, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
   }
 
