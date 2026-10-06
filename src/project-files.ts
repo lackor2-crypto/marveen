@@ -59,7 +59,7 @@ export function projectFileTarget(p: ProjectRow, sub: unknown): FileTarget {
  *  utkent -- a "hova keruljon" valasztohoz es a javasolt helyhez. Korlatos
  *  bejaras (melyseg, darabszam). Kimarad: a rejtett mappa (`.git`, `.kuka`),
  *  a `node_modules`, es a git-tarolo (abba nem irunk -- git-guard). */
-export const SUBFOLDER_MAX_DEPTH = 4
+export const SUBFOLDER_MAX_DEPTH = 64
 export const SUBFOLDER_MAX = 400
 
 export function projectSubfolders(p: ProjectRow): string[] {
@@ -95,7 +95,7 @@ export function makeProjectFolder(p: ProjectRow, parent: unknown, name: unknown)
   const par = projectFileTarget(p, parent)
   if (!par.ok) return par
   const segs = String(name ?? '').replace(/\\/g, '/').split('/').map((x) => x.trim()).filter(Boolean)
-  if (!segs.length || segs.length > 4) return { ok: false, code: 'folder_name' }
+  if (!segs.length || segs.length > 64) return { ok: false, code: 'folder_name' }
   const clean = segs.map((x) => safeLifeName(x))
   if (clean.some((x, i) => !x || x === '_' || x.startsWith('.') || x.length > 120 || x !== segs[i])) return { ok: false, code: 'folder_name' }
   const parentSub = parent === undefined || parent === null || String(parent).trim() === '' ? '' : (cleanFolderRel(parent) ?? '')
