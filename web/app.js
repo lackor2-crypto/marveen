@@ -38569,28 +38569,18 @@ function _intezoSetViewMode(mode) {
 const _INTEZO_SORT_KEYS = ['name', 'modified', 'type', 'size']
 let _intezoDirSizes = {}      // rel -> { bytes, partial, mtime } | { err: true }
 let _intezoSizeRun = null     // the listing a measurement run belongs to
-// TYPE FILTER (#484, the Explorer's column filter): '' = every type. It
-// belongs to ONE folder, like in the Explorer -- `_intezoTypeFilterAt` is
-// that folder, so however the page navigates, a filter never follows the
-// user into another folder and hides files there.
-let _intezoTypeFilter = ''
-let _intezoTypeFilterAt = null
 // What the list last DREW, in that order (sorted, grouped, filtered). The
 // selection logic (Shift range, arrows, Ctrl+A) must walk this, not the raw
 // server order.
 let _intezoShown = null
-function _intezoActiveTypeFilter() {
-  return _intezoTypeFilter && _intezoTypeFilterAt === _intezoPath ? _intezoTypeFilter : ''
-}
 function _intezoSortState() {
-  let key = 'name', dir = 'asc', group = false
+  let key = 'name', dir = 'asc'
   try {
     key = localStorage.getItem('intezoSortKey') || 'name'
     dir = localStorage.getItem('intezoSortDir') || 'asc'
-    group = localStorage.getItem('intezoGroup') === '1'
   } catch (e) { /* privat mod */ }
   if (_INTEZO_SORT_KEYS.indexOf(key) < 0) key = 'name'
-  return { key: key, dir: dir === 'desc' ? 'desc' : 'asc', group: group }
+  return { key: key, dir: dir === 'desc' ? 'desc' : 'asc' }
 }
 function _intezoSortSave(patch) {
   const cur = _intezoSortState()
@@ -38598,7 +38588,6 @@ function _intezoSortSave(patch) {
   try {
     localStorage.setItem('intezoSortKey', next.key)
     localStorage.setItem('intezoSortDir', next.dir)
-    localStorage.setItem('intezoGroup', next.group ? '1' : '0')
   } catch (e) { /* privat mod */ }
   _intezoSyncSortControls()
   _intezoRender()
@@ -38617,8 +38606,6 @@ function _intezoSyncSortControls() {
     dirBtn.title = t(st.dir === 'asc' ? 'intezo.sort_dir_asc' : 'intezo.sort_dir_desc')
     dirBtn.setAttribute('aria-label', dirBtn.title)
   }
-  const grp = document.getElementById('intezoGroupBy')
-  if (grp) grp.checked = st.group
 }
 function _intezoBytes(n) {
   if (!(n >= 0)) return ''
@@ -38665,34 +38652,18 @@ function _intezoCompare(key, a, b, sign) {
   // Ties fall back to the name, ALWAYS ascending (like the Explorer).
   return sign * c || nameCmp()
 }
-/** -> { rows, heads: { rel: label } } ; heads only when grouping is on. */
+/** -> { rows, heads }: folders first, then files, each sorted by the chosen column (Boss TG 2552: no grouping, no type filter). */
 function _intezoOrder(L) {
   const st = _intezoSortState()
-  const only = _intezoActiveTypeFilter()
-  const keep = (e) => !only || _intezoTypeText(e) === only
-  const folders = (L.folders || []).filter(keep), files = (L.files || []).filter(keep)
-  const heads = {}
-  if (st.key === 'name' && st.dir === 'asc' && !st.group) return { rows: folders.concat(files), heads: heads }
+  const folders = (L.folders || []).slice(), files = (L.files || []).slice()
+  if (st.key === 'name' && st.dir === 'asc') return { rows: folders.concat(files), heads: {} }
   const sign = st.dir === 'desc' ? -1 : 1
   const sorter = (list) => {
     const live = list.filter((e) => !e.archived), arch = list.filter((e) => e.archived)
     const cmp = (a, b) => _intezoCompare(st.key, a, b, sign)
     return live.sort(cmp).concat(arch.sort(cmp))
   }
-  const sf = sorter(folders)
-  let rows = sf
-  if (st.group) {
-    const typed = sorter(files)
-    const buckets = {}
-    typed.forEach((e) => { (buckets[_intezoTypeText(e)] = buckets[_intezoTypeText(e)] || []).push(e) })
-    if (sf.length) heads[sf[0].rel] = t('intezo.group_head', { type: t('intezo.type_folder'), n: sf.length })
-    rows = sf.slice()
-    Object.keys(buckets).sort((x, y) => x.localeCompare(y)).forEach((label) => {
-      heads[buckets[label][0].rel] = t('intezo.group_head', { type: label, n: buckets[label].length })
-      rows = rows.concat(buckets[label])
-    })
-  } else rows = sf.concat(sorter(files))
-  return { rows: rows, heads: heads }
+  return { rows: sorter(folders).concat(sorter(files)), heads: {} }
 }
 function _intezoSortTh(key, labelKey, cls, style) {
   const st = _intezoSortState()
@@ -38700,7 +38671,7 @@ function _intezoSortTh(key, labelKey, cls, style) {
   return '<th class="intezo-sort-th ' + (cls || '') + '" data-sort="' + key + '" role="columnheader" tabindex="0"'
     + ' aria-sort="' + (on ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"'
     + ' style="cursor:pointer;user-select:none;' + (style || '') + '">'
-    + escapeHtml(t(labelKey)) + (on ? (st.dir === 'asc' ? ' ▲' : ' ▼') : '') + '</th>'
+    + escapeHtml(t(labelKey)) + ' <span class="intezo-sort-arrow" style="' + (on ? '' : 'opacity:.35') + '">' + (on ? (st.dir === 'asc' ? '▲' : '▼') : '↕') + '</span></th>'
 }
 function _intezoGroupHeadHtml(label, details) {
   return details
@@ -38717,51 +38688,6 @@ function _intezoTileTip(e) {
   const size = e.isDir ? _intezoDirSizeText(e) : e.sizeHuman
   return [e.displayName || e.name, _faSugo(e), e.caution, size === '…' ? '' : size, _intezoDateText(e)]
     .filter(Boolean).join('\n')
-}
-/**
- * The type filter's options: the types THIS listing has, with counts. A type
- * that left the folder (moved, deleted) drops the filter -- it must not keep
- * the list empty with nothing on screen saying why.
- */
-function _intezoSyncTypeFilter(L) {
-  const counts = {}
-  ;[].concat(L.folders || [], L.files || []).forEach((e) => {
-    const k = _intezoTypeText(e)
-    counts[k] = (counts[k] || 0) + 1
-  })
-  if (_intezoActiveTypeFilter() && !counts[_intezoTypeFilter]) _intezoTypeFilter = ''
-  const sel = document.getElementById('intezoTypeFilter')
-  if (!sel) return
-  // Rebuilt only when the folder's types changed: a redraw (a folder size
-  // arriving) must not snap shut a dropdown the user has open.
-  const sig = (window._lang || '') + JSON.stringify(counts)
-  if (sel.getAttribute('data-sig') !== sig) {
-    sel.setAttribute('data-sig', sig)
-    sel.innerHTML = '<option value="">' + escapeHtml(t('intezo.filter_all')) + '</option>'
-      + Object.keys(counts).sort((a, b) => a.localeCompare(b)).map((k) => '<option value="' + escapeHtml(k) + '">'
-        + escapeHtml(t('intezo.group_head', { type: k, n: counts[k] })) + '</option>').join('')
-  }
-  sel.value = _intezoActiveTypeFilter()
-  sel.classList.toggle('intezo-filter-on', !!sel.value)
-}
-function _intezoSetTypeFilter(type) {
-  _intezoTypeFilter = type || ''
-  _intezoTypeFilterAt = _intezoPath
-  // A hidden item must not stay selected: Delete / move would act on
-  // something the user can no longer see (the Explorer drops it too).
-  const L = _intezoListing
-  const seen = L ? new Set(_intezoOrder(L).rows.map((e) => e.rel)) : null
-  if (seen && _intezoMulti) [..._intezoMulti.keys()].forEach((rel) => { if (!seen.has(rel)) _intezoMulti.delete(rel) })
-  if (seen && _intezoSelected && !seen.has(_intezoSelected.rel)) _intezoClearSelection() // redraws the list
-  else _intezoRender()
-  _intezoRenderMultiBar()
-}
-function _intezoFilterNoteHtml(shown, total) {
-  const only = _intezoActiveTypeFilter()
-  if (!only) return ''
-  return '<div class="intezo-filter-note" role="status">'
-    + escapeHtml(t('intezo.filter_note', { type: only, n: shown, total: total }))
-    + ' <button type="button" class="btn-secondary" data-filter-clear>' + escapeHtml(t('intezo.filter_clear')) + '</button></div>'
 }
 /** Measure the visible folders two at a time; never blocks the list. */
 function _intezoMeasureDirs(L) {
@@ -38993,8 +38919,6 @@ async function loadIntezoPage() {
   bind('intezoBackupMapBtn', 'click', () => { void _bkOpenMap() })
   bind('intezoSortKey', 'change', () => _intezoSortSave({ key: document.getElementById('intezoSortKey').value }))
   bind('intezoSortDir', 'click', () => _intezoSortSave({ dir: _intezoSortState().dir === 'asc' ? 'desc' : 'asc' }))
-  bind('intezoGroupBy', 'change', () => _intezoSortSave({ group: !!document.getElementById('intezoGroupBy').checked }))
-  bind('intezoTypeFilter', 'change', () => _intezoSetTypeFilter(document.getElementById('intezoTypeFilter').value))
   _intezoSyncSortControls()
   const viewSel = document.getElementById('intezoViewMode')
   if (viewSel) {
@@ -40270,7 +40194,6 @@ function _intezoRender() {
     }
   }
 
-  _intezoSyncTypeFilter(L)
   const ordered = _intezoOrder(L)
   const rows = ordered.rows
   const heads = ordered.heads
@@ -40290,8 +40213,7 @@ function _intezoRender() {
   // kezelok (kijeloles, belepes, jobb klikk, archival, Info) mindket nezetben
   // ugyanazok -- a [data-rel]/[data-pick] elemekre ulnek, nem a <tr>-re.
   const view = _intezoViewMode()
-  const total = (L.folders || []).length + (L.files || []).length
-  list.innerHTML = _intezoFilterNoteHtml(rows.length, total) + (view !== 'details' ? _intezoGridHtml(rows, view, heads)
+  list.innerHTML = (view !== 'details' ? _intezoGridHtml(rows, view, heads)
     : '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse">'
     + '<thead><tr class="intezo-head">'
     + '<th></th>'
@@ -40366,7 +40288,6 @@ function _intezoRender() {
       + '</tr>').join('')
     + '</tbody></table>')
 
-  list.querySelectorAll('[data-filter-clear]').forEach((b) => b.addEventListener('click', () => _intezoSetTypeFilter('')))
   list.querySelectorAll('th[data-sort]').forEach((th) => {
     const go = () => _intezoSortHeader(th.getAttribute('data-sort'))
     th.addEventListener('click', go)

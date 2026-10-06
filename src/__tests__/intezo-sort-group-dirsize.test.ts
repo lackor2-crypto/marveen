@@ -19,14 +19,14 @@ function extract(name: string): string {
 
 const store: Record<string, string> = {}
 const t = (k: string, p?: Record<string, unknown>) => (p ? `${k}:${p.type ?? p.ext ?? ''}:${p.n ?? ''}` : k)
-const names = ['_intezoSortState', '_intezoActiveTypeFilter', '_intezoDirSizeEntry', '_intezoKnownDirBytes', '_intezoDirSizeText',
+const names = ['_intezoSortState', '_intezoDirSizeEntry', '_intezoKnownDirBytes', '_intezoDirSizeText',
   '_intezoCompare', '_intezoOrder', '_intezoTypeText', '_intezoBytes', '_intezoVisibleRows', '_intezoSelectRange']
 type Row = { name: string; rel: string }
 // eslint-disable-next-line no-new-func
 const mod = new Function('t', 'localStorage', `
   const _INTEZO_SORT_KEYS = ['name', 'modified', 'type', 'size']
   let _intezoDirSizes = {}
-  let _intezoTypeFilter = '', _intezoTypeFilterAt = null, _intezoPath = '', _intezoShown = null, _intezoListing = null
+  let _intezoPath = '', _intezoShown = null, _intezoListing = null
   const _intezoMulti = new Map()
   const _intezoMultiEntry = (e) => e
   ${names.map(extract).join('\n')}
@@ -34,7 +34,6 @@ const mod = new Function('t', 'localStorage', `
     order: _intezoOrder, bytes: _intezoBytes, sizes: _intezoDirSizes, sizeText: _intezoDirSizeText,
     visible: _intezoVisibleRows, range: _intezoSelectRange, multi: _intezoMulti,
     set(v) {
-      if ('filter' in v) { _intezoTypeFilter = v.filter; _intezoTypeFilterAt = v.at }
       if ('path' in v) _intezoPath = v.path
       if ('listing' in v) _intezoListing = v.listing
       if ('shown' in v) _intezoShown = v.shown
@@ -51,7 +50,7 @@ const mod = new Function('t', 'localStorage', `
   visible: () => Row[]
   range: (from: string, to: string, additive: boolean) => void
   multi: Map<string, Row>
-  set: (v: { filter?: string; at?: string | null; path?: string; listing?: unknown; shown?: unknown }) => void
+  set: (v: { path?: string; listing?: unknown; shown?: unknown }) => void
 }
 
 const dir = (name: string, extra = {}) => ({ isDir: true, name, rel: name, mtime: '2026-01-01T00:00:00Z', ...extra })
@@ -65,7 +64,7 @@ const order = () => mod.order(L).rows.map((e) => e.name)
 describe('Intezo rendezes', () => {
   beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k]
-    mod.set({ filter: '', at: null, path: '', listing: null, shown: null })
+    mod.set({ path: '', listing: null, shown: null })
   })
 
   it('alapbeallitas: a szerver sorrendje, mappak elol', () => {
@@ -74,8 +73,6 @@ describe('Intezo rendezes', () => {
   it('nev szerint novekvo: mappak elol, mindket resz rendezve', () => {
     store.intezoSortKey = 'name'; store.intezoSortDir = 'desc'
     expect(order()).toEqual(['beta', 'alfa', 'd.pdf', 'c.txt', 'b.txt', 'a.pdf'])
-    store.intezoSortDir = 'asc'; store.intezoGroup = '1'
-    expect(order().slice(0, 2)).toEqual(['alfa', 'beta'])
   })
   it('meret szerint: a mappak akkor is a fajlok elott maradnak', () => {
     store.intezoSortKey = 'size'; store.intezoSortDir = 'desc'
@@ -84,12 +81,6 @@ describe('Intezo rendezes', () => {
   it('modositas szerint a legujabb elol', () => {
     store.intezoSortKey = 'modified'; store.intezoSortDir = 'desc'
     expect(order()[2]).toBe('a.pdf')
-  })
-  it('csoportositas: az azonos tipus egyutt, fejleccel az elso soron', () => {
-    store.intezoGroup = '1'
-    const r = mod.order(L)
-    expect(r.rows.map((e) => e.name)).toEqual(['alfa', 'beta', 'a.pdf', 'd.pdf', 'b.txt', 'c.txt'])
-    expect(Object.keys(r.heads)).toEqual(['alfa', 'a.pdf', 'b.txt'])
   })
   it('az archivalt tetel a rendezes utan is a sor vegen marad', () => {
     store.intezoSortKey = 'name'; store.intezoSortDir = 'desc'
@@ -109,8 +100,8 @@ describe('Intezo rendezes', () => {
   it('minden uj kulcs megvan mindket nyelven', () => {
     for (const f of ['hu.js', 'en.js']) {
       const src = readFileSync(resolve(root, 'web', 'lang', f), 'utf8')
-      for (const k of ['sort_label', 'sort_dir_asc', 'sort_dir_desc', 'group_by_type', 'group_head', 'dirsize_title',
-        'dirsize_partial_title', 'dirsize_unknown_title', 'filter_label', 'filter_all', 'filter_title', 'filter_note', 'filter_clear']) {
+      for (const k of ['sort_label', 'sort_dir_asc', 'sort_dir_desc', 'dirsize_title',
+        'dirsize_partial_title', 'dirsize_unknown_title']) {
         expect(src, `${f}: ${k}`).toContain(`'intezo.${k}'`)
       }
     }
@@ -125,7 +116,7 @@ describe('Intezo kijeloles a LATHATO sorrendben', () => {
   beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k]
     mod.multi.clear()
-    mod.set({ filter: '', at: null, path: '', listing: L, shown: null })
+    mod.set({ path: '', listing: L, shown: null })
   })
 
   it('a Shift-tartomany a rendezett lista ket kattintasa kozotti elemeket jeloli ki', () => {
@@ -159,38 +150,23 @@ describe('Intezo kijeloles a LATHATO sorrendben', () => {
   })
 })
 
-describe('Intezo szures tipus szerint', () => {
-  beforeEach(() => {
-    for (const k of Object.keys(store)) delete store[k]
-    mod.set({ filter: '', at: null, path: 'Dok', listing: L, shown: null })
+describe('Intezo: nincs csoportositas es szuro, minden oszlop rendezheto (Boss TG 2552)', () => {
+  it('a felulet nem tartalmazza a csoportosito pipat es a tipus-szurot', () => {
+    const html = readFileSync(resolve(root, 'web', 'index.html'), 'utf8')
+    expect(html).not.toContain('id="intezoGroupBy"')
+    expect(html).not.toContain('id="intezoTypeFilter"')
   })
-
-  it('csak a kivalasztott tipus marad, a rendezes megmarad', () => {
-    mod.set({ filter: 'intezo.type_file_ext:PDF:', at: 'Dok' })
-    expect(order()).toEqual(['a.pdf', 'd.pdf'])
-    store.intezoSortKey = 'size'; store.intezoSortDir = 'asc'
-    expect(order()).toEqual(['d.pdf', 'a.pdf'])
+  it('tipus szerint rendezve a fajlok tipusonkent egymas utan allnak, mappak elol', () => {
+    store.intezoSortKey = 'type'; store.intezoSortDir = 'asc'
+    const r = mod.order(L).rows.map((e) => e.name)
+    expect(r.slice(0, 2).sort()).toEqual(['alfa', 'beta'])
+    expect(r.slice(2)).toEqual(['a.pdf', 'd.pdf', 'b.txt', 'c.txt'])
   })
-  it('a mappak is szurhetok (Fajlmappa)', () => {
-    mod.set({ filter: 'intezo.type_folder', at: 'Dok' })
-    expect(order()).toEqual(['beta', 'alfa'])
-  })
-  it('a szuro a sajat mappajahoz tartozik: mashol nem rejt el semmit', () => {
-    mod.set({ filter: 'intezo.type_file_ext:PDF:', at: 'Dok', path: 'Masik' })
-    expect(order().length).toBe(6)
-  })
-  it('a felulet: valaszto, kikapcsolo gomb, rejtett elem nem marad kijelolve', () => {
-    expect(readFileSync(resolve(root, 'web', 'index.html'), 'utf8'))
-      .toMatch(/<select id="intezoTypeFilter"[\s\S]{0,200}data-i18n="intezo\.filter_all"/)
-    expect(app).toContain("bind('intezoTypeFilter', 'change', () => _intezoSetTypeFilter(")
-    const note = extract('_intezoFilterNoteHtml')
-    expect(note).toContain('data-filter-clear')
-    expect(note).toContain("t('intezo.filter_note'")
-    const set = extract('_intezoSetTypeFilter')
-    expect(set).toContain('_intezoMulti.delete(rel)')
-    expect(set).toContain('_intezoClearSelection()')
-    // Ha a szurt tipus eltunt a mappabol, a szuro lekapcsol (nem marad ures lista ok nelkul).
-    expect(extract('_intezoSyncTypeFilter')).toContain("!counts[_intezoTypeFilter]) _intezoTypeFilter = ''")
+  it('minden rendezheto oszlopfejlecen latszik a nyil (az aktiv ▲/▼, a tobbi ↕)', () => {
+    const th = extract('_intezoSortTh')
+    expect(th).toContain("'↕'")
+    expect(th).toContain("'▲'")
+    expect(th).toContain("'▼'")
   })
 })
 
