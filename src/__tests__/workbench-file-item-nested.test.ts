@@ -33,6 +33,11 @@ describe('file -> work item in a nested accented folder (#474)', () => {
     const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'presentation', title: 'Valogatas', from_files: true })
     expect(c.status).toBe(201)
   })
+  it('a deck made from ticked files gets its own folder named after it (TG 2675)', async () => {
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'presentation', title: 'Valogatas', from_files: true })
+    expect(c.status).toBe(201)
+    expect(String(c.body.item.container_folder || '')).toMatch(/Valogatas$/)
+  })
   it('a typo folder with no file is still refused', async () => {
     const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'image', title: 'x', folder: 'Nincs/ilyen' })
     expect(c.status).toBe(400)
