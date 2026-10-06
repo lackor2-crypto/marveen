@@ -33,7 +33,7 @@ import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
-import { resolveLifePath, toLifeRel, trashLife } from './life-explorer.js'
+import { resolveLifePath, toLifeRel, trashLife, copyLife } from './life-explorer.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -259,12 +259,21 @@ export function workFolderTarget(project: ProjectRow, folder: unknown): { ok: tr
 export const WORK_FOLDER_MAX_DEPTH = 64
 export const WORK_FOLDER_MAX = 600
 
-/** A plain file lying in a work folder (not a work item): shown in the list with a preview link. */
-export type WorkFolderFile = { name: string; size: number; rel: string }
+/** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
+ *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
+export type WorkFolderFile = { name: string; size: number; rel: string; item?: true }
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
 export const WORK_FILES_TOTAL_MAX = 3000
+
+/** The own folders (project-relative) of the project's live work items: a file directly in one belongs to that item. */
+function liveItemFolders(project: ProjectRow): Set<string> {
+  try {
+    const rows = getDb().prepare("SELECT folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder IS NOT NULL AND folder != ''").all(project.id) as { folder: string }[]
+    return new Set(rows.map((r) => r.folder))
+  } catch { return new Set() }
+}
 
 /** Every folder inside the work items box, project-relative, parents before children.
  *  `files` holds the plain files of the box and of each folder (key = folder path), so a folder
@@ -277,6 +286,7 @@ export function listWorkFolders(project: ProjectRow): { box: string | null; fold
   if (!t.ok) return { box, folders: [], truncated: false, files: {} }
   const out: string[] = []
   const files: Record<string, WorkFolderFile[]> = {}
+  const itemFolders = liveItemFolders(project)
   let fileTotal = 0
   let truncated = false
   const walk = (abs: string, rel: string, depth: number): void => {
@@ -295,7 +305,7 @@ export function listWorkFolders(project: ProjectRow): { box: string | null; fold
         let size = 0
         try { size = statSync(join(abs, f.name)).size } catch { /* gone meanwhile */ }
         const lifeRel = `${t.dirRel}${rel.slice(box.length)}/${f.name}`
-        ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: lifeRel })
+        ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}) })
         fileTotal++
       }
     }
@@ -343,15 +353,16 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
 
 export type DeleteFolderResult =
   | { ok: true; folder: string; trashed?: { items: number; kuka: string } }
-  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_not_empty' | 'write_failed'; items?: number; files?: number; folders?: number }
+  | { ok: false; code: WorkFolderError | 'folder_is_box' | 'folder_not_empty' | 'folder_used_elsewhere' | 'write_failed'; items?: number; files?: number; folders?: number; users?: string[] }
 
 /**
- * Deletes a folder inside the work items box, but only an EMPTY one: nothing
- * on disk (no file, no subfolder) and no live work item filed under it. The
- * box itself stays. Nothing is ever deleted together with its content, so the
- * worst a mis-click can do is remove an empty folder.
+ * Deletes a folder inside the work items box. Without `trash` only an EMPTY one: nothing on disk (no file,
+ * no subfolder) and no live work item filed under it. With `trash` (#492) a folder with content goes to the
+ * Kuka with everything in it, but if a work item OUTSIDE the folder uses something in it (a deck elsewhere
+ * showing a picture from here) it stops with `folder_used_elsewhere` and the item titles, until `force`
+ * says the owner was told. The box itself always stays.
  */
-export function deleteWorkFolder(project: ProjectRow, folder: unknown, opts: { trash?: boolean } = {}): DeleteFolderResult {
+export function deleteWorkFolder(project: ProjectRow, folder: unknown, opts: { trash?: boolean; force?: boolean } = {}): DeleteFolderResult {
   const c = workFolderTarget(project, folder)
   if (!c.ok) return c
   const box = findWorkItemsBox(project)
@@ -361,12 +372,16 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown, opts: { t
   let entries: import('node:fs').Dirent[] = []
   try { entries = readdirSync(t.dirAbs, { withFileTypes: true }).filter((e) => e.name !== FOLDER_MARKER) } catch { return { ok: false, code: 'not_found' as FileErrorCode } }
   ensureAssetTables()
-  const rows = getDb().prepare('SELECT container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { cf: string | null; f: string | null; sp: string | null }[]
   const under = (v: string | null): boolean => !!v && (v === c.folder || v.startsWith(c.folder + '/'))
   const underIds = (getDb().prepare('SELECT id, container_folder AS cf, folder AS f, source_path AS sp FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { id: string; cf: string | null; f: string | null; sp: string | null }[])
     .filter((r) => under(r.cf) || under(r.f) || under(r.sp)).map((r) => r.id)
   const items = underIds.length
   if ((entries.length || items) && opts.trash) {
+    // A picture of this folder shown by a deck elsewhere would turn into a dead link: say so first.
+    if (!opts.force) {
+      const users = itemsUsingFolder(project, t.dirRel, underIds)
+      if (users.length) return { ok: false, code: 'folder_used_elsewhere', users }
+    }
     // #492: a folder with content goes to the Kuka (restorable) with everything in it; its work items go to the
     // Workbench trash first, so none of them points at a folder that is gone. Undone if the move fails.
     for (const id of underIds) setWorkItemDeleted(id, true)
@@ -495,7 +510,7 @@ export function moveWorkFolder(project: ProjectRow, folder: unknown, parent: unk
   return { ok: true, folder: newFolder, moved: true }
 }
 
-export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'failed' }
+export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'item_file' | 'failed' }
 
 /**
  * #486: a loose file that a work item references -- typically a deck's slide picture, whose Depot-relative
@@ -555,9 +570,20 @@ export type MoveFilesResult =
 
 /** True when the registry (an item, a version, a part, a material, a deck draft or a saved version file) names the file. */
 function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
-  const db = getDb()
   const used = new Set<string>()
-  const ids = (db.prepare('SELECT id FROM work_items WHERE project_id = ?').all(project.id) as { id: string }[]).map((r) => r.id)
+  const ids = (getDb().prepare('SELECT id FROM work_items WHERE project_id = ?').all(project.id) as { id: string }[]).map((r) => r.id)
+  const { eq, hay } = itemRefSources(ids)
+  for (const rel of rels) {
+    // Inside JSON a name with `"` or `\` is stored escaped, so look for that form too.
+    const enc = JSON.stringify(rel).slice(1, -1)
+    if (eq.has(rel) || hay.some((h) => h.includes(rel) || (enc !== rel && h.includes(enc)))) used.add(rel)
+  }
+  return used
+}
+
+/** Every path these work items name: exact paths (`eq`: item/version/part/asset columns) and JSON texts to search (`hay`: drafts, saved version files). */
+function itemRefSources(ids: string[]): { eq: Set<string>; hay: string[] } {
+  const db = getDb()
   const hay: string[] = []
   const eq = new Set<string>()
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'work_item_[a-z]*_drafts'").all() as { name: string }[]
@@ -578,12 +604,22 @@ function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
       for (const r of db.prepare(`SELECT doc FROM ${name} WHERE work_item_id = ?`).all(id) as { doc: string | null }[]) if (r.doc) hay.push(r.doc)
     }
   }
-  for (const rel of rels) {
-    // Inside JSON a name with `"` or `\` is stored escaped, so look for that form too.
-    const enc = JSON.stringify(rel).slice(1, -1)
-    if (eq.has(rel) || hay.some((h) => h.includes(rel) || (enc !== rel && h.includes(enc)))) used.add(rel)
+  return { eq, hay }
+}
+
+/** #492: the titles of live work items OUTSIDE `skipIds` that name anything under the Depot-relative folder `dirRel`. */
+function itemsUsingFolder(project: ProjectRow, dirRel: string, skipIds: string[]): string[] {
+  const skip = new Set(skipIds)
+  const prefix = dirRel.replace(/\/+$/, '') + '/'
+  const enc = JSON.stringify(prefix).slice(1, -1)
+  const rows = getDb().prepare('SELECT id, title FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(project.id) as { id: string; title: string }[]
+  const out: string[] = []
+  for (const r of rows) {
+    if (skip.has(r.id)) continue
+    const { eq, hay } = itemRefSources([r.id])
+    if ([...eq].some((p) => p.startsWith(prefix)) || hay.some((h) => h.includes(prefix) || (enc !== prefix && h.includes(enc)))) out.push(r.title)
   }
-  return used
+  return out
 }
 
 /**
@@ -593,6 +629,8 @@ function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
  * not broken (#486, Boss TG 2026-10-04 "a diákat a prezentáció mellé akartam rakni, nem engedte").
  * The target may be a folder that already holds a (flattened) work item: the files simply sit alongside it,
  * which is the whole point of seeing what belongs together in one folder.
+ * A file lying in a work item's OWN folder is skipped as `item_file` (#492, Boss TG 7948): it belongs to the
+ * item and is never taken away from it; copyLooseFiles makes an independent copy instead.
  */
 export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown): MoveFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
@@ -603,7 +641,8 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   if (!target.ok) return target
   const wf = listWorkFolders(project)
   const loose = new Map<string, string>()
-  for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.set(f.rel, k)
+  const itemFiles = new Set<string>()
+  for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) { loose.set(f.rel, k); if (f.item) itemFiles.add(f.rel) }
   const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r)))
   const moved: string[] = []
   const skipped: MoveFilesSkip[] = []
@@ -612,6 +651,8 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     const from = loose.get(rel)
     if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
     if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
+    // #492: a file in a work item's own folder belongs to that item: it is never taken away, only copied.
+    if (itemFiles.has(rel)) { skipped.push({ name, reason: 'item_file' }); continue }
     const src = resolveLifePath(rel)
     const newRel = `${target.dirRel}/${name}`
     const dst = join(target.dirAbs, name)
@@ -633,6 +674,40 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     moved.push(name)
   }
   return { ok: true, moved, skipped }
+}
+
+export type CopyFilesResult =
+  | { ok: true; copied: string[]; skipped: MoveFilesSkip[] }
+  | { ok: false; code: WorkFolderError | 'no_files' }
+
+/**
+ * #492: copy listed files into a folder of the box. The original stays where it is (a work item's picture
+ * stays with its item); the copy is an independent file nothing references. Never overwrites: a taken name
+ * gets the next free `name (N)`, and `copied` holds the names the copies really got.
+ */
+export async function copyLooseFiles(project: ProjectRow, rels: unknown, folder: unknown, lang = APP_LANG): Promise<CopyFilesResult> {
+  const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
+  if (!want.length) return { ok: false, code: 'no_files' }
+  const c = workFolderTarget(project, folder)
+  if (!c.ok) return c
+  const target = projectFileTarget(project, c.folder)
+  if (!target.ok) return target
+  const wf = listWorkFolders(project)
+  const loose = new Map<string, string>()
+  for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.set(f.rel, k)
+  const copied: string[] = []
+  const skipped: MoveFilesSkip[] = []
+  for (const rel of want) {
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    const from = loose.get(rel)
+    if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
+    if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
+    if (writeBlockReason(`${target.dirRel}/${name}`)) { skipped.push({ name, reason: 'failed' }); continue }
+    const r = await copyLife(rel, target.dirRel, lang, { keepBoth: true })
+    if (r.ok) copied.push(r.rel.slice(r.rel.lastIndexOf('/') + 1))
+    else skipped.push({ name, reason: 'failed' })
+  }
+  return { ok: true, copied, skipped }
 }
 
 export type DeleteFilesResult =
