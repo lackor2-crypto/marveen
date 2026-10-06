@@ -6603,6 +6603,8 @@
     return deckUrl('/slide/' + encodeURIComponent(slideId) + '.svg')
       + '?lang=' + encodeURIComponent(window._lang || 'hu')
       + (WB.previewVersion ? '&version=' + encodeURIComponent(WB.previewVersion) : '')
+      // Same as the drawing: without a changing stamp the browser keeps showing the picture from before the edit.
+      + '&v=' + encodeURIComponent(WB.canvasStamp || '0')
   }
 
   /** Puts the picked slide's canvas where the canvas editor reads it. */
@@ -11842,10 +11844,12 @@
     var it = WB.detail ? WB.detail.item : null
     var st = savedState()
     var c = WB.canvas
-    var h = (c && c.history) || {}
+    var h = (c && c.history) || (deckMode() && WB.deck.history) || {}
     var busy = WB.canvasBusy
     var canvasOn = frCanvasReady() && c.current !== false
     var sizeOn = canvasOn || deckMode()
+    // A deck with no slide yet (after undoing the first one) still has undo/redo: that is the way back.
+    var stepOn = canvasOn || (deckMode() && !archived())
     var menuBtn = function (key, label) {
       return '<button type="button" class="wb-fr-tbtn' + (WB.frMenu === key ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-menu" data-wb-m="' + key + '"'
         + ' aria-expanded="' + (WB.frMenu === key) + '">' + esc(label) + (key === 'file' || key === 'size' ? ' ▾' : '') + '</button>'
@@ -11854,7 +11858,7 @@
       + '<button type="button" class="wb-fr-tbtn wb-fr-home" data-wb-act="back" title="' + escA(t('workbench.back_to_project')) + '" aria-label="' + escA(t('workbench.back_to_project')) + '">⌂</button>'
       + menuBtn('file', t('workbench.fr.file'))
       + (sizeOn ? menuBtn('size', t('workbench.fr.size')) : '')
-      + (canvasOn
+      + (stepOn
         ? '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-undo"' + (busy || !h.can_undo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.undo') + ' (Ctrl+Z)') + '" aria-label="' + escA(t('workbench.canvas.undo')) + '">↶</button>'
           + '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-redo"' + (busy || !h.can_redo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.redo') + ' (Ctrl+Y)') + '" aria-label="' + escA(t('workbench.canvas.redo')) + '">↷</button>'
         : '')
