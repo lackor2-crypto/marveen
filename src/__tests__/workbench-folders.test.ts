@@ -47,7 +47,11 @@ describe('folders in the work items box', () => {
   afterEach(teardown)
 
   it('no box yet: the list is empty and nothing is created', () => {
-    expect(listWorkFolders(getProjectRow())).toEqual({ box: null, folders: [], truncated: false, files: {} })
+    expect(listWorkFolders(getProjectRow())).toMatchObject({ box: null, folders: [], truncated: false, files: {} })
+    // #501 (TG 2626): the rest of the project folder is listed too, and the real folder name comes with it.
+    const all = listWorkFolders(getProjectRow())
+    expect(Array.isArray(all.outside.folders)).toBe(true)
+    expect(typeof all.root_name).toBe('string')
     expect(workFolderTarget(getProjectRow(), 'Projektek')).toMatchObject({ ok: false, code: 'no_box' })
   })
 
@@ -182,18 +186,16 @@ describe('endpoints', () => {
     const folder = (f.body as { folder: string }).folder
     const ok = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL', type: 'note', folder })
     expect(ok.status).toBe(201)
-    expect((ok.body as { item: { container_folder: string } }).item.container_folder).toBe(folder)
+    expect((ok.body as { item: { container_folder: string } }).item.container_folder).toBe(folder + '/BL') // TG 2622: own folder inside the picked group
     const bad = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'X', type: 'note', folder: 'Projektek/nem-a-doboz' })
     expect(bad.status).toBe(400)
     expect(typeof (bad.body as { message: string }).message).toBe('string')
   })
 
   it('POST /items without a folder is accepted (#479): the folder is an optional named group, none is made on its own', async () => {
-    const before = readdirSync(join(dir, 'Projektek', 'Robotok'))
     const r = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'BL szignal', type: 'note' })
     expect(r.status).toBe(201)
-    expect((r.body as { item: { container_folder: string | null } }).item.container_folder).toBeNull()
-    expect(readdirSync(join(dir, 'Projektek', 'Robotok'))).toEqual(before)
+    expect((r.body as { item: { container_folder: string | null } }).item.container_folder).toBe('Munkadarabok/BL szignal') // TG 2622
     const i = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'Ajánlat' })
     expect((i.body as { error?: string }).error).not.toBe('folder_required')
     const t = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Onallo' })
@@ -251,7 +253,7 @@ describe('endpoints', () => {
     const folder = (f.body as { folder: string }).folder
     const ok = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'Ajánlat Kovács úrnak', folder })
     expect(ok.status).toBe(201)
-    expect((ok.body as { item: { container_folder: string } }).item.container_folder).toBe(folder)
+    expect((ok.body as { item: { container_folder: string } }).item.container_folder.startsWith(folder + '/')).toBe(true)
     const bad = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', text: 'X', folder: 'Projektek/nem-a-doboz' })
     expect(bad.status).toBe(400)
     expect(typeof (bad.body as { message: string }).message).toBe('string')
@@ -263,8 +265,8 @@ describe('endpoints', () => {
     const r = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Osszesito', folder })
     expect(r.status).toBe(201)
     const body = r.body as { item: { id: string; source_path: string }; folder: string }
-    expect(body.folder).toBe(folder)
-    expect(body.item.source_path.endsWith(`/${folder}/Osszesito.xlsx`)).toBe(true)
+    expect(body.folder).toBe(folder + '/Osszesito') // TG 2622: own folder inside the picked group
+    expect(body.item.source_path.endsWith(`/${folder}/Osszesito/Osszesito.xlsx`)).toBe(true)
     expect(existsSync(join(dir, ...body.item.source_path.split('/')))).toBe(true)
     const bad = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Rossz', folder: 'Projektek/masik' })
     expect(bad.status).toBe(400)
