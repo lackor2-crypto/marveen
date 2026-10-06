@@ -16,7 +16,9 @@
 //   PUT    /api/projects/:id                 -- szerkesztes (+ mappa-csere)
 //   POST   /api/projects/:id/archive         -- archivalas / visszahozas
 //   GET    /api/projects/:id/delete-preview  -- mit erint a torles
-//   DELETE /api/projects/:id?confirm=1       -- torles = CSAK a kapcsolat bontasa
+//   DELETE /api/projects/:id?confirm=1       -- torles = CSAK a kapcsolat bontasa (&contents=1: a kartyak es otletek is torlodnek)
+//   POST   /api/projects/:id/move            -- kijelolt elemek masik projektbe {target, items:[{type,id}]}
+//   POST   /api/projects/:id/merge           -- egyesites masik projektbe {target, confirm:true}
 //   GET    /api/projects/:id/overview        -- az Attekintes (csak mert forrasbol)
 //   POST   /api/projects/:id/summary         -- AI-osszefoglalo, CSAK kezi keresre (mentve, idoponttal)
 //   GET    /api/projects/:id/ideas           -- a projekt otletei + a meg sehova nem tartozok
@@ -61,6 +63,7 @@ import type { RouteContext } from './types.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { createAgentMessage } from '../../db.js'
 import { suggestPlacement } from '../../project-file-placement.js'
+import { projectContents, parseMoveItems, moveItemsBetweenProjects, mergeProjectInto, deleteProjectWithContents } from '../../project-move.js'
 import { isVFolderKind, listVFolders, createVFolder, renameVFolder, deleteVFolder, assignVFolder, suggestVFolders, applyVFolderPlan, forgetProjectVFolders } from '../../project-vfolders.js'
 import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import { resolveCardRefs } from '../card-work-guard.js'
@@ -78,6 +81,11 @@ function uiLang(url: URL): 'hu' | 'en' {
 
 // Tartalek-mondatok (a felulet a sajat forditasat mutatja, ha ismeri a kodot).
 const MESSAGES: Record<string, { hu: string; en: string }> = {
+  same_project: { hu: 'Ez ugyanaz a projekt: válassz egy másikat.', en: 'That is the same project: pick another one.' },
+  target_missing: { hu: 'A célprojekt nem található (lehet, hogy közben törölték).', en: 'The target project was not found (it may have been deleted).' },
+  target_archived: { hu: 'A célprojekt archiválva van: előbb hozd vissza, vagy válassz másikat.', en: 'The target project is archived: bring it back first, or pick another one.' },
+  bad_items: { hu: 'Jelölj ki legalább egy elemet.', en: 'Tick at least one item.' },
+  has_work_items: { hu: 'A projekt Munkapadján még vannak munkadarabok. Azok valódi fájlok a projekt mappájában, ezért nem viszem át és nem törlöm őket magától: előbb a Munkapadon dolgozz velük (Kuka vagy archiválás), utána ismételd meg.', en: 'The project still has Workbench items. They are real files in the project folder, so they are neither moved nor deleted automatically: deal with them on the Workbench first (bin or archive), then try again.' },
   name_required: { hu: 'Adj nevet a projektnek.', en: 'Give the project a name.' },
   name_taken: { hu: 'Már van ilyen nevű projekt. Adj neki más nevet.', en: 'A project with this name already exists. Pick another name.' },
   empty_label_filter: { hu: 'Legalább egy címkét jelölj be, vagy válaszd a „mind” lehetőséget.', en: 'Tick at least one label, or choose "all".' },
@@ -491,12 +499,46 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   }
 
   if (sub === '/delete-preview' && method === 'GET') {
-    json(res, projectDeletePreview(id))
+    const pv = projectDeletePreview(id)
+    json(res, pv ? { ...pv, workItems: projectContents(id).workItems } : pv)
+    return true
+  }
+
+  // Move chosen items to another project (Boss TG 2549).
+  if (sub === '/move' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const items = parseMoveItems(body.items)
+    if (!items) return fail(res, 400, 'bad_items', lang)
+    const out = moveItemsBetweenProjects(id, String(body.target ?? ''), items)
+    if (!out.ok) return fail(res, out.code === 'same_project' || out.code === 'bad_items' || out.code === 'target_archived' ? 400 : 404, out.code, lang)
+    logger.info({ id, target: body.target, ...out, by: MAIN_AGENT_ID }, '[projects] elemek athelyezve masik projektbe')
+    json(res, out)
+    return true
+  }
+
+  // Merge this project into another: everything moves, the empty project is deleted (Boss TG 2547).
+  if (sub === '/merge' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body || body.confirm !== true) return fail(res, 400, 'confirm_required', lang)
+    const out = mergeProjectInto(id, String(body.target ?? ''))
+    if (!out.ok) return fail(res, out.code === 'has_work_items' ? 409 : out.code === 'same_project' || out.code === 'target_archived' ? 400 : 404, out.code, lang, { workItems: out.workItems })
+    forgetProjectVFolders(id)
+    logger.info({ id, name: project.name, target: body.target, ...out, by: MAIN_AGENT_ID }, '[projects] projekt egyesitve masikba')
+    json(res, out)
     return true
   }
 
   if (sub === '' && method === 'DELETE') {
     if (url.searchParams.get('confirm') !== '1') return fail(res, 400, 'confirm_required', lang)
+    if (url.searchParams.get('contents') === '1') {
+      const full = deleteProjectWithContents(id)
+      if (!full.ok) return fail(res, full.code === 'has_work_items' ? 409 : 404, full.code, lang, { workItems: full.workItems })
+      forgetProjectVFolders(id)
+      logger.info({ id, name: project.name, ...full, by: MAIN_AGENT_ID }, '[projects] projekt torolve a tartalmaval egyutt')
+      json(res, full)
+      return true
+    }
     const out = deleteProject(id)
     forgetProjectVFolders(id)
     logger.info({ id, name: project.name, ...out, by: MAIN_AGENT_ID }, '[projects] projekt torolve (csak a kapcsolat)')

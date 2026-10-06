@@ -47178,6 +47178,7 @@ function _prjDebateRowHtml(s, extra) {
   return `<li class="prj-item">
     <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-debate="${escapeAttr(s.id)}">${escapeHtml(s.questionPreview || s.id)}</a> <span class="prj-pill">${escapeHtml(verdict)}</span></div>
     <div class="prj-item-sub prj-muted">${escapeHtml(t('projects.debate.meta', { rounds: s.rounds || 0, models: (s.models || []).length }))} · ${escapeHtml(_prjAgo(s.lastAt || 0))}</div>
+    <div class="prj-item-actions">${_prjMoveBtn('debate', s.id)}</div>
     ${extra}
   </li>`
 }
@@ -47243,6 +47244,7 @@ function _prjResearchRowHtml(doc, extra) {
   return `<li class="prj-item">
     <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-research-agent="${escapeAttr(doc.agent)}" data-prj-research="${escapeAttr(doc.name)}">${escapeHtml(doc.title || doc.name)}</a></div>
     <div class="prj-item-sub prj-muted">${escapeHtml(chatDisplayName(doc.agent))} · ${escapeHtml(doc.updated || '')}</div>
+    <div class="prj-item-actions">${_prjMoveBtn('research', doc.agent + '/' + doc.name)}</div>
     ${extra}
   </li>`
 }
@@ -47499,7 +47501,7 @@ function _prjKanbanCardHtml(c) {
   return `<li><button type="button" class="prj-kb-card" data-prj-kb-card="${escapeAttr(c.id)}">
     <span class="prj-kb-title">${c.seq != null ? `<span class="prj-muted">#${escapeHtml(String(c.seq))}</span> ` : ''}${escapeHtml(c.title || c.id)}</span>
     ${who || pr ? `<span class="prj-kb-meta">${pr}${who ? `<span class="prj-muted">${who}</span>` : ''}</span>` : ''}
-  </button></li>`
+  </button>${_prjMoveBtn('card', c.id)}</li>`
 }
 
 function _prjKanbanTabHtml() {
@@ -48138,6 +48140,7 @@ async function _prjOpenDelete(project) {
   const d = r.data || {}
   closeModal(_prjOverlay('prjModalOverlay'))
   const ov = _prjOverlay('prjDeleteOverlay')
+  const others = (_prj.all || []).filter((x) => x.id !== project.id && !x.archived_at)
   const keeps = [
     t('projects.delete.keep_cards', { n: d.cards || 0, open: d.openCards || 0, archived: d.archivedCards || 0 }),
     t('projects.delete.keep_ideas', { n: d.ideas || 0 }),
@@ -48145,6 +48148,8 @@ async function _prjOpenDelete(project) {
   ]
   if ((d.codeAliases || []).length) keeps.push(t('projects.delete.keep_aliases', { list: d.codeAliases.join(', ') }))
   if (d.codeTasks) keeps.push(t('projects.delete.keep_code_tasks', { n: d.codeTasks }))
+  const wi = d.workItems || 0
+  const mode = (v, key, on) => `<label class="prj-del-mode"><input type="radio" name="prjDelMode" value="${v}"${on ? ' checked' : ''}> ${escapeHtml(t(key))}</label>`
   ov.innerHTML = `
   <div class="modal prj-modal" role="dialog" aria-modal="true">
     <div class="modal-header">
@@ -48152,8 +48157,16 @@ async function _prjOpenDelete(project) {
       <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button>
     </div>
     <div class="modal-body">
-      <p>${escapeHtml(t('projects.delete.lead'))}</p>
+      <p>${escapeHtml(t('projects.delete.choose'))}</p>
+      ${mode('unlink', 'projects.delete.mode_unlink', true)}
       <ul class="prj-keep-list">${keeps.map((k) => `<li>${escapeHtml(k)}</li>`).join('')}</ul>
+      ${mode('contents', 'projects.delete.mode_contents', false)}
+      ${others.length ? mode('merge', 'projects.delete.mode_merge', false) : ''}
+      <div id="prjDelMergeBox" hidden>
+        <select class="input" id="prjDelTarget">${others.map((x) => `<option value="${escapeAttr(x.id)}">${escapeHtml(x.name)}</option>`).join('')}</select>
+      </div>
+      <div id="prjDelContentsNote" class="info-box depo-bad" hidden>${escapeHtml(t('projects.delete.contents_note', { cards: d.cards || 0, ideas: d.ideas || 0 }))}</div>
+      ${wi ? `<div class="info-box depo-bad" id="prjDelWorkItems" hidden>${escapeHtml(t('projects.delete.work_items_block', { n: wi }))}</div>` : ''}
       <p class="prj-muted">${escapeHtml(t('projects.delete.archive_tip'))}</p>
     </div>
     <div class="modal-footer">
@@ -48162,18 +48175,83 @@ async function _prjOpenDelete(project) {
       <button type="button" class="btn-danger" id="prjDelConfirm">${escapeHtml(t('projects.delete.confirm_btn'))}</button>
     </div>
   </div>`
+  const curMode = () => (ov.querySelector('input[name="prjDelMode"]:checked') || {}).value || 'unlink'
+  const sync = () => {
+    const m = curMode()
+    ov.querySelector('#prjDelMergeBox').hidden = m !== 'merge'
+    ov.querySelector('#prjDelContentsNote').hidden = m !== 'contents'
+    const wiBox = ov.querySelector('#prjDelWorkItems')
+    if (wiBox) wiBox.hidden = m === 'unlink'
+    const btn = ov.querySelector('#prjDelConfirm')
+    btn.disabled = !!wi && m !== 'unlink'
+    btn.textContent = t(m === 'merge' ? 'projects.delete.merge_btn' : 'projects.delete.confirm_btn')
+  }
+  ov.querySelectorAll('input[name="prjDelMode"]').forEach((i) => i.addEventListener('change', sync))
   ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
   ov.querySelector('#prjDelArchive')?.addEventListener('click', () => _prjSetArchived(project.id, true))
   ov.querySelector('#prjDelConfirm')?.addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true
-    const del = await _prjApi('DELETE', '/api/projects/' + encodeURIComponent(project.id) + '?confirm=1')
-    if (!del.ok) { e.currentTarget.disabled = false; showToast(del.message); return }
+    const btn = e.currentTarget
+    const m = curMode()
+    btn.disabled = true
+    const base = '/api/projects/' + encodeURIComponent(project.id)
+    const del = m === 'merge'
+      ? await _prjApi('POST', base + '/merge', { target: ov.querySelector('#prjDelTarget').value, confirm: true })
+      : await _prjApi('DELETE', base + '?confirm=1' + (m === 'contents' ? '&contents=1' : ''))
+    if (!del.ok) { btn.disabled = false; showToast(del.message); return }
     closeModal(ov)
     await refreshProjectNames()
-    showToast(t('projects.toast.deleted', { name: project.name, n: del.data.unlinkedCards || 0 }))
+    showToast(t(m === 'unlink' ? 'projects.toast.deleted' : 'projects.toast.deleted_full', { name: project.name, n: del.data.unlinkedCards || del.data.cards || 0 }))
     _prj.current = null
     _prj.overview = null
     await _prjLoadList()
+  })
+  sync()
+  openModal(ov)
+}
+
+// ---- elem athelyezese masik projektbe (Boss TG 2549) ---------------------------------
+
+function _prjMoveBtn(type, id) {
+  const p = _prj.overview && _prj.overview.project
+  if (!p || p.archived_at) return ''
+  return `<button type="button" class="btn-secondary btn-compact prj-move-btn" data-prj-move-type="${escapeAttr(type)}" data-prj-move-id="${escapeAttr(id)}">${escapeHtml(t('projects.move.btn'))}</button>`
+}
+
+async function _prjOpenMove(type, id) {
+  const pid = _prj.current
+  if (!pid) return
+  if (!_prj.all || !_prj.all.length) {
+    const r = await _prjApi('GET', '/api/projects?archived=1')
+    if (r.ok) _prj.all = r.data.projects || []
+  }
+  const others = (_prj.all || []).filter((x) => x.id !== pid && !x.archived_at)
+  const ov = _prjOverlay('prjMoveOverlay')
+  ov.innerHTML = `
+  <div class="modal prj-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h2>${escapeHtml(t('projects.move.title'))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button>
+    </div>
+    <div class="modal-body">
+      ${others.length
+        ? `<p>${escapeHtml(t('projects.move.lead'))}</p><select class="input" id="prjMoveTarget">${others.map((x) => `<option value="${escapeAttr(x.id)}">${escapeHtml(x.name)}</option>`).join('')}</select>`
+        : `<p>${escapeHtml(t('projects.move.no_target'))}</p>`}
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.cancel'))}</button>
+      ${others.length ? `<button type="button" class="btn-primary" id="prjMoveConfirm">${escapeHtml(t('projects.move.confirm_btn'))}</button>` : ''}
+    </div>
+  </div>`
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  ov.querySelector('#prjMoveConfirm')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget
+    btn.disabled = true
+    const res = await _prjApi('POST', '/api/projects/' + encodeURIComponent(pid) + '/move', { target: ov.querySelector('#prjMoveTarget').value, items: [{ type, id }] })
+    if (!res.ok) { btn.disabled = false; showToast(res.message); return }
+    closeModal(ov)
+    showToast(t(res.data.moved ? 'projects.move.done' : 'projects.move.nothing'))
+    _prj.overview = null
+    await _prjOpenProject(pid)
   })
   openModal(ov)
 }
@@ -48942,6 +49020,7 @@ function _prjIdeaRowHtml(i, extra) {
     <div class="prj-item-sub prj-muted">${meta.filter(Boolean).join(' · ')}</div>
     <div class="prj-item-actions">
       ${i.kanban_id ? _prjCardLink({ id: i.kanban_id, title: t('projects.ideas.open_card') }) : ''}
+      ${_prjMoveBtn('idea', i.id)}
       ${i.via === 'link' ? `<button type="button" class="btn-secondary btn-compact" data-prj-unlink-idea="${escapeAttr(i.id)}">${escapeHtml(t('projects.ideas.unlink'))}</button>` : ''}
     </div>
     ${extra}
@@ -49328,6 +49407,8 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.prj-new-wrap')) _prjToggleNewMenu(false)
   const ideaLink = e.target.closest('[data-prj-idea]')
   if (ideaLink) { e.preventDefault(); _prjOpenIdea(ideaLink.getAttribute('data-prj-idea')); return }
+  const mv = e.target.closest('[data-prj-move-type]')
+  if (mv) { e.preventDefault(); _prjOpenMove(mv.getAttribute('data-prj-move-type'), mv.getAttribute('data-prj-move-id')); return }
   const unlinkIdea = e.target.closest('[data-prj-unlink-idea]')
   if (unlinkIdea) { _prjUnlinkIdea(unlinkIdea.getAttribute('data-prj-unlink-idea')); return }
   const deb = e.target.closest('[data-prj-debate]')
