@@ -1810,6 +1810,20 @@
     })
   }
 
+  /** #501: read the slides of an old presentation-file document item, once per item (a failure is shown, not retried). */
+  function presentationUpgrade(id) {
+    if (WB.presUpgradeTried && WB.presUpgradeTried[id]) return
+    WB.presUpgradeTried = WB.presUpgradeTried || {}
+    WB.presUpgradeTried[id] = true
+    WB.presUpgradeError = null
+    var pid = WB.projectId
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/to-presentation', {}).then(function (r) {
+      if (!r.ok) { WB.presUpgradeError = r.message || ''; render(); return }
+      if (r.data && r.data.import_warnings && r.data.import_warnings.length) window.showToast(t('workbench.import.partial'))
+      if (WB.projectId === pid) { loadDetail(id); load(pid) }
+    })
+  }
+
   /** #501: a Word-type file opens in the editable editor by itself (once per item and version), like a table
    *  opens as a grid. Closing the editor does not reopen it. */
   function docAutoOpen() {
@@ -11681,6 +11695,12 @@
   function docTabsHtml() {
     var o = WB.detail && WB.detail.outline
     // #501: a document that is a FILE (Word, PDF, ...) shows the file itself, in its editor, not the empty drafting tabs.
+    // An old document item whose file is a presentation (made before the importer): turn it into a real one.
+    if (WB.detail && WB.detail.item && WB.detail.item.source_path && /\.(pptx|ppt|pps|ppsx|odp)$/i.test(WB.detail.item.source_path) && !archived()) {
+      presentationUpgrade(WB.detail.item.id)
+      return '<p class="wb-muted wb-center">' + esc(t(WB.presUpgradeError ? 'workbench.import.failed' : 'workbench.import.reading')) + '</p>'
+        + (WB.presUpgradeError ? '<p class="wb-preview-bad">' + esc(WB.presUpgradeError) + '</p>' : '')
+    }
     if (!o && WB.detail && WB.detail.item && WB.detail.item.source_path && WB.preview) {
       var dit = WB.detail.item
       if (frIsTable(dit)) {
