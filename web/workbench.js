@@ -1943,7 +1943,8 @@
   }
   var DECK_FROM_FOLDER_MAX = 100
 
-  function itemsPanelHtml() {
+  /** `compact`: the plain list inside the editor rail (no create block: "+ Új munka" is already above it). */
+  function itemsPanelHtml(compact) {
     var body
     if (WB.items === null) {
       body = '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
@@ -1967,7 +1968,7 @@
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button></div>'
       + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
       + body
-      + (archived()
+      + (compact ? '' : archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : folderStepHtml() + (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
           + templatesHtml()
@@ -11979,7 +11980,7 @@
             ? '<h4 class="wb-fr-sub">' + esc(t('workbench.deck.notes')) + '</h4><textarea class="wb-input" id="wbDeckNotes" rows="4" placeholder="' + escA(t('workbench.deck.notes_placeholder')) + '">' + esc(deckCurrentSlide().notes || '') + '</textarea>'
               + '<p>' + deckBtn('deck-notes', t('workbench.deck.notes_save')) + '</p>' : '')
       case 'projects':
-        return (archived() ? '' : '<button type="button" class="wb-fr-pbtn" data-wb-act="sh-new">' + esc(t('workbench.fr.new')) + '</button>') + itemsPanelHtml()
+        return (archived() ? '' : '<button type="button" class="wb-fr-pbtn" data-wb-act="sh-new">' + esc(t('workbench.fr.new')) + '</button>') + itemsPanelHtml(true)
       default: return ''
     }
   }
