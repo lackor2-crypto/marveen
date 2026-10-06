@@ -1217,13 +1217,13 @@
   function statusLabel(status) { return t('workbench.status.' + status) }
 
   /** One row of the work item list (#454: indented by its folder depth). */
-  function itemRowHtml(it, depth) {
+  function itemRowHtml(it, depth, grp) {
     var on = it.id === WB.selectedId
     // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + ' wb-depth-' + Math.min(depth, 8) + '" data-wb-ctx-item="' + escA(it.id) + '"'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
@@ -1483,9 +1483,9 @@
   var ROOT_KEY = '*root*'
 
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
-  function plainFileRowHtml(f, depth) {
+  function plainFileRowHtml(f, depth, grp) {
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
-    return '<li class="wb-item-row wb-file-row wb-depth-' + Math.min(depth, 8) + '"' + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
+    return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
@@ -1608,20 +1608,27 @@
       return n
     }
     var rows = []
-    function walk(path, depth) {
+    // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
+    var groupIdx = 0
+    function groupStyle(g) {
+      if (g == null) return ''
+      return ' style="--wb-grp: hsl(' + Math.round((g * 137.508 + 210) % 360) + ' 65% 50%)"'
+    }
+    function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
+        var g = grp != null ? grp : (path === box ? groupIdx++ : null)
         var collapsed = !!WB.collapsedFolder[f]
-        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '" data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
+        rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
           + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="folder-ctx" data-wb-folder="' + escA(f) + '" aria-haspopup="menu"'
             + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
           + folderMenuHtml(f) + '</li>')
-        if (!collapsed) walk(f, depth + 1)
+        if (!collapsed) walk(f, depth + 1, g)
       })
-      ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth)) })
-      ;(plainFiles[path] || []).forEach(function (f) { rows.push(plainFileRowHtml(f, depth)) })
+      ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth, grp)) })
+      ;(plainFiles[path] || []).forEach(function (f) { rows.push(plainFileRowHtml(f, depth, grp)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favs = items.filter(function (it) { return it.pinned_at != null })
@@ -1642,7 +1649,7 @@
       if (!favs.length) rows.push('<li class="wb-fav-empty wb-depth-2"><span class="wb-muted">' + esc(t('workbench.fav.empty')) + '</span></li>')
       favs.forEach(function (it) { rows.push(itemRowHtml(it, 2)) })
     }
-    walk(box, 1)
+    walk(box, 1, null)
     return rows
   }
 

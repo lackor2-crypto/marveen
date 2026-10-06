@@ -1663,3 +1663,7 @@ main.projects-active.wb-sh-locked { overflow-y: hidden; }
 .wb-fr-panel .wb-depth-6 { margin-left: 46px; }
 .wb-fr-panel .wb-depth-7 { margin-left: 54px; }
 .wb-fr-panel .wb-depth-8 { margin-left: 62px; }
+
+/* Boss, TG 2531: everything that belongs to one top-level group shares a base tint (like the Intezo tree). */
+.wb-grp { background: color-mix(in srgb, var(--wb-grp) 14%, transparent); border-left: 3px solid var(--wb-grp); border-radius: 4px; }
+.wb-grp.wb-item-active, .wb-grp:has(> .wb-item-active) { background: color-mix(in srgb, var(--wb-grp) 26%, transparent); }
