@@ -1600,6 +1600,7 @@
     Object.keys(place).forEach(function (id) { if (place[id] !== box && !have[place[id]]) place[id] = box })
     var kids = {}
     shown.forEach(function (f) { var d = dirOf(f); if (d !== box && !have[d]) d = box; (kids[d] = kids[d] || []).push(f) })
+    Object.keys(kids).forEach(function (k) { kids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
     var byPlace = {}
     items.forEach(function (it) { (byPlace[place[it.id]] = byPlace[place[it.id]] || []).push(it) })
     // A star no longer floats an item to the top of its own folder (Boss, TG 2173): inside a folder the
@@ -1613,6 +1614,7 @@
       ;(kids[path] || []).forEach(function (k) { n += count(k) })
       return n
     }
+    function nameCmp(a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) }
     var rows = []
     // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
     var groupIdx = 0
@@ -1633,8 +1635,11 @@
           + folderMenuHtml(f) + '</li>')
         if (!collapsed) walk(f, depth + 1, g)
       })
-      ;(byPlace[path] || []).forEach(function (it) { rows.push(itemRowHtml(it, depth, grp)) })
-      ;(plainFiles[path] || []).forEach(function (f) { rows.push(plainFileRowHtml(f, depth, grp)) })
+      // TG 2642: same order as the Explorer: folders first, then the files (work items and plain files mixed) by name.
+      var mixed = (byPlace[path] || []).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
+        .concat((plainFiles[path] || []).map(function (f) { return { name: String(f.name || ''), f: f } }))
+      mixed.sort(nameCmp)
+      mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favs = items.filter(function (it) { return it.pinned_at != null })
@@ -1648,6 +1653,7 @@
     ;(out.folders || []).forEach(function (f) { outHave[f] = true })
     var outKids = {}
     ;(out.folders || []).forEach(function (f) { var d = dirOf(f); if (d && !outHave[d]) d = ''; (outKids[d] = outKids[d] || []).push(f) })
+    Object.keys(outKids).forEach(function (k) { outKids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
     function outCount(path) {
       var n = ((out.files || {})[path] || []).length
       ;(outKids[path] || []).forEach(function (k) { n += outCount(k) })
@@ -1667,6 +1673,7 @@
       if (!favs.length) rows.push('<li class="wb-fav-empty wb-depth-2"><span class="wb-muted">' + esc(t('workbench.fav.empty')) + '</span></li>')
       favs.forEach(function (it) { rows.push(itemRowHtml(it, 2)) })
     }
+    function renderBox() {
     if (box) {
       var boxShut = !!WB.collapsedFolder[box]
       rows.push('<li class="wb-folder-row wb-depth-1" data-wb-drop-folder="' + escA(box) + '" data-wb-drop-box="1">'
@@ -1677,9 +1684,15 @@
     } else {
       walk(box, 1, null)
     }
+    }
     // The rest of the project folder, read-only here: open a file, use its menu, or find it in the Explorer.
     function walkOutside(path, depth) {
-      ;(outKids[path] || []).forEach(function (f) {
+      var kidsHere = (outKids[path] || []).map(function (f) { return { name: baseOf(f), f: f } })
+      if (path === '' && box) kidsHere.push({ name: baseOf(box), box: true })
+      kidsHere.sort(nameCmp)
+      kidsHere.forEach(function (e) {
+        if (e.box) { renderBox(); return }
+        var f = e.f
         var shut = !!WB.collapsedFolder[f]
         rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '">'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
@@ -1687,9 +1700,10 @@
           + (shut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + outCount(f) + ')</span></button></li>')
         if (!shut) walkOutside(f, depth + 1)
       })
-      ;((out.files || {})[path] || []).forEach(function (f) { rows.push(plainFileRowHtml(f, depth, null)) })
+      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(plainFileRowHtml(f, depth, null)) })
     }
-    walkOutside('', 1)
+    if (box) walkOutside('', 1)
+    else { walk(box, 1, null); walkOutside('', 1) }
     return rows
   }
 
