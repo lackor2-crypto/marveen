@@ -102,8 +102,8 @@ export const TOOLS: ToolDef[] = [
   // (a szerkezet) is megjonnek vele.
   {
     name: 'workItem.fromTemplate',
-    description: 'Create a new work item from a ready template, with its structure already filled in (the owner then replaces the [bracketed] places). Templates: offer (a quote for a client), letter, social_post (Facebook/Instagram post), invitation. Use it when the owner asks for one of these.',
-    input: 'template: offer, letter, social_post or invitation; title (optional): the name of the new work item, default is the template name',
+    description: 'Create a new work item from a ready template, with its structure already filled in (the owner then replaces the [bracketed] places). Templates: offer (a quote for a client), letter, social_post (Facebook/Instagram/LinkedIn post: it opens on a canvas of the platform size with the text already on it -- edit it with the canvas tools), invitation. Use it when the owner asks for one of these.',
+    input: 'template: offer, letter, social_post or invitation; title (optional): the name of the new work item, default is the template name; platform (optional, social_post only): facebook_post (default), instagram_square or linkedin_post',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
