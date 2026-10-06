@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-10-06.1'
+$script:WorkerVersion = '2026-10-06.2'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -166,6 +166,7 @@ function Invoke-Bridge {
     Write-Log ('401 a hidtol ({0}) -- a token-fajlban mas token all, egyszer ujraprobalom azzal' -f $Path) 'WARN'
     $answer = Send-BridgeRequest -Path $Path -Method $Method -Body $Body -RawBody $RawBody -Bearer $fresh
     $script:BridgeToken = $fresh
+    if ($script:Life) { $script:Life.Token = $fresh }
     Write-Log 'az uj tokennel sikerult, mostantol azt hasznalom' 'WARN'
     return $answer
   }
@@ -295,10 +296,74 @@ $script:StallTakeoverSec = 180
 # Sign of life on disk, at most every 10 s: "<pid> <utc ticks>". The next
 # scheduled start reads it to tell a busy worker from a stuck one.
 function Update-Alive {
+  # The main thread's own progress, read by the life thread below.
+  if ($script:Life) { $script:Life.MainBeat = (Get-Date).ToUniversalTime().Ticks }
   if (((Get-Date) - $script:LastAlive).TotalSeconds -lt 10) { return }
   $script:LastAlive = Get-Date
   try { [System.IO.File]::WriteAllText($script:AliveFile, ('{0} {1}' -f $PID, (Get-Date).ToUniversalTime().Ticks)) } catch { }
   Start-ChatLane
+}
+
+# THE LIFE THREAD (TG 2468, measured 2026-10-06).
+#
+# The sign of life above is written by the MAIN thread, which also runs the
+# discovery pass: one cold pass reads hundreds of files over \\wsl.localhost and
+# measured 40 s to more than 4.5 minutes while a development task loaded WSL.
+# During that time nothing wrote the sign of life, and nothing sent the task's
+# heartbeat either. The next scheduled start (every 5 minutes) then read "no
+# sign of life for 180+ s", declared this worker stuck and killed it -- the
+# worker.log holds 123 such take-overs since 2026-10-02 (56 on 10-05). When one
+# hit a running task, the task lost its heartbeat, the lease ran out, and every
+# kill burnt one of the task's 3 attempts: "worker stopped responding after 3
+# attempt(s)" for a task that was doing fine.
+#
+# A separate runspace now writes the sign of life and the running task's
+# heartbeat on its own clock. It stops vouching when the main thread itself has
+# made no progress for $script:LifeMaxStallSec, so a really hung worker is still
+# taken over -- only a SLOW one is no longer mistaken for a dead one.
+$script:Life = $null
+$script:LifeMaxStallSec = 1200
+function Start-LifeThread {
+  if ($DiscoverOnly) { return }
+  $script:Life = [hashtable]::Synchronized(@{
+    Stop = $false; TaskId = $null; RunSession = $null; Token = $script:BridgeToken
+    MainBeat = (Get-Date).ToUniversalTime().Ticks
+  })
+  $rs = [runspacefactory]::CreateRunspace()
+  $rs.Open()
+  $ps = [powershell]::Create()
+  $ps.Runspace = $rs
+  [void]$ps.AddScript({
+    param($L, $AliveFile, $BaseUrl, $HostId, $MaxStall)
+    $lastBeat = [DateTime]::MinValue
+    while (-not $L.Stop) {
+      try {
+        $nowTicks = (Get-Date).ToUniversalTime().Ticks
+        $stall = ([TimeSpan]::new($nowTicks - [int64]$L.MainBeat)).TotalSeconds
+        if ($stall -lt $MaxStall) {
+          [System.IO.File]::WriteAllText($AliveFile, ('{0} {1}' -f $PID, $nowTicks))
+          $tid = $L.TaskId
+          if ($tid -and ((Get-Date) - $lastBeat).TotalSeconds -ge 45) {
+            $lastBeat = Get-Date
+            $body = @{ host = $HostId; runSessionId = $L.RunSession } | ConvertTo-Json -Compress
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+            # Plain HttpWebRequest, not Invoke-RestMethod: the 401 re-read lives in Invoke-Bridge (main thread);
+            # a rejected token here just means this beat is skipped and the main thread's own beat carries on.
+            $req = [System.Net.HttpWebRequest]::Create($BaseUrl.TrimEnd('/') + '/api/code/tasks/' + $tid + '/heartbeat')
+            $req.Method = 'POST'
+            $req.Timeout = 20000
+            $req.ContentType = 'application/json; charset=utf-8'
+            $req.Headers.Add('Authorization', 'Bearer ' + $L.Token)
+            $req.ContentLength = $bytes.Length
+            $st = $req.GetRequestStream(); $st.Write($bytes, 0, $bytes.Length); $st.Close()
+            $resp = $req.GetResponse(); $resp.Close()
+          }
+        }
+      } catch { }
+      Start-Sleep -Seconds 5
+    }
+  }).AddArgument($script:Life).AddArgument($script:AliveFile).AddArgument($BaseUrl).AddArgument($script:HostId).AddArgument($script:LifeMaxStallSec)
+  [void]$ps.BeginInvoke()
 }
 
 # #433: the main worker keeps the chat lane running. Called from Update-Alive,
@@ -1201,6 +1266,7 @@ function Invoke-CodeTask {
   $lastProbe = [datetime]::MinValue
   $lastActivity = $started
   $script:InTaskId = $Task.id
+  if ($script:Life) { $script:Life.RunSession = $runSessionId; $script:Life.TaskId = $Task.id }
   $script:InTaskRunSessionId = $runSessionId
   while (-not $proc.HasExited) {
     Start-Sleep -Seconds 2
@@ -1248,6 +1314,7 @@ function Invoke-CodeTask {
     }
   }
   $script:InTaskId = $null
+  if ($script:Life) { $script:Life.TaskId = $null }
   $script:InTaskRunSessionId = $null
   try { $proc.WaitForExit(15000) | Out-Null } catch { }
 
@@ -1544,6 +1611,7 @@ if (-not $script:HaveMutex) {
   if (-not $script:HaveMutex) { return }
 }
 $script:RestartAfterExit = $false
+Start-LifeThread
 try {
   Start-WorkerLoop
 } finally {
