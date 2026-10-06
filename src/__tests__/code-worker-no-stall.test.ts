@@ -50,6 +50,31 @@ describe('code worker #425', () => {
     expect(ps).toMatch(/CommandLine -match 'marvin-code-worker'/)
   })
 
+  // Mert eset 2026-10-06: `Get-Content -Tail 60` 189 mp egy 2,1 MB-os
+  // transcripten (ket 611 KB-os base64-kepes sor a farkaban); a felderites
+  // ennyi ideig nem irt eletjelet, a kovetkezo utemezett inditas feladat
+  // kozben leallitotta a workert, es minden feladat 3x futott, majd hibaval zarult.
+  it('a usage-olvasas korlatos, a fajl vegere ugrik, nem Get-Content -Tail', () => {
+    const fn = ps.slice(ps.indexOf('function Read-TranscriptUsage'), ps.indexOf('function Get-WslRunningPids'))
+    const code = fn.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    expect(code).not.toMatch(/Get-Content[^\n]*-Tail/)
+    expect(fn).toMatch(/\$tailBytes = \d+/)
+    expect(fn).toContain("Seek(-$tailBytes, 'End')")
+    expect(fn).toContain('$lines.RemoveAt(0)')
+  })
+
+  it('a felderites fajlonkent is frissiti az eletjelet, nem csak mappankent', () => {
+    const local = ps.slice(ps.indexOf('function Get-LocalSessions'), ps.indexOf('function Publish-Sessions'))
+    const perFile = local.slice(local.indexOf('foreach ($f in $files) {'))
+    expect(perFile.indexOf('Test-WorkWaiting')).toBeGreaterThan(-1)
+    expect(perFile.indexOf('Test-WorkWaiting')).toBeLessThan(perFile.indexOf("Read-TranscriptInfo -Path"))
+  })
+
+  it('az onfrissites a felderites ELOTT fut, igy egy beragado felderites nem akadalyozza', () => {
+    expect(loop.indexOf('Invoke-SelfUpdate -Expected')).toBeGreaterThan(-1)
+    expect(loop.indexOf('Invoke-SelfUpdate -Expected')).toBeLessThan(loop.indexOf('Publish-Sessions'))
+  })
+
   it('a verzio emelve, hogy a futo worker magat frissitse', () => {
     expect(ps).not.toContain("$script:WorkerVersion = '2026-09-19.1'")
   })

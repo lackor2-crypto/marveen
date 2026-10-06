@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-30.1'
+$script:WorkerVersion = '2026-10-06.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -455,8 +455,8 @@ function Read-TranscriptInfo {
 # LAST one -- the same arithmetic Claude Code puts in its own status line.
 #
 # Read from the END: the first 200 lines say what the conversation was at
-# birth, not what it is now. `Get-Content -Tail` seeks backwards, so this stays
-# cheap on a 7 MB transcript.
+# birth, not what it is now. One bounded read of the last 1 MB, NOT
+# `Get-Content -Tail` -- see the measurement inside the function.
 #
 # Returns $null, never 0, when there is nothing to measure (no assistant reply
 # yet, unreadable file, older format). A live conversation never has 0 tokens,
@@ -483,8 +483,32 @@ function Read-TranscriptUsage {
   # `$null` = nem talaltunk idobelyeget = NEM LATUNK ODA; a szerver ilyenkor
   # esik vissza az mtime-ra, es ezt kulon agon kezeli.
   $out = @{ tokens = $null; model = $null; lastActivity = $null }
+  # NEM `Get-Content -Tail`. Merve 2026-10-06 a tulaj gepen: egy 2,1 MB-os
+  # transcriptnel, aminek az utolso 60 soraban ket 611 KB-os sor allt (base64
+  # kepernyokep egy tool-eredmenyben), a PowerShell 5.1 `Get-Content -Tail 60`
+  # 189 MASODPERCIG tartott; ugyanennek a fajlnak a vegere ugro olvasas 0,35
+  # mp. Az az egy fajl tobb mint $StallTakeoverSec-ig megallitotta a
+  # felderitest, a kovetkezo utemezett inditas FELADAT KOZBEN leallitotta a
+  # workert, es 2026-10-04 ota minden feladat haromszor futott le, majd
+  # "worker stopped responding after 3 attempt(s)"-szel vegzodott.
+  #
+  # Ezert: EGY korlatos olvasas a fajl vegerol, ugyanugy, mint a
+  # Read-TranscriptInfo farok-olvasasa. Az ablaknal hosszabb sor kiesik (nem
+  # olvassuk vegig) -- a keresett, legfrissebb assistant-sor UTANA all.
+  $lines = New-Object System.Collections.Generic.List[string]
   try {
-    $lines = @(Get-Content -LiteralPath $Path -Tail $TailLines -Encoding UTF8 -ErrorAction Stop)
+    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+      $tailBytes = 1048576
+      if ($fs.Length -gt $tailBytes) { [void]$fs.Seek(-$tailBytes, 'End') }
+      $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+      # Az elso sor a seek utan csonka lehet -- eldobjuk.
+      if ($fs.Length -gt $tailBytes) { [void]$sr.ReadLine() }
+      while ($null -ne ($line = $sr.ReadLine())) {
+        $lines.Add($line)
+        if ($lines.Count -gt $TailLines) { $lines.RemoveAt(0) }
+      }
+    } finally { $fs.Dispose() }
   } catch {
     return $out
   }
@@ -789,6 +813,9 @@ function Get-LocalSessions {
     $isPrimary = $true
     $kept = 0
     foreach ($f in $files) {
+      # Fajlonkent is, nem csak mappankent: egy mappa akar 10+ transcriptje egy
+      # hosszu menetben fut le, es kozben az eletjel nem avulhat el (2026-10-06).
+      Test-WorkWaiting
       # Age cap applies to the EXTRA tabs only: the primary session stays
       # reportable however old it is, or a project untouched for a month would
       # drop out of /projects and every task addressed to it would fail.
@@ -1394,6 +1421,20 @@ function Start-WorkerLoop {
           return
         }
       }
+      # A csere pillanata: van kapcsolat a hiddal, es epp NINCS futo feladat.
+      # Ha most cserelunk, semmi nem szakad felbe. Ha van task, a frissites var
+      # a kovetkezo ures korre -- harom masodperc mulva ujra itt vagyunk.
+      #
+      # A FELDERITES ELOTT, nem utana. Ketszer mert eset (2026-09-13 es
+      # 2026-10-04..06): egy beragado felderites miatt a worker SOHA nem jutott
+      # el a sajat frissiteseig, tehat a hibat javito uj szkriptet sem tudta
+      # letolteni.
+      if ($claim -and -not $claim.task) {
+        if (Invoke-SelfUpdate -Expected ([string]$claim.expectedWorkerVersion)) {
+          $script:RestartAfterExit = $true
+          return
+        }
+      }
       if ((-not $script:IsChatLane) -and (-not $claim -or -not $claim.task) -and ((Get-Date) - $lastDiscover).TotalSeconds -ge $DiscoverSeconds) {
         $lastDiscover = Get-Date
         $script:LastDiscoveryClaim = Get-Date
@@ -1403,15 +1444,6 @@ function Start-WorkerLoop {
           if ([string]$_.Exception.Message -ne $script:DiscoveryInterrupted) { throw }
           Write-Log 'discovery paused: a task arrived, running it first'
           continue
-        }
-      }
-      # A csere pillanata: van kapcsolat a hiddal, es epp NINCS futo feladat.
-      # Ha most cserelunk, semmi nem szakad felbe. Ha van task, a frissites var
-      # a kovetkezo ures korre -- harom masodperc mulva ujra itt vagyunk.
-      if ($claim -and -not $claim.task) {
-        if (Invoke-SelfUpdate -Expected ([string]$claim.expectedWorkerVersion)) {
-          $script:RestartAfterExit = $true
-          return
         }
       }
       # A TALLOZAS A GYORS CSATORNAN.
