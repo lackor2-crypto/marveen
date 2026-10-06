@@ -49,7 +49,7 @@ import {
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
-import { writeProjectFile, writeProjectNote, projectFileTarget, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import {
   hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
@@ -66,11 +66,11 @@ import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '.
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
-import { realpathSync } from 'node:fs'
+import { realpathSync, readFileSync } from 'node:fs'
 import { dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
-import { workItemTypeForFile, titleFromFileName } from '../../workbench-upload.js'
+import { workItemTypeForFile, titleFromFileName, isPresentationFile } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
 import { docEditExt, docToEditableHtml, htmlToDocBytes, htmlToExportBytes, DOC_EXPORT_FORMATS, pdfToDocxBytes, looksLikePdf, DOC_EDIT_HTML_MAX } from '../../workbench-docedit.js'
 import { saveEditedImage } from '../../workbench-image-edit.js'
@@ -78,7 +78,8 @@ import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbenc
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, listProjectMedia } from '../../workbench-video-render.js'
-import { deckStore, applyDeckOps, deckSummary, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
+import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
+import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
 import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../../workbench-video-autosub.js'
 import { opsLabel } from '../../workbench-draft-store.js'
@@ -99,7 +100,7 @@ import { planHandoff, buildHandoffZip, isHandoffScope, HANDOFF_MAX_BYTES } from 
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
 import { buildExportPage, requestSendApproval, sendNow, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
 import {
-  convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
+  convertOfficeToPdf, sofficeConvertFile, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
 import {
   describeAllCapabilities, describeCapability, getCapability,
@@ -651,6 +652,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   convert_missing_source: {
     hu: 'A dokumentum fájlja nincs meg a lemezen, ezért nincs miből előnézetet készíteni. Nézd meg a projekt mappáját.',
     en: 'The document file is missing from the disk, so there is nothing to build a preview from. Check the project folder.',
+  },
+  pptx_unreadable: {
+    hu: 'Ezt a prezentációt nem tudtam beolvasni: a fájl sérült vagy nem valódi PowerPoint-fájl. Nyisd meg a saját gépeden, és mentsd el újra .pptx-ként.',
+    en: 'This presentation could not be read: the file is damaged or is not a real PowerPoint file. Open it on your own computer and save it again as .pptx.',
+  },
+  pptx_empty: {
+    hu: 'Ebben a prezentációban nincs egyetlen dia sem, ezért nincs mit beolvasni.',
+    en: 'This presentation has no slides, so there is nothing to read.',
+  },
+  deck_invalid: {
+    hu: 'A prezentáció beolvasása közben olyan tartalom jött elő, amit nem tudtam diává alakítani. A pontos ok a részleteknél olvasható.',
+    en: 'The presentation held content that could not be turned into slides. The exact reason is in the details.',
+  },
+  import_needs_office: {
+    hu: 'Ezt a régi formátumú prezentációt (.ppt, .odp) a LibreOffice tudná átalakítani, de az ezen a gépen nincs telepítve. A .pptx fájl enélkül is beolvasható: mentsd el a prezentációt .pptx-ként, és tedd azt munkadarabba. Telepítés: Linuxon „sudo apt install libreoffice-impress”, Windowson/macOS-en a libreoffice.org oldaláról.',
+    en: 'This older presentation format (.ppt, .odp) could be converted by LibreOffice, but it is not installed on this machine. A .pptx file can be read without it: save the presentation as .pptx and add that. Install: on Linux "sudo apt install libreoffice-impress", on Windows/macOS from libreoffice.org.',
+  },
+  import_convert_failed: {
+    hu: 'A régi formátumú prezentációt nem sikerült .pptx-re átalakítani. A pontos hibaüzenet a részleteknél olvasható.',
+    en: 'The older presentation could not be converted to .pptx. The exact error is in the details.',
   },
   convert_not_installed: {
     hu: 'Az előnézethez a LibreOffice kellene, és az ezen a gépen nincs telepítve. Enélkül minden más működik: a dokumentum letölthető és szerkeszthető, csak itt, beágyazva nem látszik. Ha szeretnéd: Linuxon „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető -- utána nyomj a „Mégegyszer” gombra. Ha máshova telepítetted, add meg az útvonalát a MARVEEN_SOFFICE beállításban.',
@@ -1838,6 +1859,39 @@ function docPdfFail(res: RouteContext['res'], raw: string, lang: 'hu' | 'en', de
   return true
 }
 
+type PresentationImport =
+  | { ok: true; deck: DeckDoc; sub: string; stem: string; warnings: string[] }
+  | { ok: false; status: number; code: string; detail: string | null }
+
+/** #501: read a .pptx (or convert .ppt/.odp with LibreOffice first) into a deck. `rel` is the file's path in the Depot. */
+async function importPresentationFile(project: NonNullable<ReturnType<typeof getProject>>, rel: string): Promise<PresentationImport> {
+  const abs = resolveLifePath(rel)
+  if (!abs) return { ok: false, status: 404, code: 'convert_missing_source', detail: null }
+  let bytes: Buffer
+  try { bytes = readFileSync(abs) } catch (e) { return { ok: false, status: 404, code: 'convert_missing_source', detail: e instanceof Error ? e.message : String(e) } }
+  if (!/\.pptx$/i.test(rel)) {
+    const c = await sofficeConvertFile(abs, 'pptx', { outExt: 'pptx' })
+    if (!c.ok) {
+      const notInstalled = c.code === 'not_installed' || c.code === 'check_failed'
+      return { ok: false, status: notInstalled ? 501 : 500, code: notInstalled ? 'import_needs_office' : 'import_convert_failed', detail: c.detail }
+    }
+    bytes = c.data
+  }
+  const base = project.folder_path ? project.folder_path.replace(/\\/g, '/').replace(/\/+$/, '') : ''
+  const dirRel = rel.replace(/\\/g, '/').replace(/\/[^/]*$/, '')
+  const sub = base && dirRel.startsWith(base + '/') ? dirRel.slice(base.length + 1) : base && dirRel === base ? '' : ''
+  const stem = titleFromFileName(rel)
+  // The pictures of the slides go into their own folder next to the file, so the project folder stays tidy.
+  const folder = makeProjectFolder(project, sub, `${safeFileName(stem) || 'presentation'} images`)
+  const imgSub = folder.ok ? folder.sub : sub
+  const out = importPptx(bytes, (name, data) => {
+    const w = writeProjectFile(project, imgSub, name, data)
+    return w.ok ? w.rel : null
+  })
+  if (!out.ok) return { ok: false, status: out.code === 'deck_invalid' ? 500 : 400, code: out.code, detail: out.detail }
+  return { ok: true, deck: out.deck, sub, stem, warnings: out.warnings }
+}
+
 function msg(code: string, lang: 'hu' | 'en'): string {
   const m = MESSAGES[code]
   return m ? m[lang] : code
@@ -2822,22 +2876,39 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       containerFolder = mf.folder
       folderExisted = !mf.created
     }
+    // #501: a PowerPoint file becomes a real presentation (its slides read into cards), not an empty document.
+    // The file itself stays untouched; the slides go into a .deck.json next to it. Done BEFORE the item exists, so a
+    // file that cannot be read leaves nothing behind.
+    const srcRel = typeof body.source_path === 'string' ? body.source_path.trim() : ''
+    let presentation: { deck: DeckDoc; sub: string; stem: string; warnings: string[] } | null = null
+    if (srcRel && isPresentationFile(srcRel)) {
+      const imp = await importPresentationFile(project, srcRel)
+      if (!imp.ok) return failDetail(res, imp.status, imp.code, lang, imp.detail)
+      presentation = imp
+      body.type = 'presentation'
+    }
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
       title: body.title,
       status: body.status,
-      source_path: body.source_path,
+      source_path: presentation ? undefined : body.source_path,
       prompt: body.prompt,
       container_folder: containerFolder,
       created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
+    if (presentation) {
+      const saved = deckStore().save(r.item, presentation.deck, { createdBy: actor(ctx), sub: presentation.sub, name: presentation.stem })
+      if (!saved.ok) return failDetail(res, 500, 'deck_invalid', lang, saved.detail || saved.code)
+      r.item = saved.item
+      r.version = saved.version
+    }
     if (ownFolder) assignWorkItemFolder(r.item.id, ownFolder)
     // #471: a deck made from an existing folder of pictures owns that folder, so renaming one renames the other.
     // A folder another item already owns stays a plain container (adoptExistingFolder refuses it).
     if (!ownFolder && body.adopt_folder === true && (containerFolder || existingFolder) && (containerFolder || existingFolder)!.includes('/')) adoptExistingFolder(r.item, project, (containerFolder || existingFolder)!)
-    json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted }, 201)
+    json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted, import_warnings: presentation ? presentation.warnings : [] }, 201)
     return true
   }
 
