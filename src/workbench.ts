@@ -314,6 +314,15 @@ export function listDeletedWorkItems(projectId: string): WorkItemRow[] {
     .all(pid) as WorkItemRow[]
 }
 
+/** #501: a document item made from a presentation file before the importer existed becomes a presentation item.
+ *  Only a `document` changes; anything else is left alone. */
+export function setWorkItemTypePresentation(id: string): WorkItemRow | undefined {
+  const item = getWorkItem(id)
+  if (!item) return undefined
+  if (item.type === 'document') getDb().prepare("UPDATE work_items SET type = 'presentation' WHERE id = ?").run(item.id)
+  return getWorkItem(item.id)
+}
+
 /**
  * Lomtarba teves / visszaallitas (#443). Csak a `deleted_at` valtozik: a
  * verziok, reszek es fajlok erintetlenek, ezert a visszaallitas veszteseg

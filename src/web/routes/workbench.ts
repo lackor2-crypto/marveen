@@ -44,7 +44,7 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -3856,6 +3856,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // felulet archivalt projektben nem kinal szerkesztest, a mentes ugyis ott
   // akad meg. Csak a MOSTANI verzio: regit szerkeszteni = a kozben keszult
   // verziok csendes elvesztese lenne.
+  // #501: an old document item whose file is a presentation (made before the importer) turns into a real,
+  // editable presentation: slides read from the file, the item becomes a presentation. The file stays untouched.
+  if (segs.length === 2 && segs[1] === 'to-presentation' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (item.type !== 'document' || !item.source_path || !isPresentationFile(item.source_path)) return fail(res, 400, 'convert_unsupported', lang)
+    const imp = await importPresentationFile(owner, item.source_path)
+    if (!imp.ok) return failDetail(res, imp.status, imp.code, lang, imp.detail)
+    const typed = setWorkItemTypePresentation(item.id)
+    if (!typed) return fail(res, 404, 'not_found', lang)
+    const saved = deckStore().save(typed, imp.deck, { createdBy: actor(ctx), sub: imp.sub, name: imp.stem })
+    if (!saved.ok) return failDetail(res, 500, 'deck_invalid', lang, saved.detail || saved.code)
+    json(res, { ok: true, item: getWorkItem(item.id) ?? saved.item, import_warnings: imp.warnings })
+    return true
+  }
+
   if (segs.length === 2 && segs[1] === 'doc-html' && method === 'GET') {
     const p = buildPreview(item.id)
     const ext = p.kind === 'office' && p.rel ? docEditExt(p.name || p.rel) : null

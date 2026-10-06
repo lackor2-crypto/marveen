@@ -5627,6 +5627,8 @@ window._i18n.en = {
   "workbench.file.open_menu": "Open",
   "workbench.file.download": "Download",
   "workbench.import.partial": "The presentation was read in. Some items (charts, tables or vector pictures) cannot be carried over and will not show on the slides.",
+  "workbench.import.reading": "Reading the slides of the presentation...",
+  "workbench.import.failed": "The presentation could not be read:",
   "workbench.file.already_item": "This file already is a work item: \"{title}\", opened it.",
   "workbench.file.copy_only": "You cannot move it, only copy it, because the file \"{name}\" belongs to the work item. You can use the copy in another work item.",
   "workbench.file.copy_only_many": "{n} of the ticked files cannot be moved, only copied, because they belong to their work item. You can use the copies in another work item.",

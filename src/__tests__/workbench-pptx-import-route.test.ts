@@ -55,3 +55,20 @@ describe('pptx -> presentation work item', () => {
     expect(list.body.items).toHaveLength(0)
   })
 })
+
+describe('old document item from a pptx (made before the importer)', () => {
+  it('to-presentation turns it into a presentation with the slides read in', async () => {
+    const r0 = applyDeckOps(emptyDeck(), [{ op: 'addSlide', layout: 'title', title: 'Old', body: 'x' }])
+    if (!r0.ok) throw new Error(r0.detail)
+    writeFileSync(join(dir, 'Projektek', 'Prezi', 'regi.pptx'), buildDeckPptx(r0.doc, () => null).bytes)
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'document', title: 'regi', status: 'draft' })
+    const id = c.body.item.id as string
+    const { getDb } = await import('../db.js')
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run('Projektek/Prezi/regi.pptx', id)
+    const r = await callWorkbench('/api/workbench/items/' + id + '/to-presentation', 'POST', {})
+    expect(r.status).toBe(200)
+    expect(r.body.item.type).toBe('presentation')
+    const d = await callWorkbench('/api/workbench/items/' + id + '/deck', 'GET')
+    expect(d.body.deck.slides).toHaveLength(1)
+  })
+})

@@ -5705,6 +5705,8 @@ window._i18n.hu = {
   "workbench.file.open_menu": "Megnyitás",
   "workbench.file.download": "Letöltés",
   "workbench.import.partial": "A prezentáció beolvasva. Néhány elem (diagram, táblázat vagy vektorkép) nem vihető át, azokat a diákon nem fogod látni.",
+  "workbench.import.reading": "A prezentáció diáinak beolvasása...",
+  "workbench.import.failed": "A prezentációt nem sikerült beolvasni:",
   "workbench.file.already_item": "Ez a fájl már munkadarab: „{title}”, megnyitottam.",
   "workbench.file.copy_only": "Áthelyezni nem tudod, csak másolni, mert a(z) „{name}” fájl a munkadarabhoz tartozik. Másolatként más munkadarabnál felhasználhatod.",
   "workbench.file.copy_only_many": "A kijelöltek közül {n} fájlt nem tudod áthelyezni, csak másolni, mert a munkadarabjukhoz tartoznak. Másolatként más munkadarabnál felhasználhatod őket.",
