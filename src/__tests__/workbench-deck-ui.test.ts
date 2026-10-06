@@ -75,6 +75,16 @@ describe('slide editor (phase 5, presentation)', () => {
     expect(Array.isArray(body.ops[0].ops)).toBe(true)
   })
 
+  it('the slide pictures get a new address after every edit, so the browser cannot keep the old picture', async () => {
+    const h = await open()
+    const stamp = () => (/\/deck\/slide\/d1\.svg\?[^"]*?v=([^"&]+)/.exec(h.html()) || [])[1]
+    const before = stamp()
+    expect(before).toBeTruthy()
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'center', 'data-wb-obj': 'title' })
+    await vi.waitFor(() => expect(opsCall(h)).toHaveLength(1))
+    await vi.waitFor(() => expect(stamp()).not.toBe(before))
+  })
+
   it('moving a slide, duplicating, resizing the deck send the deck operations', async () => {
     const h = await open()
     h.click({ 'data-wb-act': 'deck-down', 'data-wb-id': 'd1' })
