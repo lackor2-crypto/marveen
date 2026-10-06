@@ -1510,7 +1510,12 @@
       // #483 "every usable function": Open and Download act on this one file, so they are not offered for a multi-selection.
       + (many ? '' : '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open_menu')) + '</a>'
         + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
-      + '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>'
+      + (isImageFile({ name: baseOf(rel) }) && !many
+        // #501 (TG 2569): a picture can become several kinds of work item, so ask which one instead of guessing.
+        ? ['image', 'presentation', 'graphic'].map(function (k) {
+          return '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-kind="' + k + '" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item_' + k)) + '</button>'
+        }).join('')
+        : '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>')
       // ONE folder list (Boss TG 2514: the second one looked like a duplicate): a work item's own file is copied (it stays with its item), any other file is moved.
       + moveFilesSelectHtml(many ? '*' : rel, !many && isItemFile(rel))
       + (many ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
@@ -1789,14 +1794,17 @@
 
   /** A loose file -> a work item of its natural type (the file stays where it is; the item points at it).
    *  A file that already is an item's source opens that item instead of making a second one. */
-  function fileToItem(rel) {
+  function fileToItem(rel, kind) {
     if (WB.fileBusy || archived() || !rel) return
     var have = (WB.items || []).filter(function (it) { return it.source_path === rel })[0]
     if (have) { selectItem(have.id); window.showToast(t('workbench.file.already_item', { title: have.title })); return }
     var name = baseOf(rel)
     var ext = (name.match(/\.([^.]+)$/) || [])[1] || ''
     ext = ext.toLowerCase()
-    var type = isImageFile({ name: name }) ? (ext === 'svg' ? 'graphic' : 'image')
+    var isImg = isImageFile({ name: name })
+    var title0 = name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || name
+    if (isImg && kind === 'presentation') { WB.ctx = null; buildDeck(title0, [{ rel: rel, name: name }], { folder: dirOf(rel) }); return }
+    var type = isImg && kind === 'graphic' ? 'graphic' : isImg && kind === 'image' ? 'image' : isImg ? (ext === 'svg' ? 'graphic' : 'image')
       : /^(md|txt)$/.test(ext) ? 'note'
       : /^(pptx|ppt|pps|ppsx|odp)$/.test(ext) ? 'presentation'
       : /^(mp4|mov|webm|mkv|avi|m4v)$/.test(ext) ? 'video' : 'document'
@@ -1809,8 +1817,11 @@
       window.showToast(t('workbench.new.created', { title: r.data.item.title }))
       // #501: a presentation read from a file: tell what could not come along (charts, tables, vector pictures).
       if (r.data.import_warnings && r.data.import_warnings.length) window.showToast(t('workbench.import.partial'))
-      selectItem(r.data.item.id)
-      load(pid)
+      var made = r.data.item
+      var seed = isImg && kind === 'graphic'
+        ? api('PUT', '/api/workbench/items/' + encodeURIComponent(made.id) + '/canvas', { canvas: { width: 1080, height: 1080, background: '#ffffff', objects: [{ type: 'image', src: rel, x: 0, y: 0, width: 1080, height: 1080, fit: 'contain', alt: name }] } }).then(function () {}, function () {})
+        : Promise.resolve()
+      seed.then(function () { selectItem(made.id); load(pid) })
     })
   }
 
@@ -13241,7 +13252,7 @@
     else if (a === 'tr-swap') trSwap()
     else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
     else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
-    else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'))
+    else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'), act.getAttribute('data-wb-kind') || '')
     else if (a === 'file-delete') deleteFiles(act.getAttribute('data-wb-rel'))
     else if (a === 'file-rename') renameFile(act.getAttribute('data-wb-rel'))
     else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'), !!(e && e.shiftKey))

@@ -41,3 +41,12 @@ describe('Workbench tree root + layers (TG 2399/2402)', () => {
     expect(js).toContain('isImageFile({ name: a.name })')
   })
 })
+
+describe('#501 picture to work item asks which kind (TG 2569)', () => {
+  const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+  it('offers picture / presentation / graphic for an image file', () => {
+    expect(js).toContain("['image', 'presentation', 'graphic']")
+    expect(js).toContain("act.getAttribute('data-wb-kind')")
+    expect(js).toContain("kind === 'presentation'")
+  })
+})
