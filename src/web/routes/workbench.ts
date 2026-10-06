@@ -1881,11 +1881,9 @@ async function importPresentationFile(project: NonNullable<ReturnType<typeof get
   const dirRel = rel.replace(/\\/g, '/').replace(/\/[^/]*$/, '')
   const sub = base && dirRel.startsWith(base + '/') ? dirRel.slice(base.length + 1) : base && dirRel === base ? '' : ''
   const stem = titleFromFileName(rel)
-  // The pictures of the slides go into their own folder next to the file, so the project folder stays tidy.
-  const folder = makeProjectFolder(project, sub, `${safeFileName(stem) || 'presentation'} images`)
-  const imgSub = folder.ok ? folder.sub : sub
+  // Boss TG 2516: an import never makes a folder. The pictures of the slides sit next to the file (named after it).
   const out = importPptx(bytes, (name, data) => {
-    const w = writeProjectFile(project, imgSub, name, data)
+    const w = writeProjectFile(project, sub, `${safeFileName(stem) || 'presentation'} - ${name}`, data)
     return w.ok ? w.rel : null
   })
   if (!out.ok) return { ok: false, status: out.code === 'deck_invalid' ? 500 : 400, code: out.code, detail: out.detail }

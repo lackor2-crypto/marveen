@@ -1592,9 +1592,9 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
   if (!c.ok) return c
   const own = workItemFolder(item.id)
   if (!own) {
+    // Boss TG 2516: moving never makes a folder. The item has none of its own, so it only gets its new place.
     getDb().prepare('UPDATE work_items SET container_folder = ?, updated_at = ? WHERE id = ?').run(c.folder, Math.floor(Date.now() / 1000), item.id)
-    const f = ensureWorkItemFolder(getWorkItem(item.id) as WorkItemRow)
-    return f.ok ? { ok: true, moved: true, folder: f.folder } : { ok: false, code: 'move_failed', message: 'message' in f ? f.message : undefined }
+    return { ok: true, moved: true, folder: c.folder }
   }
   const curParent = own.includes('/') ? own.slice(0, own.lastIndexOf('/')) : ''
   // The target is the PARENT of the item's own folder: the owner wants the item directly in that group
