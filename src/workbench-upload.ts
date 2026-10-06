@@ -13,6 +13,12 @@ import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
 import { TITLE_MAX, type WorkItemType } from './workbench.js'
 
+/** Prezentacio-fajlok (#501): ezekbol a Munkapad valodi diasort (Prezentacio) csinal, nem ures dokumentumot. */
+export const PRESENTATION_EXTS = ['pptx', 'ppt', 'pps', 'ppsx', 'odp'] as const
+export function isPresentationFile(name: string): boolean {
+  return (PRESENTATION_EXTS as readonly string[]).includes(extname(String(name || '')).slice(1).toLowerCase())
+}
+
 /** A fajl -> munkadarab-fajta. Ami nem kep/video/grafika/jegyzet, az dokumentum
  *  (a dokumentum-elonezet mindent kezel, amit lehet, es megmondja, ha nem). */
 export function workItemTypeForFile(name: string, mime?: string | null): WorkItemType {
@@ -20,6 +26,7 @@ export function workItemTypeForFile(name: string, mime?: string | null): WorkIte
   if (isCanvasFile(n)) return 'graphic'
   const ext = extname(n).slice(1).toLowerCase()
   if (ext === 'svg') return 'graphic'
+  if (isPresentationFile(n)) return 'presentation'
   if (ext === 'md' || ext === 'txt') return 'note'
   const k = fileKind(n).kind
   if (k === 'image') return 'image'

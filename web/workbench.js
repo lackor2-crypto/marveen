@@ -1794,6 +1794,7 @@
     ext = ext.toLowerCase()
     var type = isImageFile({ name: name }) ? (ext === 'svg' ? 'graphic' : 'image')
       : /^(md|txt)$/.test(ext) ? 'note'
+      : /^(pptx|ppt|pps|ppsx|odp)$/.test(ext) ? 'presentation'
       : /^(mp4|mov|webm|mkv|avi|m4v)$/.test(ext) ? 'video' : 'document'
     var pid = WB.projectId
     WB.fileBusy = true
@@ -1802,9 +1803,24 @@
       if (WB.projectId !== pid) return
       if (!r.ok) { render(); window.showToast(r.message); return }
       window.showToast(t('workbench.new.created', { title: r.data.item.title }))
+      // #501: a presentation read from a file: tell what could not come along (charts, tables, vector pictures).
+      if (r.data.import_warnings && r.data.import_warnings.length) window.showToast(t('workbench.import.partial'))
       selectItem(r.data.item.id)
       load(pid)
     })
+  }
+
+  /** #501: a Word-type file opens in the editable editor by itself (once per item and version), like a table
+   *  opens as a grid. Closing the editor does not reopen it. */
+  function docAutoOpen() {
+    var p = WB.preview
+    if (!p || !WB.selectedId || WB.docEdit || WB.pdfEdit || WB.textEdit) return
+    if (!docEditableExt(p) || !docCanEdit(p)) return
+    var key = WB.selectedId + ':' + (p.version_id || '')
+    if (WB.docAutoKey === key) return
+    WB.docAutoKey = key
+    var id = WB.selectedId
+    setTimeout(function () { if (WB.selectedId === id && !WB.docEdit) openDocEdit() }, 0)
   }
 
   /** #475: the ticked files that still exist, split into pictures (file-name order) and the rest. */
@@ -11664,6 +11680,16 @@
 
   function docTabsHtml() {
     var o = WB.detail && WB.detail.outline
+    // #501: a document that is a FILE (Word, PDF, ...) shows the file itself, in its editor, not the empty drafting tabs.
+    if (!o && WB.detail && WB.detail.item && WB.detail.item.source_path && WB.preview) {
+      var dit = WB.detail.item
+      if (frIsTable(dit)) {
+        frTableEnsure(dit)
+        return '<div class="wb-sh-doc-body">' + (WB.table && WB.table.itemId === dit.id ? tableHtml() : '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>') + '</div>'
+      }
+      docAutoOpen()
+      return '<div class="wb-sh-doc-body">' + previewHtml() + '</div>'
+    }
     var ro = archived()
     var tab = WB.shDocTab
     var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview'], ['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps']]
