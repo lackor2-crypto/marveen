@@ -34,6 +34,7 @@ import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel, trashLife, copyLife } from './life-explorer.js'
+import { mountsInside, resolveMount } from './life-mounts.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -303,14 +304,27 @@ export function listProjectOutside(project: ProjectRow, box: string | null): Pro
       ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: `${t.dirRel}${rel ? '/' + rel : ''}/${f.name}` })
       fileTotal++
     }
-    const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
-      .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
-    for (const d of dirs) {
-      const childRel = rel ? `${rel}/${d.name}` : d.name
+    const dirNames = new Set(entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules').map((d) => d.name))
+    // TG 2656: a folder that only SHOWS something else (a mount, e.g. Fejlesztés/GIT_REPOS -> the real repos) is empty on
+    // the disk; the Explorer follows the mount, so this tree does too.
+    const here = `${t.dirRel}${rel ? '/' + rel : ''}`
+    const mountedHere = new Set<string>()
+    try {
+      for (const m of mountsInside(here)) { const n = m.rel.slice(m.rel.lastIndexOf('/') + 1); dirNames.add(n); mountedHere.add(n) }
+    } catch { /* a broken mount list must not hide the rest */ }
+    const dirs = [...dirNames].sort((a, b) => a.localeCompare(b, 'hu'))
+    for (const name of dirs) {
+      const childRel = rel ? `${rel}/${name}` : name
       if (childRel === box) continue // the work items box has its own, richer listing
       if (folders.length >= WORK_FOLDER_MAX) { truncated = true; return }
-      const childAbs = join(abs, d.name)
-      if (existsSync(join(childAbs, '.git'))) continue
+      let childAbs = join(abs, name)
+      const childLife = `${here}/${name}`
+      let mounted = mountedHere.has(name)
+      if (!mounted) { try { mounted = !!resolveMount(childLife) } catch { mounted = false } }
+      if (mounted) {
+        const real = resolveLifePath(childLife)
+        if (real) childAbs = real
+      } else if (existsSync(join(childAbs, '.git'))) continue
       folders.push(childRel)
       walk(childAbs, childRel, depth + 1)
     }
