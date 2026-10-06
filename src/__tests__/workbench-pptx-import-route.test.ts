@@ -4,10 +4,12 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
-import { createProject, updateProject } from '../projects.js'
+import { createProject, updateProject, getProject } from '../projects.js'
 import { applyDeckOps, emptyDeck } from '../workbench-deck.js'
 import { buildDeckPptx } from '../workbench-deck-pptx.js'
 import { workItemTypeForFile } from '../workbench-upload.js'
+import { getWorkItem } from '../workbench.js'
+import { moveWorkItemToFolder, makeWorkFolder } from '../workbench-assets.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
 let pid = ''
@@ -43,6 +45,16 @@ describe('pptx -> presentation work item', () => {
     expect(slides).toHaveLength(2)
     expect(slides[0]!.canvas.objects.map((o) => o.text)).toContain('Hello')
     expect(readdirSync(join(dir, 'Projektek', 'Prezi'))).toContain('bemutato.pptx')
+    // Boss TG 2516: importing makes no folder, and moving the item makes none either.
+    const dirsIn = () => readdirSync(join(dir, 'Projektek', 'Prezi'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
+    expect(dirsIn()).toEqual([])
+    const item = getWorkItem(r.body.item.id)!
+    const g = makeWorkFolder(getProject(pid)!, '', 'Csoport')
+    if (!g.ok) throw new Error('group')
+    const walkDirs = (d: string): string[] => readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).flatMap((e) => [join(d, e.name), ...walkDirs(join(d, e.name))])
+    const before = walkDirs(join(dir, 'Projektek', 'Prezi')).length
+    expect(moveWorkItemToFolder(item, g.folder)).toMatchObject({ ok: true, moved: true })
+    expect(walkDirs(join(dir, 'Projektek', 'Prezi')).length).toBe(before)
   })
 
   it('an unreadable .pptx says so in a human sentence and makes no item', async () => {
