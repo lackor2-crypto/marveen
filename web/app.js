@@ -39740,6 +39740,9 @@ function _intezoAbandonedBox(st) {
   const txt = document.getElementById('intezoAbandonedText')
   const list = document.getElementById('intezoAbandonedList')
   if (!box) return
+  // Boss TG 2520: the "bring them back" box no longer shows under the guide.
+  box.hidden = true
+  return
   const rels = (st && st.abandoned) || []
   if (!rels.length) { box.hidden = true; return }
   box.hidden = false
@@ -39755,6 +39758,8 @@ async function _intezoLegacyMediaBox() {
   const box = document.getElementById('intezoLegacyMediaBox')
   if (!box) return
   box.hidden = true
+  // Boss TG 2520: the "move under Media" box no longer shows under the guide.
+  return
   try {
     const lv = await _intezoGet('/api/life/legacy-media')
     const movable = (lv && lv.movable) || 0
@@ -40710,15 +40715,7 @@ function _intezoTreeRender() {
       void _intezoTreeSync()
     })
   })
-  // Bring the current folder into view -- inside the tree box only, never the page.
-  const curRow = box.querySelector('.intezo-tree-row.is-current')
-  if (curRow && box._intezoTreeScrolledFor !== _intezoPath) {
-    box._intezoTreeScrolledFor = _intezoPath
-    const top = curRow.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop
-    if (top < box.scrollTop || top > box.scrollTop + box.clientHeight - curRow.offsetHeight) {
-      box.scrollTop = Math.max(0, top - box.clientHeight / 3)
-    }
-  }
+  // Boss TG 2520: the tree never scrolls by itself (it started in the middle and jumped on every action): it keeps its place.
 }
 
 /**

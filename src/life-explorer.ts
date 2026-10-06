@@ -1227,18 +1227,15 @@ function nameClash(dir: string, name: string, isDir: boolean, lang: string, from
   }
 }
 
-/** #492: is this directory a live work item's own folder (work_items.folder under its project folder)? */
-function isWorkItemFolderAbs(dirAbs: string): boolean {
+/** Boss TG 2522: a work item's file moves like any other; the work items that name it follow it to the new place. */
+function followMovedItemFileRefs(oldRel: string, newRel: string): void {
   try {
-    const rows = getDb().prepare(
-      'SELECT w.folder AS folder, p.folder_path AS base FROM work_items w JOIN projects p ON p.id = w.project_id WHERE w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != \'\' AND p.folder_path IS NOT NULL',
-    ).all() as { folder: string; base: string }[]
-    const want = resolve(dirAbs)
-    return rows.some((r) => {
-      const abs = resolveLifePath(`${r.base.replace(/\/+$/, '')}/${r.folder}`)
-      return !!abs && resolve(abs) === want
-    })
-  } catch { return false }
+    const db = getDb()
+    db.prepare('UPDATE work_items SET source_path = ? WHERE source_path = ?').run(newRel, oldRel)
+    db.prepare('UPDATE work_item_versions SET source_path = ? WHERE source_path = ?').run(newRel, oldRel)
+    db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE asset_path = ?').run(newRel, oldRel)
+    db.prepare('UPDATE work_item_assets SET path = ? WHERE path = ?').run(newRel, oldRel)
+  } catch { /* a table that does not exist yet has nothing to follow */ }
 }
 
 /**
@@ -1266,13 +1263,6 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opt
   try { toIsDir = statSync(toDir).isDirectory() } catch { toIsDir = false }
   if (!toIsDir) {
     return { ok: false, rel: '', code: 'no_target', message: T(lang, 'A célként megadott hely nem mappa.', 'The place you gave as the target is not a folder.') }
-  }
-  // #492: a file that belongs to a work item (it lives in the item's own folder, marked by .marveen-id)
-  // can be copied elsewhere but not moved out: the item would lose its asset.
-  if (statSafe(from)?.isFile() && resolve(dirname(from)) !== resolve(toDir) && isWorkItemFolderAbs(dirname(from))) {
-    return { ok: false, rel: '', code: 'work_item_file', message: T(lang,
-      'Áthelyezni nem tudod, csak másolni, mert ez a fájl a munkadarabhoz tartozik. Másolatként más munkadarabnál felhasználhatod.',
-      'You cannot move it, only copy it, because this file belongs to the work item. You can use the copy in another work item.') }
   }
   let name = basename(from)
   let target = join(toDir, name)
@@ -1319,6 +1309,7 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opt
   // A papir-nyilvantartas kovesse a fajlt, kulonben a fizikai peldany
   // informacioja a regi utvonalon maradna, vagyis a semmin.
   movePhysical(fromRel, newRel)
+  followMovedItemFileRefs(fromRel, newRel)
   moveDisplayLabels(fromRel, newRel)
   moveArchivedPrefix(fromRel, newRel)
   logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
