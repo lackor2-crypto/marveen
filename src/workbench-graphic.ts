@@ -57,6 +57,8 @@ export interface CanvasObjectCommon {
   /** Csoport neve (K-2.5): az azonos nevu elemek egyutt mozognak, masolodnak,
    *  torlodnek. Csak akkor all az adatban, ha van. */
   group?: string
+  /** Rejtett elem (Rétegek, szem ikon): nem rajzolodik ki es nem kerul exportba, de a lapon marad. Csak akkor all az adatban, ha igaz. */
+  hidden?: boolean
 }
 
 export interface CanvasText extends CanvasObjectCommon {
@@ -68,6 +70,8 @@ export interface CanvasText extends CanvasObjectCommon {
   align: CanvasAlign
   bold: boolean
   italic: boolean
+  /** A szovegdoboz hattere ('none' = atlatszo, ez az alap). */
+  background: string
 }
 
 export interface CanvasRect extends CanvasObjectCommon {
@@ -239,6 +243,7 @@ function parseObject(raw: unknown, index: number, taken: Set<string>): { ok: tru
   if (rotation) common.rotation = rotation
   const group = groupName(o['group'])
   if (group) common.group = group
+  if (o['hidden'] === true) common.hidden = true
 
   if (type === 'ellipse') {
     return {
@@ -270,6 +275,7 @@ function parseObject(raw: unknown, index: number, taken: Set<string>): { ok: tru
         color: safeColor(o['color'], '#111111'),
         align: pickEnum(o['align'], ['left', 'center', 'right'] as const, 'left'),
         bold: o['bold'] === true, italic: o['italic'] === true,
+        background: safeColor(o['background'], 'none'),
       },
     }
   }
@@ -957,6 +963,7 @@ export function renderCanvasSvg(doc: CanvasDoc, opts: RenderOptions = {}): strin
     parts.push(`<rect x="0" y="0" width="${doc.width}" height="${doc.height}" fill="${esc(doc.background)}"/>`)
   }
   for (const o of doc.objects) {
+    if (o.hidden) continue
     // A forgatott elem egy `<g transform>`-ba kerul, a doboz kozeppontja korul
     // -- ugyanugy, ahogy a felulet a dobozt forgatja.
     const rot = o.rotation ? `rotate(${o.rotation} ${o.x + o.width / 2} ${o.y + o.height / 2})` : ''
@@ -1009,6 +1016,9 @@ function renderObject(parts: string[], o: CanvasObject, opts: RenderOptions): vo
   const style = `font-family="${esc(FONT_STACK[o.font])}" font-size="${o.fontSize}" fill="${esc(o.color)}"`
     + (o.bold ? ' font-weight="bold"' : '') + (o.italic ? ' font-style="italic"' : '')
   parts.push(`<g${opacity}>`)
+  if (o.background && o.background !== 'none') {
+    parts.push(`<rect x="${o.x}" y="${o.y}" width="${o.width}" height="${o.height}" fill="${esc(o.background)}"/>`)
+  }
   for (const line of lines) {
     parts.push(`<text x="${tx}" y="${ty}" text-anchor="${anchor}" ${style}>${esc(line)}</text>`)
     ty += lineHeight

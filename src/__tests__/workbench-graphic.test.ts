@@ -459,3 +459,48 @@ describe('uj muveletek es elemfajtak (K-2.5, K-2.6)', () => {
     }
   })
 })
+
+describe('layers: hidden elements and a text background (Boss, TG 2597)', () => {
+  const base = () => {
+    const p = parseCanvas({
+      width: 400, height: 300, background: '#ffffff',
+      objects: [
+        { id: 'a', type: 'rect', x: 0, y: 0, width: 50, height: 50, fill: '#ff0000' },
+        { id: 'b', type: 'text', x: 10, y: 10, width: 200, height: 40, text: 'Hello', color: '#00ff00' },
+      ],
+    })
+    if (!p.ok) throw new Error(p.detail)
+    return p.doc
+  }
+  const upd = (doc: CanvasDoc, id: string, patch: Record<string, unknown>) => {
+    const r = applyCanvasOps(doc, [{ op: 'update', id, patch }])
+    if (!r.ok) throw new Error(r.detail)
+    return r.doc
+  }
+
+  it('a hidden element stays in the data but is not drawn; showing it again brings it back', () => {
+    const hid = upd(base(), 'a', { hidden: true })
+    expect(hid.objects.find((o) => o.id === 'a')?.hidden).toBe(true)
+    expect(renderCanvasSvg(hid)).not.toContain('#ff0000')
+    const shown = upd(hid, 'a', { hidden: false })
+    expect(shown.objects.find((o) => o.id === 'a')?.hidden).toBeUndefined()
+    expect(renderCanvasSvg(shown)).toContain('#ff0000')
+  })
+
+  it('a text background is drawn behind the text; none (the default) draws nothing', () => {
+    expect(renderCanvasSvg(base())).not.toContain('<rect x="10" y="10"')
+    const bg = upd(base(), 'b', { background: '#123456' })
+    expect(renderCanvasSvg(bg)).toContain('<rect x="10" y="10" width="200" height="40" fill="#123456"/>')
+    const off = upd(bg, 'b', { background: 'none' })
+    expect(renderCanvasSvg(off)).not.toContain('#123456')
+  })
+
+  it('order up / down moves one step', () => {
+    const r = applyCanvasOps(base(), [{ op: 'order', id: 'a', to: 'up' }])
+    if (!r.ok) throw new Error(r.detail)
+    expect(r.doc.objects.map((o) => o.id)).toEqual(['b', 'a'])
+    const r2 = applyCanvasOps(r.doc, [{ op: 'order', id: 'a', to: 'down' }])
+    if (!r2.ok) throw new Error(r2.detail)
+    expect(r2.doc.objects.map((o) => o.id)).toEqual(['a', 'b'])
+  })
+})

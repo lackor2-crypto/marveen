@@ -168,7 +168,7 @@ const GROUP = '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p
 
 function slideXml(s: DeckSlide, c: SlideCtx): string {
   const bg = hex(s.canvas.background) ?? 'FFFFFF'
-  for (const o of s.canvas.objects) addObject(c, o)
+  for (const o of s.canvas.objects) if (!o.hidden) addObject(c, o)
   return `${XML}<p:sld ${NS}><p:cSld name="${esc(s.id)}"><p:bg><p:bgPr><a:solidFill><a:srgbClr val="${bg}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree>${GROUP}${c.shapes.join('')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
 }
 

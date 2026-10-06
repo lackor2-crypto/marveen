@@ -11937,6 +11937,71 @@
     }).join('') + '</div>'
   }
 
+  /** #rgb / #rrggbb -> #rrggbb for <input type=color>; anything else (none, empty) -> the fallback. */
+  function colorValue(v, fallback) {
+    var m = /^#([0-9a-f]{3})$/i.exec(String(v || ''))
+    if (m) return '#' + m[1].split('').map(function (c) { return c + c }).join('')
+    return /^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : fallback
+  }
+
+  /** The Format box of the Layers panel (Boss, TG 2597): everything about the selected element in one place --
+   *  colours, size, font, transparent background, see-through. Each field sends one `update` on change. */
+  function frFormatHtml() {
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || archived()) return ''
+    var dis = WB.canvasBusy ? ' disabled' : ''
+    var fld = function (label, inner) { return '<label class="wb-fr-fmt-row"><span>' + esc(t(label)) + '</span>' + inner + '</label>' }
+    var color = function (prop, val, fb) {
+      return '<input type="color" data-wb-act="fr-fmt" data-wb-prop="' + prop + '" data-wb-kind="str" value="' + escA(colorValue(val, fb)) + '"' + dis + '>'
+    }
+    var num = function (prop, val, min, max) {
+      return '<input type="number" data-wb-act="fr-fmt" data-wb-prop="' + prop + '" data-wb-kind="num" min="' + min + '" max="' + max + '" value="' + escA(Math.round(val)) + '"' + dis + '>'
+    }
+    var none = function (prop, val) {
+      return '<input type="checkbox" data-wb-act="fr-fmt" data-wb-prop="' + prop + '" data-wb-kind="none"' + (!val || val === 'none' ? ' checked' : '') + dis + '>'
+    }
+    var op = function (a, label) {
+      return '<button type="button" class="wb-mini-btn" data-wb-act="fr-fmt-op" data-wb-arg="' + a + '"' + dis + '>' + label + '</button>'
+    }
+    var rows = ''
+    if (o.type === 'text') {
+      rows += fld('workbench.fr.fmt.text_color', color('color', o.color, '#111111'))
+        + fld('workbench.fr.fmt.size', num('fontSize', o.fontSize, 4, 1200))
+        + fld('workbench.fr.fmt.font', '<select data-wb-act="fr-fmt" data-wb-prop="font" data-wb-kind="str"' + dis + '>'
+          + ['sans', 'serif', 'mono'].map(function (f) { return '<option value="' + f + '"' + (o.font === f ? ' selected' : '') + '>' + esc(t('workbench.fr.fmt.font_' + f)) + '</option>' }).join('') + '</select>')
+        + '<div class="wb-fr-fmt-btns">' + op('bold', '<b>B</b>') + op('italic', '<i>I</i>') + op('alignleft', '⬅') + op('aligncenter', '↔') + op('alignright', '➡') + '</div>'
+        + fld('workbench.fr.fmt.background', color('background', o.background, '#ffffff'))
+        + fld('workbench.fr.fmt.transparent', none('background', o.background))
+    } else if (o.type === 'rect' || o.type === 'ellipse') {
+      rows += fld('workbench.fr.fmt.fill', color('fill', o.fill, '#dddddd')) + fld('workbench.fr.fmt.transparent', none('fill', o.fill))
+      if (o.type === 'ellipse') rows += fld('workbench.fr.fmt.stroke', color('stroke', o.stroke, '#111111')) + fld('workbench.fr.fmt.stroke_w', num('strokeWidth', o.strokeWidth || 0, 0, 400))
+      else rows += fld('workbench.fr.fmt.radius', num('radius', o.radius || 0, 0, 2000))
+    } else if (o.type === 'line') {
+      rows += fld('workbench.fr.fmt.stroke', color('stroke', o.stroke, '#111111')) + fld('workbench.fr.fmt.stroke_w', num('strokeWidth', o.strokeWidth || 4, 1, 400))
+    } else {
+      rows += fld('workbench.fr.fmt.fit', '<select data-wb-act="fr-fmt" data-wb-prop="fit" data-wb-kind="str"' + dis + '>'
+        + ['contain', 'cover'].map(function (f) { return '<option value="' + f + '"' + (o.fit === f ? ' selected' : '') + '>' + esc(t('workbench.fr.fmt.fit_' + f)) + '</option>' }).join('') + '</select>')
+    }
+    rows += fld('workbench.fr.fmt.opacity', '<input type="range" min="0" max="100" step="5" data-wb-act="fr-fmt" data-wb-prop="opacity" data-wb-kind="pct" value="' + Math.round((o.opacity == null ? 1 : o.opacity) * 100) + '"' + dis + '>')
+    return '<div class="wb-fr-fmt"><h3 class="wb-fr-fmt-title">' + esc(t('workbench.fr.fmt.title', { name: canvasObjectLabel(o) })) + '</h3>' + rows + '</div>'
+  }
+
+  /** One Format field changed: send it as an `update` of the selected element. */
+  function frFormatChange(el) {
+    var o = WB.canvasSel ? canvasObject(WB.canvasSel) : null
+    if (!o || archived() || WB.canvasBusy) return
+    var prop = el.getAttribute('data-wb-prop')
+    var kind = el.getAttribute('data-wb-kind')
+    var val
+    if (kind === 'num') { val = Number(el.value); if (!isFinite(val)) return }
+    else if (kind === 'pct') val = Math.min(1, Math.max(0, Number(el.value) / 100))
+    else if (kind === 'none') val = el.checked ? 'none' : '#ffffff'
+    else val = el.value
+    var patch = {}
+    patch[prop] = val
+    canvasOps([{ op: 'update', id: o.id, patch: patch }])
+  }
+
   /** The Layers panel (Boss, TG 2402): every element of the page in one column, top layer first. A click
    *  selects it (it shows in another colour on the page, even when it is hidden behind something); the
    *  tick marks several, which then move together. */
@@ -11947,17 +12012,24 @@
     var rows = objs.map(function (o) {
       var on = WB.canvasSel === o.id
       var lab = canvasObjectLabel(o)
-      return '<li class="wb-fr-layer' + (on ? ' wb-fr-layer-on' : '') + (WB.canvasPick[o.id] ? ' wb-fr-layer-picked' : '') + '">'
+      var vis = !o.hidden
+      var mv = function (to, label) {
+        return '<button type="button" class="wb-fr-layer-mv" data-wb-act="fr-layer-order" data-wb-obj="' + escA(o.id) + '" data-wb-arg="' + to + '" title="' + escA(t('workbench.fr.layer.' + to)) + '" aria-label="' + escA(t('workbench.fr.layer.' + to)) + '"' + (WB.canvasBusy ? ' disabled' : '') + '>' + label + '</button>'
+      }
+      return '<li class="wb-fr-layer' + (on ? ' wb-fr-layer-on' : '') + (WB.canvasPick[o.id] ? ' wb-fr-layer-picked' : '') + (vis ? '' : ' wb-fr-layer-off') + '">'
+        + (archived() ? '' : '<button type="button" class="wb-fr-layer-eye" data-wb-act="fr-layer-vis" data-wb-obj="' + escA(o.id) + '" aria-pressed="' + vis + '" title="' + escA(t(vis ? 'workbench.fr.layer.hide' : 'workbench.fr.layer.show')) + '" aria-label="' + escA(t(vis ? 'workbench.fr.layer.hide' : 'workbench.fr.layer.show')) + '"' + (WB.canvasBusy ? ' disabled' : '') + '>' + (vis ? '\ud83d\udc41' : '\u2715') + '</button>')
         + (archived() ? '' : '<input type="checkbox" data-wb-act="canvas-pick" data-wb-obj="' + escA(o.id) + '"' + (WB.canvasPick[o.id] ? ' checked' : '')
           + ' aria-label="' + escA(t('workbench.canvas.pick_aria', { name: lab })) + '">')
         + '<button type="button" class="wb-fr-layer-btn" data-wb-act="fr-layer-sel" data-wb-obj="' + escA(o.id) + '" aria-pressed="' + on + '" title="' + escA(lab) + '">'
-        + '<span class="wb-pill">' + esc(t('workbench.canvas.type_' + o.type)) + '</span> <span class="wb-fr-layer-name">' + esc(lab) + '</span></button></li>'
+        + '<span class="wb-pill">' + esc(t('workbench.canvas.type_' + o.type)) + '</span> <span class="wb-fr-layer-name">' + esc(lab) + '</span></button>'
+        + (archived() ? '' : '<span class="wb-fr-layer-mvs">' + mv('front', '\u21e7') + mv('up', '\u2191') + mv('down', '\u2193') + mv('back', '\u21e9') + '</span>') + '</li>'
     }).join('')
     return '<p class="wb-hint">' + esc(t('workbench.fr.layers_hint')) + '</p>'
       + (archived() ? '' : '<p><button type="button" class="wb-mini-btn" data-wb-act="fr-layer-all">' + esc(t('workbench.fr.layers_all')) + '</button> '
         + (picked ? '<button type="button" class="wb-mini-btn" data-wb-act="canvas-unpick">' + esc(t('workbench.canvas.unpick')) + '</button>' : '') + '</p>')
       + '<ul class="wb-fr-layers">' + rows + '</ul>'
       + (archived() || !picked ? '' : canvasPickBarHtml())
+      + frFormatHtml()
   }
 
   function frPanelBodyHtml() {
@@ -13098,6 +13170,14 @@
     else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
     else if (a === 'fr-add-text') frAddText(act.getAttribute('data-wb-arg'))
     else if (a === 'fr-layer-sel') { WB.canvasSel = act.getAttribute('data-wb-obj'); WB.canvasPick = {}; render() }
+    else if (a === 'fr-layer-vis') {
+      var lo = canvasObject(act.getAttribute('data-wb-obj'))
+      if (lo && !archived() && !WB.canvasBusy) canvasOps([{ op: 'update', id: lo.id, patch: { hidden: !lo.hidden } }])
+    }
+    else if (a === 'fr-layer-order') {
+      if (!archived() && !WB.canvasBusy) canvasOps([{ op: 'order', id: act.getAttribute('data-wb-obj'), to: act.getAttribute('data-wb-arg') }])
+    }
+    else if (a === 'fr-fmt-op') canvasFloatOp(act.getAttribute('data-wb-arg'))
     else if (a === 'fr-layer-all') { WB.canvasPick = {}; canvasObjects().forEach(function (o) { WB.canvasPick[o.id] = true }); render() }
     else if (a === 'fr-add-image') frAddImage(act.getAttribute('data-wb-src'), null, null)
     else if (a === 'back') closeWorkbench()
@@ -13795,6 +13875,13 @@
     if (!boxEl) return
     var o = canvasObject(boxEl.getAttribute('data-wb-box'))
     if (o && o.type === 'text') { e.preventDefault(); canvasEditText(o.id) }
+  })
+
+  // A Rétegek fül Formázás doboza: egy mező = egy `update`.
+  document.addEventListener('change', function (e) {
+    var el = e.target
+    if (!el || typeof el.getAttribute !== 'function' || el.getAttribute('data-wb-act') !== 'fr-fmt') return
+    frFormatChange(el)
   })
 
   // A szinvalasztok (szoveg-szin, kitoltes): a valasztas elengedesekor megy a muvelet.
