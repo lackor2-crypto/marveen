@@ -251,7 +251,7 @@ export function workFolderTarget(project: ProjectRow, folder: unknown): { ok: tr
   return { ok: true, folder: raw }
 }
 
-export const WORK_FOLDER_MAX_DEPTH = 8
+export const WORK_FOLDER_MAX_DEPTH = 64
 export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link. */
@@ -319,8 +319,17 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
     parentRel = box.folder
   } else {
     const c = workFolderTarget(project, raw)
-    if (!c.ok) return c
-    parentRel = c.folder
+    if (c.ok) parentRel = c.folder
+    else {
+      // Boss (TG 2447): a picked parent that vanished from the disk (deleted outside Marvin) is made again, at any depth,
+      // instead of "the given subfolder cannot be used".
+      const box = findWorkItemsBox(project)
+      const clean = raw.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      if (c.code !== 'bad_folder' || !box || !clean.startsWith(box + '/') || clean.split('/').some((x) => x === '..' || x === '.')) return c
+      const re = makeProjectFolder(project, box, clean.slice(box.length + 1))
+      if (!re.ok) return re
+      parentRel = re.sub
+    }
   }
   const r = makeProjectFolder(project, parentRel, name)
   if (!r.ok) return r
@@ -1860,10 +1869,10 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
       const here = dirs.find((d) => d.rel === r.path)
       if (here && !here.id) { stamp(here, r.id); continue } // the marker was deleted, the folder is still there
       if (here) continue
-      // Never forget it on our own: the disk may just be unmounted (a detached /mnt/f); #461 rebuilds from it.
-      // Reported once per process; the owner confirms, and only then forgetLostFolder() drops the row.
-      const key = `${project.id}:${r.id}`
-      if (!lostReported.has(key)) { lostReported.add(key); out.lost.push(r.path) }
+      // Boss (TG 2450): a folder he deleted must simply be gone from the registry, no questions asked.
+      // The box itself was reached above (`t.ok`), so the disk is mounted and a missing folder is a deleted one;
+      // forgetLostFolder() still refuses when the folder is on disk after all (e.g. beyond the walk cap).
+      forgetLostFolder(project, r.path)
     }
     // more than one candidate and none at the known path: ambiguous, left for the next look
   }
