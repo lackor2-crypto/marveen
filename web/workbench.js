@@ -1999,7 +1999,8 @@
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button></div>'
       + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
       + body
-      + (compact ? '' : archived()
+      // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
+      + (compact ? (archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')) : archived()
         ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : folderStepHtml() + (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
           + templatesHtml()
