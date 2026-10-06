@@ -1876,11 +1876,30 @@
     if (el) WB.selName = el.value
   }
 
-  function toggleFileSel(rel) {
+  /** Tick a file; with Shift held, tick every visible file between the last clicked one and this one (like the Explorer). */
+  function toggleFileSel(rel, shift) {
     if (!rel) return
     keepSelName()
     WB.fileSel = WB.fileSel || {}
-    if (WB.fileSel[rel]) delete WB.fileSel[rel]; else WB.fileSel[rel] = true
+    var on = !WB.fileSel[rel]
+    var last = WB.fileSelLast
+    if (shift && last && last !== rel) {
+      var order = []
+      var boxes = document.querySelectorAll('.wb-file-sel[data-wb-rel]')
+      for (var i = 0; i < boxes.length; i++) order.push(boxes[i].getAttribute('data-wb-rel'))
+      var a = order.indexOf(last)
+      var b = order.indexOf(rel)
+      if (a >= 0 && b >= 0) {
+        var lo = Math.min(a, b)
+        var hi = Math.max(a, b)
+        for (var k = lo; k <= hi; k++) { if (on) WB.fileSel[order[k]] = true; else delete WB.fileSel[order[k]] }
+        WB.fileSelLast = rel
+        render()
+        return
+      }
+    }
+    if (on) WB.fileSel[rel] = true; else delete WB.fileSel[rel]
+    WB.fileSelLast = rel
     render()
   }
 
@@ -11984,7 +12003,7 @@
             ? '<h4 class="wb-fr-sub">' + esc(t('workbench.deck.notes')) + '</h4><textarea class="wb-input" id="wbDeckNotes" rows="4" placeholder="' + escA(t('workbench.deck.notes_placeholder')) + '">' + esc(deckCurrentSlide().notes || '') + '</textarea>'
               + '<p>' + deckBtn('deck-notes', t('workbench.deck.notes_save')) + '</p>' : '')
       case 'projects':
-        return (archived() ? '' : '<button type="button" class="wb-fr-pbtn" data-wb-act="sh-new">' + esc(t('workbench.fr.new')) + '</button>') + itemsPanelHtml(true)
+        return itemsPanelHtml(true)
       default: return ''
     }
   }
@@ -13095,9 +13114,9 @@
     else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'))
     else if (a === 'file-delete') deleteFiles(act.getAttribute('data-wb-rel'))
     else if (a === 'file-rename') renameFile(act.getAttribute('data-wb-rel'))
-    else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'))
+    else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'), !!(e && e.shiftKey))
     else if (a === 'sel-to-deck') selectionToDeck()
-    else if (a === 'sel-clear') { WB.fileSel = {}; WB.selName = ''; render() }
+    else if (a === 'sel-clear') { WB.fileSel = {}; WB.fileSelLast = null; WB.selName = ''; render() }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }
