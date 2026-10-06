@@ -1644,3 +1644,22 @@ main.projects-active.wb-sh-locked { overflow-y: hidden; }
 .wb-fr-layer-on { background: rgba(255, 140, 0, .22); outline: 1px solid #ff8c00; }
 .wb-fr-layer-picked { background: rgba(0, 120, 255, .16); }
 .wb-can-box-sel { outline-color: #ff8c00; }
+
+/* Explorer-like left tree (Boss, TG 2465): the project is the root, rows are compact with small type and a thin
+   guide line per level, like a file manager. Later rules win over the roomier ones above. */
+.wb-folder-row .wb-folder-toggle { font-size: 0.78rem; font-weight: 500; padding: 1px 2px; line-height: 1.3; }
+.wb-root-row .wb-folder-toggle { font-size: 0.82rem; font-weight: 700; }
+.wb-fav-row .wb-folder-toggle { font-size: 0.78rem; }
+.wb-fr-panel .wb-item-row .wb-item, .wb-sh-tech .wb-item-row .wb-item { font-size: 0.72rem; line-height: 1.2; padding: 1px 6px; }
+.wb-fr-panel .wb-item-row .wb-muted, .wb-fr-panel .wb-folder-row .wb-muted { font-size: 0.68rem; }
+.wb-fr-panel .wb-folder-row { margin-top: 0; }
+.wb-fr-panel .wb-folder-row, .wb-fr-panel .wb-item-row, .wb-fr-panel .wb-fav-empty { border-left: 1px solid color-mix(in srgb, currentColor 14%, transparent); padding-left: 4px; }
+.wb-fr-panel .wb-depth-0 { margin-left: 0; border-left: 0; padding-left: 0; }
+.wb-fr-panel .wb-depth-1 { margin-left: 6px; }
+.wb-fr-panel .wb-depth-2 { margin-left: 14px; }
+.wb-fr-panel .wb-depth-3 { margin-left: 22px; }
+.wb-fr-panel .wb-depth-4 { margin-left: 30px; }
+.wb-fr-panel .wb-depth-5 { margin-left: 38px; }
+.wb-fr-panel .wb-depth-6 { margin-left: 46px; }
+.wb-fr-panel .wb-depth-7 { margin-left: 54px; }
+.wb-fr-panel .wb-depth-8 { margin-left: 62px; }
