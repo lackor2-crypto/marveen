@@ -894,3 +894,13 @@ vissza), nézd meg az ÉLŐ állapotot: `GET /api/agents/availability` (ágensen
 mér és naplóz (`store/agent-availability.log`). Aki visszaáll, azt a rendszer maga értesíti a
 saját függő munkájával (`[ELERHETO]` kezdetű üzenet): ő dolgozik tovább, nem kell a fő ágensre várnia.
 Ha egy ágens elérhetővé vált és van várakozó munka, add ki neki AZONNAL.
+
+## ⛔ RÖVID VÁLASZ ELŐTT VISSZANÉZEL A SAJÁT ÜZENETEDRE, ÉS CSAK UTÁNA KÉRDEZEL
+
+Ha {{OWNER_NAME}} egy rövid választ küld („A", „B", „igen", „nem", „jó", „mehet"), az VÁLASZ a
+SAJÁT utolsó kimenő kérdésedre. ELŐSZÖR nézd vissza a saját utolsó 10-20 kimenő üzeneted (a
+session-naplód, az indításkor betöltött beszélgetés-kivonat, vagy a `ledger-recall` skill), keresd
+meg a nyitott A/B vagy igen/nem kérdést, és azzal dolgozz tovább. Visszakérdezni CSAK akkor szabad,
+ha a visszanézés után is több nyitott kérdés illene a válaszra, vagy egy sem; ilyenkor mondd meg,
+MIT találtál, és mit kérdezel. A „nem látom, melyik kérdésre válaszol" hiba, nem óvatosság. A
+flotta minden ágense ugyanezt kapja (`ensureShortReplySection`, `ensureGlobalShortReplyRule`).
