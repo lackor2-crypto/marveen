@@ -7998,9 +7998,60 @@
     return ((v && v.sections) || []).filter(function (s) { return s.state === 'untranslated' || s.state === 'stale' }).length
       + ((v && v.new_in_source) || []).length
   }
+  /** #501: the whole-document translation runs on the server; its progress and, if it stopped, the reason in words. */
+  function translateJobHtml(j) {
+    if (!j) return ''
+    if (j.running) {
+      if (WB.selectedId) pollTranslate(WB.selectedId)
+      return '<p class="wb-doclang-job" role="status">⏳ ' + esc(t('workbench.doclang.job_running', { done: j.done, total: j.total }))
+        + (j.current ? ' ' + esc(t('workbench.doclang.job_current', { title: j.current })) : '') + '</p>'
+    }
+    var out = ''
+    if (j.error) out += '<p class="wb-doc-low" role="alert">⚠ ' + esc(t('workbench.doclang.job_error', { message: j.error.message })) + '</p>'
+    if ((j.failed || []).length) {
+      out += '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.job_failed', { n: j.failed.length, list: j.failed.map(function (f) { return f.title }).join(', ') }))
+        + ' <span class="wb-muted">(' + esc(j.failed[0].detail || '') + ')</span></p>'
+    }
+    if (j.claims_not_carried) out += '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.job_claims', { n: j.claims_not_carried })) + '</p>'
+    if (j.glossary_issues) out += '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.job_glossary', { n: j.glossary_issues })) + '</p>'
+    return out
+  }
+
+  /** While a translation runs, the outline is re-read every few seconds (only for the item still open). */
+  function pollTranslate(id) {
+    if (WB.translatePoll) return
+    WB.translatePoll = setTimeout(function () {
+      WB.translatePoll = null
+      if (WB.selectedId !== id) return
+      api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline').then(function (r) {
+        if (!r.ok || WB.selectedId !== id || !WB.detail) return
+        var before = WB.detail.outline && WB.detail.outline.translate_job
+        WB.detail.outline = r.data.outline
+        var j = r.data.outline && r.data.outline.translate_job
+        if (before && before.running && j && !j.running && !j.error && !(j.failed || []).length) window.showToast(t('workbench.doclang.job_done', { n: j.done }))
+        render()
+      })
+    }, 2500)
+  }
+
+  /** "Fordítás": the server translates every untranslated and stale section of this version, titles too (Boss TG 2766). */
+  function translateVariantNow(id) {
+    if (!id || archived()) return
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translate', {}).then(function (r) {
+      if (!r.ok) {
+        window.showToast(r.message)
+        if (r.data && r.data.outline && WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+        return
+      }
+      if (r.data.started) window.showToast(t('workbench.doclang.started'))
+      if (WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+    })
+  }
+
   function langHeadHtml(o, ro) {
     var v = o.variant
     if (v) {
+      var jobRunning = !!(o.translate_job && o.translate_job.running)
       var pending = variantPending(v)
       var removed = (v.sections || []).filter(function (s) { return s.state === 'source_removed' }).length
       return '<div class="wb-doclang"><h4>' + esc(t('workbench.doclang.variant_title', { lang: docLangName(v.lang) })) + '</h4>'
@@ -8010,9 +8061,9 @@
         + (removed ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.removed_in_source', { n: removed })) + '</p>' : '')
         + '<p class="wb-outline-tools">'
         + (v.source_title ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="outline-lang-open" data-wb-item="' + escA(v.source_item_id) + '">' + esc(t('workbench.doclang.open_source')) + '</button> ' : '')
-        + (!ro && pending && v.source_title ? '<button type="button" class="wb-btn" data-wb-act="outline-lang-translate-all" title="' + escA(t('workbench.doclang.translate_all_hint')) + '">' + esc(t('workbench.doclang.translate_all', { n: pending })) + '</button>' : '')
-        + (!pending && !removed ? '<span class="wb-ok">✓ ' + esc(t('workbench.doclang.all_current')) + '</span>' : '')
-        + '</p></div>'
+        + (!ro && pending && v.source_title && !jobRunning ? '<button type="button" class="wb-btn" data-wb-act="outline-lang-translate-all" title="' + escA(t('workbench.doclang.translate_all_hint')) + '">' + esc(t('workbench.doclang.translate_all', { n: pending })) + '</button>' : '')
+        + (!pending && !removed && !jobRunning ? '<span class="wb-ok">✓ ' + esc(t('workbench.doclang.all_current')) + '</span>' : '')
+        + '</p>' + translateJobHtml(o.translate_job) + '</div>'
     }
     var list = o.variants || []
     // Vazlat nelkul nincs mit forditani; csak ha mar van valtozat, akkor latszik.
@@ -8042,13 +8093,14 @@
     var vs = variantSection(o, sec.id)
     if (!vs) return ''
     var canAsk = !ro && o.variant && o.variant.source_title
+    var canTranslate = canAsk && !(o.translate_job && o.translate_job.running)
     var line = ''
     if (vs.state === 'untranslated') {
       line = '<span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.state.untranslated')) + '</span>'
-        + (canAsk ? ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-translate" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.doclang.translate')) + '</button>' : '')
+        + (canTranslate ? ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-translate" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.doclang.translate_hint')) + '">' + esc(t('workbench.doclang.translate')) + '</button>' : '')
     } else if (vs.state === 'stale') {
       line = '<span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.state.stale')) + '</span>'
-        + (canAsk ? ' <button type="button" class="wb-btn" data-wb-act="outline-lang-translate" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.doclang.refresh_hint')) + '">' + esc(t('workbench.doclang.refresh')) + '</button>' : '')
+        + (canTranslate ? ' <button type="button" class="wb-btn" data-wb-act="outline-lang-translate" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.doclang.refresh_hint')) + '">' + esc(t('workbench.doclang.refresh')) + '</button>' : '')
     } else if (vs.state === 'source_removed') {
       line = '<span class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.state.source_removed')) + '</span>'
     } else {
@@ -8114,7 +8166,7 @@
       window.showToast(t(r.data.existing ? 'workbench.doclang.exists' : 'workbench.doclang.created', { title: r.data.item.title }))
       load(WB.projectId)
       selectItem(vid)
-      if (!r.data.existing) askAgent(t('workbench.doclang.ask_all', { lang: docLangName(code) }))
+      if (!r.data.existing) translateVariantNow(vid)
       else render()
     })
   }
@@ -8142,12 +8194,16 @@
       var taken = {}
       list.forEach(function (a) { taken[a.path] = true })
       var mats = ((WB.detail && WB.detail.assets) || []).filter(function (m) { return m.present !== false && m.project_path && !taken[m.project_path] })
+      // #501 (Boss TG 2762): a file from anywhere on the computer goes into the item's "Mellékletek" folder and onto the list.
+      var browse = '<label class="wb-btn wb-annex-browse" title="' + escA(t('workbench.annex.browse_hint')) + '">📁 '
+        + esc(WB.annexUploading ? t('workbench.annex.browse_busy') : t('workbench.annex.browse'))
+        + '<input type="file" hidden multiple data-wb-annex-browse="1"' + (WB.annexUploading ? ' disabled' : '') + '></label>'
       add = mats.length
         ? '<p class="wb-annex-add"><select id="wbAnnexPick" aria-label="' + escA(t('workbench.annex.pick')) + '"><option value="">' + esc(t('workbench.annex.pick')) + '</option>'
           + mats.map(function (m) { return '<option value="' + escA(m.project_path) + '">' + esc(m.name) + '</option>' }).join('') + '</select>'
           + '<input type="text" id="wbAnnexTitle" maxlength="300" placeholder="' + escA(t('workbench.annex.title_placeholder')) + '" aria-label="' + escA(t('workbench.annex.title_placeholder')) + '">'
-          + '<button type="button" class="wb-btn" data-wb-act="outline-annex-add">' + esc(t('workbench.annex.add')) + '</button></p>'
-        : '<p class="wb-hint">' + esc(t('workbench.annex.no_materials')) + '</p>'
+          + '<button type="button" class="wb-btn" data-wb-act="outline-annex-add">' + esc(t('workbench.annex.add')) + '</button> ' + browse + '</p>'
+        : '<p class="wb-annex-add">' + browse + '</p><p class="wb-hint">' + esc(t('workbench.annex.no_materials')) + '</p>'
       var scheme = st.annex_scheme || 'k'
       settings = '<p class="wb-annex-settings"><label>' + esc(t('workbench.annex.scheme')) + ' <select id="wbAnnexScheme">'
         + (st.schemes || ['k', 'anlage', 'exhibit']).map(function (k) { return '<option value="' + escA(k) + '"' + (k === scheme ? ' selected' : '') + '>' + esc(t('workbench.annex.scheme.' + k)) + '</option>' }).join('')
@@ -8163,6 +8219,41 @@
       + '<p class="wb-hint">' + esc(t('workbench.annex.hint')) + '</p>'
       + (list.length ? '<ul class="wb-annex-list">' + rows + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.annex.empty')) + '</p>')
       + add + settings + '</div>'
+  }
+
+  /** #501: files picked from the computer become annexes one after the other (a failure does not stop the rest).
+   *  The title typed beside the picker names a single file; otherwise the server takes the file name. */
+  function annexBrowseUpload(fileList) {
+    var id = WB.selectedId
+    var files = []
+    for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
+    if (!id || !files.length || WB.annexUploading || archived()) return
+    var ttlEl = document.getElementById('wbAnnexTitle')
+    var title = files.length === 1 && ttlEl && ttlEl.value ? ttlEl.value.trim() : ''
+    WB.annexUploading = true
+    render()
+    var added = 0
+    var chain = Promise.resolve()
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        var url = '/api/workbench/items/' + encodeURIComponent(id) + '/outline/annexes/upload?name=' + encodeURIComponent(f.name || 'melleklet')
+          + (title ? '&title=' + encodeURIComponent(title) : '') + '&lang=' + encodeURIComponent(window._lang || 'hu')
+        return postFile(url, f).then(function (r) {
+          var d = r.data || {}
+          if (WB.selectedId === id && WB.detail) {
+            if (d.outline) WB.detail.outline = d.outline
+            if (d.assets) WB.detail.assets = d.assets
+          }
+          if (!r.ok) { window.showToast(t('workbench.annex.browse_failed', { name: f.name || '', message: r.message || '' })); return }
+          added++
+        })
+      })
+    })
+    chain.then(function () {
+      WB.annexUploading = false
+      if (added) window.showToast(t('workbench.annex.browse_done', { n: added }))
+      render()
+    })
   }
 
   /** PISZKOZAT ES VEGLEGESITES (#441, K-1.21 ... K-1.23/b). A piszkozat barmikor
@@ -8414,18 +8505,10 @@
     } else if (a === 'outline-lang-open') {
       var oid = act.getAttribute('data-wb-item')
       if (oid) selectItem(oid)
-    } else if (a === 'outline-lang-translate-all') {
-      var ov = WB.detail && WB.detail.outline && WB.detail.outline.variant
-      if (!ov) return
-      askAgent(t('workbench.doclang.ask_all', { lang: docLangName(ov.lang) }))
-      window.showToast(t('workbench.doclang.asked'))
-    } else if (a === 'outline-lang-translate') {
-      var tv = WB.detail && WB.detail.outline && WB.detail.outline.variant
-      var ts = findSection(sid)
-      var tvs = tv ? variantSection(WB.detail.outline, sid) : null
-      if (!tv || !tvs) return
-      askAgent(t(tvs.state === 'stale' ? 'workbench.doclang.ask_refresh' : 'workbench.doclang.ask_one', { lang: docLangName(tv.lang), section: tvs.source_title || (ts ? ts.title : ''), source_section: tvs.source_section_id }))
-      window.showToast(t('workbench.doclang.asked'))
+    } else if (a === 'outline-lang-translate-all' || a === 'outline-lang-translate') {
+      // Both the header button and a section's button translate the WHOLE version (Boss TG 2766).
+      if (!(WB.detail && WB.detail.outline && WB.detail.outline.variant)) return
+      translateVariantNow(WB.selectedId)
     } else if (a === 'outline-lang-back') {
       var bv = WB.detail && WB.detail.outline && WB.detail.outline.variant
       var bs = findSection(sid)
@@ -14608,6 +14691,13 @@
       var picked = e.target.files
       if (picked && picked.length) uploadFiles(picked, 'new')
       try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      return
+    }
+    if (e.target.getAttribute && e.target.getAttribute('data-wb-annex-browse')) {
+      var af = []
+      for (var ai = 0; e.target.files && ai < e.target.files.length; ai++) af.push(e.target.files[ai])
+      try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      if (af.length) annexBrowseUpload(af)
       return
     }
     if (e.target.getAttribute && e.target.getAttribute('data-wb-vt-browse')) {

@@ -355,4 +355,44 @@ describe('a felulet: mellekletek', () => {
     h.fire('change', { target: { id: 'wbAnnexPrefix', value: 'K1' } })
     expect(h.toasts).toContain('⟦workbench.annex.prefix_bad⟧')
   })
+
+  // #501 (Boss TG 2762): beside "Válassz az anyagok közül" an upload from any drive; with no materials it is the way in.
+  it('feltoltes a geprol: a gomb az anyagok mellett es anyagok nelkul is; a fajlok egymas utan mennek, a cim egy fajlnal kimegy', async () => {
+    async function open(assets: unknown[]) {
+      const h = workbenchHarness({ confirm: true })
+      h.respond((url) => {
+        if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
+        if (url.includes('/outline')) return { status: 201, body: { ok: true, outline: OUTLINE, assets } }
+        if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: ITEM, versions: [], parts: [], assets, outline: OUTLINE } }
+        if (url.includes('/overview')) return { status: 200, body: { overview: null } }
+        return { status: 200, body: itemsBody([ITEM], { id: 'p1', name: 'Iroda', archived: false }) }
+      })
+      h.win.MarvinWorkbench.open('p1', 'Iroda')
+      await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+      h.click({ 'data-wb-item': 'w1' })
+      await vi.waitFor(() => expect(h.html()).toContain('wb-annexes'))
+      return h
+    }
+    const pick = (h: ReturnType<typeof workbenchHarness>, files: unknown[]) =>
+      h.fire('change', { target: { files, value: '', getAttribute: (k: string) => (k === 'data-wb-annex-browse' ? '1' : null) }, preventDefault() {} })
+
+    const empty = await open([])
+    expect(empty.html()).toContain('data-wb-annex-browse="1"')
+    expect(empty.html()).toContain('workbench.annex.browse')
+    expect(empty.html()).toContain('workbench.annex.no_materials')
+    pick(empty, [{ name: 'bérleti szerződés.pdf' }, { name: 'jegyzőkönyv.pdf' }])
+    await vi.waitFor(() => expect(empty.fetchCalls.filter((c) => c.url.includes('/outline/annexes/upload')).length).toBe(2))
+    const ups = empty.fetchCalls.filter((c) => c.url.includes('/outline/annexes/upload'))
+    expect(ups[0]!.url).toContain('/api/workbench/items/w1/outline/annexes/upload?name=' + encodeURIComponent('bérleti szerződés.pdf'))
+    expect(ups[1]!.url).toContain('name=' + encodeURIComponent('jegyzőkönyv.pdf'))
+    expect(ups.every((c) => c.init?.method === 'POST' && !c.url.includes('title='))).toBe(true)
+    await vi.waitFor(() => expect(empty.toasts.some((x) => x.includes('workbench.annex.browse_done'))).toBe(true))
+
+    const withMats = await open(ASSETS)
+    expect(withMats.html()).toMatch(/data-wb-act="outline-annex-add">[^<]*<\/button> <label class="wb-btn wb-annex-browse"/)
+    withMats.inputs['wbAnnexTitle'] = { value: ' Bérleti szerződés ', focus() {} }
+    pick(withMats, [{ name: 'szerzodes2.pdf' }])
+    await vi.waitFor(() => expect(withMats.fetchCalls.some((c) => c.url.includes('/outline/annexes/upload'))).toBe(true))
+    expect(withMats.fetchCalls.find((c) => c.url.includes('/outline/annexes/upload'))!.url).toContain('&title=' + encodeURIComponent('Bérleti szerződés'))
+  })
 })

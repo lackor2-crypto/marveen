@@ -358,7 +358,7 @@ describe('a felulet: nyelvi valtozatok', () => {
     return h
   }
 
-  it('az eredetinel: a valtozatai es a "+ Nyelvi valtozat"; letrehozas utan a valtozat nyilik, es az agent kap forditasi kerest', async () => {
+  it('az eredetinel: a valtozatai es a "+ Nyelvi valtozat"; letrehozas utan a valtozat nyilik, es a szerver forditja le egeszben (#501)', async () => {
     const h = await open(base({ variants: [{ item_id: 'w2', title: 'Beadvány (DE)', lang: 'de', stale: 1, untranslated: 0 }] }))
     const html = h.html()
     expect(html).toContain('workbench.doclang.title')
@@ -373,13 +373,12 @@ describe('a felulet: nyelvi valtozatok', () => {
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/variants') && c.init?.method === 'POST')).toBe(true))
     const call = h.fetchCalls.find((c) => c.url.includes('/outline/variants'))
     expect(JSON.parse(String(call?.init?.body))).toEqual({ lang: 'en' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(true))
-    const msg = h.fetchCalls.find((c) => c.url.includes('/api/workbench/agent/message'))
-    expect(String(msg?.init?.body)).toContain('workbench.doclang.ask_all')
-    expect(String(msg?.init?.body)).toContain('"work_item_id":"w2"')
+    // #501 (Boss TG 2766): no chat request that can stay unanswered -- the new version is translated by the server.
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2/outline/translate') && c.init?.method === 'POST')).toBe(true))
+    expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(false)
   })
 
-  it('a valtozatnal: elavult fejezet frissites-gombbal az agentnek, visszaforditas az eredeti mellett, szoszedet felvetele', async () => {
+  it('a valtozatnal: elavult fejezet frissites-gombja az egesz valtozatot forditja, visszaforditas az eredeti mellett, szoszedet felvetele', async () => {
     const h = await open(base({
       variant: {
         source_item_id: 'w1', source_title: 'Beadvány', lang: 'de', new_in_source: [],
@@ -396,9 +395,8 @@ describe('a felulet: nyelvi valtozatok', () => {
     expect(html).toContain('Eredeti szöveg.')
     expect(html).toContain('workbench.doclang.back_stale')
     h.click({ 'data-wb-act': 'outline-lang-translate', 'data-wb-sec': 's1' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(true))
-    const msg = h.fetchCalls.find((c) => c.url.includes('/api/workbench/agent/message'))
-    expect(String(msg?.init?.body)).toContain('workbench.doclang.ask_refresh')
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2/outline/translate') && c.init?.method === 'POST')).toBe(true))
+    expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(false)
     h.click({ 'data-wb-act': 'outline-lang-back-del', 'data-wb-sec': 's1' })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/backchecks/s1') && c.init?.method === 'DELETE')).toBe(true))
     h.inputs['wbGlossTerm'] = { value: ' keresetlevél ', focus() {} }
@@ -408,6 +406,35 @@ describe('a felulet: nyelvi valtozatok', () => {
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/glossary') && c.init?.method === 'POST')).toBe(true))
     const g = h.fetchCalls.find((c) => c.url.includes('/outline/glossary'))
     expect(JSON.parse(String(g?.init?.body))).toEqual({ term: 'keresetlevél', translation: 'Klage', lang: 'de' })
+  })
+
+  const VARIANT_DE = {
+    source_item_id: 'w1', source_title: 'Beadvány', lang: 'de', new_in_source: [],
+    sections: [{ section_id: 's1', source_section_id: 'o1', source_title: '1. Kérelem', state: 'untranslated', translated_at: null }],
+  }
+  const JOB = { variant_id: 'w2', lang: 'de', total: 3, done: 1, current: 'Új fejezet', failed: [], claims_not_carried: 0, glossary_issues: 0, error: null, started_at: 1, finished_at: null }
+
+  it('#501: a futo forditas haladasa a fejlecen; kozben nincs forditas-gomb', async () => {
+    const h = await open(base({ variant: VARIANT_DE, translate_job: { ...JOB, running: true } }), VAR)
+    const html = h.html()
+    expect(html).toContain('workbench.doclang.job_running')
+    expect(html).toContain('workbench.doclang.job_current')
+    expect(html).not.toContain('data-wb-act="outline-lang-translate-all"')
+    expect(html).not.toContain('data-wb-act="outline-lang-translate" ')
+  })
+
+  it('#501: ha a forditas megallt, kimondja miert, es a gomb ujra ott van', async () => {
+    const h = await open(base({
+      variant: VARIANT_DE,
+      translate_job: { ...JOB, running: false, done: 0, current: null, finished_at: 2, error: { code: 'all_accounts_limited', message: 'Minden fiók kerete kimerült.' }, failed: [{ source_section: 'o2', title: 'Új fejezet', detail: 'no JSON' }] },
+    }), VAR)
+    const html = h.html()
+    expect(html).toContain('workbench.doclang.job_error')
+    expect(html).toContain('Minden fiók kerete kimerült.')
+    expect(html).toContain('workbench.doclang.job_failed')
+    expect(html).toContain('data-wb-act="outline-lang-translate-all"')
+    h.click({ 'data-wb-act': 'outline-lang-translate-all' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2/outline/translate') && c.init?.method === 'POST')).toBe(true))
   })
 
   it('ures vazlatnal (es meg valtozat nelkul) nincs nyelvi doboz es szoszedet', async () => {

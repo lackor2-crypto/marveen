@@ -160,13 +160,13 @@ export function mayBeToolCall(soFar: string): boolean {
 
 /** #455: why THIS provider cannot answer -- a missing key of the chosen model is
  *  named, not reported as "no Claude account signed in". */
-function notReadyMessage(provider: AIProvider, lang: Lang): string {
+export function notReadyMessage(provider: AIProvider, lang: Lang): string {
   let keyFor: string | undefined
   try { keyFor = provider.availability().keyFor } catch { keyFor = undefined }
   return keyFor ? msg('model_key_missing', lang, { model: provider.model(), provider: keyFor }) : msg('no_provider', lang)
 }
 
-function usageNotice(lang: Lang, account?: string): { code: string; message: string } | null {
+export function usageNotice(lang: Lang, account?: string): { code: string; message: string } | null {
   const r = getRemaining(account)
   if (r.allowed) return null
   if (r.reason === 'too_many_in_flight') {
