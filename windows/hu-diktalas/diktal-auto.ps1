@@ -490,17 +490,16 @@ public static extern short GetAsyncKeyState(int vKey);
   if ($txt.Length -ge 1000) {
     Log "FIGYELEM: $($txt.Length) karakter -- kepes Telegram-uzenetnel 1024 felett a Telegram levagja a veget; kulon uzenetben kuldd, kep nelkul"
   }
-  # Tobb diktalas ugyanabba a kepaláirasba: a HATART az egymas utan beillesztett szovegek OSSZEGE adja
+  # Tobb diktalas ugyanabba a kepairasba: a HATART az egymas utan beillesztett szovegek OSSZEGE adja
   # (Boss TG 2675: 1254 karakter, 3 diktalas). Az utolso 5 percben ugyanabba az alkalmazasba illesztett
   # karaktereket szamoljuk; ha az osszeg eleri a 900-at, hallhato + lathato figyelmeztetes jon.
-  $capWarn = $false; $capTotal = $txt.Length
+  $capWarn = $false; $capTotal = $txt.Length; $capPrev = 0; $capProc = ''
   try {
     $capFile = Join-Path $Base 'caption-count.json'
-    $capProc = ''
     try { $cfg = [HuDikt.U32]::GetForegroundWindow(); $cpid = 0; [void][HuDikt.U32]::GetWindowThreadProcessId($cfg, [ref]$cpid); $capProc = (Get-Process -Id $cpid -ErrorAction SilentlyContinue).ProcessName } catch { }
     $prev = $null
     if (Test-Path $capFile) { try { $prev = Get-Content $capFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { } }
-    if ($prev -and $prev.proc -eq $capProc -and ((Get-Date) - [datetime]$prev.t).TotalMinutes -lt 5) { $capTotal += [int]$prev.n }
+    if ($prev -and $prev.proc -eq $capProc -and ((Get-Date) - [datetime]$prev.t).TotalMinutes -lt 5) { $capPrev = [int]$prev.n; $capTotal += $capPrev }
     (@{ t = (Get-Date).ToString('o'); proc = $capProc; n = $capTotal } | ConvertTo-Json -Compress) | Set-Content $capFile -Encoding UTF8
     if ($capTotal -ge 900) { $capWarn = $true; Log "FIGYELEM: az utolso 5 percben $capTotal karakter ment ugyanabba az alkalmazasba ($capProc) -- kepes Telegram-uzenetnel 1024 felett levagja" }
   } catch { }
@@ -522,7 +521,32 @@ public static extern short GetAsyncKeyState(int vKey);
     } catch { }
     Start-Sleep -Milliseconds 120
     Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    # Telegram: ha a kepairas 1000 karakter fole menne (Boss TG 2680, A), a szoveget
+    # szavhataron darabolva KULON uzenetekbe tesszuk: az elso darab kitolti a maradekot,
+    # Enter kuldi el, a tobbi plain uzenet. Igy semmi nem vagodik le.
+    $chunks = @($txt)
+    if ($capProc -match '^Telegram' -and $capTotal -gt 1000) {
+      $chunks = @(); $rest = $txt; $room = 1000 - $capPrev
+      if ($room -lt 40) { $chunks += ''; $room = 1000 }
+      while ($rest.Length -gt $room) {
+        $cut = $rest.LastIndexOf(' ', $room - 1)
+        if ($cut -lt [int]($room / 2)) { $cut = $room }
+        $chunks += $rest.Substring(0, $cut).TrimEnd()
+        $rest = $rest.Substring($cut).TrimStart()
+        $room = 1000
+      }
+      $chunks += $rest
+      Log "telegram-darabolas: $($chunks.Count) uzenet (elozo: $capPrev, uj: $($txt.Length))"
+    }
+    for ($i = 0; $i -lt $chunks.Count; $i++) {
+      if ($chunks[$i]) { Set-Clipboard -Value $chunks[$i]; Start-Sleep -Milliseconds 80; [System.Windows.Forms.SendKeys]::SendWait('^v') }
+      if ($i -lt $chunks.Count - 1) { Start-Sleep -Milliseconds 400; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); Start-Sleep -Milliseconds 400 }
+    }
+    if ($chunks.Count -gt 1) {
+      $last = [string]$chunks[$chunks.Count - 1]
+      try { (@{ t = (Get-Date).ToString('o'); proc = $capProc; n = $last.Length } | ConvertTo-Json -Compress) | Set-Content $capFile -Encoding UTF8 } catch { }
+      $capWarn = $false
+    }
     Log "kesz: $txt"
   }
   Beep2 1200 90
