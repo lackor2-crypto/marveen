@@ -49,7 +49,7 @@ import {
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
-import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import {
   hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
@@ -2980,7 +2980,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE) {
       containerFolder = PROJECT_ROOT_PLACE // the .xlsx lies directly in the project folder
     } else if (String(body['folder'] ?? '').trim() || newFolderName) {
-      let c = workFolderTarget(project, body['folder'])
+      // Fresh install: the project may have no folder (or no work items box) yet. An empty pick means
+      // "the box", which makeWorkFolder creates; only an explicit pick must already exist.
+      ensureProjectHasFolder(project)
+      let c: ReturnType<typeof workFolderTarget> = String(body['folder'] ?? '').trim() ? workFolderTarget(project, body['folder']) : { ok: true, folder: '' }
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       if (newFolderName) {
         const mf = makeWorkFolder(project, c.folder, newFolderName)
@@ -3030,6 +3033,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       throw e
     }
     if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    // A project still without a folder (fresh install, seeded project) gets one on its first upload.
+    ensureProjectHasFolder(project)
     const name = url.searchParams.get('name') || ''
     // #491 (Boss): an upload is RAW MATERIAL, not a work item. The file lands in the project's materials folder
     // (or in the explicit `sub`), never in a folder named after it, and no work item is made: the owner turns

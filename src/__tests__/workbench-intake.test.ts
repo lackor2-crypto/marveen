@@ -225,11 +225,12 @@ describe('belepo: md / jegyzet kerese (Boss, TG 7276)', () => {
       expect(r2.body.file.name).not.toBe('Új jegyzet.md')
     })
 
-    it('projektmappa nelkul is letrejon a jegyzet (fajl nelkul), nem hibazik', async () => {
+    it('projektmappa nelkul is letrejon a jegyzet: a projekt az elso irasra mappat kap (TG 2895), nem hibazik', async () => {
       const r = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, text: 'csinálj egy md jegyzetet' })
       expect(r.status).toBe(201)
       expect(r.body.item.type).toBe('note')
-      expect(r.body.file).toBeNull()
+      expect(r.body.file.rel).toMatch(/\.md$/)
+      expect(existsSync(join(depot, r.body.file.rel))).toBe(true)
     })
   })
 
