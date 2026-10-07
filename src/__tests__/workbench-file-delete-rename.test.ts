@@ -163,3 +163,19 @@ describe('renameLooseFile', () => {
     expect(existsSync(join(abs(a), 'cim.png'))).toBe(true)
   })
 })
+
+describe('deleteLooseFiles: any plain file of the project folder (Boss 2723)', () => {
+  it('deletes an orphan .json outside the work items box, but never a hidden or foreign path', () => {
+    group('Forras') // the box exists
+    mkdirSync(join(root(), 'Tudasbazis'), { recursive: true })
+    mkdirSync(join(root(), '.rejtett'), { recursive: true })
+    writeFileSync(join(root(), 'Tudasbazis', 'arva.deck (3).json'), '{}')
+    writeFileSync(join(root(), '.rejtett', 'config'), 'x')
+    writeFileSync(join(dir, 'kivul.json'), '{}')
+    const r = deleteLooseFiles(proj(), ['Projektek/Robotok/Tudasbazis/arva.deck (3).json', 'Projektek/Robotok/.rejtett/config', 'kivul.json'])
+    expect(r).toMatchObject({ ok: true, deleted: ['arva.deck (3).json'] })
+    expect(existsSync(join(root(), 'Tudasbazis', 'arva.deck (3).json'))).toBe(false)
+    expect(existsSync(join(root(), '.rejtett', 'config'))).toBe(true)
+    expect(existsSync(join(dir, 'kivul.json'))).toBe(true)
+  })
+})
