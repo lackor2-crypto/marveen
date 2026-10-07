@@ -1,6 +1,9 @@
 // #492 (Boss TG 7948): in the Workbench list a work item's own file is never moved away, only copied (the owner
 // is told why), a loose file still moves, and a folder another work item uses asks once more before the Kuka.
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { workbenchHarness, itemsBody, eventFor, PROJECT } from './helpers/workbench-harness.js'
 
 const BOX = 'Munkadarabok'
@@ -148,5 +151,56 @@ describe('#492 deleting a folder another work item uses', () => {
     const dels = h.fetchCalls.filter((c) => c.init?.method === 'DELETE').map((c) => JSON.parse(String(c.init!.body)))
     expect(dels.map((d) => d.force)).toEqual([false, true])
     expect(dels.every((d) => d.trash === true)).toBe(true)
+  })
+})
+
+// The card's acceptance (Boss TG 7948): every row of the tree has a Delete in its right-click menu (behind the "..."
+// button on a phone too); the folder one warns first (both languages, naming the Kuka), and Cancel sends nothing.
+describe('#492 right-click Delete on every row', () => {
+  const menu = (h: H) => { const s = h.html(); const i = s.indexOf('wb-ctx-menu'); return i < 0 ? '' : s.slice(i) }
+  const FOLDER = BOX + '/Kampany'
+
+  it('folder, work item and plain file rows each offer Delete in their right-click menu', async () => {
+    const { h } = await open()
+    expect(menu(h)).toBe('')
+    h.fire('contextmenu', { ...eventFor({ 'data-wb-ctx-folder': FOLDER }), clientX: 10, clientY: 10 })
+    expect(menu(h)).toContain('data-wb-act="folder-delete" data-wb-folder="' + FOLDER + '"')
+    h.fire('contextmenu', { ...eventFor({ 'data-wb-ctx-item': ITEM.id }), clientX: 10, clientY: 10 })
+    expect(menu(h)).toContain('data-wb-act="item-trash" data-wb-id="' + ITEM.id + '"')
+    ctx(h, LOOSE)
+    expect(menu(h)).toContain('data-wb-act="file-delete" data-wb-rel="' + LOOSE + '"')
+  })
+
+  it('on a phone (no right-click) the folder row\'s "..." button opens the same menu with Delete', async () => {
+    const { h } = await open()
+    expect(h.html()).toContain('data-wb-act="folder-ctx" data-wb-folder="' + FOLDER + '"')
+    h.click({ 'data-wb-act': 'folder-ctx', 'data-wb-folder': FOLDER })
+    expect(menu(h)).toContain('data-wb-act="folder-delete" data-wb-folder="' + FOLDER + '"')
+  })
+
+  it('folder Delete warns first; Cancel sends nothing', async () => {
+    const { h, asked } = await open(false)
+    h.click({ 'data-wb-act': 'folder-delete', 'data-wb-folder': FOLDER })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toContain('workbench.folder.delete_confirm')
+    expect(h.fetchCalls.filter((c) => c.init?.method === 'DELETE')).toEqual([])
+  })
+
+  it('the folder warning says the content is lost but restorable from the Kuka, in both languages', () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+    const text = (lang: string, key: string): string => {
+      const src = readFileSync(join(root, 'web', 'lang', lang + '.js'), 'utf8')
+      const m = src.match(new RegExp('"' + key.replace(/\./g, '\\.') + '":\\s*"((?:[^"\\\\]|\\\\.)*)"'))
+      return m ? m[1]! : ''
+    }
+    const hu = text('hu', 'workbench.folder.delete_confirm')
+    const en = text('en', 'workbench.folder.delete_confirm')
+    expect(hu).toMatch(/Ha törlöd/)
+    expect(hu).toMatch(/elveszíted/)
+    expect(hu).toMatch(/Kukából vissza tudod állítani/)
+    expect(en).toMatch(/If you delete the folder/)
+    expect(en).toMatch(/you lose everything in it/)
+    expect(en).toMatch(/restore it from the Trash/)
   })
 })
