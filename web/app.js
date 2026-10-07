@@ -47304,6 +47304,12 @@ function _prjVfSorted(folders) {
 /** Az elemek mappankent csoportositva. Mappa nelkul (vagy amig a mappak nem
  *  toltodtek be) sima lista marad, a mappa-sav felette. */
 function _prjVfListHtml(kind, list, idOf, rowFn, canEdit) {
+  // "Move all": one button above the list moves every item of this tab to another project (Boss TG 2831).
+  const all = canEdit && list.length > 1 ? `<div class="prj-vf-bar"><button type="button" class="btn-secondary btn-compact prj-move-all-btn" data-prj-move-all="${escapeAttr(kind)}" data-prj-move-ids="${escapeAttr(JSON.stringify(list.map(idOf)))}">${escapeHtml(t('projects.move.all_btn', { n: list.length }))}</button></div>` : ''
+  return all + _prjVfListInner(kind, list, idOf, rowFn, canEdit)
+}
+
+function _prjVfListInner(kind, list, idOf, rowFn, canEdit) {
   const st = _prjVfState(kind)
   if (!st) return `<ul class="prj-list">${list.map((x) => rowFn(x, '')).join('')}</ul>`
   const folders = _prjVfSorted(st.folders)
@@ -48218,6 +48224,10 @@ function _prjMoveBtn(type, id) {
 }
 
 async function _prjOpenMove(type, id) {
+  return _prjOpenMoveMany(type, [id])
+}
+
+async function _prjOpenMoveMany(type, ids) {
   const pid = _prj.current
   if (!pid) return
   if (!_prj.all || !_prj.all.length) {
@@ -48234,7 +48244,7 @@ async function _prjOpenMove(type, id) {
     </div>
     <div class="modal-body">
       ${others.length
-        ? `<p>${escapeHtml(t('projects.move.lead'))}</p><select class="input" id="prjMoveTarget">${others.map((x) => `<option value="${escapeAttr(x.id)}">${escapeHtml(x.name)}</option>`).join('')}</select>`
+        ? `<p>${escapeHtml(ids.length > 1 ? t('projects.move.lead_many', { n: ids.length }) : t('projects.move.lead'))}</p><select class="input" id="prjMoveTarget">${others.map((x) => `<option value="${escapeAttr(x.id)}">${escapeHtml(x.name)}</option>`).join('')}</select>`
         : `<p>${escapeHtml(t('projects.move.no_target'))}</p>`}
     </div>
     <div class="modal-footer">
@@ -48246,10 +48256,10 @@ async function _prjOpenMove(type, id) {
   ov.querySelector('#prjMoveConfirm')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget
     btn.disabled = true
-    const res = await _prjApi('POST', '/api/projects/' + encodeURIComponent(pid) + '/move', { target: ov.querySelector('#prjMoveTarget').value, items: [{ type, id }] })
+    const res = await _prjApi('POST', '/api/projects/' + encodeURIComponent(pid) + '/move', { target: ov.querySelector('#prjMoveTarget').value, items: ids.map((id) => ({ type, id })) })
     if (!res.ok) { btn.disabled = false; showToast(res.message); return }
     closeModal(ov)
-    showToast(t(res.data.moved ? 'projects.move.done' : 'projects.move.nothing'))
+    showToast(ids.length > 1 ? t('projects.move.done_many', { moved: res.data.moved, skipped: res.data.skipped }) : t(res.data.moved ? 'projects.move.done' : 'projects.move.nothing'))
     _prj.overview = null
     await _prjOpenProject(pid)
   })
@@ -49407,6 +49417,14 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.prj-new-wrap')) _prjToggleNewMenu(false)
   const ideaLink = e.target.closest('[data-prj-idea]')
   if (ideaLink) { e.preventDefault(); _prjOpenIdea(ideaLink.getAttribute('data-prj-idea')); return }
+  const mva = e.target.closest('[data-prj-move-all]')
+  if (mva) {
+    e.preventDefault()
+    let ids = []
+    try { ids = JSON.parse(mva.getAttribute('data-prj-move-ids') || '[]') } catch { ids = [] }
+    if (ids.length) _prjOpenMoveMany(mva.getAttribute('data-prj-move-all'), ids)
+    return
+  }
   const mv = e.target.closest('[data-prj-move-type]')
   if (mv) { e.preventDefault(); _prjOpenMove(mv.getAttribute('data-prj-move-type'), mv.getAttribute('data-prj-move-id')); return }
   const unlinkIdea = e.target.closest('[data-prj-unlink-idea]')
