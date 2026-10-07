@@ -329,7 +329,7 @@ function docTexts(itemId: string): { texts: DocText[]; claims: { text: string; s
   ensureDocModelTables()
   const db = getDb()
   const texts = db.prepare(`SELECT s.title AS section, b.kind AS kind, b.text AS text FROM wb_doc_blocks b JOIN wb_doc_sections s ON s.id = b.section_id
-    WHERE b.work_item_id = ? ORDER BY s.position, b.position`).all(itemId) as DocText[]
+    WHERE b.work_item_id = ? AND b.kind != 'image' ORDER BY s.position, b.position`).all(itemId) as DocText[]
   const claims = (db.prepare(`SELECT c.id AS id, c.text AS text, s.title AS section FROM wb_doc_claims c
     JOIN wb_doc_blocks b ON b.id = c.block_id JOIN wb_doc_sections s ON s.id = b.section_id
     WHERE c.work_item_id = ? ORDER BY s.position, b.position, c.created_at`).all(itemId) as { id: string; text: string; section: string }[]).map((c) => ({

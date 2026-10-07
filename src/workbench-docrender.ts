@@ -23,13 +23,80 @@ import { MISSING_MARK_RE, type BlockKind, type SectionStatus } from './workbench
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
-  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string }[] }[]
+  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; img?: RenderImage | null }[] }[]
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
 }
 
 export type DocLang = 'hu' | 'en' | 'de'
+
+/** A picture of an `image` block, read from disk by the caller: its bytes and pixel size. */
+export interface RenderImage { data: Buffer; width: number; height: number; mime: string }
+
+/**
+ * Pixel size of a PNG, JPEG or GIF from its header (no image library needed).
+ * JPEG: the EXIF orientation is honoured, so a phone photo taken upright keeps
+ * its upright proportions. Null when the bytes are not one of these formats.
+ */
+export function imageSize(buf: Buffer): { width: number; height: number; mime: string } | null {
+  if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47) return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), mime: 'image/png' }
+  if (buf.length >= 10 && buf.toString('ascii', 0, 3) === 'GIF') return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8), mime: 'image/gif' }
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null
+  let i = 2
+  let rotated = false
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) { i++; continue }
+    const m = buf[i + 1] as number
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue }
+    const len = buf.readUInt16BE(i + 2)
+    if (m === 0xe1 && buf.toString('ascii', i + 4, i + 8) === 'Exif') rotated = exifRotated(buf, i + 10, i + 2 + len)
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      const h = buf.readUInt16BE(i + 5)
+      const w = buf.readUInt16BE(i + 7)
+      return rotated ? { width: h, height: w, mime: 'image/jpeg' } : { width: w, height: h, mime: 'image/jpeg' }
+    }
+    i += 2 + len
+  }
+  return null
+}
+
+/** True when the EXIF orientation (5-8) turns the picture by 90 degrees. */
+function exifRotated(buf: Buffer, start: number, end: number): boolean {
+  try {
+    const le = buf.toString('ascii', start, start + 2) === 'II'
+    const u16 = (o: number): number => (le ? buf.readUInt16LE(o) : buf.readUInt16BE(o))
+    const u32 = (o: number): number => (le ? buf.readUInt32LE(o) : buf.readUInt32BE(o))
+    const ifd = start + u32(start + 4)
+    const n = u16(ifd)
+    for (let k = 0; k < n; k++) {
+      const e = ifd + 2 + k * 12
+      if (e + 12 > end) break
+      if (u16(e) === 0x0112) { const v = u16(e + 8); return v >= 5 && v <= 8 }
+    }
+  } catch { /* a broken EXIF block: use the stored size */ }
+  return false
+}
+
+/** Text area width of the page (21 cm - 2.5 cm - 2 cm) and the tallest picture we let a block take. */
+const IMG_MAX_W_CM = 16.5
+const IMG_MAX_H_CM = 20
+
+/** An `image` block in the ODF: the picture embedded, centred, scaled to fit the text width. */
+function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, draft: boolean): string[] {
+  const img = b.img
+  if (!img || !img.width || !img.height) {
+    const name = String(b.text || '').split('/').pop() || ''
+    return [`<text:p text:style-name="Body">${draft ? '<text:span text:style-name="Missing">' : ''}⚠ ${xmlEscape(name)}${draft ? '</text:span>' : ''}</text:p>`]
+  }
+  // 96 dpi as the natural size, never wider than the text, never taller than most of a page.
+  let w = img.width / 96 * 2.54
+  let h = img.height / 96 * 2.54
+  const k = Math.min(1, IMG_MAX_W_CM / w, IMG_MAX_H_CM / h)
+  w = Math.max(0.5, w * k)
+  h = Math.max(0.5, h * k)
+  return [`<text:p text:style-name="ImageP"><draw:frame draw:style-name="ImgFrame" draw:name="Picture ${n}" text:anchor-type="as-char" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
+}
 
 export interface RenderOptions {
   title: string
@@ -163,6 +230,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const body: string[] = [`<text:p text:style-name="${docx ? 'Title' : 'TitleFirst'}">${inline(o.title)}</text:p>`]
   let tables = 0
   let notes = 0
+  let pictures = 0
   for (const s of outline.sections) {
     body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(s.title)}</text:h>`)
     const sec: string[] = []
@@ -170,6 +238,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
       if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
       else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft))
       else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
+      else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft))
       else if (b.kind === 'footnote') {
         // Nincs elotte szoveg a fejezetben: kis betus megjegyzeskent all.
         const note = footnoteXml(b.text, notes + 1, o.draft)
@@ -214,6 +283,8 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
 <style:style style:name="HeaderMark" style:family="paragraph" style:parent-style-name="Standard"><style:text-properties fo:font-size="2pt"/></style:style>
 <style:style style:name="Footer" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="9pt"/></style:style>
 <style:style style:name="Watermark" style:family="paragraph"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="72pt" fo:color="#d0d0d0" fo:font-weight="bold"/></style:style>
+<style:style style:name="ImageP" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-top="0.15cm" fo:margin-bottom="0.3cm"/></style:style>
+<style:style style:name="ImgFrame" style:family="graphic"><style:graphic-properties style:vertical-pos="top" style:vertical-rel="baseline" draw:stroke="none" draw:fill="none"/></style:style>
 <style:style style:name="Missing" style:family="text"><style:text-properties fo:background-color="#fff1a8" fo:font-weight="bold"/></style:style>
 <style:style style:name="WmFrame" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none" style:run-through="background" style:wrap="run-through" style:vertical-pos="from-top" style:vertical-rel="page" style:horizontal-pos="center" style:horizontal-rel="page"/></style:style>
 <text:list-style style:name="LBul"><text:list-level-style-bullet text:level="1" text:bullet-char="•"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.5cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-bullet></text:list-style>
