@@ -25,7 +25,7 @@ import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
 import { PROJECT_ROOT } from '../config.js'
 import { Readable } from 'node:stream'
 import type http from 'node:http'
-import { parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand, replyForInbound } from '../web/code-bridge-telegram.js'
+import { queueNote, parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand, replyForInbound } from '../web/code-bridge-telegram.js'
 import { buildCompletionMessage, shortId } from '../web/code-bridge-notify.js'
 
 const MARVIN = { project: 'marvin', workspacePath: 'C:\\ws\\marvin', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' }
@@ -278,6 +278,18 @@ describe('dispatch routing', () => {
 
     completeCodeTask(first.id, { ok: true, result: 'done' })
     expect(claimNextCodeTask('w1')!.prompt).toBe('second')
+  })
+
+  it('the Telegram receipt says a task is running ahead (id + age) and how many wait (Boss TG 2409)', () => {
+    seedThree()
+    const first = enqueueCodeTask({ project: 'marvin', prompt: 'first' })
+    const second = enqueueCodeTask({ project: 'marvin', prompt: 'second' })
+    if ('error' in first || 'error' in second) throw new Error('enqueue failed')
+    const run = claimNextCodeTask('w1')!
+    expect(run.id).toBe(first.task.id)
+    const note = queueNote('marvin', second.task.id)
+    expect(note).toContain(shortId(first.task.id))
+    expect(queueNote('tradingbot', second.task.id)).toBe('')
   })
 
   it('an unmappable task does not block the runnable ones behind it', () => {
