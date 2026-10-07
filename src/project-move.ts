@@ -3,11 +3,13 @@
  * project WITH its contents (Boss TG 2547, 2549).
  *
  * Cards live in `kanban_cards.project`; ideas, debates, research, memories, schedules, skills and code
- * aliases are `project_links` rows. A project's Workbench items are real files in its folder, so they are
- * never moved or deleted here: a project that still has live work items refuses the merge / delete and says why.
+ * aliases are `project_links` rows. A project's Workbench items are real files in its folder: a merge carries
+ * them (folders included) into the target project (#509, Boss TG 2914 A); a delete WITH contents still refuses
+ * while live work items remain, and says why.
  */
 import { getDb } from './db.js'
 import { deleteKanbanCard, deleteIdea } from './db.js'
+import { moveProjectWorkItems } from './workbench-assets.js'
 import { ensureProjectTables, hasTable, getProject, linkObject, listProjectLinks, projectIdeaIds, projectCardIds, isLinkType } from './projects.js'
 
 export const MOVABLE_TYPES = ['card', 'idea', 'debate', 'research', 'memory', 'schedule', 'skill'] as const
@@ -90,10 +92,14 @@ export function projectContents(id: string): ProjectContents {
 }
 
 export type EmptyingResult =
-  | { ok: true; cards: number; ideas: number; links: number }
-  | { ok: false; code: 'source_missing' | 'target_missing' | 'target_archived' | 'same_project' | 'has_work_items'; workItems?: number }
+  | { ok: true; cards: number; ideas: number; links: number; workItems?: number }
+  | { ok: false; code: 'source_missing' | 'target_missing' | 'target_archived' | 'same_project' | 'has_work_items' | 'work_items_move_failed'; workItems?: number; moved?: number; message?: string }
 
-/** Merge: every card and link goes to the target, then the (now empty) source project is deleted. */
+/**
+ * Merge: the Workbench items move first (their folders go into the target's work items box, every path
+ * follows), then every card and link goes to the target, and the (now empty) source project is deleted.
+ * If an item cannot be moved, nothing else changes and the source project stays (a retry continues).
+ */
 export function mergeProjectInto(sourceId: string, targetId: string): EmptyingResult {
   ensureProjectTables()
   if (sourceId === targetId) return { ok: false, code: 'same_project' }
@@ -102,16 +108,22 @@ export function mergeProjectInto(sourceId: string, targetId: string): EmptyingRe
   if (!target) return { ok: false, code: 'target_missing' }
   if (target.archived_at) return { ok: false, code: 'target_archived' }
   const c = projectContents(sourceId)
-  if (c.workItems > 0) return { ok: false, code: 'has_work_items', workItems: c.workItems }
+  let workItems = 0
+  if (hasTable('work_items') && (getDb().prepare('SELECT 1 FROM work_items WHERE project_id = ? LIMIT 1').get(sourceId))) {
+    const wm = moveProjectWorkItems(getProject(sourceId)!, target)
+    if (!wm.ok) return { ok: false, code: 'work_items_move_failed', workItems: c.workItems, moved: wm.moved, ...(wm.message ? { message: wm.message } : {}) }
+    workItems = wm.moved
+  }
   const db = getDb()
   let cards = 0, links = 0
   db.transaction(() => {
+    if (hasTable('work_folder_ids')) db.prepare('DELETE FROM work_folder_ids WHERE project_id = ?').run(sourceId)
     // Ideas that belong only through their card travel with the card; explicit links are re-pointed here.
     if (hasTable('kanban_cards')) cards = db.prepare('UPDATE kanban_cards SET project = ? WHERE project = ?').run(targetId, sourceId).changes
     links = db.prepare('UPDATE project_links SET project_id = ? WHERE project_id = ?').run(targetId, sourceId).changes
     db.prepare('DELETE FROM projects WHERE id = ?').run(sourceId)
   })()
-  return { ok: true, cards, ideas: c.ideas, links }
+  return { ok: true, cards, ideas: c.ideas, links, workItems }
 }
 
 /** Delete the project AND what is in it: its cards and ideas are removed, other links are cut (the objects stay). */
