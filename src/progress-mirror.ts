@@ -12,6 +12,7 @@
 // Everything here is a pure function of its inputs, so the tests drive the
 // exact branches the runner takes -- no tmux, no Telegram, no store.
 import { detectPaneState } from './pane-state.js'
+import { detectsUsageLimit } from './model-fallback.js'
 
 export type ProgressMode = 'silent' | 'indicator' | 'verbose'
 export const PROGRESS_MODES: readonly ProgressMode[] = ['silent', 'indicator', 'verbose']
@@ -226,30 +227,80 @@ export function extractThoughts(jsonlLines: string[], lang: Lang = 'hu', sinceMs
     .filter(t => inOwnerLanguage(t, lang))
 }
 
+// "You've hit your session limit · resets 9am (Europe/Budapest)", "... weekly limit ...", and a
+// bare "You've hit your limit": the window word is optional, the apostrophe may be curly or
+// missing (same shape as LIMIT_BANNER_RE in scripts/hooks/telegram_progress_clear.py).
+const LIMIT_NOTICE_RE = /\bhit\s+your\s+(?:[\w-]+\s+)?limit\b/i
+
+/** The plan-limit sentence of a synthetic transcript line, or null. Only the limit: the other
+ *  synthetic lines ("No response requested.", "API Error: ...", "Prompt is too long", a
+ *  provider's 429) are not the owner's news and are never forwarded (measured 2026-10-07). */
+function limitNoticeOf(d: any): string | null {
+  for (const c of Array.isArray(d.message?.content) ? d.message.content : []) {
+    const text = c?.type === 'text' && typeof c.text === 'string' ? c.text.trim() : ''
+    if (text && (LIMIT_NOTICE_RE.test(text) || detectsUsageLimit(text))) return text
+  }
+  return null
+}
+
 /**
- * #495: the synthetic "You've hit your weekly limit ..." lines Claude Code writes for every
- * refused turn. The owner wants to hear it ONCE, not on every scheduled prompt, so this only
- * returns the distinct texts of a span; the runner remembers the last one it sent per agent.
+ * #495: the rate-limit notices of a span the owner has not heard yet. Claude Code writes the same
+ * synthetic "You've hit your weekly limit · resets ..." line for every refused turn; the owner
+ * hears it ONCE per outage. `lastSent` is the notice already sent for this agent. A real answer
+ * in the span means the agent worked again, so the next notice is due even with the same text --
+ * a session limit that resets at 9am reads the same every day. `last` is what to remember after
+ * the span; the runner stores it only when every due notice went out.
  */
-export function extractLimitNotices(jsonlLines: string[], sinceMs?: number): string[] {
-  const out: string[] = []
+export function limitNoticesDue(jsonlLines: string[], lastSent: string | null, sinceMs?: number): { due: string[]; last: string | null } {
+  const due: string[] = []
+  let last = lastSent
   for (const line of jsonlLines) {
     let d: any
     try { d = JSON.parse(line) } catch { continue }
     if (!d || d.type !== 'assistant') continue
-    if (!(d.isApiErrorMessage === true || d.message?.model === '<synthetic>')) continue
+    if (d.isApiErrorMessage !== true && d.message?.model !== '<synthetic>') {
+      // A real answer, also one from before the owner's turn: the outage is over.
+      last = null
+      continue
+    }
     if (sinceMs !== undefined) {
       const ts = Date.parse(String(d.timestamp ?? ''))
       if (!Number.isFinite(ts) || ts < sinceMs) continue
     }
-    const content = d.message?.content
-    if (!Array.isArray(content)) continue
-    for (const c of content) {
-      const text = c?.type === 'text' && typeof c.text === 'string' ? c.text.trim() : ''
-      if (text && !out.includes(text)) out.push(text)
-    }
+    const notice = limitNoticeOf(d)
+    if (!notice || notice === last) continue
+    due.push(notice)
+    last = notice
   }
-  return out
+  return { due, last }
+}
+
+const HU_MONTHS: Record<string, string> = {
+  jan: 'jan.', feb: 'febr.', mar: 'márc.', apr: 'ápr.', may: 'máj.', jun: 'jún.',
+  jul: 'júl.', aug: 'aug.', sep: 'szept.', oct: 'okt.', nov: 'nov.', dec: 'dec.',
+}
+
+/**
+ * The notice in the owner's words. Claude Code's sentence is English; a Hungarian owner gets no
+ * English on Telegram (owner, 2026-09-27), not even a quoted system line, so it is rewritten:
+ * "You've hit your weekly limit · resets Oct 9, 9am (Europe/Budapest)" ->
+ * "Elfogyott a heti Claude-keret · visszaáll: okt. 9. 9:00 (Europe/Budapest)". A reset time it
+ * cannot read is left out rather than quoted.
+ */
+export function limitNoticeText(notice: string, lang: Lang): string {
+  if (lang === 'en') return notice
+  const head = /\b(?:weekly|7-day) limit/i.test(notice)
+    ? 'Elfogyott a heti Claude-keret'
+    : /\b(?:session|5-hour) limit/i.test(notice)
+      ? 'Elfogyott az 5 órás Claude-keret'
+      : 'Elfogyott a Claude-keret'
+  const m = /\bresets?\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s*(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s*\(([^)]+)\))?/i.exec(notice)
+  if (!m) return head
+  const month = m[1] ? HU_MONTHS[m[1].toLowerCase()] : undefined
+  if (m[1] && !month) return head
+  const hour = (Number(m[3]) % 12) + (m[5].toLowerCase() === 'pm' ? 12 : 0)
+  const when = `${month ? `${month} ${Number(m[2])}. ` : ''}${hour}:${m[4] ?? '00'}${m[6] ? ` (${m[6]})` : ''}`
+  return `${head} · visszaáll: ${when}`
 }
 
 export function thoughtMessage(text: string, max = 600): string {
