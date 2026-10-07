@@ -11,7 +11,7 @@ describe('Workbench tree root + layers (TG 2399/2402)', () => {
     expect(js).toContain("data-wb-drop-box=\"1\"")
   })
   it('the panel upload only stores the file, it does not place it on the page', () => {
-    expect(js).toContain('canvasDropImage(f, null, null, true)')
+    expect(js).toContain('canvasDropImage(list[0], null, null, true)')
     expect(js).toContain('if (uploadOnly)')
   })
   it('there is a Layers tab with select and multi-move', () => {
