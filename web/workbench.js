@@ -1598,6 +1598,7 @@
   }
 
   function folderTreeRows() {
+    WB.rootHead = ''
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
     var items = WB.items || []
@@ -1688,10 +1689,11 @@
       return n
     }
     var rootCount = count(box) + outCount('')
-    rows.push('<li class="wb-folder-row wb-root-row wb-depth-0" data-wb-drop-folder="" data-wb-drop-box="1" title="' + escA(t('workbench.root.hint')) + '">'
+    // Boss TG 2741: the project root is the HEADER of the panel (big name, same row as the Open button), not a tree row.
+    WB.rootHead = '<div class="wb-root-title" data-wb-drop-folder="" data-wb-drop-box="1" title="' + escA(t('workbench.root.hint')) + '">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(ROOT_KEY) + '" aria-expanded="' + (!rootShut) + '"'
       + ' title="' + escA(t(rootShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + rootCount + ')</span></button></li>')
+      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + rootCount + ')</span></button></div>'
     if (rootShut) return rows
     rows.push('<li class="wb-folder-row wb-fav-row wb-depth-1">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(FAV_KEY) + '" aria-expanded="' + (!favShut) + '"'
@@ -1707,14 +1709,15 @@
       rows.push('<li class="wb-folder-row wb-depth-1" data-wb-drop-folder="' + escA(box) + '" data-wb-drop-box="1">'
         + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(box) + '" aria-expanded="' + (!boxShut) + '"'
         + ' title="' + escA(t(boxShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-        + (boxShut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(box)) + ' <span class="wb-muted">(' + count(box) + ')</span></button></li>')
+        + (boxShut ? '▸ ' : '▾ ') + '🗃️ ' + esc(baseOf(box)) + ' <span class="wb-muted">(' + count(box) + ')</span></button></li>')
       if (!boxShut) walk(box, 2, null)
     } else {
       walk(box, 1, null)
     }
     }
     // The rest of the project folder, read-only here: open a file, use its menu, or find it in the Explorer.
-    function walkOutside(path, depth) {
+    var outIdx = 0 // each top-level branch of the project folder gets its own tint, like the Explorer (Boss TG 2741)
+    function walkOutside(path, depth, grp) {
       var kidsHere = (outKids[path] || []).map(function (f) { return { name: baseOf(f), f: f } })
       if (path === '' && box) kidsHere.push({ name: baseOf(box), box: true })
       kidsHere.sort(nameCmp)
@@ -1722,16 +1725,17 @@
         if (e.box) { renderBox(); return }
         var f = e.f
         var shut = isShut(f)
-        rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '">'
+        var g = grp != null ? grp : (path === '' ? outIdx++ : null)
+        rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
           + ' title="' + escA(t(shut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
           + (shut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + outCount(f) + ')</span></button></li>')
-        if (!shut) walkOutside(f, depth + 1)
+        if (!shut) walkOutside(f, depth + 1, g)
       })
-      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, null) : plainFileRowHtml(f, depth, null)) })
+      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, grp) : plainFileRowHtml(f, depth, grp)) })
     }
-    if (box) walkOutside('', 1)
-    else { walk(box, 1, null); walkOutside('', 1) }
+    if (box) walkOutside('', 1, null)
+    else { walk(box, 1, null); walkOutside('', 1, null) }
     return rows
   }
 
@@ -2069,11 +2073,10 @@
     body += trashHtml()
     body += rescueHtml()
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
-      + '<div class="wb-panel-head"><h2 class="wb-panel-title">' + esc(t('workbench.panel.items')) + (WB.items && WB.items.length ? ' (' + WB.items.length + ')' : '') + '</h2>'
+      + '<div class="wb-panel-head">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>')
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button></div>'
-      + '<p class="wb-hint">' + esc(t(WB.layout === 'split' ? 'workbench.items.switch_hint_split' : 'workbench.items.switch_hint')) + '</p>'
       + body
       // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
       + (compact ? (archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')) : archived()

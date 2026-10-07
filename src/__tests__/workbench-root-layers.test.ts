@@ -6,7 +6,7 @@ const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf
 
 describe('Workbench tree root + layers (TG 2399/2402)', () => {
   it('the project is the root row of the tree and everything is one level deeper', () => {
-    expect(js).toContain('wb-root-row')
+    expect(js).toContain('wb-root-title')
     expect(js).toContain('walk(box, 1, null)')
     expect(js).toContain("data-wb-drop-box=\"1\"")
   })

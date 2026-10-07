@@ -2520,15 +2520,15 @@ describe('munkadarabok kozti valtas (#359)', () => {
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w3"'))
   })
 
-  it('a lista szamozott, a fejlec mutatja a darabszamot, es van magyarazo sor', () => {
+  it('a lista szamozott, nincs Munkadarabok-fejlec es magyarazo sor (TG 2741)', () => {
     const html = h.rootEl.innerHTML
     // TG 1843: the position numbering became the stable "28M" work-item number (seq);
     // these fixtures carry no seq, so the plain titles are listed.
     expect(html).toContain('<span class="wb-item-title">Darab 1</span>')
     expect(html).toContain('<span class="wb-item-title">Darab 3</span>')
-    expect(html).toContain('⟦workbench.panel.items⟧ (3)')
-    // Osztott nezetben (#406, 1. pont) a mondat a jobb oldalt nevezi meg.
-    expect(html).toMatch(/⟦workbench\.items\.switch_hint(_split)?⟧/)
+    // Boss TG 2741: no "Munkadarabok (N)" heading and no hint sentence any more.
+    expect(html).not.toContain('⟦workbench.panel.items⟧ (3)')
+    expect(html).not.toMatch(/⟦workbench\.items\.switch_hint(_split)?⟧/)
   })
 
   it('a listaban kattintott darab lesz az aktualis, es kozepen az nyilik meg', async () => {
