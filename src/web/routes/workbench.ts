@@ -2791,9 +2791,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // az ugynok ebbe ir, a jobb oldal ezt mutatja. (Nincs projektmappa -> fajl nelkul, mint eddig.)
     let noteFile: { rel: string; name: string } | null = null
     // TG 2622: the new item gets its own folder, named after it, under the box (or the picked folder).
+    let intakeOwn: string | null = null
     {
       const mf = makeWorkFolder(project, intakeFolder ?? '', folderNameFromTitle(title))
-      if (mf.ok) intakeFolder = mf.folder
+      if (mf.ok) { intakeFolder = mf.folder; if (mf.created) intakeOwn = mf.folder }
     }
     const noteDir = intakeRoot ? '' : (intakeFolder ?? '')
     if (kind === 'note' && projectFileTarget(project, noteDir).ok) {
@@ -2806,6 +2807,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       prompt: text || undefined, container_folder: intakeFolder, source_path: noteFile ? noteFile.rel : undefined, created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
+    // TG 2752: the folder made above IS the item's own folder; without this the first file written later made a
+    // second folder of the same name inside it.
+    if (intakeOwn) { assignWorkItemFolder(r.item.id, intakeOwn); r.item = getWorkItem(r.item.id) ?? r.item }
     json(res, {
       ok: true, ask: false, kind, item: r.item, versions: [r.version], text, file: noteFile,
       message: null,

@@ -11592,11 +11592,11 @@
       + '</section>'
   }
 
-  function docPageHtml() {
+  function docPageHtml(forceRo) {
     var d = WB.detail
     if (!d || !d.item) return ''
     var o = d.outline
-    var ro = archived()
+    var ro = !!forceRo || archived()
     var secs = (o && o.sections) || []
     var body
     if (!secs.length) {
@@ -11880,7 +11880,8 @@
       + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>')
       + '</p>' + (o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : '')
-    var body = tab === 'preview' ? previewHtml()
+    // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
+    var body = tab === 'preview' ? ((o && o.sections && o.sections.length) ? docPageHtml(true) : previewHtml())
       : tab === 'sources' ? (o ? docSourcesHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.sources_none')) + '</p>')
       : tab === 'gaps' ? (o ? docGapsHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.gaps_none')) + '</p>')
       : docPageHtml() + docExtrasHtml() + canvasHtml() + postPreviewHtml()
