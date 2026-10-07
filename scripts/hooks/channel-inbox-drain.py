@@ -318,7 +318,8 @@ def _format_entry(entry):
     body = re.sub(r"<(?=[A-Za-z/!])", "&lt;", str(content))
 
     attrs = [('source', 'telegram')]
-    for key in ("chat_id", "message_id", "user", "ts", "image_path"):
+    for key in ("chat_id", "message_id", "user", "ts", "image_path",
+                "reply_to_message_id", "reply_to_user", "reply_to_excerpt"):
         if key in meta and meta.get(key) is not None:
             attrs.append((key, meta.get(key)))
     for key in sorted(meta.keys()):
