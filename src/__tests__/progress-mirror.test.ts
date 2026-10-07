@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   langOf, classifyPane, placeholderLiveText, backgroundText, shouldEdit,
-  extractThoughts, extractLimitNotices, thoughtMessage, parseProgressMode,
+  extractThoughts, limitNoticesDue, limitNoticeText, thoughtMessage, parseProgressMode,
 } from '../progress-mirror.js'
 import { readPending } from '../web/progress-mirror-runner.js'
 import { SETTINGS_REGISTRY } from '../config-registry.js'
@@ -151,14 +151,49 @@ describe('verbose thoughts', () => {
     expect(extractThoughts([limit, limit, real], 'hu')).toEqual(['Megnézem a naplót.'])
     expect(extractThoughts([limit], 'en')).toEqual([])
   })
-  it('#495: the rate-limit notice is returned once per distinct text, so the runner can send it only once', () => {
-    const mk = (text: string) => JSON.stringify({
-      type: 'assistant', isApiErrorMessage: true, error: 'rate_limit',
+  describe('#495: the rate-limit notice goes out once per outage, in the owner\'s language', () => {
+    // Shapes measured in this host's transcripts (2026-10-07).
+    const synth = (text: string, error = 'rate_limit', isApiErrorMessage = true) => JSON.stringify({
+      type: 'assistant', isApiErrorMessage, error,
       message: { model: '<synthetic>', content: [{ type: 'text', text }] },
     })
+    const weekly = "You've hit your weekly limit · resets Oct 9, 9am (Europe/Budapest)"
+    const session = "You've hit your session limit · resets 9pm (Europe/Budapest)"
     const real = JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Megnézem.' }] } })
-    expect(extractLimitNotices([mk('A'), mk('A'), real, mk('B')])).toEqual(['A', 'B'])
-    expect(extractLimitNotices([real])).toEqual([])
+
+    it('the same notice on every refused turn goes out once', () => {
+      expect(limitNoticesDue([synth(weekly), synth(weekly), synth(weekly)], null)).toEqual({ due: [weekly], last: weekly })
+      expect(limitNoticesDue([synth(weekly)], weekly)).toEqual({ due: [], last: weekly })
+    })
+    it('a real answer ends the outage: the same session-limit text on another day goes out again', () => {
+      expect(limitNoticesDue([real], session)).toEqual({ due: [], last: null })
+      expect(limitNoticesDue([real, synth(session)], session)).toEqual({ due: [session], last: session })
+    })
+    it('other synthetic lines are never forwarded and do not reset the remembered notice', () => {
+      const noise = [
+        synth('No response requested.', '', false),
+        synth('API Error: Request rejected (429) · Provider returned error'),
+        synth('Prompt is too long', 'invalid_request'),
+        synth('Not logged in · Please run /login', 'authentication_failed'),
+      ]
+      expect(limitNoticesDue(noise, null)).toEqual({ due: [], last: null })
+      // The old one-slot memory flipped on these and sent the limit again on every turn.
+      expect(limitNoticesDue([synth(weekly), ...noise, synth(weekly), ...noise], null)).toEqual({ due: [weekly], last: weekly })
+    })
+    it('a notice from before the owner\'s turn is history', () => {
+      const at = (iso: string, line: string) => JSON.stringify({ ...JSON.parse(line), timestamp: iso })
+      const since = Date.parse('2026-10-04T12:00:00Z')
+      expect(limitNoticesDue([at('2026-10-04T11:58:00Z', synth(weekly))], null, since)).toEqual({ due: [], last: null })
+      expect(limitNoticesDue([at('2026-10-04T12:02:00Z', synth(weekly))], null, since)).toEqual({ due: [weekly], last: weekly })
+    })
+    it('a Hungarian owner gets it in Hungarian, an English owner verbatim', () => {
+      expect(limitNoticeText(weekly, 'hu')).toBe('Elfogyott a heti Claude-keret · visszaáll: okt. 9. 9:00 (Europe/Budapest)')
+      expect(limitNoticeText(session, 'hu')).toBe('Elfogyott az 5 órás Claude-keret · visszaáll: 21:00 (Europe/Budapest)')
+      expect(limitNoticeText('You\u2019ve hit your session limit · resets 12:30am', 'hu')).toBe('Elfogyott az 5 órás Claude-keret · visszaáll: 0:30')
+      expect(limitNoticeText("You've hit your limit", 'hu')).toBe('Elfogyott a Claude-keret')
+      expect(limitNoticeText(weekly, 'en')).toBe(weekly)
+      expect(thoughtMessage(limitNoticeText(weekly, 'hu'))).not.toMatch(/You|hit|limit|resets/)
+    })
   })
   it('never posts an English narration block to a Hungarian owner (2026-09-27)', () => {
     const lines = [

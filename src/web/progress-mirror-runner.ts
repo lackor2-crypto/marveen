@@ -32,8 +32,9 @@ import {
   backgroundText,
   classifyPane,
   extractThoughts,
-  extractLimitNotices,
   langOf,
+  limitNoticesDue,
+  limitNoticeText,
   parseProgressMode,
   placeholderLiveText,
   shouldEdit,
@@ -203,11 +204,19 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
         for (const th of extractThoughts(lines, lang, since)) {
           await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })
         }
-        // A rate-limit notice goes out once; the same text is never repeated (#495).
-        for (const n of extractLimitNotices(lines, since)) {
-          if (persisted.limitNotice[t.agent] === n) continue
-          const r = await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(n), disable_notification: true })
-          if (r?.ok) { persisted.limitNotice[t.agent] = n; saveState() }
+        // A rate-limit notice goes out once per outage, in the owner's language (#495).
+        const prevNotice = persisted.limitNotice[t.agent] ?? null
+        const { due, last } = limitNoticesDue(lines, prevNotice, since)
+        let delivered = true
+        for (const n of due) {
+          const r = await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(limitNoticeText(n, lang)), disable_notification: true })
+          if (!r?.ok) delivered = false
+        }
+        // Not delivered: the next refused turn writes the same line and it is tried again.
+        if (delivered && last !== prevNotice) {
+          if (last === null) delete persisted.limitNotice[t.agent]
+          else persisted.limitNotice[t.agent] = last
+          saveState()
         }
       }
     }
@@ -249,6 +258,9 @@ export async function progressMirrorTick(now = Date.now()): Promise<void> {
     if (edits.size > 500) edits.clear()
     for (const agent of Object.keys(persisted.background)) {
       if (!live.has(agent)) { delete persisted.background[agent]; saveState() }
+    }
+    for (const agent of Object.keys(persisted.limitNotice)) {
+      if (!live.has(agent)) { delete persisted.limitNotice[agent]; saveState() }
     }
   } finally {
     running = false
