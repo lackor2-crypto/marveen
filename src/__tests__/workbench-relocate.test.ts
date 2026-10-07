@@ -95,6 +95,30 @@ describe('workbench-relocate', () => {
     expect(msg).toMatch(/nem egy projekt mappája|not a project folder/)
   })
 
+  it('a registration file in the Kuka (trash) is deliberate: no warning (Boss, TG 2874)', async () => {
+    const { file } = itemInA()
+    const trash = join(dir, 'Kuka', '2026-10-06_20-06-34', 'Iroda')
+    mkdirSync(trash, { recursive: true })
+    writeFileSync(join(trash, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
+    unlinkSync(file)
+
+    await reconcileItemLocations()
+
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  it('the sent warning is persisted, so a restart does not send it again (Boss, TG 2874)', async () => {
+    const { file } = itemInA()
+    const neutral = join(dir, 'semleges2')
+    mkdirSync(neutral, { recursive: true })
+    writeFileSync(join(neutral, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
+    unlinkSync(file)
+
+    await reconcileItemLocations()
+    const rows = getDb().prepare('SELECT key FROM workbench_relocate_warned').all() as { key: string }[]
+    expect(rows.some((r) => r.key.startsWith('N|'))).toBe(true)
+  })
+
   it('warns once per place, not every pass, for an unresolved neutral drop', async () => {
     const { id, file } = itemInA()
     const neutral = join(dir, 'semleges')
