@@ -20,6 +20,14 @@ What was past the cap cannot be fetched from Telegram. Two things can be done:
      machine and the caption is the beginning of the owner's dictations pasted
      into Telegram just before the message was sent, the full text is rebuilt.
 
+Since #503 (2026-10-07) the dictation tool no longer lets a dictation land in a
+caption at all: when the focus is in Telegram's send-files caption it sends the
+picture WITHOUT text and puts the whole text into the plain message field
+(windows/hu-diktalas/telegram-kepalairas.ps1). The picture therefore reaches
+the agent first, alone ("(photo)"), and the text follows as its own message. To
+keep the agent from acting on a bare picture, a captionless picture that the
+tool's log says was sent this way gets a notice: the text is on its way.
+
 Imported by the two hooks a Telegram message reaches an agent through, both
 already wired for every agent, so nothing new has to be registered:
   * channel-inbox-drain.py -- queued messages (the sub-agent path);
@@ -50,6 +58,16 @@ LOG_LINE_RX = re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (.*)$')
 # between the Telegram server timestamp and this machine is tolerated.
 WINDOW_BEFORE = timedelta(minutes=45)
 WINDOW_AFTER = timedelta(seconds=5)
+
+# #503: the line the dictation tool writes right BEFORE it sends the picture
+# without text (telegram-kepalairas.ps1, $TgMovedLogPrefix). The picture's
+# server timestamp follows it within a second or two; the window also covers a
+# slow UI and clock skew.
+MOVED_PREFIX = "kepalairas -> sima uzenet:"
+MOVED_BEFORE = timedelta(seconds=120)
+MOVED_AFTER = timedelta(seconds=30)
+# The Telegram plugin's stand-in body for a media message without a caption.
+NO_CAPTION_RX = re.compile(r'^\((photo|video|document: .*)\)$')
 
 
 def utf16_len(s):
@@ -125,6 +143,24 @@ def parse_log(text):
     return out
 
 
+def parse_moves(text):
+    """When the dictation tool sent a picture without text and moved the text
+    to a plain message (#503): the timestamps of those log lines."""
+    out = []
+    for raw in text.splitlines():
+        m = LOG_LINE_RX.match(raw.rstrip("\r").lstrip("\ufeff"))
+        if m and m.group(2).startswith(MOVED_PREFIX):
+            try:
+                out.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))
+            except ValueError:
+                pass
+    return out
+
+
+def moved_near(moves, sent_at):
+    return any(sent_at - MOVED_BEFORE <= t <= sent_at + MOVED_AFTER for t in moves)
+
+
 def restore(caption, entries, sent_at):
     """The owner's full text behind a capped caption, or None.
 
@@ -170,6 +206,20 @@ def notices(text, log_path=None, now=None, find_log=find_dictation_log):
     """One notice per capped Telegram caption found in `text` (joined by
     newlines), or "" when there is none."""
     out = []
+    log_text = None
+
+    def load_log():
+        nonlocal log_text
+        if log_text is None:
+            log_text = ""
+            try:
+                path = log_path or find_log()
+                if path:
+                    log_text = read_tail(path)
+            except Exception:
+                log_text = ""
+        return log_text
+
     entries = None
     for m in CHANNEL_RX.finditer(text or ""):
         attrs = {k: html.unescape(v) for k, v in ATTR_RX.findall(m.group(1))}
@@ -178,21 +228,31 @@ def notices(text, log_path=None, now=None, find_log=find_dictation_log):
         if "image_path" not in attrs and not any(k.startswith("attachment_") for k in attrs):
             continue  # plain text: Telegram does not cap it this way
         body = html.unescape(m.group(2)).strip()
+        mid = attrs.get("message_id") or "?"
+        # Only a private chat is matched against the owner's own dictations.
+        private = not attrs.get("chat_id", "").startswith("-")
+        if not body or NO_CAPTION_RX.match(body):
+            # #503: a picture without text, sent by the dictation tool that
+            # moved the dictated text into a separate plain message.
+            if private and moved_near(parse_moves(load_log()), _sent_at(attrs, now)):
+                out.append(
+                    "[TELEGRAM: A KÉP SZÖVEGE KÜLÖN ÜZENETBEN JÖN] A(z) %s. üzenet egy kép "
+                    "szöveg nélkül. A tulajdonos ehhez a képhez diktált, és a diktáló a "
+                    "szöveget szándékosan NEM a képaláírásba tette (ott 1024 karakternél "
+                    "levágódna), hanem külön, sima üzenetként jön utána -- lehet, hogy már "
+                    "ebben a csomagban ott van, vagy hamarosan érkezik. Ne találgasd, mit "
+                    "akar a képpel, és ne kezdj a kép alapján munkába: ha a szöveg még "
+                    "nincs itt, egy rövid mondatban nyugtázd a képet, és a következő "
+                    "üzenetével együtt értelmezd." % mid
+                )
+            continue
         cap = cap_hit(body)
         if not cap:
             continue
-        mid = attrs.get("message_id") or "?"
         restored = None
-        # Only a private chat is matched against the owner's own dictations.
-        if not attrs.get("chat_id", "").startswith("-"):
+        if private:
             if entries is None:
-                entries = []
-                try:
-                    path = log_path or find_log()
-                    if path:
-                        entries = parse_log(read_tail(path))
-                except Exception:
-                    entries = []
+                entries = parse_log(load_log()) if load_log() else []
             if entries:
                 restored = restore(body, entries, _sent_at(attrs, now))
         if restored and restored.get("complete"):
@@ -336,6 +396,40 @@ def self_test():
         # 10. log discovery: explicit env wins; a missing explicit path is None.
         assert find_dictation_log({LOG_ENV: path}) == path
         assert find_dictation_log({LOG_ENV: os.path.join(td, "nincs.log")}) is None
+
+        # 11. #503: the tool sent the picture without text and moved the text
+        #     to a plain message -> the bare picture says the text follows.
+        log3 = "\n".join([
+            "%s  telegram mezo: caption" % stamp(timedelta(seconds=-2)),
+            "%s  beillesztes ide: Telegram" % stamp(timedelta(seconds=-2)),
+            "%s  kepalairas -> sima uzenet: a kepet szoveg nelkul kuldom, a szoveg (1254 karakter) kulon, sima uzenetbe megy" % stamp(timedelta(seconds=-1)),
+            "%s  kepalairas -> sima uzenet: kesz -- a kep elment" % stamp(timedelta(seconds=0)),
+            "%s  kesz: %s" % (stamp(timedelta(seconds=0)), d3),
+        ]) + "\n"
+        p3 = os.path.join(td, "l3.log")
+        with open(p3, "w", encoding="utf-8") as f:
+            f.write(log3)
+        assert len(parse_moves(log3)) == 2 and parse_moves(log) == []
+        out = notices(block("(photo)"), log_path=p3)
+        assert "KÜLÖN ÜZENETBEN JÖN" in out and "A(z) 7." in out, out
+        # an empty body and a document without caption count too
+        assert "KÜLÖN ÜZENETBEN" in notices(block(""), log_path=p3)
+        assert "KÜLÖN ÜZENETBEN" in notices(block("(document: kep.png)", image_path=None, attachment_kind="document"), log_path=p3)
+        # the moved text itself still restores nothing: it is not a capped caption
+        assert "LEVÁGVA" not in out, out
+
+        # 12. a bare picture with no such line in the log, or no log: silent.
+        assert notices(block("(photo)"), log_path=path) == ""
+        assert notices(block("(photo)"), find_log=no_log) == ""
+
+        # 13. the line belongs to another picture (5 minutes earlier): silent.
+        assert notices(block("(photo)", ts="2026-09-30T17:04:39.000Z"), log_path=p3) == ""
+
+        # 14. a group chat is never matched against the owner's dictation log.
+        assert notices(block("(photo)", chat_id="-100123"), log_path=p3) == ""
+
+        # 15. a picture WITH a caption is not "bare", even with the line nearby.
+        assert notices(block("Nezd ezt a kepet."), log_path=p3) == ""
 
     print("telegram_caption_limit self-test passed")
 

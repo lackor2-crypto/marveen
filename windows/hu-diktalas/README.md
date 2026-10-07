@@ -161,11 +161,31 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
     csatolmány) mellé diktálsz, a szöveg *képaláírás* lesz, és a Telegram 1024 karakternél
     (Premiummal 4096-nál) levágja — a maradékot el sem küldi, hibát sem jelez. Mérve
     (2026-09-29/30): 1250 és ~1700 karakteres diktálásokból 1024 karakter érkezett meg, a
-    naplóban viszont a teljes szöveg megvolt — tehát nem a diktáló vágott. Ezt a diktáló nem
-    látja (nem tudja, hogy a képaláírás-mezőbe illeszt). A Marveen oldalán a
-    `scripts/hooks/telegram_caption_limit.py` figyeli: a határon álló képaláírásnál szól az
-    ágensnek, és ha ez a napló ugyanazon a gépen van, abból visszaállítja a teljes szöveget.
-    Hosszú mondanivalót ezért inkább külön üzenetben, kép nélkül küldj.
+    naplóban viszont a teljes szöveg megvolt — tehát nem a diktáló vágott. **A vágás helye a
+    Telegram Desktop maga:** a kép-küldő ablak képaláírás-mezője 1024 karakteres
+    (`send_files_box.cpp`: `_caption->setMaxLength(captionLengthCurrent())`), ami azon túl
+    van, azt a mező a beillesztésnél eldobja. Olyan Telegram-beállítás, ami a hosszú
+    képaláírást külön üzenetbe tenné, nincs (kutatva 2026-10-07).
+
+    **Megoldás (2026-10-07, #503):** a diktáló a Windows UI Automation-nel megnézi, hová
+    illeszt. Ha a kurzor a kép-küldő ablak **képaláírásában** áll, a szöveg NEM oda megy:
+    1. ami már a képaláírásban van, azt kiolvassa és kiüríti;
+    2. Enterrel elküldi a képet, szöveg nélkül;
+    3. a **teljes** szöveget (a régi képaláírás + az új diktálás) a **sima üzenetmezőbe**
+       teszi — azt te küldöd el Enterrel, ahogy eddig. A sima üzenetnek nincs 1024-es határa
+       (4096, a hosszabbat a Telegram maga bontja több üzenetre).
+
+    A felismerés nyelvfüggetlen: a Telegram a mezők *osztálynevét* adja (`HistoryWidget` =
+    sima üzenetmező, `SendFilesBox` = képaláírás). Ha a diktáló nem biztos benne, nem nyúl
+    semmihez, és a régi módon illeszt be (a 900 karakter feletti figyelmeztetéssel). Ha
+    valami félremegy, a szöveg nem vész el: a **vágólapra** kerül, és egy buborék megmondja,
+    hová tedd (`Ctrl+V`). A sima üzenetmezőbe diktálásnál nincs többé hamis 1024-es
+    figyelmeztetés. Kikapcsolás: `HU_DIKTALAS_KEPALAIRAS=marad` környezeti változó.
+
+    A Marveen oldalán a `scripts/hooks/telegram_caption_limit.py` két dolgot figyel: a
+    határon álló képaláírást (szól az ágensnek, és a naplóból visszaállítja a teljes
+    szöveget), és a szöveg nélkül érkező képet, amit a diktáló küldött így — ilyenkor
+    megmondja az ágensnek, hogy a szöveg külön üzenetben jön, ne a képből találgasson.
 
 ## Fájlok
 
@@ -175,6 +195,7 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
 | `diktal-auto.vbs` | ablak nélküli indító (ez a parancsikon célja) |
 | `recorder.ps1` | 16 bites waveIn felvevő, **név szerinti** eszközválasztással |
 | `micgain.ps1` | **közös** COM-modul: hangerő + alapértelmezett eszköz (`IPolicyConfig`) |
+| `telegram-kepalairas.ps1` | Telegram: a képaláírásba szánt diktálás sima üzenetbe kerül (lásd a 12. pontot) |
 | `diktal.ps1` | régi, vágólapos változat (Enter = kész, `Ctrl+V` bárhová) |
 | `szotar.txt` | szakszavak, amiket a felismerés kapjon meg előre (`prompt`) |
 | `javitasok.txt` | utólagos `hibás=helyes` cserék |
