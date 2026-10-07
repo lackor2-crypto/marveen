@@ -326,7 +326,9 @@ export function translateSection(variantId: string, input: { source_section?: un
   const title = String(input.title ?? '').trim()
   if (!title || title.length > SECTION_TITLE_MAX) return { ok: false, code: 'bad_input', detail: `the translated title must be 1 to ${SECTION_TITLE_MAX} characters` }
   const raw = Array.isArray(input.blocks) ? input.blocks as TranslatedBlockInput[] : []
-  if (!raw.length) return { ok: false, code: 'bad_input', detail: 'blocks: the translated blocks of the section, in order ({kind, text, claims: [{source_claim, text}]})' }
+  // Egy csak cimbol allo eredeti fejezet forditasa maga a cim: blokk nelkul is mentheto.
+  const srcBlocks = (getDb().prepare('SELECT COUNT(*) AS n FROM wb_doc_blocks WHERE section_id = ?').get(src.id) as { n: number }).n
+  if (!raw.length && srcBlocks > 0) return { ok: false, code: 'bad_input', detail: 'blocks: the translated blocks of the section, in order ({kind, text, claims: [{source_claim, text}]}); blocks: [] only when the original section has no blocks' }
   const blocks: { kind: BlockKind; text: string; claims: { source_claim: string; text: string }[] }[] = []
   for (const b of raw) {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)

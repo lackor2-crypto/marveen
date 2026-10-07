@@ -307,7 +307,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'doc.translateSection',
     description: 'Save the translation of ONE section of the original into this language version (call it on the language version). It replaces that section\'s title and blocks, copies the sources of the claims you carry over (the same file, page and quote; the owner\'s confirmation stays), and marks the section current again. Translate faithfully in the official legal register of the target language and court; use the case glossary (doc.variants shows it) for every term in it; keep names, case numbers, dates and amounts exact (dates and amounts in the target language format); keep "⚠ Hiányzó adat" marks (translated). For each block give claims: [{source_claim: the original claim id, text: its verbatim translation inside the translated block}] -- a claim not carried over is reported in claims_not_carried, and glossary_issues lists glossary terms whose fixed translation is missing: fix and call again.',
-    input: 'id (optional); source_section: the ORIGINAL section id; title: translated title; blocks: [{kind, text, claims: [{source_claim, text}]}] in order',
+    input: 'id (optional); source_section: the ORIGINAL section id; title: translated title; blocks: [{kind, text, claims: [{source_claim, text}]}] in order ([] when the original section is only a title)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
