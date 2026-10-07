@@ -5356,6 +5356,7 @@ window._i18n.en = {
   "projects.delete.mode_merge": "Merge into another project (everything moves there, this project goes away):",
   "projects.delete.contents_note": "Irreversible: {cards} cards and {ideas} ideas are deleted for good.",
   "projects.delete.work_items_block": "The project's Workbench still has {n} items. They are real files in the project folder, so they are neither moved nor deleted automatically: deal with them on the Workbench first (bin or archive).",
+  "projects.delete.work_items_merge": "The project's {n} work items move too: their folders go into the target project's Work items folder (a taken name gets a (2)), every link follows them, nothing is deleted.",
   "projects.delete.merge_btn": "Merge",
   "projects.toast.deleted_full": "Project {name} is gone ({n} cards affected).",
   "projects.move.btn": "Move…",

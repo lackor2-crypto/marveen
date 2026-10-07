@@ -87,6 +87,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   target_archived: { hu: 'A célprojekt archiválva van: előbb hozd vissza, vagy válassz másikat.', en: 'The target project is archived: bring it back first, or pick another one.' },
   bad_items: { hu: 'Jelölj ki legalább egy elemet.', en: 'Tick at least one item.' },
   has_work_items: { hu: 'A projekt Munkapadján még vannak munkadarabok. Azok valódi fájlok a projekt mappájában, ezért nem viszem át és nem törlöm őket magától: előbb a Munkapadon dolgozz velük (Kuka vagy archiválás), utána ismételd meg.', en: 'The project still has Workbench items. They are real files in the project folder, so they are neither moved nor deleted automatically: deal with them on the Workbench first (bin or archive), then try again.' },
+  work_items_move_failed: { hu: 'Egy munkadarabot nem tudtam átvinni a célprojektbe, ezért az összevonást itt megállítottam: a projekt megmaradt, semmi nem veszett el (amit már átvittem, az a célprojektben van, teljes egészében). Nézd meg az okot, és próbáld újra: onnan folytatom.', en: 'I could not move a work item into the target project, so I stopped the merge here: the project is still there and nothing was lost (whatever already moved is complete in the target project). Check the reason and try again: I continue from there.' },
   name_required: { hu: 'Adj nevet a projektnek.', en: 'Give the project a name.' },
   name_taken: { hu: 'Már van ilyen nevű projekt. Adj neki más nevet.', en: 'A project with this name already exists. Pick another name.' },
   empty_label_filter: { hu: 'Legalább egy címkét jelölj be, vagy válaszd a „mind” lehetőséget.', en: 'Tick at least one label, or choose "all".' },
@@ -518,12 +519,12 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  // Merge this project into another: everything moves, the empty project is deleted (Boss TG 2547).
+  // Merge this project into another: everything moves (Workbench items too, #509 TG 2914), the empty project is deleted (Boss TG 2547).
   if (sub === '/merge' && method === 'POST') {
     const body = await readJson(req)
     if (!body || body.confirm !== true) return fail(res, 400, 'confirm_required', lang)
     const out = mergeProjectInto(id, String(body.target ?? ''))
-    if (!out.ok) return fail(res, out.code === 'has_work_items' ? 409 : out.code === 'same_project' || out.code === 'target_archived' ? 400 : 404, out.code, lang, { workItems: out.workItems })
+    if (!out.ok) return fail(res, out.code === 'has_work_items' || out.code === 'work_items_move_failed' ? 409 : out.code === 'same_project' || out.code === 'target_archived' ? 400 : 404, out.code, lang, { workItems: out.workItems, moved: out.moved, ...(out.code === 'work_items_move_failed' && out.message ? { message: `${MESSAGES.work_items_move_failed[lang]} (${out.message})` } : {}) })
     forgetProjectVFolders(id)
     logger.info({ id, name: project.name, target: body.target, ...out, by: MAIN_AGENT_ID }, '[projects] projekt egyesitve masikba')
     json(res, out)

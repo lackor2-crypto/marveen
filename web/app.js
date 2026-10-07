@@ -48178,6 +48178,7 @@ async function _prjOpenDelete(project) {
       </div>
       <div id="prjDelContentsNote" class="info-box depo-bad" hidden>${escapeHtml(t('projects.delete.contents_note', { cards: d.cards || 0, ideas: d.ideas || 0 }))}</div>
       ${wi ? `<div class="info-box depo-bad" id="prjDelWorkItems" hidden>${escapeHtml(t('projects.delete.work_items_block', { n: wi }))}</div>` : ''}
+      ${wi ? `<div class="info-box" id="prjDelWorkItemsMerge" hidden>${escapeHtml(t('projects.delete.work_items_merge', { n: wi }))}</div>` : ''}
       <p class="prj-muted">${escapeHtml(t('projects.delete.archive_tip'))}</p>
     </div>
     <div class="modal-footer">
@@ -48192,9 +48193,12 @@ async function _prjOpenDelete(project) {
     ov.querySelector('#prjDelMergeBox').hidden = m !== 'merge'
     ov.querySelector('#prjDelContentsNote').hidden = m !== 'contents'
     const wiBox = ov.querySelector('#prjDelWorkItems')
-    if (wiBox) wiBox.hidden = m === 'unlink'
+    if (wiBox) wiBox.hidden = m !== 'contents'
+    const wiMerge = ov.querySelector('#prjDelWorkItemsMerge')
+    if (wiMerge) wiMerge.hidden = m !== 'merge'
     const btn = ov.querySelector('#prjDelConfirm')
-    btn.disabled = !!wi && m !== 'unlink'
+    // #509 (TG 2914 A): a merge carries the work items along; only a delete WITH contents still refuses them.
+    btn.disabled = !!wi && m === 'contents'
     btn.textContent = t(m === 'merge' ? 'projects.delete.merge_btn' : 'projects.delete.confirm_btn')
   }
   ov.querySelectorAll('input[name="prjDelMode"]').forEach((i) => i.addEventListener('change', sync))

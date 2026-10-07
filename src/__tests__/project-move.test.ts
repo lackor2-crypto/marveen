@@ -61,7 +61,7 @@ describe('merge and delete with contents', () => {
     createKanbanCard({ id: 'c1', title: 'Egy', project: a.id })
     createKanbanCard({ id: 'c2', title: 'Kettő', project: a.id })
     linkObject(a.id, 'research', 'r1')
-    expect(mergeProjectInto(a.id, b.id)).toEqual({ ok: true, cards: 2, ideas: 0, links: 1 })
+    expect(mergeProjectInto(a.id, b.id)).toEqual({ ok: true, cards: 2, ideas: 0, links: 1, workItems: 0 })
     expect(getProject(a.id)).toBeUndefined()
     expect(getKanbanCard('c2')?.project).toBe(b.id)
     expect(projectForObject('research', 'r1')).toBe(b.id)
@@ -75,13 +75,13 @@ describe('merge and delete with contents', () => {
     expect(getDb().prepare('SELECT COUNT(*) n FROM idea_box').get()).toEqual({ n: 0 })
     expect(getProject(a.id)).toBeUndefined()
   })
-  it('a project with live work items refuses both, and nothing is touched', () => {
-    const a = mk('A'), b = mk('B')
+  // A merge carries work items along since #509 (TG 2914 A): project-merge-work-items.test.ts.
+  it('a project with live work items refuses a delete with contents, and nothing is touched', () => {
+    const a = mk('A')
     createKanbanCard({ id: 'c1', title: 'Egy', project: a.id })
     getDb().exec(`CREATE TABLE IF NOT EXISTS work_items (id TEXT, project_id TEXT, deleted_at INTEGER)`)
     getDb().prepare('INSERT INTO work_items (id, project_id, deleted_at) VALUES (?, ?, NULL)').run('w1', a.id)
     expect(projectContents(a.id).workItems).toBe(1)
-    expect(mergeProjectInto(a.id, b.id)).toEqual({ ok: false, code: 'has_work_items', workItems: 1 })
     expect(deleteProjectWithContents(a.id)).toEqual({ ok: false, code: 'has_work_items', workItems: 1 })
     expect(getKanbanCard('c1')?.project).toBe(a.id)
     expect(getProject(a.id)?.id).toBe(a.id)

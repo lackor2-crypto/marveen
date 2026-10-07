@@ -2141,3 +2141,77 @@ export function forgetLostFolder(project: ProjectRow, path: string): boolean {
   const r = getDb().prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND path = ?').run(project.id, path)
   return r.changes > 0
 }
+
+export type ProjectItemsMove =
+  | { ok: true; moved: number; trashed: number; folders: number; files: number }
+  | { ok: false; code: 'no_target_folder' | 'move_failed'; moved: number; message?: string }
+
+/**
+ * #509 (Boss TG 2914, A): a project merged into another takes its Workbench items along. Every live item's
+ * own folder moves into the target project's "Munkadarabok" box (a taken name becomes `name (2)`, nothing is
+ * overwritten), a folderless item's own files go straight into the box (moving never makes a folder, TG 2516),
+ * and every registry path follows (rehomeWorkItem / relocateItemFiles). Items in the bin only change project:
+ * their files are not touched. Nothing is deleted. An item folder nested in an already moved one just follows
+ * its parent. On the first failure it stops: the items moved so far are complete in the target, the rest stay
+ * complete in the source, so a retry continues where it stopped.
+ */
+export function moveProjectWorkItems(source: ProjectRow, target: ProjectRow): ProjectItemsMove {
+  ensureAssetTables()
+  const db = getDb()
+  const live = db.prepare('SELECT * FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(source.id) as WorkItemRow[]
+  const trashedIds = (db.prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NOT NULL').all(source.id) as { id: string }[]).map((r) => r.id)
+  let moved = 0, folders = 0, files = 0
+  if (live.length) {
+    ensureProjectHasFolder(target)
+    const box = projectWorkItemsFolder(target)
+    if (!box.ok) return { ok: false, code: 'no_target_folder', moved: 0, ...(box.message ? { message: box.message } : {}) }
+    // Parents first, so a nested item folder finds its parent already moved.
+    live.sort((a, b) => (a.folder ?? '').split('/').length - (b.folder ?? '').split('/').length)
+    const done: { oldRel: string; newRel: string; oldDepot: string; newDepot: string }[] = []
+    for (const item of live) {
+      const own = item.folder || null
+      const cur = own ? projectFileTarget(source, own) : null
+      const parent = own ? done.find((d) => own.startsWith(d.oldRel + '/')) : undefined
+      if (own && parent) {
+        const newRel = parent.newRel + own.slice(parent.oldRel.length)
+        try {
+          rehomeWorkItem(item, source, target, newRel, { old: `${parent.oldDepot}${own.slice(parent.oldRel.length)}/`, new: `${parent.newDepot}${own.slice(parent.oldRel.length)}/` })
+        } catch (e) { return { ok: false, code: 'move_failed', moved, message: e instanceof Error ? e.message : String(e) } }
+        moved++
+        continue
+      }
+      if (own && cur && cur.ok && existsSync(cur.dirAbs) && statSync(cur.dirAbs).isDirectory()) {
+        const seg = own.includes('/') ? own.slice(own.lastIndexOf('/') + 1) : own
+        const newSeg = freeFileName(box.dirAbs, seg)
+        const newAbs = join(box.dirAbs, newSeg)
+        const blocked = writeBlockReason(box.dirRel)
+        if (blocked) return { ok: false, code: 'move_failed', moved, message: blocked }
+        try { renameSync(cur.dirAbs, newAbs) } catch (e) {
+          return { ok: false, code: 'move_failed', moved, message: e instanceof Error ? e.message : String(e) }
+        }
+        const newRel = `${box.folder}/${newSeg}`
+        const newDepot = toLifeRel(newAbs) || `${box.dirRel}/${newSeg}`
+        try {
+          rehomeWorkItem(item, source, target, newRel, { old: cur.dirRel + '/', new: newDepot + '/' })
+        } catch (e) {
+          try { renameSync(newAbs, cur.dirAbs) } catch { /* the error below still goes out */ }
+          return { ok: false, code: 'move_failed', moved, message: e instanceof Error ? e.message : String(e) }
+        }
+        db.prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND (path = ? OR path LIKE ?)').run(source.id, own, own + '/%')
+        done.push({ oldRel: own, newRel, oldDepot: cur.dirRel, newDepot })
+        folders++
+        moved++
+        continue
+      }
+      // No folder of its own (or it is gone from the disk): its files go straight into the box.
+      const rl = relocateItemFiles(item, source, box.dirRel, box.dirAbs)
+      if (!rl.ok) return { ok: false, code: 'move_failed', moved, message: rl.message }
+      files += rl.moved.length
+      db.prepare('UPDATE work_items SET project_id = ?, folder = NULL, container_folder = ?, updated_at = ? WHERE id = ?')
+        .run(target.id, box.folder, Math.floor(Date.now() / 1000), item.id)
+      moved++
+    }
+  }
+  if (trashedIds.length) db.prepare('UPDATE work_items SET project_id = ? WHERE project_id = ? AND deleted_at IS NOT NULL').run(target.id, source.id)
+  return { ok: true, moved, trashed: trashedIds.length, folders, files }
+}
