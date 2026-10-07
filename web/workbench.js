@@ -1622,6 +1622,17 @@
     items.forEach(function (it) { if (it.source_path && outItemByRel[it.source_path] === it) return; (byPlace[place[it.id]] = byPlace[place[it.id]] || []).push(it) })
     // A star no longer floats an item to the top of its own folder (Boss, TG 2173): inside a folder the
     // order is by recency; the starred ones are collected in the fixed Favorites folder instead.
+    // Folders start CLOSED; only the project root, Favorites and the work items box start open (Boss, TG 2737).
+    // An explicit click wins (WB.collapsedFolder[key] is then true/false); the folder holding the selected item stays open.
+    var selPlace = WB.selectedId ? place[WB.selectedId] : null
+    function isShut(key) {
+      var v = WB.collapsedFolder[key]
+      if (v !== undefined) return !!v
+      if (key === ROOT_KEY || key === FAV_KEY || key === box) return false
+      if (window.wbFoldersOpen === true) return false // test seam only
+      return !(selPlace != null && (selPlace === key || String(selPlace).indexOf(key + '/') === 0))
+    }
+    WB.foldShut = isShut // the click handler flips the state the user is looking at
     Object.keys(byPlace).forEach(function (k) {
       byPlace[k].sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0) || (b.created_at || 0) - (a.created_at || 0) || String(a.title || '').localeCompare(String(b.title || '')) })
     })
@@ -1642,7 +1653,7 @@
     function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
         var g = grp != null ? grp : (path === box ? groupIdx++ : null)
-        var collapsed = !!WB.collapsedFolder[f]
+        var collapsed = isShut(f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
@@ -1660,10 +1671,10 @@
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favs = items.filter(function (it) { return it.pinned_at != null })
-    var favShut = !!WB.collapsedFolder[FAV_KEY]
+    var favShut = isShut(FAV_KEY)
     // The project folder is the root of the tree (Boss, TG 2399, 2626): everything under it is shown the way the
     // Explorer shows it: the work items box as a real folder, and every other folder and file of the project.
-    var rootShut = !!WB.collapsedFolder[ROOT_KEY]
+    var rootShut = isShut(ROOT_KEY)
     var rootName = wf.root_name || (WB.project && WB.project.name) || t('workbench.root.fallback')
     var out = wf.outside || { folders: [], files: {} }
     var outHave = {}
@@ -1692,7 +1703,7 @@
     }
     function renderBox() {
     if (box) {
-      var boxShut = !!WB.collapsedFolder[box]
+      var boxShut = isShut(box)
       rows.push('<li class="wb-folder-row wb-depth-1" data-wb-drop-folder="' + escA(box) + '" data-wb-drop-box="1">'
         + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(box) + '" aria-expanded="' + (!boxShut) + '"'
         + ' title="' + escA(t(boxShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
@@ -1710,7 +1721,7 @@
       kidsHere.forEach(function (e) {
         if (e.box) { renderBox(); return }
         var f = e.f
-        var shut = !!WB.collapsedFolder[f]
+        var shut = isShut(f)
         rows.push('<li class="wb-folder-row wb-depth-' + Math.min(depth, 8) + '">'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
           + ' title="' + escA(t(shut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
@@ -13342,7 +13353,7 @@
     else if (a === 'sel-clear') { WB.fileSel = {}; WB.fileSelLast = null; WB.selName = ''; render() }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
-    else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.collapsedFolder[ff]; render() }
+    else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff); render() }
     else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }

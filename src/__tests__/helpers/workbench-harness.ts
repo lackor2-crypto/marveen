@@ -58,7 +58,7 @@ export function eventFor(attrs: Record<string, string>) {
   return { target, preventDefault() {}, stopPropagation() {} }
 }
 
-export function workbenchHarness(opts: { storage?: Record<string, string>; confirm?: boolean } = {}): WorkbenchHarness {
+export function workbenchHarness(opts: { storage?: Record<string, string>; confirm?: boolean; closedFolders?: boolean } = {}): WorkbenchHarness {
   const handlers: Record<string, Handler[]> = {}
   const renders: string[] = []
   const rootEl = {
@@ -93,6 +93,8 @@ export function workbenchHarness(opts: { storage?: Record<string, string>; confi
 
   const win: Record<string, any> = {
     _lang: 'hu',
+    // Test seam: the tree normally starts with folders closed; most tests look inside them.
+    wbFoldersOpen: !opts.closedFolders,
     t: (key: string, params: Record<string, unknown> = {}) =>
       `⟦${key}${Object.keys(params).length ? ':' + JSON.stringify(params) : ''}⟧`,
     escapeHtml: (s: unknown) => String(s == null ? '' : s),
