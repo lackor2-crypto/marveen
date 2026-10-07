@@ -45,6 +45,7 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { ensureTelegramReplyMeta } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
 import { startCardNudge } from './web/card-work-nudge-job.js'
 import { listMounts } from './life-mounts.js'
@@ -707,6 +708,9 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // #506: the Telegram plugin drops which message an inbound one replies to; patch every installed copy.
+  try { ensureTelegramReplyMeta() } catch (err) { logger.warn({ err: String(err) }, 'telegram reply-meta patch failed') }
 
   // #463: ki er most ra dolgozni -- 60 mp-enkent merve; aki visszaall, ugyanaz
   // kap uzenetet a sajat fuggo munkajaval (nem a fo agens).
