@@ -191,6 +191,104 @@ describe('Attekinto: upstream-szinkron doboz', () => {
   })
 })
 
+// #500 (Boss, TG 2455/2457): "Torold ki onnan ezt a szoveget." A fenti
+// forras-ellenorzes csak azt bizonyitja, hogy a ket kulcs nincs hivatkozva. Ez
+// a blokk KI IS RAJZOLJA a dobozt Boss sajat meresevel (675 commit, visszavont
+// 50dc3a0c behuzas -- a mero szkript a `revertedMerge` mezot tovabbra is irja),
+// a valodi HU/EN szovegekkel, es azt nezi, ami a kepernyore kerulne.
+describe('upstream-doboz kirajzolva: nincs commit-szamos es visszavont-behuzasos mondat (#500)', () => {
+  type Dict = Record<string, string>
+  type El = { hidden: boolean; disabled: boolean; innerHTML: string; textContent: string; classList: { toggle: () => void } }
+  const dictOf = (src: string, lang: 'hu' | 'en'): Dict => {
+    const win: { _i18n?: Record<string, Dict> } = {}
+    new Function('window', src)(win)
+    return win._i18n![lang]
+  }
+  const dicts = { hu: dictOf(hu, 'hu'), en: dictOf(en, 'en') }
+  const fnSrc = (name: string): string => {
+    const start = app.indexOf(`function ${name}(`)
+    expect(start, `${name} nincs a web/app.js-ben`).toBeGreaterThan(-1)
+    let depth = 0
+    for (let i = app.indexOf('{', start); i < app.length; i++) {
+      if (app[i] === '{') depth++
+      else if (app[i] === '}' && --depth === 0) return app.slice(start, i + 1)
+    }
+    throw new Error(`${name} utan parositatlan kapcsos zarojel`)
+  }
+
+  function render(lang: 'hu' | 'en', snap: Record<string, unknown>): Record<string, El> {
+    const els: Record<string, El> = {}
+    const document = {
+      getElementById: (id: string) => (els[id] ??= {
+        hidden: true, disabled: false, innerHTML: '', textContent: '', classList: { toggle: () => {} },
+      }),
+    }
+    const t = (key: string, p: Record<string, unknown> = {}) => (dicts[lang][key] ?? key)
+      .replace(/\{(\w+)\}/g, (_, k: string) => (p[k] != null ? String(p[k]) : `{${k}}`))
+    const esc = (s: unknown) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    const fn = new Function('document', 'window', 't', 'escapeHtml', 'escapeAttr', `
+      let lastUpstreamSyncExplain = null
+      let _upstreamMeasureRunning = false
+      ${fnSrc('pairHtml')}
+      ${fnSrc('upstreamRepoHtml')}
+      ${fnSrc('fetchErrorHtml')}
+      ${fnSrc('renderOverviewUpstreamSync')}
+      return renderOverviewUpstreamSync`)(document, { _lang: lang }, t, esc, esc) as (s: unknown) => void
+    fn(snap)
+    return els
+  }
+
+  // A Boss kepernyojen allo meres (TG 2455): 675 commit, a 50dc3a0c behuzas
+  // visszavonva. A tobbi szam a mai elo pillanatkep alakja.
+  const boss = {
+    checkedAt: '2026-10-06T00:50:00+02:00', ageDays: 0,
+    aheadCount: 1298, behindCount: 675,
+    conflictingFiles: [], conflictCount: 78, cleanFileCount: 115,
+    absorbedCount: 247, skippedCount: 696, skipListError: null,
+    revertedMerge: '50dc3a0c',
+    localRef: 'main', upstreamRef: 'upstream/main', upstreamRepo: 'Szotasz/marveen',
+    fetchOk: true, fetchError: null, error: null,
+  }
+
+  for (const lang of ['hu', 'en'] as const) {
+    it(`${lang}: a doboz a ket teendo-szamot mutatja, a commit-szamot es a visszavont behuzast nem`, () => {
+      const els = render(lang, boss)
+      expect(els.overviewUpstreamSync.hidden).toBe(false)
+      const html = els.overviewUpstreamBody.innerHTML
+      // Ami marad: utkozes nelkul athuzhato + utkozo, a forras es az osszevetes.
+      expect(html).toContain(`${dicts[lang]['overview.upstream.out_clean']}: <strong>115</strong>`)
+      expect(html).toContain(`${dicts[lang]['overview.upstream.out_conflicts']}: <strong>78</strong>`)
+      expect(html).toContain('Szotasz/marveen')
+      // Ami Boss kereseere kikerult: sem a szam, sem a sha, sem a regi mondatok.
+      expect(html).not.toContain('675')
+      expect(html).not.toContain('50dc3a0c')
+      if (lang === 'hu') {
+        expect(html).not.toContain('új fejlesztés (commit) érinti')
+        expect(html).not.toContain('visszavont')
+        expect(html).not.toContain('mértékegység')
+      } else {
+        expect(html).not.toContain('upstream commits touch')
+        expect(html).not.toContain('reverted')
+        expect(html).not.toContain('different units')
+      }
+    })
+
+    it(`${lang}: naprakesz allapotban sem jon vissza a visszavont-behuzasos sor`, () => {
+      const html = render(lang, { ...boss, behindCount: 0, aheadCount: 5 }).overviewUpstreamBody.innerHTML
+      expect(html).toContain(dicts[lang]['overview.upstream.uptodate'])
+      expect(html).not.toContain('50dc3a0c')
+    })
+  }
+
+  it('a ket torolt szoveg kulcsa a nyelvi fajlokbol is eltunt, nem arvan maradt', () => {
+    for (const d of Object.values(dicts)) {
+      expect(d['overview.upstream.commits']).toBeUndefined()
+      expect(d['overview.upstream.reverted']).toBeUndefined()
+    }
+  })
+})
+
 // Harmadik gomb (Boss, 2026-09-18, B valtozat), atrendezve a #421-ben: a kulon
 // "Kizart es dontesre varo" ful megszunt. Az elv-kapu jelolt tetelei a SORSUK
 // szerint allnak -- a Kizarva fulon (ami mar eldolt) vagy a Dontesre var fulon
