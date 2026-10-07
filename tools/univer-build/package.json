@@ -1,0 +1,11 @@
+{
+  "name": "univer-build",
+  "private": true,
+  "description": "Build step for web/vendor/univer (Univer spreadsheet bundle). Run: npm install && npm run build",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": {
+    "@univerjs/presets": "1.0.3",
+    "@univerjs/preset-sheets-core": "1.0.3"
+  },
+  "devDependencies": { "esbuild": "^0.28.1" }
+}

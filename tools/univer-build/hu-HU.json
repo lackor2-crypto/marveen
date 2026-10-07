@@ -1,0 +1,618 @@
+{
+ "design": {
+  "Accessibility": {
+   "closeBadge": "Jelvény bezárása",
+   "close": "Bezárás",
+   "menu": "Menü",
+   "previous": "Előző",
+   "next": "Következő",
+   "imageGallery": "Képgaléria",
+   "image": "{0}. kép / {1}",
+   "zoomIn": "Nagyítás",
+   "zoomOut": "Kicsinyítés",
+   "resetZoom": "Nagyítás visszaállítása",
+   "increment": "növelés",
+   "decrement": "csökkentés"
+  },
+  "Confirm": {
+   "cancel": "mégse",
+   "confirm": "ok"
+  },
+  "CascaderList": {
+   "empty": "Nincs"
+  },
+  "Calendar": {
+   "weekDays": {
+    "0": "V",
+    "1": "H",
+    "2": "K",
+    "3": "Sze",
+    "4": "Cs",
+    "5": "P",
+    "6": "Szo"
+   },
+   "months": {
+    "0": "jan.",
+    "1": "febr.",
+    "2": "márc.",
+    "3": "ápr.",
+    "4": "máj.",
+    "5": "jún.",
+    "6": "júl.",
+    "7": "aug.",
+    "8": "szept.",
+    "9": "okt.",
+    "10": "nov.",
+    "11": "dec."
+   },
+   "ariaLabels": {
+    "previousMonth": "Előző hónap",
+    "nextMonth": "Következő hónap",
+    "selectYear": "Év választása",
+    "selectMonth": "Hónap választása"
+   }
+  },
+  "ColorPicker": {
+   "more": "További színek",
+   "cancel": "mégse",
+   "confirm": "ok"
+  },
+  "GradientColorPicker": {
+   "linear": "Lineáris",
+   "radial": "Sugaras",
+   "angular": "Szögletes",
+   "diamond": "Gyémánt",
+   "offset": "Eltolás",
+   "angle": "Szög",
+   "delete": "Törlés",
+   "transparency": "Átlátszóság"
+  }
+ },
+ "docs-ui": {
+  "rightClick": {
+   "copy": "Másolás",
+   "cut": "Kivágás",
+   "paste": "Beillesztés",
+   "select": "Kijelölés",
+   "selectAll": "Összes kijelölése",
+   "delete": "Törlés"
+  },
+  "pasteOptions": {
+   "special": "Irányított beillesztés",
+   "title": "Beillesztési beállítások",
+   "source": "Eredeti formázás megtartása",
+   "destination": "Célformázás használata",
+   "text": "Csak a szöveg megtartása"
+  },
+  "toolbar": {
+   "bold": "Félkövér",
+   "italic": "Dőlt",
+   "underline": "Aláhúzott",
+   "strikethrough": "Áthúzott",
+   "font": "Betűtípus",
+   "fontSize": "Betűméret",
+   "resetColor": "Alaphelyzet"
+  }
+ },
+ "sheets": {
+  "tabs": {
+   "sheetCopy": "(Másolat{0})",
+   "sheet": "Munkalap"
+  },
+  "info": {
+   "overlappingSelections": "A parancs átfedő kijelöléseken nem használható",
+   "acrossMergedCell": "Összevont cellán átnyúlik",
+   "partOfCell": "Az összevont cellának csak egy része van kijelölve",
+   "hideSheet": "Az elrejtés után nem maradna látható munkalap"
+  },
+  "definedName": {
+   "nameEmpty": "A név nem lehet üres",
+   "nameDuplicate": "Ez a név már létezik",
+   "nameInvalid": "A név érvénytelen",
+   "nameSheetConflict": "A név ütközik a munkalap nevével",
+   "formulaOrRefStringEmpty": "A képlet vagy hivatkozás nem lehet üres",
+   "nameConflict": "A név ütközik egy függvény nevével",
+   "defaultName": "Nev"
+  },
+  "autoFill": {
+   "copy": "Cella másolása",
+   "series": "Sorozat kitöltése",
+   "formatOnly": "Csak a formátum",
+   "noFormat": "Formátum nélkül"
+  },
+  "merge": {
+   "confirm": {
+    "title": "Az összevonás csak a bal felső cella értékét tartja meg, a többit elveti. Folytatod?",
+    "cancel": "Összevonás megszakítása",
+    "confirm": "Összevonás folytatása",
+    "warning": "Figyelmeztetés"
+   }
+  }
+ },
+ "sheets-formula": {
+  "progress": {
+   "analyzing": "Képletek elemzése...",
+   "calculating": "Képletek számolása...",
+   "array-analysis": "Tömbképletek elemzése...",
+   "array-calculation": "Tömbképletek számolása...",
+   "done": "Kész"
+  }
+ },
+ "sheets-formula-ui": {
+  "shortcut": {
+   "quick-sum": "Gyors összeg"
+  },
+  "insert": {
+   "tooltip": "Függvények",
+   "common": "Gyakori függvények"
+  },
+  "prompt": {
+   "helpExample": "PÉLDA",
+   "helpAbstract": "LEÍRÁS",
+   "required": "Kötelező.",
+   "optional": "Nem kötelező."
+  },
+  "error": {
+   "title": "Hiba",
+   "divByZero": "Nullával osztás hiba",
+   "name": "Érvénytelen név hiba",
+   "value": "Hiba az értékben",
+   "num": "Szám hiba",
+   "na": "Az érték nem elérhető",
+   "cycle": "Körkörös hivatkozás",
+   "ref": "Érvénytelen cellahivatkozás",
+   "spill": "A kiömlési tartomány nem üres",
+   "calc": "Számolási hiba",
+   "error": "Hiba",
+   "connect": "Adatok lekérése",
+   "null": "Üres (null) hiba"
+  },
+  "functionType": {
+   "financial": "Pénzügyi",
+   "date": "Dátum és idő",
+   "math": "Matematikai és trigonometriai",
+   "statistical": "Statisztikai",
+   "lookup": "Keresés és hivatkozás",
+   "database": "Adatbázis",
+   "text": "Szöveg",
+   "logical": "Logikai",
+   "information": "Információ",
+   "engineering": "Mérnöki",
+   "cube": "Kocka",
+   "compatibility": "Kompatibilitás",
+   "web": "Web",
+   "array": "Tömb",
+   "user": "Felhasználói",
+   "definedname": "Megadott név"
+  },
+  "moreFunctions": {
+   "confirm": "Rendben",
+   "prev": "Előző",
+   "next": "Következő",
+   "searchFunctionPlaceholder": "Függvény keresése",
+   "allFunctions": "Összes függvény",
+   "syntax": "SZERKEZET"
+  },
+  "mobileFunction": {
+   "title": "Függvény beszúrása",
+   "recommended": "Ajánlott",
+   "recent": "Legutóbbi",
+   "details": "Részletek",
+   "insert": "Függvény beszúrása",
+   "empty": "Nincs függvény",
+   "close": "Bezárás"
+  },
+  "operation": {
+   "copyFormulaOnly": "Csak a képlet másolása",
+   "pasteFormula": "Képlet beillesztése"
+  },
+  "rangeSelector": {
+   "title": "Adattartomány kijelölése",
+   "addAnotherRange": "Tartomány hozzáadása",
+   "buttonTooltip": "Adattartomány kijelölése",
+   "placeHolder": "Jelölj ki tartományt, vagy írd be.",
+   "confirm": "Rendben",
+   "cancel": "Mégse"
+  }
+ },
+ "sheets-numfmt-ui": {
+  "title": "Számformátum",
+  "numfmtType": "Formátumtípusok",
+  "cancel": "Mégse",
+  "confirm": "Rendben",
+  "general": "Normál",
+  "accounting": "Könyvelési",
+  "text": "Szöveg",
+  "number": "Szám",
+  "percent": "Százalék",
+  "scientific": "Tudományos",
+  "currency": "Pénznem",
+  "date": "Dátum",
+  "time": "Idő",
+  "thousandthPercentile": "Ezres elválasztó",
+  "dateTime": "Dátum és idő",
+  "decimalLength": "Tizedeshelyek",
+  "currencyType": "Pénznem jele",
+  "moreFmt": "Formátumok",
+  "financialValue": "Pénzügyi érték",
+  "roundingCurrency": "A pénznem felkerekítése",
+  "timeDuration": "Időtartam",
+  "currencyDes": "A pénznem formátum általános pénzértékeket jelenít meg. A könyvelési formátum az oszlop értékeit a tizedesvesszőre igazítja.",
+  "accountingDes": "A könyvelési számformátum az oszlop értékeit a pénznem jelére és a tizedesvesszőre igazítja.",
+  "dateType": "Dátum típusa",
+  "dateDes": "A dátum formátum a dátum- és időértékeket dátumként jeleníti meg.",
+  "negType": "Negatív szám típusa",
+  "generalDes": "A normál formátum nem tartalmaz külön számformátumot.",
+  "thousandthPercentileDes": "Az ezres elválasztós formátum hétköznapi számokhoz való. A pénznem és a könyvelési formátum külön pénzügyi számításokra szolgál.",
+  "addDecimal": "Tizedeshelyek növelése",
+  "subtractDecimal": "Tizedeshelyek csökkentése",
+  "customFormat": "Egyéni formátum",
+  "customFormatDes": "Egyéni számformátum létrehozása a meglévők alapján.",
+  "info": {
+   "error": "Hiba",
+   "forceStringInfo": "Szövegként tárolt szám",
+   "convertToNumber": "Átalakítás számmá"
+  }
+ },
+ "sheets-ui": {
+  "toolbar": {
+   "formatPainter": "Formátummásoló",
+   "font": "Betűtípus",
+   "fontSize": "Betűméret",
+   "fontSizeIncrease": "Betűméret növelése",
+   "fontSizeDecrease": "Betűméret csökkentése",
+   "bold": "Félkövér",
+   "italic": "Dőlt",
+   "strikethrough": "Áthúzott",
+   "underline": "Aláhúzott",
+   "textColor": {
+    "main": "Betűszín"
+   },
+   "resetColor": "Alaphelyzet",
+   "fillColor": {
+    "main": "Kitöltőszín"
+   },
+   "border": {
+    "main": "Szegély"
+   },
+   "mergeCell": {
+    "main": "Cellák egyesítése"
+   },
+   "horizontalAlignMode": {
+    "main": "Vízszintes igazítás"
+   },
+   "verticalAlignMode": {
+    "main": "Függőleges igazítás"
+   },
+   "textWrapMode": {
+    "main": "Szövegtördelés"
+   },
+   "shrinkToFit": "Zsugorítás a cellához",
+   "textRotateMode": {
+    "main": "Szöveg forgatása"
+   },
+   "toggleGridlines": "Rácsvonalak be/ki",
+   "fullscreen": "Teljes képernyő"
+  },
+  "align": {
+   "left": "balra",
+   "center": "középre",
+   "right": "jobbra",
+   "top": "felülre",
+   "middle": "középre",
+   "bottom": "alulra"
+  },
+  "button": {
+   "confirm": "OK",
+   "cancel": "Mégse"
+  },
+  "borderLine": {
+   "borderTop": "felső szegély",
+   "borderBottom": "alsó szegély",
+   "borderLeft": "bal szegély",
+   "borderRight": "jobb szegély",
+   "borderNone": "nincs szegély",
+   "borderAll": "minden szegély",
+   "borderOutside": "külső szegély",
+   "borderInside": "belső szegély",
+   "borderHorizontal": "vízszintes szegély",
+   "borderVertical": "függőleges szegély",
+   "borderTlbr": "Átlós szegély lefelé",
+   "borderTlbcTlmr": "Dupla átlós szegély lefelé",
+   "borderTlbrTlbcTlmr": "Tripla átlós szegély lefelé",
+   "borderBlTr": "Átlós szegély felfelé",
+   "borderMltrBctr": "Dupla átlós szegély felfelé"
+  },
+  "merge": {
+   "all": "Összes egyesítése",
+   "vertical": "Függőleges egyesítés",
+   "horizontal": "Vízszintes egyesítés",
+   "cancel": "Egyesítés megszüntetése",
+   "confirm": {
+    "warning": "Figyelmeztetés",
+    "dismantleMergeCellWarning": "A művelet megszünteti a cellák egyesítését. Folytatod?"
+   }
+  },
+  "filter": {
+   "confirm": {
+    "error": "A művelet nem hajtható végre",
+    "notAllowedToInsertRange": "A művelet nem engedélyezett, mert a tartomány szűrt sorokat tartalmaz."
+   }
+  },
+  "textWrap": {
+   "overflow": "Túlfolyás",
+   "wrap": "Tördelés",
+   "clip": "Levágás"
+  },
+  "textRotate": {
+   "none": "Nincs",
+   "angleUp": "Döntés felfelé",
+   "angleDown": "Döntés lefelé",
+   "vertical": "Függőleges egymásra",
+   "rotationUp": "Forgatás felfelé",
+   "rotationDown": "Forgatás lefelé"
+  },
+  "mobile": {
+   "insert": "Beszúrás",
+   "operation": "Műveletek",
+   "style": "Stílus",
+   "openTools": "Munkalap-eszközök megnyitása",
+   "closeTools": "Munkalap-eszközök bezárása",
+   "addSheet": "Munkalap hozzáadása",
+   "sheetMenu": "Munkalap menü megnyitása",
+   "borderColor": "Szegély színe",
+   "borderStyle": "Szegély stílusa",
+   "recentColors": "Legutóbbi színek",
+   "customColor": "Egyéni szín",
+   "applyColor": "Szín alkalmazása",
+   "back": "Vissza",
+   "formula": "Képlet",
+   "collapseEditor": "Szerkesztő összecsukása",
+   "confirm": "Rendben",
+   "customFormatDescription": "Egyéni számformátum létrehozása a meglévők alapján."
+  },
+  "sheetConfig": {
+   "sheetTabs": "Munkalap fülek",
+   "delete": "Törlés",
+   "copy": "Másolás",
+   "rename": "Átnevezés",
+   "changeColor": "Szín módosítása",
+   "hide": "Elrejtés",
+   "unhide": "Megjelenítés",
+   "sheetNameErrorTitle": "Hiba történt",
+   "sheetNameSpecCharError": "A név legfeljebb 31 karakter lehet, nem kezdődhet és nem végződhet ' jellel, és nem tartalmazhatja ezeket: [ ] : \\ ? * /",
+   "sheetNameCannotIsEmptyError": "A munkalap neve nem lehet üres.",
+   "sheetNameAlreadyExistsError": "Ilyen nevű munkalap már van. Adj meg másik nevet.",
+   "deleteSheet": "Munkalap törlése",
+   "deleteSheetContent": "Biztosan törlöd ezt a munkalapot?",
+   "deleteLargeSheetContent": "A törölt munkalap nem állítható vissza. Biztosan törlöd?"
+  },
+  "rightClick": {
+   "copy": "Másolás",
+   "cut": "Kivágás",
+   "paste": "Beillesztés",
+   "copySpecial": "Másolás másként",
+   "pasteSpecial": "Irányított beillesztés",
+   "pasteValue": "Csak az érték",
+   "pasteFormat": "Csak a formátum",
+   "pasteColWidth": "Oszlopszélesség",
+   "pasteBesidesBorder": "Szegély nélkül",
+   "pasteFormula": "Csak a képlet",
+   "insert": "Beszúrás",
+   "insertRow": "Sor beszúrása",
+   "insertRowBefore": "Sor beszúrása elé",
+   "insertRowsAfter": "Beszúrás:",
+   "insertRowsAbove": "Beszúrás:",
+   "insertRowsAfterSuffix": "sor alá",
+   "insertRowsAboveSuffix": "sor fölé",
+   "insertColumn": "Oszlop beszúrása",
+   "insertColumnBefore": "Oszlop beszúrása elé",
+   "insertColsLeft": "Beszúrás:",
+   "insertColsRight": "Beszúrás:",
+   "insertColsLeftSuffix": "oszlop balra",
+   "insertColsRightSuffix": "oszlop jobbra",
+   "delete": "Törlés",
+   "deleteSelectedRow": "Kijelölt sor törlése",
+   "deleteSelectedColumn": "Kijelölt oszlop törlése",
+   "hideSelectedRow": "Kijelölt sor elrejtése",
+   "showHideRow": "Elrejtett sor megjelenítése",
+   "rowHeight": "Sormagasság",
+   "hideSelectedColumn": "Kijelölt oszlop elrejtése",
+   "showHideColumn": "Elrejtett oszlop megjelenítése",
+   "columnWidth": "Oszlopszélesség",
+   "moveLeft": "Balra mozgatás",
+   "moveUp": "Felfelé mozgatás",
+   "moveRight": "Jobbra mozgatás",
+   "moveDown": "Lefelé mozgatás",
+   "clearSelection": "Törlés",
+   "clearContent": "Tartalom törlése",
+   "clearFormat": "Formátum törlése",
+   "clearAll": "Minden törlése",
+   "fitContent": "Illesztés az adatokhoz",
+   "freeze": "Rögzítés",
+   "freezeCell": "Rögzítés az aktív celláig ({0}. sor, {1}. oszlop)",
+   "freezeCol": "Rögzítés a(z) {0}. oszlopig",
+   "freezeRow": "Rögzítés a(z) {0}. sorig",
+   "freezeFirstCol": "Első oszlop rögzítése",
+   "freezeFirstRow": "Első sor rögzítése",
+   "cancelFreeze": "Rögzítés feloldása",
+   "deleteAllRowsAlert": "A munkalap összes sorát nem törölheted",
+   "deleteAllColumnsAlert": "A munkalap összes oszlopát nem törölheted",
+   "hideAllRowsAlert": "A munkalap összes sorát nem rejtheted el",
+   "hideAllColumnsAlert": "A munkalap összes oszlopát nem rejtheted el",
+   "textToNumber": "Szöveg számmá alakítása"
+  },
+  "info": {
+   "problem": "Hiba történt",
+   "error": "Hiba",
+   "forceStringInfo": "Szövegként tárolt szám",
+   "convertToNumber": "Átalakítás számmá",
+   "overwriteCellContent": "A célterületen már van adat. A művelet felülírja a meglévő adatot. Folytatod?"
+  },
+  "clipboard": {
+   "paste": {
+    "exceedMaxCells": "A beillesztett cellák száma meghaladja a megengedettet",
+    "overlappingMergedCells": "A beillesztési terület átfedi az egyesített cellákat"
+   },
+   "shortCutNotify": {
+    "title": "Billentyűparanccsal illeszd be.",
+    "useShortCutInstead": "Excel-tartalmat észleltem. A beillesztéshez használd a billentyűparancsot."
+   }
+  },
+  "statusbar": {
+   "sum": "Összeg",
+   "average": "Átlag",
+   "min": "Min",
+   "max": "Max",
+   "count": "Számok darabszáma",
+   "countA": "Darabszám"
+  },
+  "shortcut": {
+   "sheet-view": "Munkalap nézet",
+   "sheet-edit": "Munkalap szerkesztés",
+   "sheet": {
+    "zoom-in": "Nagyítás",
+    "zoom-out": "Kicsinyítés",
+    "reset-zoom": "Nagyítás visszaállítása",
+    "select-below-cell": "Az alatta lévő cella kijelölése",
+    "select-up-cell": "A fölötte lévő cella kijelölése",
+    "select-left-cell": "A bal oldali cella kijelölése",
+    "select-right-cell": "A jobb oldali cella kijelölése",
+    "select-next-cell": "Következő cella kijelölése",
+    "select-previous-cell": "Előző cella kijelölése",
+    "select-all": "Összes kijelölése",
+    "toggle-editing": "Szerkesztés be/ki",
+    "delete-and-start-editing": "Törlés és szerkesztés kezdése",
+    "abort-editing": "Szerkesztés megszakítása",
+    "break-line": "Sortörés",
+    "set-bold": "Félkövér be/ki",
+    "repeat-last-action": "Utolsó művelet ismétlése",
+    "set-italic": "Dőlt be/ki",
+    "set-underline": "Aláhúzás be/ki",
+    "set-strike-through": "Áthúzás be/ki"
+   }
+  },
+  "definedName": {
+   "managerTitle": "Névkezelő",
+   "managerDescription": "Névvel láthatsz el cellákat vagy képleteket: jelöld ki őket, és írd be a kívánt nevet.",
+   "addButton": "Név hozzáadása",
+   "featureTitle": "Megadott nevek",
+   "ratioRange": "Tartomány",
+   "ratioFormula": "Képlet",
+   "confirm": "Rendben",
+   "cancel": "Mégse",
+   "scopeWorkbook": "Munkafüzet",
+   "inputNamePlaceholder": "Írj be egy nevet (szóköz nélkül)",
+   "inputCommentPlaceholder": "Írj be megjegyzést",
+   "formulaOrRefStringInvalid": "Érvénytelen képlet vagy hivatkozás",
+   "defaultName": "Nev",
+   "updateButton": "Frissítés",
+   "deleteButton": "Törlés",
+   "deleteConfirmText": "Biztosan törlöd ezt a nevet?"
+  },
+  "data-validation": {
+   "alert": {
+    "ok": "OK"
+   },
+   "list": {
+    "edit": "Szerkesztés",
+    "dropdown": "Válassz elemet"
+   },
+   "listMultiple": {
+    "dropdown": "Válassz elemeket"
+   }
+  },
+  "permission": {
+   "button": {
+    "confirm": "Rendben",
+    "cancel": "Mégse"
+   }
+  }
+ },
+ "ui": {
+  "clearFormatting": "Formázás törlése",
+  "formatPainter": "Formátummásoló",
+  "accessibility": {
+   "menu": "Menü",
+   "zoom": "Nagyítás",
+   "zoomIn": "Nagyítás",
+   "zoomOut": "Kicsinyítés",
+   "resetZoom": "Nagyítás visszaállítása"
+  },
+  "featureSearch": {
+   "title": "Funkciók keresése",
+   "placeholder": "Írd be egy funkció vagy menü nevét...",
+   "empty": "Nincs elérhető funkció",
+   "ribbon": "Szalag",
+   "contextMenu": "Helyi menü"
+  },
+  "symbolPicker": {
+   "mathematics": "Matematika",
+   "greek": "Görög",
+   "common": "Gyakori"
+  },
+  "toolbar": {
+   "heading": {
+    "normal": "Normál",
+    "title": "Cím",
+    "subTitle": "Alcím"
+   }
+  },
+  "ribbon": {
+   "start": "Kezdőlap",
+   "startDesc": "A munkalap alapbeállításai.",
+   "insert": "Beszúrás",
+   "insertDesc": "Sorok, oszlopok, diagramok és más elemek beszúrása.",
+   "formulas": "Képletek",
+   "formulasDesc": "Függvények és képletek az adatok számolásához.",
+   "data": "Adatok",
+   "dataDesc": "Adatok kezelése: rendezés, szűrés.",
+   "view": "Nézet",
+   "viewDesc": "Nézetek váltása és a megjelenítés finomítása.",
+   "others": "Egyéb",
+   "othersDesc": "További funkciók és beállítások.",
+   "more": "Továbbiak"
+  },
+  "fontFamily": {
+   "not-supported": "Ez a betűtípus nincs a rendszerben, az alapértelmezettet használom."
+  },
+  "shortcut-panel": {
+   "title": "Billentyűparancsok"
+  },
+  "shortcut": {
+   "undo": "Visszavonás",
+   "redo": "Újra",
+   "cut": "Kivágás",
+   "copy": "Másolás",
+   "paste": "Beillesztés",
+   "shortcut-panel": "Billentyűparancs-panel be/ki"
+  },
+  "common-edit": "Gyakori szerkesztési billentyűparancsok",
+  "toggle-shortcut-panel": "Billentyűparancs-panel be/ki",
+  "navigation": {
+   "back": "Vissza",
+   "previous": "Előző",
+   "next": "Következő"
+  },
+  "sidebar": {
+   "panel": "Oldalsáv",
+   "resize": "Oldalsáv átméretezése",
+   "close": "Oldalsáv bezárása"
+  },
+  "beforeClose": {
+   "title": "Vannak nem mentett módosítások"
+  },
+  "clipboard": {
+   "authentication": {
+    "title": "Hozzáférés megtagadva",
+    "content": "Engedélyezd, hogy az Univer elérje a vágólapot."
+   }
+  },
+  "rangeSelector": {
+   "cancel": "Mégse"
+  },
+  "global-shortcut": "Általános billentyűparancsok",
+  "row": "Sor",
+  "column": "Oszlop"
+ }
+}

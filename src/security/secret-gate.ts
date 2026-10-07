@@ -131,6 +131,7 @@ export const TRANSCRIPT_PATTERNS: { name: string; pattern: RegExp }[] = [
  * pins that the exemption stays absent.
  */
 export const ALLOWLISTED_PATHS: { path: string; reason: string }[] = [
+  { path: 'web/vendor/univer/univer.js', reason: 'vendored esbuild bundle of the Apache-2.0 Univer spreadsheet (tools/univer-build, rebuilt from public npm packages); 11 MB, above the scan limit, checked by hand for key patterns (0 hits)' },
   { path: 'src/__tests__/auth-device-keys.test.ts', reason: 'device-key auth test: synthetic Bearer fixtures' },
   { path: 'src/__tests__/auth-gate.test.ts', reason: 'auth gate test: synthetic Bearer fixtures' },
   { path: 'src/__tests__/secret-gate.test.ts', reason: 'the gate\'s own tests: synthetic secrets are the subject under test' },
