@@ -4871,7 +4871,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       throw e
     }
     if (!data.length) return fail(res, 400, 'empty_file', lang)
-    const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
+    // Boss, TG 2865: the picture lands beside the work item (its own folder), not in the project root.
+    let sub: string | null = url.searchParams.get('sub')
+    if (!sub) {
+      const f = ensureWorkItemFolder(item)
+      if (f.ok) sub = f.folder
+    }
+    const out = writeProjectFile(project, sub, url.searchParams.get('name'), data)
     // A hibakodot a FAJLRENDSZER mondja meg (nincs Raktar / nincs mappa / nem
     // erem el / git-tarolo) -- nem talalgatjuk, mindegyiknek sajat mondata van.
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)

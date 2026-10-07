@@ -943,6 +943,15 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
 
   const url = (suffix: string) => `/api/workbench/items/${itemId}/canvas${suffix}`
 
+  it('kep-feltoltes: a fajl a munkadarab SAJAT mappajaba kerul, nem a projekt gyokerebe (Boss, TG 2865)', async () => {
+    const r = await call(`/api/workbench/items/${itemId}/parts/image?name=anyu.jpg`, 'POST', 'BINARIS')
+    expect(r.status).toBe(201)
+    expect(r.body.file.rel).not.toBe('anyu.jpg')
+    expect(r.body.file.rel.split('/').length).toBeGreaterThan(1)
+    const root = readdirSync(join(depot, 'Projektek', 'teszt'))
+    expect(root).not.toContain('anyu.jpg')
+  })
+
   it('meg nincs rajz: URES vaszon jon, es KIMONDJA, hogy meg nincs (nem hiba)', async () => {
     const r = await call(url(''), 'GET')
     expect(r.status).toBe(200)
