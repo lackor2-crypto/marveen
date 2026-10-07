@@ -34,7 +34,7 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku. A felulet a
 // kodhoz tartozo, forditott mondatot mutatja (`projects.err.<kod>`), a
 // `message` csak tartalek.
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, statSync, readFileSync } from 'node:fs'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { APP_LANG, MAIN_AGENT_ID } from '../../config.js'
@@ -69,6 +69,7 @@ import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import { resolveCardRefs } from '../card-work-guard.js'
 import {
   createStarterCard, isScopeType, projectScopeMap, isRequestKind, projectRequestMessage, researchObjectId,
+  researchProject, debateProject,
 } from '../../project-scope.js'
 import { agentConfigRoot, listAgentNames } from '../agent-config.js'
 import { join as joinPath } from 'node:path'
@@ -510,7 +511,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const items = parseMoveItems(body.items)
     if (!items) return fail(res, 400, 'bad_items', lang)
-    const out = moveItemsBetweenProjects(id, String(body.target ?? ''), items)
+    const out = moveItemsBetweenProjects(id, String(body.target ?? ''), items, derivedOwnerOf)
     if (!out.ok) return fail(res, out.code === 'same_project' || out.code === 'bad_items' || out.code === 'target_archived' ? 400 : 404, out.code, lang)
     logger.info({ id, target: body.target, ...out, by: MAIN_AGENT_ID }, '[projects] elemek athelyezve masik projektbe')
     json(res, out)
@@ -792,6 +793,20 @@ function tryUnlink(ctx: RouteContext, lang: 'hu' | 'en'): boolean {
   unlinkObject(type, objectId)
   json(res, { ok: true })
   return true
+}
+
+/** A hatteranyag / vitaztatas projektje kifejezett kotes NELKUL (fajl-jeloles, naplo) -- az athelyezeshez. */
+function derivedOwnerOf(type: string, objectId: string): string | null {
+  try {
+    if (type === 'debate') {
+      const d = listDebateSessions().find((x) => x.id === objectId)
+      return d ? debateProject(d.id, d.loggedProject) : null
+    }
+    const m = objectId.match(/^([^/]+)\/([A-Za-z0-9._-]+\.md)$/)
+    if (!m || !researchExists(objectId)) return null
+    const content = readFileSync(joinPath(agentConfigRoot(m[1]), 'research', m[2]), 'utf8')
+    return researchProject(m[1], m[2], content)
+  } catch { return null }
 }
 
 /** Van-e ilyen vitaztatas a naplóban (a kezi koteshez). */
