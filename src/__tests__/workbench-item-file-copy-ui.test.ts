@@ -203,4 +203,16 @@ describe('#492 right-click Delete on every row', () => {
     expect(en).toMatch(/you lose everything in it/)
     expect(en).toMatch(/restore it from the Trash/)
   })
+
+  // Boss ("B"): the work item Delete asks once too; a yes sends it to the Workbench trash, a no sends nothing.
+  it('work item Delete asks first by name; Cancel sends nothing, yes moves it to the Workbench trash', async () => {
+    const { h, asked } = await open(false)
+    h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': ITEM.id })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(asked).toEqual(['⟦workbench.trash.delete_confirm:{"name":"Poszt"}⟧'])
+    expect(h.fetchCalls.filter((c) => c.url.includes('/trash'))).toEqual([])
+    h.win.confirm = () => true
+    h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': ITEM.id })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/' + ITEM.id + '/trash'))).toBe(true))
+  })
 })

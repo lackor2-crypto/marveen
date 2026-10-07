@@ -1,5 +1,5 @@
 // #443 -- MUNKADARAB TORLESE: lomtarba kerul (eltunik a listabol, visszaallithato),
-// a verziok megmaradnak, nincs megerosito ablak.
+// a verziok megmaradnak. #492 (Boss "B"): elotte egyszer, nev szerint rakerdez.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, setProjectArchived } from '../projects.js'
@@ -235,11 +235,27 @@ describe('lomtar: a felulet', () => {
     expect(untranslatedHungarian(h.html(), ['Kovács weboldal', 'Ajánlat', 'Logó'])).toBe('')
   })
 
-  it('kattintas: rakerdezes nelkul POST, eltunik, a Lomtarbol visszaallithato', async () => {
-    const h = open({ status: 200, body: { item: item('w1', 'Ajánlat'), items: [item('w2', 'Logó')], deleted: [item('w1', 'Ajánlat')] } })
+  it('kattintas: egyszer, nev szerint rakerdez; Megse nem kuld semmit', async () => {
+    const h = open({ status: 200, body: {} })
+    const asked: string[] = []
+    h.win.confirm = (m: string) => { asked.push(m); return false }
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
     h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 'w1' })
     h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(asked).toEqual(['⟦workbench.trash.delete_confirm:{"name":"Ajánlat"}⟧'])
+    expect(h.fetchCalls.some((c) => c.url.includes('/trash'))).toBe(false)
+    expect(h.html()).toContain('data-wb-item="w1"')
+  })
+
+  it('a kerdesre igen: POST, eltunik, a Lomtarbol visszaallithato', async () => {
+    const h = open({ status: 200, body: { item: item('w1', 'Ajánlat'), items: [item('w2', 'Logó')], deleted: [item('w1', 'Ajánlat')] } })
+    const asked: string[] = []
+    h.win.confirm = (m: string) => { asked.push(m); return true }
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-ctx-item="w1"'))
+    h.click({ 'data-wb-act': 'item-ctx', 'data-wb-id': 'w1' })
+    h.click({ 'data-wb-act': 'item-trash', 'data-wb-id': 'w1' })
+    expect(asked).toHaveLength(1)
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.done⟧'))
     const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/items/w1/trash'))
     expect(JSON.parse(String(call?.init?.body))).toEqual({ deleted: true })
