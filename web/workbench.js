@@ -1667,7 +1667,8 @@
       // TG 2642: same order as the Explorer: folders first, then the files (work items and plain files mixed) by name.
       var mixed = (byPlace[path] || []).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
         .concat((plainFiles[path] || []).map(function (f) { return { name: String(f.name || ''), f: f } }))
-      mixed.sort(nameCmp)
+      // Boss TG 2747: the work item is always the top row of its folder; its older versions (plain files) follow by name.
+      mixed.sort(function (a, b) { return (a.it ? 0 : 1) - (b.it ? 0 : 1) || nameCmp(a, b) })
       mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
@@ -1706,7 +1707,7 @@
     function renderBox() {
     if (box) {
       var boxShut = isShut(box)
-      rows.push('<li class="wb-folder-row wb-depth-1" data-wb-drop-folder="' + escA(box) + '" data-wb-drop-box="1">'
+      rows.push('<li class="wb-folder-row wb-box-row wb-depth-1" data-wb-drop-folder="' + escA(box) + '" data-wb-drop-box="1">'
         + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(box) + '" aria-expanded="' + (!boxShut) + '"'
         + ' title="' + escA(t(boxShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
         + (boxShut ? '▸ ' : '▾ ') + '🗃️ ' + esc(baseOf(box)) + ' <span class="wb-muted">(' + count(box) + ')</span></button></li>')
