@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-10-06.2'
+$script:WorkerVersion = '2026-10-07.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -1265,6 +1265,8 @@ function Invoke-CodeTask {
   $transcript = $null
   $lastProbe = [datetime]::MinValue
   $lastActivity = $started
+  $partialOffset = [long]0
+  $lastPartial = Get-Date
   $script:InTaskId = $Task.id
   if ($script:Life) { $script:Life.RunSession = $runSessionId; $script:Life.TaskId = $Task.id }
   $script:InTaskRunSessionId = $runSessionId
@@ -1282,6 +1284,18 @@ function Invoke-CodeTask {
     if (((Get-Date) - $lastPublish).TotalSeconds -ge $DiscoverSeconds) {
       $lastPublish = Get-Date
       try { Publish-Sessions } catch { Write-Log ('session report during task failed: ' + $_.Exception.Message) 'WARN' }
+    }
+    if ($transcript -and ((Get-Date) - $lastPartial).TotalSeconds -ge 15) {
+      $lastPartial = Get-Date
+      try {
+        $np = Read-NewAssistantText -Path $transcript -Offset $partialOffset -Since $started
+        $partialOffset = [long]$np.offset
+        if ($np.text) {
+          Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/partial') -Method 'POST' -Body @{ text = [string]$np.text } | Out-Null
+        }
+      } catch {
+        Write-Log ('partial report failed: ' + $_.Exception.Message) 'WARN'
+      }
     }
     if (((Get-Date) - $lastProbe).TotalSeconds -ge 30) {
       $lastProbe = Get-Date
@@ -1373,6 +1387,54 @@ function Invoke-CodeTask {
     $payload.error = $tail
   }
   return $payload
+}
+
+# ---- folyamatos valasz (#498) --------------------------------------------
+#
+# Boss (2026-10-07): a Telegramrol inditott feladat kozben is lassa a valaszt,
+# ne csak a vegen. A futo beszelgetes naploja (`<runSessionId>.jsonl`) minden
+# asszisztens-szoveget soronkent kiir; ezt olvassuk be `$Offset` bajttol, es
+# CSAK a futas inditasa utani (`$Since`, UTC) asszisztens-szovegeket adjuk
+# vissza. A felig kiirt utolso sort nem dolgozzuk fel: az offset a legutolso
+# teljes sor vegere mutat. A `--output-format json` kimenet NEM valtozik, igy a
+# vegeredmeny utja ugyanaz marad.
+function Read-NewAssistantText {
+  param([string]$Path, [long]$Offset, [datetime]$Since)
+  $out = @{ text = ''; offset = $Offset }
+  $fs = $null
+  try {
+    $fs = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    if ($fs.Length -le $Offset) { return $out }
+    [void]$fs.Seek($Offset, [System.IO.SeekOrigin]::Begin)
+    $buf = New-Object byte[] ([int][Math]::Min([long]($fs.Length - $Offset), 4MB))
+    $n = $fs.Read($buf, 0, $buf.Length)
+    if ($n -le 0) { return $out }
+    $lastNl = [Array]::LastIndexOf($buf, [byte]10, $n - 1)
+    if ($lastNl -lt 0) { return $out }
+    $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $lastNl + 1)
+    $out.offset = $Offset + $lastNl + 1
+    $parts = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($chunk -split "`n")) {
+      if ($line -notmatch '"type"\s*:\s*"assistant"') { continue }
+      try {
+        $o = $line | ConvertFrom-Json
+        if ($o.type -ne 'assistant') { continue }
+        if ($o.timestamp) {
+          $ts = ([datetime]$o.timestamp).ToUniversalTime()
+          if ($ts -lt $Since.ToUniversalTime()) { continue }
+        }
+        foreach ($b in @($o.message.content)) {
+          if ($b.type -eq 'text' -and $b.text -and ([string]$b.text).Trim()) { $parts.Add(([string]$b.text).Trim()) }
+        }
+      } catch { }
+    }
+    $out.text = ($parts -join "`n`n")
+  } catch {
+    # A transcript we cannot read is "not looked at", never an error for the task.
+  } finally {
+    if ($fs) { $fs.Dispose() }
+  }
+  return $out
 }
 
 # ---- onfrissites ---------------------------------------------------------

@@ -50,7 +50,7 @@ import { displayName } from '../code-folder-browse.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
-import { notifyCodeTaskFinished } from '../code-bridge-notify.js'
+import { notifyCodeTaskFinished, notifyCodeTaskPartial } from '../code-bridge-notify.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { readBrokerConfig } from '../context-broker-store.js'
 import { BROKER_ROLE_IDS } from '../../context-broker.js'
@@ -1425,7 +1425,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  const taskMatch = /^\/api\/code\/tasks\/([^/]+)(?:\/(heartbeat|result|cancel))?$/.exec(path)
+  const taskMatch = /^\/api\/code\/tasks\/([^/]+)(?:\/(heartbeat|result|cancel|partial))?$/.exec(path)
   if (taskMatch) {
     const rawId = safeDecode(taskMatch[1]!)
     const action = taskMatch[2]
@@ -1442,6 +1442,16 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // Kartya 15e9476a (#276): a worker megmondja, melyik fulben fut a munka.
       const ok = heartbeatCodeTask(task.id, hbHost, Date.now(), body?.runSessionId ?? null)
       json(res, { ok }, ok ? 200 : 409)
+      return true
+    }
+
+    if (action === 'partial' && method === 'POST') {
+      if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
+      const body = await parseJsonBody<{ text?: string }>(ctx)
+      if (!body || typeof body.text !== 'string') { json(res, { error: 'invalid JSON' }, 400); return true }
+      // Not awaited: the worker's poll loop must not wait on Telegram.
+      void notifyCodeTaskPartial(task, body.text)
+      json(res, { ok: task.origin === 'telegram' && task.status === 'running' })
       return true
     }
 
