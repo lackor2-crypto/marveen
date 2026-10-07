@@ -168,6 +168,22 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     expect(documentCheck(src.id).items.some((i) => i.key === 'variant_current')).toBe(false)
   })
 
+  it('a csak cimbol allo eredeti fejezet forditasa maga a cim, blokk nelkul (#505)', () => {
+    const v = makeDe()
+    translateFirst(v.id)
+    const empty = documentOutline(src.id).sections[1]!
+    expect(empty.blocks).toHaveLength(0)
+    const r = translateSection(v.id, { source_section: empty.id, title: '2. Antrag', blocks: [] }, 'workbench-agent')
+    expect(r.ok && r.result).toMatchObject({ blocks: 0, claims_carried: 0, claims_not_carried: [] })
+    expect(documentOutline(v.id).sections[1]).toMatchObject({ title: '2. Antrag', blocks: [] })
+    expect(variantInfo(v.id)!.sections.map((s) => s.state)).toEqual(['current', 'current'])
+    expect(documentCheck(v.id).items.find((i) => i.key === 'variant_current')).toMatchObject({ ok: true })
+    // Ha az eredeti fejezet szoveget kap, mar csak blokkokkal fordithato ujra.
+    addBlock(src.id, empty.id, { text: 'Kérem a keresetet elutasítani.', author: 'owner' })
+    expect(variantInfo(v.id)!.sections[1]!.state).toBe('stale')
+    expect(translateSection(v.id, { source_section: empty.id, title: '2. Antrag', blocks: [] }, null)).toMatchObject({ ok: false, code: 'bad_input' })
+  })
+
   it('az eredeti uj fejezete megjelenik; a valtozatbol kezzel torolt fejezet parja nem tunik el', () => {
     const v = makeDe()
     translateFirst(v.id)
