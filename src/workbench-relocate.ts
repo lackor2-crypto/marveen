@@ -75,6 +75,8 @@ async function findSnapshotFiles(root: string): Promise<string[]> {
     for (const e of entries) {
       if (e.isDirectory()) {
         if (e.name === 'node_modules' || e.name === '.git') continue
+        // The trash is deliberate: a registration file the owner moved to the Kuka/Trash is not "misplaced".
+        if (depth === 0 && (e.name === 'Kuka' || e.name === 'Trash')) continue
         if (e.name.startsWith('.') && e.name !== SNAPSHOT_FALLBACK_DIR) continue
         await go(join(dir, e.name), depth + 1)
       } else if (e.isFile()) {
@@ -89,10 +91,33 @@ async function findSnapshotFiles(root: string): Promise<string[]> {
   return found
 }
 
-// A warning is sent once per (item, place) for the life of the process; it is dropped again the moment
-// the misplacement is gone, so a still-unresolved one is raised afresh after a restart but never spammed.
+// A warning is sent once per (item, place). The sent keys are PERSISTED (a restart, i.e. every deploy, must
+// not repeat them -- Boss, TG 2874); a key is dropped the moment the misplacement is gone, so a recurrence
+// is raised again but a still-unresolved one never is.
 const warnedNeutral = new Set<string>()
 const warnedDuplicate = new Set<string>()
+let warnedLoaded = false
+
+function warnedTable(): void {
+  getDb().exec('CREATE TABLE IF NOT EXISTS workbench_relocate_warned (key TEXT PRIMARY KEY)')
+}
+function loadWarned(): void {
+  if (warnedLoaded) return
+  warnedTable()
+  for (const r of getDb().prepare('SELECT key FROM workbench_relocate_warned').all() as { key: string }[]) {
+    if (r.key.startsWith('N|')) warnedNeutral.add(r.key.slice(2))
+    else if (r.key.startsWith('D|')) warnedDuplicate.add(r.key.slice(2))
+  }
+  warnedLoaded = true
+}
+function saveWarned(): void {
+  warnedTable()
+  const db = getDb()
+  const keys = [...[...warnedNeutral].map((k) => 'N|' + k), ...[...warnedDuplicate].map((k) => 'D|' + k)]
+  db.exec('DELETE FROM workbench_relocate_warned')
+  const ins = db.prepare('INSERT OR IGNORE INTO workbench_relocate_warned (key) VALUES (?)')
+  for (const k of keys) ins.run(k)
+}
 
 let running = false
 let lastRun: { at: number; rehomed: number; healed: number; neutral: number; duplicates: number; ms: number } | null = null
@@ -215,6 +240,7 @@ export async function reconcileItemLocations(): Promise<void> {
   let duplicates = 0
   try {
     ensureWorkbenchTables()
+    loadWarned()
     const dirs = projectDirs()
     if (!dirs.length) return // no project folders yet -> nothing to compare a file's place against
     const files = await findSnapshotFiles(depot)
@@ -291,6 +317,7 @@ export async function reconcileItemLocations(): Promise<void> {
       try { lost = reconcileFolderMarkers(p).lost } catch { continue }
       if (lost.length) await warnLost(p, lost)
     }
+    saveWarned()
     lastRun = { at: Date.now(), rehomed, healed, neutral, duplicates, ms: Date.now() - t0 }
   } catch (err) {
     logger.warn({ err }, 'workbench-relocate: reconcile failed')
