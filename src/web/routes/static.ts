@@ -252,6 +252,12 @@ export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promis
     return true
   }
   if (path === '/sw.js') { serveFile(req, res, join(webDir, 'sw.js')); return true }
+  // #504: the Univer spreadsheet grid (bundled by tools/univer-build, committed). Fixed
+  // allowlist, loaded on demand when a table is opened. no-cache: ETag/304 revalidation.
+  if (path === '/vendor/univer/univer.js' || path === '/vendor/univer/univer.css') {
+    serveFile(req, res, join(webDir, 'vendor', 'univer', path.slice('/vendor/univer/'.length)))
+    return true
+  }
   // #409: the offline notice the service worker stores and shows when the phone
   // cannot reach this machine. Fetched with cache:'reload' at worker install.
   if (path === '/offline.html') { serveFile(req, res, join(webDir, 'offline.html')); return true }

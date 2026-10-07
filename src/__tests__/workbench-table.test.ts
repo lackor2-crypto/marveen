@@ -281,6 +281,8 @@ describe('a felulet', () => {
 
   function setup(opts: { archived?: boolean; table?: Record<string, unknown> } = {}) {
     const h = workbenchHarness()
+    // the fallback input grid (what a failed Univer load shows); the Univer host has its own test below
+    ;(h.win as Record<string, unknown>).MarveenNoUniver = true
     const project = { id: 'p1', name: 'Kovács ház', archived: !!opts.archived }
     let created = false
     h.respond((url, init) => {
@@ -306,6 +308,18 @@ describe('a felulet', () => {
     h.click({ 'data-wb-act': 'table-open' })
     await vi.waitFor(() => expect(h.html()).toContain('id="wbCell_1_1"'))
   }
+
+  it('Univer-modban a tablazat helyen a Univer-gazda all, kezi racs nincs (a mentes ugyanazt a szerver-szerzodest hasznalja)', async () => {
+    const h = setup()
+    delete (h.win as Record<string, unknown>).MarveenNoUniver
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="table-open"'))
+    h.click({ 'data-wb-act': 'table-open' })
+    await vi.waitFor(() => expect(h.html()).toContain('id="wbUniverHost"'))
+    expect(h.html()).not.toContain('id="wbCell_1_1"')
+    expect(h.html()).toContain('⟦workbench.table.univer_hint_save⟧')
+  })
 
   it('megnyitja racskent, a gepeles az allapotba megy (ujrarajzolas utan is megvan), a mentes base_version-nel UJ verziot ker', async () => {
     const h = setup()

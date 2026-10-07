@@ -3932,6 +3932,78 @@
     return tb && tb.sheets ? tb.sheets[tb.sheet] || null : null
   }
 
+  // #504: the grid is the Univer spreadsheet (vendored, loaded on demand). The server keeps
+  // the same strings-in/strings-out contract, so the xlsx patching and the old grid
+  // stay: if the bundle cannot load, the table falls back to the plain inputs.
+  var univerLoad = null
+
+  function loadUniver() {
+    if (window.MarveenUniver) return Promise.resolve()
+    if (univerLoad) return univerLoad
+    univerLoad = new Promise(function (resolve, reject) {
+      var link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/vendor/univer/univer.css'
+      document.head.appendChild(link)
+      var sc = document.createElement('script')
+      sc.src = '/vendor/univer/univer.js'
+      sc.onload = function () { window.MarveenUniver ? resolve() : reject(new Error('univer missing')) }
+      sc.onerror = function () { reject(new Error('univer load')) }
+      document.head.appendChild(sc)
+    })
+    univerLoad.catch(function () { univerLoad = null })
+    return univerLoad
+  }
+
+  /** Drop the table state AND the Univer instance behind it. */
+  function tableDrop() {
+    var tb = WB.table
+    if (tb && tb.uv) { try { tb.uv.dispose() } catch (_e) { /* mar nincs */ } }
+    if (tb && tb.uvEl && tb.uvEl.parentNode) tb.uvEl.parentNode.removeChild(tb.uvEl)
+    WB.table = null
+  }
+
+  function tableUniverOn() {
+    var tb = WB.table
+    return !!(tb && !tb.uvFailed && tb.sheets && !window.MarveenNoUniver)
+  }
+
+  /** After every render: put the (persistent) Univer element into the fresh host, or start it. */
+  function tableUniverAttach() {
+    var tb = WB.table
+    var host = document.getElementById('wbUniverHost')
+    if (!tb || !host || tb.loading || tb.error || tb.uvFailed || !tb.sheets) return
+    if (tb.uvEl) { if (tb.uvEl.parentNode !== host) host.appendChild(tb.uvEl); return }
+    if (tb.uvStarting) return
+    tb.uvStarting = true
+    var itemId = tb.itemId
+    loadUniver().then(function () {
+      if (!WB.table || WB.table.itemId !== itemId) return
+      var h = document.getElementById('wbUniverHost')
+      if (!h) { WB.table.uvStarting = false; return }
+      var el = document.createElement('div')
+      el.className = 'wb-univer-el'
+      h.innerHTML = ''
+      h.appendChild(el)
+      WB.table.uvEl = el
+      WB.table.uv = window.MarveenUniver.mount(el, WB.table.sheets, {
+        readonly: !tableEditable(),
+        lang: window._lang === 'en' ? 'en' : 'hu',
+        lockStructure: WB.table.data && WB.table.data.format === 'xlsx',
+        onChange: function () { if (WB.table) WB.table.dirty = true },
+        onBlocked: function (what) { window.showToast(t(what === 'sheet' ? 'workbench.table.univer_sheet_locked' : 'workbench.table.univer_structure_locked')) },
+      })
+      WB.table.uvStarting = false
+    }).catch(function () {
+      if (!WB.table || WB.table.itemId !== itemId) return
+      WB.table.uvFailed = true
+      WB.table.uvStarting = false
+      if (WB.table.uvEl) { WB.table.uvEl = null; WB.table.uv = null }
+      render()
+      window.showToast(t('workbench.table.univer_failed'))
+    })
+  }
+
   function tableButtonHtml(p) {
     if (!p || !p.rel || !isTableName(p.name)) return ''
     if (!p.available && p.reason !== 'needs_conversion') return ''
@@ -3941,6 +4013,7 @@
 
   function openTable(itemId, versionId) {
     if (!itemId) return
+    tableDrop()
     WB.table = { itemId: itemId, loading: true, busy: false, data: null, sheets: null, sheet: 0, page: 0, sel: { r: 0, c: 0 }, dirty: false, error: null }
     render()
     var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/table' + (versionId ? '?version=' + encodeURIComponent(versionId) : '')
@@ -3964,7 +4037,7 @@
 
   function closeTable() {
     if (WB.table && WB.table.dirty && !window.confirm(t('workbench.table.discard_confirm'))) return
-    WB.table = null
+    tableDrop()
     render()
   }
 
@@ -4013,6 +4086,7 @@
   }
 
   function tableGridHtml() {
+    if (tableUniverOn()) return '<div class="wb-univer-wrap"><div class="wb-univer-host" id="wbUniverHost"></div></div>'
     var sh = tableSheet()
     if (!sh) return ''
     var rows = sh.rows
@@ -4060,13 +4134,14 @@
     if (!d.current) hints.push(t('workbench.table.old_version'))
     else if (archived()) hints.push(t('workbench.table.readonly_archived'))
     else {
-      hints.push(t('workbench.table.hint_save'))
+      var uv = tableUniverOn()
+      hints.push(t(uv ? 'workbench.table.univer_hint_save' : 'workbench.table.hint_save'))
       hints.push(t(d.format === 'csv' ? 'workbench.table.hint_csv' : 'workbench.table.hint_xlsx'))
-      hints.push(t('workbench.table.hint_formula'))
+      hints.push(t(uv ? 'workbench.table.univer_hint_formula' : 'workbench.table.hint_formula'))
       if (d.format === 'xlsx') hints.push(t('workbench.table.hint_dates'))
     }
     return '<div class="wb-table">'
-      + tableTabsHtml() + tableToolsHtml() + tableGridHtml()
+      + (tableUniverOn() ? '' : tableTabsHtml() + tableToolsHtml()) + tableGridHtml()
       + '<div class="wb-form-actions">'
       + (tableEditable()
         ? '<button type="button" class="btn-primary" data-wb-act="table-save"' + (tb.busy ? ' disabled' : '') + '>'
@@ -4141,6 +4216,9 @@
     var tb = WB.table
     if (!tb || tb.busy || !tableEditable() || !WB.selectedId) return
     var itemId = WB.selectedId
+    if (tb.uv) {
+      try { tb.sheets = tb.uv.getSheets() } catch (_e) { window.showToast(t('workbench.table.univer_read_failed')); return }
+    }
     tb.busy = true
     render()
     api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/table', {
@@ -4155,7 +4233,7 @@
         window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
         return
       }
-      WB.table = null
+      tableDrop()
       applyVersions(r.data)
       window.showToast(t('workbench.table.saved', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
     })
@@ -12837,6 +12915,7 @@
     pdfEditMount()
     if (vidKeep) videoRestore(vidKeep)
     WB.rendering = false
+    tableUniverAttach()
     dpFocusRestore(dpSnap)
     if (keepCell) {
       var cell = document.getElementById(keepCell)
@@ -14815,7 +14894,7 @@
     WB.partBusy = false
     WB.preview = null
     WB.previewVersion = null
-    WB.table = null
+    tableDrop()
     WB.img = null
     WB.vid = null
     WB.vidStatus = null

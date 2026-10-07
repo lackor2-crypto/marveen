@@ -1693,3 +1693,11 @@ main.projects-active.wb-sh-locked { overflow-y: hidden; }
 h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-box-row { background: color-mix(in srgb, var(--accent, #6d5efc) 16%, transparent); border-left: 3px solid var(--accent, #6d5efc); border-radius: 4px; }
 .wb-box-row .wb-folder-toggle { font-weight: 800; }
+
+/* #504: Univer spreadsheet grid in the table editor. The host needs a real height:
+   the canvas sizes itself to it. */
+.wb-univer-wrap { border: 1px solid var(--border, #d0d7de); border-radius: 6px; overflow: hidden; }
+.wb-univer-host { height: 62vh; min-height: 360px; position: relative; }
+.wb-univer-el { position: absolute; inset: 0; }
+.wb-fr-tbl .wb-univer-wrap { flex: 1 1 0; min-height: 360px; display: flex; }
+.wb-fr-tbl .wb-univer-host { flex: 1 1 auto; height: auto; }
