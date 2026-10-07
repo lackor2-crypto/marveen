@@ -490,19 +490,41 @@ public static extern short GetAsyncKeyState(int vKey);
   if ($txt.Length -ge 1000) {
     Log "FIGYELEM: $($txt.Length) karakter -- kepes Telegram-uzenetnel 1024 felett a Telegram levagja a veget; kulon uzenetben kuldd, kep nelkul"
   }
-  # Tobb diktalas ugyanabba a kepairasba: a HATART az egymas utan beillesztett szovegek OSSZEGE adja
+  # #503: Telegramban MELYIK mezobe megy a szoveg? A kep-kuldo ablak kepalairasa
+  # 1024 karakternel csendben levag, a sima uzenetmezo nem. A kepalairasba szant
+  # diktalast a telegram-kepalairas.ps1 sima uzenetbe teszi (lasd ott). A
+  # felismeres csak olvas; a DRY-RUN is naplozza.
+  $tgField = 'other'; $tgIo = $null
+  if ($env:HU_DIKTALAS_KEPALAIRAS -ne 'marad') {
+    try {
+      . (Join-Path $Base 'telegram-kepalairas.ps1')
+      $tgIo = New-TgUiaIo -Log { param($m) Log $m }
+      $tgFocus = & $tgIo.Focus
+      $tgField = $tgFocus.Kind
+      if ($tgField -ne 'other') { Log "telegram mezo: $tgField" }
+      elseif (@($tgFocus.Classes).Count -gt 0) {
+        # Telegram, de nem ismert mezo: az osztalylanc a naplobol javithatova teszi a felismerest.
+        Log ("telegram mezo: ismeretlen -- " + (@($tgFocus.Classes) -join ' > '))
+      }
+    } catch { Log ("FIGYELEM: a Telegram-mezo felismerese nem indult: " + $_.Exception.Message); $tgIo = $null }
+  }
+  # Tobb diktalas ugyanabba a kepalairasba: a HATART az egymas utan beillesztett szovegek OSSZEGE adja
   # (Boss TG 2675: 1254 karakter, 3 diktalas). Az utolso 5 percben ugyanabba az alkalmazasba illesztett
   # karaktereket szamoljuk; ha az osszeg eleri a 900-at, hallhato + lathato figyelmeztetes jon.
-  $capWarn = $false; $capTotal = $txt.Length; $capPrev = 0; $capProc = ''
+  # A Telegram SIMA uzenetmezojeben (#503) nincs 1024-es hatar: oda nem szamolunk es nem sipolunk.
+  $capWarn = $false; $capTotal = $txt.Length
+  $capFile = Join-Path $Base 'caption-count.json'
+  if ($tgField -eq 'message') { Remove-Item $capFile -Force -ErrorAction SilentlyContinue } else {
   try {
-    $capFile = Join-Path $Base 'caption-count.json'
+    $capProc = ''
     try { $cfg = [HuDikt.U32]::GetForegroundWindow(); $cpid = 0; [void][HuDikt.U32]::GetWindowThreadProcessId($cfg, [ref]$cpid); $capProc = (Get-Process -Id $cpid -ErrorAction SilentlyContinue).ProcessName } catch { }
     $prev = $null
     if (Test-Path $capFile) { try { $prev = Get-Content $capFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { } }
-    if ($prev -and $prev.proc -eq $capProc -and ((Get-Date) - [datetime]$prev.t).TotalMinutes -lt 5) { $capPrev = [int]$prev.n; $capTotal += $capPrev }
+    if ($prev -and $prev.proc -eq $capProc -and ((Get-Date) - [datetime]$prev.t).TotalMinutes -lt 5) { $capTotal += [int]$prev.n }
     (@{ t = (Get-Date).ToString('o'); proc = $capProc; n = $capTotal } | ConvertTo-Json -Compress) | Set-Content $capFile -Encoding UTF8
     if ($capTotal -ge 900) { $capWarn = $true; Log "FIGYELEM: az utolso 5 percben $capTotal karakter ment ugyanabba az alkalmazasba ($capProc) -- kepes Telegram-uzenetnel 1024 felett levagja" }
   } catch { }
+  }
   Set-Clipboard -Value $txt
   if ($env:HU_DIKTALAS_DRYRUN -eq '1') {
     Log "DRY-RUN: NEM illesztek be. Szoveg lett volna: $txt"
@@ -519,37 +541,44 @@ public static extern short GetAsyncKeyState(int vKey);
         Log "FIGYELEM: a talcara/Intezobe kattintottal -- a szoveg a vagolapon van, Ctrl+V-vel beteheted"
       }
     } catch { }
-    Start-Sleep -Milliseconds 120
-    Add-Type -AssemblyName System.Windows.Forms
-    # Telegram: ha a kepairas 1000 karakter fole menne (Boss TG 2680, A), a szoveget
-    # szavhataron darabolva KULON uzenetekbe tesszuk: az elso darab kitolti a maradekot,
-    # Enter kuldi el, a tobbi plain uzenet. Igy semmi nem vagodik le.
-    $chunks = @($txt)
-    if ($capProc -match '^Telegram' -and $capTotal -gt 1000) {
-      $chunks = @(); $rest = $txt; $room = 1000 - $capPrev
-      if ($room -lt 40) { $chunks += ''; $room = 1000 }
-      while ($rest.Length -gt $room) {
-        $cut = $rest.LastIndexOf(' ', $room - 1)
-        if ($cut -lt [int]($room / 2)) { $cut = $room }
-        $chunks += $rest.Substring(0, $cut).TrimEnd()
-        $rest = $rest.Substring($cut).TrimStart()
-        $room = 1000
-      }
-      $chunks += $rest
-      Log "telegram-darabolas: $($chunks.Count) uzenet (elozo: $capPrev, uj: $($txt.Length))"
+    # #503: kepalairas helyett sima uzenet. Ha sikerult, a kep elment, a teljes
+    # szoveg a sima uzenetmezoben var -- elkuldeni Boss kuldi, Enterrel.
+    $tgMove = $null; $tgWarnText = ''
+    if ($tgField -eq 'caption' -and $tgIo) {
+      try { $tgMove = Move-TgCaptionToMessage -Text $txt -Io $tgIo } catch { Log ("FIGYELEM: kepalairas-atrakas hiba: " + $_.Exception.Message) }
     }
-    for ($i = 0; $i -lt $chunks.Count; $i++) {
-      if ($chunks[$i]) { Set-Clipboard -Value $chunks[$i]; Start-Sleep -Milliseconds 80; [System.Windows.Forms.SendKeys]::SendWait('^v') }
-      if ($i -lt $chunks.Count - 1) { Start-Sleep -Milliseconds 400; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); Start-Sleep -Milliseconds 400 }
-    }
-    if ($chunks.Count -gt 1) {
-      $last = [string]$chunks[$chunks.Count - 1]
-      try { (@{ t = (Get-Date).ToString('o'); proc = $capProc; n = $last.Length } | ConvertTo-Json -Compress) | Set-Content $capFile -Encoding UTF8 } catch { }
+    if ($tgMove -and $tgMove.Done) {
+      Log "$TgMovedLogPrefix kesz -- a kep elment, $($tgMove.Text.Length) karakter az uzenetmezoben (ebbol $($tgMove.Moved) a korabbi kepalairasbol), Enterrel kuldheto"
+      Log "kesz: $txt"
       $capWarn = $false
+      Remove-Item $capFile -Force -ErrorAction SilentlyContinue
+    } elseif ($tgMove -and $tgMove.Touched) {
+      # Nem sikerult vegig: semmi nem vesz el, a szoveg a vagolapra kerul.
+      Set-Clipboard -Value $tgMove.Clipboard
+      $tgWarnText = Get-TgMoveWarning $tgMove.Reason
+      $capWarn = $false
+      Log "FIGYELEM: kepalairas-atrakas nem sikerult ($($tgMove.Reason)) -- a szoveg a vagolapon: $($tgMove.Clipboard)"
+    } else {
+      if ($tgMove) { Log "kepalairas-atrakas kimaradt: $($tgMove.Reason)" }
+      Start-Sleep -Milliseconds 120
+      Add-Type -AssemblyName System.Windows.Forms
+      [System.Windows.Forms.SendKeys]::SendWait('^v')
+      Log "kesz: $txt"
     }
-    Log "kesz: $txt"
   }
   Beep2 1200 90
+  if ($tgWarnText) {
+    try {
+      Beep2 300 250; Beep2 300 250; Beep2 300 250
+      Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+      $ni = New-Object System.Windows.Forms.NotifyIcon
+      $ni.Icon = [System.Drawing.SystemIcons]::Warning
+      $ni.Visible = $true
+      $ni.ShowBalloonTip(8000, 'Telegram: a szoveg a vagolapon', $tgWarnText, [System.Windows.Forms.ToolTipIcon]::Warning)
+      Start-Sleep -Milliseconds 2500
+      $ni.Dispose()
+    } catch { }
+  }
   if ($capWarn) {
     # Harom mely sip + buborek-ertesites: a szoveg MAR bekerult, de a kepes uzenet vege levagodhat.
     try {
