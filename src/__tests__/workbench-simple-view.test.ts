@@ -140,6 +140,21 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     expect(h.html()).toContain('workbench.sh.doc.gaps_none')
   })
 
+  it('dokumentum Feltöltések panel: a fájl a munkadarab Feltöltések mappájába megy (vászon nélkül is), nem néma (TG 2883)', async () => {
+    const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
+    await openWith(h, [DOC])
+    h.click({ 'data-wb-item': 'd1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-center'))
+    h.click({ 'data-wb-act': 'fr-tab', 'data-wb-tab': 'uploads' })
+    expect(h.html()).toContain('id="wbFrUpload"')
+    h.change('wbFrUpload', [{ name: 'foto.jpg', type: 'image/jpeg', size: 1024 }])
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.init && c.init.method === 'POST')).toBe(true))
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/api/workbench/items/d1/assets?')
+    expect(post!.url).toContain('uploads=1')
+    expect(post!.url).toContain('name=foto.jpg')
+  })
+
   it('az egyszerű nézet minden szövege lefordított (nincs beégetett magyar)', async () => {
     const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
     await openWith(h, [ITEM])

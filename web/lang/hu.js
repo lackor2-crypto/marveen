@@ -6483,7 +6483,7 @@ window._i18n.hu = {
   "workbench.fr.brand.show": "Márka megnyitása",
   "workbench.fr.brand.hide": "Márka elrejtése",
   "workbench.fr.upload": "Fájlok feltöltése",
-  "workbench.fr.upload_hint": "A fájl a projekt mappájába kerül, a lapra NEM kerül fel magától. A bélyegképet húzd a lapra, vagy kattints rá.",
+  "workbench.fr.upload_hint": "A fájl a munkadarab Feltöltések mappájába kerül, a lapra NEM kerül fel magától. A bélyegképet húzd a lapra, vagy kattints rá.",
   "workbench.fr.zoom": "Nagyítás",
   "workbench.canvas.fl_smaller": "Kisebb",
   "workbench.canvas.fl_bigger": "Nagyobb",

@@ -2147,8 +2147,10 @@
     for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
     if (!files.length || WB.upload || !WB.projectId) return Promise.resolve()
     if (archived()) { window.showToast(t('workbench.archived_hint')); return Promise.resolve() }
-    var intoItem = (target === 'item' || target === 'assets') && WB.selectedId ? WB.selectedId : null
-    var assetsOnly = target === 'assets'
+    var intoItem = (target === 'item' || target === 'assets' || target === 'frassets') && WB.selectedId ? WB.selectedId : null
+    var assetsOnly = target === 'assets' || target === 'frassets'
+    // The editor's Uploads panel keeps its files in the Uploads folder beside the work item (Boss, TG 2872).
+    var upFolder = target === 'frassets' ? '&uploads=1' : ''
     var projectId = WB.projectId
     var lang = encodeURIComponent(window._lang || 'hu')
     WB.upload = { done: 0, total: files.length, item: intoItem }
@@ -2165,7 +2167,7 @@
         var url
         var asAsset = intoItem && (assetsOnly || !isImageFile(f))
         if (asAsset) {
-          url = '/api/workbench/items/' + encodeURIComponent(intoItem) + '/assets?name=' + name + '&lang=' + lang
+          url = '/api/workbench/items/' + encodeURIComponent(intoItem) + '/assets?name=' + name + upFolder + '&lang=' + lang
         } else if (intoItem) {
           url = '/api/workbench/items/' + encodeURIComponent(intoItem)
             + '/parts/image?new_version=1&name=' + name + '&type=' + type + '&lang=' + lang
@@ -12308,8 +12310,8 @@
         return '<button type="button" class="wb-fr-pbtn" data-wb-act="brand-open">' + esc(WB.brandOpen ? t('workbench.fr.brand.hide') : t('workbench.fr.brand.show')) + '</button>' + brandPanelHtml()
       case 'uploads':
         if (frIsVideo(WB.detail && WB.detail.item)) return frVtUploadsHtml()
-        return '<label class="wb-fr-upload"><input type="file" accept="image/*" id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
-          + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : needCanvas)
+        return '<label class="wb-fr-upload"><input type="file" multiple id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
+          + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : '')
       case 'layers':
         return can ? frLayersHtml() : needCanvas
       case 'tools':
@@ -14322,8 +14324,13 @@
   })
   document.addEventListener('change', function (e) {
     if (!e.target || e.target.id !== 'wbFrUpload') return
-    var f = e.target.files && e.target.files[0]
-    if (f) canvasDropImage(f, null, null, true)
+    var list = e.target.files
+    var hasCanvas = !!(WB.canvas && WB.canvas.exists && WB.canvas.canvas)
+    // A picture on a canvas item is kept as a picture part; every other file (and any file of a document, which
+    // has no canvas) becomes a material in the Uploads folder. Before, the document case did nothing at all
+    // (Boss, TG 2883).
+    if (list && list.length === 1 && hasCanvas && isImageFile(list[0])) canvasDropImage(list[0], null, null, true)
+    else if (list && list.length) uploadFiles(list, 'frassets')
     try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
   })
   document.addEventListener('dragstart', function (e) {
