@@ -266,10 +266,10 @@ describe('a szerver', () => {
 
     const np = createProject({ name: 'Mappa nélkül' })
     if (!np.ok) throw new Error('p2')
+    // A project without a folder gets one on this first write (fresh install, TG 2895), so the table is made.
     const nf = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: np.project.id, title: 'T' })
-    expect(nf.status).toBe(400)
-    expect(nf.body.message).toBeTruthy()
-    expect(nf.body.message).not.toBe(nf.body.error)
+    expect(nf.status).toBe(201)
+    expect(String(nf.body.item.source_path)).toMatch(/T\.xlsx$/)
     const noTitle = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: ' ' })
     expect(noTitle.body.error).toBe('table_title_required')
   })

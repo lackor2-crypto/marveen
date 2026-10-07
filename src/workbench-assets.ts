@@ -202,6 +202,7 @@ function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMateria
  * the user's own) is never taken over silently.
  */
 export function makeFreshFolder(project: ProjectRow, wanted: string, parentFolder?: string | null): FolderOutcome {
+  ensureProjectHasFolder(project)
   // #448: a sub work item's folder is created INSIDE its main item's folder.
   if (parentFolder) {
     const pt = projectFileTarget(project, parentFolder)
@@ -383,6 +384,8 @@ export function listWorkFolders(project: ProjectRow): { box: string | null; fold
 
 /** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */
 export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unknown): { ok: true; folder: string; created: boolean } | { ok: false; code: WorkFolderError | 'folder_name'; message?: string } {
+  // An explicit write: a project still without a folder (fresh install, seeded project) gets one now.
+  ensureProjectHasFolder(project)
   let parentRel: string
   const raw = String(parent ?? '').trim()
   if (!raw || findWorkItemsBox(project) === null) {
