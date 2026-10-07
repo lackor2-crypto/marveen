@@ -12307,6 +12307,7 @@
       case 'brand':
         return '<button type="button" class="wb-fr-pbtn" data-wb-act="brand-open">' + esc(WB.brandOpen ? t('workbench.fr.brand.hide') : t('workbench.fr.brand.show')) + '</button>' + brandPanelHtml()
       case 'uploads':
+        if (frIsVideo(WB.detail && WB.detail.item)) return frVtUploadsHtml()
         return '<label class="wb-fr-upload"><input type="file" accept="image/*" id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
           + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : needCanvas)
       case 'layers':
@@ -12424,7 +12425,58 @@
   function frVtAddRowHtml() {
     var busy = WB.vtBusy || WB.vtRender || archived()
     return '<select id="wbFrVtSrc" class="wb-input" aria-label="' + escA(t('workbench.vt.pick_file')) + '">' + vtMediaOptions('video') + '</select> '
-      + '<button type="button" class="wb-fr-pbtn wb-fr-vt-add" data-wb-act="fr-vt-add"' + (busy ? ' disabled' : '') + '>+ ' + esc(t('workbench.vt.add_clip')) + '</button>'
+      + '<button type="button" class="wb-fr-pbtn wb-fr-vt-add" data-wb-act="fr-vt-add"' + (busy ? ' disabled' : '') + '>+ ' + esc(t('workbench.vt.add_clip')) + '</button> '
+      // Browse: any video from anywhere on the computer; it is copied into the item's materials, then added as a clip.
+      + '<label class="wb-fr-pbtn wb-fr-vt-browse" title="' + escA(t('workbench.vt.browse_hint')) + '">\ud83d\udcc1 ' + esc(t('workbench.vt.browse'))
+      + '<input type="file" class="wb-file-input" data-wb-vt-browse="1" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v"' + (busy ? ' disabled' : '') + '></label>'
+  }
+
+  /** The Uploads panel of a video: upload a video into the project (stays there), and every video of the project
+   *  is listed; a click adds it to the timeline -- the same flow Canva / Clipchamp use. */
+  function frVtUploadsHtml() {
+    var list = (WB.vtMedia || []).filter(function (f) { return f.kind === 'video' })
+    var busy = WB.vtBusy || WB.vtRender || archived()
+    return (archived() ? '' : '<label class="wb-fr-upload">' + esc(t('workbench.vt.upload_btn'))
+        + '<input type="file" hidden data-wb-vt-browse="1" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v"' + (busy ? ' disabled' : '') + '></label>')
+      + '<p class="wb-hint">' + esc(t('workbench.vt.upload_hint')) + '</p>'
+      + (list.length
+        ? '<ul class="wb-fr-vt-media">' + list.map(function (f) {
+          return '<li><button type="button" class="wb-fr-pbtn" data-wb-act="fr-vt-add-path" data-wb-path="' + escA(f.path) + '"' + (busy ? ' disabled' : '') + '>+ '
+            + esc(f.path.split('/').slice(-2).join('/')) + '</button></li>'
+        }).join('') + '</ul>'
+        : '<p class="wb-muted">' + esc(t('workbench.vt.upload_none')) + '</p>')
+  }
+
+  /** The owner picked a video from disk: upload it as a material of this item, refresh the media list, add it as a clip. */
+  function vtBrowseUpload(file) {
+    if (!file || !WB.selectedId || WB.vtBusy || archived()) return
+    var itemId = WB.selectedId
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/assets?name=' + encodeURIComponent(file.name || 'video.mp4')
+      + '&lang=' + encodeURIComponent(window._lang || 'hu')
+    WB.vtBusy = true
+    window.showToast(t('workbench.vt.browse_uploading', { name: file.name || '' }))
+    render()
+    postFile(url, file).then(function (r) {
+      if (!r.ok && r.data && r.data.error === 'asset_duplicate' && r.data.existing) {
+        // The very same content is already a material: just use it.
+        return { ok: true, data: { asset: r.data.existing, name: r.data.existing.name } }
+      }
+      return r
+    }).then(function (r) {
+      WB.vtBusy = false
+      if (!r.ok) { window.showToast(r.message || t('workbench.err.network')); render(); return }
+      var asset = (r.data && r.data.asset) || {}
+      WB.vtMedia = null
+      return api('GET', '/api/workbench/media?project=' + encodeURIComponent(WB.projectId)).then(function (m) {
+        WB.vtMedia = (m.ok && m.data && m.data.files) || []
+        var nm = (r.data && r.data.name) || file.name
+        var hit = WB.vtMedia.filter(function (f) { return f.path === asset.path })[0]
+          || WB.vtMedia.filter(function (f) { return f.name === nm })[0]
+        render()
+        if (!hit) { window.showToast(t('workbench.vt.browse_not_listed')); return }
+        if (WB.selectedId === itemId) vtOps([{ op: 'addClip', src: hit.path, start: 0 }])
+      })
+    })
   }
 
   /** The fixed middle window of a video: the player of the picked clip (or the empty start). */
@@ -13653,6 +13705,7 @@
     else if (a === 'deck-export') deckExportNow(act.getAttribute('data-wb-v'))
     else if (a === 'fr-vt-split') frVtSplitAtPlayhead()
     else if (a === 'fr-vt-add') frVtAddFromStrip()
+    else if (a === 'fr-vt-add-path') { var vp = act.getAttribute('data-wb-path'); if (vp) vtOps([{ op: 'addClip', src: vp, start: 0 }]) }
     else if (a === 'vt-refresh') loadVideoTimeline(WB.selectedId)
     else if (a === 'vt-undo' || a === 'vt-redo') vtStep(a === 'vt-undo' ? 'undo' : 'redo')
     else if (a === 'vt-version') vtVersion()
@@ -14555,6 +14608,12 @@
       var picked = e.target.files
       if (picked && picked.length) uploadFiles(picked, 'new')
       try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      return
+    }
+    if (e.target.getAttribute && e.target.getAttribute('data-wb-vt-browse')) {
+      var vf = e.target.files && e.target.files[0]
+      try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
+      if (vf) vtBrowseUpload(vf)
       return
     }
     if (e.target.id === 'wbAssetUpload' || e.target.id === 'wbChatAssetUpload') {
