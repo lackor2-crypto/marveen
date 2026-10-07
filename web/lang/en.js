@@ -5677,6 +5677,7 @@ window._i18n.en = {
   "workbench.ctx.hint": "Right-click (long press on a phone): rename, delete, move to a folder",
   "workbench.trash.delete": "Delete",
   "workbench.trash.delete_hint": "Moves it to the Workbench trash: it leaves the list but can be restored from the Workbench trash at the bottom of the list. Versions are kept.",
+  "workbench.trash.delete_confirm": "Delete the work item \"{name}\"? It goes to the Workbench trash (at the bottom of the work item list), where you can restore it from.",
   "workbench.trash.done": "Moved to the Workbench trash. It is at the bottom of the work item list; Restore brings it back. (This is not the file tree Trash.)",
   "workbench.trash.restored": "Restored.",
   "workbench.rescue.title": "A work item is missing? Rebuild from the folders",

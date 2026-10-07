@@ -5755,6 +5755,7 @@ window._i18n.hu = {
   "workbench.ctx.hint": "Jobb egérgomb (telefonon hosszú nyomás): szerkesztés, törlés, áthelyezés mappába",
   "workbench.trash.delete": "Törlés",
   "workbench.trash.delete_hint": "A Munkapad lomtárába teszi: eltűnik a listából, de a lista alján, a Munkapad lomtárából visszaállítható. A verziók megmaradnak.",
+  "workbench.trash.delete_confirm": "Biztosan törlöd a(z) \"{name}\" munkadarabot? A Munkapad lomtárába kerül (a munkadarab-lista alján), onnan visszaállíthatod.",
   "workbench.trash.done": "A Munkapad lomtárába került. Ott van a munkadarab-lista alján, a Visszaállítás gombbal visszahozhatod. (Ez nem az Életfa lomtára.)",
   "workbench.trash.restored": "Visszaállítva.",
   "workbench.rescue.title": "Hiányzik egy munkadarab? Visszaépítés a mappákból",

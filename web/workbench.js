@@ -405,8 +405,17 @@
 
   // ---- lomtar (#443) ----------------------------------------------------------
   //
-  // A Torles nem kerdez ra (a tulajdonos kerese): lomtarba tesz, ahonnan egy
-  // kattintassal visszahozhato, a verziok es a fajlok megmaradnak.
+  // A Torles lomtarba tesz, ahonnan egy kattintassal visszahozhato, a verziok
+  // es a fajlok megmaradnak. A jobb-klikkes Torles elotte egyszer, nev szerint
+  // rakerdez (#492, Boss "B": "egy kerdest meger").
+
+  /** #492: one question by name; only a yes sends the work item to the Workbench trash. */
+  function askTrashItem(id) {
+    if (!id || WB.trashBusy || archived()) return
+    var it = (WB.items || []).filter(function (x) { return x.id === id })[0]
+    if (!window.confirm(t('workbench.trash.delete_confirm', { name: it ? it.title : '' }))) return
+    setTrashed(id, true)
+  }
 
   function setTrashed(id, deleted) {
     if (WB.trashBusy || archived()) return
@@ -13420,7 +13429,7 @@
     else if (a === 'fr-add-image') frAddImage(act.getAttribute('data-wb-src'), null, null)
     else if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
-    else if (a === 'item-trash') setTrashed(act.getAttribute('data-wb-id'), true)
+    else if (a === 'item-trash') askTrashItem(act.getAttribute('data-wb-id'))
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'ov-kanban') openProjectKanban()
     else if (a === 'folder-delete') { deleteFolder(act.getAttribute('data-wb-folder')) }
