@@ -1170,6 +1170,31 @@ export type AttachOutcome =
   | { ok: false; code: 'asset_duplicate'; existing: WorkItemAssetRow }
   | { ok: false; code: 'asset_unsupported' | 'asset_limit' | 'not_found' | 'folder_name' | 'folder_taken' | FileErrorCode; message?: string }
 
+/** The folder beside a work item that keeps what the owner uploads into it (Boss, TG 2872). */
+export const UPLOADS_FOLDER_NAMES = { hu: 'Feltöltések', en: 'Uploads' } as const
+
+/**
+ * The "Feltöltések" / "Uploads" subfolder of the work item's own folder; made when missing. An existing one is
+ * recognised under either name so a language switch never makes a second folder.
+ */
+export function ensureItemUploadsFolder(item: WorkItemRow, lang?: string): FolderOutcome {
+  const project = getProject(item.project_id)
+  if (!project) return { ok: false, code: 'not_found' }
+  const f = ensureWorkItemFolder(item)
+  if (!f.ok) return f
+  const base = projectFileTarget(project, f.folder)
+  if (!base.ok) return base
+  const order = lang === 'en' ? [UPLOADS_FOLDER_NAMES.en, UPLOADS_FOLDER_NAMES.hu] : [UPLOADS_FOLDER_NAMES.hu, UPLOADS_FOLDER_NAMES.en]
+  for (const n of order) {
+    try {
+      if (statSync(join(base.dirAbs, n)).isDirectory()) return { ok: true, folder: `${f.folder}/${n}`, created: false }
+    } catch { /* not there: try the next name */ }
+  }
+  const r = makeProjectFolder(project, f.folder, order[0] as string)
+  if (!r.ok) return r
+  return { ok: true, folder: r.sub, created: r.created }
+}
+
 /**
  * Egy fajl csatolasa egy MEGLEVO munkadarabhoz: a munkadarab mappajaba kerul,
  * es bekerul az anyagai koze. Ugyanaz a tartalom masodszorra csak `force`-szal
@@ -1177,7 +1202,7 @@ export type AttachOutcome =
  */
 export function attachAsset(
   item: WorkItemRow, name: string, data: Buffer,
-  opts: { force?: boolean; createdBy?: string | null } = {},
+  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string } = {},
 ): AttachOutcome {
   ensureAssetTables()
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
@@ -1190,7 +1215,7 @@ export function attachAsset(
   }
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
-  const f = ensureWorkItemFolder(item)
+  const f = opts.uploads ? ensureItemUploadsFolder(item, opts.lang) : ensureWorkItemFolder(item)
   if (!f.ok) return f
   const out = writeProjectFile(project, f.folder, name, data)
   if (!out.ok) return out

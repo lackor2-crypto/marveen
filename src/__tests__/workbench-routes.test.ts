@@ -947,7 +947,7 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     const r = await call(`/api/workbench/items/${itemId}/parts/image?name=anyu.jpg`, 'POST', 'BINARIS')
     expect(r.status).toBe(201)
     expect(r.body.file.rel).not.toBe('anyu.jpg')
-    expect(r.body.file.rel.split('/').length).toBeGreaterThan(1)
+    expect(r.body.file.rel).toMatch(/\/Feltöltések\/anyu\.jpg$/)
     const root = readdirSync(join(depot, 'Projektek', 'teszt'))
     expect(root).not.toContain('anyu.jpg')
   })
