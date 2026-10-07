@@ -22,7 +22,7 @@ import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './workbench-docmodel.js'
 import { consistencyIssues } from './workbench-doccheck.js'
-import { outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderResult } from './workbench-docrender.js'
+import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset } from './workbench-assets.js'
@@ -70,12 +70,41 @@ export function resolverFor(item: WorkItemRow): FileResolver | undefined {
 }
 
 /** Ami a PDF-be kerul: fejezetek, blokkok es a mellekletjegyzek (cimke + leiras). */
-export function renderInputFor(item: WorkItemRow): RenderOutline {
+export function renderInputFor(item: WorkItemRow, withImages = false): RenderOutline {
   const annexes = listAnnexes(item.id)
+  const base = toRenderOutline(documentOutline(item.id))
+  if (withImages) for (const sec of base.sections) for (const b of sec.blocks) if (b.kind === 'image') b.img = readDocImage(b.text)
   return {
-    ...toRenderOutline(documentOutline(item.id)),
+    ...base,
     ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id)) } : {}),
   }
+}
+
+/** Largest picture file an `image` block embeds (a bigger one is shown as missing, not crashing the render). */
+export const DOC_IMAGE_MAX_BYTES = 25 * 1024 * 1024
+
+/** The picture of an `image` block (its path under the Marveen folder), or null when it is gone or not a picture. */
+export function readDocImage(rel: string): RenderImage | null {
+  const abs = resolveLifePath(rel)
+  if (!abs) return null
+  try {
+    const st = statSync(abs)
+    if (!st.isFile() || st.size > DOC_IMAGE_MAX_BYTES) return null
+    const data = readFileSync(abs)
+    const dim = imageSize(data)
+    return dim ? { data, ...dim } : null
+  } catch { return null }
+}
+
+/** Size + change time of every picture an `image` block points at: a replaced photo is new content. */
+function imagePrints(item: WorkItemRow): string[] {
+  const out: string[] = []
+  for (const s of documentOutline(item.id).sections) for (const b of s.blocks) {
+    if (b.kind !== 'image') continue
+    const abs = resolveLifePath(b.text)
+    try { const st = abs ? statSync(abs) : null; out.push(st ? `img:${b.text}:${st.size}:${Math.floor(st.mtimeMs)}` : `img:${b.text}:missing`) } catch { out.push(`img:${b.text}:missing`) }
+  }
+  return out
 }
 
 /**
@@ -87,12 +116,13 @@ export function contentHash(item: WorkItemRow): string {
   const base = outlineHash(renderInputFor(item), item.title)
   const resolve = resolverFor(item)
   const annexes = listAnnexes(item.id)
-  if (!annexes.length) return base
+  const pics = imagePrints(item)
+  if (!annexes.length && !pics.length) return base
   const prints = annexes.map((a) => {
     const f = resolve ? resolve(a.path) : null
     try { const st = f ? statSync(f.abs) : null; return st ? `${a.path}:${st.size}:${Math.floor(st.mtimeMs)}` : `${a.path}:missing` } catch { return `${a.path}:missing` }
   })
-  return createHash('sha256').update(base + '\n' + prints.join('\n')).digest('hex')
+  return createHash('sha256').update(base + '\n' + prints.concat(pics).join('\n')).digest('hex')
 }
 
 /** A PDF szerzoje a metaadatban: a tulajdonos beallitott neve; ha nincs beallitva, nincs szerzo (nem egy helyorzo). */
@@ -209,7 +239,7 @@ export function docxFileName(item: WorkItemRow, d = new Date()): string {
  * szerepelnek (a fajlok nem kerulnek bele).
  */
 export async function renderDocx(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DocxResult> {
-  return renderOutlineDocx(renderInputFor(item), { title: item.title, author: documentAuthor(), lang: docLangFor(item, lang) })
+  return renderOutlineDocx(renderInputFor(item, true), { title: item.title, author: documentAuthor(), lang: docLangFor(item, lang) })
 }
 
 export type DraftResult =
@@ -225,7 +255,7 @@ function packageFail(e: PackageError & { ok: false }): { ok: false; code: string
 
 /** Piszkozat PDF (K-1.21): barmikor, vizjellel; mellekletek eseten boritolappal egyutt, egy PDF-ben (atnezesre). */
 export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DraftResult> {
-  const outline = renderInputFor(item)
+  const outline = renderInputFor(item, true)
   const hash = contentHash(item)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
@@ -266,7 +296,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (!review) return { ok: false, code: 'outline_not_reviewed', detail: null }
   if (input.accept !== true) return { ok: false, code: 'outline_accept_required', detail: null }
 
-  const outline = renderInputFor(item)
+  const outline = renderInputFor(item, true)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
   let annexes: { label: string; title: string; pdf: Buffer }[] = []

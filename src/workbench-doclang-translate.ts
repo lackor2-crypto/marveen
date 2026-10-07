@@ -128,6 +128,7 @@ export function buildTranslatePrompt(input: {
     '- Translate faithfully and completely: do not add, drop, summarise or soften anything. Names, numbers, dates, amounts, case numbers, file names and annex labels stay exact; translate the words around them.',
     '- Translate the section title too, even if it is only a placeholder such as "Új fejezet" (it means "New section").',
     '- Keep every block separate, in the same order, with the same id; keep the line breaks inside a block.',
+    '- A block of kind "image" holds a picture file path: copy its text unchanged.',
     '- For each claim listed under a block, put into "claims" the part of YOUR translated block text that states that claim, copied word for word from your translation.' + gl,
     'Reply with ONE JSON object and nothing else -- no prose, no code fence:',
     '{"title": "<translated title>", "blocks": [{"id": "<block id>", "text": "<translated text>", "claims": [{"source_claim": "<claim id>", "text": "<verbatim part of your translated text>"}]}]}',
@@ -160,6 +161,8 @@ export function parseTranslation(text: string, src: SourceBlock[]):
     const b = byId.get(s.id) ?? got[i] ?? {}
     const claims = (Array.isArray(b.claims) ? b.claims as { source_claim?: unknown; text?: unknown }[] : [])
       .map((c) => ({ source_claim: String(c.source_claim ?? ''), text: String(c.text ?? '') }))
+    // A picture block is a file path, not words: it is never translated.
+    if (s.kind === 'image') return { kind: s.kind, text: s.text, claims: [] }
     return { kind: s.kind, text: String(b.text ?? '').trim(), claims }
   })
   if (blocks.some((b) => !b.text)) return { ok: false, detail: 'a translated block is empty' }

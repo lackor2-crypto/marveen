@@ -1704,3 +1704,18 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-files { list-style: none; margin: 8px 0 0; padding: 0; }
 .wb-fr-filerow { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 0; word-break: break-all; }
 .wb-fr-filerow .wb-fr-thumb-more { position: static; flex: none; }
+/* Uploads panel as medium tiles (TG 2898): a photo shows its preview, a document a big type icon. */
+.wb-fr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; margin: 8px 0 0; }
+.wb-fr-tilewrap { position: relative; min-width: 0; }
+.wb-fr-tile { display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; min-width: 0; }
+.wb-fr-tile[draggable="true"] { cursor: grab; }
+.wb-fr-tile-pic { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary, #f4f4f6); overflow: hidden; }
+.wb-fr-tile:hover .wb-fr-tile-pic, .wb-fr-tile:focus-visible .wb-fr-tile-pic { border-color: #5b3fd6; }
+.wb-fr-tile-icon { font-size: 2.4rem; line-height: 1; }
+.wb-fr-tile-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: transparent; }
+.wb-fr-tile-ext { position: absolute; bottom: 4px; left: 4px; padding: 0 5px; border-radius: 4px; background: rgba(0,0,0,.6); color: #fff; font-size: .68rem; font-weight: 700; letter-spacing: .03em; }
+.wb-fr-tile-name { font-size: .78rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-fr-tilewrap .wb-fr-thumb-more { top: 4px; right: 4px; }
+/* A picture block on a document's page (TG 2901). */
+.wb-dp-img { margin: 6px 0; text-align: center; }
+.wb-dp-img img { max-width: 100%; max-height: 520px; height: auto; display: inline-block; border-radius: 2px; }

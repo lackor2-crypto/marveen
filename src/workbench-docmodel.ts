@@ -25,6 +25,8 @@
  * elotti ellenorzes (`documentCheck`, K-1.22) ebbol szamol.
  */
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
 import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docread.js'
 import { annexCheck, type FileResolver } from './workbench-docannex.js'
@@ -33,8 +35,23 @@ import { variantCheckItems } from './workbench-doclang.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
 export type SectionStatus = typeof SECTION_STATUSES[number]
-export const BLOCK_KINDS = ['paragraph', 'list', 'table', 'footnote', 'signature'] as const
+export const BLOCK_KINDS = ['paragraph', 'list', 'table', 'footnote', 'signature', 'image'] as const
 export type BlockKind = typeof BLOCK_KINDS[number]
+
+/** Picture formats an `image` block can hold (the ones LibreOffice embeds in the PDF / Word copy). */
+export const DOC_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif'])
+
+/**
+ * An `image` block's text is the picture's path under the Marveen folder (the same
+ * `rel` the Uploads panel shows, Boss TG 2901). It must be a plain relative path to a
+ * picture file: no `..`, no absolute path, a picture extension.
+ */
+export function imageBlockPathOk(text: string): boolean {
+  const t = String(text || '').replace(/\\/g, '/')
+  if (!t || t.startsWith('/') || /^[a-z]:/i.test(t) || t.split('/').some((x) => x === '..' || x === '.')) return false
+  const ext = (t.split('.').pop() || '').toLowerCase()
+  return DOC_IMAGE_EXT.has(ext)
+}
 export const SOURCE_KINDS = ['document', 'owner', 'official', 'inference'] as const
 export type SourceKind = typeof SOURCE_KINDS[number]
 
@@ -272,6 +289,7 @@ export function addBlock(itemId: string, sectionId: string, input: { kind?: unkn
   if (!BLOCK_KINDS.includes(kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
   const text = String(input.text ?? '').replace(/\r\n/g, '\n').trim()
   if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
+  if (kind === 'image' && !imageBlockPathOk(text)) return { ok: false, code: 'bad_input', detail: `an image block's text is the picture's path under the Marveen folder (${[...DOC_IMAGE_EXT].join(', ')})` }
   const db = getDb()
   const count = (db.prepare('SELECT COUNT(*) AS n FROM wb_doc_blocks WHERE work_item_id = ?').get(itemId) as { n: number }).n
   if (count >= BLOCKS_MAX) return { ok: false, code: 'too_many', detail: `a document has at most ${BLOCKS_MAX} blocks` }
@@ -307,6 +325,7 @@ export function updateBlock(itemId: string, id: string, input: { text?: unknown;
     if (!BLOCK_KINDS.includes(input.kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
     kind = input.kind as BlockKind
   }
+  if (kind === 'image' && !imageBlockPathOk(text)) return { ok: false, code: 'bad_input', detail: `an image block's text is the picture's path under the Marveen folder (${[...DOC_IMAGE_EXT].join(', ')})` }
   // Moving (drag handle on the page): a new section and/or a new position inside it.
   const wantsMove = (input.section !== undefined && input.section !== null && input.section !== '') || (input.position !== undefined && input.position !== null && input.position !== '')
   let target: SectionRow | undefined
@@ -705,6 +724,12 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     if (ax.dangling.length) items.push({ key: 'annex_dangling', ok: false, count: ax.dangling.length, detail: ax.dangling })
     if (ax.missing_files.length) items.push({ key: 'annex_missing_file', ok: false, count: ax.missing_files.length, detail: ax.missing_files })
     if (ax.unsupported.length) items.push({ key: 'annex_unsupported', ok: false, count: ax.unsupported.length, detail: ax.unsupported })
+  }
+  // PICTURES (Boss TG 2901): a picture block whose file is gone would end up as a warning line in the final PDF.
+  const pics = blocks.filter((b) => b.kind === 'image')
+  if (pics.length) {
+    const gone = pics.filter((b) => { const abs = resolveLifePath(b.text); return !abs || !existsSync(abs) }).map((b) => b.text.split('/').pop() || b.text)
+    items.push({ key: 'image_missing_file', ok: gone.length === 0, count: gone.length, total: pics.length, detail: gone })
   }
   // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos
   // altal szandekosnak jelolt elteres nem allitja meg a veglegesitest.

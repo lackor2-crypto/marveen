@@ -11740,6 +11740,12 @@
     var rows = ''
     blocks.forEach(function (b, i) {
       if (nw && nw.pos === i) rows += dpGhostHtml(sec.id, i, nw.kind, blocks.length, ro)
+      if (b.kind === 'image') {
+        // A picture block (TG 2901): the picture itself, moved/removed with the handle like any block.
+        rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+          + '<figure class="wb-dp-block wb-dp-img"><img alt="' + escA(baseOf(b.text)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(b.text)) + '"></figure></div>'
+        return
+      }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"',
           dpDraft('b:' + b.id, b.text), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro)
@@ -12257,19 +12263,50 @@
     }).join('') + '</div>'
   }
 
-  /** The uploaded files that are not shown as picture thumbnails (documents, PDFs, ...; and pictures when the item has no page). */
+  /** A big file-type icon for an upload tile (a document has no picture of its own). */
+  function frFileIcon(name) {
+    var ext = String(name || '').split('.').pop().toLowerCase()
+    if (ext === 'pdf') return '\ud83d\udcd5'
+    if (/^(docx?|odt|rtf|txt|md)$/.test(ext)) return '\ud83d\udcdd'
+    if (/^(xlsx?|ods|csv)$/.test(ext)) return '\ud83d\udcca'
+    if (/^(pptx?|odp)$/.test(ext)) return '\ud83d\udcfd\ufe0f'
+    if (/^(mp4|mov|webm|mkv|avi)$/.test(ext)) return '\ud83c\udfac'
+    if (/^(mp3|wav|m4a|ogg|opus)$/.test(ext)) return '\ud83c\udfb5'
+    if (/^(zip|7z|rar|gz)$/.test(ext)) return '\ud83d\uddc4\ufe0f'
+    if (/^(jpe?g|png|gif|webp|heic|bmp|svg)$/.test(ext)) return '\ud83d\uddbc\ufe0f'
+    return '\ud83d\udcc4'
+  }
+
+  /** Pictures a document page can hold (the server embeds these in the PDF / Word copy). */
+  function frDocImageOk(name) { return /\.(jpe?g|png|gif)$/i.test(String(name || '')) }
+
+  /**
+   * The uploaded files as medium tiles (Boss, TG 2898): a photo shows its own preview, a document a big
+   * icon with its type, and the name underneath -- "12345.jpg" alone says nothing. A click opens the file;
+   * a picture tile can be dragged onto the page (a canvas, or a document's page, TG 2901).
+   */
   function frUploadFileList(canvasShown) {
     var rows = ((WB.detail && WB.detail.assets) || []).filter(function (a) {
       return a.present !== false && a.path && !(canvasShown && isImageFile({ name: a.name }))
     })
     if (!rows.length) return canvasShown ? '' : '<p class="wb-hint">' + esc(t('workbench.fr.files_none')) + '</p>'
     var more = t('workbench.ctx.more_file')
-    return '<ul class="wb-fr-files">' + rows.map(function (a) {
+    var isDoc = !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+    var lang = encodeURIComponent(window._lang || 'hu')
+    return '<div class="wb-fr-tiles">' + rows.map(function (a) {
+      var name = a.name || baseOf(a.path)
       var href = '/api/life/file?rel=' + encodeURIComponent(a.path)
-      return '<li class="wb-fr-filerow"><a href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(a.name || baseOf(a.path)) + '</a>'
+      var ext = String(name).split('.').pop().toUpperCase()
+      var media = isImageFile({ name: name }) || /\.(mp4|mov|webm|mkv|avi)$/i.test(name)
+      var drag = isDoc && !archived() && frDocImageOk(name)
+      return '<div class="wb-fr-tilewrap"><a class="wb-fr-tile" href="' + escA(href) + '" target="_blank" rel="noopener" title="' + escA(drag ? name + ' \u2014 ' + t('workbench.fr.tile_drag') : name) + '"'
+        + (drag ? ' draggable="true" data-wb-drag-img="1" data-wb-src="' + escA(a.path) + '"' : ' draggable="false"') + '>'
+        + '<span class="wb-fr-tile-pic"><span class="wb-fr-tile-icon" aria-hidden="true">' + frFileIcon(name) + '</span>'
+        + (media ? '<img alt="" loading="lazy" draggable="false" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(a.path) + '&lang=' + lang) + '">' : '<span class="wb-fr-tile-ext">' + esc(ext) + '</span>')
+        + '</span><span class="wb-fr-tile-name">' + esc(name) + '</span></a>'
         + (archived() ? '' : '<button type="button" class="wb-fr-thumb-more" data-wb-act="file-ctx" data-wb-rel="' + escA(a.path) + '" aria-haspopup="menu" title="' + escA(more) + '" aria-label="' + escA(more) + '">&#8943;</button>')
-        + fileMenuHtml(a.path, '') + '</li>'
-    }).join('') + '</ul>'
+        + fileMenuHtml(a.path, '') + '</div>'
+    }).join('') + '</div>'
   }
 
   /** The top of a picture's menu: its name, when it was uploaded, how big, and the one action that is about the work item. */
@@ -14994,6 +15031,54 @@
   function dpClearMarks() {
     Array.prototype.forEach.call(document.querySelectorAll('.wb-dp-drop-before,.wb-dp-drop-after'), function (n) { n.classList.remove('wb-dp-drop-before', 'wb-dp-drop-after') })
   }
+
+  /** A picture from the Uploads panel dropped on a document's page becomes a picture block there (TG 2901). */
+  function dpAddImage(rel, sid, pos) {
+    if (!rel || archived()) return
+    if (!frDocImageOk(rel)) { window.showToast(t('workbench.dp.img_type')); return }
+    var make = sid ? Promise.resolve(sid) : dpCall('POST', '/sections', { title: t('workbench.sh.seed.section') }).then(function (o) {
+      var last = o && o.sections && o.sections[o.sections.length - 1]
+      return last ? last.id : null
+    })
+    make.then(function (sec) {
+      if (!sec) return null
+      return dpCall('POST', '/blocks', { section: sec, text: rel, kind: 'image', position: pos })
+    }).then(function (o) { if (o) render() })
+  }
+
+  function dpImageDrag(e) {
+    var dt = e.dataTransfer
+    return !!(dt && dt.types && Array.prototype.indexOf.call(dt.types, 'text/wb-image') >= 0)
+  }
+
+  document.addEventListener('dragover', function (e) {
+    if (!WB.open || WB.dpDrag || !dpImageDrag(e) || !e.target || typeof e.target.closest !== 'function') return
+    var page = e.target.closest('.wb-dp-page')
+    if (!page || archived()) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    try { e.dataTransfer.dropEffect = 'copy' } catch (_e) { /* nem baj */ }
+    dpClearMarks()
+    var p = dpDropPoint(e)
+    if (p && p.pos >= 0) p.el.classList.add(p.after ? 'wb-dp-drop-after' : 'wb-dp-drop-before')
+  }, true)
+
+  document.addEventListener('drop', function (e) {
+    if (!WB.open || WB.dpDrag || !dpImageDrag(e) || !e.target || typeof e.target.closest !== 'function') return
+    var page = e.target.closest('.wb-dp-page')
+    if (!page) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    dpClearMarks()
+    var rel = ''
+    try { rel = e.dataTransfer.getData('text/wb-image') || '' } catch (_e) { rel = '' }
+    var p = dpDropPoint(e)
+    if (p && p.pos >= 0) { dpAddImage(rel, p.sid, p.pos); return }
+    // Not over a section (an empty page, or below the last one): at the end of the last section.
+    var secs = (WB.detail && WB.detail.outline && WB.detail.outline.sections) || []
+    var last = secs[secs.length - 1]
+    dpAddImage(rel, last ? last.id : '', last ? (last.blocks || []).length : 0)
+  }, true)
 
   document.addEventListener('dragover', function (e) {
     if (!WB.open || !WB.dpDrag) return
