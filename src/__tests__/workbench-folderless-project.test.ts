@@ -57,3 +57,13 @@ describe('folderless project on a fresh install', () => {
     expect(getProject(pid)!.folder_path).toBeTruthy()
   })
 })
+
+describe('file manager move/rename re-homes work items at once (TG 2895 audit)', () => {
+  it('the life move and rename routes trigger the relocate pass right after a success', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'life.ts'), 'utf8')
+    expect(src).toMatch(/pasteLife\('move'[\s\S]{0,200}if \(pasteStatus\(result\) < 300\) followWorkItems\(\)/)
+    expect(src).toMatch(/renameLife\(rel[\s\S]{0,200}followWorkItems\(\)/)
+    expect(src).toMatch(/import\('\.\.\/\.\.\/workbench-relocate\.js'\)[\s\S]{0,80}reconcileItemLocations\(\)/)
+  })
+})

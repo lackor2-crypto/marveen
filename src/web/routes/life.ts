@@ -798,6 +798,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     if (celBaj) { send(res, 400, { ok: false, rel: '', ...celBaj }); return true }
     const result = await pasteLife('move', from, String(body?.to ?? ''), lang, opts)
     send(res, pasteStatus(result), pasteBody(result))
+    if (pasteStatus(result) < 300) followWorkItems()
     return true
   }
 
@@ -865,7 +866,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const baj = bekotesOrzo(rel, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    send(res, 200, renameLife(rel, String(body?.name ?? ''), lang))
+    const renamed = renameLife(rel, String(body?.name ?? ''), lang)
+    send(res, 200, renamed)
+    if ((renamed as { ok?: boolean }).ok) followWorkItems()
     return true
   }
 
@@ -1544,4 +1547,15 @@ function gitTarhelyHely(rel: string): { account: string; repo: string; abs: stri
   // Pontosan ket szint kell: <fiok>/<repo>. A repon BELUL nincs mit zarni.
   if (reszek.length !== 2) return null
   return { account: reszek[0], repo: reszek[1], abs: pathJoin(root, storageKindRoot('git'), reszek[0], reszek[1]) }
+}
+
+/**
+ * A move or rename in the file manager may carry a work item's folder into another project (or rename it in
+ * place). Re-home it right away instead of on the next 5-minute relocate pass, so the Workbench shows the item
+ * where the owner just put it (TG 2895 audit). Fire-and-forget; the pass guards itself against overlap.
+ */
+function followWorkItems(): void {
+  void import('../../workbench-relocate.js')
+    .then((m) => m.reconcileItemLocations())
+    .catch(() => { /* the periodic pass catches up */ })
 }
