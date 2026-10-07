@@ -35,6 +35,16 @@ describe('moveItemsBetweenProjects', () => {
     expect(projectForObject('idea', 'i1')).toBe(b.id)
     expect(projectForObject('debate', 's1')).toBe(b.id)
   })
+  it('moves a research file / debate that belongs through its mark (no explicit link) and the new link wins', () => {
+    const a = mk('A'), b = mk('B')
+    const owner = (_t: string, id: string) => (id === 'agent/r.md' || id === 's9' ? a.id : null)
+    const r = moveItemsBetweenProjects(a.id, b.id, [{ type: 'research', id: 'agent/r.md' }, { type: 'debate', id: 's9' }, { type: 'research', id: 'agent/other.md' }], owner)
+    expect(r).toEqual({ ok: true, moved: 2, skipped: 1 })
+    expect(projectForObject('research', 'agent/r.md')).toBe(b.id)
+    expect(projectForObject('debate', 's9')).toBe(b.id)
+    // without a resolver the derived item is still skipped, as before
+    expect(moveItemsBetweenProjects(a.id, b.id, [{ type: 'research', id: 'agent/x.md' }])).toEqual({ ok: true, moved: 0, skipped: 1 })
+  })
   it('refuses the same, missing or archived target', () => {
     const a = mk('A'), b = mk('B')
     const it1 = [{ type: 'card' as const, id: 'c1' }]

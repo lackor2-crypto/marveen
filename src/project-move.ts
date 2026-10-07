@@ -33,7 +33,13 @@ export function parseMoveItems(raw: unknown): MoveItem[] | null {
 }
 
 /** Move the listed items from one project to another. Cards change `project`; everything else is re-linked. */
-export function moveItemsBetweenProjects(sourceId: string, targetId: string, items: MoveItem[]): MoveResult {
+export function moveItemsBetweenProjects(
+  sourceId: string,
+  targetId: string,
+  items: MoveItem[],
+  /** The project a research file / debate belongs to WITHOUT an explicit link (file header mark, debate log). */
+  derivedOwner?: (type: MovableType, id: string) => string | null,
+): MoveResult {
   ensureProjectTables()
   if (sourceId === targetId) return { ok: false, code: 'same_project' }
   if (!getProject(sourceId)) return { ok: false, code: 'source_missing' }
@@ -52,7 +58,10 @@ export function moveItemsBetweenProjects(sourceId: string, targetId: string, ite
         moved++
       } else {
         // An idea may belong to the project only through its card (derived link): the explicit link wins.
-        const owned = it.type === 'idea' ? ideaIds.has(it.id) : listProjectLinks(sourceId, it.type).some((l) => l.object_id === it.id)
+        // Research and debates may belong through their file mark / log instead of a link: the new explicit link wins over it.
+        const owned = it.type === 'idea' ? ideaIds.has(it.id)
+          : listProjectLinks(sourceId, it.type).some((l) => l.object_id === it.id)
+            || ((it.type === 'research' || it.type === 'debate') && derivedOwner?.(it.type, it.id) === sourceId)
         if (!owned || !isLinkType(it.type)) { skipped++; continue }
         linkObject(targetId, it.type, it.id, 'dashboard-move')
         moved++
