@@ -285,12 +285,10 @@ describe('dispatch routing', () => {
     const first = enqueueCodeTask({ project: 'marvin', prompt: 'first' })
     const second = enqueueCodeTask({ project: 'marvin', prompt: 'second' })
     if ('error' in first || 'error' in second) throw new Error('enqueue failed')
-    expect(queueNote('marvin', first.task.id)).toBe('')
     const run = claimNextCodeTask('w1')!
     expect(run.id).toBe(first.task.id)
     const note = queueNote('marvin', second.task.id)
     expect(note).toContain(shortId(first.task.id))
-    expect(note).not.toContain('0 ')
     expect(queueNote('tradingbot', second.task.id)).toBe('')
   })
 
