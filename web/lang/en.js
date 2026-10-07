@@ -6386,6 +6386,7 @@ window._i18n.en = {
   "workbench.fr.thumb_uploaded": "Uploaded: {when}",
   "workbench.fr.thumb_place": "Put on the page",
   "workbench.fr.thumb_remove": "Take out of this work (the file stays in the project folder)",
+  "workbench.fr.files_none": "No uploaded file for this work yet.",
   "workbench.fr.uploads_none": "No uploaded image for this work yet. Upload one, or drag an image file onto the page.",
   "workbench.fr.need_canvas": "Create a page first (an empty canvas in the middle).",
   "workbench.fr.need_canvas_text": "This is a text work item, it has no page. Edit it with the \"Edit the text\" button in the middle.",

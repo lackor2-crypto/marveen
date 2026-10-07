@@ -12257,6 +12257,21 @@
     }).join('') + '</div>'
   }
 
+  /** The uploaded files that are not shown as picture thumbnails (documents, PDFs, ...; and pictures when the item has no page). */
+  function frUploadFileList(canvasShown) {
+    var rows = ((WB.detail && WB.detail.assets) || []).filter(function (a) {
+      return a.present !== false && a.path && !(canvasShown && isImageFile({ name: a.name }))
+    })
+    if (!rows.length) return canvasShown ? '' : '<p class="wb-hint">' + esc(t('workbench.fr.files_none')) + '</p>'
+    var more = t('workbench.ctx.more_file')
+    return '<ul class="wb-fr-files">' + rows.map(function (a) {
+      var href = '/api/life/file?rel=' + encodeURIComponent(a.path)
+      return '<li class="wb-fr-filerow"><a href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(a.name || baseOf(a.path)) + '</a>'
+        + (archived() ? '' : '<button type="button" class="wb-fr-thumb-more" data-wb-act="file-ctx" data-wb-rel="' + escA(a.path) + '" aria-haspopup="menu" title="' + escA(more) + '" aria-label="' + escA(more) + '">&#8943;</button>')
+        + fileMenuHtml(a.path, '') + '</li>'
+    }).join('') + '</ul>'
+  }
+
   /** The top of a picture's menu: its name, when it was uploaded, how big, and the one action that is about the work item. */
   function frThumbDetailsHtml(p) {
     var kb = p.size >= 1048576 ? (p.size / 1048576).toFixed(1) + ' MB' : p.size ? Math.max(1, Math.round(p.size / 1024)) + ' KB' : ''
@@ -12394,7 +12409,7 @@
       case 'uploads':
         if (frIsVideo(WB.detail && WB.detail.item)) return frVtUploadsHtml()
         return '<label class="wb-fr-upload"><input type="file" multiple id="wbFrUpload" hidden>' + esc(t('workbench.fr.upload')) + '</label>'
-          + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : '')
+          + '<p class="wb-hint">' + esc(t('workbench.fr.upload_hint')) + '</p>' + (can ? frImageThumbs() : '') + frUploadFileList(can)
       case 'layers':
         return can ? frLayersHtml() : needCanvas
       case 'tools':

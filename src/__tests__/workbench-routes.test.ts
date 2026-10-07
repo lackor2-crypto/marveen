@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
-import { createProject, setProjectArchived, updateProject } from '../projects.js'
+import { createProject, getProject, setProjectArchived, updateProject } from '../projects.js'
 import type { RouteContext } from '../web/routes/types.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import { createWorkItem, addWorkItemPart, listWorkItemParts, updateWorkItemPart } from '../workbench.js'
@@ -950,6 +950,21 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     expect(r.body.file.rel).toMatch(/\/Feltöltések\/anyu\.jpg$/)
     const root = readdirSync(join(depot, 'Projektek', 'teszt'))
     expect(root).not.toContain('anyu.jpg')
+  })
+
+  it('uj projekt mappa nelkul: az elso feltoltesnel a mappa magatol letrejon, es a projektben megjegyzodik (Boss, TG 2886)', async () => {
+    const cleared = updateProject(projectId, { folder_path: null })
+    if (!cleared.ok) throw new Error('mappa torles')
+    const r = await call(`/api/workbench/items/${itemId}/parts/image?name=anyu.jpg`, 'POST', 'BINARIS')
+    expect(r.status).toBe(201)
+    expect(r.body.file.rel).toMatch(/\/Feltöltések\/anyu\.jpg$/)
+    const now = getProject(projectId)!
+    expect(now.folder_path).toBeTruthy()
+    expect(existsSync(join(depot, ...String(now.folder_path).split('/')))).toBe(true)
+    // A second upload reuses the same folder, no second one.
+    const again = await call(`/api/workbench/items/${itemId}/parts/image?name=masik.jpg`, 'POST', 'BINARIS')
+    expect(again.status).toBe(201)
+    expect(getProject(projectId)!.folder_path).toBe(now.folder_path)
   })
 
   it('meg nincs rajz: URES vaszon jon, es KIMONDJA, hogy meg nincs (nem hiba)', async () => {

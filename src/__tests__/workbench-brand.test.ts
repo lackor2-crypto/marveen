@@ -791,8 +791,14 @@ describe('brand templates (K-4.1): from a drawing to a template to a new drawing
   it('when the drawing cannot be written, no empty work item stays behind and the reason comes back', () => {
     const t = saveBrandTemplate(other, 'Story', doc())
     if (!t.ok) throw new Error(t.code)
-    // `other` has no folder in the Depot, so the canvas file has nowhere to go
-    const r = createFromBrandTemplate({ id: other }, t.template.id, { createdBy: 'teszt' })
+    // No Depot is set up (a project without a folder now gets one on first write, so the failure is "no Depot"),
+    // so the canvas file has nowhere to go
+    const savedDepot = process.env['MARVEEN_DEPOT']
+    delete process.env['MARVEEN_DEPOT']
+    let r: ReturnType<typeof createFromBrandTemplate>
+    try { r = createFromBrandTemplate({ id: other }, t.template.id, { createdBy: 'teszt' }) } finally {
+      if (savedDepot !== undefined) process.env['MARVEEN_DEPOT'] = savedDepot
+    }
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).not.toBe('template_failed')
     expect(listWorkItems(other)).toEqual([])

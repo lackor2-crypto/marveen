@@ -42,7 +42,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
@@ -1049,6 +1049,7 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
   ensureAssetTables()
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
+  ensureProjectHasFolder(project)
   const known = workItemFolder(item.id)
   if (known) {
     const t = projectFileTarget(project, known)
@@ -1180,6 +1181,7 @@ export const UPLOADS_FOLDER_NAMES = { hu: 'Feltöltések', en: 'Uploads' } as co
 export function ensureItemUploadsFolder(item: WorkItemRow, lang?: string): FolderOutcome {
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
+  ensureProjectHasFolder(project)
   const f = ensureWorkItemFolder(item)
   if (!f.ok) return f
   const base = projectFileTarget(project, f.folder)
