@@ -2856,6 +2856,15 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // points at it where it is; the folder only says where the file is, not where the item box goes.
     const fromExisting = (typeof body.source_path === 'string' && body.source_path.trim() !== '') || body.adopt_folder === true || body.from_files === true
     let existingFolder: string | null = null
+    // The tree hands us a loose file's folder as the Explorer path (project folder included); the folder checks below
+    // are project-relative, so a loose file's menu ("Csak a kep" / "Prezentacio" / "Grafika-vaszon") was refused
+    // with bad_folder (the picture-to-presentation path sends no source_path, so it needs this too). Strip the project folder prefix; the project folder itself means "the project root".
+    if (project.folder_path && typeof body.folder === 'string') {
+      const pf = project.folder_path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      const bf = body.folder.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      if (pf && bf === pf) body.folder = ''
+      else if (pf && bf.startsWith(pf + '/')) body.folder = bf.slice(pf.length + 1)
+    }
     // TG 2622/2675: a NEW item (not one made from an existing file) always gets its own folder named after it, under the box;
     // so does a deck made from a ticked set of pictures (the pictures stay where they are).
     let autoFolder = false

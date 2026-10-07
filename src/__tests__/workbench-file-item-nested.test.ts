@@ -38,6 +38,22 @@ describe('file -> work item in a nested accented folder (#474)', () => {
     expect(c.status).toBe(201)
     expect(String(c.body.item.container_folder || '')).toMatch(/Valogatas$/)
   })
+  // TG 2856: the loose file's menu sends the folder as the Explorer path (project folder included).
+  it('the file menu sends the folder with the project folder prefix: still no bad_folder', async () => {
+    const rel = 'Projektek/Diak/Munkapad terv/diák/s03.png'
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'image', title: 's03', source_path: rel, folder: 'Projektek/Diak/Munkapad terv/diák' })
+    expect(c.status).toBe(201)
+    expect(c.body.item.source_path).toBe(rel)
+  })
+  it('a file straight in the project folder: folder equal to the project folder is the project root', async () => {
+    writeFileSync(join(dir, 'Projektek', 'Diak', 'logo.png'), 'x')
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'graphic', title: 'logo', source_path: 'Projektek/Diak/logo.png', folder: 'Projektek/Diak' })
+    expect(c.status).toBe(201)
+  })
+  it('a picture made into a presentation (from_files) with the prefixed folder is accepted', async () => {
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'presentation', title: 's03', folder: 'Projektek/Diak/Munkapad terv/diák', from_files: true })
+    expect(c.status).toBe(201)
+  })
   it('a typo folder with no file is still refused', async () => {
     const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'image', title: 'x', folder: 'Nincs/ilyen' })
     expect(c.status).toBe(400)
