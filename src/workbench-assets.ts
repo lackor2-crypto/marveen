@@ -28,7 +28,7 @@
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
@@ -816,6 +816,15 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
     if (loose.has(r) || !boxRel || !r.startsWith(boxRel) || r.slice(r.lastIndexOf('/') + 1) !== ITEM_SNAPSHOT_NAME) continue
     const a = resolveLifePath(r)
     if (a && existsSync(a)) { loose.add(r); snapshots.add(r) }
+  }
+  // Boss 2723: any plain file inside the project's own folder is deletable, not only the ones in the work items box
+  // (an orphan .json beside no work item must not be undeletable). Hidden/.git paths stay out; the Kuka keeps a copy.
+  const projRel = project.folder_path ? project.folder_path.replace(/\/+$/, '') + '/' : null
+  for (const r of want) {
+    if (loose.has(r) || !projRel || !r.startsWith(projRel)) continue
+    if (r.split('/').some((seg) => seg === '..' || seg.startsWith('.') || seg === 'node_modules')) continue
+    const a = resolveLifePath(r)
+    try { if (a && lstatSync(a).isFile()) loose.add(r) } catch { /* not a file: stays not_loose */ }
   }
   const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r) && !snapshots.has(r)))
   const deleted: string[] = []
