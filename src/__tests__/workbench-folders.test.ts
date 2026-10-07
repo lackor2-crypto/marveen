@@ -551,3 +551,19 @@ describe('opening the folder of an item with no files yet', () => {
     }
   })
 })
+
+describe('the tree starts with folders closed (Boss TG 2737)', () => {
+  it('only the work items box is open; a group inside stays closed until clicked', async () => {
+    const box = 'Munkadarabok'
+    const h = workbenchHarness({ closedFolders: true })
+    h.respond((url) => {
+      if (url.includes('/api/workbench/items?')) return { status: 200, body: { items: [{ id: 's1', project_id: 'p1', title: 'BL', type: 'presentation', status: 'draft', folder: `${box}/LK`, source_path: null, created_at: 1, updated_at: 1 }], work_folders: { box, folders: [`${box}/LK`], truncated: false } } }
+      return { status: 200, body: { todos: [] } }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Robotok')
+    await vi.waitFor(() => expect(h.html()).toContain(`data-wb-folder="${box}/LK"`))
+    expect(treeOf(h.html())).not.toContain('data-wb-item="s1"')
+    h.click({ 'data-wb-act': 'folder-fold', 'data-wb-folder': `${box}/LK` })
+    expect(treeOf(h.html())).toContain('data-wb-item="s1"')
+  })
+})
