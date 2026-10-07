@@ -1893,7 +1893,7 @@
     ext = ext.toLowerCase()
     var isImg = isImageFile({ name: name })
     var title0 = name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || name
-    if (isImg && kind === 'presentation') { WB.ctx = null; buildDeck(title0, [{ rel: rel, name: name }], { folder: dirOf(rel) }); return }
+    if (isImg && kind === 'presentation') { WB.ctx = null; buildDeck(title0, [{ rel: rel, name: name }], { folder: dirOf(rel), from_files: true }); return }
     var type = isImg && kind === 'graphic' ? 'graphic' : isImg && kind === 'image' ? 'image' : isImg ? (ext === 'svg' ? 'graphic' : 'image')
       : /^(md|txt)$/.test(ext) ? 'note'
       : /^(pptx|ppt|pps|ppsx|odp)$/.test(ext) ? 'presentation'
