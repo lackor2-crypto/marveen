@@ -229,3 +229,26 @@ export async function notifyCodeTaskFinished(task: CodeTask): Promise<void> {
     logger.warn({ err, task: task.id }, 'code-bridge: completion notify failed')
   }
 }
+
+/** Streaming answer (#498): the worker tails the running conversation and posts
+ *  the new assistant text every few seconds. Only a task that was started from
+ *  Telegram is streamed back there; a Workbench chat shows its own turn, and a
+ *  dashboard/agent task has no one waiting on a chat. Fire-and-forget like the
+ *  completion ping: a failed send never touches the task. Returns whether the
+ *  text was handed to Telegram. */
+export async function notifyCodeTaskPartial(task: CodeTask, text: string): Promise<boolean> {
+  if (task.origin !== 'telegram' || task.status !== 'running') return false
+  const body = (text ?? '').trim()
+  if (!body) return false
+  try {
+    const token = tokenForTask(task)
+    if (!token) return false
+    const chatId = task.chatId ?? resolveOwnerChatId()
+    if (!chatId) return false
+    for (const part of chunkMessage(body)) await sendTelegramMessage(token, chatId, part)
+    return true
+  } catch (err) {
+    logger.warn({ err, task: task.id }, 'code-bridge: partial notify failed')
+    return false
+  }
+}
