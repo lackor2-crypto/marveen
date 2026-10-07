@@ -390,3 +390,16 @@ export function versionsFolderFor(p: ProjectRow, itemFolder: string | null | und
   const r = makeProjectFolder(p, base, ol('Verzi\u00f3k', 'Versions'))
   return r.ok ? r.sub : base
 }
+
+/** #501 (Boss TG 2762): a file uploaded as an annex of a document goes into a "Mell\u00e9kletek" folder inside the item's
+ *  own folder (made on demand), same naming rule as the versions folder. Null when the item has no usable folder. */
+export function attachmentsFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  for (const n of ['Mell\u00e9kletek', 'Attachments']) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) return `${base}/${n}`
+  }
+  const r = makeProjectFolder(p, base, ol('Mell\u00e9kletek', 'Attachments'))
+  return r.ok ? r.sub : null
+}

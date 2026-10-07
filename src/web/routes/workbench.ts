@@ -58,6 +58,7 @@ import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-wor
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
@@ -1328,6 +1329,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a dokumentumnak még nincs vázlata, ezért nincs mit lefordítani.',
     en: 'This document has no outline yet, so there is nothing to translate.',
   },
+  translate_not_variant: {
+    hu: 'Ez nem nyelvi változat. Fordítani a változatot lehet: az eredetiben a „+ Nyelvi változat” gombbal készíts egyet.',
+    en: 'This is not a language version. Only a version can be translated: make one in the original with the "+ Language version" button.',
+  },
+  translate_source_gone: {
+    hu: 'Az eredeti dokumentum már nincs meg (törölték, vagy a Kukában van), ezért nincs miből fordítani.',
+    en: 'The original document is gone (deleted, or in the Bin), so there is nothing to translate from.',
+  },
+  translate_nothing: {
+    hu: 'Minden fejezet naprakész, nincs mit fordítani.',
+    en: 'Every section is up to date, there is nothing to translate.',
+  },
   variant_variant_of_variant: {
     hu: 'Ez már egy nyelvi változat. Új nyelvi változatot az eredetiből készíts.',
     en: 'This is already a language version. Make a new language version from the original.',
@@ -1828,9 +1841,13 @@ function outlineOut(itemId: string): OutlineOut | null {
 }
 
 /** NYELVI VALTOZATOK (K-1.27 ... K-1.31): az eredetinel a valtozatai, a valtozatnal a fejezetek allapota, a szoszedet, a visszaforditasok. */
-function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: ReturnType<typeof variantsSummary>; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks> } {
+function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: ReturnType<typeof variantsSummary>; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks>; translate_job: ReturnType<typeof translateJobState> } {
   const variant = variantInfo(item.id)
-  return { variant, variants: variant ? [] : variantsSummary(item.id), glossary: listGlossary(item.project_id), backchecks: variant ? backchecks(item.id) : [] }
+  return {
+    variant, variants: variant ? [] : variantsSummary(item.id), glossary: listGlossary(item.project_id), backchecks: variant ? backchecks(item.id) : [],
+    // #501: the whole-document translation's progress / error, shown in the variant header.
+    translate_job: variant ? translateJobState(item.id) : null,
+  }
 }
 
 /** A vazlat valasza akkor is, ha meg nincs fejezet (ures vazlat + ellenorzes). */
@@ -3277,6 +3294,42 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return true
     }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // MELLEKLET FELTOLTESE A GEPROL (#501, Boss TG 2762): barmelyik meghajtorol
+    // valasztott fajl a munkadarab mappajaban a "Mellekletek" almappaba kerul, az
+    // anyagai koze, es egybol a mellekletek listajara (nyers bajtok, ezert a JSON elott).
+    //   POST .../outline/annexes/upload?name=...&title=...
+    if (segs.length === 4 && segs[2] === 'annexes' && segs[3] === 'upload' && method === 'POST') {
+      const declared = Number(req.headers['content-length'] || 0)
+      if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+      let data: Buffer
+      try {
+        data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      } catch (e) {
+        if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+        throw e
+      }
+      if (!data.length) return fail(res, 400, 'upload_empty', lang)
+      const up = attachAsset(item, url.searchParams.get('name') || '', data, { createdBy: actor(ctx), into: 'attachments' })
+      let path = ''
+      if (up.ok) path = up.asset.project_path
+      else if (up.code === 'asset_duplicate') {
+        // The very same content is already a material of this item: that file becomes the annex, no second copy.
+        path = listWorkItemAssetsSynced(item.id).find((a) => a.id === up.existing.id)?.project_path || ''
+      } else {
+        const code = MESSAGES['upload_' + up.code] ? 'upload_' + up.code : up.code
+        return failDetail(res, up.code === 'write_failed' ? 500 : up.code === 'not_found' ? 404 : 400, code, lang, 'message' in up ? (up.message || null) : null)
+      }
+      const resolve = resolverFor(item)
+      if (!resolve) return fail(res, 404, 'project_not_found', lang)
+      const a = addAnnex(item.id, { path, title: url.searchParams.get('title') || '' }, resolve, actor(ctx))
+      if (!a.ok) {
+        json(res, { error: 'outline_' + a.code, message: msg('outline_' + a.code, lang), detail: a.detail, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, a.code === 'file_missing' ? 404 : 400)
+        return true
+      }
+      scheduleOutlineMirror(item.id)
+      json(res, { ok: true, annex: a.annex, path, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, 201)
+      return true
+    }
     // VEGLEGESITES (K-1.22, K-1.23): csak a tulajdonos sajat kattintasa, ellenorzes +
     // atnezes + felelossegvallalas utan. Verziot keszit, a PDF a munkadarab mappajaba kerul.
     if (segs.length === 3 && segs[2] === 'finalize' && method === 'POST') {
@@ -3308,6 +3361,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = createVariant(item, body['lang'], actor(ctx))
       if (!r.ok) return failDetail(res, r.code === 'outline_empty' ? 409 : 400, 'variant_' + r.code, lang, r.detail)
       json(res, { ok: true, existing: r.existing, item: { id: r.item.id, title: r.item.title }, outline: outlineOrEmpty(item.id) }, r.existing ? 200 : 201)
+      return true
+    }
+    // EGESZ DOKUMENTUM FORDITASA (#501, Boss TG 2766): a szerver forditja a valtozat minden
+    // leforditatlan es elavult fejezetet, a hatterben; a haladas a vazlat `translate_job`-jaban.
+    if (sub === 'translate' && segs.length === 3 && method === 'POST') {
+      const r = startVariantTranslation(item.id, { lang, by: actor(ctx) })
+      if (!r.ok) {
+        json(res, { error: 'translate_' + r.code, message: r.message || msg('translate_' + r.code, lang), outline: outlineOrEmpty(item.id) }, r.code === 'no_provider' ? 424 : r.code === 'not_variant' ? 400 : 409)
+        return true
+      }
+      json(res, { ok: true, started: r.started, job: r.job, outline: outlineOrEmpty(item.id) }, r.started ? 202 : 200)
       return true
     }
     // SZOSZEDET (K-1.29): ugyenkent (a projektben) rogzitett forditasok.

@@ -42,7 +42,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
@@ -1199,10 +1199,11 @@ export function ensureItemUploadsFolder(item: WorkItemRow, lang?: string): Folde
  * Egy fajl csatolasa egy MEGLEVO munkadarabhoz: a munkadarab mappajaba kerul,
  * es bekerul az anyagai koze. Ugyanaz a tartalom masodszorra csak `force`-szal
  * (K-0.18) -- a felulet ilyenkor megkerdezi a felhasznalot.
+ * `into: 'attachments'` (#501): a munkadarab mappajan belul a "Mellekletek" almappaba.
  */
 export function attachAsset(
   item: WorkItemRow, name: string, data: Buffer,
-  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string } = {},
+  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string; into?: 'attachments' } = {},
 ): AttachOutcome {
   ensureAssetTables()
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
@@ -1217,7 +1218,8 @@ export function attachAsset(
   if (!project) return { ok: false, code: 'not_found' }
   const f = opts.uploads ? ensureItemUploadsFolder(item, opts.lang) : ensureWorkItemFolder(item)
   if (!f.ok) return f
-  const out = writeProjectFile(project, f.folder, name, data)
+  const dir = opts.into === 'attachments' ? (attachmentsFolderFor(project, f.folder) ?? f.folder) : f.folder
+  const out = writeProjectFile(project, dir, name, data)
   if (!out.ok) return out
   const row = registerAsset(item.id, out.rel, out.name, sha, out.bytes, opts.createdBy ?? null)
   return { ok: true, asset: row, renamed: out.renamed, folder: f.folder, folderCreated: f.created }

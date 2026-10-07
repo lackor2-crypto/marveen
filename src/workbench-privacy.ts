@@ -350,6 +350,13 @@ export function egressLog(itemId: string): EgressRow[] {
       }
     }
   }
+  // #501: the whole-document translation calls the model directly, outside the chat.
+  if (tableExists('wb_doc_translate_log')) {
+    for (const r of db.prepare('SELECT at, account, chars, status FROM wb_doc_translate_log WHERE work_item_id = ?').all(itemId) as
+      { at: number; account: string | null; chars: number; status: string }[]) {
+      rows.push({ at: r.at, service: 'claude', account: r.account, message_chars: r.chars, status: r.status === 'failed' ? 'failed' : 'sent' })
+    }
+  }
   ensurePrivacyTables()
   for (const r of db.prepare('SELECT at, model, file, cost_usd, status FROM wb_ai_image_log WHERE work_item_id = ?').all(itemId) as
     { at: number; model: string; file: string | null; cost_usd: number | null; status: string }[]) {
