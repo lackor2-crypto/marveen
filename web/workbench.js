@@ -12451,7 +12451,7 @@
   function vtBrowseUpload(file) {
     if (!file || !WB.selectedId || WB.vtBusy || archived()) return
     var itemId = WB.selectedId
-    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/assets?name=' + encodeURIComponent(file.name || 'video.mp4')
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/assets?uploads=1&name=' + encodeURIComponent(file.name || 'video.mp4')
       + '&lang=' + encodeURIComponent(window._lang || 'hu')
     WB.vtBusy = true
     window.showToast(t('workbench.vt.browse_uploading', { name: file.name || '' }))

@@ -124,7 +124,7 @@ import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
 import {
-  makeFreshFolder, ensureWorkItemFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset,
+  makeFreshFolder, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
@@ -3420,6 +3420,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = attachAsset(item, url.searchParams.get('name') || '', data, {
       force: url.searchParams.get('force') === '1',
       createdBy: actor(ctx),
+      uploads: url.searchParams.get('uploads') === '1',
+      lang,
     })
     if (!r.ok) {
       if (r.code === 'asset_duplicate') {
@@ -4871,10 +4873,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       throw e
     }
     if (!data.length) return fail(res, 400, 'empty_file', lang)
-    // Boss, TG 2865: the picture lands beside the work item (its own folder), not in the project root.
+    // Boss, TG 2865/2872: the picture lands in the Uploads folder beside the work item, not in the project root.
     let sub: string | null = url.searchParams.get('sub')
     if (!sub) {
-      const f = ensureWorkItemFolder(item)
+      const f = ensureItemUploadsFolder(item, lang)
       if (f.ok) sub = f.folder
     }
     const out = writeProjectFile(project, sub, url.searchParams.get('name'), data)
