@@ -6464,6 +6464,7 @@ window._i18n.hu = {
   "workbench.fr.thumb_uploaded": "Feltöltve: {when}",
   "workbench.fr.thumb_place": "Ráteszem a lapra",
   "workbench.fr.thumb_remove": "Kivétel a munkából (a fájl a projekt mappájában marad)",
+  "workbench.fr.files_none": "Még nincs feltöltött fájl ehhez a munkához.",
   "workbench.fr.uploads_none": "Még nincs feltöltött kép ehhez a munkához. Tölts fel egyet, vagy húzz egy képfájlt a lapra.",
   "workbench.fr.need_canvas": "Ehhez előbb hozz létre egy lapot (üres vászon a lap közepén).",
   "workbench.fr.need_canvas_text": "Ez egy szöveges munkadarab, nincs lapja. Szerkeszteni a középen a „Szöveg szerkesztése” gombbal tudod.",

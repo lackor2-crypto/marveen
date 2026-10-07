@@ -18,11 +18,11 @@ import { ol } from './owner-lang.js'
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { extname, join, sep } from 'node:path'
-import { resolveLifePath, toLifeRel, explorerRoot } from './life-explorer.js'
-import { safeLifeName } from './life-tree.js'
+import { resolveLifePath, toLifeRel, explorerRoot, mkdirLifePath, mkdirLife } from './life-explorer.js'
+import { safeLifeName, lifeName } from './life-tree.js'
 import { writeBlockReason } from './git-guard.js'
 import { mountsInside, resolveMount } from './life-mounts.js'
-import { cleanFolderRel, type ProjectRow } from './projects.js'
+import { cleanFolderRel, getProject, updateProject, type ProjectRow } from './projects.js'
 
 /** Egy feltoltott fajl felso hatara. A nagyobbat a Windows Intezoben kell a
  *  mappaba huzni -- a felulet megmutatja, hova. */
@@ -54,6 +54,34 @@ export function projectFileTarget(p: ProjectRow, sub: unknown): FileTarget {
   if (!existsSync(abs)) return { ok: false, code: 'bad_folder' }
   try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'unreachable' } }
   return { ok: true, dirAbs: abs, dirRel: toLifeRel(abs) || (subRel ? `${p.folder_path}/${subRel}` : p.folder_path) }
+}
+
+/**
+ * A project made without a folder gets one the first time something is WRITTEN into it (a fresh install, a new
+ * project: the owner must not hit "no folder chosen" on the first upload -- Boss, TG 2886). The folder is made
+ * under the shared "Projects" folder of the depot, named after the project, with the default subfolders, and
+ * remembered on the project. Reads never call this. Mutates `p.folder_path`; a no-op when the project already has
+ * a folder or no depot is set up (then the usual "no depot / no folder" message stands).
+ */
+export function ensureProjectHasFolder(p: ProjectRow): void {
+  if (p.folder_path || !explorerRoot()) return
+  const fresh = getProject(p.id)
+  if (fresh && fresh.folder_path) { p.folder_path = fresh.folder_path; return }
+  const parent = lifeName('projects')
+  const base = safeLifeName(p.name || '') || 'Projekt'
+  if (!base || base === '_') return
+  if (writeBlockReason(parent)) return
+  let rel = `${parent}/${base}`
+  for (let n = 2; n < 50; n++) {
+    const abs = resolveLifePath(rel)
+    if (!abs || !existsSync(abs)) break
+    rel = `${parent}/${base} (${n})`
+  }
+  const made = mkdirLifePath(rel)
+  if (!made.ok) return
+  for (const sub of [lifeName('knowledgeBase'), lifeName('moreMaterial'), lifeName('workItems')]) mkdirLife(made.rel, sub)
+  const up = updateProject(p.id, { folder_path: made.rel })
+  if (up.ok) p.folder_path = up.project.folder_path
 }
 
 /** A projekt mappajanak almappai, a MELYEBBEK is ('Media/Fotok'), relativ
@@ -93,6 +121,7 @@ export type MkdirOutcome = { ok: true; sub: string; created: boolean } | { ok: f
  *  szint ('Media/Fotok'). A projekt mappajan kivulre nem vezethet, git-taroloba
  *  nem ir; ha mar letezik, azt hasznaljuk (nem hiba). */
 export function makeProjectFolder(p: ProjectRow, parent: unknown, name: unknown): MkdirOutcome {
+  ensureProjectHasFolder(p)
   const par = projectFileTarget(p, parent)
   if (!par.ok) return par
   const segs = String(name ?? '').replace(/\\/g, '/').split('/').map((x) => x.trim()).filter(Boolean)
@@ -144,6 +173,7 @@ export type WriteOutcome =
 
 /** Egy fajl kiirasa a projekt mappajaba. Soha nem ir felul. */
 export function writeProjectFile(p: ProjectRow, sub: unknown, name: unknown, data: Buffer): WriteOutcome {
+  ensureProjectHasFolder(p)
   const t = projectFileTarget(p, sub)
   if (!t.ok) return t
   const wanted = safeFileName(name)

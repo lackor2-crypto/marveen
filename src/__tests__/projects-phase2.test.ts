@@ -207,7 +207,9 @@ describe('uj fajl a projektmappaba', () => {
 
   it('mappa nelkul / Raktar nelkul / eltunt mappaval kulon hibakod', () => {
     const none = mustProject({ name: 'Mappa nelkul' })
-    expect(writeProjectFile(none, '', 'a.txt', Buffer.from('x'))).toMatchObject({ ok: false, code: 'no_folder' })
+    // A project without a folder gets one on its first write (fresh install / new project must not fail).
+    expect(writeProjectFile(none, '', 'a.txt', Buffer.from('x'))).toMatchObject({ ok: true })
+    expect(none.folder_path).toBeTruthy()
     const gone = mustProject({ name: 'Eltunt', folder_path: 'Projektek/Nincs' })
     expect(writeProjectFile(gone, '', 'a.txt', Buffer.from('x'))).toMatchObject({ ok: false, code: 'missing' })
     delete process.env.MARVEEN_DEPOT

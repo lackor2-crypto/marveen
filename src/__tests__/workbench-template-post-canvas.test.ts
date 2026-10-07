@@ -121,7 +121,13 @@ describe('social post template without a project folder', () => {
   beforeEach(() => freshProject(false))
 
   it('the item is still made as a parts list (the page then offers the convert button), never an error', () => {
-    const r = createFromTemplate({ id: pid }, 'social_post', { lang: 'hu', platform: 'facebook_post' })
+    // A project without a folder now gets one on first write; the fallback is for a machine with no Depot at all.
+    const savedDepot = process.env['MARVEEN_DEPOT']
+    delete process.env['MARVEEN_DEPOT']
+    let r: ReturnType<typeof createFromTemplate>
+    try { r = createFromTemplate({ id: pid }, 'social_post', { lang: 'hu', platform: 'facebook_post' }) } finally {
+      if (savedDepot !== undefined) process.env['MARVEEN_DEPOT'] = savedDepot
+    }
     if (!r.ok) throw new Error(r.code)
     expect(r.canvas).toBe(false)
     expect(r.parts).toHaveLength(post.parts.length)
