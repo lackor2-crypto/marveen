@@ -2683,6 +2683,7 @@ window._i18n.hu = {
   'approvals.verify.noresponse_timeout':    'Nem válaszolt: megkapta a feladatot, de nem jelentett vissza. Ez nem a változtatás hibája.',
   'approvals.verify.noresponse_agent_gone': 'Nem válaszolt: ez az ágens már nem létezik, törölve lett.',
   'approvals.verify.noresponse_worker_error': 'Nem sikerült: a VS Code végrehajtó hibával leállt, az ellenőrzés nem futott le. Ez nem a változtatás hibája. Indítsd újra az "Újra ellenőriz" gombbal.',
+  'approvals.verify.noresponse_task_ended': 'Nem jelentett vissza: a VS Code feladat véget ért (lefutott, vagy leállították), de eredményt nem küldött. Ez nem a változtatás hibája. Indítsd újra az "Újra ellenőriz" gombbal.',
   'approvals.verify.noresponse_not_waiting': 'Leállítva: a kártya kikerült a várakozóból (vagy megszületett a döntés), ezért ez az ellenőrzés már nem futott tovább. Ez nem az ágens hibája.',
   'approvals.verify.picker_loading':  'Ágensek betöltése...',
   'approvals.verify.picker_title':    'Melyik ágens(ek) ellenőrizzék?',

@@ -25919,7 +25919,11 @@ function _approvalVerifyCellHtml(a) {
     const modeMark = v.mode === 'fix'
       ? ` <span title="${escapeAttr(t('approvals.verify.mode_fix_name'))}">🔧</span>`
       : ''
-    return `<span title="${title}" style="white-space:nowrap">${icon} ${escapeHtml(_verifyAgentLabel(v.agent))}${modeMark}</span>${v.status === 'noresponse' && v.report === 'noresponse:worker_error' ? `<br><span style="color:var(--warning);white-space:normal">${escapeHtml(t('approvals.verify.noresponse_worker_error'))}</span>` : ''}`
+    // A VS Code task that already ended says so on the row itself, not only in a tooltip (TG 2425, #499).
+    const endedNote = v.status === 'noresponse' && (v.report === 'noresponse:worker_error' || v.report === 'noresponse:task_ended')
+      ? `<br><span style="color:var(--warning);white-space:normal">${escapeHtml(_verifyReportText(v))}</span>`
+      : ''
+    return `<span title="${title}" style="white-space:nowrap">${icon} ${escapeHtml(_verifyAgentLabel(v.agent))}${modeMark}</span>${endedNote}`
   }).join('<br>')
   let summary
   if (failed.length > 0) {
@@ -25955,6 +25959,7 @@ function _verifyReportText(v) {
   if (v.status === 'noresponse') {
     if (v.report === 'noresponse:agent_gone') return t('approvals.verify.noresponse_agent_gone')
     if (v.report === 'noresponse:worker_error') return t('approvals.verify.noresponse_worker_error')
+    if (v.report === 'noresponse:task_ended') return t('approvals.verify.noresponse_task_ended')
     // NEM az agens hallgatott: a munka zarult le alatta (a kartya kikerult a
     // varakozobol, vagy megszuletett a dontes). Ezt kulon kell mondani,
     // kulonben a megbizhatosag-jelzo egy nem letezo mulasztast rona fel.

@@ -27,7 +27,7 @@ import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { agentSessionName, capturePane, isSessionReadyForPrompt, sessionExistsOnHost } from './agent-process.js'
 import { buildVerificationReminder, codeBridgeProjectOf } from '../approval-verification-dispatch.js'
 import { getCodeSession, listCodeTasks } from './code-bridge-store.js'
-import { NO_RESPONSE_WORKER_ERROR } from '../approval-verification-sweep.js'
+import { NO_RESPONSE_TASK_ENDED, NO_RESPONSE_WORKER_ERROR } from '../approval-verification-sweep.js'
 
 /**
  * How often the timer fires. Boss, 2026-08-28: "figyelni kellene hogy milyen
@@ -199,7 +199,8 @@ async function sweepOnce(now: number): Promise<VerificationSweepResult> {
       }
     },
   })
-  settleFailedCodeVerifications(now)
+  const settled = settleFailedCodeVerifications(now)
+  if (settled) logger.info({ settled }, 'Code-bridge verifications closed: their task ended without a report')
   if (result.reminded.length || result.expired.length) {
     logger.info({ reminded: result.reminded.length, expired: result.expired.length }, 'Stale approval verifications swept')
   }
@@ -212,11 +213,19 @@ async function sweepOnce(now: number): Promise<VerificationSweepResult> {
   return result
 }
 
+/** A task that ran to the end has normally reported already -- the verify-result call is made from inside
+ *  the run, before the worker posts the task's own result. This only covers the two posts arriving out of order. */
+export const TASK_ENDED_REPORT_GRACE_MS = 2 * 60 * 1000
+
 /**
- * A VS Code verification whose bridge task already ENDED in an error or was cancelled is not "in progress"
- * any more. Boss (TG 2425) saw the hourglass spin on the Approvals page while Telegram had long said
- * "worker stopped responding". The task is found by the approval id inside its prompt, among the tasks
- * created since the row was (re)requested; a still queued/running task for the same approval keeps the row pending.
+ * A VS Code verification whose bridge task already ENDED is not "in progress" any more. Boss (TG 2425) saw
+ * the hourglass spin on the Approvals page while Telegram had long said "worker stopped responding". The
+ * task is found by the approval id inside its prompt, among the tasks created since the row was (re)requested;
+ * a still queued/running task for the same approval keeps the row pending.
+ *
+ * The newest task decides the reason: an error closes the row at once as 'worker_error'; a task that ran
+ * to the end (or was stopped) without a report closes as 'task_ended' after a short grace -- the same 4-hour
+ * hourglass otherwise (#499). A report that arrives later still wins: verify-result overwrites the row.
  */
 export function settleFailedCodeVerifications(now = Date.now()): number {
   let settled = 0
@@ -224,11 +233,20 @@ export function settleFailedCodeVerifications(now = Date.now()): number {
     for (const row of listPendingVerificationsOlderThan(Math.floor(now / 1000) + 1)) {
       const project = codeBridgeProjectOf(row.agent)
       if (project === null) continue
+      // Newest first (listCodeTasks orders by created_at DESC).
       const mine = listCodeTasks({ project, limit: 200 })
         .filter((t) => t.prompt.includes(row.approval_id) && t.createdAt >= row.requested_at * 1000 - 2000)
       if (!mine.length) continue
-      if (mine.some((t) => t.status === 'queued' || t.status === 'running' || t.status === 'done')) continue
-      if (markVerificationNoResponse(row.id, NO_RESPONSE_WORKER_ERROR, Math.floor(now / 1000))) settled += 1
+      if (mine.some((t) => t.status === 'queued' || t.status === 'running')) continue
+      const last = mine[0]!
+      let reason: string
+      if (last.status === 'error') {
+        reason = NO_RESPONSE_WORKER_ERROR
+      } else {
+        if (now - (last.finishedAt ?? 0) < TASK_ENDED_REPORT_GRACE_MS) continue
+        reason = NO_RESPONSE_TASK_ENDED
+      }
+      if (markVerificationNoResponse(row.id, reason, Math.floor(now / 1000))) settled += 1
     }
   } catch (err) {
     logger.warn({ err }, 'Could not settle failed code-bridge verifications; leaving them pending')

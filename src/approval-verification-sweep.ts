@@ -144,6 +144,10 @@ export const NO_RESPONSE_AGENT_GONE = 'noresponse:agent_gone'
 /** The VS Code executor took the task but it ended in an error (e.g. "worker stopped responding after 3
  *  attempts"): nothing is still working on it, so the row must not keep showing an hourglass (Boss, TG 2425). */
 export const NO_RESPONSE_WORKER_ERROR = 'noresponse:worker_error'
+/** The VS Code task ENDED without an error -- it ran to the end, or someone stopped it -- and no
+ *  verify-result came back. Same hourglass as above, but "stopped with an error" would be a false sentence
+ *  here, so it gets its own code (#499). */
+export const NO_RESPONSE_TASK_ENDED = 'noresponse:task_ended'
 /**
  * A feladat MEGSZUNT, nem az agens hallgatott: a jovahagyas lezarult, vagy a
  * kartyaja kikerult a varakozobol.
