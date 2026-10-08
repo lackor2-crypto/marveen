@@ -924,6 +924,11 @@ describe('Munkapad: kepesseg-kezelo (8. fazis)', () => {
 describe('Munkapad: rajzvaszon (9. fazis)', () => {
   let depot = ''
   let itemId = ''
+  /** The saved drawing, wherever next to the item it went (TG 2929: never the project root). */
+  const canvasAbs = (name: string): string => {
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : e.name === name ? [join(d, e.name)] : [])
+    return walk(join(depot, 'Projektek', 'teszt'))[0] ?? join(depot, 'Projektek', 'teszt', name)
+  }
 
   beforeEach(() => {
     depot = mkdtempSync(join(tmpdir(), 'marveen-wb-canvas-'))
@@ -987,8 +992,9 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     expect(r.body.name).toMatch(/\.canvas\.json$/)
     expect(r.body.version.version_no).toBeGreaterThanOrEqual(1)
     // A fajl VALOBAN ott van a lemezen, nem csak az adatbazisban.
-    const files = readdirSync(join(depot, 'Projektek', 'teszt'))
-    expect(files.some((f) => f.endsWith('.canvas.json'))).toBe(true)
+    // Boss TG 2929 (rule): next to the item (a folderless item: the work-items box), never the project root.
+    expect(readdirSync(join(depot, 'Projektek', 'teszt')).some((f) => f.endsWith('.canvas.json'))).toBe(false)
+    expect(existsSync(canvasAbs(r.body.name))).toBe(true)
     // ...es visszaolvasva ugyanaz all benne.
     const back = await call(url(''), 'GET')
     expect(back.body.exists).toBe(true)
@@ -1018,7 +1024,7 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
     expect(back.body.history.can_undo).toBe(true)
     expect(back.body.history.undo.label).toBe('scale,center')
     // A verzio FAJLJA valtozatlan a lemezen: semmi nem irodott felul.
-    const onDisk = JSON.parse(readFileSync(join(depot, 'Projektek', 'teszt', put.body.name), 'utf-8'))
+    const onDisk = JSON.parse(readFileSync(canvasAbs(put.body.name), 'utf-8'))
     expect(onDisk.objects[0].fontSize).toBe(72)
     // ...es verzio-mentes utan a regi verzio a SAJAT allapotat mutatja.
     await call(url('/version'), 'POST', {})
@@ -1358,7 +1364,7 @@ describe('Munkapad: rajzvaszon (9. fazis)', () => {
 
   it('a romlott vaszon-fajl NEM "ures rajz": sajat hibakod, es a korabbi verziok emlitese', async () => {
     const save = await call(url(''), 'PUT', { canvas: { objects: [] } })
-    writeFileSync(join(depot, 'Projektek', 'teszt', save.body.name), '{ ez nem json')
+    writeFileSync(canvasAbs(save.body.name), '{ ez nem json')
     const r = await call(url(''), 'GET')
     expect(r.status).toBe(409)
     expect(r.body.error).toBe('canvas_bad_json')

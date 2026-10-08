@@ -63,12 +63,15 @@ describe('presentation deck: the routes', () => {
     const r = await ops([{ op: 'addSlide', layout: 'title', title: 'Közgyűlés', body: '2026' }])
     expect(r.status).toBe(201)
     expect(r.body.created).toBe(true)
-    expect(readdirSync(dir())).toEqual(['kozgyules.deck.json'])
+    // Boss TG 2929 (rule): the JSON sits next to the item -- a folderless item's place is the work-items box, never the root.
+    const box = readdirSync(dir(), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)[0] || ''
+    expect(readdirSync(dir()).filter((n) => n.endsWith('.json'))).toEqual([])
+    expect(readdirSync(join(dir(), box))).toEqual(['kozgyules.deck.json'])
     const r2 = await ops([{ op: 'addSlide', layout: 'content', title: 'Napirend', body: 'Első' }])
     expect(r2.status).toBe(200)
     expect(r2.body.created).toBe(false)
     expect(r2.body.deck.slides).toHaveLength(2)
-    expect(readdirSync(dir())).toEqual(['kozgyules.deck.json'])
+    expect(readdirSync(join(dir(), box))).toEqual(['kozgyules.deck.json'])
   })
 
   it('a slide is a picture: SVG with its text; an unknown slide is 404', async () => {

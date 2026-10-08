@@ -37,6 +37,8 @@ describe('video timeline: the routes', () => {
     delete process.env['MARVEEN_DEPOT']
   })
 
+  // Boss TG 2929 (rule): a folderless item's JSON (and its render) go into the work-items box, never the project root.
+  const boxDir = () => join(dir(), readdirSync(dir(), { withFileTypes: true }).find((e) => e.isDirectory())?.name ?? '')
   const ops = (list: unknown[], extra: Record<string, unknown> = {}) => callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: list, ...extra }), { 'content-type': 'application/json' })
 
   it('a fresh video item has an empty timeline (not an error); the first edit creates the file and version 1', async () => {
@@ -46,12 +48,12 @@ describe('video timeline: the routes', () => {
     const r = await ops([{ op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 3 }])
     expect(r.status).toBe(201)
     expect(r.body.created).toBe(true)
-    expect(readdirSync(dir())).toEqual(['nyari-reklam.timeline.json'])
+    expect(readdirSync(boxDir())).toEqual(['nyari-reklam.timeline.json'])
     const r2 = await ops([{ op: 'addSubtitle', text: 'Szia', start: 0, end: 2 }])
     expect(r2.status).toBe(200)
     expect(r2.body.created).toBe(false)
     expect(r2.body.history.can_undo).toBe(true)
-    expect(readdirSync(dir())).toEqual(['nyari-reklam.timeline.json'])
+    expect(readdirSync(boxDir())).toEqual(['nyari-reklam.timeline.json'])
   })
 
   it('undo and redo replay the step; the version button names a milestone', async () => {
@@ -106,7 +108,9 @@ describe('video timeline: the routes', () => {
     expect(r.status).toBe(201)
     expect(r.body.file.name).toBe('Nyári reklám.mp4')
     expect(r.body.seconds).toBe(2)
-    expect(readdirSync(dir()).sort()).toEqual(['Nyári reklám.mp4', 'a.mp4', 'nyari-reklam.timeline.json', 'nyari-reklam.timeline (2).json'].sort())
+    // The render goes next to its first clip; the timeline JSONs next to the item (the box).
+    expect(readdirSync(dir(), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort()).toEqual(['Nyári reklám.mp4', 'a.mp4'].sort())
+    expect(readdirSync(boxDir()).sort()).toEqual(['nyari-reklam.timeline.json', 'nyari-reklam.timeline (2).json'].sort())
     expect(r.body.last_render).toMatchObject({ name: 'Nyári reklám.mp4', current: true })
     const g = await callWorkbench(url(), 'GET')
     expect(g.body.last_render.current).toBe(true)
