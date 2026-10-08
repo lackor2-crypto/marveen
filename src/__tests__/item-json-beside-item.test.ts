@@ -26,8 +26,8 @@ beforeEach(() => {
 })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); delete process.env['MARVEEN_DEPOT'] })
 
-function graphic(container: string | null) {
-  const r = createWorkItem({ project_id: pid, title: 'Rajz', type: 'graphic', container_folder: container })
+function graphic(container: string | null, source?: string) {
+  const r = createWorkItem({ project_id: pid, title: 'Rajz', type: 'graphic', container_folder: container, ...(source ? { source_path: source } : {}) })
   if (!r.ok) throw new Error(r.code)
   return getWorkItem(r.item.id)!
 }
@@ -58,5 +58,18 @@ describe('a work item JSON goes next to the item', () => {
     const s = saveCanvas(graphic(PROJECT_ROOT_PLACE), emptyCanvas())
     if (!s.ok) throw new Error(s.code)
     expect(s.rel.slice('P/Hivatal/'.length).includes('/')).toBe(false)
+  })
+
+  it('an item made from an existing file keeps its next versions beside that file (no split into the box)', () => {
+    mkdirSync(join(dir, 'P', 'Hivatal', 'Anyagok'), { recursive: true })
+    const s = saveCanvas(graphic(null, 'P/Hivatal/Anyagok/rajz.canvas.json'), emptyCanvas())
+    if (!s.ok) throw new Error(s.code)
+    expect(s.rel.startsWith('P/Hivatal/Anyagok/')).toBe(true)
+  })
+
+  it('a current file in the project root does not pull the next version into the root', () => {
+    const s = saveCanvas(graphic(null, 'P/Hivatal/regi.canvas.json'), emptyCanvas())
+    if (!s.ok) throw new Error(s.code)
+    expect(s.rel.slice('P/Hivatal/'.length).includes('/')).toBe(true)
   })
 })
