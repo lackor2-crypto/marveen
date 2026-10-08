@@ -90,7 +90,7 @@ const STORE_SETTINGS_DIRS = ['folder-icons'] as const
 const STORE_DEPOT_CONFIG = [
   'life-tree.json', 'life-tree-created.json', 'life-mounts.json', 'life-labels.json',
   'life-archived.json', 'life-physical.json', 'storages.json', 'drive-sync.json', 'git-sync.json',
-  'drive-skiplist.json',
+  'drive-skiplist.json', 'mirror-migrated.json',
 ] as const
 const STORE_KNOWLEDGE_DIRS = ['knowledge', 'drafts', 'photos', 'face-gallery'] as const
 
