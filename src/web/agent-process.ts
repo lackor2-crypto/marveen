@@ -40,6 +40,7 @@ import {
   type AgentRunState,
 } from './ssh-tmux.js'
 import { parseTelegramToken } from './telegram.js'
+import { ensureTelegramReplyMeta } from '../telegram-reply-meta-patch.js'
 import { CHANNEL_STATE_ENV_VAR, CHANNEL_TOKEN_ENV_VARS, channelStateNowhereDirs } from './mcp-probe-env.js'
 import { getProvider, getProviderType, channelStateDir, readChannelToken, type ChannelProviderType } from '../channel-provider.js'
 import { CHANNEL_PROVIDER, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, SUBAGENT_INBOX_TEE } from '../config.js'
@@ -1378,6 +1379,9 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     ensureOwnerLanguageSection(name)
     ensureAvailabilitySection(name)
     ensureShortReplySection(name)
+    // #506: patch the Telegram plugin copy this agent is about to load (its own
+    // account plan's plugins dir included) so the reply_to_* meta reaches it.
+    if (hasChannel && agentProvider === 'telegram') ensureTelegramReplyMeta()
     // A sub-agent must load ONLY its own channel plugin. The user-scope
     // enabledPlugins would otherwise make EVERY sub-agent spawn a telegram
     // (and slack/discord) poller that falls back to the main agent's bot
