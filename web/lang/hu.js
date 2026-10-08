@@ -6480,6 +6480,7 @@ window._i18n.hu = {
   "workbench.dp.drop_annex": "Mellékletként csatolom",
   "workbench.dp.drop_no_embed": "Ez a fájltípus nem építhető a lapba, csak mellékletnek tehető.",
   "workbench.dp.drop_annexed": "{name} a mellékletek közé került.",
+  "workbench.dp.drop_empty_table": "A táblázat üres volt, ezért üres táblát tettem a lapra.",
   "workbench.dp.drop_truncated": "A fájl nagyon hosszú: az elejét építettem be, a teljes tartalom a fájlban marad.",
   "workbench.dp.tbl_edit": "Kattints a táblázat szerkesztéséhez (soronként: cella | cella)",
   "workbench.dp.img_move": "Húzd a képet, és máshová kerül a lapon",

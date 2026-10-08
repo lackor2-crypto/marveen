@@ -18,6 +18,9 @@ export const EMBED_MAX_BLOCKS = 300
 /** A table block keeps at most this many rows; the rest stays in the file (which is shown as truncated). */
 export const EMBED_MAX_TABLE_ROWS = 200
 
+/** What an empty spreadsheet becomes: a blank 3 x 3 grid (a table block's text is `a | b` lines). */
+export const BLANK_TABLE_TEXT = [' |  | ', ' |  | ', ' |  | '].join('\n').trim()
+
 const TABLE_EXT = new Set(['xlsx', 'xlsm', 'csv', 'tsv'])
 const TEXT_EXT = new Set(['docx', 'odt', 'txt', 'md'])
 
@@ -31,7 +34,7 @@ export function embedKind(name: string): EmbedKind | null {
 
 export type EmbedBlock = { kind: BlockKind; text: string }
 export type EmbedResult =
-  | { ok: true; blocks: EmbedBlock[]; truncated: boolean }
+  | { ok: true; blocks: EmbedBlock[]; truncated: boolean; emptyTable?: boolean }
   | { ok: false; code: 'embed_unsupported' | 'embed_unreadable' | 'embed_empty'; detail?: string }
 
 /** A grid as the `a | b | c` lines a table block holds; empty edge rows/columns dropped, `|` in a cell made safe. */
@@ -157,6 +160,8 @@ export function fileToBlocks(buf: Buffer, name: string, opts: { sheetTitle?: (na
     blocks = e === 'docx' ? docxBlocks(buf) : e === 'odt' ? odtBlocks(buf) : plainBlocks(buf)
     if (!blocks) return { ok: false, code: 'embed_unreadable' }
   }
+  // A readable spreadsheet with no data (a fresh "New Excel worksheet") is still a table: it becomes a blank grid to fill in.
+  if (!blocks.length && kind === 'table') return { ok: true, blocks: [{ kind: 'table', text: BLANK_TABLE_TEXT }], truncated: false, emptyTable: true }
   if (!blocks.length) return { ok: false, code: 'embed_empty' }
   if (blocks.length > EMBED_MAX_BLOCKS) { blocks = blocks.slice(0, EMBED_MAX_BLOCKS); truncated = true }
   return { ok: true, blocks, truncated }
