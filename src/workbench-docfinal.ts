@@ -20,7 +20,7 @@
 import { getDb } from './db.js'
 import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
-import { documentCheck, documentOutline, hasDocModel, type CheckItem } from './workbench-docmodel.js'
+import { documentCheck, documentOutline, hasDocModel, imageBlockParts, type CheckItem } from './workbench-docmodel.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
@@ -73,7 +73,7 @@ export function resolverFor(item: WorkItemRow): FileResolver | undefined {
 export function renderInputFor(item: WorkItemRow, withImages = false): RenderOutline {
   const annexes = listAnnexes(item.id)
   const base = toRenderOutline(documentOutline(item.id))
-  if (withImages) for (const sec of base.sections) for (const b of sec.blocks) if (b.kind === 'image') b.img = readDocImage(b.text)
+  if (withImages) for (const sec of base.sections) for (const b of sec.blocks) if (b.kind === 'image') b.img = readDocImage(imageBlockParts(b.text).path)
   return {
     ...base,
     ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id)) } : {}),

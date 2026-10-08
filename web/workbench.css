@@ -1718,4 +1718,28 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-tilewrap .wb-fr-thumb-more { top: 4px; right: 4px; }
 /* A picture block on a document's page (TG 2901). */
 .wb-dp-img { margin: 6px 0; text-align: center; }
+.wb-dp-img.wb-dp-img-l { text-align: left; }
+.wb-dp-img.wb-dp-img-r { text-align: right; }
+.wb-dp-img-box { position: relative; display: inline-block; max-width: 100%; vertical-align: top; }
+.wb-dp-img-box img { width: 100%; }
 .wb-dp-img img { max-width: 100%; max-height: 520px; height: auto; display: inline-block; border-radius: 2px; }
+.wb-dp-img img[draggable="true"] { cursor: grab; }
+.wb-dp-img-size { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 3px; background: var(--accent, #2563eb); border: 2px solid #fff; cursor: nwse-resize; touch-action: none; opacity: 0; transition: opacity .12s; }
+.wb-dp-img-tools { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; background: rgba(0,0,0,.65); border-radius: 6px; padding: 2px; opacity: 0; transition: opacity .12s; }
+.wb-dp-img-al { background: none; border: 0; color: #fff; font-size: 14px; line-height: 1; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+.wb-dp-img-al.is-on, .wb-dp-img-al:hover { background: rgba(255,255,255,.25); }
+.wb-dp-img-box:hover .wb-dp-img-size, .wb-dp-img-box:hover .wb-dp-img-tools, .wb-dp-img-box:focus-within .wb-dp-img-size, .wb-dp-img-box:focus-within .wb-dp-img-tools { opacity: 1; }
+@media (hover: none) { .wb-dp-img-size, .wb-dp-img-tools { opacity: 1; } }
+.wb-dp-dropmenu { position: fixed; z-index: 10000; min-width: 220px; max-width: 320px; background: var(--card-bg, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.wb-dp-dropmenu-name { font-weight: 600; font-size: 13px; padding: 4px 8px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-dp-dropmenu button { text-align: left; background: none; border: 0; padding: 8px; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; }
+.wb-dp-dropmenu button:hover, .wb-dp-dropmenu button:focus { background: var(--hover-bg, rgba(0,0,0,.06)); outline: none; }
+.wb-dp-dropmenu .wb-dp-dropmenu-cancel { color: var(--text-muted, #667085); }
+.wb-dp-dropmenu .wb-hint { margin: 0 8px 4px; font-size: 12px; }
+
+/* #508: a built-in table shows as a grid on the page; a click opens it for editing. */
+.wb-dp-tbl { cursor: text; overflow-x: auto; }
+.wb-dp-tbl table { border-collapse: collapse; width: 100%; font-size: .95em; }
+.wb-dp-tbl th, .wb-dp-tbl td { border: 1px solid var(--border, #d0d4dc); padding: 4px 8px; text-align: left; vertical-align: top; }
+.wb-dp-tbl th { background: var(--bg-muted, #f3f4f7); font-weight: 600; }
+.wb-dp-tbl:focus-visible { outline: 2px solid var(--accent, #6d4aff); outline-offset: 2px; }

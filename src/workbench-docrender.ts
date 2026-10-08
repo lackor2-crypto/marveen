@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
-import { MISSING_MARK_RE, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
+import { MISSING_MARK_RE, imageBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
@@ -85,17 +85,20 @@ const IMG_MAX_H_CM = 20
 /** An `image` block in the ODF: the picture embedded, centred, scaled to fit the text width. */
 function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, draft: boolean): string[] {
   const img = b.img
+  const pic = imageBlockParts(b.text)
   if (!img || !img.width || !img.height) {
-    const name = String(b.text || '').split('/').pop() || ''
+    const name = pic.path.split('/').pop() || ''
     return [`<text:p text:style-name="Body">${draft ? '<text:span text:style-name="Missing">' : ''}⚠ ${xmlEscape(name)}${draft ? '</text:span>' : ''}</text:p>`]
   }
   // 96 dpi as the natural size, never wider than the text, never taller than most of a page.
   let w = img.width / 96 * 2.54
   let h = img.height / 96 * 2.54
-  const k = Math.min(1, IMG_MAX_W_CM / w, IMG_MAX_H_CM / h)
+  // A width the owner set (#508) is a share of the text width; the height follows, still never taller than the cap.
+  const k = pic.width ? Math.min(IMG_MAX_W_CM * pic.width / 100 / w, IMG_MAX_H_CM / h) : Math.min(1, IMG_MAX_W_CM / w, IMG_MAX_H_CM / h)
   w = Math.max(0.5, w * k)
   h = Math.max(0.5, h * k)
-  return [`<text:p text:style-name="ImageP"><draw:frame draw:style-name="ImgFrame" draw:name="Picture ${n}" text:anchor-type="as-char" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
+  const style = pic.align === 'l' ? 'ImagePL' : pic.align === 'r' ? 'ImagePR' : 'ImageP'
+  return [`<text:p text:style-name="${style}"><draw:frame draw:style-name="ImgFrame" draw:name="Picture ${n}" text:anchor-type="as-char" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
 }
 
 export interface RenderOptions {
@@ -284,6 +287,8 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
 <style:style style:name="Footer" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="9pt"/></style:style>
 <style:style style:name="Watermark" style:family="paragraph"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="72pt" fo:color="#d0d0d0" fo:font-weight="bold"/></style:style>
 <style:style style:name="ImageP" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-top="0.15cm" fo:margin-bottom="0.3cm"/></style:style>
+<style:style style:name="ImagePL" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="start" fo:margin-top="0.15cm" fo:margin-bottom="0.3cm"/></style:style>
+<style:style style:name="ImagePR" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="end" fo:margin-top="0.15cm" fo:margin-bottom="0.3cm"/></style:style>
 <style:style style:name="ImgFrame" style:family="graphic"><style:graphic-properties style:vertical-pos="top" style:vertical-rel="baseline" draw:stroke="none" draw:fill="none"/></style:style>
 <style:style style:name="Missing" style:family="text"><style:text-properties fo:background-color="#fff1a8" fo:font-weight="bold"/></style:style>
 <style:style style:name="WmFrame" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none" style:run-through="background" style:wrap="run-through" style:vertical-pos="from-top" style:vertical-rel="page" style:horizontal-pos="center" style:horizontal-rel="page"/></style:style>
