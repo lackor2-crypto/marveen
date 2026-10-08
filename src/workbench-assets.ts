@@ -32,9 +32,9 @@ import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmdirSync
 import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
-import { getProject, listProjects, type ProjectRow } from './projects.js'
+import { getProject, listProjects, cleanFolderRel, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel, trashLife, copyLife } from './life-explorer.js'
-import { mountsInside, resolveMount } from './life-mounts.js'
+import { mountsInside } from './life-mounts.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -281,61 +281,132 @@ function liveItemFolders(project: ProjectRow): Set<string> {
  *  that is full on disk does not look empty. A folder that also holds a work item lists its files too (#488);
  *  only the item's own snapshot (marveen-item.json) and dotfiles are never listed. */
 /** #501 (TG 2626): the rest of the project folder, outside the work items box, so the left tree can show the
- *  whole project like the Explorer does. Keys and folders are project-relative; a file's `rel` is the library path. */
-export type ProjectOutside = { folders: string[]; files: Record<string, WorkFolderFile[]>; truncated: boolean }
+ *  whole project like the Explorer does. Keys and folders are project-relative; a file's `rel` is the library path.
+ *  #502 (TG 2656): a LINKED folder (a mount such as Fejlesztés/GIT_REPOS, or a folder link on the disk) shows what it
+ *  links to, like the Explorer -- but its content is not walked here: one git repo is thousands of files, 7-15 s on the
+ *  network-mapped depot drive (measured), and it used up the whole budget, so the repos after it read (0) and the
+ *  project's later folders vanished. A linked folder, and every folder the walk had no time or room for, is listed in
+ *  `lazy` (value: how many things it holds directly; null = not counted) and the page loads it with
+ *  listProjectFolderLevel when it is opened. `linked`: the linked folders, with the mount's label ('' for a disk link). */
+export type ProjectOutside = { folders: string[]; files: Record<string, WorkFolderFile[]>; truncated: boolean; lazy: Record<string, number | null>; linked: Record<string, string> }
 
-export function listProjectOutside(project: ProjectRow, box: string | null): ProjectOutside {
-  const none: ProjectOutside = { folders: [], files: {}, truncated: false }
-  const t = projectFileTarget(project, '')
-  if (!t.ok) return none
-  const folders: string[] = []
-  const files: Record<string, WorkFolderFile[]> = {}
-  let truncated = false
-  let fileTotal = 0
-  const walk = (abs: string, rel: string, depth: number): void => {
-    if (depth > WORK_FOLDER_MAX_DEPTH) return
-    let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
-    const plain = entries.filter((d) => d.isFile() && !d.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
-    for (const f of plain) {
-      if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
-      let size = 0
-      try { size = statSync(join(abs, f.name)).size } catch { /* gone meanwhile */ }
-      ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: `${t.dirRel}${rel ? '/' + rel : ''}/${f.name}` })
-      fileTotal++
-    }
-    const dirNames = new Set(entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules').map((d) => d.name))
-    // TG 2656: a folder that only SHOWS something else (a mount, e.g. Fejlesztés/GIT_REPOS -> the real repos) is empty on
-    // the disk; the Explorer follows the mount, so this tree does too.
-    const here = `${t.dirRel}${rel ? '/' + rel : ''}`
-    const mountedHere = new Set<string>()
-    try {
-      for (const m of mountsInside(here)) { const n = m.rel.slice(m.rel.lastIndexOf('/') + 1); dirNames.add(n); mountedHere.add(n) }
-    } catch { /* a broken mount list must not hide the rest */ }
-    const dirs = [...dirNames].sort((a, b) => a.localeCompare(b, 'hu'))
-    for (const name of dirs) {
-      const childRel = rel ? `${rel}/${name}` : name
-      if (childRel === box) continue // the work items box has its own, richer listing
-      if (folders.length >= WORK_FOLDER_MAX) { truncated = true; return }
-      let childAbs = join(abs, name)
-      const childLife = `${here}/${name}`
-      let mounted = mountedHere.has(name)
-      if (!mounted) { try { mounted = !!resolveMount(childLife) } catch { mounted = false } }
-      if (mounted) {
-        const real = resolveLifePath(childLife)
-        if (real) childAbs = real
-      } else if (existsSync(join(childAbs, '.git'))) continue
-      folders.push(childRel)
-      walk(childAbs, childRel, depth + 1)
-    }
-  }
-  walk(t.dirAbs, '', 1)
-  return { folders, files, truncated }
+/** How long one listing may read the disk before the rest is left for the page to load on opening (#502). */
+export const OUTSIDE_TIME_BUDGET_MS = 1500
+/** Folder NAMES a listing may carry (read or not): a guard against a folder holding thousands of folders. */
+export const OUTSIDE_FOLDER_NAMES_MAX = 2000
+
+export type OutsideWalkOpts = { budgetMs?: number; now?: () => number }
+
+/** How many visible things a folder holds directly (its mounts included); null when it cannot be read. */
+function directCount(abs: string, lifeRel: string): number | null {
+  let names: string[]
+  try { names = readdirSync(abs).filter((n) => !n.startsWith('.')) } catch { return null }
+  const seen = new Set(names)
+  try { for (const m of mountsInside(lifeRel)) seen.add(m.rel.slice(m.rel.lastIndexOf('/') + 1)) } catch { /* no mounts then */ }
+  return seen.size
 }
 
-export function listWorkFolders(project: ProjectRow): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string } {
+/** Breadth first, so every level is complete before the next one starts and the budget cuts the deep end. The start
+ *  folder is always read; `startRel` is project-relative ('' = the project folder). */
+function walkOutside(projectRel: string, startAbs: string, startRel: string, box: string | null, opts: OutsideWalkOpts): ProjectOutside {
+  const now = opts.now ?? Date.now
+  const deadline = now() + (opts.budgetMs ?? OUTSIDE_TIME_BUDGET_MS)
+  const out: ProjectOutside = { folders: [], files: {}, truncated: false, lazy: {}, linked: {} }
+  let fileTotal = 0
+  let read = 0
+  const queue: { abs: string; rel: string; depth: number }[] = [{ abs: startAbs, rel: startRel, depth: 1 }]
+  for (let qi = 0; qi < queue.length; qi++) {
+    const { abs, rel, depth } = queue[qi]
+    const first = qi === 0
+    const spent = () => !first && (now() > deadline || fileTotal >= WORK_FILES_TOTAL_MAX)
+    if (spent() || (!first && (read >= WORK_FOLDER_MAX || depth > WORK_FOLDER_MAX_DEPTH))) { out.lazy[rel] = null; continue }
+    read++
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { if (!first) out.lazy[rel] = null; continue }
+    const here = `${projectRel}${rel ? '/' + rel : ''}`
+    const fileNames: string[] = []
+    const dirNames = new Set<string>()
+    const diskLinks = new Set<string>()
+    for (const d of entries) {
+      if (d.name.startsWith('.')) continue
+      if (d.isFile()) fileNames.push(d.name)
+      else if (d.isDirectory()) { if (d.name !== 'node_modules') dirNames.add(d.name) }
+      else if (d.isSymbolicLink()) {
+        // A folder link on the disk (a symlink, or the junction a git mount gets for Windows): the Explorer follows
+        // it (statSync), so this tree does too -- but only one that stays inside the depot: opening it goes through
+        // resolveLifePath, which refuses the rest, so its content must not be read (counted) here either.
+        try {
+          const st = statSync(join(abs, d.name))
+          if (st.isDirectory()) { if (resolveLifePath(`${here}/${d.name}`)) { dirNames.add(d.name); diskLinks.add(d.name) } } else if (st.isFile()) fileNames.push(d.name)
+        } catch { /* a dangling link shows nothing */ }
+      }
+    }
+    fileNames.sort((a, b) => a.localeCompare(b, 'hu', { numeric: true }))
+    for (const name of fileNames) {
+      if ((out.files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { out.truncated = true; break }
+      // Out of time or room in the middle of a folder: what is listed stays, opening it loads the rest.
+      if (spent()) { out.truncated = true; out.lazy[rel] = null; break }
+      let size = 0
+      try { size = statSync(join(abs, name)).size } catch { /* gone meanwhile */ }
+      ;(out.files[rel] = out.files[rel] || []).push({ name, size, rel: `${here}/${name}` })
+      fileTotal++
+    }
+    // A mount (e.g. Fejlesztés/GIT_REPOS -> the real repos) is an empty folder on the disk, or none at all.
+    const mounts = new Map<string, string>()
+    try {
+      for (const m of mountsInside(here)) { const n = m.rel.slice(m.rel.lastIndexOf('/') + 1); dirNames.add(n); mounts.set(n, String(m.label || '')) }
+    } catch { /* a broken mount list must not hide the rest */ }
+    for (const name of [...dirNames].sort((a, b) => a.localeCompare(b, 'hu'))) {
+      const childRel = rel ? `${rel}/${name}` : name
+      if (childRel === box) continue // the work items box has its own, richer listing
+      if (out.folders.length >= OUTSIDE_FOLDER_NAMES_MAX) { out.truncated = true; break }
+      let childAbs = join(abs, name)
+      let linked = diskLinks.has(name)
+      if (mounts.has(name)) {
+        // An unreachable mount target leaves the folder on the disk as it is (the Explorer does the same).
+        const real = resolveLifePath(`${here}/${name}`)
+        if (real && existsSync(real)) { childAbs = real; linked = true }
+        else if (!diskLinks.has(name) && !existsSync(childAbs)) continue
+      }
+      out.folders.push(childRel)
+      if (linked) out.linked[childRel] = mounts.get(name) ?? ''
+      // A git repo (the ones behind Fejlesztés/GIT_REPOS, or one lying in the folder) is shown but read only when
+      // opened, like a linked folder: it alone can be thousands of files. (It used to be left out: then the repos
+      // inside a mounted GIT_REPOS opened as an empty folder.)
+      // Out of time it is not even looked at: it is queued, and the queue leaves it for opening anyway.
+      if (linked || (!spent() && existsSync(join(childAbs, '.git')))) { out.lazy[childRel] = directCount(childAbs, `${here}/${name}`); continue }
+      queue.push({ abs: childAbs, rel: childRel, depth: depth + 1 })
+    }
+  }
+  return out
+}
+
+export function listProjectOutside(project: ProjectRow, box: string | null, opts: OutsideWalkOpts = {}): ProjectOutside {
+  const t = projectFileTarget(project, '')
+  if (!t.ok) return { folders: [], files: {}, truncated: false, lazy: {}, linked: {} }
+  return walkOutside(t.dirRel, t.dirAbs, '', box, opts)
+}
+
+/** #502: one folder of the project tree outside the box, opened on the page (a linked folder, or one the first
+ *  listing had no time for): its files, its folders, and as deep as the time budget allows. Keys are project-relative. */
+export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opts: OutsideWalkOpts = {}): { ok: true; folder: string; outside: ProjectOutside } | { ok: false; code: FileErrorCode } {
+  const rel = cleanFolderRel(folder)
+  if (!rel || rel.split('/').some((s) => s.startsWith('.'))) return { ok: false, code: 'bad_folder' }
+  const t = projectFileTarget(project, '')
+  if (!t.ok) return t
   const box = findWorkItemsBox(project)
-  const outside = listProjectOutside(project, box)
+  if (box && (rel === box || rel.startsWith(box + '/'))) return { ok: false, code: 'bad_folder' }
+  // resolveLifePath follows the mounts and the disk links, and never leads out of the depot.
+  const abs = resolveLifePath(`${t.dirRel}/${rel}`)
+  if (!abs || !existsSync(abs)) return { ok: false, code: 'bad_folder' }
+  try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'unreachable' } }
+  return { ok: true, folder: rel, outside: walkOutside(t.dirRel, abs, rel, box, opts) }
+}
+
+/** `outside: false`: only the box (the file actions that check a path against the box need no more). */
+export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string } {
+  const box = findWorkItemsBox(project)
+  const outside = opts.outside === false ? { folders: [], files: {}, truncated: false, lazy: {}, linked: {} } : listProjectOutside(project, box)
   // The real folder name of the project (it can differ from the project's display name).
   const rootName = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/\/+$/g, '').split('/').pop() || ''
   if (!box) return { box: null, folders: [], truncated: false, files: {}, outside, root_name: rootName }
@@ -696,7 +767,7 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   if (!c.ok) return c
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
-  const wf = listWorkFolders(project)
+  const wf = listWorkFolders(project, { outside: false })
   const loose = new Map<string, string>()
   const itemFiles = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) { loose.set(f.rel, k); if (f.item) itemFiles.add(f.rel) }
@@ -749,7 +820,7 @@ export async function copyLooseFiles(project: ProjectRow, rels: unknown, folder:
   if (!c.ok) return c
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
-  const wf = listWorkFolders(project)
+  const wf = listWorkFolders(project, { outside: false })
   const loose = new Map<string, string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.set(f.rel, k)
   const copied: string[] = []
@@ -805,7 +876,7 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
   if (!want.length) return { ok: false, code: 'no_files' }
   if (!findWorkItemsBox(project)) return { ok: false, code: 'no_box' }
-  const wf = listWorkFolders(project)
+  const wf = listWorkFolders(project, { outside: false })
   const loose = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.add(f.rel)
   // A work item's own snapshot file (marveen-item.json) is deletable too, and it is NOT written back (Boss 2511).
@@ -862,7 +933,7 @@ export function renameLooseFile(project: ProjectRow, rel: unknown, newName: unkn
   const seg = String(newName ?? '').trim()
   const clean = safeLifeName(seg)
   if (!seg || seg.includes('/') || seg.includes('\\') || !clean || clean === '_' || clean.startsWith('.') || clean.length > 120 || clean !== seg) return { ok: false, code: 'file_name' }
-  const wf = listWorkFolders(project)
+  const wf = listWorkFolders(project, { outside: false })
   let folder: string | null = null
   for (const k of Object.keys(wf.files)) if ((wf.files[k] ?? []).some((f) => f.rel === from)) { folder = k; break }
   if (folder === null) return { ok: false, code: 'file_not_loose' }
