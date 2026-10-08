@@ -7,12 +7,15 @@
 // as a context-free "B" (owner report, Telegram 2802, kanban #506).
 //
 // The plugin lives outside this repo (plugin cache), so the fix is an
-// idempotent text patch applied to every installed copy at dashboard start. A
-// plugin update replaces the file; the next start patches it again.
+// idempotent text patch applied to every installed copy: at dashboard start,
+// every 15 minutes, and right before a Telegram agent is launched. A plugin
+// update replaces the file; the next pass patches it again.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { logger } from './logger.js'
+import { readClaudePlans } from './web/claude-plans.js'
+import { resolveMainAgentConfigDir } from './web/agent-config.js'
 
 export const REPLY_META_MARKER = 'MARVEEN-REPLY-META'
 
@@ -38,10 +41,18 @@ export function patchTelegramReplyMeta(src: string): PatchResult {
   return { changed: true, src: src.slice(0, at) + add + src.slice(at) }
 }
 
-function pluginRoots(): string[] {
-  const roots = [join(homedir(), '.claude', 'plugins')]
-  if (process.env.CLAUDE_CONFIG_DIR) roots.push(join(process.env.CLAUDE_CONFIG_DIR, 'plugins'))
-  return roots
+/** Every plugins dir an agent may load the Telegram plugin from. A registered
+ *  account plan (store/accounts/<id>) keeps its OWN plugins dir: a sub-agent on
+ *  that plan loads the plugin from there on the --channels path (the default,
+ *  SUBAGENT_INBOX_TEE off), so patching only ~/.claude left those agents without
+ *  the reply meta. The isolated dirs (agents/<name>/.claude-config,
+ *  .channels-config) symlink ~/.claude/plugins and need no entry of their own. */
+export function pluginRoots(): string[] {
+  const dirs = [join(homedir(), '.claude')]
+  if (process.env.CLAUDE_CONFIG_DIR) dirs.push(process.env.CLAUDE_CONFIG_DIR)
+  try { for (const p of readClaudePlans()) dirs.push(p.configDir) } catch { /* unreadable registry: shared roots only */ }
+  try { const main = resolveMainAgentConfigDir(); if (main) dirs.push(main) } catch { /* setting unreadable */ }
+  return [...new Set(dirs.map(d => join(d, 'plugins')))]
 }
 
 function serverFiles(root: string): string[] {
@@ -81,4 +92,16 @@ export function ensureTelegramReplyMeta(roots: string[] = pluginRoots()): string
   }
   if (changed.length) logger.info({ files: changed }, 'telegram plugin: reply-meta patched (restart the agents to load it)')
   return changed
+}
+
+const PATCH_INTERVAL_MS = 15 * 60 * 1000
+
+/** Patch now, then every 15 minutes: a plugin update or a newly added account
+ *  between two dashboard starts is caught without a restart. */
+export function startTelegramReplyMetaPatcher(): NodeJS.Timeout {
+  const tick = (): void => {
+    try { ensureTelegramReplyMeta() } catch (err) { logger.warn({ err: String(err) }, 'telegram reply-meta patch failed') }
+  }
+  tick()
+  return setInterval(tick, PATCH_INTERVAL_MS).unref()
 }
