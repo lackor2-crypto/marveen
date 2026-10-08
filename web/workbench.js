@@ -11912,7 +11912,17 @@
         dpDraft('new:' + sid + ':' + pos, ''), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro) + '</div>'
   }
 
+  /** Boss TG 3073: the page is a plain document by default; status chips, the delete cross and the
+   *  translation / back-translation panels belong to the "check view", switched on by a button. */
+  function dpCheckView() {
+    if (WB.dpCheck === undefined) {
+      try { WB.dpCheck = localStorage.getItem('marveen.workbench.dpCheck') === '1' } catch (e) { WB.dpCheck = false }
+    }
+    return !!WB.dpCheck
+  }
+
   function dpSectionHtml(o, sec, si, ro) {
+    var chk = dpCheckView()
     var blocks = sec.blocks || []
     var nw = WB.docNew && WB.docNew.sec === sec.id ? WB.docNew : null
     var rows = ''
@@ -11947,7 +11957,7 @@
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
     else if (!blocks.length) rows += dpGhostHtml(sec.id, 0, 'paragraph', 0, ro)
-    var status = ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
+    var status = !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
       : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
         + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
     return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
@@ -11955,11 +11965,11 @@
       + dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro)
       + '<span class="wb-dp-secbar">' + status
       + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
-      + (ro ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
+      + (ro || !chk ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
       + '</span></div>'
-      + '<div class="wb-dp-secextra">' + langSectionHtml(o, sec, ro) + '</div>'
+      + '<div class="wb-dp-secextra">' + (chk ? langSectionHtml(o, sec, ro) : '') + '</div>'
       + rows
-      + '<div class="wb-dp-secextra">' + backcheckHtml(o, sec, ro) + '</div>'
+      + '<div class="wb-dp-secextra">' + (chk ? backcheckHtml(o, sec, ro) : '') + '</div>'
       + '</section>'
   }
 
@@ -11976,7 +11986,8 @@
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
     return '<div class="wb-dp-wrap"><div class="wb-dp-page" role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
-        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button></p>')
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button> '
+        + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
       + '</div>'
   }
 
@@ -15190,6 +15201,11 @@
     else if (a === 'dp-move') dpMoveStep(bid, Number(act.getAttribute('data-wb-dir')) || 0)
     else if (a === 'dp-del') dpDeleteBlock(bid)
     else if (a === 'dp-add-section') dpAddSection()
+    else if (a === 'dp-check-toggle') {
+      WB.dpCheck = !dpCheckView()
+      try { localStorage.setItem('marveen.workbench.dpCheck', WB.dpCheck ? '1' : '0') } catch (er) { /* a convenience only */ }
+      render()
+    }
   })
 
   // Mentes: a mezobol kilepve. Az ujrarajzolas altal okozott "kilepes" nem szamit.
