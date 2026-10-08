@@ -4107,7 +4107,10 @@
         lang: window._lang === 'en' ? 'en' : 'hu',
         lockStructure: WB.table.data && WB.table.data.format === 'xlsx',
         onChange: function () { if (WB.table) WB.table.dirty = true },
-        onBlocked: function (what) { window.showToast(t(what === 'sheet' ? 'workbench.table.univer_sheet_locked' : 'workbench.table.univer_structure_locked')) },
+        onBlocked: function (what) {
+          window.showToast(t(what === 'sheet' ? 'workbench.table.univer_sheet_locked'
+            : what === 'format' ? 'workbench.table.univer_format_locked' : 'workbench.table.univer_structure_locked'))
+        },
       })
       WB.table.uvStarting = false
     }).catch(function () {

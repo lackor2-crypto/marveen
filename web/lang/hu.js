@@ -7082,6 +7082,7 @@ window._i18n.hu = {
   "workbench.table.univer_failed": "A táblázat-szerkesztő nem töltődött be, ezért az egyszerű rácsot mutatom.",
   "workbench.table.univer_structure_locked": "Excel-fájlban sort és oszlopot nem lehet középre beszúrni vagy innen törölni, mert a formázás és a képletek elcsúsznának. Írj a tábla végére, vagy ezt Excelben csináld.",
   "workbench.table.univer_sheet_locked": "Munkalapot itt nem lehet hozzáadni, törölni vagy átnevezni; ezt Excelben csináld.",
+  "workbench.table.univer_format_locked": "A formázás (félkövér, szín, szegély, igazítás, számformátum) itt nem menthető, ezért ki van kapcsolva: mentéskor csak a cellák tartalma és a képletek kerülnek a fájlba, a fájl meglévő formázása megmarad. Formázni Excelben tudsz.",
   "workbench.table.univer_read_failed": "A táblázat tartalmát nem sikerült kiolvasni, ezért nem mentettem. Próbáld újra.",
   "workbench.table.new": "Új üres táblázat (Excel)",
   "workbench.table.new_hint": "Táblázattal kezdenél (költségvetés, lista)? Írd be fent a nevét, és kattints ide: egy üres Excel-fájl készül a projekt mappájába, és rögtön szerkesztheted.",

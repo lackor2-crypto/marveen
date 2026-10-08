@@ -7,47 +7,9 @@ import enUS from '@univerjs/preset-sheets-core/locales/en-US'
 import huHU from './hu-HU.json'
 import '@univerjs/preset-sheets-core/lib/index.css'
 
-var NUM_RE = /^-?(?:\d+|\d*\.\d+)(?:[eE][+-]?\d+)?$/
-// Structural edits are blocked in .xlsx: the server patches the original file and
-// keeps styles/merges/widths by POSITION, so a row inserted in the middle would shift
-// the data under the wrong formatting. Appending at the end is just typing below.
-var STRUCTURE_RE = /^sheet\.command\.(insert-.*(row|col)|insert-range|remove-(row|col)|delete-range-move|move-(rows|cols))/
-// Sheet-level edits are blocked everywhere: the save writes the sheets that were opened.
-var SHEET_RE = /^sheet\.command\.(insert-sheet|remove-sheet|copy-sheet|set-worksheet-name)/
+import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell } from './rules.mjs'
 
 var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|add-worksheet|reorder|move-rows|move-cols)/
-
-// Deep merge: Univer's own mergeLocales drops untranslated keys below the second level
-// (the UI then shows the raw key), so the Hungarian pack is laid over English by hand.
-function deepMerge(base, over) {
-  var out = {}
-  Object.keys(base).forEach(function (k) { out[k] = base[k] })
-  Object.keys(over).forEach(function (k) {
-    var b = out[k]
-    var o = over[k]
-    out[k] = b && o && typeof b === 'object' && typeof o === 'object' ? deepMerge(b, o) : o
-  })
-  return out
-}
-
-function cellFromText(text) {
-  var s = String(text == null ? '' : text)
-  if (s === '') return null
-  if (s.charAt(0) === '=' && s.length > 1) return { f: s }
-  if (NUM_RE.test(s) && s.length < 16 && !/^-?0\d/.test(s)) return { v: Number(s), t: 2 }
-  return { v: s, t: 1 }
-}
-
-function textFromCell(cell) {
-  if (!cell) return ''
-  if (typeof cell.f === 'string' && cell.f) return cell.f.charAt(0) === '=' ? cell.f : '=' + cell.f
-  if (cell.v == null) {
-    if (cell.p && cell.p.body && typeof cell.p.body.dataStream === 'string') return cell.p.body.dataStream.replace(/\r\n$/, '').replace(/\r\n/g, '\n').replace(/\r$/, '')
-    return ''
-  }
-  if (typeof cell.v === 'boolean') return cell.v ? 'TRUE' : 'FALSE'
-  return String(cell.v)
-}
 
 function mount(host, sheets, opts) {
   opts = opts || {}
@@ -59,7 +21,7 @@ function mount(host, sheets, opts) {
   var made = createUniver({
     locale: opts.lang === 'en' ? 'enUS' : 'huHU',
     locales: locales,
-    presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false })],
+    presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false, menu: hiddenMenuConfig() })],
   })
   var api = made.univerAPI
   var sheetData = {}
@@ -99,8 +61,8 @@ function mount(host, sheets, opts) {
   }
   if (E && E.BeforeCommandExecute) {
     disposables.push(api.addEvent(E.BeforeCommandExecute, function (ev) {
-      var cid = String(ev && ev.id || '')
-      if (SHEET_RE.test(cid) || (structureLocked && STRUCTURE_RE.test(cid))) { ev.cancel = true; onBlocked(SHEET_RE.test(cid) ? 'sheet' : 'structure') }
+      var kind = blockedKind(ev && ev.id, structureLocked)
+      if (kind) { ev.cancel = true; onBlocked(kind) }
     }))
   }
   if (readonly) {
@@ -108,7 +70,9 @@ function mount(host, sheets, opts) {
   }
 
   function read() {
-    var snap = api.getActiveWorkbook().save()
+    var fwb = api.getActiveWorkbook()
+    var snap = fwb.save()
+    var styles = snap.styles || {}
     var out = []
     order.forEach(function (id) {
       var s = (snap.sheets || {})[id]
@@ -116,16 +80,34 @@ function mount(host, sheets, opts) {
       var maxC = 0
       var cd = (s && s.cellData) || {}
       var maxR = -1
+      // A filled or copied formula is stored once and shared: the cell itself may hold
+      // only the shared id and the result, so the formula comes from Univer per cell.
+      Object.keys(cd).forEach(function (rk) {
+        Object.keys(cd[rk] || {}).forEach(function (ck) {
+          var cell = cd[rk][ck]
+          if (!cell || (cell.v == null && !cell.f && !cell.si && !cell.p)) return
+          if (Number(rk) > maxR) maxR = Number(rk)
+          if (Number(ck) + 1 > maxC) maxC = Number(ck) + 1
+        })
+      })
+      var ws = maxR >= 0 && maxC > 0 ? fwb.getSheetBySheetId(id) : null
+      var formulas = ws ? ws.getRange(0, 0, maxR + 1, maxC).getFormulas() : []
+      var lastR = -1
+      var lastC = 0
       Object.keys(cd).forEach(function (rk) {
         var r = Number(rk)
         var rowCells = cd[rk] || {}
         var texts = []
         Object.keys(rowCells).forEach(function (ck) {
-          var t = textFromCell(rowCells[ck])
-          if (t !== '') { texts[Number(ck)] = t; if (Number(ck) + 1 > maxC) maxC = Number(ck) + 1 }
+          var c = Number(ck)
+          var cell = rowCells[ck]
+          var t = textFromCell(cell, cellPattern(cell, styles), formulas[r] && formulas[r][c])
+          if (t !== '') { texts[c] = t; if (c + 1 > lastC) lastC = c + 1 }
         })
-        if (texts.length) { rows[r] = texts; if (r > maxR) maxR = r }
+        if (texts.length) { rows[r] = texts; if (r > lastR) lastR = r }
       })
+      maxR = lastR
+      maxC = lastC
       var rect = []
       for (var r2 = 0; r2 <= maxR; r2++) {
         var row = []

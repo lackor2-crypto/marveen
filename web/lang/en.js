@@ -7004,6 +7004,7 @@ window._i18n.en = {
   "workbench.table.univer_failed": "The spreadsheet editor did not load, so the plain grid is shown.",
   "workbench.table.univer_structure_locked": "In an Excel file rows and columns cannot be inserted in the middle or removed from there, because the formatting and formulas would shift. Type at the end of the table, or do it in Excel.",
   "workbench.table.univer_sheet_locked": "Sheets cannot be added, deleted or renamed here; do that in Excel.",
+  "workbench.table.univer_format_locked": "Formatting (bold, colour, borders, alignment, number format) cannot be saved from here, so it is switched off: a save writes the cell contents and formulas only, and the file keeps its existing formatting. Format it in Excel.",
   "workbench.table.univer_read_failed": "The table content could not be read, so nothing was saved. Try again.",
   "workbench.table.new": "New empty table (Excel)",
   "workbench.table.new_hint": "Starting with a table (a budget, a list)? Type its name above and click here: an empty Excel file is made in the project folder, ready to edit.",
