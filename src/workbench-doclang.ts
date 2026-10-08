@@ -29,6 +29,9 @@ import {
 } from './workbench-docmodel.js'
 import { normalizeForMatch } from './workbench-docread.js'
 import { createWorkItem, getWorkItem, type WorkItemRow } from './workbench.js'
+import { assignWorkItemFolder } from './workbench-assets.js'
+import { projectFileTarget } from './project-files.js'
+import { getProject } from './projects.js'
 
 /** A felkinalt nyelvek; mas nyelv is lehet (ISO 639-1 kod). */
 export const VARIANT_LANGS = ['hu', 'de', 'en'] as const
@@ -168,8 +171,16 @@ export function createVariant(source: WorkItemRow, rawLang: unknown, by: string 
     if (it && !it.deleted_at) { syncSections(it.id, source.id); return { ok: true, item: it, existing: true } }
   }
   const title = `${source.title} (${lang.toUpperCase()})`.slice(0, 200)
-  const w = createWorkItem({ project_id: source.project_id, title, type: 'document', created_by: by })
+  // Boss TG 3049/3060: the language version lives in the SAME folder as the original (no new folder, not a
+  // sub-folder): it takes over the original's folder; only an original without a usable folder falls back to
+  // the container it was made in.
+  const w = createWorkItem({ project_id: source.project_id, title, type: 'document', created_by: by, container_folder: source.container_folder ?? null })
   if (!w.ok) return { ok: false, code: 'bad_input', detail: w.code }
+  const project = source.folder ? getProject(source.project_id) : null
+  if (project && source.folder && projectFileTarget(project, source.folder).ok) {
+    assignWorkItemFolder(w.item.id, source.folder)
+    w.item.folder = source.folder
+  }
   getDb().prepare('INSERT OR REPLACE INTO wb_doc_variants (work_item_id, source_item_id, lang, created_at, created_by) VALUES (?, ?, ?, ?, ?)')
     .run(w.item.id, source.id, lang, now(), by)
   syncSections(w.item.id, source.id)
