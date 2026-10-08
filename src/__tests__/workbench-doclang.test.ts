@@ -87,14 +87,15 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     blocks: [{ text, claims: [{ source_claim: claimId, text: CLAIM_DE }] }],
   }, 'workbench-agent')
 
-  it('a valtozat mappaja az eredeti sajat mappajan BELUL jon letre, nem mellette (Boss TG 3049)', async () => {
+  it('a valtozat az eredeti mappajaba kerul: nincs uj mappa, nincs almappa (Boss TG 3049/3060)', async () => {
     const { ensureWorkItemFolder } = await import('../workbench-assets.js')
     const own = ensureWorkItemFolder(src)
     if (!own.ok) throw new Error('eredeti mappa')
     src = getWorkItem(src.id)!
     const v = makeDe()
     const f = ensureWorkItemFolder(v)
-    expect(f.ok && f.folder.startsWith(own.folder + '/')).toBe(true)
+    expect(f.ok && f.folder).toBe(own.folder)
+    expect(f.ok && f.created).toBe(false)
   })
 
   it('kulon munkadarab ugyanabban a projektben, az eredeti fejezeteinek helyorzoivel; ugyanarra a nyelvre nem kesz masodikat', () => {

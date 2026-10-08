@@ -29,7 +29,8 @@ import {
 } from './workbench-docmodel.js'
 import { normalizeForMatch } from './workbench-docread.js'
 import { createWorkItem, getWorkItem, type WorkItemRow } from './workbench.js'
-import { workFolderTarget } from './workbench-assets.js'
+import { assignWorkItemFolder } from './workbench-assets.js'
+import { projectFileTarget } from './project-files.js'
 import { getProject } from './projects.js'
 
 /** A felkinalt nyelvek; mas nyelv is lehet (ISO 639-1 kod). */
@@ -170,16 +171,16 @@ export function createVariant(source: WorkItemRow, rawLang: unknown, by: string 
     if (it && !it.deleted_at) { syncSections(it.id, source.id); return { ok: true, item: it, existing: true } }
   }
   const title = `${source.title} (${lang.toUpperCase()})`.slice(0, 200)
-  // Boss TG 3049: the language version stays with the original -- its folder is made INSIDE the original's own
-  // folder (when that is a usable work folder), else in the same box folder the original was made in.
-  let container: string | null = source.container_folder ?? null
-  const project = source.folder ? getProject(source.project_id) : null
-  if (project && source.folder) {
-    const own = workFolderTarget(project, source.folder)
-    if (own.ok) container = own.folder
-  }
-  const w = createWorkItem({ project_id: source.project_id, title, type: 'document', created_by: by, container_folder: container })
+  // Boss TG 3049/3060: the language version lives in the SAME folder as the original (no new folder, not a
+  // sub-folder): it takes over the original's folder; only an original without a usable folder falls back to
+  // the container it was made in.
+  const w = createWorkItem({ project_id: source.project_id, title, type: 'document', created_by: by, container_folder: source.container_folder ?? null })
   if (!w.ok) return { ok: false, code: 'bad_input', detail: w.code }
+  const project = source.folder ? getProject(source.project_id) : null
+  if (project && source.folder && projectFileTarget(project, source.folder).ok) {
+    assignWorkItemFolder(w.item.id, source.folder)
+    w.item.folder = source.folder
+  }
   getDb().prepare('INSERT OR REPLACE INTO wb_doc_variants (work_item_id, source_item_id, lang, created_at, created_by) VALUES (?, ?, ?, ?, ?)')
     .run(w.item.id, source.id, lang, now(), by)
   syncSections(w.item.id, source.id)
