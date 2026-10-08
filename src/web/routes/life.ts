@@ -796,6 +796,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const opts = pasteOpts(body)
     const celBaj = targetGuard(from, String(body?.to ?? ''), opts, lang)
     if (celBaj) { send(res, 400, { ok: false, rel: '', ...celBaj }); return true }
+    await writePendingItemSnapshots()
     const result = await pasteLife('move', from, String(body?.to ?? ''), lang, opts)
     send(res, pasteStatus(result), pasteBody(result))
     if (pasteStatus(result) < 300) followWorkItems()
@@ -866,6 +867,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const baj = bekotesOrzo(rel, lang)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
+    await writePendingItemSnapshots()
     const renamed = renameLife(rel, String(body?.name ?? ''), lang)
     send(res, 200, renamed)
     if ((renamed as { ok?: boolean }).ok) followWorkItems()
@@ -1558,4 +1560,18 @@ function followWorkItems(): void {
   void import('../../workbench-relocate.js')
     .then((m) => m.reconcileItemLocations())
     .catch(() => { /* the periodic pass catches up */ })
+}
+
+/**
+ * The follow-up (followWorkItems) finds a moved work item by its registration file (marveen-item.json), which
+ * the snapshot pass writes once a minute. A work item made less than a minute before the move had none yet, so
+ * its folder went to the other project while the item stayed behind, pointing at a folder that was gone (#509
+ * fresh-install audit). Writing the pending snapshots first closes that window. Cheap: the pass is a no-op when
+ * nothing changed since the last one. Best effort; a failure never blocks the move.
+ */
+async function writePendingItemSnapshots(): Promise<void> {
+  try {
+    const m = await import('../../workbench-snapshot.js')
+    m.sweepSnapshots()
+  } catch { /* the move goes ahead; the periodic passes catch up */ }
 }
