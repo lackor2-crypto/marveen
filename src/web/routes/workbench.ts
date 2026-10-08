@@ -56,6 +56,7 @@ import {
 } from '../../workbench-docmodel.js'
 import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
+import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
@@ -3309,11 +3310,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     // TECHNIKAI NYOM (K-1.23/b): ki, mikor, mit irt, ellenorzott, erositett meg -- letoltheto JSON.
     if (segs.length === 3 && segs[2] === 'trail' && method === 'GET') {
-      const body = JSON.stringify(documentTrail(item), null, 2)
+      // Default: a plain text file anybody can open (Boss TG 3007); the JSON for tools stays at ?format=json.
+      const trail = documentTrail(item)
+      const asJson = url.searchParams.get('format') === 'json'
+      const body = asJson ? JSON.stringify(trail, null, 2) : '\uFEFF' + trailToText(trail, lang)
       res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Type': asJson ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(item.title + ' - nyom.json')}`,
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(item.title + (lang === 'en' ? ' - trail' : ' - nyom') + (asJson ? '.json' : '.txt'))}`,
       })
       res.end(body)
       return true
