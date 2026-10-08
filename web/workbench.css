@@ -1756,3 +1756,13 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-row-float-r { float: right; margin-right: 0; margin-left: 12px; }
 .wb-dp-sec::after { content: ""; display: block; clear: both; }
 @media (max-width: 600px) { .wb-dp-row-float, .wb-dp-row-float-r { float: none; width: auto !important; margin: 0; } }
+
+.wb-sign-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px }
+.wb-sign-box { background: var(--bg-card, #fff); color: inherit; border-radius: 12px; padding: 18px; max-width: 560px; width: 100%; max-height: 85vh; overflow: auto }
+.wb-sign-note { font-size: 13px; opacity: .85 }
+.wb-sign-hint { font-size: 12px; opacity: .7 }
+.wb-sign-list { display: grid; gap: 8px; margin: 12px 0 }
+.wb-sign-item { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; align-items: center; text-align: left; padding: 8px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; background: transparent; color: inherit; cursor: pointer }
+.wb-sign-item img { grid-row: span 2; max-width: 120px; max-height: 60px; object-fit: contain; background: #fff; border-radius: 4px }
+.wb-sign-name { font-weight: 600 }
+.wb-sign-folder { font-size: 12px; opacity: .7 }

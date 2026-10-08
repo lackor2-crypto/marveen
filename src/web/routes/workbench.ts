@@ -122,6 +122,7 @@ import { setOverride, getEffectiveSettingValue } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { embedKind, fileToBlocks } from '../../workbench-docembed.js'
+import { listSignatures } from '../../workbench-signatures.js'
 import { createReadStream, statSync, rmdirSync, existsSync } from 'node:fs'
 import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
@@ -2852,6 +2853,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, ask: false, kind, item: r.item, versions: [r.version], text, file: noteFile,
       message: null,
     }, 201)
+    return true
+  }
+
+  // Saved signature pictures anywhere in the Life tree, for the document's "insert signature" picker.
+  if (path === '/api/workbench/signatures' && method === 'GET') {
+    json(res, { ok: true, ...listSignatures(lang) })
     return true
   }
 

@@ -11819,7 +11819,7 @@
     }
     if (kind === 'add') {
       return '<div class="wb-dp-menu" role="menu">' + item('dp-ins', t('workbench.dp.ins_text'), ' data-wb-kind="paragraph"')
-        + item('dp-ins', t('workbench.dp.ins_list'), ' data-wb-kind="list"') + item('dp-ins-section', t('workbench.dp.ins_section')) + '</div>'
+        + item('dp-ins', t('workbench.dp.ins_list'), ' data-wb-kind="list"') + item('dp-ins-sign', t('workbench.dp.ins_sign')) + item('dp-ins-section', t('workbench.dp.ins_section')) + '</div>'
     }
     return '<div class="wb-dp-menu" role="menu">' + item('dp-move', t('workbench.dp.up'), ' data-wb-dir="-1"', idx === 0 && !WB.docMenu.canPrevSec)
       + item('dp-move', t('workbench.dp.down'), ' data-wb-dir="1"', idx >= count - 1 && !WB.docMenu.canNextSec)
@@ -12185,6 +12185,45 @@
     WB.docNew = { sec: sid, pos: idx, kind: kind || 'paragraph' }
     WB.docFocus = { id: 'wbDpNew', end: true }
     render()
+  }
+
+  /** "Insert signature": lists every signature picture found in the Life tree; the pick becomes a picture block (Boss TG 3044). */
+  function dpSignPicker(sid, bid) {
+    var sec = findSection(sid)
+    var pos = 0
+    if (sec && bid) (sec.blocks || []).forEach(function (b, i) { if (b.id === bid) pos = i + 1 })
+    WB.docMenu = null
+    render()
+    var old = document.getElementById('wbSignPick')
+    if (old) old.remove()
+    var ov = document.createElement('div')
+    ov.id = 'wbSignPick'
+    ov.className = 'wb-sign-overlay'
+    ov.innerHTML = '<div class="wb-sign-box" role="dialog" aria-modal="true"><h3>' + esc(t('workbench.sign.title')) + '</h3>'
+      + '<p class="wb-sign-note">' + esc(t('workbench.sign.court_warn')) + '</p>'
+      + '<div class="wb-sign-list"><p>' + esc(t('workbench.sign.loading')) + '</p></div>'
+      + '<p class="wb-sign-hint">' + esc(t('workbench.sign.hint')) + '</p>'
+      + '<button type="button" class="btn-secondary" data-wb-sign-close>' + esc(t('workbench.sign.close')) + '</button></div>'
+    document.body.appendChild(ov)
+    var close = function () { ov.remove() }
+    ov.addEventListener('click', function (e) {
+      if (e.target === ov || e.target.closest('[data-wb-sign-close]')) { close(); return }
+      var pick = e.target.closest('[data-wb-sign-rel]')
+      if (!pick) return
+      var rel = pick.getAttribute('data-wb-sign-rel')
+      close()
+      dpCall('POST', '/blocks', { section: sid, text: rel + '#w=30&a=l', kind: 'image', position: pos }).then(function (o) { if (o) render() })
+    })
+    api('GET', '/api/workbench/signatures').then(function (r) {
+      var box = ov.querySelector('.wb-sign-list')
+      var list = r.ok && r.data && r.data.signatures || []
+      if (!list.length) { box.innerHTML = '<p>' + esc(t('workbench.sign.empty')) + '</p>'; return }
+      box.innerHTML = list.map(function (f) {
+        return '<button type="button" class="wb-sign-item" data-wb-sign-rel="' + escA(f.rel) + '">'
+          + '<img alt="" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(f.rel) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '">'
+          + '<span class="wb-sign-name">' + esc(f.name) + '</span><span class="wb-sign-folder">' + esc(f.folder) + '</span></button>'
+      }).join('')
+    })
   }
 
   function dpInsertSection(sid) {
@@ -15147,6 +15186,7 @@
     else if (a === 'dp-tbl-align') dpTableAlign(bid, act.getAttribute('data-wb-align'))
     else if (a === 'dp-ins') dpInsert(sid, bid, act.getAttribute('data-wb-kind'))
     else if (a === 'dp-ins-section') dpInsertSection(sid)
+    else if (a === 'dp-ins-sign') dpSignPicker(sid, bid)
     else if (a === 'dp-move') dpMoveStep(bid, Number(act.getAttribute('data-wb-dir')) || 0)
     else if (a === 'dp-del') dpDeleteBlock(bid)
     else if (a === 'dp-add-section') dpAddSection()
