@@ -25,7 +25,8 @@ import {
 } from '../../mega-backup.js'
 import { logger } from '../../logger.js'
 import { loadSyncConfig } from './drive-sync.js'
-import { resolveLifePath } from '../../life-explorer.js'
+import { resolveLifePath, toLifeRel } from '../../life-explorer.js'
+import { loadMigrated } from '../../drive-migrated.js'
 import { trashRelPath } from '../../life-tree.js'
 import { depotAccountDir, DEPOT_MEGA } from '../../depot.js'
 import { mkdirSync } from 'node:fs'
@@ -171,7 +172,9 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
     if (local.unreachable) return fail('no_dir', 404)
     const remote = await listMegaRemoteSized(bin, megaRemoteDir(account.remote, MEGA_MIRROR), defaultRunner)
     if (!remote.ok) return fail('remote_failed', 502, remote.error)
-    const plan = planMegaDownload(remote.files, local)
+    const mirrorRel = toLifeRel(dest)
+    const migrated = loadMigrated().filter((e) => e.from.startsWith(mirrorRel + '/')).map((e) => e.from.slice(mirrorRel.length + 1))
+    const plan = planMegaDownload(remote.files, local, migrated)
     const free = freeDiskBytes(dest)
     downPreviews.set(account.name, { at: Date.now(), dest, files: plan.download })
     json(res, {
@@ -180,6 +183,7 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
       bytes: plan.downloadBytes,
       skippedExisting: plan.skippedExisting,
       skippedBackupDir: plan.skippedBackupDir,
+      skippedMigrated: plan.skippedMigrated,
       localIncomplete: plan.localIncomplete,
       free,
       fits: free === null ? null : plan.downloadBytes <= free,
