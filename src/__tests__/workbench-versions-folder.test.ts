@@ -78,10 +78,11 @@ describe('saved versions are kept in a Verziók folder inside the item folder (T
     expect(files(`${folder}/Verziók`).filter((n) => n.startsWith('nevjegy.canvas')).length).toBeGreaterThanOrEqual(2)
   })
 
-  it('an older item with no folder keeps the old place, and no folder is made for it', () => {
+  it('an older item with no folder: no own folder is made, and the JSON goes next to it (the box), not the root (TG 2929)', () => {
     const { it: w } = item('presentation', false)
-    expect(deckStore().commit(w, deckWith('elso'), { actor: 'test' })).toMatchObject({ ok: true })
-    expect(files().filter((n) => n.endsWith('.deck.json'))).toHaveLength(1)
+    const c = deckStore().commit(w, deckWith('elso'), { actor: 'test' })
+    expect(c).toMatchObject({ ok: true })
+    expect(files().filter((n) => n.endsWith('.deck.json'))).toHaveLength(0)
     expect(workItemFolder(w.id)).toBeNull()
   })
 })

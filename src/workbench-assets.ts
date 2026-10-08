@@ -42,7 +42,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
@@ -164,6 +164,23 @@ export function workItemFolder(itemId: string): string | null {
  */
 export function projectWorkItemsFolder(project: ProjectRow): SharedFolderOutcome {
   return projectNamedFolder(project, 'workItems')
+}
+
+/**
+ * Where a work item's own JSON file (.canvas.json, .deck.json, document JSON) is written: NEXT TO THE ITEM, never in
+ * the project root (Boss TG 2927/2929, a rule: "a jsonoknak a munkadarab mellett a helyuk"). Own folder -> that folder
+ * (its versions subfolder once the item has a saved file); no own folder -> the folder the item is listed in; neither
+ * (or that folder is gone) -> the project's work-items box. Only an item the owner put directly in the project folder
+ * (PROJECT_ROOT_PLACE) gets the root, because that is where the item itself is. Null: no usable folder at all.
+ */
+export function itemJsonFolder(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'source_path'>): string | null {
+  const own = String(item.folder ?? '').trim()
+  if (own && projectFileTarget(project, own).ok) return versionsFolderFor(project, own, !!item.source_path)
+  const c = String(item.container_folder ?? '').trim()
+  if (c === PROJECT_ROOT_PLACE) return ''
+  if (c && projectFileTarget(project, c).ok) return c
+  const box = projectWorkItemsFolder(project)
+  return box.ok ? box.folder : null
 }
 
 /**
