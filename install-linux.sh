@@ -1816,6 +1816,25 @@ else
   echo -e "  ${DIM}  Kezzel: sudo snap install go --classic && git clone https://github.com/perplexityai/bumblebee /tmp/bb && (cd /tmp/bb && go build -o ~/.local/bin/bumblebee ./cmd/bumblebee)${NC}"
 fi
 
+INSTALL_STEP="vision"
+# --- Helyi arcfelismero (Beerkezo: kie a foto) ---
+# Boss (2026-10-09, #514): "be kell egetni, hogy benne legyen, ne is kelljen
+# telepiteni, hanem az elso telepitessel telepuljon onmagatol." Ezert ALAPBOL
+# telepitjuk, nem csak a Varazslo gombjara. A dlib elore forditott wheel-bol jon
+# (par perc, fordito nelkul); ha nincs ra wheel, a script maga szol. A hibaja NEM
+# allitja le a fo telepitest: a dashboard indulaskor ujraprobalja.
+echo ""
+echo -e "  Helyi arcfelismero telepitese (Beerkezo fotok)..."
+if python3 -m venv --help &>/dev/null; then
+  if bash "$INSTALL_DIR/scripts/install-vision.sh"; then
+    ok "arcfelismero telepitve (~/.local/share/marveen-vision)"
+  else
+    warn "arcfelismero telepites sikertelen -- a dashboard indulaskor ujraprobalja; kezzel: bash \"$INSTALL_DIR/scripts/install-vision.sh\""
+  fi
+else
+  warn "python3-venv hianyzik -- arcfelismero kihagyva; kesobb: bash \"$INSTALL_DIR/scripts/install-vision.sh\""
+fi
+
 INSTALL_STEP="systemd"
 # ─────────────────────────────────────────────
 # [7/7] Automatikus inditas (systemd)

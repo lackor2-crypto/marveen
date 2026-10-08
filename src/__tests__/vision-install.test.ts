@@ -2,13 +2,13 @@
 // What must hold: missing build tools never start a build and hand back the
 // line for THIS package manager; an empty vision dir reads as not installed.
 import { describe, it, expect, beforeEach } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 process.env.MARVEEN_VISION_DIR = mkdtempSync(join(tmpdir(), 'marveen-vision-'))
 
-const { buildToolsCommand, startVisionInstall, missingBuildTools, visionInstallStatus, _resetVisionInstall } =
+const { buildToolsCommand, startVisionInstall, missingBuildTools, visionInstallStatus, _resetVisionInstall, autoInstallVision, VISION_AUTO_MARKER } =
   await import('../vision-install.js')
 const { SYSTEM_DEPS } = await import('../system-deps.js')
 
@@ -24,10 +24,27 @@ describe('buildToolsCommand', () => {
 })
 
 describe('missingBuildTools', () => {
-  it('asks each tool and lists only the failing ones', () => {
-    const missing = missingBuildTools((cmd) => cmd !== 'cmake' && cmd !== 'gcc')
-    expect(missing).toEqual(['cmake', 'gcc'])
+  it('needs only python3-venv: dlib comes as a prebuilt wheel, no compiler (#514)', () => {
+    expect(missingBuildTools((cmd) => cmd !== 'cmake' && cmd !== 'gcc')).toEqual([])
+    expect(missingBuildTools((_cmd, args) => !args.includes('venv'))).toEqual(['python3-venv'])
     expect(missingBuildTools(() => true)).toEqual([])
+  })
+})
+
+describe('autoInstallVision (#514: installs by itself, no button)', () => {
+  it('missing python3-venv: logs, starts nothing, leaves no retry marker', () => {
+    expect(autoInstallVision({ missing: ['python3-venv'] })).toBe('missing_tools')
+    expect(visionInstallStatus().running).toBe(false)
+    expect(existsSync(VISION_AUTO_MARKER)).toBe(false)
+  })
+
+  it('a recent attempt is not repeated on every restart', () => {
+    const now = Date.now()
+    writeFileSync(VISION_AUTO_MARKER, JSON.stringify({ at: now - 60_000 }))
+    try {
+      expect(autoInstallVision({ now, missing: [] })).toBe('recently_tried')
+      expect(visionInstallStatus().running).toBe(false)
+    } finally { rmSync(VISION_AUTO_MARKER, { force: true }) }
   })
 })
 

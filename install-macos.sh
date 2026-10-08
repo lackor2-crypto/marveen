@@ -1421,6 +1421,22 @@ else
   echo -e "  ${DIM}  Kezzel: brew install go && git clone https://github.com/perplexityai/bumblebee /tmp/bb && (cd /tmp/bb && go build -o ~/.local/bin/bumblebee ./cmd/bumblebee)${NC}"
 fi
 
+INSTALL_STEP="vision"
+# Local face recognizer (Inbox: whose photo is this). Owner (2026-10-09, #514):
+# baked in, installed on the first install, not only from the wizard button.
+# dlib comes as a prebuilt wheel on Apple Silicon (minutes, no compiler); an
+# Intel Mac compiles it and needs `brew install cmake`, which the script names.
+# A failure only warns; the dashboard retries it on start.
+if python3 -m venv --help &>/dev/null; then
+  if bash "$INSTALL_DIR/scripts/install-vision.sh"; then
+    echo -e "  ${GREEN}✓${NC} arcfelismero (~/.local/share/marveen-vision)"
+  else
+    echo -e "  ${ORANGE}!${NC} arcfelismero: bash \"$INSTALL_DIR/scripts/install-vision.sh\""
+  fi
+else
+  echo -e "  ${ORANGE}!${NC} python3 venv -- arcfelismero: bash \"$INSTALL_DIR/scripts/install-vision.sh\""
+fi
+
 INSTALL_STEP="launchagent"
 # Step 7: LaunchAgent setup
 echo ""

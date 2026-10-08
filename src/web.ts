@@ -61,6 +61,7 @@ import { scanInstalledClaude } from './claude-model-discovery.js'
 import { startClaudeCliUpdateScheduler } from './claude-cli-updater.js'
 import { registerDiscoveredClaudeModels } from './config-registry.js'
 import { initVisionAdapters } from './life-vision-adapter.js'
+import { autoInstallVision } from './vision-install.js'
 import { tryHandleAuth } from './web/routes/auth.js'
 import { tryHandleSecurity } from './web/routes/security.js'
 import { tryHandleProfiles } from './web/routes/profiles.js'
@@ -832,6 +833,9 @@ export function startWebServer(port = 3420): http.Server {
   // nincs (friss telepites), csendben az alapertelmezett "nincs telepitve"
   // adapterek maradnak, lasd `life-inbox-analyze.ts`.
   initVisionAdapters()
+  // #514: a hianyzo arcfelismerot a dashboard magatol felrakja (hatterben,
+  // naponta legfeljebb egy probalkozas) -- nem kell a Varazslo gombja.
+  if (!webOnly && !process.env.VITEST) autoInstallVision()
 
   const tokenCollectInterval = webOnly ? undefined : setInterval(() => {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Periodic token usage collection failed'))
