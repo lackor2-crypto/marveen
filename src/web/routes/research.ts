@@ -135,9 +135,11 @@ export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
         })
         .filter(d => !pf || (pf === 'none' ? !d.project : d.project === pf))
         .sort((a, b) => (b.ms - a.ms) || a.name.localeCompare(b.name))
-        .map(({ name, title, ms, project }) => ({ name, title, project, updated: new Date(ms).toISOString().slice(0, 10) }))
+        .map(({ name, title, ms, project }) => ({ name, title, project, updated: new Date(ms).toISOString().slice(0, 10), ms }))
       return { agent, docs }
     }).filter(a => a.docs.length > 0)
+      // Newest first everywhere: the agent group holding the freshest document comes first.
+      .sort((a, b) => (b.docs[0].ms - a.docs[0].ms) || a.agent.localeCompare(b.agent))
     json(res, result)
     return true
   }
