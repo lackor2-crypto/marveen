@@ -46056,6 +46056,19 @@ function _megaAutoEnter(account, stack, items) {
   return true
 }
 
+/**
+ * A folder that has vanished from MEGA (emptied or deleted in the cloud, while
+ * the view still remembers it, e.g. after F5) must not strand the owner on an
+ * error: step back to the nearest parent that still exists. At the root there
+ * is nothing to step back to, so the error stays.
+ */
+function _megaStepBackIfGone(stack, r) {
+  const code = r && r.data && r.data.error
+  if (r.ok || stack.length < 2 || (code !== 'dir_not_found' && code !== 'not_found')) return false
+  stack.pop()
+  return true
+}
+
 function _megaCrumbsHtml(stack) {
   return stack.map((f, i) => {
     const isLast = i === stack.length - 1
@@ -46099,6 +46112,7 @@ async function loadMegaFolder() {
   const r = await _megaFetchList(account, stack[stack.length - 1].path)
   // Kozben masik fiokot vagy mappat valasztottak: a kesve jott valasz ne irja felul.
   if (seq !== _megaSeq[''] || account !== _megaAccount || _megaAllMode) return
+  if (_megaStepBackIfGone(stack, r)) { loadMegaFolder(); return }
   if (!r.ok) {
     list.innerHTML = ''
     errBox.innerHTML = _megaErrorHtml(r.data, r.status)
@@ -46128,6 +46142,7 @@ async function loadMegaColumn(account) {
   const seq = _megaSeq[key] = (_megaSeq[key] || 0) + 1
   const r = await _megaFetchList(account, stack[stack.length - 1].path)
   if (seq !== _megaSeq[key] || !_megaAllMode) return
+  if (_megaStepBackIfGone(stack, r)) { loadMegaColumn(account); return }
   // Egy fiok hibaja csak a SAJAT hasabjat rontja el.
   if (!r.ok) { list.innerHTML = '<div class="drive-col-error">' + _megaErrorHtml(r.data, r.status) + '</div>'; return }
   if (_megaAutoEnter(account, stack, r.items)) { loadMegaColumn(account); return }

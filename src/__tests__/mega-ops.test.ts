@@ -201,6 +201,12 @@ describe('a MEGA oldal (web)', () => {
     expect(app).toMatch(/if \(_megaAutoEnter\(account, stack, r\.items\)\) \{ loadMegaFolder\(\); return \}/)
     expect(app).toMatch(/if \(_megaAutoEnter\(account, stack, r\.items\)\) \{ loadMegaColumn\(account\); return \}/)
   })
+  it('a felhobol eltunt mappabol a legkozelebbi letezo szulore lep vissza, nem reked hibaoldalon', () => {
+    expect(app).toMatch(/function _megaStepBackIfGone\(stack, r\)/)
+    expect(app).toMatch(/code !== 'dir_not_found' && code !== 'not_found'/)
+    expect(app).toMatch(/if \(_megaStepBackIfGone\(stack, r\)\) \{ loadMegaFolder\(\); return \}/)
+    expect(app).toMatch(/if \(_megaStepBackIfGone\(stack, r\)\) \{ loadMegaColumn\(account\); return \}/)
+  })
 })
 
 process.on('exit', () => rmSync(store, { recursive: true, force: true }))
