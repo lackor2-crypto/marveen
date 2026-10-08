@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-10-07.1'
+$script:WorkerVersion = '2026-10-08.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -1266,6 +1266,7 @@ function Invoke-CodeTask {
   $lastProbe = [datetime]::MinValue
   $lastActivity = $started
   $partialOffset = [long]0
+  $partialHeld = ''
   $lastPartial = Get-Date
   $script:InTaskId = $Task.id
   if ($script:Life) { $script:Life.RunSession = $runSessionId; $script:Life.TaskId = $Task.id }
@@ -1288,8 +1289,9 @@ function Invoke-CodeTask {
     if ($transcript -and ((Get-Date) - $lastPartial).TotalSeconds -ge 15) {
       $lastPartial = Get-Date
       try {
-        $np = Read-NewAssistantText -Path $transcript -Offset $partialOffset -Since $started
+        $np = Read-NewAssistantText -Path $transcript -Offset $partialOffset -Since $started -Held $partialHeld
         $partialOffset = [long]$np.offset
+        $partialHeld = [string]$np.held
         if ($np.text) {
           Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/partial') -Method 'POST' -Body @{ text = [string]$np.text } | Out-Null
         }
@@ -1398,37 +1400,73 @@ function Invoke-CodeTask {
 # vissza. A felig kiirt utolso sort nem dolgozzuk fel: az offset a legutolso
 # teljes sor vegere mutat. A `--output-format json` kimenet NEM valtozik, igy a
 # vegeredmeny utja ugyanaz marad.
+#
+# A LEGUTOLSO szoveget visszatartjuk (`held`), amig egy ujabb asszisztens-sor
+# nem jon utana: a futas vegso valasza a naplo utolso asszisztens-szovege, es
+# azt a befejezo uzenet amugy is teljes egeszeben elviszi. Merve 2026-10-08
+# (Windows PowerShell 5.1, szintetikus naplo): visszatartas nelkul a vegso
+# valasz reszlegeskent is kiment, ha a 15 mp-es kor a kiiras es a kilepes koze
+# esett (a ciklus a 2 mp-es alvas UTAN olvas, a Stop hookok is ott futnak), es
+# Telegramon ketszer jott meg. A sub-agens (`isSidechain`) szovege nem a
+# tulajdonosnak szol, az sem megy ki.
+#
+# A naplo egy sora lehet hosszabb a 4 MB-os olvasasnal (beolvasott kep):
+# merve, az ilyen sornal az offset orokre 0-n ragadt, es a feladat hatralevo
+# reszeben egy reszleges valasz sem ment ki. Az ilyen sort atlepjuk -- kep,
+# nem asszisztens-szoveg. Egy folytatott (resume) beszelgetes naploja tobb
+# tiz MB korabbi elozmeny is lehet: ezt egy hivasban, 4 MB-onkent olvassuk
+# vegig, nem 15 mp-enkent 4 MB-ot.
 function Read-NewAssistantText {
-  param([string]$Path, [long]$Offset, [datetime]$Since)
-  $out = @{ text = ''; offset = $Offset }
+  param([string]$Path, [long]$Offset, [datetime]$Since, [string]$Held = '')
+  $out = @{ text = ''; offset = $Offset; held = $Held }
   $fs = $null
   try {
     $fs = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-    if ($fs.Length -le $Offset) { return $out }
-    [void]$fs.Seek($Offset, [System.IO.SeekOrigin]::Begin)
-    $buf = New-Object byte[] ([int][Math]::Min([long]($fs.Length - $Offset), 4MB))
-    $n = $fs.Read($buf, 0, $buf.Length)
-    if ($n -le 0) { return $out }
-    $lastNl = [Array]::LastIndexOf($buf, [byte]10, $n - 1)
-    if ($lastNl -lt 0) { return $out }
-    $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $lastNl + 1)
-    $out.offset = $Offset + $lastNl + 1
+    $sinceUtc = $Since.ToUniversalTime()
     $parts = New-Object System.Collections.Generic.List[string]
-    foreach ($line in ($chunk -split "`n")) {
-      if ($line -notmatch '"type"\s*:\s*"assistant"') { continue }
-      try {
-        $o = $line | ConvertFrom-Json
-        if ($o.type -ne 'assistant') { continue }
-        if ($o.timestamp) {
-          $ts = ([datetime]$o.timestamp).ToUniversalTime()
-          if ($ts -lt $Since.ToUniversalTime()) { continue }
-        }
-        foreach ($b in @($o.message.content)) {
-          if ($b.type -eq 'text' -and $b.text -and ([string]$b.text).Trim()) { $parts.Add(([string]$b.text).Trim()) }
-        }
-      } catch { }
+    $pending = $Held
+    $buf = New-Object byte[] (4MB)
+    $pos = $Offset
+    $rounds = 0
+    while ($pos -lt $fs.Length -and $rounds -lt 16) {
+      $rounds++
+      [void]$fs.Seek($pos, [System.IO.SeekOrigin]::Begin)
+      $n = $fs.Read($buf, 0, $buf.Length)
+      if ($n -le 0) { break }
+      $lastNl = [Array]::LastIndexOf($buf, [byte]10, $n - 1)
+      if ($lastNl -lt 0) {
+        if ($n -eq $buf.Length) { $pos += $n; continue }
+        break
+      }
+      $pos += $lastNl + 1
+      $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $lastNl + 1)
+      foreach ($line in ($chunk -split "`n")) {
+        if ($line -notmatch '"type"\s*:\s*"assistant"') { continue }
+        try {
+          $o = $line | ConvertFrom-Json
+          if ($o.type -ne 'assistant' -or $o.isSidechain) { continue }
+          if ($o.timestamp) {
+            $ts = ([datetime]$o.timestamp).ToUniversalTime()
+            if ($ts -lt $sinceUtc) { continue }
+          }
+          # A newer assistant line proves the held text was not the last word.
+          if ($pending) { $parts.Add($pending); $pending = '' }
+          $texts = New-Object System.Collections.Generic.List[string]
+          $hasTool = $false
+          foreach ($b in @($o.message.content)) {
+            if ($b.type -eq 'text' -and $b.text -and ([string]$b.text).Trim()) { $texts.Add(([string]$b.text).Trim()) }
+            elseif ($b.type -eq 'tool_use') { $hasTool = $true }
+          }
+          if ($texts.Count -gt 0) {
+            $t = ($texts -join "`n`n")
+            if ($hasTool) { $parts.Add($t) } else { $pending = $t }
+          }
+        } catch { }
+      }
     }
+    $out.offset = $pos
     $out.text = ($parts -join "`n`n")
+    $out.held = $pending
   } catch {
     # A transcript we cannot read is "not looked at", never an error for the task.
   } finally {
