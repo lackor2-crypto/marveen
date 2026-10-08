@@ -2240,3 +2240,84 @@ export function moveProjectWorkItems(source: ProjectRow, target: ProjectRow): Pr
   if (trashedIds.length) db.prepare('UPDATE work_items SET project_id = ? WHERE project_id = ? AND deleted_at IS NOT NULL').run(target.id, source.id)
   return { ok: true, moved, trashed: trashedIds.length, folders, files }
 }
+
+export type ProjectLooseMove =
+  | { ok: true; moved: number; skipped: string[] }
+  | { ok: false; code: 'no_target_folder' | 'move_failed'; moved: number; message?: string }
+
+/**
+ * #509 (Boss TG 2948, A): a merged project's OTHER files (not part of any work item) go along too, so "everything
+ * moves" is true. The source's "Tovabbi anyagok" content goes into the target's "Tovabbi anyagok", what is left in
+ * its "Munkadarabok" box goes into the target's box, every other file/folder of the project root goes into the
+ * target's root under its own name. A taken name becomes `name (2)`; nothing is overwritten or deleted (only the
+ * emptied source folders are removed). A folder that is (or holds) ANOTHER project's folder stays where it is, and
+ * a source folder shared with another project (or nested with the target) is not touched at all.
+ */
+export function moveProjectLooseFiles(source: ProjectRow, target: ProjectRow): ProjectLooseMove {
+  const skipped: string[] = []
+  const norm = (v: string | null | undefined) => String(v ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const srcRel = norm(source.folder_path)
+  if (!srcRel) return { ok: true, moved: 0, skipped }
+  const src = projectFileTarget(source, '')
+  if (!src.ok) return { ok: true, moved: 0, skipped }
+  const others = listProjects({ includeArchived: true })
+    .filter((p) => p.id !== source.id && p.id !== target.id)
+    .map((p) => norm(p.folder_path)).filter(Boolean)
+  if (others.some((o) => o === srcRel || srcRel.startsWith(o + '/'))) return { ok: true, moved: 0, skipped: [srcRel] }
+  let entries: string[] = []
+  try { entries = readdirSync(src.dirAbs) } catch { return { ok: true, moved: 0, skipped } }
+  if (!entries.length) { tryRemoveEmptyDir(src.dirAbs); return { ok: true, moved: 0, skipped } }
+  ensureProjectHasFolder(target)
+  const tgtRel = norm(target.folder_path)
+  if (!tgtRel) return { ok: false, code: 'no_target_folder', moved: 0 }
+  if (tgtRel === srcRel || tgtRel.startsWith(srcRel + '/') || srcRel.startsWith(tgtRel + '/')) return { ok: true, moved: 0, skipped: [srcRel] }
+  const root = projectFileTarget(target, '')
+  if (!root.ok) return { ok: false, code: 'no_target_folder', moved: 0, ...(root.message ? { message: root.message } : {}) }
+  const blocked = writeBlockReason(root.dirRel)
+  if (blocked) return { ok: false, code: 'move_failed', moved: 0, message: blocked }
+  const holdsOther = (rel: string) => others.some((o) => o === rel || o.startsWith(rel + '/'))
+  const srcBox = projectNamedFolderIfExists(source, 'workItems')
+  const srcMat = projectNamedFolderIfExists(source, 'moreMaterial')
+  let moved = 0
+  const moveInto = (fromAbs: string, fromRel: string, toDirAbs: string): string | null => {
+    if (holdsOther(fromRel)) { skipped.push(fromRel); return null }
+    const name = fromAbs.slice(fromAbs.lastIndexOf(sep) + 1)
+    try { renameSync(fromAbs, join(toDirAbs, freeFileName(toDirAbs, name))) } catch (e) { return e instanceof Error ? e.message : String(e) }
+    moved++
+    return null
+  }
+  for (const name of entries) {
+    const abs = join(src.dirAbs, name)
+    const rel = `${srcRel}/${name}`
+    const merge = name === srcBox ? projectWorkItemsFolder(target) : name === srcMat ? projectMaterialsFolder(target) : null
+    if (merge) {
+      if (!merge.ok) return { ok: false, code: 'no_target_folder', moved, ...(merge.message ? { message: merge.message } : {}) }
+      let inner: string[] = []
+      try { inner = readdirSync(abs) } catch { inner = [] }
+      for (const n of inner) {
+        const err = moveInto(join(abs, n), `${rel}/${n}`, merge.dirAbs)
+        if (err) return { ok: false, code: 'move_failed', moved, message: err }
+      }
+      tryRemoveEmptyDir(abs)
+      continue
+    }
+    const err = moveInto(abs, rel, root.dirAbs)
+    if (err) return { ok: false, code: 'move_failed', moved, message: err }
+  }
+  tryRemoveEmptyDir(src.dirAbs)
+  return { ok: true, moved, skipped }
+}
+
+/** The name of the project's existing "Munkadarabok" / "Tovabbi anyagok" folder (either language), never creating one. */
+function projectNamedFolderIfExists(project: ProjectRow, key: 'workItems' | 'moreMaterial'): string | null {
+  const root = projectFileTarget(project, '')
+  if (!root.ok) return null
+  for (const n of [lifeName(key), lifeName(key, APP_LANG === 'hu' ? 'en' : 'hu')]) {
+    try { if (existsSync(join(root.dirAbs, n)) && statSync(join(root.dirAbs, n)).isDirectory()) return n } catch { /* next */ }
+  }
+  return null
+}
+
+function tryRemoveEmptyDir(abs: string): void {
+  try { if (!readdirSync(abs).length) rmdirSync(abs) } catch { /* left in place: harmless */ }
+}
