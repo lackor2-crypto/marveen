@@ -273,6 +273,141 @@ window.isNewTabClick = isNewTabClick
 window.openViewInNewTab = openViewInNewTab
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _viewStateSave() })
 
+// === #482: a list redrawn in place keeps its scroll position ===
+// Boss (TG 7716): the scrollbar jumps back to the start when a list redraws.
+// A poll or a click that reloads a list swaps its innerHTML, often through a
+// short "loading..." placeholder: the page collapses for a moment, the window
+// (or the scrolling panel around the list) clamps to the shorter page, and every
+// scrollable box inside the list is rebuilt at 0. The usual scroll-restoration
+// pattern: just before the redraw note where the container, each scrolled box
+// inside it and each scrolled box around it (the window included) stood, top AND
+// left, and put them back right after -- once more on the next frame, for
+// content that lays out late. A box inside is found again by a stable key (id,
+// else a data-* key, else its structural path), because the redraw builds the
+// same tree again.
+//
+// Only a redraw of the SAME view is restored. A first draw, a different `view`
+// key (another folder, tab, filter, account) or a page switch since the
+// container's last draw is a real navigation, and the old behaviour stays. Nor
+// is anything put back over the owner's own scrolling (wheel, touch, keys or a
+// pointer press after the snapshot). Deliberate jumps (the chat sticking to its
+// newest line, the kanban drag-drop) do not go through here.
+//
+//   preserveScroll(container, renderFn, { view })   synchronous or async renderFn
+//   const done = preserveScrollBegin(container, { view }); ...redraw...; done()
+//                                                    for a loader whose redraw is
+//                                                    spread around an await
+const _scrollViews = new WeakMap()
+let _scrollPageEpoch = 0
+let _scrollUserSeq = 0
+let _scrollUserWatched = false
+
+function _scrollWatchUser() {
+  if (_scrollUserWatched) return
+  _scrollUserWatched = true
+  const mark = (e) => {
+    // Typing into a field does not move the page.
+    if (e.type === 'keydown' && e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return
+    _scrollUserSeq++
+  }
+  for (const type of ['wheel', 'touchmove', 'keydown', 'pointerdown']) window.addEventListener(type, mark, { capture: true, passive: true })
+}
+
+function _scrollFirstClass(n) {
+  return typeof n.className === 'string' ? (n.className.trim().split(/\s+/)[0] || '') : ''
+}
+
+/** Stable key of a box inside `root`: id, else tag + first class + a data key
+ *  or its index among like siblings, joined up to `root`. */
+function _scrollKey(el, root) {
+  const parts = []
+  for (let n = el; n && n !== root && n.nodeType === 1; n = n.parentElement) {
+    if (n.id) { parts.unshift('#' + n.id); break }
+    const cls = _scrollFirstClass(n)
+    const d = n.dataset || {}
+    const dk = d.scrollKey || d.key || d.id || d.agent || d.acc || d.megaAcc || d.status || d.group || d.path || d.name
+    let seg = n.tagName + '.' + cls
+    if (dk) seg += '=' + dk
+    else {
+      let i = 0
+      for (let s = n.previousElementSibling; s; s = s.previousElementSibling) {
+        if (s.tagName === n.tagName && _scrollFirstClass(s) === cls) i++
+      }
+      seg += '[' + i + ']'
+    }
+    parts.unshift(seg)
+  }
+  return parts.join('>')
+}
+
+function _scrollSnapshot(container) {
+  const direct = []
+  for (let n = container; n && n.nodeType === 1; n = n.parentElement) {
+    if (n.scrollTop > 0 || n.scrollLeft > 0) direct.push({ el: n, top: n.scrollTop, left: n.scrollLeft })
+  }
+  const keyed = []
+  for (const n of container.querySelectorAll('*')) {
+    if (n.scrollTop > 0 || n.scrollLeft > 0) keyed.push({ key: _scrollKey(n, container), top: n.scrollTop, left: n.scrollLeft })
+  }
+  return { direct, keyed }
+}
+
+/** Puts the snapshot back. `raiseOnly` (the next-frame pass) only lifts a box
+ *  that is still short of its place, so it never pulls one back that something
+ *  else has moved on since. */
+function _scrollApply(container, snap, raiseOnly) {
+  const put = (el, s) => {
+    if (raiseOnly ? el.scrollTop < s.top : el.scrollTop !== s.top) el.scrollTop = s.top
+    if (raiseOnly ? el.scrollLeft < s.left : el.scrollLeft !== s.left) el.scrollLeft = s.left
+  }
+  if (snap.keyed.length) {
+    const want = new Map(snap.keyed.map((s) => [s.key, s]))
+    for (const n of container.querySelectorAll('*')) {
+      if (n.scrollHeight - n.clientHeight <= 1 && n.scrollWidth - n.clientWidth <= 1) continue
+      const s = want.get(_scrollKey(n, container))
+      if (!s) continue
+      put(n, s)
+      want.delete(s.key)
+      if (!want.size) break
+    }
+  }
+  for (const s of snap.direct) if (s.el.isConnected) put(s.el, s)
+}
+
+/** Takes the snapshot now and returns the function that restores it after the
+ *  redraw. A no-op when there is nothing to keep or the view is not the same. */
+function preserveScrollBegin(container, opts) {
+  const noop = () => {}
+  if (!container || typeof container.querySelectorAll !== 'function') return noop
+  const view = opts && opts.view != null ? String(opts.view) : ''
+  const prev = _scrollViews.get(container)
+  _scrollViews.set(container, { view, epoch: _scrollPageEpoch })
+  if (!prev || prev.view !== view || prev.epoch !== _scrollPageEpoch) return noop
+  if (!container.isConnected || !container.getClientRects().length) return noop
+  const snap = _scrollSnapshot(container)
+  if (!snap.direct.length && !snap.keyed.length) return noop
+  _scrollWatchUser()
+  const seq = _scrollUserSeq
+  const epoch = _scrollPageEpoch
+  let used = false
+  const still = () => _scrollUserSeq === seq && _scrollPageEpoch === epoch && container.isConnected
+  return () => {
+    if (used || !still()) return
+    used = true
+    _scrollApply(container, snap, false)
+    requestAnimationFrame(() => { if (still()) _scrollApply(container, snap, true) })
+  }
+}
+
+function preserveScroll(container, renderFn, opts) {
+  const done = preserveScrollBegin(container, opts)
+  let out
+  try { out = renderFn() } catch (err) { done(); throw err }
+  if (out && typeof out.then === 'function') return out.then((v) => { done(); return v }, (err) => { done(); throw err })
+  done()
+  return out
+}
+
 // === Dashboard auth bootstrap ===
 // The server prints an URL like http://127.0.0.1:3420/?token=XXX on startup
 // ONLY when it runs in a terminal (src/web.ts gates that line on
@@ -1196,6 +1331,9 @@ function switchPage(pageId) {
   // Guard unsaved settings before leaving the settings page
   if (!document.getElementById('settingsPage').hidden && pageId !== 'settings' && !confirmSettingsLeave()) return
   pages.forEach((p) => (p.hidden = p.id !== pageId + 'Page'))
+  // #482: a page switch is a real navigation -- the next draw of a list is not
+  // a same-view redraw, so preserveScroll leaves it alone.
+  _scrollPageEpoch++
   // Re-queried live, NOT the module-level `navLinks` snapshot -- that const
   // was captured once at script load, before dynamically-rendered nav links
   // (each email account's own sidebar entry, added later by
@@ -1845,7 +1983,8 @@ async function loadActivity() {
     const [res] = await Promise.all([fetch('/api/agents/activity'), loadAvailability()])
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const entries = await res.json()
-    renderActivity(entries)
+    // #482: the 3 s poll rebuilds every card, terminal tails included.
+    preserveScroll(document.getElementById('activityList'), () => renderActivity(entries))
     const upd = document.getElementById('activityUpdated')
     if (upd) upd.textContent = t('activity.updated', { time: new Date().toLocaleTimeString('hu-HU') })
   } catch (e) {
@@ -4790,7 +4929,8 @@ async function loadAgents() {
         if (typeof updateProviderUI === 'function') updateProviderUI()
       }
     }
-    renderAgents()
+    // #482: the 60 s refresh and every card action redraw the grid in place.
+    preserveScroll(agentsGrid, renderAgents)
     // Failure-proof like the fetches above: an older backend without the route
     // must not break the Agents page.
     loadDeletedAgents().catch(() => {})
@@ -10501,8 +10641,11 @@ async function loadSchedules() {
     // A sor projekt-valasztojahoz mindig kell, melyik utemezes melyik projekte.
     _prjScheduleMap = await _prjScopeMapLoad('schedule')
     const shown = schedules.filter((s) => _prjInScope('tasks', _prjScheduleMap[s.name]))
-    renderScheduleList(shown)
-    if (currentScheduleView === 'timeline') renderTimeline(shown)
+    // #482: Run / Pause / Delete / Save reload the list in place.
+    preserveScroll(document.getElementById('tasksPage'), () => {
+      renderScheduleList(shown)
+      if (currentScheduleView === 'timeline') renderTimeline(shown)
+    }, { view: _prjScope.tasks || '' })
     loadPendingRetries()
   } catch (err) {
     console.error('Ütemezés betöltés hiba:', err)
@@ -11326,7 +11469,7 @@ document.getElementById('saveMemBtn').addEventListener('click', async () => {
       showToast(t('memories.toast.created'))
     }
     closeModal(memModalOverlay)
-    loadMemories()
+    loadMemories({ keep: true })
     loadMemStats()
   } catch {
     showToast(t('common.error_save'))
@@ -11462,15 +11605,18 @@ let _prjMemoryMap = {}
 const MEM_PAGE = 50
 let _memNextOffset = 0
 
-async function loadMemories() {
-  return _loadMemoriesPage(false)
+async function loadMemories(opts) {
+  return _loadMemoriesPage(false, !!(opts && opts.keep === true))
 }
 
 async function loadMoreMemories() {
   return _loadMemoriesPage(true)
 }
 
-async function _loadMemoriesPage(append) {
+// #482: the API caps a page at 200 (src/web/routes/memories.ts).
+const MEM_KEEP_MAX = 200
+
+async function _loadMemoriesPage(append, keep) {
   if (currentMemTier === 'log' || currentMemTier === 'graph') return
   const q = memSearchInput.value.trim()
   const agent = document.getElementById('memAgentFilter').value
@@ -11482,9 +11628,13 @@ async function _loadMemoriesPage(append) {
   }
   if (agent) params.set('agent', agent)
   if (currentMemTier) params.set('tier', currentMemTier)
-  params.set('limit', String(MEM_PAGE))
   if (_prjScope.memories) params.set('project', _prjScope.memories)
   const pageable = !q && !_prjScope.memories
+  // #482: a reload after an edit or a delete (`keep`) asks for as many as were
+  // on screen, so the list does not shrink back to the first page under the
+  // owner's scroll position.
+  const limit = keep && pageable && !append ? Math.min(MEM_KEEP_MAX, Math.max(MEM_PAGE, _memNextOffset)) : MEM_PAGE
+  params.set('limit', String(limit))
   if (!append) _memNextOffset = 0
   if (append && pageable) params.set('offset', String(_memNextOffset))
   if (!append) _prjScopeBar('memories', loadMemories)
@@ -11497,6 +11647,8 @@ async function _loadMemoriesPage(append) {
       return
     }
     _prjMemoryMap = map
+    // #482: the same list redrawn in place (an edit, a delete) keeps its scroll position.
+    const keepScroll = preserveScrollBegin(memList, { view: [currentMemTier, agent, q, searchMode, _prjScope.memories || ''].join('\n') })
     renderMemories(memories, append)
     // #413: the strict search (every word) found nothing, the any-word retry
     // did -- say it, or the list looks like an exact hit.
@@ -11507,7 +11659,8 @@ async function _loadMemoriesPage(append) {
       memList.insertBefore(note, memList.firstChild)
     }
     _memNextOffset += memories.length
-    _renderMemMore(pageable && memories.length === MEM_PAGE)
+    _renderMemMore(pageable && memories.length === limit)
+    keepScroll()
   } catch (err) {
     console.error('Memória betöltés hiba:', err)
   }
@@ -11596,7 +11749,7 @@ function renderMemories(memories, append) {
       try {
         await fetch(`/api/memories/${mem.id}`, { method: 'DELETE' })
         showToast(t('memories.toast.deleted'))
-        loadMemories()
+        loadMemories({ keep: true })
         loadMemStats()
       } catch {
         showToast(t('common.error_delete'))
@@ -13994,6 +14147,8 @@ async function loadDriveColumn(account) {
   const stack = _driveStack(account)
   const folder = stack[stack.length - 1]
   renderDriveColumnCrumbs(col, account)
+  // #482: reloading the same folder (rename, trash, upload, refresh) keeps the scroll position.
+  const keepScroll = preserveScrollBegin(list, { view: folder.id })
   list.innerHTML = `<div class="drive-loading">${escapeHtml(t('drive.loading'))}</div>`
   try {
     const res = await fetch(`/api/drive/list?folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(account)}`)
@@ -14011,6 +14166,7 @@ async function loadDriveColumn(account) {
     }
     list.innerHTML = files.map(f => driveRowHtml(f)).join('')
     bindDriveRowActions(list, account, stack, () => loadDriveColumn(account))
+    keepScroll()
   } catch {
     list.innerHTML = `<div class="drive-col-error">${escapeHtml(t('drive.load_error'))}</div>`
   }
@@ -14159,6 +14315,8 @@ async function loadDriveFolder() {
   const list = document.getElementById('driveList')
   const empty = document.getElementById('driveEmpty')
   renderDriveError('')
+  // #482: reloading the same folder (rename, trash, upload, refresh) keeps the scroll position.
+  const keepScroll = preserveScrollBegin(list, { view: _driveAccount + '\n' + folder.id })
   list.innerHTML = `<div class="drive-loading">${escapeHtml(t('drive.loading'))}</div>`
   try {
     const res = await fetch(`/api/drive/list?folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(_driveAccount)}`)
@@ -14173,6 +14331,7 @@ async function loadDriveFolder() {
     empty.hidden = true
     list.innerHTML = files.map(f => driveRowHtml(f)).join('')
     bindDriveRowActions(list, _driveAccount, _driveFolderStack, loadDriveFolder)
+    keepScroll()
   } catch {
     renderDriveError(t('drive.load_error'))
     list.innerHTML = ''
@@ -14912,6 +15071,8 @@ async function _photosRefresh() {
   }
   _photosConsentReset()
 
+  // #482: the same account redrawn (a photo removed, new ones added) keeps the scroll position.
+  const keepScroll = preserveScrollBegin(grid, { view: _photosAccount })
   grid.innerHTML = `<div class="drive-loading">${escapeHtml(t('photos.loading'))}</div>`
   try {
     const res = await fetch('/api/photos/list?account=' + encodeURIComponent(_photosAccount))
@@ -14926,6 +15087,7 @@ async function _photosRefresh() {
     _photosBindTiles(grid)
     // A racs mar all; a kepek akkor jonnek, amikor a kepernyo koze ernek.
     _photosObserveTiles(grid)
+    keepScroll()
   } catch {
     _photosSetError(t('photos.load_error'))
     grid.innerHTML = ''
@@ -25187,29 +25349,34 @@ async function loadBgTasks() {
       return
     }
 
-    list.innerHTML = tasks.map(t => {
+    // #482: the 10 s refresh redraws the list in place (each output box scrolls on its own).
+    const keepScroll = preserveScrollBegin(list, { view: agentVal + '\n' + showAll })
+    // `task`, not `t`: the old `t` parameter shadowed the t() translator, so any
+    // listed task threw and the whole list showed the load error instead.
+    list.innerHTML = tasks.map(task => {
       const statusColors = { running: '#f59e0b', done: '#22c55e', failed: '#ef4444', timeout: '#6b7280' }
       const statusLabels = { running: () => t('bgTasks.status.running'), done: () => t('bgTasks.status.done'), failed: () => t('bgTasks.status.failed'), timeout: () => t('bgTasks.status.timeout') }
-      const color = statusColors[t.status] || '#6b7280'
-      const labelRaw = statusLabels[t.status]; const label = labelRaw ? (typeof labelRaw === 'function' ? labelRaw() : labelRaw) : t.status
-      const output = t.output ? `<pre style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px;font-size:12px;max-height:200px;overflow:auto;white-space:pre-wrap;">${esc(t.output.slice(-2000))}</pre>` : ''
+      const color = statusColors[task.status] || '#6b7280'
+      const labelRaw = statusLabels[task.status]; const label = labelRaw ? (typeof labelRaw === 'function' ? labelRaw() : labelRaw) : task.status
+      const output = task.output ? `<pre style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px;font-size:12px;max-height:200px;overflow:auto;white-space:pre-wrap;">${esc(task.output.slice(-2000))}</pre>` : ''
       return `<div style="margin-bottom:12px;padding:12px 16px;border-radius:8px;background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <div style="display:flex;gap:8px;align-items:center;">
-            <span style="font-weight:600;font-size:13px;">${esc(t.id)}</span>
+            <span style="font-weight:600;font-size:13px;">${esc(task.id)}</span>
             <span class="badge" style="font-size:11px;background:${color};color:#fff;padding:2px 8px;border-radius:12px;">${label}</span>
-            <span class="badge" style="font-size:11px;background:var(--primary);color:#fff;padding:2px 8px;border-radius:12px;">${esc(t.agent_id)}</span>
+            <span class="badge" style="font-size:11px;background:var(--primary);color:#fff;padding:2px 8px;border-radius:12px;">${esc(task.agent_id)}</span>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
-            <span style="font-size:12px;color:var(--text-muted)">${esc(t.started_label)}</span>
-            ${t.status === 'running' ? `<button class="btn btn-sm" onclick="viewBgTask('${esc(t.id)}')" style="font-size:11px;padding:2px 8px;">${t('bgTasks.output_btn')}</button><button class="btn btn-sm" onclick="cancelBgTask('${esc(t.id)}')" style="font-size:11px;padding:2px 8px;color:var(--danger)">${t('bgTasks.stop_btn')}</button>` : ''}
+            <span style="font-size:12px;color:var(--text-muted)">${esc(task.started_label)}</span>
+            ${task.status === 'running' ? `<button class="btn btn-sm" onclick="viewBgTask('${esc(task.id)}')" style="font-size:11px;padding:2px 8px;">${t('bgTasks.output_btn')}</button><button class="btn btn-sm" onclick="cancelBgTask('${esc(task.id)}')" style="font-size:11px;padding:2px 8px;color:var(--danger)">${t('bgTasks.stop_btn')}</button>` : ''}
           </div>
         </div>
-        <div style="font-size:13px;color:var(--text-primary);margin-bottom:4px;">${esc(t.prompt)}</div>
-        ${t.finished_label ? `<div style="font-size:12px;color:var(--text-muted);">${t('bgTasks.finished_label')} ${esc(t.finished_label)}</div>` : ''}
+        <div style="font-size:13px;color:var(--text-primary);margin-bottom:4px;">${esc(task.prompt)}</div>
+        ${task.finished_label ? `<div style="font-size:12px;color:var(--text-muted);">${t('bgTasks.finished_label')} ${esc(task.finished_label)}</div>` : ''}
         ${output}
       </div>`
     }).join('')
+    keepScroll()
   } catch {
     list.innerHTML = `<p class="c-danger">${t('bgTasks.load_error')}</p>`
   }
@@ -25731,7 +25898,15 @@ function _filterApprovals() {
   })
 }
 
+// #482: the 5 s review poll, a decision and an expanded row redraw the table in
+// place and keep the scroll position; another filter or page is a new view.
 function _renderApprovalsTable() {
+  const s = _approvalsState
+  const view = [s.status, s.agent, s.category, s.search, s.offset, _prjScope.approvals || ''].join('\n')
+  return preserveScroll(document.getElementById('approvalsTable')?.parentElement, _renderApprovalsTableNow, { view })
+}
+
+function _renderApprovalsTableNow() {
   const filtered = _filterApprovals()
   const { offset } = _approvalsState
   const page = filtered.slice(offset, offset + APPROVALS_PAGE_LIMIT)
@@ -44646,6 +44821,8 @@ async function _intezoCfgSave() {
         cbFetch('/api/code/candidates').catch(function (e) { return { error: e.message } }),
         cbFetch('/api/code/tabs').catch(function (e) { return { error: e.message } }),
       ])
+      // #482: the 5 s refresh redraws these lists in place inside the window.
+      const keepScroll = preserveScrollBegin(document.getElementById('cbModalBody'), { view: _cbTab })
       cbRenderProjects(projects.projects)
       cbRenderTiles(health)
       if (_cbTab === 'skills') cbLoadSkills()
@@ -44654,6 +44831,7 @@ async function _intezoCfgSave() {
       // A fulek a projektek UTAN: a legordulo a kivalasztott projekthez tartozo
       // fuleket mutatja, tehat kell hozza a mar kirajzolt projekt-lista.
       cbRenderTabs(tabs)
+      keepScroll()
     } catch (e) {
       const el = document.getElementById('cbTasksList')
       if (el) el.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni: ' + escapeHtml(e.message) + '</p>'
@@ -45623,7 +45801,8 @@ async function loadGitReposPage() {
     return
   }
   _gitreposRenderLastRun(data)
-  _gitreposRenderList(data)
+  // #482: Sync / Commit-and-push reload the list in place.
+  preserveScroll(host, () => _gitreposRenderList(data))
   const empty = _gitreposEmptyState(data)
   if (empty) {
     box.hidden = false
@@ -45913,6 +46092,8 @@ async function loadMegaFolder() {
   empty.hidden = true
   errBox.hidden = true
   errBox.innerHTML = ''
+  // #482: reloading the same folder (rename, move, trash, upload) keeps the scroll position.
+  const keepScroll = preserveScrollBegin(list, { view: account + '\n' + stack[stack.length - 1].path })
   list.innerHTML = '<div class="drive-loading">' + escapeHtml(t('drive.loading')) + '</div>'
   const seq = _megaSeq[''] = (_megaSeq[''] || 0) + 1
   const r = await _megaFetchList(account, stack[stack.length - 1].path)
@@ -45928,6 +46109,7 @@ async function loadMegaFolder() {
   if (!r.items.length) { list.innerHTML = ''; empty.hidden = false; return }
   list.innerHTML = r.items.map(megaRowHtml).join('')
   _megaBindRows(list, account, stack, loadMegaFolder)
+  keepScroll()
 }
 
 /** Hasabos nezet: minden fiok sajat hasabban, sajat mappaveremmel. */
@@ -45939,6 +46121,8 @@ async function loadMegaColumn(account) {
   const stack = _megaStack(account)
   bc.innerHTML = _megaCrumbsHtml(stack)
   _megaBindCrumbs(bc, account, () => loadMegaColumn(account))
+  // #482: reloading the same folder keeps the scroll position.
+  const keepScroll = preserveScrollBegin(list, { view: stack[stack.length - 1].path })
   list.innerHTML = '<div class="drive-loading">' + escapeHtml(t('drive.loading')) + '</div>'
   const key = 'col:' + account
   const seq = _megaSeq[key] = (_megaSeq[key] || 0) + 1
@@ -45950,6 +46134,7 @@ async function loadMegaColumn(account) {
   if (!r.items.length) { list.innerHTML = '<div class="drive-col-empty">' + escapeHtml(t('megadepot.empty_folder')) + '</div>'; return }
   list.innerHTML = r.items.map(megaRowHtml).join('')
   _megaBindRows(list, account, stack, () => loadMegaColumn(account))
+  keepScroll()
 }
 
 function _megaShownAccounts() {
@@ -46774,6 +46959,8 @@ viewStateRegister('projects', () => (_prj.current
 async function _prjLoadList() {
   const root = document.getElementById('projectsRoot')
   if (!root) return
+  // #482: the list reloaded in place (after a migration or its revert) keeps the scroll position.
+  const keepScroll = preserveScrollBegin(root, { view: 'list' })
   root.innerHTML = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
   // Mindig az archivaltakkal egyutt: igy kulon tudjuk mondani, hogy "meg nincs
   // projekted" vagy "minden projekted archivalt" -- a ketto nem ugyanaz.
@@ -46788,6 +46975,7 @@ async function _prjLoadList() {
   _prj.depotConfigured = !!(r.data.depot && r.data.depot.configured)
   refreshProjectNames()
   _prjRenderList()
+  keepScroll()
   _prjLoadMigration()
 }
 
@@ -46827,8 +47015,11 @@ function _prjRenderList() {
     body = `<div class="prj-empty prj-empty-small"><p>${escapeHtml(t('projects.all_archived', { n: all.length }))}</p>
       <button type="button" class="btn-secondary" data-prj-act="show-archived">${escapeHtml(t('projects.show_archived'))}</button></div>`
   } else body = `<div class="prj-grid">${visible.map(_prjTileHtml).join('')}</div>`
-  root.innerHTML = _prjListHeadHtml() + body
-  _prjWireListHead()
+  // #482: the archived toggle redraws the list in place.
+  preserveScroll(root, () => {
+    root.innerHTML = _prjListHeadHtml() + body
+    _prjWireListHead()
+  }, { view: 'list' })
 }
 
 function _prjEmptyHtml() {
@@ -46889,6 +47080,9 @@ function _prjRenderProject() {
   if (window.MarvinWorkbench && window.MarvinWorkbench.isOpen()) return
   const p = ov.project
   const status = `<span class="prj-status prj-status-${escapeAttr(p.status)}">${escapeHtml(_prjT('projects.status.' + p.status, null, p.status))}</span>`
+  // #482: the same project tab redrawn (Refresh, the tab counts arriving, an
+  // edit) keeps the scroll position; another project or tab is a new view.
+  const keepScroll = preserveScrollBegin(root, { view: p.id + '\n' + _prj.tab })
   root.innerHTML = `
   <div class="prj-detail">
     <button type="button" class="prj-back-link" data-prj-act="back">${escapeHtml(t('projects.back_to_list'))}</button>
@@ -46919,6 +47113,7 @@ function _prjRenderProject() {
     </div>
     ${_prjTabBodyHtml(ov)}
   </div>`
+  keepScroll()
   // A fulek minden megjeleneskor friss adatot kernek (kozben mashol is
   // szulethetett otlet / kartya / fajl); addig a legutobbi lista latszik.
   if (_prj.tab === 'ideas') _prjLoadIdeas()
