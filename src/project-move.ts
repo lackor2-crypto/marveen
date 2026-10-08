@@ -9,7 +9,7 @@
  */
 import { getDb } from './db.js'
 import { deleteKanbanCard, deleteIdea } from './db.js'
-import { moveProjectWorkItems } from './workbench-assets.js'
+import { moveProjectWorkItems, moveProjectLooseFiles } from './workbench-assets.js'
 import { ensureProjectTables, hasTable, getProject, linkObject, listProjectLinks, projectIdeaIds, projectCardIds, isLinkType } from './projects.js'
 
 export const MOVABLE_TYPES = ['card', 'idea', 'debate', 'research', 'memory', 'schedule', 'skill'] as const
@@ -92,12 +92,12 @@ export function projectContents(id: string): ProjectContents {
 }
 
 export type EmptyingResult =
-  | { ok: true; cards: number; ideas: number; links: number; workItems?: number }
-  | { ok: false; code: 'source_missing' | 'target_missing' | 'target_archived' | 'same_project' | 'has_work_items' | 'work_items_move_failed'; workItems?: number; moved?: number; message?: string }
+  | { ok: true; cards: number; ideas: number; links: number; workItems?: number; files?: number }
+  | { ok: false; code: 'source_missing' | 'target_missing' | 'target_archived' | 'same_project' | 'has_work_items' | 'work_items_move_failed' | 'files_move_failed'; workItems?: number; moved?: number; message?: string }
 
 /**
  * Merge: the Workbench items move first (their folders go into the target's work items box, every path
- * follows), then every card and link goes to the target, and the (now empty) source project is deleted.
+ * follows), then the project's other files (moveProjectLooseFiles), then every card and link goes to the target, and the (now empty) source project is deleted.
  * If an item cannot be moved, nothing else changes and the source project stays (a retry continues).
  */
 export function mergeProjectInto(sourceId: string, targetId: string): EmptyingResult {
@@ -114,6 +114,9 @@ export function mergeProjectInto(sourceId: string, targetId: string): EmptyingRe
     if (!wm.ok) return { ok: false, code: 'work_items_move_failed', workItems: c.workItems, moved: wm.moved, ...(wm.message ? { message: wm.message } : {}) }
     workItems = wm.moved
   }
+  // #509 (TG 2948, A): the project's other files go along too (nothing stays behind in a deleted project's folder).
+  const lf = moveProjectLooseFiles(getProject(sourceId)!, getProject(targetId)!)
+  if (!lf.ok) return { ok: false, code: 'files_move_failed', moved: lf.moved, ...(lf.message ? { message: lf.message } : {}) }
   const db = getDb()
   let cards = 0, links = 0
   db.transaction(() => {
@@ -123,7 +126,7 @@ export function mergeProjectInto(sourceId: string, targetId: string): EmptyingRe
     links = db.prepare('UPDATE project_links SET project_id = ? WHERE project_id = ?').run(targetId, sourceId).changes
     db.prepare('DELETE FROM projects WHERE id = ?').run(sourceId)
   })()
-  return { ok: true, cards, ideas: c.ideas, links, workItems }
+  return { ok: true, cards, ideas: c.ideas, links, workItems, ...(lf.moved ? { files: lf.moved } : {}) }
 }
 
 /** Delete the project AND what is in it: its cards and ideas are removed, other links are cut (the objects stay). */
