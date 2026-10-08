@@ -1743,3 +1743,16 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-tbl th, .wb-dp-tbl td { border: 1px solid var(--border, #d0d4dc); padding: 4px 8px; text-align: left; vertical-align: top; }
 .wb-dp-tbl th { background: var(--bg-muted, #f3f4f7); font-weight: 600; }
 .wb-dp-tbl:focus-visible { outline: 2px solid var(--accent, #6d4aff); outline-offset: 2px; }
+.wb-dp-tbl { position: relative; overflow: visible; }
+.wb-dp-tbl-l { margin-right: auto; }
+.wb-dp-tbl-r { margin-left: auto; }
+.wb-dp-tbl-c { margin-left: auto; margin-right: auto; }
+.wb-dp-tbl-move { position: absolute; left: -6px; top: -6px; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 3px; background: var(--accent, #2563eb); color: #fff; font-size: 12px; cursor: grab; opacity: 0; }
+.wb-dp-tbl .wb-dp-img-size { cursor: nwse-resize; }
+.wb-dp-tbl .wb-dp-img-tools { top: -14px; }
+.wb-dp-tbl:hover .wb-dp-img-size, .wb-dp-tbl:hover .wb-dp-img-tools, .wb-dp-tbl:hover .wb-dp-tbl-move, .wb-dp-tbl:focus-within .wb-dp-img-size, .wb-dp-tbl:focus-within .wb-dp-img-tools, .wb-dp-tbl:focus-within .wb-dp-tbl-move { opacity: 1; }
+@media (hover: none) { .wb-dp-tbl-move { opacity: 1; } }
+.wb-dp-row-float { float: left; margin-right: 12px; z-index: 2; }
+.wb-dp-row-float-r { float: right; margin-right: 0; margin-left: 12px; }
+.wb-dp-sec::after { content: ""; display: block; clear: both; }
+@media (max-width: 600px) { .wb-dp-row-float, .wb-dp-row-float-r { float: none; width: auto !important; margin: 0; } }

@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto'
 import { getDb } from './db.js'
-import { ensureDocModelTables } from './workbench-docmodel.js'
+import { ensureDocModelTables, tableBlockParts } from './workbench-docmodel.js'
 
 // ---------------------------------------------------------------------------
 // Datumok
@@ -291,7 +291,7 @@ function cellAmount(c: string): number | null {
 }
 
 function checkTable(t: DocText, found: Omit<ConsistencyIssue, 'acked' | 'acked_at' | 'acked_by'>[]): void {
-  const rows = tableRows(t.text)
+  const rows = tableRows(tableBlockParts(t.text).text)
   if (rows.length < 3) return
   // Osszesen-sor: az elotte allo tetel-sorok (a fejlec es a reszosszegek nelkul) osszege oszloponkent.
   rows.forEach((r, ri) => {

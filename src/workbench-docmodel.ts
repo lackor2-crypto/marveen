@@ -64,6 +64,18 @@ export function imageBlockParts(text: string): { path: string; width: number | n
   return { path: m[1] as string, width: Math.max(10, Math.min(100, Number(m[2]))), align: (m[3] as 'l' | 'c' | 'r') || 'c' }
 }
 
+/**
+ * A table block can carry a width and an alignment like a picture does (#508, Boss TG 2995/2998): its text then ends
+ * with one extra line `#w=<10..100>&a=<l|c|r>`. A table narrower than the page and aligned left or right lets the text
+ * run beside it. No such line: the old behaviour (the whole text width).
+ */
+export function tableBlockParts(text: string): { text: string; width: number | null; align: 'l' | 'c' | 'r' } {
+  const t = String(text || '')
+  const m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?\s*$/.exec(t)
+  if (!m) return { text: t, width: null, align: 'c' }
+  return { text: m[1] as string, width: Math.max(10, Math.min(100, Number(m[2]))), align: (m[3] as 'l' | 'c' | 'r') || 'c' }
+}
+
 export const SOURCE_KINDS = ['document', 'owner', 'official', 'inference'] as const
 export type SourceKind = typeof SOURCE_KINDS[number]
 

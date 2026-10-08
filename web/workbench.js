@@ -11836,13 +11836,66 @@
       + '</div>'
   }
 
+  /** A table block's text: `<a | b lines>\n#w=<10..100>&a=<l|c|r>` (the server's tableBlockParts). */
+  function dpTableParts(text) {
+    var m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?\s*$/.exec(String(text || ''))
+    if (!m) return { text: String(text || ''), width: null, align: 'c' }
+    return { text: m[1], width: Math.max(10, Math.min(100, Number(m[2]))), align: m[3] || 'c' }
+  }
+
+  function dpTableText(body, width, align) {
+    if (width == null || (width >= 100 && (align || 'c') === 'c')) return body
+    return body + '\n#w=' + Math.round(width) + '&a=' + (align || 'c')
+  }
+
+  /** What the field shows when a block is edited: for a table the lines only, the size/alignment line stays hidden. */
+  function dpBlockShown(b) { return b.kind === 'table' ? dpTableParts(b.text).text : b.text }
+
+  /** The row of a table block narrower than the page and aligned left/right floats, so the text runs beside it (#508). */
+  function dpTableRowClass(b) {
+    var p = dpTableParts(b.text)
+    return (p.width && p.width < 100 && p.align !== 'c') ? ' wb-dp-row-float wb-dp-row-float-' + p.align : ''
+  }
+
+  function dpTableRowStyle(b) {
+    var p = dpTableParts(b.text)
+    return (p.width && p.width < 100 && p.align !== 'c') ? ' style="width:' + p.width + '%"' : ''
+  }
+
   function dpTableHtml(b, sid, ro) {
-    var lines = String(b.text || '').split('\n')
+    var pic = dpTableParts(b.text)
+    var lines = pic.text.split('\n')
     var body = lines.map(function (ln, r) {
       return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
     }).join('')
-    return '<div class="wb-dp-block wb-dp-tbl"' + (ro ? '' : ' role="button" tabindex="0" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '"')
-      + '><table>' + body + '</table></div>'
+    var floated = pic.width && pic.width < 100 && pic.align !== 'c'
+    var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-tbl-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
+    return '<div class="wb-dp-block wb-dp-tbl wb-dp-tbl-' + pic.align + '" data-wb-tbl-block="' + escA(b.id) + '"'
+      + (!floated && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
+      + (ro ? '' : ' role="button" tabindex="0" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '"')
+      + '><table>' + body + '</table>'
+      + (ro ? '' : '<span class="wb-dp-tbl-move" draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_move')) + '" aria-label="' + escA(t('workbench.dp.tbl_move')) + '">&#10021;</span>'
+        + '<span class="wb-dp-img-size" data-wb-tbl-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.tbl_resize')) + '" aria-label="' + escA(t('workbench.dp.tbl_resize')) + '"></span>'
+        + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.tbl_left') + al('c', 'workbench.dp.tbl_center') + al('r', 'workbench.dp.tbl_right') + '</span>')
+      + '</div>'
+  }
+
+  /** Left/right with a full-width table would change nothing, so the first align click also narrows it to a half. */
+  function dpTableAlign(bid, align) {
+    var b = dpImageBlock(bid)
+    if (!b) return
+    var cur = dpTableParts(b.text)
+    dpTableSave(bid, (align !== 'c' && !cur.width) ? 50 : null, align)
+  }
+
+  function dpTableSave(bid, width, align) {
+    var b = dpImageBlock(bid)
+    if (!b) return
+    var cur = dpTableParts(b.text)
+    var w = width == null ? (cur.width || 100) : width
+    var text = dpTableText(cur.text, w, align || cur.align)
+    if (text === b.text) return
+    dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
   }
 
   function dpTblEdit(bid) {
@@ -11881,13 +11934,13 @@
       if (b.kind === 'table' && WB.dpTblEdit !== b.id && WB.docDrafts['b:' + b.id] == null) {
         // #508: a table block (a built-in spreadsheet) is shown as a grid, the way an editor shows a table;
         // a click opens its "a | b" lines for editing, leaving the field shows the grid again.
-        rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+        rows += '<div class="wb-dp-row' + dpTableRowClass(b) + '"' + dpTableRowStyle(b) + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
           + dpTableHtml(b, sec.id, ro) + '</div>'
         return
       }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"',
-          dpDraft('b:' + b.id, b.text), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro)
+          dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro)
         + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
         + (b.rewrite ? '<div class="wb-dp-extra">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
     })
@@ -12004,6 +12057,7 @@
       var bid = el.getAttribute('data-wb-block')
       var b = findBlock(bid)
       if (!b) return Promise.resolve(null)
+      if (b.kind === 'table') { var tp = dpTableParts(b.text); if (text && text !== tp.text) text = dpTableText(text, tp.width, tp.align); else if (text === tp.text) text = b.text }
       if (text === b.text) { delete WB.docDrafts['b:' + bid]; return Promise.resolve(WB.detail.outline) }
       if (!text) { delete WB.docDrafts['b:' + bid]; render(); return Promise.resolve(null) } // ures szoveg nem mentheto: marad a regi
       return dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) delete WB.docDrafts['b:' + bid]; return o })
@@ -15077,6 +15131,7 @@
 
   document.addEventListener('click', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    if (e.target.closest('[data-wb-tbl-resize], .wb-dp-tbl-move')) return
     var act = e.target.closest('[data-wb-act]')
     var a = act ? act.getAttribute('data-wb-act') : ''
     if (WB.docMenu && (!a || a.indexOf('dp-') !== 0) && !e.target.closest('.wb-dp-menu')) { WB.docMenu = null; if (!a) render() }
@@ -15088,6 +15143,7 @@
     else if (a === 'dp-handle') dpMenuOpen('handle', bid, sid)
     else if (a === 'dp-tbl-edit') dpTblEdit(bid)
     else if (a === 'dp-img-align') dpImageSave(bid, null, act.getAttribute('data-wb-align'))
+    else if (a === 'dp-tbl-align') dpTableAlign(bid, act.getAttribute('data-wb-align'))
     else if (a === 'dp-ins') dpInsert(sid, bid, act.getAttribute('data-wb-kind'))
     else if (a === 'dp-ins-section') dpInsertSection(sid)
     else if (a === 'dp-move') dpMoveStep(bid, Number(act.getAttribute('data-wb-dir')) || 0)
@@ -15221,6 +15277,54 @@
     hd.addEventListener('pointerup', up)
     hd.addEventListener('pointercancel', up)
   })
+  // #508 (TG 2998): the same corner handle on a table block; the share is of the page's text width.
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var hd = e.target.closest('[data-wb-tbl-resize]')
+    if (!hd || archived()) return
+    var box = hd.closest('.wb-dp-tbl')
+    var page = hd.closest('.wb-dp-page')
+    if (!box || !page) return
+    e.preventDefault()
+    e.stopPropagation()
+    var bid = hd.getAttribute('data-wb-tbl-resize')
+    var row = hd.closest('.wb-dp-row')
+    var floated = row && row.classList.contains('wb-dp-row-float')
+    var full = Math.max(1, box.parentElement ? (floated ? page.clientWidth : box.parentElement.clientWidth) : page.clientWidth)
+    var startX = e.clientX
+    var startW = (floated ? row : box).getBoundingClientRect().width
+    var right = box.classList.contains('wb-dp-tbl-r')
+    var centre = box.classList.contains('wb-dp-tbl-c')
+    var pct = Math.round(startW / full * 100)
+    try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
+    function move(ev) {
+      var dx = ev.clientX - startX
+      if (right) dx = -dx
+      if (centre) dx = dx * 2
+      pct = Math.max(10, Math.min(100, Math.round((startW + dx) / full * 20) * 5))
+      ;(floated ? row : box).style.width = pct + '%'
+      hd.setAttribute('aria-valuenow', String(pct))
+    }
+    function up() {
+      hd.removeEventListener('pointermove', move)
+      hd.removeEventListener('pointerup', up)
+      hd.removeEventListener('pointercancel', up)
+      dpTableSave(bid, pct, null)
+    }
+    hd.addEventListener('pointermove', move)
+    hd.addEventListener('pointerup', up)
+    hd.addEventListener('pointercancel', up)
+  })
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var hd = e.target.closest('[data-wb-tbl-resize]')
+    if (!hd || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
+    e.preventDefault()
+    e.stopPropagation()
+    var cur = Number(hd.getAttribute('aria-valuenow')) || 100
+    dpTableSave(hd.getAttribute('data-wb-tbl-resize'), Math.max(10, Math.min(100, cur + (e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 5 : -5))), null)
+  })
+
   document.addEventListener('keydown', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     var hd = e.target.closest('[data-wb-img-resize]')
