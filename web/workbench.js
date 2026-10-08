@@ -12445,7 +12445,9 @@
       var media = isImageFile({ name: name }) || /\.(mp4|mov|webm|mkv|avi)$/i.test(name)
       // #508 (TG 2943): ANY file of a document can be dropped on the page; there the owner picks built-in or annex.
       var drag = isDoc && !archived()
-      return '<div class="wb-fr-tilewrap"><a class="wb-fr-tile" href="' + escA(href) + '" target="_blank" rel="noopener" title="' + escA(drag ? name + ' \u2014 ' + t('workbench.fr.tile_drag') : name) + '"'
+      // A Word / Excel / text file has no browser view (it would only download): a click opens it in its own editor.
+      var inEditor = !media && /\.(docx?|odt|xlsx?|xlsm|ods|csv|tsv|txt|md)$/i.test(name)
+      return '<div class="wb-fr-tilewrap"><a class="wb-fr-tile" href="' + escA(href) + '" target="_blank" rel="noopener"' + (inEditor && !archived() ? ' data-wb-act="file-open-item" data-wb-rel="' + escA(a.path) + '"' : '') + ' title="' + escA(drag ? name + ' \u2014 ' + t('workbench.fr.tile_drag') : name) + '"'
         + (drag ? ' draggable="true" ' + (frDocImageOk(name) ? 'data-wb-drag-img="1"' : 'data-wb-drag-file="1"') + ' data-wb-src="' + escA(a.path) + '"' : ' draggable="false"') + '>'
         + '<span class="wb-fr-tile-pic"><span class="wb-fr-tile-icon" aria-hidden="true">' + frFileIcon(name) + '</span>'
         + (media ? '<img alt="" loading="lazy" draggable="false" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(a.path) + '&lang=' + lang) + '">' : '<span class="wb-fr-tile-ext">' + esc(ext) + '</span>')
@@ -13773,6 +13775,7 @@
     else if (a === 'tr-swap') trSwap()
     else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
     else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
+    else if (a === 'file-open-item') { if (!(e.ctrlKey || e.metaKey || e.shiftKey)) { e.preventDefault(); fileToItem(act.getAttribute('data-wb-rel'), '') } }
     else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'), act.getAttribute('data-wb-kind') || '')
     else if (a === 'file-delete') deleteFiles(act.getAttribute('data-wb-rel'))
     else if (a === 'file-rename') renameFile(act.getAttribute('data-wb-rel'))
@@ -15335,6 +15338,7 @@
       if (!r.ok) { window.showToast(r.message); return }
       if (WB.selectedId === id && WB.detail) WB.detail.outline = r.data.outline
       if (mode === 'annex') window.showToast(t('workbench.dp.drop_annexed', { name: baseOf(rel) }))
+      else if (r.data.empty_table) window.showToast(t('workbench.dp.drop_empty_table'))
       else if (r.data.truncated) window.showToast(t('workbench.dp.drop_truncated'))
       render()
     })

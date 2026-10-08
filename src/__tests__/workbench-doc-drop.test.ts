@@ -9,7 +9,7 @@ import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { addSection, documentOutline, imageBlockParts, imageBlockPathOk } from '../workbench-docmodel.js'
-import { embedKind, fileToBlocks, gridToTableText } from '../workbench-docembed.js'
+import { BLANK_TABLE_TEXT, embedKind, fileToBlocks, gridToTableText } from '../workbench-docembed.js'
 import { buildFodt, type RenderOutline } from '../workbench-docrender.js'
 import { buildZip } from '../web/zip-writer.js'
 import { blankXlsx, readTable, writeTable } from '../workbench-table.js'
@@ -51,6 +51,14 @@ describe('fileToBlocks', () => {
     expect(readTable(w.data, 'k.xlsx').ok).toBe(true)
     const r = fileToBlocks(w.data, 'koltseg.xlsx')
     expect(r.ok && r.blocks).toEqual([{ kind: 'table', text: 'Tetel | Ar\nKenyer | 500' }])
+  })
+  it('an empty Excel file is still a table: a blank grid to fill in (TG 2970)', () => {
+    const r = fileToBlocks(blankXlsx('Munka1'), 'New Microsoft Excel-munkalap.xlsx')
+    expect(r).toMatchObject({ ok: true, emptyTable: true, truncated: false })
+    expect(r.ok && r.blocks).toEqual([{ kind: 'table', text: BLANK_TABLE_TEXT }])
+    expect(BLANK_TABLE_TEXT.split('\n')).toHaveLength(3)
+    expect(fileToBlocks(Buffer.from(''), 'ures.csv')).toMatchObject({ ok: true, emptyTable: true })
+    expect(fileToBlocks(docx(''), 'ures.docx')).toMatchObject({ ok: false, code: 'embed_empty' })
   })
   it('csv and plain text', () => {
     const c = fileToBlocks(Buffer.from('a;b\n1;2\n'), 'x.csv')
@@ -118,6 +126,13 @@ describe('POST /outline/drop', () => {
     expect(r.body.added).toBe(1)
     const blocks = documentOutline(itemId).sections[0]!.blocks
     expect(blocks.map((b) => [b.kind, b.text])).toEqual([['table', 'Tetel | Ar\nKenyer | 500']])
+  })
+  it('an empty spreadsheet dropped on the page puts a blank table there', async () => {
+    writeFileSync(join(upl(), 'u.xlsx'), blankXlsx('Munka1'))
+    const r = await drop({ path: 'Projektek/Iroda/Feltöltések/u.xlsx', mode: 'embed', section: sec, position: 0 })
+    expect(r.status).toBe(201)
+    expect(r.body.empty_table).toBe(true)
+    expect(documentOutline(itemId).sections[0]!.blocks.map((b) => b.kind)).toEqual(['table'])
   })
   it('a picture built in is an image block', async () => {
     writeFileSync(join(upl(), 'f.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))

@@ -3445,7 +3445,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         if (typeof pos === 'number') pos++
       }
       scheduleOutlineMirror(item.id)
-      json(res, { ok: true, added, truncated: conv.truncated, outline: outlineOrEmpty(item.id) }, 201)
+      json(res, { ok: true, added, truncated: conv.truncated, empty_table: conv.emptyTable === true, outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
     if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))

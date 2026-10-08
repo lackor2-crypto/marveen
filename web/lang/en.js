@@ -6402,6 +6402,7 @@ window._i18n.en = {
   "workbench.dp.drop_annex": "Attach as an annex",
   "workbench.dp.drop_no_embed": "This file type cannot be built into the page, only attached as an annex.",
   "workbench.dp.drop_annexed": "{name} is now one of the annexes.",
+  "workbench.dp.drop_empty_table": "The spreadsheet was empty, so I put a blank table on the page.",
   "workbench.dp.drop_truncated": "The file is very long: I built in its beginning, the whole content stays in the file.",
   "workbench.dp.tbl_edit": "Click to edit the table (one row per line: cell | cell)",
   "workbench.dp.img_move": "Drag the picture to move it on the page",
