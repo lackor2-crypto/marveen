@@ -47415,7 +47415,7 @@ async function _prjLoadResearch() {
   if (!pid) return
   const [r] = await Promise.all([_prjApi('GET', '/api/research?project=' + encodeURIComponent(pid)), _prjLoadVf('research', pid)])
   if (_prj.current !== pid) return
-  const list = r.ok && Array.isArray(r.data) ? r.data.flatMap((a) => (a.docs || []).map((d) => ({ ...d, agent: a.agent }))) : []
+  const list = r.ok && Array.isArray(r.data) ? r.data.flatMap((a) => (a.docs || []).map((d) => ({ ...d, agent: a.agent }))).sort((x, y) => (y.ms || 0) - (x.ms || 0)) : []
   _prj.research = { pid, list, err: r.ok ? null : r.message }
   const body = document.getElementById('prjResearchBody')
   if (body && _prj.tab === 'research') body.outerHTML = _prjResearchTabHtml()

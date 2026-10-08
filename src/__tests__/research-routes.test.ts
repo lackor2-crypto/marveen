@@ -3,7 +3,7 @@
 // the path-traversal arm: encoded ../ sequences, non-.md names, and unknown
 // agents must all be rejected before any filesystem read happens.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, mkdtempSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { utimesSync, mkdirSync, rmSync, writeFileSync, mkdtempSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { RouteContext } from '../web/routes/types.js'
@@ -77,6 +77,15 @@ describe('research routes', () => {
     expect(sub?.docs.find((d: any) => d.name === 'alpha.md')?.title).toBe('Alpha Report')
     const main = out.body.find((a: any) => a.agent === MAIN_AGENT_ID)
     expect(main?.docs.map((d: any) => d.name)).toContain('zz-test-main-research.md')
+  })
+
+  it('orders agent groups newest document first', async () => {
+    const old = new Date(Date.now() - 5 * 86400_000)
+    utimesSync(MAIN_SEED, old, old)
+    const { ctx, out } = fakeCtx('/api/research')
+    await tryHandleResearch(ctx)
+    const ms = out.body.map((a: any) => a.docs[0].ms)
+    expect([...ms].sort((x: number, y: number) => y - x)).toEqual(ms)
   })
 
   it('serves a single doc with content', async () => {
