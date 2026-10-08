@@ -1219,6 +1219,18 @@
     })
   }
 
+  /** Re-reads only the file list of the open work item (the editor's Uploads panel), so a delete / rename / move
+   *  made from a menu shows at once. Nothing else of the open item is touched (no flicker, no lost edit). */
+  function refreshDetailAssets() {
+    var id = WB.selectedId
+    if (!id || !WB.detail) return
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
+      if (!r.ok || WB.selectedId !== id || !WB.detail || !r.data) return
+      WB.detail.assets = r.data.assets
+      render()
+    })
+  }
+
   // ---- panelek --------------------------------------------------------------
 
   /** Archivalt projektben nem keletkezik uj munkadarab -- a meglevok latszanak. */
@@ -1433,6 +1445,7 @@
       WB.fileBusy = false
       if (WB.projectId !== pid) return
       render()
+      refreshDetailAssets()
       if (notes.length) window.showToast(notes.join(' '))
     })
   }
@@ -1568,6 +1581,7 @@
       ;(d.skipped || []).forEach(function (s) { skippedNames[s.name] = true })
       Object.keys(WB.fileSel || {}).forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
       render()
+      refreshDetailAssets()
       var sk = d.skipped || []
       var msg = t('workbench.file.deleted', { n: (d.deleted || []).length })
       if (sk.length) msg += ' ' + t('workbench.file.delete_skipped', { n: sk.length })
@@ -1597,6 +1611,7 @@
       // The ticked state follows the new path.
       if (WB.fileSel && WB.fileSel[rel]) { delete WB.fileSel[rel]; WB.fileSel[dirOf(rel) + '/' + d.name] = true }
       render()
+      refreshDetailAssets()
       window.showToast(t('workbench.file.renamed', { name: d.name }))
     })
   }
