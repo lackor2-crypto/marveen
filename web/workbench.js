@@ -8385,7 +8385,8 @@
     var tools = '<p class="wb-outline-pdf-tools">'
       + '<a class="btn-secondary btn-compact" href="' + escA(base + '/pdf' + q) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.outline.draft_pdf')) + '</a> '
       + '<a class="btn-secondary btn-compact" href="' + escA(base + '/docx' + q) + '" download title="' + escA(t('workbench.outline.docx_hint')) + '">' + esc(t('workbench.outline.docx')) + '</a> '
-      + '<a class="wb-linklike" href="' + escA(base + '/trail' + q) + '" title="' + escA(t('workbench.outline.trail_hint')) + '">' + esc(t('workbench.outline.trail')) + '</a></p>'
+      + '<a class="wb-linklike" href="' + escA(base + '/trail' + q) + '" download title="' + escA(t('workbench.outline.trail_hint')) + '">' + esc(t('workbench.outline.trail')) + '</a> '
+      + '<a class="wb-linklike" href="' + escA(base + '/trail' + q + '&format=json') + '" download title="' + escA(t('workbench.outline.trail_json_hint')) + '">' + esc(t('workbench.outline.trail_json')) + '</a></p>'
     var fin = ''
     if (!ro) {
       var hash = o.content_hash || ''

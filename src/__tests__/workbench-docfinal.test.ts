@@ -229,7 +229,15 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     expect(edited.body.outline.content_hash).not.toBe(hash)
 
     // Technikai nyom (K-1.23/b): ki irta, ki ellenorizte, ki vallalta.
-    const trail = await callWorkbench(`${base}/trail`, 'GET')
+    // The default download is a plain text file a person can open (Boss TG 3007); the JSON is ?format=json.
+    const txt = await callWorkbench(`${base}/trail`, 'GET')
+    expect(txt.status).toBe(200)
+    expect(String(txt.headers['Content-Type'])).toContain('text/plain')
+    expect(String(txt.headers['Content-Disposition'])).toContain('.txt')
+    const txtBody = txt.raw.toString('utf-8')
+    expect(txtBody).toContain('TECHNIKAI NYOM')
+    expect(txtBody).toContain('Tisztelt Bíróság!')
+    const trail = await callWorkbench(`${base}/trail?format=json`, 'GET')
     expect(trail.status).toBe(200)
     expect(trail.headers['Content-Disposition']).toContain('attachment')
     const t = JSON.parse(trail.raw.toString('utf-8'))
