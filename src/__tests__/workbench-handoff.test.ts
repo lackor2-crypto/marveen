@@ -90,6 +90,9 @@ describe('atadocsomag: a szerver', () => {
     item('Elveszett', 'done', 'nincs-meg.docx')
     item('Félkész', 'in_progress')
     addDecision({ project_id: pid, text: 'A logó kék marad.' })
+    // The parts above bump "Poszt"'s updated_at; when the clock ticked a second in between, it sorted first and the
+    // folder numbers flipped (seen on CI). Same timestamps -> the fixed creation order (#473) decides.
+    getDb().prepare('UPDATE work_items SET updated_at = 1000, created_at = 1000 WHERE project_id = ?').run(pid)
 
     const plan = planHandoff(pid, 'done')!
     expect(plan).toMatchObject({ all_count: 4, done_count: 3, files: 2, problems: 1 })
