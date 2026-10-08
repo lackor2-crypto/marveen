@@ -17,6 +17,7 @@
 //  2. AZ ATHELYEZES NEM IR FELUL SEMMIT. Ha a celban mar all ugyanolyan nevu
 //     fajl, MEGALLUNK, es kimondjuk. Egy csendben felulirt bizonyitvany vagy
 //     birosagi vegzes visszaallithatatlan -- egy hibauzenet nem az.
+import { noteMovedOutOfMirror } from './drive-migrated.js'
 import {
   existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
   copyFileSync, rmSync, rmdirSync, type Stats, type Dirent,
@@ -1312,6 +1313,8 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG, opt
   followMovedItemFileRefs(fromRel, newRel)
   moveDisplayLabels(fromRel, newRel)
   moveArchivedPrefix(fromRel, newRel)
+  // Moved out of the cloud mirror into the tree: now the real copy (#513).
+  try { noteMovedOutOfMirror(fromRel, newRel) } catch { /* ledger is best effort */ }
   logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
   return { ok: true, rel: newRel, message: T(lang, `Áthelyezve ide: ${humanLocation(newRel)}`, `Moved here: ${humanLocation(newRel)}`) }
 }

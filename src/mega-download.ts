@@ -64,6 +64,8 @@ export interface MegaDownloadPlan {
   skippedExisting: number
   /** MEGA's Marveen-backup folder: not brought back. */
   skippedBackupDir: number
+  /** Moved out of the mirror into the Life tree (#513): the real copy lives there, never brought back. */
+  skippedMigrated: number
   /** The local folder could not be read completely: only rclone's --ignore-existing protects then. */
   localIncomplete: boolean
 }
@@ -71,20 +73,22 @@ export interface MegaDownloadPlan {
 const inBackupDir = (rel: string): boolean => rel === MEGA_BACKUP_DIR || rel.startsWith(MEGA_BACKUP_DIR + '/')
 
 /** Pure: what one download would bring down. */
-export function planMegaDownload(remote: RemoteFile[], local: LocalWalk): MegaDownloadPlan {
+export function planMegaDownload(remote: RemoteFile[], local: LocalWalk, migrated: string[] = []): MegaDownloadPlan {
   const have = new Set(local.files.map((f) => f.rel))
   const download: RemoteFile[] = []
   let skippedExisting = 0
   let skippedBackupDir = 0
+  let skippedMigrated = 0
   for (const f of remote) {
     if (inBackupDir(f.rel)) { skippedBackupDir++; continue }
+    if (migrated.some((m) => f.rel === m || f.rel.startsWith(m + '/'))) { skippedMigrated++; continue }
     if (have.has(f.rel)) { skippedExisting++; continue }
     download.push(f)
   }
   return {
     download,
     downloadBytes: download.reduce((n, f) => n + f.size, 0),
-    skippedExisting, skippedBackupDir,
+    skippedExisting, skippedBackupDir, skippedMigrated,
     localIncomplete: local.truncated || local.unreachable,
   }
 }

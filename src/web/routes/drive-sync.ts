@@ -41,6 +41,7 @@ import { pipeline } from 'node:stream/promises'
 import { execFile } from 'node:child_process'
 import { PROJECT_ROOT, APP_LANG } from '../../config.js'
 import { trashRelPath } from '../../life-tree.js'
+import { dropMigrated, isMigratedPath, loadMigrated } from '../../drive-migrated.js'
 import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotAccountDir, depotHealth, depotRoot, DEPOT_DRIVE, DEPOT_SYSTEM_ROOT } from '../../depot.js'
@@ -1035,6 +1036,7 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
   // a nyilvantartasban van sor, de ebben a halmazban nincs, azt fent toroltek.
   // A kovetkeztetes CSAK teljes bejarasnal all meg -- lasd `noteExternalScan`.
   const latottIdk = new Set<string>()
+  const migrated = loadMigrated()
   while (queue.length) {
     const cur = queue.shift()!
     if (++folders > MAX_FOLDERS) {
@@ -1068,6 +1070,9 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
     for (const f of entries) {
       const seg = safeSegment(f.name)
       if (f.mimeType === 'application/vnd.google-apps.folder') {
+        // ONE COPY (#513): the backup folder holds what the Life tree already
+        // has. Mirroring it down would store every document a second time.
+        if (!pair.backup && cur.rel === gyoker && f.name === MENTES_MAPPA) continue
         const rel = join(cur.rel, seg)
         folderIds.set(rel, f.id)
         const nyers = cur.nyers ? join(cur.nyers, f.name) : f.name
@@ -1092,6 +1097,13 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
       // Urlapot nem tudunk, de attol meg nem toroltek le) -- ezert all a
       // kihagyo agak ELOTT.
       latottIdk.add(f.id)
+      // ONE COPY (#513): moved out of the mirror into the Life tree. That is now
+      // the real copy: no re-download, no "delete in the cloud too?" question.
+      const mireKnown = state[f.id]
+      if (!pair.backup && mireKnown && isMigratedPath(toLifeRel(join(base, mireKnown.path)), migrated)) {
+        if (job) job.upToDate++
+        continue
+      }
       const plan = driveDownloadPlan(f.id, f.mimeType, seg)
       if (plan.unsupported) {
         // Urlap, Site, terkep: ezeknek nincs letoltheto alakjuk. Nem hiba,
@@ -1302,10 +1314,20 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
         if (latottIdk.has(id)) continue
         const abs = join(base, rel)
         if (!existsSync(abs)) continue
+        if (isMigratedPath(toLifeRel(abs), migrated)) continue
         lefele.push({ pairLabel: pairLabel(pair), account: pair.account, driveId: id, relPath: rel, localPath: abs, size: state[id]?.size })
       }
       const sor = syncQueueForPair(pair.id, 'down', lefele)
       if (job) job.pendingDeletes = (job.pendingDeletes || 0) + sor.total
+      // The cloud copy of a moved-out file is gone (the owner emptied the
+      // Drive): the mark and the state row have done their job.
+      const baseRel = toLifeRel(base)
+      for (const [id, rel] of tracked) {
+        if (latottIdk.has(id)) continue
+        if (isMigratedPath(toLifeRel(join(base, rel)), migrated)) delete state[id]
+      }
+      const maradtSorok = new Set(Object.values(state).map((st) => toLifeRel(join(base, st.path))))
+      dropMigrated((e) => e.from.startsWith(baseRel + '/') && ![...maradtSorok].some((p) => p === e.from || p.startsWith(e.from + '/')))
     }
   } else {
     // MENTES-PAROS: fent torolt, lent meglevo fajl (a tulajdonos "A" dontese,
@@ -1397,7 +1419,7 @@ async function uploadPhase(a: {
   /** Mentes-parosnal: mi van MAR fent (Drive-beli ut -> fajlazonosito). */
   driveUtak: Map<string, string>
 }): Promise<FelmenoEredmeny> {
-  const { pair, cfg, state, token, gyoker, gyokerAbs, folderIds, utkozoIdk } = a
+  const { pair, cfg, state, token, base: baseDir, gyoker, gyokerAbs, folderIds, utkozoIdk } = a
   const semmi: FelmenoEredmeny = { brake: null, maradt: 0 }
   if (cfg.upload === false) return semmi
   // 0. FEK: olvashatatlan beallitas. Ilyenkor ures az allapot, vagyis MINDEN
@@ -1590,7 +1612,9 @@ async function uploadPhase(a: {
   // kihagyas mar felment fajlt fed, az fent marad, es nem kerul a torlendok koze.
   const kihagyas = excludeRules(pair.backup ? pair.exclude : [])
   const parosRel = (p: string) => (gyoker && p.startsWith(gyoker + '/') ? p.slice(gyoker.length + 1) : p)
+  const atkoltozott = loadMigrated()
   const torlendok = Object.entries(state).filter(([id, s]) => !utkozoIdk.has(id) && !helyiSet.has(s.path))
+    .filter(([, s]) => !isMigratedPath(toLifeRel(join(baseDir, s.path)), atkoltozott))
     .filter(([, s]) => !isExcludedFile(kihagyas, parosRel(s.path)))
   const tracked = Object.keys(state).length
   // 3. FEK: tomeges torles megallitasa. Par fajl torlese hetkoznapi, a
