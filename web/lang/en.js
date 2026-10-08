@@ -7612,6 +7612,8 @@ window._i18n.en = {
   "workbench.dp.page_label": "The document page",
   "workbench.dp.hint": "Click the text and type. The + beside a line inserts, the handle reorders.",
   "workbench.dp.add_section": "New section",
+  "workbench.dp.check_view": "Check view",
+  "workbench.dp.check_title": "Shows or hides the status chips, the section delete and the translation checks.",
   "workbench.dp.more": "Language versions, attachments, glossary",
   "workbench.sh.doc.draft": "Draft",
   "workbench.sh.doc.preview": "Preview",

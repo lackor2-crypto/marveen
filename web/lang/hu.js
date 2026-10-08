@@ -7690,6 +7690,8 @@ window._i18n.hu = {
   "workbench.dp.page_label": "A dokumentum lapja",
   "workbench.dp.hint": "Kattints a szövegre és írj. A sor melletti + beszúr, a fogantyú átrendez.",
   "workbench.dp.add_section": "Új fejezet",
+  "workbench.dp.check_view": "Ellenőrző nézet",
+  "workbench.dp.check_title": "Az állapotjelzőket, a fejezet törlését és a fordítás-ellenőrzést mutatja vagy elrejti.",
   "workbench.dp.more": "Nyelvi változatok, mellékletek, szószedet",
   "workbench.sh.doc.draft": "Vázlat",
   "workbench.sh.doc.preview": "Előnézet",
