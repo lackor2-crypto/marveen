@@ -47,11 +47,23 @@ export const DOC_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif'])
  * picture file: no `..`, no absolute path, a picture extension.
  */
 export function imageBlockPathOk(text: string): boolean {
-  const t = String(text || '').replace(/\\/g, '/')
+  const t = imageBlockParts(text).path.replace(/\\/g, '/')
   if (!t || t.startsWith('/') || /^[a-z]:/i.test(t) || t.split('/').some((x) => x === '..' || x === '.')) return false
   const ext = (t.split('.').pop() || '').toLowerCase()
   return DOC_IMAGE_EXT.has(ext)
 }
+/**
+ * #508 (Boss TG 2920): a picture on the page can be resized and moved left/right. Kept in the block's own text
+ * as a suffix after the path: `<path>#w=<10..100>&a=<l|c|r>` (width in percent of the text width, alignment).
+ * No suffix: the old behaviour (natural size up to the text width, centred).
+ */
+export function imageBlockParts(text: string): { path: string; width: number | null; align: 'l' | 'c' | 'r' } {
+  const t = String(text || '')
+  const m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?$/.exec(t)
+  if (!m) return { path: t, width: null, align: 'c' }
+  return { path: m[1] as string, width: Math.max(10, Math.min(100, Number(m[2]))), align: (m[3] as 'l' | 'c' | 'r') || 'c' }
+}
+
 export const SOURCE_KINDS = ['document', 'owner', 'official', 'inference'] as const
 export type SourceKind = typeof SOURCE_KINDS[number]
 
@@ -728,7 +740,7 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   // PICTURES (Boss TG 2901): a picture block whose file is gone would end up as a warning line in the final PDF.
   const pics = blocks.filter((b) => b.kind === 'image')
   if (pics.length) {
-    const gone = pics.filter((b) => { const abs = resolveLifePath(b.text); return !abs || !existsSync(abs) }).map((b) => b.text.split('/').pop() || b.text)
+    const gone = pics.map((b) => imageBlockParts(b.text).path).filter((p) => { const abs = resolveLifePath(p); return !abs || !existsSync(abs) }).map((p) => p.split('/').pop() || p)
     items.push({ key: 'image_missing_file', ok: gone.length === 0, count: gone.length, total: pics.length, detail: gone })
   }
   // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos

@@ -11728,6 +11728,22 @@
       + '</div>'
   }
 
+  function dpTableHtml(b, sid, ro) {
+    var lines = String(b.text || '').split('\n')
+    var body = lines.map(function (ln, r) {
+      return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
+    }).join('')
+    return '<div class="wb-dp-block wb-dp-tbl"' + (ro ? '' : ' role="button" tabindex="0" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '"')
+      + '><table>' + body + '</table></div>'
+  }
+
+  function dpTblEdit(bid) {
+    WB.dpTblEdit = bid
+    render()
+    var el = document.getElementById('wbDpB_' + bid)
+    if (el) { try { el.focus() } catch (_e) { /* nem baj */ } }
+  }
+
   function dpGhostHtml(sid, pos, kind, count, ro) {
     return '<div class="wb-dp-row wb-dp-ghost" data-wb-sec="' + escA(sid) + '">' + dpGutterHtml('', sid, pos, count, ro)
       + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(kind || 'paragraph'), 'wbDpNew', 'data-wb-dp="new" data-wb-sec="' + escA(sid) + '" data-wb-pos="' + pos + '" data-wb-kind="' + escA(kind || 'paragraph') + '"',
@@ -11742,8 +11758,23 @@
       if (nw && nw.pos === i) rows += dpGhostHtml(sec.id, i, nw.kind, blocks.length, ro)
       if (b.kind === 'image') {
         // A picture block (TG 2901): the picture itself, moved/removed with the handle like any block.
+        // #508 (TG 2920): resizable (corner handle) and movable (drag the picture; left / centre / right).
+        var pic = dpImageParts(b.text)
+        var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
         rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-          + '<figure class="wb-dp-block wb-dp-img"><img alt="' + escA(baseOf(b.text)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(b.text)) + '"></figure></div>'
+          + '<figure class="wb-dp-block wb-dp-img wb-dp-img-' + pic.align + '" data-wb-img-block="' + escA(b.id) + '">'
+          + '<span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%"' : '') + '>'
+          + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
+          + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
+            + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right') + '</span>')
+          + '</span></figure></div>'
+        return
+      }
+      if (b.kind === 'table' && WB.dpTblEdit !== b.id && WB.docDrafts['b:' + b.id] == null) {
+        // #508: a table block (a built-in spreadsheet) is shown as a grid, the way an editor shows a table;
+        // a click opens its "a | b" lines for editing, leaving the field shows the grid again.
+        rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+          + dpTableHtml(b, sec.id, ro) + '</div>'
         return
       }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
@@ -11798,6 +11829,30 @@
   }
 
   // --- mentes es muveletek ---
+
+  /** A picture block's text: `<path>#w=<10..100>&a=<l|c|r>` (the server's imageBlockParts). */
+  function dpImageParts(text) {
+    var m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?$/.exec(String(text || ''))
+    if (!m) return { path: String(text || ''), width: null, align: 'c' }
+    return { path: m[1], width: Math.max(10, Math.min(100, Number(m[2]))), align: m[3] || 'c' }
+  }
+
+  function dpImageText(path, width, align) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') }
+
+  function dpImageBlock(bid) {
+    var secs = (WB.detail && WB.detail.outline && WB.detail.outline.sections) || []
+    for (var i = 0; i < secs.length; i++) for (var j = 0; j < (secs[i].blocks || []).length; j++) if (secs[i].blocks[j].id === bid) return secs[i].blocks[j]
+    return null
+  }
+
+  function dpImageSave(bid, width, align) {
+    var b = dpImageBlock(bid)
+    if (!b) return
+    var cur = dpImageParts(b.text)
+    var text = dpImageText(cur.path, width == null ? (cur.width || 100) : width, align || cur.align)
+    if (text === b.text) return
+    dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
+  }
 
   function dpCall(method, sub, body) {
     var id = WB.selectedId
@@ -12298,9 +12353,10 @@
       var href = '/api/life/file?rel=' + encodeURIComponent(a.path)
       var ext = String(name).split('.').pop().toUpperCase()
       var media = isImageFile({ name: name }) || /\.(mp4|mov|webm|mkv|avi)$/i.test(name)
-      var drag = isDoc && !archived() && frDocImageOk(name)
+      // #508 (TG 2943): ANY file of a document can be dropped on the page; there the owner picks built-in or annex.
+      var drag = isDoc && !archived()
       return '<div class="wb-fr-tilewrap"><a class="wb-fr-tile" href="' + escA(href) + '" target="_blank" rel="noopener" title="' + escA(drag ? name + ' \u2014 ' + t('workbench.fr.tile_drag') : name) + '"'
-        + (drag ? ' draggable="true" data-wb-drag-img="1" data-wb-src="' + escA(a.path) + '"' : ' draggable="false"') + '>'
+        + (drag ? ' draggable="true" ' + (frDocImageOk(name) ? 'data-wb-drag-img="1"' : 'data-wb-drag-file="1"') + ' data-wb-src="' + escA(a.path) + '"' : ' draggable="false"') + '>'
         + '<span class="wb-fr-tile-pic"><span class="wb-fr-tile-icon" aria-hidden="true">' + frFileIcon(name) + '</span>'
         + (media ? '<img alt="" loading="lazy" draggable="false" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(a.path) + '&lang=' + lang) + '">' : '<span class="wb-fr-tile-ext">' + esc(ext) + '</span>')
         + '</span><span class="wb-fr-tile-name">' + esc(name) + '</span></a>'
@@ -14471,6 +14527,8 @@
   document.addEventListener('dragstart', function (e) {
     var th = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drag-img]') : null
     if (th && e.dataTransfer) { try { e.dataTransfer.setData('text/wb-image', th.getAttribute('data-wb-src') || ''); e.dataTransfer.effectAllowed = 'copy' } catch (_e) { /* nem baj */ } }
+    var tf = !th && e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drag-file]') : null
+    if (tf && e.dataTransfer) { try { e.dataTransfer.setData('text/wb-file', tf.getAttribute('data-wb-src') || ''); e.dataTransfer.effectAllowed = 'copy' } catch (_e) { /* nem baj */ } }
   })
 
   // TG 1854: the overview's card rows open with Enter/Space too, not only a click.
@@ -14912,6 +14970,8 @@
     var bid = act.getAttribute('data-wb-block') || ''
     if (a === 'dp-add') dpMenuOpen('add', bid, sid)
     else if (a === 'dp-handle') dpMenuOpen('handle', bid, sid)
+    else if (a === 'dp-tbl-edit') dpTblEdit(bid)
+    else if (a === 'dp-img-align') dpImageSave(bid, null, act.getAttribute('data-wb-align'))
     else if (a === 'dp-ins') dpInsert(sid, bid, act.getAttribute('data-wb-kind'))
     else if (a === 'dp-ins-section') dpInsertSection(sid)
     else if (a === 'dp-move') dpMoveStep(bid, Number(act.getAttribute('data-wb-dir')) || 0)
@@ -14925,7 +14985,11 @@
     var el = dpField(e)
     if (!el || !el.isConnected) return
     var kind = el.getAttribute('data-wb-dp')
-    dpSave(el).then(function (o) { if (o && kind === 'new') render() })
+    var tbl = kind === 'block' && WB.dpTblEdit && el.getAttribute('data-wb-block') === WB.dpTblEdit
+    dpSave(el).then(function (o) {
+      if (tbl && WB.dpTblEdit === el.getAttribute('data-wb-block')) { WB.dpTblEdit = null; render() }
+      else if (o && kind === 'new') render()
+    })
   })
 
   document.addEventListener('input', function (e) {
@@ -14948,6 +15012,8 @@
       render()
       return
     }
+    // #508: in a table block Enter starts a new row (a new line), it does not split the block.
+    if (e.key === 'Enter' && kind === 'block' && el.classList.contains('wb-outline-kind-table')) return
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault()
       if (kind === 'sec') {
@@ -14996,11 +15062,63 @@
     try { document.execCommand('insertText', false, txt) } catch (_e) { el.textContent = (el.textContent || '') + txt }
   }, true)
 
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || (e.key !== 'Enter' && e.key !== ' ') || !e.target || typeof e.target.closest !== 'function') return
+    var tb = e.target.closest('[data-wb-act="dp-tbl-edit"]')
+    if (!tb) return
+    e.preventDefault()
+    dpTblEdit(tb.getAttribute('data-wb-block'))
+  })
+
+  // #508 (TG 2920): the picture's corner handle sets its width as a share of the page's text width (5% steps).
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var hd = e.target.closest('[data-wb-img-resize]')
+    if (!hd || archived()) return
+    var fig = hd.closest('.wb-dp-img')
+    var box = hd.closest('.wb-dp-img-box')
+    if (!fig || !box) return
+    e.preventDefault()
+    var bid = hd.getAttribute('data-wb-img-resize')
+    var full = fig.clientWidth || 1
+    var startX = e.clientX
+    var startW = box.getBoundingClientRect().width
+    var right = fig.classList.contains('wb-dp-img-r')
+    var centre = fig.classList.contains('wb-dp-img-c')
+    var pct = Math.round(startW / full * 100)
+    try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
+    function move(ev) {
+      var dx = ev.clientX - startX
+      if (right) dx = -dx
+      if (centre) dx = dx * 2
+      pct = Math.max(10, Math.min(100, Math.round((startW + dx) / full * 20) * 5))
+      box.style.width = pct + '%'
+      hd.setAttribute('aria-valuenow', String(pct))
+    }
+    function up() {
+      hd.removeEventListener('pointermove', move)
+      hd.removeEventListener('pointerup', up)
+      hd.removeEventListener('pointercancel', up)
+      dpImageSave(bid, pct, null)
+    }
+    hd.addEventListener('pointermove', move)
+    hd.addEventListener('pointerup', up)
+    hd.addEventListener('pointercancel', up)
+  })
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var hd = e.target.closest('[data-wb-img-resize]')
+    if (!hd || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
+    e.preventDefault()
+    var cur = Number(hd.getAttribute('aria-valuenow')) || 100
+    dpImageSave(hd.getAttribute('data-wb-img-resize'), Math.max(10, Math.min(100, cur + (e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 5 : -5))), null)
+  })
+
   // --- huzas: a fogantyuval a blokk mas helyre vihet (akar masik fejezetbe is) ---
 
   document.addEventListener('dragstart', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
-    var h = e.target.closest('[data-wb-act="dp-handle"]')
+    var h = e.target.closest('[data-wb-act="dp-handle"]') || e.target.closest('[data-wb-img-drag]')
     if (!h || !e.dataTransfer) return
     WB.dpDrag = h.getAttribute('data-wb-block')
     try { e.dataTransfer.setData('text/wb-block', WB.dpDrag); e.dataTransfer.effectAllowed = 'move' } catch (_e) { /* nem baj */ }
@@ -15048,7 +15166,83 @@
 
   function dpImageDrag(e) {
     var dt = e.dataTransfer
-    return !!(dt && dt.types && Array.prototype.indexOf.call(dt.types, 'text/wb-image') >= 0)
+    return !!(dt && dt.types && (Array.prototype.indexOf.call(dt.types, 'text/wb-image') >= 0 || Array.prototype.indexOf.call(dt.types, 'text/wb-file') >= 0))
+  }
+
+  /** What a dropped file can become on the page (#508): the same list as the server's embedKind(). */
+  function dpEmbedKind(rel) {
+    var ext = String(rel || '').split('.').pop().toLowerCase()
+    if (/^(jpe?g|png|gif)$/.test(ext)) return 'image'
+    if (/^(xlsx|xlsm|csv|tsv)$/.test(ext)) return 'table'
+    if (/^(docx|odt|txt|md)$/.test(ext)) return 'text'
+    return null
+  }
+
+  function dpCloseDropMenu() {
+    var m = document.getElementById('wbDpDropMenu')
+    if (m && m.parentNode) m.parentNode.removeChild(m)
+  }
+
+  /**
+   * #508 (Boss TG 2943, the usual editor behaviour -- Word / Google Docs / Notion ask the same): a file dropped
+   * on the page asks once: build it into the page (picture / table / text) or attach it as an annex. A file that
+   * cannot be built in (video, zip, PDF) gets only the annex choice.
+   */
+  function dpDropChoose(rel, sid, pos, x, y) {
+    dpCloseDropMenu()
+    if (!rel || archived()) return
+    var kind = dpEmbedKind(rel)
+    var m = document.createElement('div')
+    m.id = 'wbDpDropMenu'
+    m.className = 'wb-dp-dropmenu'
+    m.setAttribute('role', 'menu')
+    m.setAttribute('aria-label', t('workbench.dp.drop_title'))
+    m.innerHTML = '<div class="wb-dp-dropmenu-name">' + esc(baseOf(rel)) + '</div>'
+      + (kind ? '<button type="button" role="menuitem" data-wb-drop="embed">' + esc(t('workbench.dp.drop_embed_' + kind)) + '</button>' : '<p class="wb-hint">' + esc(t('workbench.dp.drop_no_embed')) + '</p>')
+      + '<button type="button" role="menuitem" data-wb-drop="annex">' + esc(t('workbench.dp.drop_annex')) + '</button>'
+      + '<button type="button" role="menuitem" class="wb-dp-dropmenu-cancel" data-wb-drop="cancel">' + esc(t('common.cancel')) + '</button>'
+    document.body.appendChild(m)
+    var w = m.offsetWidth || 240, h = m.offsetHeight || 140
+    m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px'
+    m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px'
+    var first = m.querySelector('button')
+    if (first) first.focus()
+    m.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); dpCloseDropMenu() } })
+    m.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-wb-drop]') : null
+      if (!b) return
+      var what = b.getAttribute('data-wb-drop')
+      dpCloseDropMenu()
+      if (what === 'embed') dpDropDo(rel, 'embed', sid, pos)
+      else if (what === 'annex') dpDropDo(rel, 'annex', sid, pos)
+    })
+    setTimeout(function () {
+      document.addEventListener('mousedown', function off(e) {
+        if (e.target && e.target.closest && e.target.closest('#wbDpDropMenu')) return
+        document.removeEventListener('mousedown', off, true)
+        dpCloseDropMenu()
+      }, true)
+    }, 0)
+  }
+
+  function dpDropDo(rel, mode, sid, pos) {
+    var id = WB.selectedId
+    if (!id || archived()) return
+    var make = sid || mode === 'annex' ? Promise.resolve(sid) : dpCall('POST', '/sections', { title: t('workbench.sh.seed.section') }).then(function (o) {
+      var last = o && o.sections && o.sections[o.sections.length - 1]
+      return last ? last.id : null
+    })
+    make.then(function (sec) {
+      if (mode !== 'annex' && !sec) return null
+      return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/drop', { path: rel, mode: mode, section: sec || '', position: pos })
+    }).then(function (r) {
+      if (!r) return
+      if (!r.ok) { window.showToast(r.message); return }
+      if (WB.selectedId === id && WB.detail) WB.detail.outline = r.data.outline
+      if (mode === 'annex') window.showToast(t('workbench.dp.drop_annexed', { name: baseOf(rel) }))
+      else if (r.data.truncated) window.showToast(t('workbench.dp.drop_truncated'))
+      render()
+    })
   }
 
   document.addEventListener('dragover', function (e) {
@@ -15071,13 +15265,13 @@
     e.stopImmediatePropagation()
     dpClearMarks()
     var rel = ''
-    try { rel = e.dataTransfer.getData('text/wb-image') || '' } catch (_e) { rel = '' }
+    try { rel = e.dataTransfer.getData('text/wb-image') || e.dataTransfer.getData('text/wb-file') || '' } catch (_e) { rel = '' }
     var p = dpDropPoint(e)
-    if (p && p.pos >= 0) { dpAddImage(rel, p.sid, p.pos); return }
+    if (p && p.pos >= 0) { dpDropChoose(rel, p.sid, p.pos, e.clientX, e.clientY); return }
     // Not over a section (an empty page, or below the last one): at the end of the last section.
     var secs = (WB.detail && WB.detail.outline && WB.detail.outline.sections) || []
     var last = secs[secs.length - 1]
-    dpAddImage(rel, last ? last.id : '', last ? (last.blocks || []).length : 0)
+    dpDropChoose(rel, last ? last.id : '', last ? (last.blocks || []).length : 0, e.clientX, e.clientY)
   }, true)
 
   document.addEventListener('dragover', function (e) {

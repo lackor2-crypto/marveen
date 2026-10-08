@@ -84,7 +84,7 @@ import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
 import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../../workbench-video-autosub.js'
 import { opsLabel } from '../../workbench-draft-store.js'
-import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS } from '../../workbench-table.js'
+import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS, TABLE_MAX_BYTES } from '../../workbench-table.js'
 import { buildProjectTimeline, clampTimelineLimit } from '../../workbench-timeline.js'
 import { searchProject } from '../../workbench-search.js'
 import { ensureLastWeekSummary, listWeeklySummaries, currentWeekSummary } from '../../workbench-weekly.js'
@@ -120,7 +120,8 @@ import {
 import { setOverride, getEffectiveSettingValue } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
-import { createReadStream, statSync, rmdirSync } from 'node:fs'
+import { embedKind, fileToBlocks } from '../../workbench-docembed.js'
+import { createReadStream, statSync, rmdirSync, existsSync } from 'node:fs'
 import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
@@ -141,6 +142,12 @@ function uiLang(url: URL): 'hu' | 'en' {
 }
 
 const MESSAGES: Record<string, { hu: string; en: string }> = {
+  drop_missing: { hu: 'A fájl nincs meg a helyén (talán áthelyezték vagy törölték). Frissítsd a Feltöltések listát, és húzd rá újra.', en: 'The file is not where it was (it may have been moved or deleted). Refresh the Uploads list and drop it again.' },
+  drop_not_in_project: { hu: 'Mellékletnek csak a projekt mappájában lévő fájl tehető. Előbb töltsd fel a fájlt a munkadarabhoz, aztán húzd a lapra.', en: 'Only a file in the project folder can be an annex. Upload the file to the work item first, then drop it on the page.' },
+  drop_embed_unsupported: { hu: 'Ezt a fájltípust nem lehet a lapba építeni, csak mellékletnek tenni (beépíthető: kép, Excel/CSV táblázat, Word/ODT/szöveg).', en: 'This file type cannot be built into the page, only attached as an annex (built in can be: picture, Excel/CSV table, Word/ODT/text).' },
+  drop_too_big: { hu: 'A fájl túl nagy ahhoz, hogy a lapba építsem (legfeljebb 20 MB). Tedd mellékletnek.', en: 'The file is too big to build into the page (20 MB at most). Attach it as an annex instead.' },
+  drop_embed_empty: { hu: 'A fájlban nem találtam beépíthető szöveget vagy táblázatot.', en: 'I found no text or table in the file to build in.' },
+  drop_embed_unreadable: { hu: 'A fájlt nem tudtam elolvasni (sérült, jelszóval védett, vagy nem az, aminek a neve mutatja). Tedd mellékletnek, vagy mentsd újra a saját programjában.', en: 'I could not read the file (damaged, password protected, or not what its name says). Attach it as an annex, or save it again in its own program.' },
   translate_no_key: {
     hu: 'A fordításhoz egy OpenRouter-kulcs kell, és még nincs beállítva. Állítsd be a bal oldali menü OpenRouter oldalán (a beérkező levelek fordítása is ezt a kulcsot használja).',
     en: 'Translating needs an OpenRouter key, and none is set yet. Set it on the OpenRouter page in the left menu (translating incoming emails uses the same key).',
@@ -3391,6 +3398,42 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'sections' && segs.length === 4 && method === 'DELETE') return done(removeSection(item.id, id))
     if (sub === 'blocks' && segs.length === 3 && method === 'POST') {
       return done(addBlock(item.id, String(body['section'] ?? ''), { kind: body['kind'], text: body['text'], position: body['position'], author: 'owner' }), true)
+    }
+    // #508 (Boss TG 2943): a file dropped onto the page -- built in (picture / table / text) or attached as an annex.
+    //   POST .../outline/drop {path (under the Marveen folder), mode: 'embed'|'annex', section, position}
+    if (sub === 'drop' && segs.length === 3 && method === 'POST') {
+      const rel = String(body['path'] ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+      const abs = rel && !rel.split('/').includes('..') ? resolveLifePath(rel) : null
+      if (!abs || !existsSync(abs)) return fail(res, 404, 'drop_missing', lang)
+      if (body['mode'] === 'annex') {
+        const base = String(owner.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+        if (!base || !rel.startsWith(base + '/')) return fail(res, 400, 'drop_not_in_project', lang)
+        const resolve = resolverFor(item)
+        if (!resolve) return fail(res, 404, 'project_not_found', lang)
+        return done(addAnnex(item.id, { path: rel.slice(base.length + 1), title: body['title'] }, resolve, actor(ctx)), true)
+      }
+      const kind = embedKind(rel)
+      if (!kind) return fail(res, 400, 'drop_embed_unsupported', lang)
+      const section = String(body['section'] ?? '')
+      let pos = typeof body['position'] === 'number' ? body['position'] : undefined
+      if (kind === 'image') return done(addBlock(item.id, section, { kind: 'image', text: rel, position: pos, author: 'owner' }), true)
+      let buf: Buffer
+      try {
+        if (statSync(abs).size > TABLE_MAX_BYTES) return fail(res, 413, 'drop_too_big', lang)
+        buf = readFileSync(abs)
+      } catch { return fail(res, 404, 'drop_missing', lang) }
+      const conv = fileToBlocks(buf, rel, { sheetTitle: (n) => n })
+      if (!conv.ok) return fail(res, 422, conv.code === 'embed_empty' ? 'drop_embed_empty' : 'drop_embed_unreadable', lang)
+      let added = 0
+      for (const b of conv.blocks) {
+        const r = addBlock(item.id, section, { kind: b.kind, text: b.text, position: pos, author: 'owner' })
+        if (!r.ok) { if (!added) return done(r); break }
+        added++
+        if (typeof pos === 'number') pos++
+      }
+      scheduleOutlineMirror(item.id)
+      json(res, { ok: true, added, truncated: conv.truncated, outline: outlineOrEmpty(item.id) }, 201)
+      return true
     }
     if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))
     if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
