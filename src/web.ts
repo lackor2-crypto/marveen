@@ -44,6 +44,7 @@ import { startContextRestartGateRunner } from './web/context-restart-gate-runner
 import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
+import { recentStalls, startEventLoopWatch, trackRequest } from './web/event-loop-watch.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { ensureTelegramReplyMeta } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
@@ -171,6 +172,7 @@ export function startWebServer(port = 3420): http.Server {
   // from malicious websites the user may visit while the dashboard is running.
   ensureDirs()
 
+  startEventLoopWatch()
   const DASHBOARD_TOKEN = loadOrCreateDashboardToken()
   // #415: while we run, the file must hold the token we enforce -- agents read it.
   startDashboardTokenGuard(DASHBOARD_TOKEN)
@@ -186,6 +188,7 @@ export function startWebServer(port = 3420): http.Server {
     const url = new URL(req.url || '/', `http://localhost:${port}`)
     const path = url.pathname
     const method = req.method || 'GET'
+    trackRequest(req, res, path)
 
     const origin = req.headers.origin
     // Emit CORS headers for allowlisted origins AND for genuinely same-origin
@@ -265,6 +268,11 @@ export function startWebServer(port = 3420): http.Server {
     // useless (the phone would hit its OWN localhost), so the client asks the
     // server for its LAN IP and builds the QR from that. Auth is already
     // enforced by the /api/* gate above.
+    // #490: the requests that were running while the event loop stalled (worst first).
+    if (path === '/api/perf/stalls' && method === 'GET') {
+      return json(res, { stalls: recentStalls() })
+    }
+
     if (path === '/api/network-info' && method === 'GET') {
       const tailscaleUrl = await detectTailscaleServeUrl(port)
       return json(res, { lan_ip: detectLanIp(), port, tailscale_url: tailscaleUrl })
