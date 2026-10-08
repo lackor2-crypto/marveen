@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
-import { MISSING_MARK_RE, imageBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
+import { MISSING_MARK_RE, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
@@ -187,19 +187,31 @@ function listBlock(text: string, draft: boolean): string[] {
 }
 
 /** Tablazat "a | b | c" sorokbol; az elso sor fejlec (oldaltoresnel ismetlodik), a "---|---" elvalaszto kimarad. */
-function tableBlock(text: string, n: number, draft: boolean): string[] {
-  const rows = text.split('\n')
+function tableBlock(text: string, n: number, draft: boolean, extraStyles: string[]): string[] {
+  const parts = tableBlockParts(text)
+  const rows = parts.text.split('\n')
     .map((l) => l.trim())
     .filter((l) => l && !/^\|?[\s:|-]+\|?$/.test(l))
     .map((l) => l.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()))
   if (!rows.length) return []
   const cols = Math.max(1, ...rows.map((r) => r.length))
   const row = (r: string[], head: boolean): string => `<table:table-row>${Array.from({ length: cols }, (_, ci) => `<table:table-cell table:style-name="Cell" office:value-type="string"><text:p text:style-name="${head ? 'TableHead' : 'TableBody'}">${inlineMarked(r[ci] ?? '', draft)}</text:p></table:table-cell>`).join('')}</table:table-row>`
-  return [`<table:table table:name="T${n}" table:style-name="Tbl">`
+  // A width the owner set (#508) is a share of the text width. Left / right + narrower than the page: the text runs beside it.
+  const wCm = parts.width && parts.width < 100 ? Math.max(1.5, IMG_MAX_W_CM * parts.width / 100) : null
+  const wrap = wCm !== null && parts.align !== 'c'
+  const styleName = wCm === null ? 'Tbl' : `TblW${n}`
+  if (wCm !== null) {
+    extraStyles.push(`<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="${wrap ? 'left' : 'center'}" fo:margin-bottom="${wrap ? '0cm' : '0.3cm'}"/></style:style>`)
+  }
+  const table = `<table:table table:name="T${n}" table:style-name="${styleName}">`
     + `<table:table-column table:number-columns-repeated="${cols}"/>`
     + `<table:table-header-rows>${row(rows[0] as string[], true)}</table:table-header-rows>`
     + rows.slice(1).map((r) => row(r, false)).join('')
-    + '</table:table>']
+    + '</table:table>'
+  if (!wrap) return [table]
+  const right = parts.align === 'r'
+  extraStyles.push(`<style:style style:name="TblFrame${n}" style:family="graphic" style:parent-style-name="Frame"><style:graphic-properties style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:run-through="foreground" style:horizontal-pos="${right ? 'right' : 'left'}" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph" fo:margin-left="${right ? '0.4cm' : '0cm'}" fo:margin-right="${right ? '0cm' : '0.4cm'}" fo:margin-top="0cm" fo:margin-bottom="0.2cm" fo:padding="0cm" fo:border="none" draw:stroke="none" draw:fill="none" draw:auto-grow-height="true" fo:min-height="0.3cm"/></style:style>`)
+  return [`<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="TblFrame${n}" draw:name="TableFrame ${n}" text:anchor-type="paragraph" svg:width="${wCm!.toFixed(2)}cm" draw:z-index="1"><draw:text-box fo:min-height="0.3cm">${table}</draw:text-box></draw:frame></text:p>`]
 }
 
 /** Valodi labjegyzet az elozo blokk utolso bekezdesenek vegen (a lap aljan jelenik meg). */
@@ -232,6 +244,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const L = LABELS[o.lang]
   const body: string[] = [`<text:p text:style-name="${docx ? 'Title' : 'TitleFirst'}">${inline(o.title)}</text:p>`]
   let tables = 0
+  const extraStyles: string[] = []
   let notes = 0
   let pictures = 0
   for (const s of outline.sections) {
@@ -239,7 +252,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
     const sec: string[] = []
     for (const b of s.blocks) {
       if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
-      else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft))
+      else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft, extraStyles))
       else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
       else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft))
       else if (b.kind === 'footnote') {
@@ -295,9 +308,12 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
 <text:list-style style:name="LBul"><text:list-level-style-bullet text:level="1" text:bullet-char="•"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.5cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-bullet></text:list-style>
 <text:list-style style:name="LNum"><text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.6cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-number></text:list-style>
 <text:notes-configuration text:note-class="footnote" style:num-format="1" text:start-value="0" text:footnotes-position="page" text:start-numbering-at="document"/>
+<style:style style:name="Frame" style:family="graphic"><style:graphic-properties text:anchor-type="paragraph" svg:x="0cm" svg:y="0cm" style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:wrap-contour="false" style:vertical-pos="top" style:vertical-rel="paragraph-content" style:horizontal-pos="center" style:horizontal-rel="paragraph-content" fo:padding="0cm" fo:border="none"/></style:style>
 </office:styles>
 <office:automatic-styles>
 <style:style style:name="TitleFirst" style:family="paragraph" style:parent-style-name="Title" style:master-page-name="First"/>
+<style:style style:name="FrameAnchor" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0cm" fo:line-height="100%"/><style:text-properties fo:font-size="1pt"/></style:style>
+${extraStyles.join('\n')}
 <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="16.5cm" table:align="margins" fo:margin-bottom="0.3cm"/></style:style>
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.08cm" fo:border="0.5pt solid #000000"/></style:style>
 <style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="1.5cm" fo:margin-bottom="1.5cm" fo:margin-left="2.5cm" fo:margin-right="2cm"/><style:header-style><style:header-footer-properties fo:min-height="0.5cm" fo:margin-bottom="0.5cm"/></style:header-style><style:footer-style><style:header-footer-properties fo:min-height="0.8cm" fo:margin-top="0.4cm"/></style:footer-style></style:page-layout>
