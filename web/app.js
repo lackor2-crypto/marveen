@@ -47505,7 +47505,8 @@ function _prjVfSorted(folders) {
  *  toltodtek be) sima lista marad, a mappa-sav felette. */
 function _prjVfListHtml(kind, list, idOf, rowFn, canEdit) {
   // "Move all": one button above the list moves every item of this tab to another project (Boss TG 2831).
-  const all = canEdit && list.length > 1 ? `<div class="prj-vf-bar"><button type="button" class="btn-secondary btn-compact prj-move-all-btn" data-prj-move-all="${escapeAttr(kind)}" data-prj-move-ids="${escapeAttr(JSON.stringify(list.map(idOf)))}">${escapeHtml(t('projects.move.all_btn', { n: list.length }))}</button></div>` : ''
+  const all = canEdit && list.length > 1 ? `<div class="prj-vf-bar"><button type="button" class="btn-secondary btn-compact prj-move-all-btn" data-prj-move-all="${escapeAttr(kind)}" data-prj-move-ids="${escapeAttr(JSON.stringify(list.map(idOf)))}">${escapeHtml(t('projects.move.all_btn', { n: list.length }))}</button>
+    ${['idea', 'debate', 'research'].includes(kind) ? `<button type="button" class="btn-secondary btn-compact prj-move-all-btn" data-prj-move-sel="${escapeAttr(kind)}" data-prj-move-ids="[]" disabled>${escapeHtml(t('projects.move.sel_btn', { n: 0 }))}</button>` : ''}</div>` : ''
   return all + _prjVfListInner(kind, list, idOf, rowFn, canEdit)
 }
 
@@ -48427,7 +48428,20 @@ async function _prjOpenDelete(project) {
 function _prjMoveBtn(type, id) {
   const p = _prj.overview && _prj.overview.project
   if (!p || p.archived_at) return ''
-  return `<button type="button" class="btn-secondary btn-compact prj-move-btn" data-prj-move-type="${escapeAttr(type)}" data-prj-move-id="${escapeAttr(id)}">${escapeHtml(t('projects.move.btn'))}</button>`
+  // Ideas, debates and research can be ticked and moved together (Boss TG 3037).
+  const pick = ['idea', 'debate', 'research'].includes(type)
+    ? `<label class="prj-move-sel-wrap"><input type="checkbox" class="prj-move-sel" data-prj-sel-type="${escapeAttr(type)}" data-prj-sel-id="${escapeAttr(id)}"> ${escapeHtml(t('projects.move.select'))}</label> `
+    : ''
+  return pick + `<button type="button" class="btn-secondary btn-compact prj-move-btn" data-prj-move-type="${escapeAttr(type)}" data-prj-move-id="${escapeAttr(id)}">${escapeHtml(t('projects.move.btn'))}</button>`
+}
+
+function _prjSelUpdate(kind) {
+  const ids = [...document.querySelectorAll('.prj-move-sel')].filter((c) => c.checked && c.getAttribute('data-prj-sel-type') === kind).map((c) => c.getAttribute('data-prj-sel-id'))
+  document.querySelectorAll('[data-prj-move-sel="' + kind + '"]').forEach((b) => {
+    b.disabled = !ids.length
+    b.setAttribute('data-prj-move-ids', JSON.stringify(ids))
+    b.textContent = t('projects.move.sel_btn', { n: ids.length })
+  })
 }
 
 async function _prjOpenMove(type, id) {
@@ -49624,6 +49638,16 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.prj-new-wrap')) _prjToggleNewMenu(false)
   const ideaLink = e.target.closest('[data-prj-idea]')
   if (ideaLink) { e.preventDefault(); _prjOpenIdea(ideaLink.getAttribute('data-prj-idea')); return }
+  const mvs = e.target.closest('[data-prj-move-sel]')
+  if (mvs) {
+    e.preventDefault()
+    let ids = []
+    try { ids = JSON.parse(mvs.getAttribute('data-prj-move-ids') || '[]') } catch { ids = [] }
+    if (ids.length) _prjOpenMoveMany(mvs.getAttribute('data-prj-move-sel'), ids)
+    return
+  }
+  const selBox = e.target.closest('.prj-move-sel')
+  if (selBox) { _prjSelUpdate(selBox.getAttribute('data-prj-sel-type')); return }
   const mva = e.target.closest('[data-prj-move-all]')
   if (mva) {
     e.preventDefault()

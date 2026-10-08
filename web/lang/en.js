@@ -5367,6 +5367,8 @@ window._i18n.en = {
   "projects.move.confirm_btn": "Move",
   "projects.move.done": "Moved.",
   "projects.move.all_btn": "Move all ({n})",
+  "projects.move.select": "Select",
+  "projects.move.sel_btn": "Move selected ({n})",
   "projects.move.lead_many": "Which project should these {n} items go to?",
   "projects.move.done_many": "Moved: {moved}, skipped: {skipped}.",
   "projects.move.nothing": "Nothing to move (the item is no longer in this project).",

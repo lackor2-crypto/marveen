@@ -5445,6 +5445,8 @@ window._i18n.hu = {
   "projects.move.confirm_btn": "Áthelyezés",
   "projects.move.done": "Áthelyezve.",
   "projects.move.all_btn": "Mind áthelyezése ({n})",
+  "projects.move.select": "Kijelölés",
+  "projects.move.sel_btn": "Kijelöltek áthelyezése ({n})",
   "projects.move.lead_many": "Melyik projektbe kerüljön ez a {n} elem?",
   "projects.move.done_many": "Áthelyezve: {moved}, kihagyva: {skipped}.",
   "projects.move.nothing": "Nem volt mit áthelyezni (az elem már nem ebben a projektben van).",
