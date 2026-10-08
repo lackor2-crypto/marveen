@@ -128,7 +128,7 @@ import {
   makeFreshFolder, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
-  workFolderTarget, listWorkFolders, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
+  workFolderTarget, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
   folderNameFromTitle,
@@ -2061,6 +2061,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     json(res, { project: { id: project.id, name: project.name, archived: project.archived_at != null }, overview: buildWorkbenchOverview(project.id) })
+    return true
+  }
+
+  // #502 (TG 2656): a folder of the left tree opened by the owner whose content the first listing left out (a linked
+  // folder such as Fejlesztés/GIT_REPOS, or one there was no time for). Read only.
+  if (path === '/api/workbench/folder-level' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const r = listProjectFolderLevel(project, url.searchParams.get('folder'))
+    if (!r.ok) return fail(res, r.code === 'unreachable' ? 503 : 400, r.code, lang)
+    json(res, { ok: true, folder: r.folder, outside: r.outside })
     return true
   }
 

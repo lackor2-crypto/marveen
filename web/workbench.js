@@ -203,6 +203,8 @@
     // #454: folders inside the project's work items box + tree state + new-item form draft
     workFolders: null,
     collapsedFolder: {},
+    // #502: the loaded content of linked / not yet read folders of the tree, per project (see lazyCache)
+    lazyOut: null,
     pickFolder: '',
     newDraft: null,
     folderBusy: false,
@@ -1606,6 +1608,57 @@
     return list.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) })
   }
 
+  // ---- #502 (TG 2656): folders the first listing left out ---------------------
+  //
+  // The server lists a linked folder (a mount such as Fejlesztés/GIT_REPOS, a folder link) and any folder it had no
+  // time for in `outside.lazy`, without its content. Opening one loads it here, per project. A new list from the
+  // server (after any change) makes the loaded ones stale: an open one is loaded again, the old content stays meanwhile.
+  function lazyCache() {
+    if (!WB.lazyOut || WB.lazyOut.pid !== WB.projectId) WB.lazyOut = { pid: WB.projectId, got: {} }
+    return WB.lazyOut
+  }
+
+  /** Starts loading a folder unless it is loaded for the current list (or on its way); returns its state. */
+  function loadFolderLevel(folder) {
+    var c = lazyCache()
+    var lv = c.got[folder]
+    var wf = WB.workFolders
+    if (lv && (lv.busy || lv.gen === wf)) return lv
+    var pid = WB.projectId
+    lv = c.got[folder] = { data: lv ? lv.data : null, gen: wf, busy: true, err: null }
+    api('GET', '/api/workbench/folder-level?project=' + encodeURIComponent(pid) + '&folder=' + encodeURIComponent(folder)).then(function (r) {
+      if (WB.projectId !== pid || lazyCache().got[folder] !== lv) return
+      lv.busy = false
+      if (r.ok && r.data && r.data.outside) lv.data = r.data.outside
+      else lv.err = (r && r.message) || t('workbench.folder.load_failed')
+      render()
+    })
+    return lv
+  }
+
+  /** The project outside the box, with the opened folders' loaded content put in. `loadable`: the folders whose
+   *  content comes from loadFolderLevel. */
+  function mergedOutside(wf) {
+    var base = (wf && wf.outside) || {}
+    var out = { folders: (base.folders || []).slice(), files: Object.assign({}, base.files || {}), lazy: Object.assign({}, base.lazy || {}), linked: Object.assign({}, base.linked || {}), loadable: {} }
+    Object.keys(out.lazy).forEach(function (k) { out.loadable[k] = true })
+    var got = lazyCache().got
+    var have = {}
+    out.folders.forEach(function (f) { have[f] = true })
+    // Parents first: a folder inside an opened one is known only from its parent's loaded content.
+    Object.keys(got).sort(function (a, b) { return a.split('/').length - b.split('/').length }).forEach(function (k) {
+      var d = got[k].data
+      if (!d || !out.loadable[k] || !have[k]) return
+      delete out.lazy[k]
+      out.files[k] = (d.files || {})[k] || []
+      ;(d.folders || []).forEach(function (f) { if (!have[f]) { have[f] = true; out.folders.push(f) } })
+      Object.keys(d.files || {}).forEach(function (fk) { if (fk !== k) out.files[fk] = d.files[fk] })
+      Object.keys(d.lazy || {}).forEach(function (lk) { out.lazy[lk] = d.lazy[lk]; out.loadable[lk] = true })
+      Object.keys(d.linked || {}).forEach(function (lk) { out.linked[lk] = d.linked[lk] })
+    })
+    return out
+  }
+
   function folderTreeRows() {
     WB.rootHead = ''
     var wf = WB.workFolders || { box: null, folders: [] }
@@ -1623,8 +1676,9 @@
     Object.keys(kids).forEach(function (k) { kids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
     // TG 2654: a work item whose own file lies outside the box (e.g. loose in the project folder) is shown ONCE, at the
     // place where the file really is, with the work item marker; it is not repeated inside the box.
+    var out = mergedOutside(wf)
     var outRels = {}
-    var outFilesAll = (wf.outside && wf.outside.files) || {}
+    var outFilesAll = out.files || {}
     Object.keys(outFilesAll).forEach(function (k) { (outFilesAll[k] || []).forEach(function (f) { outRels[f.rel] = true }) })
     var outItemByRel = {}
     items.forEach(function (it) { if (it.source_path && outRels[it.source_path]) outItemByRel[it.source_path] = it })
@@ -1687,23 +1741,33 @@
     // Explorer shows it: the work items box as a real folder, and every other folder and file of the project.
     var rootShut = isShut(ROOT_KEY)
     var rootName = wf.root_name || (WB.project && WB.project.name) || t('workbench.root.fallback')
-    var out = wf.outside || { folders: [], files: {} }
     var outHave = {}
     ;(out.folders || []).forEach(function (f) { outHave[f] = true })
     var outKids = {}
     ;(out.folders || []).forEach(function (f) { var d = dirOf(f); if (d && !outHave[d]) d = ''; (outKids[d] = outKids[d] || []).push(f) })
     Object.keys(outKids).forEach(function (k) { outKids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
+    // #502: a folder not read yet (linked, or no time for it) counts what it holds directly, and the count says "+".
+    var outLazy = out.lazy || {}
     function outCount(path) {
+      if (Object.prototype.hasOwnProperty.call(outLazy, path) && !((out.files || {})[path] || []).length) return outLazy[path] || 0
       var n = ((out.files || {})[path] || []).length
       ;(outKids[path] || []).forEach(function (k) { n += outCount(k) })
       return n
+    }
+    function outPartial(path) {
+      return Object.prototype.hasOwnProperty.call(outLazy, path) || (outKids[path] || []).some(outPartial)
+    }
+    function outCountHtml(path) {
+      if (outLazy[path] === null && !((out.files || {})[path] || []).length) return '<span class="wb-muted" title="' + escA(t('workbench.folder.lazy_unknown')) + '">(…)</span>'
+      var more = outPartial(path)
+      return '<span class="wb-muted"' + (more ? ' title="' + escA(t('workbench.folder.lazy_more')) + '"' : '') + '>(' + outCount(path) + (more ? '+' : '') + ')</span>'
     }
     var rootCount = count(box) + outCount('')
     // Boss TG 2741: the project root is the HEADER of the panel (big name, same row as the Open button), not a tree row.
     WB.rootHead = '<div class="wb-root-title" data-wb-drop-folder="" data-wb-drop-box="1" title="' + escA(t('workbench.root.hint')) + '">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(ROOT_KEY) + '" aria-expanded="' + (!rootShut) + '"'
       + ' title="' + escA(t(rootShut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + rootCount + ')</span></button></div>'
+      + (rootShut ? '▸ ' : '▾ ') + '🗂️ ' + esc(rootName) + ' <span class="wb-muted">(' + rootCount + (outPartial('') ? '+' : '') + ')</span></button></div>'
     if (rootShut) return rows
     rows.push('<li class="wb-folder-row wb-fav-row wb-depth-1">'
       + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(FAV_KEY) + '" aria-expanded="' + (!favShut) + '"'
@@ -1736,11 +1800,22 @@
         var f = e.f
         var shut = isShut(f)
         var g = grp != null ? grp : (path === '' ? outIdx++ : null)
+        var linked = Object.prototype.hasOwnProperty.call(out.linked || {}, f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
           + ' title="' + escA(t(shut ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-          + (shut ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + outCount(f) + ')</span></button></li>')
-        if (!shut) walkOutside(f, depth + 1, g)
+          + (shut ? '▸ ' : '▾ ') + '📁 ' + (linked ? '<span class="wb-linked" title="' + escA(t('workbench.folder.linked') + (out.linked[f] ? ' (' + out.linked[f] + ')' : '')) + '">🔗</span> ' : '')
+          + esc(baseOf(f)) + ' ' + outCountHtml(f) + '</button></li>')
+        if (shut) return
+        // #502: opened for the first time (or the list changed since): load what the first listing left out.
+        if (out.loadable[f]) {
+          var lv = loadFolderLevel(f)
+          if (!lv.data) {
+            rows.push('<li class="wb-fav-empty wb-depth-' + Math.min(depth + 1, 8) + '"><span class="wb-muted">' + esc(lv.err || t('workbench.folder.loading')) + '</span></li>')
+            return
+          }
+        }
+        walkOutside(f, depth + 1, g)
       })
       ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, grp) : plainFileRowHtml(f, depth, grp)) })
     }
@@ -2064,6 +2139,22 @@
   }
   var DECK_FROM_FOLDER_MAX = 100
 
+  function emptyHintHtml() {
+    return '<div class="wb-empty">'
+      + '<p class="wb-empty-title">' + esc(t('workbench.empty.title')) + '</p>'
+      + '<p class="wb-muted">' + esc(t('workbench.empty.hint')) + '</p>'
+      + '</div>'
+  }
+
+  /** Any folder or file in the project folder (the work items box included) the left tree can show. */
+  function projectFolderHasContent() {
+    var wf = WB.workFolders
+    if (!wf) return false
+    function anyFile(files) { return Object.keys(files || {}).some(function (k) { return (files[k] || []).length > 0 }) }
+    var out = wf.outside || {}
+    return (wf.folders || []).length > 0 || anyFile(wf.files) || (out.folders || []).length > 0 || anyFile(out.files)
+  }
+
   /** `compact`: the plain list inside the editor rail (no create block: "+ Új munka" is already above it). */
   function itemsPanelHtml(compact) {
     var body
@@ -2071,14 +2162,13 @@
       body = '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
     } else if (WB.error) {
       body = '<div class="info-box depo-bad">' + esc(WB.error) + '</div>'
-    } else if (!WB.items.length) {
-      body = '<div class="wb-empty">'
-        + '<p class="wb-empty-title">' + esc(t('workbench.empty.title')) + '</p>'
-        + '<p class="wb-muted">' + esc(t('workbench.empty.hint')) + '</p>'
-        + '</div>'
+    } else if (!WB.items.length && !projectFolderHasContent()) {
+      body = emptyHintHtml()
     } else {
       var rows = folderTreeRows()
-      body = selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
+      // #502: no work item yet, but the project folder holds folders or files (a linked Git repo, the default folders):
+      // the tree still shows them, the "no work item yet" hint stands above it.
+      body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
     body += trashHtml()
     body += rescueHtml()
@@ -13635,7 +13725,12 @@
     else if (a === 'sel-clear') { WB.fileSel = {}; WB.fileSelLast = null; WB.selName = ''; render() }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
-    else if (a === 'folder-fold') { var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff); render() }
+    else if (a === 'folder-fold') {
+      var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff)
+      // #502: a folder that could not be read is tried again when it is closed and opened
+      var lf = WB.lazyOut && WB.lazyOut.got[ff]; if (lf && lf.err && !lf.busy) delete WB.lazyOut.got[ff]
+      render()
+    }
     else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
