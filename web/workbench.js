@@ -12010,6 +12010,119 @@
       + '</div>'
   }
 
+  // ---- Oldal melletti fordítás (#527, Boss TG 8433/2792) --------------------------------------------
+  // Bal oldalon a szerkeszthető eredeti lap, jobb oldalon az ÉLŐ fordítás fejezetenként; a Mentés pontosan
+  // azt teszi a nyelvi változatba (fejezetenként, a forrásokkal együtt), amit a tulajdonos lát.
+  function twState() {
+    if (!WB.tw) WB.tw = { on: readPref('wb.tw.on', '') === '1', lang: readPref('wb.tw.lang', 'de'), prev: {}, busy: false, note: '', failed: [] }
+    return WB.tw
+  }
+  /** What the left column holds of a section right now: if it changes after the preview, the preview is old. */
+  function twSig(sec) {
+    return JSON.stringify([sec.title, (sec.blocks || []).map(function (b) { return [b.kind, b.text] })])
+  }
+  function twKey(secId) { return WB.selectedId + ':' + twState().lang + ':' + secId }
+  function twAvailable(o) {
+    return !!(o && !o.variant && (o.sections || []).length) && !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+  }
+  function twPanelInnerHtml(o, ro) {
+    var tw = twState()
+    var secs = o.sections || []
+    var have = 0, stale = 0
+    var rows = secs.map(function (sec) {
+      var pv = tw.prev[twKey(sec.id)]
+      var cur = pv && pv.sig === twSig(sec)
+      if (pv) { have++; if (!cur) stale++ }
+      var body
+      if (!pv) body = '<p class="wb-muted">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
+      else body = (cur ? '' : '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.stale')) + '</p>')
+        + pv.blocks.map(function (b) {
+          return b.kind === 'image' ? '' : '<p class="wb-tw-block">' + esc(b.text) + '</p>'
+        }).join('')
+      return '<section class="wb-tw-sec"><h4>' + esc(pv ? pv.title : sec.title) + '</h4>' + body + '</section>'
+    }).join('')
+    var langs = DOC_LANGS.map(function (c) { return '<option value="' + escA(c) + '"' + (c === tw.lang ? ' selected' : '') + '>' + esc(docLangName(c)) + '</option>' }).join('')
+    var head = '<div class="wb-tw-head"><label class="wb-label" for="wbTwLang">' + esc(t('workbench.tw.lang')) + '</label> '
+      + '<select id="wbTwLang" data-wb-tw-lang="1"' + (tw.busy ? ' disabled' : '') + '>' + langs + '</select> '
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="tw-run"' + (tw.busy ? ' disabled' : '') + '>' + esc(t(tw.busy ? 'workbench.tw.working' : have ? 'workbench.tw.again' : 'workbench.tw.run')) + '</button> '
+      + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="tw-save"' + (tw.busy || !have ? ' disabled' : '') + ' title="' + escA(t('workbench.tw.save_hint')) + '">' + esc(t('workbench.tw.save')) + '</button>')
+      + '</div>'
+    var note = tw.note ? '<p class="wb-hint wb-tw-note">' + esc(tw.note) + '</p>' : ''
+    var failed = tw.failed.length ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.failed', { n: tw.failed.length })) + '</p>' : ''
+    return head + note + failed + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
+  }
+  /** The Draft tab: just the page, or the page with the translation next to it. */
+  function twWrapHtml(o, ro) {
+    var tw = twState()
+    if (!twAvailable(o)) return docPageHtml()
+    var toggle = '<p class="wb-tw-toggle"><button type="button" class="btn-secondary btn-compact' + (tw.on ? ' is-on' : '') + '" data-wb-act="tw-toggle" aria-pressed="' + (tw.on ? 'true' : 'false') + '" title="' + escA(t('workbench.tw.toggle_hint')) + '">'
+      + esc(t(tw.on ? 'workbench.tw.hide' : 'workbench.tw.show')) + '</button></p>'
+    if (!tw.on) return toggle + docPageHtml()
+    return toggle + '<div class="wb-tw-cols"><div class="wb-tw-left">' + docPageHtml() + '</div>'
+      + '<aside class="wb-tw-right" id="wbTwPanel" aria-label="' + escA(t('workbench.tw.panel_label')) + '">' + twPanelInnerHtml(o, ro) + '</aside></div>'
+  }
+  function twRefresh() {
+    var el = document.getElementById('wbTwPanel')
+    var o = WB.detail && WB.detail.outline
+    if (el && o) el.innerHTML = twPanelInnerHtml(o, archived())
+  }
+  /** Translates the sections that have no current translation yet, one by one; the panel fills in as they arrive. */
+  function twRun() {
+    var tw = twState()
+    var id = WB.selectedId
+    var o = WB.detail && WB.detail.outline
+    if (tw.busy || !id || !o) return
+    var sel = document.getElementById('wbTwLang')
+    if (sel) { tw.lang = sel.value; writePref('wb.tw.lang', tw.lang) }
+    var todo = (o.sections || []).filter(function (sec) { var pv = tw.prev[twKey(sec.id)]; return !pv || pv.sig !== twSig(sec) })
+    if (!todo.length) todo = (o.sections || []).slice()
+    tw.busy = true; tw.note = ''; tw.failed = []
+    twRefresh()
+    var lang = tw.lang
+    var next = function (i) {
+      if (i >= todo.length || WB.selectedId !== id) { tw.busy = false; tw.current = null; twRefresh(); return }
+      var sec = todo[i]
+      tw.current = sec.id
+      twRefresh()
+      var sig = twSig(sec)
+      api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translate-preview', { section: sec.id, lang: lang }).then(function (r) {
+        if (!r.ok) {
+          // A provider-level stop (no account, budget spent) would fail every other section too: say it and stop.
+          tw.busy = false; tw.current = null; tw.note = r.message || ''; twRefresh(); return
+        }
+        var pv = r.data.preview
+        pv.sig = sig
+        tw.prev[id + ':' + lang + ':' + sec.id] = pv
+        next(i + 1)
+      })
+    }
+    next(0)
+  }
+  function twSave() {
+    var tw = twState()
+    var id = WB.selectedId
+    var o = WB.detail && WB.detail.outline
+    if (tw.busy || !id || !o || archived()) return
+    var lang = tw.lang
+    var list = []
+    ;(o.sections || []).forEach(function (sec) {
+      var pv = tw.prev[id + ':' + lang + ':' + sec.id]
+      if (pv && pv.sig === twSig(sec)) list.push({ source_section: sec.id, title: pv.title, blocks: pv.blocks })
+    })
+    if (!list.length) { tw.note = t('workbench.tw.nothing_current'); twRefresh(); return }
+    tw.busy = true; tw.note = ''
+    twRefresh()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation-save', { lang: lang, sections: list }).then(function (r) {
+      tw.busy = false
+      if (!r.ok) { tw.note = r.message || ''; twRefresh(); return }
+      tw.failed = r.data.failed || []
+      tw.note = t('workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
+      if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
+      load(WB.projectId)
+      twRefresh()
+    })
+  }
+
   /** A lap alatti kiegeszitok: nyelvi valtozatok, mellekletek, szoszedet (ezek nem a lap reszei). */
   function docExtrasHtml() {
     var o = WB.detail && WB.detail.outline
@@ -12349,7 +12462,7 @@
     var body = tab === 'preview' ? ((o && o.sections && o.sections.length) ? docPageHtml(true) : previewHtml())
       : tab === 'sources' ? (o ? docSourcesHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.sources_none')) + '</p>')
       : tab === 'gaps' ? (o ? docGapsHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.gaps_none')) + '</p>')
-      : docPageHtml() + docExtrasHtml() + canvasHtml() + postPreviewHtml()
+      : twWrapHtml(o, ro) + docExtrasHtml() + canvasHtml() + postPreviewHtml()
     return head + actions + '<div class="wb-sh-doc-body">' + body + '</div>'
   }
 
@@ -14015,6 +14128,9 @@
     else if (a === 'sh-more') { WB.shMore = !WB.shMore; render(); if (WB.shMore) scrollTechIntoView() }
     else if (a === 'sh-recent-view') { WB.recentMode = act.getAttribute('data-wb-mode') === 'list' ? 'list' : 'grid'; saveRecentMode(WB.recentMode); render() }
     else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
+    else if (a === 'tw-toggle') { var twS = twState(); twS.on = !twS.on; writePref('wb.tw.on', twS.on ? '1' : ''); render() }
+    else if (a === 'tw-run') twRun()
+    else if (a === 'tw-save') twSave()
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
     else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
@@ -14615,6 +14731,16 @@
     var el = e.target
     if (!el || typeof el.getAttribute !== 'function' || el.getAttribute('data-wb-act') !== 'fr-fmt') return
     frFormatChange(el)
+  })
+
+  // Side-by-side translation: remember the picked language (the panel is redrawn without the page).
+  document.addEventListener('change', function (e) {
+    var el = e.target
+    if (!el || typeof el.getAttribute !== 'function' || !el.getAttribute('data-wb-tw-lang')) return
+    var tw = twState()
+    tw.lang = el.value; tw.note = ''; tw.failed = []
+    writePref('wb.tw.lang', tw.lang)
+    twRefresh()
   })
 
   // A szinvalasztok (szoveg-szin, kitoltes): a valasztas elengedesekor megy a muvelet.

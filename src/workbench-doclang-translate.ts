@@ -17,8 +17,8 @@
 import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
-import { LANG_NAMES, listGlossary, translateSection, variantInfo, variantOf } from './workbench-doclang.js'
-import { getWorkItem } from './workbench.js'
+import { LANG_NAMES, createVariant, listGlossary, translateSection, variantInfo, variantOf } from './workbench-doclang.js'
+import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
 import { notReadyMessage, usageNotice } from './workbench-agent/orchestrator.js'
@@ -186,6 +186,63 @@ export function parseTranslation(text: string, src: SourceBlock[]):
   })
   if (blocks.some((b) => !b.text)) return { ok: false, detail: 'a translated block is empty' }
   return { ok: true, title, blocks }
+}
+
+// ---------------------------------------------------------------------------
+// Side-by-side view of the draft (kanban #527, Boss TG 8433 / 2792): the right column shows a LIVE
+// translation of the original, one section at a time, and the owner can save exactly what is shown.
+// The preview uses the same prompt, parser and provider as the whole-document translation, so what is
+// shown keeps the claims and sources; the save goes through `translateSection` into the language version.
+// ---------------------------------------------------------------------------
+
+export interface SectionPreview { source_section: string; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[] }[] }
+
+export type PreviewResult =
+  | { ok: true; preview: SectionPreview }
+  | { ok: false; code: 'not_found' | 'is_variant' | 'no_provider' | 'bad_lang' | 'failed'; message: string }
+
+/** Translates ONE section of an original into `targetLang` WITHOUT saving it. */
+export async function previewSectionTranslation(source: WorkItemRow, sectionId: string, targetLang: string, ui: Lang): Promise<PreviewResult> {
+  if (variantOf(source.id)) return { ok: false, code: 'is_variant', message: '' }
+  const lang = String(targetLang || '').trim().toLowerCase()
+  if (!/^[a-z]{2}$/.test(lang)) return { ok: false, code: 'bad_lang', message: '' }
+  const sec = listSections(source.id).find((x) => x.id === sectionId)
+  if (!sec) return { ok: false, code: 'not_found', message: '' }
+  const blocks = sourceBlocks(source.id, sec.id)
+  const glossary = listGlossary(source.project_id, lang).map((g) => ({ term: g.term, translation: g.translation }))
+  const prompt = buildTranslatePrompt({ targetLang: lang, title: sec.title, blocks, glossary })
+  let detail = ''
+  for (let attempt = 0; attempt < SECTION_ATTEMPTS; attempt++) {
+    const r = await caller({ system: prompt.system, user: prompt.user, lang: ui })
+    logCall(source.id, prompt.system.length + prompt.user.length, r)
+    if (!r.ok) return { ok: false, code: r.code === 'no_provider' ? 'no_provider' : 'failed', message: r.message }
+    const parsed = parseTranslation(r.text, blocks)
+    if (parsed.ok) return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: parsed.blocks } }
+    detail = parsed.detail
+  }
+  return { ok: false, code: 'failed', message: msg('provider_failed', ui, { detail }) }
+}
+
+export type SaveTranslationResult =
+  | { ok: true; variant: WorkItemRow; existing: boolean; saved: number; failed: { source_section: string; detail: string }[]; claims_not_carried: number }
+  | { ok: false; code: string; detail: string }
+
+/** Saves the translated sections shown in the side-by-side view into the language version (made on first save). */
+export function saveShownTranslation(source: WorkItemRow, lang: unknown, sections: unknown, by: string | null): SaveTranslationResult {
+  const list = Array.isArray(sections) ? sections as { source_section?: unknown; title?: unknown; blocks?: unknown }[] : []
+  if (!list.length) return { ok: false, code: 'bad_input', detail: 'sections: nothing to save' }
+  const v = createVariant(source, lang, by)
+  if (!v.ok) return { ok: false, code: v.code, detail: v.detail }
+  const failed: { source_section: string; detail: string }[] = []
+  let saved = 0
+  let notCarried = 0
+  for (const sec of list) {
+    const r = translateSection(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks }, by)
+    if (!r.ok) { failed.push({ source_section: String(sec.source_section ?? ''), detail: r.detail }); continue }
+    saved++
+    notCarried += r.result.claims_not_carried.length
+  }
+  return { ok: true, variant: v.item, existing: v.existing, saved, failed, claims_not_carried: notCarried }
 }
 
 /**

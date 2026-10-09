@@ -59,7 +59,7 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
-import { startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
+import { previewSectionTranslation, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
@@ -1337,6 +1337,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   variant_outline_empty: {
     hu: 'Ennek a dokumentumnak még nincs vázlata, ezért nincs mit lefordítani.',
     en: 'This document has no outline yet, so there is nothing to translate.',
+  },
+  preview_is_variant: {
+    hu: 'Az oldal melletti fordítás az eredeti dokumentumon működik; ez már egy nyelvi változat.',
+    en: 'The side-by-side translation works on the original document; this one is already a language version.',
+  },
+  preview_bad_lang: {
+    hu: 'A célnyelv kétbetűs nyelvkód legyen (pl. de, en, hu).',
+    en: 'The target language must be a two-letter language code (e.g. de, en, hu).',
   },
   translate_not_variant: {
     hu: 'Ez nem nyelvi változat. Fordítani a változatot lehet: az eredetiben a „+ Nyelvi változat” gombbal készíts egyet.',
@@ -3428,6 +3436,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         return true
       }
       json(res, { ok: true, started: r.started, job: r.job, outline: outlineOrEmpty(item.id) }, r.started ? 202 : 200)
+      return true
+    }
+    // OLDAL MELLETTI FORDITAS (#527, Boss TG 8433/2792): a jobb oszlop elo fordit egy fejezetet (nem ment),
+    // a mentes pedig pontosan azt rakja a nyelvi valtozatba, amit a tulajdonos lat.
+    if (sub === 'translate-preview' && segs.length === 3 && method === 'POST') {
+      const r = await previewSectionTranslation(item, String(body['section'] ?? ''), String(body['lang'] ?? ''), lang)
+      if (!r.ok) { json(res, { error: 'preview_' + r.code, message: r.message || msg(r.code === 'is_variant' ? 'preview_is_variant' : r.code === 'not_found' ? 'outline_not_found' : 'preview_bad_lang', lang) }, r.code === 'no_provider' ? 424 : r.code === 'not_found' ? 404 : r.code === 'failed' ? 502 : 400); return true }
+      json(res, { ok: true, preview: r.preview })
+      return true
+    }
+    if (sub === 'translation-save' && segs.length === 3 && method === 'POST') {
+      const r = saveShownTranslation(item, body['lang'], body['sections'], actor(ctx))
+      if (!r.ok) return failDetail(res, r.code === 'outline_empty' ? 409 : 400, 'variant_' + r.code, lang, r.detail)
+      json(res, { ok: true, variant: { id: r.variant.id, title: r.variant.title }, existing: r.existing, saved: r.saved, failed: r.failed, claims_not_carried: r.claims_not_carried, outline: outlineOrEmpty(item.id) })
       return true
     }
     // SZOSZEDET (K-1.29): ugyenkent (a projektben) rogzitett forditasok.
