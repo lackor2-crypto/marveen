@@ -13121,3 +13121,16 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 #intezoPage .intezo-actions .btn-secondary,
 #intezoPage .intezo-actions .btn-danger,
 #intezoPage .intezo-actions .btn-primary { padding: 3px 10px; font-size: 12px; min-height: 0; }
+
+/* #513: copy marks -- the Explorer badge, the "where" list, and the cloud rows */
+.intezo-dup-badge {
+  margin-left: 8px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 18px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: inherit; white-space: nowrap;
+}
+.intezo-dup-badge:hover { background: var(--accent-soft, rgba(127,127,127,.15)); }
+.dup-where-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.dup-where-row span { min-width: 0; overflow-wrap: anywhere; }
+.dup-where-row button { flex-shrink: 0; }
+.cloud-life-badge { flex-shrink: 0; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); white-space: nowrap; opacity: .85; }
+.cloud-life-present { border-color: var(--success, #2e9e5b); }
+.cloud-life-probable { border-style: dashed; }
