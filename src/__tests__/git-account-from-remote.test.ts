@@ -51,3 +51,27 @@ describe('accountFromRemoteUrl', () => {
     expect(accountFromRemoteUrl('https://github.com/')).toBe('')
   })
 })
+
+// #513: the repositories live in the Life tree, under their project. "Already
+// here" is decided by the remote address, wherever the folder is.
+describe('repoKeyFromUrl', () => {
+  it('reads owner/name from every address form, lower case', async () => {
+    const { repoKeyFromUrl } = await import('../git-accounts.js')
+    expect(repoKeyFromUrl('https://github.com/Freeberischeaper/Docs.git')).toBe('freeberischeaper/docs')
+    expect(repoKeyFromUrl('https://usalackor-blip@github.com/freeberischeaper/docs.git')).toBe('freeberischeaper/docs')
+    expect(repoKeyFromUrl('https://github.com/lackor2-crypto/marveen')).toBe('lackor2-crypto/marveen')
+    expect(repoKeyFromUrl('git@github.com:lackor2-crypto/trendvonal_rajzolo.git')).toBe('lackor2-crypto/trendvonal_rajzolo')
+    expect(repoKeyFromUrl('https://github.com/a/b/')).toBe('a/b')
+    expect(repoKeyFromUrl('')).toBe('')
+    expect(repoKeyFromUrl('nem-cim')).toBe('')
+  })
+
+  it('pullGitAccount asks the whole tree before it clones', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('../git-accounts.ts', import.meta.url), 'utf8')
+    const pull = src.slice(src.indexOf('export async function pullGitAccount('))
+    expect(pull).toContain('const inTree = await reposInTreeByRemote()')
+    expect(pull).toMatch(/existsSync\(join\(target, '\.git'\)\) \|\| inTree\.has\(repoKeyFromUrl\(repo\.cloneUrl\)\)/)
+  })
+})
+

@@ -399,6 +399,34 @@ export interface PullResult {
 }
 
 /**
+ * `owner/name` of a repository, lower case, from any remote address form
+ * (`https://[user@]host/owner/name[.git]`, `git@host:owner/name.git`). Empty
+ * when it cannot be read. Pure, so a unit test covers it.
+ */
+export function repoKeyFromUrl(url: string): string {
+  const u = String(url || '').trim().replace(/\.git$/i, '').replace(/\/+$/, '')
+  const m = u.match(/[/:]([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/)
+  return m ? `${m[1]}/${m[2]}`.toLowerCase() : ''
+}
+
+/** Every repository in the Life tree, by `owner/name` of its `origin`. Never throws. */
+async function reposInTreeByRemote(): Promise<Set<string>> {
+  const out = new Set<string>()
+  try {
+    // Lazy: git-sync imports this module, a top-level import would be a cycle.
+    const { findRepos } = await import('./git-sync.js')
+    for (const abs of await findRepos()) {
+      const r = await git(abs, ['remote', 'get-url', 'origin'], { ...process.env, GIT_TERMINAL_PROMPT: '0' }, 15000)
+      const key = r.ok ? repoKeyFromUrl(r.out) : ''
+      if (key) out.add(key)
+    }
+  } catch (err) {
+    logger.warn({ err }, '[git-fiok] could not list the repositories in the tree; only the account folder is checked')
+  }
+  return out
+}
+
+/**
  * A fiok osszes repojanak lehuzasa a sajat mappajaba.
  *
  * Ami MAR ott van, ahhoz itt nem nyulunk: annak a frissitese a `git-sync`
@@ -438,10 +466,15 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   const cloned: string[] = []
   const present: string[] = []
   const failed: Array<{ name: string; message: string }> = []
+  // A repository lives in the Life tree, under its project (#513) -- not in
+  // this account folder. So "already here" is asked of the WHOLE tree, by the
+  // remote address: without this the button would clone every repository a
+  // second time, next to the one that was moved to its project.
+  const inTree = await reposInTreeByRemote()
 
   for (const repo of repos) {
     const target = join(dir, repo.name)
-    if (existsSync(join(target, '.git'))) { present.push(repo.name); continue }
+    if (existsSync(join(target, '.git')) || inTree.has(repoKeyFromUrl(repo.cloneUrl))) { present.push(repo.name); continue }
     // A felhasznalonev a cimben marad, a KULCS nem: azt az askpass adja at.
     // A cimbe a KULCS GAZDAJANAK a neve kerul, nem a fioke: kolcsonkulcsnal
     // a ketto nem ugyanaz, es egy nem letezo felhasznalonev felesleges
