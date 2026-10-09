@@ -13134,3 +13134,11 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .cloud-life-badge { flex-shrink: 0; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); white-space: nowrap; opacity: .85; }
 .cloud-life-present { border-color: var(--success, #2e9e5b); }
 .cloud-life-probable { border-style: dashed; }
+
+/* A note inside a dialog that needs attention: ordinary text colour (readable on a light and on a
+   dark page), marked by a bar on the left -- never coloured letters on a pale background (TG 8344). */
+.modal-note {
+  color: var(--text); background: rgba(127, 127, 127, 0.10);
+  border-left: 4px solid var(--warning, #d97706); border-radius: 6px; padding: 8px 12px;
+}
+.modal-note[hidden] { display: none; }
