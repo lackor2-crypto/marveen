@@ -71,7 +71,9 @@ describe('repoKeyFromUrl', () => {
     const src = readFileSync(new URL('../git-accounts.ts', import.meta.url), 'utf8')
     const pull = src.slice(src.indexOf('export async function pullGitAccount('))
     expect(pull).toContain('const inTree = await reposInTreeByRemote()')
-    expect(pull).toMatch(/existsSync\(join\(target, '\.git'\)\) \|\| inTree\.has\(repoKeyFromUrl\(repo\.cloneUrl\)\)/)
+    // #518: the old account folder is only READ now (nothing is cloned into it), and a
+    // repository found anywhere in the tree by its remote address is "already here".
+    expect(pull).toMatch(/existsSync\(join\(legacyDir, repo\.name, '\.git'\)\) \|\| inTree\.has\(repoKeyFromUrl\(repo\.cloneUrl\)\)/)
   })
 })
 
