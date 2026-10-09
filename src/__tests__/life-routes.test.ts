@@ -522,22 +522,51 @@ describe('POST /api/life/move -- bekotest nem szakit el', () => {
     expect(add.out.body.ok).toBe(true)
   }
 
-  it('a bekotott mappat nem mozgatja, a valodi tarolo a helyen marad', async () => {
+  // #510: the link itself moves (only the place where it SHOWS), the store stays.
+  it('a bekotott mappa athelyezheto: csak a helye megy at, a valodi tarolo a helyen marad', async () => {
     await setup()
     const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa/Kotes', to: 'MvMasik' })
     expect(await tryHandleLife(ctx)).toBe(true)
-    expect(out.status).toBe(400)
-    expect(out.body.code).toBe('mounted')
+    expect(out.status).toBe(200)
+    expect(out.body.rel).toBe('MvMasik/Kotes')
     expect(existsSync(join(depot, 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
     expect(existsSync(join(depot, 'MvMasik', 'MvTarolo'))).toBe(false)
+    expect(existsSync(join(depot, 'MvMasik', 'Kotes'))).toBe(true)
+    expect(existsSync(join(depot, 'MvFa', 'Kotes'))).toBe(false)
+    const { listMounts } = await import('../life-mounts.js')
+    expect(listMounts().map((m) => [m.rel, m.target])).toContainEqual(['MvMasik/Kotes', 'MvTarolo'])
   })
 
-  it('bekotest tartalmazo mappat sem mozgat', async () => {
-    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa', to: 'MvMasik' })
+  it('bekotott mappat nem tesz egy masik bekotes belsejebe', async () => {
+    mkdirSync(join(depot, 'MvTarolo2'), { recursive: true })
+    const add = ctxFor('/api/life/mounts', 'POST', { rel: 'MvFa/Kotes2', target: 'MvTarolo2' })
+    await tryHandleLife(add.ctx)
+    expect(add.out.body.ok).toBe(true)
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa/Kotes2', to: 'MvMasik/Kotes' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('into_link')
+    expect(existsSync(join(depot, 'MvTarolo', 'Kotes2'))).toBe(false)
+  })
+
+  it('bekotest tartalmazo mappa athelyezheto, a bekotes koveti', async () => {
+    mkdirSync(join(depot, 'MvCel'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa', to: 'MvCel' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(existsSync(join(depot, 'MvFa'))).toBe(false)
+    const { listMounts } = await import('../life-mounts.js')
+    expect(listMounts().map((m) => [m.rel, m.target])).toContainEqual(['MvCel/MvFa/Kotes2', 'MvTarolo2'])
+    expect(listMounts().some((m) => m.rel.startsWith('MvFa/'))).toBe(false)
+  })
+
+  it('bekotest tartalmazo mappat EGYESITESSEL nem mozgat: az fajlonkent masol es torol', async () => {
+    mkdirSync(join(depot, 'MvCel2', 'MvFa'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvCel/MvFa', to: 'MvCel2', resolution: 'merge' })
     expect(await tryHandleLife(ctx)).toBe(true)
     expect(out.status).toBe(400)
     expect(out.body.code).toBe('has_mounts')
-    expect(existsSync(join(depot, 'MvFa'))).toBe(true)
+    expect(existsSync(join(depot, 'MvCel', 'MvFa'))).toBe(true)
   })
 
   it('bekotes celjat sem mozgatja el', async () => {
@@ -549,9 +578,11 @@ describe('POST /api/life/move -- bekotest nem szakit el', () => {
   })
 
   it('angol feluleten angol mondatot ad', async () => {
-    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvFa/Kotes', to: 'MvMasik' })
+    // The target of a link is still guarded (#510 lifted only the link's own place).
+    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvTarolo', to: 'MvMasik' })
     expect(await tryHandleLife(ctx)).toBe(true)
-    expect(out.body.message).toMatch(/linked|link/i)
+    expect(out.body.code).toBe('is_target')
+    expect(out.body.message).toMatch(/link points to this folder/i)
   })
 })
 

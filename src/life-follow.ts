@@ -70,34 +70,31 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
 
 export type MountPointRename =
   | { ok: true; rel: string; name: string }
-  | { ok: false; code: 'not_mount' | 'no_depot' | 'bad_name' | 'same' | 'exists' | 'foreign_link' | 'not_empty' | 'failed'; detail?: string }
+  | { ok: false; code: 'not_mount' | 'no_depot' | 'bad_name' | 'same' | 'exists' | 'foreign_link' | 'not_empty' | 'no_target' | 'into_link' | 'failed'; detail?: string }
+
+const lst = (p: string) => { try { return lstatSync(p) } catch { return null } }
 
 /**
- * Rename a folder that IS a link (its `rel` is a mount point).
+ * Put a link (mount point) at another place in the tree: the shared core of
+ * renaming it and of moving it into another folder.
  *
- * `renameLife` cannot do this: it resolves a linked path to the link's TARGET,
- * so it would rename the real store behind it (a whole git repo, a Drive
- * folder). Here only the place where it SHOWS is renamed; the target is never
- * touched. On disk that place is either an empty placeholder folder, or -- for
- * a git link under Windows -- a junction, which is taken down and put back
- * under the new name.
+ * `renameLife` / `moveLife` cannot do this: they resolve a linked path to the
+ * link's TARGET, so they would rename or carry off the real store behind it (a
+ * whole git repo, a Drive folder). Here only the place where it SHOWS changes;
+ * the target is never touched. On disk that place is either an empty
+ * placeholder folder, or -- for a git link under Windows -- a junction, which
+ * is taken down and put back at the new place.
  */
-export function renameMountPoint(rel: string, newName: string): MountPointRename {
-  const from = norm(rel)
+function relocateMountPoint(from: string, to: string): MountPointRename {
   const mount = listMounts().find((m) => m.rel === from)
   if (!mount) return { ok: false, code: 'not_mount' }
   const root = depotRoot()
   if (!root) return { ok: false, code: 'no_depot' }
-  if (/[\\/]/.test(String(newName))) return { ok: false, code: 'bad_name' }
-  const clean = safeLifeName(newName)
-  if (!clean || clean === '_') return { ok: false, code: 'bad_name' }
-  const parentRel = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : ''
-  const to = parentRel ? `${parentRel}/${clean}` : clean
+  const name = to.slice(to.lastIndexOf('/') + 1)
   if (to === from) return { ok: false, code: 'same' }
   const oldAbs = join(root, ...from.split('/'))
   const newAbs = join(root, ...to.split('/'))
-  const lst = (p: string) => { try { return lstatSync(p) } catch { return null } }
-  if (lst(newAbs)) return { ok: false, code: 'exists', detail: clean }
+  if (lst(newAbs)) return { ok: false, code: 'exists', detail: name }
 
   const here = lst(oldAbs)
   try {
@@ -107,7 +104,7 @@ export function renameMountPoint(rel: string, newName: string): MountPointRename
       if (removeMountLink(mount).outcome !== 'removed') return { ok: false, code: 'foreign_link' }
       mkdirSync(newAbs, { recursive: true })
     } else if (here && here.isDirectory()) {
-      // A placeholder holds nothing of its own. If it does, renaming it as a
+      // A placeholder holds nothing of its own. If it does, moving it as a
       // link would hide those files behind the target -- say so instead.
       if (readdirSync(oldAbs).length) return { ok: false, code: 'not_empty' }
       renameSync(oldAbs, newAbs)
@@ -131,6 +128,35 @@ export function renameMountPoint(rel: string, newName: string): MountPointRename
   const all = listMounts()
   const moved = all.find((m) => m.rel === to)
   if (moved) { try { ensureMountLink(moved, all) } catch { /* start-up pass */ } }
-  logger.info({ from, to }, '[intezo] a link was renamed, its target untouched')
-  return { ok: true, rel: to, name: clean }
+  logger.info({ from, to }, '[intezo] a link was moved in the tree, its target untouched')
+  return { ok: true, rel: to, name }
+}
+
+/** Rename a folder that IS a link: same parent, new name. */
+export function renameMountPoint(rel: string, newName: string): MountPointRename {
+  const from = norm(rel)
+  if (/[\\/]/.test(String(newName))) return { ok: false, code: 'bad_name' }
+  const clean = safeLifeName(newName)
+  if (!clean || clean === '_') return { ok: false, code: 'bad_name' }
+  const parentRel = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : ''
+  return relocateMountPoint(from, parentRel ? `${parentRel}/${clean}` : clean)
+}
+
+/**
+ * Move a folder that IS a link into another folder of the tree, keeping its
+ * name. The destination must be a real folder of the tree: a link put INSIDE
+ * another link would be written into that link's store.
+ */
+export function moveMountPoint(rel: string, toDirRel: string): MountPointRename {
+  const from = norm(rel)
+  const toDir = norm(toDirRel)
+  const root = depotRoot()
+  if (!root) return { ok: false, code: 'no_depot' }
+  if (toDir && (toDir === from || toDir.startsWith(from + '/'))) return { ok: false, code: 'no_target' }
+  if (listMounts().some((m) => toDir === m.rel || toDir.startsWith(m.rel + '/'))) return { ok: false, code: 'into_link' }
+  const dirAbs = toDir ? join(root, ...toDir.split('/')) : root
+  const st = lst(dirAbs)
+  if (!st || !st.isDirectory()) return { ok: false, code: 'no_target' }
+  const name = from.slice(from.lastIndexOf('/') + 1)
+  return relocateMountPoint(from, toDir ? `${toDir}/${name}` : name)
 }

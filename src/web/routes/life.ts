@@ -77,7 +77,7 @@ import {
 import { contentDispositionHeader } from './drive-browser.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount, mountsOverview, updateMountNote } from '../../life-mounts.js'
-import { followFolderMove, renameMountPoint } from '../../life-follow.js'
+import { followFolderMove, renameMountPoint, moveMountPoint } from '../../life-follow.js'
 import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
@@ -718,6 +718,10 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       case 'foreign_link': return T(lang,
         'Ezen a helyen egy olyan hivatkozás áll, amit nem a Marveen hozott létre, ezért nem nyúlok hozzá.',
         'There is a link at this place that Marveen did not create, so I will not touch it.')
+      case 'no_target': return T(lang, 'A célként megadott hely nem mappa, vagy maga a bekötött mappa.', 'The place you gave as the target is not a folder, or it is the linked folder itself.')
+      case 'into_link': return T(lang,
+        'Bekötött mappát nem lehet egy másik bekötött mappába tenni: az a másik tároló belsejébe írna. Válassz egy rendes mappát.',
+        'A linked folder cannot be put inside another linked folder: that would write into the other store. Choose an ordinary folder.')
       case 'no_depot': return T(lang, 'A Raktár nincs beállítva, vagy most nem érhető el, ezért nem tudom átnevezni.', 'The Depot is not set up or is not reachable right now, so I cannot rename it.')
       default: return T(lang, `Nem sikerült átnevezni: ${r.detail ?? r.code}`, `Could not rename it: ${r.detail ?? r.code}`)
     }
@@ -804,17 +808,31 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const fromKey = from.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const opts = pasteOpts(body)
     if (listMounts().some((m) => m.rel === fromKey)) {
-      send(res, 400, { ok: false, rel: '', code: 'mounted', message: mountedMsg(lang) })
+      // #510: a BEKOTOTT mappa athelyezheto -- de csak a HELYE megy at, ahol
+      // latszik (moveMountPoint); a `pasteLife` a mogotte allo tarolot vinne el.
+      await writePendingItemSnapshots()
+      const r = moveMountPoint(fromKey, String(body?.to ?? ''))
+      if (r.ok) {
+        send(res, 200, { ok: true, rel: r.rel, message: T(lang, `Áthelyezve: ${r.name}`, `Moved: ${r.name}`) })
+        followWorkItems()
+      } else {
+        send(res, 400, { ok: false, rel: '', code: r.code, message: mountRenameMsg(r, lang) })
+      }
       return true
     }
     const baj = bekotesOrzo(fromKey, lang)
-    if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    const opts = pasteOpts(body)
+    // #510: bekotest TARTALMAZO mappa is athelyezheto, a bekotes koveti. Csak a
+    // sima athelyezes: az egyesites es a csere fajlonkent MASOL es TOROL, es egy
+    // bekotesen at a mogotte allo tarolot torolne -- azok ore marad.
+    const sima = opts.resolution !== 'merge' && opts.resolution !== 'replace'
+    if (baj && !(baj.code === 'has_mounts' && sima)) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
     const celBaj = targetGuard(from, String(body?.to ?? ''), opts, lang)
     if (celBaj) { send(res, 400, { ok: false, rel: '', ...celBaj }); return true }
     await writePendingItemSnapshots()
     const result = await pasteLife('move', from, String(body?.to ?? ''), lang, opts)
+    if (result.ok && result.rel) followFolderMove(fromKey, result.rel)
     send(res, pasteStatus(result), pasteBody(result))
     if (pasteStatus(result) < 300) followWorkItems()
     return true
