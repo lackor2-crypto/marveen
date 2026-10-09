@@ -20,6 +20,7 @@ import { listMounts, moveMountsPrefix, moveMountTargetsPrefix } from './life-mou
 import { ensureMountLink, reconcileMountLinks, removeMountLink } from './life-mount-links.js'
 import { moveBackupRulesPrefix } from './backup-rules.js'
 import { moveProjectFoldersPrefix } from './project-folder-follow.js'
+import { moveDocumentsPrefix } from './life-doc-ids.js'
 import { moveLifeLedgerPrefix } from './life-tree-ledger.js'
 import { movePhysical } from './life-documents.js'
 import { moveDisplayLabels } from './life-labels.js'
@@ -28,7 +29,7 @@ import { safeLifeName } from './life-tree.js'
 
 const norm = (rel: string): string => String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 
-export interface FollowCounts { mounts: number; mountTargets: number; backupRules: number; projects: number; ledger: number }
+export interface FollowCounts { mounts: number; mountTargets: number; backupRules: number; projects: number; ledger: number; documents: number }
 
 /**
  * The registries `renameLife` does NOT move itself. Call it after a rename
@@ -37,7 +38,7 @@ export interface FollowCounts { mounts: number; mountTargets: number; backupRule
 export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   const from = norm(fromRel)
   const to = norm(toRel)
-  const out: FollowCounts = { mounts: 0, mountTargets: 0, backupRules: 0, projects: 0, ledger: 0 }
+  const out: FollowCounts = { mounts: 0, mountTargets: 0, backupRules: 0, projects: 0, ledger: 0, documents: 0 }
   if (!from || !to || from === to) return out
   const step = (name: keyof FollowCounts, fn: () => number): void => {
     try { out[name] = fn() } catch (err: any) {
@@ -58,6 +59,8 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   })
   step('backupRules', () => moveBackupRulesPrefix(from, to))
   step('projects', () => moveProjectFoldersPrefix(from, to))
+  // The documents' stable ids (life-doc-ids.ts): a file keeps its id under its new name / place.
+  step('documents', () => moveDocumentsPrefix(from, to))
   const root = depotRoot()
   if (root) step('ledger', () => moveLifeLedgerPrefix(root, from, to))
   // A git link is a Windows junction INSIDE the renamed folder: it moved with
