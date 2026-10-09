@@ -123,6 +123,73 @@ export function rememberPhotoPlaces(account: string, places: Record<string, stri
   }
 }
 
+// --- photos this program uploaded: on the page without being picked again (#528) ------
+// Owner, 2026-10-09 (TG 8468): what went up from the Life tree "meg kene, hogy jelenjen a
+// fotok alatt itt". The upload log knows the file and its folder, so the page gets a row
+// that points at the file -- nothing is downloaded, nothing is copied.
+
+const UNLINKED = join(DIR, 'life-unlinked.json')
+const placeKey = (account: string, lifeRel: string, file: string): string => `${account}|${norm(lifeRel)}/${file}`
+
+function loadUnlinked(): string[] {
+  try { const j = JSON.parse(readFileSync(UNLINKED, 'utf8')); return Array.isArray(j) ? j.filter((x) => typeof x === 'string') : [] } catch { return [] }
+}
+
+function setUnlinked(key: string, on: boolean): void {
+  const cur = loadUnlinked()
+  const has = cur.includes(key)
+  if (has === on) return
+  const next = on ? [...cur, key] : cur.filter((k) => k !== key)
+  try { writeAtomic(UNLINKED, JSON.stringify(next.slice(-50_000), null, 2)) } catch (err) {
+    logger.warn({ err: String(err) }, '[photos-life] could not remember a photo taken off the page')
+  }
+}
+
+export interface UploadedPhoto {
+  /** Google's id of the uploaded item, or '' when Google returned none. */
+  id: string
+  lifeRel: string
+  file: string
+  bytes: number
+  sha256: string
+  mimeType: string
+  uploadedAt: string
+}
+
+/**
+ * Put the uploaded photos of one account on the page. A row is added only when the file is
+ * still in its folder with the size it went up with, the page has no row for that file yet,
+ * and the owner did not take it off the page. Returns how many rows were added.
+ */
+export function linkUploadedPhotos(account: string, uploads: UploadedPhoto[]): number {
+  if (!uploads.length) return 0
+  const index = loadLifeIndex()
+  const mine = index.filter((p) => p.account === account)
+  const ids = new Set(mine.map((p) => p.id))
+  const places = new Set(mine.map((p) => `${norm(p.lifeRel)}/${p.file}`))
+  const off = new Set(loadUnlinked())
+  let added = 0
+  for (const u of uploads) {
+    const rel = norm(u.lifeRel)
+    const id = u.id || `up-${u.sha256.slice(0, 40)}`
+    if (!rel || !u.file || ids.has(id) || places.has(`${rel}/${u.file}`) || off.has(placeKey(account, rel, u.file))) continue
+    const abs = lifePhotoPath({ lifeRel: rel, file: u.file })
+    let same = false
+    try { same = !!abs && statSync(abs).isFile() && statSync(abs).size === u.bytes } catch { same = false }
+    if (!same) continue
+    index.push({
+      id, account, lifeRel: rel, file: u.file, mimeType: u.mimeType, createdTime: u.uploadedAt,
+      width: 0, height: 0, isVideo: u.mimeType.startsWith('video/'), bytes: u.bytes, sha256: u.sha256,
+      savedAt: new Date().toISOString(), linked: true,
+    })
+    ids.add(id)
+    places.add(`${rel}/${u.file}`)
+    added++
+  }
+  if (added) saveLifeIndex(index)
+  return added
+}
+
 export type DestCheck = { ok: true; abs: string; rel: string } | { ok: false; code: 'needs_dest' | 'dest_not_in_tree' | 'dest_missing' | 'dest_trash' | 'dest_in_repo' }
 
 /** The chosen folder, checked: in the Life tree, exists, not the trash, not inside a git repository. */
@@ -300,6 +367,9 @@ export async function downloadPickedToLife(
             // Picked in Google Photos and already on this machine: nothing comes down, but the
             // page shows it -- a row that points at the file that is there (owner, TG 8417:
             // "az en fotom [...] itt meg kene hogy jelenjen").
+            setUnlinked(placeKey(account, home.rel, place.file), false)
+            // The page may already show this file (linked at upload): never a second row for it.
+            if (index.some((p) => p.account === account && norm(p.lifeRel) === home.rel && p.file === place.file)) { known.add(id); r.already++; continue }
             // The real hash, so the thumbnail of this file never collides with a same-named one elsewhere.
             let sum = ''
             try { sum = await hashFile(there) } catch { sum = '' }
@@ -390,6 +460,8 @@ export function removeLifePhoto(id: string, account: string): { ok: true; trashe
       trashed = true
     }
   }
+  // A linked photo taken off the page stays off: the upload log would otherwise put it back.
+  if (entry.linked) setUnlinked(placeKey(account, entry.lifeRel, entry.file), true)
   saveLifeIndex(rest)
   return { ok: true, trashed }
 }
