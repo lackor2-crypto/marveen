@@ -116,11 +116,11 @@ export function familyLines(item: WorkItemRow): string[] {
  * A kontextus-blokk. `workItem` = amin eppen dolgozunk (lehet null: a
  * beszelgetes a projektrol szol).
  */
-export function buildContext(
+export async function buildContext(
   project: ProjectRow,
   workItem: WorkItemRow | null,
   lang: 'hu' | 'en',
-): BuiltContext {
+): Promise<BuiltContext> {
   const parts: { key: string; chars: number }[] = []
   const blocks: string[] = []
   const add = (key: string, text: string): void => {
@@ -131,7 +131,7 @@ export function buildContext(
   add('language', `Answer language: ${lang === 'en' ? 'English' : 'Hungarian'}`)
 
   // 1. A projekt mert kontextusa -- a MEGLEVO fuggveny, nem uj meres.
-  const pc = projectContext(project.id, lang)
+  const pc = await projectContext(project.id, lang)
   add('project', pc ? pc.text : `Project: ${project.name}\n(no measured context available for this project right now)`)
 
   // 1b. Dontesnaplo (#406, 10. pont): amiben mar megallapodtak. Olvashatatlan
@@ -186,7 +186,7 @@ export function buildContext(
   }
 
   // 4. Fajlok -- a mappa allapota KIMONDVA (nem latok oda vs nincs semmi).
-  const rf = recentFiles(project, MAX_FILES)
+  const rf = await recentFiles(project, MAX_FILES)
   if (rf.state !== 'ok') {
     add('files', `Project files: cannot be listed right now (${rf.state}). This does NOT mean there are no files.`)
   } else if (!rf.files.length) {

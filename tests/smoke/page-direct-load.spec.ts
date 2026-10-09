@@ -81,7 +81,7 @@ test('Depo oldal: a gombok be vannak kotve, es a valaszto tenyleg megnyilik', as
     return {
       gombok: {
         depoRefreshBtn: info('depoRefreshBtn'), depoPickBtn: info('depoPickBtn'),
-        depoSyncAddBtn: info('depoSyncAddBtn'), depoSyncRunBtn: info('depoSyncRunBtn'),
+        depoRestoreFindBtn: info('depoRestoreFindBtn'), depoSyncRunBtn: info('depoSyncRunBtn'),
         // A koltoztetesnek sajat lapja van (`#migrate`), ezert a regi
         // `depoMigrateBtn` mar nincs itt -- a helyen a mentes-kartya gombjai.
         depoBackupPreviewBtn: info('depoBackupPreviewBtn'),

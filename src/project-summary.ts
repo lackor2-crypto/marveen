@@ -121,10 +121,12 @@ export async function summarizeProject(id: string, lang: 'hu' | 'en'): Promise<S
   const p = getProject(id)
   if (!p || p.id !== id) return { ok: false, code: 'not_found' }
   if (running.has(id)) return { ok: false, code: 'busy' }
-  const ov = buildProjectOverview(id)
-  if (!ov) return { ok: false, code: 'not_found' }
+  // Claimed BEFORE the first await: the overview now walks the folder off the
+  // event loop, and a second click arriving meanwhile must still get "busy".
   running.add(id)
   try {
+    const ov = await buildProjectOverview(id)
+    if (!ov) return { ok: false, code: 'not_found' }
     const ask = await askAiJson(SYSTEM, summaryFacts(p, ov, lang), (j) => {
       const s = j && typeof j.summary === 'string' ? j.summary.replace(/\s+/g, ' ').trim() : ''
       return s ? s.slice(0, MAX_SUMMARY_CHARS) : null

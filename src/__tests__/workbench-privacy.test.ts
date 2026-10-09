@@ -108,12 +108,12 @@ describe('erzekeny jeloles es szemelyes adat a keresesben', () => {
     expect(!r.ok && r.detail).toContain('12.P.20.123/2025/4')
   })
 
-  it('az agent kontextusa csak erzekenynel kap jelzest', () => {
+  it('az agent kontextusa csak erzekenynel kap jelzest', async () => {
     const project = getProject(pid)!
     const item = getWorkItem(itemId)!
-    expect(buildContext(project, item, 'hu').parts.some((p) => p.key === 'privacy')).toBe(false)
+    expect((await buildContext(project, item, 'hu')).parts.some((p) => p.key === 'privacy')).toBe(false)
     setProjectSensitive(pid, true, null)
-    const c = buildContext(project, item, 'hu')
+    const c = await buildContext(project, item, 'hu')
     expect(c.parts.some((p) => p.key === 'privacy')).toBe(true)
     expect(c.contextText).toContain('SENSITIVE')
   })

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync as read } from 'node:fs'
 import {
-  safeDepotName, depotRoot, depotAccountDir, depotHealth, ensureDepotSkeleton,
+  safeDepotName, depotRoot, depotAccountDir, depotHealth, ensureDepotSkeleton, pruneEmptyStorageDirs,
   resolvePhotoDir, countFiles, migrateLegacyAccountDirs,
   DEPOT_ACCOUNTS, DEPOT_PHOTOS, DEPOT_DRIVE, DEPOT_SYSTEM,
   LEGACY_KIND_PHOTOS, LEGACY_KIND_DRIVE,
@@ -101,13 +101,13 @@ describe('a regi szerkezet egyszeri atkoltoztetese', () => {
     // Forditva a frissen letrehozott ures `fotok/` mar "letezo cel" lenne, es a
     // regi tartalom orokre ottragadna a fiokok/ alatt.
     const forras = read(join(ROOT, 'src', 'depot.ts'), 'utf8')
-    expect(forras.indexOf('migrateLegacyAccountDirs()')).toBeLessThan(forras.indexOf('for (const d of [DEPOT_DRIVE'))
+    expect(forras.indexOf('migrateLegacyAccountDirs()')).toBeLessThan(forras.indexOf('for (const d of [DEPOT_BACKUPS]'))
   })
 
-  it('a vaz a fajtakat hozza letre felul (nem a `fiokok`-at)', () => {
+  it('a vaz sem a `fiokok`-at, sem ures tarolo-fajtat nem hoz letre (#513)', () => {
     const r = ensureDepotSkeleton()
-    expect(r.created).toContain(DEPOT_DRIVE)
-    expect(r.created).toContain(DEPOT_PHOTOS)
+    expect(r.created).not.toContain(DEPOT_DRIVE)
+    expect(r.created).not.toContain(DEPOT_PHOTOS)
     expect(r.created).not.toContain(DEPOT_ACCOUNTS)
   })
 })
@@ -194,14 +194,40 @@ describe('el-e a depo (ez mondja ki a bajt)', () => {
 })
 
 describe('a depo alapmappai', () => {
-  it('elkeszulnek, es mind a hat ott van', () => {
-    // A technikai mappak a RENDSZER ala kerultek; a drive es a fotok
-    // SZANDEKOSAN a gyokerben maradt. Konstansbol dolgozunk, nem beirt nevbol.
+  it('CSAK a mentesek mappaja keszul el elore; ures tarolo-mappat nem gyart (#513)', () => {
+    // Boss, 2026-10-09 (TG 8228): "A rendszer alatt ott csak a Marvin mentesek
+    // kell, hogy maradjon." Konstansbol dolgozunk, nem beirt nevbol.
     const r = ensureDepotSkeleton()
     expect(r.health.writable).toBe(true)
-    for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM]) {
-      expect(existsSync(join(process.env.MARVEEN_DEPOT!, d))).toBe(true)
+    expect(existsSync(join(process.env.MARVEEN_DEPOT!, DEPOT_BACKUPS))).toBe(true)
+    for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK]) {
+      expect(existsSync(join(process.env.MARVEEN_DEPOT!, d)), d).toBe(false)
     }
+  })
+
+  it('az URES tarolo-mappakat eltakaritja; amiben barmi van, ahhoz nem nyul', () => {
+    ensureDepotSkeleton()
+    const root = process.env.MARVEEN_DEPOT!
+    mkdirSync(join(root, DEPOT_DRIVE, 'ures-fiok'), { recursive: true })
+    mkdirSync(join(root, DEPOT_DRIVE, 'van-benne'), { recursive: true })
+    writeFileSync(join(root, DEPOT_DRIVE, 'van-benne', 'irat.pdf'), 'ertekes')
+    mkdirSync(join(root, DEPOT_PHOTOS, 'rejtett'), { recursive: true })
+    writeFileSync(join(root, DEPOT_PHOTOS, 'rejtett', '.valami'), 'x') // a hidden file is content too
+    mkdirSync(join(root, DEPOT_PROJECTS, 'ures1'), { recursive: true })
+    mkdirSync(join(root, DEPOT_PROJECTS, 'ures2'), { recursive: true })
+    mkdirSync(join(root, DEPOT_WORK), { recursive: true })
+    const removed = pruneEmptyStorageDirs()
+    expect(removed).toContain(`${DEPOT_DRIVE}/ures-fiok`)
+    expect(removed).toContain(DEPOT_PROJECTS)
+    expect(removed).toContain(DEPOT_WORK)
+    expect(existsSync(join(root, DEPOT_DRIVE, 'ures-fiok'))).toBe(false)
+    expect(existsSync(join(root, DEPOT_PROJECTS))).toBe(false)
+    // content stays exactly where it is
+    expect(read(join(root, DEPOT_DRIVE, 'van-benne', 'irat.pdf'), 'utf8')).toBe('ertekes')
+    expect(existsSync(join(root, DEPOT_PHOTOS, 'rejtett', '.valami'))).toBe(true)
+    expect(existsSync(join(root, DEPOT_BACKUPS))).toBe(true)
+    // nothing left to take: a second pass is a no-op
+    expect(pruneEmptyStorageDirs()).toEqual([])
   })
 
   it('masodszor futtatva nem csinal semmit (nem hiba)', () => {
@@ -262,8 +288,8 @@ describe('a depo alapmappai', () => {
     process.env.MARVEEN_DEPOT = join(parent, 'Marveen')
     const r = ensureDepotSkeleton()
     expect(r.health.writable).toBe(true)
-    expect(r.created).toContain(DEPOT_DRIVE)
-    expect(existsSync(join(parent, 'Marveen', DEPOT_DRIVE))).toBe(true)
+    expect(r.created).toContain(DEPOT_BACKUPS)
+    expect(existsSync(join(parent, 'Marveen', DEPOT_BACKUPS))).toBe(true)
   })
 
   it('a statusz-vegpont maga inditja el a vazszerkezetet', () => {
@@ -538,8 +564,10 @@ describe('a kepernyon allo UTVONALAK a valodi mappaszerkezetet mondjak', () => {
     // magyar ut az angol szovegben ugyanolyan hiba, mint egy elavult ut.
     const hu = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf-8')
     const en = readFileSync(join(process.cwd(), 'web/lang/en.js'), 'utf-8')
-    expect(hu).toContain('Rendszer/Tárolók/Drive/lackor2')
-    expect(en).toContain('System/Storages/Drive/lackor2')
+    // #513: the downward Drive copy is retired, so the screen no longer
+    // promises a `Storages/Drive/<account>` folder in either language.
+    expect(hu).not.toContain('Rendszer/Tárolók/Drive/')
+    expect(en).not.toContain('System/Storages/Drive/')
     expect(en, 'magyar mappanev az angol nyelvi fajlban').not.toContain('Rendszer/Tárolók/')
   })
 

@@ -804,7 +804,9 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
   // A 36. pont szerint a `Rendszer` alatt EGYETLEN ag all, a `Tárolók`. A
   // `Marvin` a 8. alapszabaly szerint szemelyes projekt, a git-repok a 7. pont
   // szerint a szemely/ceg `GIT_REPOS` mappajaban vannak -- egyik sem rendszer-ag.
-  add(`${systemDir}/${lifeName('storages', lang)}`, 'system', 'storages')
+  // The `Tárolók` branch is NOT part of the plan any more (#513, Boss TG 8228): only the
+  // backups stay under `Rendszer`; an older install that still has files there keeps them
+  // (the name, the hint and the guards stay), it is just not created empty.
 
   // 6. KUKA: a fa gyokereben (#395), mint a Windows Lomtar a sajat helyen.
   //    A tervben all, tehat friss telepitesen letrejon, es fo agkent vedett:

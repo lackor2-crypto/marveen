@@ -69,14 +69,15 @@ const GOOGLE_EXPORT: Record<string, { mime: string; ext: string }> = {
  * 5000 fajlos mappabol nem akarunk 4900 dokumentumot athozni azert, hogy aztan
  * eldobjuk.
  */
-export function driveListQuery(folderId: string, mediaOnly: boolean): string {
+export function driveListQuery(folderId: string, mediaOnly: boolean, trashed = false): string {
   // MASODIK ZAR. A vegpont mar ellenorzi az azonositot, de a lekerdezes-szoveg
   // itt all ossze, es aki ide beir egy uj hivast, az konnyen kifelejti a kaput.
   // Ezert a kifejezes epitese SAJAT MAGA utasitja vissza a gyanus azonositot:
   // igy nem letezik olyan ut a kodban, ahol ellenorizetlen szoveg kerul a
   // `'<id>' in parents` kifejezesbe. Lasd isSafeFolderId().
   if (!isSafeFolderId(folderId)) throw new Error('ervenytelen folderId')
-  const base = `'${folderId}' in parents and trashed = false`
+  // `trashed`: what was deleted in the cloud and still sits in the Drive trash (#511).
+  const base = trashed ? `'${folderId}' in parents and trashed = true` : `'${folderId}' in parents and trashed = false`
   if (!mediaOnly) return base
   return `${base} and (mimeType contains 'image/' or mimeType contains 'video/' or mimeType = 'application/vnd.google-apps.folder')`
 }
@@ -239,6 +240,33 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
         // bekerulne -- a kepet a /api/drive/thumbnail hozza el helyettunk.
         hasThumb: !!f.thumbnailLink,
       }))
+      // #511: what was deleted in the cloud does not just vanish from the
+      // page. On request the answer also carries the folder's items that are
+      // in the Drive trash, in their OWN list -- `files` stays exactly what it
+      // was for every other reader. "Could not look into the trash" is its own
+      // answer (`deletedError`), never an empty list.
+      if (url.searchParams.get('withDeleted') === '1') {
+        let deleted: Array<{ id: string; name: string; isFolder: boolean; mimeType: string; size: number | null; trashedTime: string | null }> = []
+        let deletedError = ''
+        try {
+          const dq = encodeURIComponent(driveListQuery(folderId, mediaOnly, true))
+          const dfields = encodeURIComponent('files(id,name,mimeType,size,trashedTime)')
+          const dd = await driveJson(`${DRIVE_FILES_URL}?q=${dq}&fields=${dfields}&orderBy=folder,name&pageSize=200`, token)
+          deleted = (dd.files || []).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            isFolder: f.mimeType === 'application/vnd.google-apps.folder',
+            mimeType: f.mimeType,
+            size: f.size ? Number(f.size) : null,
+            trashedTime: f.trashedTime || null,
+          }))
+        } catch (err: any) {
+          deletedError = String(err?.message || err)
+          logger.warn({ err: deletedError, folderId }, '[drive-browser] trash listing failed')
+        }
+        json(res, { files, deleted, ...(deletedError ? { deletedError } : {}) })
+        return true
+      }
       json(res, { files })
     } catch (err: any) {
       logger.warn({ err: err.message, folderId }, '[drive-browser] list failed')
@@ -325,6 +353,27 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
       json(res, { ok: true })
     } catch (err: any) {
       logger.warn({ err: err.message }, '[drive-browser] trash failed')
+      json(res, { error: err.message }, 502)
+    }
+    return true
+  }
+
+  // #511: bring back what was deleted in the cloud. Only un-trashes: the file
+  // returns to the folder it was in, nothing else changes.
+  if (path === '/api/drive/untrash' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const fileId = String(data.fileId || '')
+    if (!isSafeFolderId(fileId)) { json(res, { error: 'fileId kotelezo' }, 400); return true }
+    try {
+      const token = await getAccessToken(data.account)
+      await driveJson(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}`, token, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: false }),
+      })
+      json(res, { ok: true })
+    } catch (err: any) {
+      logger.warn({ err: err.message }, '[drive-browser] untrash failed')
       json(res, { error: err.message }, 502)
     }
     return true

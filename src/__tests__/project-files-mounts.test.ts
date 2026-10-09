@@ -57,7 +57,7 @@ describe('project Files tab follows mounts', () => {
     expect(f.ok && f.hits.map((h) => h.sub)).toEqual(['Fejlesztés/GIT_REPOS/trend/trendvonal_rajzolo.mq5'])
   })
 
-  it('the flat "recent files" list includes files of a mounted repo', () => {
+  it('the flat "recent files" list includes files of a mounted repo', async () => {
     mkdirSync(join(depot, 'Projektek', 'Tozsde', 'Fejlesztés', 'GIT_REPOS'), { recursive: true })
     const repo = join(depot, 'Rendszer', 'Tárolók', 'Git', 'acc', 'trend')
     mkdirSync(repo, { recursive: true })
@@ -65,7 +65,7 @@ describe('project Files tab follows mounts', () => {
     addMount({ rel: 'Projektek/Tozsde/Fejlesztés/GIT_REPOS/trend', target: 'Rendszer/Tárolók/Git/acc/trend', kind: 'git', label: 'acc / trend' })
     const r = createProject({ name: 'Tozsde', folder_path: 'Projektek/Tozsde' })
     if (!r.ok) throw new Error(r.code)
-    const rf = recentFiles(r.project, 50)
+    const rf = await recentFiles(r.project, 50)
     expect(rf.files.map((f) => f.rel)).toEqual(['Projektek/Tozsde/Fejlesztés/GIT_REPOS/trend/a.mq5'])
   })
 })

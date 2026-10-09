@@ -62,6 +62,39 @@ export function renderCacheDir(): string {
   return override || join(STORE_DIR, 'workbench-render')
 }
 
+const LO_PROFILE = 'lo-profile'
+let profilesSwept = false
+
+/**
+ * The LibreOffice profile folder of THIS process (#516).
+ *
+ * The queue below lets one conversion run at a time, but only inside one
+ * process. The profile used to be one shared folder (`lo-profile`), so two
+ * Marveen processes converting at the same moment (test workers, a second
+ * instance, a stand-alone script) stepped on each other, and one of them came
+ * back with `convert_failed` -- measured: 7 of 18 parallel conversions.
+ *
+ * So every process has its own. The first call also clears the profiles left
+ * behind by processes that are no longer alive, and the old shared one, so
+ * the cache does not grow by a profile per restart.
+ */
+export function loProfileDir(cacheDir: string): string {
+  if (!profilesSwept) {
+    profilesSwept = true
+    try {
+      for (const name of readdirSync(cacheDir)) {
+        if (name === LO_PROFILE) { rmSync(join(cacheDir, name), { recursive: true, force: true }); continue }
+        const m = /^lo-profile-(\d+)$/.exec(name)
+        if (!m || Number(m[1]) === process.pid) continue
+        let alive = true
+        try { process.kill(Number(m[1]), 0) } catch (e: any) { alive = e?.code === 'EPERM' }
+        if (!alive) rmSync(join(cacheDir, name), { recursive: true, force: true })
+      }
+    } catch { /* no cache folder yet, or it cannot be listed: nothing to clear */ }
+  }
+  return join(cacheDir, `${LO_PROFILE}-${process.pid}`)
+}
+
 export type { ProbeReason }
 /** A 8. fazis ota a mereset a kozos `capability-probe` vegzi (ugyanaz kell az
  *  FFmpeg-hez is). Ez a nev marad, hogy a hivo oldalak ne toredezzenek szet. */
@@ -224,7 +257,7 @@ export async function sofficeConvertFile(
     }
     const dir = renderCacheDir()
     const outDir = join(dir, `tmp-x-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
-    const profile = join(dir, 'lo-profile')
+    const profile = loProfileDir(dir)
     try {
       mkdirSync(outDir, { recursive: true })
       mkdirSync(profile, { recursive: true })
@@ -279,7 +312,7 @@ export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number
     }
     const dir = renderCacheDir()
     const outDir = join(dir, `tmp-${k.key}`)
-    const profile = join(dir, 'lo-profile')
+    const profile = loProfileDir(dir)
     try {
       mkdirSync(outDir, { recursive: true })
       mkdirSync(profile, { recursive: true })

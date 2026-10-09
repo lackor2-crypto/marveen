@@ -20,6 +20,7 @@ import {
   existsSync, mkdirSync, readFileSync, writeFileSync, statSync, rmSync, readdirSync,
   createReadStream, createWriteStream, renameSync,
 } from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -580,6 +581,11 @@ function mirrorIndexToDepot(text: string): void {
   if (!root) return
   try {
     const dir = join(root, DEPOT_SYSTEM)
+    // No photo, no copy: an empty list must not keep a `GOOGLE_PHOTOS` folder
+    // alive in the depot with a two-byte file in it (#513).
+    let empty = false
+    try { const d = JSON.parse(text); empty = Array.isArray(d) && d.length === 0 } catch { empty = false }
+    if (empty) { rmSync(join(dir, 'fotok-index.json'), { force: true }); return }
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'fotok-index.json'), text)
   } catch { /* a depo eppen nem erheto el -- a valodi index mar kiirodott */ }
@@ -1182,6 +1188,9 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
 
   // A lementett kepek. Ez a Fotok oldal fo forrasa -- halozat nelkul is megy.
   if (path === '/api/photos/list' && method === 'GET') {
+    // The list follows the disk: a photo that was moved or deleted any other
+    // way than the Remove button must not stay on the page (TG 8222).
+    try { await prunePhotosMissingOnDisk() } catch (err) { logger.warn({ err }, '[photos] the disk check before the list failed; the list is shown as it is') }
     const account = url.searchParams.get('account') || ''
     const all = loadIndex()
     const list = account ? all.filter((p) => p.account === account) : all
@@ -1466,6 +1475,113 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
   }
 
   return false
+}
+
+// ---------------------------------------------------------------------------
+// The index follows the DISK: a photo that is gone is gone from the page too
+//
+// Boss, 2026-10-09 (TG 8204, 8222): the photos were moved into the Life tree,
+// and the Photos page went on showing all 383 of them -- the index and the
+// `.thumbs` thumbnails stayed behind. "hogyha eltavolodik egy foto, a
+// belyegkep is tavolodjon el [...] globalisan beegetve igy legyen."
+//
+// The page only ever removed an entry through its own Remove button. A file
+// taken away any other way (the Intezo, the Windows Explorer, a clean-up)
+// left its index row and its thumbnail for ever. Now the list is checked
+// against the disk before it is shown.
+// ---------------------------------------------------------------------------
+
+/** Which index rows have no file any more. Pure: `exists` answers for one (owner, file). */
+export function missingPhotoEntries(index: StoredPhoto[], exists: (owner: string, file: string) => boolean): StoredPhoto[] {
+  const seen = new Map<string, boolean>()
+  return index.filter((p) => {
+    const owner = photoFileOwner(p)
+    const key = owner + '\u0000' + p.file
+    let ok = seen.get(key)
+    if (ok === undefined) { ok = exists(owner, p.file); seen.set(key, ok) }
+    return !ok
+  })
+}
+
+export interface PhotoPruneResult {
+  /** Index rows dropped because their file is gone. */
+  removed: number
+  /** Thumbnail files deleted (of dropped rows, and thumbnails no row points at). */
+  thumbs: number
+  /** `unreachable`: the depot is set up but not there right now -- nothing was touched. */
+  skipped?: 'unreachable' | 'throttled'
+}
+
+let lastPruneAt = 0
+/** At most one disk check in this many ms (the list endpoint calls it on every load). */
+export const PHOTO_PRUNE_MIN_GAP_MS = 30_000
+/** Test-only. */
+export function resetPhotoPruneThrottle(): void { lastPruneAt = 0 }
+
+/**
+ * Drop the index rows whose photo file is gone, and their thumbnails.
+ *
+ * An UNREACHABLE depot is not a deleted photo: when the depot is set up but
+ * its folder cannot be opened (an unmounted disk makes every file look gone)
+ * nothing is touched. Only thumbnails are ever deleted here -- a photo file is
+ * never removed by this pass.
+ */
+export async function prunePhotosMissingOnDisk(opts: { force?: boolean } = {}): Promise<PhotoPruneResult> {
+  const out: PhotoPruneResult = { removed: 0, thumbs: 0 }
+  if (!opts.force && Date.now() - lastPruneAt < PHOTO_PRUNE_MIN_GAP_MS) return { ...out, skipped: 'throttled' }
+  lastPruneAt = Date.now()
+  const index = loadIndex()
+  if (!index.length) return out
+  const depot = depotRoot()
+  if (depot) {
+    try { if (!(await fsp.stat(depot)).isDirectory()) return { ...out, skipped: 'unreachable' } } catch { return { ...out, skipped: 'unreachable' } }
+  }
+  const isFile = async (p: string): Promise<boolean> => { try { return (await fsp.stat(p)).isFile() } catch { return false } }
+  // One answer per (owner, file), from BOTH places a photo can be (depot, old folder).
+  const present = new Map<string, boolean>()
+  let n = 0
+  for (const p of index) {
+    const owner = photoFileOwner(p)
+    const key = owner + '\u0000' + p.file
+    if (present.has(key)) continue
+    let ok = false
+    for (const dir of photoDirsFor(owner)) { if (await isFile(join(dir, p.file))) { ok = true; break } }
+    present.set(key, ok)
+    if (++n % 64 === 0) await new Promise<void>((r) => setImmediate(r))
+  }
+  const gone = missingPhotoEntries(index, (owner, file) => present.get(owner + '\u0000' + file) === true)
+  const goneSet = new Set(gone)
+  const rest = gone.length ? index.filter((p) => !goneSet.has(p)) : index
+
+  // Thumbnails: whatever no remaining row points at, in every folder a row of this index lives in.
+  const dirs = new Set<string>()
+  for (const p of index) for (const d of photoDirsFor(photoFileOwner(p))) dirs.add(d)
+  const keep = new Map<string, Set<string>>()
+  for (const p of rest) {
+    for (const d of photoDirsFor(photoFileOwner(p))) {
+      const set = keep.get(d) ?? new Set<string>()
+      set.add(thumbFileName(p)); set.add(thumbFileName({ file: p.file }))
+      keep.set(d, set)
+    }
+  }
+  for (const d of dirs) {
+    const td = join(d, THUMB_DIRNAME)
+    let names: string[]
+    try { names = await fsp.readdir(td) } catch { continue }
+    const wanted = keep.get(d) ?? new Set<string>()
+    let left = names.length
+    for (const f of names) {
+      if (wanted.has(f)) continue
+      try { await fsp.unlink(join(td, f)); out.thumbs++; left-- } catch { /* gone meanwhile */ }
+    }
+    if (left === 0) { try { await fsp.rmdir(td) } catch { /* not empty after all */ } }
+  }
+  if (gone.length) {
+    saveIndex(rest)
+    out.removed = gone.length
+    logger.info({ removed: gone.length, thumbs: out.thumbs }, '[photos] rows whose file is gone were dropped from the index, with their thumbnails')
+  }
+  return out
 }
 
 /**

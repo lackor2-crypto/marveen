@@ -193,10 +193,10 @@ export function projectContextText(p: ProjectRow, ov: ProjectOverview, lang: 'hu
   return L.join('\n')
 }
 
-export function projectContext(id: string, lang: 'hu' | 'en'): { project: ProjectRow; text: string } | null {
+export async function projectContext(id: string, lang: 'hu' | 'en'): Promise<{ project: ProjectRow; text: string } | null> {
   const p = getProject(id)
   if (!p || p.id !== id) return null
-  const ov = buildProjectOverview(id)
+  const ov = await buildProjectOverview(id)
   if (!ov) return null
   return { project: p, text: projectContextText(p, ov, lang) }
 }

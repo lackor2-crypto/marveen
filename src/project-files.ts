@@ -91,26 +91,33 @@ export function ensureProjectHasFolder(p: ProjectRow): void {
 export const SUBFOLDER_MAX_DEPTH = 64
 export const SUBFOLDER_MAX = 400
 
-export function projectSubfolders(p: ProjectRow): string[] {
+export async function projectSubfolders(p: ProjectRow): Promise<string[]> {
   const t = projectFileTarget(p, '')
   if (!t.ok) return []
   const out: string[] = []
-  const walk = (abs: string, rel: string, depth: number): void => {
+  // A lassu 9p Raktaron a szinkron, rekurziv readdirSync az egesz event loopot
+  // befagyasztja (minden agens dashboardja var), ezert fs/promises + periodikus
+  // setImmediate-yield. A korlatok (melyseg, darabszam) es a sorrend valtozatlan.
+  let visited = 0
+  const walk = async (abs: string, rel: string, depth: number): Promise<void> => {
     if (depth > SUBFOLDER_MAX_DEPTH || out.length >= SUBFOLDER_MAX) return
     let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    try { entries = await readdir(abs, { withFileTypes: true }) } catch { return }
     const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
       .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
     for (const d of dirs) {
       if (out.length >= SUBFOLDER_MAX) return
+      if (++visited % 256 === 0) await new Promise<void>((r) => setImmediate(r))
       const childAbs = join(abs, d.name)
-      if (existsSync(join(childAbs, '.git'))) continue
+      let hasGit = false
+      try { await stat(join(childAbs, '.git')); hasGit = true } catch { hasGit = false }
+      if (hasGit) continue
       const childRel = rel ? `${rel}/${d.name}` : d.name
       out.push(childRel)
-      walk(childAbs, childRel, depth + 1)
+      await walk(childAbs, childRel, depth + 1)
     }
   }
-  walk(t.dirAbs, '', 1)
+  await walk(t.dirAbs, '', 1)
   return out
 }
 

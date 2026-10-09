@@ -196,7 +196,7 @@ describe('a munkadarab anyagai es az agent', () => {
     expect(logo.doc).toBe(null)
   })
 
-  it('document.pages / document.read: olvaso eszkozok, [fajl:oldal] hivatkozassal; a kontextus mondja az oldalszamot', () => {
+  it('document.pages / document.read: olvaso eszkozok, [fajl:oldal] hivatkozassal; a kontextus mondja az oldalszamot', async () => {
     expect(getTool('document.pages')?.autonomyCategory).toBe(null)
     expect(getTool('document.read')?.autonomyCategory).toBe(null)
     const item = newItem()
@@ -211,7 +211,7 @@ describe('a munkadarab anyagai es az agent', () => {
     ])
     const out = executeTool('document.read', { path: '../../titok.pdf' }, ctx)
     expect(out.ok).toBe(false)
-    const c = buildContext(project, item, 'hu')
+    const c = await buildContext(project, item, 'hu')
     expect(c.contextText).toContain('Munkadarabok/Birosagi level/level.pdf [readable, document: 2 page(s)')
   })
 

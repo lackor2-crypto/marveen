@@ -124,9 +124,9 @@ describe('dontesnaplo: a Munkapad-agens', () => {
   })
   const ctx = () => ({ projectId: pid, workItemId: null, lang: 'hu' as const })
 
-  it('a kontextusban ott vannak az ervenyes dontesek, es a szabaly, hogy kovesse oket', () => {
+  it('a kontextusban ott vannak az ervenyes dontesek, es a szabaly, hogy kovesse oket', async () => {
     addDecision({ project_id: pid, text: 'A logó kék marad.' })
-    const c = buildContext(getProject(pid)!, null, 'hu')
+    const c = await buildContext(getProject(pid)!, null, 'hu')
     expect(c.contextText).toContain('A logó kék marad.')
     expect(c.parts.some((p) => p.key === 'decisions')).toBe(true)
     expect(c.system).toContain('decision.record')
