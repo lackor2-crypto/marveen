@@ -58,6 +58,11 @@ SCOPES = [
     # Picker vezet: a felhasznalo a Google sajat kepvalaszto feluleten valaszt,
     # es csak a kivalasztott kepeket kapjuk meg.
     "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
+    # #520: feltoltes a Google Fotokba. Ez a scope CSAK hozzaadni enged (uj kep,
+    # sajat album) -- olvasni, torolni, felulirni nem. A meglevo fiokok tokenjeben
+    # nincs benne: azoknal a feltoltes elott egyszer ujra kell csatlakoztatni a
+    # fiokot (a felulet megmondja, hol), a tobbi funkcio addig is valtozatlanul megy.
+    "https://www.googleapis.com/auth/photoslibrary.appendonly",
 ]
 AUTH_URI  = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"

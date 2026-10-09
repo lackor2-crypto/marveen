@@ -108,6 +108,25 @@ export function checkPhotoDest(dest: unknown): DestCheck {
   return { ok: true, abs, rel }
 }
 
+/**
+ * The folder an uploaded photo came from, made again if it is gone (the owner, TG 8331: "ha nincs
+ * olyan mappa akkor meg letrehozna"). Null when it cannot be: outside the tree, in the trash,
+ * inside a repository, or the tree is not reachable -- the item then goes to the chosen folder.
+ */
+function homeFolder(lifeRel: string): { abs: string; rel: string } | null {
+  const rel = norm(lifeRel)
+  const root = explorerRoot()
+  const abs = rel ? resolveLifePath(rel) : null
+  if (!rel || !root || !abs) return null
+  const trash = norm(trashRelPath())
+  if (rel === trash || rel.startsWith(trash + '/')) return null
+  // The tree itself must be there: a folder is never re-created on an unmounted drive.
+  try { if (!statSync(root).isDirectory()) return null } catch { return null }
+  try { mkdirSync(abs, { recursive: true }) } catch { return null }
+  const chk = checkPhotoDest(rel)
+  return chk.ok ? { abs: chk.abs, rel: chk.rel } : null
+}
+
 /** Where the file of a Life photo is, or null when the tree is not reachable. */
 export function lifePhotoPath(p: Pick<LifePhoto, 'lifeRel' | 'file'>): string | null {
   const dir = resolveLifePath(p.lifeRel)
@@ -149,6 +168,8 @@ export interface LifeDownloadResult {
   partial?: boolean
   /** Where the new files are (Life-tree path). */
   dest: string
+  /** Items put back into the folder they were uploaded from, instead of the chosen one. */
+  restored: number
 }
 
 export interface LifeDownloadDeps {
@@ -159,6 +180,11 @@ export interface LifeDownloadDeps {
   /** Called before each item (the caller's memory / pause throttle). */
   breathe?: () => Promise<void>
   isAllowedUrl: (url: string) => boolean
+  /**
+   * Where this item went up FROM, when this program uploaded it (#520, TG 8331): it goes back to
+   * that folder instead of the chosen one. `bytes` lets an unchanged file be recognised without a download.
+   */
+  placeFor?: (item: { id: string; filename: string }) => { lifeRel: string; file: string; bytes: number } | null
 }
 
 async function streamToFileHashed(body: unknown, dest: string): Promise<{ hash: string; bytes: number }> {
@@ -185,7 +211,7 @@ export async function downloadPickedToLife(
   const byHash = new Map<string, LifePhoto>()
   for (const p of index) if (p.sha256 && !byHash.has(p.sha256)) byHash.set(p.sha256, p)
   const usedNow = new Set<string>()
-  const r: LifeDownloadResult = { saved: 0, failed: 0, duplicates: 0, cleaned: 0, selected: items.length, already: 0, dest: chk.rel }
+  const r: LifeDownloadResult = { saved: 0, failed: 0, duplicates: 0, cleaned: 0, selected: items.length, already: 0, dest: chk.rel, restored: 0 }
   for (const raw of items) {
     const id = typeof raw?.id === 'string' ? raw.id : ''
     const mf = raw?.mediaFile || {}
@@ -197,8 +223,26 @@ export async function downloadPickedToLife(
     const base = String(mf.baseUrl || '')
     const url = base ? `${base}=${isVideo ? 'dv' : 'd'}` : ''
     if (!url || !deps.isAllowedUrl(url)) { r.failed++; continue }
+    // An item this program uploaded goes back where it came from. If the file is still there,
+    // unchanged in size, it is simply "already here": nothing is downloaded.
+    let itemDir = dir
+    let itemRel = chk.rel
+    let wantName = ''
+    const place = deps.placeFor ? deps.placeFor({ id, filename: typeof mf.filename === 'string' ? mf.filename : '' }) : null
+    if (place) {
+      const home = homeFolder(place.lifeRel)
+      if (home) {
+        const there = join(home.abs, place.file)
+        let same = false
+        try { same = statSync(there).isFile() && statSync(there).size === place.bytes } catch { same = false }
+        if (same) { r.already++; continue }
+        itemDir = home.abs
+        itemRel = home.rel
+        wantName = place.file
+      }
+    }
     // A hidden temporary name of our OWN making: it is the only file this run may ever remove.
-    const part = join(dir, `.marveen-foto-${randomBytes(6).toString('hex')}.part`)
+    const part = join(itemDir, `.marveen-foto-${randomBytes(6).toString('hex')}.part`)
     try {
       if (deps.breathe) await deps.breathe()
       const res = await deps.fetchBytes(url, token)
@@ -216,11 +260,12 @@ export async function downloadPickedToLife(
         saveLifeIndex(index)
         continue
       }
-      const file = freeName(dir, safeOriginalName(mf.filename, id, mimeType), usedNow)
-      usedNow.add(file.toLowerCase())
-      renameSync(part, join(dir, file))
+      const file = freeName(itemDir, wantName || safeOriginalName(mf.filename, id, mimeType), itemDir === dir ? usedNow : new Set())
+      if (itemDir === dir) usedNow.add(file.toLowerCase())
+      else r.restored++
+      renameSync(part, join(itemDir, file))
       const entry: LifePhoto = {
-        id, account, lifeRel: chk.rel, file, mimeType,
+        id, account, lifeRel: itemRel, file, mimeType,
         createdTime: typeof raw.createTime === 'string' ? raw.createTime : '',
         width: Number(meta.width) || 0, height: Number(meta.height) || 0, isVideo,
         bytes: got.bytes, sha256: got.hash, savedAt: new Date().toISOString(),
