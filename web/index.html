@@ -1172,50 +1172,6 @@
         </div>
       </div>
 
-      <!-- Drive-mappa valaszto: ugyanaz a jarat, mint a gepi mappavalaszto,
-           csak a Drive fajaban. Azert van sajat ablaka, mert a ket vilag
-           kulonbozik: itt nincs lemez es utvonal, hanem fiok es mappa-azonosito
-           -- azt viszont senkinek nem kell latnia, meg kevesbe begepelnie. -->
-      <div class="modal-overlay" id="drivePickModal" hidden>
-        <div class="modal-content" style="max-width:620px">
-          <div class="modal-header">
-            <h3 data-i18n="dpick.modal_title">📁 Válaszd ki a Drive-mappát</h3>
-            <button class="modal-close" id="drivePickClose">&times;</button>
-          </div>
-          <div class="modal-body">
-            <!-- Egy mondat arrol, MIT kell itt csinalni. Enelkul a lista csak
-                 mappaneveket mutat, es nem derul ki, mi tortenik toluk. -->
-            <p class="subtitle" style="margin:0 0 10px" data-i18n-html="dpick.lead_html">
-              Ez a <strong>Google Drive-od</strong>. Kattints egy mappára, hogy belépj
-              — így keresed meg azt, amit szeretnél, hogy a gépeden is meglegyen.
-              Ha már <strong>abban a mappában állsz</strong>, nyomd meg lent az
-              <strong>Ez a mappa legyen</strong> gombot.
-            </p>
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-              <button class="btn-secondary btn-compact" id="drivePickUp" data-i18n="dpick.up">⬆ Vissza</button>
-              <span class="subtitle" style="font-size:12px" data-i18n="dpick.here_label">Most itt vagy:</span>
-              <!-- Ide a megnyitott mappa utja kerul (app.js irja); nyelvi
-                   sopresre nem bizzuk, kulonben nyelvvaltaskor eltunne. -->
-              <strong id="drivePickHere" style="font-size:13px;word-break:break-all"></strong>
-            </div>
-            <div id="drivePickList" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px"></div>
-            <p id="drivePickMsg" class="subtitle" style="margin:8px 0 0"></p>
-            <details style="margin-top:10px">
-              <summary class="subtitle" style="cursor:pointer" data-i18n="dpick.manual_summary">Ismerem a mappa azonosítóját, beírom kézzel</summary>
-              <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-                <input class="input" id="drivePickManualId" style="flex:1;min-width:200px" data-i18n-placeholder="dpick.manual_ph" placeholder="Drive mappa-azonosító">
-                <button class="btn-secondary btn-compact" id="drivePickManualBtn" data-i18n="dpick.manual_open">Megnyitás</button>
-              </div>
-              <p class="subtitle" style="margin:6px 0 0" data-i18n="dpick.manual_hint">Erre csak akkor van szükség, ha a mappa nincs a saját meghajtódon (például veled megosztott mappa).</p>
-            </details>
-          </div>
-          <div class="modal-footer">
-            <button class="btn-secondary" id="drivePickCancel" data-i18n="dpick.cancel">Mégsem</button>
-            <button class="btn-primary" id="drivePickOk" disabled data-i18n="dpick.ok">Ez a mappa legyen</button>
-          </div>
-        </div>
-      </div>
-
       <!-- Debate ("vitáztatás") settings: OpenRouter model picker for DEBATE_MODELS -->
       <div class="modal-overlay" id="debateModelsModal" hidden>
         <div class="modal-content" style="max-width:660px">
@@ -1952,7 +1908,7 @@
       </div>
 
       <div class="card">
-        <h2 data-i18n="dsync.title">A Drive-om a gépemen</h2>
+        <h2 data-i18n="dsync.title">Drive-mentés futtatása</h2>
         <!-- TORLES-MEGEROSITO SOR (#301): a lap TETEJEN, csillaggal. A szinkron
              magatol semmit nem torol; ami torlodne, itt var tetelenkent igenre
              vagy nemre. Ures sornal az egesz doboz rejtve marad. -->
@@ -1974,58 +1930,19 @@
              ES: "ne kelljen kivalasztani itt mappakat. az nem kell ide" +
              "mit akarok szinkronizalni. hat a lackor2 drivot mindenestul!" ->
              a FO ut egyetlen gomb, mappavalasztas es nevado mezo NELKUL. -->
+        <!-- ONE COPY (#513, the owner's "K3 A", 2026-10-08): the Drive is no
+             longer brought DOWN into Rendszer/Tárolók. Everything lives once,
+             in the Life tree; the Drive holds its backup (the card below), and
+             a fresh install brings it back with "Restore from the cloud" there.
+             This card runs and watches that backup. -->
         <p class="subtitle" data-i18n-html="dsync.what_html">
-          <strong>Mire jó ez?</strong> A Marveen <strong>az egész Drive-odat lehozza
-          a gépedre</strong>, a raktárba — ugyanazzal a mappaszerkezettel, ami a neten
-          van. Ami ott van, az nálad is megvan, internet nélkül is.
-          <br>
-          A másolat <strong>oda-vissza</strong> működik: ami a Drive-on új vagy
-          módosult, az <strong>lejön</strong>; amit a gépeden létrehozol vagy
-          szerkesztesz, az <strong>felmegy</strong>. Ha a gépeden törölsz valamit,
-          azt <strong>nem törlöm magamtól</strong> a Drive-on: a lap tetején, a ★
-          listában megkérdezem, és igenre a <strong>Kukába</strong> kerül, ahonnan
-          30 napig visszahozható.
-          <br>
-          <strong>Egy irányban viszont szándékosan nem követ:</strong> ami a
-          Drive-on törlődik, az nálad <strong>megmarad</strong>. Így ha valaki
-          feltöri a Drive-odat, a gépedről nem tud törölni.
+          <strong>Mire jó ez?</strong> Minden fájlod <strong>egy példányban, az Életfában</strong> él.
+          A Drive a <strong>mentés</strong> helye: az alsó kártyán kötheted be, mit mentsünk, és ott
+          hozhatod vissza a felhőből is. Ez a kártya a mentést futtatja és mutatja, mi történt.
         </p>
+        <!-- Only shown while an old downward Drive copy is still linked: it no
+             longer runs, the row offers to unlink it. -->
         <div id="depoSyncList"></div>
-        <!-- EGY lepes: melyik fiok. A tobbit a gomb elintezi. -->
-        <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px">
-          <label for="depoSyncAccount" style="font-size:13px" data-i18n="dsync.step1">Melyik Google-fiókod Drive-ját hozzuk le?</label>
-          <select id="depoSyncAccount" class="input" style="width:auto"></select>
-          <button class="btn-primary btn-compact" id="depoSyncWholeBtn" data-i18n="dsync.whole_btn">A teljes Drive lehozása</button>
-        </div>
-        <p class="subtitle" style="margin:6px 0 0" data-i18n-html="dsync.whole_hint_html">
-          A gépeden a mappa neve <strong>ugyanaz lesz, mint a fiók neve</strong> — a
-          <code>lackor2</code> Drive-ja a <code>Rendszer/Tárolók/Drive/lackor2</code> mappába jön, a
-          fotók pedig a <code>Rendszer/Tárolók/GOOGLE_PHOTOS/lackor2</code> mappába. Nem nevezed át, így két
-          fiók tartalma soha nem keveredhet össze.
-        </p>
-        <!-- A kivalasztott mappa utvonala / hibauzenet (app.js irja) -- nyelvi
-             sopresre nem bizzuk, kulonben nyelvvaltaskor eltunne. -->
-        <p class="subtitle" id="depoSyncPicked" style="margin:8px 0 0"></p>
-        <!-- Nem a fo ut: alapbol OSSZECSUKVA all, hogy ne zavarja meg azt, aki
-             csak az egeszet akarja. -->
-        <details id="depoSyncOnlyOne" style="margin-top:10px">
-          <summary style="cursor:pointer;font-size:13px" data-i18n="dsync.only_one">Mégis ne az egész Drive-ot: csak EGY mappát szinkronizáljak</summary>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px">
-            <button class="btn-secondary btn-compact" id="depoSyncPickBtn" data-i18n="dsync.pick_btn">📁 Drive-mappa kiválasztása…</button>
-            <button class="btn-secondary btn-compact" id="depoSyncAddBtn" disabled data-i18n="dsync.add_btn">Hozzáadás</button>
-          </div>
-          <p class="subtitle" style="margin:6px 0 0" data-i18n="dsync.only_one_hint">
-            Megnyílik a Drive-od, és ott kattintgatva keresed meg a mappát. A gépeden
-            a fiók mappája alá kerül, a Drive-on lévő nevével: a <code>lackor2</code>
-            fiókból választott <code>Számlák</code> mappa helye
-            <code>Rendszer/Tárolók/Drive/lackor2/Számlák</code> lesz. Csak ez az egy mappa jön le
-            (az almappáival együtt) — a Drive többi része nem. A „Hozzáadás” addig
-            szürke, amíg nincs kiválasztva mappa.
-          </p>
-        </details>
-        <!-- A valaszto tolti ki mindkettot; kezzel senkinek nem kell beirnia. -->
-        <input type="hidden" id="depoSyncFolderId">
-        <input type="hidden" id="depoSyncName">
         <!-- A KET VESZELYES KAPCSOLO. Latszania kell, mert a felmeno ag IR a
              Drive-ra, a torles-atvitel pedig TOROL. Amit nem lehet a kepernyon
              ellenorizni es kikapcsolni, arrol a felhasznalo nem tudja, mit tesz
@@ -2124,23 +2041,22 @@
         </div>
       </div>
 
-      <!-- A MASIK IRANY. A fenti kartya a felhot hozza LE, ez a munkadat viszi
-           FEL. #47 kartya (Boss): "ez az egesz mappastruktura folyamatosan
+      <!-- THE BACKUP. Since #513 the only Drive direction: the Life tree goes
+           UP; it comes down only by the owner's own restore, below. #47 kartya (Boss): "ez az egesz mappastruktura folyamatosan
            sync-elve / feltoltve a Google Drive-ra biztonsagi mentesnek ... azok
            NEM mennek a git repoba". MERVE 2026-08-28: a raktarban 9356 fajl /
            11 GB all ugy, hogy sehol nincs masodpeldanya. -->
       <div class="card" id="depoBackupCard">
         <h2 data-i18n="dbackup.title">A gépem mentése a Drive-ra</h2>
         <p class="subtitle" data-i18n-html="dbackup.what_html">
-          <strong>Mire jó ez?</strong> A fenti kártya a Drive-odat hozza le a gépedre.
-          Ez a kártya a <strong>fordítottja</strong>: a raktáradban készült munkát
-          tölti fel a Drive-ra, biztonsági mentésnek. Amit itt bekötsz, arról
-          <strong>minden éjjel</strong> felmegy, ami új vagy módosult.
+          <strong>Mire jó ez?</strong> Az Életfádat tölti fel a Drive-ra, biztonsági mentésnek.
+          Amit itt bekötsz, arról <strong>minden éjjel</strong> felmegy, ami új vagy módosult.
           <br>
-          <strong>Egy irányban működik:</strong> a gépedről felfelé. A Drive-ról
-          <strong>soha nem tölt le ide semmit</strong> — így ha valaki feltöri a
-          Drive-odat, a munkamappáidba nem tud fájlt beírni. Amit a gépeden törölsz,
-          az a Drive-on a <strong>Kukába</strong> kerül, ahonnan 30 napig visszahozható.
+          <strong>Egy irányban működik:</strong> a gépedről felfelé. Magától a Drive-ról
+          <strong>soha nem tölt le ide semmit</strong> — így ha valaki feltöri a Drive-odat, a
+          munkamappáidba nem tud fájlt beírni. Visszahozni csak te tudod, lent, a
+          „Helyreállítás a felhőből” résznél. Amit a gépeden törölsz, az a Drive-on a
+          <strong>Kukába</strong> kerül, ahonnan 30 napig visszahozható.
           <br>
           <strong>Bekötés előtt megmérem</strong>, hány fájl és mennyi hely ez, és
           megkérdezem a Google-tól, van-e rá szabad helyed.
@@ -2160,6 +2076,29 @@
              ezt a funkciot nem lehet ugy elinditani, hogy a merteket a
              felhasznalo csak utana latja meg. -->
         <div id="depoBackupPreview" style="margin-top:10px"></div>
+        <!-- Which Google accounts are linked, or why the list is empty. -->
+        <p class="subtitle" id="depoAccountsNote" style="margin:8px 0 0"></p>
+
+        <!-- RESTORE FROM THE CLOUD (#513). The owner, 2026-10-08: "ha a marveent
+             ujratelepitem valahol, akkor a felhobol le tudjon hozni mindent.
+             helyreallitani az eletfat." Only what is MISSING comes down; a file
+             already here is never overwritten. -->
+        <div id="depoRestoreBox" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border, #333)">
+          <h3 style="margin:0 0 6px;font-size:14px" data-i18n="drestore.title">Helyreállítás a felhőből</h3>
+          <p class="subtitle" style="margin:0 0 10px" data-i18n-html="drestore.what_html">
+            Új gépre telepítetted a Marveent, vagy elveszett valami? Itt a Drive-on lévő
+            <strong>mentésből</strong> visszahozod az Életfát, <strong>ugyanoda</strong>, ahonnan felment.
+            Csak az jön le, ami a gépeden <strong>hiányzik</strong> — ami már megvan, ahhoz nem nyúlok.
+          </p>
+          <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <label for="depoRestoreAccount" style="font-size:13px" data-i18n="drestore.step1">Melyik fiók Drive-ján van a mentés?</label>
+            <select id="depoRestoreAccount" class="input" style="width:auto"></select>
+            <button class="btn-secondary btn-compact" id="depoRestoreFindBtn" data-i18n="drestore.find_btn">Mentések keresése</button>
+          </div>
+          <p class="subtitle" id="depoRestoreNote" style="margin:8px 0 0"></p>
+          <div id="depoRestoreList" style="margin-top:8px"></div>
+          <p class="subtitle" id="depoRestoreStatus" style="margin:8px 0 0"></p>
+        </div>
       </div>
     </div>
       </div>

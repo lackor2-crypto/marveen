@@ -34,8 +34,8 @@
 //   3. Ha a torlendok aranya atlepi a vészfék-küszöböt, EGY sem megy fel.
 // Fék nélkül a kerest funkcio a sajat mentesedet torolne le az elso hibanal.
 import { excludeRules, isExcludedDir, isExcludedFile, normalizeExcludes, type ExcludeRules } from '../../backup-exclude.js'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { execFile } from 'node:child_process'
@@ -603,7 +603,7 @@ async function listFolder(folderId: string, token: TokenForras): Promise<any[]> 
   let pageToken = ''
   do {
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
-    const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,size,modifiedTime)')
+    const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,size,modifiedTime,appProperties)')
     const page = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''
     const data = await driveJson(`${DRIVE_FILES_URL}?q=${q}&fields=${fields}&pageSize=200${page}`, token)
     for (const f of data.files || []) out.push(f)
@@ -857,6 +857,14 @@ export interface SyncJob {
   partial?: number
   /** Files left for the next run by the per-run upload budget (`MAX_UPLOADS`). */
   remaining?: number
+  /**
+   * RESTORE FROM THE CLOUD (#513): this job brings a backup folder back down
+   * instead of syncing. Same `job` slot on purpose: a restore and a backup run
+   * must never touch one pair's state at the same time.
+   */
+  kind?: 'restore'
+  /** Restore preview: `downloaded` counts what WOULD come down, nothing is written. */
+  dryRun?: boolean
 }
 
 let job: SyncJob | null = null
@@ -1752,6 +1760,192 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
   logger.info({ downloaded: job?.downloaded, failed: job?.failed }, '[drive-sync] futas kesz')
 }
 
+/* ============ RESTORE FROM THE CLOUD (#513) ===============================
+ *
+ * The owner, 2026-10-08: "ha a marveent ujratelepitem valahol, akkor a felhobol
+ * le tudjon hozni mindent. helyreallitani az eletfat. legalabbis azt ami le volt
+ * szinkronizalva."
+ *
+ * The Life tree is the one copy; the Drive holds its BACKUP ("Marveen mentés/
+ * <branch>"). A restore walks one backup folder and brings down what is MISSING
+ * on this machine, to the same place it went up from. Rules:
+ *   * never overwrite: a file already on disk stays as it is (the machine wins,
+ *     same as in the backup run);
+ *   * names come down raw (the backup sent them up raw). A name that cannot be
+ *     a single path component here is skipped and named, never renamed: a
+ *     renamed copy would go back up as a second file on the next backup run;
+ *   * Google-native files (Docs/Sheets) are skipped: the backup never uploads
+ *     them, so they are not part of the Life tree;
+ *   * every restored file is written into the pair's state with its Drive id,
+ *     so the next backup run sees it as "already up there, unchanged".
+ */
+
+/** One Drive entry as the restore walk needs it. */
+export interface RestoreEntry { id: string; name: string; mimeType?: string; size?: string | number; modifiedTime?: string }
+
+export interface RestoreResult {
+  /** Files missing here that came down (or, in a preview, would come down). */
+  downloaded: number
+  /** Files already on disk: left alone. */
+  present: number
+  bytes: number
+  skipped: Array<{ path: string; reason: string }>
+  failed: Array<{ path: string; reason: string }>
+  /** The walk stopped early (a limit or an unreadable folder): not all came down. */
+  partial: string[]
+  /** Drive id -> state row for every file this restore wrote. */
+  state: Record<string, SyncFileState>
+}
+
+/** Can this Drive name be ONE path component on this machine, unchanged? */
+export function restoreNameOk(name: string): boolean {
+  const n = String(name || '')
+  if (!n || n === '.' || n === '..') return false
+  if (/[\\/\u0000-\u001f\u007f]/.test(n)) return false
+  return true
+}
+
+/**
+ * The walk itself, without the network: `list` and `download` are passed in,
+ * so it is tested with a fake Drive and a temp folder.
+ */
+export async function restoreWalk(a: {
+  rootId: string
+  base: string
+  list: (folderId: string) => Promise<RestoreEntry[]>
+  download: (f: RestoreEntry, dest: string) => Promise<number>
+  dryRun: boolean
+  maxFolders?: number
+  maxFiles?: number
+  onProgress?: (r: RestoreResult, current: string) => void
+}): Promise<RestoreResult> {
+  const r: RestoreResult = { downloaded: 0, present: 0, bytes: 0, skipped: [], failed: [], partial: [], state: {} }
+  const maxFolders = a.maxFolders ?? MAX_FOLDERS
+  const maxFiles = a.maxFiles ?? MAX_FILES
+  const baseAbs = resolve(a.base)
+  const queue: Array<{ id: string; rel: string }> = [{ id: a.rootId, rel: '' }]
+  let folders = 0
+  let files = 0
+  while (queue.length) {
+    const cur = queue.shift()!
+    if (++folders > maxFolders) { r.partial.push(`mappa-korlát (${maxFolders})`); break }
+    let entries: RestoreEntry[]
+    try {
+      entries = await a.list(cur.id)
+    } catch (err: any) {
+      r.partial.push(`${cur.rel || '/'}: ${String(err?.message || err).slice(0, 160)}`)
+      continue
+    }
+    for (const f of entries) {
+      const rel = cur.rel ? `${cur.rel}/${f.name}` : String(f.name || '')
+      if (!restoreNameOk(f.name)) {
+        r.skipped.push({ path: rel, reason: 'a név itt nem lehet fájlnév (perjel vagy vezérlőkarakter) – kézzel töltsd le' })
+        continue
+      }
+      if (f.mimeType === 'application/vnd.google-apps.folder') {
+        queue.push({ id: f.id, rel })
+        continue
+      }
+      if (++files > maxFiles) { r.partial.push(`fájl-korlát (${maxFiles})`); return r }
+      if (String(f.mimeType || '').startsWith('application/vnd.google-apps.')) {
+        r.skipped.push({ path: rel, reason: 'Google-dokumentum, nem a mentés része – a Drive-on nyisd meg' })
+        continue
+      }
+      const dest = resolve(baseAbs, rel)
+      // Belt and braces: the name check already rules out `..`, this rules
+      // out anything else that would land outside the branch.
+      if (dest !== baseAbs && !dest.startsWith(baseAbs + sep)) {
+        r.skipped.push({ path: rel, reason: 'kivezetne a mappából' })
+        continue
+      }
+      if (existsSync(dest)) { r.present++; continue }
+      const size = Number(f.size || 0)
+      if (a.dryRun) {
+        r.downloaded++
+        r.bytes += size
+        a.onProgress?.(r, rel)
+        continue
+      }
+      try {
+        mkdirSync(dirname(dest), { recursive: true })
+        // A symlinked folder inside the branch must not carry the file out.
+        const realDir = realpathSync(dirname(dest))
+        const realBase = realpathSync(baseAbs)
+        if (realDir !== realBase && !realDir.startsWith(realBase + sep)) {
+          r.skipped.push({ path: rel, reason: 'a mappa egy hivatkozáson át kivezet – kimaradt' })
+          continue
+        }
+        a.onProgress?.(r, rel)
+        const got = await a.download(f, dest)
+        // The Drive date comes back as the file date: the restored tree looks
+        // like the one that went up, not like "everything changed today".
+        const mt = f.modifiedTime ? new Date(f.modifiedTime) : null
+        if (mt && !Number.isNaN(mt.getTime())) { try { utimesSync(dest, mt, mt) } catch { /* the date is a nicety */ } }
+        const st = statSync(dest)
+        r.state[f.id] = { path: rel, modifiedTime: f.modifiedTime || '', size: st.size, localMtimeMs: st.mtimeMs }
+        r.downloaded++
+        r.bytes += got
+      } catch (err: any) {
+        r.failed.push({ path: rel, reason: String(err?.message || err).slice(0, 200) })
+      }
+    }
+  }
+  return r
+}
+
+/** One sentence for the pair line after a restore. */
+export function restoreSummary(r: RestoreResult, dryRun: boolean): string {
+  const parts = [dryRun
+    ? `helyreállítás előnézete: ${r.downloaded} fájl jönne le, ${r.present} már megvan`
+    : `helyreállítva: ${r.downloaded} fájl lejött, ${r.present} már megvolt`]
+  if (r.skipped.length) parts.push(`${r.skipped.length} kimaradt`)
+  if (r.failed.length) parts.push(`${r.failed.length} nem sikerült`)
+  if (r.partial.length) parts.push(`részleges: ${r.partial.join('; ')}`)
+  return parts.join(', ')
+}
+
+async function runRestore(pair: SyncPair, dryRun: boolean): Promise<void> {
+  const hely = pairLocalDir(pair)
+  if (!hely) throw new Error(`a cél nincs meg a raktárban: ${pair.localPath || 'a raktár gyökere'}`)
+  const token = tokenSzolgaltato(pair.account)
+  await token()
+  if (!dryRun) mkdirSync(hely.base, { recursive: true })
+  const r = await restoreWalk({
+    rootId: pair.folderId,
+    base: hely.base,
+    dryRun,
+    list: (id) => listFolder(id, token),
+    download: (f, dest) => downloadTo(`${DRIVE_FILES_URL}/${encodeURIComponent(f.id)}?alt=media`, token, dest),
+    onProgress: (x, current) => {
+      if (!job) return
+      job.downloaded = x.downloaded
+      job.bytes = x.bytes
+      job.upToDate = x.present
+      job.current = current
+    },
+  })
+  for (const s of r.skipped) {
+    gond({ pair, phase: 'kihagyva', localPath: join(hely.base, s.path), driveName: s.path, reason: `helyreállítás: ${s.reason}` })
+  }
+  for (const f of r.failed) {
+    gond({ pair, phase: 'letöltés', failed: true, localPath: join(hely.base, f.path), driveName: f.path, reason: `helyreállítás: ${f.reason}` })
+  }
+  if (job) {
+    job.downloaded = r.downloaded
+    job.bytes = r.bytes
+    job.upToDate = r.present
+    job.skipped = r.skipped.length
+    if (r.partial.length) job.partial = 1
+  }
+  pair.lastRunAt = new Date().toISOString()
+  pair.lastResult = restoreSummary(r, dryRun)
+  // A preview writes nothing: not the files, not the state, not the pair line.
+  if (dryRun) return
+  const cfg = loadSyncConfig()
+  cfg.state[pair.id] = { ...(cfg.state[pair.id] || {}), ...r.state }
+  mentsdAParost(pair, cfg)
+}
+
 /**
  * Egy torles-megerosito tetel eldontese (#301).
  *
@@ -1838,6 +2032,35 @@ function reuploadItems(items: Array<{ id: string; pairId: string; driveId: strin
   return { status: 200, body: { ok: true, done: 'reupload', count: n } }
 }
 
+/** The key under which a backup folder remembers its branch (#513). */
+export const BACKUP_PATH_PROP = 'marveenPath'
+
+/**
+ * Where a backup folder restores to. Read from the folder's own `marveenPath`
+ * when it has one (set at link time since #513); otherwise rebuilt from the
+ * name `mentesMappaNev` made, and flagged, because " - " may also have been
+ * part of a real folder name -- the page lets the owner correct it.
+ */
+export function backupFolderLocalPath(name: string, appProperties?: Record<string, string> | null): { localPath: string; fromName: boolean } {
+  const tarolt = appProperties && typeof appProperties[BACKUP_PATH_PROP] === 'string' ? appProperties[BACKUP_PATH_PROP] : null
+  if (tarolt !== null) return { localPath: mentesUtNorm(tarolt), fromName: false }
+  if (name === mentesMappaNev('')) return { localPath: '', fromName: false }
+  return { localPath: String(name || '').split(' - ').map((x) => x.trim()).filter(Boolean).join('/'), fromName: true }
+}
+
+/** Best effort: a backup made without the mark still restores, by its name. */
+async function markBackupFolder(folderId: string, rel: string, token: TokenForras): Promise<void> {
+  try {
+    await driveJson(`${DRIVE_FILES_URL}/${encodeURIComponent(folderId)}?fields=id`, token, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appProperties: { [BACKUP_PATH_PROP]: mentesUtNorm(rel) } }),
+    })
+  } catch (err: any) {
+    logger.warn(`[drive-sync] a mentes-mappara nem tudtam felirni az utat: ${String(err?.message || err)}`)
+  }
+}
+
 export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
   const lang = reqLang(req, ctx.url)
@@ -1856,6 +2079,9 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
           localDir: hely ? join(hely.base, hely.gyoker) : null,
           label: pairLabel(p),
           files: Object.keys(cfg.state[p.id] || {}).length,
+          // A downward Drive copy from before #513: it no longer runs, the
+          // page offers only to unlink it.
+          retired: !p.backup,
         }
       }),
       depot: depotHealth(),
@@ -1885,50 +2111,20 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // THE DOWNWARD MIRROR IS RETIRED (#513, the owner's "K3 A", 2026-10-08):
+  // "Mert az eletfabol fogom inditani a szinkronizaciot, meg a feltoltest ...
+  // ezt a rendszer mappa alatti helyet es az onnan valo szinkronizaciot el kell
+  // felejteni." One copy lives in the Life tree; the cloud only holds its backup
+  // (`/add-local`). A Drive copy under `Rendszer/Tárolók/Drive` would be a
+  // second copy of everything, so new ones are refused with a sentence that
+  // says where to go instead.
   if (path === '/api/drive/sync/add' && method === 'POST') {
-    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
-    const account = String(data.account || '')
-    const folderId = String(data.folderId || '')
-    const name = String(data.name || '')
-    // TELJES SZINKRON. Boss 2026-08-15: "ha szinkronizalasrol van szo akkor az
-    // egeszet egyben kellene szinkronizalni ... meg a fa struktura is ugyanaz
-    // legyen. hiszen ez total szinkronnak kellene lennie" -- a Drive gyokerenel
-    // (`root`) ezert NEM kerunk mappanevet: nev nelkul a tartalom a fiok sajat
-    // mappajaba kerul, extra szint nelkul, vagyis a szerkezet AZONOS a Drive-eval.
-    if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }
-    if (!name && folderId !== 'root') { json(res, { error: L(lang, 'hiányzik a mappa neve', 'the folder name is missing') }, 400); return true }
-    if (!isSafeFolderId(folderId)) { json(res, { error: L(lang, 'érvénytelen mappa-azonosító', 'invalid folder ID') }, 400); return true }
-    const health = depotHealth()
-    if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
-    const cfg = loadSyncConfig()
-    if (cfg.pairs.some((p) => p.account === account && p.folderId === folderId)) {
-      // Az uzenet a KET esetre kulon szol: a fo uton (egy gomb, egy fiok) eppen
-      // az "megegyszer megnyomtam" a leggyakoribb, es ott a "ez a mappa" szo
-      // ertelmetlen -- nem mappat valasztott, hanem az egesz Drive-ot.
-      const uzenet = folderId === 'root'
-        ? `A(z) ${account} teljes Drive-ja már szinkronizálva van.`
-        : 'ez a mappa már szinkronizálva van'
-      json(res, { error: uzenet, code: 'exists' }, 409)
-      return true
-    }
-    // Ha a TELJES Drive mar bent van, egy azon beluli mappa masodszor hozna le
-    // ugyanazokat a bajtokat -- ugyanoda. Nem hiba nelkuli: a masodik paros nem
-    // ismeri az elso allapotat (`needsDownload` `!known` -> `true`), vagyis minden
-    // futasban ujra letoltene az egeszet. Ezert inkabb kimondjuk.
-    if (folderId !== 'root' && cfg.pairs.some((p) => p.account === account && p.folderId === 'root')) {
-      json(res, {
-        error: L(lang, `A(z) ${account} TELJES Drive-ja már szinkronizálva van – ezen belül minden mappa magától jön.`, `The WHOLE Drive of ${account} is already synced, so every folder inside it comes along automatically.`),
-        code: 'whole_drive_exists',
-      }, 409)
-      return true
-    }
-    const pair: SyncPair = {
-      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      account, folderId, name, addedAt: new Date().toISOString(),
-    }
-    cfg.pairs.push(pair)
-    saveSyncConfig(cfg)
-    json(res, { ok: true, pair })
+    json(res, {
+      error: L(lang,
+        'A Drive lehozása a Rendszer mappába megszűnt: minden egy példányban az Életfában él. A Drive mostantól a mentés helye – a „A gépem mentése a Drive-ra” kártyán kötheted be, és ugyanott hozhatod vissza a felhőből.',
+        'Copying a Drive down into the System folder has been retired: everything lives once, in the Life tree. The Drive is now where the backup goes – set it up on the "Back up my computer to Drive" card, and restore from the cloud on the same card.'),
+      code: 'mirror_retired',
+    }, 410)
     return true
   }
 
@@ -2074,6 +2270,10 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
       const token = await getAccessToken(account)
       const mentesGyoker = await ensureDriveFolderByName(MENTES_MAPPA, 'root', token)
       folderId = await ensureDriveFolderByName(mentesMappaNev(rel), mentesGyoker, token)
+      // Where this backup came from, ON the folder itself (#513): a fresh
+      // install restores it to exactly this branch, without guessing it back
+      // from the folder name (" - " is also a legal part of a folder name).
+      await markBackupFolder(folderId, rel, token)
     } catch (err: any) {
       json(res, {
         error: L(lang, `A Drive-on nem tudtam létrehozni a mentés-mappát: ${String(err?.message || err).slice(0, 200)}`, `Could not create the backup folder on Drive: ${String(err?.message || err).slice(0, 200)}`),
@@ -2093,6 +2293,131 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     cfg.pairs.push(pair)
     saveSyncConfig(cfg)
     json(res, { ok: true, pair })
+    return true
+  }
+
+  // RESTORE FROM THE CLOUD (#513): which backups does this account hold?
+  //
+  // A fresh install has no pairs and no state: everything it knows comes from
+  // the Drive. The `Marveen mentés` folder lists one subfolder per backed-up
+  // branch; the branch path is read back from the folder (`marveenPath`), or,
+  // for a backup made before that existed, from the folder name.
+  if (path === '/api/drive/sync/restore-candidates' && method === 'GET') {
+    const account = String(ctx.url.searchParams.get('account') || '')
+    if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }
+    let folders: Array<{ id: string; name: string; localPath: string; fromName: boolean }>
+    let backupRootFound = false
+    try {
+      const token = await getAccessToken(account)
+      const gyokerben = await listFolder('root', token)
+      const mentesek = gyokerben.filter((f: any) => f.mimeType === 'application/vnd.google-apps.folder' && f.name === MENTES_MAPPA)
+      backupRootFound = mentesek.length > 0
+      folders = []
+      for (const m of mentesek) {
+        for (const f of await listFolder(m.id, token)) {
+          if (f.mimeType !== 'application/vnd.google-apps.folder') continue
+          const tipp = backupFolderLocalPath(f.name, f.appProperties)
+          folders.push({ id: String(f.id), name: String(f.name), localPath: tipp.localPath, fromName: tipp.fromName })
+        }
+      }
+    } catch (err: any) {
+      json(res, {
+        error: L(lang, `A Drive-ot nem tudtam megnézni: ${String(err?.message || err).slice(0, 200)}`, `Could not look at the Drive: ${String(err?.message || err).slice(0, 200)}`),
+        code: 'drive_error',
+      }, 502)
+      return true
+    }
+    const cfg = loadSyncConfig()
+    json(res, {
+      account,
+      // ZERO MEANS TWO THINGS: the folder is not there at all, or it is there
+      // and empty. The page says which.
+      backupRootFound,
+      backupRoot: MENTES_MAPPA,
+      folders: folders.map((f) => ({
+        ...f,
+        linked: cfg.pairs.some((p) => p.backup && p.account === account && p.folderId === f.id),
+      })),
+      depot: depotHealth(),
+    })
+    return true
+  }
+
+  // RESTORE FROM THE CLOUD (#513): bring one backup folder back down.
+  //
+  // `dryRun: true` is the preview: it counts, writes nothing, links nothing.
+  // The real run links the folder as a backup pair first (so the next backup
+  // keeps it up to date), then downloads only what is missing here.
+  if (path === '/api/drive/sync/restore' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const account = String(data.account || '')
+    const folderId = String(data.folderId || '')
+    const rel = mentesUtNorm(String(data.localPath || ''))
+    const dryRun = data.dryRun === true
+    if (job?.running) { json(res, { error: L(lang, 'Már fut egy szinkron vagy helyreállítás – várd meg a végét.', 'A sync or restore is already running – wait for it to finish.'), code: 'already_running', job }, 409); return true }
+    if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }
+    if (!folderId || folderId === 'root' || !isSafeFolderId(folderId)) { json(res, { error: L(lang, 'érvénytelen mappa-azonosító', 'invalid folder ID') }, 400); return true }
+    const health = depotHealth()
+    if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
+    const kizart = mentesAgHiba(rel)
+    if (kizart) { json(res, { error: kizart, code: 'kizart' }, 400); return true }
+    if (!resolveLifePath(rel)) {
+      json(res, { error: L(lang, `Ez az út kivezet a raktárból: ${rel}`, `This path leads out of the depot: ${rel}`), code: 'bad_path' }, 400)
+      return true
+    }
+    const cfg = loadSyncConfig()
+    let pair = cfg.pairs.find((p) => p.backup && p.account === account && p.folderId === folderId)
+    if (pair && mentesUtNorm(pair.localPath || '') !== rel) {
+      json(res, {
+        error: L(lang,
+          `Ez a mentés már be van kötve ide: ${pair.localPath || 'a raktár gyökere'}. Oda hozom vissza – vagy előbb vedd ki a kötést.`,
+          `This backup is already linked to: ${pair.localPath || 'the depot root'}. It restores there – or unlink it first.`),
+        code: 'linked_elsewhere',
+      }, 409)
+      return true
+    }
+    if (!pair) {
+      const utk = mentesUtkozes(cfg.pairs, rel)
+      if (utk) {
+        json(res, {
+          error: L(lang,
+            `Erre az ágra már van egy másik mentés (${pairLabel(utk.pair)}). Két mentés egy ágon minden fájlt kétszer vinne fel – előbb vedd ki azt.`,
+            `This branch already has another backup (${pairLabel(utk.pair)}). Two backups on one branch would upload every file twice – unlink that one first.`),
+          code: 'exists',
+        }, 409)
+        return true
+      }
+      pair = {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        account, folderId,
+        name: String(data.name || mentesMappaNev(rel)),
+        backup: true,
+        localPath: rel,
+        addedAt: new Date().toISOString(),
+      }
+      if (!dryRun) {
+        cfg.pairs.push(pair)
+        saveSyncConfig(cfg)
+      }
+    }
+    job = {
+      running: true,
+      kind: 'restore',
+      dryRun,
+      runId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      startedAt: new Date().toISOString(), finishedAt: null, pair: pairLabel(pair),
+      downloaded: 0, uploaded: 0, trashed: 0, upToDate: 0, skipped: 0, failed: 0, bytes: 0, errors: [], current: '',
+    }
+    const p = pair
+    void runRestore(p, dryRun)
+      .catch((err) => {
+        logger.error({ err: err?.message }, '[drive-sync] a helyreallitas megallt')
+        if (job) { job.fatal = String(err?.message || err); job.errors.push(job.fatal) }
+      })
+      .finally(() => {
+        if (job) { job.running = false; job.current = ''; job.finishedAt = new Date().toISOString() }
+      })
+    json(res, { ok: true, job, pair: p })
     return true
   }
 
@@ -2123,7 +2448,9 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
     const only = String(data.id || '')
     const cfg = loadSyncConfig()
-    const pairs = only ? cfg.pairs.filter((p) => p.id === only) : cfg.pairs
+    // Only BACKUP pairs run (#513): a retired downward copy is listed so it can
+    // be unlinked, but it never brings the Drive down again.
+    const pairs = (only ? cfg.pairs.filter((p) => p.id === only) : cfg.pairs).filter((p) => p.backup)
     if (!pairs.length) { json(res, { error: L(lang, 'nincs szinkronizálandó mappa', 'there is no folder to sync'), code: 'no_pairs' }, 400); return true }
     const health = depotHealth()
     if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }

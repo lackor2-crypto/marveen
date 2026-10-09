@@ -29,18 +29,20 @@ const ROOT = join(__dirname, '..', '..')
 const route = readFileSync(join(ROOT, 'src', 'web', 'routes', 'drive-sync.ts'), 'utf8')
 const app = readFileSync(join(ROOT, 'web', 'app.js'), 'utf8')
 
-describe('a gyokerhez nem kell mappanev', () => {
-  it('a hianyzo nev csak NEM-gyokernel hiba', () => {
-    expect(route).toContain("if (!name && folderId !== 'root')")
-    // A fiok viszont tovabbra is kotelezo: enelkul nem tudjuk, kihez tartozik.
-    expect(route).toContain("if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }")
+describe('a helyreallitas kapui (a lefele tukor felvetele #513 ota megszunt)', () => {
+  it('a fiok kotelezo, a gyoker nem allithato vissza mentes-mappa helyett', () => {
+    const i = route.indexOf("path === '/api/drive/sync/restore'")
+    expect(i).toBeGreaterThan(-1)
+    const blokk = route.slice(i)
+    expect(blokk).toContain("if (!account) { json(res, { error: L(lang, 'hiányzik a fiók', 'the account is missing') }, 400); return true }")
+    expect(blokk).toContain("if (!folderId || folderId === 'root' || !isSafeFolderId(folderId))")
   })
 
-  it('a mappa-azonosito kapuja valtozatlanul ott van (a `root` atmegy rajta)', () => {
-    // Sorrend: eloszor a nev-szabaly, aztan az azonosito -- de mindketto a
-    // parositas ELOTT. Egy ervenytelen azonosito sose kerulhessen a listaba.
-    expect(route).toContain('if (!isSafeFolderId(folderId))')
-    expect(route.indexOf('isSafeFolderId(folderId)')).toBeLessThan(route.indexOf('cfg.pairs.push(pair)'))
+  it('a mappa-azonosito kapuja a parositas ELOTT all', () => {
+    const blokk = route.slice(route.indexOf("path === '/api/drive/sync/restore'"))
+    expect(blokk.indexOf('isSafeFolderId(folderId)')).toBeLessThan(blokk.indexOf('cfg.pairs.push(pair)'))
+    // a preview never stores a pair
+    expect(blokk).toMatch(/if \(!dryRun\) \{\s*cfg\.pairs\.push\(pair\)/)
   })
 })
 
@@ -92,27 +94,14 @@ describe('a teljes Drive-nak NEVE van a kepernyon', () => {
   })
 })
 
-describe('ket paros ugyanarra a fiokra nem fedhet at', () => {
-  it('a teljes Drive masodszori felvetele nem "ez a mappa" szoveget ad', () => {
-    // A fo uton EGY gomb van: a leggyakoribb hiba a masodik kattintas. Ott a
-    // "ez a mappa mar szinkronizalva van" ertelmetlen -- nem mappat valasztott.
-    expect(route).toContain("folderId === 'root'")
-    expect(route).toContain('teljes Drive-ja már szinkronizálva van.')
-  })
-
-  it('a teljes Drive mellé nem kerulhet be egy azon beluli mappa', () => {
-    // Kulonben ugyanazok a bajtok ketszer jonnenek le, UGYANODA -- es a masodik
-    // paros minden futasban ujra, mert a `needsDownload` `!known` aga mindig igaz.
-    expect(route).toContain("if (folderId !== 'root' && cfg.pairs.some((p) => p.account === account && p.folderId === 'root'))")
-    expect(route).toContain("code: 'whole_drive_exists'")
-    // A kapu a felvetel ELOTT all.
-    expect(route.indexOf("code: 'whole_drive_exists'")).toBeLessThan(route.indexOf('cfg.pairs.push(pair)'))
+describe('ket mentes egy agon nem fedhet at', () => {
+  it('a helyreallitas uj part csak utkozes-ellenorzessel vesz fel', () => {
+    const blokk = route.slice(route.indexOf("path === '/api/drive/sync/restore'"))
+    expect(blokk.indexOf('mentesUtkozes(cfg.pairs, rel)')).toBeLessThan(blokk.indexOf('cfg.pairs.push(pair)'))
+    expect(blokk).toContain("code: 'linked_elsewhere'")
   })
 
   it('a gyoker hibauzenete elott nem all ures nev', () => {
-    // A `rel` a legfelso szinten ures: ": Drive 403" lenne belole. A nev azota
-    // sajat mezobe kerult (`driveName`) a szovegbe olvasztas helyett, de a
-    // helyettesito szoveg ugyanaz -- ez az, amit a felhasznalo lat.
     expect(route).toContain("driveName: cur.rel || 'a Drive gyökere'")
   })
 })
@@ -121,7 +110,7 @@ describe('a listaban latszik, HOVA kerul a gepen', () => {
   it('a helyi utvonal sajat oszlopban all -- nem kell kitalalni', () => {
     // Boss: "a lackor2 legyen lackor2. igy nincs keveredes." Ezt csak akkor
     // lehet ELLENORIZNI, ha a kepernyon is ott van, nem csak a kodban.
-    expect(app).toContain('<th>Hol a gépeden</th>')
+    expect(app).toContain("escapeHtml(t('dsync.col_local'))")
     expect(app).toContain("p.localDir ? '<code>' + escapeHtml(p.localDir) + '</code>'")
     // Depo nelkul nem ures cella all ott, hanem kimondjuk, mi a helyzet.
     // A mondat 2026-08-27 ota kulcson at jon (angolul is ki kell mondani),
