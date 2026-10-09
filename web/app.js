@@ -15127,6 +15127,8 @@ async function _photosRefresh() {
     const data = await res.json()
     if (!res.ok) { _photosSetError(data.error || t('photos.load_error')); grid.innerHTML = ''; return }
     const photos = data.photos || []
+    // #520: a fiok utoljara valasztott celmappaja -- a kovetkezo letoltes valasztoja innen indul.
+    if (typeof data.lastDest === 'string' && data.lastDest && !_photosLastDest[_photosAccount]) _photosLastDest[_photosAccount] = data.lastDest
     document.getElementById('photosUsage').textContent =
       photos.length ? t('photos.usage', { count: photos.length, size: _photosHuman(data.totalBytes) }) : ''
     if (photos.length === 0) { grid.innerHTML = ''; empty.hidden = false; return }
@@ -15243,15 +15245,42 @@ async function _photosStartPicker() {
   _photosHideApiDisabled()
   _photosHideNoPhotosAccount()
   _photosSetError('')
+  // #520: ELOBB a hely. Egy Google Fotok fiokban tobb ember kepei is lehetnek
+  // (Boss, TG 8313), ezert a mappat adagonkent a tulajdonos valasztja ki az
+  // Eletfaban, MEG a kepek kijelolese elott. Az ablak "Ide toltsd le" gombja
+  // egyben a felhasznaloi kattintas, amibol a Google-lap megnyithato.
+  const dest = await _lifePickFolder({
+    title: t('photos.dest.title'),
+    help: t('photos.dest.help'),
+    okLabel: t('photos.dest.ok'),
+    hereLabel: t('photos.dest.here'),
+    noneLabel: t('photos.dest.none'),
+    start: _photosLastDest[_photosAccount] || '',
+  })
+  if (dest === null) { addBtn.disabled = false; return }
+  _photosLastDest[_photosAccount] = dest
   try {
     const res = await fetch('/api/photos/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: _photosAccount }),
+      body: JSON.stringify({ account: _photosAccount, dest }),
     })
     const data = await res.json()
     if (!res.ok) {
       addBtn.disabled = false
+      // A valasztott mappa nem jo (kozben eltunt, Kuka, git-tarolo belseje): a szerver kodja mondja meg, melyik.
+      if (typeof data.code === 'string' && (data.code === 'needs_dest' || data.code.indexOf('dest_') === 0)) {
+        // Szo szerinti kulcsok (nem osszefuzott): igy a nyelvi kapu latja, hogy mind megvan.
+        const destErr = {
+          needs_dest: t('photos.dest.err_needs_dest'),
+          dest_missing: t('photos.dest.err_dest_missing'),
+          dest_not_in_tree: t('photos.dest.err_dest_not_in_tree'),
+          dest_trash: t('photos.dest.err_dest_trash'),
+          dest_in_repo: t('photos.dest.err_dest_in_repo'),
+        }
+        _photosSetError(destErr[data.code] || t('photos.dest.err_needs_dest'))
+        return
+      }
       if (data.code === 'no_depot' || data.code === 'depot_unreachable') {
         if (_photosShowNeedDepot(data)) return
       }
@@ -15337,6 +15366,8 @@ function _photosAddedMsg(data) {
   if (cleaned) msg += ` ${t('photos.cleaned', { count: cleaned })}`
   // A lista nem jott vegig: a `selected` KEVESEBB, mint amit kijeloltek.
   if (data.partial) msg += ` ${t('photos.result.partial')}`
+  // #520: HOVA kerultek -- az Eletfa mappaja, amit a tulajdonos valasztott.
+  if (data.dest && (saved || dup)) msg += ` ${t('photos.result.dest', { where: String(data.dest).split('/').join(' › ') })}`
   return msg
 }
 
@@ -38209,6 +38240,81 @@ async function _dupMarkCloudRows(rows) {
       : t('cloudlife.' + m.state + '_title')
     var nameCell = r.el.querySelector('.drive-row-name')
     if (nameCell && !nameCell.querySelector('.cloud-life-badge')) nameCell.appendChild(b)
+  })
+}
+
+// A Fotok oldal utoljara valasztott celmappaja fiokonkent (a szerver is megjegyzi; ez csak a mostani lap emlekezete).
+var _photosLastDest = {}
+
+/**
+ * ALTALANOS mappavalaszto az Eletfaban (#520). Csak valaszt: semmit nem hoz
+ * letre es nem modosit. A hivo adja a feliratokat; a visszaadott ertek a
+ * kivalasztott mappa fa-beli utja, vagy null ha megse.
+ */
+function _lifePickFolder(opts) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'lifePickFolderOverlay'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
+      + '<h3 style="margin:0 0 4px">' + escapeHtml(opts.title || '') + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + escapeHtml(opts.help || '') + '</p>'
+      + '<p id="lifePickFolderMsg" style="margin:0 0 8px;font-size:13px;color:var(--warning,#d97706)" hidden></p>'
+      + '<div id="lifePickFolderList" style="max-height:300px;overflow:auto;border:1px solid var(--border,#3336);border-radius:8px;padding:4px"></div>'
+      + '<p style="margin:10px 0 4px;font-size:13px">' + escapeHtml(opts.hereLabel || '') + ' <b id="lifePickFolderHere"></b></p>'
+      + '<div style="text-align:right;margin-top:8px">'
+      + '<button class="btn-secondary" id="lifePickFolderCancel">' + escapeHtml(t('intezo.cancel')) + '</button> '
+      + '<button class="btn-primary" id="lifePickFolderOk">' + escapeHtml(opts.okLabel || '') + '</button>'
+      + '</div></div>'
+    document.body.appendChild(overlay)
+    let here = opts.start || ''
+    const done = (val) => { overlay.remove(); resolve(val) }
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(null) })
+    overlay.querySelector('#lifePickFolderCancel').addEventListener('click', () => done(null))
+    const ok = overlay.querySelector('#lifePickFolderOk')
+    ok.addEventListener('click', () => { if (here) done(here) })
+    const msg = overlay.querySelector('#lifePickFolderMsg')
+
+    async function draw() {
+      const list = overlay.querySelector('#lifePickFolderList')
+      overlay.querySelector('#lifePickFolderHere').textContent = here ? here.split('/').join(' › ') : (opts.noneLabel || '')
+      ok.disabled = !here
+      list.textContent = t('intezo.loading')
+      let data
+      try {
+        data = await _intezoGet('/api/life/list?deep=0&lang=' + (window._lang || 'hu') + '&path=' + encodeURIComponent(here))
+      } catch (e) {
+        // A megjegyzett mappa kozben eltunhetett: a gyokerrol ujra lehet indulni. "Nem lattam oda" kulon mondat, nem ures mappa.
+        if (here) { msg.textContent = t('photos.dest.start_gone', { where: here.split('/').join(' › ') }); msg.hidden = false; here = ''; return draw() }
+        list.textContent = (e && e.message) ? e.message : t('intezo.open_this_failed')
+        return
+      }
+      list.innerHTML = ''
+      if (data.parent !== null && data.parent !== undefined) {
+        const up = document.createElement('button')
+        up.className = 'btn-secondary btn-compact'
+        up.style.cssText = 'display:block;width:100%;text-align:left;margin:2px 0'
+        up.textContent = '⬆ ' + t('intezo.pick_up')
+        up.addEventListener('click', () => { here = data.parent; draw() })
+        list.appendChild(up)
+      }
+      const folders = data.folders || []
+      if (!folders.length) {
+        const p = document.createElement('p')
+        p.style.cssText = 'opacity:.7;font-size:13px;padding:6px'
+        p.textContent = t('photos.dest.no_sub')
+        list.appendChild(p)
+      }
+      for (const f of folders) {
+        const b = document.createElement('button')
+        b.className = 'btn-secondary btn-compact'
+        b.style.cssText = 'display:block;width:100%;text-align:left;margin:2px 0'
+        b.textContent = f.name
+        b.addEventListener('click', () => { here = f.rel; draw() })
+        list.appendChild(b)
+      }
+    }
+    draw()
   })
 }
 
