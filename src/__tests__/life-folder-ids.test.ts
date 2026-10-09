@@ -14,7 +14,10 @@ vi.mock('../config.js', async (orig) => {
   return { ...actual, STORE_DIR: store }
 })
 
-const { reconcileLifeFolderIds, listLifeFolderIds, anchoredFolders, LIFE_FOLDER_MARKER } = await import('../life-folder-ids.js')
+const sent: string[] = []
+vi.mock('../notify.js', () => ({ notifyChannel: vi.fn(async (t: string) => { sent.push(t) }) }))
+
+const { reconcileLifeFolderIds, listLifeFolderIds, anchoredFolders, LIFE_FOLDER_MARKER, folderIdNotice, runLifeFolderIdPass } = await import('../life-folder-ids.js')
 const { setBackupRule, loadBackupRules } = await import('../backup-rules.js')
 const { addMount, listMounts } = await import('../life-mounts.js')
 
@@ -136,5 +139,26 @@ describe('life folder ids (#510)', () => {
     await reconcileLifeFolderIds()
     expect(marker('Repo')).toBeNull()
     expect(existsSync(join(depot, 'Fa', 'Kotes', LIFE_FOLDER_MARKER))).toBe(false)
+  })
+
+  it('the owner is told about a followed rename, and about a copy only once', async () => {
+    expect(folderIdNotice({ stamped: 3, moved: [], lost: ['X'], ambiguous: [] })).toBeNull()
+    mkdirSync(join(depot, 'Cegek', 'Alfa'), { recursive: true })
+    setBackupRule({ path: 'Cegek/Alfa', action: 'none' })
+    sent.length = 0
+    await runLifeFolderIdPass()
+    expect(sent).toEqual([]) // stamping is not news
+    renameSync(join(depot, 'Cegek', 'Alfa'), join(depot, 'Cegek', 'Beta'))
+    await runLifeFolderIdPass()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toContain('Cegek/Alfa → Cegek/Beta')
+
+    sent.length = 0
+    cpSync(join(depot, 'Cegek', 'Beta'), join(depot, 'Cegek', 'Masolat1'), { recursive: true })
+    renameSync(join(depot, 'Cegek', 'Beta'), join(depot, 'Cegek', 'Masolat2'))
+    await runLifeFolderIdPass()
+    await runLifeFolderIdPass()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toContain('Cegek/Beta')
   })
 })

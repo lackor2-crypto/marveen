@@ -33,6 +33,8 @@ import { followFolderMove } from './life-follow.js'
 import { movePhysical } from './life-documents.js'
 import { moveDisplayLabels } from './life-labels.js'
 import { moveArchivedPrefix } from './life-archived.js'
+import { notifyChannel } from './notify.js'
+import { ol } from './owner-lang.js'
 
 /** Same file name and format as the Workbench folder ids (workbench-assets.ts). */
 export const LIFE_FOLDER_MARKER = '.marveen-id'
@@ -262,14 +264,56 @@ export async function reconcileLifeFolderIds(): Promise<LifeFolderIdResult> {
   }
 }
 
+/**
+ * What the owner should hear about a pass, or `null` when there is nothing to
+ * say. Followed renames are told once (they happened); a copy is told so that
+ * the owner can keep one. A lost folder is NOT announced: a deleted folder is
+ * the common case, and its own screens already say "the folder is missing".
+ */
+export function folderIdNotice(r: LifeFolderIdResult, alreadyTold: ReadonlySet<string> = new Set()): string | null {
+  const parts: string[] = []
+  if (r.moved.length) {
+    const lines = r.moved.slice(0, 8).map((m) => `• ${m.from} → ${m.to}`).join('\n')
+    const more = r.moved.length > 8 ? ol(`\n… és még ${r.moved.length - 8}`, `\n… and ${r.moved.length - 8} more`) : ''
+    parts.push(ol(
+      `Észrevettem, hogy átneveztél vagy áthelyeztél ${r.moved.length === 1 ? 'egy mappát' : r.moved.length + ' mappát'} a Marveenen kívül. Követtem: a bekötés, a mentési szabály és a projekt mappája már az új helyre mutat.\n${lines}${more}`,
+      `I noticed that ${r.moved.length === 1 ? 'a folder was' : r.moved.length + ' folders were'} renamed or moved outside Marveen. I followed: the link, the backup rule and the project folder now point to the new place.\n${lines}${more}`,
+    ))
+  }
+  const copies = r.ambiguous.filter((x) => !alreadyTold.has(x))
+  if (copies.length) {
+    const lines = copies.slice(0, 8).map((x) => `• ${x}`).join('\n')
+    parts.push(ol(
+      `Ez a mappa eltűnt a régi helyéről, és KÉT helyen is megtaláltam a másolatát, ezért nem tudom, melyik az igazi, és nem nyúltam semmihez:\n${lines}\nTartsd meg az egyiket (a másikat töröld vagy nevezd át), és magától rendbe jön.`,
+      `This folder is gone from its old place and I found a copy of it in TWO places, so I cannot tell which one is the real one and I changed nothing:\n${lines}\nKeep one of them (delete or rename the other) and it sorts itself out.`,
+    ))
+  }
+  return parts.length ? parts.join('\n\n') : null
+}
+
+const toldAmbiguous = new Set<string>()
+
+/** The timed pass: reconcile, then tell the owner what changed. Never throws. */
+export async function runLifeFolderIdPass(): Promise<void> {
+  try {
+    const r = await reconcileLifeFolderIds()
+    const text = folderIdNotice(r, toldAmbiguous)
+    for (const x of r.ambiguous) toldAmbiguous.add(x)
+    for (const x of [...toldAmbiguous]) if (!r.ambiguous.includes(x)) toldAmbiguous.delete(x)
+    if (text) await notifyChannel(text)
+  } catch (err: any) {
+    logger.warn({ err: String(err?.message || err) }, '[eletfa] the folder id pass could not report')
+  }
+}
+
 let timer: ReturnType<typeof setInterval> | null = null
 let startTimer: ReturnType<typeof setTimeout> | null = null
 
 export function startLifeFolderIds(): void {
   if (timer) return
-  startTimer = setTimeout(() => { void reconcileLifeFolderIds() }, 60_000)
+  startTimer = setTimeout(() => { void runLifeFolderIdPass() }, 60_000)
   startTimer.unref()
-  timer = setInterval(() => { void reconcileLifeFolderIds() }, LIFE_FOLDER_IDS_MS)
+  timer = setInterval(() => { void runLifeFolderIdPass() }, LIFE_FOLDER_IDS_MS)
   timer.unref()
 }
 
