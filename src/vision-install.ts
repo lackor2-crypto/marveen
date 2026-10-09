@@ -15,24 +15,32 @@
  *      `store/vision-install.log`. A failure is shown from that log, never
  *      guessed.
  *
- * The dlib build takes 10-20 minutes: that is expected, not a hang.
+ * dlib comes as a prebuilt wheel (a few minutes); only a machine without one
+ * compiles it, which takes 10-20 minutes: expected, not a hang.
+ *
+ * #514 (owner, 2026-10-09: "az elso telepitessel telepuljon onmagatol"): the
+ * installers run the script on every fresh install, and `autoInstallVision()`
+ * runs it on dashboard start when it is still missing -- an older install or
+ * one whose installer step failed gets it without anyone pressing a button.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { closeSync, openSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from './config.js'
 import { logger } from './logger.js'
 import { detectPkgManager, type PkgManager } from './system-deps.js'
-import { faceInstalled, initVisionAdapters } from './life-vision-adapter.js'
+import { VISION_DIR, faceInstalled, initVisionAdapters } from './life-vision-adapter.js'
 
 export const VISION_INSTALL_LOG = join(STORE_DIR, 'vision-install.log')
 
-/** The build tools `install-vision.sh` checks for in its step 1. */
+/**
+ * What `install-vision.sh` cannot do without. Since #514 dlib comes as a
+ * prebuilt wheel, so cmake + a C compiler are needed only on a machine with no
+ * matching wheel -- the script checks that itself and names the line in its
+ * log. tesseract / pdftoppm only feed the OCR helper at run time: the script
+ * warns about them, it does not stop.
+ */
 const BUILD_TOOLS: Array<{ id: string; check: string[] }> = [
-  { id: 'tesseract', check: ['tesseract', '--version'] },
-  { id: 'cmake', check: ['cmake', '--version'] },
-  { id: 'gcc', check: ['gcc', '--version'] },
-  { id: 'pdftoppm', check: ['pdftoppm', '-v'] },
   { id: 'python3-venv', check: ['python3', '-m', 'venv', '--help'] },
 ]
 
@@ -130,6 +138,39 @@ export function startVisionInstall(opts: { missing?: string[]; pm?: PkgManager }
     closeSync(out)
   }
   return { ok: true, started: true }
+}
+
+/** When the last automatic attempt ran: a failing install is retried once a
+ *  day, not on every dashboard restart. */
+export const VISION_AUTO_MARKER = join(VISION_DIR, 'autoinstall.json')
+const AUTO_RETRY_MS = 24 * 60 * 60 * 1000
+
+export type AutoInstallResult = 'installed' | 'started' | 'missing_tools' | 'recently_tried'
+
+/**
+ * Dashboard start: install the face recognizer by itself when it is missing.
+ * Nothing to ask -- it needs no root (a missing python3-venv is only logged,
+ * the wizard shows the paste line for it), and it runs detached, so the
+ * dashboard is usable meanwhile.
+ */
+export function autoInstallVision(opts: { now?: number; missing?: string[] } = {}): AutoInstallResult {
+  if (faceInstalled()) return 'installed'
+  const now = opts.now ?? Date.now()
+  try {
+    const last = JSON.parse(readFileSync(VISION_AUTO_MARKER, 'utf8')) as { at?: number }
+    if (typeof last.at === 'number' && now - last.at < AUTO_RETRY_MS) return 'recently_tried'
+  } catch { /* no marker yet: first attempt */ }
+  const r = startVisionInstall({ missing: opts.missing })
+  if (!r.ok) {
+    logger.warn({ missing: r.missing, command: r.command }, 'arcfelismero auto-telepites: hianyzo rendszereszkoz')
+    return 'missing_tools'
+  }
+  try {
+    mkdirSync(VISION_DIR, { recursive: true })
+    writeFileSync(VISION_AUTO_MARKER, JSON.stringify({ at: now }))
+  } catch { /* best effort */ }
+  logger.info('arcfelismero auto-telepites elindult (store/vision-install.log)')
+  return 'started'
 }
 
 /** Only for tests. */

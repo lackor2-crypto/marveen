@@ -214,8 +214,8 @@ export const SYSTEM_DEPS: SystemDep[] = [
     affects: { hu: 'A fotók mappáját kézzel választod ki. Minden más működik.', en: 'You pick the folder of photos by hand. Everything else works.' },
     apt: [], dnf: [], brew: [],
     manual: {
-      hu: 'Nincs hozzá rendszercsomag: a Telepítés gombbal a Marveen maga telepíti (10–20 perc, közben a felület használható).',
-      en: 'There is no system package for it: the Install button makes Marveen install it by itself (10–20 minutes, the dashboard stays usable meanwhile).',
+      hu: 'Nincs hozzá rendszercsomag: a Marveen telepítéskor és induláskor magától felrakja (pár perc, közben a felület használható). Ha mégis hiányzik, a Telepítés gomb azonnal elindítja.',
+      en: 'There is no system package for it: Marveen installs it by itself on install and on start (a few minutes, the dashboard stays usable meanwhile). If it is still missing, the Install button starts it right away.',
     },
     url: 'https://github.com/ageitgey/face_recognition#installation',
     commands: [], versionArgs: [],
