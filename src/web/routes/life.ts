@@ -501,6 +501,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       not_openable: ['Ezt a fájltípust biztonsági okból nem nyitom meg a gép programjával (csak iratot, képet, hangot és videót). Töltsd le, ha szükséged van rá.', 'For safety this kind of file is not opened with the machine\'s program (only documents, pictures, sound and video). Download it if you need it.'],
       no_file_manager: ['Ezen a gépen nincs grafikus felület, ezért itt nem tudom megnyitni. Töltsd le, és azon az eszközön nyisd meg, amin dolgozol.', 'This machine has no desktop, so it cannot be opened here. Download it and open it on the device you are working on.'],
       open_failed: ['Nem sikerült megnyitni a gép programjával. Töltsd le, és úgy nyisd meg.', 'It could not be opened with the machine\'s program. Download it and open it that way.'],
+      open_unconfirmed: ['Elindítottam a megnyitást, de nem kaptam visszajelzést, hogy megnyílt-e. Nézd meg a tálcán; ha nincs ott, töltsd le.', 'I started opening it, but got no confirmation that it opened. Look on the taskbar; if it is not there, download it.'],
     }
     const m = msg[o.code] || msg['open_failed']!
     send(res, o.code === 'not_found' || o.code === 'not_a_file' ? 404 : o.code === 'open_failed' ? 500 : 409, { error: 'open_' + o.code, message: T(lang, m[0], m[1]) })

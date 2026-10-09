@@ -10,7 +10,9 @@
  * shows nothing (the same lesson as windows-settings.ts, 2026-08-11).
  */
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, rmSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
 import { extname } from 'node:path'
 import { PLATFORM, tryResolveFromPath } from './platform.js'
 import { isWsl } from './web/scheduled-tasks-io.js'
@@ -104,12 +106,50 @@ export function openableWithDefaultApp(name: string): boolean {
   return OPENABLE.has(extname(String(name || '')).slice(1).toLowerCase())
 }
 
-/** The PowerShell line that opens the FILE itself with whatever Windows opens it with. */
-export function openFileScript(winPath: string): string {
-  return ['$ErrorActionPreference = "SilentlyContinue"', `Start-Process -FilePath '${winPath.replace(/'/g, "''")}'`].join('\r\n')
+/**
+ * The PowerShell script that opens the FILE itself with whatever Windows opens it with, and
+ * writes what happened into `resultWinPath` ("ok ..." or "fail :: <message>", UTF-8).
+ *
+ * The scheduled task only says it STARTED; Start-Process failing (no program associated,
+ * the file gone meanwhile) would otherwise look like a success. A running program that is
+ * simply reused (Excel already open) returns no process -- that is not a failure, only the
+ * exception is.
+ */
+export function openFileScript(winPath: string, resultWinPath: string, taskName?: string): string {
+  const q = (s: string): string => s.replace(/'/g, "''")
+  return [
+    '$ErrorActionPreference = "Stop"',
+    `$p = '${q(winPath)}'`,
+    `$r = '${q(resultWinPath)}'`,
+    'try {',
+    '  $proc = Start-Process -FilePath $p -PassThru',
+    '  $name = if ($proc) { $proc.ProcessName } else { "reused" }',
+    '  "ok $name" | Set-Content -Encoding UTF8 -LiteralPath $r',
+    '} catch {',
+    '  "fail :: $($_.Exception.Message)" | Set-Content -Encoding UTF8 -LiteralPath $r',
+    '}',
+    // One task per call: it removes itself, so they do not pile up in the scheduler.
+    ...(taskName ? [`try { Unregister-ScheduledTask -TaskName '${q(taskName)}' -Confirm:$false } catch { }`] : []),
+  ].join('\r\n')
 }
 
-export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'not_openable' }
+export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'not_openable' | 'open_unconfirmed' }
+
+/** How long the scheduled task gets to report back before the answer is "not confirmed". */
+const OPEN_CONFIRM_MS = 10_000
+
+/** Wait (without blocking the event loop) for the result file; null when it never came. */
+async function readOpenResult(wslPath: string, timeoutMs: number): Promise<string | null> {
+  const until = Date.now() + timeoutMs
+  while (Date.now() < until) {
+    try {
+      const txt = (await readFile(wslPath, 'utf-8')).replace(/^\ufeff/, '').trim()
+      if (txt) return txt
+    } catch { /* not there yet */ }
+    await new Promise(r => setTimeout(r, 250))
+  }
+  return null
+}
 
 /** Open `abs` in the program this machine opens that kind of file with. */
 export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> {
@@ -123,8 +163,23 @@ export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> 
   if (kind === 'windows') {
     const win = await toWindowsPath(abs)
     if (!win) return { ok: false, code: 'open_failed' }
-    const ok = await runScriptViaTaskScheduler('MarveenOpenFile', 'marveen-open-file', openFileScript(win))
-    return ok ? { ok: true } : { ok: false, code: 'open_failed' }
+    // One name per call: two quick clicks must not read each other's result.
+    const id = randomBytes(5).toString('hex')
+    const base = `marveen-open-file-${id}`
+    const resultWsl = `/mnt/c/Users/Public/${base}.result.txt`
+    const resultWin = `C:\\Users\\Public\\${base}.result.txt`
+    try { rmSync(resultWsl, { force: true }) } catch { /* nothing there */ }
+    const started = await runScriptViaTaskScheduler(`MarveenOpenFile-${id}`, base, openFileScript(win, resultWin, `MarveenOpenFile-${id}`))
+    try {
+      if (!started) return { ok: false, code: 'open_failed' }
+      const res = await readOpenResult(resultWsl, OPEN_CONFIRM_MS)
+      if (res === null) return { ok: false, code: 'open_unconfirmed' }
+      return res.startsWith('ok') ? { ok: true } : { ok: false, code: 'open_failed' }
+    } finally {
+      for (const f of [resultWsl, `/mnt/c/Users/Public/${base}.ps1`, `/mnt/c/Users/Public/${base}-launch.ps1`]) {
+        try { rmSync(f, { force: true }) } catch { /* best effort */ }
+      }
+    }
   }
   const ok = await detached(kind === 'macos' ? 'open' : 'xdg-open', [abs])
   return ok ? { ok: true } : { ok: false, code: 'open_failed' }
