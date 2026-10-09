@@ -569,20 +569,28 @@ describe('POST /api/life/move -- bekotest nem szakit el', () => {
     expect(existsSync(join(depot, 'MvCel', 'MvFa'))).toBe(true)
   })
 
-  it('bekotes celjat sem mozgatja el', async () => {
-    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvTarolo', to: 'MvMasik' })
+  it('a bekotes CELJA is athelyezheto: a bekotes az uj helyre mutat tovabb', async () => {
+    mkdirSync(join(depot, 'MvRaktar'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvTarolo', to: 'MvRaktar' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(existsSync(join(depot, 'MvRaktar', 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
+    const { listMounts } = await import('../life-mounts.js')
+    expect(listMounts().map((m) => [m.rel, m.target])).toContainEqual(['MvMasik/Kotes', 'MvRaktar/MvTarolo'])
+    // and the content is reachable through the link
+    const list = ctxFor('/api/life/list?path=' + encodeURIComponent('MvMasik/Kotes'), 'GET')
+    await tryHandleLife(list.ctx)
+    expect((list.out.body.folders as Array<{ name: string }>).map((f) => f.name)).toContain('belso')
+  })
+
+  it('a bekotes celjat EGYESITESSEL nem mozgatja, es angolul is megmondja, miert', async () => {
+    mkdirSync(join(depot, 'MvRaktar2', 'MvTarolo'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvRaktar/MvTarolo', to: 'MvRaktar2', resolution: 'merge' })
     expect(await tryHandleLife(ctx)).toBe(true)
     expect(out.status).toBe(400)
     expect(out.body.code).toBe('is_target')
-    expect(existsSync(join(depot, 'MvTarolo'))).toBe(true)
-  })
-
-  it('angol feluleten angol mondatot ad', async () => {
-    // The target of a link is still guarded (#510 lifted only the link's own place).
-    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvTarolo', to: 'MvMasik' })
-    expect(await tryHandleLife(ctx)).toBe(true)
-    expect(out.body.code).toBe('is_target')
     expect(out.body.message).toMatch(/link points to this folder/i)
+    expect(existsSync(join(depot, 'MvRaktar', 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
   })
 })
 
@@ -1051,11 +1059,14 @@ describe('POST /api/life/rename -- the links and the backup rule follow (#510)',
     expect(await mounts()).toContainEqual({ rel: 'RnCCeg/Fejlesztes/Kotes', target: 'RnCTarolo' })
   })
 
-  it('the TARGET of a link still cannot be renamed -- the links could not follow it', async () => {
+  it('the TARGET of a link can be renamed too -- the link keeps pointing at it', async () => {
     await setup('RnD')
-    const out = await rename('RnDTarolo', 'Masnev')
-    expect(out.status).toBe(400)
-    expect(out.body.code).toBe('is_target')
-    expect(existsSync(join(depot, 'RnDTarolo', 'belso', 'irat.txt'))).toBe(true)
+    const out = await rename('RnDTarolo', 'RnDMasnev')
+    expect(out.body.ok).toBe(true)
+    expect(existsSync(join(depot, 'RnDMasnev', 'belso', 'irat.txt'))).toBe(true)
+    expect(await mounts()).toContainEqual({ rel: 'RnDCeg/Fejlesztes/Kotes', target: 'RnDMasnev' })
+    const list = ctxFor('/api/life/list?path=' + encodeURIComponent('RnDCeg/Fejlesztes/Kotes'), 'GET')
+    await tryHandleLife(list.ctx)
+    expect((list.out.body.folders as Array<{ name: string }>).map((f) => f.name)).toContain('belso')
   })
 })

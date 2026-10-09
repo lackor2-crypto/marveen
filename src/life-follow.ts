@@ -16,7 +16,7 @@ import { lstatSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { depotRoot } from './depot.js'
 import { logger } from './logger.js'
-import { listMounts, moveMountsPrefix } from './life-mounts.js'
+import { listMounts, moveMountsPrefix, moveMountTargetsPrefix } from './life-mounts.js'
 import { ensureMountLink, reconcileMountLinks, removeMountLink } from './life-mount-links.js'
 import { moveBackupRulesPrefix } from './backup-rules.js'
 import { moveProjectFoldersPrefix } from './project-folder-follow.js'
@@ -28,7 +28,7 @@ import { safeLifeName } from './life-tree.js'
 
 const norm = (rel: string): string => String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 
-export interface FollowCounts { mounts: number; backupRules: number; projects: number; ledger: number }
+export interface FollowCounts { mounts: number; mountTargets: number; backupRules: number; projects: number; ledger: number }
 
 /**
  * The registries `renameLife` does NOT move itself. Call it after a rename
@@ -37,7 +37,7 @@ export interface FollowCounts { mounts: number; backupRules: number; projects: n
 export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   const from = norm(fromRel)
   const to = norm(toRel)
-  const out: FollowCounts = { mounts: 0, backupRules: 0, projects: 0, ledger: 0 }
+  const out: FollowCounts = { mounts: 0, mountTargets: 0, backupRules: 0, projects: 0, ledger: 0 }
   if (!from || !to || from === to) return out
   const step = (name: keyof FollowCounts, fn: () => number): void => {
     try { out[name] = fn() } catch (err: any) {
@@ -45,6 +45,17 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
     }
   }
   step('mounts', () => moveMountsPrefix(from, to))
+  // The folder may also be what links POINT AT (a store under Rendszer/...).
+  // A git link is a Windows junction holding the OLD absolute target: it must
+  // come down while the registry still names that target (that is how we know
+  // the junction is ours), then the registry is re-pointed, then the junction
+  // is made again -- by the reconcile pass below.
+  step('mountTargets', () => {
+    for (const m of listMounts()) {
+      if (m.kind === 'git' && (m.target === from || m.target.startsWith(from + '/'))) removeMountLink(m)
+    }
+    return moveMountTargetsPrefix(from, to)
+  })
   step('backupRules', () => moveBackupRulesPrefix(from, to))
   step('projects', () => moveProjectFoldersPrefix(from, to))
   const root = depotRoot()
@@ -52,7 +63,7 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   // A git link is a Windows junction INSIDE the renamed folder: it moved with
   // it and still points at its (unmoved) target. This only repairs one that
   // is missing -- the same pass the dashboard runs on start.
-  if (out.mounts) { try { reconcileMountLinks(listMounts()) } catch { /* the start-up pass catches up */ } }
+  if (out.mounts || out.mountTargets) { try { reconcileMountLinks(listMounts()) } catch { /* the start-up pass catches up */ } }
   // The Drive backup pairs keep their local folder as a path too. Their store
   // lives in the Drive-sync route module (moveSyncPairsPrefix, #513/#510); it
   // is loaded lazily so this module does not pull the whole sync engine in,
@@ -64,7 +75,7 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
       if (n) logger.info({ from, to, pairs: n }, '[intezo] Drive backup pairs followed the rename')
     })
     .catch((err: any) => logger.warn({ from, to, err: String(err?.message || err) }, '[intezo] Drive backup pairs did not follow the rename'))
-  if (out.mounts || out.backupRules || out.projects) logger.info({ from, to, ...out }, '[intezo] registries followed the rename')
+  if (out.mounts || out.mountTargets || out.backupRules || out.projects) logger.info({ from, to, ...out }, '[intezo] registries followed the rename')
   return out
 }
 

@@ -286,3 +286,27 @@ export function moveMountsPrefix(fromRel: string, toRel: string): number {
   if (moved) save(store)
   return moved
 }
+
+/**
+ * The folder a link POINTS AT moved (#510): the links keep pointing at it --
+ * only the `target` changes, the place where each link shows stays. Returns
+ * how many links were re-pointed. Refuses on a corrupt store, like its pair.
+ */
+export function moveMountTargetsPrefix(fromRel: string, toRel: string): number {
+  const from = norm(fromRel)
+  const to = norm(toRel)
+  if (!from || !to || from === to) return 0
+  const store = load()
+  if (store.corrupt) return 0
+  let moved = 0
+  for (const m of store.mounts) {
+    if (m.target !== from && !m.target.startsWith(from + '/')) continue
+    const next = to + m.target.slice(from.length)
+    // The label defaults to the target path: keep it telling the truth.
+    if (m.label === m.target) m.label = next
+    m.target = next
+    moved++
+  }
+  if (moved) save(store)
+  return moved
+}

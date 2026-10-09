@@ -826,8 +826,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // #510: bekotest TARTALMAZO mappa is athelyezheto, a bekotes koveti. Csak a
     // sima athelyezes: az egyesites es a csere fajlonkent MASOL es TOROL, es egy
     // bekotesen at a mogotte allo tarolot torolne -- azok ore marad.
+    // A bekotes CELJA (a tarolo) ugyanigy: a bekotesek kovetik az uj helyre.
     const sima = opts.resolution !== 'merge' && opts.resolution !== 'replace'
-    if (baj && !(baj.code === 'has_mounts' && sima)) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
+    if (baj && !sima) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
     const celBaj = targetGuard(from, String(body?.to ?? ''), opts, lang)
     if (celBaj) { send(res, 400, { ok: false, rel: '', ...celBaj }); return true }
     await writePendingItemSnapshots()
@@ -899,10 +900,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // van benne -- a nyilvantartasok (bekotes, mentesi szabaly, projekt
     // mappa-utja, fokonyv) kovetik (src/life-follow.ts). Korabban itt "elobb
     // szuntesd meg a bekotest" allt, mert a bekotes az UTVONALRA szolt es
-    // senki nem vitte utana. Ami MARAD: a bekotes CELJAT (a tarolot) atnevezni
-    // tovabbra sem engedjuk, azt a mutatok nem tudnak kovetni.
-    const baj = bekotesOrzo(relKey, lang)
-    if (baj && baj.code !== 'has_mounts') { send(res, 400, { ok: false, rel: '', ...baj }); return true }
+    // senki nem vitte utana. A bekotes CELJA (a tarolo) is atnevezheto: a
+    // bekotesek az uj nevre mutatnak tovabb (moveMountTargetsPrefix).
+    // (A bekotesOrzo a Kukanal es a Masolasnal tovabbra is or: ott mast ved.)
     await writePendingItemSnapshots()
     if (listMounts().some((m) => m.rel === relKey)) {
       // A BEKOTOTT mappa maga: csak a HELYET nevezzuk at, ahol latszik -- a
