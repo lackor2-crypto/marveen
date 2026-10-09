@@ -21253,7 +21253,13 @@ async function _gconnStartAuth(name, force) {
   // megjeleniteset, kulonben egy korabbi folyamat linkjere lehetne kattintani.
   _setConsentLink('gconnLink', '')
   _accAddReveal('google')
-  if (flowBox) flowBox.hidden = false
+  if (flowBox) {
+    flowBox.hidden = false
+    // The flow box lives in the "add account" zone, a long way from the rows.
+    // Started from a row button far above it, nothing visible changed -- owner,
+    // 2026-10-09 (#520): "nem csinal semmit az ujrabejelentkeztetem gomb".
+    flowBox.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   _connSetState('gconnState', t('gconn.state_starting'), null)
   try {
     const res = await fetch('/api/connections/google/login', {
@@ -21743,6 +21749,7 @@ function renderConnectionsPanel() {
         _gconnStopPoll()
         try { await fetch('/api/connections/google/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
         _gconnKnownIds.add(id)
+        showToast(t('gconn.reauth_started', { id }), 12000, true)
         await _gconnStartAuth(id)
         return
       }

@@ -313,6 +313,7 @@ window._i18n.en = {
   'gconn.api_disabled_note':  'Sign-in is fine, but this is switched off in your Google project: {apis}. This is not a sign-in problem — press "Turn it on at Google".',
   'gconn.api_enable':         'Turn it on at Google',
   'gconn.reauth':             'Sign in again',
+  'gconn.reauth_started':     'Signing {id} in again has started. I took you to the link: open it and sign in with the same account.',
 
   // --- Claude Code connectors, per Claude account ---
   'mconn.title':              'Claude Code connectors',
