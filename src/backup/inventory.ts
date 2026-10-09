@@ -91,6 +91,9 @@ const STORE_DEPOT_CONFIG = [
   'life-tree.json', 'life-tree-created.json', 'life-mounts.json', 'life-labels.json',
   'life-archived.json', 'life-physical.json', 'storages.json', 'drive-sync.json', 'git-sync.json',
   'drive-skiplist.json', 'mirror-migrated.json',
+  // #510: which hidden folder id belongs to which path. Without it a restored install would
+  // re-stamp every anchored folder and could not tell a renamed folder from a new one.
+  'life-folder-ids.json',
 ] as const
 const STORE_KNOWLEDGE_DIRS = ['knowledge', 'drafts', 'photos', 'face-gallery'] as const
 
