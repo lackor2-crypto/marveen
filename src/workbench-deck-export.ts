@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import { writeProjectFile } from './project-files.js'
-import { subFolderOf } from './workbench-edit.js'
+import { itemOutputFolder } from './workbench-assets.js'
+import type { WorkItemRow } from './workbench.js'
 import { convertOfficeToPdf } from './office-convert.js'
 import { readCanvasImageFile } from './workbench-canvas-store.js'
 import { buildDeckPptx, type PptxImage } from './workbench-deck-pptx.js'
@@ -28,7 +29,9 @@ function stem(title: string): string {
   return base || 'prezentacio'
 }
 
-export async function exportDeck(project: ProjectRow, itemTitle: string, deckRel: string | null, deck: DeckDoc, format: DeckExportFormat): Promise<DeckExportResult> {
+export async function exportDeck(
+  project: ProjectRow, item: Pick<WorkItemRow, 'title' | 'folder' | 'container_folder' | 'source_path'>, deckRel: string | null, deck: DeckDoc, format: DeckExportFormat,
+): Promise<DeckExportResult> {
   if (!deck.slides.length) return { ok: false, code: 'deck_export_empty', detail: null }
   const loadImage = (src: string): PptxImage | null => {
     const r = readCanvasImageFile(project, src)
@@ -43,7 +46,7 @@ export async function exportDeck(project: ProjectRow, itemTitle: string, deckRel
     // LibreOffice reads a file, so the PPTX goes to a private temporary folder first.
     const tmp = mkdtempSync(join(tmpdir(), 'wbdeck'))
     try {
-      const src = join(tmp, `${stem(itemTitle)}.pptx`)
+      const src = join(tmp, `${stem(item.title)}.pptx`)
       writeFileSync(src, built.bytes)
       const r = await convertOfficeToPdf(src, { timeoutMs: 240_000 })
       if (!r.ok) return { ok: false, code: `deck_pdf_${r.code}`, detail: r.detail || null }
@@ -52,7 +55,8 @@ export async function exportDeck(project: ProjectRow, itemTitle: string, deckRel
       try { rmSync(tmp, { recursive: true, force: true }) } catch { /* the temporary folder is cleaned by the system later */ }
     }
   }
-  const out = writeProjectFile(project, deckRel ? subFolderOf(project, deckRel) : '', `${stem(itemTitle)}.${format}`, bytes)
+  // #496: into the item's own folder (else beside the deck file, else the work-items box), never the project root.
+  const out = writeProjectFile(project, itemOutputFolder(project, item, deckRel), `${stem(item.title)}.${format}`, bytes)
   if (!out.ok) return { ok: false, code: out.code === 'write_failed' ? 'deck_export_failed' : out.code, detail: out.message || null }
   return { ok: true, file: { rel: out.rel, name: out.name, bytes: out.bytes }, format, slides: deck.slides.length, warnings: built.warnings }
 }

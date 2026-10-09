@@ -4,7 +4,7 @@
  * A Munkapad a posztkepet a BONGESZOBEN vagja a platform pontos meretere (a
  * huzott kivagassal). A betekinto link lapja (/view/<token>) viszont szkript
  * nelkul fut, ott nem lehet vagni -- ezert a kesz kepet a felhasznalo egy
- * kattintassal elmenti: UJ fajlkent a projekt mappajaba (sosem ir felul), es
+ * kattintassal elmenti: UJ fajlkent a munkadarab melle (sosem ir felul), es
  * itt feljegyezzuk, melyik platformhoz tartozik. A /view lap ezt kinalja
  * letoltesre.
  *
@@ -19,6 +19,7 @@ import { resolveLifePath } from './life-explorer.js'
 import { writeProjectFile, type FileErrorCode } from './project-files.js'
 import type { ProjectRow } from './projects.js'
 import { sniffImage } from './workbench-image-edit.js'
+import { itemOutputFolder } from './workbench-assets.js'
 import type { WorkItemRow } from './workbench.js'
 
 /** Ugyanaz a lista, mint a feluleten (web/workbench.js POST_PLATFORMS). */
@@ -117,7 +118,8 @@ export function savePostFile(
   if (fmt !== 'png' && fmt !== 'jpg') return { ok: false, code: 'post_not_image' }
   const size = imageSize(data)
   if (!size || size.w !== pf.w || size.h !== pf.h) return { ok: false, code: 'post_wrong_size' }
-  const out = writeProjectFile(project, '', postFileName(item.title, key, fmt), data)
+  // #496: into the post's own folder (else beside its file, else the work-items box), never the project root.
+  const out = writeProjectFile(project, itemOutputFolder(project, item), postFileName(item.title, key, fmt), data)
   if (!out.ok) return out
   ensureTable()
   const row: PostFileRow = {

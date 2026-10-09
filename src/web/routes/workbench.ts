@@ -4805,7 +4805,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!project) return fail(res, 404, 'project_not_found', lang)
       const cur = store.read(item.id)
       if (!cur.ok) return failDetail(res, dkStatus(cur.code), cur.code, lang, cur.detail)
-      const r = await exportDeck(project, item.title, cur.rel, cur.doc, format)
+      const r = await exportDeck(project, item, cur.rel, cur.doc, format)
       if (!r.ok) {
         const status = r.code === 'deck_export_empty' ? 400 : r.code === 'deck_pdf_not_installed' || r.code === 'deck_pdf_check_failed' ? 503 : 500
         return failDetail(res, status, r.code, lang, r.detail)
