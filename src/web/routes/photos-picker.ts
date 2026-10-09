@@ -1363,7 +1363,8 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
           onProgress: (done, _total, current) => { job.done = done; job.current = current },
           shouldStop: () => uploadStopAsked,
         })
-        if (job.result.uploaded) syncUploadedToPage(account)
+        // Already in Google Photos (a duplicate) is logged too: it shows on the page as well.
+        if (job.result.uploaded || job.result.duplicates) syncUploadedToPage(account)
         const stop = job.result.stopped
         if (stop && libraryApiOff(stop.message)) {
           job.apiOff = true

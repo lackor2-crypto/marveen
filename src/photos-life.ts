@@ -167,12 +167,14 @@ export function linkUploadedPhotos(account: string, uploads: UploadedPhoto[]): n
   const mine = index.filter((p) => p.account === account)
   const ids = new Set(mine.map((p) => p.id))
   const places = new Set(mine.map((p) => `${norm(p.lifeRel)}/${p.file}`))
+  // The same picture already on the page from another folder (an earlier download of it): one tile is enough.
+  const hashes = new Set(mine.map((p) => p.sha256).filter(Boolean))
   const off = new Set(loadUnlinked())
   let added = 0
   for (const u of uploads) {
     const rel = norm(u.lifeRel)
     const id = u.id || `up-${u.sha256.slice(0, 40)}`
-    if (!rel || !u.file || ids.has(id) || places.has(`${rel}/${u.file}`) || off.has(placeKey(account, rel, u.file))) continue
+    if (!rel || !u.file || ids.has(id) || places.has(`${rel}/${u.file}`) || (u.sha256 && hashes.has(u.sha256)) || off.has(placeKey(account, rel, u.file))) continue
     const abs = lifePhotoPath({ lifeRel: rel, file: u.file })
     let same = false
     try { same = !!abs && statSync(abs).isFile() && statSync(abs).size === u.bytes } catch { same = false }
@@ -184,6 +186,7 @@ export function linkUploadedPhotos(account: string, uploads: UploadedPhoto[]): n
     })
     ids.add(id)
     places.add(`${rel}/${u.file}`)
+    if (u.sha256) hashes.add(u.sha256)
     added++
   }
   if (added) saveLifeIndex(index)
