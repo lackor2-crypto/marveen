@@ -216,8 +216,9 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/storages/git-pull' && method === 'POST') {
     const b = await readJson(req)
-    const r = await pullGitAccount(String(b?.account || '').trim())
-    json(res, { ...r, rows: currentRows() }, r.ok ? 200 : 400)
+    const r = await pullGitAccount(String(b?.account || '').trim(), { dest: typeof b?.dest === 'string' ? b.dest : '' })
+    // `needsDest` is a question, not a failure: the page asks for the folder and sends it back.
+    json(res, { ...r, rows: currentRows() }, r.ok || r.needsDest ? 200 : 400)
     return true
   }
 

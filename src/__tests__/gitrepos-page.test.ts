@@ -283,6 +283,9 @@ describe('a lista fiokonkent csoportosit, es a figyelmet kero sor all elol', () 
       ${app.slice(app.indexOf('const GITREPOS_STATE_ORDER'), app.indexOf('function _gitreposStateLabel('))}
       ${extractFn(app, '_gitreposStateLabel')}
       ${extractFn(app, '_gitreposRepoName')}
+      ${extractFn(app, '_gitreposWhere')}
+      const _gitreposBrowse = { root: '', rel: '', seq: 0 }
+      ${extractFn(app, '_gitreposBrowseShowHint')}
       ${extractFn(app, '_gitreposRenderList')}
       return _gitreposRenderList`)(
       (k: string, p: any = {}) => `«${k}${p && p.n != null ? ':' + p.n : ''}»`,
@@ -329,6 +332,34 @@ describe('a lista fiokonkent csoportosit, es a figyelmet kero sor all elol', () 
   it('minden sor a BEKOTOTT utat viszi at az Intezonek', () => {
     const html = render([R('Cegek/X/GIT_REPOS/docs', 'X', 'current')])
     expect(html).toContain('data-gitrepo-open="Cegek/X/GIT_REPOS/docs"')
+  })
+
+  // Boss, TG 8228: "lassuk is, hogy melyik projekt alatt van".
+  it('minden sor megmondja, HOL van a tarolo az Eletfaban (a neve nelkul)', () => {
+    const html = render([R('Cegek/X/Fejlesztes/GIT_REPOS/docs', 'X', 'current'), R('egyedul', 'X', 'current')])
+    expect(html).toContain('<span class="gitrepos-row-where">Cegek / X / Fejlesztes / GIT_REPOS</span>')
+    expect(html).toContain('<span class="gitrepos-row-where">«gitrepos.where_root»</span>')
+  })
+
+  it('a sorra kattintas ALUL nyitja meg a tarolot; az Intezobe a betekinto gombja visz', () => {
+    const click = app.slice(app.indexOf("const open = ev.target.closest('[data-gitrepo-open]')"), app.indexOf("if (ev.target.closest('#gitreposSyncBtn'))"))
+    expect(click).toContain('await _gitreposBrowseOpen(rel, rel)')
+    expect(click).toContain('if (_gitreposBrowse.root === rel) _gitreposBrowseClose()')
+    // the row itself no longer jumps away
+    expect(click.slice(0, click.indexOf("ev.target.closest('[data-gitrepo-browse]')"))).not.toContain("switchPage('intezo')")
+    expect(click).toMatch(/#gitreposBrowserIntezo[\s\S]{0,160}switchPage\('intezo'\)/)
+    const html = readFileSync(new URL('../../web/index.html', import.meta.url), 'utf8')
+    for (const id of ['gitreposBrowser', 'gitreposBrowserCrumbs', 'gitreposBrowserList', 'gitreposBrowserUp', 'gitreposBrowserIntezo', 'gitreposBrowserClose']) {
+      expect(html).toContain(`id="${id}"`)
+    }
+  })
+
+  it('a betekinto sosem megy a tarolo FOLE, es a "nem lattam bele" nem "ures"', () => {
+    const open = extractFn(app, '_gitreposBrowseOpen')
+    expect(open).toContain("(rel === root || String(rel).startsWith(root + '/')) ? rel : root")
+    expect(open).toContain("t('gitrepos.browser_failed'")
+    expect(open).toContain("t('gitrepos.browser_empty')")
+    expect(open.indexOf("t('gitrepos.browser_failed'")).toBeLessThan(open.indexOf("t('gitrepos.browser_empty')"))
   })
 
   it('ures eredmenynel nem hagy ott regi tartalmat', () => {
