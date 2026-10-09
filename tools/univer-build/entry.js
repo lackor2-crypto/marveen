@@ -9,7 +9,7 @@ import '@univerjs/preset-sheets-core/lib/index.css'
 
 import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell } from './rules.mjs'
 
-var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-cols)/
+var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-columns|move-cols)/
 
 function mount(host, sheets, opts) {
   opts = opts || {}
@@ -42,10 +42,22 @@ function mount(host, sheets, opts) {
         if (c + 1 > maxC) maxC = c + 1
       })
     })
+    // #526, part 2: every row and column of the opened sheet carries where it came from. The
+    // tag travels with the row through inserts, removals, moves and undo (measured), so the
+    // save can be told where each row's formatting belongs. An inserted row has no tag.
+    var rowData = {}
+    var columnData = {}
+    for (var rr = 0; rr < (sh.rows || []).length; rr++) rowData[rr] = { custom: { o: rr } }
+    // Every column the file has, also one that holds nothing but formatting.
+    var fileCols = maxC
+    ;(sh.rows || []).forEach(function (row) { if (row && row.length > fileCols) fileCols = row.length })
+    for (var cc = 0; cc < fileCols; cc++) columnData[cc] = { custom: { o: cc } }
     sheetData[id] = {
       id: id,
       name: sh.name || ('Sheet' + (i + 1)),
       cellData: cellData,
+      rowData: rowData,
+      columnData: columnData,
       rowCount: Math.max(100, (sh.rows || []).length + 50),
       columnCount: Math.max(26, maxC + 6),
     }
@@ -63,7 +75,13 @@ function mount(host, sheets, opts) {
   }
   if (E && E.BeforeCommandExecute) {
     disposables.push(api.addEvent(E.BeforeCommandExecute, function (ev) {
-      var kind = blockedKind(ev && ev.id, structureLocked, sheetsLocked)
+      var objectsHere = false
+      try {
+        var act = api.getActiveWorkbook().getActiveSheet()
+        var at = act ? order.indexOf(act.getSheetId()) : -1
+        objectsHere = at >= 0 && !!(sheets[at] && sheets[at].structure_locked)
+      } catch (e) { objectsHere = false }
+      var kind = blockedKind(ev && ev.id, structureLocked, sheetsLocked, objectsHere)
       // Diagnosis only: set window.MarveenUniverDebug = true in the console to see every command.
       if (window.MarveenUniverDebug) console.log('[univer]', ev && ev.id, kind ? 'BLOCKED:' + kind : '')
       if (kind) { ev.cancel = true; onBlocked(kind) }
@@ -125,7 +143,23 @@ function mount(host, sheets, opts) {
       }
       if (!rect.length) rect.push([''])
       if (!rect[0].length) rect[0] = ['']
-      out.push({ name: (s && s.name) || '', rows: rect, from: from >= 0 ? from : null })
+      // The tags are read past the last filled row too: a row that was only emptied still has
+      // its tag (it stays), a row that was removed does not (it goes, with what was bound to it).
+      var lastTag = function (data) {
+        var m = -1
+        Object.keys(data || {}).forEach(function (k) { var d = data[k]; if (d && d.custom && typeof d.custom.o === 'number' && Number(k) > m) m = Number(k) })
+        return m + 1
+      }
+      var tagOf = function (data, n) {
+        n = Math.max(n, lastTag(data))
+        var arr = []
+        for (var k = 0; k < n; k++) { var d = (data || {})[k]; var o = d && d.custom ? d.custom.o : null; arr.push(typeof o === 'number' && o >= 0 && Math.floor(o) === o ? o : null) }
+        return arr
+      }
+      var one = { name: (s && s.name) || '', rows: rect, from: from >= 0 ? from : null }
+      // Only for a sheet that was opened: a new sheet has nothing to carry over.
+      if (from >= 0) { one.rowsFrom = tagOf(s.rowData, rect.length); one.colsFrom = tagOf(s.columnData, rect[0] ? rect[0].length : 0) }
+      out.push(one)
     })
     return out
   }
@@ -141,4 +175,4 @@ function mount(host, sheets, opts) {
   }
 }
 
-window.MarveenUniver = { mount: mount, version: '1.0.3-sheets' }
+window.MarveenUniver = { mount: mount, version: '1.0.3-rows' }
