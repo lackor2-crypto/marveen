@@ -20,10 +20,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
 import { MISSING_MARK_RE, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
+import { isBlockAlign, richMatches, richRuns, type RichRun } from './workbench-docrich.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
-  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; img?: RenderImage | null }[] }[]
+  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null }[] }[]
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
@@ -156,15 +157,52 @@ function inlineMarked(s: string, draft: boolean): string {
  * sort a lap szeleig szethuzna ("Tisztelt            Birosag!"), ezert minden
  * sor kulon bekezdes, a belso sorok kozott terkoz nelkul.
  */
-function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean): string[] {
+function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean, rich?: string | null, align?: string | null): string[] {
   const out: string[] = []
+  // Alignment styles exist for the body text only (BodyAl_c, BodyLineAl_c, ...); justify is the body default.
+  const al = style === 'Body' && isBlockAlign(align) && align !== 'j' ? `Al_${align}` : ''
+  const useRich = !!rich && richMatches(rich, text)
+  const runs = useRich ? richRuns(String(rich)) : null
+  if (runs) {
+    // Split the formatted runs into lines at "\n", keeping each run's marks.
+    const lines: RichRun[][] = [[]]
+    for (const r of runs) {
+      r.text.split('\n').forEach((piece, i) => {
+        if (i > 0) lines.push([])
+        if (piece) lines[lines.length - 1].push({ ...r, text: piece })
+      })
+    }
+    // Same paragraph rule as the plain text: an empty line starts a new paragraph, the others are lines of one.
+    const groups: RichRun[][][] = [[]]
+    for (const ln of lines) {
+      if (!ln.length || ln.every((r) => !r.text.trim())) { if (groups[groups.length - 1].length) groups.push([]) }
+      else groups[groups.length - 1].push(ln)
+    }
+    for (const g of groups) {
+      g.forEach((ln, i) => {
+        const name = (i < g.length - 1 ? style + 'Line' : style) + al
+        out.push(`<text:p text:style-name="${name}">${ln.map((r) => richSpan(r, draft)).join('')}</text:p>`)
+      })
+    }
+    return out
+  }
   for (const para of text.split(/\n[ \t]*\n+/)) {
     const lines = para.split('\n')
     lines.forEach((l, i) => {
-      out.push(`<text:p text:style-name="${i < lines.length - 1 ? style + 'Line' : style}">${inlineMarked(l, draft)}</text:p>`)
+      out.push(`<text:p text:style-name="${(i < lines.length - 1 ? style + 'Line' : style) + al}">${inlineMarked(l, draft)}</text:p>`)
     })
   }
   return out
+}
+
+/** One formatted run in ODF: the marks as nested character-style spans around the (marked) text. */
+function richSpan(r: RichRun, draft: boolean): string {
+  let x = inlineMarked(r.text, draft)
+  if (r.s) x = `<text:span text:style-name="FmtS">${x}</text:span>`
+  if (r.u) x = `<text:span text:style-name="FmtU">${x}</text:span>`
+  if (r.i) x = `<text:span text:style-name="FmtI">${x}</text:span>`
+  if (r.b) x = `<text:span text:style-name="FmtB">${x}</text:span>`
+  return x
 }
 
 /** Alairasblokk: minden sor megmarad (az ures sor is: oda kerul az alairas), egyben marad. */
@@ -260,7 +298,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
         const note = footnoteXml(b.text, notes + 1, o.draft)
         if (attachFootnote(sec, note)) notes++
         else sec.push(...paragraphs(b.text, 'Note', o.draft))
-      } else sec.push(...paragraphs(b.text, 'Body', o.draft))
+      } else sec.push(...paragraphs(b.text, 'Body', o.draft, b.rich, b.align))
     }
     body.push(...sec)
   }
@@ -282,6 +320,14 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
 <style:style style:name="Standard" style:family="paragraph"/>
 <style:style style:name="Body" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0.25cm" fo:text-align="justify" style:justify-single-word="false" fo:line-height="130%"/></style:style>
 <style:style style:name="BodyLine" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>
+${(['l', 'c', 'r'] as const).map((a) => {
+  const v = a === 'l' ? 'start' : a === 'c' ? 'center' : 'end'
+  return `<style:style style:name="BodyAl_${a}" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:text-align="${v}"/></style:style>\n<style:style style:name="BodyLineAl_${a}" style:family="paragraph" style:parent-style-name="BodyLine"><style:paragraph-properties fo:text-align="${v}"/></style:style>`
+}).join('\n')}
+<style:style style:name="FmtB" style:family="text"><style:text-properties fo:font-weight="bold"/></style:style>
+<style:style style:name="FmtI" style:family="text"><style:text-properties fo:font-style="italic"/></style:style>
+<style:style style:name="FmtU" style:family="text"><style:text-properties style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"/></style:style>
+<style:style style:name="FmtS" style:family="text"><style:text-properties style:text-line-through-style="solid"/></style:style>
 <style:style style:name="AnnexLine" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="0.9cm" fo:text-indent="-0.9cm" fo:margin-bottom="0.1cm"/></style:style>
 <style:style style:name="ListP" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0.1cm"/></style:style>
 <style:style style:name="Title" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="0.6cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>
@@ -329,15 +375,15 @@ ${body.join('\n')}
 }
 
 /** A renderelt tartalom: ami a PDF-be kerul. Mas mezo (allitas, forras) nem. */
-export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string }[] }[] }): RenderOutline {
-  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text })) })) }
+export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null }[] }[] }): RenderOutline {
+  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}) })) })) }
 }
 
 /** A dokumentum tartalmanak ujjlenyomata: ha a vegleges PDF utan valtozik, a vegleges allapot megszunik (K-1.23). */
 export function outlineHash(outline: RenderOutline, title: string): string {
   const core = {
     title,
-    s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text })) })),
+    s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}) })) })),
     ...(outline.annexes && outline.annexes.length ? { a: outline.annexes.map((a) => [a.label, a.title]), at: outline.annexTitle || '' } : {}),
   }
   return createHash('sha256').update(JSON.stringify(core)).digest('hex')

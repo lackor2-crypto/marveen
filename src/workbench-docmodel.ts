@@ -32,6 +32,7 @@ import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docr
 import { annexCheck, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
+import { isBlockAlign, richMatches, richToPlain, sanitizeRich } from './workbench-docrich.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
 export type SectionStatus = typeof SECTION_STATUSES[number]
@@ -126,6 +127,10 @@ export function ensureDocModelTables(): void {
       updated_at INTEGER NOT NULL
     )
   `)
+  // Formatting next to the plain text (see workbench-docrich.ts): added later, so older databases get the columns here.
+  const blockCols = (db.prepare('PRAGMA table_info(wb_doc_blocks)').all() as { name: string }[]).map((c) => c.name)
+  if (!blockCols.includes('rich')) db.exec('ALTER TABLE wb_doc_blocks ADD COLUMN rich TEXT')
+  if (!blockCols.includes('align')) db.exec('ALTER TABLE wb_doc_blocks ADD COLUMN align TEXT')
   db.exec(`
     CREATE TABLE IF NOT EXISTS wb_doc_claims (
       id TEXT PRIMARY KEY,
@@ -183,7 +188,11 @@ const now = (): number => Math.floor(Date.now() / 1000)
 const newId = (): string => randomUUID().slice(0, 12)
 
 export interface SectionRow { id: string; work_item_id: string; position: number; title: string; status: SectionStatus; created_at: number; updated_at: number }
-export interface BlockRow { id: string; work_item_id: string; section_id: string; position: number; kind: BlockKind; text: string; author: 'agent' | 'owner'; owner_edited_at: number | null; created_at: number; updated_at: number }
+export interface BlockRow { id: string; work_item_id: string; section_id: string; position: number; kind: BlockKind; text: string; author: 'agent' | 'owner'; owner_edited_at: number | null; created_at: number; updated_at: number
+  /** Inline formatting (<b><i><u><s><br>), only meaningful while its plain text equals `text`. */
+  rich?: string | null
+  /** Paragraph alignment: l / c / r / j, null = the document's default. */
+  align?: string | null }
 export interface ClaimRow { id: string; work_item_id: string; block_id: string; text: string; created_at: number; created_by: string | null }
 export interface SourceRow {
   id: string; claim_id: string; kind: SourceKind
@@ -305,15 +314,20 @@ function dropBlockRows(blockId: string): void {
   db.prepare('DELETE FROM wb_doc_blocks WHERE id = ?').run(blockId)
 }
 
-export function addBlock(itemId: string, sectionId: string, input: { kind?: unknown; text?: unknown; position?: unknown; author: 'agent' | 'owner' }): ModelResult<{ block: BlockRow }> {
+export function addBlock(itemId: string, sectionId: string, input: { kind?: unknown; text?: unknown; rich?: unknown; align?: unknown; position?: unknown; author: 'agent' | 'owner' }): ModelResult<{ block: BlockRow }> {
   ensureDocModelTables()
   const s = getSection(itemId, String(sectionId || ''))
   if (!s) return { ok: false, code: 'not_found', detail: 'no section with this id in this work item' }
   const kind = (input.kind === undefined || input.kind === null || input.kind === '') ? 'paragraph' : input.kind
   if (!BLOCK_KINDS.includes(kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
-  const text = String(input.text ?? '').replace(/\r\n/g, '\n').trim()
+  // Formatting (bold / italic / ...) is kept next to the plain text; the plain text is what the rest of the system reads.
+  let rich = typeof input.rich === 'string' ? sanitizeRich(input.rich) : ''
+  const text = (rich ? richToPlain(rich) : String(input.text ?? '')).replace(/\r\n/g, '\n').trim()
   if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
   if (kind === 'image' && !imageBlockPathOk(text)) return { ok: false, code: 'bad_input', detail: `an image block's text is the picture's path under the Marveen folder (${[...DOC_IMAGE_EXT].join(', ')})` }
+  if (rich && !richMatches(rich, text)) rich = ''
+  if (input.align !== undefined && input.align !== null && input.align !== '' && !isBlockAlign(input.align)) return { ok: false, code: 'bad_input', detail: 'align must be one of l, c, r, j' }
+  const align = isBlockAlign(input.align) ? input.align : null
   const db = getDb()
   const count = (db.prepare('SELECT COUNT(*) AS n FROM wb_doc_blocks WHERE work_item_id = ?').get(itemId) as { n: number }).n
   if (count >= BLOCKS_MAX) return { ok: false, code: 'too_many', detail: `a document has at most ${BLOCKS_MAX} blocks` }
@@ -322,9 +336,9 @@ export function addBlock(itemId: string, sectionId: string, input: { kind?: unkn
   const pos = input.position !== undefined && input.position !== null && Number.isFinite(want) ? Math.max(0, Math.min(inSection, Math.floor(want))) : inSection
   db.prepare('UPDATE wb_doc_blocks SET position = position + 1 WHERE section_id = ? AND position >= ?').run(s.id, pos)
   const id = newId()
-  db.prepare(`INSERT INTO wb_doc_blocks (id, work_item_id, section_id, position, kind, text, author, owner_edited_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, itemId, s.id, pos, kind, text, input.author, input.author === 'owner' ? now() : null, now(), now())
+  db.prepare(`INSERT INTO wb_doc_blocks (id, work_item_id, section_id, position, kind, text, rich, align, author, owner_edited_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, itemId, s.id, pos, kind, text, rich || null, align, input.author, input.author === 'owner' ? now() : null, now(), now())
   reorder('wb_doc_blocks', 'section_id', s.id)
   return { ok: true, block: getBlock(itemId, id) as BlockRow }
 }
@@ -335,14 +349,29 @@ export function addBlock(itemId: string, sectionId: string, input: { kind?: unkn
  * maradhat ott a regi forras. Kezi atirasnal (K-1.16) a blokk "tulajdonos
  * irta" jelolest kap.
  */
-export function updateBlock(itemId: string, id: string, input: { text?: unknown; kind?: unknown; section?: unknown; position?: unknown; author: 'agent' | 'owner' }): ModelResult<{ block: BlockRow; dropped_claims: number }> {
+export function updateBlock(itemId: string, id: string, input: { text?: unknown; rich?: unknown; align?: unknown; kind?: unknown; section?: unknown; position?: unknown; author: 'agent' | 'owner' }): ModelResult<{ block: BlockRow; dropped_claims: number }> {
   ensureDocModelTables()
   const b = getBlock(itemId, String(id || ''))
   if (!b) return { ok: false, code: 'not_found', detail: 'no block with this id in this work item' }
   let text = b.text
-  if (input.text !== undefined && input.text !== null) {
+  // `rich` (the formatted version of the text) wins over `text`: the plain text is derived from it, so the two never differ.
+  const richGiven = typeof input.rich === 'string'
+  let rich: string | null = b.rich ?? null
+  if (richGiven && sanitizeRich(input.rich)) {
+    rich = sanitizeRich(input.rich)
+    text = richToPlain(rich).replace(/\r\n/g, '\n').trim()
+    if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
+  } else if (input.text !== undefined && input.text !== null) {
     text = String(input.text).replace(/\r\n/g, '\n').trim()
     if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
+    // Plain text without formatting (an agent's edit, a cleared `rich`): no formatting is kept for it.
+    if (text !== b.text || richGiven) rich = null
+  } else if (richGiven) rich = null
+  if (rich && !richMatches(rich, text)) rich = null
+  let align: string | null = b.align ?? null
+  if (input.align !== undefined && input.align !== null) {
+    if (input.align !== '' && !isBlockAlign(input.align)) return { ok: false, code: 'bad_input', detail: 'align must be one of l, c, r, j' }
+    align = input.align === '' ? null : String(input.align)
   }
   let kind = b.kind
   if (input.kind !== undefined && input.kind !== null && input.kind !== '') {
@@ -360,8 +389,8 @@ export function updateBlock(itemId: string, id: string, input: { text?: unknown;
   const db = getDb()
   let dropped = 0
   db.transaction(() => {
-    db.prepare('UPDATE wb_doc_blocks SET text = ?, kind = ?, updated_at = ?, owner_edited_at = CASE WHEN ? = \'owner\' AND ? = 1 THEN ? ELSE owner_edited_at END WHERE id = ?')
-      .run(text, kind, now(), input.author, text !== b.text ? 1 : 0, now(), b.id)
+    db.prepare('UPDATE wb_doc_blocks SET text = ?, rich = ?, align = ?, kind = ?, updated_at = ?, owner_edited_at = CASE WHEN ? = \'owner\' AND ? = 1 THEN ? ELSE owner_edited_at END WHERE id = ?')
+      .run(text, rich, align, kind, now(), input.author, (text !== b.text || rich !== (b.rich ?? null) || align !== (b.align ?? null)) ? 1 : 0, now(), b.id)
     const norm = normalizeForMatch(text)
     for (const c of db.prepare('SELECT id, text FROM wb_doc_claims WHERE block_id = ?').all(b.id) as { id: string; text: string }[]) {
       if (!norm.includes(normalizeForMatch(c.text))) {
@@ -696,7 +725,7 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
   const sections = listSections(itemId).map((s) => {
     const bs = blocks.filter((b) => b.section_id === s.id).map((b) => {
       const rw = rewrites.get(b.id)
-      return { ...b, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
+      return { ...b, rich: richMatches(b.rich, b.text) ? b.rich : null, align: isBlockAlign(b.align) ? b.align : null, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
     })
     const problems = bs.reduce((n, b) => n + b.missing.length + b.claims.filter((c) => c.strength === 'unverified').length, 0)
     return { ...s, blocks: bs, problems }

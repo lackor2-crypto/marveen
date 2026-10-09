@@ -151,6 +151,7 @@
     shMore: false,      // egyszeru nezet: a "Technikai reszletek" terulet nyitva
     shDocTab: 'draft',  // egyszeru nezet, dokumentum: draft | preview | sources | gaps
     docDrafts: {},      // dokumentum-lap: mentetlen szoveg (kulcs: b:<id> | s:<id> | new:<sec>:<pos>)
+    docDraftRich: {},   // ugyanezek formazott (b/i/u/s) valtozata, ha van formazas
     docMenu: null,      // dokumentum-lap: nyitott + / fogantyu menu
     docNew: null,       // dokumentum-lap: ures, uj sor a megadott helyen
     docFocus: null,     // dokumentum-lap: ujrarajzolas utan ide kerul a fokusz
@@ -11824,10 +11825,27 @@
   }
 
   /** Egy szerkesztheto szovegmezo (blokk, cim vagy uj sor). */
-  function dpEditHtml(cls, id, attrs, text, ph, label, ro) {
+  function dpEditHtml(cls, id, attrs, text, ph, label, ro, rich) {
+    // A formatted field (block, new line) passes `rich` (null = no formatting yet); the title and the table lines stay plain.
+    var fmt = rich !== undefined
     return '<div class="wb-dp-edit ' + cls + '" id="' + escA(id) + '" ' + attrs
-      + (ro ? '' : ' contenteditable="' + (dpPlainOk() ? 'plaintext-only' : 'true') + '" spellcheck="true"')
-      + ' role="textbox" aria-multiline="true" aria-label="' + escA(label) + '" data-placeholder="' + escA(ph) + '">' + esc(text) + '</div>'
+      + (ro ? '' : ' contenteditable="' + (!fmt && dpPlainOk() ? 'plaintext-only' : 'true') + '" spellcheck="true"')
+      + ' role="textbox" aria-multiline="true" aria-label="' + escA(label) + '" data-placeholder="' + escA(ph) + '">' + (fmt && rich ? rich : esc(text)) + '</div>'
+  }
+
+  var DP_ALIGNS = ['l', 'c', 'r', 'j']
+
+  /** The class + attribute of a block's alignment (empty = the document's default). */
+  function dpAlignAttrs(a) {
+    return DP_ALIGNS.indexOf(a) < 0 ? { cls: '', attr: '' } : { cls: ' wb-dp-al-' + a, attr: ' data-wb-align="' + a + '"' }
+  }
+
+  /** The formatted HTML a block field starts with: its unsaved draft first, else the stored formatting. */
+  function dpBlockRich(b) {
+    if (b.kind === 'table') return undefined
+    var key = 'b:' + b.id
+    if (WB.docDrafts[key] != null) return (WB.docDraftRich && WB.docDraftRich[key]) || null
+    return b.rich || null
   }
 
   function dpMenuHtml(kind, bid, sid, idx, count) {
@@ -11929,7 +11947,8 @@
   function dpGhostHtml(sid, pos, kind, count, ro) {
     return '<div class="wb-dp-row wb-dp-ghost" data-wb-sec="' + escA(sid) + '">' + dpGutterHtml('', sid, pos, count, ro)
       + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(kind || 'paragraph'), 'wbDpNew', 'data-wb-dp="new" data-wb-sec="' + escA(sid) + '" data-wb-pos="' + pos + '" data-wb-kind="' + escA(kind || 'paragraph') + '"',
-        dpDraft('new:' + sid + ':' + pos, ''), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro) + '</div>'
+        dpDraft('new:' + sid + ':' + pos, ''), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro,
+        (WB.docDraftRich && WB.docDrafts['new:' + sid + ':' + pos] != null ? WB.docDraftRich['new:' + sid + ':' + pos] : null) || null) + '</div>'
   }
 
   /** Boss TG 3073: the page is a plain document by default; status chips, the delete cross and the
@@ -11970,8 +11989,8 @@
         return
       }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-        + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"',
-          dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro)
+        + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls, 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr,
+          dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
         + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
         + (b.rewrite ? '<div class="wb-dp-extra">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
     })
@@ -12004,7 +12023,7 @@
       // Meg nincs fejezet: a lap ures, az elso begepelt sor hozza letre az elsot.
       body = dpGhostHtml('', 0, 'paragraph', 0, ro)
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
-    return '<div class="wb-dp-wrap"><div class="wb-dp-page" role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
+    return '<div class="wb-dp-wrap">' + (ro ? '' : dpToolbarHtml()) + '<div class="wb-dp-page" role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
         + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button> '
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
@@ -12180,6 +12199,98 @@
 
   function dpSections() { var o = WB.detail && WB.detail.outline; return (o && o.sections) || [] }
 
+  /** The formatting of a field as the server stores it: {rich, plain}. `rich` is '' when nothing is formatted.
+   *  Marks are written in one fixed nesting (b > i > u > s), the same the server writes, so an unchanged
+   *  field compares equal and is not saved again. */
+  function dpFmtOf(el) {
+    var runs = []
+    var push = function (text, m) {
+      if (!text) return
+      var p = runs[runs.length - 1]
+      if (p && p.b === m.b && p.i === m.i && p.u === m.u && p.s === m.s) p.t += text
+      else runs.push({ t: text, b: m.b, i: m.i, u: m.u, s: m.s })
+    }
+    var lastNl = function () { var p = runs[runs.length - 1]; return !p || /\n$/.test(p.t) }
+    var walk = function (node, m) {
+      for (var n = node.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3) { push(String(n.nodeValue).replace(/\u00a0/g, ' '), m); continue }
+        if (n.nodeType !== 1) continue
+        var tag = String(n.nodeName).toLowerCase()
+        if (tag === 'br') { push('\n', m); continue }
+        var mm = { b: m.b, i: m.i, u: m.u, s: m.s }
+        if (tag === 'b' || tag === 'strong') mm.b = true
+        if (tag === 'i' || tag === 'em') mm.i = true
+        if (tag === 'u') mm.u = true
+        if (tag === 's' || tag === 'strike' || tag === 'del') mm.s = true
+        var st = n.style
+        if (st) {
+          if (st.fontWeight === 'bold' || Number(st.fontWeight) >= 600) mm.b = true
+          if (st.fontStyle === 'italic') mm.i = true
+          var td = String(st.textDecorationLine || st.textDecoration || '')
+          if (td.indexOf('underline') >= 0) mm.u = true
+          if (td.indexOf('line-through') >= 0) mm.s = true
+        }
+        var blockTag = tag === 'div' || tag === 'p'
+        if (blockTag && !lastNl()) push('\n', m)
+        walk(n, mm)
+      }
+    }
+    walk(el, { b: false, i: false, u: false, s: false })
+    // Trailing line breaks are not content.
+    while (runs.length && /\n$/.test(runs[runs.length - 1].t)) {
+      var lr = runs[runs.length - 1]
+      lr.t = lr.t.replace(/\n+$/, '')
+      if (!lr.t) runs.pop()
+    }
+    var plain = runs.map(function (r) { return r.t }).join('').trim()
+    if (!runs.some(function (r) { return r.b || r.i || r.u || r.s })) return { rich: '', plain: plain }
+    var enc = function (x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') }
+    var rich = runs.map(function (r) {
+      var o = enc(r.t)
+      if (r.s) o = '<s>' + o + '</s>'
+      if (r.u) o = '<u>' + o + '</u>'
+      if (r.i) o = '<i>' + o + '</i>'
+      if (r.b) o = '<b>' + o + '</b>'
+      return o
+    }).join('')
+    return { rich: rich, plain: plain }
+  }
+
+  /** The block / new-line field the toolbar acts on: the focused one, else the last one the cursor was in. */
+  function dpFmtTarget() {
+    var a = document.activeElement
+    var ok = function (n) { return n && typeof n.getAttribute === 'function' && n.isConnected && /^(block|new)$/.test(n.getAttribute('data-wb-dp') || '') && !n.classList.contains('wb-outline-kind-table') }
+    if (ok(a)) return a
+    var last = WB.dpFmtLast ? document.getElementById(WB.dpFmtLast) : null
+    return ok(last) ? last : null
+  }
+
+  /** Four text lines, aligned the way the button says (the Word-style paragraph icons). */
+  function dpAlignIcon(a) {
+    var rows = [[0, 14], [0, 9], [0, 14], [0, 6]]
+    var path = rows.map(function (r, i) {
+      var w = a === 'j' ? 14 : r[1]
+      var x = a === 'c' ? (14 - w) / 2 : a === 'r' ? 14 - w : 0
+      return 'M' + (x + 1) + ' ' + (3 + i * 3.4) + 'h' + w
+    }).join('')
+    return '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="' + path + '" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>'
+  }
+
+  var DP_FMT_TOOLS = [
+    ['bold', '<b>B</b>', 'fmt_bold'], ['italic', '<i>I</i>', 'fmt_italic'], ['underline', '<u>U</u>', 'fmt_underline'], ['strikeThrough', '<s>S</s>', 'fmt_strike'], ['|'],
+    ['align-l', dpAlignIcon('l'), 'fmt_left'], ['align-c', dpAlignIcon('c'), 'fmt_center'], ['align-r', dpAlignIcon('r'), 'fmt_right'], ['align-j', dpAlignIcon('j'), 'fmt_justify'], ['|'],
+    ['list', '&#8226;&#8801;', 'fmt_list'], ['clear', '&#10007;', 'fmt_clear']
+  ]
+
+  /** The Word-like ribbon above the page: acts on the field the cursor is in. */
+  function dpToolbarHtml() {
+    return '<div class="wb-dp-toolbar" role="toolbar" aria-label="' + escA(t('workbench.dp.fmt_label')) + '">'
+      + DP_FMT_TOOLS.map(function (x) {
+        if (x[0] === '|') return '<span class="wb-dp-tbsep"></span>'
+        return '<button type="button" class="wb-dp-tb" data-wb-fmt="' + x[0] + '" aria-pressed="false" title="' + escA(t('workbench.dp.' + x[2])) + '" aria-label="' + escA(t('workbench.dp.' + x[2])) + '">' + x[1] + '</button>'
+      }).join('') + '</div>'
+  }
+
   /** Egy mezo tartalmanak elmentese; a Promise az uj vazlattal (vagy null-lal) ter vissza. */
   /** One save per field at a time: Enter starts the save and the blur that follows (a click elsewhere
    *  a moment later) must not send the same new line a second time. */
@@ -12202,10 +12313,19 @@
       var bid = el.getAttribute('data-wb-block')
       var b = findBlock(bid)
       if (!b) return Promise.resolve(null)
+      var fm = null
       if (b.kind === 'table') { var tp = dpTableParts(b.text); if (text && text !== tp.text) text = dpTableText(text, tp.width, tp.align); else if (text === tp.text) text = b.text }
-      if (text === b.text) { delete WB.docDrafts['b:' + bid]; return Promise.resolve(WB.detail.outline) }
+      else {
+        // Bold / italic / underline / strike: the formatted version goes with the plain text (the server derives the plain one from it).
+        fm = dpFmtOf(el)
+        if (fm.rich) text = fm.plain
+      }
+      var richSame = !fm || fm.rich === (b.rich || '')
+      if (text === b.text && richSame) { delete WB.docDrafts['b:' + bid]; return Promise.resolve(WB.detail.outline) }
       if (!text) { delete WB.docDrafts['b:' + bid]; render(); return Promise.resolve(null) } // ures szoveg nem mentheto: marad a regi
-      return dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) delete WB.docDrafts['b:' + bid]; return o })
+      var body = { text: text }
+      if (fm) body.rich = fm.rich
+      return dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), body).then(function (o) { if (o) delete WB.docDrafts['b:' + bid]; return o })
     }
     if (kind === 'sec') {
       var sid = el.getAttribute('data-wb-sec')
@@ -12228,7 +12348,11 @@
       })
       return make.then(function (sec) {
         if (!sec) return null
-        return dpCall('POST', '/blocks', { section: sec, text: text, kind: kd, position: pos }).then(function (o) {
+        var nfm = dpFmtOf(el)
+        var nbody = { section: sec, text: nfm.rich ? nfm.plain : text, kind: kd, position: pos }
+        if (nfm.rich) nbody.rich = nfm.rich
+        if (el.getAttribute('data-wb-align')) nbody.align = el.getAttribute('data-wb-align')
+        return dpCall('POST', '/blocks', nbody).then(function (o) {
           if (o) { el.setAttribute('data-wb-saved', '1'); delete WB.docDrafts[key]; if (WB.docNew && WB.docNew.sec === nsid && WB.docNew.pos === pos) WB.docNew = null }
           return o
         })
@@ -12284,10 +12408,17 @@
     var key = dpDraftKey(el)
     if (!key || el.getAttribute('data-wb-saved')) return
     var txt = dpText(el)
-    var orig = key.charAt(0) === 'b' ? (findBlock(el.getAttribute('data-wb-block')) || {}).text
-      : key.charAt(0) === 's' ? (findSection(el.getAttribute('data-wb-sec')) || {}).title : ''
-    if (txt === (orig || '')) delete WB.docDrafts[key]
-    else WB.docDrafts[key] = String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\n+$/, '')
+    var blk = key.charAt(0) === 'b' ? (findBlock(el.getAttribute('data-wb-block')) || {}) : null
+    var orig = blk ? blk.text : key.charAt(0) === 's' ? (findSection(el.getAttribute('data-wb-sec')) || {}).title : ''
+    var fm = key.charAt(0) === 's' || (blk && blk.kind === 'table') ? null : dpFmtOf(el)
+    // A formatting-only change (bold on, same words) is a change too: the draft must survive a redraw.
+    var same = txt === (orig || '') && (!fm || fm.rich === ((blk && blk.rich) || ''))
+    if (same) { delete WB.docDrafts[key]; if (WB.docDraftRich) delete WB.docDraftRich[key] }
+    else {
+      WB.docDrafts[key] = String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\n+$/, '')
+      if (!WB.docDraftRich) WB.docDraftRich = {}
+      WB.docDraftRich[key] = fm && fm.rich ? fm.rich : ''
+    }
   }
 
   /** A render() hivja a kirajzolas elott / utan: a gepeles kozbeni ujrarajzolas ne vegye el a fokuszt. */
@@ -15423,6 +15554,90 @@
       if (kind === 'new') { WB.docNew = null; delete WB.docDrafts[dpDraftKey(el)]; WB.rendering = true; el.blur(); WB.rendering = false; render() }
       else dpDeleteBlock(el.getAttribute('data-wb-block'))
     }
+  })
+
+  // ---- Word-szeru formazo eszkoztar (Boss TG 2803) ---------------------------------------------
+  // A gomb nem veheti el a fokuszt (kijeloles) a szovegtol; a formazas a mezo tartalmaban van, a mentes
+  // a mezobol kilepeskor a szokott uton megy.
+  document.addEventListener('mousedown', function (e) {
+    if (e.target && typeof e.target.closest === 'function' && e.target.closest('[data-wb-fmt]')) e.preventDefault()
+  }, true)
+
+  document.addEventListener('focusin', function (e) {
+    var el = dpField(e)
+    if (el && el.id && /^(block|new)$/.test(el.getAttribute('data-wb-dp') || '')) { WB.dpFmtLast = el.id; dpFmtSync() }
+  })
+
+  /** The ribbon's pressed states follow the text under the cursor. */
+  function dpFmtSync() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var btns = document.querySelectorAll('[data-wb-fmt]')
+    if (!btns.length) return
+    var el = dpFmtTarget()
+    for (var i = 0; i < btns.length; i++) {
+      var f = btns[i].getAttribute('data-wb-fmt')
+      var on = false
+      if (el) {
+        if (f === 'bold' || f === 'italic' || f === 'underline' || f === 'strikeThrough') { try { on = document.activeElement === el && document.queryCommandState(f) } catch (_e) { on = false } }
+        else if (f.indexOf('align-') === 0) on = (el.getAttribute('data-wb-align') || '') === f.slice(6)
+        else if (f === 'list') on = el.classList.contains('wb-outline-kind-list')
+      }
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false')
+      btns[i].classList.toggle('is-on', on)
+    }
+  }
+  document.addEventListener('selectionchange', function () { if (WB.open) dpFmtSync() })
+
+  function dpSetAlign(el, a) {
+    var cur = el.getAttribute('data-wb-align') || ''
+    var next = cur === a ? '' : a
+    DP_ALIGNS.forEach(function (x) { el.classList.remove('wb-dp-al-' + x) })
+    if (next) { el.classList.add('wb-dp-al-' + next); el.setAttribute('data-wb-align', next) } else el.removeAttribute('data-wb-align')
+    var bid = el.getAttribute('data-wb-block')
+    if (bid) dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { align: next })
+  }
+
+  function dpToggleList(el) {
+    var bid = el.getAttribute('data-wb-block')
+    if (!bid) {
+      var k = el.getAttribute('data-wb-kind') === 'list' ? 'paragraph' : 'list'
+      el.setAttribute('data-wb-kind', k)
+      el.classList.toggle('wb-outline-kind-list', k === 'list')
+      el.classList.toggle('wb-outline-kind-paragraph', k !== 'list')
+      return
+    }
+    var b = findBlock(bid)
+    if (!b || (b.kind !== 'paragraph' && b.kind !== 'list')) return
+    var kind = b.kind === 'list' ? 'paragraph' : 'list'
+    dpSave(el).then(function (o) {
+      if (!o) return
+      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { kind: kind }).then(function (o2) {
+        if (!o2) return
+        WB.docFocus = { id: 'wbDpB_' + bid, end: true }
+        render()
+      })
+    })
+  }
+
+  document.addEventListener('click', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var btn = e.target.closest('[data-wb-fmt]')
+    if (!btn || archived()) return
+    e.preventDefault()
+    var f = btn.getAttribute('data-wb-fmt')
+    var el = dpFmtTarget()
+    if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
+    if (document.activeElement !== el) { try { el.focus() } catch (_e) { /* nem baj */ } }
+    if (f.indexOf('align-') === 0) dpSetAlign(el, f.slice(6))
+    else if (f === 'list') dpToggleList(el)
+    else {
+      try {
+        document.execCommand('styleWithCSS', false, false)
+        document.execCommand(f === 'clear' ? 'removeFormat' : f, false, null)
+      } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
+      dpKeepDraft(el)
+    }
+    dpFmtSync()
   })
 
   // Beillesztes: mindig sima szoveg (a masolt formazas nem kerul a vazlatba).
