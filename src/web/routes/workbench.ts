@@ -1690,6 +1690,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A munkafüzet lapjai közben megváltoztak, ezért nem mentem el -- különben rossz lapra írnám. Nyisd meg újra a táblázatot.',
     en: 'The workbook sheets changed in the meantime, so it was not saved -- it would write to the wrong sheet. Open the table again.',
   },
+  table_sheet_name_empty: {
+    hu: 'Az egyik munkalapnak nincs neve. Adj neki nevet, és mentsd újra.',
+    en: 'One of the sheets has no name. Give it a name and save again.',
+  },
+  table_sheet_name_long: {
+    hu: 'Egy munkalap neve túl hosszú: az Excel legfeljebb 31 karaktert enged. Rövidítsd le, és mentsd újra.',
+    en: 'A sheet name is too long: Excel allows at most 31 characters. Shorten it and save again.',
+  },
+  table_sheet_name_chars: {
+    hu: 'Egy munkalap nevében olyan jel van, amit az Excel nem enged: \\ / ? * [ ] : Vedd ki a névből, és mentsd újra.',
+    en: 'A sheet name holds a character Excel does not allow: \\ / ? * [ ] : Remove it from the name and save again.',
+  },
+  table_sheet_name_quote: {
+    hu: 'Egy munkalap neve aposztróffal kezdődik vagy végződik, ezt az Excel nem engedi. Írd át a nevet, és mentsd újra.',
+    en: 'A sheet name starts or ends with an apostrophe, which Excel does not allow. Change the name and save again.',
+  },
+  table_sheet_name_twice: {
+    hu: 'Két munkalapnak ugyanaz a neve. Mindegyiknek más név kell (a kis- és nagybetű nem számít különbségnek). Nevezd át az egyiket, és mentsd újra.',
+    en: 'Two sheets have the same name. Each needs its own (upper and lower case do not count as different). Rename one and save again.',
+  },
   table_no_change: {
     hu: 'Nem változott semmi, ezért nem készült új verzió.',
     en: 'Nothing changed, so no new version was made.',
