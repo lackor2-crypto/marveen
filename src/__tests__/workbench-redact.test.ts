@@ -15,7 +15,7 @@ import {
   countFolded, parseBboxLayout, parseTesseractTsv, mergeWords, redactedName, scanForRedaction, makeRedactedCopy,
   resetRedactCache, type RedactWord, type PageWords,
 } from '../workbench-redact.js'
-import { which } from '../life-inbox-systools.js'
+import { which, toolEnv } from '../life-inbox-systools.js'
 import { runTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -206,7 +206,10 @@ describe('K-1.35 kitakaras-proba (szoveges + szkennelt oldal)', () => {
     // 4. A kepreteg: a masolat oldalkepeit ujra felismertetve sincs meg (a keppontok torolve).
     for (const pg of [1, 2]) {
       execFileSync('pdftoppm', ['-r', '200', '-f', String(pg), '-l', String(pg), '-singlefile', '-png', out, join(dir, `v${pg}`)])
-      const ocr = execFileSync('tesseract', [join(dir, `v${pg}.png`), 'stdout', '-l', 'hun+deu+eng'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      // toolEnv: one OpenMP thread, like the product's own calls. Without it this check alone timed out in a loaded
+      // full suite -- measured 2026-10-09: 4 parallel runs of this test, default threads 4/4 timed out, with
+      // OMP_THREAD_LIMIT=1 4/4 green in ~18 s.
+      const ocr = execFileSync('tesseract', [join(dir, `v${pg}.png`), 'stdout', '-l', 'hun+deu+eng'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: toolEnv('tesseract') })
       for (const s of SECRETS) expect(ocr, `${pg}. oldal: ${s}`).not.toContain(s)
     }
   }, 240_000)

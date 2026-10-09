@@ -512,7 +512,12 @@ function refreshLoginProbe(configDir: string): Promise<NamedCred> {
 export function namedLoginProbeCached(configDir: string, now: number = Date.now()): NamedCred {
   const hit = loginProbeCache.get(configDir)
   if (hit) {
-    if (now - hit.at >= LOGIN_PROBE_TTL_MS) void refreshLoginProbe(configDir).catch(() => { /* a regi marad */ })
+    // setImmediate: a frissites gyerekfolyamatanak inditasa (spawn) SZINKRON resz -- 2026-10-09-en terhelt gepen
+    // merve 5-155 ms, mig a tiszta cache-talalat 0,0 ms. A hivo azonnali valaszt kapott igeretkent, ezert a
+    // spawn a valasz UTAN fut, nem benne. Tobb hivas egy korben sem indit tobbet: a loginProbeInFlight osszevonja.
+    if (now - hit.at >= LOGIN_PROBE_TTL_MS) {
+      setImmediate(() => { void refreshLoginProbe(configDir).catch(() => { /* a regi marad */ }) })
+    }
     return hit.st
   }
   const st = namedLoginProbe(configDir)
