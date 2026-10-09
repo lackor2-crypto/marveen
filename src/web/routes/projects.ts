@@ -646,7 +646,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   if (sub === '/folders' && method === 'GET') {
     const t = projectFileTarget(project, '')
     json(res, t.ok
-      ? { state: 'ok', path: project.folder_path, subfolders: projectSubfolders(project), maxBytes: PROJECT_UPLOAD_MAX_BYTES }
+      ? { state: 'ok', path: project.folder_path, subfolders: await projectSubfolders(project), maxBytes: PROJECT_UPLOAD_MAX_BYTES }
       : { state: t.code, path: project.folder_path, subfolders: [], maxBytes: PROJECT_UPLOAD_MAX_BYTES })
     return true
   }
@@ -658,7 +658,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const t = projectFileTarget(project, '')
     if (!t.ok) return fail(res, 400, t.code, lang)
-    json(res, { placement: suggestPlacement(String(body.name ?? ''), typeof body.mime === 'string' ? body.mime : null, projectSubfolders(project)) })
+    json(res, { placement: suggestPlacement(String(body.name ?? ''), typeof body.mime === 'string' ? body.mime : null, await projectSubfolders(project)) })
     return true
   }
 

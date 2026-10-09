@@ -252,11 +252,11 @@ describe('uj fajl a projektmappaba', () => {
     expect(readFileSync(join(depot, 'Projektek', 'Web', 'Teendők.md'), 'utf-8')).toBe('# Lista')
   })
 
-  it('almappak listaja: a rejtettek nelkul, nev szerint', () => {
+  it('almappak listaja: a rejtettek nelkul, nev szerint', async () => {
     const p = withFolder()
     for (const d of ['Tovabbi anyagok', '.git', 'Arajanlatok']) mkdirSync(join(depot, 'Projektek', 'Web', d))
     writeFileSync(join(depot, 'Projektek', 'Web', 'fajl.txt'), 'x')
-    expect(projectSubfolders(p)).toEqual(['Arajanlatok', 'Tovabbi anyagok'])
+    expect(await projectSubfolders(p)).toEqual(['Arajanlatok', 'Tovabbi anyagok'])
   })
 
   it('feltoltes a vegponton: nyers bajtok, ekezetes nev a query-ben; tul nagy fajl 413', async () => {
