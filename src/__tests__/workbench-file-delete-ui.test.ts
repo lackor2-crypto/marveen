@@ -51,7 +51,9 @@ describe('loose file menu: rename + delete', () => {
     ctx(h, 'data-wb-ctx-file', BOX + '/ajanlat.docx')
     const menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
     const href = '/api/life/file?rel=' + encodeURIComponent(BOX + '/ajanlat.docx')
-    expect(menu).toMatch(new RegExp('data-wb-file-open="1" href="' + href.replace(/[?.*+^$()[\]{}|\\]/g, '\\$&') + '" target="_blank"'))
+    // Still a real link to the file; #529 adds which file it is, so an office document can
+    // open in the machine's own program when the browser is on the machine.
+    expect(menu).toMatch(new RegExp('data-wb-file-open="1" data-wb-open-rel="[^"]*ajanlat\\.docx" href="' + href.replace(/[?.*+^$()[\]{}|\\]/g, '\\$&') + '" target="_blank"'))
     expect(menu).toContain('href="' + href + '&download=1" download="ajanlat.docx"')
     expect(menu).toContain('workbench.file.open_menu')
     expect(menu).toContain('workbench.file.download')
