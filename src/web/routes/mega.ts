@@ -5,7 +5,8 @@
 //   POST /api/mega/remove    -- fiok levetele {name}; a fajlokhoz NEM nyul
 //   POST /api/mega/measure   -- tarhely-meres MOST {name}
 //   POST /api/mega/rclone-install -- az rclone letoltese ~/.local/bin ala (friss telepitesen a feluletrol, #360)
-//   GET  /api/mega/list?name=&path= -- egy mappa tartalma a fiokon (#398), csak olvas
+//   GET  /api/mega/list?name=&path= -- egy mappa tartalma a fiokon (#398), csak olvas; `gone`: ami korabban itt volt, most nincs (#511)
+//   POST /api/mega/forget-gone {name, path} -- egy "felhobol torolve" sor levetele a listarol (#511); fajlhoz nem nyul
 //   POST /api/mega/mkdir   {name, parent, folder}  -- uj mappa (#424)
 //   POST /api/mega/rename  {name, path, newName}   -- atnevezes, sose ir felul (#424)
 //   POST /api/mega/move    {name, path, target}    -- athelyezes a fiokon belul (#424)
@@ -19,11 +20,12 @@ import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   rcloneStatus, readMegaAccounts, readMegaQuota, addMegaAccount, removeMegaAccount, measureMegaQuota, listMegaDir,
-  megaMkdir, megaRename, megaMove, megaTrash, megaUpload, megaDownloadCommand, type MegaOpResult,
+  megaMkdir, megaRename, megaMove, megaTrash, megaUpload, megaDownloadCommand, normalizeMegaPath, type MegaOpResult,
 } from '../../mega.js'
 import { parseMultipart } from '../multipart.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import { installRclone } from '../../rclone-install.js'
+import { rememberListing, forgetSeen, forgetAccount } from '../../cloud-seen.js'
 import type { RouteContext } from './types.js'
 
 async function readJson(req: RouteContext['req']): Promise<any> {
@@ -118,7 +120,20 @@ export async function tryHandleMega(ctx: RouteContext): Promise<boolean> {
       json(res, { error: r.error, detail: r.detail ?? null }, status)
       return true
     }
-    json(res, { ok: true, path: r.path, items: r.items })
+    // #511: what was in this folder on an earlier look and is not now stays on
+    // the page, marked. Only a COMPLETE, successful listing gets here.
+    const gone = rememberListing('mega', name, r.path, r.items)
+    json(res, { ok: true, path: r.path, items: r.items, gone })
+    return true
+  }
+
+  // #511: the owner takes a "deleted in the cloud" row off the list. Nothing in
+  // the cloud or on the disk changes -- only what this page remembers.
+  if (path === '/api/mega/forget-gone' && method === 'POST') {
+    const b = await readJson(req)
+    const p = normalizeMegaPath(b?.path)
+    if (!p) { json(res, { error: 'bad_path' }, 400); return true }
+    json(res, { ok: true, forgotten: forgetSeen('mega', String(b?.name || '').trim(), p) })
     return true
   }
 
@@ -130,6 +145,8 @@ export async function tryHandleMega(ctx: RouteContext): Promise<boolean> {
       : op === 'rename' ? await megaRename(name, b?.path, b?.newName)
       : op === 'move' ? await megaMove(name, b?.path, b?.target ?? '')
       : await megaTrash(name, b?.path)
+    // What the owner did HERE is not "deleted in the cloud": forget the old place.
+    if (r.ok && op !== 'mkdir') { const old = normalizeMegaPath(b?.path); if (old) forgetSeen('mega', name, old) }
     sendOp(res, op, name, r)
     return true
   }
@@ -208,6 +225,7 @@ export async function tryHandleMega(ctx: RouteContext): Promise<boolean> {
     const b = await readJson(req)
     const name = String(b?.name || '').trim()
     if (!name || !removeMegaAccount(name)) { json(res, { error: 'not_found' }, 404); return true }
+    forgetAccount('mega', name)
     logger.info({ account: name }, '[mega] fiok levetelve (a fajlok maradtak)')
     json(res, { ok: true, ...(await state()) })
     return true

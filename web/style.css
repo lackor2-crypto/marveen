@@ -5956,6 +5956,8 @@ button.stat-card--filter.is-active .stat-label { color: var(--text); }
 .drive-col-list { padding: 4px 6px 8px; }
 /* Szuk hasabban a datum/meret elvenne a fajlnev helyet. */
 .drive-col-list .drive-row { grid-template-columns: 1fr auto; gap: 6px; padding: 6px 8px; }
+.drive-col-list .drive-row-deleted { grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 6px 8px; }
+.drive-col-list .drive-row-deleted .drive-row-name { flex-wrap: wrap; row-gap: 2px; }
 .drive-col-list .drive-row-meta { display: none; }
 .drive-col-empty,
 .drive-col-error {
