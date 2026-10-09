@@ -151,6 +151,12 @@ async function tool(): Promise<{ ok: true; path: string } | VideoFail> {
   return { ok: false, code: 'video_no_ffmpeg' }
 }
 
+/** #496: the item's own folder when it has a usable one; null for an older, folderless item. */
+function ownFolder(project: ProjectRow, item: WorkItemRow): string | null {
+  const own = String(item.folder ?? '').trim()
+  return own && projectFileTarget(project, own).ok ? own : null
+}
+
 /** Szabad cel-fajl a projekt mappajaban, a megadott (projekt-relativ) almappaban. */
 function target(project: ProjectRow, folder: string, wanted: string): { ok: true; abs: string; rel: string; name: string } | VideoFail {
   const t = projectFileTarget(project, folder)
@@ -205,9 +211,8 @@ export async function trimVideo(
     const stem = baseNameForNextVersion(src.name).replace(/\.[^.]+$/, '') || 'video'
     // #496 (TG 2696): the cut is a new version of the item, so with an own folder it goes into its Verziok folder,
     // not beside the first file or into the project root. A folderless item keeps it beside its source, as before.
-    const own = String(item.folder ?? '').trim()
-    const folder = own && projectFileTarget(project, own).ok ? (versionsFolderFor(project, own, true) ?? own) : subFolderOf(project, src.rel)
-    const out = target(project, folder, `${stem}.mp4`)
+    const own = ownFolder(project, item)
+    const out = target(project, own ? (versionsFolderFor(project, own, true) ?? own) : subFolderOf(project, src.rel), `${stem}.mp4`)
     if (!out.ok) return out
     const args = [
       '-hide_banner', '-nostdin', '-loglevel', 'error', '-n',
@@ -250,7 +255,8 @@ export async function saveVideoFrame(
   const ff = await tool()
   if (!ff.ok) return ff
   const stem = baseNameForNextVersion(src.name).replace(/\.[^.]+$/, '') || 'video'
-  const out = target(project, subFolderOf(project, src.rel), `${stem} ${timeLabel(at)}.png`)
+  // #496: into the item's own folder -- not beside a trimmed cut, which sits among the old versions (Verziok).
+  const out = target(project, ownFolder(project, item) ?? subFolderOf(project, src.rel), `${stem} ${timeLabel(at)}.png`)
   if (!out.ok) return out
   const args = [
     '-hide_banner', '-nostdin', '-loglevel', 'error', '-n',

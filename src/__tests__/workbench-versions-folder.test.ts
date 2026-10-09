@@ -10,7 +10,7 @@ import { ensureWorkItemFolder, workItemFolder } from '../workbench-assets.js'
 import { applyDeckOps, deckStore, emptyDeck } from '../workbench-deck.js'
 import { emptyCanvas, applyCanvasOps } from '../workbench-graphic.js'
 import { commitCanvasChange, saveCanvasVersion } from '../workbench-canvas-store.js'
-import { trimVideo, _setVideoDeps, type Runner } from '../workbench-video.js'
+import { trimVideo, saveVideoFrame, _setVideoDeps, type Runner } from '../workbench-video.js'
 import { renderTimeline, _setRenderDeps } from '../workbench-video-render.js'
 import { applyTimelineOps, emptyTimeline, timelineStore } from '../workbench-video-timeline.js'
 import { exportDeck } from '../workbench-deck-export.js'
@@ -128,6 +128,11 @@ describe('files made from a work item stay with it, not in the project root (#49
     expect(r).toMatchObject({ ok: true, file: { rel: `Projektek/Robotok/${folder}/Verziók/klip.mp4` } })
     expect(files(folder as string)).toEqual(['klip.webm'])
     expect(files()).toEqual([])
+    // A frame of the cut is not a version: it goes into the item folder, not among the old versions.
+    if (!r.ok) throw new Error('trim')
+    const f = await saveVideoFrame(r.item, proj(), { at: 1, baseVersion: r.version.id, lang: 'hu' })
+    expect(f).toMatchObject({ ok: true, file: { rel: `Projektek/Robotok/${folder}/klip 0-01.png` } })
+    expect(files(`${folder}/Verziók`)).toEqual(['klip.mp4'])
   })
 
   it('video render: the mp4 goes into the item folder -- not beside its first clip in the root, not into Verziók', async () => {
