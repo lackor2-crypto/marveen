@@ -230,6 +230,31 @@ describe('a depo alapmappai', () => {
     expect(pruneEmptyStorageDirs()).toEqual([])
   })
 
+  it('the EMPTY photo-index copy does not keep its folder alive; an index with a photo in it stays (#513)', () => {
+    ensureDepotSkeleton()
+    const root = depotRoot()!
+    const dir = join(root, DEPOT_SYSTEM)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'fotok-index.json'), '[]')
+    expect(pruneEmptyStorageDirs()).toContain(DEPOT_PHOTOS)
+    expect(existsSync(dir)).toBe(false)
+
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'fotok-index.json'), '[{"id":"a"}]')
+    pruneEmptyStorageDirs()
+    expect(read(join(dir, 'fotok-index.json'), 'utf8')).toBe('[{"id":"a"}]')
+
+    // not JSON at all: never guessed to be "empty"
+    writeFileSync(join(dir, 'fotok-index.json'), '')
+    pruneEmptyStorageDirs()
+    expect(existsSync(join(dir, 'fotok-index.json'))).toBe(true)
+  })
+
+  it('the sweep also runs at start-up, not only when the Depot page is opened (#513)', () => {
+    const web = read(join(ROOT, 'src', 'web.ts'), 'utf8')
+    expect(web).toMatch(/setTimeout\(\(\) => \{\s*try \{\s*const removed = pruneEmptyStorageDirs\(\)/)
+  })
+
   it('masodszor futtatva nem csinal semmit (nem hiba)', () => {
     ensureDepotSkeleton()
     const r = ensureDepotSkeleton()

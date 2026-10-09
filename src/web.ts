@@ -111,6 +111,7 @@ import { tryHandleGithubBrowser } from './web/routes/github-browser.js'
 // 404-re futottak. Egy le nem forditott fajl kiabal; egy be nem kotott fajl
 // csendben nem letezik -- ezert all ra kulon teszt (web-boot-order).
 import { tryHandleDepot } from './web/routes/depot.js'
+import { pruneEmptyStorageDirs } from './depot.js'
 import { tryHandleLife } from './web/routes/life.js'
 import { tryHandleStorages } from './web/routes/storages.js'
 import { tryHandleMega } from './web/routes/mega.js'
@@ -710,6 +711,18 @@ export function startWebServer(port = 3420): http.Server {
 
   // #396: the daily full backup (Settings -> Backup sets the time).
   const stopBackupScheduler = startDashboardBackup()
+
+  // #513: only the backups stay under Rendszer. The empty storage folders used
+  // to go away only when someone opened the Depot page (measured live,
+  // 2026-10-09: they were still there after a restart) -- so the sweep also
+  // runs once shortly after start. rmdir only: it cannot remove content.
+  const pruneTimer = setTimeout(() => {
+    try {
+      const removed = pruneEmptyStorageDirs()
+      if (removed.length) logger.info({ removed: removed.length }, '[depot] empty storage folders removed at start')
+    } catch (err) { logger.warn({ err }, '[depot] the start-up sweep of empty storage folders failed') }
+  }, 20_000)
+  pruneTimer.unref()
 
   // "De menet kozben is ha egy olyan altalanos skill jon letre azt is mind be
   // kell egetni!" (Boss, 2026-08-30) -- a letrehozas pillanataban valo beegetes
