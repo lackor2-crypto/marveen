@@ -313,13 +313,13 @@ describe('a ket veszelyes kapcsolo LATSZIK es ALLITHATO', () => {
     expect(app).toContain('del.disabled = s.upload === false')
   })
 
-  it('a kepernyo KIMONDJA, mi tortenik a Doc/Sheet/Slides fajlokkal', () => {
-    // A felhasznalo a gepen egy .docx-et lat egy Doc helyen. Ha nem mondjuk
-    // meg, mi lesz vele szerkesztes utan, csak talalgatni tud.
-    expect(hu).toContain('A Google Docs, Sheets és Slides is oda-vissza megy')
-    expect(hu).toContain('ugyanabba a dokumentumba')
-    expect(hu).toContain('Rajzot és az Apps Scriptet a Google nem veszi vissza')
-    expect(en).toContain('Google Docs, Sheets and Slides travel both ways too')
+  it('a kepernyo mar nem iger oda-vissza masolatot (#513: a Drive csak mentes)', () => {
+    // The downward copy (and with it the Doc round trip) is retired: one copy
+    // lives in the Life tree, the Drive is the backup.
+    expect(hu).not.toContain('A Google Docs, Sheets és Slides is oda-vissza megy')
+    expect(en).not.toContain('Google Docs, Sheets and Slides travel both ways too')
+    expect(hu).toContain('egy példányban, az Életfában')
+    expect(en).toContain('once, in the Life tree')
   })
 
   it('mindket nyelven van szovege', () => {

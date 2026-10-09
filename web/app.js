@@ -37103,176 +37103,6 @@ function _fpConfirm() {
   if (_fpOnPick) _fpOnPick({ parent: _fpHere, name, display: name ? base + '\\' + name : base })
 }
 
-// ===========================================================================
-// DRIVE-MAPPA VALASZTO
-//
-// Boss: "nem lehet azt is megoldani hogy ki lehessen valasztani a drive
-// oldalrol a mappa azonositot meg a mappa nevet? miert kezzel kell beirnia a
-// komuvesnek mindig mindent?"
-//
-// Igaza van: a mappa-azonosito (`1a2B3c...`) gepi adat, nem embernek valo. A
-// Drive fajat ugyanaz a /api/drive/list szolgalja ki, mint a Drive oldalt,
-// tehat csak vegig kell rajta setalni -- az azonositot es a nevet a valasztas
-// adja, nem a billentyuzet.
-//
-// SZANDEKOSAN `var`: ezt a fajlt mar tobbszor megvagta, hogy egy korai
-// hivas olyan `let`-hez nyult, ami meg nem futott le (lasd web-boot-order.test).
-// ===========================================================================
-var _dpStack = []        // a gyokertol lefele: [{ id, name }]
-var _dpAccount = ''
-var _dpOnPick = null
-// Hanyadik lekerdezesnel tartunk. Ha valaki gyorsan kattint ket mappat, a KESON
-// beeso valasz nem irhatja felul a frissebbet -- kulonben mas mappa tartalmat
-// latna, mint amiben all.
-var _dpSeq = 0
-
-function openDrivePicker(account, onPick) {
-  const modal = document.getElementById('drivePickModal')
-  if (!modal) return
-  _dpOnPick = onPick
-  _dpAccount = account || ''
-  _dpStack = []
-  if (modal.parentElement !== document.body) document.body.appendChild(modal)
-  modal.hidden = false
-  modal.classList.add('active')
-  const manual = document.getElementById('drivePickManualId')
-  if (manual) manual.value = ''
-  _dpBind()
-  _dpEnter('root', t('dpick.my_drive'))
-}
-
-function closeDrivePicker() {
-  const modal = document.getElementById('drivePickModal')
-  if (!modal) return
-  modal.classList.remove('active')
-  modal.hidden = true
-}
-
-function _dpBind() {
-  const once = (id, fn) => {
-    const el = document.getElementById(id)
-    if (el && !el._dpBound) { el._dpBound = 1; el.addEventListener('click', fn) }
-  }
-  once('drivePickClose', closeDrivePicker)
-  once('drivePickCancel', closeDrivePicker)
-  once('drivePickUp', () => { if (_dpStack.length > 1) { _dpStack.pop(); _dpLoad() } })
-  once('drivePickOk', _dpConfirm)
-  once('drivePickManualBtn', _dpOpenManual)
-}
-
-/**
- * Belepes egy mappaba: a verem adja a visszautat ES a kiirt utvonalat.
- * `manual`: azonositoval nyitottuk meg, tehat a mappa VALODI nevet nem tudjuk
- * -- ezt a valasztas is tovabbadja, hogy a nev-mezot fel lehessen kinalni
- * atirasra. (Jelzokent adjuk at, NEM a kiirt szoveg osszehasonlitasaval: az
- * angol feluleten mas szoveg allna ott, es csendben elromlana.)
- */
-function _dpEnter(id, name, manual) {
-  _dpStack.push({ id, name, manual: !!manual })
-  _dpLoad()
-}
-
-/** A veremben legfelul allo mappa tartalma. */
-async function _dpLoad() {
-  const list = document.getElementById('drivePickList')
-  const here = document.getElementById('drivePickHere')
-  const msg = document.getElementById('drivePickMsg')
-  const up = document.getElementById('drivePickUp')
-  const ok = document.getElementById('drivePickOk')
-  const cur = _dpStack[_dpStack.length - 1]
-  if (!cur) return
-  if (here) here.textContent = _dpStack.map((s) => s.name).join(' / ')
-  if (up) up.disabled = _dpStack.length <= 1
-  // A gyokeret magat nem lehet valasztani: az EGESZ Drive-ot huznank le vele.
-  if (ok) ok.disabled = _dpStack.length <= 1
-  if (list) list.innerHTML = '<p class="subtitle" style="padding:10px">' + escapeHtml(t('dpick.loading')) + '</p>'
-  if (msg) msg.textContent = ''
-  const seq = ++_dpSeq
-  let d = null
-  try {
-    const r = await fetch('/api/drive/list?folderId=' + encodeURIComponent(cur.id)
-      + '&account=' + encodeURIComponent(_dpAccount))
-    d = await r.json()
-    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status))
-  } catch (e) {
-    if (seq !== _dpSeq) return
-    // A verembol ki kell venni a mappat, kulonben a "Vissza" egy olyan helyre
-    // mutatna, ahova be sem jutottunk.
-    if (_dpStack.length > 1) _dpStack.pop()
-    if (list) list.innerHTML = ''
-    if (msg) msg.textContent = t('dpick.open_failed', { error: (e && e.message) ? e.message : String(e) })
-    if (here) here.textContent = _dpStack.map((s) => s.name).join(' / ')
-    if (up) up.disabled = _dpStack.length <= 1
-    if (ok) ok.disabled = _dpStack.length <= 1
-    return
-  }
-  // Kozben mar egy ujabb mappaba leptunk: ez a valasz elavult.
-  if (seq !== _dpSeq) return
-  const files = d.files || []
-  const folders = files.filter((f) => f.isFolder)
-  const rows = folders.map((f) => '<button class="fp-row" data-dp-go="' + escapeHtml(f.id) + '"'
-    + ' data-dp-name="' + escapeHtml(f.name) + '">'
-    + '<span class="fp-ico">📁</span><span class="fp-name">' + escapeHtml(f.name) + '</span></button>')
-  if (list) {
-    list.innerHTML = rows.join('') || '<p class="subtitle" style="padding:10px">' + escapeHtml(t('dpick.no_subfolders')) + '</p>'
-    list.querySelectorAll('[data-dp-go]').forEach((b) => {
-      b.addEventListener('click', () => _dpEnter(b.getAttribute('data-dp-go'), b.getAttribute('data-dp-name')))
-    })
-  }
-  // Hany fajl van ITT: enelkul vakon valasztana egy ures mappat. A kiszolgalo
-  // 200 elemet ad vissza egy keresre -- ha ennyit kaptunk, elkepzelheto, hogy
-  // van meg tovabb, es ezt ki KELL mondani: kulonben ugy tunne, hogy a hianyzo
-  // mappa nem letezik.
-  const reszek = []
-  if (_dpStack.length > 1) reszek.push(t('dpick.file_count', { count: files.length - folders.length }))
-  // A gyokerben a "Ez a mappa legyen" gomb tiltott. Ki KELL mondani, hogy miert
-  // es mi a teendo -- kulonben csak egy szurke gombot lat, es nem tudja, mit
-  // rontott el.
-  else reszek.push(t('dpick.root_hint'))
-  if (files.length >= 200) reszek.push(t('dpick.truncated'))
-  if (msg) msg.textContent = reszek.join(' ')
-}
-
-/** "Ismerem az azonositot": beleptet, hogy LASSA is, mit valasztott. */
-function _dpOpenManual() {
-  const el = document.getElementById('drivePickManualId')
-  const id = ((el && el.value) || '').trim()
-  const msg = document.getElementById('drivePickMsg')
-  if (!id) return
-  // Ugyanaz a szabaly, mint a kiszolgalon (isSafeFolderId): igy a rossz beirast
-  // rogton itt megmondjuk, nem egy 400-as valasz utan.
-  if (!/^[A-Za-z0-9_-]{1,256}$/.test(id)) {
-    if (msg) msg.textContent = t('dpick.bad_id')
-    return
-  }
-  _dpEnter(id, t('dpick.manual_name'), true)
-}
-
-function _dpConfirm() {
-  const cur = _dpStack[_dpStack.length - 1]
-  if (!cur || _dpStack.length <= 1) return
-  const path = _dpStack.map((s) => s.name).join(' / ')
-  closeDrivePicker()
-  if (_dpOnPick) _dpOnPick({ id: cur.id, name: cur.name, path, manual: !!cur.manual })
-}
-
-/**
- * A kiszolgalo `safeSegment()` fuggvenyenek masa (drive-sync.ts).
- * Azert kell ide is, hogy a felajanlott nev PONTOSAN az legyen, ami a lemezre
- * kerul -- kulonben a mezoben mast latna, mint a mappa nevet a gepen.
- * Az egyezest teszt orzi (drive-folder-picker.test.ts).
- */
-function _dpSafeName(name) {
-  const cleaned = String(name || '')
-    .replace(/[\\/]/g, '_')
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .replace(/[:*?"<>|]/g, '_')
-    .replace(/^\.+$/, '_')
-    .replace(/[. ]+$/, '')
-    .trim()
-  return cleaned.slice(0, 120) || 'nevtelen'
-}
-
 /** A Raktár oldal "Hely kiválasztása…" gombja. */
 function _depoPickRoot() {
   openFolderPicker(async (choice) => {
@@ -37311,10 +37141,8 @@ async function loadDepoPage() {
   bind('depoRefreshBtn', () => _depoRefresh())
   bind('depoPickBtn', () => _depoPickRoot())
   bind('depoPhotosGoBtn', () => switchPage('photos'))
-  bind('depoSyncWholeBtn', () => _depoAddWholeDrive())
-  bind('depoSyncPickBtn', () => _depoPickDriveFolder())
-  bind('depoSyncAddBtn', () => _depoAddSync())
   bind('depoSyncRunBtn', () => _depoRunSync())
+  bind('depoRestoreFindBtn', () => _depoRestoreFind())
   bind('depoBackupPreviewBtn', () => _depoBackupMeasure())
   bind('depoBackupAddBtn', () => _depoBackupAdd())
   // A valasztas MEGVALTOZASA ervenytelenne teszi a merest: a gomb ilyenkor
@@ -37341,13 +37169,12 @@ async function loadDepoPage() {
     gitInp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); _storagesAddGit() } })
   }
 
-  // Fiokvaltaskor a korabbi valasztas ELAVUL: egy mappa-azonosito csak abban a
-  // fiokban ervenyes, amelyikben kivalasztottuk. Ha bennemaradna, a masik fiok
-  // neveben probalnank hozzaadni egy olyan mappat, amit az nem is lat.
-  const acc = document.getElementById('depoSyncAccount')
-  if (acc && !acc._depoBound) {
-    acc._depoBound = 1
-    acc.addEventListener('change', () => _depoClearDrivePick())
+  // Another account's backups are another list: the old one must not stay on
+  // screen under the new name, or a restore would go to the wrong account.
+  const racc = document.getElementById('depoRestoreAccount')
+  if (racc && !racc._depoBound) {
+    racc._depoBound = 1
+    racc.addEventListener('change', () => _depoRestoreClear())
   }
   // A ket veszelyes kapcsolo. `change`, nem `click`: billentyuzetrol is jarhato.
   ;['depoSyncUpload', 'depoSyncDeleteUp'].forEach((id) => {
@@ -37367,7 +37194,6 @@ async function loadDepoPage() {
     grd._depoBound = 1
     grd.addEventListener('change', () => _depoGuardToggle(grd.checked))
   }
-  _depoClearDrivePick()
   await _depoRefresh()
 }
 
@@ -37725,65 +37551,6 @@ async function _depoGuardClear() {
 }
 
 /**
- * A FO ut: a kivalasztott fiok TELJES Drive-ja jojjon le.
- *
- * Boss 2026-08-15: "mit akarok szinkronizalni. hat a lackor2 drivot
- * mindenestul! akkor itt nincs tovabb kerdes semmi." -- ezert nincs
- * mappavalasztas es nincs nevado mezo sem: a gyokeret (`root`) adjuk at, ures
- * nevvel. Ures nev = a fiok sajat mappaja MAGA a cel, vagyis a helyi mappa neve
- * a fiok neve (lackor2 -> lackor2), a fa pedig ugyanaz, mint a neten.
- */
-async function _depoAddWholeDrive() {
-  const account = (document.getElementById('depoSyncAccount') || {}).value || ''
-  if (!account) { showToast(t('dsync.no_account')); return }
-  if (!confirm(t('dsync.whole_confirm', { account: account }))) return
-  const btn = document.getElementById('depoSyncWholeBtn')
-  if (btn) btn.disabled = true
-  const picked = document.getElementById('depoSyncPicked')
-  try {
-    await _depoPost('/api/drive/sync/add', { account: account, folderId: 'root', name: '' })
-    if (picked) picked.textContent = t('dsync.whole_added', { account: account })
-    await _depoRefresh()
-  } catch (e) {
-    showToast((e && e.message) ? e.message : t('dsync.add_failed'))
-  } finally {
-    if (btn) btn.disabled = false
-  }
-}
-
-/** A "Mégis inkább csak EGY mappát" ut: Drive-mappa kivalasztasa. */
-function _depoPickDriveFolder() {
-  const account = (document.getElementById('depoSyncAccount') || {}).value || ''
-  if (!account) { showToast(t('dsync.no_account')); return }
-  openDrivePicker(account, (f) => {
-    const idEl = document.getElementById('depoSyncFolderId')
-    const nameEl = document.getElementById('depoSyncName')
-    const picked = document.getElementById('depoSyncPicked')
-    const add = document.getElementById('depoSyncAddBtn')
-    if (idEl) idEl.value = f.id
-    // A helyi nev MINDIG a Drive-mappa neve -- nem lehet atirni. Boss
-    // 2026-08-15: "legyen csak ugyanaz mint fent a neten ... igy nincs
-    // keveredes." Az azonositoval megnyitott mappa nevet nem ismerjuk, ezert
-    // oda az azonosito eleje kerul: ket ilyen mappa igy sem eshet egymasra.
-    if (nameEl) nameEl.value = f.manual ? _dpSafeName(f.name + '-' + String(f.id).slice(0, 8)) : _dpSafeName(f.name)
-    if (picked) picked.textContent = t('dsync.picked', { account: account, path: f.path })
-    if (add) add.disabled = false
-  })
-}
-
-/** Nincs (mar) kivalasztott mappa: a "Hozzáadás" ilyenkor nem indulhat el. */
-function _depoClearDrivePick() {
-  const idEl = document.getElementById('depoSyncFolderId')
-  const add = document.getElementById('depoSyncAddBtn')
-  const picked = document.getElementById('depoSyncPicked')
-  const nameEl = document.getElementById('depoSyncName')
-  if (idEl) idEl.value = ''
-  if (nameEl) nameEl.value = ''
-  if (add) add.disabled = true
-  if (picked) picked.textContent = ''
-}
-
-/**
  * A leszakadt depo helyreallitasa a Depo lapon.
  *
  * A MERT ESET (2026-08-26): a depo elerhetetlen volt, a doboz kimondta, hogy
@@ -38050,29 +37817,20 @@ async function _depoRefresh() {
   }
   const list = document.getElementById('depoSyncList')
   if (list && s) {
-    // A MENTES-parosok nem ide valok: ott a gep a forras es a Drive a masolat,
-    // vagyis pont forditva, mint itt. Egy tablazatban a ket irany
-    // osszekeverne, melyik torles hova hat -- sajat kartyajuk van alatta.
-    const masolatok = (s.pairs || []).filter((p) => !p.backup)
-    if (!masolatok.length) {
-      list.innerHTML = '<p class="subtitle">Még egy Drive-mappa sincs kijelölve.</p>'
+    // RETIRED (#513): a downward Drive copy from before. It no longer runs; it
+    // is listed only so it can be unlinked. No copies: the list stays empty.
+    const regiek = (s.pairs || []).filter((p) => !p.backup)
+    if (!regiek.length) {
+      list.innerHTML = ''
     } else {
-      list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
-        + '<th>Fiók</th><th>Mappa</th><th>Hol a gépeden</th><th>Fájl</th><th>Utoljára</th><th></th></tr></thead><tbody>'
+      list.innerHTML = '<p class="subtitle" style="margin:8px 0 4px">' + escapeHtml(t('dsync.retired_note')) + '</p>'
+        + '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+        + '<th>' + escapeHtml(t('dsync.col_account')) + '</th><th>' + escapeHtml(t('dsync.col_folder')) + '</th><th>' + escapeHtml(t('dsync.col_local')) + '</th><th></th></tr></thead><tbody>'
         // Ures nev = a TELJES Drive. Ures cella helyett ki KELL mondani, mi az.
-        + masolatok.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
+        + regiek.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
           + '<td>' + escapeHtml(p.name || t('dsync.whole_row')) + '</td>'
-          // A HELYI utvonal. A kiszolgalo amugy is kiszamolja, es eppen ez az,
-          // amit latni kell: "a lackor2 legyen lackor2. igy nincs keveredes."
-          // Ha nincs depo, azt is kimondjuk -- nem hagyjuk uresen a cellat.
           + '<td>' + (p.localDir ? '<code>' + escapeHtml(p.localDir) + '</code>' : '<span class="subtitle">' + t('dsync.no_depot_cell') + '</span>') + '</td>'
-          + '<td>' + p.files + '</td>'
-          // A datum melle az EREDMENY is. Enelkul egy csonka ("részleges")
-          // vagy elhasalt futas ugyanugy nezne ki, mint egy sikeres -- pedig
-          // ez a mentesuk, es epp azt kell latni, megbizhatnak-e benne.
-          + '<td>' + (p.lastRunAt ? escapeHtml(String(p.lastRunAt).slice(0, 16).replace('T', ' ')) : 'még soha')
-          + (p.lastResult ? '<br><span class="subtitle">' + escapeHtml(p.lastResult) + '</span>' : '') + '</td>'
-          + '<td><button class="btn-secondary btn-compact" data-depo-unsync="' + escapeHtml(p.id) + '">Leválasztás</button></td></tr>').join('')
+          + '<td><button class="btn-secondary btn-compact" data-depo-unsync="' + escapeHtml(p.id) + '">' + escapeHtml(t('dsync.unlink')) + '</button></td></tr>').join('')
         + '</tbody></table></div>'
       list.querySelectorAll('[data-depo-unsync]').forEach((b) => {
         b.addEventListener('click', () => _depoRemoveSync(b.getAttribute('data-depo-unsync')))
@@ -38391,16 +38149,16 @@ var _depoAccountsLoading = false
  * miközben nem is volt mit valasztani. A ket dolognak semmi koze egymashoz.
  */
 async function _depoLoadSyncAccounts() {
-  const sel = document.getElementById('depoSyncAccount')
-  // A mentes-kartya legorduloje UGYANEBBOL a listabol el: ket kulon lekerdezes
-  // ket kulon pillanatot latna, es a ket kartya mas fiokokat kinalna.
-  const sel2 = document.getElementById('depoBackupAccount')
+  // The backup card and the restore box offer the SAME accounts: two separate
+  // fetches would see two moments, and the two lists could differ.
+  const sel = document.getElementById('depoBackupAccount')
+  const sel2 = document.getElementById('depoRestoreAccount')
   if (!sel || (sel.options.length && (!sel2 || sel2.options.length)) || _depoAccountsLoading) return
   // A _depoRefresh tobb helyrol is jon (Frissítés gomb, munka-figyelo, mentes
   // utan). Ket EGYSZERRE futo toltes ujrarajzolna a legordulot, ami VISSZAALLITJA
   // a kivalasztott fiokot az elsore -- eppen amikor a user mar mast valasztott.
   _depoAccountsLoading = true
-  const picked = document.getElementById('depoSyncPicked')
+  const note = document.getElementById('depoAccountsNote')
   try {
     const acc = await _depoGet('/api/drive/accounts')
     const lista = acc.accounts || []
@@ -38409,11 +38167,11 @@ async function _depoLoadSyncAccounts() {
     if (sel2) sel2.innerHTML = opciok
     // Ha egyetlen fiok sincs bekotve, azt KI KELL MONDANI: ures legordulovel a
     // user azt hinne, elromlott valami.
-    if (!lista.length && picked) picked.textContent = t('dsync.no_accounts')
+    if (note) note.textContent = lista.length ? '' : t('dsync.no_accounts')
   } catch (e) {
     // Nema nyeles helyett latszik a hiba oka -- kulonben csak egy ures
     // legordulot lat, es nincs mibol kitalalnia, mi a teendo.
-    if (picked) picked.textContent = t('dsync.accounts_failed', { error: (e && e.message) ? e.message : String(e) })
+    if (note) note.textContent = t('dsync.accounts_failed', { error: (e && e.message) ? e.message : String(e) })
   } finally {
     // Hiba utan is fel kell oldani, kulonben a Frissítés gomb sem probalna ujra.
     _depoAccountsLoading = false
@@ -38429,6 +38187,11 @@ function _depoShowSyncJob(job) {
   // azt kell tudnia ellenorizni.
   const fel = job.uploaded || 0
   const kuka = job.trashed || 0
+  if (job.kind === 'restore') {
+    _depoRestoreShowJob(job)
+    el.textContent = ''
+    return
+  }
   if (job.running) {
     el.textContent = 'Szinkronizálás: ' + job.downloaded + ' lejött, ' + fel + ' felment · ' + _depoBytes(job.bytes)
       + (job.current ? ' · ' + job.current : '')
@@ -38464,23 +38227,6 @@ function _depoStartPoll() {
     _depoShowSyncJob(b)
     if (!(b && b.running)) { _depoStopPoll(); _depoRefresh() }
   }, 1500)
-}
-
-async function _depoAddSync() {
-  const account = (document.getElementById('depoSyncAccount') || {}).value || ''
-  const folderId = ((document.getElementById('depoSyncFolderId') || {}).value || '').trim()
-  // A nevet a valaszto tolti ki (a Drive-mappa nevevel), rejtett mezobe: senki
-  // nem gepeli es nem is irja at.
-  const name = ((document.getElementById('depoSyncName') || {}).value || '').trim()
-  // Az azonositot mar nem gepeli senki: ha nincs, akkor a valasztas hianyzik.
-  if (!folderId) { showToast(t('dsync.pick_first')); return }
-  try {
-    await _depoPost('/api/drive/sync/add', { account, folderId, name })
-    _depoClearDrivePick()
-    await _depoRefresh()
-  } catch (e) {
-    showToast((e && e.message) ? e.message : t('dsync.add_failed'))
-  }
 }
 
 /* ============ A GEPEM MENTESE A DRIVE-RA (#47 kartya) =====================
@@ -38663,13 +38409,115 @@ async function _depoRemoveBackup(id) {
 }
 
 async function _depoRemoveSync(id) {
-  if (!confirm('Leválasztod ezt a mappát? A már letöltött fájlok a gépeden maradnak.')) return
+  if (!confirm(t('dsync.unlink_confirm'))) return
   try {
     await _depoPost('/api/drive/sync/remove', { id })
     await _depoRefresh()
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült leválasztani')
+    showToast((e && e.message) ? e.message : t('dsync.unlink_failed'))
   }
+}
+
+/* ============ HELYREALLITAS A FELHOBOL (#513) ==============================
+ *
+ * The owner, 2026-10-08: "ha a marveent ujratelepitem valahol, akkor a felhobol
+ * le tudjon hozni mindent. helyreallitani az eletfat." On a fresh install the
+ * only thing that knows what was backed up is the Drive: this box asks it
+ * (`restore-candidates`) and brings one backup back, to where it went up from.
+ * A preview first (it counts, writes nothing); then the real run, which only
+ * downloads what is missing here.
+ */
+var _depoRestoreFolders = []
+
+function _depoRestoreClear() {
+  _depoRestoreFolders = []
+  const list = document.getElementById('depoRestoreList')
+  const note = document.getElementById('depoRestoreNote')
+  if (list) list.innerHTML = ''
+  if (note) note.textContent = ''
+}
+
+async function _depoRestoreFind() {
+  const account = (document.getElementById('depoRestoreAccount') || {}).value || ''
+  const note = document.getElementById('depoRestoreNote')
+  const list = document.getElementById('depoRestoreList')
+  const btn = document.getElementById('depoRestoreFindBtn')
+  if (!account) { showToast(t('drestore.need_account')); return }
+  _depoRestoreClear()
+  if (note) note.textContent = t('drestore.searching')
+  if (btn) btn.disabled = true
+  let d = null
+  try {
+    d = await _depoGet('/api/drive/sync/restore-candidates?account=' + encodeURIComponent(account))
+  } catch (e) {
+    if (note) note.textContent = t('drestore.find_failed', { error: (e && e.message) ? e.message : String(e) })
+    return
+  } finally {
+    if (btn) btn.disabled = false
+  }
+  _depoRestoreFolders = d.folders || []
+  // ZERO MEANS TWO THINGS: no backup folder on this Drive at all, or the
+  // folder is there and holds nothing yet. Each gets its own sentence.
+  if (!_depoRestoreFolders.length) {
+    if (note) note.textContent = d.backupRootFound ? t('drestore.root_empty', { account: account, folder: d.backupRoot || '' }) : t('drestore.none', { account: account, folder: d.backupRoot || '' })
+    return
+  }
+  if (note) note.textContent = (d.depot && !d.depot.writable) ? (d.depot.message || t('drestore.depot_down')) : t('drestore.found', { n: String(_depoRestoreFolders.length) })
+  if (!list) return
+  list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('drestore.col_backup')) + '</th>'
+    + '<th>' + escapeHtml(t('drestore.col_target')) + '</th><th></th></tr></thead><tbody>'
+    + _depoRestoreFolders.map((f, i) => '<tr>'
+      + '<td>' + escapeHtml(f.name) + (f.linked ? '<br><span class="subtitle">' + escapeHtml(t('drestore.linked')) + '</span>' : '') + '</td>'
+      // The target is editable: an older backup only has its folder name to go
+      // by, and " - " may also have been part of a real folder name.
+      + '<td><input class="input" style="min-width:220px" id="depoRestorePath-' + i + '" value="' + escapeHtml(f.localPath) + '"'
+      + ' placeholder="' + escapeHtml(t('drestore.root_ph')) + '" aria-label="' + escapeHtml(t('drestore.col_target')) + '">'
+      + (f.fromName ? '<br><span class="subtitle">' + escapeHtml(t('drestore.from_name')) + '</span>' : '') + '</td>'
+      + '<td style="white-space:nowrap"><button class="btn-secondary btn-compact" data-restore-preview="' + i + '">' + escapeHtml(t('drestore.preview_btn')) + '</button> '
+      + '<button class="btn-primary btn-compact" data-restore-run="' + i + '">' + escapeHtml(t('drestore.run_btn')) + '</button></td></tr>').join('')
+    + '</tbody></table></div>'
+  list.querySelectorAll('[data-restore-preview]').forEach((b) => {
+    b.addEventListener('click', () => _depoRestoreStart(Number(b.getAttribute('data-restore-preview')), true))
+  })
+  list.querySelectorAll('[data-restore-run]').forEach((b) => {
+    b.addEventListener('click', () => _depoRestoreStart(Number(b.getAttribute('data-restore-run')), false))
+  })
+}
+
+async function _depoRestoreStart(i, dryRun) {
+  const f = _depoRestoreFolders[i]
+  if (!f) return
+  const account = (document.getElementById('depoRestoreAccount') || {}).value || ''
+  const inp = document.getElementById('depoRestorePath-' + i)
+  const localPath = String((inp && inp.value) || '').trim()
+  const hova = localPath || t('drestore.root_ph')
+  if (!dryRun && !confirm(t('drestore.run_confirm', { name: f.name, path: hova }))) return
+  try {
+    const r = await _depoPost('/api/drive/sync/restore', { account: account, folderId: f.id, name: f.name, localPath: localPath, dryRun: !!dryRun })
+    _depoRestoreShowJob(r && r.job)
+    _depoStartPoll()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('drestore.failed'))
+  }
+}
+
+function _depoRestoreShowJob(job) {
+  const el = document.getElementById('depoRestoreStatus')
+  if (!el || !job) return
+  const vars = { n: String(job.downloaded || 0), have: String(job.upToDate || 0), b: _depoBytes(job.bytes || 0), skip: String(job.skipped || 0), fail: String(job.failed || 0) }
+  let txt
+  if (job.running) {
+    txt = t(job.dryRun ? 'drestore.previewing' : 'drestore.running', vars) + (job.current ? ' · ' + job.current : '')
+  } else if (job.fatal) {
+    txt = t('drestore.stopped', { error: job.fatal })
+  } else {
+    txt = t(job.dryRun ? 'drestore.preview_done' : 'drestore.done', vars)
+    if (job.skipped) txt += ' ' + t('drestore.skipped', vars)
+    if (job.failed) txt += ' ' + t('drestore.failed_n', vars)
+    if (job.partial) txt += ' ' + t('drestore.partial')
+  }
+  el.textContent = txt
 }
 
 /**
@@ -40671,6 +40519,8 @@ function _intezoRender() {
    Only folders are in the tree. Clicking a name opens it on the right (the
    same _intezoOpen as everywhere else, so selection, actions and the info
    panel keep working). The arrow only expands/collapses, it does not navigate.
+   Clicking the name of the folder that is already open on the right
+   expands/collapses it like the arrow (refreshing is the Refresh button's job).
    Branches load lazily (one /api/life/list per expanded folder) and are cached
    until the same folder is reopened (refresh or a change, see _intezoOpen).
    The #341 content marks (● ○ ?) are shown here too, and a folder known to
@@ -40849,18 +40699,18 @@ function _intezoTreeRender() {
   box.innerHTML = '<ul role="tree">' + node('', _intezoTreeRootName || t('intezo.tree_root_name'), null, 0, 0) + '</ul>'
   box.scrollTop = keep
   box.querySelectorAll('a[data-tree-open]').forEach((a) => {
-    a.addEventListener('click', (ev) => { ev.preventDefault(); void _intezoOpen(a.getAttribute('data-tree-open')) })
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      const rel = a.getAttribute('data-tree-open')
+      // The name of the folder we are ALREADY in works like its arrow. It used
+      // to re-open the folder: a refresh that redrew everything (the screen
+      // shook) and could never collapse it, the current folder being forced open.
+      if (rel === _intezoPath && !_intezoTreeIsLeaf(_intezoTreeFindEntry(rel))) _intezoTreeToggle(rel)
+      else void _intezoOpen(rel)
+    })
   })
   box.querySelectorAll('button[data-tree-toggle]').forEach((b) => {
-    b.addEventListener('click', () => {
-      const rel = b.getAttribute('data-tree-toggle')
-      const entry = _intezoTreeFindEntry(rel)
-      const open = _intezoTreeIsOpen(rel, entry, _intezoTreeForced())
-      if (open) { _intezoTreeOpenRels().delete(rel); _intezoTreeCollapsed.add(rel) }
-      else { _intezoTreeCollapsed.delete(rel); _intezoTreeOpenRels().add(rel) }
-      _intezoTreeSaveOpen()
-      void _intezoTreeSync()
-    })
+    b.addEventListener('click', () => _intezoTreeToggle(b.getAttribute('data-tree-toggle')))
   })
   // Boss TG 2520: the tree never scrolls by itself (it started in the middle and jumped on every action): it keeps its place.
 }
@@ -40874,6 +40724,16 @@ function _intezoTreeRender() {
 function _intezoTreeBranchColor(idx) {
   const hue = Math.round(((Number(idx) || 0) * 137.508 + 210) % 360)
   return 'hsl(' + hue + ' 65% 50%)'
+}
+
+/** Expand / collapse one branch -- the arrow, and the name of the current folder. */
+function _intezoTreeToggle(rel) {
+  const entry = _intezoTreeFindEntry(rel)
+  const open = _intezoTreeIsOpen(rel, entry, _intezoTreeForced())
+  if (open) { _intezoTreeOpenRels().delete(rel); _intezoTreeCollapsed.add(rel) }
+  else { _intezoTreeCollapsed.delete(rel); _intezoTreeOpenRels().add(rel) }
+  _intezoTreeSaveOpen()
+  void _intezoTreeSync()
 }
 
 function _intezoTreeFindEntry(rel) {

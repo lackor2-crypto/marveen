@@ -55,6 +55,9 @@ import {
   THUMB_DIRNAME,
   thumbRunCount,
   resetThumbRunCount,
+  missingPhotoEntries,
+  prunePhotosMissingOnDisk,
+  clearIndexCache,
   type StoredPhoto,
 } from '../web/routes/photos-picker.js'
 import { requiresAuth } from '../web/auth-gate.js'
@@ -2031,3 +2034,85 @@ describe('a Fotok racs kliens-oldalon', () => {
     expect(at, 'a torolt kep bajtjai ottmaradnanak a gepen').toBeGreaterThan(0)
   })
 })
+
+// Boss, TG 8204 + 8222 (2026-10-09): the photos were moved into the Life tree
+// and the Photos page went on showing them -- the index rows and the `.thumbs`
+// thumbnails stayed behind. The index follows the disk now.
+describe('the photo index follows the disk (#513)', () => {
+  const dir = join(PROJECT_ROOT, 'store', 'photos')
+  const idx = join(dir, 'index.json')
+  const acc = 'vitest-prune'
+  const accDir = join(dir, acc)
+  const row = (file: string, sha?: string): StoredPhoto => ({
+    id: 'id-' + file, account: acc, file, mimeType: 'image/jpeg', createdTime: '2026-01-01T00:00:00Z',
+    width: 10, height: 10, isVideo: false, bytes: 3, savedAt: '2026-01-01T00:00:00Z', ...(sha ? { sha256: sha } : {}),
+  } as StoredPhoto)
+  const withIndex = async (rows: StoredPhoto[], fn: () => Promise<void>) => {
+    const before = existsSync(idx) ? readFileSync(idx, 'utf-8') : null
+    const depotBefore = process.env['MARVEEN_DEPOT']
+    try {
+      rmSync(accDir, { recursive: true, force: true })
+      mkdirSync(join(accDir, THUMB_DIRNAME), { recursive: true })
+      writeFileSync(idx, JSON.stringify(rows))
+      clearIndexCache()
+      await fn()
+    } finally {
+      if (depotBefore === undefined) delete process.env['MARVEEN_DEPOT']; else process.env['MARVEEN_DEPOT'] = depotBefore
+      if (before === null) rmSync(idx, { force: true }); else writeFileSync(idx, before)
+      clearIndexCache()
+      rmSync(accDir, { recursive: true, force: true })
+    }
+  }
+
+  it('missingPhotoEntries: exactly the rows whose file is gone, a shared file asked once', () => {
+    const rows = [row('a.jpg'), row('b.jpg'), { ...row('a.jpg'), id: 'twin', account: 'masik', fileAccount: acc } as StoredPhoto]
+    const asked: string[] = []
+    const gone = missingPhotoEntries(rows, (owner, file) => { asked.push(owner + '/' + file); return file === 'b.jpg' })
+    expect(gone.map((g) => g.id)).toEqual(['id-a.jpg', 'twin'])
+    expect(asked).toEqual([acc + '/a.jpg', acc + '/b.jpg'])
+  })
+
+  it('a photo taken away outside the page loses its row AND its thumbnail; the one that stayed keeps both', async () => {
+    await withIndex([row('marad.jpg', 'aaa111'), row('elment.jpg', 'bbb222')], async () => {
+      delete process.env['MARVEEN_DEPOT']
+      writeFileSync(join(accDir, 'marad.jpg'), 'kep')
+      writeFileSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'aaa111', file: 'marad.jpg' })), 't')
+      writeFileSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'bbb222', file: 'elment.jpg' })), 't')
+      const r = await prunePhotosMissingOnDisk({ force: true })
+      expect(r).toMatchObject({ removed: 1, thumbs: 1 })
+      expect(loadIndex().map((p) => p.file)).toEqual(['marad.jpg'])
+      expect(existsSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'aaa111', file: 'marad.jpg' })))).toBe(true)
+      expect(existsSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'bbb222', file: 'elment.jpg' })))).toBe(false)
+      expect(existsSync(join(accDir, 'marad.jpg'))).toBe(true) // a photo file is never deleted by this pass
+    })
+  })
+
+  it('when every photo of an account is gone, the index is empty and the .thumbs folder is gone too', async () => {
+    await withIndex([row('x.jpg', 'c1'), row('y.jpg', 'c2')], async () => {
+      delete process.env['MARVEEN_DEPOT']
+      writeFileSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'c1', file: 'x.jpg' })), 't')
+      writeFileSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'c2', file: 'y.jpg' })), 't')
+      const r = await prunePhotosMissingOnDisk({ force: true })
+      expect(r).toMatchObject({ removed: 2, thumbs: 2 })
+      expect(loadIndex()).toEqual([])
+      expect(existsSync(join(accDir, THUMB_DIRNAME))).toBe(false)
+    })
+  })
+
+  it('an unreachable depot is NOT a deleted photo: nothing is touched, and it says why', async () => {
+    await withIndex([row('x.jpg', 'd1')], async () => {
+      process.env['MARVEEN_DEPOT'] = join(dir, 'nincs-ilyen-meghajto-' + process.pid)
+      writeFileSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'd1', file: 'x.jpg' })), 't')
+      const r = await prunePhotosMissingOnDisk({ force: true })
+      expect(r.skipped).toBe('unreachable')
+      expect(loadIndex()).toHaveLength(1)
+      expect(existsSync(join(accDir, THUMB_DIRNAME, thumbFileName({ sha256: 'd1', file: 'x.jpg' })))).toBe(true)
+    })
+  })
+
+  it('the list endpoint runs the check, so the page is right without any button', () => {
+    const src = readFileSync(join(PROJECT_ROOT, 'src', 'web', 'routes', 'photos-picker.ts'), 'utf-8')
+    expect(src).toMatch(/path === '\/api\/photos\/list' && method === 'GET'\) \{[\s\S]{0,400}await prunePhotosMissingOnDisk\(\)/)
+  })
+})
+

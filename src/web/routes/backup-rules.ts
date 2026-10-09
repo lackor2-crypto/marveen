@@ -28,8 +28,9 @@ import { loadSyncConfig } from './drive-sync.js'
 import { resolveLifePath, toLifeRel } from '../../life-explorer.js'
 import { loadMigrated } from '../../drive-migrated.js'
 import { trashRelPath } from '../../life-tree.js'
-import { depotAccountDir, DEPOT_MEGA } from '../../depot.js'
-import { mkdirSync } from 'node:fs'
+import { depotAccountDir, depotRoot, DEPOT_MEGA } from '../../depot.js'
+import { existsSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { listMegaRemoteSized, planMegaDownload, runMegaDownload, walkMirrorForDownload, freeDiskBytes, megaTransferBusyCode, type RemoteFile } from '../../mega-download.js'
 import type { RouteContext } from './types.js'
 
@@ -108,6 +109,7 @@ function megaErrorText(lang: 'hu' | 'en', code: string, raw = ''): string {
     case 'state_broken': return L(lang, `A mentés nyilvántartása nem olvasható, ezért most nem töltök fel (különben a MEGA-n törölt fájlokat is újra feltölteném)${tail}.`, `The backup record cannot be read, so nothing is uploaded now (otherwise files deleted on MEGA would be uploaded again)${tail}.`)
     case 'remote_failed': return L(lang, `Nem tudtam megnézni, mi van már fent a MEGA-n${tail}.`, `Could not check what is already on MEGA${tail}.`)
     case 'no_preview': return L(lang, 'Előbb nézd meg az előnézetet: a feltöltés pontosan azt viszi fel, amit ott láttál.', 'Look at the preview first: the upload takes exactly what you saw there.')
+    case 'no_mirror_folder': return L(lang, 'Ennek a MEGA-fióknak nincs külön tükörmappája a gépen, ezért innen nincs mit feltölteni. A MEGA-ra az Életfából megy fel a tartalom: az Intézőben jobb klikk a mappán → Mentés beállítása…, és válaszd ezt a MEGA-fiókot.', 'This MEGA account has no mirror folder of its own on this computer, so there is nothing to upload from here. Content goes up to MEGA from the Life tree: in the Explorer right-click the folder → Set up backup…, and choose this MEGA account.')
     case 'no_depot': return L(lang, 'Még nincs beállítva a Raktár mappa, ezért nincs hova tenni a MEGA-fiók fájljait. A Raktár lapon állíthatod be.', 'The Depot folder is not set up yet, so there is no place for the MEGA account files. Set it up on the Depot page.')
     case 'busy': return L(lang, 'Már fut egy MEGA-feltöltés. Megvárom, amíg véget ér.', 'A MEGA upload is already running. Wait until it ends.')
     case 'busy_down': return L(lang, 'Már fut egy MEGA-letöltés vagy -feltöltés. Megvárom, amíg véget ér.', 'A MEGA download or upload is already running. Wait until it ends.')
@@ -115,6 +117,13 @@ function megaErrorText(lang: 'hu' | 'en', code: string, raw = ''): string {
     case 'not_found': return L(lang, 'Ez a tétel már nincs a listában.', 'This item is not in the list any more.')
     default: return L(lang, `A MEGA hibát jelzett${tail}.`, `MEGA reported an error${tail}.`)
   }
+}
+
+/** The folder may not exist yet (#513: a preview creates nothing): the free space is that of the disk it will be on. */
+function existingAncestor(dir: string): string {
+  let at = dir
+  while (!existsSync(at) && dirname(at) !== at) at = dirname(at)
+  return at
 }
 
 async function readJson(ctx: RouteContext): Promise<any> {
@@ -148,7 +157,7 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
       const pv = downPreviews.get(account.name)
       if (!pv || Date.now() - pv.at > PREVIEW_TTL_MS) return fail('no_preview', 409)
       downPreviews.delete(account.name)
-      const free = freeDiskBytes(pv.dest)
+      const free = freeDiskBytes(existingAncestor(pv.dest))
       const need = pv.files.reduce((n, f) => n + f.size, 0)
       if (free !== null && need > free) return fail('no_space', 409, `${need} > ${free}`)
       megaDownJob = { account: account.name, running: true, startedAt: new Date().toISOString(), finishedAt: null, total: pv.files.length, downloaded: 0, failed: 0, error: null }
@@ -167,15 +176,20 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
     // --- preview: downloads nothing ---
     const dest = depotAccountDir(account.name, DEPOT_MEGA)
     if (!dest) return fail('no_depot', 400)
-    try { mkdirSync(dest, { recursive: true }) } catch { return fail('no_dir', 404) }
-    const local = walkMirrorForDownload(dest)
+    // A PREVIEW CREATES NOTHING (#513): only the backups stay under Rendszer,
+    // so the account folder is not made just because someone looked. The
+    // download itself makes it when a file really arrives. "Not there yet" is
+    // told apart from "cannot see the disk": the depot itself must be readable.
+    const depot = depotRoot()
+    if (!depot || !existsSync(depot)) return fail('no_dir', 404)
+    const local = existsSync(dest) ? walkMirrorForDownload(dest) : { files: [], truncated: false, unreachable: false }
     if (local.unreachable) return fail('no_dir', 404)
     const remote = await listMegaRemoteSized(bin, megaRemoteDir(account.remote, MEGA_MIRROR), defaultRunner)
     if (!remote.ok) return fail('remote_failed', 502, remote.error)
     const mirrorRel = toLifeRel(dest)
     const migrated = loadMigrated().filter((e) => e.from.startsWith(mirrorRel + '/')).map((e) => e.from.slice(mirrorRel.length + 1))
     const plan = planMegaDownload(remote.files, local, migrated)
-    const free = freeDiskBytes(dest)
+    const free = freeDiskBytes(existingAncestor(dest))
     downPreviews.set(account.name, { at: Date.now(), dest, files: plan.download })
     json(res, {
       account: account.name,
@@ -267,9 +281,11 @@ async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean
       // No depot yet (fresh install) is its own sentence, not "disk missing".
       base = depotAccountDir(account.name, DEPOT_MEGA)
       if (!base) return fail('no_depot', 400)
-      // The account's folder is part of the design: create it empty, so the
-      // Intezo shows where to put files. Creating an empty folder uploads nothing.
-      try { mkdirSync(base, { recursive: true }) } catch { return fail('no_dir', 404) }
+      // A PREVIEW CREATES NOTHING (#513): the account folder under Rendszer is
+      // no longer made here. Without it there is nothing to mirror up -- and a
+      // MISSING folder must never be walked as an empty one (that would read as
+      // "every file was deleted"). Files go up from the Life tree, by a backup rule.
+      if (!existsSync(base)) return fail('no_mirror_folder', 404)
     } else {
       base = resolveLifePath(key)
       if (!base) return fail('no_dir', 404)
