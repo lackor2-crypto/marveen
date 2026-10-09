@@ -42805,6 +42805,29 @@ function _intezoSelectOnly(rel) {
 }
 
 /** A vegpont URL-je egy fajl bajtjaihoz -- elonezetre vagy letoltesre. */
+/**
+ * Is this browser running on the machine the files are on? Only then does "open it in the
+ * machine's own program" mean anything to the person at the screen: from a phone the file
+ * would open on a desktop they are not sitting at.
+ */
+function _openOnMachineHere() {
+  const h = location.hostname
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1'
+}
+
+/** Ask the server to open one Life-tree file in the machine's own program (#529). */
+async function _openOnMachine(rel) {
+  try {
+    const res = await fetch('/api/life/open-file?lang=' + (window._lang || 'hu'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rel }) })
+    const d = await res.json().catch(() => ({}))
+    return res.ok ? { ok: true, name: d.name || '' } : { ok: false, code: d.error || '', message: d.message || '' }
+  } catch (e) {
+    return { ok: false, code: 'network', message: '' }
+  }
+}
+window._openOnMachine = _openOnMachine
+window._openOnMachineHere = _openOnMachineHere
+
 function _intezoFileUrl(rel, download) {
   let url = '/api/life/file?rel=' + encodeURIComponent(rel) + '&lang=' + (window._lang || 'hu')
   if (download) url += '&download=1'
@@ -43016,6 +43039,28 @@ async function _intezoOpenPreviewWindow(info) {
     dl.textContent = t('intezo.preview_open_download')
     dl.addEventListener('click', () => { window.open(_intezoFileUrl(info.rel, true), '_blank') })
     wrap.appendChild(msg)
+    // #529 (Boss: "tudja megnyitni az excelt, mint a windows intezo"): when this browser is
+    // on the machine itself, the file opens in the machine's own program right away. The
+    // sentence then says THAT, and the download stays as the second way.
+    if (_openOnMachineHere()) {
+      const open = document.createElement('button')
+      open.type = 'button'
+      open.className = 'btn-primary'
+      open.textContent = t('intezo.open_local_btn')
+      const run = async () => {
+        open.disabled = true
+        msg.textContent = t('intezo.open_local_opening', { name: info.name || '' })
+        const r = await _openOnMachine(info.rel)
+        open.disabled = false
+        msg.textContent = r.ok ? t('intezo.open_local_done', { name: info.name || '' }) : (r.message || t('intezo.open_local_failed'))
+      }
+      open.addEventListener('click', run)
+      dl.className = 'btn-secondary'
+      dl.textContent = t('intezo.open_local_download')
+      wrap.appendChild(open)
+      wrap.appendChild(document.createTextNode(' '))
+      run()
+    }
     wrap.appendChild(dl)
     body.appendChild(wrap)
   }

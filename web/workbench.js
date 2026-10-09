@@ -1522,7 +1522,7 @@
     return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
-      + '<a class="wb-item wb-file-link" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
+      + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.file.open')) + '">'
       + '<span class="wb-item-title">\ud83d\udcc4 ' + esc(f.name) + '</span>'
       + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
       + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="file-ctx" data-wb-rel="' + escA(f.rel) + '" aria-haspopup="menu"'
@@ -1542,7 +1542,7 @@
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
       + (extra || '')
       // #483 "every usable function": Open and Download act on this one file, so they are not offered for a multi-selection.
-      + (many ? '' : '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open_menu')) + '</a>'
+      + (many ? '' : '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" data-wb-open-rel="' + escA(rel) + '" href="' + escA(href) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open_menu')) + '</a>'
         + '<a role="menuitem" class="wb-ctx-link" data-wb-file-download="1" href="' + escA(href + '&download=1') + '" download="' + escA(baseOf(rel)) + '">' + esc(t('workbench.file.download')) + '</a>')
       + (isImageFile({ name: baseOf(rel) }) && !many
         // #501 (TG 2569): a picture can become several kinds of work item, so ask which one instead of guessing.
@@ -15726,6 +15726,29 @@
     WB.dpDrag = null
     dpClearMarks()
     Array.prototype.forEach.call(document.querySelectorAll('.wb-dp-dragging'), function (n) { n.classList.remove('wb-dp-dragging') })
+  })
+
+  // #529 (Boss: "es innen is nyiljon meg! excel, docx, minden"): a loose file in the list is a
+  // link to the file viewer. On the machine itself an Excel, Word or similar file opens in
+  // the machine's own program instead -- the browser would only download it. What the
+  // browser shows well itself (pictures, PDF, text) keeps opening in the browser tab, and
+  // from another device nothing changes.
+  var WB_OPEN_LOCAL = /\.(docx?|odt|rtf|xlsx?|xlsm|ods|csv|tsv|pptx?|odp)$/i
+  document.addEventListener('click', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
+    var a = e.target.closest('a[data-wb-open-rel]')
+    if (!a) return
+    var rel = a.getAttribute('data-wb-open-rel') || ''
+    if (!WB_OPEN_LOCAL.test(rel) || typeof window._openOnMachine !== 'function' || !window._openOnMachineHere()) return
+    e.preventDefault()
+    window.showToast(t('intezo.open_local_opening', { name: baseOf(rel) }))
+    window._openOnMachine(rel).then(function (r) {
+      if (r.ok) { window.showToast(t('intezo.open_local_done', { name: baseOf(rel) })); return }
+      // It could not be opened here: say why, and fall back to what the link did before.
+      window.showToast(r.message || t('intezo.open_local_failed'))
+      window.open(a.getAttribute('href'), '_blank', 'noopener')
+    })
   })
 
   document.addEventListener('submit', function (e) {

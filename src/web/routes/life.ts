@@ -40,6 +40,7 @@ import { lifeSendInfo, prepareLifeAttachments, SHARE_LIMIT } from '../../life-se
 import { json, readBody } from '../http-helpers.js'
 import { dupStatus, startDupIndex, stopDupIndex, duplicatesIn, matchCloudFiles } from '../../life-dup-index.js'
 import { logger } from '../../logger.js'
+import { openWithDefaultApp, openableWithDefaultApp, fileManagerKind } from '../../open-in-file-manager.js'
 import {
   ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig, mediaTargets,
   inboxCount, safeLifeName, newLifeId, lifeName, trashRelPath, lifeConfigExists, inboxDir,
@@ -472,6 +473,37 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     info.mimeType = kind.mime
     info.previewable = kind.previewable
     send(res, 200, info)
+    return true
+  }
+
+  // #529: open a document in the program THIS MACHINE opens it with (Excel, Word ...), the
+  // way a double click does in the file manager. The same boundary as the file endpoint
+  // below (resolveLifePath), and only document/media types -- never something that runs.
+  // Can it be offered at all: is there a desktop here, and is this a kind of file that is opened?
+  if (path === '/api/life/open-file' && method === 'GET') {
+    send(res, 200, { kind: fileManagerKind(), openable: openableWithDefaultApp(url.searchParams.get('name') || '') })
+    return true
+  }
+  if (path === '/api/life/open-file' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const lang = uiLang(url)
+    const rel = String(data.rel || '')
+    const abs = resolveLifePath(rel)
+    if (!abs) {
+      send(res, 404, { error: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül.', 'This location is outside the Marveen folder.') })
+      return true
+    }
+    const o = await openWithDefaultApp(abs)
+    if (o.ok) { send(res, 200, { ok: true, name: pathBasename(abs) }); return true }
+    const msg: Record<string, [string, string]> = {
+      not_found: ['Ez a fájl nem található a lemezen.', 'This file was not found on disk.'],
+      not_a_file: ['Ez egy mappa, nem fájl.', 'This is a folder, not a file.'],
+      not_openable: ['Ezt a fájltípust biztonsági okból nem nyitom meg a gép programjával (csak iratot, képet, hangot és videót). Töltsd le, ha szükséged van rá.', 'For safety this kind of file is not opened with the machine\'s program (only documents, pictures, sound and video). Download it if you need it.'],
+      no_file_manager: ['Ezen a gépen nincs grafikus felület, ezért itt nem tudom megnyitni. Töltsd le, és azon az eszközön nyisd meg, amin dolgozol.', 'This machine has no desktop, so it cannot be opened here. Download it and open it on the device you are working on.'],
+      open_failed: ['Nem sikerült megnyitni a gép programjával. Töltsd le, és úgy nyisd meg.', 'It could not be opened with the machine\'s program. Download it and open it that way.'],
+    }
+    const m = msg[o.code] || msg['open_failed']!
+    send(res, o.code === 'not_found' || o.code === 'not_a_file' ? 404 : o.code === 'open_failed' ? 500 : 409, { error: 'open_' + o.code, message: T(lang, m[0], m[1]) })
     return true
   }
 
