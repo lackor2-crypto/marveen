@@ -20429,6 +20429,9 @@ function _accHubGooglePart(rows, title) {
         : a.checkedAt === null
           ? `<span class="conn-note">${escapeHtml(t('gconn.never_checked'))}</span>`
           : `<span class="conn-note">${escapeHtml(t('gconn.checked_ago', { ago: formatRelative(a.checkedAt) }))}</span>`
+    // The sign-in-again button is on EVERY row, not only a broken one: a healthy
+    // account still needs it to grant a NEW permission (Google Photos upload,
+    // #520). It is only the primary button when something is actually wrong.
     const id = escapeAttr(a.id)
     // The card heading already says the address; repeating it underneath is
     // noise. The nickname is only shown when it differs from the heading.
@@ -20439,7 +20442,7 @@ function _accHubGooglePart(rows, title) {
       <div class="conn-row-actions">
         <button class="btn-secondary btn-compact" data-gact="probe" data-id="${id}">${escapeHtml(t('gconn.check'))}</button>
         ${apiUrl ? `<a class="btn-primary btn-compact" href="${escapeAttr(apiUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('gconn.api_enable'))} \u2197</a>` : ''}
-        ${a.error && !apiOff ? `<button class="btn-primary btn-compact" data-gact="reauth" data-id="${id}">${escapeHtml(t('gconn.reauth'))}</button>` : ''}
+        ${apiOff ? '' : `<button class="${a.error ? 'btn-primary' : 'btn-secondary'} btn-compact" data-gact="reauth" data-id="${id}">${escapeHtml(t('gconn.reauth'))}</button>`}
         ${a.isDefault ? '' : `<button class="btn-secondary btn-compact" data-gact="default" data-id="${id}">${escapeHtml(t('gconn.make_default'))}</button>`}
         <button class="btn-secondary btn-compact" data-gact="remove" data-id="${id}">${escapeHtml(t('gconn.remove'))}</button>
       </div>
@@ -38326,7 +38329,7 @@ async function _gphotosUploadOpen() {
     return
   }
   const noPerm = () => {
-    say([t('gphotos.up.no_perm_1', { account: sel.value }), t('gphotos.up.no_perm_2'), t('gphotos.up.no_perm_3'), t('gphotos.up.no_perm_4')], true)
+    say([t('gphotos.up.no_perm_1', { account: sel.value }), t('gphotos.up.no_perm_2'), t('gphotos.up.no_perm_3', { button: t('gconn.reauth') }), t('gphotos.up.no_perm_4')], true)
     const go = document.createElement('button')
     go.className = 'btn-secondary btn-compact'
     go.id = 'gphotosUpOpenAccounts'

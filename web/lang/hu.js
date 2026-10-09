@@ -391,7 +391,7 @@ window._i18n.hu = {
 
   'guide.quick_1':            'Nyisd meg a <b>Fiókok</b> oldalt.',
   'guide.quick_2':            'Keresd meg a listában ezt a fiókot: <b>{name}</b>.',
-  'guide.quick_3':            'A sorában nyomd meg az <span class="guide-lit">Újracsatlakoztatás</span> gombot, és a megnyíló Google-ablakban jelentkezz be. <span class="guide-step-note">Ha a Google azt írja, hogy „Ez az alkalmazás nincs ellenőrizve”, nyomd meg a <span class="guide-lit">Speciális</span> / <span class="guide-lit">Advanced</span> feliratot, majd a <span class="guide-lit">Tovább…</span> linket — a saját alkalmazásodról van szó.</span>',
+  'guide.quick_3':            'A sorában nyomd meg az <span class="guide-lit">Újra bejelentkeztetem</span> gombot, és a megnyíló Google-ablakban jelentkezz be. <span class="guide-step-note">Ha a Google azt írja, hogy „Ez az alkalmazás nincs ellenőrizve”, nyomd meg a <span class="guide-lit">Speciális</span> / <span class="guide-lit">Advanced</span> feliratot, majd a <span class="guide-lit">Tovább…</span> linket — a saját alkalmazásodról van szó.</span>',
   'guide.quick_4':            'Gyere vissza ide, és nyomd meg lent a <span class="guide-lit">Most ellenőrizd le</span> gombot. Én megnézem, tényleg rendben van-e.',
   'guide.quick_open_btn':     'Fiókok oldal megnyitása',
 
@@ -3707,7 +3707,7 @@ window._i18n.hu = {
   'gphotos.up.open_accounts': 'Fiókok oldal megnyitása',
   'gphotos.up.no_perm_1': 'A(z) {account} fióknál még nincs feltöltési engedély. Ezt egyszer kell megadni, fiókonként.',
   'gphotos.up.no_perm_2': '1. Nyisd meg a Fiókok oldalt (lent a gomb).',
-  'gphotos.up.no_perm_3': '2. A fiók sorában nyomd meg az „Újracsatlakoztatás” gombot, és a Google oldalán hagyd bepipálva a Google Fotókra vonatkozó engedélyt („képek hozzáadása a Google Fotók-könyvtárhoz”).',
+  'gphotos.up.no_perm_3': '2. A fiók kártyáján, a „Google: levél, naptár, Drive” sorban nyomd meg a(z) „{button}” gombot, jelentkezz be ugyanazzal a fiókkal, és a Google oldalán hagyd bepipálva a Google Fotókra vonatkozó engedélyt („képek hozzáadása a Google Fotók-könyvtárhoz”).',
   'gphotos.up.no_perm_4': '3. Gyere vissza ide, és nyomd meg újra az „1. Előnézet” gombot. A fiók többi funkciója közben változatlanul működik.',
   'gphotos.up.running': 'Feltöltés folyamatban: {done} / {total} kész.',
   'gphotos.up.run_failed': 'A feltöltést nem tudtam elindítani. Próbáld újra.',

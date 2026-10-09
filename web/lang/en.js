@@ -375,7 +375,7 @@ window._i18n.en = {
 
   'guide.quick_1':            'Open the <b>Accounts</b> page.',
   'guide.quick_2':            'Find this account in the list: <b>{name}</b>.',
-  'guide.quick_3':            'Press <span class="guide-lit">Reconnect</span> in its row and sign in in the Google window that opens. <span class="guide-step-note">If Google says "This app isn\'t verified", press <span class="guide-lit">Advanced</span> and then the "Go to…" link — this is your own app.</span>',
+  'guide.quick_3':            'Press <span class="guide-lit">Sign in again</span> in its row and sign in in the Google window that opens. <span class="guide-step-note">If Google says "This app isn\'t verified", press <span class="guide-lit">Advanced</span> and then the "Go to…" link — this is your own app.</span>',
   'guide.quick_4':            'Come back here and press <span class="guide-lit">Check it now</span> below. I will verify it really worked.',
   'guide.quick_open_btn':     'Open the Accounts page',
 
@@ -2850,7 +2850,7 @@ window._i18n.en = {
   'gphotos.up.open_accounts': 'Open the Accounts page',
   'gphotos.up.no_perm_1': 'The account {account} has no upload permission yet. It has to be given once, per account.',
   'gphotos.up.no_perm_2': '1. Open the Accounts page (button below).',
-  'gphotos.up.no_perm_3': '2. In the row of this account press “Reconnect”, and on Google\'s page leave the Google Photos permission ticked (“add to your Google Photos library”).',
+  'gphotos.up.no_perm_3': '2. On this account\'s card, in the “Google: mail, calendar, Drive” row, press “{button}”, sign in with the same account, and on Google\'s page leave the Google Photos permission ticked (“add to your Google Photos library”).',
   'gphotos.up.no_perm_4': '3. Come back here and press “1. Preview” again. Everything else of the account keeps working meanwhile.',
   'gphotos.up.running': 'Uploading: {done} / {total} done.',
   'gphotos.up.run_failed': 'The upload could not be started. Try again.',
