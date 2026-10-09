@@ -81,6 +81,22 @@ function realResearchRoot(agent: string): string | null {
   }
 }
 
+/**
+ * The real path of an agent's research doc, or null if the agent is unknown, the
+ * name is unsafe or the file is missing. `name` is the same relative path the
+ * listing returns, so a doc in a subfolder ("nightly/foo.md") is found too.
+ */
+export function researchFilePath(agent: string, name: string): string | null {
+  if (!isSafeRelPath(name) || ![MAIN_AGENT_ID, ...listAgentNames()].includes(agent)) return null
+  const realRoot = realResearchRoot(agent)
+  const file = realRoot ? resolveInside(realRoot, join(realRoot, name)) : null
+  try {
+    return file && statSync(file).isFile() ? file : null
+  } catch {
+    return null
+  }
+}
+
 function walk(realRoot: string, rel: string, depth: number, out: string[]): void {
   if (depth > MAX_SEGMENTS) return
   let entries: import('node:fs').Dirent[]
