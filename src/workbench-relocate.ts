@@ -119,7 +119,7 @@ function saveWarned(): void {
   for (const k of keys) ins.run(k)
 }
 
-let running = false
+let running: Promise<void> | null = null
 let lastRun: { at: number; rehomed: number; healed: number; neutral: number; duplicates: number; ms: number } | null = null
 export function relocateStatus(): typeof lastRun { return lastRun }
 
@@ -227,12 +227,21 @@ async function warnDuplicate(item: WorkItemRow, places: string[]): Promise<void>
   ))
 }
 
-/** One pass: read where every registration file sits and re-home / warn as needed. Safe to call often. */
-export async function reconcileItemLocations(): Promise<void> {
-  if (running) return
+/**
+ * One pass: read where every registration file sits and re-home / warn as needed. Safe to call often.
+ * A call made while a pass is in flight joins THAT pass instead of returning at once: the promise always
+ * settles after a pass has finished, so `await reconcileItemLocations()` really means "reconciled". It used to
+ * resolve immediately on overlap, and the fresh-item move test then read the registry before the route's own
+ * fire-and-forget pass had written it (red under a loaded full suite, green alone -- measured 2026-10-09).
+ */
+export function reconcileItemLocations(): Promise<void> {
+  if (!running) running = reconcilePass().finally(() => { running = null })
+  return running
+}
+
+async function reconcilePass(): Promise<void> {
   const depot = explorerRoot()
   if (!depot) return
-  running = true
   const t0 = Date.now()
   let rehomed = 0
   let neutral = 0
@@ -321,8 +330,6 @@ export async function reconcileItemLocations(): Promise<void> {
     lastRun = { at: Date.now(), rehomed, healed, neutral, duplicates, ms: Date.now() - t0 }
   } catch (err) {
     logger.warn({ err }, 'workbench-relocate: reconcile failed')
-  } finally {
-    running = false
   }
 }
 
