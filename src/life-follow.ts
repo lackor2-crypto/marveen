@@ -53,6 +53,17 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   // it and still points at its (unmoved) target. This only repairs one that
   // is missing -- the same pass the dashboard runs on start.
   if (out.mounts) { try { reconcileMountLinks(listMounts()) } catch { /* the start-up pass catches up */ } }
+  // The Drive backup pairs keep their local folder as a path too. Their store
+  // lives in the Drive-sync route module (moveSyncPairsPrefix, #513/#510); it
+  // is loaded lazily so this module does not pull the whole sync engine in,
+  // and a build that does not have the export yet simply skips it.
+  void import('./web/routes/drive-sync.js')
+    .then((m) => {
+      const move = (m as { moveSyncPairsPrefix?: (a: string, b: string) => number }).moveSyncPairsPrefix
+      const n = typeof move === 'function' ? move(from, to) : 0
+      if (n) logger.info({ from, to, pairs: n }, '[intezo] Drive backup pairs followed the rename')
+    })
+    .catch((err: any) => logger.warn({ from, to, err: String(err?.message || err) }, '[intezo] Drive backup pairs did not follow the rename'))
   if (out.mounts || out.backupRules || out.projects) logger.info({ from, to, ...out }, '[intezo] registries followed the rename')
   return out
 }

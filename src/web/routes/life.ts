@@ -899,12 +899,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const renamed = renameLife(rel, String(body?.name ?? ''), lang)
-    if ((renamed as { ok?: boolean }).ok) {
-      const ujRel = String((renamed as { rel?: string }).rel ?? '')
-      if (ujRel) followFolderMove(relKey, ujRel)
-    }
+    if (renamed.ok) followFolderMove(relKey, renamed.rel)
     send(res, 200, renamed)
-    if ((renamed as { ok?: boolean }).ok) followWorkItems()
+    if (renamed.ok) followWorkItems()
     return true
   }
 
