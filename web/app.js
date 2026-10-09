@@ -14319,18 +14319,26 @@ async function loadDriveFolder() {
   const keepScroll = preserveScrollBegin(list, { view: _driveAccount + '\n' + folder.id })
   list.innerHTML = `<div class="drive-loading">${escapeHtml(t('drive.loading'))}</div>`
   try {
-    const res = await fetch(`/api/drive/list?folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(_driveAccount)}`)
+    const res = await fetch(`/api/drive/list?withDeleted=1&folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(_driveAccount)}`)
     const data = await res.json()
     if (!res.ok) { renderDriveError(data.error || t('drive.load_error')); list.innerHTML = ''; return }
     const files = data.files || []
-    if (files.length === 0) {
-      list.innerHTML = ''
+    // #511: ami a felhoben torlodott, az NEM tunik el innen -- halvanyan, a
+    // sajat feliratával a lista vegen all, amig a Drive kukaja orzi.
+    const deleted = data.deleted || []
+    // "Nem lattam bele a kukaba" KULON mondat: nem ugyanaz, mint "nincs torolt elem".
+    const deletedNote = data.deletedError
+      ? `<p class="subtitle drive-deleted-note">${escapeHtml(t('drive.deleted.unknown'))}</p>` : ''
+    if (files.length === 0 && deleted.length === 0) {
+      list.innerHTML = deletedNote
       empty.hidden = false
       return
     }
     empty.hidden = true
     list.innerHTML = files.map(f => driveRowHtml(f)).join('')
+      + deleted.map(f => driveDeletedRowHtml(f)).join('') + deletedNote
     bindDriveRowActions(list, _driveAccount, _driveFolderStack, loadDriveFolder)
+    bindDriveDeletedRows(list, _driveAccount, loadDriveFolder)
     keepScroll()
   } catch {
     renderDriveError(t('drive.load_error'))
@@ -14446,6 +14454,44 @@ async function downloadDriveFile(fileId, name, account, mimeType) {
  * acting on whichever account was selected last -- renaming or trashing a file
  * in the wrong Drive.
  */
+/**
+ * #511: a felhoben torolt elem sora. Nem `.drive-row`: megnyitni, atnevezni,
+ * athelyezni nem lehet (a tartalma a Drive kukajaban van), EGY gombja van, a
+ * visszaallitas.
+ */
+function driveDeletedRowHtml(f) {
+  const when = f.trashedTime ? new Date(f.trashedTime).toLocaleDateString() : ''
+  return `<div class="drive-row-deleted" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.name)}" title="${escapeHtml(t('drive.deleted.hint'))}">
+    <div class="drive-row-name"><span class="drive-deleted-name">${escapeHtml(f.name)}</span><span class="drive-deleted-badge">${escapeHtml(t('drive.deleted.badge'))}</span></div>
+    <div class="drive-row-meta">${escapeHtml(when)}</div>
+    <div class="drive-row-meta">${escapeHtml(fmtDriveSize(f.size))}</div>
+    <div class="drive-row-actions"><button class="btn-secondary btn-compact" data-action="untrash">${escapeHtml(t('drive.deleted.restore'))}</button></div>
+  </div>`
+}
+
+function bindDriveDeletedRows(list, account, reload) {
+  list.querySelectorAll('.drive-row-deleted [data-action="untrash"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.drive-row-deleted')
+      const id = row.getAttribute('data-id')
+      const name = row.getAttribute('data-name')
+      btn.disabled = true
+      let res
+      try {
+        res = await fetch('/api/drive/untrash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, account }) })
+      } catch { res = null }
+      if (!res || !res.ok) {
+        const d = res ? await res.json().catch(() => ({})) : {}
+        btn.disabled = false
+        showToast(t('drive.deleted.restore_failed', { name }) + (d.error ? ' ' + d.error : ''))
+        return
+      }
+      showToast(t('drive.deleted.restored', { name }))
+      reload()
+    })
+  })
+}
+
 function bindDriveRowActions(list, account, stack, reload) {
   list.querySelectorAll('.drive-row').forEach(row => {
     const id = row.getAttribute('data-id')
