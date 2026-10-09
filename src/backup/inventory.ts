@@ -88,6 +88,9 @@ const STORE_SETTINGS = [
 ] as const
 const STORE_SETTINGS_DIRS = ['folder-icons'] as const
 const STORE_DEPOT_CONFIG = [
+  // #511: what each cloud folder held on the last look. Without it a restored install would
+  // forget every 'deleted in the cloud' mark the owner has not dismissed yet.
+  'cloud-seen.json',
   'life-tree.json', 'life-tree-created.json', 'life-mounts.json', 'life-labels.json',
   'life-archived.json', 'life-physical.json', 'storages.json', 'drive-sync.json', 'git-sync.json',
   'drive-skiplist.json', 'mirror-migrated.json',
