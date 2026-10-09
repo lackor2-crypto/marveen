@@ -17,7 +17,7 @@ import { readFileSync, mkdtempSync, writeFileSync, existsSync, statSync, rmSync 
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { restoreWalk, restoreNameOk, backupFolderLocalPath, mentesMappaNev, BACKUP_PATH_PROP, type RestoreEntry } from '../web/routes/drive-sync.js'
+import { restoreWalk, restoreNameOk, backupFolderLocalPath, mentesMappaNev, BACKUP_PATH_PROP, rewriteSyncPairsPrefix, type RestoreEntry, type SyncPair } from '../web/routes/drive-sync.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..', '..')
@@ -237,5 +237,33 @@ describe('restoreWalk: csak a hianyzot hozza le, meglevot nem ir felul', () => {
   it('a tiltott nevek', () => {
     for (const n of ['', '.', '..', 'a/b', 'a\u0000b']) expect(restoreNameOk(n), JSON.stringify(n)).toBe(false)
     for (const n of ['Kép: 1.jpg', 'a - b', '...x']) expect(restoreNameOk(n), n).toBe(true)
+  })
+})
+
+describe('atnevezes utan a mentes-par koveti az utat (#510 followFolderMove)', () => {
+  const par = (localPath: string, backup = true): SyncPair => ({ id: localPath, account: 'a', folderId: 'f', name: 'n', localPath, ...(backup ? { backup: true as const } : {}) } as SyncPair)
+
+  it('pontos egyezes es alag koveti, a hasonlo nevu testver nem', () => {
+    const ps = [par('Család/Fotók'), par('Család/Fotók/2024'), par('Család/Fotók 2'), par('Munka')]
+    expect(rewriteSyncPairsPrefix(ps, 'Család/Fotók', 'Média/Képek')).toBe(2)
+    expect(ps.map((p) => p.localPath)).toEqual(['Média/Képek', 'Média/Képek/2024', 'Család/Fotók 2', 'Munka'])
+  })
+
+  it('a regi tukor-par es a gyoker nem mozdul', () => {
+    const ps = [par('Család', false), par('')]
+    expect(rewriteSyncPairsPrefix(ps, 'Család', 'X')).toBe(0)
+    expect(rewriteSyncPairsPrefix(ps, '', 'X')).toBe(0)
+    expect(ps.map((p) => p.localPath)).toEqual(['Család', ''])
+  })
+
+  it('perjelek es visszaper nem zavarja', () => {
+    const ps = [par('A/B/C')]
+    expect(rewriteSyncPairsPrefix(ps, '/A\\B/', 'Z')).toBe(1)
+    expect(ps[0].localPath).toBe('Z/C')
+  })
+
+  it('a mentes-mappa jelzese minden futasban frissul, a bekotott par ut nyer', () => {
+    expect(server).toContain("if (pair.backup) await markBackupFolder(pair.folderId, pair.localPath || '', token)")
+    expect(server).toContain("localPath: mentesUtNorm(linked.localPath || ''), fromName: false, linked: true")
   })
 })

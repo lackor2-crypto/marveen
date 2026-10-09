@@ -1000,6 +1000,10 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
   // kepernyo a regi szamot ismetelte. Egy `about?fields=storageQuota` hivas
   // fiokonkent, a bejaras elott.
   await merdAKvotat(pair.account, token)
+  // The restore reads the target from the folder's own mark. A rename in the
+  // Life tree moves `pair.localPath` (`moveSyncPairsPrefix`), so the mark is
+  // refreshed every run -- one cheap PATCH, best effort.
+  if (pair.backup) await markBackupFolder(pair.folderId, pair.localPath || '', token)
   // A KIHAGYANDO-LISTA egyszer, a bejaras elott. Fajlonkent olvasni a lemezt
   // ezer fajlnal ezer olvasas lenne; a lista egy futas alatt nem valtozik.
   const kihagyando = loadDriveSkiplist()
@@ -2048,6 +2052,37 @@ export function backupFolderLocalPath(name: string, appProperties?: Record<strin
   return { localPath: String(name || '').split(' - ').map((x) => x.trim()).filter(Boolean).join('/'), fromName: true }
 }
 
+/**
+ * A folder in the Life tree was renamed or moved: the backup pairs on it (or
+ * under it) follow, by prefix. Exact match and `from + '/'` only -- `Fotók`
+ * must not drag `Fotók 2` along. Returns how many pairs moved.
+ */
+export function rewriteSyncPairsPrefix(pairs: SyncPair[], fromRel: string, toRel: string): number {
+  const from = mentesUtNorm(fromRel)
+  const to = mentesUtNorm(toRel)
+  // Moving the root (or onto itself) is not a rename.
+  if (!from || from === to) return 0
+  let n = 0
+  for (const p of pairs) {
+    if (!p.backup) continue
+    const cur = mentesUtNorm(p.localPath || '')
+    if (cur === from) p.localPath = to
+    else if (cur.startsWith(from + '/')) p.localPath = (to ? to + '/' : '') + cur.slice(from.length + 1)
+    else continue
+    n++
+  }
+  return n
+}
+
+/** `rewriteSyncPairsPrefix` on the stored config; a damaged config is left alone (0). */
+export function moveSyncPairsPrefix(fromRel: string, toRel: string): number {
+  const cfg = loadSyncConfig()
+  if (cfg.corrupt) return 0
+  const n = rewriteSyncPairsPrefix(cfg.pairs, fromRel, toRel)
+  if (n) saveSyncConfig(cfg)
+  return n
+}
+
 /** Best effort: a backup made without the mark still restores, by its name. */
 async function markBackupFolder(folderId: string, rel: string, token: TokenForras): Promise<void> {
   try {
@@ -2334,10 +2369,12 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
       // and empty. The page says which.
       backupRootFound,
       backupRoot: MENTES_MAPPA,
-      folders: folders.map((f) => ({
-        ...f,
-        linked: cfg.pairs.some((p) => p.backup && p.account === account && p.folderId === f.id),
-      })),
+      folders: folders.map((f) => {
+        // A pair linked here knows the current place better than the mark
+        // (a rename since the last run has not reached the Drive yet).
+        const linked = cfg.pairs.find((p) => p.backup && p.account === account && p.folderId === f.id)
+        return linked ? { ...f, localPath: mentesUtNorm(linked.localPath || ''), fromName: false, linked: true } : { ...f, linked: false }
+      }),
       depot: depotHealth(),
     })
     return true
