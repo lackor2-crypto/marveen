@@ -7967,6 +7967,17 @@
     }).replace(/\n/g, '<br>')
   }
 
+  /** A block in the outline list (#508): a picture as a small picture with its name, a table without its
+   *  size/alignment line -- the stored `foto.jpg#w=50&a=l` is not something the owner should read. */
+  function outlineBlockBodyHtml(b) {
+    if (b.kind === 'image') {
+      var pic = dpImageParts(b.text)
+      return '<img class="wb-outline-img" alt="" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"> '
+        + esc(baseOf(pic.path))
+    }
+    return blockTextHtml(dpBlockShown(b))
+  }
+
   var SECTION_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' }
 
   /** ATIRASI JAVASLAT (#441, K-1.20): az agent javasol, a tulajdonos fogadja el vagy veti el. */
@@ -8055,12 +8066,12 @@
     var secs = (o.sections || []).map(function (sec) {
       var blocks = (sec.blocks || []).map(function (b) {
         return '<div class="wb-outline-block wb-outline-kind-' + escA(b.kind) + '">'
-          + '<div class="wb-outline-text">' + blockTextHtml(b.text) + '</div>'
+          + '<div class="wb-outline-text">' + outlineBlockBodyHtml(b) + '</div>'
           + (b.owner_edited_at ? '<p class="wb-muted wb-outline-owner">' + esc(t('workbench.outline.owner_written')) + '</p>' : '')
           + (b.claims && b.claims.length ? '<ul class="wb-outline-claims">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
           + (b.rewrite ? rewriteHtml(b, ro) : '')
           + (ro ? '' : '<p class="wb-outline-tools">'
-            + '<button type="button" class="wb-linklike" data-wb-act="outline-block-edit" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.edit')) + '</button> '
+            + (b.kind === 'image' ? '' : '<button type="button" class="wb-linklike" data-wb-act="outline-block-edit" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.edit')) + '</button> ')
             + (REWRITABLE[b.kind] ? '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_simpler_hint')) + '">' + esc(t('workbench.outline.rewrite_simpler')) + '</button> '
               + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_formal_hint')) + '">' + esc(t('workbench.outline.rewrite_formal')) + '</button> ' : '')
             + '<button type="button" class="wb-linklike" data-wb-act="outline-block-del" data-wb-block="' + escA(b.id) + '">' + esc(t('workbench.outline.delete')) + '</button></p>')
@@ -8602,8 +8613,13 @@
       if (text && text.trim()) outlineCall('POST', '/blocks', { section: sid, text: text.trim() })
     } else if (a === 'outline-block-edit') {
       var b = findBlock(bid)
-      var nx = window.prompt(t('workbench.outline.edit_prompt'), b ? b.text : '')
-      if (nx !== null && nx.trim() && (!b || nx.trim() !== b.text)) outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: nx.trim() })
+      var shown = b ? dpBlockShown(b) : ''
+      var nx = window.prompt(t('workbench.outline.edit_prompt'), shown)
+      if (nx !== null && nx.trim() && (!b || nx.trim() !== shown)) {
+        // A table keeps its size/alignment (#508): the field showed the lines only.
+        var tp = b && b.kind === 'table' ? dpTableParts(b.text) : null
+        outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: tp ? dpTableText(nx.trim(), tp.width, tp.align) : nx.trim() })
+      }
     } else if (a === 'outline-rewrite-ask') {
       var rb = findBlock(bid)
       var rs = findSection(sid)
@@ -15318,6 +15334,7 @@
     try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
     function move(ev) {
       var dx = ev.clientX - startX
+      // Right-aligned: the handle sits on the free bottom-left corner (CSS), so a leftward drag grows the picture.
       if (right) dx = -dx
       if (centre) dx = dx * 2
       pct = Math.max(10, Math.min(100, Math.round((startW + dx) / full * 20) * 5))

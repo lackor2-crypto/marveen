@@ -16,7 +16,7 @@
  */
 import { getDb } from './db.js'
 import { logger } from './logger.js'
-import { listBlocks, listSections, type BlockRow } from './workbench-docmodel.js'
+import { listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { LANG_NAMES, listGlossary, translateSection, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
@@ -135,9 +135,22 @@ export function buildTranslatePrompt(input: {
   ].join('\n')
   const user = JSON.stringify({
     title: input.title,
-    blocks: input.blocks.map((b) => ({ id: b.id, kind: b.kind, text: b.text, claims: b.claims.map((c) => ({ id: c.id, text: c.text })) })),
+    blocks: input.blocks.map((b) => ({ id: b.id, kind: b.kind, text: modelText(b), claims: b.claims.map((c) => ({ id: c.id, text: c.text })) })),
   }, null, 1)
   return { system, user }
+}
+
+/**
+ * The text the model sees of a block. A table's size/alignment line (#508, `#w=..&a=..`) is layout, not words:
+ * left to the model it could be dropped or reworded, and the translated table would silently lose its size.
+ */
+function modelText(b: { kind: string; text: string }): string {
+  return b.kind === 'table' ? tableBlockParts(b.text).text : b.text
+}
+
+/** The size/alignment line of a source table block (`\n#w=..&a=..`), or '' when it has none. */
+function tableLayoutSuffix(text: string): string {
+  return text.slice(tableBlockParts(text).text.length)
 }
 
 /** A modell valaszabol a mentheto forditas, vagy a hiba oka. Tiszta, teszthez exportalva. */
@@ -163,7 +176,13 @@ export function parseTranslation(text: string, src: SourceBlock[]):
       .map((c) => ({ source_claim: String(c.source_claim ?? ''), text: String(c.text ?? '') }))
     // A picture block is a file path, not words: it is never translated.
     if (s.kind === 'image') return { kind: s.kind, text: s.text, claims: [] }
-    return { kind: s.kind, text: String(b.text ?? '').trim(), claims }
+    const text = String(b.text ?? '').trim()
+    // A table keeps the original's size/alignment (#508): the model never saw that line, it goes back on here.
+    if (s.kind === 'table') {
+      const body = tableBlockParts(text).text.trim()
+      return { kind: s.kind, text: body ? body + tableLayoutSuffix(s.text) : '', claims }
+    }
+    return { kind: s.kind, text, claims }
   })
   if (blocks.some((b) => !b.text)) return { ok: false, detail: 'a translated block is empty' }
   return { ok: true, title, blocks }
