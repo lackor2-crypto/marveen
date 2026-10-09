@@ -3632,6 +3632,23 @@
       <div class="info-box" id="gitreposStateBox" hidden></div>
 
       <div id="gitreposList"></div>
+
+      <!-- BETEKINTO (Boss, TG 8228): a tarolok az Eletfaban vannak, a projektjuk
+           alatt -- itt csak megjelenitjuk oket. Egy tarolora kattintva alul,
+           intezo-szeruen latszik a tartalma, es innen megnyithato. -->
+      <div class="card gitrepos-browser" id="gitreposBrowser" hidden>
+        <div class="gitrepos-browser-head">
+          <div class="gitrepos-browser-crumbs" id="gitreposBrowserCrumbs"></div>
+          <div class="gitrepos-browser-actions">
+            <button type="button" class="btn-secondary btn-compact" id="gitreposBrowserUp" data-i18n="gitrepos.browser_up">↑ Fel</button>
+            <button type="button" class="btn-secondary btn-compact" id="gitreposBrowserIntezo" data-i18n="gitrepos.browser_open_intezo">Megnyitás az Intézőben</button>
+            <button type="button" class="btn-secondary btn-compact" id="gitreposBrowserClose" data-i18n="gitrepos.browser_close">Bezárás</button>
+          </div>
+        </div>
+        <p class="gitrepos-browser-note" id="gitreposBrowserNote" hidden></p>
+        <div class="gitrepos-browser-list" id="gitreposBrowserList"></div>
+      </div>
+      <p class="gitrepos-browser-hint" id="gitreposBrowserHint" data-i18n="gitrepos.browser_hint" hidden>Kattints egy tárolóra: itt alul megnyílik a tartalma, mint egy intézőben.</p>
     </div>
 
     <!-- === MEGA (Raktar) Page -- #391 === -->

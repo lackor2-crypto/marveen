@@ -45509,6 +45509,132 @@ function _gitreposStateLabel(state) {
   return t(GITREPOS_STATE_KEY[state] || 'gitrepos.state.unknown')
 }
 
+/**
+ * HOL VAN a tarolo az Eletfaban (Boss, TG 8228: "lassuk is, hogy melyik
+ * projekt alatt van"): a mappa utvonala a tarolo neve nelkul, olvashatoan.
+ */
+function _gitreposWhere(rel) {
+  const parts = String(rel || '').split('/').filter(Boolean)
+  parts.pop()
+  return parts.length ? parts.join(' / ') : t('gitrepos.where_root')
+}
+
+/**
+ * BETEKINTO a Git-tarolok oldal aljan (Boss, TG 8228). A tarolok fizikailag
+ * az Eletfaban vannak, a projektjuk alatt; ez a resz csak megmutatja, mi van
+ * bennuk, es innen megnyithato egy fajl vagy az egesz az Intezoben. Ugyanazt a
+ * listat keri, mint az Intezo (/api/life/list), tehat ugyanazt latja.
+ * `root`: a megnyitott tarolo; `rel`: ahol epp allunk benne (sosem a tarolo fole).
+ */
+const _gitreposBrowse = { root: '', rel: '', seq: 0 }
+
+function _gitreposBrowseShowHint() {
+  const hint = document.getElementById('gitreposBrowserHint')
+  const list = document.getElementById('gitreposList')
+  if (hint) hint.hidden = !!_gitreposBrowse.root || !(list && list.children.length)
+}
+
+function _gitreposBrowseClose() {
+  _gitreposBrowse.root = ''
+  _gitreposBrowse.rel = ''
+  _gitreposBrowse.seq++
+  const box = document.getElementById('gitreposBrowser')
+  if (box) box.hidden = true
+  document.querySelectorAll('.gitrepos-row.is-open').forEach((b) => b.classList.remove('is-open'))
+  _gitreposBrowseShowHint()
+}
+
+async function _gitreposBrowseOpen(root, rel) {
+  const box = document.getElementById('gitreposBrowser')
+  const list = document.getElementById('gitreposBrowserList')
+  const crumbs = document.getElementById('gitreposBrowserCrumbs')
+  const note = document.getElementById('gitreposBrowserNote')
+  const up = document.getElementById('gitreposBrowserUp')
+  if (!box || !list || !crumbs) return
+  // Sosem a tarolo fole: a "fel" a tarolo gyokerenel megall.
+  const here = (rel === root || String(rel).startsWith(root + '/')) ? rel : root
+  const scroll = _gitreposBrowse.root !== root
+  _gitreposBrowse.root = root
+  _gitreposBrowse.rel = here
+  const seq = ++_gitreposBrowse.seq
+  box.hidden = false
+  _gitreposBrowseShowHint()
+  document.querySelectorAll('.gitrepos-row').forEach((b) => b.classList.toggle('is-open', b.getAttribute('data-gitrepo-open') === root))
+  if (up) up.disabled = here === root
+  // Morzsasor: a tarolo helye az Eletfaban (halvanyan), utana a tarolon beluli ut (kattinthato).
+  const inner = here === root ? [] : here.slice(root.length + 1).split('/')
+  let acc = root
+  crumbs.innerHTML = `<span class="gitrepos-browser-where">${escapeHtml(_gitreposWhere(root))} /</span> `
+    + `<a href="#" data-gitrepo-browse="${escapeAttr(root)}">${escapeHtml(_gitreposRepoName(root))}</a>`
+    + inner.map((seg) => { acc += '/' + seg; return ` / <a href="#" data-gitrepo-browse="${escapeAttr(acc)}">${escapeHtml(seg)}</a>` }).join('')
+  if (note) note.hidden = true
+  list.innerHTML = `<p class="gitrepos-browser-msg">${escapeHtml(t('gitrepos.browser_loading'))}</p>`
+  if (scroll && box.scrollIntoView) box.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  let d
+  try {
+    const res = await fetch('/api/life/list?deep=0&content=0&lang=' + (window._lang || 'hu') + '&path=' + encodeURIComponent(here))
+    d = await res.json()
+    if (!res.ok && !(d && d.message)) throw new Error('HTTP ' + res.status)
+  } catch (e) {
+    if (seq !== _gitreposBrowse.seq) return
+    // Nem "ures": nem lattunk bele. A ketto mas mondat.
+    list.innerHTML = `<p class="gitrepos-browser-msg gitrepos-browser-err">${escapeHtml(t('gitrepos.browser_failed', { detail: (e && e.message) || '' }))}</p>`
+    return
+  }
+  if (seq !== _gitreposBrowse.seq) return
+  const folders = (d && d.folders) || []
+  const files = (d && d.files) || []
+  if (d && d.message && !folders.length && !files.length) {
+    list.innerHTML = `<p class="gitrepos-browser-msg gitrepos-browser-err">${escapeHtml(d.message)}</p>`
+    return
+  }
+  if (note) {
+    note.hidden = !(d && d.truncated)
+    if (d && d.truncated) note.textContent = t('gitrepos.browser_truncated')
+  }
+  if (!folders.length && !files.length) {
+    list.innerHTML = `<p class="gitrepos-browser-msg">${escapeHtml(t('gitrepos.browser_empty'))}</p>`
+    return
+  }
+  const rowOf = (e, dir) => `<button type="button" class="gitrepos-browser-row" ${dir ? 'data-gitrepo-browse' : 'data-gitrepo-file'}="${escapeAttr(e.rel)}"
+      title="${escapeAttr(t(dir ? 'gitrepos.browser_enter' : 'gitrepos.browser_open_file'))}">
+      <span class="gitrepos-browser-ico" aria-hidden="true">${dir ? '📁' : '📄'}</span>
+      <span class="gitrepos-browser-name">${escapeHtml(e.displayName || e.name)}</span>
+      <span class="gitrepos-browser-size">${escapeHtml(dir ? '' : (e.sizeHuman || ''))}</span>
+    </button>`
+  list.innerHTML = folders.map((e) => rowOf(e, true)).join('') + files.map((e) => rowOf(e, false)).join('')
+}
+
+/**
+ * Egy fajl megnyitasa uj lapon. A bajtokat a hitelesitett `fetch` hozza (egy
+ * sima uj lap nem vinne a belepesi kulcsot, es 401-et kapna), es abbol lesz a
+ * megnyithato cim.
+ */
+async function _gitreposOpenFile(rel) {
+  try {
+    const res = await fetch(_intezoFileUrl(rel, false))
+    if (!res.ok) {
+      let msg = ''
+      try { msg = (await res.json()).message || '' } catch (e) { msg = '' }
+      throw new Error(msg || ('HTTP ' + res.status))
+    }
+    const url = URL.createObjectURL(await res.blob())
+    const w = window.open(url, '_blank', 'noopener')
+    // Felugro-tiltasnal nincs uj lap: akkor letoltesre kinaljuk, nem hallgatunk.
+    if (!w) {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = _gitreposRepoName(rel)
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 120000)
+  } catch (e) {
+    showToast(t('gitrepos.browser_file_failed', { detail: (e && e.message) || '' }))
+  }
+}
+
 /** A repo neve = a bekotott ut utolso szakasza. */
 function _gitreposRepoName(rel) {
   const parts = String(rel || '').split('/').filter(Boolean)
@@ -45618,16 +45744,18 @@ function _gitreposRenderList(data) {
       </div>
       ${key ? '' : `<p class="gitrepos-unknown-note">${escapeHtml(t('gitrepos.unknown_account_note'))}</p>`}
       <div class="gitrepos-rows">${rows.map((r) => `
-        <button type="button" class="gitrepos-row" data-gitrepo-open="${escapeAttr(r.rel)}"
-                title="${escapeAttr(t('gitrepos.open_hint'))}">
+        <button type="button" class="gitrepos-row${_gitreposBrowse.root === r.rel ? ' is-open' : ''}" data-gitrepo-open="${escapeAttr(r.rel)}"
+                title="${escapeAttr(t('gitrepos.row_hint'))}">
           <span class="gitrepos-row-main">
             <span class="gitrepos-row-name"${r.displayName ? ` title="${escapeAttr(t('intezo.real_name', { name: _gitreposRepoName(r.rel) }))}"` : ''}>${escapeHtml(r.displayName || _gitreposRepoName(r.rel))}</span>
+            <span class="gitrepos-row-where">${escapeHtml(_gitreposWhere(r.rel))}</span>
             ${r.state === 'current' ? '' : `<span class="gitrepos-row-msg">${escapeHtml(r.message || '')}</span>`}
           </span>
           <span class="gitrepos-badge gitrepos-badge-${escapeAttr(r.state)}">${escapeHtml(_gitreposStateLabel(r.state))}</span>
         </button>`).join('')}</div>
     </div>`
   }).join('')
+  _gitreposBrowseShowHint()
 }
 
 async function loadGitReposPage() {
@@ -46323,9 +46451,34 @@ function _gitreposRenderCommitPush(data) {
 document.addEventListener('click', async (ev) => {
   const open = ev.target.closest('[data-gitrepo-open]')
   if (open) {
-    // A meglevo Intezoben nyitjuk meg, ugyanazon a bekotott uton, amit a
-    // szinkron adott vissza. Nem uj klon, nem masolat.
+    // Boss, TG 8228: a tarolo tartalma ITT alul nyiljon meg, intezo-szeruen.
+    // Ugyanarra a sorra ujra kattintva becsukodik. Az Intezobe a betekinto
+    // "Megnyitás az Intézőben" gombja visz.
     const rel = open.getAttribute('data-gitrepo-open') || ''
+    if (_gitreposBrowse.root === rel) _gitreposBrowseClose()
+    else await _gitreposBrowseOpen(rel, rel)
+    return
+  }
+  const browse = ev.target.closest('[data-gitrepo-browse]')
+  if (browse && _gitreposBrowse.root) {
+    ev.preventDefault()
+    await _gitreposBrowseOpen(_gitreposBrowse.root, browse.getAttribute('data-gitrepo-browse') || _gitreposBrowse.root)
+    return
+  }
+  const file = ev.target.closest('[data-gitrepo-file]')
+  if (file) {
+    await _gitreposOpenFile(file.getAttribute('data-gitrepo-file') || '')
+    return
+  }
+  if (ev.target.closest('#gitreposBrowserUp') && _gitreposBrowse.root) {
+    const here = _gitreposBrowse.rel
+    const parent = here.includes('/') ? here.slice(0, here.lastIndexOf('/')) : _gitreposBrowse.root
+    await _gitreposBrowseOpen(_gitreposBrowse.root, parent)
+    return
+  }
+  if (ev.target.closest('#gitreposBrowserClose')) { _gitreposBrowseClose(); return }
+  if (ev.target.closest('#gitreposBrowserIntezo') && _gitreposBrowse.root) {
+    const rel = _gitreposBrowse.rel
     switchPage('intezo')
     if (typeof _intezoOpen === 'function') await _intezoOpen(rel)
     return

@@ -12279,6 +12279,21 @@ details.upstream-box > summary > h4 {
 .gitrepos-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .gitrepos-row-name { font-weight: 600; font-size: 13px; }
 .gitrepos-row-msg { font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-row-where { font-size: 12px; color: var(--text-dim, #6b7280); overflow-wrap: anywhere; text-align: left; }
+.gitrepos-row.is-open { outline: 2px solid var(--accent, #2563eb); outline-offset: -2px; }
+.gitrepos-browser { margin-top: 14px; }
+.gitrepos-browser[hidden] { display: none; }
+.gitrepos-browser-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; }
+.gitrepos-browser-crumbs { font-size: 13px; overflow-wrap: anywhere; min-width: 0; flex: 1 1 260px; }
+.gitrepos-browser-where { color: var(--text-dim, #6b7280); }
+.gitrepos-browser-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.gitrepos-browser-list { display: flex; flex-direction: column; gap: 2px; max-height: 55vh; overflow: auto; }
+.gitrepos-browser-row { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.gitrepos-browser-row:hover { background: var(--bg-hover, #f3f4f6); }
+.gitrepos-browser-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.gitrepos-browser-size { flex: 0 0 auto; font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-browser-msg, .gitrepos-browser-note, .gitrepos-browser-hint { font-size: 13px; color: var(--text-dim, #6b7280); margin: 8px 0; }
+.gitrepos-browser-err { color: var(--danger, #d33); }
 .gitrepos-badge { flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .gitrepos-badge-current { background: #ecfdf5; color: #047857; }
 .gitrepos-badge-updated { background: #eff6ff; color: #1d4ed8; }
