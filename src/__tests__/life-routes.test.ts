@@ -949,3 +949,82 @@ describe('GET /api/life/media-targets -- "Athelyezes szemelyhez" celjai (#381)',
     expect(again.exists.photos).toBe(true)
   })
 })
+
+// #510 (Boss, TG 2490): renaming a folder that has a link in it was refused
+// with "remove the link first". The rename is free now, and every registry
+// that knows the folder by path follows it.
+describe('POST /api/life/rename -- the links and the backup rule follow (#510)', () => {
+  const rename = async (rel: string, name: string) => {
+    const { ctx, out } = ctxFor('/api/life/rename', 'POST', { rel, name })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+  const mounts = async (): Promise<Array<{ rel: string; target: string }>> => {
+    const { listMounts } = await import('../life-mounts.js')
+    return listMounts().map((m) => ({ rel: m.rel, target: m.target }))
+  }
+  const setup = async (p: string) => {
+    mkdirSync(join(depot, `${p}Tarolo`, 'belso'), { recursive: true })
+    writeFileSync(join(depot, `${p}Tarolo`, 'belso', 'irat.txt'), 'x')
+    mkdirSync(join(depot, `${p}Ceg`, 'Iratok'), { recursive: true })
+    writeFileSync(join(depot, `${p}Ceg`, 'Iratok', 'szamla.pdf'), 'pdf')
+    const add = ctxFor('/api/life/mounts', 'POST', { rel: `${p}Ceg/Fejlesztes/Kotes`, target: `${p}Tarolo` })
+    await tryHandleLife(add.ctx)
+    expect(add.out.body.ok).toBe(true)
+  }
+
+  it('a folder with a link inside is renamed, and the link shows under the new name', async () => {
+    await setup('RnA')
+    const { setBackupRule, loadBackupRules } = await import('../backup-rules.js')
+    setBackupRule({ path: 'RnACeg', target: { kind: 'drive', account: 'teszt' } })
+    setBackupRule({ path: 'RnACeg/Iratok', target: null })
+
+    const out = await rename('RnACeg', 'RnAUjnev')
+    expect(out.body.ok).toBe(true)
+    expect(out.body.rel).toBe('RnAUjnev')
+    expect(existsSync(join(depot, 'RnAUjnev', 'Iratok', 'szamla.pdf'))).toBe(true)
+    expect(existsSync(join(depot, 'RnACeg'))).toBe(false)
+    // the link follows, its target does not move
+    expect(await mounts()).toContainEqual({ rel: 'RnAUjnev/Fejlesztes/Kotes', target: 'RnATarolo' })
+    expect((await mounts()).some((m) => m.rel.startsWith('RnACeg'))).toBe(false)
+    expect(existsSync(join(depot, 'RnATarolo', 'belso', 'irat.txt'))).toBe(true)
+    // and it is still reachable THROUGH the renamed folder
+    const list = ctxFor('/api/life/list?path=' + encodeURIComponent('RnAUjnev/Fejlesztes/Kotes'), 'GET')
+    await tryHandleLife(list.ctx)
+    expect((list.out.body.folders as Array<{ name: string }>).map((f) => f.name)).toContain('belso')
+    // the backup rules protect the folder under its new name
+    const paths = loadBackupRules().rules.map((r) => r.path)
+    expect(paths).toContain('RnAUjnev')
+    expect(paths).toContain('RnAUjnev/Iratok')
+    expect(paths.some((x) => x.startsWith('RnACeg'))).toBe(false)
+  })
+
+  it('the linked folder itself is renamed where it SHOWS -- the store behind it is not touched', async () => {
+    await setup('RnB')
+    const out = await rename('RnBCeg/Fejlesztes/Kotes', 'Tarolok')
+    expect(out.body.ok).toBe(true)
+    expect(out.body.rel).toBe('RnBCeg/Fejlesztes/Tarolok')
+    expect(await mounts()).toContainEqual({ rel: 'RnBCeg/Fejlesztes/Tarolok', target: 'RnBTarolo' })
+    // the real store kept its name and its content
+    expect(existsSync(join(depot, 'RnBTarolo', 'belso', 'irat.txt'))).toBe(true)
+    expect(existsSync(join(depot, 'RnBCeg', 'Fejlesztes', 'Tarolok'))).toBe(true)
+    expect(existsSync(join(depot, 'RnBCeg', 'Fejlesztes', 'Kotes'))).toBe(false)
+  })
+
+  it('a name that is taken is refused, nothing moves', async () => {
+    await setup('RnC')
+    mkdirSync(join(depot, 'RnCCeg', 'Fejlesztes', 'Foglalt'), { recursive: true })
+    const out = await rename('RnCCeg/Fejlesztes/Kotes', 'Foglalt')
+    expect(out.body.ok).toBe(false)
+    expect(out.body.code).toBe('exists')
+    expect(await mounts()).toContainEqual({ rel: 'RnCCeg/Fejlesztes/Kotes', target: 'RnCTarolo' })
+  })
+
+  it('the TARGET of a link still cannot be renamed -- the links could not follow it', async () => {
+    await setup('RnD')
+    const out = await rename('RnDTarolo', 'Masnev')
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('is_target')
+    expect(existsSync(join(depot, 'RnDTarolo', 'belso', 'irat.txt'))).toBe(true)
+  })
+})

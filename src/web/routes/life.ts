@@ -77,6 +77,7 @@ import {
 import { contentDispositionHeader } from './drive-browser.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount, mountsOverview, updateMountNote } from '../../life-mounts.js'
+import { followFolderMove, renameMountPoint } from '../../life-follow.js'
 import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
@@ -705,6 +706,22 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     return null
   }
+  // Miert nem sikerult egy BEKOTOTT mappa atnevezese -- ember-mondattal (#510).
+  const mountRenameMsg = (r: { code: string; detail?: string }, lang: string): string => {
+    switch (r.code) {
+      case 'bad_name': return T(lang, 'Adj meg egy nevet, per-jel nélkül.', 'Type a name, without a slash.')
+      case 'same': return T(lang, 'Ez már most is ez a név.', 'That is already its name.')
+      case 'exists': return T(lang, `Már van itt ilyen nevű: ${r.detail ?? ''}. Nem írom felül.`, `Something called ${r.detail ?? ''} is already here. I will not overwrite it.`)
+      case 'not_empty': return T(lang,
+        'Ebben a bekötött mappában a bekötés mellett saját fájlok is vannak, ezért nem nevezem át: a fájlok az új néven eltűnnének a bekötés mögött. Előbb vidd át őket máshova.',
+        'This linked folder also holds files of its own next to the link, so I will not rename it: those files would disappear behind the link under the new name. Move them elsewhere first.')
+      case 'foreign_link': return T(lang,
+        'Ezen a helyen egy olyan hivatkozás áll, amit nem a Marveen hozott létre, ezért nem nyúlok hozzá.',
+        'There is a link at this place that Marveen did not create, so I will not touch it.')
+      case 'no_depot': return T(lang, 'A Raktár nincs beállítva, vagy most nem érhető el, ezért nem tudom átnevezni.', 'The Depot is not set up or is not reachable right now, so I cannot rename it.')
+      default: return T(lang, `Nem sikerült átnevezni: ${r.detail ?? r.code}`, `Could not rename it: ${r.detail ?? r.code}`)
+    }
+  }
   const mountedMsg = (lang: string): string => T(lang,
     'Ez a mappa be van kötve máshova, csak MUTAT egy másik helyre. Előbb szüntesd meg a bekötést a „Mit mutasson ez a mappa?" résznél, '
       + 'aztán mozgasd vagy nevezd át — a bekötés az útvonalra szól, új helyen nem találna rá.',
@@ -859,16 +876,33 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
       return true
     }
-    // Egy BEKOTOTT mappa atnevezese elszakitana a bekotestol: a bekotes az
-    // UTVONALRA szol, az uj neven mar nem talalna meg. Inkabb megmondjuk.
-    if (listMounts().some((m) => m.rel === rel)) {
-      send(res, 400, { ok: false, rel: '', code: 'mounted', message: mountedMsg(lang) })
+    const relKey = rel.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    // #510: az atnevezes SZABAD akkor is, ha a mappa bekotott, vagy bekotes
+    // van benne -- a nyilvantartasok (bekotes, mentesi szabaly, projekt
+    // mappa-utja, fokonyv) kovetik (src/life-follow.ts). Korabban itt "elobb
+    // szuntesd meg a bekotest" allt, mert a bekotes az UTVONALRA szolt es
+    // senki nem vitte utana. Ami MARAD: a bekotes CELJAT (a tarolot) atnevezni
+    // tovabbra sem engedjuk, azt a mutatok nem tudnak kovetni.
+    const baj = bekotesOrzo(relKey, lang)
+    if (baj && baj.code !== 'has_mounts') { send(res, 400, { ok: false, rel: '', ...baj }); return true }
+    await writePendingItemSnapshots()
+    if (listMounts().some((m) => m.rel === relKey)) {
+      // A BEKOTOTT mappa maga: csak a HELYET nevezzuk at, ahol latszik -- a
+      // `renameLife` a mogotte allo tarolot (pl. egy egesz repot) nevezne at.
+      const r = renameMountPoint(relKey, String(body?.name ?? ''))
+      if (r.ok) {
+        send(res, 200, { ok: true, rel: r.rel, message: T(lang, `Új neve: ${r.name}`, `Its new name: ${r.name}`) })
+        followWorkItems()
+      } else {
+        send(res, 200, { ok: false, rel: r.code === 'same' ? relKey : '', code: r.code, message: mountRenameMsg(r, lang) })
+      }
       return true
     }
-    const baj = bekotesOrzo(rel, lang)
-    if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    await writePendingItemSnapshots()
     const renamed = renameLife(rel, String(body?.name ?? ''), lang)
+    if ((renamed as { ok?: boolean }).ok) {
+      const ujRel = String((renamed as { rel?: string }).rel ?? '')
+      if (ujRel) followFolderMove(relKey, ujRel)
+    }
     send(res, 200, renamed)
     if ((renamed as { ok?: boolean }).ok) followWorkItems()
     return true
