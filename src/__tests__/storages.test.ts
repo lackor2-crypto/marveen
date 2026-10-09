@@ -200,14 +200,13 @@ describe('regiszter beolvasasa', () => {
   })
 })
 
-describe('ensureStorageFolders -- minden bekotott fioknak legyen helye', () => {
-  it('a hianyzo Drive/Fotok mappat letrehozza, a meglevohoz nem nyul', () => {
+describe('ensureStorageFolders -- ures fiok-mappat NEM gyart (#513)', () => {
+  it('bekotott fioknak sem hoz letre ures mappat, a meglevohoz nem nyul', () => {
     mk(DEPOT_DRIVE + '/lackor2')
     writeFileSync(join(root, DEPOT_DRIVE, 'lackor2', 'megvan.txt'), 'ertekes')
     const r = listStorages({ driveAccounts: ['lackor2', 'ujfiok'], photosAccounts: ['lackor2'], root })
-    const keszult = ensureStorageFolders(r.rows)
-    expect(keszult).toContain(DEPOT_DRIVE + '/ujfiok')
-    expect(existsSync(join(root, DEPOT_DRIVE, 'ujfiok'))).toBe(true)
+    expect(ensureStorageFolders(r.rows)).toEqual([])
+    expect(existsSync(join(root, DEPOT_DRIVE, 'ujfiok'))).toBe(false)
     // a meglevo tartalom sertetlen
     expect(readFileSync(join(root, DEPOT_DRIVE, 'lackor2', 'megvan.txt'), 'utf8')).toBe('ertekes')
   })

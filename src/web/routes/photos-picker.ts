@@ -580,6 +580,11 @@ function mirrorIndexToDepot(text: string): void {
   if (!root) return
   try {
     const dir = join(root, DEPOT_SYSTEM)
+    // No photo, no copy: an empty list must not keep a `GOOGLE_PHOTOS` folder
+    // alive in the depot with a two-byte file in it (#513).
+    let empty = false
+    try { const d = JSON.parse(text); empty = Array.isArray(d) && d.length === 0 } catch { empty = false }
+    if (empty) { rmSync(join(dir, 'fotok-index.json'), { force: true }); return }
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'fotok-index.json'), text)
   } catch { /* a depo eppen nem erheto el -- a valodi index mar kiirodott */ }
