@@ -203,3 +203,14 @@ describe('emlekezteto: a felulet', () => {
     await vi.waitFor(() => expect(h.toasts.join('|')).toContain('Nincs csatorna'))
   })
 })
+
+// Found on an empty instance while testing #520 (2026-10-09): the reminder timer runs on
+// every install, also on one where the Workbench was never opened -- and there the query
+// failed with "no such table: work_items", logged on every run.
+describe('the reminder on an install where the Workbench was never opened', () => {
+  it('finds nothing due, and does not fail', async () => {
+    initDatabase(':memory:')
+    expect(dueReminders(new Date())).toEqual([])
+    await expect(runTodoReminders(new Date())).resolves.not.toThrow()
+  })
+})

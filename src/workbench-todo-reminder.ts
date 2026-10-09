@@ -20,6 +20,7 @@
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { ensureTodoTable } from './workbench-todos.js'
+import { ensureProjectTables } from './projects.js'
 import { ownerChannelReady, sendOwnerChannelChecked } from './notify.js'
 
 export interface ReminderSettings {
@@ -148,6 +149,8 @@ export interface DueReminderRow {
  */
 export function dueReminders(now = new Date(), settings = getReminderSettings()): DueReminderRow[] {
   ensureTodoTable()
+  // The query joins `projects` as well: on an install with no project yet that table is not there either.
+  ensureProjectTables()
   return getDb().prepare(`
     SELECT t.id, t.text, t.due_date, p.name AS project_name, COALESCE(w.title, '') AS item_title
       FROM work_item_todos t
