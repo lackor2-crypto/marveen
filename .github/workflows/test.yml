@@ -45,9 +45,17 @@ jobs:
       # had no ffmpeg -- the photos-picker thumbnail tests failed with
       # "spawn ffmpeg ENOENT" (5 tests). Same install step as ci.yml.
       - name: Install ffmpeg
+        # On a FORK ci.yml already runs the type check and the whole suite (on
+        # both Node versions) for the same commit, so repeating them here only
+        # doubles the runner minutes -- GitHub switched a fork's workflows off
+        # for exactly that ("because of its Actions usage", 2026-10-09). The
+        # script tests below run nowhere else, so they stay on every repository.
+        if: github.event.repository.fork != true
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-deu libreoffice-writer-nogui fonts-liberation
       - run: npm run typecheck
+        if: github.event.repository.fork != true
       - run: npm test
+        if: github.event.repository.fork != true
       # Shell-test wiring (SEEDREFRESH826 fold-in, from the #1066 verify): a
       # regression guard that only runs manually rots exactly like a one-shot
       # seed. Runs natively here (ubuntu = the Linux branch it asserts).
