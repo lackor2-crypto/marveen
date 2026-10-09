@@ -3661,7 +3661,7 @@ window._i18n.hu = {
 
   // --- Fotók (Google Fotók, Picker) ---
   'photos.page_title':         'Fotók',
-  'photos.page_subtitle':      'A Google Fotókból behozott képek és videók',
+  'photos.page_subtitle':      'A Google Fotókból kiválasztott képek és videók. Maguk a fájlok az Életfában vannak, abban a mappában, ami a kép alatt áll.',
   'photos.add_btn':            'Képek hozzáadása',
   'photos.empty_msg':          'Még nincs itt egy kép sem',
   'photos.empty_hint':         'Nyomd meg a „Képek hozzáadása" gombot, és válassz a Google Fotókból.',
@@ -3741,6 +3741,10 @@ window._i18n.hu = {
   'photos.dest.err_dest_trash': 'A Kukába nem töltök le képet. Válassz másik mappát.',
   'photos.dest.err_dest_in_repo': 'Ez a mappa egy git-tároló belsejében van, oda nem töltök le képet. Válassz másik mappát.',
   'photos.result.dest': 'Ide kerültek: {where}.',
+  'photos.remove_confirm_life': 'Eltávolítod ezt a képet? A fájl az Életfa Kukájába kerül (onnan visszahozható). Most itt van: {where}. A Google Fotókban megmarad.',
+  'photos.remove_confirm_linked': 'Leveszed ezt a képet erről az oldalról? A fájl a helyén marad ({where}), nem nyúlok hozzá, és a Google Fotókban is megmarad.',
+  'photos.review.go_none': 'Rendben, mutasd őket a Fotók oldalon',
+  'photos.tile.where': 'Itt van: {where}',
   'photos.review.title': 'Hova kerüljenek a kiválasztott képek?',
   'photos.review.help': 'Minden kép mellett ott áll, hova tenném az Életfában. Amit innen töltöttél fel, annál a régi helyét ajánlom fel; amit már letöltöttél egyszer, annál az akkor választott mappát. Bármelyiknél választhatsz másik mappát. Amíg nem nyomod meg a „Letöltés” gombot, semmi nem töltődik le.',
   'photos.review.empty': 'Nem választottál ki egy képet sem.',

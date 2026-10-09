@@ -257,3 +257,36 @@ describe('each photo goes into the folder chosen for IT', () => {
     expect(rememberedPhotoPlace('acc', 'a2')).toBe(OTHER)
   })
 })
+
+// Owner, 2026-10-09 (TG 8417): two photos picked, one came down and showed on
+// the page, his own -- already in its folder -- did not. "Nincs konzisztencia."
+describe('a picked photo that is already on this machine still gets onto the page', () => {
+  const place = () => ({ lifeRel: DEST, file: 'sajat.jpg', bytes: 5 })
+
+  it('nothing is downloaded, the row points at the file that is there, and the file is untouched', async () => {
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    bytesOf = { u1: 'masik' }
+    const r = await downloadPickedToLife([item('u1', 'sajat.jpg')], 'acc', 'tok', '', { ...deps(), placeFor: place, destFor: () => null })
+    expect(r).toMatchObject({ saved: 0, already: 1, failed: 0 })
+    expect(asked).toEqual([])
+    const row = loadLifeIndex().find((p) => p.id === 'u1')!
+    expect(row).toMatchObject({ lifeRel: DEST, file: 'sajat.jpg', bytes: 5, linked: true })
+    expect(row.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(readFileSync(join(destDir(), 'sajat.jpg'), 'utf8')).toBe('regi!')
+  })
+
+  it('picking it again does not add a second row', async () => {
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    await downloadPickedToLife([item('u1', 'sajat.jpg')], 'acc', 'tok', '', { ...deps(), placeFor: place, destFor: () => null })
+    await downloadPickedToLife([item('u1', 'sajat.jpg')], 'acc', 'tok', '', { ...deps(), placeFor: place, destFor: () => null })
+    expect(loadLifeIndex().filter((p) => p.id === 'u1')).toHaveLength(1)
+  })
+
+  it('taking such a photo off the page never moves the owner\'s file to the trash', async () => {
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    await downloadPickedToLife([item('u1', 'sajat.jpg')], 'acc', 'tok', '', { ...deps(), placeFor: place, destFor: () => null })
+    expect(removeLifePhoto('u1', 'acc')).toEqual({ ok: true, trashed: false })
+    expect(existsSync(join(destDir(), 'sajat.jpg'))).toBe(true)
+    expect(loadLifeIndex()).toEqual([])
+  })
+})

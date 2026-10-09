@@ -21,7 +21,7 @@
 //     file is not in it. An unreachable folder concludes nothing.
 
 import { createHash, randomBytes } from 'node:crypto'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -45,6 +45,12 @@ export interface LifePhoto {
   bytes: number
   sha256: string
   savedAt: string
+  /**
+   * The file was NOT brought down by this program: the row only points at a file the owner already
+   * had (picked in Google Photos, found unchanged in its folder). Taking such a row off the page
+   * never touches the file.
+   */
+  linked?: boolean
 }
 
 const DIR = join(PROJECT_ROOT, 'store', 'photos')
@@ -226,6 +232,13 @@ export interface LifeDownloadDeps {
   destFor?: (item: { id: string; filename: string }) => string | null
 }
 
+function hashFile(file: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const h = createHash('sha256')
+    createReadStream(file).on('data', (c) => h.update(c)).on('error', reject).on('end', () => resolve(h.digest('hex')))
+  })
+}
+
 async function streamToFileHashed(body: unknown, dest: string): Promise<{ hash: string; bytes: number }> {
   const hash = createHash('sha256')
   let bytes = 0
@@ -283,7 +296,24 @@ export async function downloadPickedToLife(
           const there = join(home.abs, place.file)
           let same = false
           try { same = statSync(there).isFile() && statSync(there).size === place.bytes } catch { same = false }
-          if (same) { r.already++; continue }
+          if (same) {
+            // Picked in Google Photos and already on this machine: nothing comes down, but the
+            // page shows it -- a row that points at the file that is there (owner, TG 8417:
+            // "az en fotom [...] itt meg kene hogy jelenjen").
+            // The real hash, so the thumbnail of this file never collides with a same-named one elsewhere.
+            let sum = ''
+            try { sum = await hashFile(there) } catch { sum = '' }
+            index.push({
+              id, account, lifeRel: home.rel, file: place.file, mimeType,
+              createdTime: typeof raw.createTime === 'string' ? raw.createTime : '',
+              width: Number(meta.width) || 0, height: Number(meta.height) || 0, isVideo,
+              bytes: place.bytes, sha256: sum, savedAt: new Date().toISOString(), linked: true,
+            })
+            known.add(id)
+            saveLifeIndex(index)
+            r.already++
+            continue
+          }
           wantName = place.file
         }
         itemDir = home.abs
@@ -351,7 +381,8 @@ export function removeLifePhoto(id: string, account: string): { ok: true; trashe
   const rest = index.filter((p) => !(p.id === id && p.account === account))
   const stillUsed = rest.some((p) => p.lifeRel === entry.lifeRel && p.file === entry.file)
   let trashed = false
-  if (!stillUsed) {
+  // A linked row never owned the file: only the row goes.
+  if (!stillUsed && !entry.linked) {
     const abs = lifePhotoPath(entry)
     if (abs && existsSync(abs)) {
       const t = trashLife(`${entry.lifeRel}/${entry.file}`)
