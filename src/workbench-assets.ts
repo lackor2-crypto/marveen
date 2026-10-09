@@ -28,7 +28,7 @@
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
@@ -41,7 +41,7 @@ import { isCanvasFile } from './workbench-graphic.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
-import { SNAPSHOT_FILE } from './workbench-snapshot.js'
+import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -200,7 +200,7 @@ export function projectMaterialsFolder(project: ProjectRow): SharedFolderOutcome
   return projectNamedFolder(project, 'moreMaterial')
 }
 
-function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMaterial'): SharedFolderOutcome {
+function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMaterial' | 'knowledgeBase'): SharedFolderOutcome {
   ensureAssetTables()
   const root = projectFileTarget(project, '')
   if (!root.ok) return root
@@ -1467,7 +1467,7 @@ export function workbenchPlace(project: ProjectRow, item: WorkItemRow | null, pl
 /** Moves the work item's source file(s) (the current one and the ones its versions point at) into the project folder
  *  `folderRel`/`folderAbs` and repoints the registry in ONE transaction. A file another item uses, a file that is gone,
  *  one outside the project and one already there are skipped (and reported). Shared by the tidy and the item move. */
-function relocateItemFiles(item: WorkItemRow, project: ProjectRow, folderRel: string, folderAbs: string):
+function relocateItemFiles(item: WorkItemRow, project: ProjectRow, folderRel: string, folderAbs: string, keepUnder?: string):
   { ok: true; moved: { from: string; to: string }[]; skipped: { path: string; reason: 'shared' | 'missing' | 'outside' | 'already' }[] } | { ok: false; code: 'move_failed'; message?: string } {
   const target = { dirRel: folderRel, dirAbs: folderAbs }
   const db = getDb()
@@ -1480,6 +1480,8 @@ function relocateItemFiles(item: WorkItemRow, project: ProjectRow, folderRel: st
   const skipped: { path: string; reason: 'shared' | 'missing' | 'outside' | 'already' }[] = []
   for (const p of paths) {
     if (p === folderRel || p.startsWith(folderRel + '/')) { skipped.push({ path: p, reason: 'already' }); continue }
+    // The caller moves this folder as a whole: what is inside it already travels with the item.
+    if (keepUnder && p.startsWith(keepUnder + '/')) { skipped.push({ path: p, reason: 'already' }); continue }
     if (!projectRelative(project, p)) { skipped.push({ path: p, reason: 'outside' }); continue }
     const other = db.prepare(`SELECT 1 FROM work_items WHERE source_path = ? AND id != ?
       UNION SELECT 1 FROM work_item_versions WHERE source_path = ? AND work_item_id != ? LIMIT 1`).get(p, item.id, p, item.id)
@@ -2243,13 +2245,15 @@ export type ProjectItemsMove =
   | { ok: false; code: 'no_target_folder' | 'move_failed'; moved: number; message?: string }
 
 /**
- * #509 (Boss TG 2914, A): a project merged into another takes its Workbench items along. Every live item's
- * own folder moves into the target project's "Munkadarabok" box (a taken name becomes `name (2)`, nothing is
- * overwritten), a folderless item's own files go straight into the box (moving never makes a folder, TG 2516),
- * and every registry path follows (rehomeWorkItem / relocateItemFiles). Items in the bin only change project:
- * their files are not touched. Nothing is deleted. An item folder nested in an already moved one just follows
- * its parent. On the first failure it stops: the items moved so far are complete in the target, the rest stay
- * complete in the source, so a retry continues where it stopped.
+ * #509 (Boss TG 2914, A): a project merged into another takes its Workbench items along. A folder of the source
+ * box that holds items -- an item's own folder, a group ("Wohngeld 2026") with its items, the folder a new table
+ * was made in -- moves into the target project's "Munkadarabok" box as ONE unit, so its structure survives (a
+ * taken name becomes `name (2)`, nothing is overwritten); every registry path under it follows (rewriteFolderRefs).
+ * An own folder outside the box moves into the box the same way. A file of a grouped item that lies outside its
+ * folder is put next to the item first. An item with no folder at all has its files go straight into the box
+ * (moving never makes a folder, TG 2516). Items in the bin only change project. Nothing is deleted. On the first
+ * failure it stops: the items moved so far are complete in the target, the rest stay complete in the source, so
+ * a retry continues where it stopped.
  */
 export function moveProjectWorkItems(source: ProjectRow, target: ProjectRow): ProjectItemsMove {
   ensureAssetTables()
@@ -2261,23 +2265,44 @@ export function moveProjectWorkItems(source: ProjectRow, target: ProjectRow): Pr
     ensureProjectHasFolder(target)
     const box = projectWorkItemsFolder(target)
     if (!box.ok) return { ok: false, code: 'no_target_folder', moved: 0, ...(box.message ? { message: box.message } : {}) }
-    // Parents first, so a nested item folder finds its parent already moved.
-    live.sort((a, b) => (a.folder ?? '').split('/').length - (b.folder ?? '').split('/').length)
-    const done: { oldRel: string; newRel: string; oldDepot: string; newDepot: string }[] = []
+    // Where the item is listed, and the folder that moves with it: the top folder of the source box above that
+    // place. Moving each item's own folder alone pulled it out of its group (and a new table's file out of its
+    // folder), leaving the group behind half-empty (fresh-install re-check).
+    const srcBox = findWorkItemsBox(source)
+    const srcRoot = (source.folder_path ?? '').replace(/\/+$/, '')
+    // An item made from a file (#474) is placed by its file: it stays next to it (#868).
+    const fileDir = (sp: string | null): string => {
+      if (!sp || !srcRoot || !sp.startsWith(srcRoot + '/')) return ''
+      const rel = sp.slice(srcRoot.length + 1)
+      return rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+    }
+    const place = (it: WorkItemRow): string => it.folder || (it.container_folder && it.container_folder !== PROJECT_ROOT_PLACE ? it.container_folder : '') || (it.container_folder ? '' : fileDir(it.source_path))
+    const unitOf = (it: WorkItemRow): string | null => {
+      const p = place(it)
+      if (srcBox && p.startsWith(srcBox + '/')) return `${srcBox}/${p.slice(srcBox.length + 1).split('/')[0]}`
+      return it.folder || null
+    }
+    const under = (p: string, unit: string): boolean => p === unit || p.startsWith(unit + '/')
+    // Parents first, so an item folder nested in a moved one is already carried along.
+    live.sort((a, b) => (unitOf(a) ?? '').split('/').length - (unitOf(b) ?? '').split('/').length)
+    const handled = new Set<string>()
     for (const item of live) {
-      const own = item.folder || null
-      const cur = own ? projectFileTarget(source, own) : null
-      const parent = own ? done.find((d) => own.startsWith(d.oldRel + '/')) : undefined
-      if (own && parent) {
-        const newRel = parent.newRel + own.slice(parent.oldRel.length)
-        try {
-          rehomeWorkItem(item, source, target, newRel, { old: `${parent.oldDepot}${own.slice(parent.oldRel.length)}/`, new: `${parent.newDepot}${own.slice(parent.oldRel.length)}/` })
-        } catch (e) { return { ok: false, code: 'move_failed', moved, message: e instanceof Error ? e.message : String(e) } }
-        moved++
-        continue
-      }
-      if (own && cur && cur.ok && existsSync(cur.dirAbs) && statSync(cur.dirAbs).isDirectory()) {
-        const seg = own.includes('/') ? own.slice(own.lastIndexOf('/') + 1) : own
+      if (handled.has(item.id)) continue
+      const unit = unitOf(item)
+      const cur = unit ? projectFileTarget(source, unit) : null
+      if (unit && cur && cur.ok && existsSync(cur.dirAbs) && statSync(cur.dirAbs).isDirectory()) {
+        const members = live.filter((it) => !handled.has(it.id) && under(place(it), unit))
+        // A grouped item's file lying outside the folder goes next to the item BEFORE the folder moves, so a
+        // failure here leaves the source project complete.
+        for (const it of members) {
+          if (it.folder || !it.container_folder) continue
+          const t = projectFileTarget(source, it.container_folder)
+          if (!t.ok || !existsSync(t.dirAbs)) continue
+          const rl = relocateItemFiles(getWorkItem(it.id) ?? it, source, t.dirRel, t.dirAbs, cur.dirRel)
+          if (!rl.ok) return { ok: false, code: 'move_failed', moved, message: rl.message }
+          files += rl.moved.length
+        }
+        const seg = unit.includes('/') ? unit.slice(unit.lastIndexOf('/') + 1) : unit
         const newSeg = freeFileName(box.dirAbs, seg)
         const newAbs = join(box.dirAbs, newSeg)
         const blocked = writeBlockReason(box.dirRel)
@@ -2288,15 +2313,23 @@ export function moveProjectWorkItems(source: ProjectRow, target: ProjectRow): Pr
         const newRel = `${box.folder}/${newSeg}`
         const newDepot = toLifeRel(newAbs) || `${box.dirRel}/${newSeg}`
         try {
-          rehomeWorkItem(item, source, target, newRel, { old: cur.dirRel + '/', new: newDepot + '/' })
+          db.transaction(() => {
+            rewriteFolderRefs(source, unit, newRel, cur.dirRel + '/', newDepot + '/')
+            const now = Math.floor(Date.now() / 1000)
+            for (const it of members) {
+              const f = (getWorkItem(it.id) ?? it).folder
+              if (f) db.prepare('UPDATE work_items SET project_id = ?, container_folder = ?, updated_at = ? WHERE id = ?').run(target.id, f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : null, now, it.id)
+              else db.prepare('UPDATE work_items SET project_id = ?, updated_at = ? WHERE id = ?').run(target.id, now, it.id)
+            }
+          })()
         } catch (e) {
           try { renameSync(newAbs, cur.dirAbs) } catch { /* the error below still goes out */ }
           return { ok: false, code: 'move_failed', moved, message: e instanceof Error ? e.message : String(e) }
         }
-        db.prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND (path = ? OR path LIKE ?)').run(source.id, own, own + '/%')
-        done.push({ oldRel: own, newRel, oldDepot: cur.dirRel, newDepot })
+        db.prepare('DELETE FROM work_folder_ids WHERE project_id = ? AND (path = ? OR path LIKE ?)').run(source.id, unit, unit + '/%')
+        for (const it of members) handled.add(it.id)
         folders++
-        moved++
+        moved += members.length
         continue
       }
       // No folder of its own (or it is gone from the disk): its files go straight into the box.
@@ -2318,7 +2351,8 @@ export type ProjectLooseMove =
 
 /**
  * #509 (Boss TG 2948, A): a merged project's OTHER files (not part of any work item) go along too, so "everything
- * moves" is true. The source's "Tovabbi anyagok" content goes into the target's "Tovabbi anyagok", what is left in
+ * moves" is true. The source's "Tovabbi anyagok" content goes into the target's "Tovabbi anyagok" (its "Tudasbazis"
+ * into the target's "Tudasbazis", its hidden snapshot folder into the target's), what is left in
  * its "Munkadarabok" box goes into the target's box, every other file/folder of the project root goes into the
  * target's root under its own name. A taken name becomes `name (2)`; nothing is overwritten or deleted (only the
  * emptied source folders are removed). A folder that is (or holds) ANOTHER project's folder stays where it is, and
@@ -2349,6 +2383,8 @@ export function moveProjectLooseFiles(source: ProjectRow, target: ProjectRow): P
   const holdsOther = (rel: string) => others.some((o) => o === rel || o.startsWith(rel + '/'))
   const srcBox = projectNamedFolderIfExists(source, 'workItems')
   const srcMat = projectNamedFolderIfExists(source, 'moreMaterial')
+  // Every project folder is made with a "Tudasbazis" too: it joins the target's own, never "Tudasbazis (2)".
+  const srcKb = projectNamedFolderIfExists(source, 'knowledgeBase')
   let moved = 0
   const moveInto = (fromAbs: string, fromRel: string, toDirAbs: string): string | null => {
     if (holdsOther(fromRel)) { skipped.push(fromRel); return null }
@@ -2360,7 +2396,7 @@ export function moveProjectLooseFiles(source: ProjectRow, target: ProjectRow): P
   for (const name of entries) {
     const abs = join(src.dirAbs, name)
     const rel = `${srcRel}/${name}`
-    const merge = name === srcBox ? projectWorkItemsFolder(target) : name === srcMat ? projectMaterialsFolder(target) : null
+    const merge = name === srcBox ? projectWorkItemsFolder(target) : name === srcMat ? projectMaterialsFolder(target) : name === srcKb ? projectNamedFolder(target, 'knowledgeBase') : name === SNAPSHOT_FALLBACK_DIR ? snapshotDirOf(root.dirAbs) : null
     if (merge) {
       if (!merge.ok) return { ok: false, code: 'no_target_folder', moved, ...(merge.message ? { message: merge.message } : {}) }
       let inner: string[] = []
@@ -2379,8 +2415,15 @@ export function moveProjectLooseFiles(source: ProjectRow, target: ProjectRow): P
   return { ok: true, moved, skipped }
 }
 
-/** The name of the project's existing "Munkadarabok" / "Tovabbi anyagok" folder (either language), never creating one. */
-function projectNamedFolderIfExists(project: ProjectRow, key: 'workItems' | 'moreMaterial'): string | null {
+/** The target's hidden snapshot folder, so a merged project's snapshots join it instead of landing beside it as "(2)". */
+function snapshotDirOf(rootAbs: string): { ok: true; dirAbs: string } | { ok: false; message?: string } {
+  const dirAbs = join(rootAbs, SNAPSHOT_FALLBACK_DIR)
+  try { mkdirSync(dirAbs, { recursive: true }) } catch (e) { return { ok: false, message: e instanceof Error ? e.message : String(e) } }
+  return { ok: true, dirAbs }
+}
+
+/** The name of the project's existing "Munkadarabok" / "Tovabbi anyagok" / "Tudasbazis" folder (either language), never creating one. */
+function projectNamedFolderIfExists(project: ProjectRow, key: 'workItems' | 'moreMaterial' | 'knowledgeBase'): string | null {
   const root = projectFileTarget(project, '')
   if (!root.ok) return null
   for (const n of [lifeName(key), lifeName(key, APP_LANG === 'hu' ? 'en' : 'hu')]) {

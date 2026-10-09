@@ -5466,7 +5466,7 @@ window._i18n.hu = {
   "projects.delete.contents_note": "Visszafordíthatatlan: {cards} kártya és {ideas} ötlet végleg törlődik.",
   "projects.delete.work_items_block": "A projekt Munkapadján még {n} munkadarab van. Ezek valódi fájlok a projekt mappájában, ezért nem viszem át és nem törlöm őket magától: előbb a Munkapadon kezeld őket (Kuka vagy archiválás).",
   "projects.delete.work_items_merge": "A projekt {n} munkadarabja is átkerül: a mappáik a célprojekt Munkadarabok mappájába költöznek (ha a név foglalt, (2) jelzést kap), minden hivatkozás követi őket, semmi nem törlődik.",
-  "projects.delete.files_merge": "A projekt mappájának többi fájlja is átkerül: a „További anyagok” tartalma a célprojekt „További anyagok” mappájába, minden más mappa és fájl a célprojekt mappájába, a saját nevével (foglalt névnél (2) jelzést kap). Semmi nem törlődik.",
+  "projects.delete.files_merge": "A projekt mappájának többi fájlja is átkerül: a „További anyagok” tartalma a célprojekt „További anyagok” mappájába, a „Tudásbázis” tartalma a célprojekt „Tudásbázis” mappájába, minden más mappa és fájl a célprojekt mappájába, a saját nevével (foglalt névnél (2) jelzést kap). Semmi nem törlődik.",
   "projects.delete.merge_btn": "Összevonás",
   "projects.toast.deleted_full": "A(z) {name} projekt megszűnt ({n} kártya érintve).",
   "projects.move.btn": "Áthelyezés…",
