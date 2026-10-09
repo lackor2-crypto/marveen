@@ -13108,6 +13108,15 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 #intezoPage #intezoHelp > summary { font-size: 13px; }
 #intezoPage > .card { padding: 8px 12px; }
 #intezoPage .intezo-head { padding-top: 0; }
+/* The page sits higher: main's 32px top padding is dead space above the title (Boss, TG 2783). Only while
+   the Intezo page is the visible one. */
+@media (min-width: 769px) { main:has(#intezoPage:not([hidden])) { padding-top: 10px; } }
+/* The three header buttons are one tidy, equally styled group next to each other, not a small one and two
+   big ones at opposite ends of the row. */
+#intezoPage .page-header-row { justify-content: flex-start; align-items: center; gap: 24px; }
+@media (min-width: 769px) { #intezoPage .page-header-row { flex-wrap: nowrap; } #intezoPage .page-header-row > div:first-child { flex: 1 1 0; min-width: 0; } }
+#intezoPage .intezo-actions { flex-shrink: 0; gap: 6px; margin-left: auto; flex-wrap: nowrap; }
+#intezoPage .intezo-actions .btn-secondary { padding: 5px 12px; font-size: 12px; line-height: 1.3; white-space: nowrap; }
 #intezoPage .intezo-head > div { margin-bottom: 4px !important; gap: 6px !important; }
 #intezoPage .intezo-head .btn-secondary,
 #intezoPage .intezo-head .btn-danger,
