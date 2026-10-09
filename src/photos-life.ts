@@ -85,6 +85,38 @@ export function rememberLifeDest(account: string, rel: string): void {
   try { writeAtomic(LAST_DEST, JSON.stringify(all, null, 2)) } catch (err) { logger.warn({ err: String(err) }, '[photos-life] could not remember the chosen folder') }
 }
 
+const PLACE_MEMORY = join(DIR, 'place-memory.json')
+const PLACE_MEMORY_MAX = 50_000
+interface PlaceRow { account: string; id: string; lifeRel: string; at: string }
+
+function loadPlaceMemory(): PlaceRow[] {
+  try {
+    const j = JSON.parse(readFileSync(PLACE_MEMORY, 'utf8'))
+    return Array.isArray(j) ? j.filter((r) => r && typeof r.id === 'string' && typeof r.account === 'string' && typeof r.lifeRel === 'string') : []
+  } catch { return [] }
+}
+
+/**
+ * The folder the owner chose for ONE photo the last time it was downloaded (TG 8393: "file-onkent
+ * kell hogy megjegyezze hogy hova szeretnenk letolteni"). '' when nothing is remembered.
+ */
+export function rememberedPhotoPlace(account: string, id: string): string {
+  const row = loadPlaceMemory().find((r) => r.account === account && r.id === id)
+  return row ? norm(row.lifeRel) : ''
+}
+
+/** Remember the folder chosen per photo. One write for a whole batch. */
+export function rememberPhotoPlaces(account: string, places: Record<string, string>): void {
+  const ids = Object.keys(places).filter((id) => norm(places[id]))
+  if (!ids.length) return
+  const at = new Date().toISOString()
+  const rest = loadPlaceMemory().filter((r) => !(r.account === account && ids.includes(r.id)))
+  const all = [...rest, ...ids.map((id) => ({ account, id, lifeRel: norm(places[id]), at }))]
+  try { writeAtomic(PLACE_MEMORY, JSON.stringify(all.slice(-PLACE_MEMORY_MAX), null, 2)) } catch (err) {
+    logger.warn({ err: String(err) }, '[photos-life] could not remember the folders chosen per photo')
+  }
+}
+
 export type DestCheck = { ok: true; abs: string; rel: string } | { ok: false; code: 'needs_dest' | 'dest_not_in_tree' | 'dest_missing' | 'dest_trash' | 'dest_in_repo' }
 
 /** The chosen folder, checked: in the Life tree, exists, not the trash, not inside a git repository. */
@@ -170,6 +202,8 @@ export interface LifeDownloadResult {
   dest: string
   /** Items put back into the folder they were uploaded from, instead of the chosen one. */
   restored: number
+  /** How many new files went into which Life-tree folder (a batch can go to several). */
+  places: Record<string, number>
 }
 
 export interface LifeDownloadDeps {
@@ -185,6 +219,11 @@ export interface LifeDownloadDeps {
    * that folder instead of the chosen one. `bytes` lets an unchanged file be recognised without a download.
    */
   placeFor?: (item: { id: string; filename: string }) => { lifeRel: string; file: string; bytes: number } | null
+  /**
+   * The folder the owner chose for THIS item on the review list (TG 8393). It wins over everything
+   * else; an item without one falls back to `placeFor`, then to the batch folder.
+   */
+  destFor?: (item: { id: string; filename: string }) => string | null
 }
 
 async function streamToFileHashed(body: unknown, dest: string): Promise<{ hash: string; bytes: number }> {
@@ -203,15 +242,18 @@ async function streamToFileHashed(body: unknown, dest: string): Promise<{ hash: 
 export async function downloadPickedToLife(
   items: any[], account: string, token: string, destRel: string, deps: LifeDownloadDeps,
 ): Promise<LifeDownloadResult> {
+  // The batch folder is optional once every item brings its own (`destFor`).
   const chk = checkPhotoDest(destRel)
-  if (!chk.ok) throw Object.assign(new Error(chk.code), { code: chk.code })
-  const dir = chk.abs
+  if (!chk.ok && !(deps.destFor && !norm(destRel))) throw Object.assign(new Error(chk.code), { code: chk.code })
+  const dir = chk.ok ? chk.abs : ''
+  const batchRel = chk.ok ? chk.rel : ''
   const index = loadLifeIndex()
   const known = new Set(index.filter((p) => p.account === account).map((p) => p.id))
   const byHash = new Map<string, LifePhoto>()
   for (const p of index) if (p.sha256 && !byHash.has(p.sha256)) byHash.set(p.sha256, p)
-  const usedNow = new Set<string>()
-  const r: LifeDownloadResult = { saved: 0, failed: 0, duplicates: 0, cleaned: 0, selected: items.length, already: 0, dest: chk.rel, restored: 0 }
+  const usedByDir = new Map<string, Set<string>>()
+  const usedIn = (d: string): Set<string> => { let u = usedByDir.get(d); if (!u) { u = new Set(); usedByDir.set(d, u) } return u }
+  const r: LifeDownloadResult = { saved: 0, failed: 0, duplicates: 0, cleaned: 0, selected: items.length, already: 0, dest: batchRel, restored: 0, places: {} }
   for (const raw of items) {
     const id = typeof raw?.id === 'string' ? raw.id : ''
     const mf = raw?.mediaFile || {}
@@ -226,21 +268,34 @@ export async function downloadPickedToLife(
     // An item this program uploaded goes back where it came from. If the file is still there,
     // unchanged in size, it is simply "already here": nothing is downloaded.
     let itemDir = dir
-    let itemRel = chk.rel
+    let itemRel = batchRel
     let wantName = ''
-    const place = deps.placeFor ? deps.placeFor({ id, filename: typeof mf.filename === 'string' ? mf.filename : '' }) : null
-    if (place) {
-      const home = homeFolder(place.lifeRel)
+    const ident = { id, filename: typeof mf.filename === 'string' ? mf.filename : '' }
+    const place = deps.placeFor ? deps.placeFor(ident) : null
+    const chosen = norm(deps.destFor ? deps.destFor(ident) || '' : '')
+    // The chosen folder wins. The upload place applies when nothing was chosen, or when the
+    // owner chose exactly that folder (then the file keeps its name, and an unchanged one is skipped).
+    const target = chosen || (place ? norm(place.lifeRel) : '')
+    if (target) {
+      const home = homeFolder(target)
       if (home) {
-        const there = join(home.abs, place.file)
-        let same = false
-        try { same = statSync(there).isFile() && statSync(there).size === place.bytes } catch { same = false }
-        if (same) { r.already++; continue }
+        if (place && norm(place.lifeRel) === home.rel) {
+          const there = join(home.abs, place.file)
+          let same = false
+          try { same = statSync(there).isFile() && statSync(there).size === place.bytes } catch { same = false }
+          if (same) { r.already++; continue }
+          wantName = place.file
+        }
         itemDir = home.abs
         itemRel = home.rel
-        wantName = place.file
+      } else if (chosen) {
+        // The folder the owner named cannot be used (gone drive, trash, repository): this item
+        // does NOT quietly go somewhere else.
+        r.failed++
+        continue
       }
     }
+    if (!itemDir) { r.failed++; continue }
     // A hidden temporary name of our OWN making: it is the only file this run may ever remove.
     const part = join(itemDir, `.marveen-foto-${randomBytes(6).toString('hex')}.part`)
     try {
@@ -260,9 +315,10 @@ export async function downloadPickedToLife(
         saveLifeIndex(index)
         continue
       }
-      const file = freeName(itemDir, wantName || safeOriginalName(mf.filename, id, mimeType), itemDir === dir ? usedNow : new Set())
-      if (itemDir === dir) usedNow.add(file.toLowerCase())
-      else r.restored++
+      const file = freeName(itemDir, wantName || safeOriginalName(mf.filename, id, mimeType), usedIn(itemDir))
+      usedIn(itemDir).add(file.toLowerCase())
+      if (place && norm(place.lifeRel) === itemRel) r.restored++
+      r.places[itemRel] = (r.places[itemRel] || 0) + 1
       renameSync(part, join(itemDir, file))
       const entry: LifePhoto = {
         id, account, lifeRel: itemRel, file, mimeType,

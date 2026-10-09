@@ -204,3 +204,56 @@ describe('removing and following the disk', () => {
     expect(lastLifeDest('masik')).toBe('Család/Közös')
   })
 })
+
+// Owner, 2026-10-09 (TG 8393): "file-onkent kell hogy megjegyezze hogy hova
+// szeretnenk letolteni es file-onkent kell felajanlani". One batch, several
+// folders, and each photo remembers its own.
+describe('each photo goes into the folder chosen for IT', () => {
+  const OTHER = 'Család/Laura/Nyaralás'
+
+  it('one batch lands in two folders, and the result says how many went where', async () => {
+    mkdirSync(join(depot, ...OTHER.split('/')), { recursive: true })
+    bytesOf = { a1: 'egy', a2: 'ketto', a3: 'harom' }
+    const where: Record<string, string> = { a1: DEST, a2: OTHER, a3: OTHER }
+    const r = await downloadPickedToLife([item('a1', 'a.jpg'), item('a2', 'b.jpg'), item('a3', 'c.jpg')], 'acc', 'tok', '', { ...deps(), destFor: (it) => where[it.id] || null })
+    expect(r).toMatchObject({ saved: 3, failed: 0, places: { [DEST]: 1, [OTHER]: 2 } })
+    expect(readdirSync(destDir())).toEqual(['a.jpg'])
+    expect(readdirSync(join(depot, ...OTHER.split('/'))).sort()).toEqual(['b.jpg', 'c.jpg'])
+  })
+
+  it('a photo without a chosen folder and without a batch folder does not come down anywhere', async () => {
+    bytesOf = { a1: 'egy' }
+    const r = await downloadPickedToLife([item('a1', 'a.jpg')], 'acc', 'tok', '', { ...deps(), destFor: () => null })
+    expect(r).toMatchObject({ saved: 0, failed: 1 })
+    expect(asked).toEqual([])
+  })
+
+  it('a chosen folder that cannot be used fails that photo instead of sending it elsewhere', async () => {
+    bytesOf = { a1: 'egy' }
+    const r = await downloadPickedToLife([item('a1', 'a.jpg')], 'acc', 'tok', DEST, { ...deps(), destFor: () => trashRelPath() })
+    expect(r).toMatchObject({ saved: 0, failed: 1 })
+    expect(readdirSync(destDir())).toEqual([])
+  })
+
+  it('the chosen folder wins over the folder the photo was uploaded from', async () => {
+    mkdirSync(join(depot, ...OTHER.split('/')), { recursive: true })
+    bytesOf = { a1: 'egy' }
+    const r = await downloadPickedToLife([item('a1', 'a.jpg')], 'acc', 'tok', '', {
+      ...deps(), destFor: () => OTHER, placeFor: () => ({ lifeRel: DEST, file: 'eredeti.jpg', bytes: 3 }),
+    })
+    expect(r).toMatchObject({ saved: 1, restored: 0, places: { [OTHER]: 1 } })
+    expect(readdirSync(join(depot, ...OTHER.split('/')))).toEqual(['a.jpg'])
+  })
+
+  it('the folder chosen per photo is remembered per photo, and a later choice replaces it', async () => {
+    const { rememberedPhotoPlace, rememberPhotoPlaces } = await import('../photos-life.js')
+    expect(rememberedPhotoPlace('acc', 'a1')).toBe('')
+    rememberPhotoPlaces('acc', { a1: DEST, a2: OTHER })
+    expect(rememberedPhotoPlace('acc', 'a1')).toBe(DEST)
+    expect(rememberedPhotoPlace('acc', 'a2')).toBe(OTHER)
+    expect(rememberedPhotoPlace('masik', 'a1')).toBe('')
+    rememberPhotoPlaces('acc', { a1: OTHER })
+    expect(rememberedPhotoPlace('acc', 'a1')).toBe(OTHER)
+    expect(rememberedPhotoPlace('acc', 'a2')).toBe(OTHER)
+  })
+})

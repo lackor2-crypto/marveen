@@ -32,7 +32,7 @@ import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   loadLifeIndex, checkPhotoDest, downloadPickedToLife, removeLifePhoto, pruneLifePhotosMissing,
-  lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE,
+  lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE, rememberedPhotoPlace, rememberPhotoPlaces,
 } from '../../photos-life.js'
 import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, libraryApiOff, libraryApiEnableUrl, type UploadPlan, type UploadResult } from '../../photos-upload.js'
 import { googleOauthProjectId } from '../google-auth-runner.js'
@@ -1178,11 +1178,104 @@ async function downloadPickedNow(items: any[], account: string, token: string): 
   return { saved, failed, duplicates, cleaned: cleanup.dropped, selected: items.length, already }
 }
 
-/** sessionId -> the Life-tree folder chosen when that selection was started (#520). Bounded. */
-const sessionDests = new Map<string, string>()
-function rememberSessionDest(id: string, rel: string): void {
-  sessionDests.set(id, rel)
-  if (sessionDests.size > 200) sessionDests.delete(sessionDests.keys().next().value as string)
+// --- #520: the review list -- where each picked photo goes ------------------
+// The owner (TG 8389, TG 8393): the place is offered PER PHOTO, after the
+// selection. What this program uploaded is offered the folder it came from;
+// what was downloaded before is offered the folder chosen then; the rest has
+// no place until the owner gives one. Nothing comes down before that list is
+// approved.
+export interface ReviewRow {
+  id: string
+  filename: string
+  isVideo: boolean
+  /** Already in the Life tree (or in the old store): it will not be downloaded again. */
+  already: boolean
+  alreadyAt: string
+  /** The folder offered for this photo, and why. Null: the owner has to choose. */
+  proposal: { kind: 'uploaded' | 'remembered'; lifeRel: string } | null
+}
+
+export interface ReviewDeps {
+  lifeIds: Map<string, string>
+  oldIds: Set<string>
+  placeFor: (item: { id: string; filename: string }) => { lifeRel: string; file: string; bytes: number } | null
+  remembered: (id: string) => string
+  /** Is the uploaded file still in its folder, unchanged in size? */
+  unchangedThere: (place: { lifeRel: string; file: string; bytes: number }) => boolean
+}
+
+export function buildDownloadReview(items: any[], deps: ReviewDeps): ReviewRow[] {
+  const rows: ReviewRow[] = []
+  for (const raw of items) {
+    const id = typeof raw?.id === 'string' ? raw.id : ''
+    const mf = raw?.mediaFile || {}
+    const mimeType = typeof mf.mimeType === 'string' ? mf.mimeType : ''
+    if (!id) continue
+    const filename = typeof mf.filename === 'string' && mf.filename ? mf.filename : id.slice(0, 12)
+    const isVideo = mimeType.startsWith('video/') || !!mf.mediaFileMetadata?.videoMetadata
+    const row: ReviewRow = { id, filename, isVideo, already: false, alreadyAt: '', proposal: null }
+    if (deps.lifeIds.has(id)) { row.already = true; row.alreadyAt = deps.lifeIds.get(id) || '' }
+    else if (deps.oldIds.has(id)) row.already = true
+    else {
+      const place = deps.placeFor({ id, filename })
+      if (place && deps.unchangedThere(place)) { row.already = true; row.alreadyAt = place.lifeRel }
+      else if (place) row.proposal = { kind: 'uploaded', lifeRel: place.lifeRel }
+      else {
+        const rel = deps.remembered(id)
+        if (rel) row.proposal = { kind: 'remembered', lifeRel: rel }
+      }
+    }
+    rows.push(row)
+  }
+  return rows
+}
+
+function reviewDepsFor(account: string): ReviewDeps {
+  return {
+    lifeIds: new Map(loadLifeIndex().filter((p) => p.account === account).map((p) => [p.id, p.lifeRel] as [string, string])),
+    oldIds: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
+    placeFor: (it) => uploadedPlaceFor(account, it),
+    remembered: (id) => rememberedPhotoPlace(account, id),
+    unchangedThere: (place) => {
+      const abs = lifePhotoPath(place)
+      try { return !!abs && statSync(abs).isFile() && statSync(abs).size === place.bytes } catch { return false }
+    },
+  }
+}
+
+/** account:sessionId -> the picked items, kept while the owner looks at the list. Bounded, short-lived. */
+const pickedForReview = new Map<string, { at: number; items: any[]; partial: boolean }>()
+const REVIEW_TTL_MS = 55 * 60 * 1000 // Google's links die at 60 minutes
+function keepPicked(key: string, items: any[], partial: boolean): void {
+  pickedForReview.set(key, { at: Date.now(), items, partial })
+  if (pickedForReview.size > 20) pickedForReview.delete(pickedForReview.keys().next().value as string)
+}
+function keptPicked(key: string): { items: any[]; partial: boolean } | null {
+  const k = pickedForReview.get(key)
+  if (!k) return null
+  if (Date.now() - k.at > REVIEW_TTL_MS) { pickedForReview.delete(key); return null }
+  return k
+}
+
+/**
+ * Every photo that will come down must have a usable folder. The first one
+ * that does not is named, so the page can point at it.
+ */
+export function checkReviewPlaces(
+  rows: ReviewRow[], places: Record<string, unknown>,
+  check: (rel: unknown) => { ok: boolean; code?: string } = checkPhotoDest,
+): { ok: true } | { ok: false; code: string; file: string } {
+  for (const row of rows) {
+    if (row.already) continue
+    const rel = typeof places[row.id] === 'string' ? String(places[row.id]).trim() : ''
+    if (!rel) return { ok: false, code: 'place_missing', file: row.filename }
+    const chk = check(rel)
+    if (chk.ok) continue
+    // The folder a photo was uploaded from may be gone: it is made again (TG 8331).
+    if (chk.code === 'dest_missing' && row.proposal?.kind === 'uploaded' && row.proposal.lifeRel === rel) continue
+    return { ok: false, code: chk.code || 'dest_missing', file: row.filename }
+  }
+  return { ok: true }
 }
 
 // --- #520: upload to Google Photos ------------------------------------------
@@ -1445,14 +1538,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       json(res, { error: 'ehhez a fiokhoz meg nincs Fotok-engedely', code: 'no_scope', account }, 409)
       return true
     }
-    // #520: WHERE the photos go is chosen before the selection, per batch (one
-    // Google Photos account can hold several people's photos). Asked here for
-    // the same reason as the depot: not after two hundred photos were picked.
-    const dest = checkPhotoDest(data.dest)
-    if (!dest.ok) {
-      json(res, { error: 'valassz mappat az Eletfaban a letoltott kepeknek', code: dest.code, lastDest: lastLifeDest(account) }, 409)
-      return true
-    }
+    // #520: WHERE each photo goes is asked AFTER the selection, per photo (TG 8393).
     try {
       const token = await getAccessToken(account)
       const s = await pickerJson(SESSIONS_URL, token, {
@@ -1460,10 +1546,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       })
-      rememberLifeDest(account, dest.rel)
-      if (typeof s.id === 'string') rememberSessionDest(s.id, dest.rel)
       json(res, {
-        dest: dest.rel,
         sessionId: s.id,
         pickerUri: s.pickerUri,
         // A Google mondja meg, milyen surun kerdezzunk ra -- nem talalunk ki
@@ -1508,33 +1591,18 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       const token = await getAccessToken(account)
       const s = await pickerJson(`${SESSIONS_URL}/${encodeURIComponent(sessionId)}`, token)
       if (!s.mediaItemsSet) { json(res, { done: false }); return true }
-      const run = (async () => {
-        // VEGIG lapozunk: a kijeloles 100-nal tobb eleme is szamit.
+      // The selection is made. NOTHING comes down yet: the owner sees the list
+      // first, with the place offered per photo, and approves it.
+      let kept = keptPicked(runKey)
+      if (!kept) {
         const picked = await fetchPickedMediaItems(sessionId, token)
-        // #520: into the Life-tree folder chosen for THIS selection (after a
-        // restart: the folder last chosen for the account, which is the same one).
-        const destRel = sessionDests.get(sessionId) || lastLifeDest(account)
-        const r: DownloadResult & { dest?: string } = await queuePhotoDownload(() => downloadPickedToLife(picked.items, account, token, destRel, {
-          isAllowedUrl: isAllowedPhotosUrl,
-          fetchBytes: async (u, t) => { const fr = await fetch(u, { headers: { Authorization: `Bearer ${t}` } }); return { ok: fr.ok, body: fr.body } },
-          knownElsewhere: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
-          // What this program uploaded goes back to the folder it came from (TG 8331).
-          placeFor: (it) => uploadedPlaceFor(account, it),
-          breathe: async () => { await breathe() },
-        }))
-        sessionDests.delete(sessionId)
-        if (picked.partial) r.partial = true
-        // A session-t elengedjuk: nincs ra tobb szuksegunk, es a Google is
-        // ezt keri.
-        try {
-          await fetch(`${SESSIONS_URL}/${encodeURIComponent(sessionId)}`, {
-            method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-          })
-        } catch { /* nem baj, magatol is lejar */ }
-        return r
-      })()
-      rememberPickerRun(runKey, run)
-      json(res, { done: true, ...(await run) })
+        keepPicked(runKey, picked.items, picked.partial)
+        kept = picked
+      }
+      json(res, {
+        done: false,
+        review: { sessionId, items: buildDownloadReview(kept.items, reviewDepsFor(account)), partial: kept.partial, lastDest: lastLifeDest(account) },
+      })
     } catch (err: any) {
       logger.warn({ err: err.message }, '[photos] session lekerdezes elhasalt')
       // Ugyanaz az eset kozben is elojohet (pl. valaki most kapcsolta ki az
@@ -1558,6 +1626,79 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
         return true
       }
       json(res, { error: err.message, code: 'poll_failed' }, 502)
+    }
+    return true
+  }
+
+  // A small picture of one picked item, for the review list. The item must be
+  // one of THIS selection's, and the address is Google's own.
+  if (path === '/api/photos/session/thumb' && method === 'GET') {
+    const sessionId = url.searchParams.get('sessionId') || ''
+    const account = url.searchParams.get('account') || ''
+    const id = url.searchParams.get('id') || ''
+    const kept = keptPicked(`${account}:${sessionId}`)
+    const item = kept?.items.find((it) => it?.id === id)
+    const base = String(item?.mediaFile?.baseUrl || '')
+    const thumbUrl = base ? `${base}=w160-h160` : ''
+    if (!thumbUrl || !isAllowedPhotosUrl(thumbUrl)) { json(res, { error: 'nincs ilyen kep ebben a valasztasban' }, 404); return true }
+    try {
+      const token = await getAccessToken(account)
+      const fr = await fetch(thumbUrl, { headers: { Authorization: `Bearer ${token}` } })
+      if (!fr.ok || !fr.body) { json(res, { error: 'a kis kep most nem erheto el' }, 502); return true }
+      res.writeHead(200, { 'Content-Type': fr.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'private, max-age=600' })
+      await pipeline(Readable.fromWeb(fr.body as any), res)
+    } catch (err: any) {
+      logger.debug({ err: err?.message }, '[photos] review thumbnail failed')
+      if (!res.headersSent) json(res, { error: 'a kis kep most nem erheto el' }, 502); else res.destroy()
+    }
+    return true
+  }
+
+  // The approved list: each photo into the folder on its row.
+  if (path === '/api/photos/session/download' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const sessionId = String(data.sessionId || '')
+    const account = String(data.account || '')
+    const places: Record<string, unknown> = data.places && typeof data.places === 'object' ? data.places : {}
+    if (!sessionId || !account) { json(res, { error: 'sessionId es account kotelezo' }, 400); return true }
+    const runKey = `${account}:${sessionId}`
+    try {
+      const running = getPickerRun(runKey)
+      if (running) { json(res, { done: true, ...(await running) }); return true }
+      const token = await getAccessToken(account)
+      // Asked again from Google: the list is the same, the links are fresh.
+      const picked = await fetchPickedMediaItems(sessionId, token)
+      const rows = buildDownloadReview(picked.items, reviewDepsFor(account))
+      const chk = checkReviewPlaces(rows, places)
+      if (!chk.ok) { json(res, { error: 'egy kepnek nincs hasznalhato helye', code: chk.code, file: chk.file }, 409); return true }
+      const chosen: Record<string, string> = {}
+      for (const row of rows) if (!row.already) chosen[row.id] = String(places[row.id]).trim()
+      const run = (async () => {
+        const r: DownloadResult & { dest?: string; places?: Record<string, number> } = await queuePhotoDownload(() => downloadPickedToLife(picked.items, account, token, '', {
+          isAllowedUrl: isAllowedPhotosUrl,
+          fetchBytes: async (u, t) => { const fr = await fetch(u, { headers: { Authorization: `Bearer ${t}` } }); return { ok: fr.ok, body: fr.body } },
+          knownElsewhere: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
+          placeFor: (it) => uploadedPlaceFor(account, it),
+          destFor: (it) => chosen[it.id] || null,
+          breathe: async () => { await breathe() },
+        }))
+        rememberPhotoPlaces(account, chosen)
+        // The folder a bulk choice was made with opens first the next time.
+        const bulk = checkPhotoDest(data.lastDest)
+        if (bulk.ok) rememberLifeDest(account, bulk.rel)
+        pickedForReview.delete(runKey)
+        if (picked.partial) r.partial = true
+        try {
+          await fetch(`${SESSIONS_URL}/${encodeURIComponent(sessionId)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+        } catch { /* it expires by itself */ }
+        return r
+      })()
+      rememberPickerRun(runKey, run)
+      json(res, { done: true, ...(await run) })
+    } catch (err: any) {
+      logger.warn({ err: err.message }, '[photos] the approved download failed')
+      if (pickerSessionGone(err.message || '')) { json(res, { error: err.message, code: 'session_gone' }, 410); return true }
+      json(res, { error: err.message, code: 'download_failed' }, 502)
     }
     return true
   }

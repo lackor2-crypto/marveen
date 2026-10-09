@@ -15245,42 +15245,17 @@ async function _photosStartPicker() {
   _photosHideApiDisabled()
   _photosHideNoPhotosAccount()
   _photosSetError('')
-  // #520: ELOBB a hely. Egy Google Fotok fiokban tobb ember kepei is lehetnek
-  // (Boss, TG 8313), ezert a mappat adagonkent a tulajdonos valasztja ki az
-  // Eletfaban, MEG a kepek kijelolese elott. Az ablak "Ide toltsd le" gombja
-  // egyben a felhasznaloi kattintas, amibol a Google-lap megnyithato.
-  const dest = await _lifePickFolder({
-    title: t('photos.dest.title'),
-    help: t('photos.dest.help'),
-    okLabel: t('photos.dest.ok'),
-    hereLabel: t('photos.dest.here'),
-    noneLabel: t('photos.dest.none'),
-    start: _photosLastDest[_photosAccount] || '',
-  })
-  if (dest === null) { addBtn.disabled = false; return }
-  _photosLastDest[_photosAccount] = dest
+  // #520: a helyet NEM itt kerdezzuk. A kijeloles UTAN jon a lista, kepenkent a
+  // felajanlott mappaval (Boss, TG 8389 + 8393).
   try {
     const res = await fetch('/api/photos/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: _photosAccount, dest }),
+      body: JSON.stringify({ account: _photosAccount }),
     })
     const data = await res.json()
     if (!res.ok) {
       addBtn.disabled = false
-      // A valasztott mappa nem jo (kozben eltunt, Kuka, git-tarolo belseje): a szerver kodja mondja meg, melyik.
-      if (typeof data.code === 'string' && (data.code === 'needs_dest' || data.code.indexOf('dest_') === 0)) {
-        // Szo szerinti kulcsok (nem osszefuzott): igy a nyelvi kapu latja, hogy mind megvan.
-        const destErr = {
-          needs_dest: t('photos.dest.err_needs_dest'),
-          dest_missing: t('photos.dest.err_dest_missing'),
-          dest_not_in_tree: t('photos.dest.err_dest_not_in_tree'),
-          dest_trash: t('photos.dest.err_dest_trash'),
-          dest_in_repo: t('photos.dest.err_dest_in_repo'),
-        }
-        _photosSetError(destErr[data.code] || t('photos.dest.err_needs_dest'))
-        return
-      }
       if (data.code === 'no_depot' || data.code === 'depot_unreachable') {
         if (_photosShowNeedDepot(data)) return
       }
@@ -15367,8 +15342,151 @@ function _photosAddedMsg(data) {
   // A lista nem jott vegig: a `selected` KEVESEBB, mint amit kijeloltek.
   if (data.partial) msg += ` ${t('photos.result.partial')}`
   // #520: HOVA kerultek -- az Eletfa mappaja, amit a tulajdonos valasztott.
-  if (data.dest && (saved || dup)) msg += ` ${t('photos.result.dest', { where: String(data.dest).split('/').join(' › ') })}`
+  const where = Object.keys(data.places || {})
+  if (where.length === 1) msg += ` ${t('photos.result.dest', { where: where[0].split('/').join(' › ') })}`
+  else if (where.length > 1) msg += ` ${t('photos.result.dest_many', { n: String(where.length) })}`
+  else if (data.dest && (saved || dup)) msg += ` ${t('photos.result.dest', { where: String(data.dest).split('/').join(' › ') })}`
   return msg
+}
+
+/**
+ * A kijelolt kepek listaja, kepenkent a hellyel (#520; Boss, TG 8389 + 8393):
+ * amit ez a program toltott fel, annal a regi helye all; amit korabban mar
+ * letoltott, annal az akkor valasztott mappa; a tobbinel a tulajdonos valaszt.
+ * Semmi nem jon le, amig a lista nincs jovahagyva.
+ */
+function _photosReviewOpen(account, review) {
+  const items = Array.isArray(review.items) ? review.items : []
+  const places = {}
+  for (const it of items) if (!it.already && it.proposal && it.proposal.lifeRel) places[it.id] = it.proposal.lifeRel
+  let bulkDest = ''
+  const pretty = (rel) => String(rel || '').split('/').join(' › ')
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay active'
+  overlay.id = 'photosReviewOverlay'
+  overlay.innerHTML = '<div class="modal-content" style="max-width:680px;padding:18px">'
+    + '<h3 style="margin:0 0 4px">' + escapeHtml(t('photos.review.title')) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 8px">' + escapeHtml(t('photos.review.help')) + '</p>'
+    + '<p id="photosReviewMsg" class="modal-note" style="margin:0 0 8px;font-size:13px" hidden></p>'
+    + '<div id="photosReviewList" style="max-height:46vh;overflow:auto;border:1px solid var(--border,#3336);border-radius:8px;padding:4px"></div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:10px">'
+    + '<button class="btn-secondary" id="photosReviewBulk" hidden>' + escapeHtml(t('photos.review.bulk')) + '</button>'
+    + '<button class="btn-secondary" id="photosReviewCancel">' + escapeHtml(t('intezo.cancel')) + '</button>'
+    + '<button class="btn-primary" id="photosReviewGo">' + escapeHtml(t('photos.review.go')) + '</button>'
+    + '</div></div>'
+  document.body.appendChild(overlay)
+  const list = overlay.querySelector('#photosReviewList')
+  const msg = overlay.querySelector('#photosReviewMsg')
+  const bulkBtn = overlay.querySelector('#photosReviewBulk')
+  const goBtn = overlay.querySelector('#photosReviewGo')
+  const cancelBtn = overlay.querySelector('#photosReviewCancel')
+  const say = (text) => { msg.textContent = text || ''; msg.hidden = !text }
+  const pick = (start) => _lifePickFolder({
+    title: t('photos.dest.title'), help: t('photos.review.pick_help'), okLabel: t('photos.review.pick_ok'),
+    hereLabel: t('photos.dest.here'), noneLabel: t('photos.dest.none'), start: start || bulkDest || review.lastDest || '',
+  })
+  const draw = () => {
+    list.innerHTML = ''
+    if (!items.length) { const p = document.createElement('p'); p.style.margin = '8px'; p.textContent = t('photos.review.empty'); list.appendChild(p) }
+    for (const it of items) {
+      const row = document.createElement('div')
+      row.className = 'photos-review-row'
+      row.dataset.id = it.id
+      row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:6px;border-bottom:1px solid var(--border,#3333)'
+      const img = document.createElement('img')
+      img.loading = 'lazy'; img.alt = ''
+      img.style.cssText = 'width:48px;height:48px;object-fit:cover;border-radius:6px;flex:none;background:var(--border,#3333)'
+      // A kis kep nelkul is hasznalhato a sor: ha vegleg nem jon, a torott-kep jel ne maradjon ott.
+      let imgErr = 0
+      img.addEventListener('error', () => { if (++imgErr > 1) img.style.visibility = 'hidden' })
+      img.src = '/api/photos/session/thumb?sessionId=' + encodeURIComponent(review.sessionId) + '&account=' + encodeURIComponent(account) + '&id=' + encodeURIComponent(it.id)
+      const mid = document.createElement('div')
+      mid.style.cssText = 'flex:1;min-width:0;font-size:13px'
+      const name = document.createElement('div')
+      name.style.cssText = 'font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+      name.textContent = it.filename
+      const line = document.createElement('div')
+      line.className = 'photos-review-place'
+      line.style.cssText = 'overflow-wrap:anywhere'
+      const cur = places[it.id] || ''
+      const offered = it.proposal && it.proposal.lifeRel === cur
+      if (it.already) line.textContent = it.alreadyAt ? t('photos.review.already_at', { where: pretty(it.alreadyAt) }) : t('photos.review.already')
+      else if (!cur) line.textContent = t('photos.review.no_place')
+      else if (offered && it.proposal.kind === 'uploaded') line.textContent = t('photos.review.from_upload', { where: pretty(cur) })
+      else if (offered && it.proposal.kind === 'remembered') line.textContent = t('photos.review.from_memory', { where: pretty(cur) })
+      else line.textContent = t('photos.review.chosen', { where: pretty(cur) })
+      mid.appendChild(name); mid.appendChild(line)
+      row.appendChild(img); row.appendChild(mid)
+      if (!it.already) {
+        const b = document.createElement('button')
+        b.className = 'btn-secondary btn-compact'
+        b.style.flex = 'none'
+        b.textContent = cur ? t('photos.review.other') : t('photos.review.choose')
+        b.addEventListener('click', async () => { const rel = await pick(cur); if (rel) { places[it.id] = rel; say(''); draw() } })
+        row.appendChild(b)
+      }
+      list.appendChild(row)
+    }
+    const missing = items.filter((it) => !it.already && !places[it.id]).length
+    const todo = items.filter((it) => !it.already).length
+    bulkBtn.hidden = missing === 0
+    goBtn.disabled = todo === 0
+    if (review.partial) say(t('photos.result.partial'))
+  }
+  let busy = false
+  const close = () => { overlay.remove(); const b = document.getElementById('photosAddBtn'); if (b) b.disabled = !_photosAccountsReady[_photosAccount] }
+  cancelBtn.addEventListener('click', () => { if (busy) return; close(); showToast(t('photos.review.cancelled')) })
+  bulkBtn.addEventListener('click', async () => {
+    const rel = await pick('')
+    if (!rel) return
+    bulkDest = rel
+    for (const it of items) if (!it.already && !places[it.id]) places[it.id] = rel
+    say(''); draw()
+  })
+  goBtn.addEventListener('click', async () => {
+    if (busy) return
+    const first = items.find((it) => !it.already && !places[it.id])
+    if (first) {
+      say(t('photos.review.err_missing', { file: first.filename }))
+      const el = list.querySelector('[data-id="' + CSS.escape(first.id) + '"]')
+      if (el) el.scrollIntoView({ block: 'center' })
+      return
+    }
+    busy = true
+    goBtn.disabled = true; bulkBtn.disabled = true; cancelBtn.disabled = true
+    list.querySelectorAll('button').forEach((b) => { b.disabled = true })
+    say(t('photos.review.running'))
+    const again = () => { busy = false; goBtn.disabled = false; bulkBtn.disabled = false; cancelBtn.disabled = false; draw() }
+    try {
+      const res = await fetch('/api/photos/session/download', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account, sessionId: review.sessionId, places, lastDest: bulkDest }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        // Szo szerinti kulcsok (nem osszefuzott): igy a nyelvi kapu latja, hogy mind megvan.
+        const file = data.file || ''
+        const errs = {
+          place_missing: t('photos.review.err_missing', { file }),
+          dest_missing: t('photos.review.err_dest_missing', { file }),
+          dest_not_in_tree: t('photos.review.err_dest_not_in_tree', { file }),
+          dest_trash: t('photos.review.err_dest_trash', { file }),
+          dest_in_repo: t('photos.review.err_dest_in_repo', { file }),
+          session_gone: t('photos.session_gone'),
+        }
+        again()
+        say(errs[data.code] || t('photos.review.err_failed'))
+        return
+      }
+      close()
+      showToast(_photosAddedMsg(data))
+      _photosRefresh()
+    } catch {
+      again()
+      say(t('photos.review.err_failed'))
+    }
+  })
+  draw()
 }
 
 function _photosPoll(sessionId, intervalMs) {
@@ -15392,6 +15510,12 @@ function _photosPoll(sessionId, intervalMs) {
         // csak ujra kell kezdeni -- emberi mondattal, nem a Google 404-evel.
         if (data.code === 'session_gone') { _photosSetError(t('photos.session_gone')); return }
         _photosSetError(data.error || t('photos.session_failed'))
+        return
+      }
+      if (data.review) {
+        // A kijeloles megvan: a lista jon, es a letoltes csak a jovahagyasa utan indul.
+        _photosStopPoll()
+        _photosReviewOpen(account, data.review)
         return
       }
       if (!data.done) return
