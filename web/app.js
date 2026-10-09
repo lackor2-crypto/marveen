@@ -38304,9 +38304,12 @@ async function _gphotosUploadOpen() {
   closeBtn.addEventListener('click', close)
   const say = (lines, warn) => {
     body.innerHTML = ''
+    // A figyelmeztetes RENDES szovegszinnel all, bal oldali jelzosavval: a sarga betu vilagos hatteren
+    // alig olvashato (Boss, TG 8344: "alig latom").
+    body.classList.toggle('modal-note', !!warn)
     for (const l of lines) {
       const p = document.createElement('p')
-      p.style.cssText = 'margin:0 0 6px' + (warn ? ';color:var(--warning,#d97706)' : '')
+      p.style.cssText = 'margin:0 0 6px'
       p.textContent = l
       body.appendChild(p)
     }
@@ -38430,7 +38433,7 @@ function _lifePickFolder(opts) {
     overlay.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
       + '<h3 style="margin:0 0 4px">' + escapeHtml(opts.title || '') + '</h3>'
       + '<p class="subtitle" style="margin:0 0 8px">' + escapeHtml(opts.help || '') + '</p>'
-      + '<p id="lifePickFolderMsg" style="margin:0 0 8px;font-size:13px;color:var(--warning,#d97706)" hidden></p>'
+      + '<p id="lifePickFolderMsg" class="modal-note" style="margin:0 0 8px;font-size:13px" hidden></p>'
       + '<div id="lifePickFolderList" style="max-height:300px;overflow:auto;border:1px solid var(--border,#3336);border-radius:8px;padding:4px"></div>'
       + '<p style="margin:10px 0 4px;font-size:13px">' + escapeHtml(opts.hereLabel || '') + ' <b id="lifePickFolderHere"></b></p>'
       + '<div style="text-align:right;margin-top:8px">'
@@ -38511,7 +38514,7 @@ function _storagesPickCloneDest(account, pr) {
       + '<p class="subtitle" style="margin:0 0 6px">' + escapeHtml(t('storages.dest_help')) + '</p>'
       + '<p style="margin:0 0 8px;font-size:13px"><b>' + escapeHtml(t('storages.dest_missing', { n: missing.length })) + '</b> '
       + '<span id="storagesCloneDestMissing"></span></p>'
-      + '<p id="storagesCloneDestMsg" style="margin:0 0 8px;font-size:13px;color:var(--warning,#d97706)" hidden></p>'
+      + '<p id="storagesCloneDestMsg" class="modal-note" style="margin:0 0 8px;font-size:13px" hidden></p>'
       + '<div id="storagesCloneDestList" style="max-height:300px;overflow:auto;border:1px solid var(--border,#3336);border-radius:8px;padding:4px"></div>'
       + '<p style="margin:10px 0 4px;font-size:13px">' + escapeHtml(t('storages.dest_here')) + ' <b id="storagesCloneDestHere"></b></p>'
       + '<div style="text-align:right;margin-top:8px">'
