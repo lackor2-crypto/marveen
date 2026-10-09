@@ -34,7 +34,13 @@ jobs:
         # A package.json engines mezoje: ">=20.19.0 <24". Mind a ket
         # veghatart merjuk, kulonben csak arrol tudunk, amit a fejlesztoi gep
         # eppen hasznal (.nvmrc = 22).
-        node: ['20.19', '22']
+        #
+        # On a PULL REQUEST both ends run. On the push to main that follows the
+        # merge only the development version (22) runs again: the same commits
+        # were just measured on both, and repeating the whole matrix there was
+        # half of the Actions usage GitHub switched this fork's workflows off
+        # for (2026-10-09, owner decision "B", card #519).
+        node: ${{ fromJSON(github.event_name == 'push' && '["22"]' || '["20.19","22"]') }}
 
     steps:
       - name: Checkout
@@ -189,4 +195,4 @@ jobs:
             echo "::error::A teljes teszt-matrix nem 'success' (eredmeny: ${{ needs.test.result }}) -- a CI piros, a merge blokkolt."
             exit 1
           fi
-          echo "OK: a teljes teszt-matrix (Node 20.19 ES 22) zold."
+          echo "OK: a teljes teszt-matrix zold (PR-en Node 20.19 ES 22, a main push-on Node 22)."
