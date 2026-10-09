@@ -84,13 +84,13 @@ describe('snapshot sweep', () => {
 })
 
 describe('rebuild from the folders', () => {
-  it('round trip: an emptied database gets its project, item and outline back', () => {
+  it('round trip: an emptied database gets its project, item and outline back', async () => {
     const id = docItem('Prezentacio')
     sweepSnapshots({ force: true })
     const db = getDb()
     for (const t of ['work_items', 'work_item_versions', 'work_item_parts', 'wb_doc_sections', 'wb_doc_blocks', 'projects']) db.exec(`DELETE FROM ${t}`)
     expect(getWorkItem(id)).toBeUndefined()
-    const r = restoreFromFolders()
+    const r = await restoreFromFolders()
     expect(r.restored).toBe(1)
     expect(r.projectsRebuilt).toBe(1)
     const back = getWorkItem(id)!
@@ -98,46 +98,58 @@ describe('rebuild from the folders', () => {
     expect(JSON.stringify(documentOutline(id))).toContain('Elso szoveg')
   })
 
-  it('never overwrites an existing row', () => {
+  it('never overwrites an existing row', async () => {
     const id = docItem()
     sweepSnapshots({ force: true })
     getDb().prepare('UPDATE work_items SET title = ? WHERE id = ?').run('Atnevezve', id)
-    const r = restoreFromFolders()
+    const r = await restoreFromFolders()
     expect(r.restored).toBe(0)
     expect(r.alreadyThere).toBe(1)
     expect(getWorkItem(id)!.title).toBe('Atnevezve')
   })
 
-  it('a permanently deleted item gets a tombstone and is not revived', () => {
+  it('a permanently deleted item gets a tombstone and is not revived', async () => {
     const id = docItem()
     sweepSnapshots({ force: true })
     expect(setWorkItemDeleted(id, true)).toBeTruthy()
     tombstoneSnapshot(getWorkItem(id)!)
     expect(purgeWorkItem(id).ok).toBe(true)
-    const r = restoreFromFolders()
+    const r = await restoreFromFolders()
     expect(r.restored).toBe(0)
     expect(r.tombstoned).toBe(1)
     expect(getWorkItem(id)).toBeUndefined()
   })
 
-  it('an item in the trash keeps deleted_at in the snapshot and comes back as a trash item', () => {
+  it('an item in the trash keeps deleted_at in the snapshot and comes back as a trash item', async () => {
     const id = docItem()
     setWorkItemDeleted(id, true)
     sweepSnapshots({ force: true })
     getDb().exec('DELETE FROM work_items')
-    expect(restoreFromFolders().restored).toBe(1)
+    expect((await restoreFromFolders()).restored).toBe(1)
     expect(getWorkItem(id)!.deleted_at).not.toBeNull()
   })
 
-  it('the owner button adopts .deck.json files no work item points to, once', () => {
+  it('the owner button adopts .deck.json files no work item points to, once', async () => {
     writeFileSync(join(projDir, 'uj-nevjegykartya.deck.json'), '{"version":1,"size":"card-eu","slides":[]}')
-    expect(restoreFromFolders().adopted).toBe(0) // not at startup
-    expect(restoreFromFolders({ adoptOrphans: true }).adopted).toBe(1)
-    expect(restoreFromFolders({ adoptOrphans: true }).adopted).toBe(0)
+    expect((await restoreFromFolders()).adopted).toBe(0) // not at startup
+    expect((await restoreFromFolders({ adoptOrphans: true })).adopted).toBe(1)
+    expect((await restoreFromFolders({ adoptOrphans: true })).adopted).toBe(0)
   })
 
-  it('nothing to rebuild on a fresh install is not an error', () => {
-    const r = restoreFromFolders()
+  // #490: the startup rebuild walks every project folder; on the slow 9p depot the synchronous walk froze the
+  // whole dashboard for ~45-55 s after every restart. Other work must get turns while it walks.
+  it('the folder walk lets the event loop run in between (does not freeze the dashboard)', async () => {
+    let deep = projDir
+    for (let i = 0; i < 8; i++) { deep = join(deep, `szint${i}`); mkdirSync(deep) }
+    const order: string[] = []
+    const run = restoreFromFolders().then(() => { order.push('walk done') })
+    setImmediate(() => { order.push('other work') })
+    await run
+    expect(order).toEqual(['other work', 'walk done'])
+  })
+
+  it('nothing to rebuild on a fresh install is not an error', async () => {
+    const r = await restoreFromFolders()
     expect(r).toMatchObject({ restored: 0, failed: 0 })
   })
 })

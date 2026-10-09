@@ -10,7 +10,8 @@
 // A permanently deleted item gets a TOMBSTONE in its snapshot, so the rebuild never revives it.
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
@@ -220,21 +221,29 @@ export interface RestoreResult {
 const WALK_MAX_DEPTH = 10
 const WALK_MAX_DIRS = 20_000
 
-function walk(root: string, visit: (abs: string, name: string) => void): void {
+// #490: async, yielding between directories. The startup rebuild walks every project folder on the depot,
+// and on the slow 9p mount (/mnt/f) the synchronous walk froze the WHOLE dashboard for ~45-55 s after every
+// restart, i.e. after every deploy (measured 2026-10-09: 3163 dirs, 44 s).
+async function walk(root: string, visit: (abs: string, name: string) => Promise<void>): Promise<void> {
   let dirs = 0
-  const go = (dir: string, depth: number): void => {
+  const go = async (dir: string, depth: number): Promise<void> => {
     if (depth > WALK_MAX_DEPTH || dirs++ > WALK_MAX_DIRS) return
     let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+    try { entries = await readdir(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
       if (e.isDirectory()) {
         if (e.name === 'node_modules' || e.name === '.git') continue
         if (e.name.startsWith('.') && e.name !== SNAPSHOT_FALLBACK_DIR) continue
-        go(join(dir, e.name), depth + 1)
-      } else if (e.isFile()) visit(join(dir, e.name), e.name)
+        await go(join(dir, e.name), depth + 1)
+      } else if (e.isFile()) await visit(join(dir, e.name), e.name)
     }
+    await new Promise<void>((r) => setImmediate(r))
   }
-  go(root, 0)
+  await go(root, 0)
+}
+
+async function readJsonAsync(path: string): Promise<Snapshot | null> {
+  try { return JSON.parse(await readFile(path, 'utf8')) as Snapshot } catch { return null }
 }
 
 function insertRow(table: string, row: Row, existingCols: Set<string>): void {
@@ -286,8 +295,7 @@ function restoreOne(snap: Snapshot, res: RestoreResult): void {
   })()
 }
 
-function restoreBrand(path: string): void {
-  const doc = readJson(path) as (Snapshot & { brand?: Row; templates?: Row[] }) | null
+function restoreBrand(doc: (Snapshot & { brand?: Row; templates?: Row[] }) | null): void {
   if (!doc?.brand || !tableExists('workbench_brand')) return
   const pid = String(doc.brand['project_id'])
   if (!getProject(pid)) return
@@ -302,7 +310,7 @@ function restoreBrand(path: string): void {
  * Rebuild the missing work items from the snapshot files in the project folders. `adoptOrphans` (the owner's
  * button only, never at startup) also takes .deck.json / .canvas.json files that no work item points to.
  */
-export function restoreFromFolders(opts: { adoptOrphans?: boolean; deep?: boolean } = {}): RestoreResult {
+export async function restoreFromFolders(opts: { adoptOrphans?: boolean; deep?: boolean } = {}): Promise<RestoreResult> {
   ensureWorkbenchTables()
   const res: RestoreResult = { scannedProjects: 0, restored: 0, projectsRebuilt: 0, alreadyThere: 0, tombstoned: 0, skipped: 0, adopted: 0, failed: 0 }
   const db = getDb()
@@ -319,18 +327,23 @@ export function restoreFromFolders(opts: { adoptOrphans?: boolean; deep?: boolea
   const seenFiles = new Set<string>()
   for (const { abs, project } of roots.values()) {
     res.scannedProjects++
-    walk(abs, (file, name) => {
+    await walk(abs, async (file, name) => {
       if (seenFiles.has(file)) return
       seenFiles.add(file)
       try {
         if (name === SNAPSHOT_FILE || (name.endsWith('.json') && dirname(file).endsWith(SNAPSHOT_FALLBACK_DIR))) {
-          const snap = readJson(file)
+          let snap = await readJsonAsync(file)
+          // The read above awaited, so the owner may have purged this item meanwhile (tombstone written, row gone
+          // in one tick). A missing row -- rare, only after a data loss -- re-reads the file in the SAME tick as
+          // the insert, so a purge during the walk is never revived.
+          const sid = snap?.item?.['id']
+          if (sid && !db.prepare('SELECT 1 FROM work_items WHERE id = ?').get(String(sid))) snap = readJson(file)
           if (!snap || snap.format !== SNAPSHOT_FORMAT) { res.skipped++; return }
           if (snap.tombstone) { res.tombstoned++; return }
           if (!snap.item || !snap.item['id']) { res.skipped++; return }
           restoreOne(snap, res)
         } else if (name === BRAND_FILE) {
-          restoreBrand(file)
+          restoreBrand(await readJsonAsync(file))
         } else if (opts.adoptOrphans && project && (name.endsWith('.deck.json') || name.endsWith('.canvas.json'))) {
           orphanFiles.push({ abs: file, rel: file.slice(abs.length + 1).replace(/\\/g, '/'), project })
         }
@@ -367,9 +380,9 @@ let startTimer: ReturnType<typeof setTimeout> | null = null
 export function startWorkbenchSnapshots(): void {
   if (timer) return
   // The depot may still be mounting right after boot: rebuild once after a short pause, then sweep.
-  startTimer = setTimeout(() => {
+  startTimer = setTimeout(async () => {
     try {
-      const r = restoreFromFolders()
+      const r = await restoreFromFolders()
       if (r.restored || r.projectsRebuilt) logger.info(r, 'workbench-snapshot: missing work items rebuilt from the project folders')
     } catch (err) { logger.warn({ err }, 'workbench-snapshot: startup rebuild failed') }
     try { sweepSnapshots({ force: true }) } catch (err) { logger.warn({ err }, 'workbench-snapshot: first sweep failed') }
