@@ -11,6 +11,7 @@
  */
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
+import { extname } from 'node:path'
 import { PLATFORM, tryResolveFromPath } from './platform.js'
 import { isWsl } from './web/scheduled-tasks-io.js'
 import { runScriptViaTaskScheduler } from './windows-settings.js'
@@ -77,5 +78,54 @@ export async function openInFileManager(abs: string): Promise<OpenOutcome> {
   }
   const dir = isFile ? abs.slice(0, abs.lastIndexOf('/')) || '/' : abs
   const ok = await detached('xdg-open', [dir])
+  return ok ? { ok: true } : { ok: false, code: 'open_failed' }
+}
+
+// --- a file, in the program this machine opens it with (#529) --------------------------
+//
+// Owner, 2026-10-10: "marveen intezo miert nem tud megnyitni excelt? csinald meg hogy
+// tudja megnyitni az excelt. mint a windows intezo". A click on a document opens it in
+// the machine's own program (Excel, Word, the PDF reader), the way a double click does in
+// the file manager.
+//
+// ONLY documents and media. "Open with the default program" RUNS a program or a script
+// when the file is one (.exe, .bat, .lnk, .js ...): those are never opened this way, by
+// an allowlist of extensions -- not by a list of the dangerous ones, which is never complete.
+const OPENABLE = new Set([
+  'doc', 'docx', 'odt', 'rtf', 'txt', 'md',
+  'xls', 'xlsx', 'xlsm', 'ods', 'csv', 'tsv',
+  'ppt', 'pptx', 'odp', 'pdf',
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic',
+  'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'm4v', 'mkv', 'avi', 'webm',
+])
+
+/** Can this file be handed to the machine's own program? By its extension, an allowlist. */
+export function openableWithDefaultApp(name: string): boolean {
+  return OPENABLE.has(extname(String(name || '')).slice(1).toLowerCase())
+}
+
+/** The PowerShell line that opens the FILE itself with whatever Windows opens it with. */
+export function openFileScript(winPath: string): string {
+  return ['$ErrorActionPreference = "SilentlyContinue"', `Start-Process -FilePath '${winPath.replace(/'/g, "''")}'`].join('\r\n')
+}
+
+export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'not_openable' }
+
+/** Open `abs` in the program this machine opens that kind of file with. */
+export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> {
+  try {
+    if (!existsSync(abs)) return { ok: false, code: 'not_found' }
+    if (!statSync(abs).isFile()) return { ok: false, code: 'not_a_file' }
+  } catch { return { ok: false, code: 'not_found' } }
+  if (!openableWithDefaultApp(abs)) return { ok: false, code: 'not_openable' }
+  const kind = fileManagerKind()
+  if (kind === 'none') return { ok: false, code: 'no_file_manager' }
+  if (kind === 'windows') {
+    const win = await toWindowsPath(abs)
+    if (!win) return { ok: false, code: 'open_failed' }
+    const ok = await runScriptViaTaskScheduler('MarveenOpenFile', 'marveen-open-file', openFileScript(win))
+    return ok ? { ok: true } : { ok: false, code: 'open_failed' }
+  }
+  const ok = await detached(kind === 'macos' ? 'open' : 'xdg-open', [abs])
   return ok ? { ok: true } : { ok: false, code: 'open_failed' }
 }
