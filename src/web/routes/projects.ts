@@ -71,8 +71,7 @@ import {
   createStarterCard, isScopeType, projectScopeMap, isRequestKind, projectRequestMessage, researchObjectId,
   researchProject, debateProject,
 } from '../../project-scope.js'
-import { agentConfigRoot, listAgentNames } from '../agent-config.js'
-import { join as joinPath } from 'node:path'
+import { researchFilePath } from './research.js'
 import { listDebateSessions, findProject, projectContext } from '../../project-context.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -804,10 +803,9 @@ function derivedOwnerOf(type: string, objectId: string): string | null {
       const d = listDebateSessions().find((x) => x.id === objectId)
       return d ? debateProject(d.id, d.loggedProject) : null
     }
-    const m = objectId.match(/^([^/]+)\/([A-Za-z0-9._-]+\.md)$/)
-    if (!m || !researchExists(objectId)) return null
-    const content = readFileSync(joinPath(agentConfigRoot(m[1]), 'research', m[2]), 'utf8')
-    return researchProject(m[1], m[2], content)
+    const r = researchRef(objectId)
+    if (!r) return null
+    return researchProject(r.agent, r.name, readFileSync(r.file, 'utf8'))
   } catch { return null }
 }
 
@@ -818,12 +816,19 @@ function debateExists(sessionId: string): boolean {
 
 /** Van-e ilyen hatteranyag-fajl (`<agens>/<fajl>.md`) valamelyik agens research/ mappajaban. */
 function researchExists(objectId: string): boolean {
-  const m = objectId.match(/^([^/]+)\/([A-Za-z0-9._-]+\.md)$/)
-  if (!m) return false
-  if (![MAIN_AGENT_ID, ...listAgentNames()].includes(m[1])) return false
-  if (researchObjectId(m[1], m[2]) !== objectId) return false
-  const file = joinPath(agentConfigRoot(m[1]), 'research', m[2])
-  return existsSync(file) && statSync(file).isFile()
+  return researchRef(objectId) !== null
+}
+
+/** `<agens>/<utvonal>.md` -> a fajl. Az utvonal almappas is lehet (`<agens>/nightly/x.md`),
+ *  ugyanugy, ahogy a Kutatas-lista adja (#507). */
+function researchRef(objectId: string): { agent: string; name: string; file: string } | null {
+  const slash = objectId.indexOf('/')
+  if (slash <= 0) return null
+  const agent = objectId.slice(0, slash)
+  const name = objectId.slice(slash + 1)
+  if (researchObjectId(agent, name) !== objectId) return null
+  const file = researchFilePath(agent, name)
+  return file ? { agent, name, file } : null
 }
 
 /** A mezok ellenorzese mappa-letrehozas ELOTT (nev kotelezo, allapot, cimke),
