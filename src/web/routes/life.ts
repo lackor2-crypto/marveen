@@ -38,6 +38,7 @@ import { fileKind } from '../../file-kind.js'
 import { lifeThumb } from '../../life-thumbs.js'
 import { lifeSendInfo, prepareLifeAttachments, SHARE_LIMIT } from '../../life-send.js'
 import { json, readBody } from '../http-helpers.js'
+import { dupStatus, startDupIndex, stopDupIndex, duplicatesIn, matchCloudFiles } from '../../life-dup-index.js'
 import { logger } from '../../logger.js'
 import {
   ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig, mediaTargets,
@@ -350,6 +351,37 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // eloszor lassa, mit fog kapni, es o nyomja meg a gombot. Egy elgepelt nev
     // igy nem hagy maga utan egy felesleges mappat a lemezen.
     send(res, 200, { ok: true, config: parsed, status: lifeTreeStatus(parsed) })
+    return true
+  }
+
+  // #513: which files are copies. The run is started by the owner and works in
+  // the background; these endpoints only read the index -- none of them walks
+  // the tree or hashes a file inside the request.
+  if (path === '/api/life/dups/status' && method === 'GET') {
+    send(res, 200, { ok: true, status: dupStatus() })
+    return true
+  }
+  if (path === '/api/life/dups/start' && method === 'POST') {
+    send(res, 200, { ok: true, status: startDupIndex() })
+    return true
+  }
+  if (path === '/api/life/dups/stop' && method === 'POST') {
+    send(res, 200, { ok: true, status: stopDupIndex() })
+    return true
+  }
+  if (path === '/api/life/dups' && method === 'GET') {
+    send(res, 200, { ok: true, ...duplicatesIn(url.searchParams.get('path') || '') })
+    return true
+  }
+  if (path === '/api/life/dups/match' && method === 'POST') {
+    const b = await readJson(req)
+    const items = Array.isArray(b?.items) ? b.items.slice(0, 500) : []
+    const clean = items.map((x: any) => ({
+      name: String(x?.name || ''),
+      size: typeof x?.size === 'number' && Number.isFinite(x.size) ? x.size : null,
+      md5: typeof x?.md5 === 'string' && /^[a-fA-F0-9]{32}$/.test(x.md5) ? x.md5 : null,
+    }))
+    send(res, 200, { ok: true, checked: !dupStatus().neverFinished, matches: matchCloudFiles(clean) })
     return true
   }
 

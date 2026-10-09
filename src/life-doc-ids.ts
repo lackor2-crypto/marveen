@@ -189,7 +189,8 @@ export async function verifyDocument(id: string): Promise<{ doc: LifeDocument; m
   return { doc: toDoc(r), missing: false }
 }
 
-async function hashFile(abs: string): Promise<{ sha256: string; md5: string; size: number }> {
+/** SHA-256 and md5 of a file in one pass, in 64 KB reads (the 9p depot); exported for the copy index (#513). */
+export async function hashFile(abs: string): Promise<{ sha256: string; md5: string; size: number }> {
   const sha = createHash('sha256')
   const md5 = createHash('md5')
   const buf = Buffer.allocUnsafe(READ_CHUNK)
