@@ -290,3 +290,61 @@ describe('a picked photo that is already on this machine still gets onto the pag
     expect(loadLifeIndex()).toEqual([])
   })
 })
+
+// Owner, 2026-10-09 (TG 8468): the photo he uploaded from the Life tree was not on the
+// Photos page: "meg kene, hogy jelenjen a fotok alatt itt". It gets there by itself.
+describe('what this program uploaded shows on the page without being picked again (#528)', () => {
+  const up = (over: Record<string, unknown> = {}) => ({
+    id: 'g1', lifeRel: DEST, file: 'sajat.jpg', bytes: 5, sha256: 'a'.repeat(64), mimeType: 'image/jpeg', uploadedAt: '2026-10-09T20:02:34Z', ...over,
+  })
+
+  it('the uploaded file gets a row that points at it; the file is not touched and nothing is asked from Google', async () => {
+    const { linkUploadedPhotos } = await import('../photos-life.js')
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    expect(linkUploadedPhotos('acc', [up()])).toBe(1)
+    expect(loadLifeIndex()).toMatchObject([{ id: 'g1', account: 'acc', lifeRel: DEST, file: 'sajat.jpg', bytes: 5, linked: true, isVideo: false }])
+    expect(readFileSync(join(destDir(), 'sajat.jpg'), 'utf8')).toBe('regi!')
+    expect(asked).toEqual([])
+    // Asked again (every time the page is listed): no second row.
+    expect(linkUploadedPhotos('acc', [up()])).toBe(0)
+    expect(loadLifeIndex()).toHaveLength(1)
+  })
+
+  it('a file that is gone, or changed in size since the upload, is not shown as if it were there', async () => {
+    const { linkUploadedPhotos } = await import('../photos-life.js')
+    expect(linkUploadedPhotos('acc', [up()])).toBe(0)
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'mas meret')
+    expect(linkUploadedPhotos('acc', [up()])).toBe(0)
+    expect(loadLifeIndex()).toEqual([])
+  })
+
+  it('taken off the page it stays off, and the file stays in its folder', async () => {
+    const { linkUploadedPhotos } = await import('../photos-life.js')
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    linkUploadedPhotos('acc', [up()])
+    expect(removeLifePhoto('g1', 'acc')).toEqual({ ok: true, trashed: false })
+    expect(linkUploadedPhotos('acc', [up()])).toBe(0)
+    expect(loadLifeIndex()).toEqual([])
+    expect(existsSync(join(destDir(), 'sajat.jpg'))).toBe(true)
+  })
+
+  it('picked in Google Photos later (even under another id): still one row, and an explicit pick brings back one that was taken off', async () => {
+    const { linkUploadedPhotos } = await import('../photos-life.js')
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    linkUploadedPhotos('acc', [up()])
+    const place = () => ({ lifeRel: DEST, file: 'sajat.jpg', bytes: 5 })
+    await downloadPickedToLife([item('picker-id', 'sajat.jpg')], 'acc', 'tok', '', { ...deps(), placeFor: place, destFor: () => null })
+    expect(loadLifeIndex()).toHaveLength(1)
+    removeLifePhoto('g1', 'acc')
+    await downloadPickedToLife([item('picker-id', 'sajat.jpg')], 'acc', 'tok', '', { ...deps(), placeFor: place, destFor: () => null })
+    expect(loadLifeIndex()).toMatchObject([{ id: 'picker-id', linked: true }])
+  })
+
+  it('a video and an upload without a Google id are handled too', async () => {
+    const { linkUploadedPhotos } = await import('../photos-life.js')
+    writeFileSync(join(destDir(), 'film.mp4'), 'video')
+    expect(linkUploadedPhotos('acc', [up({ id: '', file: 'film.mp4', mimeType: 'video/mp4', sha256: 'b'.repeat(64) })])).toBe(1)
+    expect(loadLifeIndex()[0]).toMatchObject({ file: 'film.mp4', isVideo: true, linked: true })
+    expect(loadLifeIndex()[0]!.id).toMatch(/^up-b{40}$/)
+  })
+})

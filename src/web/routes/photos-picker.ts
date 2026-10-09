@@ -32,9 +32,9 @@ import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   loadLifeIndex, checkPhotoDest, downloadPickedToLife, removeLifePhoto, pruneLifePhotosMissing,
-  lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE, rememberedPhotoPlace, rememberPhotoPlaces,
+  lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE, rememberedPhotoPlace, rememberPhotoPlaces, linkUploadedPhotos,
 } from '../../photos-life.js'
-import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, libraryApiOff, libraryApiEnableUrl, type UploadPlan, type UploadResult } from '../../photos-upload.js'
+import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, libraryApiOff, libraryApiEnableUrl, loadUploadLog, mediaMime, type UploadPlan, type UploadResult } from '../../photos-upload.js'
 import { googleOauthProjectId } from '../google-auth-runner.js'
 import { googleAccountNames } from './accounts.js'
 import type { RouteContext } from './types.js'
@@ -1178,6 +1178,23 @@ async function downloadPickedNow(items: any[], account: string, token: string): 
   return { saved, failed, duplicates, cleaned: cleanup.dropped, selected: items.length, already }
 }
 
+/**
+ * #528: what this program uploaded from the Life tree shows on the Photos page by itself.
+ * Called when the page lists an account and after an upload; cheap when nothing is new.
+ */
+export function syncUploadedToPage(account: string): number {
+  if (!account) return 0
+  try {
+    return linkUploadedPhotos(account, loadUploadLog().filter((r) => r.account === account).map((r) => ({
+      id: r.mediaItemId || '', lifeRel: r.lifeRel, file: r.file, bytes: r.bytes, sha256: r.sha256,
+      mimeType: mediaMime(r.file) || 'image/jpeg', uploadedAt: r.uploadedAt,
+    })))
+  } catch (err: any) {
+    logger.warn({ err: err?.message, account }, '[photos] could not put the uploaded photos on the page')
+    return 0
+  }
+}
+
 // --- #520: the review list -- where each picked photo goes ------------------
 // The owner (TG 8389, TG 8393): the place is offered PER PHOTO, after the
 // selection. What this program uploaded is offered the folder it came from;
@@ -1346,6 +1363,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
           onProgress: (done, _total, current) => { job.done = done; job.current = current },
           shouldStop: () => uploadStopAsked,
         })
+        if (job.result.uploaded) syncUploadedToPage(account)
         const stop = job.result.stopped
         if (stop && libraryApiOff(stop.message)) {
           job.apiOff = true
@@ -1393,6 +1411,8 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
     try { await prunePhotosMissingOnDisk() } catch (err) { logger.warn({ err }, '[photos] the disk check before the list failed; the list is shown as it is') }
     try { await pruneLifePhotosMissing() } catch (err) { logger.warn({ err }, '[photos] the disk check of the Life-tree photos failed; the list is shown as it is') }
     const account = url.searchParams.get('account') || ''
+    // #528: what went up from here is on the page without being picked again.
+    for (const acc of account ? [account] : [...new Set(loadUploadLog().map((r) => r.account))]) syncUploadedToPage(acc)
     const all = loadIndex()
     const list = account ? all.filter((p) => p.account === account) : all
     // #520: photos that were downloaded into the Life tree. They have their own
