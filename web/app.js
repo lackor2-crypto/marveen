@@ -40625,6 +40625,8 @@ function _intezoRender() {
    Only folders are in the tree. Clicking a name opens it on the right (the
    same _intezoOpen as everywhere else, so selection, actions and the info
    panel keep working). The arrow only expands/collapses, it does not navigate.
+   Clicking the name of the folder that is already open on the right
+   expands/collapses it like the arrow (refreshing is the Refresh button's job).
    Branches load lazily (one /api/life/list per expanded folder) and are cached
    until the same folder is reopened (refresh or a change, see _intezoOpen).
    The #341 content marks (● ○ ?) are shown here too, and a folder known to
@@ -40803,18 +40805,18 @@ function _intezoTreeRender() {
   box.innerHTML = '<ul role="tree">' + node('', _intezoTreeRootName || t('intezo.tree_root_name'), null, 0, 0) + '</ul>'
   box.scrollTop = keep
   box.querySelectorAll('a[data-tree-open]').forEach((a) => {
-    a.addEventListener('click', (ev) => { ev.preventDefault(); void _intezoOpen(a.getAttribute('data-tree-open')) })
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      const rel = a.getAttribute('data-tree-open')
+      // The name of the folder we are ALREADY in works like its arrow. It used
+      // to re-open the folder: a refresh that redrew everything (the screen
+      // shook) and could never collapse it, the current folder being forced open.
+      if (rel === _intezoPath && !_intezoTreeIsLeaf(_intezoTreeFindEntry(rel))) _intezoTreeToggle(rel)
+      else void _intezoOpen(rel)
+    })
   })
   box.querySelectorAll('button[data-tree-toggle]').forEach((b) => {
-    b.addEventListener('click', () => {
-      const rel = b.getAttribute('data-tree-toggle')
-      const entry = _intezoTreeFindEntry(rel)
-      const open = _intezoTreeIsOpen(rel, entry, _intezoTreeForced())
-      if (open) { _intezoTreeOpenRels().delete(rel); _intezoTreeCollapsed.add(rel) }
-      else { _intezoTreeCollapsed.delete(rel); _intezoTreeOpenRels().add(rel) }
-      _intezoTreeSaveOpen()
-      void _intezoTreeSync()
-    })
+    b.addEventListener('click', () => _intezoTreeToggle(b.getAttribute('data-tree-toggle')))
   })
   // Boss TG 2520: the tree never scrolls by itself (it started in the middle and jumped on every action): it keeps its place.
 }
@@ -40828,6 +40830,16 @@ function _intezoTreeRender() {
 function _intezoTreeBranchColor(idx) {
   const hue = Math.round(((Number(idx) || 0) * 137.508 + 210) % 360)
   return 'hsl(' + hue + ' 65% 50%)'
+}
+
+/** Expand / collapse one branch -- the arrow, and the name of the current folder. */
+function _intezoTreeToggle(rel) {
+  const entry = _intezoTreeFindEntry(rel)
+  const open = _intezoTreeIsOpen(rel, entry, _intezoTreeForced())
+  if (open) { _intezoTreeOpenRels().delete(rel); _intezoTreeCollapsed.add(rel) }
+  else { _intezoTreeCollapsed.delete(rel); _intezoTreeOpenRels().add(rel) }
+  _intezoTreeSaveOpen()
+  void _intezoTreeSync()
 }
 
 function _intezoTreeFindEntry(rel) {
