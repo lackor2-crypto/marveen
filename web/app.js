@@ -14339,6 +14339,8 @@ async function loadDriveFolder() {
       + deleted.map(f => driveDeletedRowHtml(f)).join('') + deletedNote
     bindDriveRowActions(list, _driveAccount, _driveFolderStack, loadDriveFolder)
     bindDriveDeletedRows(list, _driveAccount, loadDriveFolder)
+    // #513: megvan-e mar az Eletfaban (csak fajlokra; a mappa nem "fajl").
+    void _dupMarkCloudRows(files.filter(f => !f.isFolder).map(f => ({ el: list.querySelector('.drive-row[data-id="' + CSS.escape(f.id) + '"]'), name: f.name, size: f.size, md5: f.md5 })))
     keepScroll()
   } catch {
     renderDriveError(t('drive.load_error'))
@@ -38050,6 +38052,166 @@ async function _storagesClick(ev) {
  * masik gepen, ne varjon orakat. Ugyanaz a kod fut, ugyanazokkal a
  * ovintezkedesekkel -- nincs kulon "kezi" ut, amit kulon kellene hibazni.
  */
+// ===========================================================================
+// MASOLATOK (#513, 4. pont) -- Boss, TG 8265: "a C-t valasztom" (mindketto):
+//   - az Intezoben jeloles, ha ugyanaz a fajl az Eletfaban tobb helyen megvan;
+//   - a Drive- es MEGA-oldalon: megvan-e mar az Eletfaban, vagy csak a felhoben.
+//
+// A jegyzeket a szerver HATTERBEN kesziti (az Eletfa tobb szaz GB, lassu
+// meghajton), a tulajdonos inditja innen. Az oldal csak a kesz jegyzeket
+// kerdezi. Amig egy futas sem ert veget, SEMMIT nem allitunk: a "nincs masolat"
+// es a "meg nem neztem meg" ket kulon mondat.
+// ===========================================================================
+var _dupPoll = null
+var _dupLast = null
+
+function _dupGb(bytes) {
+  var gb = (Number(bytes) || 0) / 1e9
+  return gb >= 10 ? String(Math.round(gb)) : gb.toFixed(1)
+}
+
+function _dupStatusText(s) {
+  if (!s) return ''
+  if (s.phase === 'scanning') return t('intezo.dups.scanning', { files: String(s.files) })
+  if (s.phase === 'hashing') return t('intezo.dups.hashing', { done: String(s.hashedFiles), total: String(s.candidates), gbDone: _dupGb(s.hashedBytes), gbTotal: _dupGb(s.candidateBytes) })
+  // "Nem lattam oda" KULON mondat: ebbol a futasbol semmit nem allapitunk meg.
+  if (s.rootError) return t('intezo.dups.root_error', { err: String(s.rootError) })
+  if (s.stopped) return t('intezo.dups.stopped', { done: String(s.hashedFiles), total: String(s.candidates) })
+  if (s.neverFinished) return ''
+  var when = s.finishedAt ? new Date(s.finishedAt).toLocaleString() : ''
+  return t('intezo.dups.finished', { when: when, files: String(s.files), total: String(s.candidates) })
+    + (s.unreadable ? ' ' + t('intezo.dups.unreadable', { n: String(s.unreadable) }) : '')
+}
+
+function _dupRenderStatus(s) {
+  _dupLast = s
+  var btn = document.getElementById('intezoDupBtn')
+  var line = document.getElementById('intezoDupStatus')
+  var busy = !!s && s.phase !== 'idle'
+  if (btn) btn.textContent = busy ? t('intezo.dups.stop') : (s && !s.neverFinished ? t('intezo.dups.again') : (s && s.stopped ? t('intezo.dups.resume') : t('intezo.dups.find')))
+  if (line) {
+    var txt = _dupStatusText(s)
+    line.textContent = txt
+    line.hidden = !txt
+  }
+  if (busy && !_dupPoll) {
+    _dupPoll = setInterval(function () { void _dupRefreshStatus() }, 3000)
+  } else if (!busy && _dupPoll) {
+    clearInterval(_dupPoll)
+    _dupPoll = null
+    // A futas most ert veget: a mostani mappa jeloleseit ujra kerjuk.
+    var list = document.getElementById('intezoList')
+    if (list && list.offsetParent && _intezoListing) void _dupMarkIntezo(list, _intezoListing.rel || '')
+  }
+}
+
+async function _dupRefreshStatus() {
+  try {
+    var d = await (await fetch('/api/life/dups/status')).json()
+    if (d && d.status) _dupRenderStatus(d.status)
+  } catch (e) { /* a kovetkezo kor ujra megprobalja; a gomb kozben is mukodik */ }
+}
+
+async function _dupToggle() {
+  var busy = _dupLast && _dupLast.phase !== 'idle'
+  // ELONEZET a hosszu muvelet elott: mit csinal, meddig tarthat, es mit NEM.
+  if (!busy && !window.confirm(t('intezo.dups.confirm'))) return
+  try {
+    var d = await _depoPost(busy ? '/api/life/dups/stop' : '/api/life/dups/start', {})
+    if (d && d.status) _dupRenderStatus(d.status)
+  } catch (e) {
+    showToast(t('intezo.dups.start_failed') + (e && e.message ? ' ' + e.message : ''))
+  }
+}
+
+/** Az Intezo mostani mappajaban megjeloli, aminek MASHOL is van azonos tartalmu peldanya. */
+async function _dupMarkIntezo(list, path) {
+  var d
+  try {
+    d = await (await fetch('/api/life/dups?path=' + encodeURIComponent(path))).json()
+  } catch (e) { return }
+  // Kozben mashova leptunk: ez a valasz mar nem ide szol.
+  if (!d || !d.copies || !_intezoListing || (_intezoListing.rel || '') !== path) return
+  list.querySelectorAll('.intezo-dup-badge').forEach(function (b) { b.remove() })
+  list.querySelectorAll('[data-rel][data-dir=""]').forEach(function (row) {
+    var rel = row.getAttribute('data-rel') || ''
+    var name = rel.slice(rel.lastIndexOf('/') + 1)
+    var where = d.copies[name]
+    if (!where || !where.length) return
+    var b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'intezo-dup-badge'
+    b.textContent = t('intezo.dups.badge', { n: String(where.length + 1) })
+    b.title = t('intezo.dups.badge_title')
+    b.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); _dupShowWhere(name, rel, where) })
+    var anchor = row.querySelector('a[data-open]')
+    if (anchor) anchor.insertAdjacentElement('afterend', b)
+    else (row.querySelector('.intezo-tile-name') || row).appendChild(b)
+  })
+}
+
+/** Hol vannak a masolatok: lista, minden sorbol at lehet lepni a mappajaba. */
+function _dupShowWhere(name, rel, where) {
+  var overlay = document.createElement('div')
+  overlay.className = 'modal-overlay active'
+  overlay.id = 'dupWhereOverlay'
+  var all = [rel].concat(where)
+  overlay.innerHTML = '<div class="modal-content" style="max-width:620px;padding:18px">'
+    + '<h3 style="margin:0 0 4px">' + escapeHtml(t('intezo.dups.where_title', { name: name })) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 10px">' + escapeHtml(t('intezo.dups.where_help', { n: String(all.length) })) + '</p>'
+    + '<div id="dupWhereList" style="max-height:340px;overflow:auto"></div>'
+    + '<div style="text-align:right;margin-top:10px"><button class="btn-secondary" id="dupWhereClose">' + escapeHtml(t('intezo.dups.close')) + '</button></div>'
+    + '</div>'
+  document.body.appendChild(overlay)
+  var close = function () { overlay.remove() }
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) close() })
+  overlay.querySelector('#dupWhereClose').addEventListener('click', close)
+  var box = overlay.querySelector('#dupWhereList')
+  all.forEach(function (p, i) {
+    var folder = p.indexOf('/') >= 0 ? p.slice(0, p.lastIndexOf('/')) : ''
+    var line = document.createElement('div')
+    line.className = 'dup-where-row'
+    var txt = document.createElement('span')
+    txt.textContent = p.split('/').join(' › ') + (i === 0 ? '  (' + t('intezo.dups.this_one') + ')' : '')
+    var go = document.createElement('button')
+    go.className = 'btn-secondary btn-compact'
+    go.textContent = t('intezo.dups.go')
+    go.addEventListener('click', function () { close(); _intezoOpen(folder) })
+    line.appendChild(txt)
+    line.appendChild(go)
+    box.appendChild(line)
+  })
+}
+
+/**
+ * A felho-oldalak (Drive, MEGA) sorainak jelolese: megvan-e mar az Eletfaban.
+ * `rows`: [{ el, name, size, md5 }] -- a `md5` a Drive-tol jon, a MEGA nem ad.
+ */
+async function _dupMarkCloudRows(rows) {
+  rows = rows.filter(function (r) { return r && r.el })
+  if (!rows.length) return
+  var d
+  try {
+    d = await _depoPost('/api/life/dups/match', { items: rows.map(function (r) { return { name: r.name, size: r.size, md5: r.md5 || null } }) })
+  } catch (e) { return }
+  if (!d || !Array.isArray(d.matches)) return
+  rows.forEach(function (r, i) {
+    var m = d.matches[i]
+    if (!m || !r.el.isConnected) return
+    // "unknown" = nem tudjuk megmondani (meg nem futott a jegyzek, vagy nincs mivel osszevetni): NEM irunk ki semmit,
+    // mert sem a "megvan", sem a "nincs meg" nem volna igaz.
+    if (m.state === 'unknown') return
+    var b = document.createElement('span')
+    b.className = 'cloud-life-badge cloud-life-' + m.state
+    b.textContent = t('cloudlife.' + m.state)
+    b.title = m.where && m.where.length
+      ? t('cloudlife.where', { where: m.where.slice(0, 5).map(function (p) { return p.split('/').join(' › ') }).join('\n') })
+      : t('cloudlife.' + m.state + '_title')
+    var nameCell = r.el.querySelector('.drive-row-name')
+    if (nameCell && !nameCell.querySelector('.cloud-life-badge')) nameCell.appendChild(b)
+  })
+}
+
 /**
  * Hova keruljenek az uj repok: mappavalaszto az ELETFABAN (#518).
  *
@@ -39046,6 +39208,8 @@ async function loadIntezoPage() {
     if (el && !el._intezoBound) { el._intezoBound = 1; el.addEventListener(ev, fn) }
   }
   bind('intezoRefreshBtn', 'click', () => _intezoOpen(_intezoPath))
+  bind('intezoDupBtn', 'click', () => _dupToggle())
+  void _dupRefreshStatus()
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
   bind('intezoRestoreBtn', 'click', () => _intezoRestore())
@@ -40613,6 +40777,7 @@ function _intezoRender() {
   _intezoPlaceInfoCard()
   _intezoObserveThumbs(list)
   void _intezoTreeSync()
+  void _dupMarkIntezo(list, L.rel || '')
 }
 
 /* ===========================================================================
@@ -46150,6 +46315,13 @@ function megaRowHtml(f) {
  * kukajaba innen nem latunk bele, ezert visszaallitas gomb NINCS (az a MEGA
  * weboldalan megy); egy gomb van: levenni a sort a listarol.
  */
+/** #513: a MEGA nem ad ujjlenyomatot, ezert itt csak nev + meret alapjan megy az egyeztetes ("valoszinuleg megvan"). */
+function _megaMarkLifeCopies(list, items) {
+  const byPath = {}
+  list.querySelectorAll('.drive-row[data-mega-path]').forEach((el) => { byPath[el.getAttribute('data-mega-path')] = el })
+  return _dupMarkCloudRows(items.filter((f) => !f.isDir).map((f) => ({ el: byPath[f.path], name: f.name, size: f.size, md5: null })))
+}
+
 function megaGoneRowHtml(f) {
   const when = f.goneAt ? new Date(f.goneAt).toLocaleDateString() : ''
   return '<div class="drive-row-deleted" data-mega-gone="' + escapeAttr(f.path) + '" data-mega-name="' + escapeAttr(f.name) + '" title="' + escapeAttr(t('megadepot.gone.hint')) + '">'
@@ -46293,6 +46465,7 @@ async function loadMegaFolder() {
   list.innerHTML = r.items.map(megaRowHtml).join('') + r.gone.map(megaGoneRowHtml).join('')
   _megaBindRows(list, account, stack, loadMegaFolder)
   _megaBindGoneRows(list, account, loadMegaFolder)
+  void _megaMarkLifeCopies(list, r.items)
   keepScroll()
 }
 
@@ -46320,6 +46493,7 @@ async function loadMegaColumn(account) {
   list.innerHTML = r.items.map(megaRowHtml).join('') + r.gone.map(megaGoneRowHtml).join('')
   _megaBindRows(list, account, stack, () => loadMegaColumn(account))
   _megaBindGoneRows(list, account, () => loadMegaColumn(account))
+  void _megaMarkLifeCopies(list, r.items)
   keepScroll()
 }
 

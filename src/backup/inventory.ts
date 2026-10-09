@@ -130,6 +130,8 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   // Caches (regenerable).
   'cache', 'browser', 'workbench-render', 'openrouter-models.json', 'claude-model-scan.json', 'claude-cli-update.json', 'windows-claude-update.json',
   'mega-quota.json', 'drive-quota.json', 'usage-latest.json', 'upstream-changes.json',
+  // #513: the copy index's run status. Regenerable: the next run measures the tree again.
+  'life-dup-index.json',
   'upstream-fix-only-files.json', 'upstream-247-restrictions.json', 'upstream-sync-status.json',
   // Logs and journals (diagnostics, not data; opt-in via includeLogs).
   /\.log(\.\d+)?$/, /\.jsonl(\.\d+)?$/, 'event-log.txt', 'test-guard.log', 'pipeline-runs',

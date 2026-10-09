@@ -225,7 +225,7 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
     try {
       const token = await getAccessToken(accountFromQuery(url))
       const q = encodeURIComponent(driveListQuery(folderId, mediaOnly))
-      const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime,iconLink,webViewLink,thumbnailLink,imageMediaMetadata(width,height))')
+      const fields = encodeURIComponent('files(id,name,mimeType,size,md5Checksum,modifiedTime,iconLink,webViewLink,thumbnailLink,imageMediaMetadata(width,height))')
       const data = await driveJson(`${DRIVE_FILES_URL}?q=${q}&fields=${fields}&orderBy=folder,name&pageSize=200`, token)
       const files = (data.files || []).map((f: any) => ({
         id: f.id,
@@ -234,6 +234,8 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
         mimeType: f.mimeType,
         size: f.size ? Number(f.size) : null,
         modifiedTime: f.modifiedTime || null,
+        // #513: Drive's own md5 of the content -- lets the page ask whether this file is already in the Life tree, without a download.
+        md5: typeof f.md5Checksum === 'string' ? f.md5Checksum : null,
         webViewLink: f.webViewLink || null,
         // Csak azt mondjuk meg, VAN-E belyegkep. Magat a linket nem adjuk ki: az
         // egy alairt Google-URL, ami a bongeszo elozmenyeibe es a naplokba is
