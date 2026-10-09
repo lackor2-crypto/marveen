@@ -146,10 +146,12 @@ describe('planLifeTree', () => {
   // alapjan -- de a `Marvin` a 8. alapszabaly szerint SZEMELYES projekt, a
   // git-repok pedig a 7. pont szerint a szemely/ceg `GIT_REPOS` mappajaban
   // vannak. Ez a teszt azt orzi, hogy egyik se szivarogjon vissza.
-  it('a Rendszer alatt CSAK a Tárolók all (36. pont)', () => {
+  it('a Rendszer alatt a terv SEMMIT nem hoz letre elore: a Tárolók ag megszunt (#513)', () => {
+    // Boss, 2026-10-09 (TG 8228): a Rendszer alatt csak a Marvin-mentesek maradnak
+    // (azt a Raktar vaza hozza letre, nem a fa terve).
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes).toContain('Rendszer/Tárolók')
-    expect(nodes.filter((r) => r.startsWith('Rendszer/'))).toEqual(['Rendszer/Tárolók'])
+    expect(nodes).toContain('Rendszer')
+    expect(nodes.filter((r) => r.startsWith('Rendszer/'))).toEqual([])
   })
   it('az orszag csak ott jelenik meg, ahol szamit', () => {
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)

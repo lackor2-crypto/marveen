@@ -7,7 +7,7 @@
 // (rclone is faked), and the upload run endpoint is asked while it runs.
 import { describe, it, expect, vi, afterAll } from 'vitest'
 import { Readable } from 'node:stream'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -33,7 +33,7 @@ vi.mock('../mega.js', async () => {
 })
 vi.mock('../depot.js', async () => {
   const actual = await vi.importActual<typeof import('../depot.js')>('../depot.js')
-  return { ...actual, depotAccountDir: (account: string) => join(h.depot, account) }
+  return { ...actual, depotRoot: () => h.depot, depotAccountDir: (account: string) => join(h.depot, account) }
 })
 vi.mock('../mega-download.js', async () => {
   const actual = await vi.importActual<typeof import('../mega-download.js')>('../mega-download.js')
@@ -63,6 +63,27 @@ function call(path: string, method: string, body?: unknown) {
   const ctx = { req, res, path: url.pathname, method, url, auth: { kind: 'session' as const, user: 'teszt' } } as unknown as RouteContext
   return tryHandleBackupRules(ctx).then((handled) => ({ handled, ...out }))
 }
+
+// #513: only the backups stay under Rendszer -- so LOOKING at a preview must
+// not create the account's folder there. Runs first: the lock test below
+// starts a (fake) download, after which the folder may legitimately exist.
+describe('a MEGA preview creates nothing on the disk (#513)', () => {
+  it('the download preview answers without making the account folder', async () => {
+    expect(existsSync(join(h.depot, 'teszt'))).toBe(false)
+    const pv = await call('/api/backup-rules/mega/download/preview', 'POST', { account: 'teszt' })
+    expect(pv.status).toBe(200)
+    expect(pv.body.files).toBe(1)
+    expect(existsSync(join(h.depot, 'teszt'))).toBe(false)
+  })
+
+  it('the mirror upload preview says there is no mirror folder -- and does not walk a missing folder as an empty one', async () => {
+    const pv = await call('/api/backup-rules/mega/mirror/preview', 'POST', { account: 'teszt' })
+    expect(pv.status).toBe(404)
+    expect(pv.body.code).toBe('no_mirror_folder')
+    expect(String(pv.body.error)).toContain('Életf')
+    expect(existsSync(join(h.depot, 'teszt'))).toBe(false)
+  })
+})
 
 describe('MEGA transfer lock through the real route handler (card #465)', () => {
   it('a running download blocks the upload run, and the lock lets go once the download ends', async () => {

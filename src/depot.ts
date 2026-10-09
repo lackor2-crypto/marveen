@@ -446,14 +446,48 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
   migrateFlatDepotDirs()
 
   const created: string[] = []
-  // A fajta van felul, a fiok alatta (`.../DRIVE/lackor2`), ezert a vazban is
-  // itt a helyuk -- igy egy ures depoban is latszik, mi hova fog kerulni.
-  for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_MEGA, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM]) {
+  // ONLY the backups folder is made up front (Boss, 2026-10-09, TG 8228: "A
+  // rendszer alatt ott csak a Marvin mentesek kell, hogy maradjon"). The
+  // storage folders (Drive, Photos, MEGA, Git) and the work folder used to be
+  // created empty here "so that one sees where things will go" -- but
+  // everything lives in the Life tree now, and an empty `Rendszer/Tárolók`
+  // with ten empty account folders under each kind only says that something
+  // is stored there. Whoever really writes into one of them makes it itself.
+  for (const d of [DEPOT_BACKUPS]) {
     const p = join(health.root, d)
     if (existsSync(p)) continue
     try { mkdirSync(p, { recursive: true }); created.push(d) } catch { /* a tobbi meg keszuljon el */ }
   }
+  pruneEmptyStorageDirs()
   return { created, health }
+}
+
+/**
+ * Take away the storage folders that hold NOTHING (#513).
+ *
+ * Only `rmdir`: a folder with anything in it -- a file, a hidden file, a
+ * sub-folder that is not empty -- makes the call fail and stays exactly as it
+ * is. So this can never delete content; the worst it does is leave an empty
+ * folder behind. Runs wherever the skeleton is checked (start-up, the Depot
+ * page), and does nothing when the depot is not there or not writable.
+ */
+export function pruneEmptyStorageDirs(): string[] {
+  const removed: string[] = []
+  const health = depotHealth()
+  if (!health.configured || !health.root || !health.exists || !health.writable) return removed
+  const root = health.root
+  const drop = (rel: string): boolean => {
+    try { rmdirSync(join(root, rel)); removed.push(rel); return true } catch { return false }
+  }
+  for (const kind of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_MEGA, DEPOT_PROJECTS]) {
+    let accounts: string[] = []
+    try { accounts = readdirSync(join(root, kind), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) } catch { continue }
+    for (const a of accounts) drop(`${kind}/${a}`)
+    drop(kind)
+  }
+  drop(DEPOT_STORAGES)
+  drop(DEPOT_WORK)
+  return removed
 }
 
 /**
