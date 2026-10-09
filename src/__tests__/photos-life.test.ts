@@ -340,6 +340,18 @@ describe('what this program uploaded shows on the page without being picked agai
     expect(loadLifeIndex()).toMatchObject([{ id: 'picker-id', linked: true }])
   })
 
+  it('the same picture already on the page from another file (an earlier copy of it): no second tile', async () => {
+    const { linkUploadedPhotos } = await import('../photos-life.js')
+    writeFileSync(join(destDir(), 'sajat.jpg'), 'regi!')
+    writeFileSync(join(destDir(), 'masolat.jpg'), 'regi!')
+    expect(linkUploadedPhotos('acc', [up(), up({ id: 'g2', file: 'masolat.jpg' })])).toBe(1)
+    expect(linkUploadedPhotos('acc', [up({ id: 'g3', file: 'masolat.jpg' })])).toBe(0)
+    expect(loadLifeIndex().map((p) => p.file)).toEqual(['sajat.jpg'])
+    // Another picture in the same folder still gets its own row.
+    writeFileSync(join(destDir(), 'masik.jpg'), 'masik')
+    expect(linkUploadedPhotos('acc', [up({ id: 'g4', file: 'masik.jpg', sha256: 'c'.repeat(64) })])).toBe(1)
+  })
+
   it('a video and an upload without a Google id are handled too', async () => {
     const { linkUploadedPhotos } = await import('../photos-life.js')
     writeFileSync(join(destDir(), 'film.mp4'), 'video')
