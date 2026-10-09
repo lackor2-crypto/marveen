@@ -522,36 +522,75 @@ describe('POST /api/life/move -- bekotest nem szakit el', () => {
     expect(add.out.body.ok).toBe(true)
   }
 
-  it('a bekotott mappat nem mozgatja, a valodi tarolo a helyen marad', async () => {
+  // #510: the link itself moves (only the place where it SHOWS), the store stays.
+  it('a bekotott mappa athelyezheto: csak a helye megy at, a valodi tarolo a helyen marad', async () => {
     await setup()
     const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa/Kotes', to: 'MvMasik' })
     expect(await tryHandleLife(ctx)).toBe(true)
-    expect(out.status).toBe(400)
-    expect(out.body.code).toBe('mounted')
+    expect(out.status).toBe(200)
+    expect(out.body.rel).toBe('MvMasik/Kotes')
     expect(existsSync(join(depot, 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
     expect(existsSync(join(depot, 'MvMasik', 'MvTarolo'))).toBe(false)
+    expect(existsSync(join(depot, 'MvMasik', 'Kotes'))).toBe(true)
+    expect(existsSync(join(depot, 'MvFa', 'Kotes'))).toBe(false)
+    const { listMounts } = await import('../life-mounts.js')
+    expect(listMounts().map((m) => [m.rel, m.target])).toContainEqual(['MvMasik/Kotes', 'MvTarolo'])
   })
 
-  it('bekotest tartalmazo mappat sem mozgat', async () => {
-    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa', to: 'MvMasik' })
+  it('bekotott mappat nem tesz egy masik bekotes belsejebe', async () => {
+    mkdirSync(join(depot, 'MvTarolo2'), { recursive: true })
+    const add = ctxFor('/api/life/mounts', 'POST', { rel: 'MvFa/Kotes2', target: 'MvTarolo2' })
+    await tryHandleLife(add.ctx)
+    expect(add.out.body.ok).toBe(true)
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa/Kotes2', to: 'MvMasik/Kotes' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.code).toBe('into_link')
+    expect(existsSync(join(depot, 'MvTarolo', 'Kotes2'))).toBe(false)
+  })
+
+  it('bekotest tartalmazo mappa athelyezheto, a bekotes koveti', async () => {
+    mkdirSync(join(depot, 'MvCel'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvFa', to: 'MvCel' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(existsSync(join(depot, 'MvFa'))).toBe(false)
+    const { listMounts } = await import('../life-mounts.js')
+    expect(listMounts().map((m) => [m.rel, m.target])).toContainEqual(['MvCel/MvFa/Kotes2', 'MvTarolo2'])
+    expect(listMounts().some((m) => m.rel.startsWith('MvFa/'))).toBe(false)
+  })
+
+  it('bekotest tartalmazo mappat EGYESITESSEL nem mozgat: az fajlonkent masol es torol', async () => {
+    mkdirSync(join(depot, 'MvCel2', 'MvFa'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvCel/MvFa', to: 'MvCel2', resolution: 'merge' })
     expect(await tryHandleLife(ctx)).toBe(true)
     expect(out.status).toBe(400)
     expect(out.body.code).toBe('has_mounts')
-    expect(existsSync(join(depot, 'MvFa'))).toBe(true)
+    expect(existsSync(join(depot, 'MvCel', 'MvFa'))).toBe(true)
   })
 
-  it('bekotes celjat sem mozgatja el', async () => {
-    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvTarolo', to: 'MvMasik' })
+  it('a bekotes CELJA is athelyezheto: a bekotes az uj helyre mutat tovabb', async () => {
+    mkdirSync(join(depot, 'MvRaktar'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move', 'POST', { from: 'MvTarolo', to: 'MvRaktar' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(existsSync(join(depot, 'MvRaktar', 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
+    const { listMounts } = await import('../life-mounts.js')
+    expect(listMounts().map((m) => [m.rel, m.target])).toContainEqual(['MvMasik/Kotes', 'MvRaktar/MvTarolo'])
+    // and the content is reachable through the link
+    const list = ctxFor('/api/life/list?path=' + encodeURIComponent('MvMasik/Kotes'), 'GET')
+    await tryHandleLife(list.ctx)
+    expect((list.out.body.folders as Array<{ name: string }>).map((f) => f.name)).toContain('belso')
+  })
+
+  it('a bekotes celjat EGYESITESSEL nem mozgatja, es angolul is megmondja, miert', async () => {
+    mkdirSync(join(depot, 'MvRaktar2', 'MvTarolo'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvRaktar/MvTarolo', to: 'MvRaktar2', resolution: 'merge' })
     expect(await tryHandleLife(ctx)).toBe(true)
     expect(out.status).toBe(400)
     expect(out.body.code).toBe('is_target')
-    expect(existsSync(join(depot, 'MvTarolo'))).toBe(true)
-  })
-
-  it('angol feluleten angol mondatot ad', async () => {
-    const { ctx, out } = ctxFor('/api/life/move?lang=en', 'POST', { from: 'MvFa/Kotes', to: 'MvMasik' })
-    expect(await tryHandleLife(ctx)).toBe(true)
-    expect(out.body.message).toMatch(/linked|link/i)
+    expect(out.body.message).toMatch(/link points to this folder/i)
+    expect(existsSync(join(depot, 'MvRaktar', 'MvTarolo', 'belso', 'irat.txt'))).toBe(true)
   })
 })
 
@@ -947,5 +986,87 @@ describe('GET /api/life/media-targets -- "Athelyezes szemelyhez" celjai (#381)',
     mkdirSync(join(depot, p.media.photos), { recursive: true })
     const again = (await get()).body.targets.find((x: any) => x.name === 'Teszt Elek')
     expect(again.exists.photos).toBe(true)
+  })
+})
+
+// #510 (Boss, TG 2490): renaming a folder that has a link in it was refused
+// with "remove the link first". The rename is free now, and every registry
+// that knows the folder by path follows it.
+describe('POST /api/life/rename -- the links and the backup rule follow (#510)', () => {
+  const rename = async (rel: string, name: string) => {
+    const { ctx, out } = ctxFor('/api/life/rename', 'POST', { rel, name })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+  const mounts = async (): Promise<Array<{ rel: string; target: string }>> => {
+    const { listMounts } = await import('../life-mounts.js')
+    return listMounts().map((m) => ({ rel: m.rel, target: m.target }))
+  }
+  const setup = async (p: string) => {
+    mkdirSync(join(depot, `${p}Tarolo`, 'belso'), { recursive: true })
+    writeFileSync(join(depot, `${p}Tarolo`, 'belso', 'irat.txt'), 'x')
+    mkdirSync(join(depot, `${p}Ceg`, 'Iratok'), { recursive: true })
+    writeFileSync(join(depot, `${p}Ceg`, 'Iratok', 'szamla.pdf'), 'pdf')
+    const add = ctxFor('/api/life/mounts', 'POST', { rel: `${p}Ceg/Fejlesztes/Kotes`, target: `${p}Tarolo` })
+    await tryHandleLife(add.ctx)
+    expect(add.out.body.ok).toBe(true)
+  }
+
+  it('a folder with a link inside is renamed, and the link shows under the new name', async () => {
+    await setup('RnA')
+    const { setBackupRule, loadBackupRules } = await import('../backup-rules.js')
+    setBackupRule({ path: 'RnACeg', action: 'target', target: { kind: 'drive', account: 'teszt' } })
+    setBackupRule({ path: 'RnACeg/Iratok', action: 'none' })
+
+    const out = await rename('RnACeg', 'RnAUjnev')
+    expect(out.body.ok).toBe(true)
+    expect(out.body.rel).toBe('RnAUjnev')
+    expect(existsSync(join(depot, 'RnAUjnev', 'Iratok', 'szamla.pdf'))).toBe(true)
+    expect(existsSync(join(depot, 'RnACeg'))).toBe(false)
+    // the link follows, its target does not move
+    expect(await mounts()).toContainEqual({ rel: 'RnAUjnev/Fejlesztes/Kotes', target: 'RnATarolo' })
+    expect((await mounts()).some((m) => m.rel.startsWith('RnACeg'))).toBe(false)
+    expect(existsSync(join(depot, 'RnATarolo', 'belso', 'irat.txt'))).toBe(true)
+    // and it is still reachable THROUGH the renamed folder
+    const list = ctxFor('/api/life/list?path=' + encodeURIComponent('RnAUjnev/Fejlesztes/Kotes'), 'GET')
+    await tryHandleLife(list.ctx)
+    expect((list.out.body.folders as Array<{ name: string }>).map((f) => f.name)).toContain('belso')
+    // the backup rules protect the folder under its new name
+    const paths = loadBackupRules().rules.map((r) => r.path)
+    expect(paths).toContain('RnAUjnev')
+    expect(paths).toContain('RnAUjnev/Iratok')
+    expect(paths.some((x) => x.startsWith('RnACeg'))).toBe(false)
+  })
+
+  it('the linked folder itself is renamed where it SHOWS -- the store behind it is not touched', async () => {
+    await setup('RnB')
+    const out = await rename('RnBCeg/Fejlesztes/Kotes', 'Tarolok')
+    expect(out.body.ok).toBe(true)
+    expect(out.body.rel).toBe('RnBCeg/Fejlesztes/Tarolok')
+    expect(await mounts()).toContainEqual({ rel: 'RnBCeg/Fejlesztes/Tarolok', target: 'RnBTarolo' })
+    // the real store kept its name and its content
+    expect(existsSync(join(depot, 'RnBTarolo', 'belso', 'irat.txt'))).toBe(true)
+    expect(existsSync(join(depot, 'RnBCeg', 'Fejlesztes', 'Tarolok'))).toBe(true)
+    expect(existsSync(join(depot, 'RnBCeg', 'Fejlesztes', 'Kotes'))).toBe(false)
+  })
+
+  it('a name that is taken is refused, nothing moves', async () => {
+    await setup('RnC')
+    mkdirSync(join(depot, 'RnCCeg', 'Fejlesztes', 'Foglalt'), { recursive: true })
+    const out = await rename('RnCCeg/Fejlesztes/Kotes', 'Foglalt')
+    expect(out.body.ok).toBe(false)
+    expect(out.body.code).toBe('exists')
+    expect(await mounts()).toContainEqual({ rel: 'RnCCeg/Fejlesztes/Kotes', target: 'RnCTarolo' })
+  })
+
+  it('the TARGET of a link can be renamed too -- the link keeps pointing at it', async () => {
+    await setup('RnD')
+    const out = await rename('RnDTarolo', 'RnDMasnev')
+    expect(out.body.ok).toBe(true)
+    expect(existsSync(join(depot, 'RnDMasnev', 'belso', 'irat.txt'))).toBe(true)
+    expect(await mounts()).toContainEqual({ rel: 'RnDCeg/Fejlesztes/Kotes', target: 'RnDMasnev' })
+    const list = ctxFor('/api/life/list?path=' + encodeURIComponent('RnDCeg/Fejlesztes/Kotes'), 'GET')
+    await tryHandleLife(list.ctx)
+    expect((list.out.body.folders as Array<{ name: string }>).map((f) => f.name)).toContain('belso')
   })
 })

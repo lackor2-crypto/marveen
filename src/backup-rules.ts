@@ -88,6 +88,32 @@ function saveBackupRules(rules: BackupRule[]): void {
   renameSync(tmp, f)
 }
 
+/**
+ * A folder was renamed in the Intezo: the rules on it and under it follow
+ * (#510). A rule that already sits on the new path is kept -- the folder that
+ * arrives must not silently change what an existing folder is backed up to.
+ * Returns how many rules moved. An unreadable file is left alone.
+ */
+export function moveBackupRulesPrefix(fromPath: string, toPath: string): number {
+  const from = normRulePath(fromPath)
+  const to = normRulePath(toPath)
+  if (!from || !to || from === to) return 0
+  const { rules, broken } = loadBackupRules()
+  if (broken) return 0
+  const taken = new Set(rules.map((r) => r.path))
+  let moved = 0
+  const next: BackupRule[] = []
+  for (const r of rules) {
+    if (r.path !== from && !r.path.startsWith(from + '/')) { next.push(r); continue }
+    const target = to + r.path.slice(from.length)
+    if (taken.has(target)) continue
+    next.push({ ...r, path: target })
+    moved++
+  }
+  if (next.length !== rules.length || moved) saveBackupRules(next)
+  return moved
+}
+
 /** The rule that applies to `path`: its own, or the nearest ancestor's. */
 export function effectiveRule(rules: readonly BackupRule[], path: string): EffectiveRule {
   const byPath = new Map(rules.map((r) => [r.path, r]))

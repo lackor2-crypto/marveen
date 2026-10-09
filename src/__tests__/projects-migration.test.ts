@@ -291,7 +291,7 @@ describe('alias regi feladatai tartalom szerint', () => {
     }
   })
 
-  it('a regi munka egyenkent a tartalma szerinti projektbe, a vezerles kotetlen, az alias csak a jovoben', () => {
+  it('a regi munka egyenkent a tartalma szerinti projektbe, a vezerles kotetlen, az alias csak a jovoben', async () => {
     const plan = planProjectMigration()
     const fej = plan.codeAliases.find((a) => a.alias === 'fejlesztes')!
     expect(fej.history).toMatchObject({ total: 2, work: 1, alreadyLinked: 0 })
@@ -318,12 +318,12 @@ describe('alias regi feladatai tartalom szerint', () => {
     // Az Attekintes ugyanezt latja: a regi munka a Marvinnal, a proba sehol,
     // az alias uj feladata mar a Tozsdenel.
     addTask('t6', 'fejlesztes', 'F:/Masik/Mappa', null, WORK, Date.now() + 5_000)
-    const codeOf = (pid: string) => buildProjectOverview(pid)!.activity.filter((a) => a.kind === 'code').map((a) => a.text)
-    const marvinCode = buildProjectOverview(marvin)!.activity.filter((a) => a.kind === 'code')
+    const codeOf = async (pid: string) => (await buildProjectOverview(pid))!.activity.filter((a) => a.kind === 'code').map((a) => a.text)
+    const marvinCode = (await buildProjectOverview(marvin))!.activity.filter((a) => a.kind === 'code')
     expect(marvinCode.map((a) => a.actor).sort()).toEqual(['fejlesztes', 'marveen', 'marveen'])
-    expect(codeOf(tozsde)).toHaveLength(1)
-    expect(buildProjectOverview(tozsde)!.hasDevWork).toBe(true)
-    expect([...codeOf(marvin), ...codeOf(tozsde)]).not.toContain('/clear')
+    expect(await codeOf(tozsde)).toHaveLength(1)
+    expect((await buildProjectOverview(tozsde))!.hasDevWork).toBe(true)
+    expect([...(await codeOf(marvin)), ...(await codeOf(tozsde))]).not.toContain('/clear')
 
     // Visszavonas: a feladat-kotesek es az alias-kotesek is eltunnek.
     const rev = revertProjectMigration(out.result.id)

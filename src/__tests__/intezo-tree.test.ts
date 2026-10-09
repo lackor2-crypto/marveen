@@ -41,6 +41,15 @@ describe('Intezo folder tree', () => {
     expect(open).toMatch(/if \(uj === _intezoPath\) \{ _intezoTreeKids = new Map\(\)/)
   })
 
+  it('the name of the current folder expands/collapses like the arrow, it does not refresh', () => {
+    const render = fnBody('function _intezoTreeRender()')
+    expect(render).toMatch(/rel === _intezoPath && !_intezoTreeIsLeaf\(_intezoTreeFindEntry\(rel\)\)\) _intezoTreeToggle\(rel\)\s+else void _intezoOpen\(rel\)/)
+    expect(render).toContain("_intezoTreeToggle(b.getAttribute('data-tree-toggle'))")
+    const toggle = fnBody('function _intezoTreeToggle(rel)')
+    expect(toggle).toContain('_intezoTreeCollapsed.add(rel)')
+    expect(toggle).not.toContain('_intezoOpen(')
+  })
+
   it('branches load without the slow source probe, and a failure is shown, not an empty branch', () => {
     const sync = fnBody('async function _intezoTreeSync()')
     expect(sync).toContain('deep=0')

@@ -417,9 +417,9 @@ describe('file.read -- a projektmappa hatara', () => {
 })
 
 describe('kontextus-epites', () => {
-  it('a mert tenyek bekerulnek, a kitalalas tiltva van', () => {
+  it('a mert tenyek bekerulnek, a kitalalas tiltva van', async () => {
     const p = getProject(projectId) as ProjectRow
-    const c = buildContext(p, getWorkItem(workItemId) ?? null, 'hu')
+    const c = await buildContext(p, getWorkItem(workItemId) ?? null, 'hu')
     expect(c.system).toContain('Never invent')
     expect(c.contextText).toContain('CONTEXT (measured facts')
     expect(c.contextText).toContain('Teszt projekt')
@@ -427,20 +427,20 @@ describe('kontextus-epites', () => {
     expect(c.contextText.length).toBeLessThanOrEqual(MAX_CONTEXT_CHARS + 200)
   })
 
-  it('ahol nincs adat, KIMONDJA -- es megkulonbozteti a ket esetet', () => {
+  it('ahol nincs adat, KIMONDJA -- es megkulonbozteti a ket esetet', async () => {
     const other = createProject({ name: 'Üres projekt' })
     if (!other.ok) throw new Error('projekt')
-    const c = buildContext(other.project, null, 'hu')
+    const c = await buildContext(other.project, null, 'hu')
     // Nincs munkadarab: "none yet", nem elhallgatas.
     expect(c.contextText).toContain('none yet in this project')
     // Nincs mappa: kimondja, hogy ez NEM azt jelenti, hogy nincsenek fajlok.
     expect(c.contextText).toContain('does NOT mean there are no files')
   })
 
-  it('a nyelv a kontextusban is megjelenik', () => {
+  it('a nyelv a kontextusban is megjelenik', async () => {
     const p = getProject(projectId) as ProjectRow
-    expect(buildContext(p, null, 'en').contextText).toContain('Answer language: English')
-    expect(buildContext(p, null, 'hu').contextText).toContain('Answer language: Hungarian')
+    expect((await buildContext(p, null, 'en')).contextText).toContain('Answer language: English')
+    expect((await buildContext(p, null, 'hu')).contextText).toContain('Answer language: Hungarian')
   })
 
   it('a beszelgetes-elozmeny korlatos, es a LEGUJABB fordulok maradnak', () => {
@@ -740,8 +740,8 @@ describe('projekt- es verzio-eszkozok (6. fazis)', () => {
     expect(String(ures.note)).toContain('no work items yet')
   })
 
-  it('project.listKanban: nulla kartyanal kimondja, hogy nincs -- nem hallgat', () => {
-    const d = data(executeTool('project.listKanban', {}, ctx()))
+  it('project.listKanban: nulla kartyanal kimondja, hogy nincs -- nem hallgat', async () => {
+    const d = data(await runTool('project.listKanban', {}, ctx()))
     expect(d.count).toBe(0)
     expect(String(d.note)).toContain('no open kanban card')
   })

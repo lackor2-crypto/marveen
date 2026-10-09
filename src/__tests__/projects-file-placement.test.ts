@@ -120,11 +120,11 @@ describe('mappak a lemezen', () => {
     return tryHandleProjects({ req, res, path: url.pathname, method, url } as RouteContext).then(() => out)
   }
 
-  it('a valaszto a melyebb almappakat is kinalja; rejtett, node_modules es git-tarolo nelkul', () => {
+  it('a valaszto a melyebb almappakat is kinalja; rejtett, node_modules es git-tarolo nelkul', async () => {
     const p = project()
     const w = join(depot, 'Projektek', 'Web')
     for (const d of ['Media/Fotok', 'Media/Videok', 'Fejlesztes/Tudasbazis', '.kuka', 'node_modules/x', 'Kod/.git']) mkdirSync(join(w, ...d.split('/')), { recursive: true })
-    expect(projectSubfolders(p)).toEqual(['Fejlesztes', 'Fejlesztes/Tudasbazis', 'Media', 'Media/Fotok', 'Media/Videok'])
+    expect(await projectSubfolders(p)).toEqual(['Fejlesztes', 'Fejlesztes/Tudasbazis', 'Media', 'Media/Fotok', 'Media/Videok'])
     // A melyebb almappaba irhato is.
     expect(writeProjectFile(p, 'Media/Fotok', 'a.jpg', Buffer.from('x'))).toMatchObject({ ok: true })
     expect(writeProjectFile(p, '../..', 'a.jpg', Buffer.from('x'))).toMatchObject({ ok: false, code: 'bad_folder' })

@@ -286,10 +286,10 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       if (read.ok) expect((read.data as { text: string }).text).toContain('# V')
     })
 
-    it('a projekt-asszisztens kontextusa es a teljes ugynok promptja is felsorolja az anyagokat', () => {
+    it('a projekt-asszisztens kontextusa es a teljes ugynok promptja is felsorolja az anyagokat', async () => {
       const item = newItem()
       attachAsset(item, 'valasz.md', Buffer.from('# V'))
-      const c = buildContext(project, getWorkItem(item.id) ?? null, 'hu')
+      const c = await buildContext(project, getWorkItem(item.id) ?? null, 'hu')
       expect(c.contextText).toContain('folder: Munkadarabok/Marvin Workbench terv')
       expect(c.contextText).toContain('Munkadarabok/Marvin Workbench terv/valasz.md [readable]')
       const prompt = buildCodeBridgePrompt({
