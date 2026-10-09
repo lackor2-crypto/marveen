@@ -38243,6 +38243,177 @@ async function _dupMarkCloudRows(rows) {
   })
 }
 
+// ===========================================================================
+// FELTOLTES A GOOGLE FOTOKBA (#520) -- Boss, TG 8327 / TG 8331.
+//
+// A Google egy kulso programnak HOZZAADNI enged, torolni es felulirni nem: amit
+// innen feltoltunk, azt innen nem lehet visszavonni. Ezert ket lepes van, es a
+// masodik gomb csak az elso utan el: ELONEZET (hany kep, mekkora, mi van mar
+// fent), es csak utana a FELTOLTES -- pontosan azt kuldi, amit az elonezet mutatott.
+// ===========================================================================
+function _gphotosPickedPaths() {
+  if (_intezoMulti && _intezoMulti.size) return Array.from(_intezoMulti.keys())
+  if (_intezoSelected && _intezoSelected.rel) return [_intezoSelected.rel]
+  const here = _intezoListing && _intezoListing.rel
+  return here ? [here] : []
+}
+
+function _gphotosMb(bytes) {
+  const mb = (Number(bytes) || 0) / 1048576
+  return mb >= 100 ? String(Math.round(mb)) : mb.toFixed(1)
+}
+
+async function _gphotosUploadOpen() {
+  const paths = _gphotosPickedPaths()
+  if (!paths.length) { showToast(t('gphotos.up.pick_first')); return }
+  let acc
+  try { acc = await (await fetch('/api/photos/upload/accounts')).json() } catch (e) { showToast(t('gphotos.up.accounts_failed')); return }
+  const accounts = (acc && acc.accounts) || []
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay active'
+  overlay.id = 'gphotosUpOverlay'
+  const what = paths.length === 1 ? paths[0].split('/').join(' › ') : t('gphotos.up.n_picked', { n: String(paths.length) })
+  overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
+    + '<h3 style="margin:0 0 4px">' + escapeHtml(t('gphotos.up.title')) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 10px">' + escapeHtml(t('gphotos.up.help')) + '</p>'
+    + '<p style="margin:0 0 8px;font-size:13px"><b>' + escapeHtml(t('gphotos.up.what')) + '</b> <span id="gphotosUpWhat"></span></p>'
+    + '<p style="margin:0 0 8px;font-size:13px"><label><b>' + escapeHtml(t('gphotos.up.account')) + '</b> '
+    + '<select id="gphotosUpAccount" class="input" style="width:auto"></select></label></p>'
+    + '<div id="gphotosUpBody" style="font-size:13px;margin:8px 0"></div>'
+    + '<div style="text-align:right;margin-top:10px">'
+    + '<button class="btn-secondary" id="gphotosUpClose">' + escapeHtml(t('intezo.dups.close')) + '</button> '
+    + '<button class="btn-secondary" id="gphotosUpPlan">' + escapeHtml(t('gphotos.up.preview')) + '</button> '
+    + '<button class="btn-primary" id="gphotosUpRun" disabled>' + escapeHtml(t('gphotos.up.run')) + '</button>'
+    + '</div></div>'
+  document.body.appendChild(overlay)
+  overlay.querySelector('#gphotosUpWhat').textContent = what
+  const sel = overlay.querySelector('#gphotosUpAccount')
+  const body = overlay.querySelector('#gphotosUpBody')
+  const planBtn = overlay.querySelector('#gphotosUpPlan')
+  const runBtn = overlay.querySelector('#gphotosUpRun')
+  const closeBtn = overlay.querySelector('#gphotosUpClose')
+  for (const a of accounts) {
+    const o = document.createElement('option')
+    o.value = a.name
+    o.textContent = a.name + (a.canUpload ? '' : ' — ' + t('gphotos.up.acc_no_perm'))
+    if (a.name === acc.default) o.selected = true
+    sel.appendChild(o)
+  }
+  let timer = null
+  const close = () => { if (timer) clearInterval(timer); overlay.remove() }
+  closeBtn.addEventListener('click', close)
+  const say = (lines, warn) => {
+    body.innerHTML = ''
+    for (const l of lines) {
+      const p = document.createElement('p')
+      p.style.cssText = 'margin:0 0 6px' + (warn ? ';color:var(--warning,#d97706)' : '')
+      p.textContent = l
+      body.appendChild(p)
+    }
+  }
+  // FRISS TELEPITES: nincs bekotott Google-fiok. Nem ures legordulo, hanem mondat es ut.
+  if (!accounts.length) {
+    say([t('gphotos.up.no_accounts')], true)
+    planBtn.disabled = true
+    const go = document.createElement('button')
+    go.className = 'btn-secondary btn-compact'
+    go.textContent = t('gphotos.up.open_accounts')
+    go.addEventListener('click', () => { close(); location.hash = '#accounts' })
+    body.appendChild(go)
+    return
+  }
+  const noPerm = () => {
+    say([t('gphotos.up.no_perm_1', { account: sel.value }), t('gphotos.up.no_perm_2'), t('gphotos.up.no_perm_3'), t('gphotos.up.no_perm_4')], true)
+    const go = document.createElement('button')
+    go.className = 'btn-secondary btn-compact'
+    go.id = 'gphotosUpOpenAccounts'
+    go.textContent = t('gphotos.up.open_accounts')
+    go.addEventListener('click', () => { close(); location.hash = '#accounts' })
+    body.appendChild(go)
+  }
+  sel.addEventListener('change', () => { runBtn.disabled = true; body.innerHTML = '' })
+
+  planBtn.addEventListener('click', async () => {
+    runBtn.disabled = true
+    say([t('gphotos.up.planning')])
+    let res, d
+    try {
+      res = await fetch('/api/photos/upload/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: sel.value, paths }) })
+      d = await res.json()
+    } catch (e) { say([t('gphotos.up.plan_failed')], true); return }
+    if (!res.ok) {
+      if (d && d.code === 'no_upload_scope') { noPerm(); return }
+      say([t('gphotos.up.plan_failed')], true)
+      return
+    }
+    const lines = []
+    lines.push(d.files ? t('gphotos.up.plan_files', { n: String(d.files), mb: _gphotosMb(d.bytes) }) : t('gphotos.up.plan_nothing'))
+    if (d.already) lines.push(t('gphotos.up.plan_already', { n: String(d.already) }))
+    if (d.notMedia) lines.push(t('gphotos.up.plan_not_media', { n: String(d.notMedia) }))
+    // "Nem tudtam olvasni" KULON mondat: ezekrol semmit nem allitunk, es nem is mennek fel.
+    if (d.unreadableCount) lines.push(t('gphotos.up.plan_unreadable', { n: String(d.unreadableCount) }))
+    if (d.truncated) lines.push(t('gphotos.up.plan_truncated'))
+    if (d.files) lines.push(t('gphotos.up.plan_warning'))
+    say(lines)
+    runBtn.disabled = !d.files
+  })
+
+  const showJob = (job) => {
+    if (!job) return
+    if (job.running) { say([t('gphotos.up.running', { done: String(job.done), total: String(job.total) }), job.current ? job.current.split('/').join(' › ') : '']); return }
+    const lines = []
+    if (job.error) lines.push(t('gphotos.up.job_error', { err: job.error }))
+    const r = job.result
+    if (r) {
+      lines.push(t('gphotos.up.done', { n: String(r.uploaded) }))
+      if (r.duplicates) lines.push(t('gphotos.up.done_dup', { n: String(r.duplicates) }))
+      if (r.failed && r.failed.length) lines.push(t('gphotos.up.done_failed', { n: String(r.failed.length), first: r.failed[0].rel.split('/').pop() + ': ' + r.failed[0].detail }))
+      // A Google SAJAT mondata megy ki: az okot nem talalgatjuk.
+      if (r.stopped) lines.push(t('gphotos.up.stopped_by_google', { status: String(r.stopped.status), msg: r.stopped.message }))
+      if (r.remaining) lines.push(t('gphotos.up.remaining', { n: String(r.remaining) }))
+    }
+    say(lines, !!(job.error || (r && (r.stopped || (r.failed && r.failed.length)))))
+    if (job.enableUrl && /^https:\/\/console\.(developers|cloud)\.google\.com\//.test(job.enableUrl)) {
+      const a = document.createElement('a')
+      a.href = job.enableUrl; a.target = '_blank'; a.rel = 'noopener'
+      a.textContent = t('gphotos.up.enable_api')
+      body.appendChild(a)
+    }
+  }
+
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true
+    planBtn.disabled = true
+    sel.disabled = true
+    let res, d
+    try {
+      res = await fetch('/api/photos/upload/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: sel.value }) })
+      d = await res.json()
+    } catch (e) { say([t('gphotos.up.run_failed')], true); planBtn.disabled = false; sel.disabled = false; return }
+    if (!res.ok) {
+      const map = { busy: t('gphotos.up.err_busy'), no_plan: t('gphotos.up.err_no_plan'), nothing_to_send: t('gphotos.up.plan_nothing') }
+      say([map[d && d.code] || t('gphotos.up.run_failed')], true)
+      planBtn.disabled = false; sel.disabled = false
+      return
+    }
+    closeBtn.textContent = t('gphotos.up.hide')
+    const stop = document.createElement('button')
+    stop.className = 'btn-secondary'
+    stop.id = 'gphotosUpStop'
+    stop.textContent = t('gphotos.up.stop')
+    stop.addEventListener('click', async () => { stop.disabled = true; try { await fetch('/api/photos/upload/stop', { method: 'POST' }) } catch (e) { stop.disabled = false } })
+    runBtn.replaceWith(stop)
+    showJob(d.job)
+    timer = setInterval(async () => {
+      try {
+        const s = await (await fetch('/api/photos/upload/status')).json()
+        showJob(s.job)
+        if (s.job && !s.job.running) { clearInterval(timer); timer = null; stop.remove(); closeBtn.textContent = t('intezo.dups.close') }
+      } catch (e) { /* a kovetkezo kor ujra megprobalja */ }
+    }, 1500)
+  })
+}
+
 // A Fotok oldal utoljara valasztott celmappaja fiokonkent (a szerver is megjegyzi; ez csak a mostani lap emlekezete).
 var _photosLastDest = {}
 
@@ -39315,6 +39486,7 @@ async function loadIntezoPage() {
   }
   bind('intezoRefreshBtn', 'click', () => _intezoOpen(_intezoPath))
   bind('intezoDupBtn', 'click', () => _dupToggle())
+  bind('intezoGphotosBtn', 'click', () => _gphotosUploadOpen())
   void _dupRefreshStatus()
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())

@@ -34,6 +34,7 @@ import {
   loadLifeIndex, checkPhotoDest, downloadPickedToLife, removeLifePhoto, pruneLifePhotosMissing,
   lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE,
 } from '../../photos-life.js'
+import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, type UploadPlan, type UploadResult } from '../../photos-upload.js'
 import { googleAccountNames } from './accounts.js'
 import type { RouteContext } from './types.js'
 
@@ -1183,8 +1184,97 @@ function rememberSessionDest(id: string, rel: string): void {
   if (sessionDests.size > 200) sessionDests.delete(sessionDests.keys().next().value as string)
 }
 
+// --- #520: upload to Google Photos ------------------------------------------
+// An upload cannot be taken back from here (Google lets an app add, not delete),
+// so nothing is sent without a plan the owner has seen: `run` sends exactly the
+// plan that `plan` returned for that account, and only while it is fresh.
+const UPLOAD_PLAN_TTL_MS = 10 * 60 * 1000
+const uploadPlans = new Map<string, { at: number; plan: UploadPlan }>()
+interface UploadJob {
+  account: string; running: boolean; startedAt: string; finishedAt: string | null
+  total: number; done: number; current: string; result: UploadResult | null; error: string | null
+  /** Set when Google's refusal names an API that must be switched on in the Google project. */
+  enableUrl: string | null
+}
+let uploadJob: UploadJob | null = null
+let uploadStopAsked = false
+
 export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
+
+  if (path === '/api/photos/upload/accounts' && method === 'GET') {
+    const info = googleAccountNames()
+    json(res, { accounts: info.accounts.map((name) => ({ name, canUpload: hasUploadScope(tokenEntry(name)) })), default: info.default })
+    return true
+  }
+
+  if (path === '/api/photos/upload/plan' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const account = String(data.account || '')
+    const paths = Array.isArray(data.paths) ? data.paths.filter((x: unknown) => typeof x === 'string').slice(0, 200) : []
+    if (!account) { json(res, { error: 'account kotelezo', code: 'no_account' }, 400); return true }
+    if (!paths.length) { json(res, { error: 'nincs kivalasztva semmi', code: 'nothing_picked' }, 400); return true }
+    if (!hasUploadScope(tokenEntry(account))) { json(res, { error: 'ehhez a fiokhoz meg nincs feltoltesi engedely', code: 'no_upload_scope', account }, 409); return true }
+    const plan = await planUpload(account, paths)
+    uploadPlans.set(account, { at: Date.now(), plan })
+    json(res, {
+      ok: true, account, files: plan.upload.length, bytes: plan.uploadBytes, already: plan.already, notMedia: plan.notMedia,
+      unreadable: plan.unreadable.slice(0, 20), unreadableCount: plan.unreadable.length, truncated: plan.truncated,
+      sample: plan.upload.slice(0, 8).map((f) => f.rel),
+    })
+    return true
+  }
+
+  if (path === '/api/photos/upload/run' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const account = String(data.account || '')
+    if (uploadJob?.running) { json(res, { error: 'mar fut egy feltoltes', code: 'busy', job: uploadJob }, 409); return true }
+    const kept = uploadPlans.get(account)
+    if (!kept || Date.now() - kept.at > UPLOAD_PLAN_TTL_MS) { json(res, { error: 'elobb nezd meg az elonezetet', code: 'no_plan' }, 409); return true }
+    uploadPlans.delete(account)
+    if (!kept.plan.upload.length) { json(res, { error: 'nincs mit feltolteni', code: 'nothing_to_send' }, 409); return true }
+    const job: UploadJob = {
+      account, running: true, startedAt: new Date().toISOString(), finishedAt: null,
+      total: kept.plan.upload.length, done: 0, current: '', result: null, error: null, enableUrl: null,
+    }
+    uploadJob = job
+    uploadStopAsked = false
+    void (async () => {
+      try {
+        const token = await getAccessToken(account)
+        job.result = await runUpload(kept.plan, token, {
+          http: async (u, init) => {
+            const fr = await fetch(u, { method: init.method, headers: init.headers, body: init.body as any, ...(init.duplex ? { duplex: init.duplex } : {}) } as RequestInit)
+            return { ok: fr.ok, status: fr.status, text: () => fr.text() }
+          },
+          onProgress: (done, _total, current) => { job.done = done; job.current = current },
+          shouldStop: () => uploadStopAsked,
+        })
+        const stop = job.result.stopped
+        if (stop && stop.status === 403) job.enableUrl = pickerApiDisabled(stop.message)?.url || null
+      } catch (err: any) {
+        job.error = String(err?.message || err).slice(0, 400)
+        logger.warn({ err: job.error, account }, '[photos-upload] the run failed')
+      } finally {
+        job.running = false
+        job.finishedAt = new Date().toISOString()
+        job.current = ''
+      }
+    })()
+    json(res, { ok: true, job })
+    return true
+  }
+
+  if (path === '/api/photos/upload/status' && method === 'GET') {
+    json(res, { job: uploadJob })
+    return true
+  }
+
+  if (path === '/api/photos/upload/stop' && method === 'POST') {
+    if (uploadJob?.running) uploadStopAsked = true
+    json(res, { ok: true, job: uploadJob })
+    return true
+  }
 
   // A fiokok + fiokonkent az, hogy megvan-e a Fotok-jogosultsag. A frontend
   // ebbol tud EMBERI uzenetet mutatni nyers 403 helyett.
@@ -1422,6 +1512,8 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
           isAllowedUrl: isAllowedPhotosUrl,
           fetchBytes: async (u, t) => { const fr = await fetch(u, { headers: { Authorization: `Bearer ${t}` } }); return { ok: fr.ok, body: fr.body } },
           knownElsewhere: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
+          // What this program uploaded goes back to the folder it came from (TG 8331).
+          placeFor: (it) => uploadedPlaceFor(account, it),
           breathe: async () => { await breathe() },
         }))
         sessionDests.delete(sessionId)
