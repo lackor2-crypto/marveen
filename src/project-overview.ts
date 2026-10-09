@@ -22,7 +22,7 @@
  * Minden ido EZREDMASODPERCBEN megy ki (a kanban masodpercben tarol, a kod-hid
  * ezredben -- itt egysegesitjuk).
  */
-import { readdirSync, statSync, existsSync } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getDb, listPendingApprovals } from './db.js'
 import { approvalCardId } from './kanban-related.js'
@@ -303,29 +303,33 @@ function loadApprovals(projectId: string, cards: OverviewCard[], items: Overview
 
 /** A mappa legutobb modositott fajljai, korlatos bejarassal (melyseg + darabszam),
  *  hogy egy nagy mappa se lassitsa a lapot. */
-export function recentFiles(project: ProjectRow, limit: number): { state: FolderState; files: { rel: string; name: string; at: number }[] } {
+export async function recentFiles(project: ProjectRow, limit: number): Promise<{ state: FolderState; files: { rel: string; name: string; at: number }[] }> {
   // Raktar nelkul mappat sem lehet megadni -- ilyenkor az a kovetkezo lepes.
   if (!explorerRoot()) return { state: 'no_depot', files: [] }
   if (!project.folder_path) return { state: 'no_folder', files: [] }
   const abs = resolveLifePath(project.folder_path)
   if (!abs) return { state: 'unreachable', files: [] }
-  if (!existsSync(abs)) return { state: 'missing', files: [] }
+  // A lassu 9p Raktaron a szinkron readdirSync/statSync walk az egesz event
+  // loopot befagyasztja (minden agens dashboardja var), ezert fs/promises +
+  // periodikus setImmediate-yield. A melyseg/darab korlat es a rendezes azonos.
+  try { await stat(abs) } catch { return { state: 'missing', files: [] } }
   const files: { rel: string; name: string; at: number }[] = []
   let visited = 0
   const MAX_VISIT = 3000
-  const walk = (dir: string, relDir: string, depth: number): void => {
+  const walk = async (dir: string, relDir: string, depth: number): Promise<void> => {
     if (depth > 4 || visited > MAX_VISIT) return
     let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+    try { entries = await readdir(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
       if (++visited > MAX_VISIT) return
+      if (visited % 256 === 0) await new Promise<void>((r) => setImmediate(r))
       if (e.name.startsWith('.') || e.name === 'node_modules') continue
       const full = join(dir, e.name)
       const rel = relDir ? `${relDir}/${e.name}` : e.name
-      if (e.isDirectory()) { walk(full, rel, depth + 1); continue }
+      if (e.isDirectory()) { await walk(full, rel, depth + 1); continue }
       if (!e.isFile()) continue
       try {
-        const st = statSync(full)
+        const st = await stat(full)
         files.push({ rel: `${project.folder_path}/${rel}`, name: e.name, at: st.mtimeMs })
       } catch { /* eltunt kozben -- nem hiba */ }
     }
@@ -334,15 +338,10 @@ export function recentFiles(project: ProjectRow, limit: number): { state: Folder
     for (const m of mountsInside(relDir ? `${project.folder_path}/${relDir}` : String(project.folder_path))) {
       const mAbs = resolveLifePath(m.rel)
       const name = m.rel.slice(m.rel.lastIndexOf('/') + 1)
-      if (mAbs) walk(mAbs, relDir ? `${relDir}/${name}` : name, depth + 1)
+      if (mAbs) await walk(mAbs, relDir ? `${relDir}/${name}` : name, depth + 1)
     }
   }
-  try {
-    statSync(abs)
-  } catch {
-    return { state: 'unreachable', files: [] }
-  }
-  walk(abs, '', 0)
+  await walk(abs, '', 0)
   files.sort((a, b) => b.at - a.at)
   return { state: 'ok', files: files.slice(0, limit) }
 }
@@ -426,7 +425,7 @@ function loadActivity(project: ProjectRow, cards: OverviewCard[], items: Overvie
   return out.filter((a) => a.at > 0).sort((a, b) => b.at - a.at).slice(0, limit)
 }
 
-export function buildProjectOverview(projectId: string, opts: { now?: number; activityLimit?: number } = {}): ProjectOverview | null {
+export async function buildProjectOverview(projectId: string, opts: { now?: number; activityLimit?: number } = {}): Promise<ProjectOverview | null> {
   const project = getProject(projectId)
   if (!project || project.id !== projectId) return null
   const now = opts.now ?? Date.now()
@@ -465,7 +464,7 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
   const approvals = loadApprovals(project.id, cards, allWorkItems)
   const open = cards.filter((c) => OPEN_STATUSES.includes(c.status))
   const next = sortNextSteps(open)
-  const folderScan = recentFiles(project, 5)
+  const folderScan = await recentFiles(project, 5)
   const activity = loadActivity(project, cards, allWorkItems, folderScan.files, opts.activityLimit ?? 25)
 
   // Van-e a projektnek fejlesztesi munkaja: kotott alias, VAGY barmely (akar

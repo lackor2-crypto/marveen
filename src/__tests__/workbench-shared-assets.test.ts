@@ -157,7 +157,7 @@ describe('a projekt kozos tara', () => {
     expect(assets.find((x) => x.name === 'szoveg.md')).toMatchObject({ project_path: 'Munkadarabok/Poszt uj/szoveg.md', shared: false })
   })
 
-  it('az agent: project.listShared (olvaso, szabad) es workItem.linkShared (iro, kategoriaval); a kontextus jeloli', () => {
+  it('az agent: project.listShared (olvaso, szabad) es workItem.linkShared (iro, kategoriaval); a kontextus jeloli', async () => {
     uploadSharedFile(project, 'logo.png', Buffer.from('PNG'))
     const item = newItem('Poszt')
     expect(getTool('project.listShared')?.autonomyCategory).toBe(null)
@@ -169,7 +169,7 @@ describe('a projekt kozos tara', () => {
     expect(k.ok && k.data).toEqual({ linked: 'Közös anyagok/logo.png', already: false })
     const bad = executeTool('workItem.linkShared', { path: 'nincs/masik.png' }, ctx)
     expect(bad.ok).toBe(false)
-    const c = buildContext(project, getWorkItem(item.id) ?? null, 'hu')
+    const c = await buildContext(project, getWorkItem(item.id) ?? null, 'hu')
     expect(c.contextText).toContain('Közös anyagok/logo.png [usable, shared')
   })
 })

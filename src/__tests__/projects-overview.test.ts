@@ -72,7 +72,7 @@ describe('kovetkezo lepesek sorrendje', () => {
 })
 
 describe('attekintes', () => {
-  it('csak a projekt kartyait latja; aktualis munka = folyamatban + foglalas + futo kodfeladat', () => {
+  it('csak a projekt kartyait latja; aktualis munka = folyamatban + foglalas + futo kodfeladat', async () => {
     const p = mustProject('Weboldal')
     createKanbanCard({ id: 'a', title: 'Folyamatban', project: p.id, status: 'planned' })
     moveKanbanCard('a', 'in_progress', 0, 'agens')
@@ -85,7 +85,7 @@ describe('attekintes', () => {
     addTask('t2', 'masik-alias', 'running', 'c')
     addTask('t3', 'web-alias', 'done', null)
 
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     const byCard = ov.currentWork.filter((w) => w.card).map((w) => w.card!.id).sort()
     // `c` a masik aliason futo feladat miatt is aktiv -- a kartya-hivatkozas szamit.
     expect(byCard).toEqual(['a', 'b', 'c'])
@@ -98,7 +98,7 @@ describe('attekintes', () => {
     expect(ov.facts).toMatchObject({ openCards: 3, inProgress: 1, activeWork: 3 })
   })
 
-  it('a jovahagyas a kartyan at tartozik a projekthez; az idovonal a mert esemenyekbol all', () => {
+  it('a jovahagyas a kartyan at tartozik a projekthez; az idovonal a mert esemenyekbol all', async () => {
     const p = mustProject('Weboldal')
     createKanbanCard({ id: 'a', title: 'Szöveg', project: p.id, status: 'planned' })
     createKanbanCard({ id: 'z', title: 'Idegen', status: 'planned' })
@@ -108,7 +108,7 @@ describe('attekintes', () => {
     createApproval({ id: 'ap2', agent_id: 'agens', category: 'kanban_done', action_description: 'Idegen', action_payload: JSON.stringify({ kanban_card_id: 'z' }) })
     createApproval({ id: 'ap3', agent_id: 'agens', category: 'other', action_description: 'Nem JSON', action_payload: 'nem-json' })
 
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     expect(ov.approvals.map((a) => a.id)).toEqual(['ap1'])
     expect(ov.approvals[0]).toMatchObject({ cardId: 'a', cardTitle: 'Szöveg' })
     const kinds = ov.activity.map((a) => a.kind).sort()
@@ -118,19 +118,19 @@ describe('attekintes', () => {
     expect(ov.facts).toMatchObject({ waiting: 1, pendingApprovals: 1 })
   })
 
-  it('lejart es regota mozdulatlan kartya: szamok, nem velemeny', () => {
+  it('lejart es regota mozdulatlan kartya: szamok, nem velemeny', async () => {
     const p = mustProject('Weboldal')
     const now = Date.now()
     createKanbanCard({ id: 'late', title: 'Lejárt', project: p.id, status: 'planned', due_date: Math.floor((now - DAY) / 1000) })
     createKanbanCard({ id: 'old', title: 'Régi', project: p.id, status: 'planned' })
     createKanbanCard({ id: 'done', title: 'Kész', project: p.id, status: 'done', due_date: Math.floor((now - DAY) / 1000) })
     getDb().prepare('UPDATE kanban_cards SET updated_at = ? WHERE id = ?').run(Math.floor((now - 20 * DAY) / 1000), 'old')
-    const ov = buildProjectOverview(p.id, { now })!
+    const ov = (await buildProjectOverview(p.id, { now }))!
     expect(ov.facts).toMatchObject({ openCards: 2, overdue: 1, staleOpenCards: 1 })
     expect(ov.nextSteps.map((c) => c.id)).not.toContain('done')
   })
 
-  it('a munkadarabok is beleszamitanak a szamokba, az aktualis munkaba es a kovetkezo lepesekbe', () => {
+  it('a munkadarabok is beleszamitanak a szamokba, az aktualis munkaba es a kovetkezo lepesekbe', async () => {
     const p = mustProject('Tozsde')
     const other = mustProject('Masik')
     const mk = (project: string, title: string, status: string) => {
@@ -145,7 +145,7 @@ describe('attekintes', () => {
     mk(other.id, 'Idegen', 'in_progress')
     createKanbanCard({ id: 'k', title: 'Kartya', project: p.id, status: 'planned' })
 
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     // a kartya (1) + draft + in_progress + review; a kesz es az idegen nem szamit
     expect(ov.facts.openCards).toBe(4)
     expect(ov.facts.inProgress).toBe(1)
@@ -155,9 +155,9 @@ describe('attekintes', () => {
     expect(ov.workItems.find((w) => w.id === running.id)?.status).toBe('in_progress')
   })
 
-  it('munkadarab nelkuli (friss) projekten a munkadarab-lista ures, nem hiba', () => {
+  it('munkadarab nelkuli (friss) projekten a munkadarab-lista ures, nem hiba', async () => {
     const p = mustProject('Ures')
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     expect(ov.workItems).toEqual([])
     expect(ov.doneWorkItems).toEqual([])
     expect(ov.approvals).toEqual([])
@@ -167,7 +167,7 @@ describe('attekintes', () => {
   // Boss, 2026-10-01 (TG 2021), the case itself: the Kanban tab showed 7M, 13M
   // and 14M, all three finished, and every number on the Overview was zero --
   // nothing counted a finished item.
-  it('csupa KESZ munkadarab: a "kesz" szam annyi, amennyit a Kanban ful Kesz oszlopa mutat', () => {
+  it('csupa KESZ munkadarab: a "kesz" szam annyi, amennyit a Kanban ful Kesz oszlopa mutat', async () => {
     const p = mustProject('Tozsde')
     const now = Date.now()
     const mk = (title: string) => {
@@ -181,7 +181,7 @@ describe('attekintes', () => {
     getDb().prepare('UPDATE work_items SET updated_at = ? WHERE id = ?').run(Math.floor((now - 20 * DAY) / 1000), old.id)
     createKanbanCard({ id: 'kesz', title: 'Kesz kartya', project: p.id, status: 'done' })
 
-    const ov = buildProjectOverview(p.id, { now })!
+    const ov = (await buildProjectOverview(p.id, { now }))!
     expect(ov.facts.openCards).toBe(0)
     // ket friss kesz munkadarab + a kesz kartya; a 20 napos mar nincs a tablan
     expect(ov.facts.done).toBe(3)
@@ -194,7 +194,7 @@ describe('attekintes', () => {
     expect(work.every((a) => a.to === 'done' && !!a.workItemId)).toBe(true)
   })
 
-  it('a munkadarab jovahagyasi kerese a projekte: a szamban es a listan is ott van', () => {
+  it('a munkadarab jovahagyasi kerese a projekte: a szamban es a listan is ott van', async () => {
     const p = mustProject('Tozsde')
     const other = mustProject('Masik')
     const mk = (project: string, title: string) => {
@@ -209,7 +209,7 @@ describe('attekintes', () => {
     // a projekt egeszere szolo keres (nincs munkadarab, nincs kartya)
     createApproval({ id: 'share', agent_id: 'fo', category: 'workbench_share', action_description: 'Link', action_payload: JSON.stringify({ source: 'workbench', project: p.id, workItem: null }) })
 
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     // kartya nincs a projekten -- a keres megis megvan
     expect(ov.facts).toMatchObject({ waiting: 1, pendingApprovals: 2 })
     const item = ov.approvals.find((a) => a.workItemId === mine.id)!
@@ -227,7 +227,7 @@ describe('attekintes', () => {
 
   // The strip also takes a request that names its card only in the text, or by
   // the short id. Two copies of the rule drifted exactly there.
-  it('a kartyat csak a szovegeben megnevezo keres is szamit -- ugyanugy, mint a Munkapad csikjan', () => {
+  it('a kartyat csak a szovegeben megnevezo keres is szamit -- ugyanugy, mint a Munkapad csikjan', async () => {
     const p = mustProject('Tozsde')
     createKanbanCard({ id: 'abcd1234-0000-4000-8000-000000000001', title: 'Hosszu azonosito', project: p.id, status: 'waiting' })
     createKanbanCard({ id: 'beef5678', title: 'Csak a szovegben', project: p.id, status: 'waiting' })
@@ -235,36 +235,36 @@ describe('attekintes', () => {
     createApproval({ id: 'text', agent_id: 'fo', category: 'kanban_done', action_description: 'Kartya #2 (kanban-azonosito: beef5678) kesz', action_payload: null })
     createApproval({ id: 'stranger', agent_id: 'fo', category: 'kanban_done', action_description: 'Kartya (kanban-azonosito: 00000000) kesz', action_payload: null })
 
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     expect(ov.approvals.map((a) => [a.id, a.cardTitle]).sort()).toEqual([['short', 'Hosszu azonosito'], ['text', 'Csak a szovegben']])
     expect(ov.facts.pendingApprovals).toBe(2)
     expect(ov.facts.pendingApprovals).toBe(buildWorkbenchOverview(p.id).approvals.count)
   })
 
-  it('ismeretlen projekt: null', () => {
-    expect(buildProjectOverview('nincs-ilyen')).toBeNull()
+  it('ismeretlen projekt: null', async () => {
+    expect(await buildProjectOverview('nincs-ilyen')).toBeNull()
   })
 })
 
 describe('a mappa allapota -- a nulla fajl negyfele dolgot jelenthet', () => {
-  it('Raktar nelkul: no_depot (akkor is, ha a projektnek meg nincs mappaja)', () => {
+  it('Raktar nelkul: no_depot (akkor is, ha a projektnek meg nincs mappaja)', async () => {
     const p = mustProject('Weboldal')
-    expect(buildProjectOverview(p.id)!.folder.state).toBe('no_depot')
+    expect((await buildProjectOverview(p.id))!.folder.state).toBe('no_depot')
     updateProject(p.id, { folder_path: 'Projektek/Weboldal' })
-    expect(buildProjectOverview(p.id)!.folder.state).toBe('no_depot')
+    expect((await buildProjectOverview(p.id))!.folder.state).toBe('no_depot')
   })
 
-  it('Raktarral: no_folder / missing / ok, es a fajlok az idovonalra kerulnek', () => {
+  it('Raktarral: no_folder / missing / ok, es a fajlok az idovonalra kerulnek', async () => {
     depotDir = mkdtempSync(join(tmpdir(), 'prj-depot-'))
     process.env.MARVEEN_DEPOT = depotDir
     const p = mustProject('Weboldal')
-    expect(buildProjectOverview(p.id)!.folder.state).toBe('no_folder')
+    expect((await buildProjectOverview(p.id))!.folder.state).toBe('no_folder')
     updateProject(p.id, { folder_path: 'Projektek/Weboldal' })
-    expect(buildProjectOverview(p.id)!.folder.state).toBe('missing')
+    expect((await buildProjectOverview(p.id))!.folder.state).toBe('missing')
     mkdirSync(join(depotDir, 'Projektek', 'Weboldal', 'Tudásbázis'), { recursive: true })
     writeFileSync(join(depotDir, 'Projektek', 'Weboldal', 'Tudásbázis', 'terv.md'), 'x')
     writeFileSync(join(depotDir, 'Projektek', 'Weboldal', '.rejtett'), 'x')
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     expect(ov.folder).toMatchObject({ state: 'ok', path: 'Projektek/Weboldal', recentFiles: 1 })
     expect(ov.activity.filter((a) => a.kind === 'file')).toEqual([
       expect.objectContaining({ name: 'terv.md', rel: 'Projektek/Weboldal/Tudásbázis/terv.md' }),

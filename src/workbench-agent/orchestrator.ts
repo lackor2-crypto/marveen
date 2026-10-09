@@ -349,7 +349,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
       return
     }
 
-    const ctx = buildContext(project, workItem, lang)
+    const ctx = await buildContext(project, workItem, lang)
     // #404 H2: a kozben eldontott jovahagyasok eredmenye MEG ez elott a
     // fordulo elott a beszelgetesbe kerul, hogy a modell is lassa.
     await settleWorkbenchApprovals(session.id).catch(() => 0)
