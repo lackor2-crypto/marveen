@@ -23,7 +23,7 @@ import { sendTelegramMessage, validateTelegramToken } from './telegram.js'
 import {
   enqueueCodeTask, listCodeSessions, listCodeTasks, latestCodeTaskForProject,
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
-  listCodeTabs,
+  listCodeTabs, codeTaskQueueAhead,
   isExcludedProject,
 } from './code-bridge-store.js'
 import { shortId, chunkMessage } from './code-bridge-notify.js'
@@ -415,25 +415,31 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
   // kulonben a tulaj csak akkor venne eszre a rossz fulet, amikor a valasz
   // mar egy masik beszelgetesben all.
   const into = out.task.targetSessionId ? ` -> ${tabTitle(out.task.targetSessionId)}` : ''
-  return `⏳ ${ol('Atadva', 'Handed over')}: ${out.task.project}${into} (${shortId(out.task.id)})` + queueNote(out.task.project, out.task.id)
+  return `⏳ ${ol('Atadva', 'Handed over')}: ${out.task.project}${into} (${shortId(out.task.id)})` + queueNote(out.task.id)
 }
 
 /** Boss (TG 2409): a question sent while the project was busy got only "Handed over" and then silence.
- *  One task per project runs at a time, so say what is ahead of this one instead of leaving the wait unexplained. */
-export function queueNote(project: string, taskId: string): string {
-  const open = listCodeTasks({ project, limit: 50 }).filter((t) => (t.status === 'running' || t.status === 'queued') && t.id !== taskId)
-  const running = open.find((t) => t.status === 'running')
-  const waiting = open.filter((t) => t.status === 'queued' && t.createdAt <= (getCodeTask(taskId)?.createdAt ?? Infinity)).length
-  if (!running && waiting === 0) return ''
+ *  Say what is ahead of this one instead of leaving the wait unexplained: one task per project runs at
+ *  a time, and the one main-lane worker runs one task at a time across all projects. */
+export function queueNote(taskId: string, now = Date.now()): string {
+  const q = codeTaskQueueAhead(taskId, now)
+  if (!q || (!q.running && !q.busyElsewhere && q.ahead === 0)) return ''
   const lines: string[] = []
-  if (running) {
-    const since = formatDuration(Date.now() - (running.startedAt ?? running.createdAt))
+  if (q.running) {
+    const since = formatDuration(now - (q.running.startedAt ?? q.running.createdAt))
     lines.push(ol(
-      `Mar fut egy feladat ebben a projektben (${shortId(running.id)}, ${since} ota), a tied utana kovetkezik.`,
-      `A task is already running in this project (${shortId(running.id)}, for ${since}); yours comes after it.`,
+      `Mar fut egy feladat ebben a projektben (${shortId(q.running.id)}, ${since} ota), a tied utana kovetkezik.`,
+      `A task is already running in this project (${shortId(q.running.id)}, for ${since}); yours comes after it.`,
+    ))
+  } else if (q.busyElsewhere) {
+    const other = q.busyElsewhere
+    const since = formatDuration(now - (other.startedAt ?? other.createdAt))
+    lines.push(ol(
+      `A vegrehajto most egy masik projekt feladatan dolgozik (${other.project}, ${shortId(other.id)}, ${since} ota), a tied addig var.`,
+      `The executor is busy with another project's task (${other.project}, ${shortId(other.id)}, for ${since}); yours waits until it is free.`,
     ))
   }
-  if (waiting > 0) lines.push(ol(`Elotted meg ${waiting} varakozik.`, `${waiting} more waiting ahead of yours.`))
+  if (q.ahead > 0) lines.push(ol(`Elotted meg ${q.ahead} varakozik.`, `${q.ahead} more waiting ahead of yours.`))
   return '\n' + lines.join(' ')
 }
 
