@@ -23,13 +23,14 @@
  */
 
 import { execFile } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { PROJECT_ROOT } from './config.js'
+import { basename, dirname, join } from 'node:path'
+import { APP_LANG, PROJECT_ROOT } from './config.js'
 import { depotRoot } from './depot.js'
 import { repoStatus } from './git-guard.js'
-import { toLifeRel } from './life-explorer.js'
+import { explorerRoot, resolveLifePath, toLifeRel } from './life-explorer.js'
+import { trashRelPath } from './life-tree.js'
 import { readStorageRegistry, writeStorageRegistry, removeGitAccount, storageKindRoot } from './storages.js'
 import { logger } from './logger.js'
 
@@ -396,6 +397,42 @@ export interface PullResult {
   cloned: string[]
   present: string[]
   failed: Array<{ name: string; message: string }>
+  /** True when repositories are missing and no folder was chosen for them yet: the page asks, then sends `dest`. */
+  needsDest?: boolean
+  /** The repositories that are not on this computer yet. */
+  missing?: string[]
+  /** Where the new repositories were put (a path in the Life tree). */
+  dest?: string
+}
+
+/** Every sentence this module newly shows exists in both languages. */
+function L(hu: string, en: string): string {
+  return APP_LANG === 'en' ? en : hu
+}
+
+/**
+ * The folder the owner chose for new repositories, checked. A repository goes
+ * under its PROJECT in the Life tree (#513) -- never under `Rendszer`, never
+ * into the trash, and never inside another repository.
+ */
+export function checkCloneDest(dest: string): { ok: true; abs: string; rel: string } | { ok: false; message: string } {
+  const rel = String(dest || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!rel) return { ok: false, message: L('Válassz egy mappát az Életfában, ahova a tárolók kerüljenek.', 'Choose a folder in the Life tree for the repositories.') }
+  const abs = resolveLifePath(rel)
+  const root = explorerRoot()
+  if (!abs || !root) return { ok: false, message: L('Ez a mappa nincs az Életfában.', 'This folder is not in the Life tree.') }
+  let isDir = false
+  try { isDir = statSync(abs).isDirectory() } catch { isDir = false }
+  if (!isDir) return { ok: false, message: L('Ez a mappa nem létezik (vagy most nem érhető el). Válassz másikat.', 'This folder does not exist (or cannot be reached now). Choose another one.') }
+  const trash = trashRelPath()
+  if (rel === trash || rel.startsWith(trash + '/')) return { ok: false, message: L('A Kukába nem húzok le tárolót. Válassz másik mappát.', 'A repository is not downloaded into the trash. Choose another folder.') }
+  for (let d = abs, i = 0; i < 64; i++) {
+    if (existsSync(join(d, '.git'))) return { ok: false, message: L('Ez a mappa egy másik git-tároló belsejében van. Válaszd a fölötte lévő mappát.', 'This folder is inside another git repository. Choose the folder above it.') }
+    const up = dirname(d)
+    if (up === d || d === root) break
+    d = up
+  }
+  return { ok: true, abs, rel }
 }
 
 /**
@@ -409,16 +446,16 @@ export function repoKeyFromUrl(url: string): string {
   return m ? `${m[1]}/${m[2]}`.toLowerCase() : ''
 }
 
-/** Every repository in the Life tree, by `owner/name` of its `origin`. Never throws. */
-async function reposInTreeByRemote(): Promise<Set<string>> {
-  const out = new Set<string>()
+/** Every repository in the Life tree: `owner/name` of its `origin` -> where it is. Never throws. */
+async function reposInTreeByRemote(): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
   try {
     // Lazy: git-sync imports this module, a top-level import would be a cycle.
     const { findRepos } = await import('./git-sync.js')
     for (const abs of await findRepos()) {
       const r = await git(abs, ['remote', 'get-url', 'origin'], { ...process.env, GIT_TERMINAL_PROMPT: '0' }, 15000)
       const key = r.ok ? repoKeyFromUrl(r.out) : ''
-      if (key) out.add(key)
+      if (key && !out.has(key)) out.set(key, abs)
     }
   } catch (err) {
     logger.warn({ err }, '[git-fiok] could not list the repositories in the tree; only the account folder is checked')
@@ -427,14 +464,17 @@ async function reposInTreeByRemote(): Promise<Set<string>> {
 }
 
 /**
- * A fiok osszes repojanak lehuzasa a sajat mappajaba.
+ * A fiok HIANYZO repoinak lehuzasa abba a mappaba, amit a tulajdonos valasztott
+ * (`opts.dest`, az Eletfa egy mappaja -- jellemzoen a projekt
+ * `Fejlesztés/GIT_REPOS` aga). Ha van hianyzo repo es nincs `dest`, SEMMIT nem
+ * klonoz: megmondja, mi hianyzik (`needsDest`), es a felulet rakerdez.
  *
  * Ami MAR ott van, ahhoz itt nem nyulunk: annak a frissitese a `git-sync`
  * dolga, es az sokkal ovatosabb (soha nem ir felul helyi munkat). Itt csak a
  * HIANYZOKAT klonozzuk -- igy a gomb barmikor ujra megnyomhato, es sosem
  * csinal kart.
  */
-export async function pullGitAccount(account: string): Promise<PullResult> {
+export async function pullGitAccount(account: string, opts: { dest?: string } = {}): Promise<PullResult> {
   const acc = String(account || '').trim()
   const root = depotRoot()
   if (!root) return { ok: false, message: 'Nincs beállítva raktár — a Raktár oldalon add meg, hova kerüljenek a fájlok.', cloned: [], present: [], failed: [] }
@@ -451,8 +491,9 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
     kolcsonzott = borrow.login
   }
 
-  const dir = join(root, storageKindRoot('git'), acc)
-  mkdirSync(dir, { recursive: true })
+  // The old place (`Rendszer/Tárolók/Git/<account>`) is only READ, for an
+  // install that still has repositories there. Nothing new is put under it.
+  const legacyDir = join(root, storageKindRoot('git'), acc)
 
   const repos = await listRemoteRepos(acc)
   if (!repos.length) {
@@ -472,9 +513,38 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   // second time, next to the one that was moved to its project.
   const inTree = await reposInTreeByRemote()
 
-  for (const repo of repos) {
-    const target = join(dir, repo.name)
-    if (existsSync(join(target, '.git')) || inTree.has(repoKeyFromUrl(repo.cloneUrl))) { present.push(repo.name); continue }
+  const missing = repos.filter((repo) => {
+    if (existsSync(join(legacyDir, repo.name, '.git')) || inTree.has(repoKeyFromUrl(repo.cloneUrl))) { present.push(repo.name); return false }
+    return true
+  })
+
+  let destAbs = ''
+  let destRel = ''
+  if (missing.length) {
+    const names = missing.map((m) => m.name)
+    if (!String(opts.dest || '').trim()) {
+      return {
+        ok: false, needsDest: true, missing: names, cloned: [], present, failed: [],
+        message: L(
+          `${names.length} tároló még nincs ezen a gépen: ${names.join(', ')}. Válaszd ki, melyik mappába kerüljenek.`,
+          `${names.length} repositories are not on this computer yet: ${names.join(', ')}. Choose the folder they go into.`,
+        ),
+      }
+    }
+    const chk = checkCloneDest(String(opts.dest))
+    if (!chk.ok) return { ok: false, needsDest: true, missing: names, cloned: [], present, failed: [], message: chk.message }
+    destAbs = chk.abs
+    destRel = chk.rel
+  }
+
+  for (const repo of missing) {
+    const dir = destAbs
+    // A folder of this name that is NOT this repository: never cloned into,
+    // never replaced. The owner sees which one, and moves or renames it.
+    if (existsSync(join(dir, repo.name))) {
+      failed.push({ name: repo.name, message: L('ott már van ilyen nevű mappa', 'a folder of this name is already there') })
+      continue
+    }
     // A felhasznalonev a cimben marad, a KULCS nem: azt az askpass adja at.
     // A cimbe a KULCS GAZDAJANAK a neve kerul, nem a fioke: kolcsonkulcsnal
     // a ketto nem ugyanaz, es egy nem letezo felhasznalonev felesleges
@@ -489,6 +559,8 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
 
   const parts: string[] = []
   if (cloned.length) parts.push(`${cloned.length} repó lejött: ${cloned.join(', ')}.`)
+  if (cloned.length && destRel) parts.push(L(`Ide kerültek: ${destRel.split('/').join(' / ')}.`, `They are in: ${destRel.split('/').join(' / ')}.`))
+  for (const f of failed) if (f.message) parts.push(`${f.name}: ${f.message}.`)
   if (present.length) parts.push(`${present.length} már megvolt.`)
   if (failed.length) parts.push(`${failed.length} nem sikerült: ${failed.map((f) => f.name).join(', ')}.`)
   if (!parts.length) parts.push('Nem volt mit tenni.')
@@ -502,7 +574,7 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   if (kolcsonSzoveg) parts.push(kolcsonSzoveg.trim())
   parts.push('Innentől magától frissül, 6 óránként.')
 
-  return { ok: failed.length === 0, message: parts.join(' '), cloned, present, failed }
+  return { ok: failed.length === 0, message: parts.join(' '), cloned, present, failed, ...(destRel ? { dest: destRel } : {}) }
 }
 
 
@@ -610,15 +682,23 @@ export async function lockAccountReadOnly(account: string): Promise<{ locked: st
   const locked: string[] = []
   const failed: string[] = []
   if (!root) return { locked, failed }
-  const dir = join(root, storageKindRoot('git'), String(account || '').trim())
+  const acc = String(account || '').trim()
+  // The account's repositories are wherever the owner put them in the Life
+  // tree (#513), so they are found by their remote address; the old account
+  // folder is still read for an install that has repositories there.
+  const dirs = new Map<string, string>()
+  const legacy = join(root, storageKindRoot('git'), acc)
   let entries: string[] = []
-  try { entries = readdirSync(dir) } catch { return { locked, failed } }
-  for (const name of entries) {
-    if (!existsSync(join(dir, name, '.git'))) continue
+  try { entries = readdirSync(legacy) } catch { entries = [] }
+  for (const name of entries) if (existsSync(join(legacy, name, '.git'))) dirs.set(join(legacy, name), name)
+  for (const [key, abs] of await reposInTreeByRemote()) {
+    if (acc && key.startsWith(acc.toLowerCase() + '/')) dirs.set(abs, basename(abs))
+  }
+  for (const [dir, name] of dirs) {
     // A SZANDEKOS kivetelt nem zarjuk vissza. Egy dontes, amit a gep a hatad
     // mogott visszacsinal, rosszabb, mintha meg sem lehetett volna hozni.
     if (isReadOnlyException(account, name)) continue
-    if (await lockRepoReadOnly(join(dir, name))) locked.push(name)
+    if (await lockRepoReadOnly(dir)) locked.push(name)
     else failed.push(name)
   }
   return { locked, failed }
@@ -709,10 +789,23 @@ export async function deleteGitAccount(
     return { ok: false, message: 'A fiók lekerült a listáról, de a mappáját nem tudtam törölni: ' + String(e) }
   }
   logger.info({ account: acc, repos: repos.length }, '[git-fiok] fiok levéve')
+  // The repositories the owner keeps under a project in the Life tree are
+  // project material: taking the account off the list never touches them, and
+  // the sentence says so instead of "it was empty".
+  const inTree: string[] = []
+  for (const [key, abs] of await reposInTreeByRemote()) {
+    if (key.startsWith(acc.toLowerCase() + '/')) inTree.push(basename(abs))
+  }
+  const stay = inTree.length
+    ? ' ' + L(
+      `${inTree.length} tárolója az Életfában a helyén maradt (${inTree.join(', ')}), azokhoz nem nyúltam; magától viszont már nem frissül.`,
+      `${inTree.length} of its repositories stayed where they are in the Life tree (${inTree.join(', ')}), untouched; they no longer update by themselves.`,
+    )
+    : ''
   return {
     ok: true, repos,
-    message: repos.length
+    message: (repos.length
       ? `Levéve: ${acc} (${repos.length} repó helyi másolatával együtt). A távoli tárolókhoz nem nyúltam.`
-      : `Levéve: ${acc}. Üres volt, nem veszett el semmi.`,
+      : inTree.length ? `Levéve: ${acc}.` : `Levéve: ${acc}. Üres volt, nem veszett el semmi.`) + stay,
   }
 }
