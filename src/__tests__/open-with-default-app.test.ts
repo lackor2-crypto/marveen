@@ -24,9 +24,17 @@ describe('what is handed to the machine\'s own program', () => {
     }
   })
 
-  it('the Windows line opens the file itself, and a quote in the name cannot break out of it', () => {
-    expect(openFileScript('F:\\Marveen\\Család\\Költség.xlsx')).toContain("Start-Process -FilePath 'F:\\Marveen\\Család\\Költség.xlsx'")
-    expect(openFileScript("F:\\a'; Remove-Item C:\\ -Recurse; '.xlsx")).toContain("Start-Process -FilePath 'F:\\a''; Remove-Item C:\\ -Recurse; ''.xlsx'")
+  it('the Windows script opens the file itself, reports the result, and a quote cannot break out', () => {
+    const sc = openFileScript('F:\\Marveen\\Család\\Költség.xlsx', 'C:\\Users\\Public\\r.result.txt', 'MarveenOpenFile-ab')
+    expect(sc).toContain("$p = 'F:\\Marveen\\Család\\Költség.xlsx'")
+    expect(sc).toContain('Start-Process -FilePath $p -PassThru')
+    expect(sc).toContain('try {')
+    expect(sc).toContain('} catch {')
+    expect(sc).toContain('"fail :: $($_.Exception.Message)" | Set-Content -Encoding UTF8 -LiteralPath $r')
+    expect(sc).toContain("$r = 'C:\\Users\\Public\\r.result.txt'")
+    expect(sc).toContain("Unregister-ScheduledTask -TaskName 'MarveenOpenFile-ab'")
+    const evil = openFileScript("F:\\a'; Remove-Item C:\\ -Recurse; '.xlsx", 'C:\\r.txt')
+    expect(evil).toContain("$p = 'F:\\a''; Remove-Item C:\\ -Recurse; ''.xlsx'")
   })
 })
 
@@ -65,6 +73,17 @@ describe('the page', () => {
     const post = route.slice(route.indexOf("if (path === '/api/life/open-file' && method === 'POST')"), route.indexOf('// A FAJL TARTALMANAK kiszolgalasa'))
     expect(post.indexOf('resolveLifePath(rel)')).toBeGreaterThan(0)
     expect(post.indexOf('resolveLifePath(rel)')).toBeLessThan(post.indexOf('openWithDefaultApp(abs)'))
-    for (const code of ['not_found', 'not_a_file', 'not_openable', 'no_file_manager', 'open_failed']) expect(post).toContain(`${code}: [`)
+    for (const code of ['not_found', 'not_a_file', 'not_openable', 'no_file_manager', 'open_failed', 'open_unconfirmed']) expect(post).toContain(`${code}: [`)
+  })
+})
+
+describe('the Windows outcome is read from the result file, not from "the task started"', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'open-in-file-manager.ts'), 'utf-8')
+  it('waits at most 10 seconds, asynchronously, with one result file per call', () => {
+    expect(src).toContain('OPEN_CONFIRM_MS = 10_000')
+    expect(src).toContain("randomBytes(5)")
+    expect(src).toContain("res.startsWith('ok') ? { ok: true } : { ok: false, code: 'open_failed' }")
+    expect(src).toContain("if (res === null) return { ok: false, code: 'open_unconfirmed' }")
+    expect(src).toContain('await readFile(')
   })
 })
