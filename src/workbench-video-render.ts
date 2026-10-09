@@ -19,6 +19,8 @@ import type { ProjectRow } from './projects.js'
 import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
 import { baseNameForNextVersion } from './workbench-edit.js'
+import { getWorkItem } from './workbench.js'
+import { itemOutputFolder } from './workbench-assets.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
 import { ASPECT_SIZE, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
 
@@ -239,9 +241,11 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
       assPath = join(tmp, 'subs.ass')
       writeFileSync(assPath, buildAss(doc), 'utf-8')
     }
-    const firstRel = doc.clips[0].src
     const stem = baseNameForNextVersion(title || 'video').replace(/\.[^.]+$/, '') || 'video'
-    const out = videoTarget(project, firstRel, `${stem}.mp4`)
+    // #496: the video goes to the work item (its own folder, else beside the timeline), never beside its first clip --
+    // that may be the project root or another item's folder.
+    const item = getWorkItem(itemId)
+    const out = videoTarget(project, (item && itemOutputFolder(project, item)) ?? '', `${stem}.mp4`)
     if (!out.ok) return out
     const args = buildRender(doc, { abs, hasAudio, assPath, out: out.abs })
     const r = await videoRunTo(ff.path, args, out.abs, RENDER_TIMEOUT_MS)

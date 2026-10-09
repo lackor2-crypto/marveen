@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, statSync, unlinkSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
-import { projectFileTarget, freeFileName, safeFileName } from './project-files.js'
+import { projectFileTarget, freeFileName, safeFileName, versionsFolderFor } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
 import { buildPreview } from './workbench-preview.js'
@@ -151,9 +151,9 @@ async function tool(): Promise<{ ok: true; path: string } | VideoFail> {
   return { ok: false, code: 'video_no_ffmpeg' }
 }
 
-/** Szabad cel-fajl a projekt mappajaban (a forras almappajaban). */
-function target(project: ProjectRow, srcRel: string, wanted: string): { ok: true; abs: string; rel: string; name: string } | VideoFail {
-  const t = projectFileTarget(project, subFolderOf(project, srcRel))
+/** Szabad cel-fajl a projekt mappajaban, a megadott (projekt-relativ) almappaban. */
+function target(project: ProjectRow, folder: string, wanted: string): { ok: true; abs: string; rel: string; name: string } | VideoFail {
+  const t = projectFileTarget(project, folder)
   if (!t.ok) return { ok: false, code: t.code, detail: t.message || null }
   const clean = safeFileName(wanted)
   if (!clean) return { ok: false, code: 'bad_name' }
@@ -203,7 +203,11 @@ export async function trimVideo(
     const ff = await tool()
     if (!ff.ok) return ff
     const stem = baseNameForNextVersion(src.name).replace(/\.[^.]+$/, '') || 'video'
-    const out = target(project, src.rel, `${stem}.mp4`)
+    // #496 (TG 2696): the cut is a new version of the item, so with an own folder it goes into its Verziok folder,
+    // not beside the first file or into the project root. A folderless item keeps it beside its source, as before.
+    const own = String(item.folder ?? '').trim()
+    const folder = own && projectFileTarget(project, own).ok ? (versionsFolderFor(project, own, true) ?? own) : subFolderOf(project, src.rel)
+    const out = target(project, folder, `${stem}.mp4`)
     if (!out.ok) return out
     const args = [
       '-hide_banner', '-nostdin', '-loglevel', 'error', '-n',
@@ -246,7 +250,7 @@ export async function saveVideoFrame(
   const ff = await tool()
   if (!ff.ok) return ff
   const stem = baseNameForNextVersion(src.name).replace(/\.[^.]+$/, '') || 'video'
-  const out = target(project, src.rel, `${stem} ${timeLabel(at)}.png`)
+  const out = target(project, subFolderOf(project, src.rel), `${stem} ${timeLabel(at)}.png`)
   if (!out.ok) return out
   const args = [
     '-hide_banner', '-nostdin', '-loglevel', 'error', '-n',

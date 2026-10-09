@@ -66,7 +66,7 @@ export async function deckExport(project: ProjectRow, ctx: ToolContext, input: R
   const store = deckStore()
   const cur = store.read(v.item.id)
   if (!cur.ok) return { ok: false, code: cur.code, detail: cur.detail || cur.code }
-  const r = await exportDeck(project, v.item.title, cur.rel, cur.doc, format)
+  const r = await exportDeck(project, v.item, cur.rel, cur.doc, format)
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail || r.code }
   const ver = store.saveVersion(v.item, { reason: 'export', actor: 'workbench-agent', metadata: {} })
   const versionId = ver.ok ? ver.version.id : cur.version_id

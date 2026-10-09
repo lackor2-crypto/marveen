@@ -90,13 +90,17 @@ describe('mentes es betekinto link', () => {
   const save = (platform: string, bytes: Buffer) =>
     callWorkbench(`/api/workbench/items/${itemId}/post-files?platform=${platform}`, 'POST', bytes, { 'content-type': 'image/jpeg' })
 
-  it('pontos meretu JPG: uj fajl a projekt mappajaban, masodik mentes nem ir felul', async () => {
+  it('pontos meretu JPG: uj fajl a munkadarab mellett (nem a projekt gyokereben), masodik mentes nem ir felul', async () => {
     const r = await save('fb_feed', jpg(1080, 1350))
     expect(r.status).toBe(201)
     expect(r.body.name).toBe('Nyitás - fb_feed 1080x1350.jpg')
     const again = await save('fb_feed', jpg(1080, 1350))
     expect(again.body.name).toBe('Nyitás - fb_feed 1080x1350 (2).jpg')
-    expect(readdirSync(dir()).sort()).toEqual(['Nyitás - fb_feed 1080x1350 (2).jpg', 'Nyitás - fb_feed 1080x1350.jpg'])
+    // #496: a mappa nelkuli munkadarab kepei a munkadarabok dobozaba kerulnek, a projekt gyokerebe soha.
+    const files = readdirSync(dir(), { withFileTypes: true })
+    expect(files.filter((e) => e.isFile())).toEqual([])
+    const box = files.find((e) => e.isDirectory())?.name ?? ''
+    expect(readdirSync(join(dir(), box)).sort()).toEqual(['Nyitás - fb_feed 1080x1350 (2).jpg', 'Nyitás - fb_feed 1080x1350.jpg'])
     // platformonkent a legujabb latszik
     const list = await callWorkbench(`/api/workbench/items/${itemId}/post-files`, 'GET')
     expect(list.body.files).toHaveLength(1)

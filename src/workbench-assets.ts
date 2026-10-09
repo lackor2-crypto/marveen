@@ -181,14 +181,33 @@ export function itemJsonFolder(project: ProjectRow, item: Pick<WorkItemRow, 'fol
   if (c && projectFileTarget(project, c).ok) return c
   // An item made from an existing file (e.g. a .pptx in "Tovabbi anyagok") lives where that file is: its next
   // versions stay beside the first one instead of splitting into the box. Not the root, though (the rule above).
-  const base = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  const src = String(item.source_path ?? '').replace(/\\/g, '/')
-  if (base && src.startsWith(base + '/')) {
-    const dir = src.slice(base.length + 1).replace(/\/?[^/]*$/, '')
-    if (dir && projectFileTarget(project, dir).ok) return dir
-  }
+  const dir = folderOfFile(project, item.source_path)
+  if (dir) return dir
   const box = projectWorkItemsFolder(project)
   return box.ok ? box.folder : null
+}
+
+/**
+ * #496: where a file MADE FROM a work item goes (the rendered video of a timeline, a deck export, a post picture):
+ * the item's own folder -- the finished file sits with the item, not among its older versions (Verziok). No own
+ * folder: beside the item's current file, else where itemJsonFolder puts the item's files. The project root only
+ * when the item itself lives there (PROJECT_ROOT_PLACE). Null: no usable folder at all.
+ */
+export function itemOutputFolder(
+  project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'source_path'>, currentRel?: string | null,
+): string | null {
+  const own = String(item.folder ?? '').trim()
+  if (own && projectFileTarget(project, own).ok) return own
+  return folderOfFile(project, currentRel ?? item.source_path) ?? itemJsonFolder(project, item)
+}
+
+/** The project-relative folder of a file inside the project (life-relative path); '' / root or outside -> null. */
+function folderOfFile(project: ProjectRow, rel: string | null | undefined): string | null {
+  const base = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const src = String(rel ?? '').replace(/\\/g, '/')
+  if (!base || !src.startsWith(base + '/')) return null
+  const dir = src.slice(base.length + 1).replace(/\/?[^/]*$/, '')
+  return dir && projectFileTarget(project, dir).ok ? dir : null
 }
 
 /**

@@ -108,9 +108,9 @@ describe('video timeline: the routes', () => {
     expect(r.status).toBe(201)
     expect(r.body.file.name).toBe('Nyári reklám.mp4')
     expect(r.body.seconds).toBe(2)
-    // The render goes next to its first clip; the timeline JSONs next to the item (the box).
-    expect(readdirSync(dir(), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort()).toEqual(['Nyári reklám.mp4', 'a.mp4'].sort())
-    expect(readdirSync(boxDir()).sort()).toEqual(['nyari-reklam.timeline.json', 'nyari-reklam.timeline (2).json'].sort())
+    // #496: the render goes to the item (here beside its timeline JSONs, in the box), not beside its first clip in the root.
+    expect(readdirSync(dir(), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)).toEqual(['a.mp4'])
+    expect(readdirSync(boxDir()).sort()).toEqual(['Nyári reklám.mp4', 'nyari-reklam.timeline.json', 'nyari-reklam.timeline (2).json'].sort())
     expect(r.body.last_render).toMatchObject({ name: 'Nyári reklám.mp4', current: true })
     const g = await callWorkbench(url(), 'GET')
     expect(g.body.last_render.current).toBe(true)
@@ -119,7 +119,7 @@ describe('video timeline: the routes', () => {
     expect((await callWorkbench(url(), 'GET')).body.last_render.current).toBe(false)
     const again = await callWorkbench(url('/render'), 'POST')
     expect(again.body.file.name).toBe('Nyári reklám (2).mp4')
-    expect(readdirSync(dir()).filter((n) => n.endsWith('.mp4')).sort()).toEqual(['a.mp4', 'Nyári reklám (2).mp4', 'Nyári reklám.mp4'].sort())
+    expect(readdirSync(boxDir()).filter((n) => n.endsWith('.mp4')).sort()).toEqual(['Nyári reklám (2).mp4', 'Nyári reklám.mp4'].sort())
   })
 })
 
