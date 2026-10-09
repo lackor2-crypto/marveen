@@ -51,6 +51,16 @@ describe('granting the Google Photos upload permission is reachable from the scr
     }
   })
 
+  it('pressing the button visibly does something: a message, and the page goes to the link', () => {
+    // The flow box is far from the row buttons; without these two the press
+    // started the sign-in on the server and showed nothing at all.
+    const handler = app.slice(app.indexOf("if (act === 'reauth') {"))
+    expect(handler.slice(0, 900)).toContain("showToast(t('gconn.reauth_started', { id })")
+    const start = app.slice(app.indexOf('async function _gconnStartAuth('))
+    expect(start.slice(0, 1600)).toMatch(/flowBox\.hidden = false[\s\S]{0,400}flowBox\.scrollIntoView\(/)
+    for (const src of [hu, en]) expect(entry(src, 'gconn.reauth_started')).toContain('{id}')
+  })
+
   it('the row the sentence points at is the row heading on the Accounts page', () => {
     const rowHu = /'acchub\.part_google':\s*'([^']+)'/.exec(hu)![1]
     const rowEn = /'acchub\.part_google':\s*'([^']+)'/.exec(en)![1]

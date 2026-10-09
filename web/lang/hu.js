@@ -325,6 +325,7 @@ window._i18n.hu = {
   'gconn.api_disabled_note':  'A bejelentkezés rendben van, de a Google-projektedben ki van kapcsolva: {apis}. Ez nem bejelentkezési hiba — nyomd meg a „Bekapcsolom a Google-nál” gombot.',
   'gconn.api_enable':         'Bekapcsolom a Google-nál',
   'gconn.reauth':             'Újra bejelentkeztetem',
+  'gconn.reauth_started':     'Elindítottam a(z) {id} újra-bejelentkeztetését. Odavittelek a linkhez: nyisd meg, és jelentkezz be ugyanazzal a fiókkal.',
 
   // --- Claude Code kapcsolatok (fiokonkent) ---
   'mconn.title':              'Claude Code kapcsolatok',
