@@ -4112,6 +4112,7 @@
         onBlocked: function (what) {
           window.showToast(t(what === 'sheet' ? 'workbench.table.univer_sheet_locked'
             : what === 'sheetcopy' ? 'workbench.table.univer_sheet_copy_locked'
+            : what === 'objects' ? 'workbench.table.univer_objects_locked'
             : what === 'format' ? 'workbench.table.univer_format_locked' : 'workbench.table.univer_structure_locked'))
         },
       })
@@ -4258,7 +4259,7 @@
     else {
       var uv = tableUniverOn()
       hints.push(t(uv ? 'workbench.table.univer_hint_save' : 'workbench.table.hint_save'))
-      hints.push(t(d.format === 'csv' ? 'workbench.table.hint_csv' : 'workbench.table.hint_xlsx'))
+      hints.push(t(d.format === 'csv' ? 'workbench.table.hint_csv' : uv ? 'workbench.table.univer_hint_xlsx' : 'workbench.table.hint_xlsx'))
       hints.push(t(uv ? 'workbench.table.univer_hint_formula' : 'workbench.table.hint_formula'))
       if (d.format === 'xlsx') hints.push(t('workbench.table.hint_dates'))
     }

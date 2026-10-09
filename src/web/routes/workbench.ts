@@ -1710,6 +1710,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Két munkalapnak ugyanaz a neve. Mindegyiknek más név kell (a kis- és nagybetű nem számít különbségnek). Nevezd át az egyiket, és mentsd újra.',
     en: 'Two sheets have the same name. Each needs its own (upper and lower case do not count as different). Rename one and save again.',
   },
+  table_structure_objects: {
+    hu: 'Ezen a munkalapon kép, diagram, táblázat-objektum, megjegyzés vagy lapvédelem van, ezért itt nem lehet sort vagy oszlopot beszúrni, törölni vagy áthelyezni: ezek a mentéskor rossz helyre kerülnének. A cellák tartalmát átírhatod, és a tábla végére írhatsz; a sorok és oszlopok átrendezését ennél a lapnál Excelben végezd.',
+    en: 'This sheet holds a picture, a chart, a table object, a comment or sheet protection, so rows and columns cannot be inserted, removed or moved here: on save those would end up in the wrong place. You can change cell contents and type at the end of the table; rearrange the rows and columns of this sheet in Excel.',
+  },
   table_no_change: {
     hu: 'Nem változott semmi, ezért nem készült új verzió.',
     en: 'Nothing changed, so no new version was made.',

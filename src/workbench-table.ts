@@ -44,6 +44,18 @@ export interface TableSheet {
    * same names, same order.
    */
   from?: number | null
+  /**
+   * #526, part 2: where each row / column of `rows` came from in the opened sheet (its
+   * position there), or null for one inserted in the editor. Absent = nothing moved.
+   */
+  rowsFrom?: (number | null)[]
+  colsFrom?: (number | null)[]
+  /**
+   * Read side only: rows and columns of this sheet cannot be inserted, removed or moved,
+   * because it holds things placed by position that the save does not follow (pictures,
+   * charts, table objects, comments, protection).
+   */
+  structure_locked?: boolean
 }
 
 export interface TableData {
@@ -264,6 +276,8 @@ interface XSheet {
   sheetId: number
   /** Its position among ALL `<sheet>` elements of the workbook (chart sheets included): what `localSheetId` counts. */
   wbIndex: number
+  /** Holds position-bound objects the save does not follow (see TableSheet.structure_locked). */
+  objects: boolean
 }
 
 interface XBook {
@@ -387,7 +401,12 @@ function parseXlsx(buf: Buffer): TableResult<{ book: XBook }> {
       }
       rows.set(r, row)
     }
-    sheets.push({ name: a['name'] || `Sheet${sheets.length + 1}`, path, prefix, rows, nRows, nCols, tag: m[0], rid, sheetId: Number(a['sheetId']) || 0, wbIndex })
+    const dir = path.slice(0, path.lastIndexOf('/') + 1)
+    const ownRels = entry(entries, `${dir}_rels/${path.slice(dir.length)}.rels`)?.data.toString('utf8') || ''
+    // Hyperlinks and printer settings do not sit at a cell position the save has to follow.
+    const boundRel = [...ownRels.matchAll(/<(?:\w+:)?Relationship\b[^>]*\bType="([^"]*)"/g)].some((r) => !/\/(hyperlink|printerSettings)$/.test(r[1]!))
+    const objects = boundRel || /<(?:\w+:)?(drawing|legacyDrawing|legacyDrawingHF|tableParts|picture|oleObjects|controls|sheetProtection)\b/.test(xml)
+    sheets.push({ name: a['name'] || `Sheet${sheets.length + 1}`, path, prefix, rows, nRows, nCols, tag: m[0], rid, sheetId: Number(a['sheetId']) || 0, wbIndex, objects })
   }
   if (!sheets.length) return { ok: false, code: 'table_no_sheets' }
   return { ok: true, book: { entries, sheets, hasFormulas } }
@@ -480,7 +499,7 @@ export function readTable(buf: Buffer, name: string): TableResult<{ table: Table
   }
   const p = parseXlsx(buf)
   if (!p.ok) return p
-  const sheets = p.book.sheets.map((s) => ({ name: s.name, rows: gridOf(s) }))
+  const sheets: TableSheet[] = p.book.sheets.map((s) => ({ name: s.name, rows: gridOf(s), ...(s.objects ? { structure_locked: true } : {}) }))
   for (const s of sheets) if (!s.rows.length) s.rows = [['']]
   const big = checkSize(sheets)
   if (big) return { ok: false, code: big }
@@ -508,6 +527,13 @@ export function normalizeSheets(raw: unknown): TableResult<{ sheets: TableSheet[
       if (f === null) sheet.from = null
       else if (typeof f === 'number' && Number.isInteger(f) && f >= 0) sheet.from = f
       else return { ok: false, code: 'table_bad_input' }
+    }
+    for (const key of ['rowsFrom', 'colsFrom'] as const) {
+      const v = (s as Record<string, unknown>)[key]
+      if (v === undefined) continue
+      if (!Array.isArray(v) || v.length > Math.max(TABLE_MAX_ROWS, TABLE_MAX_COLS)) return { ok: false, code: 'table_bad_input' }
+      if (v.some((x) => x !== null && !(typeof x === 'number' && Number.isInteger(x) && x >= 0))) return { ok: false, code: 'table_bad_input' }
+      sheet[key] = v as (number | null)[]
     }
     sheets.push(sheet)
   }
@@ -552,27 +578,176 @@ function withoutCachedValue(xml: string): string {
     .replace(/^(<(?:\w+:)?c\b[^>]*?)\st\s*=\s*"[^"]*"/, '$1')
 }
 
-function sheetDataXml(sh: XSheet, grid: string[][], lang: 'hu' | 'en', recalc = false): { xml: string; changed: boolean } {
+// ---- sorok es oszlopok beszurasa, torlese, athelyezese (#526, 2. resz) ----------------
+//
+// The editor tags every row and column of the opened sheet with its position; the tag
+// travels with the row through inserts, removals, moves and undo. So the save does not
+// replay operations: it is told, for each row and column it gets, where that one came from.
+
+/** One axis of a sheet: where each new index came from, and where each old index went. */
+export interface AxisMap {
+  /** new index -> original index, or null (inserted). Past the end: nothing moved. */
+  from: (number | null)[]
+  /** original index -> new index; an original that is not here was removed. */
+  to: Map<number, number>
+  /** Originals below this were all accounted for (kept or removed). */
+  bound: number
+  /** What is added to an original index at or past `bound`. */
+  delta: number
+  identity: boolean
+}
+
+export function axisMap(from: (number | null)[] | undefined, origLen: number): AxisMap {
+  const src = from || []
+  const to = new Map<number, number>()
+  let maxO = -1
+  let lastNew = -1
+  const clean: (number | null)[] = []
+  src.forEach((o, i) => {
+    // The same origin twice (a copied tag): the first one is the row, the other is new.
+    if (o == null || to.has(o)) { clean.push(null); return }
+    to.set(o, i)
+    clean.push(o)
+    if (o > maxO) maxO = o
+    lastNew = i
+  })
+  const bound = Math.max(origLen, maxO + 1)
+  // A map that was SENT names every original row it still has (the editor tags rows whether or
+  // not they hold anything), so an original that is missing from it was removed -- also at the
+  // end, where the merges and rules of that row have to go with it. No map at all (the plain
+  // grid) means nothing moved.
+  let identity = from === undefined || clean.length >= origLen
+  for (let i = 0; i < clean.length && identity; i++) if (clean[i] !== null ? clean[i] !== i : i < origLen) identity = false
+  return { from: clean, to, bound, delta: identity ? 0 : lastNew + 1 - bound, identity }
+}
+
+const originOf = (m: AxisMap, i: number): number | null => (i < m.from.length ? m.from[i]! : m.identity ? i : i - m.delta >= m.bound ? i - m.delta : null)
+
+/** Where the original span [a, b] is now, or null when all of it was removed. Inserts inside it widen it. */
+export function mapSpan(m: AxisMap, a: number, b: number): [number, number] | null {
+  if (m.identity) return [a, b]
+  let lo = Infinity
+  let hi = -Infinity
+  for (let o = a; o <= Math.min(b, m.bound - 1); o++) {
+    const n = m.to.get(o)
+    if (n === undefined) continue
+    if (n < lo) lo = n
+    if (n > hi) hi = n
+  }
+  if (b >= m.bound) {
+    const s2 = Math.max(a, m.bound) + m.delta
+    const e2 = b + m.delta
+    if (e2 >= 0) { if (s2 < lo) lo = Math.max(0, s2); if (e2 > hi) hi = e2 }
+  }
+  return lo === Infinity ? null : [lo, hi]
+}
+
+export interface SheetMaps { rows: AxisMap; cols: AxisMap }
+
+const MAX_ROW = 1048575
+const MAX_COL = 16383
+
+/** One A1 reference or range ("B2", "$A$1:C9", "A:C", "2:5") moved by the maps; null = all of it is gone. */
+export function mapRef(ref: string, maps: SheetMaps): string | null {
+  const m = /^(\$?)([A-Za-z]{1,3})?(\$?)(\d{1,7})?(?::(\$?)([A-Za-z]{1,3})?(\$?)(\d{1,7})?)?$/.exec(ref)
+  if (!m) return ref
+  const [, ca1, c1, ra1, r1, ca2, c2, ra2, r2] = m
+  const single = c2 === undefined && r2 === undefined
+  const cA = c1 ? colIndex(c1) : 0
+  const cB = single ? cA : c2 ? colIndex(c2) : c1 ? cA : MAX_COL
+  const rA = r1 ? Number(r1) - 1 : 0
+  const rB = single ? rA : r2 ? Number(r2) - 1 : r1 ? rA : MAX_ROW
+  const cs = c1 || c2 ? mapSpan(maps.cols, Math.min(cA, c1 ? cB : cA), c1 ? Math.max(cA, cB) : MAX_COL) : [0, MAX_COL] as [number, number]
+  const rs = r1 || r2 ? mapSpan(maps.rows, Math.min(rA, r1 ? rB : rA), r1 ? Math.max(rA, rB) : MAX_ROW) : [0, MAX_ROW] as [number, number]
+  if (!cs || !rs) return null
+  const col = (i: number, abs: string | undefined) => (c1 || c2 ? `${abs || ''}${colName(Math.min(i, MAX_COL))}` : '')
+  const row = (i: number, abs: string | undefined) => (r1 || r2 ? `${abs || ''}${Math.min(i, MAX_ROW) + 1}` : '')
+  const first = col(cs[0], ca1) + row(rs[0], ra1)
+  if (single) return first
+  return `${first}:${col(cs[1], ca2 ?? ca1)}${row(rs[1], ra2 ?? ra1)}`
+}
+
+/**
+ * Every reference in a formula TEXT moved by the maps of the sheet it points at. A reference
+ * without a sheet belongs to `own`; a removed cell becomes #REF!, as in Excel.
+ */
+export function mapFormulaRefs(formula: string, own: string | null, mapsOf: (sheet: string) => SheetMaps | null): string {
+  return formula.split(/("(?:[^"]|"")*")/).map((part, i) => {
+    if (i % 2) return part
+    return part.replace(
+      /(^|[^\p{L}\p{N}_.$'!])((?:'(?:[^']|'')+'|[\p{L}_][\p{L}\p{N}_.]*)!)?(\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}|\$?\d{1,7}:\$?\d{1,7})(?![\p{L}\p{N}_(!])/gu,
+      (all, pre: string, sheet: string | undefined, ref: string) => {
+        const name = sheet ? (sheet.startsWith("'") ? sheet.slice(1, -2).replace(/''/g, "'") : sheet.slice(0, -1)) : own
+        const maps = name == null ? null : mapsOf(name)
+        if (!maps || (maps.rows.identity && maps.cols.identity)) return all
+        const moved = mapRef(ref, maps)
+        return `${pre}${sheet || ''}${moved ?? '#REF!'}`
+      })
+  }).join('')
+}
+
+/** The parts of a sheet that sit at a cell position, moved with the rows and columns. */
+function shiftSheetParts(sx: string, maps: SheetMaps, own: string): string {
+  const refAttr = (xml: string, tag: string, attr: string): string =>
+    xml.replace(new RegExp(`<((?:\\w+:)?)${tag}\\b([^>]*?)\\b${attr}="([^"]*)"([^>]*?)(/>|>[\\s\\S]*?</\\1${tag}>)`, 'g'),
+      (_m, p: string, a: string, val: string, b: string, rest: string) => {
+        const moved = val.split(/\s+/).filter(Boolean).map((r) => mapRef(r, maps)).filter((r): r is string => r !== null)
+        return moved.length ? `<${p}${tag}${a}${attr}="${moved.join(' ')}"${b}${rest}` : ''
+      })
+  let out = sx
+  out = refAttr(out, 'mergeCell', 'ref')
+  out = refAttr(out, 'conditionalFormatting', 'sqref')
+  out = refAttr(out, 'dataValidation', 'sqref')
+  out = refAttr(out, 'hyperlink', 'ref')
+  out = refAttr(out, 'autoFilter', 'ref')
+  // Rules and validations carry formulas of their own.
+  out = out.replace(/(<((?:\w+:)?)(formula[12]?)\b[^>]*>)([\s\S]*?)(<\/\2\3>)/g, (_m, open: string, _p: string, _t: string, body: string, close: string) =>
+    open + xmlEscape(mapFormulaRefs(xmlUnescape(body), own, (n) => (n === own ? maps : null))) + close)
+  // An emptied container would be invalid: it goes with its last child.
+  out = out.replace(/<((?:\w+:)?)(mergeCells|hyperlinks|dataValidations)\b[^>]*>\s*<\/\1\2>/g, '')
+  out = out.replace(/(<(?:\w+:)?(mergeCells|dataValidations)\b[^>]*?)\scount="\d+"/g, '$1')
+  // Column widths and styles: each <col> covers a span of columns.
+  if (!maps.cols.identity) {
+    out = out.replace(/<((?:\w+:)?)col\b([^>]*?)\/>/g, (all, p: string, at: string) => {
+      const a = attrs(at)
+      if (!a['min'] || !a['max']) return all
+      const span = mapSpan(maps.cols, Number(a['min']) - 1, Math.min(Number(a['max']) - 1, MAX_COL))
+      if (!span) return ''
+      const rest = at.replace(/\s(min|max)\s*=\s*"[^"]*"/g, '')
+      return `<${p}col min="${span[0] + 1}" max="${span[1] + 1}"${rest}/>`
+    })
+    out = out.replace(/<((?:\w+:)?)cols\b[^>]*>\s*<\/\1cols>/g, '')
+  }
+  return out
+}
+
+const IDENTITY_AXIS: AxisMap = { from: [], to: new Map(), bound: 0, delta: 0, identity: true }
+const IDENTITY_MAPS: SheetMaps = { rows: IDENTITY_AXIS, cols: IDENTITY_AXIS }
+
+function sheetDataXml(sh: XSheet, grid: string[][], lang: 'hu' | 'en', recalc = false, maps: SheetMaps = IDENTITY_MAPS): { xml: string; changed: boolean } {
   const P = sh.prefix
   const nRows = grid.length
   const nCols = grid.reduce((m, r) => Math.max(m, r.length), 0)
+  const still = maps.rows.identity && maps.cols.identity
   // Valtozas = egy cella mas lett, vagy egy meglevo cella kiesett a racsbol
   // (torolt sor/oszlop). Egy ures sor hozzaadasa magaban nem valtozas.
-  let changed = false
+  let changed = !still
   for (const [r, row] of sh.rows) for (const c of row.cells.keys()) if (r >= nRows || c >= nCols) changed = true
   const out: string[] = []
-  const rowNums = new Set<number>()
-  for (let r = 0; r < nRows; r++) rowNums.add(r)
   // Az ures, de formazott (pl. sormagassagos) sorok is maradnak, ha a racson belul vannak.
-  for (const r of [...rowNums].sort((a, b) => a - b)) {
-    const orig = sh.rows.get(r)
+  for (let r = 0; r < nRows; r++) {
+    const ro = originOf(maps.rows, r)
+    const orig = ro == null ? undefined : sh.rows.get(ro)
     const cells: string[] = []
     for (let c = 0; c < nCols; c++) {
       const want = grid[r]?.[c] ?? ''
-      const o = orig?.cells.get(c)
-      if (o && o.display === want) { cells.push(recalc && o.formula ? withoutCachedValue(o.xml) : o.xml); continue }
+      const co = originOf(maps.cols, c)
+      const o = co == null ? undefined : orig?.cells.get(co)
+      // In place and unchanged: the cell goes back exactly as it was.
+      if (o && o.display === want && ro === r && co === c) { cells.push(recalc && o.formula ? withoutCachedValue(o.xml) : o.xml); continue }
       if (!o && want === '') continue
-      changed = true
+      if (!o || o.display !== want) changed = true
+      // Moved, or changed: written again at its new place, with the style it had.
       const x = cellXml(colName(c) + (r + 1), want, P, o ? o.s : null, o ? o.isDateStyle : false, lang)
       if (x) cells.push(x)
     }
@@ -755,14 +930,27 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
   // -- the sheets that stay: patched as before, formulas pointed at renamed sheets
   const replaced = new Map<string, Buffer>()
   let cellsChanged = false
+  // Rows and columns that were inserted, removed or moved, per ORIGINAL sheet name.
+  const mapsBySheet = new Map<string, SheetMaps>()
   for (const sh of sheets) {
     if (sh.from == null) continue
     const x = book.sheets[sh.from]!
-    const res = sheetDataXml(x, sh.rows, lang, true)
+    const maps: SheetMaps = { rows: axisMap(sh.rowsFrom, x.nRows), cols: axisMap(sh.colsFrom, x.nCols) }
+    if (maps.rows.identity && maps.cols.identity) continue
+    // What sits at a cell position and is not followed by this save would end up under the wrong rows.
+    if (x.objects) return { ok: false, code: 'table_structure_objects', detail: sh.name }
+    mapsBySheet.set(x.name, maps)
+  }
+  for (const sh of sheets) {
+    if (sh.from == null) continue
+    const x = book.sheets[sh.from]!
+    const maps = mapsBySheet.get(x.name) || IDENTITY_MAPS
+    const res = sheetDataXml(x, sh.rows, lang, true, maps)
     if (res.changed) cellsChanged = true
     const hasFormula = [...x.rows.values()].some((r) => [...r.cells.values()].some((c) => c.formula))
     const file = entry(book.entries, x.path)!
     let sx = file.data.toString('utf8')
+    if (maps !== IDENTITY_MAPS) sx = shiftSheetParts(sx, maps, x.name)
     if (res.changed || hasFormula) {
       sx = sx.replace(SHEET_DATA_RE, () => res.xml)
       const nRows = sh.rows.length
@@ -840,7 +1028,8 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
       if (to === undefined) return ''
       a2 = at.replace(/\blocalSheetId="\d+"/, `localSheetId="${to}"`)
     }
-    return `<${p}definedName${a2}>${xmlEscape(renameSheetInFormula(xmlUnescape(body), renames))}</${p}definedName>`
+    const moved = mapsBySheet.size ? mapFormulaRefs(xmlUnescape(body), null, (n) => mapsBySheet.get(n) || null) : xmlUnescape(body)
+    return `<${p}definedName${a2}>${xmlEscape(renameSheetInFormula(moved, renames))}</${p}definedName>`
   })
   wbXml = wbXml.replace(/<((?:\w+:)?)definedNames\b[^>]*>\s*<\/\1definedNames>/, '')
   // The tab that was open may be gone.

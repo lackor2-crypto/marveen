@@ -5,9 +5,16 @@
 
 export var NUM_RE = /^-?(?:\d+|\d*\.\d+)(?:[eE][+-]?\d+)?$/
 
-// Structural edits are blocked in .xlsx: the server patches the original file and
-// keeps styles/merges/widths by POSITION, so a row inserted in the middle would shift
-// the data under the wrong formatting. Appending at the end is just typing below.
+// Rows and columns (#526, part 2): inserting, removing and moving whole rows and columns
+// is saved into an .xlsx -- the editor tags every row and column with where it came from
+// and the server moves the formatting with it. Two things stay refused in an .xlsx:
+//  - shifting CELLS (insert cells and push the rest down/right, delete and pull up/left):
+//    the cells move without their rows, so nothing can say where a cell's formatting went;
+//  - any row/column change on a sheet that holds pictures, charts, table objects, comments
+//    or protection: those sit at a position the save does not follow.
+export var CELLSHIFT_RE = /^sheet\.command\.(insert-range|delete-range-move)/
+export var ROWCOL_RE = /^sheet\.command\.(insert-.*(row|col)|remove-(row|col)|move-(rows|cols))/
+// Kept for the callers that only ask "is this structural at all".
 export var STRUCTURE_RE = /^sheet\.command\.(insert-.*(row|col)|insert-range|remove-(row|col)|delete-range-move|move-(rows|cols))/
 
 // Sheets (#526): adding, renaming, removing and reordering sheets is saved into an .xlsx
@@ -38,12 +45,13 @@ export var FORMAT_RE = new RegExp('^(?:sheet\\.(?:command\\.(?:'
   + '|operation\\.(?:open\\.numfmt\\.panel|set-format-painter))'
   + '|ui\\.(?:operation\\.(?:activate|continuous)-format-painter|command\\.clear-formatting))$')
 
-/** Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'format' or null (allowed). */
-export function blockedKind(commandId, structureLocked, sheetsLocked) {
+/** Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'objects', 'format' or null (allowed). */
+export function blockedKind(commandId, structureLocked, sheetsLocked, objectsOnSheet) {
   var id = String(commandId || '')
   if (SHEET_COPY_RE.test(id)) return sheetsLocked ? 'sheet' : 'sheetcopy'
   if (sheetsLocked && SHEET_RE.test(id)) return 'sheet'
-  if (structureLocked && STRUCTURE_RE.test(id)) return 'structure'
+  if (structureLocked && CELLSHIFT_RE.test(id)) return 'structure'
+  if (structureLocked && objectsOnSheet && ROWCOL_RE.test(id)) return 'objects'
   if (FORMAT_RE.test(id)) return 'format'
   return null
 }

@@ -37,9 +37,19 @@ describe('blockedKind: amit a mentes nem tud megtartani, azt a racs nem engedi',
   })
 
   it('kozepre sor/oszlop csak Excel-fajlban tiltott; munkalap-muvelet csak ott, ahol egy lap lehet (.csv) -- #526', () => {
-    expect(blockedKind('sheet.command.insert-row-before', true)).toBe('structure')
-    expect(blockedKind('sheet.command.insert-row-before', false)).toBe(null)
-    expect(blockedKind('sheet.command.remove-col', true)).toBe('structure')
+    // #526, part 2: whole rows and columns are allowed in an .xlsx ...
+    for (const id of ['sheet.command.insert-row-before', 'sheet.command.insert-col-after', 'sheet.command.remove-row', 'sheet.command.remove-col', 'sheet.command.move-rows', 'sheet.command.move-cols']) {
+      expect(blockedKind(id, true, false, false), id).toBe(null)
+      // ... unless the sheet holds objects placed by position
+      expect(blockedKind(id, true, false, true), id).toBe('objects')
+      // a .csv has no formatting to lose: never locked
+      expect(blockedKind(id, false, true, true), id).toBe(null)
+    }
+    // shifting cells stays refused in an .xlsx (the cells move without their rows)
+    for (const id of ['sheet.command.insert-range-move-down', 'sheet.command.insert-range-move-right', 'sheet.command.delete-range-move-up', 'sheet.command.delete-range-move-left']) {
+      expect(blockedKind(id, true, false, false), id).toBe('structure')
+      expect(blockedKind(id, false, true, false), id).toBe(null)
+    }
     for (const id of ['sheet.command.insert-sheet', 'sheet.command.remove-sheet', 'sheet.command.set-worksheet-name', 'sheet.command.set-worksheet-order']) {
       // .xlsx (sheets not locked): adding, removing, renaming and reordering is allowed
       expect(blockedKind(id, true, false), id).toBe(null)
