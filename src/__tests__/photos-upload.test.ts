@@ -215,3 +215,41 @@ describe('a later download puts the photo back where it went up from (TG 8331)',
     expect(existsSync(join(depot, 'Rendszer'))).toBe(false)
   })
 })
+
+// Owner, 2026-10-09, first run with a real account: the page printed Google's raw
+// { "code": 16, "message": "The client has not activated the API." } and no way
+// forward. The real refusal is a 401, not the 403 SERVICE_DISABLED shape.
+describe('the Photos Library API is switched off in the Google project', () => {
+  it('recognises the message a real account got', async () => {
+    const { libraryApiOff } = await import('../photos-upload.js')
+    expect(libraryApiOff('The client has not activated the API.')).toBe(true)
+    expect(libraryApiOff('Photos Library API has not been used in project 634577308953 before or it is disabled.')).toBe(true)
+    expect(libraryApiOff("Quota exceeded for quota metric 'Write requests'")).toBe(false)
+    expect(libraryApiOff('Request had insufficient authentication scopes.')).toBe(false)
+  })
+
+  it('builds the enable link itself, for the upload API and the right project', async () => {
+    const { libraryApiEnableUrl } = await import('../photos-upload.js')
+    const base = 'https://console.cloud.google.com/apis/library/photoslibrary.googleapis.com'
+    expect(libraryApiEnableUrl('my-project-123456')).toBe(`${base}?project=my-project-123456`)
+    expect(libraryApiEnableUrl(null, 'has not been used in project 634577308953 before')).toBe(`${base}?project=634577308953`)
+    // Fresh install without a readable client file, or a hostile value: the plain page.
+    expect(libraryApiEnableUrl(null)).toBe(base)
+    expect(libraryApiEnableUrl('x" onclick="evil')).toBe(base)
+  })
+
+  it('the route and the page use it', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const root = join(import.meta.dirname, '..', '..')
+    const route = readFileSync(join(root, 'src/web/routes/photos-picker.ts'), 'utf-8')
+    expect(route).toContain('if (stop && libraryApiOff(stop.message)) {')
+    expect(route).toContain('job.enableUrl = libraryApiEnableUrl(googleOauthProjectId(), stop.message)')
+    const app = readFileSync(join(root, 'web/app.js'), 'utf-8')
+    expect(app).toContain("if (r && job.apiOff && !r.uploaded) {")
+    // After a finished run the dialog must be usable again: the text asks for
+    // "1. Preview" once more, so that button cannot stay disabled.
+    expect(app).toMatch(/stop\.replaceWith\(runBtn\)\s+runBtn\.disabled = true\s+planBtn\.disabled = false\s+sel\.disabled = false/)
+    for (const k of ['api_off_1', 'api_off_2', 'api_off_3', 'api_off_4', 'api_off_detail']) expect(app).toContain(`t('gphotos.up.${k}'`)
+  })
+})

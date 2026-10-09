@@ -172,6 +172,29 @@ export interface UploadDeps {
   shouldStop?: () => boolean
 }
 
+/**
+ * The Photos Library API is switched off in the Google project. Measured on a
+ * real account (owner, 2026-10-09): the byte upload answers 401 with
+ * { "code": 16, "message": "The client has not activated the API." } -- not the
+ * 403 SERVICE_DISABLED shape the other Google APIs use, so both are recognised.
+ */
+export function libraryApiOff(message: string): boolean {
+  return /has not activated the API|SERVICE_DISABLED|has not been used in project|API has not been used|it is disabled/i.test(String(message || ''))
+}
+
+/**
+ * The page where that API is switched on. Built by US: the project comes from
+ * digits in Google's message or from the local client file, never a URL copied
+ * out of an error text.
+ */
+export function libraryApiEnableUrl(projectId: string | null, message = ''): string {
+  const base = 'https://console.cloud.google.com/apis/library/photoslibrary.googleapis.com'
+  const num = /project[=/\s"']*(\d{4,20})/i.exec(String(message || ''))?.[1] || ''
+  const id = projectId && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId) ? projectId : ''
+  const project = num || id
+  return project ? `${base}?project=${project}` : base
+}
+
 /** A refusal that the next file would get too: wrong permission, API off, quota. */
 function isRunStopper(status: number): boolean {
   return status === 401 || status === 403 || status === 429
