@@ -10,9 +10,12 @@ export var NUM_RE = /^-?(?:\d+|\d*\.\d+)(?:[eE][+-]?\d+)?$/
 // the data under the wrong formatting. Appending at the end is just typing below.
 export var STRUCTURE_RE = /^sheet\.command\.(insert-.*(row|col)|insert-range|remove-(row|col)|delete-range-move|move-(rows|cols))/
 
-// Sheet-level edits are blocked everywhere: the save writes the sheets that were opened,
-// in the order they were opened.
-export var SHEET_RE = /^sheet\.command\.(insert-sheet|remove-sheet|copy-sheet|set-worksheet-name|set-worksheet-order)/
+// Sheets (#526): adding, renaming, removing and reordering sheets is saved into an .xlsx
+// (the server rewrites the workbook's sheet list and keeps every sheet that stays as it
+// was). A .csv is one sheet by nature, so there all of it stays blocked. COPYING a sheet
+// stays blocked everywhere: the copy would come out without the original's formatting.
+export var SHEET_RE = /^sheet\.command\.(insert-sheet|remove-sheet|remove-sheet-confirm|copy-sheet|set-worksheet-name|set-worksheet-order)/
+export var SHEET_COPY_RE = /^sheet\.command\.copy-sheet/
 
 // Formatting is blocked everywhere: the save writes cell text and formulas only (the
 // file's own formatting stays, by position), so a style set here would be dropped on
@@ -35,10 +38,11 @@ export var FORMAT_RE = new RegExp('^(?:sheet\\.(?:command\\.(?:'
   + '|operation\\.(?:open\\.numfmt\\.panel|set-format-painter))'
   + '|ui\\.(?:operation\\.(?:activate|continuous)-format-painter|command\\.clear-formatting))$')
 
-/** Which lock a command hits: 'sheet', 'structure', 'format' or null (allowed). */
-export function blockedKind(commandId, structureLocked) {
+/** Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'format' or null (allowed). */
+export function blockedKind(commandId, structureLocked, sheetsLocked) {
   var id = String(commandId || '')
-  if (SHEET_RE.test(id)) return 'sheet'
+  if (SHEET_COPY_RE.test(id)) return sheetsLocked ? 'sheet' : 'sheetcopy'
+  if (sheetsLocked && SHEET_RE.test(id)) return 'sheet'
   if (structureLocked && STRUCTURE_RE.test(id)) return 'structure'
   if (FORMAT_RE.test(id)) return 'format'
   return null
@@ -70,16 +74,20 @@ export var HIDDEN_MENU_IDS = [
   'sheet.command.hide-row-confirm', 'sheet.command.hide-col-confirm', 'sheet.contextMenu.permission',
   'sheet.command.add-range-protection-from-context-menu', 'sheet.command.set-range-protection-from-context-menu',
   'sheet.command.delete-range-protection-from-context-menu', 'sheet.command.view-sheet-permission-from-context-menu',
-  // sheet tab menu: everything that changes the sheets themselves
-  'sheet.command.remove-sheet-confirm', 'sheet.command.copy-sheet', 'sheet.operation.rename-sheet',
+  // sheet tab menu: what a save cannot keep (copy, tab colour, hiding)
+  'sheet.command.copy-sheet',
   'sheet.command.set-tab-color', 'sheet.command.set-worksheet-hidden',
   'sheet.command.add-range-protection-from-sheet-bar', 'sheet.command.delete-worksheet-protection-from-sheet-bar',
   'sheet.command.change-sheet-protection-from-sheet-bar', 'sheet.command.view-sheet-permission-from-sheet-bar',
 ]
 
-export function hiddenMenuConfig() {
+// Hidden only where sheets cannot change at all (a .csv).
+export var SHEET_MENU_IDS = ['sheet.command.remove-sheet-confirm', 'sheet.operation.rename-sheet']
+
+export function hiddenMenuConfig(sheetsLocked) {
   var out = {}
   HIDDEN_MENU_IDS.forEach(function (id) { out[id] = { hidden: true } })
+  if (sheetsLocked) SHEET_MENU_IDS.forEach(function (id) { out[id] = { hidden: true } })
   return out
 }
 

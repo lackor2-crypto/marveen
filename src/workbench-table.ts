@@ -38,6 +38,12 @@ export interface TableSheet {
   /** A cellak szovegkent, ahogy a felhasznalo latja: keplet "=..." alakban,
    *  datum-formatumu szam "EEEE-HH-NN" alakban. Teglalap alaku. */
   rows: string[][]
+  /**
+   * Which sheet of the OPENED file this is (its position there), or null for a sheet
+   * made in the editor (#526). Absent on every sheet = the old contract: same sheets,
+   * same names, same order.
+   */
+  from?: number | null
 }
 
 export interface TableData {
@@ -252,6 +258,12 @@ interface XSheet {
   rows: Map<number, XRow>
   nRows: number
   nCols: number
+  /** The sheet's own `<sheet .../>` element in workbook.xml, and what it says. */
+  tag: string
+  rid: string
+  sheetId: number
+  /** Its position among ALL `<sheet>` elements of the workbook (chart sheets included): what `localSheetId` counts. */
+  wbIndex: number
 }
 
 interface XBook {
@@ -315,7 +327,9 @@ function parseXlsx(buf: Buffer): TableResult<{ book: XBook }> {
 
   const sheets: XSheet[] = []
   let hasFormulas = false
+  let wbIndex = -1
   for (const m of wbXml.matchAll(/<(?:\w+:)?sheet\b([^>]*)\/?>/g)) {
+    wbIndex++
     const a = attrs(m[1]!)
     const rid = a['r:id'] || Object.entries(a).find(([k]) => k.endsWith(':id'))?.[1] || ''
     const path = relMap.get(rid)
@@ -373,7 +387,7 @@ function parseXlsx(buf: Buffer): TableResult<{ book: XBook }> {
       }
       rows.set(r, row)
     }
-    sheets.push({ name: a['name'] || `Sheet${sheets.length + 1}`, path, prefix, rows, nRows, nCols })
+    sheets.push({ name: a['name'] || `Sheet${sheets.length + 1}`, path, prefix, rows, nRows, nCols, tag: m[0], rid, sheetId: Number(a['sheetId']) || 0, wbIndex })
   }
   if (!sheets.length) return { ok: false, code: 'table_no_sheets' }
   return { ok: true, book: { entries, sheets, hasFormulas } }
@@ -488,7 +502,14 @@ export function normalizeSheets(raw: unknown): TableResult<{ sheets: TableSheet[
       if (line.some((c) => c.length > TABLE_CELL_MAX)) return { ok: false, code: 'table_cell_too_long' }
       rows.push(line)
     }
-    sheets.push({ name: String((s as { name?: unknown }).name ?? ''), rows: rectangular(rows) })
+    const sheet: TableSheet = { name: String((s as { name?: unknown }).name ?? ''), rows: rectangular(rows) }
+    if ('from' in (s as object)) {
+      const f = (s as { from?: unknown }).from
+      if (f === null) sheet.from = null
+      else if (typeof f === 'number' && Number.isInteger(f) && f >= 0) sheet.from = f
+      else return { ok: false, code: 'table_bad_input' }
+    }
+    sheets.push(sheet)
   }
   const big = checkSize(sheets)
   return big ? { ok: false, code: big } : { ok: true, sheets }
@@ -571,6 +592,7 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
   const book = p.book
   // A lapok szama es neve nem valtozhat: a racsot lapnev szerint illesztjuk
   // vissza, egy atrendezett lista mas lapra irna.
+  if (sheets.some((sh) => sh.from !== undefined)) return writeXlsxSheets(book, sheets, lang)
   if (sheets.length !== book.sheets.length || sheets.some((s, i) => s.name !== book.sheets[i]!.name)) {
     return { ok: false, code: 'table_sheets_changed' }
   }
@@ -621,6 +643,233 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
     out.push({ name: e.name, data })
   }
   // A [Content_Types].xml-nek elol kell allnia (nehany olvaso ezt varja).
+  out.sort((a, b) => (a.name === '[Content_Types].xml' ? -1 : b.name === '[Content_Types].xml' ? 1 : 0))
+  return { ok: true, data: buildZip(out) }
+}
+
+// ---- munkalapok: uj, atnevezett, torolt, atrendezett (#526) -------------------------
+//
+// Owner, 2026-10-09: "a fulet [...] elnevezest nem lehet megvaltoztatni. [...] lehessen
+// itt is megcsinalni." The save still PATCHES the opened file: a sheet that stays keeps
+// its own part (formatting, widths, merges), only its changed cells are rewritten. What
+// is new: the list of sheets in workbook.xml may change.
+
+/** Why Excel would refuse this sheet name, or null when it is fine. */
+export function sheetNameProblem(name: string): 'empty' | 'long' | 'chars' | 'quote' | null {
+  const n = String(name ?? '')
+  if (!n.trim()) return 'empty'
+  if (n.length > 31) return 'long'
+  if (/[\\/?*[\]:]/.test(n)) return 'chars'
+  if (n.startsWith("'") || n.endsWith("'")) return 'quote'
+  return null
+}
+
+/** A sheet name as a formula writes it: quoted unless it is a plain word. */
+function sheetRef(name: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`
+}
+
+function reEscape(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+/**
+ * Point every reference to a renamed sheet at its new name, in formula TEXT (not XML).
+ * Both spellings are matched: 'Old name'!A1 and Old!A1. Text inside a string literal
+ * ("...") is left alone.
+ */
+export function renameSheetInFormula(formula: string, renames: Map<string, string>): string {
+  if (!renames.size) return formula
+  return formula.split(/("(?:[^"]|"")*")/).map((part, i) => {
+    if (i % 2) return part
+    let out = part
+    for (const [from, to] of renames) {
+      const quoted = new RegExp(`'${reEscape(from.replace(/'/g, "''"))}'!`, 'gi')
+      out = out.replace(quoted, () => `${sheetRef(to)}!`)
+      // Unquoted: Excel writes a name made of letters, digits, _ and . without quotes --
+      // accented letters included (Összesítő!A1).
+      if (/^[\p{L}_][\p{L}\p{N}_.]*$/u.test(from)) {
+        const bare = new RegExp(`(^|[^\\p{L}\\p{N}_.'\\]])${reEscape(from)}!`, 'giu')
+        out = out.replace(bare, (_m, pre: string) => `${pre}${sheetRef(to)}!`)
+      }
+    }
+    return out
+  }).join('')
+}
+
+function renameInSheetXml(xml: string, renames: Map<string, string>): string {
+  if (!renames.size) return xml
+  return xml.replace(/(<((?:\w+:)?)f\b[^>]*>)([\s\S]*?)(<\/\2f>)/g, (_m, open: string, _p: string, body: string, close: string) =>
+    open + xmlEscape(renameSheetInFormula(xmlUnescape(body), renames)) + close)
+}
+
+function newSheetXml(grid: string[][], lang: 'hu' | 'en'): string {
+  const rows: string[] = []
+  let nCols = 0
+  let nRows = 0
+  grid.forEach((row, r) => {
+    const cells = row.map((v, c) => cellXml(colName(c) + (r + 1), v, '', null, false, lang)).filter(Boolean)
+    if (!cells.length) return
+    rows.push(`<row r="${r + 1}">${cells.join('')}</row>`)
+    nRows = r + 1
+    row.forEach((v, c) => { if (v !== '' && c + 1 > nCols) nCols = c + 1 })
+  })
+  const dim = nRows && nCols ? `A1:${colName(nCols - 1)}${nRows}` : 'A1'
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + `<dimension ref="${dim}"/><sheetData>${rows.join('')}</sheetData></worksheet>`
+}
+
+function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): TableResult<{ data: Buffer }> {
+  // -- what was asked, checked before anything is built
+  const seenFrom = new Set<number>()
+  const seenName = new Set<string>()
+  for (const sh of sheets) {
+    if (sh.from === undefined) return { ok: false, code: 'table_bad_input' }
+    if (sh.from !== null) {
+      if (sh.from >= book.sheets.length || seenFrom.has(sh.from)) return { ok: false, code: 'table_sheets_changed' }
+      seenFrom.add(sh.from)
+    }
+    const bad = sheetNameProblem(sh.name)
+    if (bad) return { ok: false, code: 'table_sheet_name_' + bad, detail: sh.name }
+    const key = sh.name.toLowerCase()
+    if (seenName.has(key)) return { ok: false, code: 'table_sheet_name_twice', detail: sh.name }
+    seenName.add(key)
+  }
+  if (!sheets.length) return { ok: false, code: 'table_bad_input' }
+
+  const wbEntry = entry(book.entries, 'xl/workbook.xml')!
+  const relsEntry = entry(book.entries, 'xl/_rels/workbook.xml.rels')!
+  const ctEntry = entry(book.entries, '[Content_Types].xml')
+  if (!ctEntry) return { ok: false, code: 'table_bad_file' }
+  let wbXml = wbEntry.data.toString('utf8')
+  let relsXml = relsEntry.data.toString('utf8')
+  let ctXml = ctEntry.data.toString('utf8')
+
+  const removed = book.sheets.filter((_s, i) => !seenFrom.has(i))
+  const renames = new Map<string, string>()
+  for (const sh of sheets) if (sh.from != null && book.sheets[sh.from]!.name !== sh.name) renames.set(book.sheets[sh.from]!.name, sh.name)
+  const added = sheets.filter((sh) => sh.from === null)
+  const keptOrder = sheets.filter((sh) => sh.from != null).map((sh) => sh.from as number)
+  const reordered = keptOrder.some((f, i) => i > 0 && f < keptOrder[i - 1]!)
+  const structural = removed.length > 0 || renames.size > 0 || added.length > 0 || reordered
+
+  // -- the sheets that stay: patched as before, formulas pointed at renamed sheets
+  const replaced = new Map<string, Buffer>()
+  let cellsChanged = false
+  for (const sh of sheets) {
+    if (sh.from == null) continue
+    const x = book.sheets[sh.from]!
+    const res = sheetDataXml(x, sh.rows, lang, true)
+    if (res.changed) cellsChanged = true
+    const hasFormula = [...x.rows.values()].some((r) => [...r.cells.values()].some((c) => c.formula))
+    const file = entry(book.entries, x.path)!
+    let sx = file.data.toString('utf8')
+    if (res.changed || hasFormula) {
+      sx = sx.replace(SHEET_DATA_RE, () => res.xml)
+      const nRows = sh.rows.length
+      const nCols = sh.rows.reduce((m, r) => Math.max(m, r.length), 0)
+      const dim = nRows && nCols ? `A1:${colName(Math.max(0, nCols - 1))}${Math.max(1, nRows)}` : 'A1'
+      sx = sx.replace(/<((?:\w+:)?)dimension\b[^>]*\/>/, (_m, pre: string) => `<${pre}dimension ref="${dim}"/>`)
+    }
+    sx = renameInSheetXml(sx, renames)
+    if (sx !== file.data.toString('utf8')) replaced.set(x.path, Buffer.from(sx, 'utf8'))
+  }
+  if (!structural && !cellsChanged) return { ok: false, code: 'table_no_change' }
+
+  // -- new sheets: a part, a relationship, a content type and a <sheet> element each
+  const usedPaths = new Set(book.entries.map((e) => e.name.toLowerCase()))
+  const usedRids = new Set([...relsXml.matchAll(/\bId="([^"]+)"/g)].map((m) => m[1]!))
+  let maxSheetId = 0
+  for (const m of wbXml.matchAll(/<(?:\w+:)?sheet\b[^>]*\bsheetId="(\d+)"/g)) maxSheetId = Math.max(maxSheetId, Number(m[1]))
+  const pre = /<((?:\w+:)?)sheets\b/.exec(wbXml)?.[1] || ''
+  // The prefix the file itself uses for the relationships namespace (usually "r").
+  const relNs = /xmlns:(\w+)="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships"/.exec(wbXml)?.[1] || 'r'
+  if (!new RegExp(`xmlns:${relNs}=`).test(wbXml)) {
+    wbXml = wbXml.replace(/<((?:\w+:)?)workbook\b/, (m) => `${m} xmlns:${relNs}="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`)
+  }
+  const newParts: { name: string; data: Buffer }[] = []
+  const tagOf = new Map<TableSheet, string>()
+  let n = 1
+  let ridN = 1
+  for (const sh of added) {
+    while (usedPaths.has(`xl/worksheets/sheet${n}.xml`)) n++
+    const path = `xl/worksheets/sheet${n}.xml`
+    usedPaths.add(path)
+    while (usedRids.has(`rId${ridN}`)) ridN++
+    const rid = `rId${ridN}`
+    usedRids.add(rid)
+    maxSheetId++
+    newParts.push({ name: path, data: Buffer.from(newSheetXml(sh.rows, lang), 'utf8') })
+    relsXml = relsXml.replace(/<\/((?:\w+:)?)Relationships>/, (_m, p: string) =>
+      `<${p}Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/></${p}Relationships>`)
+    ctXml = ctXml.replace(/<\/((?:\w+:)?)Types>/, (_m, p: string) =>
+      `<${p}Override PartName="/${path}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></${p}Types>`)
+    tagOf.set(sh, `<${pre}sheet name="${xmlEscape(sh.name)}" sheetId="${maxSheetId}" ${relNs}:id="${rid}"/>`)
+  }
+
+  // -- removed sheets: the part, its own relationships file, its relationship and content type
+  const dropParts = new Set<string>()
+  for (const x of removed) {
+    dropParts.add(x.path)
+    const dir = x.path.slice(0, x.path.lastIndexOf('/') + 1)
+    dropParts.add(`${dir}_rels/${x.path.slice(dir.length)}.rels`)
+    relsXml = relsXml.replace(new RegExp(`<(?:\\w+:)?Relationship\\b[^>]*\\bId="${reEscape(x.rid)}"[^>]*/>`), '')
+    ctXml = ctXml.replace(new RegExp(`<(?:\\w+:)?Override\\b[^>]*PartName="/${reEscape(x.path)}"[^>]*/>`, 'i'), '')
+  }
+
+  // -- workbook.xml: the <sheets> list in the asked order; sheets we do not show (chart sheets) keep their place at the end
+  const allTags = [...wbXml.matchAll(/<(?:\w+:)?sheet\b[^>]*\/?>(?:\s*<\/(?:\w+:)?sheet>)?/g)].map((m) => m[0])
+  const ours = new Set(book.sheets.map((x) => x.tag))
+  const foreign = allTags.filter((tg) => !ours.has(tg))
+  const newTags = sheets.map((sh) => {
+    if (sh.from == null) return tagOf.get(sh)!
+    const x = book.sheets[sh.from]!
+    return x.name === sh.name ? x.tag : x.tag.replace(/\bname="[^"]*"/, () => `name="${xmlEscape(sh.name)}"`)
+  }).concat(foreign)
+  wbXml = wbXml.replace(/(<((?:\w+:)?)sheets\b[^>]*>)[\s\S]*?(<\/\2sheets>)/, (_m, open: string, _p: string, close: string) => open + newTags.join('') + close)
+
+  // -- names scoped to a sheet count the sheets by position: follow the new positions, drop the removed sheet's
+  const oldIndexOfTag = new Map(allTags.map((tg, i) => [tg, i] as [string, number]))
+  const newIndexOfOld = new Map<number, number>()
+  sheets.forEach((sh, i) => { if (sh.from != null) newIndexOfOld.set(oldIndexOfTag.get(book.sheets[sh.from]!.tag)!, i) })
+  foreign.forEach((tg, i) => newIndexOfOld.set(oldIndexOfTag.get(tg)!, sheets.length + i))
+  wbXml = wbXml.replace(/<((?:\w+:)?)definedName\b([^>]*)>([\s\S]*?)<\/\1definedName>/g, (m, p: string, at: string, body: string) => {
+    const local = /\blocalSheetId="(\d+)"/.exec(at)
+    let a2 = at
+    if (local) {
+      const to = newIndexOfOld.get(Number(local[1]))
+      if (to === undefined) return ''
+      a2 = at.replace(/\blocalSheetId="\d+"/, `localSheetId="${to}"`)
+    }
+    return `<${p}definedName${a2}>${xmlEscape(renameSheetInFormula(xmlUnescape(body), renames))}</${p}definedName>`
+  })
+  wbXml = wbXml.replace(/<((?:\w+:)?)definedNames\b[^>]*>\s*<\/\1definedNames>/, '')
+  // The tab that was open may be gone.
+  const total = newTags.length
+  wbXml = wbXml.replace(/\b(activeTab|firstSheet)="(\d+)"/g, (m, k: string, v: string) => (Number(v) < total ? m : `${k}="0"`))
+
+  // -- full recalculation on open, and no stale calculation chain (as in the plain save)
+  const calc = book.entries.find((e) => e.name === 'xl/calcChain.xml')
+  if (calc) {
+    ctXml = ctXml.replace(/<Override\b[^>]*PartName="\/xl\/calcChain\.xml"[^>]*\/>/g, '')
+    relsXml = relsXml.replace(/<Relationship\b[^>]*Target="[^"]*calcChain\.xml"[^>]*\/>/g, '')
+  }
+  const cp = /<((?:\w+:)?)calcPr\b([^>]*?)\/>/.exec(wbXml)
+  if (cp) wbXml = wbXml.replace(cp[0], `<${cp[1]}calcPr${cp[2]!.replace(/\sfullCalcOnLoad\s*=\s*"[^"]*"/, '')} fullCalcOnLoad="1"/>`)
+  else {
+    const wp = /<((?:\w+:)?)workbook\b/.exec(wbXml)?.[1] || ''
+    wbXml = wbXml.replace(new RegExp(`</${wp}workbook>`), `<${wp}calcPr fullCalcOnLoad="1"/></${wp}workbook>`)
+  }
+
+  const out: { name: string; data: Buffer }[] = []
+  for (const e of book.entries) {
+    if ((calc && e === calc) || dropParts.has(e.name)) continue
+    const data = e.name === 'xl/workbook.xml' ? Buffer.from(wbXml, 'utf8')
+      : e.name === 'xl/_rels/workbook.xml.rels' ? Buffer.from(relsXml, 'utf8')
+        : e.name === '[Content_Types].xml' ? Buffer.from(ctXml, 'utf8')
+          : replaced.get(e.name) || e.data
+    out.push({ name: e.name, data })
+  }
+  for (const part of newParts) out.push(part)
   out.sort((a, b) => (a.name === '[Content_Types].xml' ? -1 : b.name === '[Content_Types].xml' ? 1 : 0))
   return { ok: true, data: buildZip(out) }
 }

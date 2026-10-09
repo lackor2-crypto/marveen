@@ -36,18 +36,31 @@ describe('blockedKind: amit a mentes nem tud megtartani, azt a racs nem engedi',
     }
   })
 
-  it('kozepre sor/oszlop csak Excel-fajlban tiltott, munkalap-muvelet mindig', () => {
+  it('kozepre sor/oszlop csak Excel-fajlban tiltott; munkalap-muvelet csak ott, ahol egy lap lehet (.csv) -- #526', () => {
     expect(blockedKind('sheet.command.insert-row-before', true)).toBe('structure')
     expect(blockedKind('sheet.command.insert-row-before', false)).toBe(null)
     expect(blockedKind('sheet.command.remove-col', true)).toBe('structure')
     for (const id of ['sheet.command.insert-sheet', 'sheet.command.remove-sheet', 'sheet.command.set-worksheet-name', 'sheet.command.set-worksheet-order']) {
-      expect(blockedKind(id, false), id).toBe('sheet')
+      // .xlsx (sheets not locked): adding, removing, renaming and reordering is allowed
+      expect(blockedKind(id, true, false), id).toBe(null)
+      // .csv (sheets locked): all of it is refused
+      expect(blockedKind(id, false, true), id).toBe('sheet')
     }
+    // Copying a sheet is refused everywhere: the copy would lose the formatting.
+    expect(blockedKind('sheet.command.copy-sheet', true, false)).toBe('sheetcopy')
+    expect(blockedKind('sheet.command.copy-sheet', false, true)).toBe('sheet')
   })
 
   it('a tiltott parancsok menupontjai rejtettek, a tartalom-szerkeszteseke nem', () => {
     const cfg = hiddenMenuConfig()
     expect(Object.keys(cfg).length).toBe(HIDDEN_MENU_IDS.length)
+    // #526: rename and remove are offered on the sheet tab of an .xlsx, hidden for a .csv; copy is hidden always
+    expect(cfg['sheet.operation.rename-sheet']).toBeUndefined()
+    expect(cfg['sheet.command.remove-sheet-confirm']).toBeUndefined()
+    expect(cfg['sheet.command.copy-sheet']).toEqual({ hidden: true })
+    const csv = hiddenMenuConfig(true)
+    expect(csv['sheet.operation.rename-sheet']).toEqual({ hidden: true })
+    expect(csv['sheet.command.remove-sheet-confirm']).toEqual({ hidden: true })
     for (const v of Object.values(cfg)) expect(v).toEqual({ hidden: true })
     for (const id of ['ui.operation.activate-format-painter', 'ui.command.clear-formatting', 'sheet.command.set-range-bold', 'sheet.contextMenu.permission']) {
       expect(cfg[id], id).toEqual({ hidden: true })

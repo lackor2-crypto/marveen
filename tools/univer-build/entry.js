@@ -9,19 +9,21 @@ import '@univerjs/preset-sheets-core/lib/index.css'
 
 import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell } from './rules.mjs'
 
-var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|add-worksheet|reorder|move-rows|move-cols)/
+var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-cols)/
 
 function mount(host, sheets, opts) {
   opts = opts || {}
   var readonly = !!opts.readonly
   var structureLocked = !!opts.lockStructure
+  // #526: sheets can be added, renamed, removed and reordered unless the file is one sheet by nature (.csv).
+  var sheetsLocked = !!opts.lockSheets
   var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {}
   var onBlocked = typeof opts.onBlocked === 'function' ? opts.onBlocked : function () {}
   var locales = { huHU: deepMerge(enUS, huHU), enUS: enUS }
   var made = createUniver({
     locale: opts.lang === 'en' ? 'enUS' : 'huHU',
     locales: locales,
-    presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false, menu: hiddenMenuConfig() })],
+    presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false, menu: hiddenMenuConfig(sheetsLocked) })],
   })
   var api = made.univerAPI
   var sheetData = {}
@@ -61,7 +63,7 @@ function mount(host, sheets, opts) {
   }
   if (E && E.BeforeCommandExecute) {
     disposables.push(api.addEvent(E.BeforeCommandExecute, function (ev) {
-      var kind = blockedKind(ev && ev.id, structureLocked)
+      var kind = blockedKind(ev && ev.id, structureLocked, sheetsLocked)
       if (kind) { ev.cancel = true; onBlocked(kind) }
     }))
   }
@@ -74,8 +76,13 @@ function mount(host, sheets, opts) {
     var snap = fwb.save()
     var styles = snap.styles || {}
     var out = []
-    order.forEach(function (id) {
+    // The sheets as they are NOW: a new one has an id of Univer's making, a removed one is
+    // simply not in the list. `from` tells the server which opened sheet each one was.
+    var nowOrder = Array.isArray(snap.sheetOrder) && snap.sheetOrder.length ? snap.sheetOrder : order
+    nowOrder.forEach(function (id) {
       var s = (snap.sheets || {})[id]
+      if (!s) return
+      var from = order.indexOf(id)
       var rows = []
       var maxC = 0
       var cd = (s && s.cellData) || {}
@@ -116,7 +123,7 @@ function mount(host, sheets, opts) {
       }
       if (!rect.length) rect.push([''])
       if (!rect[0].length) rect[0] = ['']
-      out.push({ name: (s && s.name) || '', rows: rect })
+      out.push({ name: (s && s.name) || '', rows: rect, from: from >= 0 ? from : null })
     })
     return out
   }
@@ -132,4 +139,4 @@ function mount(host, sheets, opts) {
   }
 }
 
-window.MarveenUniver = { mount: mount, version: '1.0.3' }
+window.MarveenUniver = { mount: mount, version: '1.0.3-sheets' }
