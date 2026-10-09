@@ -1998,7 +1998,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let body: Record<string, unknown> = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     sweepSnapshots({ force: true }) // first save what is there, so a rebuild never races a stale file
-    const r = restoreFromFolders({ adoptOrphans: body['adopt_orphans'] === true, deep: body['deep'] === true })
+    const r = await restoreFromFolders({ adoptOrphans: body['adopt_orphans'] === true, deep: body['deep'] === true })
     json(res, { ok: true, ...r })
     return true
   }
