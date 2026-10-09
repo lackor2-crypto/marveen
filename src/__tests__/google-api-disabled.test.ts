@@ -175,7 +175,11 @@ describe('a felulet', () => {
 
   it('a Fiokok oldalon kikapcsolt API-nal bekapcsolo link van, nem ujra-bejelentkeztetes', () => {
     const app = read('web/app.js')
-    expect(app).toContain("a.error && !apiOff ? `<button class=\"btn-primary btn-compact\" data-gact=\"reauth\"")
+    // #520: the sign-in-again button is on every row now (a healthy account needs
+    // it to grant a new permission) -- except here, where signing in again does
+    // not help.
+    const line = app.split('\n').find(l => l.includes('data-gact="reauth"')) || ''
+    expect(line).toMatch(/\$\{apiOff \? '' : `<button class=/)
     expect(app).toContain("a.apiEnableUrl.startsWith('https://console.cloud.google.com/')")
   })
 })
