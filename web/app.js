@@ -14319,18 +14319,26 @@ async function loadDriveFolder() {
   const keepScroll = preserveScrollBegin(list, { view: _driveAccount + '\n' + folder.id })
   list.innerHTML = `<div class="drive-loading">${escapeHtml(t('drive.loading'))}</div>`
   try {
-    const res = await fetch(`/api/drive/list?folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(_driveAccount)}`)
+    const res = await fetch(`/api/drive/list?withDeleted=1&folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(_driveAccount)}`)
     const data = await res.json()
     if (!res.ok) { renderDriveError(data.error || t('drive.load_error')); list.innerHTML = ''; return }
     const files = data.files || []
-    if (files.length === 0) {
-      list.innerHTML = ''
+    // #511: ami a felhoben torlodott, az NEM tunik el innen -- halvanyan, a
+    // sajat feliratával a lista vegen all, amig a Drive kukaja orzi.
+    const deleted = data.deleted || []
+    // "Nem lattam bele a kukaba" KULON mondat: nem ugyanaz, mint "nincs torolt elem".
+    const deletedNote = data.deletedError
+      ? `<p class="subtitle drive-deleted-note">${escapeHtml(t('drive.deleted.unknown'))}</p>` : ''
+    if (files.length === 0 && deleted.length === 0) {
+      list.innerHTML = deletedNote
       empty.hidden = false
       return
     }
     empty.hidden = true
     list.innerHTML = files.map(f => driveRowHtml(f)).join('')
+      + deleted.map(f => driveDeletedRowHtml(f)).join('') + deletedNote
     bindDriveRowActions(list, _driveAccount, _driveFolderStack, loadDriveFolder)
+    bindDriveDeletedRows(list, _driveAccount, loadDriveFolder)
     keepScroll()
   } catch {
     renderDriveError(t('drive.load_error'))
@@ -14446,6 +14454,44 @@ async function downloadDriveFile(fileId, name, account, mimeType) {
  * acting on whichever account was selected last -- renaming or trashing a file
  * in the wrong Drive.
  */
+/**
+ * #511: a felhoben torolt elem sora. Nem `.drive-row`: megnyitni, atnevezni,
+ * athelyezni nem lehet (a tartalma a Drive kukajaban van), EGY gombja van, a
+ * visszaallitas.
+ */
+function driveDeletedRowHtml(f) {
+  const when = f.trashedTime ? new Date(f.trashedTime).toLocaleDateString() : ''
+  return `<div class="drive-row-deleted" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.name)}" title="${escapeHtml(t('drive.deleted.hint'))}">
+    <div class="drive-row-name"><span class="drive-deleted-name">${escapeHtml(f.name)}</span><span class="drive-deleted-badge">${escapeHtml(t('drive.deleted.badge'))}</span></div>
+    <div class="drive-row-meta">${escapeHtml(when)}</div>
+    <div class="drive-row-meta">${escapeHtml(fmtDriveSize(f.size))}</div>
+    <div class="drive-row-actions"><button class="btn-secondary btn-compact" data-action="untrash">${escapeHtml(t('drive.deleted.restore'))}</button></div>
+  </div>`
+}
+
+function bindDriveDeletedRows(list, account, reload) {
+  list.querySelectorAll('.drive-row-deleted [data-action="untrash"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.drive-row-deleted')
+      const id = row.getAttribute('data-id')
+      const name = row.getAttribute('data-name')
+      btn.disabled = true
+      let res
+      try {
+        res = await fetch('/api/drive/untrash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, account }) })
+      } catch { res = null }
+      if (!res || !res.ok) {
+        const d = res ? await res.json().catch(() => ({})) : {}
+        btn.disabled = false
+        showToast(t('drive.deleted.restore_failed', { name }) + (d.error ? ' ' + d.error : ''))
+        return
+      }
+      showToast(t('drive.deleted.restored', { name }))
+      reload()
+    })
+  })
+}
+
 function bindDriveRowActions(list, account, stack, reload) {
   list.querySelectorAll('.drive-row').forEach(row => {
     const id = row.getAttribute('data-id')
@@ -46073,7 +46119,7 @@ async function _megaFetchList(account, path) {
     const res = await fetch('/api/mega/list?name=' + encodeURIComponent(account) + '&path=' + encodeURIComponent(path))
     const data = await res.json().catch(() => null)
     if (!res.ok || !data || !Array.isArray(data.items)) return { ok: false, status: res.status, data }
-    return { ok: true, items: data.items }
+    return { ok: true, items: data.items, gone: Array.isArray(data.gone) ? data.gone : [] }
   } catch (err) {
     return { ok: false, status: 0, data: { error: 'network_client', detail: String(err && err.message || err) } }
   }
@@ -46097,6 +46143,36 @@ function megaRowHtml(f) {
     + '<button class="btn-icon btn-icon-danger" data-mega-action="trash" title="' + escapeAttr(t('drive.action.trash')) + '" aria-label="' + escapeAttr(t('drive.action.trash')) + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>'
     + '</div>'
     + '</div>'
+}
+
+/**
+ * #511: ami korabban ebben a mappaban volt, es most mar nincs a MEGA-n. A MEGA
+ * kukajaba innen nem latunk bele, ezert visszaallitas gomb NINCS (az a MEGA
+ * weboldalan megy); egy gomb van: levenni a sort a listarol.
+ */
+function megaGoneRowHtml(f) {
+  const when = f.goneAt ? new Date(f.goneAt).toLocaleDateString() : ''
+  return '<div class="drive-row-deleted" data-mega-gone="' + escapeAttr(f.path) + '" data-mega-name="' + escapeAttr(f.name) + '" title="' + escapeAttr(t('megadepot.gone.hint')) + '">'
+    + '<div class="drive-row-name"><span class="drive-deleted-name">' + escapeHtml(f.name) + '</span><span class="drive-deleted-badge">' + escapeHtml(t('drive.deleted.badge')) + '</span></div>'
+    + '<div class="drive-row-meta">' + escapeHtml(when) + '</div>'
+    + '<div class="drive-row-meta">' + escapeHtml(f.isDir ? '' : fmtDriveSize(f.size)) + '</div>'
+    + '<div class="drive-row-actions"><button class="btn-secondary btn-compact" data-mega-forget="1">' + escapeHtml(t('megadepot.gone.dismiss')) + '</button></div>'
+    + '</div>'
+}
+
+function _megaBindGoneRows(list, account, reload) {
+  list.querySelectorAll('[data-mega-forget]').forEach((btn) => btn.addEventListener('click', async () => {
+    const row = btn.closest('.drive-row-deleted')
+    const name = row.getAttribute('data-mega-name')
+    btn.disabled = true
+    let ok = false
+    try {
+      const res = await fetch('/api/mega/forget-gone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: account, path: row.getAttribute('data-mega-gone') }) })
+      ok = res.ok
+    } catch { ok = false }
+    if (!ok) { btn.disabled = false; showToast(t('megadepot.gone.dismiss_failed', { name })); return }
+    reload()
+  }))
 }
 
 function _megaBindRows(list, account, stack, reload) {
@@ -46213,9 +46289,10 @@ async function loadMegaFolder() {
     return
   }
   if (_megaAutoEnter(account, stack, r.items)) { loadMegaFolder(); return }
-  if (!r.items.length) { list.innerHTML = ''; empty.hidden = false; return }
-  list.innerHTML = r.items.map(megaRowHtml).join('')
+  if (!r.items.length && !r.gone.length) { list.innerHTML = ''; empty.hidden = false; return }
+  list.innerHTML = r.items.map(megaRowHtml).join('') + r.gone.map(megaGoneRowHtml).join('')
   _megaBindRows(list, account, stack, loadMegaFolder)
+  _megaBindGoneRows(list, account, loadMegaFolder)
   keepScroll()
 }
 
@@ -46239,9 +46316,10 @@ async function loadMegaColumn(account) {
   // Egy fiok hibaja csak a SAJAT hasabjat rontja el.
   if (!r.ok) { list.innerHTML = '<div class="drive-col-error">' + _megaErrorHtml(r.data, r.status) + '</div>'; return }
   if (_megaAutoEnter(account, stack, r.items)) { loadMegaColumn(account); return }
-  if (!r.items.length) { list.innerHTML = '<div class="drive-col-empty">' + escapeHtml(t('megadepot.empty_folder')) + '</div>'; return }
-  list.innerHTML = r.items.map(megaRowHtml).join('')
+  if (!r.items.length && !r.gone.length) { list.innerHTML = '<div class="drive-col-empty">' + escapeHtml(t('megadepot.empty_folder')) + '</div>'; return }
+  list.innerHTML = r.items.map(megaRowHtml).join('') + r.gone.map(megaGoneRowHtml).join('')
   _megaBindRows(list, account, stack, () => loadMegaColumn(account))
+  _megaBindGoneRows(list, account, () => loadMegaColumn(account))
   keepScroll()
 }
 

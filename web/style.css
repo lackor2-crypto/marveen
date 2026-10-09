@@ -5832,6 +5832,22 @@ button.stat-card--filter.is-active .stat-label { color: var(--text); }
   border-radius: 8px;
   border: 1px solid transparent;
 }
+/* #511: deleted in the cloud -- stays visible, dimmed, with its own label */
+.drive-row-deleted {
+  display: grid; grid-template-columns: 1fr 110px 90px auto; gap: 12px; align-items: center;
+  padding: 8px 12px; border: 1px dashed var(--border); border-radius: 8px; margin-top: 4px;
+}
+.drive-row-deleted .drive-row-name, .drive-row-deleted .drive-row-meta { opacity: 0.55; }
+.drive-row-deleted .drive-deleted-name { text-decoration: line-through; }
+.drive-deleted-badge {
+  flex-shrink: 0; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border); white-space: nowrap;
+}
+.drive-deleted-note { margin: 8px 2px 0; }
+@media (max-width: 600px) {
+  .drive-row-deleted { grid-template-columns: minmax(0, 1fr) auto; }
+  .drive-row-deleted .drive-row-meta { display: none; }
+}
 .drive-row:hover { background: var(--surface-hover, var(--accent-soft)); border-color: var(--border); }
 .drive-row-name {
   display: flex;
@@ -5940,6 +5956,8 @@ button.stat-card--filter.is-active .stat-label { color: var(--text); }
 .drive-col-list { padding: 4px 6px 8px; }
 /* Szuk hasabban a datum/meret elvenne a fajlnev helyet. */
 .drive-col-list .drive-row { grid-template-columns: 1fr auto; gap: 6px; padding: 6px 8px; }
+.drive-col-list .drive-row-deleted { grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 6px 8px; }
+.drive-col-list .drive-row-deleted .drive-row-name { flex-wrap: wrap; row-gap: 2px; }
 .drive-col-list .drive-row-meta { display: none; }
 .drive-col-empty,
 .drive-col-error {
