@@ -38377,6 +38377,12 @@ async function _gphotosUploadOpen() {
     const lines = []
     if (job.error) lines.push(t('gphotos.up.job_error', { err: job.error }))
     const r = job.result
+    // The Google project has the Photos API switched off: say what to press, in
+    // order, and keep Google's own sentence as the last, small detail.
+    if (r && job.apiOff && !r.uploaded) {
+      say([t('gphotos.up.api_off_1'), t('gphotos.up.api_off_2'), t('gphotos.up.api_off_3'), t('gphotos.up.api_off_4'),
+        t('gphotos.up.api_off_detail', { msg: r.stopped ? r.stopped.message : '' })], true)
+    } else {
     if (r) {
       lines.push(t('gphotos.up.done', { n: String(r.uploaded) }))
       if (r.duplicates) lines.push(t('gphotos.up.done_dup', { n: String(r.duplicates) }))
@@ -38386,6 +38392,7 @@ async function _gphotosUploadOpen() {
       if (r.remaining) lines.push(t('gphotos.up.remaining', { n: String(r.remaining) }))
     }
     say(lines, !!(job.error || (r && (r.stopped || (r.failed && r.failed.length)))))
+    }
     if (job.enableUrl && /^https:\/\/console\.(developers|cloud)\.google\.com\//.test(job.enableUrl)) {
       const a = document.createElement('a')
       a.href = job.enableUrl; a.target = '_blank'; a.rel = 'noopener'
@@ -38421,7 +38428,16 @@ async function _gphotosUploadOpen() {
       try {
         const s = await (await fetch('/api/photos/upload/status')).json()
         showJob(s.job)
-        if (s.job && !s.job.running) { clearInterval(timer); timer = null; stop.remove(); closeBtn.textContent = t('intezo.dups.close') }
+        if (s.job && !s.job.running) {
+          clearInterval(timer); timer = null
+          closeBtn.textContent = t('intezo.dups.close')
+          // The run is over: the dialog is usable again. Without this the text said
+          // "press 1. Preview again" under a Preview button that stayed disabled.
+          stop.replaceWith(runBtn)
+          runBtn.disabled = true
+          planBtn.disabled = false
+          sel.disabled = false
+        }
       } catch (e) { /* a kovetkezo kor ujra megprobalja */ }
     }, 1500)
   })

@@ -34,7 +34,8 @@ import {
   loadLifeIndex, checkPhotoDest, downloadPickedToLife, removeLifePhoto, pruneLifePhotosMissing,
   lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE,
 } from '../../photos-life.js'
-import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, type UploadPlan, type UploadResult } from '../../photos-upload.js'
+import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, libraryApiOff, libraryApiEnableUrl, type UploadPlan, type UploadResult } from '../../photos-upload.js'
+import { googleOauthProjectId } from '../google-auth-runner.js'
 import { googleAccountNames } from './accounts.js'
 import type { RouteContext } from './types.js'
 
@@ -1195,6 +1196,8 @@ interface UploadJob {
   total: number; done: number; current: string; result: UploadResult | null; error: string | null
   /** Set when Google's refusal names an API that must be switched on in the Google project. */
   enableUrl: string | null
+  /** The Photos Library API is off in the Google project: the page explains what to press instead of quoting Google. */
+  apiOff: boolean
 }
 let uploadJob: UploadJob | null = null
 let uploadStopAsked = false
@@ -1235,7 +1238,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
     if (!kept.plan.upload.length) { json(res, { error: 'nincs mit feltolteni', code: 'nothing_to_send' }, 409); return true }
     const job: UploadJob = {
       account, running: true, startedAt: new Date().toISOString(), finishedAt: null,
-      total: kept.plan.upload.length, done: 0, current: '', result: null, error: null, enableUrl: null,
+      total: kept.plan.upload.length, done: 0, current: '', result: null, error: null, enableUrl: null, apiOff: false,
     }
     uploadJob = job
     uploadStopAsked = false
@@ -1251,7 +1254,10 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
           shouldStop: () => uploadStopAsked,
         })
         const stop = job.result.stopped
-        if (stop && stop.status === 403) job.enableUrl = pickerApiDisabled(stop.message)?.url || null
+        if (stop && libraryApiOff(stop.message)) {
+          job.apiOff = true
+          job.enableUrl = libraryApiEnableUrl(googleOauthProjectId(), stop.message)
+        }
       } catch (err: any) {
         job.error = String(err?.message || err).slice(0, 400)
         logger.warn({ err: job.error, account }, '[photos-upload] the run failed')
