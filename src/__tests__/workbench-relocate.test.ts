@@ -199,6 +199,19 @@ describe('workbench-relocate', () => {
     expect(notifyMock).not.toHaveBeenCalled()
   })
 
+  it('a call made while a pass is running waits for that pass instead of returning at once', async () => {
+    const { id, file } = itemInA()
+    const target = join(dirB, 'athozott')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, SNAPSHOT_FILE), readFileSync(file, 'utf8'))
+    unlinkSync(file)
+
+    const first = reconcileItemLocations() // e.g. the file-manager move route's fire-and-forget pass
+    await reconcileItemLocations() // overlaps it: used to resolve before the first pass had written anything
+    expect(getWorkItem(id)!.project_id).toBe(pidB)
+    await first
+  })
+
   it('leaves a project that still exists untouched when its file never moved (guards getProject)', async () => {
     const { id } = itemInA()
     expect(getProject(pidA)).toBeTruthy()

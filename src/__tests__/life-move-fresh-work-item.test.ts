@@ -60,7 +60,8 @@ describe('file-manager move of a just-made work item folder', () => {
     expect(out.status).toBeLessThan(300)
     const seg = f.folder.split('/').pop()!
     expect(existsSync(join(dir, 'P', 'Valoper', seg, SNAPSHOT_FILE))).toBe(true)
-    await new Promise((r2) => setTimeout(r2, 50)) // let the route's own fire-and-forget pass finish
+    // No fixed sleep: if the route's own fire-and-forget pass is still running, this call joins it and resolves
+    // only when it has finished (a 50 ms sleep here went red under a loaded full suite, 2026-10-09).
     await reconcileItemLocations()
     const after = getWorkItem(r.item.id)!
     expect(after.project_id).toBe(b.project.id)
