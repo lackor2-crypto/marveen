@@ -1348,7 +1348,10 @@ describe('egyforma kepek: egy peldany a lemezen', () => {
     expect(media).toMatch(/photoFilePath\(photoFileOwner\(entry\), entry\.file\)/)
     // A bolyegkep oda kerul, ahol maga a kep van -- kulonben egy koltozes utan
     // a bolyegek a regi mappaban maradnanak arvan.
-    expect(media).toMatch(/const ownerDir = dirname\(file\)/)
+    // #520: a photo downloaded into the Life tree keeps its thumbnail in the program
+    // folder instead (no hidden folder in the owner's tree) -- the old store's rule above
+    // is unchanged: beside the file.
+    expect(media).toMatch(/const ownerDir = isLife \? LIFE_THUMB_BASE : dirname\(file\)/)
   })
 
   it('a felhasznalo megtudja, mi tortent -- a duplikatum nem nema', () => {

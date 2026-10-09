@@ -79,6 +79,10 @@ let tablesDb: unknown = null
 export function ensureTodoTable(): void {
   const db = getDb()
   if (tablesDb === db) return
+  // The todo queries join `work_items`: on an install where the Workbench was never opened that
+  // table does not exist yet, and the reminder timer logged "no such table: work_items" on every
+  // run (seen on an empty instance, 2026-10-09). Whoever needs the todo table needs that one too.
+  ensureWorkbenchTables()
   db.exec(`
     CREATE TABLE IF NOT EXISTS work_item_todos (
       id TEXT PRIMARY KEY,

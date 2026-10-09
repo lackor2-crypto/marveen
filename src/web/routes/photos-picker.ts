@@ -30,6 +30,10 @@ import { PROJECT_ROOT } from '../../config.js'
 import { depotAccountDir, depotHealth, resolvePhotoDir, DEPOT_PHOTOS, DEPOT_ACCOUNTS, DEPOT_SYSTEM, LEGACY_KIND_PHOTOS, depotRoot } from '../../depot.js'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
+import {
+  loadLifeIndex, checkPhotoDest, downloadPickedToLife, removeLifePhoto, pruneLifePhotosMissing,
+  lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE,
+} from '../../photos-life.js'
 import { googleAccountNames } from './accounts.js'
 import type { RouteContext } from './types.js'
 
@@ -1172,6 +1176,13 @@ async function downloadPickedNow(items: any[], account: string, token: string): 
   return { saved, failed, duplicates, cleaned: cleanup.dropped, selected: items.length, already }
 }
 
+/** sessionId -> the Life-tree folder chosen when that selection was started (#520). Bounded. */
+const sessionDests = new Map<string, string>()
+function rememberSessionDest(id: string, rel: string): void {
+  sessionDests.set(id, rel)
+  if (sessionDests.size > 200) sessionDests.delete(sessionDests.keys().next().value as string)
+}
+
 export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
 
@@ -1191,16 +1202,29 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
     // The list follows the disk: a photo that was moved or deleted any other
     // way than the Remove button must not stay on the page (TG 8222).
     try { await prunePhotosMissingOnDisk() } catch (err) { logger.warn({ err }, '[photos] the disk check before the list failed; the list is shown as it is') }
+    try { await pruneLifePhotosMissing() } catch (err) { logger.warn({ err }, '[photos] the disk check of the Life-tree photos failed; the list is shown as it is') }
     const account = url.searchParams.get('account') || ''
     const all = loadIndex()
     const list = account ? all.filter((p) => p.account === account) : all
+    // #520: photos that were downloaded into the Life tree. They have their own
+    // index; on the page they stand in the same grid, with where they are.
+    const lifeAll = loadLifeIndex()
+    const life = account ? lifeAll.filter((p) => p.account === account) : lifeAll
+    const lifeFiles = new Map<string, number>()
+    for (const p of life) lifeFiles.set(`${p.lifeRel}/${p.file}`, p.bytes)
+    let lifeBytes = 0
+    for (const b of lifeFiles.values()) lifeBytes += b
+    const merged = sortPhotos([...list, ...life.map((p) => ({ ...p })) as unknown as StoredPhoto[]])
     json(res, {
-      photos: sortPhotos(list).map((p) => ({
+      photos: merged.map((p) => ({
         id: p.id, account: p.account, mimeType: p.mimeType, isVideo: p.isVideo,
         createdTime: p.createdTime, width: p.width, height: p.height, bytes: p.bytes,
+        ...(typeof (p as any).lifeRel === 'string' ? { lifeRel: (p as any).lifeRel, file: p.file } : {}),
       })),
       // A ket fioknal is szereplo, azonos kep egyetlen fajl: egyszer szamoljuk.
-      totalBytes: uniqueBytes(list),
+      totalBytes: uniqueBytes(list) + lifeBytes,
+      // Where the next download of this account would go by default (the last chosen folder).
+      lastDest: account ? lastLifeDest(account) : '',
     })
     return true
   }
@@ -1210,16 +1234,20 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
   if (path === '/api/photos/media' && method === 'GET') {
     const id = url.searchParams.get('id') || ''
     const account = url.searchParams.get('account') || ''
-    const entry = loadIndex().find((p) => p.id === id && p.account === account)
+    const lifeEntry = loadLifeIndex().find((p) => p.id === id && p.account === account)
+    const entry = loadIndex().find((p) => p.id === id && p.account === account) ?? (lifeEntry as unknown as StoredPhoto | undefined)
     if (!entry) { json(res, { error: 'nincs ilyen kep', code: 'not_found' }, 404); return true }
     // A bajtok egy MASIK fiok konyvtaraban is lehetnek, ha ket fioknal
     // ugyanaz a kep szerepel -- ilyenkor egyetlen peldany van a lemezen.
     // A fajl helyet a LEMEZ donti el (depo vagy regi hely), es a bolyegkep oda
     // kerul, ahol maga a kep van -- kulonben egy koltozes utan a bolyegek
     // arvan maradnanak a regi mappaban.
-    const file = photoFilePath(photoFileOwner(entry), entry.file)
-    const ownerDir = dirname(file)
-    if (!existsSync(file)) { json(res, { error: 'a fajl hianyzik', code: 'file_missing' }, 404); return true }
+    // #520: a Life-tree photo is where the owner put it; its thumbnail is kept in the
+    // program folder, so no hidden folder appears in the Life tree.
+    const isLife = !!lifeEntry && entry === (lifeEntry as unknown as StoredPhoto)
+    const file = isLife ? (lifePhotoPath(lifeEntry!) || '') : photoFilePath(photoFileOwner(entry), entry.file)
+    const ownerDir = isLife ? LIFE_THUMB_BASE : dirname(file)
+    if (!file || !existsSync(file)) { json(res, { error: 'a fajl hianyzik', code: 'file_missing' }, 404); return true }
 
     // A RACS bolyegkepet ker (`size=thumb`), a nagykep az eredetit. Igy egy
     // vegiggorgetes nem 7 GB, hanem nehany tiz MB -- es a videok sem folynak
@@ -1321,6 +1349,14 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       json(res, { error: 'ehhez a fiokhoz meg nincs Fotok-engedely', code: 'no_scope', account }, 409)
       return true
     }
+    // #520: WHERE the photos go is chosen before the selection, per batch (one
+    // Google Photos account can hold several people's photos). Asked here for
+    // the same reason as the depot: not after two hundred photos were picked.
+    const dest = checkPhotoDest(data.dest)
+    if (!dest.ok) {
+      json(res, { error: 'valassz mappat az Eletfaban a letoltott kepeknek', code: dest.code, lastDest: lastLifeDest(account) }, 409)
+      return true
+    }
     try {
       const token = await getAccessToken(account)
       const s = await pickerJson(SESSIONS_URL, token, {
@@ -1328,7 +1364,10 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       })
+      rememberLifeDest(account, dest.rel)
+      if (typeof s.id === 'string') rememberSessionDest(s.id, dest.rel)
       json(res, {
+        dest: dest.rel,
         sessionId: s.id,
         pickerUri: s.pickerUri,
         // A Google mondja meg, milyen surun kerdezzunk ra -- nem talalunk ki
@@ -1376,7 +1415,16 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       const run = (async () => {
         // VEGIG lapozunk: a kijeloles 100-nal tobb eleme is szamit.
         const picked = await fetchPickedMediaItems(sessionId, token)
-        const r = await downloadPicked(picked.items, account, token)
+        // #520: into the Life-tree folder chosen for THIS selection (after a
+        // restart: the folder last chosen for the account, which is the same one).
+        const destRel = sessionDests.get(sessionId) || lastLifeDest(account)
+        const r: DownloadResult & { dest?: string } = await queuePhotoDownload(() => downloadPickedToLife(picked.items, account, token, destRel, {
+          isAllowedUrl: isAllowedPhotosUrl,
+          fetchBytes: async (u, t) => { const fr = await fetch(u, { headers: { Authorization: `Bearer ${t}` } }); return { ok: fr.ok, body: fr.body } },
+          knownElsewhere: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
+          breathe: async () => { await breathe() },
+        }))
+        sessionDests.delete(sessionId)
         if (picked.partial) r.partial = true
         // A session-t elengedjuk: nincs ra tobb szuksegunk, es a Google is
         // ezt keri.
@@ -1424,7 +1472,14 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
     const account = String(data.account || '')
     const index = loadIndex()
     const entry = index.find((p) => p.id === id && p.account === account)
-    if (!entry) { json(res, { error: 'nincs ilyen kep' }, 404); return true }
+    if (!entry) {
+      // #520: a Life-tree photo goes to the Life tree's trash -- never erased from here.
+      const lr = removeLifePhoto(id, account)
+      if (lr.ok) { json(res, { ok: true, trashed: lr.trashed }); return true }
+      if (lr.code === 'trash_failed') { json(res, { error: lr.message || 'a Kukaba helyezes nem sikerult', code: 'trash_failed' }, 409); return true }
+      json(res, { error: 'nincs ilyen kep' }, 404)
+      return true
+    }
     const rest = index.filter((p) => !(p.id === id && p.account === account))
     // A fajl kozos lehet egy masik fiokkal: csak akkor toroljuk, ha mar EGY sor
     // sem mutat ra. Kulonben egy fiokbol valo torles a masik fiok kepet is
