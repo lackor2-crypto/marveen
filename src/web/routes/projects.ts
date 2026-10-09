@@ -328,7 +328,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     const found = findProject(url.searchParams.get('q') ?? '')
     const brief = (p: { id: string; name: string }) => ({ id: p.id, name: p.name })
     if (found.kind === 'found') {
-      const ctx = projectContext(found.project.id, lang)
+      const ctx = await projectContext(found.project.id, lang)
       if (!ctx) return fail(res, 404, 'not_found', lang)
       json(res, { state: 'found', project: brief(ctx.project), text: ctx.text })
     } else if (found.kind === 'ambiguous') {
@@ -549,7 +549,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   }
 
   if (sub === '/overview' && method === 'GET') {
-    json(res, buildProjectOverview(id))
+    json(res, await buildProjectOverview(id))
     return true
   }
 
@@ -621,7 +621,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   // A projekt Fajlok fule: a mappa legutobb modositott fajljai (a projekt oldalan
   // helyben, nem az Intezobe atugorva).
   if (sub === '/files' && method === 'GET') {
-    const scan = recentFiles(project, 100)
+    const scan = await recentFiles(project, 100)
     json(res, { state: scan.state, path: project.folder_path, files: scan.files })
     return true
   }

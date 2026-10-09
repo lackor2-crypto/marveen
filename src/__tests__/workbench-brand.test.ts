@@ -171,9 +171,9 @@ describe('brand kit: the check (K-4.3)', () => {
 describe('brand kit: the Workbench agent (K-4.2)', () => {
   const ctx = () => ({ projectId: pid, workItemId: null, lang: 'en' as const })
 
-  it('every turn carries the brand, and the system prompt is unchanged in shape', () => {
+  it('every turn carries the brand, and the system prompt is unchanged in shape', async () => {
     saveBrand(pid, BRAND)
-    const c = buildContext(getProject(pid)!, null, 'en')
+    const c = await buildContext(getProject(pid)!, null, 'en')
     expect(c.parts.some((p) => p.key === 'brand')).toBe(true)
     expect(c.contextText).toContain('#1a73e8')
     expect(c.contextText).toContain('Freeber/shared/logo.png')
@@ -453,7 +453,7 @@ describe('brand kit: "nothing" is said only when it is true', () => {
     for (const bad of ['{not json', '{"colors":"blue"}']) {
       getDb().prepare('UPDATE workbench_brand SET data = ? WHERE project_id = ?').run(bad, pid)
       expect(() => getBrand(pid)).toThrow(BrandUnreadableError)
-      const c = buildContext(getProject(pid)!, null, 'en')
+      const c = await buildContext(getProject(pid)!, null, 'en')
       expect(c.contextText).toMatch(/cannot be read/)
       expect(c.contextText).not.toMatch(/none set yet/)
       expect(executeTool('brand.get', {}, { projectId: pid, workItemId: null, lang: 'en' })).toMatchObject({ ok: false, code: 'brand_unreadable' })
@@ -805,14 +805,14 @@ describe('brand templates (K-4.1): from a drawing to a template to a new drawing
     expect(listDeletedWorkItems(other)).toEqual([])
   })
 
-  it('the agent sees the templates and starts a drawing from one by name', () => {
+  it('the agent sees the templates and starts a drawing from one by name', async () => {
     draw()
     const cur = readCanvas(itemId)
     if (!cur.ok) throw new Error(cur.code)
     const t = saveBrandTemplate(pid, 'Instagram poszt', cur.doc)
     if (!t.ok) throw new Error(t.code)
     // no colours or rules yet: the agent is told so AND still gets the templates
-    const c = buildContext(getProject(pid)!, null, 'en')
+    const c = await buildContext(getProject(pid)!, null, 'en')
     expect(c.contextText).toMatch(/none set yet/)
     expect(c.contextText).toContain('"Instagram poszt" (1080x1350)')
     expect(c.contextText).toContain('brand.useTemplate')

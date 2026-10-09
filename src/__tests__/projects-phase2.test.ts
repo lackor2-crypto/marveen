@@ -144,11 +144,11 @@ describe('AI-osszefoglalo -- csak keresre, mentve, forrassal', () => {
     expect(good.body.project.summary).toBe('Rendben.')
   })
 
-  it('a tenyek szovege: lejart hatarido jelolve, ures listaknal "none"', () => {
+  it('a tenyek szovege: lejart hatarido jelolve, ures listaknal "none"', async () => {
     const p = mustProject({ name: 'Tenyek', client: 'Kovacs Bt.' })
     const past = Math.floor(Date.now() / 1000) - 3 * 86400
     createKanbanCard({ id: 'aaaa0002', title: 'Szamla', status: 'planned', priority: 'normal', project: p.id, due_date: past } as any)
-    const facts = summaryFacts(getProject(p.id)!, buildProjectOverview(p.id)!, 'en')
+    const facts = summaryFacts(getProject(p.id)!, (await buildProjectOverview(p.id))!, 'en')
     expect(facts).toContain('For (client): Kovacs Bt.')
     expect(facts).toMatch(/"Szamla".*OVERDUE/)
     expect(facts).toContain("Waiting for the owner's approval:\n- none")
@@ -309,21 +309,21 @@ describe('alapertelmezett cimke', () => {
 })
 
 describe('az osszefoglalo datumai', () => {
-  it('a "ma" a gep helyi napja, nem az UTC-nap', () => {
+  it('a "ma" a gep helyi napja, nem az UTC-nap', async () => {
     const p = mustProject({ name: 'Datum' })
     // Helyi ido szerint 2026-09-19 00:30 -- UTC-ben ez meg 09-18 lehet.
     const now = new Date(2026, 8, 19, 0, 30).getTime()
-    expect(summaryFacts(getProject(p.id)!, buildProjectOverview(p.id)!, 'hu', now)).toContain('Today: 2026-09-19')
+    expect(summaryFacts(getProject(p.id)!, (await buildProjectOverview(p.id))!, 'hu', now)).toContain('Today: 2026-09-19')
   })
 })
 
 describe('aktivitas: a letrehozas is esemeny', () => {
-  it('az uj kartya es az uj otlet megjelenik az idovonalon, a tenyek szovegeben is a sajat nevukon', () => {
+  it('az uj kartya es az uj otlet megjelenik az idovonalon, a tenyek szovegeben is a sajat nevukon', async () => {
     const p = mustProject({ name: 'Idovonal' })
     createKanbanCard({ id: 'eeee0001', title: 'Friss kartya', status: 'planned', priority: 'normal', project: p.id } as any)
     createIdea({ id: 'i-friss', title: 'Friss otlet', description: null, category: 'Egyéb', status: 'new', source: 'manual', kanban_id: null, impact: null, effort: null })
     linkObject(p.id, 'idea', 'i-friss')
-    const ov = buildProjectOverview(p.id)!
+    const ov = (await buildProjectOverview(p.id))!
     const kinds = ov.activity.map((a) => [a.kind, a.cardTitle ?? a.name])
     expect(kinds).toContainEqual(['card_created', 'Friss kartya'])
     expect(kinds).toContainEqual(['idea_created', 'Friss otlet'])
