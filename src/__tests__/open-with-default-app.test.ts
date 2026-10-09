@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openableWithDefaultApp, openFileScript, openWithDefaultApp } from '../open-in-file-manager.js'
+import { openableWithDefaultApp, openFileScript, openWithDefaultApp, unregisterTasks } from '../open-in-file-manager.js'
 
 describe('what is handed to the machine\'s own program', () => {
   it('documents, tables, slides, pictures, sound and video are', () => {
@@ -25,14 +25,15 @@ describe('what is handed to the machine\'s own program', () => {
   })
 
   it('the Windows script opens the file itself, reports the result, and a quote cannot break out', () => {
-    const sc = openFileScript('F:\\Marveen\\Család\\Költség.xlsx', 'C:\\Users\\Public\\r.result.txt', 'MarveenOpenFile-ab')
+    const sc = openFileScript('F:\\Marveen\\Család\\Költség.xlsx', 'C:\\Users\\Public\\r.result.txt')
     expect(sc).toContain("$p = 'F:\\Marveen\\Család\\Költség.xlsx'")
     expect(sc).toContain('Start-Process -FilePath $p -PassThru')
     expect(sc).toContain('try {')
     expect(sc).toContain('} catch {')
     expect(sc).toContain('"fail :: $($_.Exception.Message)" | Set-Content -Encoding UTF8 -LiteralPath $r')
     expect(sc).toContain("$r = 'C:\\Users\\Public\\r.result.txt'")
-    expect(sc).toContain("Unregister-ScheduledTask -TaskName 'MarveenOpenFile-ab'")
+    // A task cannot delete itself ("Access is denied", measured): the server removes it.
+    expect(sc).not.toContain('Unregister-ScheduledTask')
     const evil = openFileScript("F:\\a'; Remove-Item C:\\ -Recurse; '.xlsx", 'C:\\r.txt')
     expect(evil).toContain("$p = 'F:\\a''; Remove-Item C:\\ -Recurse; ''.xlsx'")
   })
@@ -85,5 +86,10 @@ describe('the Windows outcome is read from the result file, not from "the task s
     expect(src).toContain("res.startsWith('ok') ? { ok: true } : { ok: false, code: 'open_failed' }")
     expect(src).toContain("if (res === null) return { ok: false, code: 'open_unconfirmed' }")
     expect(src).toContain('await readFile(')
+  })
+
+  it('a task name with anything but letters, digits and dashes is never sent to PowerShell', async () => {
+    // Only invalid names: nothing is run, so the call resolves at once.
+    expect(await unregisterTasks(["x'; Remove-Item C:\\ ; '", 'a b', '$(calc)'])).toBe(true)
   })
 })
