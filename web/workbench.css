@@ -1770,3 +1770,12 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-sign-item img { grid-row: span 2; max-width: 120px; max-height: 60px; object-fit: contain; background: #fff; border-radius: 4px }
 .wb-sign-name { font-weight: 600 }
 .wb-sign-folder { font-size: 12px; opacity: .7 }
+
+/* #526: the sheet tabs must stay reachable. Univer's footer gives the zoom controls a fixed
+   250px; in a narrow editor column (a small window, a phone) that left the tab bar 12px
+   wide, with the tabs pushed under the buttons -- a sheet could not be renamed, removed or
+   even selected. Below 640px the zoom controls go, the tabs get the row. */
+.wb-univer-host { container-type: inline-size; }
+@container (max-width: 640px) {
+  .wb-univer-el footer > section > section { display: none; }
+}

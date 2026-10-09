@@ -64,6 +64,8 @@ function mount(host, sheets, opts) {
   if (E && E.BeforeCommandExecute) {
     disposables.push(api.addEvent(E.BeforeCommandExecute, function (ev) {
       var kind = blockedKind(ev && ev.id, structureLocked, sheetsLocked)
+      // Diagnosis only: set window.MarveenUniverDebug = true in the console to see every command.
+      if (window.MarveenUniverDebug) console.log('[univer]', ev && ev.id, kind ? 'BLOCKED:' + kind : '')
       if (kind) { ev.cancel = true; onBlocked(kind) }
     }))
   }
