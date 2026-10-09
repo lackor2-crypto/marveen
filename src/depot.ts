@@ -25,7 +25,7 @@
 // Windows-lemez osszekottetese MENET KOZBEN elszallt (`/mnt/c` es `/mnt/d` is
 // I/O hibat adott, 50 ora uzem utan). Ezert van a `depotHealth()`: ha a depo
 // nem erheto el, azt KIMONDJUK, nem pedig felig irunk bele valamit.
-import { existsSync, mkdirSync, statSync, writeFileSync, rmSync, rmdirSync, readdirSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, rmSync, rmdirSync, readdirSync, renameSync } from 'node:fs'
 import { depotRemountPlan, type RemountPlan } from './depot-remount.js'
 import { join, dirname } from 'node:path'
 import { STORE_DIR, DEPOT_ROOT_CONFIGURED, APP_LANG } from './config.js'
@@ -468,8 +468,8 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
  * Only `rmdir`: a folder with anything in it -- a file, a hidden file, a
  * sub-folder that is not empty -- makes the call fail and stays exactly as it
  * is. So this can never delete content; the worst it does is leave an empty
- * folder behind. Runs wherever the skeleton is checked (start-up, the Depot
- * page), and does nothing when the depot is not there or not writable.
+ * folder behind. Runs at start-up (web.ts) and wherever the skeleton is checked
+ * (the Depot page), and does nothing when the depot is not there or not writable.
  */
 export function pruneEmptyStorageDirs(): string[] {
   const removed: string[] = []
@@ -479,6 +479,15 @@ export function pruneEmptyStorageDirs(): string[] {
   const drop = (rel: string): boolean => {
     try { rmdirSync(join(root, rel)); removed.push(rel); return true } catch { return false }
   }
+  // The program's OWN copy of an EMPTY photo index (`[]`, two bytes) is not
+  // content: left there, it alone kept `Tárolók/GOOGLE_PHOTOS` alive (measured
+  // on the live tree, 2026-10-09). Only a file that parses to an empty list is
+  // taken; an index with a single photo in it stays, and so does its folder.
+  try {
+    const mirror = join(root, DEPOT_SYSTEM, 'fotok-index.json')
+    const list = JSON.parse(readFileSync(mirror, 'utf8'))
+    if (Array.isArray(list) && list.length === 0) rmSync(mirror)
+  } catch { /* not there, not readable, or not an empty list: left alone */ }
   for (const kind of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_MEGA, DEPOT_PROJECTS]) {
     let accounts: string[] = []
     try { accounts = readdirSync(join(root, kind), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) } catch { continue }
