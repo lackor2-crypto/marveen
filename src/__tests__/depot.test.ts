@@ -538,8 +538,10 @@ describe('a kepernyon allo UTVONALAK a valodi mappaszerkezetet mondjak', () => {
     // magyar ut az angol szovegben ugyanolyan hiba, mint egy elavult ut.
     const hu = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf-8')
     const en = readFileSync(join(process.cwd(), 'web/lang/en.js'), 'utf-8')
-    expect(hu).toContain('Rendszer/Tárolók/Drive/lackor2')
-    expect(en).toContain('System/Storages/Drive/lackor2')
+    // #513: the downward Drive copy is retired, so the screen no longer
+    // promises a `Storages/Drive/<account>` folder in either language.
+    expect(hu).not.toContain('Rendszer/Tárolók/Drive/')
+    expect(en).not.toContain('System/Storages/Drive/')
     expect(en, 'magyar mappanev az angol nyelvi fajlban').not.toContain('Rendszer/Tárolók/')
   })
 
