@@ -1108,6 +1108,61 @@ export function latestCodeTaskForProject(project: string): CodeTask | null {
   return list[0] ?? null
 }
 
+/** What stands between a queued task and its start. Boss (TG 2409) got only
+ *  "Handed over" and then silence: the task waited behind a 37-minute one. */
+export interface CodeTaskQueueAhead {
+  /** The task running in the SAME project: one per project runs, so this one waits for it. */
+  running: CodeTask | null
+  /** Queued tasks of the same project that claimNextCodeTask() takes before this one. */
+  ahead: number
+  /** Nothing of this project runs, but every live worker is busy with another
+   *  project's task (one main-lane worker runs one task at a time, see #433). */
+  busyElsewhere: CodeTask | null
+}
+
+/** Counted exactly the way claimNextCodeTask() picks: oldest first, a tie in
+ *  created_at broken by insertion order (rowid). Comparing created_at alone
+ *  told the head of the queue that a task enqueued in the same millisecond
+ *  was waiting AHEAD of it. null = no such task. */
+export function codeTaskQueueAhead(taskId: string, now = Date.now()): CodeTaskQueueAhead | null {
+  ensureTables()
+  const db = getDb()
+  const me = db.prepare(`SELECT rowid AS rid, * FROM code_tasks WHERE id = ?`).get(taskId) as Record<string, unknown> | undefined
+  if (!me) return null
+  const none: CodeTaskQueueAhead = { running: null, ahead: 0, busyElsewhere: null }
+  // Already claimed (the worker can take it before the receipt is phrased) or finished.
+  if (me['status'] !== 'queued') return none
+  const project = me['project'] as string
+  const createdAt = me['created_at'] as number
+  const runningRow = db
+    .prepare(`SELECT * FROM code_tasks WHERE project = ? AND status = 'running' ORDER BY started_at LIMIT 1`)
+    .get(project) as Record<string, unknown> | undefined
+  const ahead = Number((db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM code_tasks
+        WHERE project = ? AND status = 'queued' AND (created_at < ? OR (created_at = ? AND rowid < ?))`,
+    )
+    .get(project, createdAt, createdAt, me['rid']) as { n: number }).n)
+  if (runningRow) return { running: rowToTask(runningRow), ahead, busyElsewhere: null }
+
+  // A workbench task with a live chat lane does not wait for the main worker.
+  const chatLane = chatLaneAlive(now)
+  if (me['origin'] === 'workbench' && chatLane) return { ...none, ahead }
+  // Main-lane tasks a worker is actually running (live lease = it heartbeats).
+  const busy = (db
+    .prepare(
+      `SELECT * FROM code_tasks WHERE status = 'running' AND lease_expires_at > ? ${chatLane ? `AND origin <> 'workbench'` : ''}
+        ORDER BY started_at`,
+    )
+    .all(now) as Record<string, unknown>[]).map(rowToTask)
+  const busyHosts = new Set(busy.map((t) => t.host))
+  const liveHosts = listCodeWorkers().filter((w) => now - w.lastSeenAt <= WORKER_STALE_MS).map((w) => w.host)
+  // A free live worker takes this task next; no live worker at all is a
+  // stopped worker, not "busy with another project".
+  if (liveHosts.length === 0 || liveHosts.some((h) => !busyHosts.has(h))) return { ...none, ahead }
+  return { running: null, ahead, busyElsewhere: busy[0] ?? null }
+}
+
 /**
  * Hand the oldest RUNNABLE queued task to a worker.
  *
@@ -1214,8 +1269,10 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
     ? `AND origin = 'workbench'`
     : chatLaneAlive(now) ? `AND origin <> 'workbench'` : ''
   const claim = db.transaction((): CodeTask | null => {
+    // rowid breaks a created_at tie in insertion order -- the order the
+    // Telegram receipt promises (codeTaskQueueAhead).
     const rows = db
-      .prepare(`SELECT * FROM code_tasks WHERE status = 'queued' ${originFilter} ORDER BY created_at LIMIT 50`)
+      .prepare(`SELECT * FROM code_tasks WHERE status = 'queued' ${originFilter} ORDER BY created_at, rowid LIMIT 50`)
       .all() as Record<string, unknown>[]
 
     // One running task per project, enforced here rather than by trusting the

@@ -6,7 +6,7 @@
 // project. Everything else here (leases, summaries, command parsing) protects
 // the second failure mode -- a dispatched task that silently never comes back.
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   initDatabase, getDb, createApproval, createKanbanCard,
   createOrResetApprovalVerification, resolveApprovalVerification,
@@ -18,7 +18,7 @@ import {
   enqueueCodeTask, claimNextCodeTask, completeCodeTask, heartbeatCodeTask,
   getCodeTask, getCodeTaskByPrefix, listCodeTasks, latestCodeTaskForProject, cancelCodeTask,
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
-  recordCodeTaskDispatchWorkspace,
+  recordCodeTaskDispatchWorkspace, codeTaskQueueAhead, recordCodeWorkerSeen,
   LEASE_MS, MAX_ATTEMPTS, PROMPT_MAX_CHARS, ORPHAN_GRACE_MS,
 } from '../web/code-bridge-store.js'
 import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
@@ -27,6 +27,7 @@ import { Readable } from 'node:stream'
 import type http from 'node:http'
 import { queueNote, parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand, replyForInbound } from '../web/code-bridge-telegram.js'
 import { buildCompletionMessage, shortId } from '../web/code-bridge-notify.js'
+import { ol } from '../owner-lang.js'
 
 const MARVIN = { project: 'marvin', workspacePath: 'C:\\ws\\marvin', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' }
 const TRADING = { project: 'tradingbot', workspacePath: 'D:\\Tozsde_telepitesi_mappa', sessionId: 'bbbbbbbb-0000-4000-8000-000000000002' }
@@ -284,12 +285,59 @@ describe('dispatch routing', () => {
     seedThree()
     const first = enqueueCodeTask({ project: 'marvin', prompt: 'first' })
     const second = enqueueCodeTask({ project: 'marvin', prompt: 'second' })
-    if ('error' in first || 'error' in second) throw new Error('enqueue failed')
+    const third = enqueueCodeTask({ project: 'marvin', prompt: 'third' })
+    const elsewhere = enqueueCodeTask({ project: 'tradingbot', prompt: 'other project' })
+    if ('error' in first || 'error' in second || 'error' in third || 'error' in elsewhere) throw new Error('enqueue failed')
+    // The head of the queue, nothing running: there is no wait to explain.
+    expect(queueNote(first.task.id)).toBe('')
+    expect(codeTaskQueueAhead(third.task.id)!.ahead).toBe(2)
     const run = claimNextCodeTask('w1')!
     expect(run.id).toBe(first.task.id)
-    const note = queueNote('marvin', second.task.id)
-    expect(note).toContain(shortId(first.task.id))
-    expect(queueNote('tradingbot', second.task.id)).toBe('')
+    expect(queueNote(second.task.id)).toContain(shortId(first.task.id))
+    expect(codeTaskQueueAhead(second.task.id)).toMatchObject({ ahead: 0, busyElsewhere: null })
+    const thirdNote = queueNote(third.task.id)
+    expect(thirdNote).toContain(shortId(first.task.id))
+    expect(thirdNote).toContain(ol('Elotted meg 1 varakozik.', '1 more waiting ahead of yours.'))
+    // Another project's queue is not this one's, and a claimed task waits for nothing.
+    expect(queueNote(elsewhere.task.id)).toBe('')
+    expect(queueNote(first.task.id)).toBe('')
+  })
+
+  it('tasks enqueued in the same millisecond keep their order: the head is never told one waits ahead of it', () => {
+    seedThree()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+    try {
+      const ids = ['a', 'b', 'c'].map((prompt) => {
+        const out = enqueueCodeTask({ project: 'marvin', prompt })
+        if ('error' in out) throw new Error(out.error)
+        return out.task.id
+      })
+      expect(new Set(ids.map((id) => getCodeTask(id)!.createdAt)).size).toBe(1)
+      expect(queueNote(ids[0]!)).toBe('')
+      expect(ids.map((id) => codeTaskQueueAhead(id)!.ahead)).toEqual([0, 1, 2])
+      expect(claimNextCodeTask('w1')!.id).toBe(ids[0])
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('names the other project when the only live worker is busy with it, and stays quiet when a worker is free', () => {
+    seedThree()
+    const now = Date.now()
+    const other = enqueueCodeTask({ project: 'tradingbot', prompt: 'long refactor' })
+    if ('error' in other) throw new Error(other.error)
+    expect(claimNextCodeTask('w1', now)!.id).toBe(other.task.id)
+    const mine = enqueueCodeTask({ project: 'marvin', prompt: 'dolgozol?', origin: 'telegram' })
+    if ('error' in mine) throw new Error(mine.error)
+    // No live worker known: a stopped worker is not "busy with another project".
+    expect(queueNote(mine.task.id, now)).toBe('')
+    recordCodeWorkerSeen('w1', 'claim', undefined, now)
+    const note = queueNote(mine.task.id, now)
+    expect(note).toContain('tradingbot')
+    expect(note).toContain(shortId(other.task.id))
+    // A second live worker takes it at once.
+    recordCodeWorkerSeen('w2', 'claim', undefined, now)
+    expect(queueNote(mine.task.id, now)).toBe('')
   })
 
   it('an unmappable task does not block the runnable ones behind it', () => {
