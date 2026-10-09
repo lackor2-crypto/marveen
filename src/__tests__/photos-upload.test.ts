@@ -211,7 +211,11 @@ describe('a later download puts the photo back where it went up from (TG 8331)',
     expect(readdirSync(join(depot, 'Család', 'Apa', 'Nyár'))).toEqual(['apa.jpg'])
     expect(readdirSync(join(depot, 'Letöltések'))).toEqual(['telefonrol.jpg'])
     expect(readdirSync(join(depot, 'Család', 'Laura', 'Média'))).toEqual(['laura.jpg'])
-    expect(loadLifeIndex().map((p) => [p.id, p.lifeRel, p.file]).sort()).toEqual([['p2', 'Család/Apa/Nyár', 'apa.jpg'], ['p3', 'Letöltések', 'telefonrol.jpg']])
+    // p1 was not downloaded, but it was picked and it is here: the page gets a row that only
+    // points at the file (owner, TG 8417).
+    expect(loadLifeIndex().map((p) => [p.id, p.lifeRel, p.file, p.linked === true]).sort()).toEqual([
+      ['p1', 'Család/Laura/Média', 'laura.jpg', true], ['p2', 'Család/Apa/Nyár', 'apa.jpg', false], ['p3', 'Letöltések', 'telefonrol.jpg', false],
+    ])
     expect(existsSync(join(depot, 'Rendszer'))).toBe(false)
   })
 })
