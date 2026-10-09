@@ -1104,6 +1104,7 @@
 .wb-outline-block { margin: 4px 0 8px 8px; padding-left: 8px; border-left: 2px solid var(--border, #d1d5db); }
 .wb-outline-claims, .wb-outline-srcs { margin: 2px 0; padding-left: 18px; font-size: 0.85rem; }
 .wb-outline-missing { background: #fef3c7; }
+.wb-outline-img { max-width: 160px; max-height: 96px; vertical-align: middle; border-radius: 4px; }
 .wb-outline-claim-unverified .wb-outline-claim-text { text-decoration: underline wavy var(--warning, #b45309); }
 .wb-outline-tools { margin: 2px 0; font-size: 0.8rem; }
 .wb-outline-rewrite { margin: 4px 0; padding: 6px 8px; border: 1px dashed var(--accent, #2563eb); border-radius: 6px; background: var(--bg-subtle, rgba(37, 99, 235, 0.05)); }
@@ -1749,6 +1750,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-tbl-c { margin-left: auto; margin-right: auto; }
 .wb-dp-tbl-move { position: absolute; left: -6px; top: -6px; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 3px; background: var(--accent, #2563eb); color: #fff; font-size: 12px; cursor: grab; opacity: 0; }
 .wb-dp-tbl .wb-dp-img-size { cursor: nwse-resize; }
+/* A right-aligned picture / table is pinned to the page's right edge, so its free corner is the bottom-left one:
+   the resize handle sits there and follows the pointer (the drag handler counts a leftward drag as growing). */
+.wb-dp-img-r .wb-dp-img-size, .wb-dp-tbl-r .wb-dp-img-size { right: auto; left: -6px; cursor: nesw-resize; }
 .wb-dp-tbl .wb-dp-img-tools { top: -14px; }
 .wb-dp-tbl:hover .wb-dp-img-size, .wb-dp-tbl:hover .wb-dp-img-tools, .wb-dp-tbl:hover .wb-dp-tbl-move, .wb-dp-tbl:focus-within .wb-dp-img-size, .wb-dp-tbl:focus-within .wb-dp-img-tools, .wb-dp-tbl:focus-within .wb-dp-tbl-move { opacity: 1; }
 @media (hover: none) { .wb-dp-tbl-move { opacity: 1; } }

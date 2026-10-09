@@ -10,14 +10,15 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { getDb } from './db.js'
 import { getProject } from './projects.js'
 import { projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
-import { documentOutline } from './workbench-docmodel.js'
+import { documentOutline, imageBlockParts, tableBlockParts } from './workbench-docmodel.js'
+import { resolveLifePath } from './life-explorer.js'
 import { fileStem, renderDocx } from './workbench-docfinal.js'
 import { APP_LANG } from './config.js'
 
@@ -39,13 +40,36 @@ function ensureMirrorTable(): void {
 
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex')
 
-/** The outline as plain Markdown: the fallback when no Word converter exists. */
-export function outlineMarkdown(item: WorkItemRow): string {
+/** The outline's stored text, block by block: what a change is measured on (a resized picture or table counts). */
+function outlineSource(item: WorkItemRow): string {
   const { sections } = documentOutline(item.id)
   const lines: string[] = [`# ${item.title}`, '']
   for (const s of sections) {
     lines.push(`## ${s.title}`, '')
     for (const b of s.blocks) lines.push(b.text, '')
+  }
+  return lines.join('\n')
+}
+
+/**
+ * The outline as plain Markdown: the fallback when no Word converter exists. A picture block is a Markdown
+ * picture (linked relative to `dir`, the folder the file is written to, when given), and a table loses its
+ * size/alignment line (#508) -- `foto.jpg#w=50&a=l` is storage, not something the owner should read.
+ */
+export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
+  const { sections } = documentOutline(item.id)
+  const lines: string[] = [`# ${item.title}`, '']
+  for (const s of sections) {
+    lines.push(`## ${s.title}`, '')
+    for (const b of s.blocks) {
+      if (b.kind === 'image') {
+        const path = imageBlockParts(b.text).path
+        const abs = dir ? resolveLifePath(path) : null
+        const link = (abs ? relative(dir as string, abs) : path).replace(/\\/g, '/')
+        lines.push(`![${basename(path)}](<${link}>)`, '')
+      } else if (b.kind === 'table') lines.push(tableBlockParts(b.text).text, '')
+      else lines.push(b.text, '')
+    }
   }
   return lines.join('\n')
 }
@@ -64,7 +88,7 @@ export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult>
   ensureMirrorTable()
   const db = getDb()
   const row = db.prepare('SELECT file_name, sha, outline_sha FROM wb_doc_mirror WHERE work_item_id = ?').get(item.id) as { file_name: string; sha: string; outline_sha: string } | undefined
-  const outlineSha = sha(Buffer.from(outlineMarkdown(item), 'utf-8'))
+  const outlineSha = sha(Buffer.from(outlineSource(item), 'utf-8'))
   const existing = row ? join(t.dirAbs, row.file_name) : null
   if (row && existing && existsSync(existing) && row.outline_sha === outlineSha && sha(readFileSync(existing)) === row.sha) {
     return { ok: true, file: `${t.dirRel}/${row.file_name}`, format: row.file_name.endsWith('.md') ? 'md' : 'docx', written: false }
@@ -76,7 +100,7 @@ export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult>
   if (r.ok) data = r.docx
   else {
     format = 'md'
-    data = Buffer.from(outlineMarkdown(item), 'utf-8')
+    data = Buffer.from(outlineMarkdown(item, t.dirAbs), 'utf-8')
   }
   const name = `${fileStem(item.title)}.${format}`
   const blocked = writeBlockReason(`${t.dirRel}/${name}`)

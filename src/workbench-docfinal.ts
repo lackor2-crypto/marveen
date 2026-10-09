@@ -101,7 +101,8 @@ function imagePrints(item: WorkItemRow): string[] {
   const out: string[] = []
   for (const s of documentOutline(item.id).sections) for (const b of s.blocks) {
     if (b.kind !== 'image') continue
-    const abs = resolveLifePath(b.text)
+    // The path without the size/alignment suffix (#508): a resized picture's file is still the one to watch.
+    const abs = resolveLifePath(imageBlockParts(b.text).path)
     try { const st = abs ? statSync(abs) : null; out.push(st ? `img:${b.text}:${st.size}:${Math.floor(st.mtimeMs)}` : `img:${b.text}:missing`) } catch { out.push(`img:${b.text}:missing`) }
   }
   return out
