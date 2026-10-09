@@ -1015,8 +1015,8 @@ describe('POST /api/life/rename -- the links and the backup rule follow (#510)',
   it('a folder with a link inside is renamed, and the link shows under the new name', async () => {
     await setup('RnA')
     const { setBackupRule, loadBackupRules } = await import('../backup-rules.js')
-    setBackupRule({ path: 'RnACeg', target: { kind: 'drive', account: 'teszt' } })
-    setBackupRule({ path: 'RnACeg/Iratok', target: null })
+    setBackupRule({ path: 'RnACeg', action: 'target', target: { kind: 'drive', account: 'teszt' } })
+    setBackupRule({ path: 'RnACeg/Iratok', action: 'none' })
 
     const out = await rename('RnACeg', 'RnAUjnev')
     expect(out.body.ok).toBe(true)
