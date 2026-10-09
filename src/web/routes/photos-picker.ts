@@ -1408,7 +1408,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       photos: merged.map((p) => ({
         id: p.id, account: p.account, mimeType: p.mimeType, isVideo: p.isVideo,
         createdTime: p.createdTime, width: p.width, height: p.height, bytes: p.bytes,
-        ...(typeof (p as any).lifeRel === 'string' ? { lifeRel: (p as any).lifeRel, file: p.file } : {}),
+        ...(typeof (p as any).lifeRel === 'string' ? { lifeRel: (p as any).lifeRel, file: p.file, linked: (p as any).linked === true } : {}),
       })),
       // A ket fioknal is szereplo, azonos kep egyetlen fajl: egyszer szamoljuk.
       totalBytes: uniqueBytes(list) + lifeBytes,

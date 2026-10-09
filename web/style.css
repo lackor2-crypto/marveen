@@ -6069,6 +6069,15 @@ a.link-waiting {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Where the file is in the Life tree: the page only shows the photo, the file lives in its folder. */
+.photo-tile-where {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-muted, var(--text-secondary, inherit));
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+  margin-top: 2px;
+}
 
 /* Nagy nezet. Nem modal-dialog: nincs benne urlap, es a hatterre kattintva zar. */
 .photo-lightbox {

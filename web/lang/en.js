@@ -2804,7 +2804,7 @@ window._i18n.en = {
 
   // --- Photos (Google Photos, Picker) ---
   'photos.page_title':         'Photos',
-  'photos.page_subtitle':      'Images and videos brought in from Google Photos',
+  'photos.page_subtitle':      'Images and videos picked from Google Photos. The files themselves are in the Life tree, in the folder shown under each picture.',
   'photos.add_btn':            'Add photos',
   'photos.empty_msg':          'No photos here yet',
   'photos.empty_hint':         'Press "Add photos" and pick from Google Photos.',
@@ -2884,6 +2884,10 @@ window._i18n.en = {
   'photos.dest.err_dest_trash': 'Photos are not downloaded into the trash. Choose another folder.',
   'photos.dest.err_dest_in_repo': 'This folder is inside a git repository; photos are not downloaded there. Choose another folder.',
   'photos.result.dest': 'They are in: {where}.',
+  'photos.remove_confirm_life': 'Remove this photo? The file goes to the Life tree\'s trash (it can be brought back from there). It is now in: {where}. It stays in Google Photos.',
+  'photos.remove_confirm_linked': 'Take this photo off this page? The file stays where it is ({where}), I do not touch it, and it stays in Google Photos too.',
+  'photos.review.go_none': 'OK, show them on the Photos page',
+  'photos.tile.where': 'It is in: {where}',
   'photos.review.title': 'Where should the selected photos go?',
   'photos.review.help': 'Each photo shows where I would put it in the Life tree. For what you uploaded from here I offer the folder it came from; for what you downloaded before, the folder you chose then. You can pick another folder for any of them. Nothing is downloaded until you press “Download”.',
   'photos.review.empty': 'You did not select any photo.',

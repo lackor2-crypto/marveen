@@ -14869,12 +14869,13 @@ function _photosObserveTiles(grid) {
 
 function _photosTileHtml(p) {
   const when = p.createdTime ? new Date(p.createdTime).toLocaleDateString() : ''
-  return `<div class="photo-tile" data-id="${escapeHtml(p.id)}" data-account="${escapeHtml(p.account)}" data-video="${p.isVideo ? '1' : '0'}">
+  return `<div class="photo-tile" data-id="${escapeHtml(p.id)}" data-account="${escapeHtml(p.account)}" data-video="${p.isVideo ? '1' : '0'}" data-where="${escapeAttr(p.lifeRel || '')}" data-linked="${p.linked ? '1' : '0'}">
     <div class="photo-tile-thumb">
       <img alt="${escapeHtml(when || t('photos.page_title'))}" loading="lazy">
       ${p.isVideo ? '<span class="photo-tile-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>' : ''}
     </div>
     <div class="photo-tile-name">${escapeHtml(when)}</div>
+    ${p.lifeRel ? `<div class="photo-tile-where" title="${escapeAttr(String(p.lifeRel).split('/').join(' › ') + ' › ' + (p.file || ''))}">${escapeHtml(t('photos.tile.where', { where: String(p.lifeRel).split('/').join(' › ') }))}</div>` : ''}
   </div>`
 }
 
@@ -15197,7 +15198,15 @@ function _photosOpenLightbox(id, account, alreadyLoadedUrl, isVideo) {
 
   const remove = document.getElementById('photoLightboxRemove')
   remove.onclick = async () => {
-    if (!confirm(t('photos.remove_confirm'))) return
+    // WHAT happens to the file differs, so the question says it: a photo this
+    // program brought into the Life tree goes to the tree's trash; one it only
+    // points at stays where it is; the old store's copy is just dropped.
+    const tile = Array.from(document.querySelectorAll('#photosGrid .photo-tile')).find((el) => el.dataset.id === id && el.dataset.account === account)
+    const where = tile ? String(tile.dataset.where || '').split('/').join(' › ') : ''
+    const ask = !where ? t('photos.remove_confirm')
+      : tile.dataset.linked === '1' ? t('photos.remove_confirm_linked', { where })
+        : t('photos.remove_confirm_life', { where })
+    if (!confirm(ask)) return
     try {
       const res = await fetch('/api/photos/remove', {
         method: 'POST',
@@ -15428,9 +15437,12 @@ function _photosReviewOpen(account, review) {
       list.appendChild(row)
     }
     const missing = items.filter((it) => !it.already && !places[it.id]).length
-    const todo = items.filter((it) => !it.already).length
+      const todo = items.filter((it) => !it.already).length
     bulkBtn.hidden = missing === 0
-    goBtn.disabled = todo === 0
+    // Nothing to bring down is still something to finish: the photos that are
+    // already here get onto the page.
+    goBtn.disabled = items.length === 0
+    goBtn.textContent = todo === 0 && items.length ? t('photos.review.go_none') : t('photos.review.go')
     if (review.partial) say(t('photos.result.partial'))
   }
   let busy = false
