@@ -1424,6 +1424,15 @@
 /* ---- Dokumentum lapja (#462, 4. lepes): a lap maga a szerkeszto ---- */
 .wb-dp-wrap { padding: 8px 0 24px; }
 .wb-dp-page { width: min(100%, 794px); min-height: 1000px; margin: 0 auto; box-sizing: border-box; padding: 56px 64px 72px 72px; background: #fff; color: #1b1b1f; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); border-radius: 2px; font-size: 15px; line-height: 1.6; }
+.wb-dp-toolbar { position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: min(100%, 794px); box-sizing: border-box; margin: 0 auto 10px; padding: 5px 8px; background: #f3f4f8; color: #1b1b1f; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
+.wb-dp-tb { min-width: 32px; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.wb-dp-tb:hover { background: rgba(80, 100, 220, 0.12); }
+.wb-dp-tb.is-on, .wb-dp-tb[aria-pressed="true"] { background: rgba(80, 100, 220, 0.24); border-color: rgba(80, 100, 220, 0.5); }
+.wb-dp-tbsep { width: 1px; height: 20px; margin: 0 6px; background: rgba(0, 0, 0, 0.2); }
+.wb-dp-al-l { text-align: left; }
+.wb-dp-al-c { text-align: center; }
+.wb-dp-al-r { text-align: right; }
+.wb-dp-al-j { text-align: justify; }
 .wb-dp-sec { margin-bottom: 18px; position: relative; }
 .wb-dp-sechead { display: flex; align-items: baseline; gap: 8px; margin-left: -48px; padding-left: 48px; }
 .wb-dp-title { flex: 1; min-width: 0; font-size: 1.5em; font-weight: 700; line-height: 1.3; }
