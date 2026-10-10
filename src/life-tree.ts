@@ -642,8 +642,10 @@ function addDevelopmentBranch(
 ): void {
   const dev = parentIsDevelopment ? parent : `${parent}/${lifeName('development', lang)}`
   if (!parentIsDevelopment) add(dev, 'category', 'development', ownerId)
-  add(`${dev}/${lifeName('knowledgeBase', lang)}`, 'category', 'knowledgeBase', ownerId)
-  add(`${dev}/${lifeName('moreMaterial', lang)}`, 'category', 'moreMaterial', ownerId)
+  // #560 (owner decision, 2026-10-10): ONE "Knowledge base" and ONE "More material" per project / company, at its
+  // own level. Development holds only the repositories -- the documentation of code lives with the code. The two
+  // same-named folders that used to be made here stayed empty and made every project look doubled. An existing one
+  // (a tree made earlier) is left alone and still gets its own explanation (life-hints: devKnowledge / devMore).
   add(`${dev}/${lifeName('gitRepos', lang)}`, 'category', 'gitRepos', ownerId)
 }
 
