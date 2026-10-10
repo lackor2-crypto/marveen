@@ -527,6 +527,8 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
   // it ("Name (2)"); an empty folder nobody owns (made by hand just before) is taken as it is.
   let wanted = name
   if (opts?.own) {
+    // #540: a new work item never goes UNDER another live work item's own folder; it takes the level beside it.
+    if (isItemOwnFolder(project, parentRel)) parentRel = dirname(parentRel).replace(/\\/g, '/')
     const pt = projectFileTarget(project, parentRel)
     const seg = String(name ?? '').trim()
     if (pt.ok && seg && !seg.includes('/') && !seg.includes('\\') && workFolderInUse(project, pt.dirAbs, `${parentRel}/${seg}`, seg)) wanted = freeFileName(pt.dirAbs, seg)
@@ -534,6 +536,21 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
   const r = makeProjectFolder(project, parentRel, wanted)
   if (!r.ok) return r
   return { ok: true, folder: r.sub, created: r.created }
+}
+
+/**
+ * #540: is `rel` a work item's OWN folder -- the folder of exactly one work item, named after that item's title
+ * (folderNameFromTitle) or its numbered twin ("Name (2)")? A hand-named group, even when a lone work item sits in
+ * it (flattenIntoGroup), is not: new work items still go into it.
+ */
+export function isItemOwnFolder(project: ProjectRow, rel: string): boolean {
+  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!clean || !clean.includes('/')) return false
+  const rows = getDb().prepare('SELECT title FROM work_items WHERE project_id = ? AND folder = ?').all(project.id, clean) as { title: string }[]
+  if (rows.length !== 1) return false
+  const seg = clean.slice(clean.lastIndexOf('/') + 1)
+  const base = folderNameFromTitle(rows[0].title)
+  return seg === base || new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(\\d+\\)$').test(seg)
 }
 
 /** #540: is the folder `rel` (named `seg` in `parentAbs`) already somebody's -- a work item's own folder, or not empty? */
