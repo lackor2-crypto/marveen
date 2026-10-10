@@ -17,6 +17,7 @@
 import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
+import { richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
 import { LANG_NAMES, carriedLook, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
@@ -103,12 +104,12 @@ function langLabel(code: string): string {
   return n ? `${n.en} (${n.self})` : code.toUpperCase()
 }
 
-interface SourceBlock { id: string; kind: string; text: string; claims: { id: string; text: string }[] }
+interface SourceBlock { id: string; kind: string; text: string; claims: { id: string; text: string }[]; /** #558: the formatted text of the source block (cleaned HTML), when it has any */ rich?: string }
 
 function sourceBlocks(sourceItemId: string, sectionId: string): SourceBlock[] {
   const blocks = listBlocks(sourceItemId).filter((b: BlockRow) => b.section_id === sectionId)
   const claimQ = getDb().prepare('SELECT id, text FROM wb_doc_claims WHERE block_id = ? ORDER BY created_at')
-  return blocks.map((b) => ({ id: b.id, kind: b.kind, text: b.text, claims: claimQ.all(b.id) as { id: string; text: string }[] }))
+  return blocks.map((b) => ({ id: b.id, kind: b.kind, text: b.text, claims: claimQ.all(b.id) as { id: string; text: string }[], ...(b.rich && b.kind !== 'image' && b.kind !== 'table' ? { rich: b.rich } : {}) }))
 }
 
 /** A forditasi keres: a rendszer-utasitas es az eredeti fejezet (JSON). Tiszta, teszthez exportalva. */
@@ -127,15 +128,16 @@ export function buildTranslatePrompt(input: {
     'Rules:',
     '- Translate faithfully and completely: do not add, drop, summarise or soften anything. Names, numbers, dates, amounts, case numbers, file names and annex labels stay exact; translate the words around them.',
     '- Translate the section title too, even if it is only a placeholder such as "Új fejezet" (it means "New section").',
-    '- Keep every block separate, in the same order, with the same id; keep the line breaks inside a block.',
+    `- Keep every block separate, in the same order, with the same id; keep the line breaks inside a block. The section has exactly ${input.blocks.length} block(s): your answer has exactly ${input.blocks.length}, never more (do not split a block) and never fewer (do not merge blocks).`,
+    '- A block with a "rich" field has formatted text (HTML: b, i, u, s and span with a style). Put the translation into BOTH "text" (plain words, no tags) and "rich" (the same words with the tags): keep every tag, in the same kind and number, around the translated words that correspond to the words the tag surrounded in the original; translate only the words between the tags; never add a tag or a style the original does not have. A block without a "rich" field gets no "rich" in your answer.',
     '- A block of kind "image" holds a picture file path: copy its text unchanged.',
     '- For each claim listed under a block, put into "claims" the part of YOUR translated block text that states that claim, copied word for word from your translation.' + gl,
     'Reply with ONE JSON object and nothing else -- no prose, no code fence:',
-    '{"title": "<translated title>", "blocks": [{"id": "<block id>", "text": "<translated text>", "claims": [{"source_claim": "<claim id>", "text": "<verbatim part of your translated text>"}]}]}',
+    '{"title": "<translated title>", "blocks": [{"id": "<block id>", "text": "<translated text>", "rich": "<translated formatted text, only when the original block has a rich field>", "claims": [{"source_claim": "<claim id>", "text": "<verbatim part of your translated text>"}]}]}',
   ].join('\n')
   const user = JSON.stringify({
     title: input.title,
-    blocks: input.blocks.map((b) => ({ id: b.id, kind: b.kind, text: modelText(b), claims: b.claims.map((c) => ({ id: c.id, text: c.text })) })),
+    blocks: input.blocks.map((b) => ({ id: b.id, kind: b.kind, text: modelText(b), ...(b.rich ? { rich: b.rich } : {}), claims: b.claims.map((c) => ({ id: c.id, text: c.text })) })),
   }, null, 1)
   return { system, user }
 }
@@ -153,9 +155,29 @@ function tableLayoutSuffix(text: string): string {
   return text.slice(tableBlockParts(text).text.length)
 }
 
+/** #558: on the second attempt the translator is told what was wrong with the first answer (a merged or split block, bad JSON). */
+function retryHint(system: string, detail: string, blockCount: number): string {
+  if (!detail) return system
+  return `${system}\n- Your previous answer was rejected: ${detail}. Answer again with exactly ${blockCount} block(s), in the same order, each with its id.`
+}
+
+/**
+ * #558: the formatted translation of a block the model sent back, when it can be trusted: it cleans to the same
+ * canonical HTML the page stores, its words are exactly the translated text, and it wears the same KINDS of format as
+ * the original (a model that dropped the bold, or invented a colour, is not believed). '' = not usable: the block stays
+ * plain text (the caller counts it).
+ */
+export function usableRich(sourceRich: string, answered: unknown, text: string): string {
+  if (typeof answered !== 'string' || !answered.trim()) return ''
+  const clean = sanitizeRich(answered)
+  if (!clean || !richMatches(clean, text)) return ''
+  const kinds = (h: string): string => [...new Set(richRuns(h).filter((r) => r.text.trim() !== '').map((r) => [r.b, r.i, r.u, r.s, r.f, r.z, r.c, r.h].join('|')))].sort().join(';')
+  return kinds(clean) === kinds(sourceRich) ? clean : ''
+}
+
 /** A modell valaszabol a mentheto forditas, vagy a hiba oka. Tiszta, teszthez exportalva. */
 export function parseTranslation(text: string, src: SourceBlock[]):
-  | { ok: true; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[] }[] }
+  | { ok: true; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string }[]; format_fallback: number }
   | { ok: false; detail: string } {
   const raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   const start = raw.indexOf('{')
@@ -166,9 +188,11 @@ export function parseTranslation(text: string, src: SourceBlock[]):
   const o = v as { title?: unknown; blocks?: unknown }
   const title = String(o.title ?? '').trim()
   if (!title) return { ok: false, detail: 'the translated title is missing' }
-  const got = Array.isArray(o.blocks) ? o.blocks as { id?: unknown; text?: unknown; claims?: unknown }[] : []
+  const got = Array.isArray(o.blocks) ? o.blocks as { id?: unknown; text?: unknown; rich?: unknown; claims?: unknown }[] : []
   if (got.length !== src.length) return { ok: false, detail: `the original section has ${src.length} block(s), the translation ${got.length}` }
   const byId = new Map(got.map((b) => [String(b.id ?? ''), b]))
+  // #558: how many formatted source blocks came back without a usable formatted translation (they stay plain text).
+  let fallback = 0
   const blocks = src.map((s, i) => {
     // Az id a biztos par; ha a modell elirta, a sorrend.
     const b = byId.get(s.id) ?? got[i] ?? {}
@@ -182,10 +206,15 @@ export function parseTranslation(text: string, src: SourceBlock[]):
       const body = tableBlockParts(text).text.trim()
       return { kind: s.kind, text: body ? body + tableLayoutSuffix(s.text) : '', claims }
     }
+    if (s.rich) {
+      const rich = usableRich(s.rich, b.rich, text)
+      if (rich) return { kind: s.kind, text, claims, rich }
+      fallback++
+    }
     return { kind: s.kind, text, claims }
   })
   if (blocks.some((b) => !b.text)) return { ok: false, detail: 'a translated block is empty' }
-  return { ok: true, title, blocks }
+  return { ok: true, title, blocks, format_fallback: fallback }
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +226,7 @@ export function parseTranslation(text: string, src: SourceBlock[]):
 
 /** `rich` / `align` / `pfmt`: the look the block inherits from the source block at the same place (#558), so the
  *  side-by-side column shows the translation the way it will be saved. */
-export interface SectionPreview { source_section: string; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string; align?: string; pfmt?: unknown }[] }
+export interface SectionPreview { source_section: string; title: string; /** #558: formatted blocks whose formatted translation was not usable (kept as plain text) */ format_fallback?: number; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string; align?: string; pfmt?: unknown }[] }
 
 export type PreviewResult =
   | { ok: true; preview: SectionPreview }
@@ -215,15 +244,16 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
   const prompt = buildTranslatePrompt({ targetLang: lang, title: sec.title, blocks, glossary })
   let detail = ''
   for (let attempt = 0; attempt < SECTION_ATTEMPTS; attempt++) {
-    const r = await caller({ system: prompt.system, user: prompt.user, lang: ui })
+    const r = await caller({ system: retryHint(prompt.system, detail, blocks.length), user: prompt.user, lang: ui })
     logCall(source.id, prompt.system.length + prompt.user.length, r)
     if (!r.ok) return { ok: false, code: r.code === 'no_provider' ? 'no_provider' : 'failed', message: r.message }
     const parsed = parseTranslation(r.text, blocks)
     if (parsed.ok) {
       const rows = listBlocks(source.id).filter((b: BlockRow) => b.section_id === sec.id)
       const paired = rows.length === parsed.blocks.length
-      const shown = parsed.blocks.map((b, i) => (paired && rows[i]!.kind === b.kind ? { ...b, ...carriedLook(rows[i]!, b.text) } : b))
-      return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: shown } }
+      // The formatted translation the model gave (when usable) wins over the one-piece format carried by position.
+      const shown = parsed.blocks.map((b, i) => (paired && rows[i]!.kind === b.kind ? { ...b, ...carriedLook(rows[i]!, b.text), ...(b.rich ? { rich: b.rich } : {}) } : b))
+      return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: shown, format_fallback: parsed.format_fallback } }
     }
     detail = parsed.detail
   }
@@ -331,12 +361,13 @@ async function runJob(job: TranslateJobState, variantId: string, pending: { id: 
     let detail = ''
     let saved = false
     for (let attempt = 0; attempt < SECTION_ATTEMPTS && !saved; attempt++) {
-      const r = await caller({ system: prompt.system, user: prompt.user, lang: opts.lang })
+      const r = await caller({ system: retryHint(prompt.system, detail, blocks.length), user: prompt.user, lang: opts.lang })
       logCall(variantId, prompt.system.length + prompt.user.length, r)
       // Szolgaltato-szintu hiba (nincs fiok, kifogyott keret): a tobbi fejezet sem menne -- megallunk, kimondva.
       if (!r.ok) { job.error = { code: r.code, message: r.message }; return }
       const parsed = parseTranslation(r.text, blocks)
       if (!parsed.ok) { detail = parsed.detail; continue }
+      if (parsed.format_fallback) logger.info({ variantId, section: s.id, blocks: parsed.format_fallback }, 'doclang-translate: formatted blocks kept as plain text (the model did not keep the format tags)')
       const t = translateSection(variantId, { source_section: s.id, title: parsed.title, blocks: parsed.blocks }, opts.by)
       if (!t.ok) { detail = t.detail; continue }
       saved = true

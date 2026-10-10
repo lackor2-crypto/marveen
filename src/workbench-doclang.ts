@@ -355,8 +355,8 @@ export function lookOfBlock(sb: { text: string; rich?: string | null; align?: st
     const r = sanitizeRich(b.rich)
     if (r && richToPlain(r).replace(/\r\n/g, '\n').trim() === text && richMatches(r, text)) own.rich = r
   }
-  if (Object.keys(own).length) return own
-  return sb ? carriedLook(sb, text) : {}
+  // Field by field: what the page / the translator gave wins, the rest is what the source block at the same place wears.
+  return { ...(sb ? carriedLook(sb, text) : {}), ...own }
 }
 
 export function translationAlreadySaved(variantId: string, input: { source_section?: unknown; title?: unknown; blocks?: unknown }): boolean {

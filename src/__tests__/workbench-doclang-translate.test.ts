@@ -36,11 +36,11 @@ describe('parseTranslation / buildTranslatePrompt', () => {
     expect(r).toEqual({ ok: true, title: 'Neues Kapitel', blocks: [
       { kind: 'paragraph', text: 'Eins.', claims: [] },
       { kind: 'list', text: '- x\n- y', claims: [{ source_claim: 'c1', text: 'x' }] },
-    ] })
+    ], format_fallback: 0 })
   })
 
   it('a title-only section translates to a title and no blocks', () => {
-    expect(parseTranslation('{"title":"New section","blocks":[]}', [])).toEqual({ ok: true, title: 'New section', blocks: [] })
+    expect(parseTranslation('{"title":"New section","blocks":[]}', [])).toEqual({ ok: true, title: 'New section', blocks: [], format_fallback: 0 })
   })
 
   it('says why an answer cannot be saved: no JSON, missing title, wrong block count, empty block', () => {

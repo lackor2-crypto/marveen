@@ -9,9 +9,9 @@ import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, type WorkItemRow } from '../workbench.js'
 import { addSection, addBlock, documentOutline, listBlocks } from '../workbench-docmodel.js'
-import { listVariants, variantInfo } from '../workbench-doclang.js'
+import { createVariant, listVariants, variantInfo } from '../workbench-doclang.js'
 import {
-  previewSectionTranslation, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, type TranslateCaller,
+  previewSectionTranslation, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, startVariantTranslation, waitForTranslationForTest, usableRich, type TranslateCaller,
 } from '../workbench-doclang-translate.js'
 
 describe('side-by-side translation of a draft', () => {
@@ -134,6 +134,92 @@ describe('side-by-side translation of a draft', () => {
     const bad = saveShownTranslation(src, 'de', [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Eins.', rich: '<b>Ganz anders</b>' }] }], 'owner')
     if (!bad.ok) throw new Error(bad.detail)
     expect(listBlocks(bad.variant.id)[0]!.rich ?? null).toBeNull()
+  })
+
+  // #558 B/D/E: a word bold INSIDE a paragraph survives the translation when the model keeps the tags; a model that
+  // dropped or invented a format is not believed (plain text, counted); the block count is in the instruction.
+  const mixedSrc = (): void => {
+    const m = addBlock(src.id, secId, { rich: 'Sima <b>kiemelt</b> vege.', align: 'r', author: 'owner' })
+    if (!m.ok) throw new Error('block')
+  }
+  const answering = (rich: string | undefined): TranslateCaller => async (req) => {
+    calls++
+    const u = JSON.parse(req.user)
+    const blocks = u.blocks.map((b: { id: string; rich?: string }) => (b.rich
+      ? { id: b.id, text: 'Schlicht betont Ende.', ...(rich !== undefined ? { rich } : {}), claims: [] }
+      : { id: b.id, text: 'Die Klage ist eingereicht.', claims: [] }))
+    return { ok: true, text: JSON.stringify({ title: 'Sachverhalt', blocks }), account: 'test', model: 'test-model' }
+  }
+
+  it('#558 B: the formatted translation the model keeps is shown and saved; the word that was bold stays bold', async () => {
+    mixedSrc()
+    setTranslateCallerForTest(answering('Schlicht <b>betont</b> Ende.'))
+    const r = await previewSectionTranslation(src, secId, 'de', 'hu')
+    if (!r.ok) throw new Error(r.message)
+    expect(r.preview.format_fallback).toBe(0)
+    expect(r.preview.blocks[1]).toMatchObject({ text: 'Schlicht betont Ende.', rich: 'Schlicht <b>betont</b> Ende.', align: 'r' })
+    const saved = saveShownTranslation(src, 'de', [{ source_section: secId, title: r.preview.title, blocks: r.preview.blocks }], 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    const out = listBlocks(saved.variant.id)
+    expect(out[1]!.rich).toBe('Schlicht <b>betont</b> Ende.')
+    expect(out[1]!.align).toBe('r')
+  })
+
+  it('#558 B: a model answer that lost the tag, invented one or changed the words stays plain text, and is counted', async () => {
+    mixedSrc()
+    for (const bad of ['Schlicht betont Ende.', 'Schlicht <i>betont</i> Ende.', 'Ganz <b>anders</b> hier.', undefined]) {
+      setTranslateCallerForTest(answering(bad))
+      const r = await previewSectionTranslation(src, secId, 'de', 'hu')
+      if (!r.ok) throw new Error(r.message)
+      expect(r.preview.format_fallback).toBe(1)
+      expect(r.preview.blocks[1]!.rich ?? null).toBeNull()
+      expect(r.preview.blocks[1]!.align).toBe('r')
+    }
+    expect(usableRich('Sima <b>kiemelt</b> vege.', 'Schlicht <b>betont</b> Ende.', 'Schlicht betont Ende.')).toBe('Schlicht <b>betont</b> Ende.')
+    expect(usableRich('Sima <b>kiemelt</b> vege.', '<script>x</script>Schlicht', 'Schlicht')).toBe('')
+  })
+
+  it('#558 B/E: the instruction names the formatted text and the block count, and a second attempt is told what was wrong', async () => {
+    mixedSrc()
+    const seen: { system: string; user: string }[] = []
+    let n = 0
+    setTranslateCallerForTest(async (req) => {
+      seen.push({ system: req.system, user: req.user })
+      const u = JSON.parse(req.user)
+      // first answer: one block short (a merged block); second: right
+      const blocks = u.blocks.map((b: { id: string }) => ({ id: b.id, text: 'Text.', claims: [] }))
+      return { ok: true, text: JSON.stringify({ title: 'T', blocks: n++ === 0 ? blocks.slice(0, 1) : blocks }), account: 'test', model: 'm' }
+    })
+    const r = await previewSectionTranslation(src, secId, 'de', 'hu')
+    expect(r.ok).toBe(true)
+    expect(seen).toHaveLength(2)
+    expect(JSON.parse(seen[0]!.user).blocks[1].rich).toBe('Sima <b>kiemelt</b> vege.')
+    expect(seen[0]!.system).toContain('exactly 2 block(s)')
+    expect(seen[0]!.system).not.toContain('previous answer was rejected')
+    expect(seen[1]!.system).toContain('previous answer was rejected')
+    expect(seen[1]!.system).toContain('2 block(s), the translation 1')
+  })
+
+  it('#558 D: the whole-document translation saves the formatted translation, the look of the paragraph and the picture unchanged', async () => {
+    mixedSrc()
+    const img = addBlock(src.id, secId, { kind: 'image', text: 'Projektek/teszt/logo.png#w=40&a=l', author: 'owner' })
+    if (!img.ok) throw new Error('image')
+    setTranslateCallerForTest(async (req) => {
+      const u = JSON.parse(req.user)
+      const blocks = u.blocks.map((b: { id: string; kind: string; text: string; rich?: string }) => (
+        b.kind === 'image' ? { id: b.id, text: b.text, claims: [] }
+          : b.rich ? { id: b.id, text: 'Schlicht betont Ende.', rich: 'Schlicht <b>betont</b> Ende.', claims: [] }
+            : { id: b.id, text: 'Die Klage ist eingereicht.', claims: [] }))
+      return { ok: true, text: JSON.stringify({ title: 'Sachverhalt', blocks }), account: 'test', model: 'm' }
+    })
+    const v = createVariant(src, 'de', 'owner')
+    if (!v.ok) throw new Error(v.detail)
+    expect(startVariantTranslation(v.item.id, { lang: 'hu', by: 'owner' })).toMatchObject({ ok: true, started: true })
+    await waitForTranslationForTest(v.item.id)
+    const out = listBlocks(v.item.id)
+    expect(out.map((b) => b.kind)).toEqual(['paragraph', 'paragraph', 'image'])
+    expect(out[1]).toMatchObject({ text: 'Schlicht betont Ende.', rich: 'Schlicht <b>betont</b> Ende.', align: 'r' })
+    expect(out[2]!.text).toBe('Projektek/teszt/logo.png#w=40&a=l')
   })
 
   it('refuses a bad language code, an unknown section and a language version as the source', async () => {
