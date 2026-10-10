@@ -49,14 +49,17 @@ export var FORMAT_RE = new RegExp('^(?:sheet\\.(?:command\\.(?:'
 // strike-through, font, size, text colour, fill colour, horizontal and vertical alignment, wrap
 // (column widths and row heights are not commands of their own, they travel with the sizes).
 // Section B adds the borders and the merging of cells (the border commands, add/remove merge).
-// Everything else in FORMAT_RE (number formats, painter, rotation, hiding, protection, tab
+// Section C adds the number formats (the panel, percent, currency, more / fewer decimals): the
+// pattern lives in the cell style (`n`), travels as `nf` and is written as a numFmt.
+// Everything else in FORMAT_RE (painter, rotation, hiding, protection, tab
 // colour, sub/superscript, paste-besides-border) stays blocked. `set-style` is the one command the
 // allowed buttons call underneath; every blocked outer command is cancelled before it gets there.
 export var FORMAT_KEPT_RE = new RegExp('^sheet\\.command\\.(?:set-style|set-(?:bold|italic|underline|stroke|font-family|font-size|text-color)'
   + '|set-range-(?:bold|italic|underline|stroke'
   + '|font-family|fontsize|font-increase|font-decrease|text-color)|reset-(?:text-color|background-color)'
   + '|set-background-color|set-(?:horizontal|vertical)-text-align|set-text-wrap'
-  + '|set-border(?:-[a-z]+)?|add-worksheet-merge(?:-[a-z]+)?|remove-worksheet-merge)$')
+  + '|set-border(?:-[a-z]+)?|add-worksheet-merge(?:-[a-z]+)?|remove-worksheet-merge'
+  + '|numfmt\\.set\\.(?:numfmt|percent|currency)|numfmt\\.(?:add|subtract)\\.decimal\\.command)$|^sheet\\.operation\\.open\\.numfmt\\.panel$')
 
 /**
  * Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'objects', 'format' or null
@@ -120,6 +123,9 @@ export var FORMAT_KEPT_MENU_IDS = [
   'sheet.command.set-border-basic', 'sheet.command.add-worksheet-merge', 'sheet.command.add-worksheet-merge-all',
   'sheet.command.add-worksheet-merge-vertical', 'sheet.command.add-worksheet-merge-horizontal',
   'sheet.command.remove-worksheet-merge',
+  // section C: number formats
+  'sheet.operation.open.numfmt.panel', 'sheet.command.numfmt.set.percent', 'sheet.command.numfmt.set.currency',
+  'sheet.command.numfmt.add.decimal.command', 'sheet.command.numfmt.subtract.decimal.command',
 ]
 
 export function hiddenMenuConfig(sheetsLocked, formatKept) {
@@ -167,6 +173,7 @@ export function styleToUniver(cs) {
   var va = { t: 1, m: 2, b: 3 }[cs.va]
   if (va) o.vt = va
   if (cs.wr) o.tb = 3
+  if (typeof cs.nf === 'string' && cs.nf && cs.nf.toLowerCase() !== 'general') o.n = { pattern: cs.nf }
   if (cs.bd) {
     var bd = {}
     SIDES.forEach(function (k) {
@@ -215,6 +222,7 @@ export function univerToStyle(st) {
   var va = { 1: 't', 2: 'm', 3: 'b' }[st.vt]
   if (va) o.va = va
   if (st.tb === 3) o.wr = true
+  if (st.n && typeof st.n.pattern === 'string' && st.n.pattern.trim() && st.n.pattern.trim().toLowerCase() !== 'general') o.nf = st.n.pattern
   if (st.bd && typeof st.bd === 'object') {
     var bd = {}
     SIDES.forEach(function (k) {
@@ -261,6 +269,16 @@ export function isDatePattern(pattern) {
   return /[dmyhs]/i.test(c) && !/^[#0.,%\s-]*$/.test(c)
 }
 
+/** "YYYY-MM-DD[ HH:MM[:SS]]" -> Excel serial (1900 system), or null; the server's isoToSerial. */
+export function isoToSerial(text) {
+  var m = /^(\d{4})[-.](\d{1,2})[-.](\d{1,2})\.?(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(String(text).trim())
+  if (!m) return null
+  var t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0))
+  var back = new Date(t)
+  if (back.getUTCMonth() !== Number(m[2]) - 1 || back.getUTCDate() !== Number(m[3])) return null
+  return Math.round((t / 86400000 + 25569) * 1e6) / 1e6
+}
+
 /** Excel serial (1900 system) -> "YYYY-MM-DD" or "YYYY-MM-DD HH:MM", as the server sends dates. */
 export function serialToIso(serial) {
   var d = new Date(Math.round((serial - 25569) * 86400 * 1000))
@@ -279,9 +297,10 @@ function plainNumber(n) {
  * carry only the shared id); `pattern` is its number format. Univer turns a typed date
  * or percent into a number plus a format, and the server cannot see the format: the
  * date goes back as "YYYY-MM-DD" and the percent as "10%", the same text a typed value
- * gave before.
+ * gave before. Where the number format is kept (`numFmtKept`, an .xlsx) the percent goes
+ * back as the number it is (0.1) and the format travels beside it.
  */
-export function textFromCell(cell, pattern, formula) {
+export function textFromCell(cell, pattern, formula, numFmtKept) {
   if (formula) return formula.charAt(0) === '=' ? formula : '=' + formula
   if (!cell) return ''
   if (typeof cell.f === 'string' && cell.f) return cell.f.charAt(0) === '=' ? cell.f : '=' + cell.f
@@ -292,7 +311,7 @@ export function textFromCell(cell, pattern, formula) {
   if (typeof cell.v === 'boolean' || cell.t === 3) return cell.v && cell.v !== 'FALSE' ? 'TRUE' : 'FALSE'
   if (typeof cell.v === 'number' && pattern) {
     if (isDatePattern(pattern)) return serialToIso(cell.v)
-    if (/%/.test(patternCore(pattern))) return plainNumber(cell.v * 100) + '%'
+    if (!numFmtKept && /%/.test(patternCore(pattern))) return plainNumber(cell.v * 100) + '%'
   }
   return String(cell.v)
 }

@@ -39,7 +39,7 @@ describe('reading the formats of a file', () => {
     const sb = parseStyleBook(STYLES, null)!
     expect(xfStyle(sb, 0)).toEqual({ fs: 11, ff: 'Calibri' })
     expect(xfStyle(sb, 1)).toEqual({ b: true, fs: 14, ff: 'Arial', fc: '#FF0000', bg: '#FFFF00', ha: 'c', wr: true })
-    expect(xfStyle(sb, 2)).toEqual({ i: true, u: true, fs: 11, ff: 'Calibri' })
+    expect(xfStyle(sb, 2)).toEqual({ i: true, u: true, fs: 11, ff: 'Calibri', nf: 'yyyy-mm-dd' })
   })
 
   it('readTable lists the formatted cells and the styles they use', () => {
