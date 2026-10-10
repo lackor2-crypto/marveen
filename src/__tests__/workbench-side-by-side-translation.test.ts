@@ -304,7 +304,10 @@ describe('the draft page wiring', () => {
     expect(js).toMatch(/function twSave\(\)[\s\S]{0,500}twCollect\(\)/)
     expect(js).toContain('data-tw-shown')
     // Enter makes a paragraph by hand (Chromium would clone the element and its attributes)
-    expect(js).toContain('function twSplitAtCaret()')
+    expect(js).toContain('function twSplitAtCaret(plain)')
+    // Enter on the empty last item of a list leaves the list for a plain paragraph
+    expect(js).toContain('function twExitListAtCaret(host)')
+    expect(js).toContain("e.inputType === 'insertParagraph' && twExitListAtCaret(host)")
   })
 
   it('#534: a language version page has no gutter "+" and no "new chapter" button', () => {
