@@ -102,7 +102,8 @@
 
 .wb-item:hover { border-color: var(--accent, #2563eb); }
 .wb-item-active { border-color: var(--accent, #2563eb); font-weight: 600; }
-.wb-item-title { word-break: break-word; }
+/* #555: a name is at most three lines (the full name is the row's tooltip); it never grows a row taller than that. */
+.wb-item-title { word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .wb-item-meta { font-size: 0.8rem; opacity: 0.7; white-space: nowrap; flex: 0 0 auto; margin-left: auto; }
 /* #551: a name never runs out -- it keeps at least 8 characters, the meta wraps under it. */
 .wb-item { flex-wrap: wrap; }
@@ -1282,6 +1283,10 @@
 .wb-sh-result { display: flex; flex-direction: column; gap: 10px; }
 .wb-sh-doc-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .wb-sh-doc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; }
+/* Boss TG 8748: tabs and action buttons share ONE row (grow sideways, not downwards). */
+.wb-sh-doc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.wb-sh-doc-bar .tab-btn { padding: 6px 10px; }
+.wb-sh-doc-bar .wb-sh-doc-tabs { gap: 2px; }
 .wb-sh-materials { border-top: 1px solid var(--border); padding-top: 8px; }
 .wb-sh-materials h3 { margin: 0 0 6px; font-size: 0.95rem; }
 .wb-sh-tech { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -1621,7 +1626,9 @@
 .wb-fr-panel { flex-basis: 320px; padding: 10px; }
 .wb-fr-panel .wb-item-row { flex-wrap: wrap; align-items: center; gap: 4px; }
 .wb-fr-panel .wb-item-row .wb-item { order: 0; flex: 1 1 auto; min-width: min(100%, 9rem); flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; font-size: 0.8rem; line-height: 1.25; }
-.wb-fr-panel .wb-item-title { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+/* #555: the row button is a COLUMN here, so the title's `flex: 1 1 8ch` (a width in the row lists) became a HEIGHT:
+ * every row was 8ch tall and grew, with a gap above the type line. In the column the title is as tall as its text. */
+.wb-fr-panel .wb-item-title { flex: 0 0 auto; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
 .wb-fr-panel .wb-item-meta { font-size: 0.7rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* A text work in the Simple view (Boss, TG 7459): the text uses the whole centre window down to the
@@ -1854,3 +1861,5 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-root .wb-hide-done { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 6px; cursor: pointer; }
 .wb-root .wb-hide-done input { margin: 0; }
 .wb-root .wb-item-done .wb-item { opacity: 0.7; }
+/* #556: the "finalized" word in the frame's top bar. */
+.wb-fr-final-done { color: #fff; font-size: 0.85rem; white-space: nowrap; }

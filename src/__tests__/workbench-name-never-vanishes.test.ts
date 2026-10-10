@@ -32,4 +32,12 @@ describe('a list name never runs out (#551)', () => {
     expect(js).toMatch(/\(it\.source_path \? baseOf\(it\.source_path\) : it\.title\) \+ \(archived\(\)/)
     expect(js).toContain("escA(f.name + ' \\u2014 ' + t('workbench.file.open'))")
   })
+
+  // #555 (Boss TG 8738): MEASURED in Chromium -- in the frame's panel the row button is a column, so the title's
+  // `flex: 1 1 8ch` became a height: a row named "Rovid" was 69px tall (title 51px). Now 32px; a long name 60px (3 lines).
+  it('#555: in the column rows the title is as tall as its text, and a name is at most three lines everywhere', () => {
+    expect(css).toMatch(/\.wb-fr-panel \.wb-item-title \{ flex: 0 0 auto;[^}]*-webkit-line-clamp: 3;/)
+    expect(css).toMatch(/\.wb-item-title \{ word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3;/)
+    expect(css).not.toMatch(/\.wb-item-title \{[^}]*-webkit-line-clamp: 1;/)
+  })
 })

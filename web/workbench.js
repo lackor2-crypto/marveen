@@ -10972,6 +10972,20 @@
   // Ugyanaz, mint a kartyaknal: "kesz, jovahagyasra var", es a tulajdonos egy
   // gombbal elfogadja vagy visszadobja. A jegy a Jovahagyasok oldalon is ott van.
 
+  /** #556 (Boss TG 8751): "Finalize" where the owner looks for it -- in the frame's top bar, for every kind of work
+   *  item, not only inside the "more" panel. A drafted document keeps its own Finalize (checks + PDF) on its page;
+   *  a finalized item shows the fact and the way back. */
+  function finalizeTopHtml(it) {
+    if (!it || archived()) return ''
+    var busy = WB.approvalBusy ? ' disabled' : ''
+    if (it.status === 'done') {
+      return '<span class="wb-fr-final-done" role="status">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
+        + '<button type="button" class="wb-fr-tbtn" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
+    }
+    if (it.type === 'document' && !it.source_path) return ''
+    return '<button type="button" class="wb-fr-tbtn wb-fr-final" data-wb-act="item-finalize"' + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
+  }
+
   function approvalBoxHtml() {
     if (!WB.detail || archived()) return ''
     var it = WB.detail.item
@@ -13503,13 +13517,16 @@
       + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>')
       + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o))
-      + '</p>' + (o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : '')
+      + '</p>'
+    var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''
     // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
     var body = tab === 'preview' ? ((o && o.sections && o.sections.length) ? docPageHtml(true) : previewHtml())
       : tab === 'sources' ? (o ? docSourcesHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.sources_none')) + '</p>')
       : tab === 'gaps' ? (o ? docGapsHtml(o, ro) : '<p class="wb-hint">' + esc(t('workbench.sh.doc.gaps_none')) + '</p>')
       : twWrapHtml(o, ro) + docExtrasHtml() + canvasHtml() + postPreviewHtml()
-    return head + actions + '<div class="wb-sh-doc-body">' + body + '</div>'
+    // Boss TG 8748: the action buttons stand BESIDE the tabs (to the right of the last one), not in a row of their own under
+    // them: the page starts higher. They wrap under the tabs only when the row is too narrow (a phone).
+    return '<div class="wb-sh-doc-bar">' + head + actions + '</div>' + finalPanel + '<div class="wb-sh-doc-body">' + body + '</div>'
   }
 
   /** A jobb oldal: az eredmeny a munkatipus szerint. A poszt a vaszonnal
@@ -13842,6 +13859,7 @@
       + '<button type="button" class="wb-fr-tbtn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
       + (sizeOn ? '<button type="button" class="wb-fr-tbtn' + (WB.frLive ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-live" aria-pressed="' + !!WB.frLive + '" title="' + escA(t('workbench.fr.live_title')) + '">&#128065; ' + esc(t(WB.frLive ? 'workbench.fr.live_on' : 'workbench.fr.live_off')) + '</button>' : '')
       + '<button type="button" class="wb-fr-tbtn wb-fr-docs' + (WB.pdOpen ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
+      + finalizeTopHtml(it)
       + viewSwitchHtml()
       + '<button type="button" class="wb-fr-export" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '" aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
       + '<button type="button" class="wb-fr-tbtn wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '" aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
