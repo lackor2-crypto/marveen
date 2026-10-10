@@ -242,6 +242,17 @@ export function lifePhotoPath(p: Pick<LifePhoto, 'lifeRel' | 'file'>): string | 
 }
 
 /**
+ * Is the file of this row really on the disk? A row whose file is gone (a restored backup whose
+ * Life tree is not made again yet, a file deleted by other means) must not count as "already
+ * here": the picture has to come down again. An unreachable tree answers false too -- the
+ * download then cannot create anything (the destination check refuses), and nothing is pruned.
+ */
+export function lifeRowFilePresent(p: Pick<LifePhoto, 'lifeRel' | 'file'>): boolean {
+  const abs = lifePhotoPath(p)
+  try { return !!abs && statSync(abs).isFile() } catch { return false }
+}
+
+/**
  * A file name that is safe on Windows and Linux and keeps its extension.
  * Falls back to the Google id when the original name is unusable.
  */
@@ -331,7 +342,13 @@ export async function downloadPickedToLife(
   const dir = chk.ok ? chk.abs : ''
   const batchRel = chk.ok ? chk.rel : ''
   const index = loadLifeIndex()
-  const known = new Set(index.filter((p) => p.account === account).map((p) => p.id))
+  // Only a row whose file is really there counts as "already here" (#524).
+  const known = new Set(index.filter((p) => p.account === account && lifeRowFilePresent(p)).map((p) => p.id))
+  // A row that points at a file that is gone is replaced by the new one, never kept beside it.
+  const put = (entry: LifePhoto): void => {
+    for (let i = index.length - 1; i >= 0; i--) if (index[i].account === entry.account && index[i].id === entry.id) index.splice(i, 1)
+    index.push(entry)
+  }
   const byHash = new Map<string, LifePhoto>()
   for (const p of index) if (p.sha256 && !byHash.has(p.sha256)) byHash.set(p.sha256, p)
   const usedByDir = new Map<string, Set<string>>()
@@ -376,7 +393,7 @@ export async function downloadPickedToLife(
             // The real hash, so the thumbnail of this file never collides with a same-named one elsewhere.
             let sum = ''
             try { sum = await hashFile(there) } catch { sum = '' }
-            index.push({
+            put({
               id, account, lifeRel: home.rel, file: place.file, mimeType,
               createdTime: typeof raw.createTime === 'string' ? raw.createTime : '',
               width: Number(meta.width) || 0, height: Number(meta.height) || 0, isVideo,
@@ -413,7 +430,7 @@ export async function downloadPickedToLife(
         // row points at the file that is there.
         rmSync(part, { force: true })
         r.duplicates++
-        index.push({ ...twin, id, account, createdTime: typeof raw.createTime === 'string' ? raw.createTime : '', savedAt: new Date().toISOString() })
+        put({ ...twin, id, account, createdTime: typeof raw.createTime === 'string' ? raw.createTime : '', savedAt: new Date().toISOString() })
         known.add(id)
         saveLifeIndex(index)
         continue
@@ -429,7 +446,7 @@ export async function downloadPickedToLife(
         width: Number(meta.width) || 0, height: Number(meta.height) || 0, isVideo,
         bytes: got.bytes, sha256: got.hash, savedAt: new Date().toISOString(),
       }
-      index.push(entry)
+      put(entry)
       byHash.set(got.hash, entry)
       known.add(id)
       r.saved++
