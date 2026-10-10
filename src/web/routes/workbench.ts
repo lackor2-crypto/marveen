@@ -65,6 +65,7 @@ import { docxFileName, draftFileName, documentTrail, finalizationState, finalize
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
+import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
 import { addProjectDoc, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
@@ -157,6 +158,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_git_repo: { hu: 'Ide nem tudom elhelyezni: ez a mappa egy fejlesztői projekt része. Válassz egy iratmappát.', en: 'It cannot be filed here: this folder is part of a developer project. Choose a document folder.' },
   sent_final_file_missing: { hu: 'A végleges PDF nincs meg a munkadarab mappájában, ezért nincs mit elhelyezni. Véglegesítsd újra a beadványt.', en: 'The final PDF is not in the work item folder, so there is nothing to file. Finalise the submission again.' },
   sent_copy_failed: { hu: 'Nem sikerült a példányt a kiválasztott mappába tenni. A lemez válasza a részleteknél.', en: 'The copy could not be put into the chosen folder. The disk\'s answer is in the details.' },
+  prel_same_project: { hu: 'Válassz egy MÁSIK projektet: egy projekt nem kapcsolható önmagához.', en: 'Choose ANOTHER project: a project cannot be related to itself.' },
+  prel_not_found: { hu: 'Ez a projekt-kapcsolat (vagy a másik projekt) már nincs meg. Frissítsd az oldalt.', en: 'This link (or the other project) is no longer there. Refresh the page.' },
+  prel_duplicate: { hu: 'Ez a két projekt már össze van kapcsolva.', en: 'These two projects are already related.' },
+  prel_too_many: { hu: 'Ehhez a projekthez már 50 másik projekt kapcsolódik, többet nem tudok hozzáadni.', en: 'This project already has 50 related projects; no more can be added.' },
   pdoc_file_missing: { hu: 'Ez a fájl nincs meg az Életfában. Lehet, hogy közben áthelyezted: keresd meg újra.', en: 'This file is not in the Life tree. It may have been moved meanwhile: find it again.' },
   pdoc_duplicate: { hu: 'Ez az irat már szerepel ebben a projektben. Ha más szerepben kell, a listában állítsd át a szerepét.', en: 'This document is already in this project. If it needs another role, change its role in the list.' },
   pdoc_bad_role: { hu: 'Ilyen szerep nincs. Válassz a három közül: forrás, hivatkozás, kapcsolódó.', en: 'There is no such role. Choose one of the three: source, reference, related.' },
@@ -1894,6 +1899,14 @@ function courtOut(itemId: string): ReturnType<typeof itemCourtState> & { check_c
   return { ...st, check_current, rules_current: check_current && !!st.profile && st.check!.result.version === st.profile.version }
 }
 
+/** The Documents panel in one answer: the documents by role, the related projects, and what is still open before closing. */
+function projectDocsOut(projectId: string): Record<string, unknown> {
+  return {
+    ...listProjectDocs(projectId), roles: PROJECT_DOC_ROLES,
+    close: projectCloseCheck(projectId), related: listRelatedProjects(projectId), relatable: relatableProjects(projectId),
+  }
+}
+
 function outlineOut(itemId: string): OutlineOut | null {
   if (!hasDocModel(itemId)) return null
   const item = getWorkItem(itemId)
@@ -2230,7 +2243,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!pid) return fail(res, 400, 'project_required', lang)
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
-    json(res, { ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES })
+    json(res, { ...projectDocsOut(project.id) })
     return true
   }
   if (path === '/api/workbench/project-docs' && method === 'POST') {
@@ -2243,7 +2256,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = await addProjectDoc(project.id, String(body['rel'] ?? ''), { role: body['role'], note: body['note'] }, actor(ctx))
     if (!r.ok) return failDetail(res, r.code === 'file_missing' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
-    json(res, { ok: true, id: r.id, ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES }, 201)
+    json(res, { ok: true, id: r.id, ...projectDocsOut(project.id) }, 201)
     return true
   }
   {
@@ -2258,9 +2271,32 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
       const r = method === 'DELETE' ? removeProjectDoc(project.id, m[1] as string) : updateProjectDoc(project.id, m[1] as string, { role: body['role'], note: body['note'], ai: body['ai'] })
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
-      json(res, { ok: true, ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES })
+      json(res, { ok: true, ...projectDocsOut(project.id) })
       return true
     }
+  }
+
+  // #530, 5. fazis: lezaras elotti ellenorzes (csak JELEZ, nem tilt) es kapcsolodo projektek.
+  if (path === '/api/workbench/project-close' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    json(res, { close: projectCloseCheck(project.id) })
+    return true
+  }
+  if (path === '/api/workbench/project-related' && (method === 'POST' || method === 'DELETE')) {
+    let body: Record<string, unknown> = {}
+    if (method === 'POST') { try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) } }
+    const pid = (url.searchParams.get('project') || (typeof body['project'] === 'string' ? body['project'] : '') || '').trim()
+    const other = (url.searchParams.get('other') || (typeof body['other'] === 'string' ? body['other'] : '') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const r = method === 'POST' ? addRelatedProject(project.id, other, actor(ctx)) : removeRelatedProject(project.id, other)
+    if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'prel_' + r.code, lang, r.detail)
+    json(res, { ok: true, ...projectDocsOut(project.id) }, method === 'POST' ? 201 : 200)
+    return true
   }
 
   // DONTESNAPLO (#406, 10. pont): amiben a projektben megallapodtak.

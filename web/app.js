@@ -49457,8 +49457,22 @@ async function _prjSubmitForm() {
     client: ov.querySelector('#prjClient').value,
     default_label_id: ov.querySelector('#prjLabel').value || null,
   }
-  if (f.mode === 'edit') body.status = ov.querySelector('#prjStatus').value
-  else {
+  if (f.mode === 'edit') {
+    body.status = ov.querySelector('#prjStatus').value
+    // #530 (the owner's specification, chapter 23): closing a project REPORTS what is still open.
+    // It does not forbid: the owner confirms. A failed lookup must not block saving the form.
+    if (body.status === 'closed' && f.project && f.project.status !== 'closed') {
+      try {
+        const cr = await fetch('/api/workbench/project-close?project=' + encodeURIComponent(f.project.id) + '&lang=' + (window._lang || 'hu'))
+        const cd = cr.ok ? await cr.json() : null
+        const open = cd && cd.close && !cd.close.ready ? (cd.close.items || []).filter((i) => !i.ok) : []
+        if (open.length) {
+          const lines = open.map((i) => '• ' + t('workbench.pd.close.' + i.key + (i.n === null || i.n === undefined ? '_unknown' : '_open'), { n: i.n === null || i.n === undefined ? '' : i.n, total: i.total === undefined ? '' : i.total }))
+          if (!confirm(t('projects.close_check.open') + '\n' + lines.join('\n') + '\n\n' + t('projects.close_check.confirm'))) return
+        }
+      } catch (e) { /* the check is a courtesy; the save goes on */ }
+    }
+  } else {
     body.starter_card = !!ov.querySelector('#prjStarter')?.checked
     // A kezdo kartya a projekt alapertelmezett cimkejet kapja: ha van cimke a
     // tablan, valasztani kell -- itt szolunk, nem a szerver hibajabol.

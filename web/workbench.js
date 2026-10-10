@@ -11074,6 +11074,30 @@
             + ' <span class="wb-outline-tools"><button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(a.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_attached')) + '</p>')
     }
+    if (p && !WB.pdError) {
+      // KAPCSOLODO PROJEKTEK (a leiras 49. pontja): csak kapcsolat, iratot nem masol.
+      var rel = p.related || []
+      var can = p.relatable || []
+      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.related_title')) + ' (' + rel.length + ')</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.related_hint')) + '</p>'
+        + (rel.length ? '<ul class="wb-pd-list">' + rel.map(function (r) {
+          return '<li class="wb-pd-row"><strong>🗂️ ' + esc(r.name) + '</strong>' + (r.archived ? ' <span class="wb-muted">(' + esc(t('workbench.pd.related_archived')) + ')</span>' : '')
+            + ' <span class="wb-outline-tools"><button type="button" class="wb-linklike" data-wb-act="pd-rel-open" data-wb-pid="' + escA(r.id) + '" data-wb-name="' + escA(r.name) + '">' + esc(t('workbench.pd.related_open')) + '</button>'
+            + ' <button type="button" class="wb-linklike" data-wb-act="pd-rel-remove" data-wb-pid="' + escA(r.id) + '">' + esc(t('workbench.pd.related_remove')) + '</button></span></li>'
+        }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.related_none')) + '</p>')
+        + (can.length ? '<p class="wb-pd-add"><label>' + esc(t('workbench.pd.related_pick')) + ' <select id="wbPdRel">' + can.map(function (c) { return '<option value="' + escA(c.id) + '">' + esc(c.name) + '</option>' }).join('')
+          + '</select></label> <button type="button" class="wb-btn" data-wb-act="pd-rel-add">' + esc(t('workbench.pd.related_add')) + '</button></p>' : '')
+      // LEZARAS ELOTTI ELLENORZES (23. pont): JELEZ, nem tilt. Minden szam mert; amit nem lattunk, azt kimondjuk.
+      var chk = p.close || { items: [], ready: true }
+      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.close_title')) + '</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.close_hint')) + '</p>'
+        + '<ul class="wb-pd-list wb-pd-close">' + (chk.items || []).map(function (i) {
+          var unknown = i.n === null || i.n === undefined
+          return '<li class="wb-pd-row ' + (unknown || !i.ok ? 'wb-doc-low' : 'wb-ok') + '">' + (unknown || !i.ok ? '⚠ ' : '✓ ')
+            + esc(t('workbench.pd.close.' + i.key + (unknown ? '_unknown' : i.ok ? '_ok' : '_open'), { n: unknown ? '' : i.n, total: i.total === undefined ? '' : i.total })) + '</li>'
+        }).join('') + '</ul>'
+        + '<p class="' + (chk.ready ? 'wb-ok' : 'wb-muted') + '">' + esc(t(chk.ready ? 'workbench.pd.close_ready' : 'workbench.pd.close_not_ready')) + '</p>'
+    }
     var add = archived() || !p ? '' : '<p class="wb-pd-add"><label>' + esc(t('workbench.pd.add_as')) + ' <select id="wbPdRole">'
       + (p.roles || ['source', 'reference', 'related']).map(function (k) { return '<option value="' + escA(k) + '">' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
       + '</select></label> <button type="button" class="wb-btn" data-wb-act="pd-add" title="' + escA(t('workbench.annex.link_hint')) + '">🔗 ' + esc(t('workbench.pd.add')) + '</button></p>'
@@ -14688,6 +14712,16 @@
       var pdPid = WB.projectId
       pickLifeFile(function (rel) { api('POST', '/api/workbench/project-docs', { project: pdPid, rel: rel, role: pdRole }).then(function (r) { if (WB.projectId === pdPid) pdApply(r) }) })
     }
+    else if (a === 'pd-rel-add') {
+      var relEl = document.getElementById('wbPdRel')
+      var relPid = WB.projectId
+      if (relEl && relEl.value) api('POST', '/api/workbench/project-related', { project: relPid, other: relEl.value }).then(function (r) { if (WB.projectId === relPid) pdApply(r) })
+    }
+    else if (a === 'pd-rel-remove') {
+      var relRm = WB.projectId
+      if (window.confirm(t('workbench.pd.related_remove_confirm'))) api('DELETE', '/api/workbench/project-related?project=' + encodeURIComponent(relRm) + '&other=' + encodeURIComponent(act.getAttribute('data-wb-pid'))).then(function (r) { if (WB.projectId === relRm) pdApply(r) })
+    }
+    else if (a === 'pd-rel-open') { openWorkbench(act.getAttribute('data-wb-pid'), act.getAttribute('data-wb-name')) }
     else if (a === 'pd-remove') {
       var pdRm = WB.projectId
       if (window.confirm(t('workbench.pd.remove_confirm'))) api('DELETE', '/api/workbench/project-docs/' + encodeURIComponent(act.getAttribute('data-wb-pd')) + '?project=' + encodeURIComponent(pdRm)).then(function (r) { if (WB.projectId === pdRm) pdApply(r) })
