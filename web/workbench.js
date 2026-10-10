@@ -12864,9 +12864,60 @@
     return '<select class="wb-dp-sel" data-wb-fmtsel="' + kind + '" title="' + escA(label) + '" aria-label="' + escA(label) + '"><option value="">' + esc(label) + '</option>'
       + opts.map(function (o) { return '<option value="' + escA(o[0]) + '">' + esc(o[1]) + '</option>' }).join('') + '</select>'
   }
-  function dpColorHtml(kind, label, glyph, value) {
-    return '<label class="wb-dp-clr" title="' + escA(label) + '"><span class="wb-dp-clr-a wb-dp-clr-' + kind + '" aria-hidden="true">' + glyph + '</span>'
-      + '<input type="color" data-wb-fmtcolor="' + kind + '" value="' + value + '" aria-label="' + escA(label) + '"></label>'
+  // #544 (owner, 2026-10-10): the colour buttons work like Word's. The main part puts the LAST USED colour on the
+  // selection at once (also when it is the same colour again -- the native picker only reports a colour that
+  // CHANGED, which is why a click "sometimes did nothing"); the small arrow opens the choice. The glyph shows the
+  // colour in use, and the colour is remembered for the next visit (a per-browser convenience, never required).
+  var DP_CLR_DEFAULT = { fore: '#cc0000', hilite: '#ffff00' }
+  var DP_CLR_SWATCHES = {
+    fore: ['#000000', '#cc0000', '#e36c09', '#b8860b', '#1f7a1f', '#1f4e9b', '#7030a0', '#7f7f7f'],
+    hilite: ['#ffff00', '#00ff00', '#00ffff', '#ff66cc', '#ffc000', '#c6e0b4', '#bdd7ee', '#d9d9d9']
+  }
+  function dpClrValid(v) { return typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) }
+  /** The colour in use for 'fore' / 'hilite': this session's, else the remembered one, else the default. */
+  function dpClrNow(kind) {
+    WB.dpClr = WB.dpClr || {}
+    if (dpClrValid(WB.dpClr[kind])) return WB.dpClr[kind]
+    var v = null
+    try { v = window.localStorage.getItem('wb.dp.clr.' + kind) } catch (_e) { v = null }
+    WB.dpClr[kind] = dpClrValid(v) ? v.toLowerCase() : DP_CLR_DEFAULT[kind]
+    return WB.dpClr[kind]
+  }
+  /** Remember the colour and repaint the glyphs in place (no re-render: the text selection must survive). */
+  function dpClrSet(kind, value) {
+    if (!dpClrValid(value)) return
+    WB.dpClr = WB.dpClr || {}
+    WB.dpClr[kind] = value.toLowerCase()
+    try { window.localStorage.setItem('wb.dp.clr.' + kind, WB.dpClr[kind]) } catch (_e) { /* private window: this visit only */ }
+    if (typeof document.querySelectorAll !== 'function') return
+    var gl = document.querySelectorAll('[data-wb-clrglyph="' + kind + '"]')
+    for (var i = 0; i < gl.length; i++) gl[i].style[kind === 'fore' ? 'borderBottomColor' : 'color'] = WB.dpClr[kind]
+    var inp = document.querySelectorAll('[data-wb-fmtcolor="' + kind + '"]')
+    for (var k = 0; k < inp.length; k++) inp[k].value = WB.dpClr[kind]
+  }
+  function dpClrPopClose() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var open = document.querySelectorAll('.wb-dp-clrgrp.is-open')
+    for (var i = 0; i < open.length; i++) {
+      open[i].classList.remove('is-open')
+      var ar = open[i].querySelector('[aria-expanded]')
+      if (ar) ar.setAttribute('aria-expanded', 'false')
+    }
+  }
+  function dpColorHtml(kind, label, glyph, noneBtn) {
+    var now = dpClrNow(kind)
+    var k = kind === 'fore' ? 'color' : 'hilite'
+    return '<span class="wb-dp-clrgrp">'
+      + '<button type="button" class="wb-dp-tb wb-dp-clr" data-wb-fmt="clr-' + kind + '" title="' + escA(t('workbench.dp.fmt_' + k + '_apply')) + '" aria-label="' + escA(t('workbench.dp.fmt_' + k + '_apply')) + '">'
+      + '<span class="wb-dp-clr-a wb-dp-clr-' + kind + '" data-wb-clrglyph="' + kind + '" style="' + (kind === 'fore' ? 'border-bottom-color:' : 'color:') + escA(now) + '" aria-hidden="true">' + glyph + '</span></button>'
+      + '<button type="button" class="wb-dp-tb wb-dp-clr-arrow" data-wb-fmt="clrpop-' + kind + '" aria-haspopup="true" aria-expanded="false" title="' + escA(t('workbench.dp.fmt_' + k + '_choose')) + '" aria-label="' + escA(t('workbench.dp.fmt_' + k + '_choose')) + '">&#9662;</button>'
+      + '<span class="wb-dp-clrpop" role="group" aria-label="' + escA(label) + '">'
+      + '<span class="wb-dp-clrsw">' + DP_CLR_SWATCHES[kind].map(function (c) {
+        return '<button type="button" class="wb-dp-sw" data-wb-fmt="clrpick-' + kind + '" data-wb-clr="' + c + '" style="background:' + c + '" title="' + c + '" aria-label="' + escA(label + ' ' + c) + '"></button>'
+      }).join('') + '</span>'
+      + '<label class="wb-dp-clrmore">' + esc(t('workbench.dp.fmt_clr_more')) + ' <input type="color" data-wb-fmtcolor="' + kind + '" value="' + escA(now) + '" aria-label="' + escA(t('workbench.dp.fmt_clr_more')) + '"></label>'
+      + noneBtn
+      + '</span></span>'
   }
 
   /** The Word-like ribbon above the page: acts on the field the cursor is in. */
@@ -12885,10 +12936,8 @@
       + '<span class="wb-dp-tbsep"></span>'
       + dpSelectHtml('font', t('workbench.dp.fmt_font'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_FONTS.map(function (f) { return [f, f] })))
       + dpSelectHtml('size', t('workbench.dp.fmt_size'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SIZES.map(function (z) { return [String(z), String(z)] })))
-      + dpColorHtml('fore', t('workbench.dp.fmt_color'), 'A', '#cc0000')
-      + btn('nocolor', t('workbench.dp.fmt_nocolor'), '&#8856;')
-      + dpColorHtml('hilite', t('workbench.dp.fmt_hilite'), '&#9608;', '#ffff00')
-      + btn('nohilite', t('workbench.dp.fmt_nohilite'), '&#8856;')
+      + dpColorHtml('fore', t('workbench.dp.fmt_color'), 'A', btn('nocolor', t('workbench.dp.fmt_nocolor'), '&#8856; ' + esc(t('workbench.dp.fmt_nocolor_short'))))
+      + dpColorHtml('hilite', t('workbench.dp.fmt_hilite'), '&#9608;', btn('nohilite', t('workbench.dp.fmt_nohilite'), '&#8856; ' + esc(t('workbench.dp.fmt_nohilite_short'))))
       + '<span class="wb-dp-tbsep"></span>'
       + dpSelectHtml('linesp', t('workbench.dp.fmt_linesp'), DP_LINESP.map(function (v) { return [String(v), String(v).replace('.', ',')] }))
       + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SPACEAFTER.map(function (v) { return [String(v), v + ' pt'] })))
@@ -16484,6 +16533,12 @@
 
   /** Take one inline property off the current selection. */
   function dpExecNone(el, kind) {
+    // #532 (owner's black bar, reproduced in Chromium): with a COLLAPSED caret (an empty field) the browser does not
+    // wrap anything -- it keeps the marker as the pending typing style, nothing is there to strip, and the next
+    // typed words come out in the marker (near-black background, marker font, size 7). No words, nothing to take off.
+    // An emptied field still holds a <br>, so "select the whole field" is not collapsed there: the TEXT decides.
+    var cs = window.getSelection()
+    if (!cs || !cs.rangeCount || cs.isCollapsed || /^[\r\n]*$/.test(String(cs.toString()))) return
     document.execCommand('styleWithCSS', false, true)
     if (kind === 'fore') document.execCommand('foreColor', false, DP_MARK_COLOR)
     else if (kind === 'hilite') { if (!document.execCommand('hiliteColor', false, DP_MARK_COLOR)) document.execCommand('backColor', false, DP_MARK_COLOR) }
@@ -16541,7 +16596,7 @@
     if (archived()) return
     var el = dpFmtTarget()
     if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
-    if (clr) { dpApplyInline(el, clr.getAttribute('data-wb-fmtcolor'), clr.value); return }
+    if (clr) { dpClrSet(clr.getAttribute('data-wb-fmtcolor'), clr.value); dpClrPopClose(); dpApplyInline(el, clr.getAttribute('data-wb-fmtcolor'), clr.value); return }
     var k = sel.getAttribute('data-wb-fmtsel')
     var v = sel.value
     if (v === '') return
@@ -16561,13 +16616,25 @@
   document.addEventListener('click', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     var btn = e.target.closest('[data-wb-fmt]')
+    // #544: a click anywhere outside an open colour choice closes it.
+    if (!e.target.closest('.wb-dp-clrgrp')) dpClrPopClose()
     if (!btn || archived()) return
     e.preventDefault()
     var f = btn.getAttribute('data-wb-fmt')
+    if (f.indexOf('clrpop-') === 0) {
+      // The arrow only opens / closes the choice: no field is needed for that, and nothing is re-rendered.
+      var grp = btn.closest('.wb-dp-clrgrp')
+      var was = !!grp && grp.classList.contains('is-open')
+      dpClrPopClose()
+      if (grp && !was) { grp.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true') }
+      return
+    }
     var el = dpFmtTarget()
     if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
     if (f === 'clear') { dpClearFormat(el); return }
-    if (f === 'nocolor' || f === 'nohilite') { dpApplyInline(el, f === 'nocolor' ? 'fore' : 'hilite', ''); return }
+    if (f === 'nocolor' || f === 'nohilite') { dpClrPopClose(); dpApplyInline(el, f === 'nocolor' ? 'fore' : 'hilite', ''); return }
+    if (f.indexOf('clrpick-') === 0) { var pk = f.slice(8); dpClrSet(pk, btn.getAttribute('data-wb-clr')); dpClrPopClose(); dpApplyInline(el, pk, dpClrNow(pk)); return }
+    if (f.indexOf('clr-') === 0) { dpClrPopClose(); dpApplyInline(el, f.slice(4), dpClrNow(f.slice(4))); return }
     if (document.activeElement !== el) { try { el.focus() } catch (_e) { /* nem baj */ } }
     if (f.indexOf('align-') === 0) dpSetAlign(el, f.slice(6))
     else if (f === 'list') dpToggleList(el)
