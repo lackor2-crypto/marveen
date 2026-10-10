@@ -88,8 +88,24 @@ describe('picture size and alignment', () => {
       { kind: 'image', text: 'P/a.png#w=50&a=r', img: { data, width: 4000, height: 2000, mime: 'image/png' } },
     ] }] } as RenderOutline
     const x = buildFodt(o, { title: 'T', author: null, draft: true, lang: 'hu' })
-    expect(x).toContain('text:style-name="ImagePR"')
     expect(x).toContain('svg:width="8.25cm"')
+    // #562: right (or left) and narrower than the page -- anchored to the paragraph, the text runs beside it
+    expect(x).toMatch(/<style:style style:name="ImgWrap1"[^>]*>\s*<style:graphic-properties style:wrap="parallel"[^>]*style:horizontal-pos="right"/)
+    expect(x).toMatch(/<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgWrap1"[^>]*text:anchor-type="paragraph"/)
+    expect(x).not.toContain('text:style-name="ImagePR"')
+  })
+
+  it('#562: a centred, a full-width and an unsized picture keep their own line (no text beside them)', () => {
+    const data = Buffer.alloc(1)
+    const img = { data, width: 4000, height: 2000, mime: 'image/png' }
+    const o: RenderOutline = { sections: [{ title: 'K', status: 'draft', blocks: [
+      { kind: 'image', text: 'P/a.png#w=50&a=c', img },
+      { kind: 'image', text: 'P/b.png#w=100&a=l', img },
+      { kind: 'image', text: 'P/c.png', img },
+    ] }] } as RenderOutline
+    const x = buildFodt(o, { title: 'T', author: null, draft: true, lang: 'hu' })
+    expect(x).not.toContain('ImgWrap')
+    expect((x.match(/text:anchor-type="as-char"/g) || []).length).toBe(3)
   })
 })
 
@@ -138,7 +154,8 @@ describe('POST /outline/drop', () => {
     writeFileSync(join(upl(), 'f.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
     const r = await drop({ path: 'Projektek/Iroda/Feltöltések/f.jpg', mode: 'embed', section: sec, position: 0 })
     expect(r.status).toBe(201)
-    expect(documentOutline(itemId).sections[0]!.blocks[0]).toMatchObject({ kind: 'image', text: 'Projektek/Iroda/Feltöltések/f.jpg' })
+    // #562: it arrives small, on the left, so the text runs beside it (the owner sizes and moves it after)
+    expect(documentOutline(itemId).sections[0]!.blocks[0]).toMatchObject({ kind: 'image', text: 'Projektek/Iroda/Feltöltések/f.jpg#w=40&a=l' })
   })
   it('a video can only be an annex', async () => {
     writeFileSync(join(upl(), 'v.mp4'), 'x')

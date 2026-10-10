@@ -55,10 +55,10 @@ describe('the place in the PDF / Word source', () => {
     expect(x).toMatch(/<text:p text:style-name="ImageFree1"><draw:frame/)
   })
 
-  it('what is not placed freely renders exactly as before', () => {
+  it('what is not placed freely: the table and (since #562) the picture let the text run beside them', () => {
     const x = fodt([{ kind: 'table', text: 'a | b\n#w=40&a=r' }, { kind: 'image', text: 'k.png#w=30&a=l', img: PNG }, { kind: 'table', text: 'a | b' }])
     expect(x).toContain('TblFrame1') // right-aligned and narrow: the text still runs beside it
-    expect(x).toMatch(/<text:p text:style-name="ImagePL"><draw:frame/)
+    expect(x).toMatch(/<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgWrap1"/)
     expect(x).not.toContain('ImageFree')
     expect(x).not.toContain('TblGap')
   })

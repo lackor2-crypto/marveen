@@ -3775,7 +3775,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!kind) return fail(res, 400, 'drop_embed_unsupported', lang)
       const section = String(body['section'] ?? '')
       let pos = typeof body['position'] === 'number' ? body['position'] : undefined
-      if (kind === 'image') return done(addBlock(item.id, section, { kind: 'image', text: rel, position: pos, author: 'owner' }), true)
+      // #562: a picture put on the page starts small, on the left, with the text running beside it.
+      if (kind === 'image') return done(addBlock(item.id, section, { kind: 'image', text: `${rel}#w=40&a=l`, position: pos, author: 'owner' }), true)
       let buf: Buffer
       try {
         if (statSync(abs).size > TABLE_MAX_BYTES) return fail(res, 413, 'drop_too_big', lang)
