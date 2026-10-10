@@ -101,3 +101,76 @@ describe('loose file menu: rename + delete', () => {
     expect(JSON.parse(String(h.fetchCalls.find((c) => isDelete(c))!.init!.body))).toMatchObject({ project_id: 'p1', rels: [BOX + '/ajanlat.docx'] })
   })
 })
+
+// #529 (Boss TG 8582, 8585): delete from the selection bar, one always-visible trash, Undo after a delete.
+const isRestore = (c: { url: string; init?: RequestInit }) => c.init?.method === 'POST' && /\/api\/workbench\/file-trash\/restore/.test(c.url)
+const DOC_ITEM = { id: 'd1', title: 'Új dokumentum', type: 'document', status: 'draft', current_version_id: 'v1', container_folder: BOX, source_path: BOX + '/ajanlat.docx' }
+
+async function openTrash(opts: { confirm?: boolean; fileTrash?: unknown[] } = {}) {
+  const h = workbenchHarness({ confirm: opts.confirm !== false })
+  h.respond((url, init) => {
+    if (/\/api\/workbench\/file-trash\/restore/.test(url)) {
+      return { status: 200, body: { ok: true, restored: [{ name: 'ajanlat.docx', rel: BOX + '/ajanlat.docx', renamed: false }], failed: [], file_trash: [], work_folders: WF } }
+    }
+    if (/\/api\/workbench\/file-trash/.test(url)) return { status: 200, body: { ok: true, files: opts.fileTrash || [], kuka_rel: 'Kuka' } }
+    if (/\/api\/workbench\/files-delete/.test(url)) {
+      return { status: 200, body: { ok: true, deleted: ['ajanlat.docx'], skipped: [], trash: ['t1'], file_trash: [{ id: 't1', name: 'ajanlat.docx', orig_rel: BOX + '/ajanlat.docx', folder: BOX, deleted_at: 1 }], work_folders: WF } }
+    }
+    return { status: 200, body: { ...itemsBody([ITEM, DOC_ITEM]), work_folders: WF } }
+  })
+  h.win.MarvinWorkbench.open('p1', PROJECT.name)
+  await vi.waitFor(() => expect(h.html()).toMatch(/wb-file-row/))
+  return h
+}
+
+describe('#529 selection bar delete + one trash', () => {
+  it('the bar has a delete button next to a "deselect" one; a "no" sends nothing', async () => {
+    const h = await openTrash({ confirm: false })
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': FOLDER + '/jegyzet.txt' })
+    const bar = h.html().slice(h.html().indexOf('wb-sel-bar'))
+    expect(bar).toMatch(/data-wb-act="file-delete" data-wb-rel="\*"/)
+    expect(bar).toContain('workbench.sel.delete')
+    expect(bar).toContain('workbench.sel.clear')
+    h.click({ 'data-wb-act': 'file-delete', 'data-wb-rel': '*' })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.confirms).toHaveLength(1)
+    expect(h.fetchCalls.some((c) => isDelete(c))).toBe(false)
+  })
+
+  it('the question names the work item a file belongs to; a "yes" deletes every ticked file and the toast carries Undo', async () => {
+    const h = await openTrash()
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': BOX + '/ajanlat.docx' })
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': FOLDER + '/jegyzet.txt' })
+    h.click({ 'data-wb-act': 'file-delete', 'data-wb-rel': '*' })
+    expect(h.confirms[0]).toContain('workbench.file.delete_confirm_many')
+    expect(h.confirms[0]).toContain('workbench.file.delete_item_note')
+    expect(h.confirms[0]).toContain('Új dokumentum')
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => isDelete(c))).toBe(true))
+    expect(JSON.parse(String(h.fetchCalls.find((c) => isDelete(c))!.init!.body)).rels.sort()).toEqual([BOX + '/ajanlat.docx', FOLDER + '/jegyzet.txt'].sort())
+    await vi.waitFor(() => expect(h.toastActions).toHaveLength(1))
+    // The trash opens by itself and shows the deleted file with Restore.
+    expect(h.html()).toContain('data-wb-act="file-restore" data-wb-id="t1"')
+    h.toastActions[0]!.onClick()
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => isRestore(c))).toBe(true))
+    expect(JSON.parse(String(h.fetchCalls.find((c) => isRestore(c))!.init!.body))).toEqual({ project_id: 'p1', ids: ['t1'] })
+  })
+
+  it('the trash is there when empty too, and says it is empty', async () => {
+    const h = await openTrash()
+    expect(h.html()).toContain('data-wb-act="trash-toggle"')
+    expect(h.html()).toContain('workbench.trash.empty_short')
+    h.click({ 'data-wb-act': 'trash-toggle' })
+    expect(h.html()).toContain('workbench.trash.empty')
+    expect(h.html()).toContain('data-wb-act="kuka-open"')
+  })
+
+  it('a file deleted earlier is listed in the trash and Restore posts its id', async () => {
+    const h = await openTrash({ fileTrash: [{ id: 'old1', name: 'Régi.docx', orig_rel: BOX + '/Régi.docx', folder: BOX, deleted_at: 1 }] })
+    await vi.waitFor(() => expect(h.html()).toContain('(1)'))
+    h.click({ 'data-wb-act': 'trash-toggle' })
+    expect(h.html()).toContain('Régi.docx')
+    h.click({ 'data-wb-act': 'file-restore', 'data-wb-id': 'old1' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => isRestore(c))).toBe(true))
+    expect(JSON.parse(String(h.fetchCalls.find((c) => isRestore(c))!.init!.body))).toEqual({ project_id: 'p1', ids: ['old1'] })
+  })
+})

@@ -59,6 +59,7 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { kukaRel, listFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
 import { previewSectionTranslation, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
@@ -568,6 +569,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   files_no_files: {
     hu: 'Nincs kijelölt fájl. Pipáld be a fájlokat, amiket át akarsz tenni.',
     en: 'No file is ticked. Tick the files you want to move.',
+  },
+  file_trash_missing: {
+    hu: 'Ez a fájl már nincs a lomtárban. Frissítsd a listát.',
+    en: 'This file is no longer in the trash. Refresh the list.',
+  },
+  file_trash_gone: {
+    hu: 'Ez a fájl már nincs a Kukában (kiürítették, végleg törölték, vagy kézzel visszahúzták), ezért nem tudom visszatenni.',
+    en: 'This file is no longer in the Trash (it was emptied, deleted for good, or dragged back by hand), so I cannot put it back.',
+  },
+  file_trash_failed: {
+    hu: 'Nem sikerült visszatenni a fájlt a helyére. A Kukában megvan, az Intézőből kézzel is visszahúzhatod.',
+    en: 'Could not put the file back in its place. It is still in the Trash; you can drag it back by hand in the Explorer.',
+  },
+  file_trash_none: {
+    hu: 'Egy fájlt sem tudtam visszatenni: már nincsenek a Kukában.',
+    en: 'No file could be put back: they are no longer in the Trash.',
   },
   files_delete_none: {
     hu: 'Nincs kijelölt fájl, amit törölhetnék.',
@@ -2965,7 +2982,39 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = deleteLooseFiles(project, body['rels'])
     if (!r.ok) return failDetail(res, 400, r.code === 'no_box' ? 'folder_gone' : 'files_delete_none', lang, null)
-    json(res, { ok: true, deleted: r.deleted, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, deleted: r.deleted, skipped: r.skipped, trash: r.trash, file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    return true
+  }
+
+  // #529: the project's files deleted on the Workbench that are still in the Kuka (for the always-visible trash).
+  if (path === '/api/workbench/file-trash' && method === 'GET') {
+    const project = getProject(String(url.searchParams.get('project') ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    json(res, { ok: true, files: listFileTrash(project.id), kuka_rel: kukaRel() })
+    return true
+  }
+
+  // #529: put deleted files back where they were (Restore in the trash, Undo on the toast after a delete).
+  if (path === '/api/workbench/file-trash/restore' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const ids = Array.isArray(body['ids']) ? [...new Set(body['ids'].map((x) => String(x ?? '')).filter(Boolean))].slice(0, 500) : []
+    if (!ids.length) return fail(res, 400, 'file_trash_missing', lang)
+    const restored: { name: string; rel: string; renamed: boolean }[] = []
+    const failed: { id: string; code: string; message: string; detail: string | null }[] = []
+    for (const id of ids) {
+      const r = restoreFileTrash(project.id, id)
+      if (r.ok) restored.push({ name: r.name, rel: r.rel, renamed: r.renamed })
+      else failed.push({ id, code: r.code, message: msg(r.code, lang), detail: r.detail ?? null })
+    }
+    if (!restored.length) {
+      const code = ids.length === 1 ? failed[0].code : 'file_trash_none'
+      return failDetail(res, code === 'file_trash_failed' ? 500 : 409, code, lang, failed[0].detail)
+    }
+    json(res, { ok: true, restored, failed: failed.map((f) => ({ id: f.id, message: f.message })), file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
     return true
   }
 

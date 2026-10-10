@@ -373,11 +373,13 @@
       WB.project = r.data.project
       WB.items = r.data.items || []
       WB.deleted = r.data.deleted || []
+      if (WB.fileTrashPid !== projectId) { WB.fileTrash = []; WB.fileTrashPid = projectId }
       WB.workFolders = r.data.work_folders || null
       WB.sensitiveIds = r.data.sensitive_items || []
       announceFolderMoves(r.data.folder_moves, r.data.work_folders)
       loadOverview(projectId)
       loadTodos(projectId)
+      loadFileTrash(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
       if (WB.selectedId && !WB.items.some(function (i) { return i.id === WB.selectedId })) WB.selectedId = null
       render()
@@ -437,8 +439,9 @@
       // Open the trash right away, so the owner sees where the item went: the
       // collapsed link alone got confused with the file-tree Trash (#443).
       if (deleted) WB.trashOpen = true
-      window.showToast(t(deleted ? 'workbench.trash.done' : 'workbench.trash.restored'))
       render()
+      window.showToast(t(deleted ? 'workbench.trash.done' : 'workbench.trash.restored'),
+        deleted ? { action: { label: t('workbench.trash.undo'), onClick: function () { setTrashed(id, false) } } } : undefined)
     })
   }
 
@@ -508,29 +511,50 @@
     })
   }
 
+  /** #529 (Boss TG 8585: "Eltűnt a lomtár"): ONE trash at the bottom of the list, always there (empty too), holding the
+   *  deleted work items AND the files deleted here (those lie in the Life tree's Kuka meanwhile), each with Restore. */
   function trashHtml() {
+    if (WB.items === null) return ''
     var list = WB.deleted || []
-    if (!list.length) return ''
-    var head = '<button type="button" class="wb-trash-toggle" data-wb-act="trash-toggle" aria-expanded="' + WB.trashOpen + '">'
-      + (WB.trashOpen ? '▾ ' : '▸ ') + esc(t('workbench.trash.title')) + ' (' + list.length + ')' + '</button>'
+    var files = WB.fileTrash || []
+    var n = list.length + files.length
+    var head = '<button type="button" class="wb-trash-toggle" data-wb-act="trash-toggle" aria-expanded="' + !!WB.trashOpen + '">'
+      + (WB.trashOpen ? '▾ ' : '▸ ') + esc(t('workbench.trash.title')) + ' ' + esc(n ? '(' + n + ')' : t('workbench.trash.empty_short')) + '</button>'
     if (!WB.trashOpen) return '<div class="wb-trash">' + head + '</div>'
-    return '<div class="wb-trash">' + head
-      + '<p class="wb-hint">' + esc(t('workbench.trash.hint')) + '</p>'
-      + '<ul class="wb-items">' + list.map(function (it) {
-        return '<li class="wb-trash-card">'
-          + '<div class="wb-trash-card-title">' + esc(it.title) + '</div>'
-          + '<div class="wb-trash-card-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</div>'
-          + '<div class="wb-trash-card-actions">'
-          + '<button type="button" class="wb-item-del" data-wb-act="item-restore" data-wb-id="' + escA(it.id) + '"'
-          + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.restore')) + '</button>'
-          + '<button type="button" class="wb-item-del wb-mini-danger" data-wb-act="item-purge-ask" data-wb-id="' + escA(it.id) + '"'
-          + ' title="' + escA(t('workbench.trash.purge_title')) + '"'
-          + (archived() || WB.trashBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.purge')) + '</button>'
-          + '</div></li>'
-          + (WB.warn && WB.warn.kind === 'purge' && WB.warn.id === it.id
-            ? '<li>' + warnBoxHtml(t('workbench.trash.purge_warn', { title: it.title }), 'item-purge', t('workbench.trash.purge'), it.id) + '</li>'
-            : '')
-      }).join('') + '</ul></div>'
+    var ro = archived() || WB.trashBusy ? ' disabled' : ''
+    var body = '<p class="wb-hint">' + esc(t(n ? 'workbench.trash.hint' : 'workbench.trash.empty')) + '</p>'
+    if (list.length) {
+      body += '<h4 class="wb-trash-sub">' + esc(t('workbench.trash.items_head', { n: list.length })) + '</h4>'
+        + '<ul class="wb-items">' + list.map(function (it) {
+          return '<li class="wb-trash-card">'
+            + '<div class="wb-trash-card-title">' + esc(it.title) + '</div>'
+            + '<div class="wb-trash-card-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</div>'
+            + '<div class="wb-trash-card-actions">'
+            + '<button type="button" class="wb-item-del" data-wb-act="item-restore" data-wb-id="' + escA(it.id) + '"' + ro + '>' + esc(t('workbench.trash.restore')) + '</button>'
+            + '<button type="button" class="wb-item-del wb-mini-danger" data-wb-act="item-purge-ask" data-wb-id="' + escA(it.id) + '"'
+            + ' title="' + escA(t('workbench.trash.purge_title')) + '"' + ro + '>' + esc(t('workbench.trash.purge')) + '</button>'
+            + '</div></li>'
+            + (WB.warn && WB.warn.kind === 'purge' && WB.warn.id === it.id
+              ? '<li>' + warnBoxHtml(t('workbench.trash.purge_warn', { title: it.title }), 'item-purge', t('workbench.trash.purge'), it.id) + '</li>'
+              : '')
+        }).join('') + '</ul>'
+    }
+    if (files.length) {
+      var fro = archived() || WB.fileBusy ? ' disabled' : ''
+      body += '<h4 class="wb-trash-sub">' + esc(t('workbench.trash.files_head', { n: files.length })) + '</h4>'
+        + '<ul class="wb-items">' + files.map(function (f) {
+          return '<li class="wb-trash-card wb-trash-file">'
+            + '<div class="wb-trash-card-title">\ud83d\udcc4 ' + esc(f.name) + '</div>'
+            + '<div class="wb-trash-card-meta" title="' + escA(f.folder) + '">' + esc(t('workbench.trash.file_meta', { folder: baseOf(f.folder), when: when(f.deleted_at) })) + '</div>'
+            + '<div class="wb-trash-card-actions">'
+            + '<button type="button" class="wb-item-del" data-wb-act="file-restore" data-wb-id="' + escA(f.id) + '"' + fro + '>' + esc(t('workbench.trash.restore')) + '</button>'
+            + '</div></li>'
+        }).join('') + '</ul>'
+    }
+    // What was deleted elsewhere (in the Explorer) is only in the Kuka: one click there.
+    body += '<p class="wb-hint">' + esc(t('workbench.trash.kuka_hint')) + ' '
+      + '<button type="button" class="wb-linklike" data-wb-act="kuka-open">' + esc(t('workbench.trash.kuka_open')) + '</button></p>'
+    return '<div class="wb-trash">' + head + body + '</div>'
   }
 
   // ---- kis teendok hataridovel (#406, 14. pont) -------------------------------
@@ -1558,12 +1582,31 @@
       + '</div>'
   }
 
-  /** #483: delete one loose file (or every ticked one when `which` is '*'), only after the user confirms by name/count. */
+  /** #529: the work items the files belong to (named as their file, or lying in their own folder), for the delete question. */
+  function itemTitlesOfFiles(rels) {
+    var titles = []
+    var any = false
+    rels.forEach(function (rel) {
+      var own = itemOfFile(rel)
+      var inFolder = isItemFile(rel)
+      if (!own && !inFolder) return
+      any = true
+      var dir = fileFolderOf(rel)
+      var list = own ? [own] : (WB.items || []).filter(function (it) { return it && it.folder && it.folder === dir })
+      list.forEach(function (it) { if (titles.indexOf(it.title) < 0) titles.push(it.title) })
+    })
+    return { any: any, titles: titles }
+  }
+
+  /** #483: delete one loose file (or every ticked one when `which` is '*'), only after the user confirms by name/count.
+   *  #529: the question says where the files go and which work item they belong to; the answer has an Undo. */
   function deleteFiles(which) {
     if (!which || WB.fileBusy || archived()) return
     var rels = which === '*' ? Object.keys(WB.fileSel || {}) : [which]
     if (!rels.length) { window.showToast(t('workbench.files.none')); return }
     var ask = rels.length === 1 ? t('workbench.file.delete_confirm', { name: baseOf(rels[0]) }) : t('workbench.file.delete_confirm_many', { n: rels.length })
+    var owners = itemTitlesOfFiles(rels)
+    if (owners.any) ask += '\n\n' + (owners.titles.length ? t('workbench.file.delete_item_note', { items: owners.titles.join(', ') }) : t('workbench.file.delete_item_note_plain'))
     if (!window.confirm(ask)) { WB.ctx = null; render(); return }
     keepSelName()
     var pid = WB.projectId
@@ -1577,16 +1620,57 @@
       var d = r.data || {}
       if (d.work_folders) WB.workFolders = d.work_folders
       if (d.items) WB.items = d.items
+      if (Array.isArray(d.file_trash)) WB.fileTrash = d.file_trash
       // A deleted file is no longer ticked; skipped ones stay ticked so the user sees what is left.
       var skippedNames = {}
       ;(d.skipped || []).forEach(function (s) { skippedNames[s.name] = true })
       Object.keys(WB.fileSel || {}).forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
+      // Open the trash, so the owner sees where the files went (Boss TG 8585: "Eltűnt a lomtár").
+      if ((d.deleted || []).length) WB.trashOpen = true
       render()
       refreshDetailAssets()
       var sk = d.skipped || []
       var msg = t('workbench.file.deleted', { n: (d.deleted || []).length })
       if (sk.length) msg += ' ' + t('workbench.file.delete_skipped', { n: sk.length })
+      var ids = Array.isArray(d.trash) ? d.trash : []
+      window.showToast(msg, ids.length ? { action: { label: t('workbench.trash.undo'), onClick: function () { restoreFiles(ids) } } } : undefined)
+    })
+  }
+
+  /** #529: deleted files back to where they were (Restore in the trash, Undo on the delete's message). */
+  function restoreFiles(ids) {
+    ids = (ids || []).filter(Boolean)
+    if (!ids.length || WB.fileBusy || archived()) return
+    var pid = WB.projectId
+    WB.fileBusy = true
+    render()
+    return api('POST', '/api/workbench/file-trash/restore', { project_id: pid, ids: ids }).then(function (r) {
+      WB.fileBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); loadFileTrash(pid); render(); return }
+      var d = r.data || {}
+      if (d.work_folders) WB.workFolders = d.work_folders
+      if (d.items) WB.items = d.items
+      if (Array.isArray(d.file_trash)) WB.fileTrash = d.file_trash
+      render()
+      refreshDetailAssets()
+      var done = d.restored || []
+      var msg = t('workbench.file.restored', { n: done.length })
+      var renamed = done.filter(function (x) { return x.renamed }).map(function (x) { return x.name })
+      if (renamed.length) msg += ' ' + t('workbench.file.restored_renamed', { names: renamed.join(', ') })
+      if ((d.failed || []).length) msg += ' ' + d.failed[0].message
       window.showToast(msg)
+    })
+  }
+
+  function loadFileTrash(projectId) {
+    var pid = projectId || WB.projectId
+    if (!pid) return
+    return api('GET', '/api/workbench/file-trash?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.projectId !== pid || !r.ok || !r.data) return
+      if (Array.isArray(r.data.files)) WB.fileTrash = r.data.files
+      if (r.data.kuka_rel) WB.kukaRel = r.data.kuka_rel
+      render()
     })
   }
 
@@ -2049,18 +2133,31 @@
     return { imgs: imgs, other: other, total: imgs.length + other }
   }
 
-  /** The bar above the list while files are ticked: name the deck, make it, or clear the ticks. */
+  /** The bar above the list while files are ticked (#529, Boss TG 8582): move them, delete them, or clear the ticks.
+   *  With pictures among them there is a presentation button too; its name is asked only after that button. */
   function selectionBarHtml() {
     if (archived()) return ''
     var sel = selectedFiles()
     if (!sel.total) return ''
+    var busy = WB.fileBusy ? ' disabled' : ''
+    var deck = ''
+    if (sel.imgs.length && WB.selDeckAsk) {
+      deck = '<span class="wb-sel-deck">'
+        + '<label class="wb-sel-deck-label" for="wbSelDeckName">' + esc(t('workbench.sel.name_label')) + '</label>'
+        + '<input type="text" id="wbSelDeckName" class="wb-sel-name" maxlength="120" value="' + escA(WB.selName || t('workbench.sel.default_name')) + '">'
+        + '<button type="button" class="btn-primary" data-wb-act="sel-to-deck"' + busy + '>' + esc(t('workbench.sel.make_deck', { n: sel.imgs.length })) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="sel-deck-cancel">' + esc(t('workbench.warn.cancel')) + '</button>'
+        + (sel.other ? '<span class="wb-hint wb-sel-note">' + esc(t('workbench.sel.not_images', { n: sel.other })) + '</span>' : '')
+        + '</span>'
+    } else if (sel.imgs.length) {
+      deck = '<button type="button" class="btn-secondary" data-wb-act="sel-deck-ask"' + busy + '>' + esc(t('workbench.sel.to_deck', { n: sel.imgs.length })) + '</button>'
+    }
     return '<div class="wb-sel-bar" role="group" aria-label="' + escA(t('workbench.sel.count', { n: sel.total })) + '">'
       + '<span class="wb-sel-count">' + esc(t('workbench.sel.count', { n: sel.total })) + '</span>'
-      + '<input type="text" id="wbSelDeckName" class="wb-sel-name" maxlength="120" value="' + escA(WB.selName || '') + '" placeholder="' + escA(t('workbench.sel.name_ph')) + '" aria-label="' + escA(t('workbench.sel.name_label')) + '">'
-      + '<button type="button" class="btn-primary" data-wb-act="sel-to-deck"' + (WB.fileBusy || !sel.imgs.length ? ' disabled' : '') + '>' + esc(t('workbench.sel.to_deck', { n: sel.imgs.length })) + '</button>'
       + moveFilesSelectHtml('*')
+      + deck
+      + '<button type="button" class="btn-danger wb-sel-delete" data-wb-act="file-delete" data-wb-rel="*"' + busy + '>' + esc(t('workbench.sel.delete', { n: sel.total })) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="sel-clear">' + esc(t('workbench.sel.clear')) + '</button>'
-      + (sel.other ? '<span class="wb-hint wb-sel-note">' + esc(t('workbench.sel.not_images', { n: sel.other })) + '</span>' : '')
       + '</div>'
   }
 
@@ -2103,7 +2200,7 @@
     if (WB.fileBusy || archived()) return
     if (!sel.imgs.length) { window.showToast(t('workbench.sel.no_images')); return }
     var name = String(WB.selName || '').trim() || t('workbench.sel.default_name')
-    buildDeck(name, sel.imgs, { from_files: true, folder: (WB.workFolders && WB.workFolders.box) || '' }, function () { WB.fileSel = {}; WB.selName = '' })
+    buildDeck(name, sel.imgs, { from_files: true, folder: (WB.workFolders && WB.workFolders.box) || '' }, function () { WB.fileSel = {}; WB.selName = ''; WB.selDeckAsk = false })
   }
 
   /** A folder of pictures -> ONE flippable deck: one slide per picture, in file-name order (Boss, TG 7636). */
@@ -14670,7 +14767,20 @@
     else if (a === 'file-rename') renameFile(act.getAttribute('data-wb-rel'))
     else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'), !!(e && e.shiftKey))
     else if (a === 'sel-to-deck') selectionToDeck()
-    else if (a === 'sel-clear') { WB.fileSel = {}; WB.fileSelLast = null; WB.selName = ''; render() }
+    else if (a === 'sel-clear') { WB.fileSel = {}; WB.fileSelLast = null; WB.selName = ''; WB.selDeckAsk = false; render() }
+    else if (a === 'sel-deck-ask') {
+      WB.selDeckAsk = true
+      render()
+      var dn = document.getElementById('wbSelDeckName')
+      if (dn && dn.focus) dn.focus()
+    }
+    else if (a === 'sel-deck-cancel') { WB.selDeckAsk = false; WB.selName = ''; render() }
+    else if (a === 'file-restore') restoreFiles([act.getAttribute('data-wb-id')])
+    else if (a === 'kuka-open') {
+      var kr = WB.kukaRel || ''
+      location.hash = '#intezo'
+      setTimeout(function () { if (typeof window._intezoOpen === 'function') window._intezoOpen(kr) }, 350)
+    }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'folder-fold') {

@@ -38,6 +38,10 @@ export interface WorkbenchHarness {
   fire: (type: string, event: Record<string, unknown>) => void
   fetchCalls: { url: string; init?: RequestInit }[]
   toasts: string[]
+  /** #529: the button a toast carried (e.g. Undo), in order. */
+  toastActions: { label: string; onClick: () => void }[]
+  /** The questions window.confirm was asked, in order. */
+  confirms: string[]
   inputs: Record<string, FakeInput>
   storage: Record<string, string>
   opened: string[]
@@ -68,6 +72,8 @@ export function workbenchHarness(opts: { storage?: Record<string, string>; confi
   }
   const inputs: Record<string, FakeInput> = {}
   const toasts: string[] = []
+  const toastActions: { label: string; onClick: () => void }[] = []
+  const confirms: string[] = []
   const opened: string[] = []
   const fetchCalls: { url: string; init?: RequestInit }[] = []
   const storage: Record<string, string> = { ...(opts.storage || {}) }
@@ -99,8 +105,8 @@ export function workbenchHarness(opts: { storage?: Record<string, string>; confi
       `⟦${key}${Object.keys(params).length ? ':' + JSON.stringify(params) : ''}⟧`,
     escapeHtml: (s: unknown) => String(s == null ? '' : s),
     escapeAttr: (s: unknown) => String(s == null ? '' : s),
-    showToast: (m: string) => { toasts.push(m) },
-    confirm: () => opts.confirm !== false,
+    showToast: (m: string, o?: { action?: { label: string; onClick: () => void } }) => { toasts.push(m); if (o && o.action) toastActions.push(o.action) },
+    confirm: (q?: string) => { confirms.push(String(q ?? '')); return opts.confirm !== false },
     open: (url: string) => { opened.push(url); return null },
     localStorage: {
       getItem: (k: string) => (k in storage ? storage[k] : null),
@@ -147,6 +153,8 @@ export function workbenchHarness(opts: { storage?: Record<string, string>; confi
     html: () => rootEl.innerHTML,
     inputs,
     toasts,
+    toastActions,
+    confirms,
     opened,
     storage,
     fetchCalls,
