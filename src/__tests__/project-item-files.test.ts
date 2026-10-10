@@ -9,6 +9,7 @@ import { createProject, updateProject, getProject, type ProjectRow } from '../pr
 import { createWorkItem } from '../workbench.js'
 import { addProjectDoc } from '../workbench-doc-links.js'
 import { projectItemFiles, isItemInternalFile } from '../project-item-files.js'
+import { projectPlacesView } from '../project-places-auto.js'
 
 describe('work item folder files', () => {
   let depot = ''
@@ -82,4 +83,40 @@ describe('work item folder files', () => {
     expect(r.files.length).toBe(1)
     expect([...r.files[0].item_ids].sort()).toEqual([itemId, w2.item.id].sort())
   })
+  // #539 (owner, 2026-10-10): "it says zero, yet the presentation and its 20 pictures are there". An item made in
+  // an existing folder / from an existing file has no folder of its own.
+  describe('an item without a folder of its own', () => {
+    const mk = (title: string, fields: Record<string, string | null>): string => {
+      const w = createWorkItem({ project_id: project.id, title, type: 'presentation' })
+      if (!w.ok) throw new Error('item')
+      getDb().prepare('UPDATE work_items SET folder = NULL, container_folder = ?, source_path = ? WHERE id = ?').run(fields['container_folder'] ?? null, fields['source_path'] ?? null, w.item.id)
+      return w.item.id
+    }
+    const of = (id: string) => projectItemFiles(project.id).files.filter((f) => f.item_ids.includes(id)).map((f) => f.name).sort()
+
+    it('lives in the folder it was made in: the files lying directly there are its documents', () => {
+      const dir = 'Projektek/Ügy/Munkadarabok/Terv/Prezentacio'
+      put(dir + '/s01.png'); put(dir + '/s02.png'); put(dir + '/prezentacio.deck (2).json'); put(dir + '/Masik munka/idegen.docx')
+      const id = mk('Prezentáció', { container_folder: 'Munkadarabok/Terv/Prezentacio', source_path: dir + '/prezentacio.deck (2).json' })
+      // the pictures, not the program's own model file, and not another item's sub-folder
+      expect(of(id)).toEqual(['s01.png', 's02.png'])
+      expect(projectPlacesView(project.id).some((pl) => pl.rel === dir && (pl.item_counts || {})[id] > 0)).toBe(true)
+    })
+
+    it('no container recorded: the folder of its source file', () => {
+      const dir = 'Projektek/Ügy/További anyagok'
+      put(dir + '/tabla.xlsx'); put(dir + '/jegyzet.txt')
+      const id = mk('Tábla', { container_folder: null, source_path: dir + '/tabla.xlsx' })
+      expect(of(id)).toEqual(['jegyzet.txt', 'tabla.xlsx'])
+    })
+
+    it('loose in the shared work-items box or in the project root: nobody\'s folder, nothing is claimed', () => {
+      put('Projektek/Ügy/Munkadarabok/kozos.docx'); put('Projektek/Ügy/gyoker.docx')
+      const inBox = mk('Dobozban', { container_folder: 'Munkadarabok', source_path: null })
+      const inRoot = mk('Gyökérben', { container_folder: '@project', source_path: 'Projektek/Ügy/gyoker.docx' })
+      expect(of(inBox)).toEqual([])
+      expect(of(inRoot)).toEqual([])
+    })
+  })
+
 })
