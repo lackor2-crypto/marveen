@@ -200,13 +200,21 @@ export async function buildContext(
   // is KIMONDJUK (darabszammal), hogy a "nem mutattak" ne latsszon "nincs ilyen"-nek.
   try {
     const ai = aiDocsForProject(project.id)
-    if (ai.docs.length || ai.withheld || ai.missing) {
+    if (ai.docs.length || ai.others.length || ai.withheld || ai.missing || ai.access === 'read_all') {
       const lines = ai.docs.slice(0, MAX_FILES).map((d) => `- ${d.path}  (${d.role}) ${d.name}${d.note ? ' -- ' + d.note : ''}`)
+      const unrestricted = ai.access === 'read_all'
+      const otherLines = ai.others.slice(0, MAX_FILES).map((d) => `- ${d.path}  (${d.project || '?'}) ${d.name}${d.note ? ' -- ' + d.note : ''}`)
       add('documents', [
-        `Linked documents the owner selected for you (${ai.docs.length}). They live elsewhere in the owner's archive, not in the project folder; read them with document.pages / document.read (or file.read for plain text) using the path exactly as shown:`,
+        `Linked documents ${unrestricted ? 'of this project' : 'the owner selected for you'} (${ai.docs.length}). They live elsewhere in the owner's archive, not in the project folder; read them with document.pages / document.read (or file.read for plain text) using the path exactly as shown:`,
         ...(lines.length ? lines : ['(none)']),
         ...(ai.docs.length > lines.length ? [`(+${ai.docs.length - lines.length} more, not listed here)`] : []),
-        ...(ai.withheld ? [`${ai.withheld} more document(s) are linked to this project but the owner did NOT select them for you. They exist; you were not given them. Do not guess their content. If you need one, ask the owner to switch it on in the Documents panel.`] : []),
+        // The owner lifted the reading limits of this project: every linked document of every project is readable.
+        ...(unrestricted ? [
+          `The owner switched this project to "no limits" (reading): you may read every linked document of this project, whether or not it is selected, and the linked documents of the owner's OTHER projects. This lifts reading limits only: you still cannot write, move, rename or delete a linked document.`,
+          ...(otherLines.length ? [`Linked documents of other projects (${ai.othersTotal}; project in brackets):`, ...otherLines] : []),
+          ...(ai.othersTotal > otherLines.length ? [`(+${ai.othersTotal - otherLines.length} more, not listed here; they can still be read by path if you know it)`] : []),
+        ] : []),
+        ...(!unrestricted && ai.withheld ? [`${ai.withheld} more document(s) are linked to this project but the owner did NOT select them for you. They exist; you were not given them. Do not guess their content. If you need one, ask the owner to switch it on in the Documents panel.`] : []),
         ...(ai.missing ? [`${ai.missing} linked document(s) are not at their place right now (moved, or the drive is not connected). They were not deleted.`] : []),
       ].join('\n'))
     }

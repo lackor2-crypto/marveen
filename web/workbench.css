@@ -1367,6 +1367,8 @@
   max-height: 70vh; overflow: auto;
 }
 .wb-fr-pop-export { left: auto; right: 12px; width: min(560px, 92%); }
+.wb-fr-pop-docs { left: 12px; right: 12px; width: auto; max-width: 760px; max-height: 78vh; }
+@media (max-width: 700px) { .wb-fr-pop-docs { left: 6px; right: 6px; } }
 .wb-fr-menu { display: flex; flex-direction: column; width: 260px; padding: 6px; }
 .wb-fr-mi { display: block; text-align: left; padding: 9px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font-size: 0.92rem; text-decoration: none; }
 .wb-fr-mi:hover { background: rgba(79, 108, 240, 0.12); }

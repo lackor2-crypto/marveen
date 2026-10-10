@@ -334,18 +334,20 @@ describe('a felulet: mellekletek', () => {
     expect(html).toContain('<strong>K1</strong> – Szerződés')
     expect(html).toContain('workbench.annex.missing_file')
     expect(html).toContain('workbench.annex.unreferenced')
-    // A mar mellekletkent felvett fajl nincs a valasztoban, a masik igen.
-    expect(html).toContain('<option value="Beadvany/szamla.pdf">szamla.pdf</option>')
-    expect(html).not.toContain('<option value="Beadvany/szerzodes.pdf">')
-    expect(html).toContain('<option value="k" selected>')
+    // #530 (Boss TG 8535): two plain buttons; no standing dropdown, no description field in the adding row.
+    expect(html).toContain('data-wb-annex-browse="1"')
+    expect(html).toContain('data-wb-act="outline-annex-link"')
+    expect(html).not.toContain('outline-annex-items')
+    expect(html).not.toContain('wbAnnexPick')
+    expect(html).not.toContain('wbAnnexTitle')
+    expect(html).not.toContain('outline-annex-add')
+    expect(html).not.toContain('workbench.annex.no_materials')
+    expect(html).toContain('title="⟦workbench.annex.browse_hint⟧"')
+    expect(html).toContain('title="⟦workbench.annex.link_hint⟧"')
     expect(html).toContain('id="wbAnnexPrefix"')
-    // Felvetel: a valasztott fajl es a leiras megy a szerverre.
-    h.inputs['wbAnnexPick'] = { value: 'Beadvany/szamla.pdf', focus() {} }
-    h.inputs['wbAnnexTitle'] = { value: ' Számla ', focus() {} }
-    h.click({ 'data-wb-act': 'outline-annex-add' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/annexes') && c.init?.method === 'POST')).toBe(true))
-    const add = h.fetchCalls.find((c) => c.url.includes('/outline/annexes') && c.init?.method === 'POST')
-    expect(JSON.parse(String(add?.init?.body))).toEqual({ path: 'Beadvany/szamla.pdf', title: 'Számla' })
+    expect(html).toContain('<option value="k" selected>')
+    // The description is given in the list: the rename button is there for every annex.
+    expect(html).toContain('data-wb-act="outline-annex-rename"')
     // Semavaltas.
     h.fire('change', { target: { id: 'wbAnnexScheme', value: 'anlage' } })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/settings'))).toBe(true))
@@ -356,7 +358,7 @@ describe('a felulet: mellekletek', () => {
     expect(h.toasts).toContain('⟦workbench.annex.prefix_bad⟧')
   })
 
-  // #501 (Boss TG 2762): beside "Válassz az anyagok közül" an upload from any drive; with no materials it is the way in.
+  // #501 (Boss TG 2762): an upload from any drive; with no materials it is still the way in.
   it('feltoltes a geprol: a gomb az anyagok mellett es anyagok nelkul is; a fajlok egymas utan mennek, a cim egy fajlnal kimegy', async () => {
     async function open(assets: unknown[]) {
       const h = workbenchHarness({ confirm: true })
@@ -379,7 +381,8 @@ describe('a felulet: mellekletek', () => {
     const empty = await open([])
     expect(empty.html()).toContain('data-wb-annex-browse="1"')
     expect(empty.html()).toContain('workbench.annex.browse')
-    expect(empty.html()).toContain('workbench.annex.no_materials')
+    expect(empty.html()).not.toContain('outline-annex-items')
+    expect(empty.html()).not.toContain('workbench.annex.no_materials')
     pick(empty, [{ name: 'bérleti szerződés.pdf' }, { name: 'jegyzőkönyv.pdf' }])
     await vi.waitFor(() => expect(empty.fetchCalls.filter((c) => c.url.includes('/outline/annexes/upload')).length).toBe(2))
     const ups = empty.fetchCalls.filter((c) => c.url.includes('/outline/annexes/upload'))
@@ -389,10 +392,11 @@ describe('a felulet: mellekletek', () => {
     await vi.waitFor(() => expect(empty.toasts.some((x) => x.includes('workbench.annex.browse_done'))).toBe(true))
 
     const withMats = await open(ASSETS)
-    expect(withMats.html()).toMatch(/data-wb-act="outline-annex-add">[^<]*<\/button> <label class="wb-btn wb-annex-browse"/)
-    withMats.inputs['wbAnnexTitle'] = { value: ' Bérleti szerződés ', focus() {} }
+    expect(withMats.html()).toMatch(/<label class="wb-btn wb-annex-browse"[\s\S]*outline-annex-link/)
+    expect(withMats.html()).not.toContain('outline-annex-items')
+    // A single file is added under its file name: the description comes later, in the list (no title rides along).
     pick(withMats, [{ name: 'szerzodes2.pdf' }])
     await vi.waitFor(() => expect(withMats.fetchCalls.some((c) => c.url.includes('/outline/annexes/upload'))).toBe(true))
-    expect(withMats.fetchCalls.find((c) => c.url.includes('/outline/annexes/upload'))!.url).toContain('&title=' + encodeURIComponent('Bérleti szerződés'))
+    expect(withMats.fetchCalls.find((c) => c.url.includes('/outline/annexes/upload'))!.url).not.toContain('title=')
   })
 })

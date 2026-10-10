@@ -67,7 +67,7 @@ import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSe
 import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
 import { addProjectPlace, listProjectPlaces, removeProjectPlace } from '../../project-places.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
-import { addProjectDoc, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
+import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
@@ -1908,6 +1908,8 @@ function courtOut(itemId: string): ReturnType<typeof itemCourtState> & { check_c
 function projectDocsOut(projectId: string): Record<string, unknown> {
   return {
     ...listProjectDocs(projectId), roles: PROJECT_DOC_ROLES,
+    // #530 (Boss TG 8535): the project's "no limits" (reading) switch; a mode, so that it can grow later.
+    ai_access: getProjectAiAccess(projectId), ai_access_modes: PROJECT_AI_ACCESS_MODES,
     close: projectCloseCheck(projectId), related: listRelatedProjects(projectId), relatable: relatableProjects(projectId),
     // #530 (chapter 50): the folders of the Life tree this matter belongs to; `exists` is measured now.
     places: listProjectPlaces(projectId).map((rel) => { const abs = resolveLifePath(rel); let exists = false; if (abs) { try { exists = statSync(abs).isDirectory() } catch { exists = false } } return { rel, exists } }),
@@ -2281,6 +2283,21 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, ...projectDocsOut(project.id) })
       return true
     }
+  }
+
+  // #530 (Boss TG 8535): "korlatok nelkul" -- ONE switch per project; today it lifts the READING limits only.
+  if (path === '/api/workbench/project-ai-access' && method === 'PATCH') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = (url.searchParams.get('project') || (typeof body['project'] === 'string' ? body['project'] : '') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = setProjectAiAccess(project.id, body['mode'], actor(ctx))
+    if (!r.ok) return failDetail(res, 400, 'pdoc_' + r.code, lang, r.detail)
+    json(res, { ok: true, ...projectDocsOut(project.id) })
+    return true
   }
 
   // #530 (a leiras 50. pontja): a projekthez tartozo eletfa-helyek. Csak mutato; semmit nem mozgat.
