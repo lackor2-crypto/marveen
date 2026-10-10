@@ -1479,6 +1479,8 @@
 .wb-dp-foot { max-width: 794px; margin: 12px auto 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .wb-dp-more { max-width: 794px; margin: 12px auto; }
 .wb-dp-more > summary { cursor: pointer; padding: 6px 0; }
+.wb-dp-annex > summary { font-weight: 600; }
+.wb-dp-annex .wb-annexes > h4 { display: none; }
 @media (max-width: 900px) {
   .wb-dp-page { padding: 28px 18px 40px 44px; min-height: 0; }
   .wb-dp-gutter { opacity: 1; width: 44px; }
@@ -1515,6 +1517,9 @@
 .wb-fr-sub { margin: 12px 0 6px; font-size: 0.9rem; }
 .wb-fr-mi-on { background: rgba(79, 108, 240, 0.18); font-weight: 600; }
 @media (max-width: 900px) { .wb-fr-body { height: auto; min-height: 0; } .wb-fr-fixed { height: 60vh; flex: none; } }
+/* Phone: the middle column has no fixed height to scroll in -- the document page and its attachments flow on the page itself
+   (before, the scroller collapsed to ~28px and the attachments were hidden behind the chat). */
+@media (max-width: 900px) { .wb-fr-center { overflow: visible; } .wb-fr-scroll { flex: none; overflow: visible; max-height: none; } }
 
 /* Video in the Simple view middle window (#462 step 6a): player on top, proportional clip timeline below. */
 .wb-fr-vid { flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; background: #111; overflow: hidden; }

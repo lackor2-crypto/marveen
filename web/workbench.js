@@ -12529,9 +12529,12 @@
     var o = WB.detail && WB.detail.outline
     if (!o) return ''
     var ro = archived()
-    var inner = langHeadHtml(o, ro) + annexHtml(o, ro) + glossaryHtml(o, ro)
-    if (!inner) return ''
-    return '<details class="wb-dp-more"><summary>' + esc(t('workbench.dp.more')) + '</summary>' + inner + '</details>'
+    // Attachments get their own labelled, open place (Boss TG 8535, lackor2-bot 5733): they are not a footnote
+    // of the language versions and the glossary.
+    var annex = annexHtml(o, ro)
+    var inner = langHeadHtml(o, ro) + glossaryHtml(o, ro)
+    return (annex ? '<details class="wb-dp-more wb-dp-annex" open><summary>' + esc(t('workbench.dp.annex', { n: (o.annexes || []).length })) + '</summary>' + annex + '</details>' : '')
+      + (inner ? '<details class="wb-dp-more"><summary>' + esc(t('workbench.dp.more')) + '</summary>' + inner + '</details>' : '')
   }
 
   // --- mentes es muveletek ---

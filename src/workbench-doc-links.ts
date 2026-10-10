@@ -336,7 +336,7 @@ export interface AiDoc { path: string; name: string; role: ProjectDocAnyRole | '
  * `withheld`: how many the owner switched off -- said to the agent, so that it does not treat
  * "I was not shown it" as "there is no such document".
  */
-export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: number; missing: number; access: ProjectAiAccess; others: AiDoc[]; othersTotal: number } {
+export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: number; missing: number; access: ProjectAiAccess; others: AiDoc[]; othersTotal: number; othersMissing: number } {
   ensureProjectDocTables()
   ensureWorkbenchTables()
   const db = getDb()
@@ -371,6 +371,8 @@ export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: 
   // read_all: the linked documents of the OTHER projects too (read only; nothing is written through them).
   const others: AiDoc[] = []
   let othersTotal = 0
+  // Documents of OTHER projects that are gone: counted apart, so that `missing` stays about THIS project.
+  let othersMissing = 0
   if (all) {
     const rowsOther = db.prepare(`SELECT d.document_id AS doc, d.life_rel AS rel, d.role AS role, d.note AS note, p.name AS project, d.created_at AS at
         FROM project_documents d LEFT JOIN projects p ON p.id = d.project_id WHERE d.project_id != ?
@@ -385,11 +387,11 @@ export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: 
       othersTotal++
       if (others.length >= OTHER_DOCS_LIMIT) continue
       const now = docNow(r.doc, r.rel || '')
-      if (!now.exists) { missing++; continue }
+      if (!now.exists) { othersMissing++; continue }
       others.push({ path: LINKED_PREFIX + r.doc, name: baseOf(now.rel), role: (r.role === 'attachment' ? 'attachment' : r.role === 'official' ? 'official' : isProjectDocRole(r.role) ? r.role : 'related') as AiDoc['role'], note: r.note || '', project: r.project || '' })
     }
   }
-  return { docs: out, withheld, missing, access, others, othersTotal }
+  return { docs: out, withheld, missing, access, others, othersTotal, othersMissing }
 }
 
 /** May the agent of THIS project read the linked document `doc:<id>`? Only what aiDocsForProject lists. */

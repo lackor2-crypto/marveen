@@ -341,6 +341,15 @@ describe('a linked annex', () => {
       expect(c.contextText).not.toContain('no limits')
     })
 
+    it('a gone document of ANOTHER project does not make THIS project look as if it lacked a document', async () => {
+      const { minePath } = await setup()
+      void minePath
+      setProjectAiAccess(projects[0]!.id, 'read_all')
+      rmSync(abs(NOTE))
+      const ai = aiDocsForProject(projects[0]!.id)
+      expect([ai.missing, ai.othersMissing]).toEqual([0, 1])
+    })
+
     it('on: a document with its tick off and another project\'s document are readable; the ticks keep their value', async () => {
       const { otherPath, minePath, mine } = await setup()
       const set = setProjectAiAccess(projects[0]!.id, 'read_all', 't')
