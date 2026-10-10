@@ -1,6 +1,7 @@
 /**
  * Cell formatting of an .xlsx (#526, part 3, section A): font (bold, italic, underline,
- * strike, size, name, colour), fill colour, horizontal / vertical alignment and wrapping.
+ * strike, size, name, colour), fill colour, horizontal / vertical alignment and wrapping;
+ * section B adds the cell borders (the four sides, line style and colour).
  *
  * Reading: a cell's `s` attribute indexes `cellXfs` in styles.xml; the xf points at a
  * font and a fill. That is turned into a small, editor-neutral CellStyle.
@@ -14,6 +15,30 @@
  * compared with what the READ side reported for the cell's original xf: equal -> the
  * original (possibly a theme colour the editor cannot show) stays as it was.
  */
+
+/** The line styles of an .xlsx border, in the order of Univer's BorderStyleTypes (1..13). */
+export const BORDER_STYLES = [
+  'thin', 'hair', 'dotted', 'dashed', 'dashDot', 'dashDotDot', 'double', 'medium',
+  'mediumDashed', 'mediumDashDot', 'mediumDashDotDot', 'slantDashDot', 'thick',
+] as const
+export type BorderStyleName = (typeof BORDER_STYLES)[number]
+
+/** One side of a cell: the line style and its colour ("#RRGGBB"; absent = black). */
+export interface BorderEdge {
+  s: BorderStyleName
+  c?: string
+}
+
+/** The four sides of a cell: top, right, bottom, left. A side that is absent has no line. */
+export interface CellBorder {
+  t?: BorderEdge
+  r?: BorderEdge
+  b?: BorderEdge
+  l?: BorderEdge
+}
+
+const SIDES = ['t', 'r', 'b', 'l'] as const
+const SIDE_XML: Record<(typeof SIDES)[number], string> = { t: 'top', r: 'right', b: 'bottom', l: 'left' }
 
 export interface CellStyle {
   b?: boolean
@@ -35,6 +60,8 @@ export interface CellStyle {
   va?: 't' | 'm' | 'b'
   /** wrap text */
   wr?: boolean
+  /** borders */
+  bd?: CellBorder
 }
 
 const HA_TO_XML: Record<string, string> = { l: 'left', c: 'center', r: 'right', j: 'justify' }
@@ -114,6 +141,9 @@ export interface StyleBook {
   prefix: string
   fonts: string[]
   fills: string[]
+  borders: string[]
+  /** The file has no <borders> part: a virtual default border stands at index 0 and the part is made on save. */
+  bordersMissing: boolean
   xfs: string[]
   theme: string[]
 }
@@ -134,6 +164,7 @@ export function parseStyleBook(stylesXml: string | null, themeXml: string | null
   const fonts = section(stylesXml, 'fonts')
   const fills = section(stylesXml, 'fills')
   const xfs = section(stylesXml, 'cellXfs')
+  const borders = section(stylesXml, 'borders')
   if (!fonts || !fills || !xfs) return null
   const theme = DEFAULT_THEME.slice()
   if (themeXml) {
@@ -148,7 +179,11 @@ export function parseStyleBook(stylesXml: string | null, themeXml: string | null
       })
     }
   }
-  return { xml: stylesXml, prefix: xfs.pre, fonts: elements(fonts.body, 'font'), fills: elements(fills.body, 'fill'), xfs: elements(xfs.body, 'xf'), theme }
+  return {
+    xml: stylesXml, prefix: xfs.pre, fonts: elements(fonts.body, 'font'), fills: elements(fills.body, 'fill'),
+    borders: borders ? elements(borders.body, 'border') : [`<${xfs.pre}border><${xfs.pre}left/><${xfs.pre}right/><${xfs.pre}top/><${xfs.pre}bottom/><${xfs.pre}diagonal/></${xfs.pre}border>`],
+    bordersMissing: !borders, xfs: elements(xfs.body, 'xf'), theme,
+  }
 }
 
 function colorOf(sb: StyleBook, tag: string): string | undefined {
@@ -193,6 +228,26 @@ function fillColor(sb: StyleBook, fill: string | undefined): string | undefined 
   return fg ? colorOf(sb, fg[1]!) : undefined
 }
 
+/** The four sides of a <border> element; undefined when it has no line at all. */
+function borderOf(sb: StyleBook, border: string | undefined): CellBorder | undefined {
+  if (!border) return undefined
+  const out: CellBorder = {}
+  for (const k of SIDES) {
+    const tag = SIDE_XML[k]
+    const m = new RegExp(`<(?:\\w+:)?${tag}\\b([^>]*?)(?:/>|>([\\s\\S]*?)</(?:\\w+:)?${tag}>)`).exec(border)
+    if (!m) continue
+    const style = attrsOf(m[1]!)['style']
+    if (!style || !(BORDER_STYLES as readonly string[]).includes(style)) continue
+    const edge: BorderEdge = { s: style as BorderStyleName }
+    const col = m[2] ? /<(?:\w+:)?color\b([^>]*?)\/?>/.exec(m[2]) : null
+    const c = col ? colorOf(sb, col[1]!) : undefined
+    // Black is what a line without a colour is: one spelling for both.
+    if (c && c !== '#000000') edge.c = c
+    out[k] = edge
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 /** The supported properties of the cell format `xfIndex` (null/missing = the default look). */
 export function xfStyle(sb: StyleBook, xfIndex: number | null): CellStyle {
   const xf = xfIndex != null ? sb.xfs[xfIndex] : undefined
@@ -201,6 +256,8 @@ export function xfStyle(sb: StyleBook, xfIndex: number | null): CellStyle {
   const out: CellStyle = { ...fontStyle(sb, sb.fonts[Number(a['fontId'] || 0)]) }
   const bg = fillColor(sb, sb.fills[Number(a['fillId'] || 0)])
   if (bg) out.bg = bg
+  const bd = borderOf(sb, sb.borders[Number(a['borderId'] || 0)])
+  if (bd) out.bd = bd
   const al = /<(?:\w+:)?alignment\b([^>]*)\/?>/.exec(xf)
   if (al) {
     const aa = attrsOf(al[1]!)
@@ -230,7 +287,32 @@ export function sanitizeCellStyle(raw: unknown): CellStyle | null {
   }
   if (typeof r['ha'] === 'string' && 'lcrj'.includes(r['ha']) && r['ha'].length === 1) out.ha = r['ha'] as CellStyle['ha']
   if (typeof r['va'] === 'string' && 'tmb'.includes(r['va']) && r['va'].length === 1) out.va = r['va'] as CellStyle['va']
+  const bd = sanitizeBorder(r['bd'])
+  if (bd) out.bd = bd
   return out
+}
+
+/** A border as the editor sends it, reduced to known sides, line styles and colours. */
+export function sanitizeBorder(raw: unknown): CellBorder | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: CellBorder = {}
+  for (const k of SIDES) {
+    const e = (raw as Record<string, unknown>)[k]
+    if (!e || typeof e !== 'object') continue
+    const s = (e as Record<string, unknown>)['s']
+    if (typeof s !== 'string' || !(BORDER_STYLES as readonly string[]).includes(s)) continue
+    const edge: BorderEdge = { s: s as BorderStyleName }
+    const c = (e as Record<string, unknown>)['c']
+    if (typeof c === 'string' && HEX_RE.test(c) && c.toUpperCase() !== '#000000') edge.c = c.toUpperCase()
+    out[k] = edge
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+/** One spelling of a border for comparing two of them; '' = no border. */
+function borderKey(b: CellBorder | undefined): string {
+  if (!b) return ''
+  return SIDES.filter((k) => b[k]).map((k) => `${k}:${b[k]!.s}:${b[k]!.c || ''}`).join('|')
 }
 
 const same = (a: unknown, b: unknown): boolean => (a ?? null) === (b ?? null)
@@ -275,10 +357,12 @@ function buildFont(base: string | undefined, want: CellStyle, was: CellStyle): s
 export class StyleWriter {
   private fonts: string[] = []
   private fills: string[] = []
+  private borders: string[] = []
   private xfs: string[] = []
   private memo = new Map<string, number>()
   private fontMemo = new Map<string, number>()
   private fillMemo = new Map<string, number>()
+  private borderMemo = new Map<string, number>()
 
   private xfMemo = new Map<string, number>()
 
@@ -286,21 +370,54 @@ export class StyleWriter {
     // What the file already has is reused, never added a second time.
     sb.fonts.forEach((x, i) => { if (!this.fontMemo.has(x)) this.fontMemo.set(x, i) })
     sb.fills.forEach((x, i) => { if (!this.fillMemo.has(x)) this.fillMemo.set(x, i) })
+    sb.borders.forEach((x, i) => { if (!this.borderMemo.has(x)) this.borderMemo.set(x, i) })
     sb.xfs.forEach((x, i) => { if (!this.xfMemo.has(x)) this.xfMemo.set(x, i) })
   }
 
   get dirty(): boolean { return this.xfs.length > 0 }
+
+  /** A new <border> built from the original's, the four sides replaced; the diagonal and the rest stay. */
+  private borderXml(baseId: number, want: CellBorder | undefined): string {
+    const P = this.sb.prefix
+    const base = this.sb.borders[baseId] || ''
+    const open = /^<(?:\w+:)?border\b([^>]*?)\/?>/.exec(base)
+    const attrsXml = open ? open[1]!.replace(/\/\s*$/, '') : ''
+    const kept: string[] = []
+    const inner = base.replace(/^<(?:\w+:)?border\b[^>]*?\/>$/, '').replace(/^<(?:\w+:)?border\b[^>]*>/, '').replace(/<\/(?:\w+:)?border>$/, '')
+    for (const m of inner.matchAll(/<(?:\w+:)?(\w+)\b[^>]*?(?:\/>|>[\s\S]*?<\/(?:\w+:)?\1>)/g)) {
+      if (!['left', 'right', 'top', 'bottom', 'start', 'end', 'diagonal'].includes(m[1]!)) kept.push(m[0])
+    }
+    const diag = /<(?:\w+:)?diagonal\b[^>]*?(?:\/>|>[\s\S]*?<\/(?:\w+:)?diagonal>)/.exec(inner)?.[0] || `<${P}diagonal/>`
+    const side = (k: (typeof SIDES)[number]): string => {
+      const e = want?.[k]
+      const tag = P + SIDE_XML[k]
+      if (!e) return `<${tag}/>`
+      return `<${tag} style="${e.s}"><${P}color ${e.c ? `rgb="FF${e.c.slice(1)}"` : 'auto="1"'}/></${tag}>`
+    }
+    // Schema order: left, right, top, bottom, diagonal, then the rest.
+    return `<${P}border${attrsXml}>${side('l')}${side('r')}${side('t')}${side('b')}${diag}${kept.join('')}</${P}border>`
+  }
+
+  private addBorder(xml: string): number {
+    const hit = this.borderMemo.get(xml)
+    if (hit !== undefined) return hit
+    const idx = this.sb.borders.length + this.borders.length
+    this.borders.push(xml)
+    this.borderMemo.set(xml, idx)
+    return idx
+  }
 
   /** The `s` for a cell that had xf `baseIndex` (null = none) and now has style `want`; null = unchanged. */
   apply(baseIndex: number | null, want: CellStyle): number | null {
     // A cell without an `s` looks like xf 0.
     const eff = baseIndex ?? 0
     const was = xfStyle(this.sb, eff)
-    const keys: (keyof CellStyle)[] = ['b', 'i', 'u', 's', 'fs', 'ff', 'fc', 'bg', 'ha', 'va', 'wr']
+    const keys: (keyof CellStyle)[] = ['b', 'i', 'u', 's', 'fs', 'ff', 'fc', 'bg', 'ha', 'va', 'wr', 'bd']
     const norm = (v: unknown): unknown => (v === false || v === undefined ? null : v)
     // The editor does not say a size or a font when the cell has none of its own: absent = keep.
     const differs = keys.filter((k) => {
       if ((k === 'fs' || k === 'ff') && want[k] === undefined) return false
+      if (k === 'bd') return borderKey(want.bd) !== borderKey(was.bd)
       return norm(want[k]) !== norm(was[k])
     })
     if (!differs.length) return null
@@ -322,6 +439,8 @@ export class StyleWriter {
         ? this.addFill(`<fill><patternFill patternType="solid"><fgColor rgb="FF${want.bg.slice(1)}"/><bgColor indexed="64"/></patternFill></fill>`)
         : 0
     }
+    let borderId = Number(baseAttrs['borderId'] || 0)
+    if (differs.includes('bd')) borderId = this.addBorder(this.borderXml(borderId, sanitizeBorder(want.bd)))
     const P = this.sb.prefix
     // The alignment: the original's, with the three properties replaced.
     const oldAl = baseXf ? attrsOf(/<(?:\w+:)?alignment\b([^>]*)\/?>/.exec(baseXf)?.[1] || '') : {}
@@ -334,6 +453,8 @@ export class StyleWriter {
     const at: Record<string, string> = { numFmtId: '0', fontId: '0', fillId: '0', borderId: '0', ...baseAttrs }
     at['fontId'] = String(fontId)
     at['fillId'] = String(fillId)
+    at['borderId'] = String(borderId)
+    if (differs.includes('bd')) at['applyBorder'] = '1'
     at['applyFont'] = '1'
     if (differs.includes('bg')) at['applyFill'] = '1'
     if (alXml) at['applyAlignment'] = '1'
@@ -378,6 +499,13 @@ export class StyleWriter {
     }
     grow('fonts', this.fonts, this.sb.fonts.length + this.fonts.length)
     grow('fills', this.fills, this.sb.fills.length + this.fills.length)
+    if (this.borders.length && this.sb.bordersMissing) {
+      // The file had no <borders> part at all: it is made, default border first, ahead of the cell formats.
+      const P = this.sb.prefix
+      const all = [this.sb.borders[0]!, ...this.borders].join('')
+      const part = `<${P}borders count="${this.borders.length + 1}">${all}</${P}borders>`
+      x = x.replace(/<((?:\w+:)?)(cellStyleXfs|cellXfs)\b/, (m) => part + m)
+    } else grow('borders', this.borders, this.sb.borders.length + this.borders.length)
     grow('cellXfs', this.xfs, this.sb.xfs.length + this.xfs.length)
     return x
   }

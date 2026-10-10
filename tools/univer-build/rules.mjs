@@ -48,13 +48,15 @@ export var FORMAT_RE = new RegExp('^(?:sheet\\.(?:command\\.(?:'
 // Formatting, part 3 section A (#526): what an .xlsx save now keeps -- bold, italic, underline,
 // strike-through, font, size, text colour, fill colour, horizontal and vertical alignment, wrap
 // (column widths and row heights are not commands of their own, they travel with the sizes).
-// Everything else in FORMAT_RE (borders, merges, number formats, painter, rotation, hiding,
-// protection, tab colour, sub/superscript) stays blocked. `set-style` is the one command the
+// Section B adds the borders and the merging of cells (the border commands, add/remove merge).
+// Everything else in FORMAT_RE (number formats, painter, rotation, hiding, protection, tab
+// colour, sub/superscript, paste-besides-border) stays blocked. `set-style` is the one command the
 // allowed buttons call underneath; every blocked outer command is cancelled before it gets there.
 export var FORMAT_KEPT_RE = new RegExp('^sheet\\.command\\.(?:set-style|set-(?:bold|italic|underline|stroke|font-family|font-size|text-color)'
   + '|set-range-(?:bold|italic|underline|stroke'
   + '|font-family|fontsize|font-increase|font-decrease|text-color)|reset-(?:text-color|background-color)'
-  + '|set-background-color|set-(?:horizontal|vertical)-text-align|set-text-wrap)$')
+  + '|set-background-color|set-(?:horizontal|vertical)-text-align|set-text-wrap'
+  + '|set-border(?:-[a-z]+)?|add-worksheet-merge(?:-[a-z]+)?|remove-worksheet-merge)$')
 
 /**
  * Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'objects', 'format' or null
@@ -114,6 +116,10 @@ export var FORMAT_KEPT_MENU_IDS = [
   'sheet.command.set-range-stroke', 'sheet.command.set-range-text-color', 'sheet.command.reset-text-color',
   'sheet.command.set-background-color', 'sheet.command.reset-background-color',
   'sheet.command.set-horizontal-text-align', 'sheet.command.set-vertical-text-align', 'sheet.command.set-text-wrap',
+  // section B: borders and merging
+  'sheet.command.set-border-basic', 'sheet.command.add-worksheet-merge', 'sheet.command.add-worksheet-merge-all',
+  'sheet.command.add-worksheet-merge-vertical', 'sheet.command.add-worksheet-merge-horizontal',
+  'sheet.command.remove-worksheet-merge',
 ]
 
 export function hiddenMenuConfig(sheetsLocked, formatKept) {
@@ -139,6 +145,11 @@ export function deepMerge(base, over) {
   return out
 }
 
+// Border line styles in the order of Univer's BorderStyleTypes 1..13 (0 = none).
+export var BORDER_NAMES = ['thin', 'hair', 'dotted', 'dashed', 'dashDot', 'dashDotDot', 'double', 'medium',
+  'mediumDashed', 'mediumDashDot', 'mediumDashDotDot', 'slantDashDot', 'thick']
+var SIDES = ['t', 'r', 'b', 'l']
+
 /** The editor-neutral cell format (the server's CellStyle) as a Univer style object. */
 export function styleToUniver(cs) {
   var o = {}
@@ -156,6 +167,15 @@ export function styleToUniver(cs) {
   var va = { t: 1, m: 2, b: 3 }[cs.va]
   if (va) o.vt = va
   if (cs.wr) o.tb = 3
+  if (cs.bd) {
+    var bd = {}
+    SIDES.forEach(function (k) {
+      var e = cs.bd[k]
+      var n = e ? BORDER_NAMES.indexOf(e.s) : -1
+      if (n >= 0) bd[k] = { s: n + 1, cl: { rgb: e.c || '#000000' } }
+    })
+    if (Object.keys(bd).length) o.bd = bd
+  }
   return o
 }
 
@@ -195,6 +215,17 @@ export function univerToStyle(st) {
   var va = { 1: 't', 2: 'm', 3: 'b' }[st.vt]
   if (va) o.va = va
   if (st.tb === 3) o.wr = true
+  if (st.bd && typeof st.bd === 'object') {
+    var bd = {}
+    SIDES.forEach(function (k) {
+      var e = st.bd[k]
+      var name = e && typeof e.s === 'number' ? BORDER_NAMES[e.s - 1] : undefined
+      if (!name) return
+      var c = hexColor(e.cl)
+      bd[k] = c && c !== '#000000' ? { s: name, c: c } : { s: name }
+    })
+    if (Object.keys(bd).length) o.bd = bd
+  }
   return o
 }
 
