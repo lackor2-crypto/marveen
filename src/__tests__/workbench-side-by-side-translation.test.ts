@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, type WorkItemRow } from '../workbench.js'
-import { addSection, addBlock, documentOutline } from '../workbench-docmodel.js'
+import { addSection, addBlock, documentOutline, listBlocks } from '../workbench-docmodel.js'
 import { listVariants, variantInfo } from '../workbench-doclang.js'
 import {
   previewSectionTranslation, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, type TranslateCaller,
@@ -48,6 +48,66 @@ describe('side-by-side translation of a draft', () => {
     expect(r).toMatchObject({ ok: true, preview: { source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Die Klage ist eingereicht.' }] } })
     expect(calls).toBe(1)
     expect(listVariants(src.id)).toEqual([])
+  })
+
+  // #558 (Boss TG 8773): "the translation must look like the original" -- the saved translation inherits the look of
+  // the source block at the same place.
+  it('#558: the saved translation keeps alignment, paragraph format, a one-piece text format, and a mixed one is left plain', () => {
+    const fmt = addBlock(src.id, secId, { rich: '<span style="color:#ff0000"><b><u>Fontos mondat.</u></b></span>', align: 'c', pfmt: { h: 1, ls: 1.5 }, author: 'owner' })
+    const mixed = addBlock(src.id, secId, { rich: 'Sima <b>kiemelt</b> vege.', align: 'r', author: 'owner' })
+    if (!fmt.ok || !mixed.ok) throw new Error('blocks')
+    const srcBlocks = listBlocks(src.id)
+    expect(srcBlocks).toHaveLength(3)
+    const shown = [{ source_section: secId, title: 'Sachverhalt', blocks: [
+      { kind: 'paragraph', text: 'Die Klage ist eingereicht.' },
+      { kind: 'paragraph', text: 'Wichtiger Satz.' },
+      { kind: 'paragraph', text: 'Schlicht betont Ende.' },
+    ] }]
+    const saved = saveShownTranslation(src, 'de', shown, 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    expect(saved.saved).toBe(1)
+    const out = listBlocks(saved.variant.id)
+    expect(out.map((b) => b.text)).toEqual(['Die Klage ist eingereicht.', 'Wichtiger Satz.', 'Schlicht betont Ende.'])
+    // the plain source block: nothing to inherit
+    expect([out[0]!.align ?? null, out[0]!.pfmt ?? null, out[0]!.rich ?? null]).toEqual([null, null, null])
+    // one-piece format: the same colour, bold and underline on the whole translated text; centred; heading 1 + line spacing
+    expect(out[1]!.align).toBe('c')
+    expect(JSON.parse(String(out[1]!.pfmt))).toEqual(JSON.parse(String(srcBlocks[1]!.pfmt)))
+    expect(out[1]!.rich).toBe(String(srcBlocks[1]!.rich).replace('Fontos mondat.', 'Wichtiger Satz.'))
+    // mixed format: which word is bold cannot be told without the translator -- plain text, but the alignment stays
+    expect(out[2]!.align).toBe('r')
+    expect(out[2]!.rich ?? null).toBeNull()
+    // the same translation again: nothing to write
+    const again = saveShownTranslation(src, 'de', shown, 'owner')
+    expect(again).toMatchObject({ ok: true, saved: 0, unchanged: 1 })
+  })
+
+  it('#558: the preview carries the look too, so the side column can draw what will be saved', async () => {
+    const fmt = addBlock(src.id, secId, { rich: '<b>Fontos.</b>', align: 'c', pfmt: { h: 2 }, author: 'owner' })
+    if (!fmt.ok) throw new Error('block')
+    const r = await previewSectionTranslation(src, secId, 'de', 'hu')
+    if (!r.ok) throw new Error(r.message)
+    expect(r.preview.blocks).toHaveLength(2)
+    expect(r.preview.blocks[0]).not.toHaveProperty('align')
+    expect(r.preview.blocks[1]).toMatchObject({ text: 'Die Klage ist eingereicht.', align: 'c', pfmt: { h: 2 }, rich: '<b>Die Klage ist eingereicht.</b>' })
+    // the page draws it with the page's own classes, and no longer drops a picture
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const fn = js.slice(js.indexOf('function twBlockHtml(b)'), js.indexOf('function twPanelInnerHtml(o, ro)'))
+    expect(fn).toContain("if (b.kind === 'image')")
+    expect(fn).toContain('dpImageParts(b.text)')
+    expect(fn).toContain('dpAlignAttrs(b.align).cls')
+    expect(js).toContain('pv.blocks.map(twBlockHtml).join')
+    expect(js).not.toContain("return b.kind === 'image' ? '' :")
+  })
+
+  it('#558: a different number of blocks is not paired (no format on the wrong block)', () => {
+    const fmt = addBlock(src.id, secId, { rich: '<b>Fontos.</b>', align: 'c', author: 'owner' })
+    if (!fmt.ok) throw new Error('block')
+    const saved = saveShownTranslation(src, 'de', [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Alles in einem.' }] }], 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    const out = listBlocks(saved.variant.id)
+    expect(out).toHaveLength(1)
+    expect([out[0]!.align ?? null, out[0]!.rich ?? null]).toEqual([null, null])
   })
 
   it('refuses a bad language code, an unknown section and a language version as the source', async () => {

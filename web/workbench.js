@@ -12753,6 +12753,18 @@
   function twAvailable(o) {
     return !!(o && !o.variant && (o.sections || []).length) && !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
   }
+  /** #558 (Boss TG 8773): one block of the translation, drawn the way the page draws it -- the picture where and as big
+   *  as in the original, the alignment, the heading / spacing, the text format the server carried over (`rich`). */
+  function twBlockHtml(b) {
+    if (b.kind === 'image') {
+      var pic = dpImageParts(b.text)
+      return '<figure class="wb-tw-img wb-dp-img wb-dp-img-' + pic.align + '"><span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%"' : '') + '>'
+        + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"></span></figure>'
+    }
+    var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
+    var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
+    return '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + '>' + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
+  }
   function twPanelInnerHtml(o, ro) {
     var tw = twState()
     var secs = o.sections || []
@@ -12764,9 +12776,7 @@
       var body
       if (!pv) body = '<p class="wb-muted">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
       else body = (cur ? '' : '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.stale')) + '</p>')
-        + pv.blocks.map(function (b) {
-          return b.kind === 'image' ? '' : '<p class="wb-tw-block">' + esc(b.text) + '</p>'
-        }).join('')
+        + pv.blocks.map(twBlockHtml).join('')
       return '<section class="wb-tw-sec"><h4>' + esc(pv ? pv.title : sec.title) + '</h4>' + body + '</section>'
     }).join('')
     var langs = DOC_LANGS.map(function (c) { return '<option value="' + escA(c) + '"' + (c === tw.lang ? ' selected' : '') + '>' + esc(docLangName(c)) + '</option>' }).join('')

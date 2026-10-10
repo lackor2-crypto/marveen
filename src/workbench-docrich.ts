@@ -163,6 +163,28 @@ export function runStyle(r: Pick<RichRun, 'f' | 'z' | 'c' | 'h'>): string {
 
 const hasFormat = (r: RichRun): boolean => r.b || r.i || r.u || r.s || !!(r.f || r.z || r.c || r.h)
 
+/**
+ * #558: the formatting of `source` laid over ANOTHER text (its translation), when the whole source block wears ONE
+ * format (every non-blank run is bold + red, say). '' when the source is unformatted or mixes formats: which words
+ * of a translation a partial format belongs to cannot be told without the translator.
+ */
+export function richUniform(source: string | null | undefined, text: string): string {
+  const runs = richRuns(String(source ?? '')).filter((r) => r.text.trim() !== '')
+  if (!runs.length || !text.trim()) return ''
+  const key = (r: RichRun): string => [r.b, r.i, r.u, r.s, r.f, r.z, r.c, r.h].join('|')
+  const first = runs[0]!
+  if (!hasFormat(first) || runs.some((r) => key(r) !== key(first))) return ''
+  let html = encode(text).replace(/\n/g, '<br>')
+  if (first.s) html = `<s>${html}</s>`
+  if (first.u) html = `<u>${html}</u>`
+  if (first.i) html = `<i>${html}</i>`
+  if (first.b) html = `<b>${html}</b>`
+  const style = runStyle(first)
+  if (style) html = `<span style="${style}">${html}</span>`
+  const clean = sanitizeRich(html)
+  return richMatches(clean, text) ? clean : ''
+}
+
 /** Canonical rich string: <b><i><u><s>, one outer <span style> for font / size / colours, <br>; '' when nothing is formatted. */
 export function sanitizeRich(input: unknown): string {
   const runs = richRuns(String(input ?? ''))
