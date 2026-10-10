@@ -1862,4 +1862,5 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-root .wb-hide-done input { margin: 0; }
 .wb-root .wb-item-done .wb-item { opacity: 0.7; }
 /* #556: the "finalized" word in the frame's top bar. */
-.wb-fr-final-done { color: #fff; font-size: 0.85rem; white-space: nowrap; }
+.wb-fr-final-done { font-size: 0.85rem; white-space: nowrap; }
+.wb-fr-top .wb-fr-final-done { color: #fff; }
