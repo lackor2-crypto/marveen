@@ -11122,7 +11122,7 @@
   function pdRowHtml(d, roles) {
     var ro = archived()
     var tools = '<span class="wb-outline-tools">'
-      + (d.exists !== false ? '<a class="wb-linklike" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
+      + (d.exists !== false ? '<a class="wb-linklike" data-wb-open-rel="' + escA(d.life_rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
       + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>'
       + (ro ? '' : ' <label class="wb-pd-role">' + esc(t('workbench.pd.role')) + ' <select data-wb-pd-role="' + escA(d.id) + '">'
         + roles.map(function (k) { return '<option value="' + escA(k) + '"' + (k === d.role ? ' selected' : '') + '>' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
@@ -11205,7 +11205,7 @@
           return '<li class="wb-pd-row"><strong>📄 ' + esc(f.name) + '</strong> <span class="wb-muted">' + esc(t('workbench.pd.file_of', { item: f.item })) + (f.sub ? ' › ' + esc(f.sub) : '') + '</span>'
             + ' <span class="wb-pill wb-pd-place-auto">' + esc(t('workbench.pd.places_auto')) + '</span>'
             + ' <span class="wb-muted">' + esc(new Date(f.mtime * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { dateStyle: 'short', timeStyle: 'short' })) + '</span>'
-            + ' <span class="wb-outline-tools"><a class="wb-linklike" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> '
+            + ' <span class="wb-outline-tools"><a class="wb-linklike" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> '
             + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(f.rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.files_none')) + '</p>')
       var official = docs.filter(function (d) { return d.role === 'official' })
@@ -11213,7 +11213,7 @@
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.official')) + '</p>'
         + (official.length ? '<ul class="wb-pd-list">' + official.map(function (d) {
           return '<li class="wb-pd-row"><strong>✓ ' + esc(d.name) + '</strong> ' + pdWhere(d) + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '')
-            + ' <span class="wb-outline-tools">' + (d.exists !== false ? '<a class="wb-linklike" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
+            + ' <span class="wb-outline-tools">' + (d.exists !== false ? '<a class="wb-linklike" data-wb-open-rel="' + escA(d.life_rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
             + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_official')) + '</p>')
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.attached')) + ' (' + att.length + ')</h3>'
