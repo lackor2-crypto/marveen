@@ -129,6 +129,16 @@ Nem kellenek a nagy gombok."
   nagyobb (mérve: 37px magas gomb).
 - Felületi munka kiadásakor ezt írd bele a munkacsomagba is.
 
+### Egy név soha nem fogyhat el (#551)
+
+- Listasorban a név KAP garantált legkisebb szélességet (`min-width: min(100%, 8ch)`),
+  a típus/méret-sor törik alá, nem szorítja ki. A `min-width: 0` a névelemen tilos.
+- A behúzás mélység szerint NEM nőhet korlátlanul: `margin-left: min(Npx, M%)`, a
+  lista szélességéhez mérve. Mérve: 390px-en a 8. mélység a címet 17px szélesre
+  és 330px magasra nyomta (betűnként tört, vagy három pont).
+- Mérd böngészőben mély beágyazással és hosszú névvel, telefon-szélességen is.
+- A teljes név a sor `title`-jében is legyen (telefonon a törés mutatja meg).
+
 ## Ellenőrzés
 
 - Egy elrejtett elem TÉNYLEG nem látszik a végleges renderelt oldalon
