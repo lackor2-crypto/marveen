@@ -64,6 +64,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
+import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
 import { addProjectDoc, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
@@ -146,6 +147,16 @@ function uiLang(url: URL): 'hu' | 'en' {
 
 const MESSAGES: Record<string, { hu: string; en: string }> = {
   drop_missing: { hu: 'A fájl nincs meg a helyén (talán áthelyezték vagy törölték). Frissítsd a Feltöltések listát, és húzd rá újra.', en: 'The file is not where it was (it may have been moved or deleted). Refresh the Uploads list and drop it again.' },
+  sent_no_final: { hu: 'Elküldöttnek csak véglegesített beadványt lehet jelölni. Előbb véglegesítsd.', en: 'Only a finalised submission can be marked as sent. Finalise it first.' },
+  sent_final_stale: { hu: 'A beadvány a véglegesítés óta megváltozott, ezért nem jelölöm elküldöttnek: nem tudni, melyik változat ment el. Véglegesítsd újra, vagy állítsd vissza a végleges változatot.', en: 'The submission changed since it was finalised, so it is not marked as sent: it would not be known which version went out. Finalise it again, or restore the final version.' },
+  sent_bad_input: { hu: 'Add meg a dátumot (naptárból) és a címzettet. Az időpont óra:perc alakban kell (például 14:30), a szövegek legfeljebb 300 karakteresek.', en: 'Give the date (from the calendar) and the recipient. The time must be hours:minutes (for example 14:30), and each text at most 300 characters.' },
+  sent_too_many: { hu: 'Ennél a beadványnál már 100 elküldés van rögzítve, többet nem tudok felvenni.', en: 'This submission already has 100 sendings recorded; no more can be added.' },
+  sent_not_found: { hu: 'Ez az elküldés már nincs a listán. Frissítsd az oldalt.', en: 'This sending is no longer on the list. Refresh the page.' },
+  sent_already_filed: { hu: 'Ennek az elküldésnek a hivatalos példánya már el van helyezve az Életfában.', en: 'The official copy of this sending is already filed in the Life tree.' },
+  sent_folder_missing: { hu: 'Ez a mappa nincs meg az Életfában. Válassz másikat.', en: 'This folder is not in the Life tree. Choose another one.' },
+  sent_git_repo: { hu: 'Ide nem tudom elhelyezni: ez a mappa egy fejlesztői projekt része. Válassz egy iratmappát.', en: 'It cannot be filed here: this folder is part of a developer project. Choose a document folder.' },
+  sent_final_file_missing: { hu: 'A végleges PDF nincs meg a munkadarab mappájában, ezért nincs mit elhelyezni. Véglegesítsd újra a beadványt.', en: 'The final PDF is not in the work item folder, so there is nothing to file. Finalise the submission again.' },
+  sent_copy_failed: { hu: 'Nem sikerült a példányt a kiválasztott mappába tenni. A lemez válasza a részleteknél.', en: 'The copy could not be put into the chosen folder. The disk\'s answer is in the details.' },
   pdoc_file_missing: { hu: 'Ez a fájl nincs meg az Életfában. Lehet, hogy közben áthelyezted: keresd meg újra.', en: 'This file is not in the Life tree. It may have been moved meanwhile: find it again.' },
   pdoc_duplicate: { hu: 'Ez az irat már szerepel ebben a projektben. Ha más szerepben kell, a listában állítsd át a szerepét.', en: 'This document is already in this project. If it needs another role, change its role in the list.' },
   pdoc_bad_role: { hu: 'Ilyen szerep nincs. Válassz a három közül: forrás, hivatkozás, kapcsolódó.', en: 'There is no such role. Choose one of the three: source, reference, related.' },
@@ -1862,6 +1873,9 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
 type OutlineOut = ReturnType<typeof documentOutline> & {
   /** #530: linked documents that are not at their place and are being looked for in the background. */
   linked_searching: number
+  /** #530, phase 3: when, to whom and how the final was sent, and where its official copy is filed. */
+  sent: ReturnType<typeof listSent>
+  sent_methods: typeof SENT_METHODS
   check: ReturnType<typeof documentCheck>
   consistency: ReturnType<typeof consistencyIssues>
   annexes: ReturnType<typeof listAnnexes>
@@ -1889,6 +1903,8 @@ function outlineOut(itemId: string): OutlineOut | null {
   return {
     ...documentOutline(itemId),
     linked_searching: linkedSearching,
+    sent: listSent(itemId),
+    sent_methods: SENT_METHODS,
     check: documentCheck(itemId, resolve),
     consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
@@ -3568,6 +3584,26 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], rich: body['rich'], align: body['align'], pfmt: body['pfmt'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))
     if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
     // MELLEKLETJEGYZEK (K-1.18): a szovegbeli hivatkozasok a listahoz igazodnak.
+    // #530, phase 3: "Elkuldve" is its own state.  POST .../outline/sent {date, time?, recipient, method, reference?, note?}
+    //   DELETE .../outline/sent/<id>   POST .../outline/sent/<id>/file {folder}  (the official copy into the Life tree)
+    if (sub === 'sent' && segs.length === 3 && method === 'POST') {
+      const r = recordSent(item, { date: body['date'], time: body['time'], recipient: body['recipient'], method: body['method'], reference: body['reference'], note: body['note'] }, actor(ctx))
+      if (!r.ok) return failDetail(res, r.code === 'bad_input' ? 400 : 409, 'sent_' + r.code, lang, r.detail)
+      json(res, { ok: true, outline: outlineOrEmpty(item.id) }, 201)
+      return true
+    }
+    if (sub === 'sent' && segs.length === 4 && method === 'DELETE') {
+      const r = removeSent(item.id, id)
+      if (!r.ok) return failDetail(res, 404, 'sent_' + r.code, lang, r.detail)
+      json(res, { ok: true, outline: outlineOrEmpty(item.id) })
+      return true
+    }
+    if (sub === 'sent' && segs.length === 5 && segs[4] === 'file' && method === 'POST') {
+      const r = await fileOfficialCopy(item, id, String(body['folder'] ?? ''), actor(ctx))
+      if (!r.ok) return failDetail(res, r.code === 'not_found' || r.code === 'folder_missing' ? 404 : r.code === 'bad_input' ? 400 : 409, 'sent_' + r.code, lang, r.detail)
+      json(res, { ok: true, rel: r.rel, outline: outlineOrEmpty(item.id) }, 201)
+      return true
+    }
     // #530: a document of the Life tree becomes an annex WITHOUT a copy.  POST .../outline/annexes/link {rel, title?, position?}
     if (sub === 'annexes' && segs.length === 4 && segs[3] === 'link' && method === 'POST') {
       const resolve = resolverFor(item)

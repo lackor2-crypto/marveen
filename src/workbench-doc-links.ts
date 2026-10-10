@@ -149,9 +149,12 @@ export function ensureProjectDocTables(): void {
 
 interface PdRow { id: string; project_id: string; document_id: string; role: string; life_rel: string; note: string; created_at: number; created_by: string | null }
 
+/** `official`: the filed copy of something that was SENT (workbench-docsent.ts). Never chosen by hand, never changed into another role. */
+export type ProjectDocAnyRole = ProjectDocRole | 'official'
+
 export interface ProjectDocView {
   id: string
-  role: ProjectDocRole
+  role: ProjectDocAnyRole
   note: string
   /** The file's name and place as they are now; the last known ones when it cannot be found. */
   name: string
@@ -195,7 +198,7 @@ export function listProjectDocs(projectId: string): { docs: ProjectDocView[]; at
     const now = docNow(r.document_id, r.life_rel)
     if (now.exists && now.rel !== r.life_rel) db.prepare('UPDATE project_documents SET life_rel = ? WHERE id = ?').run(now.rel, r.id)
     if (!now.exists) lookFor(r.document_id)
-    return { id: r.id, role: (isProjectDocRole(r.role) ? r.role : 'related') as ProjectDocRole, note: r.note, name: baseOf(now.rel), life_rel: now.rel, exists: now.exists, created_at: r.created_at }
+    return { id: r.id, role: (r.role === 'official' ? 'official' : isProjectDocRole(r.role) ? r.role : 'related') as ProjectDocAnyRole, note: r.note, name: baseOf(now.rel), life_rel: now.rel, exists: now.exists, created_at: r.created_at }
   })
   const attachments: ProjectAttachmentView[] = []
   const items = db.prepare('SELECT id, title FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string }[]
@@ -242,6 +245,7 @@ export function updateProjectDoc(projectId: string, id: string, patch: { role?: 
   let role = row.role
   let note = row.note
   if (patch.role !== undefined && patch.role !== null) {
+    if (row.role === 'official') return { ok: false, code: 'bad_role', detail: 'an official (sent) document keeps its role' }
     if (!isProjectDocRole(patch.role)) return { ok: false, code: 'bad_role', detail: `role must be one of ${PROJECT_DOC_ROLES.join(', ')}` }
     role = patch.role
   }

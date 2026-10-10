@@ -8437,7 +8437,51 @@
         + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
         + '</div>'
     }
-    return '<div class="wb-outline-pdf">' + tools + finalLine + courtBoxHtml(ro) + fin + '</div>'
+    return '<div class="wb-outline-pdf">' + tools + finalLine + sentBoxHtml(o, f, ro) + courtBoxHtml(ro) + fin + '</div>'
+  }
+
+  /**
+   * "ELKULDVE" (#530, 3. fazis; a tulajdonos leirasa, 24-26. pont): a Vegleges nem azonos
+   * az Elkuldvevel. Itt rogziti, mikor, kinek es hogyan ment el, es innen teheti a hivatalos
+   * peldanyt a hatosag mappajaba az Eletfaban. A program semmit nem kuld el.
+   */
+  function sentBoxHtml(o, f, ro) {
+    var list = o.sent || []
+    if (!f && !list.length) return ''
+    var rows = list.map(function (x) {
+      var when = x.sent_date + (x.sent_time ? ' ' + x.sent_time : '')
+      var filed = x.filed_rel
+        ? '<br><span class="' + (x.filed_exists === false ? 'wb-doc-low' : 'wb-muted') + ' wb-annex-linked">' + (x.filed_exists === false ? '⚠ ' : '📁 ')
+          + esc(t(x.filed_exists === false ? 'workbench.sent.filed_missing' : 'workbench.sent.filed_at', { path: String(x.filed_rel).split('/').join(' › ') })) + '</span>'
+          + ' <button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(x.filed_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>'
+        : (ro ? '' : '<br><button type="button" class="wb-linklike" data-wb-act="outline-sent-file" data-wb-sent="' + escA(x.id) + '" title="' + escA(t('workbench.sent.file_hint')) + '">📁 ' + esc(t('workbench.sent.file')) + '</button>')
+      return '<li class="wb-sent-row"><span class="wb-ok">✓ ' + esc(t('workbench.sent.row', { when: when, recipient: x.recipient, method: t('workbench.sent.method.' + x.method) })) + '</span>'
+        + (x.reference ? ' <span class="wb-muted">' + esc(t('workbench.sent.ref', { ref: x.reference })) + '</span>' : '')
+        + (x.note ? ' <span class="wb-muted">– ' + esc(x.note) + '</span>' : '')
+        + (x.final_label ? ' <span class="wb-muted">(' + esc(x.final_label) + ')</span>' : '')
+        + (ro || x.filed_rel ? '' : ' <button type="button" class="wb-linklike" data-wb-act="outline-sent-remove" data-wb-sent="' + escA(x.id) + '">' + esc(t('workbench.sent.remove')) + '</button>')
+        + filed + '</li>'
+    }).join('')
+    var form = ''
+    if (!ro && f) {
+      var today = new Date()
+      var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2)
+      form = f.stale
+        ? '<p class="wb-hint">' + esc(t('workbench.sent.stale')) + '</p>'
+        : '<form id="wbSentForm" class="wb-sent-form">'
+          + '<label>' + esc(t('workbench.sent.date')) + ' <input type="date" id="wbSentDate" value="' + escA(iso) + '" required></label> '
+          + '<label>' + esc(t('workbench.sent.time')) + ' <input type="time" id="wbSentTime"></label> '
+          + '<label>' + esc(t('workbench.sent.recipient')) + ' <input type="text" id="wbSentRecipient" maxlength="300" placeholder="' + escA(t('workbench.sent.recipient_ph')) + '" required></label> '
+          + '<label>' + esc(t('workbench.sent.method')) + ' <select id="wbSentMethod">'
+          + (o.sent_methods || ['email', 'post', 'registered_post', 'in_person', 'portal', 'fax', 'other']).map(function (k) { return '<option value="' + escA(k) + '">' + esc(t('workbench.sent.method.' + k)) + '</option>' }).join('')
+          + '</select></label> '
+          + '<label>' + esc(t('workbench.sent.reference')) + ' <input type="text" id="wbSentRef" maxlength="300" placeholder="' + escA(t('workbench.sent.reference_ph')) + '"></label> '
+          + '<button type="submit" class="wb-btn">' + esc(t('workbench.sent.add')) + '</button></form>'
+    }
+    return '<div class="wb-sent-box"><h4>' + esc(t('workbench.sent.title')) + (list.length ? ' (' + list.length + ')' : '') + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.sent.hint')) + '</p>'
+      + (list.length ? '<ul class="wb-sent-list">' + rows + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.sent.none')) + '</p>')
+      + form + '</div>'
   }
 
   /** CELBIROSAG-PROFIL (#441, 7.4, K-1.36, K-1.37): valasztas, a szabalyverzio a
@@ -8590,23 +8634,28 @@
    * #530: pick ONE FILE of the Life tree (the Explorer's tree), nothing else. Only chooses: it
    * creates and changes nothing. `done(rel)` gets the file's path in the tree.
    */
-  function pickLifeFile(done) {
+  function pickLifeFile(done, opts) {
+    var folderMode = !!(opts && opts.folder)
     if (!document.body || typeof document.createElement !== 'function') return
     var overlay = document.createElement('div')
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeFilePick'
     overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.annex.link_title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.annex.link_help')) + '</p>'
+      + '<h3 style="margin:0 0 4px">' + esc(t(folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
       + '<p style="margin:0 0 6px;font-size:13px"><b>' + esc(t('workbench.annex.link_here')) + '</b> <span id="wbLifeFilePickHere"></span></p>'
       + '<div id="wbLifeFilePickList" class="wb-lifepick-list"></div>'
-      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button></div>'
+      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button>'
+      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t('workbench.sent.pick_here')) + '</button>' : '') + '</div>'
       + '</div>'
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeFilePickList')
     var here = overlay.querySelector('#wbLifeFilePickHere')
     var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
     overlay.querySelector('#wbLifeFilePickClose').addEventListener('click', close)
+    var hereBtn = overlay.querySelector('#wbLifeFilePickHereBtn')
+    var hereRel = ''
+    if (hereBtn) hereBtn.addEventListener('click', function () { if (hereRel) { close(); done(hereRel) } })
     var row = function (text, cls, fn) {
       var b = document.createElement('button')
       b.type = 'button'
@@ -8630,11 +8679,14 @@
         // "Could not look" is its own sentence: a failed listing is not an empty folder.
         if (!r.ok || !r.data) { note(r.message || t('workbench.annex.link_failed'), true); if (rel) row('↑ ' + t('workbench.annex.link_up'), 'wb-lifepick-up', function () { open(rel.split('/').slice(0, -1).join('/')) }); return }
         var d = r.data
+        // A folder is chosen by standing IN it; the root itself is not a place for a document.
+        hereRel = rel
+        if (hereBtn) hereBtn.disabled = !rel
         here.textContent = (d.breadcrumb || []).map(function (c) { return c.displayName || c.name }).join(' › ') || d.display || ''
         if (d.parent !== null && d.parent !== undefined) row('↑ ' + t('workbench.annex.link_up'), 'wb-lifepick-up', function () { open(d.parent) })
         ;(d.folders || []).forEach(function (f) { row('📁 ' + (f.displayName || f.name), '', function () { open(f.rel) }) })
-        ;(d.files || []).forEach(function (f) { row('📄 ' + f.name, 'wb-lifepick-file', function () { close(); done(f.rel) }) })
-        if (!(d.folders || []).length && !(d.files || []).length) note(t('workbench.annex.link_empty'))
+        if (!folderMode) (d.files || []).forEach(function (f) { row('📄 ' + f.name, 'wb-lifepick-file', function () { close(); done(f.rel) }) })
+        if (!(d.folders || []).length && (folderMode || !(d.files || []).length)) note(t(folderMode ? 'workbench.sent.pick_no_sub' : 'workbench.annex.link_empty'))
         if (d.truncated) note(t('workbench.annex.link_truncated'))
       })
     }
@@ -8748,6 +8800,11 @@
       var ttl = document.getElementById('wbAnnexTitle')
       if (!pick || !pick.value) { window.showToast(t('workbench.annex.pick_first')); return }
       outlineCall('POST', '/annexes', { path: pick.value, title: ttl && ttl.value ? ttl.value.trim() : '' })
+    } else if (a === 'outline-sent-remove') {
+      if (window.confirm(t('workbench.sent.remove_confirm'))) outlineCall('DELETE', '/sent/' + encodeURIComponent(act.getAttribute('data-wb-sent')))
+    } else if (a === 'outline-sent-file') {
+      var sentId = act.getAttribute('data-wb-sent')
+      pickLifeFile(function (folder) { outlineCall('POST', '/sent/' + encodeURIComponent(sentId) + '/file', { folder: folder }) }, { folder: true })
     } else if (a === 'outline-annex-link') {
       pickLifeFile(function (rel) { outlineCall('POST', '/annexes/link', { rel: rel }) })
     } else if (a === 'outline-annex-origin') {
@@ -10992,13 +11049,22 @@
       // The map first (specification, chapter 60): how many of each, at a glance.
       body = '<p class="wb-pd-map">' + roles.map(function (k) {
         return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
-      }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span></p>'
+      }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
+        + ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span></p>'
       body += roles.map(function (k) {
         var mine = docs.filter(function (d) { return d.role === k })
         return '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.' + k)) + ' (' + mine.length + ')</h3>'
           + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.' + k)) + '</p>'
           + (mine.length ? '<ul class="wb-pd-list">' + mine.map(function (d) { return pdRowHtml(d, roles) }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none')) + '</p>')
       }).join('')
+      var official = docs.filter(function (d) { return d.role === 'official' })
+      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.official')) + ' (' + official.length + ')</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.official')) + '</p>'
+        + (official.length ? '<ul class="wb-pd-list">' + official.map(function (d) {
+          return '<li class="wb-pd-row"><strong>✓ ' + esc(d.name) + '</strong> ' + pdWhere(d) + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '')
+            + ' <span class="wb-outline-tools">' + (d.exists !== false ? '<a class="wb-linklike" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
+            + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
+        }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_official')) + '</p>')
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.attached')) + ' (' + att.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.attached')) + '</p>'
         + (att.length ? '<ul class="wb-pd-list">' + att.map(function (a) {
@@ -16421,6 +16487,12 @@
 
   document.addEventListener('submit', function (e) {
     if (!WB.open) return
+    if (e.target && e.target.id === 'wbSentForm') {
+      e.preventDefault()
+      var gv = function (id) { var el = document.getElementById(id); return el && el.value ? String(el.value).trim() : '' }
+      outlineCall('POST', '/sent', { date: gv('wbSentDate'), time: gv('wbSentTime'), recipient: gv('wbSentRecipient'), method: gv('wbSentMethod'), reference: gv('wbSentRef') })
+      return
+    }
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
     if (e.target && e.target.id === 'wbTextEditForm') { e.preventDefault(); saveTextEdit() }
     if (e.target && e.target.id === 'wbSendForm') { e.preventDefault(); sendRequest() }

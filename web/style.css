@@ -13185,3 +13185,11 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .wb-pd-row { padding: 6px 0; border-bottom: 1px solid var(--border, #3336); overflow-wrap: anywhere; }
 .wb-pd-map .wb-pill { margin: 0 4px 4px 0; white-space: nowrap; display: inline-block; }
 .wb-pd-role select { max-width: 100%; }
+
+/* #530, phase 3: "Sent" -- the sendings of a final submission and the form that records one. */
+.wb-sent-box { margin: 10px 0; }
+.wb-sent-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.wb-sent-row { padding: 6px 0; border-bottom: 1px solid var(--border, #3336); overflow-wrap: anywhere; }
+.wb-sent-form { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-end; }
+.wb-sent-form label { display: flex; flex-direction: column; font-size: 13px; gap: 2px; min-width: 0; }
+.wb-sent-form input, .wb-sent-form select { max-width: 100%; }
