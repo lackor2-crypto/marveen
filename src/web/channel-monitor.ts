@@ -7,6 +7,8 @@ import { WEB_PORT } from '../config.js'
 import { logger } from '../logger.js'
 import { tmuxStderr } from './tmux-stderr.js'
 import { MAIN_AGENT_ID, SERVICE_ID, BOT_NAME, CHANNEL_PROVIDER, PROJECT_ROOT, RESPAWN_ENABLED } from '../config.js'
+import { quietForUnavailable, type QuietVerdict } from '../unavailable-quiet.js'
+import { currentAvailability, AVAILABILITY_INTERVAL_MS } from './agent-availability-watch.js'
 import { agentDir, listAgentNames, readAgentChannelProvider } from './agent-config.js'
 import {
   agentHasChannel,
@@ -491,6 +493,16 @@ const PANE_ERROR_CLEAR_MS = 5 * 60 * 1000
 // confirmMs keeps it to ~2 ticks (~1-2 min) before recovering; dedupMs throttles
 // retries if the Escape did not take; clearMs survives brief capture blips.
 const paneMenuState: Map<string, PaneErrorAlertState> = new Map()
+
+/** #543: is this agent proven unavailable right now? Fail-open: any error reading the measurement means "not quiet". */
+function quietVerdictFor(agent: string): QuietVerdict {
+  try {
+    const now = Date.now()
+    return quietForUnavailable(currentAvailability(now), agent, now, 3 * AVAILABILITY_INTERVAL_MS)
+  } catch {
+    return { quiet: false }
+  }
+}
 const MENU_RECOVER_CONFIRM_MS = 45_000
 
 // Ezt kapja az ugynok, miutan a figyelo lezarta az engedely-ablakat. A Claude
@@ -1674,7 +1686,14 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
           // first and answer it safely (option 1, keep the configured model);
           // only a genuine menu gets the blind Escape.
           const paneNow = capturePane(t.session)
-          if (paneNow == null) {
+          // #543 (owner, 2026-10-10): an agent that is PROVEN unavailable (spent quota, stopped) is not "stuck in a
+          // menu" -- its panel shows the limit screen. No alert and no keystroke until it is back; a login in
+          // progress is the one thing still reported, because the owner is doing that by hand. When availability
+          // cannot be read the verdict is "not quiet" and everything below runs as before.
+          const quiet = quietVerdictFor(t.isMarveen ? MAIN_AGENT_ID : (t.agentName ?? ''))
+          if (quiet.quiet && !(paneNow != null && detectsLoginInProgress(paneNow))) {
+            logger.info({ session: t.session, agent: label, reason: quiet.reason, resetsAt: quiet.resetsAt }, 'Blocking menu seen on an unavailable agent -- no alert, no keystroke until it is available again')
+          } else if (paneNow == null) {
             // NEM LATOK ODA -- es ez NEM azonos azzal, hogy "sima menu".
             //
             // 2026-08-29: a vak Escape ket bejelentkezest lott ki ezen az estan.
