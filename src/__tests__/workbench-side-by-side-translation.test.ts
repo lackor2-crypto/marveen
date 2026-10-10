@@ -76,8 +76,13 @@ describe('side-by-side translation of a draft', () => {
     expect(out.sections[0]!.blocks.map((b) => b.text)).toEqual(['Die Klage ist eingereicht.'])
     expect(variantInfo(r.variant.id)!.sections.map((s) => s.state)).toEqual(['current'])
     const again = saveShownTranslation(src, 'de', [pv.preview], 'owner')
-    expect(again).toMatchObject({ ok: true, existing: true, saved: 1 })
+    // #527 (Boss TG 2849): the same text again writes nothing and says so (saved 0, unchanged 1).
+    expect(again).toMatchObject({ ok: true, existing: true, saved: 0, unchanged: 1 })
     expect(listVariants(src.id)).toHaveLength(1)
+    // A changed text is written again, under the same variant.
+    const changed = saveShownTranslation(src, 'de', [{ ...pv.preview, title: 'Sachverhalt 2' }], 'owner')
+    expect(changed).toMatchObject({ ok: true, existing: true, saved: 1, unchanged: 0 })
+    expect(documentOutline(r.variant.id).sections.map((x) => x.title)).toEqual(['Sachverhalt 2'])
   })
 
   it('a section that cannot be saved is reported, the others still are', () => {

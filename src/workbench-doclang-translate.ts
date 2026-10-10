@@ -17,7 +17,7 @@
 import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
-import { LANG_NAMES, createVariant, listGlossary, translateSection, variantInfo, variantOf } from './workbench-doclang.js'
+import { LANG_NAMES, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
@@ -224,7 +224,7 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
 }
 
 export type SaveTranslationResult =
-  | { ok: true; variant: WorkItemRow; existing: boolean; saved: number; failed: { source_section: string; detail: string }[]; claims_not_carried: number }
+  | { ok: true; variant: WorkItemRow; existing: boolean; saved: number; unchanged: number; failed: { source_section: string; detail: string }[]; claims_not_carried: number }
   | { ok: false; code: string; detail: string }
 
 /** Saves the translated sections shown in the side-by-side view into the language version (made on first save). */
@@ -235,14 +235,17 @@ export function saveShownTranslation(source: WorkItemRow, lang: unknown, section
   if (!v.ok) return { ok: false, code: v.code, detail: v.detail }
   const failed: { source_section: string; detail: string }[] = []
   let saved = 0
+  let unchanged = 0
   let notCarried = 0
   for (const sec of list) {
+    // #527 (Boss TG 2849): the same translation is already in the variant: nothing to write, and the caller says so.
+    if (v.existing && translationAlreadySaved(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks })) { unchanged++; continue }
     const r = translateSection(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks }, by)
     if (!r.ok) { failed.push({ source_section: String(sec.source_section ?? ''), detail: r.detail }); continue }
     saved++
     notCarried += r.result.claims_not_carried.length
   }
-  return { ok: true, variant: v.item, existing: v.existing, saved, failed, claims_not_carried: notCarried }
+  return { ok: true, variant: v.item, existing: v.existing, saved, unchanged, failed, claims_not_carried: notCarried }
 }
 
 /**

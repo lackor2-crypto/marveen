@@ -8001,6 +8001,7 @@ window._i18n.en = {
   "workbench.tw.stale_n": "{n} section(s) have an old translation: press Translate before you save.",
   "workbench.tw.save": "Save translation",
   "workbench.tw.save_hint": "Saves the translation you see into the language version (a separate work item in the same folder). Old sections are not saved.",
+  "workbench.tw.already_saved": "This translation is already saved in the version “{title}”, there is nothing to save. If you change it, you can save it again.",
   "workbench.tw.saved": "Saved: {n} section(s) into the \"{title}\" version.",
   "workbench.tw.failed": "{n} section(s) could not be saved.",
   "workbench.tw.nothing_current": "Nothing to save: press Translate first.",

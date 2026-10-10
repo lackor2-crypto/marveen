@@ -323,6 +323,31 @@ function sectionText(sectionId: string): string {
 }
 
 /**
+ * #527 (Boss TG 2849): is this exact translation of the original section ALREADY in the variant (same title, same
+ * blocks in the same order, and the link is current)? Then saving it again changes nothing, and the caller can say
+ * "already saved under this name" instead of silently rewriting (or looking like it did nothing).
+ */
+export function translationAlreadySaved(variantId: string, input: { source_section?: unknown; title?: unknown; blocks?: unknown }): boolean {
+  ensureDocLangTables()
+  const v = variantOf(variantId)
+  if (!v) return false
+  const db = getDb()
+  const src = db.prepare('SELECT * FROM wb_doc_sections WHERE id = ? AND work_item_id = ?').get(String(input.source_section ?? ''), v.source_item_id) as SectionRow | undefined
+  if (!src) return false
+  const link = db.prepare('SELECT * FROM wb_doc_section_links WHERE work_item_id = ? AND source_section_id = ?').get(variantId, src.id) as LinkRow | undefined
+  if (!link || link.source_hash !== sectionHash(src.id)) return false
+  const cur = db.prepare('SELECT title FROM wb_doc_sections WHERE id = ?').get(link.section_id) as { title: string } | undefined
+  if (!cur || cur.title !== String(input.title ?? '').trim()) return false
+  const have = db.prepare('SELECT kind, text FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(link.section_id) as { kind: string; text: string }[]
+  const raw = Array.isArray(input.blocks) ? input.blocks as { kind?: unknown; text?: unknown }[] : []
+  if (have.length !== raw.length) return false
+  return raw.every((b, i) => {
+    const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
+    return have[i]!.kind === kind && have[i]!.text === String(b.text ?? '').replace(/\r\n/g, '\n').trim()
+  })
+}
+
+/**
  * Egy eredeti fejezet forditasanak mentese a valtozatba: a valtozat fejezete
  * (ha nincs meg, letrejon) cimet es blokkjait CSERELJUK a forditasra, az
  * allitasok a forrasaikkal atmasolodnak, es az osszekotes az eredeti MOSTANI

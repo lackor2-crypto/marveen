@@ -12552,7 +12552,10 @@
       tw.busy = false
       if (!r.ok) { tw.note = r.message || ''; twRefresh(); return }
       tw.failed = r.data.failed || []
-      tw.note = t('workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
+      // #527 (Boss TG 2849): saving the same translation again says it is already there, under which name.
+      tw.note = r.data.saved > 0
+        ? t('workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
+        : t('workbench.tw.already_saved', { title: r.data.variant.title })
       if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
       load(WB.projectId)
       twRefresh()

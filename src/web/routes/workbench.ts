@@ -3615,7 +3615,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'translation-save' && segs.length === 3 && method === 'POST') {
       const r = saveShownTranslation(item, body['lang'], body['sections'], actor(ctx))
       if (!r.ok) return failDetail(res, r.code === 'outline_empty' ? 409 : 400, 'variant_' + r.code, lang, r.detail)
-      json(res, { ok: true, variant: { id: r.variant.id, title: r.variant.title }, existing: r.existing, saved: r.saved, failed: r.failed, claims_not_carried: r.claims_not_carried, outline: outlineOrEmpty(item.id) })
+      json(res, { ok: true, variant: { id: r.variant.id, title: r.variant.title }, existing: r.existing, saved: r.saved, unchanged: r.unchanged, failed: r.failed, claims_not_carried: r.claims_not_carried, outline: outlineOrEmpty(item.id) })
       return true
     }
     // SZOSZEDET (K-1.29): ugyenkent (a projektben) rogzitett forditasok.
