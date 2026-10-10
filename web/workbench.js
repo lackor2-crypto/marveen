@@ -13275,6 +13275,7 @@
       ;((r.data.ids && r.data.ids.sections) || []).forEach(function (s) { ids.push(s.id); (s.blocks || []).forEach(function (b) { ids.push(b) }) })
       WB.dpKnown = { item: id, ids: ids }
       dpApplyIds(model, r.data.ids)
+      docStepsRefresh() // no redraw here (the caret stays): the undo / redo buttons must follow the new step themselves
       if (WB.dpDirty) dpMarkDirty()
       return r.data.outline
     }, function () { WB.dpSaving = null; WB.dpDirty = true; WB.dpFailed = true; return null })
@@ -13691,6 +13692,23 @@
     if (docPageOpen(it)) return stepButtonsHtml('doc', cls, withLabels)
     if (frIsTable(it) && tableOpen()) return stepButtonsHtml('tbl', cls, withLabels)
     return ''
+  }
+
+  /** The page was saved (or a step ran) without a redraw: the document's two buttons follow the history the server
+   *  sent. The continuous page (#534) saves in one call and keeps the DOM, so nothing else would wake them up. */
+  function docStepsRefresh() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var h = docHistory()
+    var idle = !archived() && !WB.docStepBusy
+    var btns = document.querySelectorAll('[data-wb-act="doc-undo"], [data-wb-act="doc-redo"]')
+    for (var i = 0; i < btns.length; i++) {
+      var undo = btns[i].getAttribute('data-wb-act') === 'doc-undo'
+      var can = undo ? h.can_undo : h.can_redo
+      var what = docStepWhat(undo ? h.undo : h.redo)
+      btns[i].disabled = !(idle && can)
+      btns[i].title = (can ? t(undo ? 'workbench.dp.undo_what' : 'workbench.dp.redo_what', { what: what }) : t(undo ? 'workbench.dp.undo_none' : 'workbench.dp.redo_none'))
+        + (undo ? ' (Ctrl+Z). ' : ' (Ctrl+Y). ') + t('workbench.dp.history_hint')
+    }
   }
 
   /** Manualis nezet: a "Mentve" jelzes es a ket gomb egy kis savban a vazlat / a racs folott. */
