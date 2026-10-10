@@ -8332,8 +8332,7 @@
     var add = ''
     var settings = ''
     if (!ro) {
-      var mats = annexMaterials(list)
-      // #530 (Boss TG 8535): three plain buttons, each with its own help; the description of an annex is given in the
+      // #530 (Boss TG 8535): two plain buttons, each with its own help; the description of an annex is given in the
       // list ("leiras"), not in the adding row. #501: a file from anywhere on the computer goes into the item's
       // "Mellekletek" folder and onto the list.
       var browse = '<label class="wb-btn wb-annex-browse" title="' + escA(t('workbench.annex.browse_hint')) + '">📁 '
@@ -8341,8 +8340,6 @@
         + '<input type="file" hidden multiple data-wb-annex-browse="1"' + (WB.annexUploading ? ' disabled' : '') + '></label>'
       // #530 (Boss TG 8500): a document that already lives in the Life tree is LINKED, not copied.
       browse += ' <button type="button" class="wb-btn wb-annex-link" data-wb-act="outline-annex-link" title="' + escA(t('workbench.annex.link_hint')) + '">🔗 ' + esc(t('workbench.annex.link')) + '</button>'
-      // Only when the work item has a file that is not on the list yet; a click opens a chooser, not a standing dropdown.
-      if (mats.length) browse += ' <button type="button" class="wb-btn wb-annex-items" data-wb-act="outline-annex-items" title="' + escA(t('workbench.annex.items_hint')) + '">🗂 ' + esc(t('workbench.annex.items')) + '</button>'
       add = '<p class="wb-annex-add">' + browse + '</p>'
       var scheme = st.annex_scheme || 'k'
       settings = '<p class="wb-annex-settings"><label>' + esc(t('workbench.annex.scheme')) + ' <select id="wbAnnexScheme">'
@@ -8359,48 +8356,6 @@
       + '<p class="wb-hint">' + esc(t('workbench.annex.hint')) + '</p>'
       + (list.length ? '<ul class="wb-annex-list">' + rows + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.annex.empty')) + '</p>')
       + add + settings + '</div>'
-  }
-
-  /** The work item's own files that are not on the annex list yet (the third add button's candidates). */
-  function annexMaterials(list) {
-    var taken = {}
-    ;(list || []).forEach(function (a) { taken[a.path] = true })
-    return ((WB.detail && WB.detail.assets) || []).filter(function (m) { return m.present !== false && m.project_path && !taken[m.project_path] })
-  }
-
-  /** A small chooser over the work item's own files; picking one puts it on the annex list. */
-  function pickItemFile(done) {
-    if (!document.body || typeof document.createElement !== 'function') return
-    var o = WB.detail && WB.detail.outline
-    var mats = annexMaterials((o && o.annexes) || [])
-    var overlay = document.createElement('div')
-    overlay.className = 'modal-overlay active'
-    overlay.id = 'wbItemFilePick'
-    overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.annex.items_title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.annex.items_help')) + '</p>'
-      + '<div id="wbItemFilePickList" class="wb-lifepick-list"></div>'
-      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbItemFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button></div>'
-      + '</div>'
-    document.body.appendChild(overlay)
-    var list = overlay.querySelector('#wbItemFilePickList')
-    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
-    overlay.querySelector('#wbItemFilePickClose').addEventListener('click', close)
-    if (!mats.length) {
-      var p = document.createElement('p')
-      p.className = 'wb-lifepick-note'
-      p.textContent = t('workbench.annex.items_empty')
-      list.appendChild(p)
-      return
-    }
-    mats.forEach(function (m) {
-      var b = document.createElement('button')
-      b.type = 'button'
-      b.className = 'wb-lifepick-row wb-lifepick-file'
-      b.textContent = '📄 ' + m.name
-      b.addEventListener('click', function () { close(); done(m.project_path) })
-      list.appendChild(b)
-    })
   }
 
   /** #501: files picked from the computer become annexes one after the other (a failure does not stop the rest).
@@ -8836,8 +8791,6 @@
       outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid) + '/rewrite')
     } else if (a === 'outline-block-del') {
       if (window.confirm(t('workbench.outline.delete_block_confirm'))) outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid))
-    } else if (a === 'outline-annex-items') {
-      pickItemFile(function (path) { outlineCall('POST', '/annexes', { path: path }) })
     } else if (a === 'outline-sent-remove') {
       if (window.confirm(t('workbench.sent.remove_confirm'))) outlineCall('DELETE', '/sent/' + encodeURIComponent(act.getAttribute('data-wb-sent')))
     } else if (a === 'outline-sent-file') {
@@ -11068,7 +11021,7 @@
       + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>'
       + (ro ? '' : ' <label class="wb-pd-role">' + esc(t('workbench.pd.role')) + ' <select data-wb-pd-role="' + escA(d.id) + '">'
         + roles.map(function (k) { return '<option value="' + escA(k) + '"' + (k === d.role ? ' selected' : '') + '>' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
-        + '</select></label> <label class="wb-pd-ai" title="' + escA(t('workbench.pd.ai_hint')) + '"><input type="checkbox" data-wb-pd-ai="' + escA(d.id) + '"' + (d.ai ? ' checked' : '') + '> ' + esc(t('workbench.pd.ai')) + '</label>'
+        + '</select></label> <label class="wb-pd-ai" title="' + escA(t(WB.pdocs && WB.pdocs.ai_access === 'read_all' ? 'workbench.pd.ai_overridden' : 'workbench.pd.ai_hint')) + '"><input type="checkbox" data-wb-pd-ai="' + escA(d.id) + '"' + (d.ai ? ' checked' : '') + (WB.pdocs && WB.pdocs.ai_access === 'read_all' ? ' disabled' : '') + '> ' + esc(t('workbench.pd.ai')) + '</label>'
         + ' <button type="button" class="wb-linklike" data-wb-act="pd-remove" data-wb-pd="' + escA(d.id) + '">' + esc(t('workbench.pd.remove')) + '</button>')
       + '</span>'
     return '<li class="wb-pd-row"><strong>📄 ' + esc(d.name) + '</strong> ' + pdWhere(d)
@@ -11086,11 +11039,17 @@
       var docs = p.docs || []
       var att = p.attachments || []
       // The map first (specification, chapter 60): how many of each, at a glance.
-      body = '<p class="wb-pd-map">' + roles.map(function (k) {
+      // #530 (Boss TG 8535): one switch for the project -- lifts the READING limits of its assistant. Off by default.
+      var unl = p.ai_access === 'read_all'
+      body = '<div class="wb-pd-access' + (unl ? ' wb-pd-access-on' : '') + '"><label class="wb-pd-access-label" title="' + escA(t('workbench.pd.access_hint')) + '">'
+        + '<input type="checkbox" data-wb-pd-access="1"' + (unl ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
+        + esc(t('workbench.pd.access')) + '</label>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.access_explain')) + '</p></div>'
+      body += '<p class="wb-pd-map">' + roles.map(function (k) {
         return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
       }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
         + ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span>'
-        + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: docs.filter(function (d) { return d.ai }).length, total: docs.length })) + '</span></p>'
+        + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: p.ai_access === 'read_all' ? docs.length : docs.filter(function (d) { return d.ai }).length, total: docs.length })) + '</span></p>'
       body += roles.map(function (k) {
         var mine = docs.filter(function (d) { return d.role === k })
         return '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.' + k)) + ' (' + mine.length + ')</h3>'
@@ -16696,6 +16655,17 @@
   // #530: the role of a project document is changed in place, with its select.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || typeof e.target.getAttribute !== 'function') return
+    if (e.target.getAttribute('data-wb-pd-access')) {
+      var acPid = WB.projectId
+      var acBox = e.target
+      api('PATCH', '/api/workbench/project-ai-access', { project: acPid, mode: acBox.checked ? 'read_all' : 'normal' }).then(function (r) {
+        if (WB.projectId !== acPid) return
+        // A refused switch must not stay ticked on the screen: the page shows what the server holds.
+        if (!r.ok) { window.showToast(r.message); render(); return }
+        pdApply(r)
+      })
+      return
+    }
     var pdAi = e.target.getAttribute('data-wb-pd-ai')
     if (pdAi) {
       var aiPid = WB.projectId

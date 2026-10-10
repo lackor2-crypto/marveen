@@ -14,7 +14,7 @@ import { addSection, addBlock } from '../workbench-docmodel.js'
 import { addAnnex, annexCheck, listAnnexes, removeAnnex, setAnnexPath } from '../workbench-docannex.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
 import { documentIdFor, hashDocument, moveDocumentsPrefix } from '../life-doc-ids.js'
-import { aiDocsForProject, aiMayReadLinked, addProjectDoc, linkLifeFileAsAnnex, linkedUsesUnder, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc } from '../workbench-doc-links.js'
+import { aiDocsForProject, aiMayReadLinked, addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, linkedUsesUnder, listProjectDocs, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc } from '../workbench-doc-links.js'
 
 const CERT = 'Család/Anna/Hatóságok/Nyugdíj/nyugdijigazolas.pdf'
 
@@ -308,5 +308,87 @@ describe('a linked annex', () => {
     // A project with no linked document spends no context on it.
     const none = await buildContext(projects[1]!, null, 'hu')
     expect(none.contextText).not.toContain('Linked documents')
+  })
+
+  // #530 (Boss TG 8535): "korlatok nelkul" -- one switch per project, reading limits only, off by default.
+  describe('the project\'s "no limits" (reading) switch', () => {
+    const NOTE = 'Család/Anna/Hatóságok/Nyugdíj/jegyzet.txt'
+    const MINE_OFF = 'Család/Anna/Hatóságok/Nyugdíj/kikapcsolt.txt'
+    async function setup() {
+      writeFileSync(abs(NOTE), 'A másik projekt irata: 1234 euró.')
+      writeFileSync(abs(MINE_OFF), 'Kikapcsolt irat: 99 euró.')
+      const theirs = await addProjectDoc(projects[1]!.id, NOTE, { role: 'source' }, 't')
+      const mine = await addProjectDoc(projects[0]!.id, MINE_OFF, { role: 'source' }, 't')
+      if (!theirs.ok || !mine.ok) throw new Error('add')
+      updateProjectDoc(projects[0]!.id, mine.id, { ai: false })
+      const otherPath = aiDocsForProject(projects[1]!.id).docs[0]!.path
+      const minePath = 'doc:' + documentIdFor(MINE_OFF)
+      return { otherPath, minePath, mine }
+    }
+    const ctx0 = () => ({ projectId: projects[0]!.id, workItemId: items[0]!, actor: 'workbench-agent' } as never)
+
+    it('is off by default -- also on a fresh database -- and the current behaviour is unchanged', async () => {
+      const { otherPath, minePath } = await setup()
+      expect(getProjectAiAccess(projects[0]!.id)).toBe('normal')
+      const ai = aiDocsForProject(projects[0]!.id)
+      expect([ai.access, ai.docs.length, ai.withheld, ai.others.length]).toEqual(['normal', 0, 1, 0])
+      expect(aiMayReadLinked(projects[0]!.id, otherPath)).toBe(false)
+      expect(aiMayReadLinked(projects[0]!.id, minePath)).toBe(false)
+      const r = executeTool('file.read', { path: otherPath }, ctx0())
+      expect(r.ok === false && r.code).toBe('not_selected')
+      const c = await buildContext(projects[0]!, null, 'hu')
+      expect(c.contextText).toMatch(/1 more document\(s\) are linked to this project but the owner did NOT select them/)
+      expect(c.contextText).not.toContain('no limits')
+    })
+
+    it('on: a document with its tick off and another project\'s document are readable; the ticks keep their value', async () => {
+      const { otherPath, minePath, mine } = await setup()
+      const set = setProjectAiAccess(projects[0]!.id, 'read_all', 't')
+      expect(set.ok).toBe(true)
+      expect(getProjectAiAccess(projects[0]!.id)).toBe('read_all')
+      // Only THIS project is lifted: the other one stays as it was.
+      expect(getProjectAiAccess(projects[1]!.id)).toBe('normal')
+      const ai = aiDocsForProject(projects[0]!.id)
+      expect([ai.access, ai.withheld]).toEqual(['read_all', 0])
+      expect(ai.docs.map((d) => d.name)).toEqual(['kikapcsolt.txt'])
+      expect(ai.others.map((d) => [d.name, d.project])).toEqual([['jegyzet.txt', projects[1]!.name]])
+      expect(aiMayReadLinked(projects[0]!.id, otherPath)).toBe(true)
+      expect(aiMayReadLinked(projects[0]!.id, minePath)).toBe(true)
+      // A path that nobody links is still not readable.
+      expect(aiMayReadLinked(projects[0]!.id, 'doc:DOC-NINCSILY')).toBe(false)
+      const other = executeTool('file.read', { path: otherPath }, ctx0())
+      expect(other.ok && JSON.stringify(other.data)).toContain('1234 euró')
+      const own = executeTool('file.read', { path: minePath }, ctx0())
+      expect(own.ok && JSON.stringify(own.data)).toContain('99 euró')
+      // The per-document tick still holds its value, and counts again when the switch goes off.
+      expect(listProjectDocs(projects[0]!.id).docs.find((d) => d.id === mine.id)!.ai).toBe(false)
+      // The context says so, and the "there is a document you were not given" line does not go out.
+      const c = await buildContext(projects[0]!, null, 'hu')
+      expect(c.contextText).toMatch(/switched this project to "no limits" \(reading\)/)
+      expect(c.contextText).toContain(`- ${otherPath}  (${projects[1]!.name}) jegyzet.txt`)
+      expect(c.contextText).not.toMatch(/did NOT select them/)
+      // Back off: the earlier behaviour returns exactly.
+      setProjectAiAccess(projects[0]!.id, 'normal', 't')
+      expect(aiMayReadLinked(projects[0]!.id, otherPath)).toBe(false)
+      expect(aiMayReadLinked(projects[0]!.id, minePath)).toBe(false)
+      expect(aiDocsForProject(projects[0]!.id).withheld).toBe(1)
+    })
+
+    it('lifts READING only: a linked path still cannot be written, moved, renamed or deleted', async () => {
+      const { otherPath } = await setup()
+      setProjectAiAccess(projects[0]!.id, 'read_all', 't')
+      for (const tool of ['file.write', 'file.delete', 'file.move', 'file.rename']) {
+        const w = executeTool(tool, { path: otherPath, content: 'x', to: 'y.txt', name: 'y.txt' }, ctx0())
+        expect([tool, w.ok, w.ok ? '' : w.code]).toEqual([tool, false, 'linked_read_only'])
+      }
+      expect(readFileSync(abs(NOTE), 'utf8')).toBe('A másik projekt irata: 1234 euró.')
+    })
+
+    it('the mode is a value, not a boolean: only the known ones are accepted', () => {
+      const bad = setProjectAiAccess(projects[0]!.id, 'write_all', 't')
+      expect(bad.ok === false && bad.code).toBe('bad_input')
+      expect(getProjectAiAccess(projects[0]!.id)).toBe('normal')
+      expect(setProjectAiAccess(projects[0]!.id, true as never, 't').ok).toBe(false)
+    })
   })
 })

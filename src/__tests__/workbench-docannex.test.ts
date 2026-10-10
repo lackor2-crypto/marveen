@@ -334,15 +334,16 @@ describe('a felulet: mellekletek', () => {
     expect(html).toContain('<strong>K1</strong> – Szerződés')
     expect(html).toContain('workbench.annex.missing_file')
     expect(html).toContain('workbench.annex.unreferenced')
-    // #530 (Boss TG 8535): three plain buttons; no standing dropdown, no description field in the adding row.
+    // #530 (Boss TG 8535): two plain buttons; no standing dropdown, no description field in the adding row.
     expect(html).toContain('data-wb-annex-browse="1"')
     expect(html).toContain('data-wb-act="outline-annex-link"')
-    expect(html).toContain('data-wb-act="outline-annex-items"')
+    expect(html).not.toContain('outline-annex-items')
     expect(html).not.toContain('wbAnnexPick')
     expect(html).not.toContain('wbAnnexTitle')
     expect(html).not.toContain('outline-annex-add')
     expect(html).not.toContain('workbench.annex.no_materials')
-    expect(html).toContain('title="⟦workbench.annex.items_hint⟧"')
+    expect(html).toContain('title="⟦workbench.annex.browse_hint⟧"')
+    expect(html).toContain('title="⟦workbench.annex.link_hint⟧"')
     expect(html).toContain('id="wbAnnexPrefix"')
     expect(html).toContain('<option value="k" selected>')
     // The description is given in the list: the rename button is there for every annex.
@@ -391,7 +392,8 @@ describe('a felulet: mellekletek', () => {
     await vi.waitFor(() => expect(empty.toasts.some((x) => x.includes('workbench.annex.browse_done'))).toBe(true))
 
     const withMats = await open(ASSETS)
-    expect(withMats.html()).toMatch(/<label class="wb-btn wb-annex-browse"[\s\S]*outline-annex-link[\s\S]*outline-annex-items/)
+    expect(withMats.html()).toMatch(/<label class="wb-btn wb-annex-browse"[\s\S]*outline-annex-link/)
+    expect(withMats.html()).not.toContain('outline-annex-items')
     // A single file is added under its file name: the description comes later, in the list (no title rides along).
     pick(withMats, [{ name: 'szerzodes2.pdf' }])
     await vi.waitFor(() => expect(withMats.fetchCalls.some((c) => c.url.includes('/outline/annexes/upload'))).toBe(true))

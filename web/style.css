@@ -13196,3 +13196,7 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 
 /* #530, phase 4: the owner's switch -- may the AI read this project document. */
 .wb-pd-ai { white-space: nowrap; margin: 0 6px; }
+.wb-pd-access { border: 1px solid var(--border, #ccc); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+.wb-pd-access-on { border-color: var(--accent, #4a7); }
+.wb-pd-access-label { font-weight: 600; display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+.wb-pd-access .wb-hint { margin: 6px 0 0; }

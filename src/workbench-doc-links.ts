@@ -149,6 +149,17 @@ export function ensureProjectDocTables(): void {
   // switched off per document.
   const pdCols = new Set((db.prepare('PRAGMA table_info(project_documents)').all() as { name: string }[]).map((c) => c.name))
   if (!pdCols.has('ai')) db.exec('ALTER TABLE project_documents ADD COLUMN ai INTEGER NOT NULL DEFAULT 1')
+  // #530 (Boss TG 8535): ONE switch per project that lifts the reading limits of the project's assistant.
+  // A mode, not a boolean, so that writing / moving / deleting can become further modes later; today
+  // only 'read_all' exists and it takes away READING limits only. Off ('normal') by default.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_ai_access (
+      project_id TEXT PRIMARY KEY,
+      mode TEXT NOT NULL DEFAULT 'normal',
+      set_at INTEGER NOT NULL,
+      set_by TEXT
+    );
+  `)
   pdTablesDb = db
 }
 
@@ -293,7 +304,30 @@ function projectDocRowsUnder(key: string): Array<{ rel: string; project: string;
 // PHASE 4: WHICH DOCUMENTS THE AI WORKS FROM (specification, chapter 19)
 // ---------------------------------------------------------------------------
 
-export interface AiDoc { path: string; name: string; role: ProjectDocAnyRole | 'attachment'; note: string }
+/** What the project's assistant is allowed with the project's documents. 'read_all' lifts READING limits only. */
+export const PROJECT_AI_ACCESS_MODES = ['normal', 'read_all'] as const
+export type ProjectAiAccess = typeof PROJECT_AI_ACCESS_MODES[number]
+export const isProjectAiAccess = (v: unknown): v is ProjectAiAccess => typeof v === 'string' && (PROJECT_AI_ACCESS_MODES as readonly string[]).includes(v)
+
+export function getProjectAiAccess(projectId: string): ProjectAiAccess {
+  ensureProjectDocTables()
+  const r = getDb().prepare('SELECT mode FROM project_ai_access WHERE project_id = ?').get(projectId) as { mode: string } | undefined
+  return r && isProjectAiAccess(r.mode) ? r.mode : 'normal'
+}
+
+export function setProjectAiAccess(projectId: string, mode: unknown, by: string | null): PdResult<{ mode: ProjectAiAccess }> {
+  ensureProjectDocTables()
+  if (!isProjectAiAccess(mode)) return { ok: false, code: 'bad_input', detail: `mode must be one of ${PROJECT_AI_ACCESS_MODES.join(', ')}` }
+  getDb().prepare(`INSERT INTO project_ai_access (project_id, mode, set_at, set_by) VALUES (?, ?, ?, ?)
+    ON CONFLICT(project_id) DO UPDATE SET mode = excluded.mode, set_at = excluded.set_at, set_by = excluded.set_by`)
+    .run(projectId, mode, Math.floor(Date.now() / 1000), by)
+  return { ok: true, mode }
+}
+
+/** Linked documents of OTHER projects the assistant may read when the project is in 'read_all' (newest first, capped). */
+const OTHER_DOCS_LIMIT = 200
+
+export interface AiDoc { path: string; name: string; role: ProjectDocAnyRole | 'attachment'; note: string; /** Set for a document of ANOTHER project (read_all only). */ project?: string }
 
 /**
  * What the Workbench agent may read of the project's linked documents: the project documents
@@ -302,17 +336,20 @@ export interface AiDoc { path: string; name: string; role: ProjectDocAnyRole | '
  * `withheld`: how many the owner switched off -- said to the agent, so that it does not treat
  * "I was not shown it" as "there is no such document".
  */
-export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: number; missing: number } {
+export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: number; missing: number; access: ProjectAiAccess; others: AiDoc[]; othersTotal: number } {
   ensureProjectDocTables()
   ensureWorkbenchTables()
   const db = getDb()
+  const access = getProjectAiAccess(projectId)
+  const all = access === 'read_all'
   const out: AiDoc[] = []
   const seen = new Set<string>()
   let withheld = 0
   let missing = 0
   const rows = db.prepare('SELECT * FROM project_documents WHERE project_id = ? ORDER BY role, created_at, id').all(projectId) as PdRow[]
   for (const r of rows) {
-    if (r.ai === 0) { withheld++; seen.add(r.document_id); continue }
+    // read_all: the per-document ticks keep their value but no longer decide.
+    if (r.ai === 0 && !all) { withheld++; seen.add(r.document_id); continue }
     const now = docNow(r.document_id, r.life_rel)
     if (!now.exists) { missing++; continue }
     seen.add(r.document_id)
@@ -331,10 +368,38 @@ export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: 
       out.push({ path: a.path, name: baseOf(now.rel), role: 'attachment', note: `${a.label} – ${a.title}` })
     }
   }
-  return { docs: out, withheld, missing }
+  // read_all: the linked documents of the OTHER projects too (read only; nothing is written through them).
+  const others: AiDoc[] = []
+  let othersTotal = 0
+  if (all) {
+    const rowsOther = db.prepare(`SELECT d.document_id AS doc, d.life_rel AS rel, d.role AS role, d.note AS note, p.name AS project, d.created_at AS at
+        FROM project_documents d LEFT JOIN projects p ON p.id = d.project_id WHERE d.project_id != ?
+      UNION ALL
+      SELECT substr(a.path, ?) AS doc, a.life_rel AS rel, 'attachment' AS role, a.title AS note, p.name AS project, a.created_at AS at
+        FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id AND w.deleted_at IS NULL
+        LEFT JOIN projects p ON p.id = w.project_id WHERE w.project_id != ? AND a.path LIKE ?
+      ORDER BY at DESC`).all(projectId, LINKED_PREFIX.length + 1, projectId, LINKED_PREFIX + '%') as Array<{ doc: string; rel: string | null; role: string; note: string; project: string | null }>
+    for (const r of rowsOther) {
+      if (seen.has(r.doc)) continue
+      seen.add(r.doc)
+      othersTotal++
+      if (others.length >= OTHER_DOCS_LIMIT) continue
+      const now = docNow(r.doc, r.rel || '')
+      if (!now.exists) { missing++; continue }
+      others.push({ path: LINKED_PREFIX + r.doc, name: baseOf(now.rel), role: (r.role === 'attachment' ? 'attachment' : r.role === 'official' ? 'official' : isProjectDocRole(r.role) ? r.role : 'related') as AiDoc['role'], note: r.note || '', project: r.project || '' })
+    }
+  }
+  return { docs: out, withheld, missing, access, others, othersTotal }
 }
 
 /** May the agent of THIS project read the linked document `doc:<id>`? Only what aiDocsForProject lists. */
 export function aiMayReadLinked(projectId: string, path: string): boolean {
-  return aiDocsForProject(projectId).docs.some((d) => d.path === path)
+  if (aiDocsForProject(projectId).docs.some((d) => d.path === path)) return true
+  // read_all: any document that some project of the owner links (a project document or a linked annex).
+  if (getProjectAiAccess(projectId) !== 'read_all' || !path.startsWith(LINKED_PREFIX)) return false
+  const id = path.slice(LINKED_PREFIX.length)
+  if (!id) return false
+  const db = getDb()
+  if (db.prepare('SELECT 1 FROM project_documents WHERE document_id = ? LIMIT 1').get(id)) return true
+  return !!db.prepare('SELECT 1 FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id AND w.deleted_at IS NULL WHERE a.path = ? LIMIT 1').get(LINKED_PREFIX + id)
 }
