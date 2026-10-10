@@ -12871,13 +12871,15 @@
       + btn('indent-less', t('workbench.dp.fmt_indent_less'), '&#8676;')
       + btn('indent-more', t('workbench.dp.fmt_indent_more'), '&#8677;')
       + '<span class="wb-dp-tbsep"></span>'
-      + dpSelectHtml('font', t('workbench.dp.fmt_font'), DP_FONTS.map(function (f) { return [f, f] }))
-      + dpSelectHtml('size', t('workbench.dp.fmt_size'), DP_SIZES.map(function (z) { return [String(z), String(z)] }))
+      + dpSelectHtml('font', t('workbench.dp.fmt_font'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_FONTS.map(function (f) { return [f, f] })))
+      + dpSelectHtml('size', t('workbench.dp.fmt_size'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SIZES.map(function (z) { return [String(z), String(z)] })))
       + dpColorHtml('fore', t('workbench.dp.fmt_color'), 'A', '#cc0000')
+      + btn('nocolor', t('workbench.dp.fmt_nocolor'), '&#8856;')
       + dpColorHtml('hilite', t('workbench.dp.fmt_hilite'), '&#9608;', '#ffff00')
+      + btn('nohilite', t('workbench.dp.fmt_nohilite'), '&#8856;')
       + '<span class="wb-dp-tbsep"></span>'
       + dpSelectHtml('linesp', t('workbench.dp.fmt_linesp'), DP_LINESP.map(function (v) { return [String(v), String(v).replace('.', ',')] }))
-      + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), DP_SPACEAFTER.map(function (v) { return [String(v), v + ' pt'] }))
+      + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SPACEAFTER.map(function (v) { return [String(v), v + ' pt'] })))
       + dpSelectHtml('heading', t('workbench.dp.fmt_heading'), [['0', t('workbench.dp.fmt_head_normal')], ['2', t('workbench.dp.fmt_head2')], ['3', t('workbench.dp.fmt_head3')]])
       + '</div>'
   }
@@ -16416,8 +16418,91 @@
     } catch (_e) { return false }
   }
 
-  /** Font / size / colours on the selected words (the formatting lives in the field; saving goes the usual way). */
+  // "No colour / default font" is made with a marker value the browser applies like any other, and then taken off the
+  // elements that carry it: execCommand cannot remove a single property, but it splits the runs at the selection.
+  var DP_MARK_COLOR = '#010203'
+  var DP_MARK_FONT = 'Dpmarkfont'
+
+  /** Select the whole field (used when "none" / "clear" is pressed with no words selected). */
+  function dpSelectField(el) {
+    try {
+      el.focus()
+      var s = window.getSelection()
+      var r = document.createRange()
+      r.selectNodeContents(el)
+      s.removeAllRanges()
+      s.addRange(r)
+    } catch (_e) { /* nem baj */ }
+  }
+
+  /** Make a selection exist for a "take it off" command: the remembered one, else the whole field. */
+  function dpEnsureSelection(el) {
+    var ok = dpRestoreRange(el)
+    var sel = window.getSelection()
+    if (!ok || !sel || !sel.rangeCount || sel.isCollapsed) dpSelectField(el)
+  }
+
+  /** Remove the marked property from the elements that carry it, and unwrap what is left bare. */
+  function dpStripMarks(el, kind) {
+    var nodes = el.querySelectorAll('span,font')
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      var st = n.style
+      if (kind === 'fore') {
+        if (st && dpHexOf(st.color) === DP_MARK_COLOR) st.color = ''
+        if (dpHexOf(n.getAttribute('color')) === DP_MARK_COLOR) n.removeAttribute('color')
+      } else if (kind === 'hilite') {
+        if (st && dpHexOf(st.backgroundColor) === DP_MARK_COLOR) st.backgroundColor = ''
+      } else if (kind === 'font') {
+        if (st && String(st.fontFamily || '').toLowerCase().indexOf(DP_MARK_FONT.toLowerCase()) >= 0) st.fontFamily = ''
+        if (String(n.getAttribute('face') || '').toLowerCase() === DP_MARK_FONT.toLowerCase()) n.removeAttribute('face')
+      } else if (kind === 'size') {
+        if (st && /xxx-large/.test(String(st.fontSize || ''))) st.fontSize = ''
+        if (n.getAttribute('size') === '7') n.removeAttribute('size')
+      }
+      if (n.getAttribute('style') === '' || (st && !st.length && n.hasAttribute('style'))) n.removeAttribute('style')
+    }
+    for (var k = nodes.length - 1; k >= 0; k--) {
+      var b = nodes[k]
+      if (b.attributes.length || !b.parentNode) continue
+      while (b.firstChild) b.parentNode.insertBefore(b.firstChild, b)
+      b.parentNode.removeChild(b)
+    }
+  }
+
+  /** Take one inline property off the current selection. */
+  function dpExecNone(el, kind) {
+    document.execCommand('styleWithCSS', false, true)
+    if (kind === 'fore') document.execCommand('foreColor', false, DP_MARK_COLOR)
+    else if (kind === 'hilite') { if (!document.execCommand('hiliteColor', false, DP_MARK_COLOR)) document.execCommand('backColor', false, DP_MARK_COLOR) }
+    else if (kind === 'font') document.execCommand('fontName', false, DP_MARK_FONT)
+    else if (kind === 'size') document.execCommand('fontSize', false, '7')
+    document.execCommand('styleWithCSS', false, false)
+    dpStripMarks(el, kind)
+  }
+
+  /** "Clear formatting": bold / italic / underline / strike / font / size / colour / highlight, all of it. */
+  function dpClearFormat(el) {
+    dpEnsureSelection(el)
+    try {
+      document.execCommand('styleWithCSS', false, false)
+      document.execCommand('removeFormat', false, null)
+      ;['fore', 'hilite', 'font', 'size'].forEach(function (k) { dpExecNone(el, k) })
+    } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
+    dpKeepDraft(el)
+    dpFmtSync()
+  }
+
+  /** Font / size / colours on the selected words (the formatting lives in the field; saving goes the usual way).
+   *  An empty `value` takes that property off (the whole field when nothing is selected). */
   function dpApplyInline(el, kind, value) {
+    if (value === '') {
+      dpEnsureSelection(el)
+      try { dpExecNone(el, kind) } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
+      dpKeepDraft(el)
+      dpFmtSync()
+      return
+    }
     if (!dpRestoreRange(el)) { window.showToast(t('workbench.dp.fmt_select_text')); return }
     var sel = window.getSelection()
     if (!sel || !sel.rangeCount || sel.isCollapsed) { window.showToast(t('workbench.dp.fmt_select_text')); return }
@@ -16448,6 +16533,12 @@
     var k = sel.getAttribute('data-wb-fmtsel')
     var v = sel.value
     if (v === '') return
+    if (v === '__reset') {
+      if (k === 'font' || k === 'size') dpApplyInline(el, k, '')
+      else if (k === 'spaceafter') dpSetPfmt(el, { sa: null })
+      dpFmtSync()
+      return
+    }
     if (k === 'font' || k === 'size') dpApplyInline(el, k, v)
     else if (k === 'linesp') dpSetPfmt(el, { ls: Number(v) })
     else if (k === 'spaceafter') dpSetPfmt(el, { sa: Number(v) })
@@ -16463,6 +16554,8 @@
     var f = btn.getAttribute('data-wb-fmt')
     var el = dpFmtTarget()
     if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
+    if (f === 'clear') { dpClearFormat(el); return }
+    if (f === 'nocolor' || f === 'nohilite') { dpApplyInline(el, f === 'nocolor' ? 'fore' : 'hilite', ''); return }
     if (document.activeElement !== el) { try { el.focus() } catch (_e) { /* nem baj */ } }
     if (f.indexOf('align-') === 0) dpSetAlign(el, f.slice(6))
     else if (f === 'list') dpToggleList(el)
@@ -16475,7 +16568,7 @@
     else {
       try {
         document.execCommand('styleWithCSS', false, false)
-        document.execCommand(f === 'clear' ? 'removeFormat' : f, false, null)
+        document.execCommand(f, false, null)
       } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
       dpKeepDraft(el)
     }
