@@ -28,4 +28,12 @@ describe('formatting can be switched off (#532)', () => {
   it('the Hungarian labels exist', () => {
     for (const k of ['fmt_reset', 'fmt_nocolor', 'fmt_nohilite']) expect(hu).toContain('"workbench.dp.' + k + '"')
   })
+
+  it('the style picker offers Heading 1 and the class swap clears every level (#534 a)', () => {
+    expect(src).toMatch(/\['1', t\('workbench\.dp\.fmt_head1'\)\], \['2', t\('workbench\.dp\.fmt_head2'\)\], \['3', t\('workbench\.dp\.fmt_head3'\)\]/)
+    expect(src).toContain("el.classList.remove('wb-dp-h1', 'wb-dp-h2', 'wb-dp-h3')")
+    const en = readFileSync(join(__dirname, '..', '..', 'web', 'lang', 'en.js'), 'utf8')
+    expect(hu).toContain('"workbench.dp.fmt_head1": "Címsor 1"')
+    expect(en).toContain('"workbench.dp.fmt_head1": "Heading 1"')
+  })
 })
