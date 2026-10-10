@@ -1722,6 +1722,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ezen a munkalapon kép, diagram, táblázat-objektum, megjegyzés vagy lapvédelem van, ezért itt nem lehet sort vagy oszlopot beszúrni, törölni vagy áthelyezni: ezek a mentéskor rossz helyre kerülnének. A cellák tartalmát átírhatod, és a tábla végére írhatsz; a sorok és oszlopok átrendezését ennél a lapnál Excelben végezd.',
     en: 'This sheet holds a picture, a chart, a table object, a comment or sheet protection, so rows and columns cannot be inserted, removed or moved here: on save those would end up in the wrong place. You can change cell contents and type at the end of the table; rearrange the rows and columns of this sheet in Excel.',
   },
+  table_format_unsupported: {
+    hu: 'Ennek a fájlnak a formázási részét nem tudom biztonságosan kiegészíteni, ezért a formázást itt nem mentem el. A cellák tartalmát át tudod írni; a formázást Excelben végezd.',
+    en: 'I cannot safely extend the formatting part of this file, so the formatting is not saved here. You can change cell contents; do the formatting in Excel.',
+  },
   table_no_change: {
     hu: 'Nem változott semmi, ezért nem készült új verzió.',
     en: 'Nothing changed, so no new version was made.',

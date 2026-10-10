@@ -4109,6 +4109,9 @@
         lockStructure: WB.table.data && WB.table.data.format === 'xlsx',
         // #526: a .csv is one sheet by nature; an .xlsx can gain, lose and rename sheets.
         lockSheets: !(WB.table.data && WB.table.data.format === 'xlsx'),
+        // #526 part 3: an .xlsx with a usable stylesheet keeps font, colours, alignment, wrap and sizes.
+        formatting: !!(WB.table.data && WB.table.data.format === 'xlsx' && WB.table.data.formatting),
+        styleTable: (WB.table.data && WB.table.data.styleTable) || {},
         onChange: function () { if (WB.table) WB.table.dirty = true },
         onBlocked: function (what) {
           window.showToast(t(what === 'sheet' ? 'workbench.table.univer_sheet_locked'
@@ -4152,7 +4155,13 @@
       WB.table.data = r.data
       // Munkapeldany: a szerver valaszat nem irjuk at, igy latszik, mi valtozott.
       WB.table.sheets = (r.data.sheets || []).map(function (s) {
-        return { name: s.name, rows: (s.rows || []).map(function (row) { return row.slice() }) }
+        // The grid also needs what the file says about the sheet (formats, sizes, objects on it).
+        var o = { name: s.name, rows: (s.rows || []).map(function (row) { return row.slice() }) }
+        if (s.structure_locked) o.structure_locked = true
+        if (s.cellStyles) o.cellStyles = s.cellStyles
+        if (s.colWidths) o.colWidths = s.colWidths
+        if (s.rowHeights) o.rowHeights = s.rowHeights
+        return o
       })
       if (!WB.table.sheets.length) WB.table.sheets = [{ name: '', rows: [['']] }]
       render()
