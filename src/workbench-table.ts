@@ -73,6 +73,12 @@ export interface TableSheet {
    * style the cell has now] -- positions in `rows`.
    */
   fmt?: [number, number, CellStyle][]
+  /**
+   * Merged cell ranges as [first row, first column, last row, last column]. Read side: the
+   * file's own. Write side: the list the editor holds now (positions in `rows`); the sheet's
+   * <mergeCells> is written from it when it differs from the file's.
+   */
+  merges?: [number, number, number, number][]
 }
 
 export interface TableData {
@@ -538,7 +544,9 @@ export function readTable(buf: Buffer, name: string): TableResult<{ table: Table
         }
       }
     }
-    const colWidths = readColWidths(entry(p.book.entries, s.path)!.data.toString('utf8'))
+    const sheetXml = entry(p.book.entries, s.path)!.data.toString('utf8')
+    const colWidths = readColWidths(sheetXml)
+    const merges = readMerges(sheetXml)
     const rowHeights: Record<string, number> = {}
     for (const [r, row] of s.rows) {
       const ht = Number(attrs(row.attrs)['ht'])
@@ -547,6 +555,7 @@ export function readTable(buf: Buffer, name: string): TableResult<{ table: Table
     return {
       name: s.name, rows: gridOf(s), ...(s.objects ? { structure_locked: true } : {}), ...(cellStyles.length ? { cellStyles } : {}),
       ...(Object.keys(colWidths).length ? { colWidths } : {}), ...(Object.keys(rowHeights).length ? { rowHeights } : {}),
+      ...(merges.length ? { merges } : {}),
     }
   })
   for (const s of sheets) if (!s.rows.length) s.rows = [['']]
@@ -594,6 +603,12 @@ export function normalizeSheets(raw: unknown): TableResult<{ sheets: TableSheet[
       const sz = sizesOf(v, max)
       if (!sz) return { ok: false, code: 'table_bad_input' }
       if (Object.keys(sz).length) sheet[key] = sz
+    }
+    const mergesRaw = (s as Record<string, unknown>)['merges']
+    if (mergesRaw !== undefined) {
+      const merges = mergesOf(mergesRaw)
+      if (!merges) return { ok: false, code: 'table_bad_input' }
+      sheet.merges = merges
     }
     const fmtRaw = (s as Record<string, unknown>)['fmt']
     if (fmtRaw !== undefined) {
@@ -860,6 +875,70 @@ function widthsDiffer(sx: string, asked: Record<string, number> | undefined): bo
   return Object.entries(asked).some(([k, v]) => have[k] !== v)
 }
 
+/** The merged ranges a sheet part declares, as [first row, first column, last row, last column]. */
+function readMerges(sx: string): [number, number, number, number][] {
+  const out: [number, number, number, number][] = []
+  for (const m of sx.matchAll(/<(?:\w+:)?mergeCell\b([^>]*?)\/?>/g)) {
+    const ref = attrs(m[1]!)['ref']
+    const parts = ref ? ref.split(':') : []
+    if (parts.length !== 2) continue
+    const a = parseRef(parts[0]!)
+    const b = parseRef(parts[1]!)
+    if (!a || !b) continue
+    out.push([Math.min(a.r, b.r), Math.min(a.c, b.c), Math.max(a.r, b.r), Math.max(a.c, b.c)])
+  }
+  return out
+}
+
+const mergeKey = (m: number[]): string => m.join(',')
+
+/** Merged ranges as they come from the editor: whole, in range, at least two cells, none overlapping. */
+function mergesOf(raw: unknown): [number, number, number, number][] | null {
+  if (!Array.isArray(raw) || raw.length > TABLE_MAX_CELLS) return null
+  const out: [number, number, number, number][] = []
+  for (const e of raw) {
+    if (!Array.isArray(e) || e.length !== 4) return null
+    const [r0, c0, r1, c1] = e as number[]
+    if (![r0, c0, r1, c1].every((n) => Number.isInteger(n) && n! >= 0)) return null
+    if (r1! < r0! || c1! < c0! || r1! >= TABLE_MAX_ROWS || c1! >= TABLE_MAX_COLS) return null
+    if (r0 === r1 && c0 === c1) continue
+    out.push([r0!, c0!, r1!, c1!])
+  }
+  for (let i = 0; i < out.length; i++) {
+    for (let j = i + 1; j < out.length; j++) {
+      const a = out[i]!
+      const b = out[j]!
+      if (a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]) return null
+    }
+  }
+  return out
+}
+
+/** Does the asked merge list differ from what the sheet part already declares? */
+function mergesDiffer(sx: string, asked: [number, number, number, number][] | undefined): boolean {
+  if (!asked) return false
+  const have = readMerges(sx).map(mergeKey).sort()
+  const want = asked.map(mergeKey).sort()
+  return have.length !== want.length || have.some((k, i) => k !== want[i])
+}
+
+/** A sheet part with its <mergeCells> replaced by the given list (removed when empty). */
+function setMerges(sx: string, merges: [number, number, number, number][]): string {
+  const P = /<((?:\w+:)?)sheetData\b/.exec(sx)?.[1] || ''
+  const ref = (m: number[]): string => `${colName(m[1]!)}${m[0]! + 1}:${colName(m[3]!)}${m[2]! + 1}`
+  const xml = merges.length
+    ? `<${P}mergeCells count="${merges.length}">${merges.map((m) => `<${P}mergeCell ref="${ref(m)}"/>`).join('')}</${P}mergeCells>`
+    : ''
+  const had = /<((?:\w+:)?)mergeCells\b[^>]*?(?:\/>|>[\s\S]*?<\/\1mergeCells>)/.exec(sx)
+  if (had) return sx.replace(had[0], () => xml)
+  if (!xml) return sx
+  // Schema order: right after sheetData and the few parts that may follow it before the merges.
+  const after = /<\/(?:\w+:)?sheetData>(?:\s*<(?:\w+:)?(?:sheetCalcPr|sheetProtection|protectedRanges|scenarios|autoFilter|sortState|dataConsolidate|customSheetViews)\b[^>]*?(?:\/>|>[\s\S]*?<\/(?:\w+:)?(?:sheetCalcPr|sheetProtection|protectedRanges|scenarios|autoFilter|sortState|dataConsolidate|customSheetViews)>))*/.exec(sx)
+  if (!after) return sx
+  const at = after.index + after[0].length
+  return sx.slice(0, at) + xml + sx.slice(at)
+}
+
 /** Sizes as they come from the editor: whole indices, sane pixel values. */
 function sizesOf(raw: unknown, max: number): Record<string, number> | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -941,7 +1020,8 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
   const replaced = new Map<string, Buffer>()
   const styler = book.styleBook ? new StyleWriter(book.styleBook) : null
   const changedSheets = book.sheets.map((sh, i) => sheetDataXml(sh, sheets[i]!.rows, lang, false, IDENTITY_MAPS, styler, fmtMapOf(sheets[i]!), sheets[i]!.rowHeights).changed
-    || widthsDiffer(entry(book.entries, sh.path)!.data.toString('utf8'), sheets[i]!.colWidths))
+    || widthsDiffer(entry(book.entries, sh.path)!.data.toString('utf8'), sheets[i]!.colWidths)
+    || mergesDiffer(entry(book.entries, sh.path)!.data.toString('utf8'), sheets[i]!.merges))
   if (!changedSheets.some(Boolean)) return { ok: false, code: 'table_no_change' }
   for (let i = 0; i < book.sheets.length; i++) {
     const sh = book.sheets[i]!
@@ -958,6 +1038,7 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
     const dim = nRows && nCols ? `A1:${colName(Math.max(0, nCols - 1))}${Math.max(1, nRows)}` : 'A1'
     sx = sx.replace(/<((?:\w+:)?)dimension\b[^>]*\/>/, (_m, pre: string) => `<${pre}dimension ref="${dim}"/>`)
     if (sheets[i]!.colWidths) sx = setColWidths(sx, sheets[i]!.colWidths!)
+    if (mergesDiffer(sx, sheets[i]!.merges)) sx = setMerges(sx, sheets[i]!.merges!)
     replaced.set(sh.path, Buffer.from(sx, 'utf8'))
   }
   if (styler?.dirty) replaced.set('xl/styles.xml', Buffer.from(styler.xml(), 'utf8'))
@@ -1047,7 +1128,7 @@ function renameInSheetXml(xml: string, renames: Map<string, string>): string {
     open + xmlEscape(renameSheetInFormula(xmlUnescape(body), renames)) + close)
 }
 
-function newSheetXml(grid: string[][], lang: 'hu' | 'en', styler: StyleWriter | null = null, fmt?: Map<string, CellStyle>): string {
+function newSheetXml(grid: string[][], lang: 'hu' | 'en', styler: StyleWriter | null = null, fmt?: Map<string, CellStyle>, merges?: [number, number, number, number][]): string {
   const rows: string[] = []
   let nCols = 0
   let nRows = 0
@@ -1063,9 +1144,10 @@ function newSheetXml(grid: string[][], lang: 'hu' | 'en', styler: StyleWriter | 
     row.forEach((v, c) => { if (v !== '' && c + 1 > nCols) nCols = c + 1 })
   })
   const dim = nRows && nCols ? `A1:${colName(nCols - 1)}${nRows}` : 'A1'
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+  const xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + `<dimension ref="${dim}"/><sheetData>${rows.join('')}</sheetData></worksheet>`
+  return merges?.length ? setMerges(xml, merges) : xml
 }
 
 function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): TableResult<{ data: Buffer }> {
@@ -1136,6 +1218,7 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
       sx = sx.replace(/<((?:\w+:)?)dimension\b[^>]*\/>/, (_m, pre: string) => `<${pre}dimension ref="${dim}"/>`)
     }
     if (sh.colWidths && widthsDiffer(sx, sh.colWidths)) { sx = setColWidths(sx, sh.colWidths); cellsChanged = true }
+    if (mergesDiffer(sx, sh.merges)) { sx = setMerges(sx, sh.merges!); cellsChanged = true }
     sx = renameInSheetXml(sx, renames)
     if (sx !== file.data.toString('utf8')) replaced.set(x.path, Buffer.from(sx, 'utf8'))
   }
@@ -1168,7 +1251,7 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
     const rid = `rId${ridN}`
     usedRids.add(rid)
     maxSheetId++
-    newParts.push({ name: path, data: Buffer.from(newSheetXml(sh.rows, lang, styler, newSheetFmt.get(sh)), 'utf8') })
+    newParts.push({ name: path, data: Buffer.from(newSheetXml(sh.rows, lang, styler, newSheetFmt.get(sh), sh.merges), 'utf8') })
     relsXml = relsXml.replace(/<\/((?:\w+:)?)Relationships>/, (_m, p: string) =>
       `<${p}Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/></${p}Relationships>`)
     ctXml = ctXml.replace(/<\/((?:\w+:)?)Types>/, (_m, p: string) =>
