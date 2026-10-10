@@ -59,6 +59,22 @@ describe('visszavonas / ujra gomb (#533)', () => {
     expect(s).toContain("(x.on ? '' : ' disabled')")
   })
 
+  // #534 hiba (Boss, TG 8734): a lap egy hivasos mentese nem rajzol ujra, ezert a ket gomb szurke maradt szoveg
+  // szerkesztese utan (a tortenet a szerveren megvolt). A mentes utan a gombok helyben frissulnek.
+  it('a lap mentese utan a ket gomb helyben frissul (ujrarajzolas nelkul)', () => {
+    const save = fn('dpPageSave')
+    const ok = save.indexOf('WB.detail.outline = r.data.outline')
+    expect(ok).toBeGreaterThan(-1)
+    expect(save.indexOf('docStepsRefresh()', ok)).toBeGreaterThan(ok)
+    const refresh = fn('docStepsRefresh')
+    expect(refresh).toContain('[data-wb-act="doc-undo"], [data-wb-act="doc-redo"]')
+    expect(refresh).toContain('docHistory()')
+    expect(refresh).toMatch(/\.disabled = !\(idle && can\)/)
+    // az "edit_page" lepesnek is van felirata, kulonben a buborek ures szot irna
+    expect(hu).toContain('"workbench.dp.step.edit_page"')
+    expect(en).toContain('"workbench.dp.step.edit_page"')
+  })
+
   it('a felirat-buborek es a lepesek nevei HU+EN, a tortenet helye ki van mondva', () => {
     const keys = [
       'workbench.dp.undo', 'workbench.dp.redo', 'workbench.dp.undo_what', 'workbench.dp.redo_what', 'workbench.dp.undo_none',
