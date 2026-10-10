@@ -17,7 +17,7 @@ import { getProject } from './projects.js'
 import { listProjectPlaces } from './project-places.js'
 import { listProjectDocs } from './workbench-doc-links.js'
 import { listAnnexes } from './workbench-docannex.js'
-import { ensureAssetTables } from './workbench-assets.js'
+import { ensureAssetTables, findWorkItemsBox, PROJECT_ROOT_PLACE } from './workbench-assets.js'
 
 export type PlaceReasonKind = 'source' | 'reference' | 'related' | 'official' | 'attachment' | 'item' | 'annex'
 /** `item_id` is set when the reason is a work item's (its folder, material, annex or a submission's attachment). */
@@ -87,9 +87,11 @@ export function projectPlacesView(projectId: string): ProjectPlaceView[] {
   }
   if (base) {
     const items = getDb().prepare('SELECT id, title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string; folder: string | null }[]
+    // #539: the same rule as the files list -- an item without a folder of its own lives in the folder it was made in.
+    const whereItemIs = new Map(projectItemFolders(projectId).map((x) => [x.item_id, x.rel] as const))
     for (const it of items) {
-      const f = clean(it.folder || '')
-      if (f) add(inTree(f), 'item', it.title, 'item:' + it.id, it.id)
+      const f = whereItemIs.get(it.id)
+      if (f) add(f, 'item', it.title, 'item:' + it.id, it.id)
       // An item whose folder was never recorded still has its materials somewhere: those folders are its places.
       const mats = getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(it.id) as { path: string }[]
       for (const m of mats) add(dirOf(inTree(m.path)), 'item', it.title, 'item:' + it.id, it.id)
@@ -119,21 +121,38 @@ export function projectPlacesView(projectId: string): ProjectPlaceView[] {
 
 function baseName(p: string): string { return nameOf(p) }
 
-/** Where a work item's own folder is, as a path of the Life tree (a folder moved to another tree is its own path). */
-export function projectItemFolders(projectId: string): { item_id: string; title: string; rel: string }[] {
+/**
+ * Where a work item's files are, as a path of the Life tree (a folder moved to another tree is its own path).
+ *
+ * `shallow`: the folder is NOT the item's own -- the item was made in an existing folder or from an existing file
+ * (a presentation built from the pictures of a folder, a table made from an .xlsx), so it has no `folder` of its
+ * own and lives in `container_folder`, else beside its `source_path`. Only the files lying directly there are the
+ * item's; the sub-folders may be other work items'. Before #539 (owner, 2026-10-10: "it says zero, yet the
+ * presentation and its 20 pictures are there") such an item had no folder at all here, so its documents panel was
+ * empty. The project root and the shared work-items box are nobody's folder: an item that sits loose there gets none.
+ */
+export function projectItemFolders(projectId: string): { item_id: string; title: string; rel: string; shallow?: true }[] {
   ensureAssetTables()
   const project = getProject(projectId)
   const base = clean(project?.folder_path || '')
   if (!base) return []
   const isDir = (rel: string): boolean => { const a = resolveLifePath(rel); if (!a) return false; try { return statSync(a).isDirectory() } catch { return false } }
-  const items = getDb().prepare('SELECT id, title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string; folder: string | null }[]
-  const out: { item_id: string; title: string; rel: string }[] = []
+  const toLife = (f: string): string => (f === base || f.startsWith(base + '/') ? f : (!isDir(base + '/' + f) && isDir(f) ? f : base + '/' + f))
+  const box = project ? findWorkItemsBox(project) : null
+  const nobodys = new Set<string>([base, ...(box ? [toLife(clean(box))] : [])])
+  const items = getDb().prepare('SELECT id, title, folder, container_folder, source_path FROM work_items WHERE project_id = ? AND deleted_at IS NULL')
+    .all(projectId) as { id: string; title: string; folder: string | null; container_folder: string | null; source_path: string | null }[]
+  const out: { item_id: string; title: string; rel: string; shallow?: true }[] = []
   for (const it of items) {
     const f = clean(it.folder || '')
-    if (!f) continue
-    const joined = base + '/' + f
-    const rel = f === base || f.startsWith(base + '/') ? f : (!isDir(joined) && isDir(f) ? f : joined)
-    out.push({ item_id: it.id, title: it.title, rel })
+    if (f) { out.push({ item_id: it.id, title: it.title, rel: toLife(f) }); continue }
+    const c = String(it.container_folder ?? '').trim()
+    if (c === PROJECT_ROOT_PLACE) continue
+    const beside = clean(c) || dirOf(clean(it.source_path || ''))
+    if (!beside) continue
+    const rel = toLife(beside)
+    if (nobodys.has(rel) || !isDir(rel)) continue
+    out.push({ item_id: it.id, title: it.title, rel, shallow: true })
   }
   return out
 }

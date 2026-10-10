@@ -31,7 +31,8 @@ const MAX_FILES = 300
  *  models): not documents of the matter, never listed (lackor2-bot, #530 check of PR #948). A name the program
  *  writes for itself starts with "marveen-" or is a model file "<name>.<canvas|deck|timeline>.json". */
 export function isItemInternalFile(name: string): boolean {
-  return /^marveen-[^/]*\.json$/i.test(name) || /\.(canvas|deck|timeline)\.json$/i.test(name)
+  // "x.deck (2).json": the same model file after a name clash (freeFileName) is still the program's own.
+  return /^marveen-[^/]*\.json$/i.test(name) || /\.(canvas|deck|timeline)( \(\d+\))?\.json$/i.test(name)
 }
 const MAX_DEPTH = 2
 
@@ -53,7 +54,8 @@ export function projectItemFiles(projectId: string): { files: ProjectItemFile[];
         const rel = dirRel + '/' + n
         let st
         try { st = statSync(abs) } catch { continue }
-        if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(abs, rel, depth + 1); continue }
+        // #539: a folder the item merely lives in (not its own) gives only the files lying directly in it.
+        if (st.isDirectory()) { if (!f.shallow && depth < MAX_DEPTH) walk(abs, rel, depth + 1); continue }
         if (!st.isFile() || linked.has(rel)) continue
         // Two work items may share one folder (or one folder lie inside the other): the file is listed once, and
         // names every item that holds it, so opening ANY of them finds it.
