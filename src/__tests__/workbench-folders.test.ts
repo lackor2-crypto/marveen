@@ -374,7 +374,7 @@ describe('list UI', () => {
     current_version_id: null, created_at: 1, updated_at: 1, created_by: null, pinned_at: null, folder, container_folder: container,
   })
 
-  function open(items: unknown[], folders: string[]) {
+  function open(items: unknown[], folders: string[], own: string[] = []) {
     const h = workbenchHarness()
     h.respond((url, init) => {
       // The request body is what the tests check; new-table gets a clean refusal.
@@ -383,7 +383,7 @@ describe('list UI', () => {
       const one = (items as Array<{ id: string }>).find((i) => url.split('?')[0] === `/api/workbench/items/${i.id}`)
       if (one) return { status: 200, body: { item: one, versions: [], parts: [], part_kinds: ['text'], project: { id: 'p1', name: 'Robotok', archived: false } } }
       if (url.includes('/api/workbench/folders')) return { status: 201, body: { ok: true, folder: `${box}/Uj`, created: true, work_folders: { box, folders: [...folders, `${box}/Uj`], truncated: false } } }
-      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(items), work_folders: { box, folders, truncated: false } } }
+      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(items), work_folders: { box, folders, truncated: false, own_folders: own } } }
       if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
       return { status: 200, body: {} }
     })
@@ -490,29 +490,46 @@ describe('list UI', () => {
     return JSON.parse(String(call!.init!.body))
   }
 
-  it('"+ New work" with no picker on screen sends no folder, even right after a group was made by hand', async () => {
+  // The Manual view's "+ New work" form shows the picker itself (the owner sees where the new work goes).
+  const pickerOf = (html: string) => (/<select class="wb-input" id="wbNewFolder">(.*?)<\/select>/.exec(html) || ['', ''])[1]
+
+  it('the "+ New work" form shows the folder picker, with the group made a moment ago preselected', async () => {
     const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
     h.win.prompt = () => 'Uj'
-    h.click({ 'data-wb-act': 'mkfolder' }) // the made folder is remembered as the pick: Munkadarabok/Uj
+    h.click({ 'data-wb-act': 'mkfolder' })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"'))
     h.click({ 'data-wb-act': 'new' })
+    const sel = pickerOf(h.html())
+    expect(sel).toContain('<option value="Munkadarabok/Uj" selected>')
+    expect(h.html().split('id="wbNewFolder"').length - 1).toBe(1) // one picker on screen
+    expect(h.html()).not.toContain('id="wbNewFolderName"') // the "create group" button stays the strip's
+  })
+
+  it('a group picked before another item was opened is NOT preselected on the form (no stale target)', async () => {
+    const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
+    h.win.prompt = () => 'Uj'
+    h.click({ 'data-wb-act': 'mkfolder' })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"'))
+    h.click({ 'data-wb-item': 's1' })
+    h.click({ 'data-wb-act': 'new' })
+    const sel = pickerOf(h.html())
+    expect(sel).toContain('<option value="" selected>')
+    expect(sel).not.toContain('<option value="Munkadarabok/Uj" selected>')
+    h.inputs['wbNewFolder'] = { value: '', focus() {} }
     h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
     h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
     expect(intakeBody(h).folder).toBeUndefined()
   })
 
-  it('"+ New work" pressed from an open item sends no folder when the picker is not on screen', async () => {
-    const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
+  it('the picker does not offer a work item\'s own folder; a hand-named group stays', async () => {
+    const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`], [`${box}/BL`])
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
-    h.win.prompt = () => 'Uj'
-    h.click({ 'data-wb-act': 'mkfolder' }) // remembered as the pick before the item is opened
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"'))
-    h.click({ 'data-wb-item': 's1' })
     h.click({ 'data-wb-act': 'new' })
-    h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
-    h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
-    expect(intakeBody(h).folder).toBeUndefined()
+    const sel = pickerOf(h.html())
+    expect(sel).toContain('value="Munkadarabok/LK"')
+    expect(sel).not.toContain('value="Munkadarabok/BL"')
   })
 
   it('the picker on screen still decides: the chosen folder is sent', async () => {
