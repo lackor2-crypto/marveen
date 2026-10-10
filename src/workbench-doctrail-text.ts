@@ -37,6 +37,10 @@ const T = {
   checkedAt: { hu: 'ellenőrizve', en: 'checked' },
   confirmedBy: { hu: 'megerősítette', en: 'confirmed by' },
   annexes: { hu: 'MELLÉKLETEK', en: 'ANNEXES' },
+  sent: { hu: 'ELKÜLDÉSEK', en: 'SENDINGS' },
+  officialCopy: { hu: 'hivatalos példány', en: 'official copy' },
+  notFiled: { hu: 'nincs elhelyezve', en: 'not filed' },
+  recordedBy: { hu: 'rögzítette', en: 'recorded by' },
   consistency: { hu: 'KÖVETKEZETLENSÉGEK', en: 'INCONSISTENCIES' },
   reviews: { hu: 'ÁTNÉZÉSEK', en: 'REVIEWS' },
   finals: { hu: 'VÉGLEGESÍTÉSEK', en: 'FINAL VERSIONS' },
@@ -50,6 +54,17 @@ const T = {
 }
 
 const str = (v: unknown): string => (v == null ? '' : String(v))
+
+/** How it was sent, in words (the same choices as the Workbench form, workbench-docsent.ts). */
+const SENT_METHOD: Record<string, { hu: string; en: string }> = {
+  email: { hu: 'e-mail', en: 'e-mail' },
+  post: { hu: 'posta', en: 'post' },
+  registered_post: { hu: 'ajánlott / tértivevényes levél', en: 'registered letter' },
+  in_person: { hu: 'személyesen', en: 'in person' },
+  portal: { hu: 'online ügyintézési felület', en: 'online portal' },
+  fax: { hu: 'fax', en: 'fax' },
+  other: { hu: 'egyéb', en: 'other' },
+}
 
 function when(v: unknown): string {
   const s = str(v)
@@ -103,5 +118,7 @@ export function trailToText(trail: Obj, lang: Lang): string {
   list('consistency', 'consistency', (c) => `${str(c['kind'])}: ${((c['values'] as unknown[]) || []).map(str).join(' / ')} (${str(c['section'])})`)
   list('reviews', 'reviews', (r) => `${when(r['reviewed_at'])} ${t('by')}: ${who(r['reviewed_by'])}`)
   list('finals', 'finals', (f) => `${t('version')} ${str(f['version_no'])} ${str(f['label'])}: ${t('file')}: ${str(f['file'])}, ${t('acceptedBy')}: ${who(f['accepted_by'])}, ${when(f['accepted_at'])}, ${f['still_current'] ? t('stillCurrent') : t('outdated')}`)
+  // #530: sent is not final -- when, to whom, how, and where the official copy is.
+  list('sent', 'sent', (x) => `${str(x['date'])}${x['time'] ? ' ' + str(x['time']) : ''} – ${str(x['recipient'])} – ${(SENT_METHOD[str(x['method'])] || SENT_METHOD['other']!)[lang]}${x['reference'] ? ' – ' + str(x['reference']) : ''} (${str(x['final'])}; ${t('officialCopy')}: ${x['official_copy'] ? str(x['official_copy']) : t('notFiled')}; ${t('recordedBy')}: ${who(x['recorded_by'])}, ${when(x['recorded_at'])})`)
   return out.join('\r\n') + '\r\n'
 }

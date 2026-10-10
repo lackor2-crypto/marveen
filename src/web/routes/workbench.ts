@@ -3461,7 +3461,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // TECHNIKAI NYOM (K-1.23/b): ki, mikor, mit irt, ellenorzott, erositett meg -- letoltheto JSON.
     if (segs.length === 3 && segs[2] === 'trail' && method === 'GET') {
       // Default: a plain text file anybody can open (Boss TG 3007); the JSON for tools stays at ?format=json.
-      const trail = documentTrail(item)
+      // #530: when, to whom and how it was sent, and where the official copy is -- part of the record.
+      const trail = { ...documentTrail(item), sent: listSent(item.id).map((x) => ({ final: x.final_label, date: x.sent_date, time: x.sent_time, recipient: x.recipient, method: x.method, reference: x.reference, note: x.note, official_copy: x.filed_rel, official_copy_present: x.filed_exists, recorded_by: x.created_by, recorded_at: new Date(x.created_at * 1000).toISOString() })) }
       const asJson = url.searchParams.get('format') === 'json'
       const body = asJson ? JSON.stringify(trail, null, 2) : '\uFEFF' + trailToText(trail, lang)
       res.writeHead(200, {
