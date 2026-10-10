@@ -67,6 +67,7 @@ import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSe
 import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
 import { addProjectPlace, removeProjectPlace } from '../../project-places.js'
 import { projectPlacesView } from '../../project-places-auto.js'
+import { projectItemFiles } from '../../project-item-files.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
 import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
@@ -1915,6 +1916,8 @@ function projectDocsOut(projectId: string): Record<string, unknown> {
     // #530 (chapter 50): the folders of the Life tree this matter belongs to; `exists` is measured now.
     // #530 (Boss TG 8544): found by the system from the project's documents and work items, plus the ones added by hand.
     places: projectPlacesView(projectId),
+    // #530 (Boss TG 2845): the files lying in the work items' folders -- the project's documents, found by the system.
+    item_files: projectItemFiles(projectId),
   }
 }
 
