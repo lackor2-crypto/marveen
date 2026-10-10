@@ -11056,6 +11056,7 @@
         return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
       }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
         + ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span>'
+        + ' <span class="wb-pill">' + esc(t('workbench.pd.group.files')) + ': ' + (((p.item_files && p.item_files.files) || []).length) + '</span>'
         + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: p.ai_access === 'read_all' ? docs.length : docs.filter(function (d) { return d.ai }).length, total: docs.length })) + '</span></p>'
       body += roles.map(function (k) {
         var mine = docs.filter(function (d) { return d.role === k })
@@ -11063,6 +11064,18 @@
           + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.' + k)) + '</p>'
           + (mine.length ? '<ul class="wb-pd-list">' + mine.map(function (d) { return pdRowHtml(d, roles) }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none')) + '</p>')
       }).join('')
+      // #530 (Boss TG 2845): the files that lie in the work items' folders are the project's documents too -- found
+      // by the system from the disk, read only (a file is changed in its own work item, not here).
+      var ifiles = (p.item_files && p.item_files.files) || []
+      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.files')) + ' (' + ifiles.length + (p.item_files && p.item_files.truncated ? '+' : '') + ')</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.files')) + '</p>'
+        + (ifiles.length ? '<ul class="wb-pd-list wb-pd-files">' + ifiles.map(function (f) {
+          return '<li class="wb-pd-row"><strong>📄 ' + esc(f.name) + '</strong> <span class="wb-muted">' + esc(t('workbench.pd.file_of', { item: f.item })) + (f.sub ? ' › ' + esc(f.sub) : '') + '</span>'
+            + ' <span class="wb-pill wb-pd-place-auto">' + esc(t('workbench.pd.places_auto')) + '</span>'
+            + ' <span class="wb-muted">' + esc(new Date(f.mtime * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { dateStyle: 'short', timeStyle: 'short' })) + '</span>'
+            + ' <span class="wb-outline-tools"><a class="wb-linklike" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> '
+            + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(f.rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
+        }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.files_none')) + '</p>')
       var official = docs.filter(function (d) { return d.role === 'official' })
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.official')) + ' (' + official.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.official')) + '</p>'
@@ -11122,9 +11135,19 @@
         }).join('') + '</ul>'
         + '<p class="' + (chk.ready ? 'wb-ok' : 'wb-muted') + '">' + esc(t(chk.ready ? 'workbench.pd.close_ready' : 'workbench.pd.close_not_ready')) + '</p>'
     }
+    // #530 (Boss TG 2831/2845): "attachment" is a role too -- it is attached to a submission, so the submission is asked.
+    var pdRoleNow = WB.pdAddRole || 'source'
+    var targets = (WB.items || []).filter(function (i) { return i.type === 'document' && !i.deleted_at && !i.archived_at })
+    var targetSel = pdRoleNow === 'attachment'
+      ? (targets.length
+        ? ' <label>' + esc(t('workbench.pd.add_to')) + ' <select id="wbPdTarget">' + targets.map(function (i) {
+          return '<option value="' + escA(i.id) + '"' + (i.id === WB.selectedId ? ' selected' : '') + '>' + esc(i.title) + '</option>'
+        }).join('') + '</select></label>'
+        : ' <span class="wb-hint">' + esc(t('workbench.pd.add_to_none')) + '</span>')
+      : ''
     var add = archived() || !p ? '' : '<p class="wb-pd-add"><label>' + esc(t('workbench.pd.add_as')) + ' <select id="wbPdRole">'
-      + (p.roles || ['source', 'reference', 'related']).map(function (k) { return '<option value="' + escA(k) + '">' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
-      + '</select></label> <button type="button" class="wb-btn" data-wb-act="pd-add" title="' + escA(t('workbench.annex.link_hint')) + '">🔗 ' + esc(t('workbench.pd.add')) + '</button></p>'
+      + (p.roles || ['source', 'reference', 'related']).concat(['attachment']).map(function (k) { return '<option value="' + escA(k) + '"' + (k === pdRoleNow ? ' selected' : '') + '>' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
+      + '</select></label>' + targetSel + ' <button type="button" class="wb-btn" data-wb-act="pd-add" title="' + escA(t('workbench.annex.link_hint')) + '"' + (pdRoleNow === 'attachment' && !targets.length ? ' disabled' : '') + '>🔗 ' + esc(t('workbench.pd.add')) + '</button></p>'
     return '<section class="wb-caps-panel wb-pd-panel" id="wbPdPanel">'
       + '<div class="wb-caps-head">'
       + '<h2>' + esc(t('workbench.pd.title')) + '</h2>'
@@ -14794,6 +14817,20 @@
       var pdRoleEl = document.getElementById('wbPdRole')
       var pdRole = pdRoleEl && pdRoleEl.value ? pdRoleEl.value : 'source'
       var pdPid = WB.projectId
+      if (pdRole === 'attachment') {
+        // Attached to the chosen submission, linked (no copy); the item's attachment list and this panel both follow.
+        var tgEl = document.getElementById('wbPdTarget')
+        var tgId = tgEl && tgEl.value ? tgEl.value : ''
+        if (!tgId) { window.showToast(t('workbench.pd.add_to_none')); return }
+        pickLifeFile(function (rel) {
+          api('POST', '/api/workbench/items/' + encodeURIComponent(tgId) + '/outline/annexes/link', { rel: rel }).then(function (r) {
+            if (!r.ok) { window.showToast(r.message); return }
+            if (WB.selectedId === tgId && WB.detail && r.data && r.data.outline) WB.detail.outline = r.data.outline
+            loadProjectDocs()
+          })
+        })
+        return
+      }
       pickLifeFile(function (rel) { api('POST', '/api/workbench/project-docs', { project: pdPid, rel: rel, role: pdRole }).then(function (r) { if (WB.projectId === pdPid) pdApply(r) }) })
     }
     else if (a === 'pd-place-add') {
@@ -15762,6 +15799,7 @@
       return
     }
     // MELLEKLETEK szamozasa (#441, K-1.18): a szerver a szovegbeli hivatkozasokat is atirja.
+    if (e.target.id === 'wbPdRole') { WB.pdAddRole = e.target.value; render(); return }
     if (e.target.id === 'wbAnnexScheme') { outlineCall('PATCH', '/settings', { annex_scheme: e.target.value }); return }
     if (e.target.id === 'wbAnnexMode') { outlineCall('PATCH', '/settings', { annex_mode: e.target.value }); return }
     // CELBIROSAG-PROFIL (#441, K-1.36)

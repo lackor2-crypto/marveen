@@ -112,3 +112,22 @@ export function projectPlacesView(projectId: string): ProjectPlaceView[] {
 }
 
 function baseName(p: string): string { return nameOf(p) }
+
+/** Where a work item's own folder is, as a path of the Life tree (a folder moved to another tree is its own path). */
+export function projectItemFolders(projectId: string): { item_id: string; title: string; rel: string }[] {
+  ensureAssetTables()
+  const project = getProject(projectId)
+  const base = clean(project?.folder_path || '')
+  if (!base) return []
+  const isDir = (rel: string): boolean => { const a = resolveLifePath(rel); if (!a) return false; try { return statSync(a).isDirectory() } catch { return false } }
+  const items = getDb().prepare('SELECT id, title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string; folder: string | null }[]
+  const out: { item_id: string; title: string; rel: string }[] = []
+  for (const it of items) {
+    const f = clean(it.folder || '')
+    if (!f) continue
+    const joined = base + '/' + f
+    const rel = f === base || f.startsWith(base + '/') ? f : (!isDir(joined) && isDir(f) ? f : joined)
+    out.push({ item_id: it.id, title: it.title, rel })
+  }
+  return out
+}
