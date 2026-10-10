@@ -3023,7 +3023,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // TG 2622: the new item gets its own folder, named after it, under the box (or the picked folder).
     let intakeOwn: string | null = null
     {
-      const mf = makeWorkFolder(project, intakeFolder ?? '', folderNameFromTitle(title))
+      const mf = makeWorkFolder(project, intakeFolder ?? '', folderNameFromTitle(title), { own: true })
       if (mf.ok) { intakeFolder = mf.folder; if (mf.created) intakeOwn = mf.folder }
     }
     const noteDir = intakeRoot ? '' : (intakeFolder ?? '')
@@ -3127,7 +3127,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let folderExisted = false
     const newFolderName = String(body.new_folder ?? '').trim()
     if (newFolderName) {
-      const mf = makeWorkFolder(project, containerFolder ?? '', newFolderName)
+      const mf = makeWorkFolder(project, containerFolder ?? '', newFolderName, autoFolder ? { own: true } : undefined)
       if (!mf.ok && autoFolder) { /* the automatic own folder is best effort (e.g. a project without a folder) */ }
       else if (!mf.ok) {
         const code = mf.code === 'no_box' ? 'folder_gone' : mf.code === 'folder_name' ? 'bad_folder_name' : mf.code
@@ -3205,7 +3205,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       let c: ReturnType<typeof workFolderTarget> = String(body['folder'] ?? '').trim() ? workFolderTarget(project, body['folder']) : { ok: true, folder: '' }
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       if (newFolderName) {
-        const mf = makeWorkFolder(project, c.folder, newFolderName)
+        const mf = makeWorkFolder(project, c.folder, newFolderName, String(body['new_folder'] ?? '').trim() ? undefined : { own: true })
         if (!mf.ok) {
           const code = mf.code === 'no_box' ? 'folder_gone' : mf.code === 'folder_name' ? 'bad_folder_name' : mf.code
           return failDetail(res, mf.code === 'write_failed' ? 500 : 400, code, lang, 'message' in mf ? (mf.message || null) : null)
