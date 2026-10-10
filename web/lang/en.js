@@ -6217,6 +6217,7 @@ window._i18n.en = {
   "workbench.pd.scope_all": "Documents of the whole project",
   "workbench.pd.scope_item_hint": "Only the documents of \"{item}\" are shown. The project has {n} documents in all.",
   "workbench.pd.scope_all_hint": "Every document of the project is shown, not only those of the open work item.",
+  "workbench.pd.access_project_wide": "This switch applies to the whole project, not only to the open work item.",
   "workbench.pd.access_explain": "When ticked, the assistant may read every document of this project, whatever the tick on each document says, and the linked documents of other projects too. This allows reading only: it cannot rewrite, move or delete a document.",
   "workbench.pd.ai_overridden": "\"No limits\" is switched on, so the assistant may read this document whatever this tick says. The tick keeps its value and counts again once the switch is turned off.",
   "workbench.pd.related_title": "Related projects",

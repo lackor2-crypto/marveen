@@ -108,4 +108,59 @@ describe('Iratok: a megnyitott munkadarab iratai, kapcsolo az egesz projektre', 
     await vi.waitFor(() => expect(h.html()).toContain('b.pdf'))
     expect(h.html()).toContain('a.docx')
   })
+
+  // #539 (Boss TG 8619): in the item view the panel lists only what belongs to the open work item.
+  describe('item view lists only the item\'s own places', () => {
+    const PLACES = [
+      { rel: 'Iroda/Beadvany', exists: true, reachable: true, manual: false, auto: true, count: 1, reasons: [{ kind: 'item', name: 'Beadvany', item_id: 'i1' }], more: 0, item_counts: { i1: 1 } },
+      { rel: 'Iroda/Masik', exists: true, reachable: true, manual: false, auto: true, count: 1, reasons: [{ kind: 'item', name: 'Masik', item_id: 'i2' }], more: 0, item_counts: { i2: 1 } },
+      { rel: 'Csalad/Irat', exists: true, reachable: true, manual: false, auto: true, count: 1, reasons: [{ kind: 'source', name: 'x.pdf' }], more: 0, item_counts: {} },
+      { rel: 'Csalad/Kezi', exists: true, reachable: true, manual: true, auto: false, count: 0, reasons: [], more: 0, item_counts: {} },
+    ]
+    async function openPlaces() {
+      const h = workbenchHarness()
+      h.respond((url) => {
+        if (url.includes('/api/workbench/project-docs')) {
+          return { status: 200, body: { ...BASE, places: PLACES, related: [{ id: 'p9', name: 'Rokon', archived: false }], relatable: [{ id: 'p8', name: 'Masik proj' }], item_files: { files: [], truncated: false } } }
+        }
+        const m = /\/api\/workbench\/items\/(i\d)/.exec(url)
+        if (m) return { status: 200, body: { item: ITEMS.find((i) => i.id === m[1]), versions: [], parts: [], project: { id: 'p1', name: 'Iroda', archived: false } } }
+        return { status: 200, body: itemsBody(ITEMS) }
+      })
+      h.win.MarvinWorkbench.open('p1', 'Iroda')
+      await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="i1"'))
+      h.click({ 'data-wb-item': 'i1' })
+      await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="pd-open"'))
+      h.click({ 'data-wb-act': 'pd-open' })
+      await vi.waitFor(() => expect(h.html()).toContain('workbench.pd.places_title'))
+      return h
+    }
+
+    it('shows its own place only; the other item, the document place, the hand-added place, related projects, the close list and the add button are not there', async () => {
+      const h = await openPlaces()
+      const html = h.html()
+      expect(html).toContain('Iroda › Beadvany')
+      expect(html).not.toContain('Iroda › Masik')
+      expect(html).not.toContain('Csalad › Irat')
+      expect(html).not.toContain('Csalad › Kezi')
+      expect(html).toContain('workbench.pd.places_title⟧ (1)')
+      expect(html).not.toContain('data-wb-act="pd-place-add"')
+      expect(html).not.toContain('workbench.pd.related_title')
+      expect(html).not.toContain('workbench.pd.close_title')
+      expect(html).toContain('workbench.pd.access_project_wide')
+    })
+
+    it('the project view still shows everything', async () => {
+      const h = await openPlaces()
+      h.fire('change', { target: { getAttribute: (a: string) => (a === 'data-wb-pd-scope' ? '1' : null), checked: true, closest: () => null }, preventDefault() {} })
+      await vi.waitFor(() => expect(h.html()).toContain('Iroda › Masik'))
+      const html = h.html()
+      expect(html).toContain('Csalad › Irat')
+      expect(html).toContain('Csalad › Kezi')
+      expect(html).toContain('data-wb-act="pd-place-add"')
+      expect(html).toContain('workbench.pd.related_title')
+      expect(html).toContain('workbench.pd.close_title')
+      expect(html).not.toContain('workbench.pd.access_project_wide')
+    })
+  })
 })

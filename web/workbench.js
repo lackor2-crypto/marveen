@@ -11182,7 +11182,8 @@
       body = scopeBar + '<div class="wb-pd-access' + (unl ? ' wb-pd-access-on' : '') + '"><label class="wb-pd-access-label" title="' + escA(t('workbench.pd.access_hint')) + '">'
         + '<input type="checkbox" data-wb-pd-access="1"' + (unl ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
         + esc(t('workbench.pd.access')) + '</label>'
-        + '<p class="wb-hint">' + esc(t('workbench.pd.access_explain')) + '</p></div>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.access_explain')) + '</p>'
+        + (scopeItem ? '<p class="wb-hint">' + esc(t('workbench.pd.access_project_wide')) + '</p>' : '') + '</div>'
       body += '<p class="wb-pd-map">' + (scopeItem ? '' : roles.map(function (k) {
         return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
       }).join(' ')) + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
@@ -11227,6 +11228,17 @@
       // #530 (Boss TG 8544): a rendszer MAGA szamolja a projekt iratainak, mellekleteinek, munkadarabjainak mappaibol;
       // a kezzel hozzaadott hely megmarad (jelolve, levehetoen), az automatikus sorhoz nincs "levetel".
       var places = p.places || []
+      // #539 (Boss TG 8619): with a work item open the panel lists ONLY what belongs to that item -- the places that
+      // are on the list because of it (own folder, materials, annexes, attachments of its submission). A document
+      // linked to the project or a place added by hand belongs to the whole project, so it shows in the project
+      // view only. Nothing is removed: the display filters.
+      if (scopeItem) {
+        places = places.filter(function (pl) { return pl.item_counts && pl.item_counts[WB.selectedId] > 0 }).map(function (pl) {
+          var n = pl.item_counts[WB.selectedId]
+          var own = (pl.reasons || []).filter(function (r) { return r.item_id === WB.selectedId })
+          return Object.assign({}, pl, { count: n, reasons: own, more: Math.max(0, n - own.length), manual: false })
+        })
+      }
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.places_title')) + ' (' + places.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.places_hint')) + '</p>'
         + (places.length ? '<ul class="wb-pd-list">' + places.map(function (pl) {
@@ -11242,11 +11254,11 @@
             + (archived() || !pl.manual ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-remove" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_remove')) + '</button>') + '</span>'
             + (why ? '<div class="wb-muted wb-pd-place-why">' + why + '</div>' : '') + '</li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.places_none')) + '</p>')
-        + (archived() ? '' : '<p class="wb-pd-add"><button type="button" class="btn-secondary" data-wb-act="pd-place-add">📁 ' + esc(t('workbench.pd.places_add')) + '</button> <span class="wb-hint">' + esc(t('workbench.pd.places_add_hint')) + '</span></p>')
+        + (archived() || scopeItem ? '' : '<p class="wb-pd-add"><button type="button" class="btn-secondary" data-wb-act="pd-place-add">📁 ' + esc(t('workbench.pd.places_add')) + '</button> <span class="wb-hint">' + esc(t('workbench.pd.places_add_hint')) + '</span></p>')
       // KAPCSOLODO PROJEKTEK (a leiras 49. pontja): csak kapcsolat, iratot nem masol.
       var rel = p.related || []
       var can = p.relatable || []
-      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.related_title')) + ' (' + rel.length + ')</h3>'
+      if (!scopeItem) body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.related_title')) + ' (' + rel.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.related_hint')) + '</p>'
         + (rel.length ? '<ul class="wb-pd-list">' + rel.map(function (r) {
           return '<li class="wb-pd-row"><strong>🗂️ ' + esc(r.name) + '</strong>' + (r.archived ? ' <span class="wb-muted">(' + esc(t('workbench.pd.related_archived')) + ')</span>' : '')
@@ -11257,7 +11269,7 @@
           + '</select></label> <button type="button" class="wb-btn" data-wb-act="pd-rel-add">' + esc(t('workbench.pd.related_add')) + '</button></p>' : '')
       // LEZARAS ELOTTI ELLENORZES (23. pont): JELEZ, nem tilt. Minden szam mert; amit nem lattunk, azt kimondjuk.
       var chk = p.close || { items: [], ready: true }
-      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.close_title')) + '</h3>'
+      if (!scopeItem) body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.close_title')) + '</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.close_hint')) + '</p>'
         + '<ul class="wb-pd-list wb-pd-close">' + (chk.items || []).map(function (i) {
           var unknown = i.n === null || i.n === undefined
