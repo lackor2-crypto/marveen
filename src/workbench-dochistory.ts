@@ -91,6 +91,7 @@ const given = (v: unknown): boolean => v !== undefined && v !== null && v !== ''
 export function docStepLabel(method: string, segs: string[], body: Record<string, unknown>): string | null {
   const sub = segs[2] || ''
   const n = segs.length
+  if (sub === 'page' && n === 3 && method === 'POST') return 'edit_page'
   if (sub === 'sections' && n === 3 && method === 'POST') return 'add_section'
   if (sub === 'sections' && n === 4 && method === 'PATCH') {
     if (given(body['title'])) return 'rename_section'

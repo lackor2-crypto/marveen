@@ -51,7 +51,7 @@ import {
 } from '../../workbench.js'
 import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import {
-  hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
+  hasDocModel, documentOutline, documentCheck, replacePage, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
 import { beginDocStep, docHistoryState, docStepLabel, redoDocStep, undoDocStep } from '../../workbench-dochistory.js'
@@ -3734,6 +3734,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'glossary' && segs.length === 4 && method === 'DELETE') return done(removeGlossaryTerm(item.project_id, id))
     // VISSZAFORDITAS (K-1.30): a tulajdonos elvetheti (az agent ujat keszithet).
     if (sub === 'backchecks' && segs.length === 4 && method === 'DELETE') return done(removeBackTranslation(item.id, id))
+    // #534 (b): the whole page in one call (the continuous page), ids kept; see replacePage().
+    if (sub === 'page' && segs.length === 3 && method === 'POST') {
+      const r = replacePage(item.id, body['sections'], body['known'], 'owner')
+      if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
+      scheduleOutlineMirror(item.id)
+      json(res, { ok: true, ids: r.ids, outline: outlineOrEmpty(item.id) })
+      return true
+    }
     if (sub === 'sections' && segs.length === 3 && method === 'POST') return done(addSection(item.id, body['title'], { status: body['status'], position: typeof body['position'] === 'number' ? body['position'] : undefined }), true)
     if (sub === 'sections' && segs.length === 4 && method === 'PATCH') return done(updateSection(item.id, id, { title: body['title'], status: body['status'], position: body['position'] }))
     if (sub === 'sections' && segs.length === 4 && method === 'DELETE') return done(removeSection(item.id, id))

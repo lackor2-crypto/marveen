@@ -165,6 +165,6 @@ describe('#508 table block on the page (source contract)', () => {
     expect(js).toContain("else if (a === 'dp-tbl-edit') dpTblEdit(bid)")
   })
   it('Enter in a table block starts a new row instead of splitting the block', () => {
-    expect(js).toContain("if (e.key === 'Enter' && kind === 'block' && el.classList.contains('wb-outline-kind-table')) return")
+    expect(js).toContain("if (e.key === 'Enter' && isTable) return")
   })
 })

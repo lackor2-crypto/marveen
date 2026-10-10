@@ -12373,13 +12373,6 @@
   // ott) es egy fogantyu (huzas / menu). Az adat a vazlat (fejezetek + blokkok), ugyanaz, amit az
   // agent is ir: a lap csak a kezi felulete. Mentes: a mezobol kilepeskor (blur) es Entert nyomva.
 
-  function dpPlainOk() {
-    if (WB.dpPlain === undefined) {
-      try { var probe = document.createElement('div'); probe.contentEditable = 'plaintext-only'; WB.dpPlain = probe.contentEditable === 'plaintext-only' } catch (_e) { WB.dpPlain = false }
-    }
-    return WB.dpPlain
-  }
-
   function dpDraft(key, fallback) {
     var d = WB.docDrafts && WB.docDrafts[key]
     return d === undefined || d === null ? fallback : d
@@ -12390,7 +12383,6 @@
     // A formatted field (block, new line) passes `rich` (null = no formatting yet); the title and the table lines stay plain.
     var fmt = rich !== undefined
     return '<div class="wb-dp-edit ' + cls + '" id="' + escA(id) + '" ' + attrs
-      + (ro ? '' : ' contenteditable="' + (!fmt && dpPlainOk() ? 'plaintext-only' : 'true') + '" spellcheck="true"')
       + ' role="textbox" aria-multiline="true" aria-label="' + escA(label) + '" data-placeholder="' + escA(ph) + '">' + (fmt && rich ? rich : esc(text)) + '</div>'
   }
 
@@ -12482,7 +12474,7 @@
 
   function dpGutterHtml(bid, sid, idx, count, ro) {
     if (ro) return '<div class="wb-dp-gutter"></div>'
-    return '<div class="wb-dp-gutter">'
+    return '<div class="wb-dp-gutter" contenteditable="false">'
       + '<button type="button" class="wb-dp-gbtn wb-dp-plus" data-wb-act="dp-add" data-wb-block="' + escA(bid || '') + '" data-wb-sec="' + escA(sid) + '" data-wb-idx="' + idx + '"'
       + ' title="' + escA(t('workbench.dp.add')) + '" aria-label="' + escA(t('workbench.dp.add')) + '" aria-haspopup="menu">+</button>'
       + (bid ? '<button type="button" class="wb-dp-gbtn wb-dp-handle" draggable="true" data-wb-act="dp-handle" data-wb-block="' + escA(bid) + '" data-wb-sec="' + escA(sid) + '"'
@@ -12540,7 +12532,7 @@
     var freeT = pic.x != null
     var floated = !freeT && pic.width && pic.width < 100 && pic.align !== 'c'
     var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-tbl-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
-    return '<div class="wb-dp-block wb-dp-tbl ' + (freeT ? 'wb-dp-free' : 'wb-dp-tbl-' + pic.align) + '" data-wb-tbl-block="' + escA(b.id) + '"'
+    return '<div class="wb-dp-block wb-dp-tbl ' + (freeT ? 'wb-dp-free' : 'wb-dp-tbl-' + pic.align) + '" contenteditable="false" data-wb-tbl-block="' + escA(b.id) + '"'
       // #521: a free place -- a left indent and an empty space above, in percent of the text width (CSS margins in percent are of the width too).
       + (freeT ? ' style="width:' + (pic.width || 100) + '%;margin-left:' + pic.x + '%;margin-top:' + pic.y + '%"'
         : !floated && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
@@ -12631,7 +12623,7 @@
         var pic = dpImageParts(b.text)
         var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
         rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-          + '<figure class="wb-dp-block wb-dp-img ' + (pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
+          + '<figure contenteditable="false" class="wb-dp-block wb-dp-img ' + (pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
           + '<span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
           + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
           + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
@@ -12650,8 +12642,8 @@
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + dpPfmtAttrs(b.pfmt).cls + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : ''), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr + dpPfmtAttrs(b.pfmt).attr,
           dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
-        + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
-        + (b.rewrite ? '<div class="wb-dp-extra">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
+        + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra" contenteditable="false">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+        + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
     else if (!blocks.length) rows += dpGhostHtml(sec.id, 0, 'paragraph', 0, ro)
@@ -12661,13 +12653,13 @@
     return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
       + '<div class="wb-dp-sechead">'
       + dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro)
-      + '<span class="wb-dp-secbar">' + status
+      + '<span class="wb-dp-secbar" contenteditable="false">' + status
       + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
       + (ro || !chk ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
       + '</span></div>'
-      + '<div class="wb-dp-secextra">' + (chk ? langSectionHtml(o, sec, ro) : '') + '</div>'
+      + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? langSectionHtml(o, sec, ro) : '') + '</div>'
       + rows
-      + '<div class="wb-dp-secextra">' + (chk ? backcheckHtml(o, sec, ro) : '') + '</div>'
+      + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? backcheckHtml(o, sec, ro) : '') + '</div>'
       + '</section>'
   }
 
@@ -12682,7 +12674,7 @@
       // Meg nincs fejezet: a lap ures, az elso begepelt sor hozza letre az elsot.
       body = dpGhostHtml('', 0, 'paragraph', 0, ro)
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
-    return '<div class="wb-dp-wrap">' + (ro ? '' : dpToolbarHtml()) + '<div class="wb-dp-page" role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
+    return '<div class="wb-dp-wrap">' + (ro ? '' : dpToolbarHtml()) + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
         + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button> '
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
@@ -12856,7 +12848,9 @@
   function dpCall(method, sub, body) {
     var id = WB.selectedId
     if (!id || archived()) return Promise.resolve(null)
-    return api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/outline' + sub, body).then(function (r) {
+    // What is typed on the page is saved before another change goes out (the order is the owner's order).
+    var go = WB.dpDirty || WB.dpSaving ? dpFlush() : Promise.resolve(null)
+    return go.then(function () { return api(method, '/api/workbench/items/' + encodeURIComponent(id) + '/outline' + sub, body) }).then(function (r) {
       if (!r.ok) {
         window.showToast(r.message)
         if (r.data && r.data.outline && WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
@@ -12948,7 +12942,7 @@
 
   /** The block / new-line field the toolbar acts on: the focused one, else the last one the cursor was in. */
   function dpFmtTarget() {
-    var a = document.activeElement
+    var a = dpCurrent()
     var ok = function (n) { return n && typeof n.getAttribute === 'function' && n.isConnected && /^(block|new)$/.test(n.getAttribute('data-wb-dp') || '') && !n.classList.contains('wb-outline-kind-table') }
     if (ok(a)) return a
     var last = WB.dpFmtLast ? document.getElementById(WB.dpFmtLast) : null
@@ -13060,74 +13054,205 @@
   /** Egy mezo tartalmanak elmentese; a Promise az uj vazlattal (vagy null-lal) ter vissza. */
   /** One save per field at a time: Enter starts the save and the blur that follows (a click elsewhere
    *  a moment later) must not send the same new line a second time. */
-  function dpSave(el) {
-    var key = dpDraftKey(el)
-    if (!key) return dpSaveNow(el)
-    WB.dpInflight = WB.dpInflight || {}
-    if (WB.dpInflight[key]) return WB.dpInflight[key]
-    var p = dpSaveNow(el)
-    WB.dpInflight[key] = p
-    var done = function () { if (WB.dpInflight[key] === p) delete WB.dpInflight[key] }
-    p.then(done, done)
+  // ---- #534 (b): the page is ONE editable surface; the whole page is saved in one call ----------------
+  // The browser edits the page as a continuous document (selection across paragraphs, Enter / Backspace, cut and
+  // paste of many paragraphs).  A paragraph is a `[data-wb-dp]` element, a picture / table an island; the order
+  // of these elements in the page IS the document.  Saving serialises that order and sends it in one call.
+
+  /** The editable page, when there is one (not a read-only preview). */
+  function dpRoot() {
+    return typeof document.querySelector === 'function' ? document.querySelector('.wb-dp-page[contenteditable="true"]') : null
+  }
+
+  /** The field (paragraph / title) the cursor is in; null when the cursor is not in the page. */
+  function dpCurrent() {
+    try {
+      var sel = window.getSelection()
+      var n = sel && sel.anchorNode
+      if (!n) return null
+      var e = n.nodeType === 3 ? n.parentNode : n
+      var f = e && typeof e.closest === 'function' ? e.closest('[data-wb-dp]') : null
+      return f && f.isConnected && f.closest('.wb-dp-page') ? f : null
+    } catch (_e) { return null }
+  }
+
+  /** Put the cursor into the page (the root takes the focus; the selection says where). */
+  function dpFocusRoot() {
+    var r = dpRoot()
+    if (r && document.activeElement !== r && typeof r.focus === 'function') { try { r.focus({ preventScroll: true }) } catch (_e) { r.focus() } }
+    return r
+  }
+
+  function dpFocusField(el, off) {
+    if (!el) return
+    dpFocusRoot()
+    dpPlaceCaret(el, off)
+  }
+
+  function dpSameObj(a, b) {
+    var ka = Object.keys(a || {}).sort(), kb = Object.keys(b || {}).sort()
+    if (ka.length !== kb.length) return false
+    for (var i = 0; i < ka.length; i++) if (ka[i] !== kb[i] || JSON.stringify(a[ka[i]]) !== JSON.stringify(b[kb[i]])) return false
+    return true
+  }
+
+  /** The ids the page shows right now: what a save may remove when they are gone from the page. */
+  function dpKnownIds() {
+    var out = []
+    var r = dpRoot()
+    if (!r) return out
+    var nodes = r.querySelectorAll('[data-wb-dp="sec"], [data-wb-dp="block"], [data-wb-img-block], [data-wb-tbl-block]')
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      var id = n.getAttribute('data-wb-dp') === 'sec' ? n.getAttribute('data-wb-sec')
+        : (n.getAttribute('data-wb-block') || n.getAttribute('data-wb-img-block') || n.getAttribute('data-wb-tbl-block'))
+      if (id) out.push(id)
+    }
+    return out
+  }
+
+  /** The page as {sections:[{id,title,blocks:[...]}]} plus the elements each entry came from (for the new ids). */
+  function dpPageModel(rootEl) {
+    var secs = []
+    var els = []
+    var cur = null
+    var begin = function (id, title, el) {
+      cur = { id: id || '', title: title || t('workbench.sh.seed.section'), blocks: [] }
+      secs.push(cur)
+      els.push({ el: el, si: secs.length - 1, bi: -1 })
+    }
+    var nodes = rootEl.querySelectorAll('[data-wb-dp], [data-wb-img-block], [data-wb-tbl-block]')
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      var k = n.getAttribute('data-wb-dp')
+      if (k === 'sec') { begin(n.getAttribute('data-wb-sec'), dpText(n), n); continue }
+      if (!cur) begin(n.getAttribute('data-wb-sec'), '', null)
+      if (k !== 'block' && k !== 'new') {
+        var iid = n.getAttribute('data-wb-img-block') || n.getAttribute('data-wb-tbl-block')
+        if (iid) { cur.blocks.push({ id: iid }); els.push({ el: n, si: secs.length - 1, bi: cur.blocks.length - 1, island: true }) }
+        continue
+      }
+      var bid = n.getAttribute('data-wb-block') || ''
+      var b = bid ? findBlock(bid) : null
+      var text = dpText(n)
+      var entry = {}
+      if (b && b.kind === 'table') {
+        var tp = dpTableParts(b.text)
+        if (!text) continue
+        if (text === tp.text) entry = { id: bid }
+        else entry = { id: bid, text: dpTableText(text, tp.width, tp.align) }
+      } else {
+        var fm = dpFmtOf(n)
+        if (fm.rich) text = fm.plain
+        if (!text) continue
+        var align = n.getAttribute('data-wb-align') || ''
+        var pf = dpPfmtOf(n)
+        var kindAttr = n.getAttribute('data-wb-kind') || ''
+        if (b) {
+          var same = text === b.text && fm.rich === (b.rich || '') && align === (b.align || '') && dpSameObj(pf, b.pfmt || {}) && (!kindAttr || kindAttr === b.kind)
+          entry = same ? { id: bid } : { id: bid, text: text, rich: fm.rich, align: align, pfmt: pf }
+          if (!same && kindAttr && kindAttr !== b.kind) entry.kind = kindAttr
+        } else {
+          entry = { text: text, rich: fm.rich, align: align, pfmt: pf, kind: kindAttr || 'paragraph' }
+        }
+      }
+      cur.blocks.push(entry)
+      els.push({ el: n, si: secs.length - 1, bi: cur.blocks.length - 1 })
+    }
+    return { sections: secs, els: els }
+  }
+
+  var dpBlockSeq = 0
+  /** After a save: the new paragraphs / titles learn their ids (no redraw: the cursor stays where it is). */
+  function dpApplyIds(model, ids) {
+    var secs = (ids && ids.sections) || []
+    model.els.forEach(function (x) {
+      var sres = secs[x.si]
+      if (!sres || !x.el || !x.el.isConnected) return
+      var el = x.el
+      var row = typeof el.closest === 'function' ? el.closest('.wb-dp-row') : null
+      if (x.bi < 0) {
+        el.setAttribute('data-wb-sec', sres.id)
+        el.id = 'wbDpS_' + sres.id
+        var box = el.closest('[data-wb-secbox]')
+        if (box) box.setAttribute('data-wb-secbox', sres.id)
+        return
+      }
+      var bid = sres.blocks[x.bi]
+      if (!bid) return
+      if (row) { row.setAttribute('data-wb-sec', sres.id); if (!x.island) row.setAttribute('data-wb-row', bid) }
+      if (x.island) return
+      var was = el.id
+      el.setAttribute('data-wb-dp', 'block')
+      el.setAttribute('data-wb-block', bid)
+      el.setAttribute('data-wb-sec', sres.id)
+      el.removeAttribute('data-wb-pos')
+      el.removeAttribute('data-wb-saved')
+      el.id = 'wbDpB_' + bid
+      if (WB.dpFmtLast && WB.dpFmtLast === was) WB.dpFmtLast = el.id
+      // The gutter of a paragraph made on the page (no id yet) gets its handle now.
+      var gut = row && row.querySelector('.wb-dp-gutter')
+      if (gut && !gut.querySelector('.wb-dp-handle')) {
+        var box2 = document.createElement('div')
+        box2.innerHTML = dpGutterHtml(bid, sres.id, x.bi, sres.blocks.length, false)
+        if (box2.firstChild) row.replaceChild(box2.firstChild, gut)
+      } else if (gut) {
+        var btns = gut.querySelectorAll('[data-wb-block]')
+        for (var i = 0; i < btns.length; i++) { btns[i].setAttribute('data-wb-block', bid); btns[i].setAttribute('data-wb-sec', sres.id) }
+      }
+    })
+  }
+
+  /** Something on the page changed: save it soon (and at once when the cursor leaves the page). */
+  function dpMarkDirty() {
+    if (!dpRoot() || archived()) return
+    WB.dpDirty = true
+    WB.dpItem = WB.selectedId
+    if (WB.dpTimer) clearTimeout(WB.dpTimer)
+    WB.dpTimer = setTimeout(function () { WB.dpTimer = null; dpPageSave() }, 800)
+  }
+
+  /** The unsaved page is on its way (or waiting): a redraw must wait for it. */
+  function dpPending() { return !!(WB.dpDirty || WB.dpSaving) && !!dpRoot() }
+
+  /** Save the whole page in one call.  Resolves with the outline the server now has (null on failure). */
+  function dpPageSave() {
+    if (WB.dpTimer) { clearTimeout(WB.dpTimer); WB.dpTimer = null }
+    if (WB.dpSaving) {
+      return WB.dpSaving.then(function () { return WB.dpDirty ? dpPageSave() : (WB.detail ? WB.detail.outline : null) })
+    }
+    var rootEl = dpRoot()
+    var id = WB.dpItem || WB.selectedId
+    if (!rootEl || !id || archived()) { WB.dpDirty = false; return Promise.resolve(WB.detail ? WB.detail.outline : null) }
+    if (!WB.dpDirty) return Promise.resolve(WB.detail ? WB.detail.outline : null)
+    var model = dpPageModel(rootEl)
+    var known = WB.dpKnown && WB.dpKnown.item === id ? WB.dpKnown.ids : dpKnownIds()
+    WB.dpDirty = false
+    var p = api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/page', { sections: model.sections, known: known }).then(function (r) {
+      WB.dpSaving = null
+      if (WB.selectedId !== id || !WB.detail) return null
+      if (!r.ok) {
+        // Nothing is lost: the page stays as typed, marked unsaved, and the redraw keeps it.
+        WB.dpDirty = true
+        WB.dpFailed = true
+        window.showToast(r.message)
+        return null
+      }
+      WB.dpFailed = false
+      WB.detail.outline = r.data.outline
+      var ids = []
+      ;((r.data.ids && r.data.ids.sections) || []).forEach(function (s) { ids.push(s.id); (s.blocks || []).forEach(function (b) { ids.push(b) }) })
+      WB.dpKnown = { item: id, ids: ids }
+      dpApplyIds(model, r.data.ids)
+      if (WB.dpDirty) dpMarkDirty()
+      return r.data.outline
+    }, function () { WB.dpSaving = null; WB.dpDirty = true; WB.dpFailed = true; return null })
+    WB.dpSaving = p
     return p
   }
 
-  function dpSaveNow(el) {
-    var kind = el.getAttribute('data-wb-dp')
-    var text = dpText(el)
-    if (kind === 'block') {
-      var bid = el.getAttribute('data-wb-block')
-      var b = findBlock(bid)
-      if (!b) return Promise.resolve(null)
-      var fm = null
-      if (b.kind === 'table') { var tp = dpTableParts(b.text); if (text && text !== tp.text) text = dpTableText(text, tp.width, tp.align); else if (text === tp.text) text = b.text }
-      else {
-        // Bold / italic / underline / strike: the formatted version goes with the plain text (the server derives the plain one from it).
-        fm = dpFmtOf(el)
-        if (fm.rich) text = fm.plain
-      }
-      var richSame = !fm || fm.rich === (b.rich || '')
-      if (text === b.text && richSame) { delete WB.docDrafts['b:' + bid]; return Promise.resolve(WB.detail.outline) }
-      if (!text) { delete WB.docDrafts['b:' + bid]; render(); return Promise.resolve(null) } // ures szoveg nem mentheto: marad a regi
-      var body = { text: text }
-      if (fm) body.rich = fm.rich
-      return dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), body).then(function (o) { if (o) delete WB.docDrafts['b:' + bid]; return o })
-    }
-    if (kind === 'sec') {
-      var sid = el.getAttribute('data-wb-sec')
-      var s = findSection(sid)
-      if (!s) return Promise.resolve(null)
-      if (text === s.title) { delete WB.docDrafts['s:' + sid]; return Promise.resolve(WB.detail.outline) }
-      if (!text) { delete WB.docDrafts['s:' + sid]; render(); return Promise.resolve(null) }
-      return dpCall('PATCH', '/sections/' + encodeURIComponent(sid), { title: text }).then(function (o) { if (o) delete WB.docDrafts['s:' + sid]; return o })
-    }
-    if (kind === 'new') {
-      var nsid = el.getAttribute('data-wb-sec')
-      var pos = Number(el.getAttribute('data-wb-pos')) || 0
-      var key = 'new:' + nsid + ':' + pos
-      if (el.getAttribute('data-wb-saved')) return Promise.resolve(null)
-      if (!text) { delete WB.docDrafts[key]; return Promise.resolve(null) }
-      var kd = el.getAttribute('data-wb-kind') || 'paragraph'
-      var make = nsid ? Promise.resolve(nsid) : dpCall('POST', '/sections', { title: t('workbench.sh.seed.section') }).then(function (o) {
-        var last = o && o.sections && o.sections[o.sections.length - 1]
-        return last ? last.id : null
-      })
-      return make.then(function (sec) {
-        if (!sec) return null
-        var nfm = dpFmtOf(el)
-        var nbody = { section: sec, text: nfm.rich ? nfm.plain : text, kind: kd, position: pos }
-        if (nfm.rich) nbody.rich = nfm.rich
-        if (el.getAttribute('data-wb-align')) nbody.align = el.getAttribute('data-wb-align')
-        var npf = dpPfmtOf(el)
-        if (Object.keys(npf).length) nbody.pfmt = npf
-        return dpCall('POST', '/blocks', nbody).then(function (o) {
-          if (o) { el.setAttribute('data-wb-saved', '1'); delete WB.docDrafts[key]; if (WB.docNew && WB.docNew.sec === nsid && WB.docNew.pos === pos) WB.docNew = null }
-          return o
-        })
-      })
-    }
-    return Promise.resolve(null)
-  }
+  /** The old per-field entry points: every one of them now means "save the page". */
+  function dpSave() { return dpPageSave() }
 
   /** Kurzor-helyzet egy szerkesztheto mezoben (karakterekben), a render utani visszaallitashoz. */
   function dpCaret(el) {
@@ -13164,38 +13289,13 @@
     } catch (_e) { /* nem baj */ }
   }
 
-  /** A mentetlen szoveg a WB.docDrafts-ba kerul, hogy az ujrarajzolas ne torolje ki. */
-  function dpDraftKey(el) {
-    var k = el.getAttribute('data-wb-dp')
-    if (k === 'block') return 'b:' + el.getAttribute('data-wb-block')
-    if (k === 'sec') return 's:' + el.getAttribute('data-wb-sec')
-    if (k === 'new') return 'new:' + el.getAttribute('data-wb-sec') + ':' + el.getAttribute('data-wb-pos')
-    return ''
-  }
-  function dpKeepDraft(el) {
-    var key = dpDraftKey(el)
-    if (!key || el.getAttribute('data-wb-saved')) return
-    var txt = dpText(el)
-    var blk = key.charAt(0) === 'b' ? (findBlock(el.getAttribute('data-wb-block')) || {}) : null
-    var orig = blk ? blk.text : key.charAt(0) === 's' ? (findSection(el.getAttribute('data-wb-sec')) || {}).title : ''
-    var fm = key.charAt(0) === 's' || (blk && blk.kind === 'table') ? null : dpFmtOf(el)
-    // A formatting-only change (bold on, same words) is a change too: the draft must survive a redraw.
-    var same = txt === (orig || '') && (!fm || fm.rich === ((blk && blk.rich) || ''))
-    if (same) { delete WB.docDrafts[key]; if (WB.docDraftRich) delete WB.docDraftRich[key] }
-    else {
-      WB.docDrafts[key] = String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\n+$/, '')
-      if (!WB.docDraftRich) WB.docDraftRich = {}
-      WB.docDraftRich[key] = fm && fm.rich ? fm.rich : ''
-    }
-  }
+  /** A change of a field: the page is saved as a whole (no per-field drafts any more). */
+  function dpKeepDraft() { dpMarkDirty() }
 
   /** A render() hivja a kirajzolas elott / utan: a gepeles kozbeni ujrarajzolas ne vegye el a fokuszt. */
   function dpFocusSnapshot() {
-    var a = document.activeElement
-    if (a && typeof a.getAttribute === 'function' && a.getAttribute('data-wb-dp') && a.id) {
-      dpKeepDraft(a)
-      return { id: a.id, off: dpCaret(a) }
-    }
+    var a = dpCurrent()
+    if (a && a.id) return { id: a.id, off: dpCaret(a) }
     return null
   }
   function dpFocusRestore(snap) {
@@ -13203,8 +13303,8 @@
     WB.docFocus = null
     if (!want) return
     var el = document.getElementById(want.id)
-    if (!el || typeof el.focus !== 'function') return
-    el.focus()
+    if (!el) return
+    dpFocusRoot()
     if (want.select) {
       try { var sel = window.getSelection(); var r = document.createRange(); r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r) } catch (_e) { /* nem baj */ }
     } else dpPlaceCaret(el, want.end ? null : want.off)
@@ -13573,15 +13673,8 @@
 
   /** Wait for what the page has not sent yet (the field the cursor is in, a save on its way), so a step undoes it. */
   function dpFlush() {
-    var jobs = []
-    var a = document.activeElement
-    if (a && typeof a.getAttribute === 'function' && a.getAttribute('data-wb-dp') && a.isConnected) {
-      dpKeepDraft(a)
-      jobs.push(dpSave(a))
-    }
-    var fl = WB.dpInflight || {}
-    Object.keys(fl).forEach(function (k) { jobs.push(fl[k]) })
-    return Promise.all(jobs)
+    if (WB.dpDirty || WB.dpSaving) return dpPageSave()
+    return Promise.resolve(WB.detail ? WB.detail.outline : null)
   }
 
   function docStep(dir) {
@@ -13608,15 +13701,10 @@
         WB.docDraftRich = {}
         WB.docNew = null
         WB.docMenu = null
-        // The field the cursor is in still shows the old words: the redraw would take them back as a draft.
-        // It is left without saving (the page is what the server says now) and the cursor returns to its end.
-        var cur = document.activeElement
-        if (cur && typeof cur.getAttribute === 'function' && cur.getAttribute('data-wb-dp') && cur.id) {
-          WB.docFocus = { id: cur.id, end: true }
-          WB.rendering = true
-          try { cur.blur() } catch (_e) { /* nem baj */ }
-          WB.rendering = false
-        }
+        // The page is what the server says now: nothing typed may be saved over it, and the cursor returns to its field.
+        var cur = dpCurrent()
+        WB.dpDirty = false
+        if (cur && cur.id) WB.docFocus = { id: cur.id, end: true }
         window.showToast(t(dir === 'undo' ? 'workbench.dp.undone' : 'workbench.dp.redone', { what: docStepWhat(r.data.label) }))
         render()
       })
@@ -14543,6 +14631,14 @@
   function render() {
     var el = root()
     if (!el || !WB.open) return
+    // #534 (b): a page that is typed but not saved yet is saved FIRST; the redraw then shows what the server has.
+    if (dpPending() && !WB.dpFailed && !WB.dpRenderWait) {
+      WB.dpRenderWait = true
+      dpFlush().then(function () { WB.dpRenderWait = false; render() }, function () { WB.dpRenderWait = false; render() })
+      return
+    }
+    // A save that failed leaves the page as typed: the redraw puts the typed page back, not the stored one.
+    var rawPage = WB.dpDirty && WB.dpFailed && dpRoot() ? dpRoot().innerHTML : null
     // A tablazat egy cellajaban all a kurzor: az ujrarajzolas utan ugyanoda
     // tesszuk vissza (a chat streamelese kozben is lehessen gepelni).
     var active = document.activeElement
@@ -14605,6 +14701,9 @@
       + '</div>'
     // A teljes ujrarajzolas (megnyitas, tetel-valtas) uj chat-naplot tesz be,
     // ami kulonben a tetejen allna; ha a tulajdonos felfele gorgetett, ott marad.
+    var pageRoot = dpRoot()
+    if (rawPage != null && pageRoot) pageRoot.innerHTML = rawPage
+    else if (pageRoot) WB.dpKnown = { item: WB.selectedId, ids: dpKnownIds() }
     genericScrollRestore(el, genScroll)
     restorePageScroll(el, pageKeep)
     restoreChatScroll(chatScroll)
@@ -16173,7 +16272,7 @@
     var it = WB.detail && WB.detail.item
     if (!WB.selectedId || !it || archived() || !docPageOpen(it)) return
     var tg = e.target
-    var inPage = !!(tg && typeof tg.closest === 'function' && tg.closest('[data-wb-dp]'))
+    var inPage = !!(tg && typeof tg.closest === 'function' && tg.closest('[data-wb-dp], .wb-dp-page'))
     var tag = tg && tg.tagName ? String(tg.tagName).toUpperCase() : ''
     if (!inPage && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable))) return
     if (!document.querySelector('.wb-dp-page')) return
@@ -16549,7 +16648,8 @@
   // ---- dokumentum-lap: esemenyek (#462, 4. lepes) ---------------------------------------------
 
   function dpField(e) {
-    return e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-dp]') : null
+    // The page is one editing host: the event's target is the page, the field is where the cursor is.
+    return dpCurrent() || (e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-dp]') : null)
   }
 
   document.addEventListener('click', function (e) {
@@ -16580,74 +16680,175 @@
     }
   })
 
-  // Mentes: a mezobol kilepve. Az ujrarajzolas altal okozott "kilepes" nem szamit.
+  // Mentes: az oldalbol kilepve az egesz oldal egy hivassal. Az ujrarajzolas altal okozott "kilepes" nem szamit.
   document.addEventListener('focusout', function (e) {
     if (!WB.open || WB.rendering) return
-    var el = dpField(e)
-    if (!el || !el.isConnected) return
-    var kind = el.getAttribute('data-wb-dp')
-    var tbl = kind === 'block' && WB.dpTblEdit && el.getAttribute('data-wb-block') === WB.dpTblEdit
-    dpSave(el).then(function (o) {
-      if (tbl && WB.dpTblEdit === el.getAttribute('data-wb-block')) { WB.dpTblEdit = null; render() }
-      else if (o && kind === 'new') render()
-    })
+    var host = e.target && typeof e.target.closest === 'function' ? e.target.closest('.wb-dp-page') : null
+    if (!host) return
+    var to = e.relatedTarget
+    if (to && typeof host.contains === 'function' && host.contains(to) && !(typeof to.closest === 'function' && to.closest('[data-wb-act]'))) return
+    if (WB.dpDirty) dpPageSave()
+    dpTblLeaveCheck()
   })
 
   document.addEventListener('input', function (e) {
-    if (!WB.open) return
-    var el = dpField(e)
-    if (el) dpKeepDraft(el)
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    if (e.target.closest('.wb-dp-page[contenteditable="true"]')) dpMarkDirty()
   })
+
+  /** The grid of a table block comes back when the cursor leaves its lines. */
+  function dpTblLeaveCheck() {
+    if (!WB.dpTblEdit) return
+    var cur = dpCurrent()
+    if (cur && cur.getAttribute('data-wb-block') === WB.dpTblEdit) return
+    var bid = WB.dpTblEdit
+    dpFlush().then(function () {
+      if (WB.dpTblEdit === bid) { WB.dpTblEdit = null; render() }
+    })
+  }
+
+  /** A fresh paragraph row after `el`'s row, carrying `frag`'s content; the cursor goes to its start. */
+  function dpSplitField(el) {
+    var sel = window.getSelection()
+    if (!sel || !sel.rangeCount) return null
+    var r = sel.getRangeAt(0)
+    if (!r.collapsed) r.deleteContents()
+    var tail = document.createRange()
+    tail.setStart(r.endContainer, r.endOffset)
+    tail.setEnd(el, el.childNodes.length)
+    var frag = tail.extractContents()
+    var kind = el.getAttribute('data-wb-kind') || (findBlock(el.getAttribute('data-wb-block') || '') || {}).kind || 'paragraph'
+    var nk = kind === 'list' ? 'list' : 'paragraph'
+    var sid = el.getAttribute('data-wb-sec') || ''
+    var row = el.closest('.wb-dp-row')
+    var host = document.createElement('div')
+    host.innerHTML = '<div class="wb-dp-row" data-wb-sec="' + escA(sid) + '">' + dpGutterHtml('', sid, 0, 0, false)
+      + dpEditHtml('wb-dp-block wb-outline-kind-' + nk, '', 'data-wb-dp="block" data-wb-sec="' + escA(sid) + '" data-wb-kind="' + nk + '"', '', t('workbench.dp.block_ph'), t('workbench.dp.block_label'), false, null) + '</div>'
+    var nrow = host.firstChild
+    var nf = nrow.querySelector('[data-wb-dp]')
+    nf.id = 'wbDpT_' + (++dpBlockSeq)
+    // The paragraph's own look (alignment, spacing) carries on; a heading does not.
+    var al = el.getAttribute('data-wb-align')
+    if (al) { nf.setAttribute('data-wb-align', al); nf.classList.add('wb-dp-al-' + al) }
+    var pf = dpPfmtOf(el)
+    delete pf.h
+    if (Object.keys(pf).length) { nf.setAttribute('data-wb-pfmt', JSON.stringify(pf)); nf.setAttribute('style', dpPfmtStyle(pf)) }
+    if (nk === 'list' && el.classList.contains('wb-dp-numbered')) nf.classList.add('wb-dp-numbered')
+    nf.appendChild(frag)
+    if (row && row.parentNode) row.parentNode.insertBefore(nrow, row.nextSibling)
+    else if (el.parentNode) el.parentNode.insertBefore(nrow, el.nextSibling)
+    dpPlaceCaret(nf, 0)
+    return nf
+  }
+
+  /** Neighbour fields in the page's order: `dir` -1 / +1; islands count as neighbours (they are not text). */
+  function dpNeighbour(el, dir) {
+    var rootEl = dpRoot()
+    if (!rootEl) return null
+    var all = rootEl.querySelectorAll('[data-wb-dp], [data-wb-img-block], [data-wb-tbl-block]')
+    for (var i = 0; i < all.length; i++) if (all[i] === el) return all[i + dir] || null
+    return null
+  }
+
+  /** The row of a field goes away (the paragraph is gone from the page); the cursor goes to `to`. */
+  function dpDropRow(el) {
+    var row = el.closest('.wb-dp-row')
+    var host = row || el
+    if (host.parentNode) host.parentNode.removeChild(host)
+  }
 
   document.addEventListener('keydown', function (e) {
     if (!WB.open || e.isComposing) return
-    var el = dpField(e)
-    if (!el) return
-    var kind = el.getAttribute('data-wb-dp')
-    var sid = el.getAttribute('data-wb-sec') || ''
+    var host = e.target && typeof e.target.closest === 'function' ? e.target.closest('.wb-dp-page[contenteditable="true"]') : null
+    if (!host) return
+    var el = dpCurrent()
     if (e.key === 'Escape') {
-      delete WB.docDrafts[dpDraftKey(el)]
-      if (kind === 'new') WB.docNew = null
       WB.docMenu = null
-      if (typeof el.blur === 'function') { WB.rendering = true; el.blur(); WB.rendering = false }
-      render()
+      if (typeof host.blur === 'function') host.blur()
       return
     }
-    // #508: in a table block Enter starts a new row (a new line), it does not split the block.
-    if (e.key === 'Enter' && kind === 'block' && el.classList.contains('wb-outline-kind-table')) return
+    if (!el) {
+      if (e.key === 'Enter') e.preventDefault()
+      return
+    }
+    var kind = el.getAttribute('data-wb-dp')
+    var sid = el.getAttribute('data-wb-sec') || ''
+    var isTable = el.classList.contains('wb-outline-kind-table')
+    // #508: in a table block's lines Enter starts a new line, it does not split the block.
+    if (e.key === 'Enter' && isTable) return
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault()
       if (kind === 'sec') {
-        // A cim Entere az elso sorra ugrik.
-        dpSave(el).then(function () {
-          var s = findSection(sid)
-          var first = s && s.blocks && s.blocks[0]
-          if (first) { var n = document.getElementById('wbDpB_' + first.id); if (n) n.focus() }
-          else dpInsert(sid, '', 'paragraph')
-        })
+        // The title's Enter jumps to the first line below it (or makes one when the chapter is empty).
+        var nx = dpNeighbour(el, 1)
+        if (nx && /^(block|new)$/.test(nx.getAttribute('data-wb-dp') || '')) dpFocusField(nx, 0)
+        else {
+          var nrow = document.createElement('div')
+          nrow.innerHTML = '<div class="wb-dp-row" data-wb-sec="' + escA(sid) + '">' + dpGutterHtml('', sid, 0, 0, false)
+            + dpEditHtml('wb-dp-block wb-outline-kind-paragraph', '', 'data-wb-dp="block" data-wb-sec="' + escA(sid) + '" data-wb-kind="paragraph"', '', t('workbench.dp.block_ph'), t('workbench.dp.block_label'), false, null) + '</div>'
+          var rowEl = nrow.firstChild
+          var head = el.closest('.wb-dp-sechead')
+          var after = head && head.parentNode ? head.nextElementSibling : null
+          while (after && after.classList && after.classList.contains('wb-dp-secextra')) after = after.nextElementSibling
+          if (head && head.parentNode) head.parentNode.insertBefore(rowEl, after)
+          var nf0 = rowEl.querySelector('[data-wb-dp]')
+          nf0.id = 'wbDpT_' + (++dpBlockSeq)
+          dpFocusField(nf0, 0)
+          dpMarkDirty()
+        }
         return
       }
-      var text = dpText(el)
-      var curKind = el.getAttribute('data-wb-kind') || (kind === 'block' ? (findBlock(el.getAttribute('data-wb-block')) || {}).kind : '') || 'paragraph'
-      if (!text) {
-        // Ures sor + Enter: kilepes a sorbol (lista vege).
-        if (kind === 'new') { WB.docNew = null; delete WB.docDrafts[dpDraftKey(el)]; WB.rendering = true; el.blur(); WB.rendering = false; render() }
+      // An empty list line + Enter leaves the list.
+      if (!dpText(el) && (el.getAttribute('data-wb-kind') === 'list' || el.classList.contains('wb-outline-kind-list'))) {
+        el.setAttribute('data-wb-kind', 'paragraph')
+        el.classList.remove('wb-outline-kind-list', 'wb-dp-numbered')
+        el.classList.add('wb-outline-kind-paragraph')
+        dpMarkDirty()
         return
       }
-      var bid = el.getAttribute('data-wb-block')
-      var pos = Number(el.getAttribute('data-wb-pos')) || 0
-      dpSave(el).then(function (o) {
-        if (!o) return
-        var after = bid
-        if (kind === 'new') { var s2 = findSection(sid || (o.sections[o.sections.length - 1] || {}).id); after = s2 && s2.blocks[pos] ? s2.blocks[pos].id : '' ; sid = s2 ? s2.id : sid }
-        dpInsert(sid, after, curKind === 'list' ? 'list' : 'paragraph')
-      })
+      if (dpSplitField(el)) dpMarkDirty()
       return
     }
-    if (e.key === 'Backspace' && !dpText(el) && (kind === 'block' || kind === 'new')) {
+    var sel = window.getSelection()
+    var collapsed = !!sel && sel.rangeCount > 0 && sel.isCollapsed
+    if (e.key === 'Backspace' && collapsed && !e.ctrlKey && !e.metaKey && !e.altKey && dpCaret(el) === 0 && !isTable) {
       e.preventDefault()
-      if (kind === 'new') { WB.docNew = null; delete WB.docDrafts[dpDraftKey(el)]; WB.rendering = true; el.blur(); WB.rendering = false; render() }
-      else dpDeleteBlock(el.getAttribute('data-wb-block'))
+      if (kind === 'sec') return
+      var prev = dpNeighbour(el, -1)
+      if (!dpText(el)) {
+        // An empty line + Backspace: the paragraph goes, the cursor to the end of the one above.
+        if (prev && /^(block|new)$/.test(prev.getAttribute('data-wb-dp') || '')) { dpDropRow(el); dpFocusField(prev, null); dpMarkDirty() }
+        else if (prev && prev.getAttribute('data-wb-dp') === 'sec') { dpDropRow(el); dpFocusField(prev, null); dpMarkDirty() }
+        return
+      }
+      if (prev && /^(block|new)$/.test(prev.getAttribute('data-wb-dp') || '') && !prev.classList.contains('wb-outline-kind-table')) {
+        // Merge into the paragraph above: the cursor stays where the two met.
+        var mark = document.createRange()
+        mark.selectNodeContents(prev)
+        var at = mark.toString().length
+        while (el.firstChild) prev.appendChild(el.firstChild)
+        dpDropRow(el)
+        dpFocusField(prev, at)
+        dpMarkDirty()
+      }
+      return
+    }
+    if (e.key === 'Delete' && collapsed && !e.ctrlKey && !e.metaKey && !e.altKey && !isTable && kind !== 'sec') {
+      var tailR = document.createRange()
+      tailR.selectNodeContents(el)
+      tailR.setStart(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset)
+      if (tailR.toString().length > 0) return
+      e.preventDefault()
+      var nxt = dpNeighbour(el, 1)
+      if (nxt && /^(block|new)$/.test(nxt.getAttribute('data-wb-dp') || '') && !nxt.classList.contains('wb-outline-kind-table')) {
+        var m2 = document.createRange()
+        m2.selectNodeContents(el)
+        var at2 = m2.toString().length
+        while (nxt.firstChild) el.appendChild(nxt.firstChild)
+        dpDropRow(nxt)
+        dpFocusField(el, at2)
+        dpMarkDirty()
+      }
     }
   })
 
@@ -16673,7 +16874,7 @@
       var f = btns[i].getAttribute('data-wb-fmt')
       var on = false
       if (el) {
-        if (f === 'bold' || f === 'italic' || f === 'underline' || f === 'strikeThrough') { try { on = document.activeElement === el && document.queryCommandState(f) } catch (_e) { on = false } }
+        if (f === 'bold' || f === 'italic' || f === 'underline' || f === 'strikeThrough') { try { on = dpCurrent() === el && document.queryCommandState(f) } catch (_e) { on = false } }
         else if (f.indexOf('align-') === 0) on = (el.getAttribute('data-wb-align') || '') === f.slice(6)
         else if (f === 'list') on = el.classList.contains('wb-outline-kind-list')
         else if (f === 'numlist') on = dpFieldNumbered(el)
@@ -16717,30 +16918,20 @@
     var next = cur === a ? '' : a
     DP_ALIGNS.forEach(function (x) { el.classList.remove('wb-dp-al-' + x) })
     if (next) { el.classList.add('wb-dp-al-' + next); el.setAttribute('data-wb-align', next) } else el.removeAttribute('data-wb-align')
-    var bid = el.getAttribute('data-wb-block')
-    if (bid) dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { align: next })
+    dpMarkDirty()
   }
 
   function dpToggleList(el) {
     var bid = el.getAttribute('data-wb-block')
-    if (!bid) {
-      var k = el.getAttribute('data-wb-kind') === 'list' ? 'paragraph' : 'list'
-      el.setAttribute('data-wb-kind', k)
-      el.classList.toggle('wb-outline-kind-list', k === 'list')
-      el.classList.toggle('wb-outline-kind-paragraph', k !== 'list')
-      return
-    }
-    var b = findBlock(bid)
-    if (!b || (b.kind !== 'paragraph' && b.kind !== 'list')) return
-    var kind = b.kind === 'list' ? 'paragraph' : 'list'
-    dpSave(el).then(function (o) {
-      if (!o) return
-      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { kind: kind }).then(function (o2) {
-        if (!o2) return
-        WB.docFocus = { id: 'wbDpB_' + bid, end: true }
-        render()
-      })
-    })
+    var b = bid ? findBlock(bid) : null
+    if (b && b.kind !== 'paragraph' && b.kind !== 'list') return
+    var was = el.getAttribute('data-wb-kind') || (b ? b.kind : 'paragraph')
+    var k = was === 'list' ? 'paragraph' : 'list'
+    el.setAttribute('data-wb-kind', k)
+    el.classList.toggle('wb-outline-kind-list', k === 'list')
+    el.classList.toggle('wb-outline-kind-paragraph', k !== 'list')
+    if (k !== 'list') el.classList.remove('wb-dp-numbered')
+    dpMarkDirty()
   }
 
   /** Paragraph format of the field: merge `patch` (null / '' removes a key), show it at once, save it for a stored block. */
@@ -16760,8 +16951,7 @@
       el.removeAttribute('data-wb-pfmt')
       el.removeAttribute('style')
     }
-    var bid = el.getAttribute('data-wb-block')
-    if (bid) dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { pfmt: p })
+    dpMarkDirty()
   }
 
   function dpIsNumbered(text) {
@@ -16771,14 +16961,18 @@
 
   /** Is the field a numbered list? A stored list shows its lines without the markers, so the stored text decides. */
   function dpFieldNumbered(el) {
+    // The page keeps the state on the field itself (a stored list shows the same lines the stored text has).
+    if (el.classList.contains('wb-dp-numbered') && el.classList.contains('wb-outline-kind-list')) return true
     var bid = el.getAttribute('data-wb-block')
-    if (bid) { var b = findBlock(bid); return !!b && b.kind === 'list' && dpIsNumbered(b.text) }
+    if (bid && !el.getAttribute('data-wb-kind')) { var b = findBlock(bid); if (b) return b.kind === 'list' && dpIsNumbered(b.text) }
     return el.classList.contains('wb-outline-kind-list') && dpIsNumbered(dpText(el))
   }
 
   /** Numbered list: every line gets "1. 2. 3." (the list renders as a real numbered list); pressed again, it is plain text. */
   function dpToggleNumList(el) {
     var bid = el.getAttribute('data-wb-block')
+    var b = bid ? findBlock(bid) : null
+    if (b && b.kind !== 'paragraph' && b.kind !== 'list') return
     var text = dpText(el)
     var numbered = dpFieldNumbered(el)
     var strip = function (l) { return l.replace(/^\s*(?:[-*•–]|\d+[.)])\s+/, '') }
@@ -16786,26 +16980,12 @@
     var next = numbered ? lines.map(strip).join('\n') : lines.map(function (l, i) { return (i + 1) + '. ' + strip(l) }).join('\n')
     var kind = numbered ? 'paragraph' : 'list'
     if (!next) return
-    if (!bid) {
-      el.setAttribute('data-wb-kind', kind)
-      el.classList.toggle('wb-outline-kind-list', kind === 'list')
-      el.classList.toggle('wb-outline-kind-paragraph', kind !== 'list')
-      el.classList.toggle('wb-dp-numbered', kind === 'list')
-      el.textContent = next
-      dpKeepDraft(el)
-      return
-    }
-    var b = findBlock(bid)
-    if (!b || (b.kind !== 'paragraph' && b.kind !== 'list')) return
-    dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: next, kind: kind }).then(function (o) {
-      if (!o) return
-      delete WB.docDrafts['b:' + bid]
-      if (WB.docDraftRich) delete WB.docDraftRich['b:' + bid]
-      // The field still holds the old words: put the new ones in, or the redraw keeps the old ones as a "draft".
-      el.textContent = next
-      WB.docFocus = { id: 'wbDpB_' + bid, end: true }
-      render()
-    })
+    el.setAttribute('data-wb-kind', kind)
+    el.classList.toggle('wb-outline-kind-list', kind === 'list')
+    el.classList.toggle('wb-outline-kind-paragraph', kind !== 'list')
+    el.classList.toggle('wb-dp-numbered', kind === 'list')
+    el.textContent = next
+    dpMarkDirty()
   }
 
   /** Remember the selection inside the document fields: a drop-down or a colour picker takes the focus away from it. */
@@ -16818,7 +16998,16 @@
       var host = r.commonAncestorContainer
       host = host && host.nodeType === 3 ? host.parentNode : host
       var f = host && typeof host.closest === 'function' ? host.closest('[data-wb-dp]') : null
-      if (f && f.id && /^(block|new)$/.test(f.getAttribute('data-wb-dp') || '')) WB.dpRange = { id: f.id, range: r.cloneRange() }
+      if (f && f.id && /^(block|new)$/.test(f.getAttribute('data-wb-dp') || '')) { WB.dpRange = { id: f.id, range: r.cloneRange() }; WB.dpFmtLast = f.id }
+      // The paragraph the cursor is in is marked (the page is one editing host: :focus-within would mark all).
+      var rootEl = dpRoot()
+      if (rootEl) {
+        var was = rootEl.querySelector('.is-cur')
+        var row = f && typeof f.closest === 'function' ? f.closest('.wb-dp-row, .wb-dp-sechead') : null
+        if (was && was !== row) was.classList.remove('is-cur')
+        if (row && !row.classList.contains('is-cur')) row.classList.add('is-cur')
+      }
+      if (WB.dpTblEdit) dpTblLeaveCheck()
     } catch (_e) { /* nem baj */ }
   })
 
@@ -16826,7 +17015,7 @@
     var r = WB.dpRange
     if (!r || r.id !== el.id) return false
     try {
-      el.focus()
+      dpFocusRoot()
       var s = window.getSelection()
       s.removeAllRanges()
       s.addRange(r.range)
@@ -16842,7 +17031,7 @@
   /** Select the whole field (used when "none" / "clear" is pressed with no words selected). */
   function dpSelectField(el) {
     try {
-      el.focus()
+      dpFocusRoot()
       var s = window.getSelection()
       var r = document.createRange()
       r.selectNodeContents(el)
@@ -16990,7 +17179,7 @@
     if (f === 'nocolor' || f === 'nohilite') { dpClrPopClose(); dpApplyInline(el, f === 'nocolor' ? 'fore' : 'hilite', ''); return }
     if (f.indexOf('clrpick-') === 0) { var pk = f.slice(8); dpClrSet(pk, btn.getAttribute('data-wb-clr')); dpClrPopClose(); dpApplyInline(el, pk, dpClrNow(pk)); return }
     if (f.indexOf('clr-') === 0) { dpClrPopClose(); dpApplyInline(el, f.slice(4), dpClrNow(f.slice(4))); return }
-    if (document.activeElement !== el) { try { el.focus() } catch (_e) { /* nem baj */ } }
+    if (dpCurrent() !== el) { dpFocusRoot(); if (!dpRestoreRange(el)) dpPlaceCaret(el, null) }
     if (f.indexOf('align-') === 0) dpSetAlign(el, f.slice(6))
     else if (f === 'list') dpToggleList(el)
     else if (f === 'numlist') dpToggleNumList(el)
@@ -17009,7 +17198,7 @@
     dpFmtSync()
   })
 
-  // Beillesztes: mindig sima szoveg (a masolt formazas nem kerul a vazlatba).
+  // Beillesztes: mindig sima szoveg (a masolt formazas nem kerul a vazlatba); tobb sor = tobb bekezdes.
   document.addEventListener('paste', function (e) {
     if (!WB.open) return
     var el = dpField(e)
@@ -17018,7 +17207,18 @@
     if (!txt && e.clipboardData.files && e.clipboardData.files.length) return
     e.preventDefault()
     e.stopImmediatePropagation()
-    try { document.execCommand('insertText', false, txt) } catch (_e) { el.textContent = (el.textContent || '') + txt }
+    var lines = String(txt).replace(/\r\n?/g, '\n').split('\n')
+    var oneLine = el.getAttribute('data-wb-dp') === 'sec' || el.classList.contains('wb-outline-kind-table')
+    if (oneLine) lines = [lines.join(' ')]
+    try {
+      document.execCommand('insertText', false, lines[0])
+      for (var i = 1; i < lines.length; i++) {
+        var cur = dpCurrent()
+        if (!cur || !dpSplitField(cur)) break
+        if (lines[i]) document.execCommand('insertText', false, lines[i])
+      }
+    } catch (_e) { el.textContent = (el.textContent || '') + txt }
+    dpMarkDirty()
   }, true)
 
   document.addEventListener('keydown', function (e) {
