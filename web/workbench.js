@@ -11840,6 +11840,61 @@
     return DP_ALIGNS.indexOf(a) < 0 ? { cls: '', attr: '' } : { cls: ' wb-dp-al-' + a, attr: ' data-wb-align="' + a + '"' }
   }
 
+  // ---- #527 (Boss TG 2814): font, size, colours, line spacing, space after, indent, heading ---------
+  var DP_FONTS = ['Times New Roman', 'Arial', 'Courier New', 'Georgia', 'Verdana', 'Calibri']
+  var DP_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]
+  var DP_LINESP = [1, 1.15, 1.5, 2, 2.5, 3]
+  var DP_SPACEAFTER = [0, 6, 12, 18, 24]
+
+  /** The font family the server knows ('' = not one of the offered ones). */
+  function dpFontOf(v) {
+    var first = String(v || '').split(',')[0].replace(/["']/g, '').trim().toLowerCase()
+    if (!first) return ''
+    var alias = { 'liberation serif': 'Times New Roman', 'liberation sans': 'Arial', 'liberation mono': 'Courier New', serif: 'Times New Roman', 'sans-serif': 'Arial', monospace: 'Courier New' }
+    for (var i = 0; i < DP_FONTS.length; i++) if (DP_FONTS[i].toLowerCase() === first) return DP_FONTS[i]
+    return alias[first] || ''
+  }
+  /** pt (halves, 6..96) from a CSS length, 0 when it is none. */
+  function dpPtOf(v) {
+    var m = /^\s*([\d.]+)\s*(pt|px)\s*$/i.exec(String(v || ''))
+    if (!m) return 0
+    var n = Number(m[1]) * (m[2].toLowerCase() === 'px' ? 0.75 : 1)
+    n = Math.round(n * 2) / 2
+    return n >= 6 && n <= 96 ? n : 0
+  }
+  /** #rrggbb from #rgb / #rrggbb / rgb() / rgba(), '' when transparent or unknown. */
+  function dpHexOf(v) {
+    v = String(v || '').trim().toLowerCase()
+    var m = /^#([0-9a-f]{6})$/.exec(v)
+    if (m) return '#' + m[1]
+    m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(v)
+    if (m) return '#' + m[1] + m[1] + m[2] + m[2] + m[3] + m[3]
+    m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(v)
+    if (!m || (m[4] !== undefined && Number(m[4]) === 0)) return ''
+    var hx = function (n) { var h = Math.min(255, Number(n)).toString(16); return h.length < 2 ? '0' + h : h }
+    return '#' + hx(m[1]) + hx(m[2]) + hx(m[3])
+  }
+
+  /** A field's paragraph format (line spacing, space after, indent, heading) as an object. */
+  function dpPfmtOf(el) {
+    try {
+      var v = JSON.parse(el.getAttribute('data-wb-pfmt') || '{}')
+      return v && typeof v === 'object' ? v : {}
+    } catch (_e) { return {} }
+  }
+  function dpPfmtStyle(p) {
+    var st = ''
+    if (p.ls) st += 'line-height:' + (p.ls * 1.6).toFixed(2) + ';'
+    if (p.sa !== undefined && p.sa !== null) st += 'margin-bottom:' + p.sa + 'pt;'
+    if (p.ind) st += 'margin-left:' + p.ind + 'cm;'
+    return st
+  }
+  /** The class + attributes a block starts with for its stored paragraph format. */
+  function dpPfmtAttrs(p) {
+    if (!p || typeof p !== 'object' || !Object.keys(p).length) return { cls: '', attr: '' }
+    return { cls: p.h ? ' wb-dp-h' + p.h : '', attr: ' data-wb-pfmt="' + escA(JSON.stringify(p)) + '" style="' + escA(dpPfmtStyle(p)) + '"' }
+  }
+
   /** The formatted HTML a block field starts with: its unsaved draft first, else the stored formatting. */
   function dpBlockRich(b) {
     if (b.kind === 'table') return undefined
@@ -11989,7 +12044,7 @@
         return
       }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-        + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls, 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr,
+        + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + dpPfmtAttrs(b.pfmt).cls + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : ''), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr + dpPfmtAttrs(b.pfmt).attr,
           dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
         + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
         + (b.rewrite ? '<div class="wb-dp-extra">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
@@ -12204,24 +12259,29 @@
    *  field compares equal and is not saved again. */
   function dpFmtOf(el) {
     var runs = []
+    var same = function (p, m) { return p.b === m.b && p.i === m.i && p.u === m.u && p.s === m.s && p.f === m.f && p.z === m.z && p.c === m.c && p.h === m.h }
     var push = function (text, m) {
       if (!text) return
       var p = runs[runs.length - 1]
-      if (p && p.b === m.b && p.i === m.i && p.u === m.u && p.s === m.s) p.t += text
-      else runs.push({ t: text, b: m.b, i: m.i, u: m.u, s: m.s })
+      if (p && same(p, m)) p.t += text
+      else runs.push({ t: text, b: m.b, i: m.i, u: m.u, s: m.s, f: m.f, z: m.z, c: m.c, h: m.h })
     }
     var lastNl = function () { var p = runs[runs.length - 1]; return !p || /\n$/.test(p.t) }
     var walk = function (node, m) {
       for (var n = node.firstChild; n; n = n.nextSibling) {
-        if (n.nodeType === 3) { push(String(n.nodeValue).replace(/\u00a0/g, ' '), m); continue }
+        if (n.nodeType === 3) { push(String(n.nodeValue).replace(/ /g, ' '), m); continue }
         if (n.nodeType !== 1) continue
         var tag = String(n.nodeName).toLowerCase()
         if (tag === 'br') { push('\n', m); continue }
-        var mm = { b: m.b, i: m.i, u: m.u, s: m.s }
+        var mm = { b: m.b, i: m.i, u: m.u, s: m.s, f: m.f, z: m.z, c: m.c, h: m.h }
         if (tag === 'b' || tag === 'strong') mm.b = true
         if (tag === 'i' || tag === 'em') mm.i = true
         if (tag === 'u') mm.u = true
         if (tag === 's' || tag === 'strike' || tag === 'del') mm.s = true
+        if (tag === 'font') {
+          var ff = dpFontOf(n.getAttribute('face')); if (ff) mm.f = ff
+          var fc = dpHexOf(n.getAttribute('color')); if (fc) mm.c = fc
+        }
         var st = n.style
         if (st) {
           if (st.fontWeight === 'bold' || Number(st.fontWeight) >= 600) mm.b = true
@@ -12229,13 +12289,17 @@
           var td = String(st.textDecorationLine || st.textDecoration || '')
           if (td.indexOf('underline') >= 0) mm.u = true
           if (td.indexOf('line-through') >= 0) mm.s = true
+          var sf = dpFontOf(st.fontFamily); if (sf) mm.f = sf
+          var sz = dpPtOf(st.fontSize); if (sz) mm.z = sz
+          var sc = dpHexOf(st.color); if (sc) mm.c = sc
+          var sh = dpHexOf(st.backgroundColor); if (sh) mm.h = sh
         }
         var blockTag = tag === 'div' || tag === 'p'
         if (blockTag && !lastNl()) push('\n', m)
         walk(n, mm)
       }
     }
-    walk(el, { b: false, i: false, u: false, s: false })
+    walk(el, { b: false, i: false, u: false, s: false, f: '', z: 0, c: '', h: '' })
     // Trailing line breaks are not content.
     while (runs.length && /\n$/.test(runs[runs.length - 1].t)) {
       var lr = runs[runs.length - 1]
@@ -12243,7 +12307,8 @@
       if (!lr.t) runs.pop()
     }
     var plain = runs.map(function (r) { return r.t }).join('').trim()
-    if (!runs.some(function (r) { return r.b || r.i || r.u || r.s })) return { rich: '', plain: plain }
+    var fmtd = function (r) { return r.b || r.i || r.u || r.s || r.f || r.z || r.c || r.h }
+    if (!runs.some(fmtd)) return { rich: '', plain: plain }
     var enc = function (x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') }
     var rich = runs.map(function (r) {
       var o = enc(r.t)
@@ -12251,6 +12316,12 @@
       if (r.u) o = '<u>' + o + '</u>'
       if (r.i) o = '<i>' + o + '</i>'
       if (r.b) o = '<b>' + o + '</b>'
+      var sty = []
+      if (r.f) sty.push('font-family:' + r.f)
+      if (r.z) sty.push('font-size:' + r.z + 'pt')
+      if (r.c) sty.push('color:' + r.c)
+      if (r.h) sty.push('background-color:' + r.h)
+      if (sty.length) o = '<span style="' + sty.join(';') + '">' + o + '</span>'
       return o
     }).join('')
     return { rich: rich, plain: plain }
@@ -12282,13 +12353,38 @@
     ['list', '&#8226;&#8801;', 'fmt_list'], ['clear', '&#10007;', 'fmt_clear']
   ]
 
+  function dpSelectHtml(kind, label, opts) {
+    return '<select class="wb-dp-sel" data-wb-fmtsel="' + kind + '" title="' + escA(label) + '" aria-label="' + escA(label) + '"><option value="">' + esc(label) + '</option>'
+      + opts.map(function (o) { return '<option value="' + escA(o[0]) + '">' + esc(o[1]) + '</option>' }).join('') + '</select>'
+  }
+  function dpColorHtml(kind, label, glyph, value) {
+    return '<label class="wb-dp-clr" title="' + escA(label) + '"><span class="wb-dp-clr-a wb-dp-clr-' + kind + '" aria-hidden="true">' + glyph + '</span>'
+      + '<input type="color" data-wb-fmtcolor="' + kind + '" value="' + value + '" aria-label="' + escA(label) + '"></label>'
+  }
+
   /** The Word-like ribbon above the page: acts on the field the cursor is in. */
   function dpToolbarHtml() {
+    var btn = function (f, label, inner) {
+      return '<button type="button" class="wb-dp-tb" data-wb-fmt="' + f + '" aria-pressed="false" title="' + escA(label) + '" aria-label="' + escA(label) + '">' + inner + '</button>'
+    }
     return '<div class="wb-dp-toolbar" role="toolbar" aria-label="' + escA(t('workbench.dp.fmt_label')) + '">'
       + DP_FMT_TOOLS.map(function (x) {
         if (x[0] === '|') return '<span class="wb-dp-tbsep"></span>'
-        return '<button type="button" class="wb-dp-tb" data-wb-fmt="' + x[0] + '" aria-pressed="false" title="' + escA(t('workbench.dp.' + x[2])) + '" aria-label="' + escA(t('workbench.dp.' + x[2])) + '">' + x[1] + '</button>'
-      }).join('') + '</div>'
+        return btn(x[0], t('workbench.dp.' + x[2]), x[1])
+      }).join('')
+      + btn('numlist', t('workbench.dp.fmt_numlist'), '1.&#8801;')
+      + btn('indent-less', t('workbench.dp.fmt_indent_less'), '&#8676;')
+      + btn('indent-more', t('workbench.dp.fmt_indent_more'), '&#8677;')
+      + '<span class="wb-dp-tbsep"></span>'
+      + dpSelectHtml('font', t('workbench.dp.fmt_font'), DP_FONTS.map(function (f) { return [f, f] }))
+      + dpSelectHtml('size', t('workbench.dp.fmt_size'), DP_SIZES.map(function (z) { return [String(z), String(z)] }))
+      + dpColorHtml('fore', t('workbench.dp.fmt_color'), 'A', '#cc0000')
+      + dpColorHtml('hilite', t('workbench.dp.fmt_hilite'), '&#9608;', '#ffff00')
+      + '<span class="wb-dp-tbsep"></span>'
+      + dpSelectHtml('linesp', t('workbench.dp.fmt_linesp'), DP_LINESP.map(function (v) { return [String(v), String(v).replace('.', ',')] }))
+      + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), DP_SPACEAFTER.map(function (v) { return [String(v), v + ' pt'] }))
+      + dpSelectHtml('heading', t('workbench.dp.fmt_heading'), [['0', t('workbench.dp.fmt_head_normal')], ['2', t('workbench.dp.fmt_head2')], ['3', t('workbench.dp.fmt_head3')]])
+      + '</div>'
   }
 
   /** Egy mezo tartalmanak elmentese; a Promise az uj vazlattal (vagy null-lal) ter vissza. */
@@ -12352,6 +12448,8 @@
         var nbody = { section: sec, text: nfm.rich ? nfm.plain : text, kind: kd, position: pos }
         if (nfm.rich) nbody.rich = nfm.rich
         if (el.getAttribute('data-wb-align')) nbody.align = el.getAttribute('data-wb-align')
+        var npf = dpPfmtOf(el)
+        if (Object.keys(npf).length) nbody.pfmt = npf
         return dpCall('POST', '/blocks', nbody).then(function (o) {
           if (o) { el.setAttribute('data-wb-saved', '1'); delete WB.docDrafts[key]; if (WB.docNew && WB.docNew.sec === nsid && WB.docNew.pos === pos) WB.docNew = null }
           return o
@@ -15581,9 +15679,38 @@
         if (f === 'bold' || f === 'italic' || f === 'underline' || f === 'strikeThrough') { try { on = document.activeElement === el && document.queryCommandState(f) } catch (_e) { on = false } }
         else if (f.indexOf('align-') === 0) on = (el.getAttribute('data-wb-align') || '') === f.slice(6)
         else if (f === 'list') on = el.classList.contains('wb-outline-kind-list')
+        else if (f === 'numlist') on = dpFieldNumbered(el)
       }
       btns[i].setAttribute('aria-pressed', on ? 'true' : 'false')
       btns[i].classList.toggle('is-on', on)
+    }
+    // The drop-downs show the format of the text under the cursor / of the paragraph.
+    var sels = document.querySelectorAll('[data-wb-fmtsel]')
+    var anchor = null
+    try {
+      var sl = window.getSelection()
+      var an = sl && sl.anchorNode
+      anchor = an && an.nodeType === 3 ? an.parentNode : an
+      if (!el || !anchor || !el.contains(anchor)) anchor = null
+    } catch (_e) { anchor = null }
+    for (var j = 0; j < sels.length; j++) {
+      if (document.activeElement === sels[j]) continue
+      var kind = sels[j].getAttribute('data-wb-fmtsel')
+      var v = ''
+      var pf = el ? dpPfmtOf(el) : {}
+      if (kind === 'linesp') v = pf.ls ? String(pf.ls) : ''
+      else if (kind === 'spaceafter') v = pf.sa !== undefined && pf.sa !== null ? String(pf.sa) : ''
+      else if (kind === 'heading') v = pf.h ? String(pf.h) : ''
+      else if (anchor) {
+        try {
+          var cs = window.getComputedStyle(anchor)
+          if (kind === 'font') v = dpFontOf(cs.fontFamily)
+          else if (kind === 'size') { var z = dpPtOf(cs.fontSize); v = DP_SIZES.indexOf(z) >= 0 ? String(z) : '' }
+        } catch (_e) { v = '' }
+      }
+      var has = false
+      for (var o = 0; o < sels[j].options.length; o++) if (sels[j].options[o].value === v) has = true
+      sels[j].value = has ? v : ''
     }
   }
   document.addEventListener('selectionchange', function () { if (WB.open) dpFmtSync() })
@@ -15619,6 +15746,136 @@
     })
   }
 
+  /** Paragraph format of the field: merge `patch` (null / '' removes a key), show it at once, save it for a stored block. */
+  function dpSetPfmt(el, patch) {
+    var p = dpPfmtOf(el)
+    Object.keys(patch).forEach(function (k) {
+      if (patch[k] === null || patch[k] === '' || patch[k] === undefined) delete p[k]
+      else p[k] = patch[k]
+    })
+    if (p.ls === 1) delete p.ls
+    el.classList.remove('wb-dp-h2', 'wb-dp-h3')
+    if (p.h) el.classList.add('wb-dp-h' + p.h)
+    if (Object.keys(p).length) {
+      el.setAttribute('data-wb-pfmt', JSON.stringify(p))
+      el.setAttribute('style', dpPfmtStyle(p))
+    } else {
+      el.removeAttribute('data-wb-pfmt')
+      el.removeAttribute('style')
+    }
+    var bid = el.getAttribute('data-wb-block')
+    if (bid) dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { pfmt: p })
+  }
+
+  function dpIsNumbered(text) {
+    var lines = String(text || '').split('\n').filter(function (l) { return l.trim() })
+    return lines.length > 0 && lines.every(function (l) { return /^\s*\d+[.)]\s+/.test(l) })
+  }
+
+  /** Is the field a numbered list? A stored list shows its lines without the markers, so the stored text decides. */
+  function dpFieldNumbered(el) {
+    var bid = el.getAttribute('data-wb-block')
+    if (bid) { var b = findBlock(bid); return !!b && b.kind === 'list' && dpIsNumbered(b.text) }
+    return el.classList.contains('wb-outline-kind-list') && dpIsNumbered(dpText(el))
+  }
+
+  /** Numbered list: every line gets "1. 2. 3." (the list renders as a real numbered list); pressed again, it is plain text. */
+  function dpToggleNumList(el) {
+    var bid = el.getAttribute('data-wb-block')
+    var text = dpText(el)
+    var numbered = dpFieldNumbered(el)
+    var strip = function (l) { return l.replace(/^\s*(?:[-*•–]|\d+[.)])\s+/, '') }
+    var lines = text.split('\n').filter(function (l) { return l.trim() })
+    var next = numbered ? lines.map(strip).join('\n') : lines.map(function (l, i) { return (i + 1) + '. ' + strip(l) }).join('\n')
+    var kind = numbered ? 'paragraph' : 'list'
+    if (!next) return
+    if (!bid) {
+      el.setAttribute('data-wb-kind', kind)
+      el.classList.toggle('wb-outline-kind-list', kind === 'list')
+      el.classList.toggle('wb-outline-kind-paragraph', kind !== 'list')
+      el.classList.toggle('wb-dp-numbered', kind === 'list')
+      el.textContent = next
+      dpKeepDraft(el)
+      return
+    }
+    var b = findBlock(bid)
+    if (!b || (b.kind !== 'paragraph' && b.kind !== 'list')) return
+    dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: next, kind: kind }).then(function (o) {
+      if (!o) return
+      delete WB.docDrafts['b:' + bid]
+      if (WB.docDraftRich) delete WB.docDraftRich['b:' + bid]
+      // The field still holds the old words: put the new ones in, or the redraw keeps the old ones as a "draft".
+      el.textContent = next
+      WB.docFocus = { id: 'wbDpB_' + bid, end: true }
+      render()
+    })
+  }
+
+  /** Remember the selection inside the document fields: a drop-down or a colour picker takes the focus away from it. */
+  document.addEventListener('selectionchange', function () {
+    if (!WB.open) return
+    try {
+      var sel = window.getSelection()
+      if (!sel || !sel.rangeCount) return
+      var r = sel.getRangeAt(0)
+      var host = r.commonAncestorContainer
+      host = host && host.nodeType === 3 ? host.parentNode : host
+      var f = host && typeof host.closest === 'function' ? host.closest('[data-wb-dp]') : null
+      if (f && f.id && /^(block|new)$/.test(f.getAttribute('data-wb-dp') || '')) WB.dpRange = { id: f.id, range: r.cloneRange() }
+    } catch (_e) { /* nem baj */ }
+  })
+
+  function dpRestoreRange(el) {
+    var r = WB.dpRange
+    if (!r || r.id !== el.id) return false
+    try {
+      el.focus()
+      var s = window.getSelection()
+      s.removeAllRanges()
+      s.addRange(r.range)
+      return true
+    } catch (_e) { return false }
+  }
+
+  /** Font / size / colours on the selected words (the formatting lives in the field; saving goes the usual way). */
+  function dpApplyInline(el, kind, value) {
+    if (!dpRestoreRange(el)) { window.showToast(t('workbench.dp.fmt_select_text')); return }
+    var sel = window.getSelection()
+    if (!sel || !sel.rangeCount || sel.isCollapsed) { window.showToast(t('workbench.dp.fmt_select_text')); return }
+    try {
+      document.execCommand('styleWithCSS', false, true)
+      if (kind === 'font') document.execCommand('fontName', false, value)
+      else if (kind === 'size') {
+        document.execCommand('fontSize', false, '7')
+        var big = el.querySelectorAll('span[style*="xxx-large"], font[size="7"]')
+        for (var i = 0; i < big.length; i++) { big[i].removeAttribute('size'); big[i].style.fontSize = value + 'pt' }
+      } else if (kind === 'fore') document.execCommand('foreColor', false, value)
+      else if (kind === 'hilite') { if (!document.execCommand('hiliteColor', false, value)) document.execCommand('backColor', false, value) }
+      document.execCommand('styleWithCSS', false, false)
+    } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
+    dpKeepDraft(el)
+    dpFmtSync()
+  }
+
+  document.addEventListener('change', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var sel = e.target.closest('[data-wb-fmtsel]')
+    var clr = e.target.closest('[data-wb-fmtcolor]')
+    if (!sel && !clr) return
+    if (archived()) return
+    var el = dpFmtTarget()
+    if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
+    if (clr) { dpApplyInline(el, clr.getAttribute('data-wb-fmtcolor'), clr.value); return }
+    var k = sel.getAttribute('data-wb-fmtsel')
+    var v = sel.value
+    if (v === '') return
+    if (k === 'font' || k === 'size') dpApplyInline(el, k, v)
+    else if (k === 'linesp') dpSetPfmt(el, { ls: Number(v) })
+    else if (k === 'spaceafter') dpSetPfmt(el, { sa: Number(v) })
+    else if (k === 'heading') dpSetPfmt(el, { h: Number(v) || null })
+    dpFmtSync()
+  })
+
   document.addEventListener('click', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     var btn = e.target.closest('[data-wb-fmt]')
@@ -15630,6 +15887,12 @@
     if (document.activeElement !== el) { try { el.focus() } catch (_e) { /* nem baj */ } }
     if (f.indexOf('align-') === 0) dpSetAlign(el, f.slice(6))
     else if (f === 'list') dpToggleList(el)
+    else if (f === 'numlist') dpToggleNumList(el)
+    else if (f === 'indent-more' || f === 'indent-less') {
+      var ci = Number(dpPfmtOf(el).ind) || 0
+      var ni = f === 'indent-more' ? Math.min(8, ci + 1) : Math.max(0, ci - 1)
+      dpSetPfmt(el, { ind: ni || null })
+    }
     else {
       try {
         document.execCommand('styleWithCSS', false, false)

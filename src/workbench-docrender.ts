@@ -20,11 +20,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
 import { MISSING_MARK_RE, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
-import { isBlockAlign, richMatches, richRuns, type RichRun } from './workbench-docrich.js'
+import { isBlockAlign, richMatches, richRuns, type ParaFmt, type RichRun } from './workbench-docrich.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
-  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null }[] }[]
+  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[]
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
@@ -157,12 +157,53 @@ function inlineMarked(s: string, draft: boolean): string {
  * sort a lap szeleig szethuzna ("Tisztelt            Birosag!"), ezert minden
  * sor kulon bekezdes, a belso sorok kozott terkoz nelkul.
  */
-function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean, rich?: string | null, align?: string | null): string[] {
+/** Automatic styles made on the fly (a paragraph's spacing / indent, a run's font / size / colours), one per distinct value. */
+interface StyleCtx { extra: string[]; names: Map<string, string> }
+
+function autoStyle(st: StyleCtx, key: string, make: (name: string) => string): string {
+  const hit = st.names.get(key)
+  if (hit) return hit
+  const name = `Fx${st.names.size + 1}`
+  st.names.set(key, name)
+  st.extra.push(make(name))
+  return name
+}
+
+/** The paragraph style for a block's spacing / indent / alignment on top of the base style `parent`. */
+function paraStyle(st: StyleCtx, parent: string, pf: ParaFmt | null, last: boolean, align?: string): string {
+  const props: string[] = []
+  if (pf?.ls) props.push(`fo:line-height="${Math.round(pf.ls * 130)}%"`)
+  if (pf?.sa !== undefined && last) props.push(`fo:margin-bottom="${pf.sa}pt"`)
+  if (pf?.ind) props.push(`fo:margin-left="${pf.ind.toFixed(2)}cm"`)
+  if (align) props.push(`fo:text-align="${align}"`)
+  if (!props.length) return parent
+  return autoStyle(st, `p|${parent}|${props.join(' ')}`, (name) => `<style:style style:name="${name}" style:family="paragraph" style:parent-style-name="${parent}"><style:paragraph-properties ${props.join(' ')}/></style:style>`)
+}
+
+/**
+ * Bekezdes(ek). Ures sor = uj bekezdes. Sima sortores = uj sor ugyanabban a
+ * gondolatban -- de SORKIZART bekezdesben a LibreOffice a kezi sortores elotti
+ * sort a lap szeleig szethuzna ("Tisztelt            Birosag!"), ezert minden
+ * sor kulon bekezdes, a belso sorok kozott terkoz nelkul.
+ */
+function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean, st: StyleCtx, rich?: string | null, align?: string | null, pf?: ParaFmt | null): string[] {
   const out: string[] = []
+  const p = style === 'Body' ? pf ?? null : null
   // Alignment styles exist for the body text only (BodyAl_c, BodyLineAl_c, ...); justify is the body default.
   const al = style === 'Body' && isBlockAlign(align) && align !== 'j' ? `Al_${align}` : ''
   const useRich = !!rich && richMatches(rich, text)
   const runs = useRich ? richRuns(String(rich)) : null
+  // One output paragraph: a heading level (text:h) or a body line.
+  const emit = (inner: string, inGroupLast: boolean): string => {
+    if (p?.h) {
+      const parent = `Heading_20_${p.h}`
+      const a = isBlockAlign(align) && align !== 'j' ? (align === 'l' ? 'start' : align === 'c' ? 'center' : 'end') : ''
+      const name = paraStyle(st, parent, { ...p, sa: undefined }, true, a)
+      return `<text:h text:style-name="${name}" text:outline-level="${p.h}">${inner}</text:h>`
+    }
+    const base = (inGroupLast ? style : style + 'Line') + al
+    return `<text:p text:style-name="${paraStyle(st, base, p, inGroupLast)}">${inner}</text:p>`
+  }
   if (runs) {
     // Split the formatted runs into lines at "\n", keeping each run's marks.
     const lines: RichRun[][] = [[]]
@@ -179,29 +220,33 @@ function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean, rich?:
       else groups[groups.length - 1].push(ln)
     }
     for (const g of groups) {
-      g.forEach((ln, i) => {
-        const name = (i < g.length - 1 ? style + 'Line' : style) + al
-        out.push(`<text:p text:style-name="${name}">${ln.map((r) => richSpan(r, draft)).join('')}</text:p>`)
-      })
+      g.forEach((ln, i) => out.push(emit(ln.map((r) => richSpan(r, draft, st)).join(''), i === g.length - 1)))
     }
     return out
   }
   for (const para of text.split(/\n[ \t]*\n+/)) {
     const lines = para.split('\n')
-    lines.forEach((l, i) => {
-      out.push(`<text:p text:style-name="${(i < lines.length - 1 ? style + 'Line' : style) + al}">${inlineMarked(l, draft)}</text:p>`)
-    })
+    lines.forEach((l, i) => out.push(emit(inlineMarked(l, draft), i === lines.length - 1)))
   }
   return out
 }
 
 /** One formatted run in ODF: the marks as nested character-style spans around the (marked) text. */
-function richSpan(r: RichRun, draft: boolean): string {
+function richSpan(r: RichRun, draft: boolean, st: StyleCtx): string {
   let x = inlineMarked(r.text, draft)
   if (r.s) x = `<text:span text:style-name="FmtS">${x}</text:span>`
   if (r.u) x = `<text:span text:style-name="FmtU">${x}</text:span>`
   if (r.i) x = `<text:span text:style-name="FmtI">${x}</text:span>`
   if (r.b) x = `<text:span text:style-name="FmtB">${x}</text:span>`
+  const props: string[] = []
+  if (r.f) props.push(`fo:font-family="'${r.f}'"`)
+  if (r.z) props.push(`fo:font-size="${r.z}pt"`)
+  if (r.c) props.push(`fo:color="${r.c}"`)
+  if (r.h) props.push(`fo:background-color="${r.h}"`)
+  if (props.length) {
+    const name = autoStyle(st, `t|${props.join(' ')}`, (n) => `<style:style style:name="${n}" style:family="text"><style:text-properties ${props.join(' ')}/></style:style>`)
+    x = `<text:span text:style-name="${name}">${x}</text:span>`
+  }
   return x
 }
 
@@ -285,6 +330,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const extraStyles: string[] = []
   let notes = 0
   let pictures = 0
+  const st: StyleCtx = { extra: extraStyles, names: new Map() }
   for (const s of outline.sections) {
     body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(s.title)}</text:h>`)
     const sec: string[] = []
@@ -297,8 +343,8 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
         // Nincs elotte szoveg a fejezetben: kis betus megjegyzeskent all.
         const note = footnoteXml(b.text, notes + 1, o.draft)
         if (attachFootnote(sec, note)) notes++
-        else sec.push(...paragraphs(b.text, 'Note', o.draft))
-      } else sec.push(...paragraphs(b.text, 'Body', o.draft, b.rich, b.align))
+        else sec.push(...paragraphs(b.text, 'Note', o.draft, st))
+      } else sec.push(...paragraphs(b.text, 'Body', o.draft, st, b.rich, b.align, b.pfmt))
     }
     body.push(...sec)
   }
@@ -332,6 +378,8 @@ ${(['l', 'c', 'r'] as const).map((a) => {
 <style:style style:name="ListP" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0.1cm"/></style:style>
 <style:style style:name="Title" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="0.6cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="Heading_20_1" style:display-name="Heading 1" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="1"><style:paragraph-properties fo:margin-top="0.45cm" fo:margin-bottom="0.2cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="13pt" fo:font-weight="bold"/></style:style>
+<style:style style:name="Heading_20_2" style:display-name="Heading 2" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="2"><style:paragraph-properties fo:margin-top="0.35cm" fo:margin-bottom="0.15cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="12pt" fo:font-weight="bold"/></style:style>
+<style:style style:name="Heading_20_3" style:display-name="Heading 3" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="3"><style:paragraph-properties fo:margin-top="0.3cm" fo:margin-bottom="0.12cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="11pt" fo:font-weight="bold" fo:font-style="italic"/></style:style>
 <style:style style:name="Note" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-bottom="0.15cm"/><style:text-properties fo:font-size="9.5pt"/></style:style>
 <style:style style:name="NoteLine" style:family="paragraph" style:parent-style-name="Note"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:margin-left="0.4cm" fo:text-indent="-0.4cm"/><style:text-properties fo:font-size="10pt"/></style:style>
@@ -375,15 +423,15 @@ ${body.join('\n')}
 }
 
 /** A renderelt tartalom: ami a PDF-be kerul. Mas mezo (allitas, forras) nem. */
-export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null }[] }[] }): RenderOutline {
-  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}) })) })) }
+export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[] }): RenderOutline {
+  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}), ...(b.pfmt ? { pfmt: b.pfmt } : {}) })) })) }
 }
 
 /** A dokumentum tartalmanak ujjlenyomata: ha a vegleges PDF utan valtozik, a vegleges allapot megszunik (K-1.23). */
 export function outlineHash(outline: RenderOutline, title: string): string {
   const core = {
     title,
-    s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}) })) })),
+    s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}), ...(b.pfmt ? { pf: b.pfmt } : {}) })) })),
     ...(outline.annexes && outline.annexes.length ? { a: outline.annexes.map((a) => [a.label, a.title]), at: outline.annexTitle || '' } : {}),
   }
   return createHash('sha256').update(JSON.stringify(core)).digest('hex')

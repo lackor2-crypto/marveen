@@ -3467,7 +3467,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'sections' && segs.length === 4 && method === 'PATCH') return done(updateSection(item.id, id, { title: body['title'], status: body['status'], position: body['position'] }))
     if (sub === 'sections' && segs.length === 4 && method === 'DELETE') return done(removeSection(item.id, id))
     if (sub === 'blocks' && segs.length === 3 && method === 'POST') {
-      return done(addBlock(item.id, String(body['section'] ?? ''), { kind: body['kind'], text: body['text'], rich: body['rich'], align: body['align'], position: body['position'], author: 'owner' }), true)
+      return done(addBlock(item.id, String(body['section'] ?? ''), { kind: body['kind'], text: body['text'], rich: body['rich'], align: body['align'], pfmt: body['pfmt'], position: body['position'], author: 'owner' }), true)
     }
     // #508 (Boss TG 2943): a file dropped onto the page -- built in (picture / table / text) or attached as an annex.
     //   POST .../outline/drop {path (under the Marveen folder), mode: 'embed'|'annex', section, position}
@@ -3505,7 +3505,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, added, truncated: conv.truncated, empty_table: conv.emptyTable === true, outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
-    if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], rich: body['rich'], align: body['align'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))
+    if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], rich: body['rich'], align: body['align'], pfmt: body['pfmt'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))
     if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
     // MELLEKLETJEGYZEK (K-1.18): a szovegbeli hivatkozasok a listahoz igazodnak.
     if (sub === 'annexes' && segs.length === 3 && method === 'POST') {
