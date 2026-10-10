@@ -38,6 +38,7 @@ import { mountsInside } from './life-mounts.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
+import { captureFileRefs, recordFileTrash } from './workbench-file-trash.js'
 import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
@@ -897,21 +898,23 @@ function detachDeletedFileRefs(rel: string): void {
 }
 
 /** The owner deleted an item's snapshot file: remember it, so the snapshot sweep never writes it back. */
-function optOutSnapshot(project: ProjectRow, rel: string): void {
+function optOutSnapshot(project: ProjectRow, rel: string): string[] {
   const db = getDb()
+  const off: string[] = []
   try {
     db.exec('CREATE TABLE IF NOT EXISTS work_item_snapshot_off (work_item_id TEXT PRIMARY KEY)')
     const dir = rel.slice(0, rel.lastIndexOf('/'))
     const rows = db.prepare("SELECT id, folder FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(project.id) as { id: string; folder: string }[]
     for (const r of rows) {
       const t = projectFileTarget(project, r.folder)
-      if (t.ok && t.dirRel.replace(/\/+$/, '') === dir) db.prepare('INSERT OR IGNORE INTO work_item_snapshot_off (work_item_id) VALUES (?)').run(r.id)
+      if (t.ok && t.dirRel.replace(/\/+$/, '') === dir && db.prepare('INSERT OR IGNORE INTO work_item_snapshot_off (work_item_id) VALUES (?)').run(r.id).changes) off.push(r.id)
     }
   } catch { /* worst case the snapshot is written again: never a failed delete */ }
+  return off
 }
 
 export type DeleteFilesResult =
-  | { ok: true; deleted: string[]; skipped: MoveFilesSkip[] }
+  | { ok: true; deleted: string[]; skipped: MoveFilesSkip[]; trash: string[] }
   | { ok: false; code: 'no_files' | 'no_box' }
 
 /**
@@ -947,22 +950,27 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
   const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r) && !snapshots.has(r)))
   const deleted: string[] = []
   const skipped: MoveFilesSkip[] = []
+  const trash: string[] = []
   for (const rel of want) {
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     if (!loose.has(rel)) { skipped.push({ name, reason: 'not_loose' }); continue }
     const src = resolveLifePath(rel)
     if (!src || writeBlockReason(rel)) { skipped.push({ name, reason: 'failed' }); continue }
+    // #529: what the delete takes off the file is read first, so the Workbench trash can give it back.
+    const refs = captureFileRefs(rel)
     // #492: a loose file goes to the Kuka (restorable), never straight to oblivion.
     const t = trashLife(rel)
     if (t.ok) {
       deleted.push(name)
       // A file a work item names is deletable too: the item simply forgets it, so nothing is "missing" later.
       if (inUse.has(rel)) detachDeletedFileRefs(rel)
-      if (snapshots.has(rel)) optOutSnapshot(project, rel)
+      const off = snapshots.has(rel) ? optOutSnapshot(project, rel) : []
+      const id = recordFileTrash(project.id, rel, t.rel, { ...refs, snapshotOff: off })
+      if (id) trash.push(id)
     }
     else skipped.push({ name, reason: 'failed' })
   }
-  return { ok: true, deleted, skipped }
+  return { ok: true, deleted, skipped, trash }
 }
 
 export type RenameFileResult =

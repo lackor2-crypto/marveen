@@ -89,11 +89,27 @@ describe('tick files -> one named presentation (#475)', () => {
     expect(h.html()).not.toContain('wb-sel-bar')
     tick(h, FOLDER + '/s2.png')
     expect(h.html()).toContain('wb-sel-bar')
+    // #529: with a picture ticked the bar offers the presentation as a button; the name is asked only after it.
+    expect(h.html()).toContain('data-wb-act="sel-deck-ask"')
+    expect(h.html()).not.toContain('wbSelDeckName')
+    h.click({ 'data-wb-act': 'sel-deck-ask' })
+    expect(h.html()).toContain('id="wbSelDeckName"')
     expect(h.html()).toContain('data-wb-act="sel-to-deck"')
+    h.click({ 'data-wb-act': 'sel-deck-cancel' })
+    expect(h.html()).not.toContain('wbSelDeckName')
+  })
+  it('#529: with no picture ticked there is neither a name box nor a presentation button', async () => {
+    const h = await open()
+    tick(h, FOLDER + '/jegyzet.txt'); tick(h, BOX + '/ajanlat.docx')
+    expect(h.html()).toContain('wb-sel-bar')
+    expect(h.html()).not.toContain('wbSelDeckName')
+    expect(h.html()).not.toContain('sel-deck-ask')
+    expect(h.html()).not.toContain('sel-to-deck')
   })
   it('makes ONE presentation from the ticked pictures in file-name order, with the typed name, and ignores non-images', async () => {
     const h = await open()
     tick(h, FOLDER + '/s10.png'); tick(h, FOLDER + '/s1.png'); tick(h, FOLDER + '/s2.png'); tick(h, FOLDER + '/jegyzet.txt')
+    h.click({ 'data-wb-act': 'sel-deck-ask' })
     h.inputs['wbSelDeckName'] = { value: 'Ajánlat képek', focus: () => {} }
     h.click({ 'data-wb-act': 'sel-to-deck' })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/deck/ops'))).toBe(true))

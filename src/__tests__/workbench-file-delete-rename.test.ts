@@ -50,7 +50,7 @@ describe('deleteLooseFiles', () => {
     const r2 = loose(a, 'S02.png')
     const keep = loose(a, 'S03.png')
     const r = deleteLooseFiles(proj(), [r1, r2])
-    expect(r).toEqual({ ok: true, deleted: ['S01.png', 'S02.png'], skipped: [] })
+    expect(r).toMatchObject({ ok: true, deleted: ['S01.png', 'S02.png'], skipped: [] })
     expect(existsSync(join(abs(a), 'S01.png'))).toBe(false)
     expect(existsSync(join(abs(a), 'S02.png'))).toBe(false)
     expect(existsSync(join(abs(a), 'S03.png'))).toBe(true)
@@ -61,7 +61,7 @@ describe('deleteLooseFiles', () => {
     const a = group('Forras')
     loose(a, 'S01.png', 'PIXELS')
     const rel = listWorkFolders(proj()).files[a]![0]!.rel
-    expect(deleteLooseFiles(proj(), [rel])).toEqual({ ok: true, deleted: ['S01.png'], skipped: [] })
+    expect(deleteLooseFiles(proj(), [rel])).toMatchObject({ ok: true, deleted: ['S01.png'], skipped: [] })
     expect(existsSync(join(abs(a), 'S01.png'))).toBe(false)
     const kuka = join(dir, trashRelPath())
     const stamps = readdirSync(kuka)
@@ -78,7 +78,7 @@ describe('deleteLooseFiles', () => {
     if (!it.ok) throw new Error('item')
     db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, JSON.stringify({ src: rel }))
     const r = deleteLooseFiles(proj(), [rel])
-    expect(r).toEqual({ ok: true, deleted: ['s01.png'], skipped: [] })
+    expect(r).toMatchObject({ ok: true, deleted: ['s01.png'], skipped: [] })
     expect(existsSync(join(abs(a), 's01.png'))).toBe(false)
   })
 
@@ -95,7 +95,7 @@ describe('deleteLooseFiles', () => {
     db.prepare('INSERT INTO work_item_deck_drafts (work_item_id, doc) VALUES (?, ?)').run(it.item.id, JSON.stringify({ src: used }))
     const snap = `${used.slice(0, used.lastIndexOf('/'))}/marveen-item.json`
     const r = deleteLooseFiles(proj(), [used, free, snap])
-    expect(r).toEqual({ ok: true, deleted: ['s01.png', 'jegyzet.txt', 'marveen-item.json'], skipped: [] })
+    expect(r).toMatchObject({ ok: true, deleted: ['s01.png', 'jegyzet.txt', 'marveen-item.json'], skipped: [] })
     expect(existsSync(join(abs(a), 's01.png'))).toBe(false)
     expect(existsSync(join(abs(a), 'marveen-item.json'))).toBe(false)
     sweepSnapshots({ force: true }) // the owner's deletion sticks: the snapshot is not written back

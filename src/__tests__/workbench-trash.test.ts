@@ -221,7 +221,10 @@ describe('lomtar: a felulet', () => {
     h.click({ 'data-wb-act': 'item-purge', 'data-wb-id': 'w1' })
     await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.trash.purged⟧'))
     expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w1/purge'))).toBe(true)
-    expect(h.html()).not.toContain('data-wb-act="trash-toggle"')
+    // #529 (Boss TG 8585): the emptied trash stays in its place and says it is empty, it does not vanish.
+    expect(h.html()).toContain('data-wb-act="trash-toggle"')
+    expect(h.html()).not.toMatch(/data-wb-act="item-purge-ask"[^>]*data-wb-id="w1"/)
+    expect(h.html()).toContain('⟦workbench.trash.empty⟧')
   })
 
   it('a Torles a jobb egeres menuben van (nem a soron), forditva', async () => {
