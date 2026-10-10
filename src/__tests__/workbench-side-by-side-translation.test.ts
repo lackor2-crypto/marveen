@@ -113,6 +113,29 @@ describe('side-by-side translation of a draft', () => {
     expect([out[0]!.align ?? null, out[0]!.rich ?? null]).toEqual([null, null])
   })
 
+  it('#534 fix: the look the owner left on an edited paragraph is saved, not the one guessed from the position', () => {
+    // two source blocks, the translation has THREE (Enter split one): no positional pairing is possible, so only the
+    // look the page sent can reach the language version
+    const shown = [{ source_section: secId, title: 'Sachverhalt', blocks: [
+      { kind: 'paragraph', text: 'Die Klage ist eingereicht.' },
+      { kind: 'paragraph', text: 'Zentriert und fett.', align: 'c', pfmt: { h: 2 }, rich: '<b>Zentriert und fett.</b>' },
+      { kind: 'paragraph', text: 'Rechts.', align: 'r' },
+    ] }]
+    const saved = saveShownTranslation(src, 'de', shown, 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    const out = listBlocks(saved.variant.id)
+    expect(out).toHaveLength(3)
+    expect(out[1]).toMatchObject({ align: 'c', rich: '<b>Zentriert und fett.</b>' })
+    expect(JSON.parse(String(out[1]!.pfmt))).toEqual({ h: 2 })
+    expect(out[2]!.align).toBe('r')
+    // the same page saved again says it is already there
+    expect(saveShownTranslation(src, 'de', shown, 'owner')).toMatchObject({ ok: true, saved: 0, unchanged: 1 })
+    // a rich text that does not match its own plain text is not trusted
+    const bad = saveShownTranslation(src, 'de', [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Eins.', rich: '<b>Ganz anders</b>' }] }], 'owner')
+    if (!bad.ok) throw new Error(bad.detail)
+    expect(listBlocks(bad.variant.id)[0]!.rich ?? null).toBeNull()
+  })
+
   it('refuses a bad language code, an unknown section and a language version as the source', async () => {
     expect(await previewSectionTranslation(src, secId, 'deutsch', 'hu')).toMatchObject({ ok: false, code: 'bad_lang' })
     expect(await previewSectionTranslation(src, 'nincs', 'de', 'hu')).toMatchObject({ ok: false, code: 'not_found' })
@@ -227,5 +250,26 @@ describe('the draft page wiring', () => {
     const from = js.indexOf('function dpSectionHtml')
     const sec = js.slice(from, js.indexOf("'</section>'", from))
     expect(sec).not.toContain('outline-sec-status')
+  })
+
+  it('#534 fix: nothing typed on the translation page is thrown away by a redraw, a bare text node or an emptied page', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    // a full redraw of the Draft tab reads the page first
+    expect(js).toMatch(/var ro = archived\(\)\n    twCollect\(\) \/\/ #534: any redraw/)
+    const col = js.slice(js.indexOf('function twCollect()'), js.indexOf('function twPanelInnerHtml(o, ro)'))
+    // text standing directly in the host is a paragraph
+    expect(col).toContain('host.childNodes')
+    expect(col).toContain('el.nodeType === 3')
+    // the look is read off the element
+    expect(col).toContain('dpFmtOf(el)')
+    expect(col).toContain("getAttribute('data-wb-align')")
+    expect(col).toContain('dpPfmtOf(el)')
+    // an emptied page keeps the translations and says so; a deleted heading is counted and shown
+    expect(col).toContain("t('workbench.tw.emptied_kept')")
+    expect(col).toContain('tw.dropped')
+    expect(js).toContain("t('workbench.tw.dropped'")
+    // Enter in a table / list is a line break inside the block, not a new block
+    expect(js).toContain('function twLineBreakAtCaret()')
+    expect(js).toContain("/^(table|list)$/.test(host.getAttribute('data-tw-kind')")
   })
 })
