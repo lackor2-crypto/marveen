@@ -17,7 +17,7 @@
 import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
-import { LANG_NAMES, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
+import { LANG_NAMES, carriedLook, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
@@ -195,7 +195,9 @@ export function parseTranslation(text: string, src: SourceBlock[]):
 // shown keeps the claims and sources; the save goes through `translateSection` into the language version.
 // ---------------------------------------------------------------------------
 
-export interface SectionPreview { source_section: string; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[] }[] }
+/** `rich` / `align` / `pfmt`: the look the block inherits from the source block at the same place (#558), so the
+ *  side-by-side column shows the translation the way it will be saved. */
+export interface SectionPreview { source_section: string; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string; align?: string; pfmt?: unknown }[] }
 
 export type PreviewResult =
   | { ok: true; preview: SectionPreview }
@@ -217,7 +219,12 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
     logCall(source.id, prompt.system.length + prompt.user.length, r)
     if (!r.ok) return { ok: false, code: r.code === 'no_provider' ? 'no_provider' : 'failed', message: r.message }
     const parsed = parseTranslation(r.text, blocks)
-    if (parsed.ok) return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: parsed.blocks } }
+    if (parsed.ok) {
+      const rows = listBlocks(source.id).filter((b: BlockRow) => b.section_id === sec.id)
+      const paired = rows.length === parsed.blocks.length
+      const shown = parsed.blocks.map((b, i) => (paired && rows[i]!.kind === b.kind ? { ...b, ...carriedLook(rows[i]!, b.text) } : b))
+      return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: shown } }
+    }
     detail = parsed.detail
   }
   return { ok: false, code: 'failed', message: msg('provider_failed', ui, { detail }) }

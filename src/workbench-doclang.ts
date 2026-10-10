@@ -28,6 +28,7 @@ import {
   type BlockKind, type CheckItem, type ModelResult, type SectionRow, type SourceRow,
 } from './workbench-docmodel.js'
 import { normalizeForMatch } from './workbench-docread.js'
+import { parsePfmt, richUniform } from './workbench-docrich.js'
 import { createWorkItem, getWorkItem, type WorkItemRow } from './workbench.js'
 import { assignWorkItemFolder } from './workbench-assets.js'
 import { projectFileTarget } from './project-files.js'
@@ -327,6 +328,17 @@ function sectionText(sectionId: string): string {
  * blocks in the same order, and the link is current)? Then saving it again changes nothing, and the caller can say
  * "already saved under this name" instead of silently rewriting (or looking like it did nothing).
  */
+/** #558: what a translated block inherits from the source block at the same place (see translateSection). */
+export function carriedLook(sb: { text: string; rich?: string | null; align?: string | null; pfmt?: string | null }, text: string): { rich?: string; align?: string; pfmt?: NonNullable<ReturnType<typeof parsePfmt>> } {
+  const look: { rich?: string; align?: string; pfmt?: NonNullable<ReturnType<typeof parsePfmt>> } = {}
+  if (sb.align) look.align = sb.align
+  const pf = parsePfmt(sb.pfmt)
+  if (pf) look.pfmt = pf
+  const rich = sb.rich && sb.text === text ? sb.rich : richUniform(sb.rich, text)
+  if (rich) look.rich = rich
+  return look
+}
+
 export function translationAlreadySaved(variantId: string, input: { source_section?: unknown; title?: unknown; blocks?: unknown }): boolean {
   ensureDocLangTables()
   const v = variantOf(variantId)
@@ -338,12 +350,22 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
   if (!link || link.source_hash !== sectionHash(src.id)) return false
   const cur = db.prepare('SELECT title FROM wb_doc_sections WHERE id = ?').get(link.section_id) as { title: string } | undefined
   if (!cur || cur.title !== String(input.title ?? '').trim()) return false
-  const have = db.prepare('SELECT kind, text FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(link.section_id) as { kind: string; text: string }[]
+  const have = db.prepare('SELECT kind, text, rich, align, pfmt FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(link.section_id) as { kind: string; text: string; rich: string | null; align: string | null; pfmt: string | null }[]
   const raw = Array.isArray(input.blocks) ? input.blocks as { kind?: unknown; text?: unknown }[] : []
   if (have.length !== raw.length) return false
+  // #558: "the same" includes the look the block inherits from the source: a variant saved before the look was
+  // carried (or whose source was reformatted since) is written again, so it gets it.
+  const srcList = listBlocks(v.source_item_id).filter((x) => x.section_id === src.id)
+  const paired = srcList.length === raw.length
   return raw.every((b, i) => {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
-    return have[i]!.kind === kind && have[i]!.text === String(b.text ?? '').replace(/\r\n/g, '\n').trim()
+    const text = String(b.text ?? '').replace(/\r\n/g, '\n').trim()
+    if (have[i]!.kind !== kind || have[i]!.text !== text) return false
+    const sb = paired && srcList[i]!.kind === kind ? srcList[i]! : null
+    if (!sb) return true
+    const look = carriedLook(sb, text)
+    return (have[i]!.align ?? '') === (look.align ?? '') && JSON.stringify(parsePfmt(have[i]!.pfmt)) === JSON.stringify(look.pfmt ?? null)
+      && (have[i]!.rich ?? '') === (look.rich ?? '')
   })
 }
 
@@ -389,10 +411,19 @@ export function translateSection(variantId: string, input: { source_section?: un
     updateSection(variantId, secId, { title, status: src.status })
     for (const b of listBlocks(variantId).filter((x) => x.section_id === secId)) removeBlock(variantId, b.id)
     const carried = new Map<string, string>()
+    // #558 (owner: "the translation must look like the original"): the translated block wears what the source block
+    // at the same place wears -- alignment and paragraph format always; a picture or a table (their text is carried
+    // unchanged) their whole formatting; a paragraph formatted as ONE piece that same format. Paired by position, and
+    // only when the two sections have the same number of blocks: a guess would paint the format on the wrong block.
+    const srcList = listBlocks(v.source_item_id).filter((x) => x.section_id === src.id)
+    const paired = srcList.length === blocks.length
     const notCarried: TranslateOutcome['claims_not_carried'] = []
     const pendingInference: { newClaim: string; basedOn: string[] }[] = []
-    for (const b of blocks) {
-      const nb = addBlock(variantId, secId, { kind: b.kind, text: b.text, author: 'agent' })
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const b = blocks[bi]!
+      const sb = paired && srcList[bi]!.kind === b.kind ? srcList[bi]! : null
+      const look = sb ? carriedLook(sb, b.text) : {}
+      const nb = addBlock(variantId, secId, { kind: b.kind, text: b.text, ...look, author: 'agent' })
       if (!nb.ok) { box.failed = { code: nb.code === 'too_many' ? 'too_many' : 'bad_input', detail: nb.detail }; throw new Error('rollback') }
       const norm = normalizeForMatch(b.text)
       for (const c of b.claims) {
