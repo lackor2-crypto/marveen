@@ -6729,6 +6729,7 @@ window._i18n.en = {
   "workbench.fr.thumb_remove": "Take out of this work (the file stays in the project folder)",
   "workbench.fr.tile_drag": "drag it onto the page: build it in or attach it as an annex",
   "workbench.dp.img_type": "A document can hold JPG, PNG or GIF pictures.",
+  "workbench.dp.drop_no_path": "This file could not be placed on the page because its location is unknown. Try again, or attach it with the Add button.",
   "workbench.dp.drop_title": "What should happen with the file?",
   "workbench.dp.drop_embed_image": "Build into the page (picture)",
   "workbench.dp.drop_embed_table": "Build into the page (as a table)",

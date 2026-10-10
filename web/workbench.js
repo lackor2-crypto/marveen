@@ -8989,6 +8989,14 @@
       + '</div></div>'
   }
 
+  /** #521: a row of the item's own files / the project's shared folder can be dragged onto the document page
+   *  (the same chooser as a tile: build in / attach as annex). The value carries the Life path itself. */
+  function pageDragAttrs(path) {
+    var isDoc = !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+    if (!isDoc || archived() || !path) return ''
+    return ' draggable="true" data-wb-drag-file="' + escA(path) + '" data-wb-src="' + escA(path) + '" title="' + escA(t('workbench.fr.tile_drag')) + '"'
+  }
+
   /** ANYAGOK doboz (#441, v4 K-0.14 ... K-0.16): a munkadarab sajat mappaja es
    *  a hozza csatolt fajlok, tamogatasi allapottal. Ide is lehet fajlt huzni. */
   function assetsBlockHtml() {
@@ -9004,7 +9012,7 @@
       ? '<ul class="wb-assets">' + assets.map(function (a) {
         // Sor = bal oldalt a nev es a cimkek, jobb oldalt a gomb: a gombok igy
         // egy oszlopban, egymas alatt allnak (Boss, #443).
-        return '<li class="wb-asset wb-row"><div class="wb-row-main">'
+        return '<li class="wb-asset wb-row"' + (a.present ? pageDragAttrs(a.path) : '') + '><div class="wb-row-main">'
           + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
           + supportPillHtml(a.support)
           + docStateHtml(a)
@@ -9055,7 +9063,7 @@
     else if (!sh.files.length) body = '<p class="wb-muted">' + esc(t(sh.folder ? 'workbench.shared.empty' : 'workbench.shared.none')) + '</p>'
     else {
       body = '<ul class="wb-assets wb-shared-list">' + sh.files.map(function (f) {
-        return '<li class="wb-asset wb-row"><div class="wb-row-main">'
+        return '<li class="wb-asset wb-row"' + pageDragAttrs(f.path) + '><div class="wb-row-main">'
           + '<span class="wb-asset-name" title="' + escA(f.project_path || f.path) + '">' + esc(f.name) + '</span> '
           + supportPillHtml(f.support)
           + '</div><div class="wb-row-act">'
@@ -15541,7 +15549,13 @@
     var th = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drag-img]') : null
     if (th && e.dataTransfer) { try { e.dataTransfer.setData('text/wb-image', th.getAttribute('data-wb-src') || ''); e.dataTransfer.effectAllowed = 'copy' } catch (_e) { /* nem baj */ } }
     var tf = !th && e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drag-file]') : null
-    if (tf && e.dataTransfer) { try { e.dataTransfer.setData('text/wb-file', tf.getAttribute('data-wb-src') || ''); e.dataTransfer.effectAllowed = 'copy' } catch (_e) { /* nem baj */ } }
+    if (tf && e.dataTransfer) {
+      // #521 (Boss TG 8564): a file-list row carries its path in the data-wb-drag-file value itself (a tile has the
+      // flag "1" and the path in data-wb-src) -- before, the row wrote an EMPTY path and the page drop did nothing.
+      var tfRel = tf.getAttribute('data-wb-src') || ''
+      if (!tfRel) { var tfv = tf.getAttribute('data-wb-drag-file') || ''; if (tfv && tfv !== '1') tfRel = tfv }
+      try { e.dataTransfer.setData('text/wb-file', tfRel); e.dataTransfer.effectAllowed = 'copyMove' } catch (_e) { /* nem baj */ }
+    }
   })
 
   // TG 1854: the overview's card rows open with Enter/Space too, not only a click.
@@ -16579,7 +16593,9 @@
    */
   function dpDropChoose(rel, sid, pos, x, y) {
     dpCloseDropMenu()
-    if (!rel || archived()) return
+    if (archived()) return
+    // Never send an empty path to the server: say it in a sentence instead of doing nothing.
+    if (!rel) { window.showToast(t('workbench.dp.drop_no_path')); return }
     var kind = dpEmbedKind(rel)
     var m = document.createElement('div')
     m.id = 'wbDpDropMenu'
