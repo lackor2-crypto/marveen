@@ -12550,12 +12550,13 @@
   function dpGutterHtml(bid, sid, idx, count, ro) {
     if (ro) return '<div class="wb-dp-gutter"></div>'
     if (dpIsVariant()) return ''
+    // #534 (Boss TG 8849): no "+" on the page -- a new paragraph is Enter, a list / signature come from the toolbar.
+    // The move / delete handle belongs to the check view only; plain writing has no gutter at all.
+    if (!bid || !dpCheckView()) return ''
     return '<div class="wb-dp-gutter" contenteditable="false">'
-      + '<button type="button" class="wb-dp-gbtn wb-dp-plus" data-wb-act="dp-add" data-wb-block="' + escA(bid || '') + '" data-wb-sec="' + escA(sid) + '" data-wb-idx="' + idx + '"'
-      + ' title="' + escA(t('workbench.dp.add')) + '" aria-label="' + escA(t('workbench.dp.add')) + '" aria-haspopup="menu">+</button>'
-      + (bid ? '<button type="button" class="wb-dp-gbtn wb-dp-handle" draggable="true" data-wb-act="dp-handle" data-wb-block="' + escA(bid) + '" data-wb-sec="' + escA(sid) + '"'
-        + ' title="' + escA(t('workbench.dp.handle')) + '" aria-label="' + escA(t('workbench.dp.handle')) + '" aria-haspopup="menu">&#8942;&#8942;</button>' : '')
-      + dpMenuHtml('add', bid, sid, idx, count) + (bid ? dpMenuHtml('handle', bid, sid, idx, count) : '')
+      + '<button type="button" class="wb-dp-gbtn wb-dp-handle" draggable="true" data-wb-act="dp-handle" data-wb-block="' + escA(bid) + '" data-wb-sec="' + escA(sid) + '"'
+      + ' title="' + escA(t('workbench.dp.handle')) + '" aria-label="' + escA(t('workbench.dp.handle')) + '" aria-haspopup="menu">&#8942;&#8942;</button>'
+      + dpMenuHtml('handle', bid, sid, idx, count)
       + '</div>'
   }
 
@@ -13384,6 +13385,7 @@
       + btn('numlist', t('workbench.dp.fmt_numlist'), '1.&#8801;')
       + btn('indent-less', t('workbench.dp.fmt_indent_less'), '&#8676;')
       + btn('indent-more', t('workbench.dp.fmt_indent_more'), '&#8677;')
+      + btn('sign', t('workbench.dp.ins_sign'), '&#9997;')
       + '<span class="wb-dp-tbsep"></span>'
       + dpSelectHtml('font', t('workbench.dp.fmt_font'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_FONTS.map(function (f) { return [f, f] })))
       + dpSelectHtml('size', t('workbench.dp.fmt_size'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SIZES.map(function (z) { return [String(z), String(z)] })))
@@ -17588,6 +17590,19 @@
     var el = dpFmtTarget()
     if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
     if (f === 'clear') { dpClearFormat(el); return }
+    // #534: "Insert signature" lives on the toolbar (it was in the "+" menu): the picture goes after the paragraph the cursor is in.
+    if (f === 'sign') {
+      var sgSid = el.getAttribute('data-wb-sec') || ''
+      var sgBid = el.getAttribute('data-wb-block') || ''
+      if (!sgBid) {
+        // an empty new line: the picture goes after the block before it
+        var sgSec = findSection(sgSid)
+        var sgPos = Number(el.getAttribute('data-wb-pos')) || 0
+        sgBid = sgSec && sgPos > 0 && sgSec.blocks && sgSec.blocks[sgPos - 1] ? sgSec.blocks[sgPos - 1].id : ''
+      }
+      dpSignPicker(sgSid, sgBid)
+      return
+    }
     if (f === 'nocolor' || f === 'nohilite') { dpClrPopClose(); dpApplyInline(el, f === 'nocolor' ? 'fore' : 'hilite', ''); return }
     if (f.indexOf('clrpick-') === 0) { var pk = f.slice(8); dpClrSet(pk, btn.getAttribute('data-wb-clr')); dpClrPopClose(); dpApplyInline(el, pk, dpClrNow(pk)); return }
     if (f.indexOf('clr-') === 0) { dpClrPopClose(); dpApplyInline(el, f.slice(4), dpClrNow(f.slice(4))); return }

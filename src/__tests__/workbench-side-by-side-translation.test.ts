@@ -317,6 +317,17 @@ describe('the draft page wiring', () => {
     expect(g).toContain('dpIsVariant()')
   })
 
+  it('#534: no "+" gutter button on any page; the move / delete handle only in the check view; list and signature are on the toolbar', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const g = js.slice(js.indexOf('function dpGutterHtml'), js.indexOf('function dpGutterHtml') + 900)
+    expect(g).not.toContain('wb-dp-plus')
+    expect(g).not.toContain("dpMenuHtml('add'")
+    expect(g).toContain('!dpCheckView()')
+    expect(js).toContain("btn('sign', t('workbench.dp.ins_sign')")
+    expect(js).toContain("if (f === 'sign')")
+    expect(js).toContain("['list', '&#8226;&#8801;', 'fmt_list']")
+  })
+
   it('#534 (c): the chapter border is a Heading 1 paragraph -- no "new chapter" button or menu item, split and join on save', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     const menu = js.slice(js.indexOf("if (kind === 'add') {"), js.indexOf("if (kind === 'add') {") + 600)
