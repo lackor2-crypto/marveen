@@ -12989,7 +12989,7 @@
       + '<span class="wb-dp-tbsep"></span>'
       + dpSelectHtml('linesp', t('workbench.dp.fmt_linesp'), DP_LINESP.map(function (v) { return [String(v), String(v).replace('.', ',')] }))
       + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SPACEAFTER.map(function (v) { return [String(v), v + ' pt'] })))
-      + dpSelectHtml('heading', t('workbench.dp.fmt_heading'), [['0', t('workbench.dp.fmt_head_normal')], ['2', t('workbench.dp.fmt_head2')], ['3', t('workbench.dp.fmt_head3')]])
+      + dpSelectHtml('heading', t('workbench.dp.fmt_heading'), [['0', t('workbench.dp.fmt_head_normal')], ['1', t('workbench.dp.fmt_head1')], ['2', t('workbench.dp.fmt_head2')], ['3', t('workbench.dp.fmt_head3')]])
       + '</div>'
   }
 
@@ -16448,7 +16448,7 @@
       else p[k] = patch[k]
     })
     if (p.ls === 1) delete p.ls
-    el.classList.remove('wb-dp-h2', 'wb-dp-h3')
+    el.classList.remove('wb-dp-h1', 'wb-dp-h2', 'wb-dp-h3')
     if (p.h) el.classList.add('wb-dp-h' + p.h)
     if (Object.keys(p).length) {
       el.setAttribute('data-wb-pfmt', JSON.stringify(p))

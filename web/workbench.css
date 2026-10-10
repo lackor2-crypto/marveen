@@ -1447,6 +1447,7 @@
 .wb-dp-clrmore { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; cursor: pointer; }
 .wb-dp-clrmore input[type="color"] { width: 40px; height: 26px; padding: 0; border: 1px solid #c9cbd6; border-radius: 4px; background: none; cursor: pointer; }
 .wb-dp-clrpop .wb-dp-tb { width: 100%; height: 30px; font-size: 13px; text-align: left; }
+.wb-dp-h1 { font-size: 1.5em; font-weight: 700; line-height: 1.3; }
 .wb-dp-h2 { font-size: 1.25em; font-weight: 700; }
 .wb-dp-h3 { font-size: 1.1em; font-weight: 700; font-style: italic; }
 @media (max-width: 640px) { .wb-dp-sel { max-width: 104px; } }

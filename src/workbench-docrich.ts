@@ -188,7 +188,7 @@ export function richMatches(rich: string | null | undefined, text: string): bool
 // ---- paragraph formatting ---------------------------------------------------------------------
 
 /** Line spacing, space after the paragraph, indent and heading level of one block. */
-export interface ParaFmt { ls?: number; sa?: number; ind?: number; h?: 2 | 3 }
+export interface ParaFmt { ls?: number; sa?: number; ind?: number; h?: 1 | 2 | 3 }
 
 export const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3] as const
 
@@ -206,7 +206,7 @@ export function sanitizePfmt(input: unknown): ParaFmt | null {
   const ind = Number(o['ind'])
   if (Number.isFinite(ind) && ind >= 1 && ind <= 8) out.ind = Math.round(ind)
   const h = Number(o['h'])
-  if (h === 2 || h === 3) out.h = h
+  if (h === 1 || h === 2 || h === 3) out.h = h
   return Object.keys(out).length ? out : null
 }
 
