@@ -6770,6 +6770,7 @@ window._i18n.en = {
   "workbench.dp.drop_empty_table": "The spreadsheet was empty, so I put a blank table on the page.",
   "workbench.dp.drop_truncated": "The file is very long: I built in its beginning, the whole content stays in the file.",
   "workbench.dp.tbl_edit": "Click to edit the table (one row per line: cell | cell)",
+  "workbench.dp.pic_move": "Grab the picture and drop it where you want it: on the left or right half of the sheet, beside any paragraph. The text runs round it. (The arrow keys work too: left / right change the side, up / down move it by one paragraph.)",
   "workbench.dp.free_move": "Grab it and take it anywhere on the page (the arrow keys move it too). The Left / Centre / Right button puts it back into the text.",
   "workbench.dp.tbl_move": "Drag the table to move it on the page",
   "workbench.dp.tbl_resize": "Table size: drag the corner (or use the arrow keys, 5% a step)",

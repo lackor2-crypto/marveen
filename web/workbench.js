@@ -12665,8 +12665,9 @@
     return { x: p.align === 'l' ? 0 : p.align === 'r' ? 100 - w : Math.round((100 - w) / 2), y: 0, w: w }
   }
 
-  function dpFreeHandleHtml(bid) {
-    return '<span class="wb-dp-free-move" data-wb-free-move="' + escA(bid) + '" role="button" tabindex="0" title="' + escA(t('workbench.dp.free_move')) + '" aria-label="' + escA(t('workbench.dp.free_move')) + '">&#10021;</span>'
+  function dpFreeHandleHtml(bid, pic) {
+    var tip = t(pic ? 'workbench.dp.pic_move' : 'workbench.dp.free_move')
+    return '<span class="wb-dp-free-move" data-wb-free-move="' + escA(bid) + '" role="button" tabindex="0" title="' + escA(tip) + '" aria-label="' + escA(tip) + '">&#10021;</span>'
   }
 
   function dpTblEdit(bid) {
@@ -12746,7 +12747,7 @@
           + '<span class="wb-dp-img-box"' + (picFloat ? ' style="width:100%"' : pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
           + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
           + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
-            + dpFreeHandleHtml(b.id)
+            + dpFreeHandleHtml(b.id, true)
             + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right') + '</span>')
           + '</span></figure></div>'
           + dpTailAfter(sec.id, i, blocks, nw, ro)
@@ -17807,6 +17808,66 @@
     try { var cs = window.getComputedStyle(ref); inner -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) } catch (_e) { /* the outer width is the fallback */ }
     return { el: el, full: Math.max(1, inner) }
   }
+  /** Where a picture let go at (cx, cy) lands: the section, the place among its blocks, and the side of the sheet. */
+  function dpPicDropAt(bid, cx, cy) {
+    var sheet = dpRoot()
+    if (!sheet || typeof document.elementsFromPoint !== 'function') return null
+    var sr = sheet.getBoundingClientRect()
+    var side = cx < sr.left + sr.width / 2 ? 'l' : 'r'
+    var hit = document.elementsFromPoint(Math.max(sr.left + 4, Math.min(sr.right - 4, cx)), cy)
+    var row = null
+    for (var i = 0; i < hit.length && !row; i++) {
+      var r0 = hit[i] && typeof hit[i].closest === 'function' ? hit[i].closest('[data-wb-row]') : null
+      if (r0 && r0.getAttribute('data-wb-row') !== bid && sheet.contains(r0)) row = r0
+    }
+    if (!row) return { side: side, sid: null, pos: null }
+    var sid = row.getAttribute('data-wb-sec')
+    var sec = findSection(sid)
+    if (!sec) return { side: side, sid: null, pos: null }
+    var list = (sec.blocks || []).filter(function (x) { return x.id !== bid })
+    var rid = row.getAttribute('data-wb-row')
+    var idx = 0
+    list.forEach(function (x, k) { if (x.id === rid) idx = k })
+    var rr = row.getBoundingClientRect()
+    return { side: side, sid: sid, pos: idx + (cy > rr.top + rr.height / 2 ? 1 : 0) }
+  }
+
+  function dpPicDragStart(e, hd, bid, b, tg) {
+    var sx = e.clientX
+    var sy = e.clientY
+    var lx = sx
+    var ly = sy
+    var moved = false
+    try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
+    tg.el.classList.add('wb-dp-free-dragging')
+    function move(ev) {
+      lx = ev.clientX
+      ly = ev.clientY
+      if (Math.abs(lx - sx) + Math.abs(ly - sy) > 4) moved = true
+      tg.el.style.transform = 'translate(' + (lx - sx) + 'px,' + (ly - sy) + 'px)'
+    }
+    function up() {
+      hd.removeEventListener('pointermove', move)
+      hd.removeEventListener('pointerup', up)
+      hd.removeEventListener('pointercancel', up)
+      tg.el.classList.remove('wb-dp-free-dragging')
+      // The picture itself must not be what the pointer "hits" when we look for the paragraph under it.
+      tg.el.style.pointerEvents = 'none'
+      var at = moved ? dpPicDropAt(bid, lx, ly) : null
+      tg.el.style.pointerEvents = ''
+      tg.el.style.transform = ''
+      if (!at) return
+      var cur = dpImageParts(b.text)
+      var w = cur.width && cur.width < 100 ? cur.width : 40 // a full-width picture cannot have text beside it
+      var body = { text: dpImageText(cur.path, w, at.side, null, null) }
+      if (at.sid) { body.section = at.sid; body.position = at.pos }
+      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), body).then(function (o) { if (o) render() })
+    }
+    hd.addEventListener('pointermove', move)
+    hd.addEventListener('pointerup', up)
+    hd.addEventListener('pointercancel', up)
+  }
+
   document.addEventListener('pointerdown', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     var hd = e.target.closest('[data-wb-free-move]')
@@ -17817,6 +17878,10 @@
     if (!b || !tg) return
     e.preventDefault()
     e.stopPropagation()
+    // #562 (Boss TG 8919: "ha huzom a kepet, akkor a szoveg korbeirja a kepet"): a PICTURE is not parked at a free spot (that
+    // took it out of the text and gave it a band of its own) -- it is dropped beside the paragraph it is let go over, on
+    // the side of the sheet it is let go on, and the text runs round it. A table keeps the free placing of #521.
+    if (b.kind === 'image') { dpPicDragStart(e, hd, bid, b, tg); return }
     var start = dpFreeNow(b)
     var sx = e.clientX
     var sy = e.clientY
@@ -17853,6 +17918,21 @@
     var b = dpImageBlock(bid)
     if (!b) return
     e.preventDefault()
+    if (b.kind === 'image') {
+      // #562: a picture stays in the text -- left / right puts it on that side, up / down moves it one paragraph.
+      var pc = dpImageParts(b.text)
+      var pw = pc.width && pc.width < 100 ? pc.width : 40
+      if (d[0]) { dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: dpImageText(pc.path, pw, d[0] < 0 ? 'l' : 'r', null, null) }).then(function (o) { if (o) render() }); return }
+      var hrow = e.target.closest('[data-wb-row]')
+      var hsec = hrow ? findSection(hrow.getAttribute('data-wb-sec')) : null
+      if (!hsec) return
+      var hi = -1
+      ;(hsec.blocks || []).forEach(function (x, k) { if (x.id === bid) hi = k })
+      var ni = hi + d[1]
+      if (hi < 0 || ni < 0 || ni >= (hsec.blocks || []).length) return
+      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { section: hsec.id, position: ni }).then(function (o) { if (o) render() })
+      return
+    }
     var now = dpFreeNow(b)
     var step = e.shiftKey ? 10 : 2
     dpFreeSave(bid, Math.max(0, Math.min(100 - now.w, now.x + d[0] * step)), Math.max(0, Math.min(150, now.y + d[1] * step)))
