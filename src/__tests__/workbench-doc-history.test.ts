@@ -212,5 +212,30 @@ describe('dokumentum-lap: visszavonas es ujra (#533)', () => {
     expect(L('POST', ['sent'])).toBeNull()
     expect(L('POST', ['annexes'])).toBeNull()
     expect(L('GET', ['blocks'])).toBeNull()
+    // #534: the section the program seeds behind an empty page is not the owner's step; a real title is
+    expect(L('POST', ['sections'], { title: 'Új fejezet' })).toBeNull()
+    expect(L('POST', ['sections'], { title: 'New section' })).toBeNull()
+    expect(L('POST', ['sections'], { title: 'Tényállás' })).toBe('add_section')
+  })
+
+  it('#534: az ures lap moge tett helykitolto szakasz nem visszavonhato lepes, es az ellenorzo lista nem nevezi meg', async () => {
+    const seeded = await post('/sections', { title: 'Új fejezet' })
+    expect(seeded.status).toBe(201)
+    // an untouched new document has nothing to undo
+    expect(docHistoryState(itemId)).toEqual({ can_undo: false, can_redo: false, undo: null, redo: null })
+    const sec = seeded.body.outline.sections[0].id as string
+    // the first thing the owner does IS a step, and undoing it keeps the seeded section (the page stays writable)
+    expect((await post('/blocks', { section: sec, text: 'Első sor.' })).status).toBe(201)
+    expect(docHistoryState(itemId).undo).toBe('add_block')
+    expect((await post('/undo')).status).toBe(200)
+    expect(listSections(itemId).map((x) => x.title)).toEqual(['Új fejezet'])
+    expect(texts()).toEqual([])
+    // a chapter the owner made is named in the readiness list, the placeholder one is not
+    expect((await post('/sections', { title: 'Tényállás' })).status).toBe(201)
+    expect(docHistoryState(itemId).undo).toBe('add_section')
+    const items = (await callWorkbench(base(), 'GET')).body.outline.check.items as Array<{ key: string; total?: number; detail?: string[] }>
+    const done = items.find((i) => i.key === 'sections_done')
+    expect(done?.total).toBe(2)
+    expect(done?.detail).toEqual(['Tényállás'])
   })
 })

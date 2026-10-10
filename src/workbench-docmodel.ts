@@ -894,7 +894,7 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const missing = blocks.flatMap((b) => b.missing)
   const notDone = sections.filter((s) => s.status !== 'done')
   const items: CheckItem[] = [
-    { key: 'sections_done', ok: sections.length > 0 && notDone.length === 0, count: sections.length - notDone.length, total: sections.length, detail: notDone.map((s) => s.title) },
+    { key: 'sections_done', ok: sections.length > 0 && notDone.length === 0, count: sections.length - notDone.length, total: sections.length, detail: notDone.filter((s) => !isPlaceholderSectionTitle(s.title)).map((s) => s.title) },
     { key: 'missing_data', ok: missing.length === 0, count: missing.length, detail: missing },
     { key: 'unverified_references', ok: officialBad.length === 0, count: officialBad.length, total: official.length, detail: officialBad.map((s) => s.citation || '') },
     {

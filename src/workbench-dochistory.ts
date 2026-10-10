@@ -21,7 +21,7 @@
 import { createHash } from 'node:crypto'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { getDb } from './db.js'
-import { ensureDocModelTables } from './workbench-docmodel.js'
+import { ensureDocModelTables, isPlaceholderSectionTitle } from './workbench-docmodel.js'
 
 /** Ennyi lepest orzunk munkadarabonkent (a vaszon es a videovagas is 100-at). */
 export const DOC_HISTORY_MAX = 100
@@ -92,7 +92,9 @@ export function docStepLabel(method: string, segs: string[], body: Record<string
   const sub = segs[2] || ''
   const n = segs.length
   if (sub === 'page' && n === 3 && method === 'POST') return 'edit_page'
-  if (sub === 'sections' && n === 3 && method === 'POST') return 'add_section'
+  // #534: the section the PROGRAM puts behind an empty page (its title is only the placeholder) is not a step of the
+  // owner -- an untouched new document has nothing to undo, and the button must not say "new section" on it.
+  if (sub === 'sections' && n === 3 && method === 'POST') return isPlaceholderSectionTitle(body['title']) ? null : 'add_section'
   if (sub === 'sections' && n === 4 && method === 'PATCH') {
     if (given(body['title'])) return 'rename_section'
     return given(body['position']) ? 'move_section' : 'edit_section'
