@@ -71,4 +71,25 @@ describe('#540: a new work item never lands under an existing one', () => {
     expect(settled((u.body.item as Item).id)).toBe(box + '/Ures')
     expect(settled((f.body.item as Item).id)).toBe(box + '/Teli (2)')
   })
+
+  it('a picked container that is another live work item\'s own folder is replaced by the level beside it', async () => {
+    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Ajanlat', type: 'document' })
+    const fa = settled((a.body.item as Item).id)
+    const box = fa.split('/').slice(0, -1).join('/')
+    const b = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Masik', type: 'document', folder: fa })
+    expect(b.status).toBe(201)
+    const fb = settled((b.body.item as Item).id)
+    expect(fb.startsWith(fa + '/')).toBe(false)
+    expect(fb).toBe(box + '/Masik')
+    expect(existsSync(join(abs(fa), 'Masik'))).toBe(false)
+  })
+
+  it('a hand-named group (not a work item\'s own folder) still takes the new work item inside', async () => {
+    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Ajanlat', type: 'document' })
+    const box = settled((a.body.item as Item).id).split('/').slice(0, -1).join('/')
+    mkdirSync(abs(box + '/Csoport'))
+    const b = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Masik', type: 'document', folder: box + '/Csoport' })
+    expect(b.status).toBe(201)
+    expect(settled((b.body.item as Item).id)).toBe(box + '/Csoport/Masik')
+  })
 })
