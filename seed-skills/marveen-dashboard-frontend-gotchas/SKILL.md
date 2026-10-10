@@ -113,6 +113,22 @@ próbáld ki", mondd meg neki hogy kemény frissítés (Ctrl+Shift+R) kell** --
 különben ő egy még-mindig-hibás oldalt fog látni és azt hiszi a javítás nem
 ment át.
 
+## Gombméret: a KIS gomb az alap (2026-10-10, {{OWNER_NAME}}, #549)
+
+{{OWNER_NAME}} szó szerint: „Ezeket az összes gombokat veheted kisebbre. És legközelebb is a
+kisebb gombok verziót használd, ne a nagyobbat, az eljövendő jövőbeni programozásnál.
+Nem kellenek a nagy gombok."
+
+- Új vagy módosított felületen a művelet-gomb KIS méretű. A Munkapadon belül ezt a
+  `.wb-root .btn-compact` szabály adja (`web/workbench.css`: 5px 12px, 13px): elég a
+  gombra a `btn-compact` osztály. Más oldalon a szűkített minta ugyanez (lásd
+  `.email-column-header .btn-compact` a `web/style.css`-ben).
+- Teljes szélességű, nagy `btn-primary` (osztály `btn-compact` nélkül) csak akkor, ha az
+  oldalnak egyetlen fő művelete van, és az űrlap alján áll.
+- Telefonon a kis gomb is maradjon ujjal megfogható: 700px alatt a függőleges kitöltés
+  nagyobb (mérve: 37px magas gomb).
+- Felületi munka kiadásakor ezt írd bele a munkacsomagba is.
+
 ## Ellenőrzés
 
 - Egy elrejtett elem TÉNYLEG nem látszik a végleges renderelt oldalon
