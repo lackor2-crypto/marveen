@@ -45,14 +45,28 @@ export var FORMAT_RE = new RegExp('^(?:sheet\\.(?:command\\.(?:'
   + '|operation\\.(?:open\\.numfmt\\.panel|set-format-painter))'
   + '|ui\\.(?:operation\\.(?:activate|continuous)-format-painter|command\\.clear-formatting))$')
 
-/** Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'objects', 'format' or null (allowed). */
-export function blockedKind(commandId, structureLocked, sheetsLocked, objectsOnSheet) {
+// Formatting, part 3 section A (#526): what an .xlsx save now keeps -- bold, italic, underline,
+// strike-through, font, size, text colour, fill colour, horizontal and vertical alignment, wrap
+// (column widths and row heights are not commands of their own, they travel with the sizes).
+// Everything else in FORMAT_RE (borders, merges, number formats, painter, rotation, hiding,
+// protection, tab colour, sub/superscript) stays blocked. `set-style` is the one command the
+// allowed buttons call underneath; every blocked outer command is cancelled before it gets there.
+export var FORMAT_KEPT_RE = new RegExp('^sheet\\.command\\.(?:set-style|set-(?:bold|italic|underline|stroke|font-family|font-size|text-color)'
+  + '|set-range-(?:bold|italic|underline|stroke'
+  + '|font-family|fontsize|font-increase|font-decrease|text-color)|reset-(?:text-color|background-color)'
+  + '|set-background-color|set-(?:horizontal|vertical)-text-align|set-text-wrap)$')
+
+/**
+ * Which lock a command hits: 'sheet', 'sheetcopy', 'structure', 'objects', 'format' or null
+ * (allowed). `formatKept`: the file is an .xlsx whose formatting a save keeps (section A).
+ */
+export function blockedKind(commandId, structureLocked, sheetsLocked, objectsOnSheet, formatKept) {
   var id = String(commandId || '')
   if (SHEET_COPY_RE.test(id)) return sheetsLocked ? 'sheet' : 'sheetcopy'
   if (sheetsLocked && SHEET_RE.test(id)) return 'sheet'
   if (structureLocked && CELLSHIFT_RE.test(id)) return 'structure'
   if (structureLocked && objectsOnSheet && ROWCOL_RE.test(id)) return 'objects'
-  if (FORMAT_RE.test(id)) return 'format'
+  if (FORMAT_RE.test(id)) return formatKept && FORMAT_KEPT_RE.test(id) ? null : 'format'
   return null
 }
 
@@ -92,9 +106,22 @@ export var HIDDEN_MENU_IDS = [
 // Hidden only where sheets cannot change at all (a .csv).
 export var SHEET_MENU_IDS = ['sheet.command.remove-sheet-confirm', 'sheet.operation.rename-sheet']
 
-export function hiddenMenuConfig(sheetsLocked) {
+// The buttons of section A, shown again where a save keeps them.
+export var FORMAT_KEPT_MENU_IDS = [
+  'sheet.command.set-range-font-family', 'sheet.command.set-range-fontsize',
+  'sheet.command.set-range-font-increase', 'sheet.command.set-range-font-decrease',
+  'sheet.command.set-range-bold', 'sheet.command.set-range-italic', 'sheet.command.set-range-underline',
+  'sheet.command.set-range-stroke', 'sheet.command.set-range-text-color', 'sheet.command.reset-text-color',
+  'sheet.command.set-background-color', 'sheet.command.reset-background-color',
+  'sheet.command.set-horizontal-text-align', 'sheet.command.set-vertical-text-align', 'sheet.command.set-text-wrap',
+]
+
+export function hiddenMenuConfig(sheetsLocked, formatKept) {
   var out = {}
-  HIDDEN_MENU_IDS.forEach(function (id) { out[id] = { hidden: true } })
+  HIDDEN_MENU_IDS.forEach(function (id) {
+    if (formatKept && FORMAT_KEPT_MENU_IDS.indexOf(id) >= 0) return
+    out[id] = { hidden: true }
+  })
   if (sheetsLocked) SHEET_MENU_IDS.forEach(function (id) { out[id] = { hidden: true } })
   return out
 }
@@ -110,6 +137,72 @@ export function deepMerge(base, over) {
     out[k] = b && o && typeof b === 'object' && typeof o === 'object' && !Array.isArray(b) && !Array.isArray(o) ? deepMerge(b, o) : o
   })
   return out
+}
+
+/** The editor-neutral cell format (the server's CellStyle) as a Univer style object. */
+export function styleToUniver(cs) {
+  var o = {}
+  if (!cs) return o
+  if (cs.b) o.bl = 1
+  if (cs.i) o.it = 1
+  if (cs.u) o.ul = { s: 1 }
+  if (cs.s) o.st = { s: 1 }
+  if (typeof cs.fs === 'number') o.fs = cs.fs
+  if (cs.ff) o.ff = cs.ff
+  if (cs.fc) o.cl = { rgb: cs.fc }
+  if (cs.bg) o.bg = { rgb: cs.bg }
+  var ha = { l: 1, c: 2, r: 3, j: 4 }[cs.ha]
+  if (ha) o.ht = ha
+  var va = { t: 1, m: 2, b: 3 }[cs.va]
+  if (va) o.vt = va
+  if (cs.wr) o.tb = 3
+  return o
+}
+
+/** "#RRGGBB" from what Univer holds for a colour ("#rgb", "#rrggbb", "rgb(r,g,b)", {rgb}); '' if unknown. */
+export function hexColor(c) {
+  var v = c && typeof c === 'object' ? c.rgb : c
+  if (typeof v !== 'string') return ''
+  var m = /^#([0-9a-f]{6})$/i.exec(v.trim())
+  if (m) return '#' + m[1].toUpperCase()
+  m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(v.trim())
+  if (m) return ('#' + m[1] + m[1] + m[2] + m[2] + m[3] + m[3]).toUpperCase()
+  m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i.exec(v)
+  if (!m) return ''
+  var h = function (n) { var x = Math.min(255, Number(n)).toString(16); return x.length < 2 ? '0' + x : x }
+  return ('#' + h(m[1]) + h(m[2]) + h(m[3])).toUpperCase()
+}
+
+var UNIVER_TEXT = '#1B1C1F'
+
+/** A Univer style object as the neutral cell format; only what a save can keep. */
+export function univerToStyle(st) {
+  var o = {}
+  if (!st || typeof st !== 'object') return o
+  if (st.bl === 1) o.b = true
+  if (st.it === 1) o.i = true
+  if (st.ul && st.ul.s === 1) o.u = true
+  if (st.st && st.st.s === 1) o.s = true
+  if (typeof st.fs === 'number' && st.fs > 0) o.fs = st.fs
+  if (typeof st.ff === 'string' && st.ff) o.ff = st.ff
+  // Univer puts its own default text colour on every cell that was typed into: not a choice.
+  var fc = hexColor(st.cl)
+  if (fc && fc !== UNIVER_TEXT) o.fc = fc
+  var bg = hexColor(st.bg)
+  if (bg) o.bg = bg
+  var ha = { 1: 'l', 2: 'c', 3: 'r', 4: 'j' }[st.ht]
+  if (ha) o.ha = ha
+  var va = { 1: 't', 2: 'm', 3: 'b' }[st.vt]
+  if (va) o.va = va
+  if (st.tb === 3) o.wr = true
+  return o
+}
+
+/** The style of a cell: an id into the snapshot's styles map, or inline. */
+export function cellStyleOf(cell, styles) {
+  var s = cell && cell.s
+  var st = typeof s === 'string' ? (styles || {})[s] : s
+  return st && typeof st === 'object' ? st : null
 }
 
 export function cellFromText(text) {

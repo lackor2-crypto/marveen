@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  blockedKind, hiddenMenuConfig, HIDDEN_MENU_IDS, deepMerge, cellFromText, cellPattern, isDatePattern, serialToIso, textFromCell,
+  blockedKind, hiddenMenuConfig, FORMAT_KEPT_MENU_IDS, styleToUniver, univerToStyle, hexColor, HIDDEN_MENU_IDS, deepMerge, cellFromText, cellPattern, isDatePattern, serialToIso, textFromCell,
 } from '../../tools/univer-build/rules.mjs'
 import { serialToIso as serverSerialToIso, isoToSerial } from '../workbench-table.js'
 
@@ -147,5 +147,46 @@ describe('betoltes es nyelv', () => {
       for (const l of f.links || []) expect(l.title, name).toBe('Útmutató')
       for (const [pk, p] of Object.entries(f.functionParameter)) expect(p.name, name + '.' + pk).toBeTruthy()
     }
+  })
+})
+
+describe('#526 section A: the formatting a save keeps', () => {
+  const KEPT = ['set-range-bold', 'set-range-italic', 'set-range-underline', 'set-range-stroke', 'set-range-font-family',
+    'set-range-fontsize', 'set-range-font-increase', 'set-range-font-decrease', 'set-range-text-color', 'reset-text-color',
+    'set-background-color', 'reset-background-color', 'set-horizontal-text-align', 'set-vertical-text-align', 'set-text-wrap', 'set-style']
+  const STILL = ['set-border', 'set-border-basic', 'add-worksheet-merge', 'set-range-subscript', 'set-text-rotation', 'set-shrink-to-fit',
+    'numfmt.set.percent', 'paste-format', 'clear-selection-format', 'set-once-format-painter', 'set-worksheet-hidden', 'set-tab-color',
+    'add-range-protection', 'hide-row-confirm']
+
+  it('is allowed in an .xlsx whose stylesheet is usable, blocked everywhere else', () => {
+    for (const c of KEPT) {
+      expect(blockedKind('sheet.command.' + c, true, false, false, true), c).toBe(null)
+      expect(blockedKind('sheet.command.' + c, true, false, false, false), c).toBe('format')
+      expect(blockedKind('sheet.command.' + c, false, true, false), c).toBe('format')
+    }
+  })
+
+  it('what cannot be kept stays blocked even where the rest is allowed', () => {
+    for (const c of STILL) expect(blockedKind('sheet.command.' + c, true, false, false, true), c).toBe('format')
+  })
+
+  it('the buttons of the kept commands are shown only where a save keeps them', () => {
+    const on = hiddenMenuConfig(false, true)
+    const off = hiddenMenuConfig(false, false)
+    for (const id of FORMAT_KEPT_MENU_IDS) { expect(on[id], id).toBeUndefined(); expect(off[id], id).toEqual({ hidden: true }) }
+    for (const id of ['sheet.command.set-border-basic', 'sheet.command.add-worksheet-merge', 'sheet.operation.open.numfmt.panel']) expect(on[id]).toEqual({ hidden: true })
+  })
+
+  it('a cell format goes to Univer and back unchanged', () => {
+    const cs = { b: true, i: true, u: true, s: true, fs: 14, ff: 'Arial', fc: '#FF0000', bg: '#FFFF00', ha: 'c' as const, va: 'm' as const, wr: true }
+    expect(univerToStyle(styleToUniver(cs))).toEqual(cs)
+    expect(styleToUniver({})).toEqual({})
+    expect(univerToStyle({ bd: { t: { s: 1 } }, n: { pattern: '0%' } })).toEqual({})
+  })
+
+  it('colours of any shape Univer holds come out as #RRGGBB', () => {
+    expect(hexColor('rgb(255, 0, 16)')).toBe('#FF0010')
+    expect(hexColor({ rgb: '#abc' })).toBe('#AABBCC')
+    expect(hexColor('red')).toBe('')
   })
 })

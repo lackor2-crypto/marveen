@@ -30,6 +30,7 @@ import { buildZip } from './web/zip-writer.js'
 import { buildPreview } from './workbench-preview.js'
 import { resolveLifePath } from './life-explorer.js'
 import { getWorkItem } from './workbench.js'
+import { parseStyleBook, xfStyle, sanitizeCellStyle, StyleWriter, type CellStyle, type StyleBook } from './workbench-table-style.js'
 
 export type TableFormat = 'xlsx' | 'csv'
 
@@ -56,6 +57,22 @@ export interface TableSheet {
    * charts, table objects, comments, protection).
    */
   structure_locked?: boolean
+  /**
+   * Read side (#526, part 3): the cells that have a format of their own, as [row, column,
+   * style key]; the key indexes TableData.styleTable.
+   */
+  cellStyles?: [number, number, number][]
+  /**
+   * Column widths and row heights in editor pixels, by index. Read side: the file's own.
+   * Write side: only the ones changed in the editor, at the positions of `rows`.
+   */
+  colWidths?: Record<string, number>
+  rowHeights?: Record<string, number>
+  /**
+   * Write side: the cells whose format was changed in the editor, as [row, column, the
+   * style the cell has now] -- positions in `rows`.
+   */
+  fmt?: [number, number, CellStyle][]
 }
 
 export interface TableData {
@@ -66,6 +83,10 @@ export interface TableData {
   /** Van-e keplet a fajlban (a felulet ezt kimondja: a mentes utan az Excel
    *  ujraszamol). */
   has_formulas: boolean
+  /** Read side: the formats the cells use, by style key (see TableSheet.cellStyles). */
+  styleTable?: Record<string, CellStyle>
+  /** Read side: this file's formatting can be edited and saved (an .xlsx with a usable stylesheet). */
+  formatting?: boolean
 }
 
 /** Ekkora fajlt meg megnyitunk szerkesztesre. Egy koltsegvetes ennek toredeke. */
@@ -284,6 +305,8 @@ interface XBook {
   entries: ZipItem[]
   sheets: XSheet[]
   hasFormulas: boolean
+  /** styles.xml as far as the formatting needs it (null: none, then formats are not touched). */
+  styleBook: StyleBook | null
 }
 
 function entry(entries: ZipItem[], name: string): ZipItem | undefined {
@@ -409,7 +432,9 @@ function parseXlsx(buf: Buffer): TableResult<{ book: XBook }> {
     sheets.push({ name: a['name'] || `Sheet${sheets.length + 1}`, path, prefix, rows, nRows, nCols, tag: m[0], rid, sheetId: Number(a['sheetId']) || 0, wbIndex, objects })
   }
   if (!sheets.length) return { ok: false, code: 'table_no_sheets' }
-  return { ok: true, book: { entries, sheets, hasFormulas } }
+  const themeEntry = entries.find((e) => /^xl\/theme\/theme\d*\.xml$/.test(e.name))
+  const styleBook = parseStyleBook(st ? st.data.toString('utf8') : null, themeEntry ? themeEntry.data.toString('utf8') : null)
+  return { ok: true, book: { entries, sheets, hasFormulas, styleBook } }
 }
 
 function gridOf(sh: XSheet): string[][] {
@@ -499,11 +524,39 @@ export function readTable(buf: Buffer, name: string): TableResult<{ table: Table
   }
   const p = parseXlsx(buf)
   if (!p.ok) return p
-  const sheets: TableSheet[] = p.book.sheets.map((s) => ({ name: s.name, rows: gridOf(s), ...(s.objects ? { structure_locked: true } : {}) }))
+  const styleTable: Record<string, CellStyle> = {}
+  const sheets: TableSheet[] = p.book.sheets.map((s) => {
+    const cellStyles: [number, number, number][] = []
+    if (p.book.styleBook) {
+      for (const [r, row] of s.rows) {
+        for (const [c, cell] of row.cells) {
+          if (cell.s == null) continue
+          const key = Number(cell.s)
+          if (!Number.isInteger(key)) continue
+          if (!(String(key) in styleTable)) styleTable[String(key)] = xfStyle(p.book.styleBook, key)
+          if (Object.keys(styleTable[String(key)]!).length) cellStyles.push([r, c, key])
+        }
+      }
+    }
+    const colWidths = readColWidths(entry(p.book.entries, s.path)!.data.toString('utf8'))
+    const rowHeights: Record<string, number> = {}
+    for (const [r, row] of s.rows) {
+      const ht = Number(attrs(row.attrs)['ht'])
+      if (Number.isFinite(ht) && ht > 0 && r < TABLE_MAX_ROWS) rowHeights[String(r)] = ptToPx(ht)
+    }
+    return {
+      name: s.name, rows: gridOf(s), ...(s.objects ? { structure_locked: true } : {}), ...(cellStyles.length ? { cellStyles } : {}),
+      ...(Object.keys(colWidths).length ? { colWidths } : {}), ...(Object.keys(rowHeights).length ? { rowHeights } : {}),
+    }
+  })
   for (const s of sheets) if (!s.rows.length) s.rows = [['']]
   const big = checkSize(sheets)
   if (big) return { ok: false, code: big }
-  return { ok: true, table: { format: 'xlsx', sheets, has_formulas: p.book.hasFormulas } }
+  const used = new Set<string>()
+  for (const s of sheets) for (const [, , k] of s.cellStyles || []) used.add(String(k))
+  const usedTable: Record<string, CellStyle> = {}
+  for (const k of used) usedTable[k] = styleTable[k]!
+  return { ok: true, table: { format: 'xlsx', sheets, has_formulas: p.book.hasFormulas, ...(p.book.styleBook ? { formatting: true } : {}), ...(used.size ? { styleTable: usedTable } : {}) } }
 }
 
 // ---- iras ----------------------------------------------------------------------------
@@ -534,6 +587,27 @@ export function normalizeSheets(raw: unknown): TableResult<{ sheets: TableSheet[
       if (!Array.isArray(v) || v.length > Math.max(TABLE_MAX_ROWS, TABLE_MAX_COLS)) return { ok: false, code: 'table_bad_input' }
       if (v.some((x) => x !== null && !(typeof x === 'number' && Number.isInteger(x) && x >= 0))) return { ok: false, code: 'table_bad_input' }
       sheet[key] = v as (number | null)[]
+    }
+    for (const [key, max] of [['colWidths', TABLE_MAX_COLS], ['rowHeights', TABLE_MAX_ROWS]] as const) {
+      const v = (s as Record<string, unknown>)[key]
+      if (v === undefined) continue
+      const sz = sizesOf(v, max)
+      if (!sz) return { ok: false, code: 'table_bad_input' }
+      if (Object.keys(sz).length) sheet[key] = sz
+    }
+    const fmtRaw = (s as Record<string, unknown>)['fmt']
+    if (fmtRaw !== undefined) {
+      if (!Array.isArray(fmtRaw) || fmtRaw.length > TABLE_MAX_CELLS) return { ok: false, code: 'table_bad_input' }
+      const fmt: [number, number, CellStyle][] = []
+      for (const e of fmtRaw) {
+        if (!Array.isArray(e) || e.length !== 3) return { ok: false, code: 'table_bad_input' }
+        const [r, c, st] = e as [unknown, unknown, unknown]
+        if (!Number.isInteger(r) || !Number.isInteger(c) || (r as number) < 0 || (c as number) < 0 || (r as number) >= TABLE_MAX_ROWS || (c as number) >= TABLE_MAX_COLS) return { ok: false, code: 'table_bad_input' }
+        const style = sanitizeCellStyle(st)
+        if (!style) return { ok: false, code: 'table_bad_input' }
+        fmt.push([r as number, c as number, style])
+      }
+      if (fmt.length) sheet.fmt = fmt
     }
     sheets.push(sheet)
   }
@@ -724,7 +798,87 @@ function shiftSheetParts(sx: string, maps: SheetMaps, own: string): string {
 const IDENTITY_AXIS: AxisMap = { from: [], to: new Map(), bound: 0, delta: 0, identity: true }
 const IDENTITY_MAPS: SheetMaps = { rows: IDENTITY_AXIS, cols: IDENTITY_AXIS }
 
-function sheetDataXml(sh: XSheet, grid: string[][], lang: 'hu' | 'en', recalc = false, maps: SheetMaps = IDENTITY_MAPS): { xml: string; changed: boolean } {
+// Excel counts widths in characters of the default font and heights in points; the editor
+// works in pixels (Calibri 11: 7 px per character + 5 px padding; 96 dpi: 4/3 px per point).
+const widthToPx = (w: number): number => Math.round(w * 7 + 5)
+const pxToWidth = (px: number): number => Math.round(((px - 5) / 7) * 100) / 100
+const ptToPx = (pt: number): number => Math.round((pt * 4) / 3)
+const pxToPt = (px: number): number => Math.round(px * 0.75 * 100) / 100
+
+/** The widths of the columns a sheet part sets, by column index. */
+function readColWidths(sx: string): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const m of sx.matchAll(/<(?:\w+:)?col\b([^>]*?)\/?>/g)) {
+    const a = attrs(m[1]!)
+    const w = Number(a['width'])
+    const lo = Number(a['min'])
+    const hi = Math.min(Number(a['max']), lo + TABLE_MAX_COLS)
+    if (!Number.isFinite(w) || w <= 0 || !Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1) continue
+    for (let n = lo; n <= hi && n <= TABLE_MAX_COLS; n++) out[String(n - 1)] = widthToPx(w)
+  }
+  return out
+}
+
+/** A sheet part with the given column widths (editor pixels) set; the other columns stay as they are. */
+function setColWidths(sx: string, widths: Record<string, number>): string {
+  const idx = Object.keys(widths).map(Number).filter((n) => Number.isInteger(n) && n >= 0).sort((a, b) => a - b)
+  if (!idx.length) return sx
+  type Span = { min: number; max: number; at: string }
+  const spans: Span[] = []
+  const hasCols = /<((?:\w+:)?)cols\b[^>]*>[\s\S]*?<\/\1cols>/.exec(sx)
+  const P = hasCols?.[1] ?? (/<((?:\w+:)?)sheetData\b/.exec(sx)?.[1] || '')
+  if (hasCols) {
+    for (const m of hasCols[0].matchAll(/<(?:\w+:)?col\b([^>]*?)\/?>/g)) {
+      const a = attrs(m[1]!)
+      if (a['min'] && a['max']) spans.push({ min: Number(a['min']), max: Number(a['max']), at: m[1]!.replace(/\s(min|max)\s*=\s*"[^"]*"/g, '').replace(/\/\s*$/, '') })
+    }
+  }
+  const wattr = (at: string, px: number): string =>
+    at.replace(/\s(width|customWidth)\s*=\s*"[^"]*"/g, '') + ` width="${pxToWidth(px)}" customWidth="1"`
+  for (const i of idx) {
+    const n = i + 1
+    const px = widths[String(i)]!
+    const at = spans.findIndex((sp) => sp.min <= n && n <= sp.max)
+    if (at < 0) { spans.push({ min: n, max: n, at: wattr('', px) }); continue }
+    const sp = spans[at]!
+    const parts: Span[] = []
+    if (sp.min < n) parts.push({ min: sp.min, max: n - 1, at: sp.at })
+    parts.push({ min: n, max: n, at: wattr(sp.at, px) })
+    if (n < sp.max) parts.push({ min: n + 1, max: sp.max, at: sp.at })
+    spans.splice(at, 1, ...parts)
+  }
+  spans.sort((a, b) => a.min - b.min)
+  const xml = `<${P}cols>${spans.map((sp) => `<${P}col min="${sp.min}" max="${sp.max}"${sp.at}/>`).join('')}</${P}cols>`
+  if (hasCols) return sx.replace(hasCols[0], () => xml)
+  return sx.replace(/<((?:\w+:)?)sheetData\b/, (m) => xml + m)
+}
+
+/** Does the asked column-width set differ from what the sheet part already says? */
+function widthsDiffer(sx: string, asked: Record<string, number> | undefined): boolean {
+  if (!asked) return false
+  const have = readColWidths(sx)
+  return Object.entries(asked).some(([k, v]) => have[k] !== v)
+}
+
+/** Sizes as they come from the editor: whole indices, sane pixel values. */
+function sizesOf(raw: unknown, max: number): Record<string, number> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(k)
+    if (!Number.isInteger(n) || n < 0 || n >= max || typeof v !== 'number' || !Number.isFinite(v) || v < 4 || v > 2000) return null
+    out[String(n)] = Math.round(v)
+  }
+  return out
+}
+
+/** The formats the editor changed, by "row,col" of the new grid. */
+function fmtMapOf(sh: TableSheet): Map<string, CellStyle> | undefined {
+  if (!sh.fmt?.length) return undefined
+  return new Map(sh.fmt.map(([r, c, st]) => [`${r},${c}`, st] as [string, CellStyle]))
+}
+
+function sheetDataXml(sh: XSheet, grid: string[][], lang: 'hu' | 'en', recalc = false, maps: SheetMaps = IDENTITY_MAPS, styler: StyleWriter | null = null, fmt?: Map<string, CellStyle>, heights?: Record<string, number>): { xml: string; changed: boolean } {
   const P = sh.prefix
   const nRows = grid.length
   const nCols = grid.reduce((m, r) => Math.max(m, r.length), 0)
@@ -743,16 +897,28 @@ function sheetDataXml(sh: XSheet, grid: string[][], lang: 'hu' | 'en', recalc = 
       const want = grid[r]?.[c] ?? ''
       const co = originOf(maps.cols, c)
       const o = co == null ? undefined : orig?.cells.get(co)
+      // A format changed in the editor: a new xf, the cell's own one is left alone.
+      const f = fmt && styler ? fmt.get(`${r},${c}`) : undefined
+      const newS = f && styler ? styler.apply(o && o.s != null && Number.isInteger(Number(o.s)) ? Number(o.s) : null, f) : null
       // In place and unchanged: the cell goes back exactly as it was.
-      if (o && o.display === want && ro === r && co === c) { cells.push(recalc && o.formula ? withoutCachedValue(o.xml) : o.xml); continue }
-      if (!o && want === '') continue
-      if (!o || o.display !== want) changed = true
-      // Moved, or changed: written again at its new place, with the style it had.
-      const x = cellXml(colName(c) + (r + 1), want, P, o ? o.s : null, o ? o.isDateStyle : false, lang)
+      if (o && o.display === want && ro === r && co === c && newS == null) { cells.push(recalc && o.formula ? withoutCachedValue(o.xml) : o.xml); continue }
+      if (!o && want === '' && newS == null) continue
+      if (!o || o.display !== want || newS != null) changed = true
+      // Moved, or changed: written again at its new place, with the style it had (or the new one).
+      const x = cellXml(colName(c) + (r + 1), want, P, newS != null ? String(newS) : o ? o.s : null, o ? o.isDateStyle : false, lang)
       if (x) cells.push(x)
     }
-    if (!cells.length && !orig) continue
-    const keep = (orig?.attrs || '').replace(/\s(r|spans)\s*=\s*"[^"]*"/g, '')
+    const hPx = heights?.[String(r)]
+    if (!cells.length && !orig && hPx == null) continue
+    let keep = (orig?.attrs || '').replace(/\s(r|spans)\s*=\s*"[^"]*"/g, '')
+    if (hPx != null) {
+      // A row height set in the editor: the file's own ht, customHeight on.
+      const was = Number(attrs(orig?.attrs || '')['ht'])
+      if (!(Number.isFinite(was) && ptToPx(was) === hPx)) {
+        keep = keep.replace(/\s(ht|customHeight)\s*=\s*"[^"]*"/g, '') + ` ht="${pxToPt(hPx)}" customHeight="1"`
+        changed = true
+      }
+    }
     out.push(cells.length
       ? `<${P}row r="${r + 1}"${keep}>${cells.join('')}</${P}row>`
       : `<${P}row r="${r + 1}"${keep}/>`)
@@ -765,6 +931,7 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
   const p = parseXlsx(original)
   if (!p.ok) return p
   const book = p.book
+  if (!book.styleBook && sheets.some((sh) => sh.fmt?.length)) return { ok: false, code: 'table_format_unsupported' }
   // A lapok szama es neve nem valtozhat: a racsot lapnev szerint illesztjuk
   // vissza, egy atrendezett lista mas lapra irna.
   if (sheets.some((sh) => sh.from !== undefined)) return writeXlsxSheets(book, sheets, lang)
@@ -772,7 +939,9 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
     return { ok: false, code: 'table_sheets_changed' }
   }
   const replaced = new Map<string, Buffer>()
-  const changedSheets = book.sheets.map((sh, i) => sheetDataXml(sh, sheets[i]!.rows, lang).changed)
+  const styler = book.styleBook ? new StyleWriter(book.styleBook) : null
+  const changedSheets = book.sheets.map((sh, i) => sheetDataXml(sh, sheets[i]!.rows, lang, false, IDENTITY_MAPS, styler, fmtMapOf(sheets[i]!), sheets[i]!.rowHeights).changed
+    || widthsDiffer(entry(book.entries, sh.path)!.data.toString('utf8'), sheets[i]!.colWidths))
   if (!changedSheets.some(Boolean)) return { ok: false, code: 'table_no_change' }
   for (let i = 0; i < book.sheets.length; i++) {
     const sh = book.sheets[i]!
@@ -781,15 +950,17 @@ function writeXlsx(original: Buffer, sheets: TableSheet[], lang: 'hu' | 'en'): T
     // tarolt eredmenyei mennek, nem csak a szerkesztette.
     const hasFormula = [...sh.rows.values()].some((r) => [...r.cells.values()].some((c) => c.formula))
     if (!changedSheets[i] && !hasFormula) continue
-    const { xml } = sheetDataXml(sh, grid, lang, true)
+    const { xml } = sheetDataXml(sh, grid, lang, true, IDENTITY_MAPS, styler, fmtMapOf(sheets[i]!), sheets[i]!.rowHeights)
     const file = entry(book.entries, sh.path)!
     let sx = file.data.toString('utf8').replace(SHEET_DATA_RE, () => xml)
     const nRows = grid.length
     const nCols = grid.reduce((m, r) => Math.max(m, r.length), 0)
     const dim = nRows && nCols ? `A1:${colName(Math.max(0, nCols - 1))}${Math.max(1, nRows)}` : 'A1'
     sx = sx.replace(/<((?:\w+:)?)dimension\b[^>]*\/>/, (_m, pre: string) => `<${pre}dimension ref="${dim}"/>`)
+    if (sheets[i]!.colWidths) sx = setColWidths(sx, sheets[i]!.colWidths!)
     replaced.set(sh.path, Buffer.from(sx, 'utf8'))
   }
+  if (styler?.dirty) replaced.set('xl/styles.xml', Buffer.from(styler.xml(), 'utf8'))
 
   // A calcChain a regi kepletek listaja: valtozas utan az Excel "javitani"
   // akarna. Kivesszuk, es teljes ujraszamolast kerunk megnyitaskor -- ez a
@@ -876,12 +1047,16 @@ function renameInSheetXml(xml: string, renames: Map<string, string>): string {
     open + xmlEscape(renameSheetInFormula(xmlUnescape(body), renames)) + close)
 }
 
-function newSheetXml(grid: string[][], lang: 'hu' | 'en'): string {
+function newSheetXml(grid: string[][], lang: 'hu' | 'en', styler: StyleWriter | null = null, fmt?: Map<string, CellStyle>): string {
   const rows: string[] = []
   let nCols = 0
   let nRows = 0
   grid.forEach((row, r) => {
-    const cells = row.map((v, c) => cellXml(colName(c) + (r + 1), v, '', null, false, lang)).filter(Boolean)
+    const cells = row.map((v, c) => {
+      const f = fmt && styler ? fmt.get(`${r},${c}`) : undefined
+      const ns = f && styler ? styler.apply(null, f) : null
+      return cellXml(colName(c) + (r + 1), v, '', ns != null ? String(ns) : null, false, lang)
+    }).filter(Boolean)
     if (!cells.length) return
     rows.push(`<row r="${r + 1}">${cells.join('')}</row>`)
     nRows = r + 1
@@ -929,7 +1104,9 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
 
   // -- the sheets that stay: patched as before, formulas pointed at renamed sheets
   const replaced = new Map<string, Buffer>()
+  const styler = book.styleBook ? new StyleWriter(book.styleBook) : null
   let cellsChanged = false
+  const newSheetFmt = new Map<TableSheet, Map<string, CellStyle>>()
   // Rows and columns that were inserted, removed or moved, per ORIGINAL sheet name.
   const mapsBySheet = new Map<string, SheetMaps>()
   for (const sh of sheets) {
@@ -945,7 +1122,7 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
     if (sh.from == null) continue
     const x = book.sheets[sh.from]!
     const maps = mapsBySheet.get(x.name) || IDENTITY_MAPS
-    const res = sheetDataXml(x, sh.rows, lang, true, maps)
+    const res = sheetDataXml(x, sh.rows, lang, true, maps, styler, fmtMapOf(sh), sh.rowHeights)
     if (res.changed) cellsChanged = true
     const hasFormula = [...x.rows.values()].some((r) => [...r.cells.values()].some((c) => c.formula))
     const file = entry(book.entries, x.path)!
@@ -958,10 +1135,15 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
       const dim = nRows && nCols ? `A1:${colName(Math.max(0, nCols - 1))}${Math.max(1, nRows)}` : 'A1'
       sx = sx.replace(/<((?:\w+:)?)dimension\b[^>]*\/>/, (_m, pre: string) => `<${pre}dimension ref="${dim}"/>`)
     }
+    if (sh.colWidths && widthsDiffer(sx, sh.colWidths)) { sx = setColWidths(sx, sh.colWidths); cellsChanged = true }
     sx = renameInSheetXml(sx, renames)
     if (sx !== file.data.toString('utf8')) replaced.set(x.path, Buffer.from(sx, 'utf8'))
   }
   if (!structural && !cellsChanged) return { ok: false, code: 'table_no_change' }
+  for (const sh of sheets) {
+    // A new sheet has no format of its own to start from: its cells get the editor's formats as they are.
+    if (sh.from === null && sh.fmt?.length && styler) newSheetFmt.set(sh, fmtMapOf(sh)!)
+  }
 
   // -- new sheets: a part, a relationship, a content type and a <sheet> element each
   const usedPaths = new Set(book.entries.map((e) => e.name.toLowerCase()))
@@ -986,7 +1168,7 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
     const rid = `rId${ridN}`
     usedRids.add(rid)
     maxSheetId++
-    newParts.push({ name: path, data: Buffer.from(newSheetXml(sh.rows, lang), 'utf8') })
+    newParts.push({ name: path, data: Buffer.from(newSheetXml(sh.rows, lang, styler, newSheetFmt.get(sh)), 'utf8') })
     relsXml = relsXml.replace(/<\/((?:\w+:)?)Relationships>/, (_m, p: string) =>
       `<${p}Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/></${p}Relationships>`)
     ctXml = ctXml.replace(/<\/((?:\w+:)?)Types>/, (_m, p: string) =>
@@ -1049,6 +1231,7 @@ function writeXlsxSheets(book: XBook, sheets: TableSheet[], lang: 'hu' | 'en'): 
     wbXml = wbXml.replace(new RegExp(`</${wp}workbook>`), `<${wp}calcPr fullCalcOnLoad="1"/></${wp}workbook>`)
   }
 
+  if (styler?.dirty) replaced.set('xl/styles.xml', Buffer.from(styler.xml(), 'utf8'))
   const out: { name: string; data: Buffer }[] = []
   for (const e of book.entries) {
     if ((calc && e === calc) || dropParts.has(e.name)) continue

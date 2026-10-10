@@ -7,7 +7,7 @@ import enUS from '@univerjs/preset-sheets-core/locales/en-US'
 import huHU from './hu-HU.json'
 import '@univerjs/preset-sheets-core/lib/index.css'
 
-import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell } from './rules.mjs'
+import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell, styleToUniver, univerToStyle, cellStyleOf } from './rules.mjs'
 
 var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-columns|move-cols)/
 
@@ -17,17 +17,28 @@ function mount(host, sheets, opts) {
   var structureLocked = !!opts.lockStructure
   // #526: sheets can be added, renamed, removed and reordered unless the file is one sheet by nature (.csv).
   var sheetsLocked = !!opts.lockSheets
+  // #526 part 3 (section A): an .xlsx with a usable stylesheet keeps font, colours, alignment,
+  // wrap, column widths and row heights. Without it (a .csv) formatting stays blocked.
+  var formatKept = !!opts.formatting
+  var styleTable = opts.styleTable || {}
+  // Defaults close to what Excel shows, so a column or row the file leaves alone looks like it.
+  var DEF_COL_W = 64
+  var DEF_ROW_H = 20
   var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {}
   var onBlocked = typeof opts.onBlocked === 'function' ? opts.onBlocked : function () {}
   var locales = { huHU: deepMerge(enUS, huHU), enUS: enUS }
   var made = createUniver({
     locale: opts.lang === 'en' ? 'enUS' : 'huHU',
     locales: locales,
-    presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false, menu: hiddenMenuConfig(sheetsLocked) })],
+    presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false, menu: hiddenMenuConfig(sheetsLocked, formatKept) })],
   })
   var api = made.univerAPI
   var sheetData = {}
   var order = []
+  // Per opened sheet: what the file had, to tell later what the editor changed.
+  var loaded = []
+  var wbStyles = {}
+  Object.keys(styleTable).forEach(function (k) { wbStyles['f' + k] = styleToUniver(styleTable[k]) })
   sheets.forEach(function (sh, i) {
     var id = 'sheet' + i
     var cellData = {}
@@ -42,28 +53,55 @@ function mount(host, sheets, opts) {
         if (c + 1 > maxC) maxC = c + 1
       })
     })
+    // Formats: a cell keeps the file's own style under the id 'f<key>', so a cell the editor did
+    // not touch is recognised at save time by that id and by where it came from.
+    var keyAt = {}
+    ;(sh.cellStyles || []).forEach(function (e) {
+      var r = e[0]; var c = e[1]; var k = e[2]
+      if (!wbStyles['f' + k]) return
+      keyAt[r + ',' + c] = k
+      var rowObj = cellData[r] || (cellData[r] = {})
+      var cell = rowObj[c] || (rowObj[c] = {})
+      cell.s = 'f' + k
+      if (c + 1 > maxC) maxC = c + 1
+    })
+    var wLoaded = {}
+    var hLoaded = {}
     // #526, part 2: every row and column of the opened sheet carries where it came from. The
     // tag travels with the row through inserts, removals, moves and undo (measured), so the
     // save can be told where each row's formatting belongs. An inserted row has no tag.
     var rowData = {}
     var columnData = {}
-    for (var rr = 0; rr < (sh.rows || []).length; rr++) rowData[rr] = { custom: { o: rr } }
+    var nRows = (sh.rows || []).length
+    Object.keys(keyAt).forEach(function (k) { var r = Number(k.split(',')[0]); if (r + 1 > nRows) nRows = r + 1 })
+    for (var rr = 0; rr < nRows; rr++) rowData[rr] = { custom: { o: rr } }
+    if (formatKept) Object.keys(sh.rowHeights || {}).forEach(function (k) { if (rowData[k]) { rowData[k].h = sh.rowHeights[k]; rowData[k].ia = 0; hLoaded[k] = sh.rowHeights[k] } })
     // Every column the file has, also one that holds nothing but formatting.
     var fileCols = maxC
     ;(sh.rows || []).forEach(function (row) { if (row && row.length > fileCols) fileCols = row.length })
     for (var cc = 0; cc < fileCols; cc++) columnData[cc] = { custom: { o: cc } }
+    Object.keys(sh.colWidths || {}).forEach(function (k) {
+      if (!formatKept) return
+      var c = Number(k)
+      if (!columnData[c]) columnData[c] = { custom: { o: c } }
+      columnData[c].w = sh.colWidths[k]
+      wLoaded[k] = sh.colWidths[k]
+    })
+    loaded.push({ keyAt: keyAt, w: wLoaded, h: hLoaded })
     sheetData[id] = {
       id: id,
       name: sh.name || ('Sheet' + (i + 1)),
       cellData: cellData,
       rowData: rowData,
       columnData: columnData,
-      rowCount: Math.max(100, (sh.rows || []).length + 50),
+      rowCount: Math.max(100, nRows + 50),
+      defaultColumnWidth: DEF_COL_W,
+      defaultRowHeight: DEF_ROW_H,
       columnCount: Math.max(26, maxC + 6),
     }
     order.push(id)
   })
-  var wb = api.createWorkbook({ id: 'wb', name: 'table', sheetOrder: order, sheets: sheetData })
+  var wb = api.createWorkbook({ id: 'wb', name: 'table', sheetOrder: order, sheets: sheetData, styles: wbStyles })
   var dirty = false
   var disposables = []
   var E = api.Event
@@ -81,7 +119,7 @@ function mount(host, sheets, opts) {
         var at = act ? order.indexOf(act.getSheetId()) : -1
         objectsHere = at >= 0 && !!(sheets[at] && sheets[at].structure_locked)
       } catch (e) { objectsHere = false }
-      var kind = blockedKind(ev && ev.id, structureLocked, sheetsLocked, objectsHere)
+      var kind = blockedKind(ev && ev.id, structureLocked, sheetsLocked, objectsHere, formatKept)
       // Diagnosis only: set window.MarveenUniverDebug = true in the console to see every command.
       if (window.MarveenUniverDebug) console.log('[univer]', ev && ev.id, kind ? 'BLOCKED:' + kind : '')
       if (kind) { ev.cancel = true; onBlocked(kind) }
@@ -135,6 +173,38 @@ function mount(host, sheets, opts) {
       })
       maxR = lastR
       maxC = lastC
+      var tagNow = function (data, i) { var d = (data || {})[i]; var o = d && d.custom ? d.custom.o : null; return typeof o === 'number' ? o : null }
+      // Formatting (section A): every cell whose style is not the one the file had at the place
+      // it came from goes along in full -- also an emptied one, and one inserted or moved.
+      var fmt = []
+      var ld = from >= 0 ? loaded[from] : null
+      if (formatKept) {
+        Object.keys(cd).forEach(function (rk) {
+          var r = Number(rk)
+          var rowCells = cd[rk] || {}
+          Object.keys(rowCells).forEach(function (ck) {
+            var c = Number(ck)
+            var cell = rowCells[ck]
+            // A styled cell stays in the grid even when it is empty, or the save would drop it.
+            if (cell && cell.s != null) {
+              if (r > maxR) maxR = r
+              if (c + 1 > maxC) maxC = c + 1
+            }
+            var sid = cell && typeof cell.s === 'string' ? cell.s : null
+            var m = sid ? /^f(\d+)$/.exec(sid) : null
+            var ro = tagNow(s.rowData, r)
+            var co = tagNow(s.columnData, c)
+            var origKey = ld && ro != null && co != null ? ld.keyAt[ro + ',' + co] : undefined
+            if (m && origKey !== undefined && Number(m[1]) === origKey) return
+            var st = univerToStyle(cellStyleOf(cell, styles))
+            // Nothing to say: no format now and none came with the place.
+            if (!Object.keys(st).length && origKey === undefined) return
+            fmt.push([r, c, st])
+            if (r > maxR) maxR = r
+            if (c + 1 > maxC) maxC = c + 1
+          })
+        })
+      }
       var rect = []
       for (var r2 = 0; r2 <= maxR; r2++) {
         var row = []
@@ -159,6 +229,27 @@ function mount(host, sheets, opts) {
       var one = { name: (s && s.name) || '', rows: rect, from: from >= 0 ? from : null }
       // Only for a sheet that was opened: a new sheet has nothing to carry over.
       if (from >= 0) { one.rowsFrom = tagOf(s.rowData, rect.length); one.colsFrom = tagOf(s.columnData, rect[0] ? rect[0].length : 0) }
+      if (formatKept) {
+        if (fmt.length) one.fmt = fmt
+        // Sizes only where they differ from what the file had at that index.
+        var sizes = function (data, was, def, n) {
+          var o = {}
+          var any = false
+          for (var k = 0; k < n; k++) {
+            var w = (data || {})[k] && data[k][def.key]
+            var have = was[String(k)]
+            if (typeof w === 'number' && w > 0) { if (w !== have) { o[k] = Math.round(w); any = true } }
+            else if (have !== undefined) { o[k] = def.dflt; any = true }
+          }
+          return any ? o : null
+        }
+        var nC = Math.max(rect[0] ? rect[0].length : 0, lastTag(s.columnData))
+        var nR = Math.max(rect.length, lastTag(s.rowData))
+        var cw = sizes(s.columnData, ld ? ld.w : {}, { key: 'w', dflt: DEF_COL_W }, nC)
+        var rh = sizes(s.rowData, ld ? ld.h : {}, { key: 'h', dflt: DEF_ROW_H }, nR)
+        if (cw) one.colWidths = cw
+        if (rh) one.rowHeights = rh
+      }
       out.push(one)
     })
     return out
