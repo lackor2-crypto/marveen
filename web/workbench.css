@@ -1895,3 +1895,21 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-tw-page .wb-doc-low { margin: 8px 0 0; font-size: 13px; }
 /* the manual view holds the very same page */
 .wb-outline-page { margin: 8px 0 16px; }
+
+/* #534 (d): the chapter list. In a narrow editor it is a strip of chips above the page; when the editor is wide (a container
+   query on the page wrapper, not the window) it is a column beside the page. */
+.wb-dp-wrap { container-type: inline-size; }
+.wb-dp-outline { display: block; width: min(100%, 794px); box-sizing: border-box; margin: 0 auto 10px; font-size: 13px; }
+.wb-dp-outline h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
+.wb-dp-outline ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.wb-dp-ol-row { display: inline-flex; flex-wrap: nowrap; gap: 6px; align-items: center; max-width: 100%; }
+.wb-dp-ol-go { text-align: left; overflow-wrap: anywhere; }
+@container (min-width: 1040px) {
+  .wb-dp-wrap.has-outline { display: grid; grid-template-columns: 210px minmax(0, 794px); column-gap: 16px; justify-content: center; align-items: start; }
+  .wb-dp-wrap.has-outline > .wb-dp-toolbar, .wb-dp-wrap.has-outline > .wb-dp-foot { grid-column: 1 / -1; }
+  .wb-dp-wrap.has-outline > .wb-dp-outline { grid-column: 1; margin: 0; width: auto; position: sticky; top: 56px; max-height: 70vh; overflow: auto; }
+  .wb-dp-wrap.has-outline > .wb-dp-outline ol { display: block; }
+  .wb-dp-wrap.has-outline .wb-dp-ol-row { display: flex; flex-wrap: wrap; padding: 4px 0; border-bottom: 1px solid rgba(128, 128, 128, 0.18); }
+  .wb-dp-wrap.has-outline .wb-dp-ol-go { flex: 1 1 100%; }
+  .wb-dp-wrap.has-outline > .wb-dp-page { grid-column: 2; }
+}

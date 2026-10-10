@@ -7994,6 +7994,8 @@ window._i18n.en = {
   "workbench.dp.sec_del": "Delete section",
   "workbench.dp.page_label": "The document page",
   "workbench.dp.hint": "Click the text and type. The + beside a line inserts, the handle reorders.",
+  "workbench.dp.outline_title": "Chapters",
+  "workbench.dp.outline_go": "Jump to the chapter",
   "workbench.dp.add_section": "New section",
   "workbench.dp.undo": "Undo",
   "workbench.dp.redo": "Redo",
