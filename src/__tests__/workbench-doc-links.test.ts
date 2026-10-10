@@ -2,17 +2,19 @@
 // condition (TG 8500): the same pension certificate must be attachable to several
 // submissions, for several authorities, from its one place.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
+import { executeTool } from '../workbench-agent/execute.js'
+import { buildContext } from '../workbench-agent/context.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import { addAnnex, annexCheck, listAnnexes, removeAnnex, setAnnexPath } from '../workbench-docannex.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
 import { documentIdFor, hashDocument, moveDocumentsPrefix } from '../life-doc-ids.js'
-import { addProjectDoc, linkLifeFileAsAnnex, linkedUsesUnder, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc } from '../workbench-doc-links.js'
+import { aiDocsForProject, aiMayReadLinked, addProjectDoc, linkLifeFileAsAnnex, linkedUsesUnder, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc } from '../workbench-doc-links.js'
 
 const CERT = 'Család/Anna/Hatóságok/Nyugdíj/nyugdijigazolas.pdf'
 
@@ -215,5 +217,96 @@ describe('a linked annex', () => {
     expect(v.attachments.map((a) => [a.item, a.label, a.title, a.name, a.exists])).toEqual([['Beadvány (Jobcenter ügy)', 'K1', 'Nyugdíjigazolás', 'nyugdijigazolas.pdf', true]])
     const uses = linkedUsesUnder(CERT).map((u) => [u.project, u.item, u.label]).sort()
     expect(uses).toEqual([['Jobcenter ügy', 'Beadvány (Jobcenter ügy)', 'K1'], ['Sozialamt ügy', '', 'reference']])
+  })
+  // PHASE 4: which documents the AI works from.
+  it('the AI gets the project documents the owner left on and the attached annexes; what is switched off is counted, not hidden', async () => {
+    const other = 'Család/Anna/Hatóságok/Nyugdíj/hatarozat.pdf'
+    writeFileSync(abs(other), 'DECISION')
+    const a = await addProjectDoc(projects[0]!.id, CERT, { role: 'source', note: 'igazolás' }, 't')
+    const b = await addProjectDoc(projects[0]!.id, other, { role: 'reference' }, 't')
+    if (!a.ok || !b.ok) throw new Error('add')
+    let ai = aiDocsForProject(projects[0]!.id)
+    expect(ai.docs.map((d) => [d.role, d.name, d.note])).toEqual([['reference', 'hatarozat.pdf', ''], ['source', 'nyugdijigazolas.pdf', 'igazolás']])
+    expect([ai.withheld, ai.missing]).toEqual([0, 0])
+    expect(listProjectDocs(projects[0]!.id).docs.every((d) => d.ai)).toBe(true)
+
+    expect(updateProjectDoc(projects[0]!.id, b.id, { ai: false }).ok).toBe(true)
+    const bad = updateProjectDoc(projects[0]!.id, b.id, { ai: 'no' })
+    expect(bad.ok === false && bad.code).toBe('bad_input')
+    ai = aiDocsForProject(projects[0]!.id)
+    expect(ai.docs.map((d) => d.name)).toEqual(['nyugdijigazolas.pdf'])
+    expect(ai.withheld).toBe(1)
+    const off = listProjectDocs(projects[0]!.id).docs.find((d) => d.id === b.id)!
+    expect(off.ai).toBe(false)
+    // Changing the role does not switch it back on behind the owner's back.
+    updateProjectDoc(projects[0]!.id, b.id, { role: 'related' })
+    expect(aiDocsForProject(projects[0]!.id).withheld).toBe(1)
+
+    expect(aiMayReadLinked(projects[0]!.id, ai.docs[0]!.path)).toBe(true)
+    // Another project's agent may not read it by knowing its path.
+    expect(aiMayReadLinked(projects[1]!.id, ai.docs[0]!.path)).toBe(false)
+    expect(aiMayReadLinked(projects[0]!.id, 'doc:DOC-NINCSILY')).toBe(false)
+  })
+
+  it('an annex linked to a submission is readable by that project\'s AI; switched off as a project document it stays off', async () => {
+    const l = await linkLifeFileAsAnnex(items[0]!, CERT, { title: 'Nyugdíjigazolás' }, resolveIn(0), 't')
+    if (!l.ok) throw new Error('link')
+    let ai = aiDocsForProject(projects[0]!.id)
+    expect(ai.docs.map((d) => [d.role, d.note])).toEqual([['attachment', 'K1 – Nyugdíjigazolás']])
+    expect(aiMayReadLinked(projects[0]!.id, l.annex.path)).toBe(true)
+    const p = await addProjectDoc(projects[0]!.id, CERT, { role: 'source' }, 't')
+    if (!p.ok) throw new Error('add')
+    expect(aiDocsForProject(projects[0]!.id).docs.length).toBe(1) // listed once
+    updateProjectDoc(projects[0]!.id, p.id, { ai: false })
+    ai = aiDocsForProject(projects[0]!.id)
+    expect([ai.docs.length, ai.withheld]).toEqual([0, 1])
+    expect(aiMayReadLinked(projects[0]!.id, l.annex.path)).toBe(false)
+  })
+
+  it('a document that is not at its place is counted as missing, not offered and not called deleted', async () => {
+    await addProjectDoc(projects[0]!.id, CERT, {}, 't')
+    rmSync(abs(CERT))
+    const ai = aiDocsForProject(projects[0]!.id)
+    expect([ai.docs.length, ai.withheld, ai.missing]).toEqual([0, 0, 1])
+  })
+  it('the agent\'s read tool gives out a linked document only when the owner selected it for this project', async () => {
+    writeFileSync(abs('Család/Anna/Hatóságok/Nyugdíj/jegyzet.txt'), 'A nyugdíj összege 1234 euró.')
+    const a = await addProjectDoc(projects[0]!.id, 'Család/Anna/Hatóságok/Nyugdíj/jegyzet.txt', {}, 't')
+    if (!a.ok) throw new Error('add')
+    const path = aiDocsForProject(projects[0]!.id).docs[0]!.path
+    const ctx0 = { projectId: projects[0]!.id, workItemId: items[0]!, actor: 'workbench-agent' } as never
+    const ctx1 = { projectId: projects[1]!.id, workItemId: items[1]!, actor: 'workbench-agent' } as never
+    const read = executeTool('file.read', { path }, ctx0)
+    expect(read.ok && JSON.stringify(read.data)).toContain('1234 euró')
+    // Another project's agent: refused, with a reason it can pass on.
+    const other = executeTool('file.read', { path }, ctx1)
+    expect(other.ok === false && other.code).toBe('not_selected')
+    // Switched off: the same agent no longer gets it.
+    updateProjectDoc(projects[0]!.id, a.id, { ai: false })
+    const off = executeTool('file.read', { path }, ctx0)
+    expect(off.ok === false && off.code).toBe('not_selected')
+    // A linked path is for reading only: it cannot be written or deleted through.
+    updateProjectDoc(projects[0]!.id, a.id, { ai: true })
+    for (const tool of ['file.write', 'file.delete', 'file.move', 'file.rename']) {
+      const w = executeTool(tool, { path, content: 'x', to: 'y.txt', name: 'y.txt' }, ctx0)
+      expect([tool, w.ok, w.ok ? JSON.stringify(w.data).slice(0, 200) : w.code]).toEqual([tool, false, 'linked_read_only'])
+    }
+    expect(readFileSync(abs('Család/Anna/Hatóságok/Nyugdíj/jegyzet.txt'), 'utf8')).toBe('A nyugdíj összege 1234 euró.')
+  })
+
+  it('the agent\'s context lists the selected documents with the path to read them, and says how many it was not given', async () => {
+    const a = await addProjectDoc(projects[0]!.id, CERT, { role: 'source', note: 'ebből dolgozz' }, 't')
+    writeFileSync(abs('Család/Anna/Hatóságok/Nyugdíj/titok.pdf'), 'x')
+    const b = await addProjectDoc(projects[0]!.id, 'Család/Anna/Hatóságok/Nyugdíj/titok.pdf', {}, 't')
+    if (!a.ok || !b.ok) throw new Error('add')
+    updateProjectDoc(projects[0]!.id, b.id, { ai: false })
+    const c = await buildContext(projects[0]!, null, 'hu')
+    expect(c.contextText).toMatch(/Linked documents the owner selected for you \(1\)/)
+    expect(c.contextText).toMatch(/- doc:DOC-[A-Z0-9]{8}  \(source\) nyugdijigazolas\.pdf -- ebből dolgozz/)
+    expect(c.contextText).toMatch(/1 more document\(s\) are linked to this project but the owner did NOT select them for you/)
+    expect(c.contextText).not.toContain('titok.pdf')
+    // A project with no linked document spends no context on it.
+    const none = await buildContext(projects[1]!, null, 'hu')
+    expect(none.contextText).not.toContain('Linked documents')
   })
 })

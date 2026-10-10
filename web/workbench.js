@@ -11030,7 +11030,8 @@
       + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>'
       + (ro ? '' : ' <label class="wb-pd-role">' + esc(t('workbench.pd.role')) + ' <select data-wb-pd-role="' + escA(d.id) + '">'
         + roles.map(function (k) { return '<option value="' + escA(k) + '"' + (k === d.role ? ' selected' : '') + '>' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
-        + '</select></label> <button type="button" class="wb-linklike" data-wb-act="pd-remove" data-wb-pd="' + escA(d.id) + '">' + esc(t('workbench.pd.remove')) + '</button>')
+        + '</select></label> <label class="wb-pd-ai" title="' + escA(t('workbench.pd.ai_hint')) + '"><input type="checkbox" data-wb-pd-ai="' + escA(d.id) + '"' + (d.ai ? ' checked' : '') + '> ' + esc(t('workbench.pd.ai')) + '</label>'
+        + ' <button type="button" class="wb-linklike" data-wb-act="pd-remove" data-wb-pd="' + escA(d.id) + '">' + esc(t('workbench.pd.remove')) + '</button>')
       + '</span>'
     return '<li class="wb-pd-row"><strong>📄 ' + esc(d.name) + '</strong> ' + pdWhere(d)
       + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '') + ' ' + tools + '</li>'
@@ -11050,7 +11051,8 @@
       body = '<p class="wb-pd-map">' + roles.map(function (k) {
         return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
       }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
-        + ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span></p>'
+        + ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span>'
+        + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: docs.filter(function (d) { return d.ai }).length, total: docs.length })) + '</span></p>'
       body += roles.map(function (k) {
         var mine = docs.filter(function (d) { return d.role === k })
         return '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.' + k)) + ' (' + mine.length + ')</h3>'
@@ -16479,6 +16481,12 @@
   // #530: the role of a project document is changed in place, with its select.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || typeof e.target.getAttribute !== 'function') return
+    var pdAi = e.target.getAttribute('data-wb-pd-ai')
+    if (pdAi) {
+      var aiPid = WB.projectId
+      api('PATCH', '/api/workbench/project-docs/' + encodeURIComponent(pdAi), { project: aiPid, ai: !!e.target.checked }).then(function (r) { if (WB.projectId === aiPid) pdApply(r) })
+      return
+    }
     var pdId = e.target.getAttribute('data-wb-pd-role')
     if (!pdId) return
     var pid = WB.projectId
