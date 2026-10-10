@@ -892,9 +892,13 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const inferenceOnly = claims.filter((c) => c.strength === 'inference')
   const unsupported = claims.filter((c) => c.strength === 'unverified')
   const missing = blocks.flatMap((b) => b.missing)
-  const notDone = sections.filter((s) => s.status !== 'done')
+  // #534: a chapter is what the owner made with a real heading. The section the program keeps behind a page without
+  // headings (its title is only the placeholder) has no status control on the page any more, so it cannot hold the
+  // finalizing back: only the titled sections are counted, and a document without any is ready on this point.
+  const titled = sections.filter((s) => !isPlaceholderSectionTitle(s.title))
+  const notDone = titled.filter((s) => s.status !== 'done')
   const items: CheckItem[] = [
-    { key: 'sections_done', ok: sections.length > 0 && notDone.length === 0, count: sections.length - notDone.length, total: sections.length, detail: notDone.filter((s) => !isPlaceholderSectionTitle(s.title)).map((s) => s.title) },
+    { key: 'sections_done', ok: sections.length > 0 && notDone.length === 0, count: titled.length - notDone.length, total: titled.length, detail: notDone.map((s) => s.title) },
     { key: 'missing_data', ok: missing.length === 0, count: missing.length, detail: missing },
     { key: 'unverified_references', ok: officialBad.length === 0, count: officialBad.length, total: official.length, detail: officialBad.map((s) => s.citation || '') },
     {

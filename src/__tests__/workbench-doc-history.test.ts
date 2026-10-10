@@ -235,7 +235,24 @@ describe('dokumentum-lap: visszavonas es ujra (#533)', () => {
     expect(docHistoryState(itemId).undo).toBe('add_section')
     const items = (await callWorkbench(base(), 'GET')).body.outline.check.items as Array<{ key: string; total?: number; detail?: string[] }>
     const done = items.find((i) => i.key === 'sections_done')
-    expect(done?.total).toBe(2)
+    // only the chapter the owner made counts: 0 of 1 done, and the placeholder section is neither counted nor named
+    expect(done?.total).toBe(1)
     expect(done?.detail).toEqual(['Tényállás'])
+  })
+
+  it('#534: cimsor nelkuli dokumentumot a helykitolto szakasz allapota nem tartja vissza a veglegesitestol', async () => {
+    const seeded = await post('/sections', { title: 'Új fejezet' })
+    const sec = seeded.body.outline.sections[0].id as string
+    expect((await post('/blocks', { section: sec, text: 'Egyszerű levél, cím nélkül.' })).status).toBe(201)
+    const check = (await callWorkbench(base(), 'GET')).body.outline.check as { ready: boolean; items: Array<{ key: string; ok: boolean; count?: number; total?: number }> }
+    // the seeded section is still "todo" (the page has no control for it), and that must not block
+    expect(listSections(itemId).map((x) => x.status)).toEqual(['todo'])
+    expect(check.items.find((i) => i.key === 'sections_done')).toMatchObject({ ok: true, count: 0, total: 0 })
+    expect(check.ready).toBe(true)
+    // a real heading of the owner that is not done still blocks, by name
+    expect((await post('/sections', { title: 'Kérelem' })).status).toBe(201)
+    const after = (await callWorkbench(base(), 'GET')).body.outline.check as { ready: boolean; items: Array<{ key: string; ok: boolean; detail?: string[] }> }
+    expect(after.items.find((i) => i.key === 'sections_done')).toMatchObject({ ok: false, detail: ['Kérelem'] })
+    expect(after.ready).toBe(false)
   })
 })

@@ -8290,6 +8290,8 @@
       + check.items.map(function (i) {
         var info = i.key === 'inference_as_fact' || i.key === 'owner_written'
         if (info && !i.count) return ''
+        // #534: a document without headings has no chapters to finish -- "0 / 0" would only be noise.
+        if (i.key === 'sections_done' && i.ok && !i.total) return ''
         var key = i.key === 'consistency' && i.ok ? (i.total ? 'consistency_acked' : 'consistency_ok') : i.key
         var txt = t('workbench.outline.check.' + key, { n: i.count, total: i.total === undefined ? '' : i.total })
         var detail = i.key === 'consistency' ? consistencyDetailHtml(o, ro)
