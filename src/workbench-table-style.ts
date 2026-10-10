@@ -6,6 +6,8 @@
  * Reading: a cell's `s` attribute indexes `cellXfs` in styles.xml; the xf points at a
  * font and a fill. That is turned into a small, editor-neutral CellStyle.
  *
+ * Section C adds the number format (`nf`, the format code: "0.00", "0%", "yyyy-mm-dd", ...).
+ *
  * Writing: the save NEVER rewrites an existing xf (other cells share it). A cell whose
  * style was changed in the editor gets a NEW xf appended at the end of `cellXfs` -- a copy
  * of the one it had, with only the changed parts replaced (a new font / fill appended when
@@ -62,7 +64,40 @@ export interface CellStyle {
   wr?: boolean
   /** borders */
   bd?: CellBorder
+  /** number format code ("0.00", "0%", "yyyy-mm-dd"); absent = General */
+  nf?: string
 }
+
+// ---- number formats (#526, part 3, section C) ----------------------------------------
+
+/** The built-in number formats whose display is a date or a time. */
+export const BUILTIN_DATE_FMTS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 30, 36, 45, 46, 47, 50, 57])
+
+/** Quoted text, [colour] / [$-locale] and escaped characters left out, is there a date or time part. */
+export function isDateFormatCode(code: string): boolean {
+  const c = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '')
+  return /[dmyhs]/i.test(c) && !/^[#0.,%\s-]*$/.test(c)
+}
+
+/**
+ * The built-in formats as a code the editor can show. The date ones are the locale's short
+ * date in Excel; they read as ISO here, the way the table shows dates everywhere else.
+ */
+const BUILTIN_NUMFMT: Record<number, string> = {
+  1: '0', 2: '0.00', 3: '#,##0', 4: '#,##0.00',
+  5: '"$"#,##0_);\\("$"#,##0\\)', 6: '"$"#,##0_);[Red]\\("$"#,##0\\)',
+  7: '"$"#,##0.00_);\\("$"#,##0.00\\)', 8: '"$"#,##0.00_);[Red]\\("$"#,##0.00\\)',
+  9: '0%', 10: '0.00%', 11: '0.00E+00', 12: '# ?/?', 13: '# ??/??',
+  14: 'yyyy-mm-dd', 15: 'd-mmm-yy', 16: 'd-mmm', 17: 'mmm-yy', 18: 'h:mm AM/PM', 19: 'h:mm:ss AM/PM',
+  20: 'h:mm', 21: 'h:mm:ss', 22: 'yyyy-mm-dd h:mm',
+  37: '#,##0_);\\(#,##0\\)', 38: '#,##0_);[Red]\\(#,##0\\)', 39: '#,##0.00_);\\(#,##0.00\\)', 40: '#,##0.00_);[Red]\\(#,##0.00\\)',
+  45: 'mm:ss', 46: '[h]:mm:ss', 47: 'mm:ss.0', 48: '##0.0E+0', 49: '@',
+}
+/** The ones a code is written back as (a custom entry is added for every other code). */
+const BUILTIN_WRITABLE = [1, 2, 3, 4, 9, 10, 11, 12, 13, 20, 21, 37, 38, 39, 40, 45, 46, 48, 49]
+
+/** One spelling of "no number format": General, empty, absent. */
+const nfKey = (v: string | undefined | null): string | null => (!v || v.trim() === '' || v.trim().toLowerCase() === 'general' ? null : v)
 
 const HA_TO_XML: Record<string, string> = { l: 'left', c: 'center', r: 'right', j: 'justify' }
 const HA_FROM_XML: Record<string, CellStyle['ha']> = { left: 'l', center: 'c', centerContinuous: 'c', right: 'r', justify: 'j', distributed: 'j' }
@@ -146,6 +181,10 @@ export interface StyleBook {
   bordersMissing: boolean
   xfs: string[]
   theme: string[]
+  /** The file's own number formats (id -> code). */
+  numFmts: Map<number, string>
+  /** The file has a <numFmts> part (if not, it is made on save, ahead of the fonts). */
+  numFmtsPart: boolean
 }
 
 const section = (xml: string, tag: string): { open: string; body: string; close: string; start: number; end: number; pre: string } | null => {
@@ -165,6 +204,14 @@ export function parseStyleBook(stylesXml: string | null, themeXml: string | null
   const fills = section(stylesXml, 'fills')
   const xfs = section(stylesXml, 'cellXfs')
   const borders = section(stylesXml, 'borders')
+  const nfs = section(stylesXml, 'numFmts')
+  const numFmts = new Map<number, string>()
+  if (nfs) {
+    for (const e of elements(nfs.body, 'numFmt')) {
+      const a = attrsOf(e)
+      if (a['numFmtId'] != null && a['formatCode'] != null && Number.isInteger(Number(a['numFmtId']))) numFmts.set(Number(a['numFmtId']), unescapeXml(a['formatCode']))
+    }
+  }
   if (!fonts || !fills || !xfs) return null
   const theme = DEFAULT_THEME.slice()
   if (themeXml) {
@@ -182,7 +229,7 @@ export function parseStyleBook(stylesXml: string | null, themeXml: string | null
   return {
     xml: stylesXml, prefix: xfs.pre, fonts: elements(fonts.body, 'font'), fills: elements(fills.body, 'fill'),
     borders: borders ? elements(borders.body, 'border') : [`<${xfs.pre}border><${xfs.pre}left/><${xfs.pre}right/><${xfs.pre}top/><${xfs.pre}bottom/><${xfs.pre}diagonal/></${xfs.pre}border>`],
-    bordersMissing: !borders, xfs: elements(xfs.body, 'xf'), theme,
+    bordersMissing: !borders, xfs: elements(xfs.body, 'xf'), theme, numFmts, numFmtsPart: !!nfs,
   }
 }
 
@@ -248,6 +295,16 @@ function borderOf(sb: StyleBook, border: string | undefined): CellBorder | undef
   return Object.keys(out).length ? out : undefined
 }
 
+/** The format code of a number-format id of this file; undefined for General and for a format nothing is known about. */
+function numFmtCode(sb: StyleBook, id: number): string | undefined {
+  if (!id) return undefined
+  const own = sb.numFmts.get(id)
+  if (own !== undefined) return nfKey(own) ? own : undefined
+  if (BUILTIN_NUMFMT[id] !== undefined) return BUILTIN_NUMFMT[id]
+  if (BUILTIN_DATE_FMTS.has(id)) return 'yyyy-mm-dd'
+  return undefined
+}
+
 /** The supported properties of the cell format `xfIndex` (null/missing = the default look). */
 export function xfStyle(sb: StyleBook, xfIndex: number | null): CellStyle {
   const xf = xfIndex != null ? sb.xfs[xfIndex] : undefined
@@ -258,6 +315,8 @@ export function xfStyle(sb: StyleBook, xfIndex: number | null): CellStyle {
   if (bg) out.bg = bg
   const bd = borderOf(sb, sb.borders[Number(a['borderId'] || 0)])
   if (bd) out.bd = bd
+  const nf = numFmtCode(sb, Number(a['numFmtId'] || 0))
+  if (nf) out.nf = nf
   const al = /<(?:\w+:)?alignment\b([^>]*)\/?>/.exec(xf)
   if (al) {
     const aa = attrsOf(al[1]!)
@@ -289,6 +348,7 @@ export function sanitizeCellStyle(raw: unknown): CellStyle | null {
   if (typeof r['va'] === 'string' && 'tmb'.includes(r['va']) && r['va'].length === 1) out.va = r['va'] as CellStyle['va']
   const bd = sanitizeBorder(r['bd'])
   if (bd) out.bd = bd
+  if (typeof r['nf'] === 'string' && r['nf'].length > 0 && r['nf'].length <= 255 && !/[\u0000-\u001f]/.test(r['nf']) && nfKey(r['nf'])) out.nf = r['nf']
   return out
 }
 
@@ -365,8 +425,15 @@ export class StyleWriter {
   private borderMemo = new Map<string, number>()
 
   private xfMemo = new Map<string, number>()
+  private numFmts: { id: number; code: string }[] = []
+  private numFmtMemo = new Map<string, number>()
+  private nextNumFmt: number
 
   constructor(private sb: StyleBook) {
+    this.nextNumFmt = Math.max(163, ...sb.numFmts.keys()) + 1
+    for (const id of BUILTIN_WRITABLE) this.numFmtMemo.set(BUILTIN_NUMFMT[id]!, id)
+    // What the file already has wins over a built-in spelling of the same code.
+    sb.numFmts.forEach((code, id) => { this.numFmtMemo.set(code, id) })
     // What the file already has is reused, never added a second time.
     sb.fonts.forEach((x, i) => { if (!this.fontMemo.has(x)) this.fontMemo.set(x, i) })
     sb.fills.forEach((x, i) => { if (!this.fillMemo.has(x)) this.fillMemo.set(x, i) })
@@ -375,6 +442,29 @@ export class StyleWriter {
   }
 
   get dirty(): boolean { return this.xfs.length > 0 }
+
+  /** The number-format id for a code: General is 0, a code the file or the built-ins have is reused, any other is appended. */
+  private numFmtId(code: string | undefined): number {
+    if (!nfKey(code)) return 0
+    const hit = this.numFmtMemo.get(code!)
+    if (hit !== undefined) return hit
+    const id = this.nextNumFmt++
+    this.numFmts.push({ id, code: code! })
+    this.numFmtMemo.set(code!, id)
+    return id
+  }
+
+  /** Does the cell format `index` (of the file, or one appended here) show a date or a time? */
+  isDateXf(index: number | null): boolean {
+    if (index == null) return false
+    const xf = index < this.sb.xfs.length ? this.sb.xfs[index] : this.xfs[index - this.sb.xfs.length]
+    if (!xf) return false
+    const id = Number(attrsOf(/^<[^>]*>/.exec(xf)![0])['numFmtId'] || 0)
+    if (!id) return false
+    const own = this.sb.numFmts.get(id) ?? this.numFmts.find((n) => n.id === id)?.code
+    if (own !== undefined) return isDateFormatCode(own)
+    return BUILTIN_DATE_FMTS.has(id)
+  }
 
   /** A new <border> built from the original's, the four sides replaced; the diagonal and the rest stay. */
   private borderXml(baseId: number, want: CellBorder | undefined): string {
@@ -412,12 +502,13 @@ export class StyleWriter {
     // A cell without an `s` looks like xf 0.
     const eff = baseIndex ?? 0
     const was = xfStyle(this.sb, eff)
-    const keys: (keyof CellStyle)[] = ['b', 'i', 'u', 's', 'fs', 'ff', 'fc', 'bg', 'ha', 'va', 'wr', 'bd']
+    const keys: (keyof CellStyle)[] = ['b', 'i', 'u', 's', 'fs', 'ff', 'fc', 'bg', 'ha', 'va', 'wr', 'bd', 'nf']
     const norm = (v: unknown): unknown => (v === false || v === undefined ? null : v)
     // The editor does not say a size or a font when the cell has none of its own: absent = keep.
     const differs = keys.filter((k) => {
       if ((k === 'fs' || k === 'ff') && want[k] === undefined) return false
       if (k === 'bd') return borderKey(want.bd) !== borderKey(was.bd)
+      if (k === 'nf') return nfKey(want.nf) !== nfKey(was.nf)
       return norm(want[k]) !== norm(was[k])
     })
     if (!differs.length) return null
@@ -441,6 +532,7 @@ export class StyleWriter {
     }
     let borderId = Number(baseAttrs['borderId'] || 0)
     if (differs.includes('bd')) borderId = this.addBorder(this.borderXml(borderId, sanitizeBorder(want.bd)))
+    const numFmtId = differs.includes('nf') ? this.numFmtId(want.nf) : Number(baseAttrs['numFmtId'] || 0)
     const P = this.sb.prefix
     // The alignment: the original's, with the three properties replaced.
     const oldAl = baseXf ? attrsOf(/<(?:\w+:)?alignment\b([^>]*)\/?>/.exec(baseXf)?.[1] || '') : {}
@@ -454,6 +546,8 @@ export class StyleWriter {
     at['fontId'] = String(fontId)
     at['fillId'] = String(fillId)
     at['borderId'] = String(borderId)
+    at['numFmtId'] = String(numFmtId)
+    if (differs.includes('nf')) at['applyNumberFormat'] = '1'
     if (differs.includes('bd')) at['applyBorder'] = '1'
     at['applyFont'] = '1'
     if (differs.includes('bg')) at['applyFill'] = '1'
@@ -496,6 +590,18 @@ export class StyleWriter {
       let open = sec.open
       open = /\bcount="\d+"/.test(open) ? open.replace(/\bcount="\d+"/, `count="${total}"`) : open.replace(/>$/, ` count="${total}">`)
       x = x.slice(0, sec.start) + open + sec.body + add.join('') + sec.close + x.slice(sec.end)
+    }
+    if (this.numFmts.length) {
+      const add = this.numFmts.map((n) => `<${this.sb.prefix}numFmt numFmtId="${n.id}" formatCode="${escapeXml(n.code)}"/>`).join('')
+      const sec = section(x, 'numFmts')
+      if (sec) {
+        const total = this.sb.numFmts.size + this.numFmts.length
+        const open = /\bcount="\d+"/.test(sec.open) ? sec.open.replace(/\bcount="\d+"/, `count="${total}"`) : sec.open.replace(/>$/, ` count="${total}">`)
+        x = x.slice(0, sec.start) + open + sec.body + add + sec.close + x.slice(sec.end)
+      } else {
+        const part = `<${this.sb.prefix}numFmts count="${this.numFmts.length}">${add}</${this.sb.prefix}numFmts>`
+        x = x.replace(/<((?:\w+:)?)fonts\b/, (m) => part + m)
+      }
     }
     grow('fonts', this.fonts, this.sb.fonts.length + this.fonts.length)
     grow('fills', this.fills, this.sb.fills.length + this.fills.length)

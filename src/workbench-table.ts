@@ -30,7 +30,7 @@ import { buildZip } from './web/zip-writer.js'
 import { buildPreview } from './workbench-preview.js'
 import { resolveLifePath } from './life-explorer.js'
 import { getWorkItem } from './workbench.js'
-import { parseStyleBook, xfStyle, sanitizeCellStyle, StyleWriter, type CellStyle, type StyleBook } from './workbench-table-style.js'
+import { parseStyleBook, xfStyle, sanitizeCellStyle, StyleWriter, BUILTIN_DATE_FMTS, isDateFormatCode, type CellStyle, type StyleBook } from './workbench-table-style.js'
 
 export type TableFormat = 'xlsx' | 'csv'
 
@@ -247,14 +247,6 @@ export function shiftFormula(formula: string, dr: number, dc: number): string {
 }
 
 // ---- datumok -------------------------------------------------------------------
-
-const BUILTIN_DATE_FMTS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 30, 36, 45, 46, 47, 50, 57])
-
-function isDateFormatCode(code: string): boolean {
-  // Idezett szoveg, [szin]/[$-locale] es escape-elt karakterek nelkul nezzuk.
-  const c = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '')
-  return /[dmyhs]/i.test(c) && !/^[#0.,%\s-]*$/.test(c)
-}
 
 /** Az Excel napszama (1900-as rendszer) -> "EEEE-HH-NN" / "EEEE-HH-NN OO:PP". */
 export function serialToIso(serial: number): string {
@@ -984,7 +976,8 @@ function sheetDataXml(sh: XSheet, grid: string[][], lang: 'hu' | 'en', recalc = 
       if (!o && want === '' && newS == null) continue
       if (!o || o.display !== want || newS != null) changed = true
       // Moved, or changed: written again at its new place, with the style it had (or the new one).
-      const x = cellXml(colName(c) + (r + 1), want, P, newS != null ? String(newS) : o ? o.s : null, o ? o.isDateStyle : false, lang)
+      const isDate = newS != null && styler ? styler.isDateXf(newS) : o ? o.isDateStyle : false
+      const x = cellXml(colName(c) + (r + 1), want, P, newS != null ? String(newS) : o ? o.s : null, isDate, lang)
       if (x) cells.push(x)
     }
     const hPx = heights?.[String(r)]
@@ -1136,7 +1129,7 @@ function newSheetXml(grid: string[][], lang: 'hu' | 'en', styler: StyleWriter | 
     const cells = row.map((v, c) => {
       const f = fmt && styler ? fmt.get(`${r},${c}`) : undefined
       const ns = f && styler ? styler.apply(null, f) : null
-      return cellXml(colName(c) + (r + 1), v, '', ns != null ? String(ns) : null, false, lang)
+      return cellXml(colName(c) + (r + 1), v, '', ns != null ? String(ns) : null, ns != null && styler ? styler.isDateXf(ns) : false, lang)
     }).filter(Boolean)
     if (!cells.length) return
     rows.push(`<row r="${r + 1}">${cells.join('')}</row>`)

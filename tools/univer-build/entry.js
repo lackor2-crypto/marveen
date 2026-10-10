@@ -7,9 +7,9 @@ import enUS from '@univerjs/preset-sheets-core/locales/en-US'
 import huHU from './hu-HU.json'
 import '@univerjs/preset-sheets-core/lib/index.css'
 
-import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell, styleToUniver, univerToStyle, cellStyleOf } from './rules.mjs'
+import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell, styleToUniver, univerToStyle, cellStyleOf, isDatePattern, isoToSerial } from './rules.mjs'
 
-var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-columns|move-cols)/
+var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|set\.numfmt|remove\.numfmt|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-columns|move-cols)/
 
 function mount(host, sheets, opts) {
   opts = opts || {}
@@ -63,6 +63,13 @@ function mount(host, sheets, opts) {
       var rowObj = cellData[r] || (cellData[r] = {})
       var cell = rowObj[c] || (rowObj[c] = {})
       cell.s = 'f' + k
+      // The server sends a date as text ("2024-03-05"); under a date format the grid needs the
+      // number, or it shows the text as it is and a format picked later has nothing to work on.
+      var nf = styleTable[k] && styleTable[k].nf
+      if (formatKept && nf && cell.t === 1 && typeof cell.v === 'string' && isDatePattern(nf)) {
+        var serial = isoToSerial(cell.v)
+        if (serial != null) { cell.v = serial; cell.t = 2 }
+      }
       if (c + 1 > maxC) maxC = c + 1
     })
     var wLoaded = {}
@@ -167,7 +174,7 @@ function mount(host, sheets, opts) {
         Object.keys(rowCells).forEach(function (ck) {
           var c = Number(ck)
           var cell = rowCells[ck]
-          var t = textFromCell(cell, cellPattern(cell, styles), formulas[r] && formulas[r][c])
+          var t = textFromCell(cell, cellPattern(cell, styles), formulas[r] && formulas[r][c], formatKept)
           if (t !== '') { texts[c] = t; if (c + 1 > lastC) lastC = c + 1 }
         })
         if (texts.length) { rows[r] = texts; if (r > lastR) lastR = r }
@@ -281,4 +288,4 @@ function mount(host, sheets, opts) {
   }
 }
 
-window.MarveenUniver = { mount: mount, version: '1.0.3-border' }
+window.MarveenUniver = { mount: mount, version: '1.0.3-numfmt' }

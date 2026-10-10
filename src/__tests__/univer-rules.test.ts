@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  blockedKind, hiddenMenuConfig, FORMAT_KEPT_MENU_IDS, styleToUniver, univerToStyle, hexColor, HIDDEN_MENU_IDS, deepMerge, cellFromText, cellPattern, isDatePattern, serialToIso, textFromCell,
+  blockedKind, hiddenMenuConfig, FORMAT_KEPT_MENU_IDS, styleToUniver, univerToStyle, hexColor, HIDDEN_MENU_IDS, deepMerge, cellFromText, cellPattern, isDatePattern, serialToIso, isoToSerial as clientIsoToSerial, textFromCell,
 } from '../../tools/univer-build/rules.mjs'
 import { serialToIso as serverSerialToIso, isoToSerial } from '../workbench-table.js'
 
@@ -156,9 +156,11 @@ describe('#526 section A: the formatting a save keeps', () => {
     'set-background-color', 'reset-background-color', 'set-horizontal-text-align', 'set-vertical-text-align', 'set-text-wrap', 'set-style',
     // section B
     'set-border', 'set-border-basic', 'set-border-color', 'set-border-style', 'set-border-position', 'add-worksheet-merge',
-    'add-worksheet-merge-all', 'add-worksheet-merge-vertical', 'add-worksheet-merge-horizontal', 'remove-worksheet-merge']
+    'add-worksheet-merge-all', 'add-worksheet-merge-vertical', 'add-worksheet-merge-horizontal', 'remove-worksheet-merge',
+    // section C
+    'numfmt.set.numfmt', 'numfmt.set.percent', 'numfmt.set.currency', 'numfmt.add.decimal.command', 'numfmt.subtract.decimal.command']
   const STILL = ['paste-besides-border', 'set-range-subscript', 'set-text-rotation', 'set-shrink-to-fit',
-    'numfmt.set.percent', 'paste-format', 'clear-selection-format', 'set-once-format-painter', 'set-worksheet-hidden', 'set-tab-color',
+    'mobile.numfmt.set.numfmt', 'numfmt.set.other', 'paste-format', 'clear-selection-format', 'set-once-format-painter', 'set-worksheet-hidden', 'set-tab-color',
     'add-range-protection', 'hide-row-confirm']
 
   it('is allowed in an .xlsx whose stylesheet is usable, blocked everywhere else', () => {
@@ -177,7 +179,14 @@ describe('#526 section A: the formatting a save keeps', () => {
     const on = hiddenMenuConfig(false, true)
     const off = hiddenMenuConfig(false, false)
     for (const id of FORMAT_KEPT_MENU_IDS) { expect(on[id], id).toBeUndefined(); expect(off[id], id).toEqual({ hidden: true }) }
-    for (const id of ['sheet.command.paste-besides-border', 'sheet.operation.open.numfmt.panel']) expect(on[id]).toEqual({ hidden: true })
+    for (const id of ['sheet.command.paste-besides-border', 'sheet.command.set-once-format-painter']) expect(on[id]).toEqual({ hidden: true })
+    // section C: the number format buttons and the panel
+    for (const id of ['sheet.operation.open.numfmt.panel', 'sheet.command.numfmt.set.percent', 'sheet.command.numfmt.add.decimal.command']) {
+      expect(on[id], id).toBeUndefined()
+      expect(off[id], id).toEqual({ hidden: true })
+    }
+    expect(blockedKind('sheet.operation.open.numfmt.panel', true, false, false, true)).toBe(null)
+    expect(blockedKind('sheet.operation.open.numfmt.panel', true, false, false, false)).toBe('format')
     for (const id of ['sheet.command.set-border-basic', 'sheet.command.add-worksheet-merge', 'sheet.command.remove-worksheet-merge']) {
       expect(on[id], id).toBeUndefined()
       expect(off[id], id).toEqual({ hidden: true })
@@ -188,7 +197,7 @@ describe('#526 section A: the formatting a save keeps', () => {
     const cs = { b: true, i: true, u: true, s: true, fs: 14, ff: 'Arial', fc: '#FF0000', bg: '#FFFF00', ha: 'c' as const, va: 'm' as const, wr: true }
     expect(univerToStyle(styleToUniver(cs))).toEqual(cs)
     expect(styleToUniver({})).toEqual({})
-    expect(univerToStyle({ n: { pattern: '0%' } })).toEqual({})
+    expect(univerToStyle({ n: { pattern: '0%' } })).toEqual({ nf: '0%' })
   })
 
   it('borders go to Univer and back; black is the colour of a line without one', () => {
@@ -206,5 +215,30 @@ describe('#526 section A: the formatting a save keeps', () => {
     expect(hexColor('rgb(255, 0, 16)')).toBe('#FF0010')
     expect(hexColor({ rgb: '#abc' })).toBe('#AABBCC')
     expect(hexColor('red')).toBe('')
+  })
+})
+
+describe('number format (section C)', () => {
+  it('a format code travels as the Univer pattern and back; General is nothing', () => {
+    expect(styleToUniver({ nf: '0.00%' }).n).toEqual({ pattern: '0.00%' })
+    expect(styleToUniver({ nf: 'General' }).n).toBeUndefined()
+    expect(univerToStyle({ n: { pattern: '#,##0.00' } }).nf).toBe('#,##0.00')
+    expect(univerToStyle({ n: { pattern: 'General' } }).nf).toBeUndefined()
+    expect(univerToStyle({ n: { pattern: '' } }).nf).toBeUndefined()
+  })
+
+  it('where the format is kept a percent goes back as the number, a date as ISO text', () => {
+    expect(textFromCell({ v: 0.1, t: 2 }, '0%', '', true)).toBe('0.1')
+    expect(textFromCell({ v: 0.1, t: 2 }, '0%', '', false)).toBe('10%')
+    expect(textFromCell({ v: 45356, t: 2 }, 'yyyy-mm-dd', '', true)).toBe('2024-03-05')
+    expect(textFromCell({ v: 1234.5, t: 2 }, '#,##0.00', '', true)).toBe('1234.5')
+  })
+
+  it('isoToSerial is the server inverse of the ISO text', () => {
+    expect(clientIsoToSerial('2024-03-05')).toBe(45356)
+    expect(clientIsoToSerial('2024-03-05 12:00')).toBe(45356.5)
+    expect(serialToIso(clientIsoToSerial('2024-03-05 13:30'))).toBe('2024-03-05 13:30')
+    expect(clientIsoToSerial('2024-02-31')).toBe(null)
+    expect(clientIsoToSerial('szoveg')).toBe(null)
   })
 })
