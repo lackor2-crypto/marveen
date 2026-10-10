@@ -153,4 +153,26 @@ describe('merged cells', () => {
     expect(sx).toContain('<mergeCells count="2"><mergeCell ref="A1:B1"/><mergeCell ref="A3:C3"/></mergeCells>')
     expect(read(out.data).sheets[0]!.merges).toEqual([[0, 0, 0, 1], [2, 0, 2, 2]])
   })
+
+  it('a row inserted above moves the file merge along; the editor list and the shifted file agree', () => {
+    const src = book(EXTRA)
+    const t = read(src)
+    const sh = t.sheets[0]!
+    const moved = { ...sh, from: 0, rows: [['new', '', ''], ...sh.rows], rowsFrom: [null, 0, 1, 2], colsFrom: [0, 1, 2], merges: [[1, 1, 2, 2]] }
+    const out = writeTable(src, 'a.xlsx', [moved as never])
+    if (!out.ok) throw new Error(out.code)
+    const sx = part(out.data, 'xl/worksheets/sheet1.xml')
+    expect(sx).toContain('<mergeCell ref="B2:C3"/>')
+    expect(sx.match(/<mergeCell /g)!.length).toBe(1)
+  })
+
+  it('after a move the editor list is the truth: a merge the editor dropped is gone', () => {
+    const src = book(EXTRA)
+    const t = read(src)
+    const sh = t.sheets[0]!
+    const moved = { ...sh, from: 0, rows: [['new', '', ''], ...sh.rows], rowsFrom: [null, 0, 1, 2], colsFrom: [0, 1, 2], merges: [] }
+    const out = writeTable(src, 'a.xlsx', [moved as never])
+    if (!out.ok) throw new Error(out.code)
+    expect(part(out.data, 'xl/worksheets/sheet1.xml')).not.toContain('mergeCell')
+  })
 })
