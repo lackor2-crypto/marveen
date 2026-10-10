@@ -37,4 +37,15 @@ describe('frame bars', () => {
     // the Manual view: in the head of the item (measured: it was only at the very bottom, after scrolling)
     expect(fn('editorPanelHtml')).toContain("finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'")
   })
+
+  // #557 (Boss TG 8744 / 8759 / 8793): MEASURED in Chromium -- the dashboard's own `header { display: flex; height:
+  // 64px }` rule reached Univer's <header>; the grid's toolbar got 56px of 990 and folded every button into its
+  // overflow menu ("three dots"). With the rule undone: 20 buttons on screen in two rows, no overflow button.
+  it('the grid toolbar is fully on screen: the dashboard header rule is undone for it, rows wrap, no second undo / redo', () => {
+    expect(css).toMatch(/\.wb-univer-el header \{ display: block; position: relative; top: auto; padding: 0; height: auto;/)
+    expect(css).toMatch(/\.wb-univer-el header > \.univer-invisible \{ display: none !important; \}/)
+    expect(css).toMatch(/\.wb-univer-el header \[data-u-comp="ribbon-toolbar"\] \{ flex-wrap: wrap;/)
+    expect(css).toContain('[data-u-command="univer.command.undo"]')
+    expect(css).toContain('[data-u-command="univer.command.redo"]')
+  })
 })
