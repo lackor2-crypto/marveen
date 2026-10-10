@@ -96,7 +96,10 @@ describe('side-by-side translation of a draft', () => {
     expect(fn).toContain("if (b.kind === 'image')")
     expect(fn).toContain('dpImageParts(b.text)')
     expect(fn).toContain('dpAlignAttrs(b.align).cls')
-    expect(js).toContain('pv.blocks.map(twBlockHtml).join')
+    // #534: the column is ONE continuous page now; a picture is an island inside it, drawn by twBlockHtml
+    const page = js.slice(js.indexOf('function twPageHtml(o, ro)'), js.indexOf('function twCollect()'))
+    expect(page).toContain('twBlockHtml(b)')
+    expect(page).toContain('data-tw="island"')
     expect(js).not.toContain("return b.kind === 'image' ? '' :")
   })
 
@@ -175,5 +178,30 @@ describe('the draft page wiring', () => {
       const lang = readFileSync(join(__dirname, '..', '..', 'web', 'lang', f + '.js'), 'utf8')
       for (const k of new Set(keys)) expect(lang, f + ' ' + k).toContain('"' + k + '":')
     }
+  })
+
+  it('#534: the translation column is one continuous editable page -- no per-chapter boxes, no add buttons', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const page = js.slice(js.indexOf('function twPageHtml(o, ro)'), js.indexOf('function twCollect()'))
+    expect(page).toContain('id="wbTwPage"')
+    expect(page).toContain('contenteditable')
+    // the heading is the chapter border; there is no per-chapter card and no insert / add control on the page
+    expect(page).toContain('data-tw="title"')
+    expect(page).not.toContain('wb-tw-sec')
+    expect(page).not.toContain('wb-dp-plus')
+    expect(page).not.toContain('outline-add')
+    // what was typed is read back before every redraw and before the save, and only from a page drawn for this language
+    expect(js).toMatch(/function twRefresh\(\)[\s\S]{0,400}twCollect\(\)/)
+    expect(js).toMatch(/function twSave\(\)[\s\S]{0,500}twCollect\(\)/)
+    expect(js).toContain('data-tw-shown')
+    // Enter makes a paragraph by hand (Chromium would clone the element and its attributes)
+    expect(js).toContain('function twSplitAtCaret()')
+  })
+
+  it('#534: a language version page has no gutter "+" and no "new chapter" button', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain('function dpIsVariant()')
+    const g = js.slice(js.indexOf('function dpGutterHtml'), js.indexOf('function dpGutterHtml') + 400)
+    expect(g).toContain('dpIsVariant()')
   })
 })
