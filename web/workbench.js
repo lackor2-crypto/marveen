@@ -12736,7 +12736,7 @@
     var untitled = !!sec.untitled
     if (untitled && WB.docFocus && WB.docFocus.id === 'wbDpS_' + sec.id) untitled = false
     return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
-      + (untitled ? '<span hidden contenteditable="false" data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '" data-wb-untitled="1"></span>' : '')
+      + (untitled ? '<span hidden contenteditable="false" data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '" data-wb-untitled="1">' + esc(sec.title) + '</span>' : '')
       + (untitled ? '' : '<div class="wb-dp-sechead">')
       + (untitled ? '' : dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro))
       + (untitled ? '' : '<span class="wb-dp-secbar" contenteditable="false">'
