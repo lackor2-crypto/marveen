@@ -36,14 +36,19 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
 
 ## Eljárás -- MINDEN kártyánál, kivétel nélkül
 
-0. **Kell-e egyáltalán új kártya? EGY PROJEKT = EGY KÁRTYA** (2026-09-23,
-   {{OWNER_NAME}}). Nézd meg, van-e MÉG NYITOTT kártya, amelyik projektjéhez ez a
-   munka tartozik (részfeladat, következő fázis, új hiba, kiegészítés). Ha
-   van: NE hozz létre kártyát -- írj kommentet arra a kártyára
-   (`POST /api/kanban/<id>/comments`), vagy alfeladatként vedd fel
-   (`parent_id`). A szerver ezt ki is kényszeríti: nyitott kártyához
-   kapcsolódó új kártyára `409 same_project` a válasz. Részletek:
-   `one-card-one-fix` skill, 6. pont.
+0. **Kell-e egyáltalán új kártya? Előbb nézd meg, melyik OSZLOPBAN áll a
+   kártya, amelyikhez a munka tartozik.**
+   - `planned` / `in_progress` / `testing` -> **EGY PROJEKT = EGY KÁRTYA**
+     (2026-09-23, {{OWNER_NAME}}): NE hozz létre kártyát -- írj kommentet arra a
+     kártyára (`POST /api/kanban/<id>/comments`), vagy alfeladatként vedd fel
+     (`parent_id`). A szerver ki is kényszeríti: ilyen kártyához kapcsolódó új
+     kártyára `409 same_project` a válasz.
+   - `waiting` -> **A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK** (2026-10-10,
+     {{OWNER_NAME}}): az új munka ÚJ kártyát kap, a leírásában a régi számával
+     (`Kapcsolódik: #N (várakozóban)`); a régi kártyára legfeljebb egy mutató
+     komment megy. A szerver ezt indok nélkül átengedi.
+   - `done` -> új kártya, a régit belinkelve.
+   Részletek: `one-card-one-fix` skill, 5-7. pont.
 1. Állítsd össze a kártya adatait (title, description, priority, project).
    **A PROJEKT KÖTELEZŐ** (2026-09-21, {{OWNER_NAME}}, #374): ami a felület egy
    menüpontját fejleszti/javítja, az ahhoz a projekthez tartozik, amelyik alatt

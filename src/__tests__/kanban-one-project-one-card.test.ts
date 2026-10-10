@@ -10,7 +10,7 @@ import { applyCardLabels } from '../web/kanban-labels.js'
 beforeEach(() => {
   initDatabase(':memory:')
   createLabel({ id: 'aaaa1111', name: 'marveen_fejlesztese', color: '#3b82f6' })
-  createKanbanCard({ id: 'e0e0e001', title: 'AI Munkapad', status: 'waiting' } as any)
+  createKanbanCard({ id: 'e0e0e001', title: 'AI Munkapad', status: 'in_progress' } as any)
   applyCardLabels('e0e0e001', ['aaaa1111'])
   createKanbanCard({ id: 'd0d0d001', title: 'Regi lezart munka', status: 'done' } as any)
 })
@@ -37,6 +37,24 @@ describe('egy projekt = egy kartya', () => {
     const r = createCardWithRules({ ...base, title: 'Rajzvaszon huzogatas', description: 'Folytatas: e0e0e001' })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('same_project')
+  })
+
+  // A VARAKOZOBA KERULT KARTYAT NEM BOVITJUK (#538): az uj munka uj kartyat kap, a szerver nem allja utjat.
+  it('VARAKOZO kartyahoz kapcsolodo uj munka indok nelkul is letrejon (related es leirasbeli hivatkozas)', () => {
+    createKanbanCard({ id: 'f0f0f001', title: 'Kesz, jovahagyasra var', status: 'waiting' } as any)
+    applyCardLabels('f0f0f001', ['aaaa1111'])
+    const a = createCardWithRules({ ...base, title: 'Uj keres a kesz munka utan', related: ['f0f0f001'] })
+    expect(a.ok).toBe(true)
+    const b = createCardWithRules({ ...base, title: 'Masik uj keres', description: 'Kapcsolodik: f0f0f001 (varakozoban)' })
+    expect(b.ok).toBe(true)
+  })
+
+  it('ha a kapcsolodok kozott varakozo ES folyamatban levo is van, a folyamatban levo tovabbra is megallitja', () => {
+    createKanbanCard({ id: 'f0f0f002', title: 'Varakozo', status: 'waiting' } as any)
+    const r = createCardWithRules({ ...base, title: 'Vegyes kapcsolat', related: ['f0f0f002', 'e0e0e001'] })
+    expect(r.ok).toBe(false)
+    if (!r.ok && r.code === 'same_project') expect(r.cards.map((c) => c.id)).toEqual(['e0e0e001'])
+    else throw new Error('same_project kellett: ' + JSON.stringify(r))
   })
 
   it('LEZART kartyahoz kapcsolodo uj munka letrejohet (az mar nem ugyanaz a nyitott projekt)', () => {

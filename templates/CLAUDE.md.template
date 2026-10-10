@@ -734,13 +734,23 @@ Részletek: `skill-management` / `skill-factory` skill.
 4. **Ha a javítás közben ÚJ hiba jön elő, azt AZONNAL javítani kell** -- úgy véve,
    mintha a tulajdonos annak a javítását is kérte volna.
 5. **A „várakozó" (waiting) oszlop NEM felmentés a befejezés alól.** Nincs olyan,
-   hogy „ez már waiting, ezt már nem csinálom meg"; a befejezés a kártya MOZGATÁSA
-   NÉLKÜL is megy (komment + izolált worktree, a kártya marad waiting).
-6. **EGY PROJEKT = EGY KÁRTYA.** Egy MÉG NYITOTT kártya projektjéhez tartozó új
-   munkát (részfeladat, következő fázis, új hiba) NEM új kártyára veszel: kommentet
-   írsz rá, vagy alfeladatként (`parent_id`). A `POST /api/kanban` ki is
-   kényszeríti: nyitott kártyához kapcsolódó új kártyát `same_project` (409)
-   hibával elutasít; külön kártya csak kimondott `separate_project` indokkal.
+   hogy „ez már waiting, ezt már nem csinálom meg": ami a kártya SAJÁT, már vállalt
+   munkájából hiányzik, azt be kell fejezni -- a kártya MOZGATÁSA NÉLKÜL (komment +
+   izolált worktree, a kártya marad waiting).
+6. **EGY PROJEKT = EGY KÁRTYA -- amíg a kártya NINCS a várakozóban.** Egy `planned` /
+   `in_progress` kártya projektjéhez tartozó új munkát (részfeladat, következő fázis,
+   új hiba) NEM új kártyára veszel: kommentet írsz rá, vagy alfeladatként
+   (`parent_id`). A `POST /api/kanban` ki is kényszeríti: ilyen kártyához kapcsolódó
+   új kártyát `same_project` (409) hibával elutasít; külön kártya csak kimondott
+   `separate_project` indokkal.
+7. **A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK (2026-10-10, {{OWNER_NAME}}).** Amint
+   egy kártya a `waiting` oszlopban áll, ÚJ munka (új kérés, következő rész, újonnan
+   talált hiba) NEM kerül rá -- se kommentben, se alfeladatként. Az új munka ÚJ
+   kártyát kap, és az új kártya LEÍRÁSA mondja meg, melyik várakozó kártyához
+   tartozik (`#N`); a régire legfeljebb egy mutató komment megy („folytatás: #N").
+   Miért: a tulajdonos a várakozóból hagy jóvá, és egy közben tovább hízó kártyát
+   nyitott munkával együtt hagyna jóvá. A szerver az ilyen új kártyát átengedi.
+   Munkát másnak kiadni is az ÚJ kártya számával kell.
 
 Részletek (owner-idézetek, valós eset): `one-card-one-fix` skill.
 

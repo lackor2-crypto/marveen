@@ -77,6 +77,14 @@ export interface CreateCardRequest {
 /** Egy kartya meg NYITOTT munka-e (nem kesz, nem archivalt). */
 const OPEN_STATUSES = new Set(['planned', 'in_progress', 'waiting', 'testing'])
 
+/**
+ * A WAITING CARD IS FROZEN (the owner, kanban #538): once a card reached the waiting column
+ * nothing new is added to it -- the owner approves from there, and a card that keeps growing
+ * gets approved with open work on it. New work that belongs to such a card is therefore a NEW
+ * card that links it, and the one-project-one-card refusal must not stand in its way.
+ */
+const FROZEN_STATUSES = new Set(['waiting'])
+
 /** Az onallosag indokanak legrovidebb hossza: egy "mas" vagy "x" nem indok. */
 export const SEPARATE_PROJECT_MIN_CHARS = 15
 
@@ -133,6 +141,7 @@ export function sameProjectMessage(cards: CardCandidate[]): string {
   return 'EGY PROJEKT = EGY KARTYA: ez az uj kartya egy MEG NYITOTT kartyahoz kapcsolodik, tehat ugyanaz a munka -- '
     + `a kartya NEM jott letre. Nyitott kartya: ${list}. `
     + 'Teendo: irj kommentet arra a kartyara (POST /api/kanban/<id>/comments), vagy vedd fel alfeladatkent (parent_id). '
+    + '(A VARAKOZOBAN allo kartya kivetel: azt nem bovitjuk, ahhoz kapcsolodo uj munka uj kartyat kap -- ezt a szerver atengedi.) '
     + `Ha ez TENYLEG onallo projekt, kuldd ujra "separate_project": "<miert onallo, legalabb ${SEPARATE_PROJECT_MIN_CHARS} karakter>" mezovel.`
 }
 
@@ -185,6 +194,8 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
   const separateReason = String(data.separate_project ?? '').trim()
   const openRelated = parentId ? [] : relatedCards.filter((c) => {
     if (!OPEN_STATUSES.has(c.status)) return false
+    // A related card in the waiting column cannot take the work: the new card is the right place.
+    if (FROZEN_STATUSES.has(c.status)) return false
     const card = getKanbanCard(c.id)
     return !!card && card.archived_at == null
   })
