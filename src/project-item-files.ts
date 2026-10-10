@@ -24,6 +24,13 @@ export interface ProjectItemFile {
 }
 
 const MAX_FILES = 300
+
+/** The program's OWN files inside a work item folder (the item's registration file, the drawing / deck / timeline
+ *  models): not documents of the matter, never listed (lackor2-bot, #530 check of PR #948). A name the program
+ *  writes for itself starts with "marveen-" or is a model file "<name>.<canvas|deck|timeline>.json". */
+export function isItemInternalFile(name: string): boolean {
+  return /^marveen-[^/]*\.json$/i.test(name) || /\.(canvas|deck|timeline)\.json$/i.test(name)
+}
 const MAX_DEPTH = 2
 
 export function projectItemFiles(projectId: string): { files: ProjectItemFile[]; truncated: boolean } {
@@ -39,7 +46,7 @@ export function projectItemFiles(projectId: string): { files: ProjectItemFile[];
       let names: string[] = []
       try { names = readdirSync(dirAbs).sort((a, b) => a.localeCompare(b)) } catch { return }
       for (const n of names) {
-        if (n.startsWith('.')) continue
+        if (n.startsWith('.') || isItemInternalFile(n)) continue
         const abs = join(dirAbs, n)
         const rel = dirRel + '/' + n
         let st

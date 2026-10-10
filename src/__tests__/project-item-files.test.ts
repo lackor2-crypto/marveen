@@ -8,7 +8,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { addProjectDoc } from '../workbench-doc-links.js'
-import { projectItemFiles } from '../project-item-files.js'
+import { projectItemFiles, isItemInternalFile } from '../project-item-files.js'
 
 describe('work item folder files', () => {
   let depot = ''
@@ -58,5 +58,17 @@ describe('work item folder files', () => {
     put(base + '/beadvany.docx'); put(base + '/masik.pdf')
     expect((await addProjectDoc(project.id, base + '/beadvany.docx', { role: 'source' }, 't')).ok).toBe(true)
     expect(projectItemFiles(project.id).files.map((f) => f.name)).toEqual(['masik.pdf'])
+  })
+
+  it('the program\'s own files (registration file, canvas/deck/timeline models) are never listed', () => {
+    const base = 'Projektek/Ügy/Munkadarabok/Beadvány'
+    put(base + '/marveen-item.json'); put(base + '/diak.deck.json'); put(base + '/plakat.canvas.json'); put(base + '/reklam.timeline.json')
+    put(base + '/Verziók/marveen-item.json'); put(base + '/.marveen-id'); put(base + '/beadvany.docx')
+    expect(projectItemFiles(project.id).files.map((f) => f.name)).toEqual(['beadvany.docx'])
+  })
+
+  it('the internal-name rule: own names out, a user file called like a model but plain stays', () => {
+    for (const n of ['marveen-item.json', 'marveen-brand.json', 'x.deck.json', 'X.CANVAS.JSON', 'a.timeline.json']) expect(isItemInternalFile(n)).toBe(true)
+    for (const n of ['adatok.json', 'beadvany.docx', 'deck.pdf', 'marveen.docx']) expect(isItemInternalFile(n)).toBe(false)
   })
 })
