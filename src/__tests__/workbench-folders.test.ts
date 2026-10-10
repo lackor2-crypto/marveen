@@ -481,34 +481,68 @@ describe('list UI', () => {
     })
   }
 
-  // #540: the "+ New work" form has no folder picker; a folder picked earlier must not follow it invisibly from an open item.
-  it('"+ New work" pressed from an open item does not carry a folder picked before the item was opened', async () => {
+  // #540: only a folder picker that is ON SCREEN decides where new work goes. The rail's "+ New work" form and its "New
+  // group" button have none; a folder remembered from earlier (made by hand, or picked on the start page) must not
+  // follow them invisibly.
+  const intakeBody = (h: ReturnType<typeof open>) => {
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/intake'))
+    expect(call).toBeTruthy()
+    return JSON.parse(String(call!.init!.body))
+  }
+
+  it('"+ New work" with no picker on screen sends no folder, even right after a group was made by hand', async () => {
     const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
     h.win.prompt = () => 'Uj'
-    h.click({ 'data-wb-act': 'mkfolder' }) // made with no item open: the picked folder is now Munkadarabok/Uj
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"')) // the folder is made and picked
+    h.click({ 'data-wb-act': 'mkfolder' }) // the made folder is remembered as the pick: Munkadarabok/Uj
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"'))
+    h.click({ 'data-wb-act': 'new' })
+    h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
+    h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
+    expect(intakeBody(h).folder).toBeUndefined()
+  })
+
+  it('"+ New work" pressed from an open item sends no folder when the picker is not on screen', async () => {
+    const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
+    h.win.prompt = () => 'Uj'
+    h.click({ 'data-wb-act': 'mkfolder' }) // remembered as the pick before the item is opened
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"'))
     h.click({ 'data-wb-item': 's1' })
     h.click({ 'data-wb-act': 'new' })
     h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
     h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
-    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/intake'))
-    expect(call).toBeTruthy()
-    expect(JSON.parse(String(call!.init!.body)).folder).toBeUndefined()
+    expect(intakeBody(h).folder).toBeUndefined()
   })
 
-  it('"+ New work" with no item open keeps the folder the owner picked', async () => {
+  it('the picker on screen still decides: the chosen folder is sent', async () => {
     const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
-    h.win.prompt = () => 'Uj'
-    h.click({ 'data-wb-act': 'mkfolder' })
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"')) // the folder is made and picked
     h.click({ 'data-wb-act': 'new' })
+    h.inputs['wbNewFolder'] = { value: `${box}/LK`, focus() {} }
     h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
     h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
-    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/intake'))
-    expect(call).toBeTruthy()
-    expect(JSON.parse(String(call!.init!.body)).folder).toBe(`${box}/Uj`)
+    expect(intakeBody(h).folder).toBe(`${box}/LK`)
+  })
+
+  it('"New group" with no picker on screen goes into the box, not under a remembered pick; with the picker, under its choice', async () => {
+    const h = open([], [`${box}/LK`])
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items?'))).toBe(true))
+    h.win.prompt = () => 'Uj'
+    h.click({ 'data-wb-act': 'mkfolder' })
+    await vi.waitFor(() => expect(h.fetchCalls.filter((c) => c.url.includes('/api/workbench/folders')).length).toBe(1))
+    const idle = () => vi.waitFor(() => expect(h.html()).not.toContain('data-wb-act="mkfolder" disabled'))
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"')) // remembered pick: Munkadarabok/Uj
+    await idle()
+    h.click({ 'data-wb-act': 'mkfolder' })
+    await vi.waitFor(() => expect(h.fetchCalls.filter((c) => c.url.includes('/api/workbench/folders')).length).toBe(2))
+    await idle()
+    h.inputs['wbNewFolder'] = { value: `${box}/LK`, focus() {} }
+    h.click({ 'data-wb-act': 'mkfolder' })
+    const bodies = h.fetchCalls.filter((c) => c.url.includes('/api/workbench/folders')).map((c) => JSON.parse(String(c.init!.body)))
+    expect(bodies).toHaveLength(3)
+    expect(bodies[1].parent).toBe('')
+    expect(bodies[2].parent).toBe(`${box}/LK`)
   })
 
   it('"New table" files the table under the chosen folder', async () => {

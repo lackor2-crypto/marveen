@@ -207,7 +207,6 @@
     // #502: the loaded content of linked / not yet read folders of the tree, per project (see lazyCache)
     lazyOut: null,
     pickFolder: '',
-    pickFor: '', // the open work item (id, '' = none) while the folder was picked; see setPickFolder
     newDraft: null,
     folderBusy: false,
     // Az attekinto negy szama ala lenyithato kartyalista (Boss, TG 2068).
@@ -1998,21 +1997,14 @@
       + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
   }
 
-  /** The folder the owner picked for the next new work item. Remembered with the work item that was open at the time:
-   *  the picker is only on screen while no item is open, so a pick made earlier must not follow a "+ New work" pressed
-   *  from an open item invisibly (#540: the new work went under the open one's folder). */
-  function setPickFolder(v) {
-    WB.pickFolder = v
-    WB.pickFor = WB.selectedId || ''
-  }
-
-  /** Opening the new-work form from an open item: a folder pick made before this item was opened is dropped, unless the
-   *  picker is on screen (then the pick is the owner's, shown there). */
-  function dropStalePick() {
-    if (!WB.selectedId || !WB.pickFolder || WB.pickFor === WB.selectedId) return
-    if (typeof document.getElementById === 'function' && document.getElementById('wbNewFolder')) return
-    WB.pickFolder = ''
-    WB.pickFor = ''
+  /** The folder chosen in the picker that is ON SCREEN right now ('' = no picker shown, or none chosen). WB.pickFolder
+   *  only remembers the choice so the picker comes back preselected; a pick that is not visible (the rail's "+ New work"
+   *  form and "New folder" button have no picker) must not decide where new work or a new folder goes (#540). */
+  function shownPick() {
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbNewFolder') : null
+    if (!el) return ''
+    WB.pickFolder = String(el.value || '')
+    return WB.pickFolder
   }
 
   /** Step 1 of creating: the folder system. Always visible (not buried in the manual form),
@@ -2025,9 +2017,7 @@
   function readNewDraft() {
     var ti = document.getElementById('wbNewTitle')
     var ty = document.getElementById('wbNewType')
-    var fo = document.getElementById('wbNewFolder')
     WB.newDraft = { title: ti ? ti.value : '', type: ty ? ty.value : '' }
-    if (fo) setPickFolder(fo.value)
   }
 
   function makeFolder() {
@@ -2036,15 +2026,17 @@
     var name = nameEl ? String(nameEl.value || '').trim() : String(window.prompt(t('workbench.folder.new_prompt')) || '').trim()
     if (!name) { window.showToast(t('workbench.folder.name_required')); return }
     readNewDraft()
+    var parent = shownPick()
+    if (parent === '@project') parent = ''
     var pid = WB.projectId
     WB.folderBusy = true
     render()
-    api('POST', '/api/workbench/folders', { project_id: pid, parent: WB.pickFolder === '@project' ? '' : (WB.pickFolder || ''), name: name }).then(function (r) {
+    api('POST', '/api/workbench/folders', { project_id: pid, parent: parent, name: name }).then(function (r) {
       WB.folderBusy = false
       if (WB.projectId !== pid) return
       if (!r.ok) { render(); window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
-      if (r.data && r.data.folder) setPickFolder(r.data.folder)
+      if (r.data && r.data.folder) WB.pickFolder = r.data.folder
       render()
     })
   }
@@ -2597,9 +2589,8 @@
     var payload = { project_id: WB.projectId, text: text }
     if (kind) payload.kind = kind
     if (name) payload.title = name
-    var pf = document.getElementById('wbNewFolder')
-    if (pf) setPickFolder(pf.value)
-    if (WB.pickFolder) payload.folder = WB.pickFolder
+    var pick = shownPick()
+    if (pick) payload.folder = pick
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/intake', payload).then(function (r) {
@@ -2633,9 +2624,8 @@
    *  sentence, if any, goes to the agent to fill it, like for the other kinds. */
   function intakeCreateTable(text, name) {
     var payload = { project_id: WB.projectId, title: name || t('workbench.table.default_title') }
-    var pf = document.getElementById('wbNewFolder')
-    if (pf) setPickFolder(pf.value)
-    if (WB.pickFolder) payload.folder = WB.pickFolder
+    var pick = shownPick()
+    if (pick) payload.folder = pick
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
@@ -15000,7 +14990,7 @@
   // a kovetkezo kuldes ezt viszi. Nem kell ujrarajzolni -- a select maga mutatja.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
-    if (e.target.id === 'wbNewFolder') { setPickFolder(e.target.value); return }
+    if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
     var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')
     if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
@@ -15236,7 +15226,7 @@
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
-    else if (a === 'new') { if (!archived()) { dropStalePick(); WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
+    else if (a === 'new') { if (!archived()) { WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; WB.intakeAsk = null; render() }
     else if (a === 'intake-go') intakeCreate(null)
     else if (a === 'intake-kind') intakeCreate(act.getAttribute('data-wb-kind'))
