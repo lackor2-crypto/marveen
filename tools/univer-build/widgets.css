@@ -1,0 +1,9 @@
+/* #557: the two small controls the grid gains (entry.js): the freeze boxes and the "no border" button. */
+/* Univer's own "Freeze" dropdown (six fixed items) is replaced by the two boxes below. */
+.mv-uv-host [data-u-command="sheet.toolbar.sheet-frozen"] { display: none !important; }
+.mv-uv-freeze { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 0 6px; font-size: 12px; line-height: 1.2; white-space: nowrap; }
+.mv-uv-freeze b { font-weight: 600; }
+.mv-uv-freeze input { width: 3.4em; box-sizing: border-box; padding: 2px 4px; font: inherit; border: 1px solid var(--univer-gray-300, #cbd5e1); border-radius: 4px; background: var(--univer-white, #fff); color: var(--univer-gray-900, #1b1c1f); }
+.mv-uv-freeze button, .mv-uv-noborder { padding: 2px 8px; font: inherit; font-size: 12px; line-height: 1.4; border: 1px solid var(--univer-gray-300, #cbd5e1); border-radius: 4px; background: transparent; color: var(--univer-gray-900, #1b1c1f); cursor: pointer; }
+.mv-uv-freeze button:hover, .mv-uv-noborder:hover { background: var(--univer-gray-100, #f1f5f9); }
+.mv-uv-noborder { justify-self: start; }

@@ -7,8 +7,10 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   blockedKind, hiddenMenuConfig, FORMAT_KEPT_MENU_IDS, styleToUniver, univerToStyle, hexColor, HIDDEN_MENU_IDS, deepMerge, cellFromText, cellPattern, isDatePattern, serialToIso, isoToSerial as clientIsoToSerial, textFromCell,
+  freezeCount, freezeConfig, freezeCounts, FREEZE_MAX_ROWS, FREEZE_MAX_COLS,
 } from '../../tools/univer-build/rules.mjs'
-import { serialToIso as serverSerialToIso, isoToSerial } from '../workbench-table.js'
+import { serialToIso as serverSerialToIso, isoToSerial, readTable, writeTable } from '../workbench-table.js'
+import { buildZip } from '../web/zip-writer.js'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -152,7 +154,7 @@ describe('betoltes es nyelv', () => {
 
 describe('#526 section A: the formatting a save keeps', () => {
   const KEPT = ['set-range-bold', 'set-range-italic', 'set-range-underline', 'set-range-stroke', 'set-range-font-family',
-    'set-range-fontsize', 'set-range-font-increase', 'set-range-font-decrease', 'set-range-text-color', 'reset-text-color',
+    'set-range-fontsize', 'set-range-font-increase', 'set-range-font-decrease', 'set-range-text-color', 'reset-text-color', 'reset-range-text-color',
     'set-background-color', 'reset-background-color', 'set-horizontal-text-align', 'set-vertical-text-align', 'set-text-wrap', 'set-style',
     // section B
     'set-border', 'set-border-basic', 'set-border-color', 'set-border-style', 'set-border-position', 'add-worksheet-merge',
@@ -240,5 +242,128 @@ describe('number format (section C)', () => {
     expect(serialToIso(clientIsoToSerial('2024-03-05 13:30'))).toBe('2024-03-05 13:30')
     expect(clientIsoToSerial('2024-02-31')).toBe(null)
     expect(clientIsoToSerial('szoveg')).toBe(null)
+  })
+})
+
+// #557 (owner TG 8817): a colour that was set can be taken back. The "Reset" row of the text colour
+// panel runs `sheet.command.reset-range-text-color` (measured in the grid: it calls set-text-color with
+// the grid's default text colour underneath); the blocked list only knew `reset-text-color`, a command
+// without a button, so the reset answered "this formatting cannot be saved" on a coloured cell.
+describe('#557: colours, borders and freezing can be put back', () => {
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+  const RNS = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+  const STYLES = `<?xml version="1.0"?><styleSheet ${NS}>`
+    + '<fonts count="2"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFF0000"/><name val="Calibri"/></font></fonts>'
+    + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+    + '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill></fills>'
+    + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>'
+    + '<border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders>'
+    + '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
+    + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1"/>'
+    + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1"/>'
+    + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1"/></cellXfs></styleSheet>'
+  const book = (): Buffer => {
+    const files: Record<string, string> = {
+      '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/worksheets/sheet1.xml" ContentType="ws"/></Types>',
+      'xl/workbook.xml': `<?xml version="1.0"?><workbook ${NS} ${RNS}><sheets><sheet name="Lap1" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      'xl/_rels/workbook.xml.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="ws" Target="worksheets/sheet1.xml"/></Relationships>',
+      'xl/styles.xml': STYLES,
+      'xl/worksheets/sheet1.xml': `<?xml version="1.0"?><worksheet ${NS}><dimension ref="A1:C1"/><sheetData>`
+        + '<row r="1"><c r="A1" s="1" t="inlineStr"><is><t>mind</t></is></c><c r="B1" s="2" t="inlineStr"><is><t>piros</t></is></c><c r="C1" s="3" t="inlineStr"><is><t>keret</t></is></c></row>'
+        + '</sheetData></worksheet>',
+    }
+    return buildZip(Object.entries(files).map(([name, data]) => ({ name, data })))
+  }
+  // The cell as the editor holds it after the file was read: the file's own style, in Univer terms.
+  const styleAt = (r: ReturnType<typeof readTable>, col: number) => {
+    if (!r.ok) throw new Error(r.code)
+    const sh = r.table.sheets[0]!
+    const e = (sh.cellStyles || []).find((x) => x[0] === 0 && x[1] === col)
+    return e ? r.table.styleTable![String(e[2])]! : {}
+  }
+
+  it('the colour and border reset commands are kept in an .xlsx and blocked where nothing is kept', () => {
+    for (const id of ['sheet.command.reset-range-text-color', 'sheet.command.reset-text-color', 'sheet.command.reset-background-color']) {
+      expect(blockedKind(id, true, false, false, true), id).toBe(null)
+      expect(blockedKind(id, false, true, false, false), id).toBe('format')
+    }
+    // no border: the panel's "none" runs the very command that sets one
+    expect(blockedKind('sheet.command.set-border-basic', true, false, false, true)).toBe(null)
+    expect(blockedKind('sheet.command.set-border', true, false, false, true)).toBe(null)
+    // freezing is not a format at all: never blocked
+    for (const id of ['sheet.command.set-frozen', 'sheet.command.cancel-frozen', 'sheet.command.set-selection-frozen']) expect(blockedKind(id, true, false, false, true), id).toBe(null)
+  })
+
+  it('the text colour reset button is the real command id, shown where a save keeps it', () => {
+    expect(HIDDEN_MENU_IDS).toContain('sheet.command.reset-range-text-color')
+    expect(FORMAT_KEPT_MENU_IDS).toContain('sheet.command.reset-range-text-color')
+    expect(hiddenMenuConfig(false, true)['sheet.command.reset-range-text-color']).toBeUndefined()
+    expect(hiddenMenuConfig(false, false)['sheet.command.reset-range-text-color']).toEqual({ hidden: true })
+  })
+
+  it('a reset text colour and fill, and a removed border, are gone from the saved file too', () => {
+    const src = book()
+    const r = readTable(src, 'a.xlsx')
+    expect(styleAt(r, 0)).toMatchObject({ b: true, fc: '#FF0000', bg: '#FFFF00', bd: { t: { s: 'thin' } } })
+    // Univer after "Reset" on A1: text colour = its default (set-text-color with gray.900), fill = null, borders = none
+    const afterReset = { ...styleToUniver(styleAt(r, 0)), cl: { rgb: '#1B1C1F' }, bg: { rgb: null }, bd: undefined }
+    const fmt: [number, number, ReturnType<typeof univerToStyle>][] = [
+      [0, 0, univerToStyle(afterReset)],
+      // B1 had a red font: its text colour reset only
+      [0, 1, univerToStyle({ ...styleToUniver(styleAt(r, 1)), cl: { rgb: '#1B1C1F' } })],
+      // C1 had a border: "no border" only
+      [0, 2, univerToStyle({ ...styleToUniver(styleAt(r, 2)), bd: { t: null, r: null, b: null, l: null } })],
+    ]
+    expect(fmt[0]![2].fc).toBeUndefined()
+    expect(fmt[0]![2].bg).toBeUndefined()
+    expect(fmt[0]![2].bd).toBeUndefined()
+    const sh = r.ok ? { ...r.table.sheets[0]!, fmt } : null
+    const out = writeTable(src, 'a.xlsx', [sh as never])
+    if (!out.ok) throw new Error(out.code)
+    const back = readTable(out.data, 'a.xlsx')
+    // Read back from the saved file: the cell is at its default again, the rest of its look stays.
+    expect(styleAt(back, 0).fc).toBeUndefined()
+    expect(styleAt(back, 0).bg).toBeUndefined()
+    expect(styleAt(back, 0).bd).toBeUndefined()
+    expect(styleAt(back, 0).b).toBe(true)
+    expect(styleAt(back, 1).fc).toBeUndefined()
+    expect(styleAt(back, 1).b).toBe(true)
+    expect(styleAt(back, 2).bd).toBeUndefined()
+  })
+
+  it('freezing: two typed values, 0 / 0 lifts it, junk is 0, too big is the limit', () => {
+    expect(freezeConfig(2, 1)).toEqual({ startRow: 2, startColumn: 1, ySplit: 2, xSplit: 1 })
+    expect(freezeConfig(0, 0)).toEqual({ startRow: -1, startColumn: -1, ySplit: 0, xSplit: 0 })
+    expect(freezeConfig(3, 0)).toEqual({ startRow: 3, startColumn: -1, ySplit: 3, xSplit: 0 })
+    expect(freezeCounts(freezeConfig(2, 1))).toEqual({ rows: 2, cols: 1 })
+    expect(freezeCounts({ startRow: -1, startColumn: -1, ySplit: 0, xSplit: 0 })).toEqual({ rows: 0, cols: 0 })
+    expect(freezeCounts(null)).toEqual({ rows: 0, cols: 0 })
+    expect(freezeCount('2', 100)).toBe(2)
+    expect(freezeCount(' 3 ', 100)).toBe(3)
+    expect(freezeCount('2,7', 100)).toBe(2)
+    expect(freezeCount('-4', 100)).toBe(0)
+    expect(freezeCount('abc', 100)).toBe(0)
+    expect(freezeCount('', 100)).toBe(0)
+    expect(freezeCount('99999', 99)).toBe(99)
+    expect(FREEZE_MAX_ROWS).toBeGreaterThan(0)
+    expect(FREEZE_MAX_COLS).toBeGreaterThan(0)
+  })
+
+  it('the grid shows the two freeze boxes and the "no border" button with words from the page (HU + EN)', () => {
+    const entry = readFileSync(join(REPO, 'tools', 'univer-build', 'entry.js'), 'utf8')
+    expect(entry).toContain('sheet.toolbar.sheet-frozen')
+    expect(entry).toContain('data-mv-freeze')
+    expect(entry).toContain('data-mv-noborder')
+    const css = readFileSync(join(REPO, 'tools', 'univer-build', 'widgets.css'), 'utf8')
+    expect(css).toContain('[data-u-command="sheet.toolbar.sheet-frozen"] { display: none !important; }')
+    const wb = readFileSync(join(REPO, 'web', 'workbench.js'), 'utf8')
+    const hu = readFileSync(join(REPO, 'web', 'lang', 'hu.js'), 'utf8')
+    const en = readFileSync(join(REPO, 'web', 'lang', 'en.js'), 'utf8')
+    for (const k of ['freeze_title', 'freeze_rows', 'freeze_cols', 'freeze_apply', 'freeze_hint', 'no_border', 'hint_view']) {
+      const key = 'workbench.table.univer_' + k
+      expect(wb, key).toContain(key)
+      expect(hu, key).toContain('"' + key + '"')
+      expect(en, key).toContain('"' + key + '"')
+    }
   })
 })
