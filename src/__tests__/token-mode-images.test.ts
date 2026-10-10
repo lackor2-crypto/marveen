@@ -25,9 +25,9 @@ describe('token-mode pictures', () => {
 
 describe('document page save', () => {
   const wb = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
-  it('sends one save per field at a time (Enter + blur must not duplicate a new line)', () => {
-    expect(wb).toContain('WB.dpInflight')
-    expect(wb).toContain('function dpSaveNow(el)')
-    expect(wb).toContain("if (el.getAttribute('data-wb-saved')) return Promise.resolve(null)")
+  it('sends one page save at a time (Enter + blur must not duplicate a new line)', () => {
+    expect(wb).toContain('function dpPageSave()')
+    expect(wb).toContain('if (WB.dpSaving) {')
+    expect(wb).toContain('WB.dpSaving = p')
   })
 })
