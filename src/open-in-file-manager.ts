@@ -115,7 +115,7 @@ export function openableWithDefaultApp(name: string): boolean {
  * simply reused (Excel already open) returns no process -- that is not a failure, only the
  * exception is.
  */
-export function openFileScript(winPath: string, resultWinPath: string, taskName?: string): string {
+export function openFileScript(winPath: string, resultWinPath: string): string {
   const q = (s: string): string => s.replace(/'/g, "''")
   return [
     '$ErrorActionPreference = "Stop"',
@@ -128,9 +128,43 @@ export function openFileScript(winPath: string, resultWinPath: string, taskName?
     '} catch {',
     '  "fail :: $($_.Exception.Message)" | Set-Content -Encoding UTF8 -LiteralPath $r',
     '}',
-    // One task per call: it removes itself, so they do not pile up in the scheduler.
-    ...(taskName ? [`try { Unregister-ScheduledTask -TaskName '${q(taskName)}' -Confirm:$false } catch { }`] : []),
   ].join('\r\n')
+}
+
+const POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+
+/**
+ * Remove scheduled tasks by name from the SERVER side. A task cannot delete itself: measured
+ * 2026-10-10, Unregister-ScheduledTask from inside the running task fails with "Access is
+ * denied" (the old in-script call swallowed it, and every click left a task behind), while
+ * the same call from outside succeeds. A trailing `*` in a name is a wildcard.
+ */
+export async function unregisterTasks(names: string[]): Promise<boolean> {
+  const safe = names.filter(n => /^[A-Za-z0-9-]+\*?$/.test(n))
+  if (!safe.length) return true
+  const cmd = safe.map(n => `Get-ScheduledTask -TaskName '${n}' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue`).join('; ')
+  return await new Promise<boolean>(resolve => {
+    execFile(POWERSHELL, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { timeout: 30_000 }, err => resolve(!err))
+  })
+}
+
+let legacySwept: Promise<void> | null = null
+
+/**
+ * Once per process: the tasks and scripts earlier versions left behind (the fixed-name
+ * "MarveenOpenFile" task and its two scripts, and per-call tasks that never went away).
+ * "MarveenOpenFolder" (#443) is a different feature and is not touched.
+ */
+function sweepLegacyOpenFile(): Promise<void> {
+  if (!legacySwept) {
+    legacySwept = (async () => {
+      await unregisterTasks(['MarveenOpenFile', 'MarveenOpenFile-*'])
+      for (const f of ['marveen-open-file.ps1', 'marveen-open-file-launch.ps1']) {
+        try { rmSync(`/mnt/c/Users/Public/${f}`, { force: true }) } catch { /* best effort */ }
+      }
+    })()
+  }
+  return legacySwept
 }
 
 export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'not_openable' | 'open_unconfirmed' }
@@ -169,13 +203,17 @@ export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> 
     const resultWsl = `/mnt/c/Users/Public/${base}.result.txt`
     const resultWin = `C:\\Users\\Public\\${base}.result.txt`
     try { rmSync(resultWsl, { force: true }) } catch { /* nothing there */ }
-    const started = await runScriptViaTaskScheduler(`MarveenOpenFile-${id}`, base, openFileScript(win, resultWin, `MarveenOpenFile-${id}`))
+    await sweepLegacyOpenFile()
+    const taskName = `MarveenOpenFile-${id}`
+    const started = await runScriptViaTaskScheduler(taskName, base, openFileScript(win, resultWin))
     try {
       if (!started) return { ok: false, code: 'open_failed' }
       const res = await readOpenResult(resultWsl, OPEN_CONFIRM_MS)
       if (res === null) return { ok: false, code: 'open_unconfirmed' }
       return res.startsWith('ok') ? { ok: true } : { ok: false, code: 'open_failed' }
     } finally {
+      // Also when nothing was confirmed or the start failed: the task never outlives the call.
+      await unregisterTasks([taskName])
       for (const f of [resultWsl, `/mnt/c/Users/Public/${base}.ps1`, `/mnt/c/Users/Public/${base}-launch.ps1`]) {
         try { rmSync(f, { force: true }) } catch { /* best effort */ }
       }
