@@ -450,17 +450,18 @@ export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opt
 }
 
 /** `outside: false`: only the box (the file actions that check a path against the box need no more). */
-export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string } {
+export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] } {
   const box = findWorkItemsBox(project)
   const outside = opts.outside === false ? { folders: [], files: {}, truncated: false, lazy: {}, linked: {} } : listProjectOutside(project, box)
   // The real folder name of the project (it can differ from the project's display name).
   const rootName = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/\/+$/g, '').split('/').pop() || ''
-  if (!box) return { box: null, folders: [], truncated: false, files: {}, outside, root_name: rootName }
+  if (!box) return { box: null, folders: [], truncated: false, files: {}, outside, root_name: rootName, own_folders: [] }
   const t = projectFileTarget(project, box)
-  if (!t.ok) return { box, folders: [], truncated: false, files: {}, outside, root_name: rootName }
+  if (!t.ok) return { box, folders: [], truncated: false, files: {}, outside, root_name: rootName, own_folders: [] }
   const out: string[] = []
   const files: Record<string, WorkFolderFile[]> = {}
   const itemFolders = liveItemFolders(project)
+  const ownFolders = liveOwnFolders(project)
   let fileTotal = 0
   let truncated = false
   const walk = (abs: string, rel: string, depth: number): void => {
@@ -495,7 +496,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
     }
   }
   walk(t.dirAbs, box, 1)
-  return { box, folders: out, truncated, files, outside, root_name: rootName }
+  return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
 }
 
 /** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */
@@ -538,25 +539,44 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
   return { ok: true, folder: r.sub, created: r.created }
 }
 
+/** #540: does the last segment `seg` of a folder path read as the own folder of a work item titled `title` -- the
+ *  name made from the title (folderNameFromTitle) or its numbered twin ("Name (2)")? */
+function isOwnFolderName(title: string, seg: string): boolean {
+  const base = folderNameFromTitle(title)
+  return seg === base || new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(\\d+\\)$').test(seg)
+}
+
 /**
- * #540: is `rel` a work item's OWN folder -- the folder of exactly one work item, named after that item's title
- * (folderNameFromTitle) or its numbered twin ("Name (2)")? A hand-named group, even when a lone work item sits in
- * it (flattenIntoGroup), is not: new work items still go into it.
+ * #540: the folders (project-relative) that are a work item's OWN folder: the folder of exactly one LIVE work item,
+ * named after that item's title or its numbered twin. A hand-named group, even when a lone work item sits in it
+ * (flattenIntoGroup), is not. Live work only: a trashed item keeps its `folder` value after its folder left the disk,
+ * and the next work item of the same name takes that folder again -- the trashed twin must not make the live one
+ * look shared.
  */
+function liveOwnFolders(project: ProjectRow): Set<string> {
+  const own = new Set<string>()
+  try {
+    const rows = getDb().prepare("SELECT title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder IS NOT NULL AND folder != ''").all(project.id) as { title: string; folder: string }[]
+    const byFolder = new Map<string, string[]>()
+    for (const r of rows) byFolder.set(r.folder, [...(byFolder.get(r.folder) ?? []), r.title])
+    for (const [folder, titles] of byFolder) {
+      if (titles.length === 1 && folder.includes('/') && isOwnFolderName(titles[0], folder.slice(folder.lastIndexOf('/') + 1))) own.add(folder)
+    }
+  } catch { /* no table yet */ }
+  return own
+}
+
+/** #540: is `rel` a work item's OWN folder (see liveOwnFolders)? A new work item never goes under it. */
 export function isItemOwnFolder(project: ProjectRow, rel: string): boolean {
   const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  if (!clean || !clean.includes('/')) return false
-  const rows = getDb().prepare('SELECT title FROM work_items WHERE project_id = ? AND folder = ?').all(project.id, clean) as { title: string }[]
-  if (rows.length !== 1) return false
-  const seg = clean.slice(clean.lastIndexOf('/') + 1)
-  const base = folderNameFromTitle(rows[0].title)
-  return seg === base || new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(\\d+\\)$').test(seg)
+  return !!clean && liveOwnFolders(project).has(clean)
 }
 
 /** #540: is the folder `rel` (named `seg` in `parentAbs`) already somebody's -- a work item's own folder, or not empty? */
 function workFolderInUse(project: ProjectRow, parentAbs: string, rel: string, seg: string): boolean {
   const abs = join(parentAbs, seg)
   if (!existsSync(abs)) return false
+  // Trashed work counts here on purpose: its folder is still on the disk and a restore would put the item back in it.
   if (getDb().prepare('SELECT 1 FROM work_items WHERE project_id = ? AND folder = ?').get(project.id, rel)) return true
   try { return readdirSync(abs).length > 0 } catch { return true }
 }

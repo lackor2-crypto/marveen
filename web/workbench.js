@@ -2009,14 +2009,20 @@
     return !!(WB.workFolders && WB.workFolders.box)
   }
 
-  /** "Which folder should it go in?" -- a list of the folders (indented by depth) + a "New folder" box. */
-  function folderPickHtml() {
+  /** "Which folder should it go in?" -- a list of the folders (indented by depth) + a "New folder" box.
+   *  A work item's OWN folder is not offered (#540): the server names them (`own_folders`), a new work item
+   *  goes beside such a folder, never under it. A hand-named group stays in the list even with one work item in it.
+   *  `pickOnly`: only the list (the Manual view's "+ New work" form; its "Create group" button is the strip's). */
+  function folderPickHtml(pickOnly) {
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
+    var own = {}
+    ;(wf.own_folders || []).forEach(function (f) { own[f] = true })
     var pick = WB.pickFolder || ''
-    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>',
+    var opts = ['<option value=""' + (!pick || own[pick] ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>',
       '<option value="@project"' + (pick === '@project' ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_project')) + '</option>']
     ;(wf.folders || []).forEach(function (f) {
+      if (own[f]) return
       var depth = f.split('/').length - 1 - (box ? box.split('/').length - 1 : 0)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0\u00a0')
       opts.push('<option value="' + escA(f) + '"' + (f === pick ? ' selected' : '') + '>' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
@@ -2024,11 +2030,23 @@
     return '<label class="wb-label" for="wbNewFolder">' + esc(t('workbench.folder.pick_label')) + '</label>'
       + '<select class="wb-input" id="wbNewFolder">' + opts.join('') + '</select>'
       + '<p class="wb-hint">' + esc(t('workbench.folder.pick_hint')) + '</p>'
-      + '<div class="wb-folder-new">'
+      + (pickOnly ? '' : '<div class="wb-folder-new">'
       + '<input class="wb-input" id="wbNewFolderName" type="text" maxlength="80" placeholder="' + escA(t('workbench.folder.new_placeholder')) + '" autocomplete="off">'
       + '<button type="button" class="btn-secondary" data-wb-act="mkfolder"' + (WB.folderBusy ? ' disabled' : '') + '>' + esc(t('workbench.folder.new_btn')) + '</button>'
       + '</div>'
-      + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>')
+  }
+
+  /** #540: remembers a folder choice together with WHERE it was made (the open item and the number of work items).
+   *  The Manual view's "+ New work" form preselects it only while that still holds: a group made a moment ago is
+   *  preselected, a choice from before another item was opened or created is not (it would send the next new work
+   *  to a place the owner chose for something else). */
+  function notePick(v) {
+    WB.pickFolder = String(v || '')
+    WB.pickCtx = (WB.selectedId || '') + '|' + (WB.items || []).length
+  }
+  function dropStalePick() {
+    if (WB.pickFolder && WB.pickCtx !== (WB.selectedId || '') + '|' + (WB.items || []).length) WB.pickFolder = ''
   }
 
   /** The folder chosen in the picker that is ON SCREEN right now ('' = no picker shown, or none chosen). WB.pickFolder
@@ -2037,8 +2055,8 @@
   function shownPick() {
     var el = typeof document.getElementById === 'function' ? document.getElementById('wbNewFolder') : null
     if (!el) return ''
-    WB.pickFolder = String(el.value || '')
-    return WB.pickFolder
+    if (String(el.value || '') !== (WB.pickFolder || '')) notePick(el.value)
+    return WB.pickFolder || ''
   }
 
   /** Step 1 of creating: the folder system. Always visible (not buried in the manual form),
@@ -2070,7 +2088,7 @@
       if (WB.projectId !== pid) return
       if (!r.ok) { render(); window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
-      if (r.data && r.data.folder) WB.pickFolder = r.data.folder
+      if (r.data && r.data.folder) notePick(r.data.folder)
       render()
     })
   }
@@ -2726,7 +2744,12 @@
 
   function newFormHtml() {
     var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note']
-    return intakeHtml()
+    // #540: the target folder is VISIBLE on the form (preselected from WB.pickFolder, e.g. the group just made with the
+    // strip's button), so the owner sees where the new work goes. Not when the Simple view's intake already shows the
+    // one picker (one `wbNewFolder` on screen: shownPick() reads that one).
+    var simpleIntakeOn = isSimple() && !WB.selectedId
+    return (hasFolderSystem() && !simpleIntakeOn ? '<div class="wb-new-folder">' + folderPickHtml(true) + '</div>' : '')
+      + intakeHtml()
       + '<details class="wb-new-manual"><summary>' + esc(t('workbench.intake.manual')) + '</summary>'
       + '<form class="wb-form" id="wbNewForm">'
       + '<label class="wb-label" for="wbNewTitle">' + esc(t('workbench.new.name_label')) + '</label>'
@@ -15147,7 +15170,7 @@
   // a kovetkezo kuldes ezt viszi. Nem kell ujrarajzolni -- a select maga mutatja.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
-    if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
+    if (e.target.id === 'wbNewFolder') { notePick(e.target.value); return }
     var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')
     if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
@@ -15384,7 +15407,7 @@
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
-    else if (a === 'new') { if (!archived()) { WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
+    else if (a === 'new') { if (!archived()) { if (!(isSimple() && !WB.selectedId)) dropStalePick(); WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; WB.intakeAsk = null; render() }
     else if (a === 'intake-go') intakeCreate(null)
     else if (a === 'intake-kind') intakeCreate(act.getAttribute('data-wb-kind'))
