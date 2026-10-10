@@ -20,6 +20,7 @@ import { listMounts, moveMountsPrefix, moveMountTargetsPrefix } from './life-mou
 import { ensureMountLink, reconcileMountLinks, removeMountLink } from './life-mount-links.js'
 import { moveBackupRulesPrefix } from './backup-rules.js'
 import { moveProjectFoldersPrefix } from './project-folder-follow.js'
+import { moveProjectPlacesPrefix } from './project-places.js'
 import { moveDocumentsPrefix } from './life-doc-ids.js'
 import { moveLifeLedgerPrefix } from './life-tree-ledger.js'
 import { movePhysical } from './life-documents.js'
@@ -58,7 +59,8 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
     return moveMountTargetsPrefix(from, to)
   })
   step('backupRules', () => moveBackupRulesPrefix(from, to))
-  step('projects', () => moveProjectFoldersPrefix(from, to))
+  // The project's own folder, and (#530) the places of the tree the project points at.
+  step('projects', () => moveProjectFoldersPrefix(from, to) + moveProjectPlacesPrefix(from, to))
   // The documents' stable ids (life-doc-ids.ts): a file keeps its id under its new name / place.
   step('documents', () => moveDocumentsPrefix(from, to))
   const root = depotRoot()

@@ -65,6 +65,7 @@ import { docxFileName, draftFileName, documentTrail, finalizationState, finalize
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
+import { addProjectPlace, listProjectPlaces, removeProjectPlace } from '../../project-places.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
 import { addProjectDoc, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
@@ -158,6 +159,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_git_repo: { hu: 'Ide nem tudom elhelyezni: ez a mappa egy fejlesztői projekt része. Válassz egy iratmappát.', en: 'It cannot be filed here: this folder is part of a developer project. Choose a document folder.' },
   sent_final_file_missing: { hu: 'A végleges PDF nincs meg a munkadarab mappájában, ezért nincs mit elhelyezni. Véglegesítsd újra a beadványt.', en: 'The final PDF is not in the work item folder, so there is nothing to file. Finalise the submission again.' },
   sent_copy_failed: { hu: 'Nem sikerült a példányt a kiválasztott mappába tenni. A lemez válasza a részleteknél.', en: 'The copy could not be put into the chosen folder. The disk\'s answer is in the details.' },
+  pplace_not_found: { hu: 'Ez a mappa nincs meg az Életfában (vagy már nincs a projekt helyei között). Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree (or is no longer among the project\'s places). Choose another one, or refresh the page.' },
+  pplace_duplicate: { hu: 'Ez a hely már hozzá van kapcsolva a projekthez.', en: 'This place is already linked to the project.' },
+  pplace_bad_input: { hu: 'Mappát válassz az Életfából.', en: 'Choose a folder of the Life tree.' },
+  pplace_too_many: { hu: 'Ehhez a projekthez már 20 hely kapcsolódik, többet nem tudok hozzáadni.', en: 'This project already has 20 places; no more can be added.' },
   prel_same_project: { hu: 'Válassz egy MÁSIK projektet: egy projekt nem kapcsolható önmagához.', en: 'Choose ANOTHER project: a project cannot be related to itself.' },
   prel_not_found: { hu: 'Ez a projekt-kapcsolat (vagy a másik projekt) már nincs meg. Frissítsd az oldalt.', en: 'This link (or the other project) is no longer there. Refresh the page.' },
   prel_duplicate: { hu: 'Ez a két projekt már össze van kapcsolva.', en: 'These two projects are already related.' },
@@ -1904,6 +1909,8 @@ function projectDocsOut(projectId: string): Record<string, unknown> {
   return {
     ...listProjectDocs(projectId), roles: PROJECT_DOC_ROLES,
     close: projectCloseCheck(projectId), related: listRelatedProjects(projectId), relatable: relatableProjects(projectId),
+    // #530 (chapter 50): the folders of the Life tree this matter belongs to; `exists` is measured now.
+    places: listProjectPlaces(projectId).map((rel) => { const abs = resolveLifePath(rel); let exists = false; if (abs) { try { exists = statSync(abs).isDirectory() } catch { exists = false } } return { rel, exists } }),
   }
 }
 
@@ -2274,6 +2281,27 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, ...projectDocsOut(project.id) })
       return true
     }
+  }
+
+  // #530 (a leiras 50. pontja): a projekthez tartozo eletfa-helyek. Csak mutato; semmit nem mozgat.
+  if (path === '/api/workbench/project-places' && (method === 'POST' || method === 'DELETE')) {
+    let body: Record<string, unknown> = {}
+    if (method === 'POST') { try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) } }
+    const pid = (url.searchParams.get('project') || (typeof body['project'] === 'string' ? body['project'] : '') || '').trim()
+    const rel = String(url.searchParams.get('rel') || (typeof body['rel'] === 'string' ? body['rel'] : '') || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (method === 'POST') {
+      const abs = rel && !rel.split('/').includes('..') ? resolveLifePath(rel) : null
+      let isDir = false
+      if (abs) { try { isDir = statSync(abs).isDirectory() } catch { isDir = false } }
+      if (!isDir) return fail(res, 404, 'pplace_not_found', lang)
+    }
+    const r = method === 'POST' ? addProjectPlace(project.id, rel, actor(ctx)) : removeProjectPlace(project.id, rel)
+    if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pplace_' + r.code, lang, r.detail)
+    json(res, { ok: true, ...projectDocsOut(project.id) }, method === 'POST' ? 201 : 200)
+    return true
   }
 
   // #530, 5. fazis: lezaras elotti ellenorzes (csak JELEZ, nem tilt) es kapcsolodo projektek.

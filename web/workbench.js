@@ -8641,12 +8641,12 @@
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeFilePick'
     overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t(folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
+      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
       + '<p style="margin:0 0 6px;font-size:13px"><b>' + esc(t('workbench.annex.link_here')) + '</b> <span id="wbLifeFilePickHere"></span></p>'
       + '<div id="wbLifeFilePickList" class="wb-lifepick-list"></div>'
       + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button>'
-      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t('workbench.sent.pick_here')) + '</button>' : '') + '</div>'
+      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t(opts && opts.place ? 'workbench.pd.places_pick_here' : 'workbench.sent.pick_here')) + '</button>' : '') + '</div>'
       + '</div>'
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeFilePickList')
@@ -8690,8 +8690,11 @@
         if (d.truncated) note(t('workbench.annex.link_truncated'))
       })
     }
-    // Start where the documents are, not in the project's own folder: what is there is already "in the project".
-    open('')
+    // Start where the matter's documents are (#530, chapter 50: the project's first place in the tree), else at the
+    // top -- not in the project's own folder: what is there is already "in the project".
+    var startAt = ''
+    if (!(opts && opts.place) && WB.pdocs && WB.pdocs.places) { var first = WB.pdocs.places.filter(function (x) { return x.exists !== false })[0]; if (first) startAt = first.rel }
+    open(startAt)
   }
 
   function outlineCall(method, sub, body) {
@@ -11075,6 +11078,17 @@
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_attached')) + '</p>')
     }
     if (p && !WB.pdError) {
+      // AZ UGY HELYEI AZ ELETFABAN (a leiras 50. pontja): hol vannak ennek az ugynek az iratai. Csak mutato.
+      var places = p.places || []
+      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.places_title')) + ' (' + places.length + ')</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.places_hint')) + '</p>'
+        + (places.length ? '<ul class="wb-pd-list">' + places.map(function (pl) {
+          return '<li class="wb-pd-row"><strong>📁 ' + esc(String(pl.rel).split('/').join(' › ')) + '</strong>'
+            + (pl.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.pd.places_missing')) + '</span>' : '')
+            + ' <span class="wb-outline-tools">' + (pl.exists === false ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-open" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_open')) + '</button> ')
+            + (archived() ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-remove" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_remove')) + '</button>') + '</span></li>'
+        }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.places_none')) + '</p>')
+        + (archived() ? '' : '<p class="wb-pd-add"><button type="button" class="wb-btn" data-wb-act="pd-place-add">📁 ' + esc(t('workbench.pd.places_add')) + '</button></p>')
       // KAPCSOLODO PROJEKTEK (a leiras 49. pontja): csak kapcsolat, iratot nem masol.
       var rel = p.related || []
       var can = p.relatable || []
@@ -14713,6 +14727,19 @@
       var pdRole = pdRoleEl && pdRoleEl.value ? pdRoleEl.value : 'source'
       var pdPid = WB.projectId
       pickLifeFile(function (rel) { api('POST', '/api/workbench/project-docs', { project: pdPid, rel: rel, role: pdRole }).then(function (r) { if (WB.projectId === pdPid) pdApply(r) }) })
+    }
+    else if (a === 'pd-place-add') {
+      var plPid = WB.projectId
+      pickLifeFile(function (folder) { api('POST', '/api/workbench/project-places', { project: plPid, rel: folder }).then(function (r) { if (WB.projectId === plPid) pdApply(r) }) }, { folder: true, place: true })
+    }
+    else if (a === 'pd-place-remove') {
+      var plRm = WB.projectId
+      if (window.confirm(t('workbench.pd.places_remove_confirm'))) api('DELETE', '/api/workbench/project-places?project=' + encodeURIComponent(plRm) + '&rel=' + encodeURIComponent(act.getAttribute('data-wb-rel'))).then(function (r) { if (WB.projectId === plRm) pdApply(r) })
+    }
+    else if (a === 'pd-place-open') {
+      var plRel = act.getAttribute('data-wb-rel') || ''
+      location.hash = '#intezo'
+      setTimeout(function () { if (typeof window._intezoOpen === 'function') window._intezoOpen(plRel) }, 350)
     }
     else if (a === 'pd-rel-add') {
       var relEl = document.getElementById('wbPdRel')
