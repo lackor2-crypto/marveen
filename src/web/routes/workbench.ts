@@ -3285,6 +3285,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let folderCreated = false
     let folderExisted = false
     let containerFolder: string | null = null
+    let tableOwn = false // #540: the folder made after the title is the table's own (a typed name is a shared group)
     const newFolderName = String(body['new_folder'] ?? '').trim() || folderNameFromTitle(title)
     if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE && newFolderName) body['folder'] = ''
     if (String(body['folder'] ?? '').trim() === PROJECT_ROOT_PLACE) {
@@ -3296,7 +3297,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       let c: ReturnType<typeof workFolderTarget> = String(body['folder'] ?? '').trim() ? workFolderTarget(project, body['folder']) : { ok: true, folder: '' }
       if (!c.ok) return fail(res, 400, c.code === 'no_box' ? 'folder_gone' : c.code, lang)
       if (newFolderName) {
-        const mf = makeWorkFolder(project, c.folder, newFolderName, String(body['new_folder'] ?? '').trim() ? undefined : { own: true })
+        tableOwn = !String(body['new_folder'] ?? '').trim()
+        const mf = makeWorkFolder(project, c.folder, newFolderName, tableOwn ? { own: true } : undefined)
         if (!mf.ok) {
           const code = mf.code === 'no_box' ? 'folder_gone' : mf.code === 'folder_name' ? 'bad_folder_name' : mf.code
           return failDetail(res, mf.code === 'write_failed' ? 500 : 400, code, lang, 'message' in mf ? (mf.message || null) : null)
@@ -3319,6 +3321,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, container_folder: containerFolder, created_by: actor(ctx) })
     if (!r.ok) return fail(res, 400, r.code, lang)
+    // Without this the first thing written for the table later made a second folder of the same name inside it (as TG 2752).
+    if (tableOwn && folder && folder !== PROJECT_ROOT_PLACE) { assignWorkItemFolder(r.item.id, folder); r.item = getWorkItem(r.item.id) ?? r.item }
     json(res, { ok: true, item: r.item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name, folder_existed: folderExisted }, 201)
     return true
   }

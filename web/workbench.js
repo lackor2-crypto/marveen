@@ -2031,6 +2031,16 @@
       + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
   }
 
+  /** The folder chosen in the picker that is ON SCREEN right now ('' = no picker shown, or none chosen). WB.pickFolder
+   *  only remembers the choice so the picker comes back preselected; a pick that is not visible (the rail's "+ New work"
+   *  form and "New folder" button have no picker) must not decide where new work or a new folder goes (#540). */
+  function shownPick() {
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbNewFolder') : null
+    if (!el) return ''
+    WB.pickFolder = String(el.value || '')
+    return WB.pickFolder
+  }
+
   /** Step 1 of creating: the folder system. Always visible (not buried in the manual form),
    *  so folders, sub folders and sibling folders can be made by hand before any work item. */
   function folderStepHtml() {
@@ -2041,9 +2051,7 @@
   function readNewDraft() {
     var ti = document.getElementById('wbNewTitle')
     var ty = document.getElementById('wbNewType')
-    var fo = document.getElementById('wbNewFolder')
     WB.newDraft = { title: ti ? ti.value : '', type: ty ? ty.value : '' }
-    if (fo) WB.pickFolder = fo.value
   }
 
   function makeFolder() {
@@ -2052,10 +2060,12 @@
     var name = nameEl ? String(nameEl.value || '').trim() : String(window.prompt(t('workbench.folder.new_prompt')) || '').trim()
     if (!name) { window.showToast(t('workbench.folder.name_required')); return }
     readNewDraft()
+    var parent = shownPick()
+    if (parent === '@project') parent = ''
     var pid = WB.projectId
     WB.folderBusy = true
     render()
-    api('POST', '/api/workbench/folders', { project_id: pid, parent: WB.pickFolder === '@project' ? '' : (WB.pickFolder || ''), name: name }).then(function (r) {
+    api('POST', '/api/workbench/folders', { project_id: pid, parent: parent, name: name }).then(function (r) {
       WB.folderBusy = false
       if (WB.projectId !== pid) return
       if (!r.ok) { render(); window.showToast(r.message); return }
@@ -2623,9 +2633,8 @@
     var payload = { project_id: WB.projectId, text: text }
     if (kind) payload.kind = kind
     if (name) payload.title = name
-    var pf = document.getElementById('wbNewFolder')
-    if (pf) WB.pickFolder = pf.value
-    if (WB.pickFolder) payload.folder = WB.pickFolder
+    var pick = shownPick()
+    if (pick) payload.folder = pick
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/intake', payload).then(function (r) {
@@ -2659,9 +2668,8 @@
    *  sentence, if any, goes to the agent to fill it, like for the other kinds. */
   function intakeCreateTable(text, name) {
     var payload = { project_id: WB.projectId, title: name || t('workbench.table.default_title') }
-    var pf = document.getElementById('wbNewFolder')
-    if (pf) WB.pickFolder = pf.value
-    if (WB.pickFolder) payload.folder = WB.pickFolder
+    var pick = shownPick()
+    if (pick) payload.folder = pick
     WB.intakeBusy = true
     render()
     api('POST', '/api/workbench/items/new-table', payload).then(function (r) {
