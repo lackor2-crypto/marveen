@@ -107,7 +107,7 @@ import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDeci
 import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import { planHandoff, buildHandoffZip, isHandoffScope, HANDOFF_MAX_BYTES } from '../../workbench-handoff.js'
-import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState } from '../../workbench-approval.js'
+import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState, finalizeWorkItem, reopenWorkItem } from '../../workbench-approval.js'
 import { buildExportPage, requestSendApproval, sendNow, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
 import {
   convertOfficeToPdf, sofficeConvertFile, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
@@ -266,6 +266,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   approval_already_done: {
     hu: 'Ez a munkadarab már el van fogadva, nem kell újra jóváhagyásra küldeni.',
     en: 'This work item is already approved; it does not need to be sent again.',
+  },
+  approval_not_done: {
+    hu: 'Ez a munkadarab nincs véglegesítve, ezért nincs mit újranyitni.',
+    en: 'This work item is not finalized, so there is nothing to reopen.',
   },
   approval_not_in_review: {
     hu: 'Ez a munkadarab most nem vár jóváhagyásra, ezért nincs mit visszavonni.',
@@ -3660,6 +3664,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         json(res, { error: r.code, message: msg(r.code, lang), detail: r.detail, outline: outlineOut(item.id) }, status)
         return true
       }
+      // #552: a successful finalize by the owner also marks the work item finalized (done); a failure returned above.
+      try { finalizeWorkItem(item.id, { by: actor(ctx) || 'dashboard' }) } catch { /* the PDF is made; the status is best effort */ }
       json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id) })
       return true
     }
@@ -4120,6 +4126,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     else if (action === 'approve' || action === 'reject') {
       if (ctx.auth?.kind !== 'session') return fail(res, 403, 'approval_owner_only', lang)
       r = decideWorkItemApproval(item.id, action === 'approve' ? 'approved' : 'rejected', { by: who || 'dashboard', reason: body['reason'] })
+    } else if (action === 'finalize' || action === 'reopen') {
+      // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'approval_owner_only', lang)
+      r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id)
     } else return fail(res, 400, 'approval_bad_action', lang)
     if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)
     json(res, { item: r.item, approval: r.approval })

@@ -1849,3 +1849,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
    On a phone the button stays tall enough for a finger. */
 .wb-root .btn-compact { padding: 5px 12px; font-size: 13px; gap: 4px; }
 @media (max-width: 700px) { .wb-root .btn-compact { padding: 10px 12px; } }
+
+/* #552: the "hide finalized work" switch above the work items tree. */
+.wb-root .wb-hide-done { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 6px; cursor: pointer; }
+.wb-root .wb-hide-done input { margin: 0; }
+.wb-root .wb-item-done .wb-item { opacity: 0.7; }
