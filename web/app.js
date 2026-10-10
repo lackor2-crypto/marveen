@@ -42436,7 +42436,8 @@ async function _intezoTrashMany(items) {
   if (bentDb === list.length) { await _intezoPurgeMany(list); return }
   if (bentDb) { showToast(t('intezo.multi_mixed_kuka')); return }
   if (list.length === 1) { await _intezoTrash(list[0]); return }
-  if (!confirm(t('intezo.trash_confirm_n', { n: list.length }))) return
+  const linkedN = await _intezoLinkedWarning(list.map((x) => x.rel))
+  if (!confirm(linkedN + t('intezo.trash_confirm_n', { n: list.length }))) return
   let ok = 0
   const failed = []
   for (let i = 0; i < list.length; i++) {
@@ -44550,9 +44551,28 @@ async function _intezoSetDisplayName(entry) {
  * A megerosito kerdes KIMONDJA, hogy visszaszerezheto: aki azt hiszi, veglegeset
  * nyom, vagy nem meri megnyomni, vagy utana ijed meg.
  */
+/**
+ * #530: is any of these (or a file below them) attached to a submission as a LINKED annex?
+ * Returns the warning to put in front of the confirm question, or '' when nothing uses them --
+ * and '' too when the question could not be asked (the Bin is recoverable; a failed lookup
+ * must not make the Explorer unusable).
+ */
+async function _intezoLinkedWarning(rels) {
+  try {
+    const res = await fetch('/api/life/linked-uses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rels }) })
+    if (!res.ok) return ''
+    const d = await res.json()
+    if (!d || !d.total) return ''
+    const lines = (d.uses || []).slice(0, 6).map((u) => '• ' + u.file.split('/').pop() + ' → ' + (u.project ? u.project + ' › ' : '') + u.item + (u.label ? ' (' + u.label + ')' : ''))
+    if (d.total > lines.length) lines.push('…')
+    return t('intezo.trash_linked_warning', { n: String(d.total) }) + '\n' + lines.join('\n') + '\n\n'
+  } catch (e) { return '' }
+}
+
 async function _intezoTrash(entry) {
   const mi = t(entry.isDir ? 'intezo.the_folder' : 'intezo.the_file')
-  if (!confirm(t('intezo.trash_confirm', { what: mi, name: entry.name || entry.rel }))) return
+  const linked = await _intezoLinkedWarning([entry.rel])
+  if (!confirm(linked + t('intezo.trash_confirm', { what: mi, name: entry.name || entry.rel }))) return
   try {
     const r = await _depoPost('/api/life/trash', { rel: entry.rel })
     showToast(r.message || t('intezo.done'))

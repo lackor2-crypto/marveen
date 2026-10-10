@@ -13171,3 +13171,11 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .cloudup-folder:hover, .cloudup-folder:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .16)); }
 .cloudup-folder-up { opacity: .85; }
 .cloudup-folders-note { margin: 6px 10px; font-size: 13px; }
+
+/* #530: the Life-tree file picker of the Workbench ("add from the Life tree, no copy"). */
+.wb-lifepick-list { max-height: 320px; overflow: auto; border: 1px solid var(--border, #3336); border-radius: 8px; padding: 4px; }
+.wb-lifepick-row { display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 8px 10px; border-radius: 6px; cursor: pointer; min-height: 36px; overflow-wrap: anywhere; }
+.wb-lifepick-row:hover, .wb-lifepick-row:focus-visible { background: var(--bg-hover, rgba(127, 127, 127, .16)); }
+.wb-lifepick-up { opacity: .85; }
+.wb-lifepick-note { margin: 6px 10px; font-size: 13px; }
+.wb-annex-linked { overflow-wrap: anywhere; }
