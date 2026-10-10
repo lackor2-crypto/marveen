@@ -2009,14 +2009,20 @@
     return !!(WB.workFolders && WB.workFolders.box)
   }
 
-  /** "Which folder should it go in?" -- a list of the folders (indented by depth) + a "New folder" box. */
-  function folderPickHtml() {
+  /** "Which folder should it go in?" -- a list of the folders (indented by depth) + a "New folder" box.
+   *  A work item's OWN folder is not offered (#540): the server names them (`own_folders`), a new work item
+   *  goes beside such a folder, never under it. A hand-named group stays in the list even with one work item in it.
+   *  `pickOnly`: only the list (the Manual view's "+ New work" form; its "Create group" button is the strip's). */
+  function folderPickHtml(pickOnly) {
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
+    var own = {}
+    ;(wf.own_folders || []).forEach(function (f) { own[f] = true })
     var pick = WB.pickFolder || ''
-    var opts = ['<option value=""' + (!pick ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>',
+    var opts = ['<option value=""' + (!pick || own[pick] ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>',
       '<option value="@project"' + (pick === '@project' ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_project')) + '</option>']
     ;(wf.folders || []).forEach(function (f) {
+      if (own[f]) return
       var depth = f.split('/').length - 1 - (box ? box.split('/').length - 1 : 0)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0\u00a0')
       opts.push('<option value="' + escA(f) + '"' + (f === pick ? ' selected' : '') + '>' + pad + '📁 ' + esc(baseOf(f)) + '</option>')
@@ -2024,11 +2030,11 @@
     return '<label class="wb-label" for="wbNewFolder">' + esc(t('workbench.folder.pick_label')) + '</label>'
       + '<select class="wb-input" id="wbNewFolder">' + opts.join('') + '</select>'
       + '<p class="wb-hint">' + esc(t('workbench.folder.pick_hint')) + '</p>'
-      + '<div class="wb-folder-new">'
+      + (pickOnly ? '' : '<div class="wb-folder-new">'
       + '<input class="wb-input" id="wbNewFolderName" type="text" maxlength="80" placeholder="' + escA(t('workbench.folder.new_placeholder')) + '" autocomplete="off">'
       + '<button type="button" class="btn-secondary" data-wb-act="mkfolder"' + (WB.folderBusy ? ' disabled' : '') + '>' + esc(t('workbench.folder.new_btn')) + '</button>'
       + '</div>'
-      + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>')
   }
 
   /** The folder chosen in the picker that is ON SCREEN right now ('' = no picker shown, or none chosen). WB.pickFolder
@@ -2726,7 +2732,12 @@
 
   function newFormHtml() {
     var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note']
-    return intakeHtml()
+    // #540: the target folder is VISIBLE on the form (preselected from WB.pickFolder, e.g. the group just made with the
+    // strip's button), so the owner sees where the new work goes. Not when the Simple view's intake already shows the
+    // one picker (one `wbNewFolder` on screen: shownPick() reads that one).
+    var simpleIntakeOn = isSimple() && !WB.selectedId
+    return (hasFolderSystem() && !simpleIntakeOn ? '<div class="wb-new-folder">' + folderPickHtml(true) + '</div>' : '')
+      + intakeHtml()
       + '<details class="wb-new-manual"><summary>' + esc(t('workbench.intake.manual')) + '</summary>'
       + '<form class="wb-form" id="wbNewForm">'
       + '<label class="wb-label" for="wbNewTitle">' + esc(t('workbench.new.name_label')) + '</label>'

@@ -7,8 +7,10 @@ import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
-import { ensureWorkItemFolder } from '../workbench-assets.js'
-import { getWorkItem } from '../workbench.js'
+import { ensureWorkItemFolder, listWorkFolders } from '../workbench-assets.js'
+import { getProject } from '../projects.js'
+import { getDb } from '../db.js'
+import { getWorkItem, setWorkItemDeleted } from '../workbench.js'
 
 let pid = ''
 let dir = ''
@@ -91,5 +93,56 @@ describe('#540: a new work item never lands under an existing one', () => {
     const b = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Masik', type: 'document', folder: box + '/Csoport' })
     expect(b.status).toBe(201)
     expect(settled((b.body.item as Item).id)).toBe(box + '/Csoport/Masik')
+  })
+
+  it('a trashed work item whose folder is gone from the disk does not switch the protection off for a live twin', async () => {
+    const a = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', title: 'Uj dokumentum', text: '' })
+    const fa = settled((a.body.item as Item).id)
+    const box = fa.split('/').slice(0, -1).join('/')
+    // The owner trashed it and its folder left the disk (the live state of 'Munkadarabok/Uj dokumentum').
+    setWorkItemDeleted((a.body.item as Item).id, true)
+    rmSync(abs(fa), { recursive: true, force: true })
+    const b = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', title: 'Uj dokumentum', text: '' })
+    const fb = settled((b.body.item as Item).id)
+    expect(fb).toBe(fa) // the free name is reused: the same folder as the trashed one
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Harmadik', type: 'document', folder: fb })
+    expect(c.status).toBe(201)
+    const fc = settled((c.body.item as Item).id)
+    expect(fc.startsWith(fb + '/')).toBe(false)
+    expect(fc).toBe(box + '/Harmadik')
+  })
+
+  it('a trashed work item whose folder is still on the disk keeps that folder: the new twin takes a numbered one', async () => {
+    const a = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', title: 'Regi', text: '' })
+    const fa = settled((a.body.item as Item).id)
+    setWorkItemDeleted((a.body.item as Item).id, true)
+    expect(existsSync(abs(fa))).toBe(true)
+    const b = await callWorkbench('/api/workbench/intake', 'POST', { project_id: pid, kind: 'document', title: 'Regi', text: '' })
+    expect(settled((b.body.item as Item).id)).toBe(fa + ' (2)')
+  })
+
+  it('the folder list names the work items\' own folders; a hand-named group (even with one work item in it) and a trashed twin are not', async () => {
+    const a = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Ajanlat', type: 'document' })
+    const b = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Ajanlat', type: 'document' })
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Wohngeld', type: 'document' })
+    const d = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, title: 'Regi', type: 'document' })
+    const fa = settled((a.body.item as Item).id)
+    const fb = settled((b.body.item as Item).id)
+    const fc = settled((c.body.item as Item).id)
+    const fd = settled((d.body.item as Item).id)
+    const box = fa.split('/').slice(0, -1).join('/')
+    // Wohngeld lives in a hand-named group: its folder is "<box>/Wohngeld 2026", not a name made from the title.
+    mkdirSync(abs(box + '/Wohngeld 2026'), { recursive: true })
+    getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run(box + '/Wohngeld 2026', (c.body.item as Item).id)
+    setWorkItemDeleted((d.body.item as Item).id, true)
+    const own = listWorkFolders(getProject(pid)!).own_folders
+    expect(own).toContain(fa)
+    expect(own).toContain(fb)
+    expect(own).not.toContain(box + '/Wohngeld 2026')
+    expect(own).not.toContain(fc)
+    expect(own).not.toContain(fd)
+    // every own folder is in the folder list too (the picker leaves out exactly these)
+    const all = listWorkFolders(getProject(pid)!).folders
+    for (const f of own) expect(all).toContain(f)
   })
 })
