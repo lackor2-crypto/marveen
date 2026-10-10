@@ -8332,21 +8332,18 @@
     var add = ''
     var settings = ''
     if (!ro) {
-      var taken = {}
-      list.forEach(function (a) { taken[a.path] = true })
-      var mats = ((WB.detail && WB.detail.assets) || []).filter(function (m) { return m.present !== false && m.project_path && !taken[m.project_path] })
-      // #501 (Boss TG 2762): a file from anywhere on the computer goes into the item's "Mellékletek" folder and onto the list.
+      var mats = annexMaterials(list)
+      // #530 (Boss TG 8535): three plain buttons, each with its own help; the description of an annex is given in the
+      // list ("leiras"), not in the adding row. #501: a file from anywhere on the computer goes into the item's
+      // "Mellekletek" folder and onto the list.
       var browse = '<label class="wb-btn wb-annex-browse" title="' + escA(t('workbench.annex.browse_hint')) + '">📁 '
         + esc(WB.annexUploading ? t('workbench.annex.browse_busy') : t('workbench.annex.browse'))
         + '<input type="file" hidden multiple data-wb-annex-browse="1"' + (WB.annexUploading ? ' disabled' : '') + '></label>'
       // #530 (Boss TG 8500): a document that already lives in the Life tree is LINKED, not copied.
       browse += ' <button type="button" class="wb-btn wb-annex-link" data-wb-act="outline-annex-link" title="' + escA(t('workbench.annex.link_hint')) + '">🔗 ' + esc(t('workbench.annex.link')) + '</button>'
-      add = mats.length
-        ? '<p class="wb-annex-add"><select id="wbAnnexPick" aria-label="' + escA(t('workbench.annex.pick')) + '"><option value="">' + esc(t('workbench.annex.pick')) + '</option>'
-          + mats.map(function (m) { return '<option value="' + escA(m.project_path) + '">' + esc(m.name) + '</option>' }).join('') + '</select>'
-          + '<input type="text" id="wbAnnexTitle" maxlength="300" placeholder="' + escA(t('workbench.annex.title_placeholder')) + '" aria-label="' + escA(t('workbench.annex.title_placeholder')) + '">'
-          + '<button type="button" class="wb-btn" data-wb-act="outline-annex-add">' + esc(t('workbench.annex.add')) + '</button> ' + browse + '</p>'
-        : '<p class="wb-annex-add">' + browse + '</p><p class="wb-hint">' + esc(t('workbench.annex.no_materials')) + '</p>'
+      // Only when the work item has a file that is not on the list yet; a click opens a chooser, not a standing dropdown.
+      if (mats.length) browse += ' <button type="button" class="wb-btn wb-annex-items" data-wb-act="outline-annex-items" title="' + escA(t('workbench.annex.items_hint')) + '">🗂 ' + esc(t('workbench.annex.items')) + '</button>'
+      add = '<p class="wb-annex-add">' + browse + '</p>'
       var scheme = st.annex_scheme || 'k'
       settings = '<p class="wb-annex-settings"><label>' + esc(t('workbench.annex.scheme')) + ' <select id="wbAnnexScheme">'
         + (st.schemes || ['k', 'anlage', 'exhibit']).map(function (k) { return '<option value="' + escA(k) + '"' + (k === scheme ? ' selected' : '') + '>' + esc(t('workbench.annex.scheme.' + k)) + '</option>' }).join('')
@@ -8364,15 +8361,55 @@
       + add + settings + '</div>'
   }
 
+  /** The work item's own files that are not on the annex list yet (the third add button's candidates). */
+  function annexMaterials(list) {
+    var taken = {}
+    ;(list || []).forEach(function (a) { taken[a.path] = true })
+    return ((WB.detail && WB.detail.assets) || []).filter(function (m) { return m.present !== false && m.project_path && !taken[m.project_path] })
+  }
+
+  /** A small chooser over the work item's own files; picking one puts it on the annex list. */
+  function pickItemFile(done) {
+    if (!document.body || typeof document.createElement !== 'function') return
+    var o = WB.detail && WB.detail.outline
+    var mats = annexMaterials((o && o.annexes) || [])
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbItemFilePick'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
+      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.annex.items_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.annex.items_help')) + '</p>'
+      + '<div id="wbItemFilePickList" class="wb-lifepick-list"></div>'
+      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbItemFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button></div>'
+      + '</div>'
+    document.body.appendChild(overlay)
+    var list = overlay.querySelector('#wbItemFilePickList')
+    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    overlay.querySelector('#wbItemFilePickClose').addEventListener('click', close)
+    if (!mats.length) {
+      var p = document.createElement('p')
+      p.className = 'wb-lifepick-note'
+      p.textContent = t('workbench.annex.items_empty')
+      list.appendChild(p)
+      return
+    }
+    mats.forEach(function (m) {
+      var b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'wb-lifepick-row wb-lifepick-file'
+      b.textContent = '📄 ' + m.name
+      b.addEventListener('click', function () { close(); done(m.project_path) })
+      list.appendChild(b)
+    })
+  }
+
   /** #501: files picked from the computer become annexes one after the other (a failure does not stop the rest).
-   *  The title typed beside the picker names a single file; otherwise the server takes the file name. */
+   *  The server takes the file name as the title; the description is written later, in the list (rename). */
   function annexBrowseUpload(fileList) {
     var id = WB.selectedId
     var files = []
     for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
     if (!id || !files.length || WB.annexUploading || archived()) return
-    var ttlEl = document.getElementById('wbAnnexTitle')
-    var title = files.length === 1 && ttlEl && ttlEl.value ? ttlEl.value.trim() : ''
     WB.annexUploading = true
     render()
     var added = 0
@@ -8380,7 +8417,7 @@
     files.forEach(function (f) {
       chain = chain.then(function () {
         var url = '/api/workbench/items/' + encodeURIComponent(id) + '/outline/annexes/upload?name=' + encodeURIComponent(f.name || 'melleklet')
-          + (title ? '&title=' + encodeURIComponent(title) : '') + '&lang=' + encodeURIComponent(window._lang || 'hu')
+          + '&lang=' + encodeURIComponent(window._lang || 'hu')
         return postFile(url, f).then(function (r) {
           var d = r.data || {}
           if (WB.selectedId === id && WB.detail) {
@@ -8799,11 +8836,8 @@
       outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid) + '/rewrite')
     } else if (a === 'outline-block-del') {
       if (window.confirm(t('workbench.outline.delete_block_confirm'))) outlineCall('DELETE', '/blocks/' + encodeURIComponent(bid))
-    } else if (a === 'outline-annex-add') {
-      var pick = document.getElementById('wbAnnexPick')
-      var ttl = document.getElementById('wbAnnexTitle')
-      if (!pick || !pick.value) { window.showToast(t('workbench.annex.pick_first')); return }
-      outlineCall('POST', '/annexes', { path: pick.value, title: ttl && ttl.value ? ttl.value.trim() : '' })
+    } else if (a === 'outline-annex-items') {
+      pickItemFile(function (path) { outlineCall('POST', '/annexes', { path: path }) })
     } else if (a === 'outline-sent-remove') {
       if (window.confirm(t('workbench.sent.remove_confirm'))) outlineCall('DELETE', '/sent/' + encodeURIComponent(act.getAttribute('data-wb-sent')))
     } else if (a === 'outline-sent-file') {
