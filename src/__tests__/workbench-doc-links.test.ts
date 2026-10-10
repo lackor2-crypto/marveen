@@ -12,7 +12,7 @@ import { addSection, addBlock } from '../workbench-docmodel.js'
 import { addAnnex, annexCheck, listAnnexes, removeAnnex, setAnnexPath } from '../workbench-docannex.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
 import { documentIdFor, hashDocument, moveDocumentsPrefix } from '../life-doc-ids.js'
-import { linkLifeFileAsAnnex, linkedUsesUnder, tendLinkedAnnexes } from '../workbench-doc-links.js'
+import { addProjectDoc, linkLifeFileAsAnnex, linkedUsesUnder, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc } from '../workbench-doc-links.js'
 
 const CERT = 'Család/Anna/Hatóságok/Nyugdíj/nyugdijigazolas.pdf'
 
@@ -147,5 +147,73 @@ describe('a linked annex', () => {
     addBlock(items[0]!, s.section.id, { text: 'A nyugdíjigazolást K1 alatt csatolom.', author: 'owner' })
     const c = annexCheck(items[0]!, resolveIn(0))
     expect([c.total, c.ok, c.unsupported, c.missing_files, c.unreferenced]).toEqual([1, 1, [], [], []])
+  })
+  // PHASE 2: the document's role in a project.
+  it('a project holds a document in a role without a copy; the same document can be in two projects in different roles', async () => {
+    const a = await addProjectDoc(projects[0]!.id, CERT, { role: 'source', note: 'ebből dolgozunk' }, 't')
+    const b = await addProjectDoc(projects[1]!.id, CERT, { role: 'reference' }, 't')
+    expect(a.ok && b.ok).toBe(true)
+    const one = listProjectDocs(projects[0]!.id)
+    expect(one.docs.map((d) => [d.role, d.name, d.exists, d.note])).toEqual([['source', 'nyugdijigazolas.pdf', true, 'ebből dolgozunk']])
+    expect(listProjectDocs(projects[1]!.id).docs[0]!.role).toBe('reference')
+    expect(allFiles(depot).filter((f) => f.endsWith('nyugdijigazolas.pdf')).length).toBe(1)
+    expect(readdirSync(abs('Projektek/Jobcenter ügy'))).toEqual([])
+  })
+
+  it('once per project; a wrong role, a folder, a missing file and a path outside the tree are refused', async () => {
+    expect((await addProjectDoc(projects[0]!.id, CERT, {}, 't')).ok).toBe(true) // no role given = source
+    expect(listProjectDocs(projects[0]!.id).docs[0]!.role).toBe('source')
+    const again = await addProjectDoc(projects[0]!.id, CERT, { role: 'related' }, 't')
+    expect(again.ok === false && again.code).toBe('duplicate')
+    const role = await addProjectDoc(projects[1]!.id, CERT, { role: 'attachment' }, 't')
+    expect(role.ok === false && role.code).toBe('bad_role')
+    const dir = await addProjectDoc(projects[1]!.id, 'Család/Anna', {}, 't')
+    expect(dir.ok === false && dir.code).toBe('bad_input')
+    const none = await addProjectDoc(projects[1]!.id, 'Család/nincs.pdf', {}, 't')
+    expect(none.ok === false && none.code).toBe('file_missing')
+    expect((await addProjectDoc(projects[1]!.id, '../../etc/passwd', {}, 't')).ok).toBe(false)
+  })
+
+  it('the role can be changed; removing it from the project deletes no file and leaves the other project alone', async () => {
+    const a = await addProjectDoc(projects[0]!.id, CERT, { role: 'source' }, 't')
+    await addProjectDoc(projects[1]!.id, CERT, { role: 'source' }, 't')
+    if (!a.ok) throw new Error('add')
+    expect(updateProjectDoc(projects[0]!.id, a.id, { role: 'related' }).ok).toBe(true)
+    expect(listProjectDocs(projects[0]!.id).docs[0]!.role).toBe('related')
+    const bad = updateProjectDoc(projects[0]!.id, a.id, { role: 'x' })
+    expect(bad.ok === false && bad.code).toBe('bad_role')
+    // Another project cannot touch it by knowing its id.
+    expect(updateProjectDoc(projects[1]!.id, a.id, { role: 'source' }).ok).toBe(false)
+    expect(removeProjectDoc(projects[1]!.id, a.id).ok).toBe(false)
+    expect(removeProjectDoc(projects[0]!.id, a.id).ok).toBe(true)
+    expect(listProjectDocs(projects[0]!.id).docs).toEqual([])
+    expect(listProjectDocs(projects[1]!.id).docs.length).toBe(1)
+    expect(allFiles(depot).filter((f) => f.endsWith('nyugdijigazolas.pdf')).length).toBe(1)
+  })
+
+  it('follows a rename in the Explorer; moved outside it is "not at its place" and then found by content', async () => {
+    await addProjectDoc(projects[0]!.id, CERT, {}, 't')
+    const to = 'Család/Anna/Hatóságok/Nyugdíj/uj-nev.pdf'
+    renameSync(abs(CERT), abs(to))
+    moveDocumentsPrefix(CERT, to)
+    expect(listProjectDocs(projects[0]!.id).docs.map((d) => [d.name, d.exists, d.life_rel])).toEqual([['uj-nev.pdf', true, to]])
+    await hashDocument(documentIdFor(to)!)
+    const out = 'Család/Anna/Egyéb/kint.pdf'
+    mkdirSync(join(abs(out), '..'), { recursive: true })
+    renameSync(abs(to), abs(out))
+    const gone = listProjectDocs(projects[0]!.id)
+    expect([gone.docs[0]!.exists, gone.docs[0]!.name, gone.searching]).toEqual([false, 'uj-nev.pdf', 1])
+    await expect.poll(() => listProjectDocs(projects[0]!.id).docs[0]!.exists, { timeout: 5000 }).toBe(true)
+    expect(listProjectDocs(projects[0]!.id).docs[0]!.name).toBe('kint.pdf')
+  })
+
+  it('the project view also shows what its submissions attach, and "where is it used" names the role', async () => {
+    await linkLifeFileAsAnnex(items[0]!, CERT, { title: 'Nyugdíjigazolás' }, resolveIn(0), 't')
+    await addProjectDoc(projects[1]!.id, CERT, { role: 'reference' }, 't')
+    const v = listProjectDocs(projects[0]!.id)
+    expect(v.docs).toEqual([])
+    expect(v.attachments.map((a) => [a.item, a.label, a.title, a.name, a.exists])).toEqual([['Beadvány (Jobcenter ügy)', 'K1', 'Nyugdíjigazolás', 'nyugdijigazolas.pdf', true]])
+    const uses = linkedUsesUnder(CERT).map((u) => [u.project, u.item, u.label]).sort()
+    expect(uses).toEqual([['Jobcenter ügy', 'Beadvány (Jobcenter ügy)', 'K1'], ['Sozialamt ügy', '', 'reference']])
   })
 })

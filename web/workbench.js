@@ -10937,6 +10937,89 @@
       + '</section>'
   }
 
+  // ---------------------------------------------------------------------------
+  // A PROJEKT IRATAI (#530, 2. fazis): mely iratokbol dolgozunk, es milyen szerepben.
+  // Az irat az Eletfaban marad; ez a lista csak hivatkozik ra. A "Mellekletkent csatolva"
+  // resz nem itt keletkezik: a beadvanyok mellekletjegyzekebol olvassuk ki.
+  // ---------------------------------------------------------------------------
+  function loadProjectDocs() {
+    var pid = WB.projectId
+    if (!pid) return
+    WB.pdError = null
+    return api('GET', '/api/workbench/project-docs?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.projectId !== pid) return
+      // "Nem lattam oda" kulon mondat: a hibas lekerdezes nem ures lista.
+      if (!r.ok) { WB.pdError = r.message; WB.pdocs = null; render(); return }
+      WB.pdocs = r.data
+      render()
+    })
+  }
+
+  function pdApply(r) {
+    if (!r.ok) { window.showToast(r.message); return }
+    WB.pdocs = r.data
+    render()
+  }
+
+  function pdWhere(d) {
+    return '<span class="wb-muted wb-annex-linked">' + esc(String(d.life_rel || d.name || '').split('/').join(' › ')) + '</span>'
+      + (d.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t(WB.pdocs && WB.pdocs.searching ? 'workbench.annex.linked_searching' : 'workbench.annex.linked_missing')) + '</span>' : '')
+  }
+
+  function pdRowHtml(d, roles) {
+    var ro = archived()
+    var tools = '<span class="wb-outline-tools">'
+      + (d.exists !== false ? '<a class="wb-linklike" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
+      + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>'
+      + (ro ? '' : ' <label class="wb-pd-role">' + esc(t('workbench.pd.role')) + ' <select data-wb-pd-role="' + escA(d.id) + '">'
+        + roles.map(function (k) { return '<option value="' + escA(k) + '"' + (k === d.role ? ' selected' : '') + '>' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
+        + '</select></label> <button type="button" class="wb-linklike" data-wb-act="pd-remove" data-wb-pd="' + escA(d.id) + '">' + esc(t('workbench.pd.remove')) + '</button>')
+      + '</span>'
+    return '<li class="wb-pd-row"><strong>📄 ' + esc(d.name) + '</strong> ' + pdWhere(d)
+      + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '') + ' ' + tools + '</li>'
+  }
+
+  function projectDocsPanelHtml() {
+    if (!WB.pdOpen) return ''
+    var body = ''
+    var p = WB.pdocs
+    if (WB.pdError) body = '<p class="wb-error">' + esc(WB.pdError) + '</p>'
+    else if (!p) body = '<p class="wb-hint">' + esc(t('workbench.pd.loading')) + '</p>'
+    else {
+      var roles = p.roles || ['source', 'reference', 'related']
+      var docs = p.docs || []
+      var att = p.attachments || []
+      // The map first (specification, chapter 60): how many of each, at a glance.
+      body = '<p class="wb-pd-map">' + roles.map(function (k) {
+        return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
+      }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span></p>'
+      body += roles.map(function (k) {
+        var mine = docs.filter(function (d) { return d.role === k })
+        return '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.' + k)) + ' (' + mine.length + ')</h3>'
+          + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.' + k)) + '</p>'
+          + (mine.length ? '<ul class="wb-pd-list">' + mine.map(function (d) { return pdRowHtml(d, roles) }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none')) + '</p>')
+      }).join('')
+      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.attached')) + ' (' + att.length + ')</h3>'
+        + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.attached')) + '</p>'
+        + (att.length ? '<ul class="wb-pd-list">' + att.map(function (a) {
+          return '<li class="wb-pd-row"><strong>📎 ' + esc(a.label) + ' – ' + esc(a.title) + '</strong> <span class="wb-muted">(' + esc(a.item) + ')</span> ' + pdWhere(a)
+            + ' <span class="wb-outline-tools"><button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(a.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
+        }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_attached')) + '</p>')
+    }
+    var add = archived() || !p ? '' : '<p class="wb-pd-add"><label>' + esc(t('workbench.pd.add_as')) + ' <select id="wbPdRole">'
+      + (p.roles || ['source', 'reference', 'related']).map(function (k) { return '<option value="' + escA(k) + '">' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
+      + '</select></label> <button type="button" class="wb-btn" data-wb-act="pd-add" title="' + escA(t('workbench.annex.link_hint')) + '">🔗 ' + esc(t('workbench.pd.add')) + '</button></p>'
+    return '<section class="wb-caps-panel wb-pd-panel" id="wbPdPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.pd.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="pd-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.pd.intro')) + '</p>'
+      + add
+      + body
+      + '</section>'
+  }
+
   function loadDecisions() {
     var pid = WB.projectId
     if (!pid) return
@@ -12826,13 +12909,13 @@
       return body ? '<section class="wb-sh-tech-grp"><h3 class="wb-sh-tech-h">' + esc(t(key)) + '</h3>' + body + '</section>' : ''
     }
     var tools = '<div class="wb-head wb-sh-tech-actions">'
-      + ['search', 'wk', 'tl', 'dec', 'brand', 'td', 'ho', 'caps'].map(function (k) {
-        var open = { search: WB.searchOpen, wk: WB.wkOpen, tl: WB.tlOpen, dec: WB.decOpen, brand: WB.brandOpen, td: WB.tdOpen, ho: WB.hoOpen, caps: WB.capsOpen }[k]
+      + ['search', 'wk', 'tl', 'dec', 'pd', 'brand', 'td', 'ho', 'caps'].map(function (k) {
+        var open = { search: WB.searchOpen, wk: WB.wkOpen, tl: WB.tlOpen, dec: WB.decOpen, pd: WB.pdOpen, brand: WB.brandOpen, td: WB.tdOpen, ho: WB.hoOpen, caps: WB.capsOpen }[k]
         return '<button type="button" class="btn-secondary" data-wb-act="' + k + '-open" aria-pressed="' + !!open + '">' + esc(t('workbench.' + k + '.open')) + '</button>'
       }).join('')
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
-      + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml()
+      + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml() + projectDocsPanelHtml()
       + brandPanelHtml() + todosPanelHtml() + handoffPanelHtml()
     // Tools and search first (Boss, TG 2397: they belong at the top of the technical details), then this work item, then the project.
     return '<section class="wb-sh-tech" id="wbShTech" aria-label="' + escA(t('workbench.sh.tech')) + '">'
@@ -13781,6 +13864,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="wk-open" aria-pressed="' + !!WB.wkOpen + '">' + esc(t('workbench.wk.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '">' + esc(t('workbench.pd.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="brand-open" aria-pressed="' + !!WB.brandOpen + '">' + esc(t('workbench.brand.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="td-open" aria-pressed="' + !!WB.tdOpen + '">' + esc(t('workbench.td.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
@@ -13792,6 +13876,7 @@
       + timelinePanelHtml()
       + weeklyPanelHtml()
       + decisionsPanelHtml()
+      + projectDocsPanelHtml()
       + brandPanelHtml()
       + todosPanelHtml()
       + handoffPanelHtml()
@@ -14186,6 +14271,9 @@
     WB.tdOpen = false
     WB.decOpen = false
     WB.decisions = null
+    WB.pdOpen = false
+    WB.pdocs = null
+    WB.pdError = null
     WB.decError = null
     WB.decBusy = false
     WB.decEdit = null
@@ -14524,6 +14612,18 @@
     else if (a === 'brand-tpl-use') useBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'brand-tpl-del') deleteBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
+    else if (a === 'pd-open') { WB.pdOpen = !WB.pdOpen; render(); if (WB.pdOpen) loadProjectDocs() }
+    else if (a === 'pd-close') { WB.pdOpen = false; render() }
+    else if (a === 'pd-add') {
+      var pdRoleEl = document.getElementById('wbPdRole')
+      var pdRole = pdRoleEl && pdRoleEl.value ? pdRoleEl.value : 'source'
+      var pdPid = WB.projectId
+      pickLifeFile(function (rel) { api('POST', '/api/workbench/project-docs', { project: pdPid, rel: rel, role: pdRole }).then(function (r) { if (WB.projectId === pdPid) pdApply(r) }) })
+    }
+    else if (a === 'pd-remove') {
+      var pdRm = WB.projectId
+      if (window.confirm(t('workbench.pd.remove_confirm'))) api('DELETE', '/api/workbench/project-docs/' + encodeURIComponent(act.getAttribute('data-wb-pd')) + '?project=' + encodeURIComponent(pdRm)).then(function (r) { if (WB.projectId === pdRm) pdApply(r) })
+    }
     else if (a === 'dec-close') { WB.decOpen = false; WB.decEdit = null; render() }
     else if (a === 'dec-edit') { WB.decEdit = act.getAttribute('data-wb-dec'); render() }
     else if (a === 'dec-cancel') { WB.decEdit = null; render() }
@@ -16308,6 +16408,15 @@
       window.showToast(r.message || t('intezo.open_local_failed'))
       window.open(a.getAttribute('href'), '_blank', 'noopener')
     })
+  })
+
+  // #530: the role of a project document is changed in place, with its select.
+  document.addEventListener('change', function (e) {
+    if (!WB.open || !e.target || typeof e.target.getAttribute !== 'function') return
+    var pdId = e.target.getAttribute('data-wb-pd-role')
+    if (!pdId) return
+    var pid = WB.projectId
+    api('PATCH', '/api/workbench/project-docs/' + encodeURIComponent(pdId), { project: pid, role: e.target.value }).then(function (r) { if (WB.projectId === pid) pdApply(r) })
   })
 
   document.addEventListener('submit', function (e) {

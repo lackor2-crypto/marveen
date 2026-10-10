@@ -44563,7 +44563,8 @@ async function _intezoLinkedWarning(rels) {
     if (!res.ok) return ''
     const d = await res.json()
     if (!d || !d.total) return ''
-    const lines = (d.uses || []).slice(0, 6).map((u) => '• ' + u.file.split('/').pop() + ' → ' + (u.project ? u.project + ' › ' : '') + u.item + (u.label ? ' (' + u.label + ')' : ''))
+    // A submission's annex has a number (K1); a project document has a role instead.
+    const lines = (d.uses || []).slice(0, 6).map((u) => '• ' + u.file.split('/').pop() + ' → ' + (u.item ? (u.project ? u.project + ' › ' : '') + u.item + (u.label ? ' (' + u.label + ')' : '') : u.project + ' (' + t('intezo.linked_role.' + u.label) + ')'))
     if (d.total > lines.length) lines.push('…')
     return t('intezo.trash_linked_warning', { n: String(d.total) }) + '\n' + lines.join('\n') + '\n\n'
   } catch (e) { return '' }
