@@ -360,3 +360,53 @@ describe('what this program uploaded shows on the page without being picked agai
     expect(loadLifeIndex()[0]!.id).toMatch(/^up-b{40}$/)
   })
 })
+
+// #524: a restored backup, the Life tree on the new disk not made yet. The index row and the
+// upload log are there, the file and its folder are not: the picture must come down again.
+describe('an index row whose file is gone is not "already here" (#524)', () => {
+  const OLD = 'Család/Régi hely/Fotók'
+  const oldDir = () => join(depot, ...OLD.split('/'))
+  const seed = async () => {
+    const { saveLifeIndex } = await import('../photos-life.js')
+    saveLifeIndex([{
+      id: 'g1', account: 'acc', lifeRel: OLD, file: '009.jpg', mimeType: 'image/jpeg', createdTime: '', width: 1, height: 1,
+      isVideo: false, bytes: 5, sha256: 'a'.repeat(64), savedAt: '2026-10-01T00:00:00Z', linked: true,
+    }])
+    mkdirSync(join(store, 'store', 'photos'), { recursive: true })
+    writeFileSync(join(store, 'store', 'photos', 'upload-log.json'), JSON.stringify([{
+      account: 'acc', sha256: 'a'.repeat(64), lifeRel: OLD, file: '009.jpg', bytes: 5, mtimeMs: 1, mediaItemId: 'g1', uploadedAt: '2026-10-01T00:00:00Z',
+    }]))
+  }
+
+  it('the list offers the old folder, and the download brings the file back with exactly one row', async () => {
+    await seed()
+    const { buildDownloadReview, reviewDepsFor } = await import('../web/routes/photos-picker.js')
+    const rows = buildDownloadReview([item('g1', '009.jpg')], reviewDepsFor('acc'))
+    expect(rows[0]).toMatchObject({ already: false, proposal: { kind: 'uploaded', lifeRel: OLD } })
+
+    bytesOf = { g1: 'foto!' }
+    const { uploadedPlaceFor } = await import('../photos-upload.js')
+    const r = await downloadPickedToLife([item('g1', '009.jpg')], 'acc', 'tok', '', {
+      ...deps(), placeFor: (it: { id: string; filename: string }) => uploadedPlaceFor('acc', it), destFor: () => OLD,
+    })
+    expect(r).toMatchObject({ saved: 1, already: 0, failed: 0 })
+    expect(readFileSync(join(oldDir(), '009.jpg'), 'utf8')).toBe('foto!')
+    const rowsOfG1 = loadLifeIndex().filter((p) => p.id === 'g1' && p.account === 'acc')
+    expect(rowsOfG1).toMatchObject([{ lifeRel: OLD, file: '009.jpg', bytes: 5 }])
+    // the new row is the downloaded one, not the old "linked" orphan
+    expect(rowsOfG1[0]).not.toHaveProperty('linked')
+    expect(loadLifeIndex()).toHaveLength(1)
+  })
+
+  it('regression guard: the file is there with the same size, so it is still "already here"', async () => {
+    await seed()
+    mkdirSync(oldDir(), { recursive: true })
+    writeFileSync(join(oldDir(), '009.jpg'), 'regi!')
+    const { buildDownloadReview, reviewDepsFor } = await import('../web/routes/photos-picker.js')
+    expect(buildDownloadReview([item('g1', '009.jpg')], reviewDepsFor('acc'))[0]).toMatchObject({ already: true, alreadyAt: OLD })
+    const r = await downloadPickedToLife([item('g1', '009.jpg')], 'acc', 'tok', '', { ...deps(), destFor: () => OLD })
+    expect(r).toMatchObject({ saved: 0, already: 1 })
+    expect(asked).toEqual([])
+    expect(loadLifeIndex()).toHaveLength(1)
+  })
+})

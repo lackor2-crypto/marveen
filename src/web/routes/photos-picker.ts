@@ -32,7 +32,7 @@ import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   loadLifeIndex, checkPhotoDest, downloadPickedToLife, removeLifePhoto, pruneLifePhotosMissing,
-  lastLifeDest, rememberLifeDest, lifePhotoPath, LIFE_THUMB_BASE, rememberedPhotoPlace, rememberPhotoPlaces, linkUploadedPhotos,
+  lastLifeDest, rememberLifeDest, lifePhotoPath, lifeRowFilePresent, LIFE_THUMB_BASE, rememberedPhotoPlace, rememberPhotoPlaces, linkUploadedPhotos,
 } from '../../photos-life.js'
 import { planUpload, runUpload, hasUploadScope, uploadedPlaceFor, libraryApiOff, libraryApiEnableUrl, loadUploadLog, mediaMime, type UploadPlan, type UploadResult } from '../../photos-upload.js'
 import { googleOauthProjectId } from '../google-auth-runner.js'
@@ -1247,9 +1247,9 @@ export function buildDownloadReview(items: any[], deps: ReviewDeps): ReviewRow[]
   return rows
 }
 
-function reviewDepsFor(account: string): ReviewDeps {
+export function reviewDepsFor(account: string): ReviewDeps {
   return {
-    lifeIds: new Map(loadLifeIndex().filter((p) => p.account === account).map((p) => [p.id, p.lifeRel] as [string, string])),
+    lifeIds: new Map(loadLifeIndex().filter((p) => p.account === account && lifeRowFilePresent(p)).map((p) => [p.id, p.lifeRel] as [string, string])),
     oldIds: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
     placeFor: (it) => uploadedPlaceFor(account, it),
     remembered: (id) => rememberedPhotoPlace(account, id),
