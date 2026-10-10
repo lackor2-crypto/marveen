@@ -378,8 +378,10 @@ describe('list UI', () => {
     const h = workbenchHarness()
     h.respond((url, init) => {
       // The request body is what the tests check; new-table gets a clean refusal.
-      if (url.includes('/api/workbench/items/new-table')) return { status: 400, body: { error: 'x', message: 'nem most' } }
+      if (url.includes('/api/workbench/items/new-table') || url.includes('/api/workbench/intake')) return { status: 400, body: { error: 'x', message: 'nem most' } }
       if (url.split('?')[0] === '/api/workbench/items' && init?.method === 'POST') return { status: 400, body: { error: 'x', message: 'nem most' } }
+      const one = (items as Array<{ id: string }>).find((i) => url.split('?')[0] === `/api/workbench/items/${i.id}`)
+      if (one) return { status: 200, body: { item: one, versions: [], parts: [], part_kinds: ['text'], project: { id: 'p1', name: 'Robotok', archived: false } } }
       if (url.includes('/api/workbench/folders')) return { status: 201, body: { ok: true, folder: `${box}/Uj`, created: true, work_folders: { box, folders: [...folders, `${box}/Uj`], truncated: false } } }
       if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(items), work_folders: { box, folders, truncated: false } } }
       if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
@@ -478,6 +480,36 @@ describe('list UI', () => {
       expect(JSON.parse(String(call!.init!.body)).folder).toBeUndefined()
     })
   }
+
+  // #540: the "+ New work" form has no folder picker; a folder picked earlier must not follow it invisibly from an open item.
+  it('"+ New work" pressed from an open item does not carry a folder picked before the item was opened', async () => {
+    const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
+    h.win.prompt = () => 'Uj'
+    h.click({ 'data-wb-act': 'mkfolder' }) // made with no item open: the picked folder is now Munkadarabok/Uj
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"')) // the folder is made and picked
+    h.click({ 'data-wb-item': 's1' })
+    h.click({ 'data-wb-act': 'new' })
+    h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
+    h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/intake'))
+    expect(call).toBeTruthy()
+    expect(JSON.parse(String(call!.init!.body)).folder).toBeUndefined()
+  })
+
+  it('"+ New work" with no item open keeps the folder the owner picked', async () => {
+    const h = open([item('s1', 'BL', `${box}/BL`)], [`${box}/LK`, `${box}/BL`])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="s1"'))
+    h.win.prompt = () => 'Uj'
+    h.click({ 'data-wb-act': 'mkfolder' })
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-folder="Munkadarabok/Uj"')) // the folder is made and picked
+    h.click({ 'data-wb-act': 'new' })
+    h.inputs['wbIntakeText'] = { value: 'egy dokumentum', focus() {} }
+    h.click({ 'data-wb-act': 'intake-kind', 'data-wb-kind': 'document' })
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/intake'))
+    expect(call).toBeTruthy()
+    expect(JSON.parse(String(call!.init!.body)).folder).toBe(`${box}/Uj`)
+  })
 
   it('"New table" files the table under the chosen folder', async () => {
     const h = open([], [`${box}/LK`])

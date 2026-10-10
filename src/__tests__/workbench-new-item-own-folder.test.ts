@@ -57,6 +57,7 @@ describe('#540: a new work item never lands under an existing one', () => {
     const t = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Ajanlat' })
     expect(t.status).toBe(201)
     expect(String(t.body.folder)).toBe(fa + ' (3)')
+    expect(settled((t.body.item as Item).id)).toBe(fa + ' (3)')
   })
 
   it('an empty folder nobody owns is taken as it is; one with a file in it is not', async () => {

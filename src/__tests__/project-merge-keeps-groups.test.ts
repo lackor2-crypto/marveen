@@ -49,7 +49,9 @@ describe('merge keeps the folders of the work items box together', () => {
     expect(it.project_id).toBe(b)
     expect(it.source_path).toBe(`${root(b)}/${box(b)}/Koltsegek/Koltsegek.xlsx`)
     expect(existsSync(abs(it.source_path!))).toBe(true)
-    expect(it.container_folder).toBe(`${box(b)}/Koltsegek`)
+    // #540: the table owns the folder made after it, like any other new item (container = the box it lies in).
+    expect(it.folder).toBe(`${box(b)}/Koltsegek`)
+    expect(it.container_folder).toBe(box(b))
     expect(readdirSync(abs(`${root(b)}/${box(b)}`)).filter((n) => !n.startsWith('.'))).toEqual(['Koltsegek'])
   })
 

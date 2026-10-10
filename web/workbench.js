@@ -207,6 +207,7 @@
     // #502: the loaded content of linked / not yet read folders of the tree, per project (see lazyCache)
     lazyOut: null,
     pickFolder: '',
+    pickFor: '', // the open work item (id, '' = none) while the folder was picked; see setPickFolder
     newDraft: null,
     folderBusy: false,
     // Az attekinto negy szama ala lenyithato kartyalista (Boss, TG 2068).
@@ -1997,6 +1998,23 @@
       + '<p class="wb-hint">' + esc(t('workbench.folder.new_hint')) + '</p>'
   }
 
+  /** The folder the owner picked for the next new work item. Remembered with the work item that was open at the time:
+   *  the picker is only on screen while no item is open, so a pick made earlier must not follow a "+ New work" pressed
+   *  from an open item invisibly (#540: the new work went under the open one's folder). */
+  function setPickFolder(v) {
+    WB.pickFolder = v
+    WB.pickFor = WB.selectedId || ''
+  }
+
+  /** Opening the new-work form from an open item: a folder pick made before this item was opened is dropped, unless the
+   *  picker is on screen (then the pick is the owner's, shown there). */
+  function dropStalePick() {
+    if (!WB.selectedId || !WB.pickFolder || WB.pickFor === WB.selectedId) return
+    if (typeof document.getElementById === 'function' && document.getElementById('wbNewFolder')) return
+    WB.pickFolder = ''
+    WB.pickFor = ''
+  }
+
   /** Step 1 of creating: the folder system. Always visible (not buried in the manual form),
    *  so folders, sub folders and sibling folders can be made by hand before any work item. */
   function folderStepHtml() {
@@ -2009,7 +2027,7 @@
     var ty = document.getElementById('wbNewType')
     var fo = document.getElementById('wbNewFolder')
     WB.newDraft = { title: ti ? ti.value : '', type: ty ? ty.value : '' }
-    if (fo) WB.pickFolder = fo.value
+    if (fo) setPickFolder(fo.value)
   }
 
   function makeFolder() {
@@ -2026,7 +2044,7 @@
       if (WB.projectId !== pid) return
       if (!r.ok) { render(); window.showToast(r.message); return }
       if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
-      if (r.data && r.data.folder) WB.pickFolder = r.data.folder
+      if (r.data && r.data.folder) setPickFolder(r.data.folder)
       render()
     })
   }
@@ -2580,7 +2598,7 @@
     if (kind) payload.kind = kind
     if (name) payload.title = name
     var pf = document.getElementById('wbNewFolder')
-    if (pf) WB.pickFolder = pf.value
+    if (pf) setPickFolder(pf.value)
     if (WB.pickFolder) payload.folder = WB.pickFolder
     WB.intakeBusy = true
     render()
@@ -2616,7 +2634,7 @@
   function intakeCreateTable(text, name) {
     var payload = { project_id: WB.projectId, title: name || t('workbench.table.default_title') }
     var pf = document.getElementById('wbNewFolder')
-    if (pf) WB.pickFolder = pf.value
+    if (pf) setPickFolder(pf.value)
     if (WB.pickFolder) payload.folder = WB.pickFolder
     WB.intakeBusy = true
     render()
@@ -14982,7 +15000,7 @@
   // a kovetkezo kuldes ezt viszi. Nem kell ujrarajzolni -- a select maga mutatja.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
-    if (e.target.id === 'wbNewFolder') { WB.pickFolder = e.target.value; return }
+    if (e.target.id === 'wbNewFolder') { setPickFolder(e.target.value); return }
     var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')
     if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).
@@ -15218,7 +15236,7 @@
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
-    else if (a === 'new') { if (!archived()) { WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
+    else if (a === 'new') { if (!archived()) { dropStalePick(); WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; WB.intakeAsk = null; render() }
     else if (a === 'intake-go') intakeCreate(null)
     else if (a === 'intake-kind') intakeCreate(act.getAttribute('data-wb-kind'))
