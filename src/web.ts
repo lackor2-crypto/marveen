@@ -111,7 +111,7 @@ import { tryHandleGithubBrowser } from './web/routes/github-browser.js'
 // 404-re futottak. Egy le nem forditott fajl kiabal; egy be nem kotott fajl
 // csendben nem letezik -- ezert all ra kulon teszt (web-boot-order).
 import { tryHandleDepot } from './web/routes/depot.js'
-import { pruneEmptyStorageDirs } from './depot.js'
+import { pruneEmptyStorageDirs, restoreBuriedSystemFolders } from './depot.js'
 import { tryHandleLife } from './web/routes/life.js'
 import { tryHandleStorages } from './web/routes/storages.js'
 import { tryHandleMega } from './web/routes/mega.js'
@@ -718,7 +718,13 @@ export function startWebServer(port = 3420): http.Server {
   // to go away only when someone opened the Depot page (measured live,
   // 2026-10-09: they were still there after a restart) -- so the sweep also
   // runs once shortly after start. rmdir only: it cannot remove content.
+  // The same pass first puts back what an old migration buried under
+  // Tárolók/GOOGLE_PHOTOS (the backups); rename only, never over a name.
   const pruneTimer = setTimeout(() => {
+    try {
+      const back = restoreBuriedSystemFolders()
+      if (back.length) logger.info({ restored: back.length }, '[depot] buried system folders put back at start')
+    } catch (err) { logger.warn({ err }, '[depot] putting back the buried system folders failed') }
     try {
       const removed = pruneEmptyStorageDirs()
       if (removed.length) logger.info({ removed: removed.length }, '[depot] empty storage folders removed at start')
