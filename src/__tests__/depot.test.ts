@@ -252,7 +252,10 @@ describe('a depo alapmappai', () => {
 
   it('the sweep also runs at start-up, not only when the Depot page is opened (#513)', () => {
     const web = read(join(ROOT, 'src', 'web.ts'), 'utf8')
-    expect(web).toMatch(/setTimeout\(\(\) => \{\s*try \{\s*const removed = pruneEmptyStorageDirs\(\)/)
+    expect(web).toMatch(/setTimeout\(\(\) => \{[\s\S]*?try \{\s*const removed = pruneEmptyStorageDirs\(\)/)
+    // and the buried backups are put back in the same pass, BEFORE the sweep
+    expect(web.indexOf('restoreBuriedSystemFolders()')).toBeGreaterThan(-1)
+    expect(web.indexOf('restoreBuriedSystemFolders()')).toBeLessThan(web.indexOf('const removed = pruneEmptyStorageDirs()'))
   })
 
   it('masodszor futtatva nem csinal semmit (nem hiba)', () => {
