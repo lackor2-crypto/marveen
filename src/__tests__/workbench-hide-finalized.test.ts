@@ -129,13 +129,32 @@ describe('#552 hide finalized work: the tree', () => {
     expect(h.html()).toContain('workbench.hide_done.count:{"n":5}')
   })
 
-  it('the open finalized item stays visible; the click on the switch persists and re-renders', async () => {
+  // Boss TG 8804: "hiding means hiding" -- the finalized item is gone from the list even while it is open.
+  it('the open finalized item is hidden too; the click on the switch persists and brings everything back', async () => {
     const h = open({ 'wb.hide.done': '1' })
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="m2"'))
-    h.click({ 'data-wb-item': 'd1' })
-    await vi.waitFor(() => expect(tree(h.html())).toContain('data-wb-item="d1"'))
+    h.win.MarvinWorkbench.open('p1', 'Robotok')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="m2"'))
+    expect(tree(h.html())).not.toContain('data-wb-item="d1"')
     h.click({ 'data-wb-act': 'hide-done' })
     await vi.waitFor(() => expect(tree(h.html())).toContain('data-wb-item="deep"'))
+    expect(tree(h.html())).toContain('data-wb-item="d1"')
     expect(h.storage['wb.hide.done']).toBe('0')
+  })
+
+  it('a finalized favourite is not shown among the favourites while the switch is on', async () => {
+    const m1 = items[2] as { pinned_at: number | null }
+    const m2 = items[3] as { pinned_at: number | null }
+    m1.pinned_at = 5; m2.pinned_at = 6
+    try {
+      const on = open({ 'wb.hide.done': '1' })
+      await vi.waitFor(() => expect(on.html()).toContain('data-wb-item="m2"'))
+      const listOf = (html: string) => { const t = tree(html); return t.slice(0, t.indexOf('</ul>')) } // the favourites + the tree
+      expect(listOf(on.html())).toContain('data-wb-item="m2"')
+      expect(listOf(on.html())).not.toContain('data-wb-item="m1"') // finalized: not in the favourites, not in the tree
+      const off = open()
+      await vi.waitFor(() => expect(off.html()).toContain('data-wb-item="m2"'))
+      expect(listOf(off.html())).toContain('data-wb-item="m1"')
+    } finally { m1.pinned_at = null; m2.pinned_at = null }
   })
 })

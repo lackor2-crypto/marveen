@@ -6786,7 +6786,7 @@ window._i18n.hu = {
   "workbench.root.hint": "A projekt a gyökér: minden munkadarab és mappa alatta van. Ide ejtve a mappa vagy munkadarab a gyökérbe kerül.",
   "workbench.fav.empty": "Még nincs kedvenc: kattints egy munkadarab melletti csillagra.",
   "workbench.hide_done.label": "Véglegesített munkák elrejtése",
-  "workbench.hide_done.hint": "A véglegesített munkadarabok és a csak ilyeneket tartalmazó mappák eltűnnek a listából. Semmi nem törlődik, a megnyitott munkadarab látszik.",
+  "workbench.hide_done.hint": "A véglegesített munkadarabok és a csak ilyeneket tartalmazó mappák eltűnnek a listából, a Kedvencek közül is. Semmi nem törlődik: a kapcsolót kivéve minden újra látszik.",
   "workbench.hide_done.count": "{n} elrejtve",
   "workbench.fr.live_off": "Élő nézet",
   "workbench.fr.live_on": "Szerkesztő nézet",
