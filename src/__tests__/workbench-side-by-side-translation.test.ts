@@ -204,4 +204,19 @@ describe('the draft page wiring', () => {
     const g = js.slice(js.indexOf('function dpGutterHtml'), js.indexOf('function dpGutterHtml') + 400)
     expect(g).toContain('dpIsVariant()')
   })
+
+  it('#534 (c): the chapter border is a Heading 1 paragraph -- no "new chapter" button or menu item, split and join on save', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const menu = js.slice(js.indexOf("if (kind === 'add') {"), js.indexOf("if (kind === 'add') {") + 600)
+    expect(menu).not.toContain('dp-ins-section')
+    expect(js).not.toContain('data-wb-act="dp-add-section"')
+    // a paragraph made Heading 1 is marked, and the page model turns it into the title of a new chapter
+    expect(js).toContain("el.setAttribute('data-wb-split', '1')")
+    expect(js).toContain("n.getAttribute('data-wb-split') === '1'")
+    // a chapter title made Normal is joined to the chapter above
+    expect(js).toContain("el.setAttribute('data-wb-demote', '1')")
+    expect(js).toContain("n.getAttribute('data-wb-demote') === '1'")
+    // the page is drawn again from the server's outline after a structural save
+    expect(js).toContain('if (model.structural)')
+  })
 })

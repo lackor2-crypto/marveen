@@ -12529,7 +12529,7 @@
     }
     if (kind === 'add') {
       return '<div class="wb-dp-menu" role="menu">' + item('dp-ins', t('workbench.dp.ins_text'), ' data-wb-kind="paragraph"')
-        + item('dp-ins', t('workbench.dp.ins_list'), ' data-wb-kind="list"') + item('dp-ins-sign', t('workbench.dp.ins_sign')) + item('dp-ins-section', t('workbench.dp.ins_section')) + '</div>'
+        + item('dp-ins', t('workbench.dp.ins_list'), ' data-wb-kind="list"') + item('dp-ins-sign', t('workbench.dp.ins_sign')) + '</div>'
     }
     return '<div class="wb-dp-menu" role="menu">' + item('dp-move', t('workbench.dp.up'), ' data-wb-dir="-1"', idx === 0 && !WB.docMenu.canPrevSec)
       + item('dp-move', t('workbench.dp.down'), ' data-wb-dir="1"', idx >= count - 1 && !WB.docMenu.canNextSec)
@@ -12752,7 +12752,6 @@
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
     return '<div class="wb-dp-wrap">' + (ro ? '' : dpToolbarHtml()) + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
-        + (dpIsVariant() ? '' : '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button> ')
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
       + '</div>'
   }
@@ -13348,6 +13347,8 @@
 
   /** The page as {sections:[{id,title,blocks:[...]}]} plus the elements each entry came from (for the new ids). */
   function dpPageModel(rootEl) {
+    var structural = false
+    var focusSi = -1
     var secs = []
     var els = []
     var cur = null
@@ -13360,7 +13361,17 @@
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i]
       var k = n.getAttribute('data-wb-dp')
-      if (k === 'sec') { begin(n.getAttribute('data-wb-sec'), dpText(n), n); continue }
+      if (k === 'sec') {
+        if (n.getAttribute('data-wb-demote') === '1' && cur && dpText(n)) {
+          // A chapter title made a plain paragraph: the chapter is joined to the one above, the title stays as a paragraph.
+          structural = true
+          cur.blocks.push({ text: dpText(n), rich: '', align: '', pfmt: {}, kind: 'paragraph' })
+          els.push({ el: n, si: secs.length - 1, bi: cur.blocks.length - 1, island: true })
+          continue
+        }
+        begin(n.getAttribute('data-wb-sec'), dpText(n), n)
+        continue
+      }
       if (!cur) begin(n.getAttribute('data-wb-sec'), '', null)
       if (k !== 'block' && k !== 'new') {
         var iid = n.getAttribute('data-wb-img-block') || n.getAttribute('data-wb-tbl-block')
@@ -13371,6 +13382,13 @@
       var b = bid ? findBlock(bid) : null
       var text = dpText(n)
       var entry = {}
+      if (n.getAttribute('data-wb-split') === '1' && text && !(b && b.kind === 'table')) {
+        // A paragraph turned into Heading 1: it is the title of a new chapter; what follows it on the page belongs there.
+        structural = true
+        begin('', text.replace(/\s*\n\s*/g, ' ').trim().slice(0, 200), n)
+        focusSi = secs.length - 1
+        continue
+      }
       if (b && b.kind === 'table') {
         var tp = dpTableParts(b.text)
         if (!text) continue
@@ -13394,7 +13412,7 @@
       cur.blocks.push(entry)
       els.push({ el: n, si: secs.length - 1, bi: cur.blocks.length - 1 })
     }
-    return { sections: secs, els: els }
+    return { sections: secs, els: els, structural: structural, focusSi: focusSi }
   }
 
   var dpBlockSeq = 0
@@ -13479,6 +13497,14 @@
       ;((r.data.ids && r.data.ids.sections) || []).forEach(function (s) { ids.push(s.id); (s.blocks || []).forEach(function (b) { ids.push(b) }) })
       WB.dpKnown = { item: id, ids: ids }
       dpApplyIds(model, r.data.ids)
+      if (model.structural) {
+        // The chapter structure changed (a Heading 1 paragraph, or a title made plain): draw the page again from the
+        // server's outline, the caret in the new chapter's title.
+        var fs = model.focusSi >= 0 ? ((r.data.ids && r.data.ids.sections) || [])[model.focusSi] : null
+        if (fs && fs.id) WB.docFocus = { id: 'wbDpS_' + fs.id, end: true }
+        render()
+        return r.data.outline
+      }
       docStepsRefresh() // no redraw here (the caret stays): the undo / redo buttons must follow the new step themselves
       if (WB.dpDirty) dpMarkDirty()
       return r.data.outline
@@ -17193,10 +17219,18 @@
   /** Paragraph format of the field: merge `patch` (null / '' removes a key), show it at once, save it for a stored block. */
   function dpSetPfmt(el, patch) {
     var p = dpPfmtOf(el)
+    var hBefore = p.h || 0
     Object.keys(patch).forEach(function (k) {
       if (patch[k] === null || patch[k] === '' || patch[k] === undefined) delete p[k]
       else p[k] = patch[k]
     })
+    // #534 (c): the chapter border is the Heading 1 paragraph. A paragraph made Heading 1 starts a new chapter at the next
+    // save; a chapter title made anything else is joined to the chapter above it.
+    var kindOf = el.getAttribute('data-wb-dp')
+    if (kindOf === 'sec') {
+      if (p.h !== 1 && patch.h !== undefined) el.setAttribute('data-wb-demote', '1')
+    } else if (p.h === 1 && hBefore !== 1) el.setAttribute('data-wb-split', '1')
+    else if (p.h !== 1) el.removeAttribute('data-wb-split')
     if (p.ls === 1) delete p.ls
     el.classList.remove('wb-dp-h1', 'wb-dp-h2', 'wb-dp-h3')
     if (p.h) el.classList.add('wb-dp-h' + p.h)
@@ -17394,6 +17428,12 @@
     var clr = e.target.closest('[data-wb-fmtcolor]')
     if (!sel && !clr) return
     if (archived()) return
+    // #534 (c): the Style box on a chapter title: "Normal" joins the chapter to the one above (the title is Heading 1).
+    var curTitle = sel && sel.getAttribute('data-wb-fmtsel') === 'heading' ? dpCurrent() : null
+    if (curTitle && curTitle.getAttribute('data-wb-dp') === 'sec') {
+      if (sel.value !== '') dpSetPfmt(curTitle, { h: Number(sel.value) || null })
+      return
+    }
     var el = dpFmtTarget()
     if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
     if (clr) { dpClrSet(clr.getAttribute('data-wb-fmtcolor'), clr.value); dpClrPopClose(); dpApplyInline(el, clr.getAttribute('data-wb-fmtcolor'), clr.value); return }
