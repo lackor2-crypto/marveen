@@ -6150,6 +6150,7 @@ window._i18n.en = {
   "workbench.pd.group_hint.attached": "What you attached to the project's submissions from the Life tree. Change it in the submission's Annexes section.",
   "workbench.pd.none": "No such document yet.",
   "workbench.pd.none_attached": "No document from the Life tree is attached to any submission yet.",
+  "workbench.pd.simple_hint": "The project's documents: their roles, what the assistant may read, what is missing before closing, and where the matter stands.",
   "workbench.pd.open_file": "open",
   "workbench.pd.remove": "remove from the project",
   "workbench.pd.remove_confirm": "Remove this document from the project? This only removes the link: the original document stays where it is in the Life tree, and stays in the other projects it is in.",

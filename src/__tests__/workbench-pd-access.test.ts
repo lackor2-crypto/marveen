@@ -9,8 +9,8 @@ function docsBody(mode: string) {
   return { docs: [DOC], attachments: [], searching: 0, roles: ['source', 'reference', 'related'], close: { items: [], ready: true }, related: [], relatable: [], places: [], ai_access: mode, ai_access_modes: ['normal', 'read_all'] }
 }
 
-async function open() {
-  const h = workbenchHarness()
+async function open(view = 'manual') {
+  const h = workbenchHarness({ storage: { 'marveen.workbench.view': view } })
   let mode = 'normal'
   h.respond((url, init) => {
     if (url.includes('/api/workbench/project-ai-access')) {
@@ -56,5 +56,40 @@ describe('Documents panel: "no limits (reading)"', () => {
     change(h, 'data-wb-pd-access', false)
     await vi.waitFor(() => expect(h.html()).not.toMatch(/data-wb-pd-access="1" checked/))
     expect(h.html()).not.toMatch(/data-wb-pd-ai="d1"[^>]*disabled/)
+  })
+})
+
+// #530 (Boss TG 8541): the panel must be one labelled click away in BOTH views, not only in the Manual header.
+describe('Documents panel reachable in both views', () => {
+  for (const view of ['manual', 'simple']) {
+    it(view + ' view: a visible labelled button opens the panel with the same content', async () => {
+      const h = await open(view)
+      const html = h.html()
+      expect(html).toContain('data-wb-pd-access="1"')
+      expect(html).toContain('data-wb-pd-ai="d1"')
+      expect(html).toContain('⟦workbench.pd.role.source⟧')
+      // Exactly one panel is drawn (not a second one in the technical details).
+      expect(html.split('data-wb-pd-access="1"').length - 1).toBe(1)
+    })
+  }
+
+  it('simple view: the button is in the top bar of an opened work item too', async () => {
+    const h = workbenchHarness({ storage: { 'marveen.workbench.view': 'simple' } })
+    const ITEM = { id: 'w1', project_id: 'p1', type: 'document', title: 'Beadvány', status: 'draft', created_at: 1, updated_at: 2 }
+    h.respond((url) => {
+      if (url.includes('/api/workbench/project-docs')) return { status: 200, body: docsBody('normal') }
+      if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
+      if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: ITEM, versions: [], parts: [], assets: [] } }
+      return { status: 200, body: itemsBody([ITEM as never], { id: 'p1', name: 'Iroda', archived: false } as never) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Iroda')
+    await vi.waitFor(() => expect(h.html()).toContain('wb-item'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-top'))
+    expect(h.html()).toMatch(/wb-fr-docs[^>]*data-wb-act="pd-open"/)
+    expect(h.html()).toContain('⟦workbench.pd.open⟧')
+    h.click({ 'data-wb-act': 'pd-open' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-pop-docs'))
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-pd-access="1"'))
   })
 })

@@ -11028,6 +11028,13 @@
       + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '') + ' ' + tools + '</li>'
   }
 
+  /** #530 (Boss TG 8541): the project's documents panel in the Simple view -- a popup under the frame's top bar
+   *  (same content as the Manual view's panel), so it is one click from an opened work item. */
+  function projectDocsPopupHtml() {
+    var inner = projectDocsPanelHtml()
+    return inner ? '<div class="wb-fr-pop wb-fr-pop-docs" id="wbPdPop">' + inner + '</div>' : ''
+  }
+
   function projectDocsPanelHtml() {
     if (!WB.pdOpen) return ''
     var body = ''
@@ -12006,7 +12013,8 @@
       out += '<button type="button" class="btn-secondary" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '"'
         + ' aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
     }
-    out += viewSwitchHtml()
+    out += '<button type="button" class="btn-secondary wb-sh-docs" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
+      + viewSwitchHtml()
       + '<button type="button" class="btn-secondary wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '"'
       + ' aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
       + '</div>'
@@ -13065,7 +13073,7 @@
       }).join('')
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
-      + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml() + projectDocsPanelHtml()
+      + capsPanelHtml() + searchPanelHtml() + timelinePanelHtml() + weeklyPanelHtml() + decisionsPanelHtml()
       + brandPanelHtml() + todosPanelHtml() + handoffPanelHtml()
     // Tools and search first (Boss, TG 2397: they belong at the top of the technical details), then this work item, then the project.
     return '<section class="wb-sh-tech" id="wbShTech" aria-label="' + escA(t('workbench.sh.tech')) + '">'
@@ -13136,11 +13144,12 @@
       + '<span class="wb-fr-name">' + (it ? workSeqHtml(it) + esc(it.title) : '') + '</span>'
       + '<button type="button" class="wb-fr-tbtn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
       + (sizeOn ? '<button type="button" class="wb-fr-tbtn' + (WB.frLive ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-live" aria-pressed="' + !!WB.frLive + '" title="' + escA(t('workbench.fr.live_title')) + '">&#128065; ' + esc(t(WB.frLive ? 'workbench.fr.live_on' : 'workbench.fr.live_off')) + '</button>' : '')
+      + '<button type="button" class="wb-fr-tbtn wb-fr-docs' + (WB.pdOpen ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
       + viewSwitchHtml()
       + '<button type="button" class="wb-fr-export" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '" aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
       + '<button type="button" class="wb-fr-tbtn wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '" aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
       + '</div>'
-    return out + frMenuHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + frDeckExportHtml() + exportPanelHtml() + '</div>' : '')
+    return out + frMenuHtml() + projectDocsPopupHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + frDeckExportHtml() + exportPanelHtml() + '</div>' : '')
   }
 
   /** A megnyitott menu (Fajl / Meretezes): a fejlec alatt lenyilo doboz. */
@@ -13796,7 +13805,7 @@
   function simpleHtml() {
     var hasItem = !!WB.selectedId
     if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
-    return simpleHeadHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
+    return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
   }
 
   /** Puts the slide strip back where it was, and only moves it when the open slide would be

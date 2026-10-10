@@ -6224,6 +6224,7 @@ window._i18n.hu = {
   "workbench.pd.group_hint.attached": "Amit a projekt beadványaihoz mellékletként csatoltál az Életfából. Ezt a beadvány Mellékletek részén tudod módosítani.",
   "workbench.pd.none": "Még nincs ilyen irat.",
   "workbench.pd.none_attached": "Még egyik beadványhoz sincs irat csatolva az Életfából.",
+  "workbench.pd.simple_hint": "A projekt iratai: kik a szerepeik, az asszisztens mit olvashat, mi hiányzik a lezáráshoz, és hol van az ügy.",
   "workbench.pd.open_file": "megnyitás",
   "workbench.pd.remove": "eltávolítás a projektből",
   "workbench.pd.remove_confirm": "Eltávolítod ezt az iratot a projektből? Ez csak a kapcsolatot szünteti meg: az eredeti irat a helyén marad az Életfában, és a többi projektben, ahol szerepel, ott is marad.",
