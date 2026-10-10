@@ -58,11 +58,26 @@ export function imageBlockPathOk(text: string): boolean {
  * as a suffix after the path: `<path>#w=<10..100>&a=<l|c|r>` (width in percent of the text width, alignment).
  * No suffix: the old behaviour (natural size up to the text width, centred).
  */
-export function imageBlockParts(text: string): { path: string; width: number | null; align: 'l' | 'c' | 'r' } {
+export function imageBlockParts(text: string): { path: string; width: number | null; align: 'l' | 'c' | 'r'; x: number | null; y: number | null } {
   const t = String(text || '')
-  const m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?$/.exec(t)
-  if (!m) return { path: t, width: null, align: 'c' }
-  return { path: m[1] as string, width: Math.max(10, Math.min(100, Number(m[2]))), align: (m[3] as 'l' | 'c' | 'r') || 'c' }
+  const m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?$/.exec(t)
+  if (!m) return { path: t, width: null, align: 'c', x: null, y: null }
+  const width = Math.max(10, Math.min(100, Number(m[2])))
+  return { path: m[1] as string, width, align: (m[3] as 'l' | 'c' | 'r') || 'c', ...freePlace(m[4], m[5], width) }
+}
+
+/**
+ * #521 (the owner, TG 8337 / TG 8451: "kepek, tablazat, barmi" must go anywhere on the page): a picture or a table can
+ * be PLACED FREELY -- `&x=<0..90>&y=<0..150>` after the size: the distance from the left edge of the text and the empty
+ * space above it, both in percent of the text WIDTH (one unit for both, so the editor and the PDF scale alike).
+ * It stays in the text flow: a page break moves it like any block, it never covers text and never leaves the page.
+ * `x` is cut so that the element still fits beside it. No `&x=`: the old left / centre / right behaviour.
+ */
+export const FREE_X_MAX = 90
+export const FREE_Y_MAX = 150
+function freePlace(rawX: string | undefined, rawY: string | undefined, width: number): { x: number | null; y: number | null } {
+  if (rawX === undefined || rawY === undefined) return { x: null, y: null }
+  return { x: Math.max(0, Math.min(FREE_X_MAX, 100 - width, Number(rawX))), y: Math.max(0, Math.min(FREE_Y_MAX, Number(rawY))) }
 }
 
 /**
@@ -70,11 +85,12 @@ export function imageBlockParts(text: string): { path: string; width: number | n
  * with one extra line `#w=<10..100>&a=<l|c|r>`. A table narrower than the page and aligned left or right lets the text
  * run beside it. No such line: the old behaviour (the whole text width).
  */
-export function tableBlockParts(text: string): { text: string; width: number | null; align: 'l' | 'c' | 'r' } {
+export function tableBlockParts(text: string): { text: string; width: number | null; align: 'l' | 'c' | 'r'; x: number | null; y: number | null } {
   const t = String(text || '')
-  const m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?\s*$/.exec(t)
-  if (!m) return { text: t, width: null, align: 'c' }
-  return { text: m[1] as string, width: Math.max(10, Math.min(100, Number(m[2]))), align: (m[3] as 'l' | 'c' | 'r') || 'c' }
+  const m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?\s*$/.exec(t)
+  if (!m) return { text: t, width: null, align: 'c', x: null, y: null }
+  const width = Math.max(10, Math.min(100, Number(m[2])))
+  return { text: m[1] as string, width, align: (m[3] as 'l' | 'c' | 'r') || 'c', ...freePlace(m[4], m[5], width) }
 }
 
 export const SOURCE_KINDS = ['document', 'owner', 'official', 'inference'] as const

@@ -10,8 +10,8 @@ const render = (text: string): string => buildFodt(
 
 describe('table block width and alignment (#508)', () => {
   it('parses the trailing size line and keeps plain tables untouched', () => {
-    expect(tableBlockParts(base)).toEqual({ text: base, width: null, align: 'c' })
-    expect(tableBlockParts(base + '\n#w=40&a=r')).toEqual({ text: base, width: 40, align: 'r' })
+    expect(tableBlockParts(base)).toEqual({ text: base, width: null, align: 'c', x: null, y: null })
+    expect(tableBlockParts(base + '\n#w=40&a=r')).toEqual({ text: base, width: 40, align: 'r', x: null, y: null })
     expect(tableBlockParts(base + '\n#w=5&a=l').width).toBe(10)
     expect(tableBlockParts(base + '\n#w=300').width).toBe(100)
   })

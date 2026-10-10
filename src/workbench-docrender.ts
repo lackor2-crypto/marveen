@@ -84,7 +84,7 @@ const IMG_MAX_W_CM = 16.5
 const IMG_MAX_H_CM = 20
 
 /** An `image` block in the ODF: the picture embedded, centred, scaled to fit the text width. */
-function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, draft: boolean): string[] {
+function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, draft: boolean, extraStyles: string[] = []): string[] {
   const img = b.img
   const pic = imageBlockParts(b.text)
   if (!img || !img.width || !img.height) {
@@ -98,7 +98,12 @@ function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, dr
   const k = pic.width ? Math.min(IMG_MAX_W_CM * pic.width / 100 / w, IMG_MAX_H_CM / h) : Math.min(1, IMG_MAX_W_CM / w, IMG_MAX_H_CM / h)
   w = Math.max(0.5, w * k)
   h = Math.max(0.5, h * k)
-  const style = pic.align === 'l' ? 'ImagePL' : pic.align === 'r' ? 'ImagePR' : 'ImageP'
+  let style = pic.align === 'l' ? 'ImagePL' : pic.align === 'r' ? 'ImagePR' : 'ImageP'
+  // #521: placed freely -- a left indent and an empty space above, in the text flow (so a page break carries it).
+  if (pic.x !== null && pic.y !== null) {
+    style = `ImageFree${n}`
+    extraStyles.push(`<style:style style:name="${style}" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="start" fo:margin-left="${(IMG_MAX_W_CM * pic.x / 100).toFixed(2)}cm" fo:margin-top="${(0.15 + IMG_MAX_W_CM * pic.y / 100).toFixed(2)}cm" fo:margin-bottom="0.3cm"/></style:style>`)
+  }
   return [`<text:p text:style-name="${style}"><draw:frame draw:style-name="ImgFrame" draw:name="Picture ${n}" text:anchor-type="as-char" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
 }
 
@@ -280,17 +285,29 @@ function tableBlock(text: string, n: number, draft: boolean, extraStyles: string
   const cols = Math.max(1, ...rows.map((r) => r.length))
   const row = (r: string[], head: boolean): string => `<table:table-row>${Array.from({ length: cols }, (_, ci) => `<table:table-cell table:style-name="Cell" office:value-type="string"><text:p text:style-name="${head ? 'TableHead' : 'TableBody'}">${inlineMarked(r[ci] ?? '', draft)}</text:p></table:table-cell>`).join('')}</table:table-row>`
   // A width the owner set (#508) is a share of the text width. Left / right + narrower than the page: the text runs beside it.
-  const wCm = parts.width && parts.width < 100 ? Math.max(1.5, IMG_MAX_W_CM * parts.width / 100) : null
-  const wrap = wCm !== null && parts.align !== 'c'
+  const freeAsked = parts.x !== null && parts.y !== null
+  const wCm = parts.width && (parts.width < 100 || freeAsked) ? Math.max(1.5, IMG_MAX_W_CM * parts.width / 100) : null
+  // #521: placed freely -- the table stays in the text flow with a left indent and an empty space above it (no text
+  // beside it), so it is where the editor shows it, a page break carries it, and it cannot run into the footer.
+  const free = parts.x !== null && parts.y !== null
+  const wrap = wCm !== null && parts.align !== 'c' && !free
   const styleName = wCm === null ? 'Tbl' : `TblW${n}`
   if (wCm !== null) {
-    extraStyles.push(`<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="${wrap ? 'left' : 'center'}" fo:margin-bottom="${wrap ? '0cm' : '0.3cm'}"/></style:style>`)
+    extraStyles.push(free
+      ? `<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="left" fo:margin-left="${(IMG_MAX_W_CM * (parts.x as number) / 100).toFixed(2)}cm" fo:margin-bottom="0.3cm"/></style:style>`
+      : `<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="${wrap ? 'left' : 'center'}" fo:margin-bottom="${wrap ? '0cm' : '0.3cm'}"/></style:style>`)
   }
   const table = `<table:table table:name="T${n}" table:style-name="${styleName}">`
     + `<table:table-column table:number-columns-repeated="${cols}"/>`
     + `<table:table-header-rows>${row(rows[0] as string[], true)}</table:table-header-rows>`
     + rows.slice(1).map((r) => row(r, false)).join('')
     + '</table:table>'
+  if (free && (parts.y as number) > 0) {
+    // The empty space above is its own (1pt) paragraph, not the table's top margin: measured 2026-10-10, the Word
+    // export drops a table's top margin, while an empty paragraph's space survives in both the PDF and the .docx.
+    extraStyles.push(`<style:style style:name="TblGap${n}" style:family="paragraph" style:parent-style-name="FrameAnchor"><style:paragraph-properties fo:margin-top="${(IMG_MAX_W_CM * (parts.y as number) / 100).toFixed(2)}cm" fo:margin-bottom="0cm"/></style:style>`)
+    return [`<text:p text:style-name="TblGap${n}"/>`, table]
+  }
   if (!wrap) return [table]
   const right = parts.align === 'r'
   extraStyles.push(`<style:style style:name="TblFrame${n}" style:family="graphic" style:parent-style-name="Frame"><style:graphic-properties style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:run-through="foreground" style:horizontal-pos="${right ? 'right' : 'left'}" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph" fo:margin-left="${right ? '0.4cm' : '0cm'}" fo:margin-right="${right ? '0cm' : '0.4cm'}" fo:margin-top="0cm" fo:margin-bottom="0.2cm" fo:padding="0cm" fo:border="none" draw:stroke="none" draw:fill="none" draw:auto-grow-height="true" fo:min-height="0.3cm"/></style:style>`)
@@ -338,7 +355,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
       if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
       else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft, extraStyles))
       else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
-      else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft))
+      else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft, extraStyles))
       else if (b.kind === 'footnote') {
         // Nincs elotte szoveg a fejezetben: kis betus megjegyzeskent all.
         const note = footnoteXml(b.text, notes + 1, o.draft)
