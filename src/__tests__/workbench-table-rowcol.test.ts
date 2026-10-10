@@ -39,7 +39,9 @@ function book(extraSheet1 = ''): Buffer {
 }
 
 const text = (buf: Buffer, name: string): string => readZip(buf)!.find((x) => x.name === name)!.data.toString('utf8')
-const opened = (b = book()): TableSheet[] => { const r = readTable(b, 'k.xlsx'); if (!r.ok) throw new Error('read'); return r.table.sheets.map((s, i) => ({ ...s, from: i })) }
+const opened = (b = book()): TableSheet[] => { const r = readTable(b, 'k.xlsx'); if (!r.ok) throw new Error('read'); // A client that does not report merges leaves them to the row/column mapping (section B: one
+  // that does report them is the truth, see workbench-table-border-merge.test.ts).
+  return r.table.sheets.map((s, i) => { const o = { ...s, from: i }; delete o.merges; return o }) }
 const save = (sheets: TableSheet[], b = book()) => { const w = writeTable(b, 'k.xlsx', sheets); if (!w.ok) throw new Error(w.code + ' ' + (w.detail || '')); return w.data }
 
 describe('where a row went', () => {
