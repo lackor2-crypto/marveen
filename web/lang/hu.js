@@ -8075,6 +8075,7 @@ window._i18n.hu = {
   "workbench.tw.stale_n": "{n} fejezet fordítása régi: nyomd meg a Fordítást, mielőtt elmented.",
   "workbench.tw.save": "Fordítás mentése",
   "workbench.tw.save_hint": "A látott fordítást elmenti a nyelvi változatba (külön munkadarab, ugyanabban a mappában). Ami régi, azt nem menti.",
+  "workbench.tw.already_saved": "Ez a fordítás már el van mentve a(z) „{title}” változatban, nincs mit menteni. Ha módosítasz rajta, újra mentheted.",
   "workbench.tw.saved": "Elmentve: {n} fejezet a(z) „{title}” változatba.",
   "workbench.tw.failed": "{n} fejezetet nem sikerült elmenteni.",
   "workbench.tw.nothing_current": "Nincs mit menteni: előbb nyomd meg a Fordítást.",
