@@ -149,6 +149,8 @@ export async function unregisterTasks(names: string[]): Promise<boolean> {
 }
 
 let legacySwept: Promise<void> | null = null
+/** Opens that have registered a task and not yet finished (see the sweep's condition). */
+let opensInFlight = 0
 
 /**
  * Once per process: the tasks and scripts earlier versions left behind (the fixed-name
@@ -203,8 +205,8 @@ export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> 
     const resultWsl = `/mnt/c/Users/Public/${base}.result.txt`
     const resultWin = `C:\\Users\\Public\\${base}.result.txt`
     try { rmSync(resultWsl, { force: true }) } catch { /* nothing there */ }
-    await sweepLegacyOpenFile()
     const taskName = `MarveenOpenFile-${id}`
+    opensInFlight++
     const started = await runScriptViaTaskScheduler(taskName, base, openFileScript(win, resultWin))
     try {
       if (!started) return { ok: false, code: 'open_failed' }
@@ -213,7 +215,14 @@ export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> 
       return res.startsWith('ok') ? { ok: true } : { ok: false, code: 'open_failed' }
     } finally {
       // Also when nothing was confirmed or the start failed: the task never outlives the call.
-      await unregisterTasks([taskName])
+      // NOT awaited: measured 2026-10-10, waiting for this PowerShell call turned a 3 s answer
+      // into 10-19 s, while the file had long been open on the screen.
+      opensInFlight--
+      void unregisterTasks([taskName]).then(() => {
+        // The leftovers of earlier versions go once, and only while no other open is running:
+        // the sweep matches "MarveenOpenFile-*", which would take a running call's task too.
+        if (opensInFlight === 0) void sweepLegacyOpenFile()
+      })
       for (const f of [resultWsl, `/mnt/c/Users/Public/${base}.ps1`, `/mnt/c/Users/Public/${base}-launch.ps1`]) {
         try { rmSync(f, { force: true }) } catch { /* best effort */ }
       }
