@@ -12673,6 +12673,38 @@
     if (el) { try { el.focus() } catch (_e) { /* nem baj */ } }
   }
 
+  /** #562: does this picture float (the text runs beside it)? Left or right, narrower than the page, not placed freely. */
+  function dpPicFloats(pic) {
+    return !!(pic && pic.x == null && pic.width && pic.width < 100 && pic.align !== 'c')
+  }
+
+  /** A block the cursor cannot stand in: a picture, or a table shown as a grid. */
+  function dpIsIsland(b) {
+    if (!b) return false
+    if (b.kind === 'image') return true
+    return b.kind === 'table' && WB.dpTblEdit !== b.id && WB.docDrafts['b:' + b.id] == null
+  }
+
+  /**
+   * #562 (Boss TG 8919 / 8922: "melleje nem tudok irni, meg utana se. Eleje se"): an empty, writable line beside a picture
+   * or a table wherever the page would otherwise offer none -- after it when nothing writable follows, before it when it
+   * opens the page. It is the page's ordinary "new line": empty it is not saved, typed into it becomes a paragraph there.
+   */
+  function dpTailHtml(sid, pos) {
+    return '<div class="wb-dp-row wb-dp-tailrow" data-wb-sec="' + escA(sid) + '">'
+      + '<div class="wb-dp-edit wb-dp-block wb-outline-kind-paragraph wb-dp-tail" data-wb-dp="new" data-wb-sec="' + escA(sid) + '" data-wb-pos="' + pos + '" data-wb-kind="paragraph"'
+      + ' role="textbox" aria-multiline="true" aria-label="' + escA(t('workbench.dp.block_label')) + '" data-placeholder=""></div></div>'
+  }
+  function dpTailAfter(sid, i, blocks, nw, ro) {
+    if (ro || dpIsVariant()) return ''
+    if (nw && nw.pos === i + 1) return '' // the page's own new line is already there
+    return i + 1 >= blocks.length || dpIsIsland(blocks[i + 1]) ? dpTailHtml(sid, i + 1) : ''
+  }
+  function dpTailBefore(sid, si, i, blocks, nw, ro) {
+    if (ro || dpIsVariant() || si !== 0 || i !== 0) return ''
+    return nw && nw.pos === 0 ? '' : dpTailHtml(sid, 0)
+  }
+
   function dpGhostHtml(sid, pos, kind, count, ro) {
     return '<div class="wb-dp-row wb-dp-ghost" data-wb-sec="' + escA(sid) + '">' + dpGutterHtml('', sid, pos, count, ro)
       + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(kind || 'paragraph'), 'wbDpNew', 'data-wb-dp="new" data-wb-sec="' + escA(sid) + '" data-wb-pos="' + pos + '" data-wb-kind="' + escA(kind || 'paragraph') + '"',
@@ -12702,21 +12734,28 @@
         // #508 (TG 2920): resizable (corner handle) and movable (drag the picture; left / centre / right).
         var pic = dpImageParts(b.text)
         var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
-        rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+        // #562 (Boss TG 8919): a picture put left or right and narrower than the page takes only its own place -- the row
+        // floats and the text runs round it, as in Word (the table did this already). Centred / free-placed: its own line.
+        var picFloat = dpPicFloats(pic)
+        rows += dpTailBefore(sec.id, si, i, blocks, nw, ro)
+          + '<div class="wb-dp-row' + (picFloat ? ' wb-dp-row-float wb-dp-row-float-' + pic.align : '') + '"' + (picFloat ? ' style="width:' + (pic.align === 'r' ? pic.width + '%' : 'calc(' + pic.width + '% + 48px)') + '"' : '') + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
           + '<figure contenteditable="false" class="wb-dp-block wb-dp-img ' + (pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
-          + '<span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
+          + '<span class="wb-dp-img-box"' + (picFloat ? ' style="width:100%"' : pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
           + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
           + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
             + dpFreeHandleHtml(b.id)
             + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right') + '</span>')
           + '</span></figure></div>'
+          + dpTailAfter(sec.id, i, blocks, nw, ro)
         return
       }
       if (b.kind === 'table' && WB.dpTblEdit !== b.id && WB.docDrafts['b:' + b.id] == null) {
         // #508: a table block (a built-in spreadsheet) is shown as a grid, the way an editor shows a table;
         // a click opens its "a | b" lines for editing, leaving the field shows the grid again.
-        rows += '<div class="wb-dp-row' + dpTableRowClass(b) + '"' + dpTableRowStyle(b) + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+        rows += dpTailBefore(sec.id, si, i, blocks, nw, ro)
+          + '<div class="wb-dp-row' + dpTableRowClass(b) + '"' + dpTableRowStyle(b) + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
           + dpTableHtml(b, sec.id, ro) + '</div>'
+          + dpTailAfter(sec.id, i, blocks, nw, ro)
         return
       }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
@@ -13192,6 +13231,8 @@
     return { path: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y }
   }
 
+  /** #562: a picture put on the page starts small, on the left, with the text running beside it (the owner sizes it after). */
+  var DP_NEW_PICTURE = '#w=40&a=l'
   function dpImageText(path, width, align, x, y) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') + dpFreeSuffix(x, y) }
 
   function dpImageBlock(bid) {
@@ -17123,6 +17164,22 @@
     if (e.target.closest('.wb-dp-page[contenteditable="true"]')) dpMarkDirty()
   })
 
+  // #562 (Boss TG 8922: "klikkelek a dokumentum vegere, es ott nem tudok elkezdeni irni"): a click on the empty part of
+  // the sheet -- under the last line, or on the margin beside nothing -- puts the cursor at the end of the last writable
+  // line, as a word processor does. A click on a line, a picture, a table or a button is left to its own handling.
+  document.addEventListener('click', function (e) {
+    if (!WB.open || WB.rendering || !e.target || typeof e.target.closest !== 'function') return
+    var page = e.target.closest('.wb-dp-page[contenteditable="true"]')
+    if (!page || e.target.closest('.wb-dp-edit, figure, table, button, a, input, select, [data-wb-act], [contenteditable="false"]')) return
+    var lines = page.querySelectorAll('.wb-dp-edit[data-wb-dp="block"], .wb-dp-edit[data-wb-dp="new"]')
+    if (!lines.length) return
+    var last = lines[lines.length - 1]
+    var box = typeof last.getBoundingClientRect === 'function' ? last.getBoundingClientRect() : null
+    if (!box || e.clientY < box.bottom) return // beside or above a line: the browser already put the cursor there
+    try { page.focus() } catch (_e) { /* nem baj */ }
+    dpPlaceCaret(last, null)
+  })
+
   /** The grid of a table block comes back when the cursor leaves its lines. */
   function dpTblLeaveCheck() {
     if (!WB.dpTblEdit) return
@@ -17762,7 +17819,15 @@
     if (!fig || !box) return
     e.preventDefault()
     var bid = hd.getAttribute('data-wb-img-resize')
+    // #562: a floating picture's row is as wide as the picture, so the share is measured against the sheet's text width.
+    var frow = hd.closest('.wb-dp-row')
+    var floated = !!(frow && frow.classList.contains('wb-dp-row-float'))
+    var sheet = hd.closest('.wb-dp-page')
     var full = fig.clientWidth || 1
+    if (floated && sheet && typeof window.getComputedStyle === 'function') {
+      var scs = window.getComputedStyle(sheet)
+      full = Math.max(1, sheet.clientWidth - (parseFloat(scs.paddingLeft) || 0) - (parseFloat(scs.paddingRight) || 0))
+    }
     var startX = e.clientX
     var startW = box.getBoundingClientRect().width
     var right = fig.classList.contains('wb-dp-img-r')
@@ -17775,7 +17840,8 @@
       if (right) dx = -dx
       if (centre) dx = dx * 2
       pct = Math.max(10, Math.min(100, Math.round((startW + dx) / full * 20) * 5))
-      box.style.width = pct + '%'
+      if (floated) frow.style.width = right ? pct + '%' : 'calc(' + pct + '% + 48px)'
+      else box.style.width = pct + '%'
       hd.setAttribute('aria-valuenow', String(pct))
     }
     function up() {
@@ -17891,7 +17957,7 @@
     })
     make.then(function (sec) {
       if (!sec) return null
-      return dpCall('POST', '/blocks', { section: sec, text: rel, kind: 'image', position: pos })
+      return dpCall('POST', '/blocks', { section: sec, text: rel + DP_NEW_PICTURE, kind: 'image', position: pos })
     }).then(function (o) { if (o) render() })
   }
 

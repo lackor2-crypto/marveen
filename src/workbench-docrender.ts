@@ -104,6 +104,12 @@ function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, dr
     style = `ImageFree${n}`
     extraStyles.push(`<style:style style:name="${style}" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="start" fo:margin-left="${(IMG_MAX_W_CM * pic.x / 100).toFixed(2)}cm" fo:margin-top="${(0.15 + IMG_MAX_W_CM * pic.y / 100).toFixed(2)}cm" fo:margin-bottom="0.3cm"/></style:style>`)
   }
+  // #562: left / right and narrower than the page -- the text runs beside the picture, as on the page (and as a table does).
+  if (pic.x === null && pic.width !== null && pic.width < 100 && pic.align !== 'c') {
+    const right = pic.align === 'r'
+    extraStyles.push(`<style:style style:name="ImgWrap${n}" style:family="graphic" style:parent-style-name="Frame"><style:graphic-properties style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:run-through="foreground" style:horizontal-pos="${right ? 'right' : 'left'}" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph" fo:margin-left="${right ? '0.4cm' : '0cm'}" fo:margin-right="${right ? '0cm' : '0.4cm'}" fo:margin-top="0cm" fo:margin-bottom="0.2cm" fo:padding="0cm" fo:border="none" draw:stroke="none" draw:fill="none"/></style:style>`)
+    return [`<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgWrap${n}" draw:name="Picture ${n}" text:anchor-type="paragraph" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
+  }
   return [`<text:p text:style-name="${style}"><draw:frame draw:style-name="ImgFrame" draw:name="Picture ${n}" text:anchor-type="as-char" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
 }
 
