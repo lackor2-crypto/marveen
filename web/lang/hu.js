@@ -8068,6 +8068,8 @@ window._i18n.hu = {
   "workbench.dp.sec_del": "Fejezet törlése",
   "workbench.dp.page_label": "A dokumentum lapja",
   "workbench.dp.hint": "Kattints a szövegre és írj. A sor melletti + beszúr, a fogantyú átrendez.",
+  "workbench.dp.outline_title": "Fejezetek",
+  "workbench.dp.outline_go": "Ugrás a fejezetre",
   "workbench.dp.add_section": "Új fejezet",
   "workbench.dp.undo": "Visszavonás",
   "workbench.dp.redo": "Újra",

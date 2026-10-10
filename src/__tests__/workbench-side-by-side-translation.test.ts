@@ -219,4 +219,13 @@ describe('the draft page wiring', () => {
     // the page is drawn again from the server's outline after a structural save
     expect(js).toContain('if (model.structural)')
   })
+
+  it('#534 (d): the chapters stand in an outline beside the page, and the chapter status lives there, not on the title line', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain('function dpOutlineHtml(secs, ro)')
+    expect(js).toContain('data-wb-act="dp-outline-go"')
+    const from = js.indexOf('function dpSectionHtml')
+    const sec = js.slice(from, js.indexOf("'</section>'", from))
+    expect(sec).not.toContain('outline-sec-status')
+  })
 })

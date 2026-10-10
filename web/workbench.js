@@ -12723,13 +12723,10 @@
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
     else if (!blocks.length) rows += dpGhostHtml(sec.id, 0, 'paragraph', 0, ro)
-    var status = !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
-      : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
-        + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
     return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
       + '<div class="wb-dp-sechead">'
       + dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro)
-      + '<span class="wb-dp-secbar" contenteditable="false">' + status
+      + '<span class="wb-dp-secbar" contenteditable="false">'
       + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
       + (ro || !chk ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
       + '</span></div>'
@@ -12737,6 +12734,20 @@
       + rows
       + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? backcheckHtml(o, sec, ro) : '') + '</div>'
       + '</section>'
+  }
+
+  /** #534 (d): the chapters of the page in a column beside it -- jump to one, and the chapter status lives here (it used to
+   *  sit on the title line of every chapter). */
+  function dpOutlineHtml(secs, ro) {
+    if (!secs.length) return ''
+    var rows = secs.map(function (sec) {
+      var status = ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
+        : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
+          + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
+      return '<li class="wb-dp-ol-row"><button type="button" class="wb-linklike wb-dp-ol-go" data-wb-act="dp-outline-go" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.outline_go')) + '">' + esc(sec.title || t('workbench.dp.title_ph')) + '</button>'
+        + status + (sec.problems ? ' <span class="wb-doc-low" title="' + escA(t('workbench.outline.problems', { n: sec.problems })) + '">&#9888; ' + sec.problems + '</span>' : '') + '</li>'
+    }).join('')
+    return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><ol>' + rows + '</ol></nav>'
   }
 
   function docPageHtml(forceRo) {
@@ -12750,7 +12761,7 @@
       // Meg nincs fejezet: a lap ures, az elso begepelt sor hozza letre az elsot.
       body = dpGhostHtml('', 0, 'paragraph', 0, ro)
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
-    return '<div class="wb-dp-wrap">' + (ro ? '' : dpToolbarHtml()) + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
+    return '<div class="wb-dp-wrap' + (secs.length ? ' has-outline' : '') + '">' + (ro ? '' : dpToolbarHtml()) + dpOutlineHtml(secs, ro) + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
       + '</div>'
@@ -16955,6 +16966,10 @@
     else if (a === 'dp-move') dpMoveStep(bid, Number(act.getAttribute('data-wb-dir')) || 0)
     else if (a === 'dp-del') dpDeleteBlock(bid)
     else if (a === 'dp-add-section') dpAddSection()
+    else if (a === 'dp-outline-go') {
+      var gt = document.getElementById('wbDpS_' + sid)
+      if (gt) { try { gt.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch (_e) { gt.scrollIntoView() } dpFocusRoot(); dpPlaceCaret(gt, 0) }
+    }
     else if (a === 'dp-check-toggle') {
       WB.dpCheck = !dpCheckView()
       try { localStorage.setItem('marveen.workbench.dpCheck', WB.dpCheck ? '1' : '0') } catch (er) { /* a convenience only */ }
