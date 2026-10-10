@@ -10985,7 +10985,14 @@
       return '<span class="wb-fr-final-done" role="status">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
         + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
-    if (it.type === 'document' && !it.source_path) return ''
+    if (it.type === 'document' && !it.source_path) {
+      // Boss TG 8765: the drafted document's own Finalize (checks + PDF) stands in the SAME place as every other kind's
+      // -- the frame's top bar. It opens the finalize panel on the page. (The Manual view keeps it in the outline.)
+      if (cls !== 'wb-fr-tbtn') return ''
+      var o = WB.detail && WB.detail.outline
+      return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
+        + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>'
+    }
     return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
   }
 
@@ -13517,8 +13524,7 @@
       + (o ? '<a class="btn-secondary btn-compact" href="' + escA(base + '/pdf?lang=' + encodeURIComponent(window._lang || 'hu')) + '" target="_blank" rel="noopener"'
         + ' title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</a> '
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
-      + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
-        + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>')
+      // (Finalize is in the frame's top bar, where every other kind has it: finalizeTopHtml.)
       + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o))
       + '</p>'
     var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''

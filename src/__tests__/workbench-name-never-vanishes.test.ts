@@ -23,7 +23,9 @@ describe('a list name never runs out (#551)', () => {
 
   it('the row button and the type line wrap instead of squeezing the name', () => {
     expect(css).toMatch(/\.wb-item \{ flex-wrap: wrap; \}/)
-    expect(css).toMatch(/\.wb-item-row \.wb-item \{ flex: 1 1 auto; min-width: min\(100%, 9rem\); \}/)
+    // #555: basis 0 (not auto), so the button stays BESIDE the star / the tick box instead of dropping under them
+    expect(css).toMatch(/\.wb-item-row \.wb-item \{ flex: 1 1 0; min-width: min\(100%, 9rem\); \}/)
+    expect(css).toMatch(/\.wb-fr-panel \.wb-item-row \.wb-item \{ order: 0; flex: 1 1 0; min-width: min\(100%, 9rem\);/)
     expect(css).toMatch(/\.wb-fr-panel \.wb-item-row \{ flex-wrap: wrap;/)
     expect(css).not.toMatch(/\.wb-fr-panel \.wb-item-row \.wb-item \{[^}]*min-width: 0;/)
   })

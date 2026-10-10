@@ -24,13 +24,15 @@ describe('frame bars', () => {
 
   // #556, Boss TG 8751: MEASURED -- for a table, a presentation and a note no Finalize button was visible in the
   // frame (it sat only in the "more" panel). It is in the top bar for every kind now.
-  it('Finalize is in the frame top bar for every kind; a drafted document keeps its own; a finalized item shows Reopen', () => {
+  it('Finalize is in the frame top bar for every kind, the drafted document too; a finalized item shows Reopen', () => {
     expect(fn('frTopHtml')).toContain('finalizeTopHtml(it)')
     const f = fn('finalizeTopHtml')
     expect(f).toContain('data-wb-act="item-finalize"')
     expect(f).toContain('data-wb-act="item-reopen"')
     expect(f).toContain("it.status === 'done'")
-    expect(f).toContain("if (it.type === 'document' && !it.source_path) return ''")
+    // Boss TG 8765: the drafted document's own Finalize is in the same top bar (it opens the finalize panel on the page)
+    expect(f).toContain('data-wb-act="sh-final"')
+    expect(f).toContain("if (cls !== 'wb-fr-tbtn') return ''")
     expect(f).toContain('archived()')
     // the Manual view: in the head of the item (measured: it was only at the very bottom, after scrolling)
     expect(fn('editorPanelHtml')).toContain("finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'")

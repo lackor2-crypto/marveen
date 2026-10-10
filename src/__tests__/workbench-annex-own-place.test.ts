@@ -29,13 +29,15 @@ describe('the attachments place in the Simple view', () => {
 })
 
 describe('the translation toggle (Boss TG 2839)', () => {
-  it('sits in the action row beside "Finalize", not in a row of its own above the page', () => {
+  // Boss TG 8765: "Finalize" itself moved to the frame's top bar (the same place for every kind of work item).
+  it('sits in the action row beside the draft PDF, not in a row of its own above the page', () => {
     const i = js.indexOf('function docTabsHtml()')
     const fn = js.slice(i, js.indexOf('/** A jobb oldal: az eredmeny a munkatipus szerint.', i))
-    const finalIx = fn.indexOf("data-wb-act=\"sh-final\"")
+    const draftIx = fn.indexOf("t('workbench.sh.doc.draft_pdf')")
     const toggleIx = fn.indexOf('twToggleHtml(o)')
-    expect(finalIx).toBeGreaterThan(0)
-    expect(toggleIx).toBeGreaterThan(finalIx)
+    expect(draftIx).toBeGreaterThan(0)
+    expect(toggleIx).toBeGreaterThan(draftIx)
+    expect(fn).not.toContain('data-wb-act="sh-final"')
     expect(js).not.toContain('<p class="wb-tw-toggle">')
   })
 })

@@ -132,7 +132,9 @@
 .wb-folder-toggle:hover { color: var(--accent, #2563eb); }
 .wb-folder-new { display: flex; gap: 8px; align-items: center; }
 .wb-folder-new .wb-input { flex: 1; min-width: 0; }
-.wb-item-row .wb-item { flex: 1 1 auto; min-width: min(100%, 9rem); }
+/* #555: basis 0, not auto -- with `auto` the button's wish was its whole name on one line, so in a wrapping row it
+ * dropped under the star / the tick box. It stays BESIDE them and wraps only when less than 9rem is left. */
+.wb-item-row .wb-item { flex: 1 1 0; min-width: min(100%, 9rem); }
 .wb-item-pin {
   flex: 0 0 auto;
   min-width: 36px;
@@ -1625,7 +1627,7 @@
 .wb-fr-rb { padding: 8px 2px; font-size: 0.66rem; }
 .wb-fr-panel { flex-basis: 320px; padding: 10px; }
 .wb-fr-panel .wb-item-row { flex-wrap: wrap; align-items: center; gap: 4px; }
-.wb-fr-panel .wb-item-row .wb-item { order: 0; flex: 1 1 auto; min-width: min(100%, 9rem); flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; font-size: 0.8rem; line-height: 1.25; }
+.wb-fr-panel .wb-item-row .wb-item { order: 0; flex: 1 1 0; min-width: min(100%, 9rem); flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; font-size: 0.8rem; line-height: 1.25; }
 /* #555: the row button is a COLUMN here, so the title's `flex: 1 1 8ch` (a width in the row lists) became a HEIGHT:
  * every row was 8ch tall and grew, with a gap above the type line. In the column the title is as tall as its text. */
 .wb-fr-panel .wb-item-title { flex: 0 0 auto; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
