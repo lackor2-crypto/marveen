@@ -1272,6 +1272,8 @@
 .wb-sh-head .wb-sh-title { font-size: 1.15rem; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .wb-sh-saved { font-size: 0.85rem; color: var(--text-muted); }
 .wb-sh-saved-editing { color: var(--warn, #b45309); }
+/* #533: Manualis nezet -- a "Mentve" jelzes es a vissza / elore gomb egy kis savban a vazlat / a racs folott. */
+.wb-steps-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .wb-sh-more { min-width: 36px; font-size: 1.2rem; line-height: 1; }
 .wb-sh-main { display: flex; flex-direction: column; gap: 12px; }
 .wb-sh-intake { max-width: 720px; margin: 24px auto; display: flex; flex-direction: column; gap: 12px; }

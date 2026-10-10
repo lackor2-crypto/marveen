@@ -1,7 +1,7 @@
 // Univer spreadsheet grid for the Workbench table editor (kanban #504).
 // Bundled by build.mjs into web/vendor/univer/univer.js (+ univer.css).
 // Exposes window.MarveenUniver.mount(host, sheets, opts) -> handle.
-import { createUniver } from '@univerjs/presets'
+import { createUniver, IUndoRedoService } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import enUS from '@univerjs/preset-sheets-core/locales/en-US'
 import huHU from './hu-HU.json'
@@ -10,6 +10,8 @@ import '@univerjs/preset-sheets-core/lib/index.css'
 import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell, styleToUniver, univerToStyle, cellStyleOf, isDatePattern, isoToSerial } from './rules.mjs'
 
 var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|set\.numfmt|remove\.numfmt|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-columns|move-cols)/
+// The commands after which the undo / redo stack has changed (kanban #533: the top bar's two buttons follow it).
+var HISTORY_COMMAND_RE = /^univer\.command\.(undo|redo)$/
 
 function mount(host, sheets, opts) {
   opts = opts || {}
@@ -26,6 +28,8 @@ function mount(host, sheets, opts) {
   var DEF_ROW_H = 20
   var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {}
   var onBlocked = typeof opts.onBlocked === 'function' ? opts.onBlocked : function () {}
+  // #533: called after a command that changed the grid's undo / redo stack.
+  var onHistory = typeof opts.onHistory === 'function' ? opts.onHistory : function () {}
   var locales = { huHU: deepMerge(enUS, huHU), enUS: enUS }
   var made = createUniver({
     locale: opts.lang === 'en' ? 'enUS' : 'huHU',
@@ -117,6 +121,7 @@ function mount(host, sheets, opts) {
     disposables.push(api.addEvent(E.CommandExecuted, function (ev) {
       var id = String(ev && ev.id || '')
       if (CONTENT_MUTATION_RE.test(id)) { dirty = true; onChange() }
+      if (CONTENT_MUTATION_RE.test(id) || HISTORY_COMMAND_RE.test(id)) onHistory()
     }))
   }
   if (E && E.BeforeCommandExecute) {
@@ -277,8 +282,29 @@ function mount(host, sheets, opts) {
     return out
   }
 
+  // The grid's own undo / redo stack (Univer keeps cell values, rows, columns, formats and the row tags
+  // above together). The workbook is focused first, so the step lands in this grid and not elsewhere.
+  function step(dir) {
+    if (readonly) return false
+    try {
+      var st = status()
+      if (!(dir === 'undo' ? st.undos : st.redos)) return false
+      if (dir === 'undo') wb.undo(); else wb.redo()
+      return true
+    } catch (e) { return false }
+  }
+  function status() {
+    try {
+      var s = api._injector.get(IUndoRedoService).getUndoRedoStatus(wb.getId())
+      return { undos: Number(s && s.undos) || 0, redos: Number(s && s.redos) || 0 }
+    } catch (e) { return { undos: 0, redos: 0 } }
+  }
+
   return {
     getSheets: read,
+    undo: function () { return step('undo') },
+    redo: function () { return step('redo') },
+    historyStatus: status,
     isDirty: function () { return dirty },
     clearDirty: function () { dirty = false },
     dispose: function () {
