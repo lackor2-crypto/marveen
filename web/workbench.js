@@ -204,6 +204,7 @@
     // #454: folders inside the project's work items box + tree state + new-item form draft
     workFolders: null,
     collapsedFolder: {},
+    hideDone: readPref('wb.hide.done', '') === '1', // #552
     // #502: the loaded content of linked / not yet read folders of the tree, per project (see lazyCache)
     lazyOut: null,
     pickFolder: '',
@@ -1300,7 +1301,7 @@
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
@@ -1847,11 +1848,43 @@
       byPlace[k].sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0) || (b.created_at || 0) - (a.created_at || 0) || String(a.title || '').localeCompare(String(b.title || '')) })
     })
     var plainFiles = wf.files || {}
+    // #552: with the switch on, a finalized (done) work item and a folder that holds only finalized work items
+    // (at any depth) leave the Work items box. Nothing is deleted or moved: the view filters. The item that is open
+    // stays visible. A folder with no work item, or only loose files, stays; the loose files of a folder whose items
+    // are all hidden go with them.
+    var hideOn = !!WB.hideDone
+    function itHidden(it) { return hideOn && it.status === 'done' && it.id !== WB.selectedId }
+    var hideMemo = {}
+    function hideInfo(path) {
+      if (hideMemo[path]) return hideMemo[path]
+      var own = byPlace[path] || []
+      var ownHid = own.filter(itHidden).length
+      var ownVis = own.length - ownHid
+      var loose = (plainFiles[path] || []).length
+      var info = { hid: ownHid, vis: ownVis > 0 || (!own.length && loose > 0), shut: false }
+      ;(kids[path] || []).forEach(function (k) {
+        var ki = hideInfo(k)
+        info.hid += ki.hid
+        if (!ki.gone) info.vis = true
+      })
+      info.gone = hideOn && info.hid > 0 && !info.vis
+      hideMemo[path] = info
+      return info
+    }
+    function folderGone(path) { return hideOn && hideInfo(path).gone }
+    function looseShown(path) {
+      var own = byPlace[path] || []
+      return !(hideOn && own.length && own.every(itHidden))
+    }
     function count(path) {
-      var n = (byPlace[path] || []).length + (plainFiles[path] || []).length
-      ;(kids[path] || []).forEach(function (k) { n += count(k) })
+      var own = byPlace[path] || []
+      var n = own.filter(function (it) { return !itHidden(it) }).length + (looseShown(path) ? (plainFiles[path] || []).length : 0)
+      ;(kids[path] || []).forEach(function (k) { if (!folderGone(k)) n += count(k) })
       return n
     }
+    var hiddenTotal = hideOn ? hideInfo(box).hid : 0
+    var doneTotal = items.filter(function (it) { return it.status === 'done' && byPlace[place[it.id]] && byPlace[place[it.id]].indexOf(it) >= 0 }).length
+    WB.hideSwitch = { on: hideOn, hidden: hiddenTotal, done: doneTotal }
     function nameCmp(a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) }
     var rows = []
     // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
@@ -1862,6 +1895,7 @@
     }
     function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
+        if (folderGone(f)) return
         var g = grp != null ? grp : (path === box ? groupIdx++ : null)
         var collapsed = isShut(f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
@@ -1874,8 +1908,8 @@
         if (!collapsed) walk(f, depth + 1, g)
       })
       // TG 2642: same order as the Explorer: folders first, then the files (work items and plain files mixed) by name.
-      var mixed = (byPlace[path] || []).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
-        .concat((plainFiles[path] || []).map(function (f) { return { name: String(f.name || ''), f: f } }))
+      var mixed = (byPlace[path] || []).filter(function (it) { return !itHidden(it) }).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
+        .concat((looseShown(path) ? (plainFiles[path] || []) : []).map(function (f) { return { name: String(f.name || ''), f: f } }))
       // Boss TG 2747: the work item is always the top row of its folder; its older versions (plain files) follow by name.
       mixed.sort(function (a, b) { return (a.it ? 0 : 1) - (b.it ? 0 : 1) || nameCmp(a, b) })
       mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
@@ -2317,6 +2351,16 @@
   }
 
   /** `compact`: the plain list inside the editor rail (no create block: "+ Új munka" is already above it). */
+  /** #552: the "hide finalized work" switch above the tree, with the number of hidden work items beside it. */
+  function hideSwitchHtml() {
+    var h = WB.hideSwitch || {}
+    if (!h.on && !h.done) return ''
+    return '<label class="wb-hide-done btn-compact" title="' + escA(t('workbench.hide_done.hint')) + '">'
+      + '<input type="checkbox" data-wb-act="hide-done"' + (h.on ? ' checked' : '') + '> '
+      + esc(t('workbench.hide_done.label'))
+      + (h.on ? ' <span class="wb-muted">(' + esc(t('workbench.hide_done.count', { n: h.hidden })) + ')</span>' : '') + '</label>'
+  }
+
   function itemsPanelHtml(compact) {
     var body
     if (WB.items === null) {
@@ -2329,7 +2373,7 @@
       var rows = folderTreeRows()
       // #502: no work item yet, but the project folder holds folders or files (a linked Git repo, the default folders):
       // the tree still shows them, the "no work item yet" hint stands above it.
-      body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
+      body = (WB.items.length ? '' : emptyHintHtml()) + hideSwitchHtml() + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
     body += trashHtml()
     body += rescueHtml()
@@ -8768,8 +8812,15 @@
         if (r.ok && r.data.assets) WB.detail.assets = r.data.assets
         if (r.ok && r.data.court) WB.detail.court = r.data.court
       }
-      if (r.ok) { WB.docAccept = null; window.showToast(t('workbench.outline.finalized', { label: r.data.final.label })) }
-      else window.showToast(r.message)
+      if (r.ok) {
+        WB.docAccept = null; window.showToast(t('workbench.outline.finalized', { label: r.data.final.label }))
+        // #552: the server marked the work item finalized (done) with it; the box and the list follow.
+        if (WB.selectedId === id && WB.detail && WB.detail.item) WB.detail.item.status = 'done'
+        render()
+        load(WB.projectId)
+        return
+      }
+      window.showToast(r.message)
       render()
     })
   }
@@ -10908,7 +10959,9 @@
         + '<button type="button" class="btn-secondary" data-wb-act="approval-withdraw"' + busy + '>' + esc(t('workbench.approval.withdraw')) + '</button>'
         + '</div>'
     } else if (it.status === 'done') {
-      out += '<p>' + esc(t('workbench.approval.done')) + '</p>'
+      // #552: finalized = closed; the same place for every kind of work item holds the reopen button.
+      out += '<p><strong>\u2713 ' + esc(t('workbench.finalize.done')) + '</strong> <span class="wb-muted">' + esc(t('workbench.approval.done')) + '</span></p>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
     } else {
       if (it.status === 'review') out += '<p class="wb-muted">' + esc(t('workbench.approval.closed_without_decision')) + '</p>'
       else if (a && a.status === 'rejected') {
@@ -10917,6 +10970,10 @@
       }
       out += '<p class="wb-hint">' + esc(t('workbench.approval.intro')) + '</p>'
         + '<button type="button" class="btn-primary" data-wb-act="approval-submit"' + busy + '>' + esc(t('workbench.approval.submit')) + '</button>'
+        // #552: the owner's own "Finalize" for every kind (a document has its own finalize with the checks and the PDF,
+        // which also marks it finalized when it succeeds).
+        + (it.type === 'document' && !it.source_path ? '' : ' <button type="button" class="btn-secondary btn-compact" data-wb-act="item-finalize"'
+          + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>')
     }
     return out + '</div>'
   }
@@ -10925,6 +10982,7 @@
     if (!WB.detail || WB.approvalBusy) return
     var id = WB.detail.item.id
     var body = { action: action }
+    if (action === 'finalize' && !window.confirm(t('workbench.finalize.confirm', { name: WB.detail.item.source_path ? baseOf(WB.detail.item.source_path) : WB.detail.item.title }))) return
     if (action === 'approve' || action === 'reject') {
       var el = document.getElementById('wbApprovalReason')
       var reason = el && typeof el.value === 'string' ? el.value.trim() : ''
@@ -15112,6 +15170,7 @@
     }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
+    else if (a === 'hide-done') { WB.hideDone = !WB.hideDone; writePref('wb.hide.done', WB.hideDone ? '1' : '0'); render() }
     else if (a === 'folder-fold') {
       var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff)
       // #502: a folder that could not be read is tried again when it is closed and opened
@@ -15252,6 +15311,8 @@
     else if (a === 'tl-close') { WB.tlOpen = false; render() }
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
+    else if (a === 'item-finalize') approvalAction('finalize')
+    else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-submit') approvalAction('submit')
     else if (a === 'approval-withdraw') approvalAction('withdraw')
     else if (a === 'approval-approve') approvalAction('approve')

@@ -43,7 +43,7 @@ export interface WorkItemApprovalView {
 }
 
 export type ApprovalActionCode =
-  | 'already_done' | 'not_in_review' | 'no_pending' | 'reason_too_long' | 'bad_action'
+  | 'already_done' | 'not_done' | 'not_in_review' | 'no_pending' | 'reason_too_long' | 'bad_action'
 
 export type ApprovalActionResult =
   | { ok: true; item: WorkItemRow; approval: WorkItemApprovalView | null }
@@ -168,6 +168,26 @@ export function decideWorkItemApproval(
   if (!resolveApproval(open.id, decision, opts.by, null, reason)) return { ok: false, code: 'no_pending' }
   applyWorkItemApprovalOutcome(open.id)
   return { ok: true, item: getWorkItem(itemId)!, approval: view(getApproval(open.id)) }
+}
+
+/**
+ * #552: the owner's own one-click finalize. An open approval ticket is accepted with it (same outcome as
+ * "approve"), otherwise the status goes straight to done. Only the route's session check lets this run.
+ */
+export function finalizeWorkItem(itemId: string, opts: { by: string }): ApprovalActionResult {
+  const item = getWorkItem(itemId)
+  if (!item) throw new Error('work item not found')
+  if (item.status === 'done') return { ok: false, code: 'already_done' }
+  if (pendingWorkItemApproval(itemId)) return decideWorkItemApproval(itemId, 'approved', { by: opts.by })
+  return { ok: true, item: setStatus(itemId, 'done'), approval: workItemApprovalState(itemId) }
+}
+
+/** #552: reopen a finalized work item (done -> in_progress). Nothing is removed; versions and files stay. */
+export function reopenWorkItem(itemId: string): ApprovalActionResult {
+  const item = getWorkItem(itemId)
+  if (!item) throw new Error('work item not found')
+  if (item.status !== 'done') return { ok: false, code: 'not_done' }
+  return { ok: true, item: setStatus(itemId, 'in_progress'), approval: workItemApprovalState(itemId) }
 }
 
 /**
