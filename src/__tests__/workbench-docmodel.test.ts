@@ -238,7 +238,7 @@ describe('forrasrendszer', () => {
 
 describe('a felulet: vazlat, forrasok, megerosites', () => {
   it('fejezet allapottal es hianyokkal, allitas ikonnal, tulajdonosi megerosito gomb; a gomb a confirm vegpontot hivja', async () => {
-    const h = workbenchHarness({ confirm: true })
+    const h = workbenchHarness({ confirm: true, storage: { 'marveen.workbench.dpOutline': '1', 'marveen.workbench.dpCheck': '1' } })
     const ITEM = { id: 'w1', title: 'Beadvany', type: 'document', status: 'draft', current_version_id: 'v1', folder: 'Beadvany', source_path: null }
     const claim = (id: string, strength: string, kind: string, verdict: string) => ({ id, text: 'Állítás ' + id, strength, sources: [{ kind, verdict, path: 'L/a.pdf', page: 2, quote: 'q', said: 'mondtam', said_at: 1, confirmed_at: null }] })
     const OUTLINE = {
@@ -256,6 +256,7 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
       if (url.includes('/overview')) return { status: 200, body: { overview: null } }
       return { status: 200, body: itemsBody([ITEM], { id: 'p1', name: 'Iroda', archived: false }) }
     })
+    // #534: the outline column and the chapter status are hidden by default (the page is just a page); the owner turns them on.
     h.win.MarvinWorkbench.open('p1', 'Iroda')
     await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
     h.click({ 'data-wb-item': 'w1' })

@@ -12731,13 +12731,19 @@
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
     else if (!blocks.length) rows += dpGhostHtml(sec.id, 0, 'paragraph', 0, ro)
+    // #534: a section whose title is only the program's placeholder is not drawn with a title at all; a hidden marker keeps
+    // the section border for the page save (the blocks after it belong to it).
+    var untitled = !!sec.untitled
+    if (untitled && WB.docFocus && WB.docFocus.id === 'wbDpS_' + sec.id) untitled = false
     return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
-      + '<div class="wb-dp-sechead">'
-      + dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro)
-      + '<span class="wb-dp-secbar" contenteditable="false">'
+      + (untitled ? '<span hidden contenteditable="false" data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '" data-wb-untitled="1"></span>' : '')
+      + (untitled ? '' : '<div class="wb-dp-sechead">')
+      + (untitled ? '' : dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro))
+      + (untitled ? '' : '<span class="wb-dp-secbar" contenteditable="false">'
       + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
       + (ro || !chk ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
-      + '</span></div>'
+      + '</span>')
+      + (untitled ? '' : '</div>')
       + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? langSectionHtml(o, sec, ro) : '') + '</div>'
       + rows
       + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? backcheckHtml(o, sec, ro) : '') + '</div>'
@@ -12746,13 +12752,22 @@
 
   /** #534 (d): the chapters of the page in a column beside it -- jump to one, and the chapter status lives here (it used to
    *  sit on the title line of every chapter). */
+  function dpOutlineOn() {
+    if (WB.dpOutline === undefined) {
+      WB.dpOutline = readPref('marveen.workbench.dpOutline', '') === '1'
+    }
+    return !!WB.dpOutline
+  }
   function dpOutlineHtml(secs, ro) {
+    if (!dpOutlineOn()) return ''
+    secs = secs.filter(function (sec) { return !sec.untitled })
     if (!secs.length) return ''
+    var chk = dpCheckView()
     var rows = secs.map(function (sec) {
-      var status = ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
+      var status = !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
         : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
           + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
-      return '<li class="wb-dp-ol-row"><button type="button" class="wb-linklike wb-dp-ol-go" data-wb-act="dp-outline-go" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.outline_go')) + '">' + esc(sec.title || t('workbench.dp.title_ph')) + '</button>'
+      return '<li class="wb-dp-ol-row"><button type="button" class="wb-linklike wb-dp-ol-go" data-wb-act="dp-outline-go" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.outline_go')) + '">' + esc(sec.title) + '</button>'
         + status + (sec.problems ? ' <span class="wb-doc-low" title="' + escA(t('workbench.outline.problems', { n: sec.problems })) + '">&#9888; ' + sec.problems + '</span>' : '') + '</li>'
     }).join('')
     return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><ol>' + rows + '</ol></nav>'
@@ -12769,7 +12784,8 @@
       // Meg nincs fejezet: a lap ures, az elso begepelt sor hozza letre az elsot.
       body = dpGhostHtml('', 0, 'paragraph', 0, ro)
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
-    return '<div class="wb-dp-wrap' + (secs.length ? ' has-outline' : '') + '">' + (ro ? '' : dpToolbarHtml()) + dpOutlineHtml(secs, ro) + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
+    var outlineHtml = dpOutlineHtml(secs, ro)
+    return '<div class="wb-dp-wrap' + (outlineHtml ? ' has-outline' : '') + '">' + (ro ? '' : dpToolbarHtml()) + outlineHtml + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
       + '</div>'
@@ -12815,11 +12831,14 @@
       var cur = pv && pv.sig === twSig(sec)
       if (pv) shownIds.push(sec.id)
       if (!pv) {
-        return '<div class="wb-tw-h wb-dp-h1 wb-tw-todo" contenteditable="false">' + esc(sec.title) + '</div>'
+        return (sec.untitled ? '' : '<div class="wb-tw-h wb-dp-h1 wb-tw-todo" contenteditable="false">' + esc(sec.title) + '</div>')
           + '<p class="wb-muted wb-tw-todo" contenteditable="false">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
       }
       var out = cur ? '' : '<p class="wb-doc-low wb-tw-todo" contenteditable="false">&#9888; ' + esc(t('workbench.tw.stale')) + '</p>'
-      out += '<div class="wb-tw-h wb-dp-h1" data-tw="title" data-tw-sec="' + escA(sec.id) + '"' + ed + '>' + esc(pv.title) + '</div>'
+      // An untitled section has no heading line on the translation page either; a hidden marker keeps the border for the save.
+      out += sec.untitled
+        ? '<span hidden contenteditable="false" data-tw="title" data-tw-sec="' + escA(sec.id) + '" data-tw-untitled="1">' + esc(pv.title) + '</span>'
+        : '<div class="wb-tw-h wb-dp-h1" data-tw="title" data-tw-sec="' + escA(sec.id) + '"' + ed + '>' + esc(pv.title) + '</div>'
       pv.blocks.forEach(function (b) {
         if (b.kind === 'image') {
           out += '<div class="wb-tw-island" contenteditable="false" data-tw="island" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="image" data-tw-text="' + escA(b.text) + '">' + twBlockHtml(b) + '</div>'
@@ -13386,6 +13405,7 @@
       + btn('indent-less', t('workbench.dp.fmt_indent_less'), '&#8676;')
       + btn('indent-more', t('workbench.dp.fmt_indent_more'), '&#8677;')
       + btn('sign', t('workbench.dp.ins_sign'), '&#9997;')
+      + '<button type="button" class="wb-dp-tb wb-dp-tb-text' + (dpOutlineOn() ? ' is-on' : '') + '" data-wb-act="dp-outline-toggle" aria-pressed="' + (dpOutlineOn() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.outline_toggle_title')) + '">' + esc(t('workbench.dp.outline_toggle')) + '</button>'
       + '<span class="wb-dp-tbsep"></span>'
       + dpSelectHtml('font', t('workbench.dp.fmt_font'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_FONTS.map(function (f) { return [f, f] })))
       + dpSelectHtml('size', t('workbench.dp.fmt_size'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SIZES.map(function (z) { return [String(z), String(z)] })))
@@ -17072,6 +17092,11 @@
     else if (a === 'dp-outline-go') {
       var gt = document.getElementById('wbDpS_' + sid)
       if (gt) { try { gt.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch (_e) { gt.scrollIntoView() } dpFocusRoot(); dpPlaceCaret(gt, 0) }
+    }
+    else if (a === 'dp-outline-toggle') {
+      WB.dpOutline = !dpOutlineOn()
+      try { window.localStorage.setItem('marveen.workbench.dpOutline', WB.dpOutline ? '1' : '0') } catch (er) { /* a convenience only */ }
+      render()
     }
     else if (a === 'dp-check-toggle') {
       WB.dpCheck = !dpCheckView()

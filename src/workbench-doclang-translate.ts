@@ -16,7 +16,7 @@
  */
 import { getDb } from './db.js'
 import { logger } from './logger.js'
-import { listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
+import { isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
 import { LANG_NAMES, carriedLook, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
@@ -120,6 +120,8 @@ export function buildTranslatePrompt(input: {
   glossary: { term: string; translation: string }[]
 }): { system: string; user: string } {
   const target = langLabel(input.targetLang)
+  // #534: a section the program only titled with its own placeholder has no title to translate.
+  const untitled = isPlaceholderSectionTitle(input.title)
   const gl = input.glossary.length
     ? `\n- Fixed translations from the case glossary -- where the term occurs, use exactly this translation:\n${input.glossary.map((g) => `  "${g.term}" -> "${g.translation}"`).join('\n')}`
     : ''
@@ -127,7 +129,9 @@ export function buildTranslatePrompt(input: {
     `You are a professional translator of legal and official documents. You translate ONE section of a document into ${target}.`,
     'Rules:',
     '- Translate faithfully and completely: do not add, drop, summarise or soften anything. Names, numbers, dates, amounts, case numbers, file names and annex labels stay exact; translate the words around them.',
-    '- Translate the section title too, even if it is only a placeholder such as "Új fejezet" (it means "New section").',
+    untitled
+      ? '- This section has NO title: do not invent one, answer with "title": "".'
+      : '- Translate the section title too.',
     `- Keep every block separate, in the same order, with the same id; keep the line breaks inside a block. The section has exactly ${input.blocks.length} block(s): your answer has exactly ${input.blocks.length}, never more (do not split a block) and never fewer (do not merge blocks).`,
     '- A block with a "rich" field has formatted text (HTML: b, i, u, s and span with a style). Put the translation into BOTH "text" (plain words, no tags) and "rich" (the same words with the tags): keep every tag, in the same kind and number, around the translated words that correspond to the words the tag surrounded in the original; translate only the words between the tags; never add a tag or a style the original does not have. A block without a "rich" field gets no "rich" in your answer.',
     '- A block of kind "image" holds a picture file path: copy its text unchanged.',
@@ -136,7 +140,7 @@ export function buildTranslatePrompt(input: {
     '{"title": "<translated title>", "blocks": [{"id": "<block id>", "text": "<translated text>", "rich": "<translated formatted text, only when the original block has a rich field>", "claims": [{"source_claim": "<claim id>", "text": "<verbatim part of your translated text>"}]}]}',
   ].join('\n')
   const user = JSON.stringify({
-    title: input.title,
+    title: untitled ? '' : input.title,
     blocks: input.blocks.map((b) => ({ id: b.id, kind: b.kind, text: modelText(b), ...(b.rich ? { rich: b.rich } : {}), claims: b.claims.map((c) => ({ id: c.id, text: c.text })) })),
   }, null, 1)
   return { system, user }
@@ -176,7 +180,7 @@ export function usableRich(sourceRich: string, answered: unknown, text: string):
 }
 
 /** A modell valaszabol a mentheto forditas, vagy a hiba oka. Tiszta, teszthez exportalva. */
-export function parseTranslation(text: string, src: SourceBlock[]):
+export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?: string):
   | { ok: true; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string }[]; format_fallback: number }
   | { ok: false; detail: string } {
   const raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
@@ -186,7 +190,9 @@ export function parseTranslation(text: string, src: SourceBlock[]):
   let v: unknown
   try { v = JSON.parse(raw.slice(start, end + 1)) } catch { return { ok: false, detail: 'the model answer is not valid JSON' } }
   const o = v as { title?: unknown; blocks?: unknown }
-  const title = String(o.title ?? '').trim()
+  // #534: an untitled source section keeps the program's placeholder as its stored title (it is drawn nowhere).
+  const untitled = sourceTitle !== undefined && isPlaceholderSectionTitle(sourceTitle)
+  const title = untitled ? String(sourceTitle) : String(o.title ?? '').trim()
   if (!title) return { ok: false, detail: 'the translated title is missing' }
   const got = Array.isArray(o.blocks) ? o.blocks as { id?: unknown; text?: unknown; rich?: unknown; claims?: unknown }[] : []
   if (got.length !== src.length) return { ok: false, detail: `the original section has ${src.length} block(s), the translation ${got.length}` }
@@ -247,7 +253,7 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
     const r = await caller({ system: retryHint(prompt.system, detail, blocks.length), user: prompt.user, lang: ui })
     logCall(source.id, prompt.system.length + prompt.user.length, r)
     if (!r.ok) return { ok: false, code: r.code === 'no_provider' ? 'no_provider' : 'failed', message: r.message }
-    const parsed = parseTranslation(r.text, blocks)
+    const parsed = parseTranslation(r.text, blocks, sec.title)
     if (parsed.ok) {
       const rows = listBlocks(source.id).filter((b: BlockRow) => b.section_id === sec.id)
       const paired = rows.length === parsed.blocks.length
@@ -365,7 +371,7 @@ async function runJob(job: TranslateJobState, variantId: string, pending: { id: 
       logCall(variantId, prompt.system.length + prompt.user.length, r)
       // Szolgaltato-szintu hiba (nincs fiok, kifogyott keret): a tobbi fejezet sem menne -- megallunk, kimondva.
       if (!r.ok) { job.error = { code: r.code, message: r.message }; return }
-      const parsed = parseTranslation(r.text, blocks)
+      const parsed = parseTranslation(r.text, blocks, title)
       if (!parsed.ok) { detail = parsed.detail; continue }
       if (parsed.format_fallback) logger.info({ variantId, section: s.id, blocks: parsed.format_fallback }, 'doclang-translate: formatted blocks kept as plain text (the model did not keep the format tags)')
       const t = translateSection(variantId, { source_section: s.id, title: parsed.title, blocks: parsed.blocks }, opts.by)

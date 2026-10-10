@@ -99,6 +99,18 @@ export type SourceKind = typeof SOURCE_KINDS[number]
 /** Egy blokk szovegenek felso hatara (egy bekezdes, nem egy konyv). */
 export const BLOCK_TEXT_MAX = 20_000
 export const SECTION_TITLE_MAX = 200
+
+/**
+ * #534 (Boss TG 8882): a new document is an EMPTY page -- the chapter is the owner's decision (a real Heading 1), not the
+ * program's. The section behind the first paragraphs still needs a stored title (the translation pairing, the court
+ * checks and the exports rely on it), so the program writes one of these placeholders; a section whose title is EXACTLY
+ * one of them is "untitled": the page, the translation page, the outline and the exports draw no heading for it.
+ * What the owner typed as a title is never one of these by accident: it stays a title.
+ */
+export const PLACEHOLDER_SECTION_TITLES: readonly string[] = ['Új fejezet', 'New section']
+export function isPlaceholderSectionTitle(title: unknown): boolean {
+  return PLACEHOLDER_SECTION_TITLES.includes(String(title ?? ''))
+}
 export const SECTIONS_MAX = 200
 export const BLOCKS_MAX = 2000
 
@@ -834,6 +846,8 @@ export interface SectionView extends SectionRow {
   blocks: (Omit<BlockRow, 'pfmt'> & { pfmt: ParaFmt | null; claims: ClaimView[]; missing: string[]; rewrite: RewriteView | null })[]
   /** Hiany-jelolesek + nem igazolt allitasok szama a fejezetben. */
   problems: number
+  /** #534: the title is the program's placeholder -- no heading is drawn for the section. */
+  untitled: boolean
 }
 
 export function missingMarks(text: string): string[] {
@@ -851,7 +865,7 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
       return { ...b, rich: richMatches(b.rich, b.text) ? b.rich : null, align: isBlockAlign(b.align) ? b.align : null, pfmt: parsePfmt(b.pfmt ?? null) as ParaFmt | null, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
     })
     const problems = bs.reduce((n, b) => n + b.missing.length + b.claims.filter((c) => c.strength === 'unverified').length, 0)
-    return { ...s, blocks: bs, problems }
+    return { ...s, blocks: bs, problems, untitled: isPlaceholderSectionTitle(s.title) }
   })
   return { sections }
 }

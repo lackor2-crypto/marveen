@@ -50,15 +50,23 @@ describe('parseTranslation / buildTranslatePrompt', () => {
     expect(parseTranslation('{"title":"T","blocks":[{"id":"b1","text":" "},{"id":"b2","text":"y"}]}', src)).toMatchObject({ ok: false, detail: expect.stringContaining('empty') })
   })
 
-  it('the prompt names the target language, the placeholder title rule, the glossary and every block and claim id', () => {
-    const p = buildTranslatePrompt({ targetLang: 'de', title: 'Új fejezet', blocks: src, glossary: [{ term: 'keresetlevél', translation: 'Klage' }] })
+  it('the prompt names the target language, the title rule, the glossary and every block and claim id', () => {
+    const p = buildTranslatePrompt({ targetLang: 'de', title: '1. Tényállás', blocks: src, glossary: [{ term: 'keresetlevél', translation: 'Klage' }] })
     expect(p.system).toContain('German (Deutsch)')
-    expect(p.system).toContain('"Új fejezet"')
+    expect(p.system).toContain('Translate the section title too')
     expect(p.system).toContain('"keresetlevél" -> "Klage"')
     const user = JSON.parse(p.user)
-    expect(user.title).toBe('Új fejezet')
+    expect(user.title).toBe('1. Tényállás')
     expect(user.blocks.map((b: { id: string }) => b.id)).toEqual(['b1', 'b2'])
     expect(user.blocks[1].claims).toEqual([{ id: 'c1', text: 'a' }])
+  })
+
+  it('#534: a section with only the placeholder title is untitled: the model is told not to invent a title, and its answer does not fail', () => {
+    const p = buildTranslatePrompt({ targetLang: 'de', title: 'Új fejezet', blocks: src, glossary: [] })
+    expect(p.system).toContain('NO title')
+    expect(JSON.parse(p.user).title).toBe('')
+    const r = parseTranslation('{"title":"","blocks":[{"id":"b1","text":"Eins"},{"id":"b2","text":"Zwei"}]}', src, 'Új fejezet')
+    expect(r).toMatchObject({ ok: true, title: 'Új fejezet' })
   })
 })
 
@@ -144,7 +152,7 @@ describe('whole-document translation and annex upload', () => {
     await waitForTranslationForTest(v.id)
     expect(translateJobState(v.id)).toMatchObject({ running: false, total: 3, done: 3, failed: [], error: null, claims_not_carried: 0 })
     const out = documentOutline(v.id)
-    expect(out.sections.map((s) => s.title)).toEqual(['1. Sachverhalt', 'Neues Kapitel', 'Neues Kapitel'])
+    expect(out.sections.map((s) => s.title)).toEqual(['1. Sachverhalt', 'Új fejezet', 'Új fejezet']) // untitled stays untitled (#534)
     expect(out.sections[0]!.blocks[0]!.claims[0]!.sources[0]).toMatchObject({ kind: 'document', path: 'Level/idezes.pdf', page: 1 })
     expect(out.sections[0]!.blocks[0]!.claims[0]!.text).toBe(CLAIM_DE)
     expect(variantInfo(v.id)!.sections.map((s) => s.state)).toEqual(['current', 'current', 'current'])
@@ -228,7 +236,7 @@ describe('whole-document translation and annex upload', () => {
     await waitForTranslationForTest(v.id)
     const o = await callWorkbench(`/api/workbench/items/${v.id}/outline`, 'GET')
     expect(o.body.outline.translate_job).toMatchObject({ running: false, done: 3, total: 3 })
-    expect(o.body.outline.sections.map((s: { title: string }) => s.title)).toEqual(['1. Sachverhalt', 'Neues Kapitel', 'Neues Kapitel'])
+    expect(o.body.outline.sections.map((s: { title: string }) => s.title)).toEqual(['1. Sachverhalt', 'Új fejezet', 'Új fejezet']) // untitled stays untitled (#534)
     const again = await callWorkbench(`/api/workbench/items/${v.id}/outline/translate?lang=hu`, 'POST', {})
     expect(again.status).toBe(409)
     expect(again.body).toMatchObject({ error: 'translate_nothing', message: expect.stringContaining('naprakész') })
