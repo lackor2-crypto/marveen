@@ -26,6 +26,7 @@ import type { AgentMessageRow } from './sessions.js'
 import { listWorkItemAssetsSynced, withDocState } from '../workbench-assets.js'
 
 /** Felso hatarok. Egy interaktiv fordulo, nem teljes archivum. */
+import { aiDocsForProject } from '../workbench-doc-links.js'
 export const MAX_CONTEXT_CHARS = 12_000
 export const MAX_WORK_ITEMS = 30
 export const MAX_FILES = 25
@@ -193,6 +194,24 @@ export async function buildContext(
     add('files', 'Project files: the folder was read and it is empty.')
   } else {
     add('files', `Project files (${rf.files.length} most recent):\n${rf.files.map((f) => `- ${f.rel}`).join('\n')}`)
+  }
+
+  // 5. Kapcsolt iratok (#530, 4. fazis): amibol a tulajdonos szerint dolgozhatsz. A kikapcsoltakat
+  // is KIMONDJUK (darabszammal), hogy a "nem mutattak" ne latsszon "nincs ilyen"-nek.
+  try {
+    const ai = aiDocsForProject(project.id)
+    if (ai.docs.length || ai.withheld || ai.missing) {
+      const lines = ai.docs.slice(0, MAX_FILES).map((d) => `- ${d.path}  (${d.role}) ${d.name}${d.note ? ' -- ' + d.note : ''}`)
+      add('documents', [
+        `Linked documents the owner selected for you (${ai.docs.length}). They live elsewhere in the owner's archive, not in the project folder; read them with document.pages / document.read (or file.read for plain text) using the path exactly as shown:`,
+        ...(lines.length ? lines : ['(none)']),
+        ...(ai.docs.length > lines.length ? [`(+${ai.docs.length - lines.length} more, not listed here)`] : []),
+        ...(ai.withheld ? [`${ai.withheld} more document(s) are linked to this project but the owner did NOT select them for you. They exist; you were not given them. Do not guess their content. If you need one, ask the owner to switch it on in the Documents panel.`] : []),
+        ...(ai.missing ? [`${ai.missing} linked document(s) are not at their place right now (moved, or the drive is not connected). They were not deleted.`] : []),
+      ].join('\n'))
+    }
+  } catch {
+    add('documents', 'Linked documents: cannot be listed right now. This does NOT mean there are none.')
   }
 
   const joined = blocks.join('\n\n')

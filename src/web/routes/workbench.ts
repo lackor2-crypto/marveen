@@ -2256,7 +2256,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const project = getProject(pid)
       if (!project) return fail(res, 404, 'project_not_found', lang)
       if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-      const r = method === 'DELETE' ? removeProjectDoc(project.id, m[1] as string) : updateProjectDoc(project.id, m[1] as string, { role: body['role'], note: body['note'] })
+      const r = method === 'DELETE' ? removeProjectDoc(project.id, m[1] as string) : updateProjectDoc(project.id, m[1] as string, { role: body['role'], note: body['note'], ai: body['ai'] })
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
       json(res, { ok: true, ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES })
       return true

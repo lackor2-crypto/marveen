@@ -14,7 +14,7 @@
  */
 import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
 import { getTool } from './tools.js'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { getProject, type ProjectRow } from '../projects.js'
 import { projectContext } from '../project-context.js'
 import { projectFileTarget, writeProjectFile, safeFileName, freeFileName } from '../project-files.js'
@@ -55,7 +55,8 @@ import { listFinals } from '../workbench-docfinal.js'
 import { buildPreview } from '../workbench-preview.js'
 import { saveTextSourceAsNewVersion } from '../workbench-edit.js'
 import { scheduleOutlineMirror } from '../workbench-docmirror.js'
-import { sourceWorldFor } from '../workbench-docmodel-world.js'
+import { isLinkedDocPath, resolveLinkedDoc, sourceWorldFor } from '../workbench-docmodel-world.js'
+import { aiMayReadLinked } from '../workbench-doc-links.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../workbench-redact.js'
 
@@ -162,9 +163,30 @@ type FileRef =
   | { ok: true; dirAbs: string; dirRel: string; name: string; abs: string; rel: string }
   | { ok: false; code: string; detail: string }
 
+/**
+ * A file the agent may READ: a file of the project folder, or (#530, phase 4) a document of
+ * the Life tree that the project links and the owner left open to the AI (`doc:<id>`, as the
+ * context lists it). Used by the read tools only -- nothing is written, moved or deleted
+ * through a linked path.
+ */
+function readableFileRef(project: ProjectRow, raw: unknown): FileRef {
+  const path = asString(raw)
+  if (!isLinkedDocPath(path)) return projectFileRef(project, raw)
+  if (!aiMayReadLinked(project.id, path)) {
+    return { ok: false, code: 'not_selected', detail: 'this document is not among the ones the owner selected for the AI in this project (Documents panel); ask the owner to select it there' }
+  }
+  const d = resolveLinkedDoc(path)
+  if (!d) return { ok: false, code: 'file_missing', detail: 'the linked document is not at its place right now (moved, or the drive is not connected); it was not deleted' }
+  const cut = d.rel.lastIndexOf('/')
+  return { ok: true, dirAbs: dirname(d.abs), dirRel: cut < 0 ? '' : d.rel.slice(0, cut), name: d.name, abs: d.abs, rel: d.rel }
+}
+
 function projectFileRef(project: ProjectRow, raw: unknown): FileRef {
   const rel = asString(raw)
   if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required' }
+  // A linked document (`doc:<id>`) is not a file of the project folder: it can be READ (readableFileRef), never
+  // written, moved, renamed or deleted from here -- and it must not become a file literally named "doc:...".
+  if (isLinkedDocPath(rel)) return { ok: false, code: 'linked_read_only', detail: 'this is a linked document of the owner\'s archive: it can be read, but not written, moved, renamed or deleted from the project' }
   const segments = rel.split('/').filter(Boolean)
   const name = segments.pop() || ''
   if (!name || name === '.' || name === '..') return { ok: false, code: 'bad_input', detail: 'path does not name a file' }
@@ -389,7 +411,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
 
     case 'document.pages':
     case 'document.read': {
-      const ref = projectFileRef(project, input.path)
+      const ref = readableFileRef(project, input.path)
       if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
       const st = mustBeFile(ref.abs)
       if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
@@ -401,7 +423,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       return { ok: true, data: { path: asString(input.path), ...r.data } }
     }
     case 'source.verifyQuote': {
-      const ref = projectFileRef(project, input.path)
+      const ref = readableFileRef(project, input.path)
       if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
       const st = mustBeFile(ref.abs)
       if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
@@ -539,7 +561,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       return res.ok ? { ok: true, data: res.data } : { ok: false, code: res.code, detail: res.detail }
     }
     case 'file.read': {
-      const ref = projectFileRef(project, input.path)
+      const ref = readableFileRef(project, input.path)
       if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
       const st = mustBeFile(ref.abs)
       if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
@@ -793,6 +815,8 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'file.write': {
       const rel = asString(input.path)
       if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required' }
+      // A linked document's path is not a file name: nothing may be written "as" it (see projectFileRef).
+      if (isLinkedDocPath(rel)) return { ok: false, code: 'linked_read_only', detail: 'this is a linked document of the owner\'s archive: it can be read, but not written from the project' }
       const segments = rel.split('/').filter(Boolean)
       const wanted = segments.pop() || ''
       if (!safeFileName(wanted)) return { ok: false, code: 'bad_name', detail: 'this file name cannot be used' }

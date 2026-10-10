@@ -144,10 +144,15 @@ export function ensureProjectDocTables(): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_project_documents_one ON project_documents(project_id, document_id);
     CREATE INDEX IF NOT EXISTS idx_project_documents_doc ON project_documents(document_id);
   `)
+  // Phase 4 (specification, chapter 19): the owner decides which documents the AI works from.
+  // On by default -- a document is added to a project in order to be worked with -- and
+  // switched off per document.
+  const pdCols = new Set((db.prepare('PRAGMA table_info(project_documents)').all() as { name: string }[]).map((c) => c.name))
+  if (!pdCols.has('ai')) db.exec('ALTER TABLE project_documents ADD COLUMN ai INTEGER NOT NULL DEFAULT 1')
   pdTablesDb = db
 }
 
-interface PdRow { id: string; project_id: string; document_id: string; role: string; life_rel: string; note: string; created_at: number; created_by: string | null }
+interface PdRow { id: string; project_id: string; document_id: string; role: string; life_rel: string; note: string; created_at: number; created_by: string | null; ai?: number }
 
 /** `official`: the filed copy of something that was SENT (workbench-docsent.ts). Never chosen by hand, never changed into another role. */
 export type ProjectDocAnyRole = ProjectDocRole | 'official'
@@ -162,6 +167,8 @@ export interface ProjectDocView {
   /** false = not at its place (moved outside Marveen, or the disk is not there) -- never "deleted". */
   exists: boolean
   created_at: number
+  /** May the Workbench agent read this document? The owner's switch (chapter 19). */
+  ai: boolean
 }
 
 export interface ProjectAttachmentView { item_id: string; item: string; label: string; title: string; name: string; life_rel: string; exists: boolean }
@@ -198,7 +205,7 @@ export function listProjectDocs(projectId: string): { docs: ProjectDocView[]; at
     const now = docNow(r.document_id, r.life_rel)
     if (now.exists && now.rel !== r.life_rel) db.prepare('UPDATE project_documents SET life_rel = ? WHERE id = ?').run(now.rel, r.id)
     if (!now.exists) lookFor(r.document_id)
-    return { id: r.id, role: (r.role === 'official' ? 'official' : isProjectDocRole(r.role) ? r.role : 'related') as ProjectDocAnyRole, note: r.note, name: baseOf(now.rel), life_rel: now.rel, exists: now.exists, created_at: r.created_at }
+    return { id: r.id, role: (r.role === 'official' ? 'official' : isProjectDocRole(r.role) ? r.role : 'related') as ProjectDocAnyRole, note: r.note, name: baseOf(now.rel), life_rel: now.rel, exists: now.exists, created_at: r.created_at, ai: r.ai !== 0 }
   })
   const attachments: ProjectAttachmentView[] = []
   const items = db.prepare('SELECT id, title FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string }[]
@@ -237,7 +244,7 @@ export async function addProjectDoc(projectId: string, lifeRel: string, input: {
   return { ok: true, id }
 }
 
-export function updateProjectDoc(projectId: string, id: string, patch: { role?: unknown; note?: unknown }): PdResult<object> {
+export function updateProjectDoc(projectId: string, id: string, patch: { role?: unknown; note?: unknown; ai?: unknown }): PdResult<object> {
   ensureProjectDocTables()
   const db = getDb()
   const row = db.prepare('SELECT * FROM project_documents WHERE id = ? AND project_id = ?').get(String(id || ''), projectId) as PdRow | undefined
@@ -253,7 +260,12 @@ export function updateProjectDoc(projectId: string, id: string, patch: { role?: 
     note = String(patch.note).trim()
     if (note.length > PROJECT_DOC_NOTE_MAX) return { ok: false, code: 'bad_input', detail: `the note is at most ${PROJECT_DOC_NOTE_MAX} characters` }
   }
-  db.prepare('UPDATE project_documents SET role = ?, note = ? WHERE id = ?').run(role, note, row.id)
+  let ai = row.ai !== 0 ? 1 : 0
+  if (patch.ai !== undefined && patch.ai !== null) {
+    if (typeof patch.ai !== 'boolean') return { ok: false, code: 'bad_input', detail: 'ai must be true or false' }
+    ai = patch.ai ? 1 : 0
+  }
+  db.prepare('UPDATE project_documents SET role = ?, note = ?, ai = ? WHERE id = ?').run(role, note, ai, row.id)
   return { ok: true }
 }
 
@@ -275,4 +287,54 @@ function projectDocRowsUnder(key: string): Array<{ rel: string; project: string;
     if (rel === key || rel.startsWith(key + '/')) out.push({ rel, project: r.project || '', role: r.role })
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 4: WHICH DOCUMENTS THE AI WORKS FROM (specification, chapter 19)
+// ---------------------------------------------------------------------------
+
+export interface AiDoc { path: string; name: string; role: ProjectDocAnyRole | 'attachment'; note: string }
+
+/**
+ * What the Workbench agent may read of the project's linked documents: the project documents
+ * the owner left switched on, and the documents attached to the project's submissions (those
+ * are part of the submission itself). `path` is what the agent passes to document.read.
+ * `withheld`: how many the owner switched off -- said to the agent, so that it does not treat
+ * "I was not shown it" as "there is no such document".
+ */
+export function aiDocsForProject(projectId: string): { docs: AiDoc[]; withheld: number; missing: number } {
+  ensureProjectDocTables()
+  ensureWorkbenchTables()
+  const db = getDb()
+  const out: AiDoc[] = []
+  const seen = new Set<string>()
+  let withheld = 0
+  let missing = 0
+  const rows = db.prepare('SELECT * FROM project_documents WHERE project_id = ? ORDER BY role, created_at, id').all(projectId) as PdRow[]
+  for (const r of rows) {
+    if (r.ai === 0) { withheld++; seen.add(r.document_id); continue }
+    const now = docNow(r.document_id, r.life_rel)
+    if (!now.exists) { missing++; continue }
+    seen.add(r.document_id)
+    out.push({ path: LINKED_PREFIX + r.document_id, name: baseOf(now.rel), role: (r.role === 'official' ? 'official' : isProjectDocRole(r.role) ? r.role : 'related') as ProjectDocAnyRole, note: r.note })
+  }
+  const items = db.prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string }[]
+  for (const it of items) {
+    for (const a of listAnnexes(it.id)) {
+      if (!a.linked) continue
+      const id = a.path.slice(LINKED_PREFIX.length)
+      // A document the owner switched off stays off even where it is also an annex.
+      if (seen.has(id)) continue
+      const now = docNow(id, a.life_rel || '')
+      if (!now.exists) { missing++; continue }
+      seen.add(id)
+      out.push({ path: a.path, name: baseOf(now.rel), role: 'attachment', note: `${a.label} – ${a.title}` })
+    }
+  }
+  return { docs: out, withheld, missing }
+}
+
+/** May the agent of THIS project read the linked document `doc:<id>`? Only what aiDocsForProject lists. */
+export function aiMayReadLinked(projectId: string, path: string): boolean {
+  return aiDocsForProject(projectId).docs.some((d) => d.path === path)
 }
