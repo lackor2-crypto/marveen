@@ -9,7 +9,7 @@ import { createProject, updateProject, getProject, type ProjectRow } from '../pr
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { trashRelPath } from '../life-tree.js'
 import { makeWorkFolder, listWorkFolders, deleteLooseFiles } from '../workbench-assets.js'
-import { listFileTrash, restoreFileTrash } from '../workbench-file-trash.js'
+import { listFileTrash, purgeFileTrash, restoreFileTrash } from '../workbench-file-trash.js'
 
 let pid = ''
 let dir = ''
@@ -107,5 +107,31 @@ describe('Workbench file trash (#529)', () => {
     expect(listFileTrash(other.project.id)).toEqual([])
     expect(restoreFileTrash(other.project.id, ids[0]!)).toEqual({ ok: false, code: 'file_trash_missing' })
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM wb_file_trash').get()).toEqual({ n: 1 })
+  })
+
+  // #548: "Delete permanently" on a file row forgets the entry only; the Life tree's Kuka keeps the file.
+  it('purge forgets the row but leaves the file in the Kuka untouched (nothing is deleted from the Life tree)', () => {
+    const a = group('Forras')
+    const rel = loose(a, 'Új dokumentum.docx', 'WORD')
+    const ids = deleted([rel])
+    const row = getDb().prepare('SELECT trash_rel FROM wb_file_trash WHERE id = ?').get(ids[0]) as { trash_rel: string }
+    const kukaAbs = join(dir, ...row.trash_rel.split('/'))
+    expect(existsSync(kukaAbs)).toBe(true)
+    expect(purgeFileTrash(pid, ids[0]!)).toEqual({ ok: true, name: 'Új dokumentum.docx' })
+    expect(listFileTrash(pid)).toEqual([])
+    expect(existsSync(kukaAbs)).toBe(true)
+    expect(readFileSync(kukaAbs, 'utf8')).toBe('WORD')
+    // It cannot be restored from the Workbench any more.
+    expect(restoreFileTrash(pid, ids[0]!)).toEqual({ ok: false, code: 'file_trash_missing' })
+  })
+
+  it('purge refuses an unknown id and another project\'s entry', () => {
+    const a = group('Forras')
+    const ids = deleted([loose(a, 'titok.txt')])
+    const other = createProject({ name: 'Masik' })
+    if (!other.ok) throw new Error('projekt')
+    expect(purgeFileTrash(pid, 'nincs-ilyen')).toEqual({ ok: false, code: 'file_trash_missing' })
+    expect(purgeFileTrash(other.project.id, ids[0]!)).toEqual({ ok: false, code: 'file_trash_missing' })
+    expect(listFileTrash(pid)).toHaveLength(1)
   })
 })
