@@ -11080,16 +11080,25 @@
     }
     if (p && !WB.pdError) {
       // AZ UGY HELYEI AZ ELETFABAN (a leiras 50. pontja): hol vannak ennek az ugynek az iratai. Csak mutato.
+      // #530 (Boss TG 8544): a rendszer MAGA szamolja a projekt iratainak, mellekleteinek, munkadarabjainak mappaibol;
+      // a kezzel hozzaadott hely megmarad (jelolve, levehetoen), az automatikus sorhoz nincs "levetel".
       var places = p.places || []
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.places_title')) + ' (' + places.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.places_hint')) + '</p>'
         + (places.length ? '<ul class="wb-pd-list">' + places.map(function (pl) {
+          var why = (pl.reasons || []).map(function (r) { return esc(t('workbench.pd.place_reason.' + r.kind)) + ': ' + esc(r.name) }).join('; ')
+            + (pl.more ? ' ' + esc(t('workbench.pd.places_more', { n: pl.more })) : '')
+          var gone = pl.exists === false
           return '<li class="wb-pd-row"><strong>📁 ' + esc(String(pl.rel).split('/').join(' › ')) + '</strong>'
-            + (pl.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.pd.places_missing')) + '</span>' : '')
-            + ' <span class="wb-outline-tools">' + (pl.exists === false ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-open" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_open')) + '</button> ')
-            + (archived() ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-remove" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_remove')) + '</button>') + '</span></li>'
+            + (pl.count ? ' <span class="wb-pill">' + esc(t('workbench.pd.places_count', { n: pl.count })) + '</span>' : '')
+            + (pl.manual ? ' <span class="wb-pill wb-pd-place-manual">' + esc(t('workbench.pd.places_manual')) + '</span>' : '')
+            + (pl.auto ? ' <span class="wb-pill wb-pd-place-auto">' + esc(t('workbench.pd.places_auto')) + '</span>' : '')
+            + (gone ? ' <span class="wb-doc-low">⚠ ' + esc(t(pl.reachable === false ? 'workbench.pd.places_unreachable' : 'workbench.pd.places_missing')) + '</span>' : '')
+            + ' <span class="wb-outline-tools">' + (gone ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-open" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_open')) + '</button> ')
+            + (archived() || !pl.manual ? '' : '<button type="button" class="wb-linklike" data-wb-act="pd-place-remove" data-wb-rel="' + escA(pl.rel) + '">' + esc(t('workbench.pd.places_remove')) + '</button>') + '</span>'
+            + (why ? '<div class="wb-muted wb-pd-place-why">' + why + '</div>' : '') + '</li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.places_none')) + '</p>')
-        + (archived() ? '' : '<p class="wb-pd-add"><button type="button" class="wb-btn" data-wb-act="pd-place-add">📁 ' + esc(t('workbench.pd.places_add')) + '</button></p>')
+        + (archived() ? '' : '<p class="wb-pd-add"><button type="button" class="btn-secondary" data-wb-act="pd-place-add">📁 ' + esc(t('workbench.pd.places_add')) + '</button> <span class="wb-hint">' + esc(t('workbench.pd.places_add_hint')) + '</span></p>')
       // KAPCSOLODO PROJEKTEK (a leiras 49. pontja): csak kapcsolat, iratot nem masol.
       var rel = p.related || []
       var can = p.relatable || []
