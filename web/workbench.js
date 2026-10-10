@@ -1849,11 +1849,11 @@
     })
     var plainFiles = wf.files || {}
     // #552: with the switch on, a finalized (done) work item and a folder that holds only finalized work items
-    // (at any depth) leave the Work items box. Nothing is deleted or moved: the view filters. The item that is open
-    // stays visible. A folder with no work item, or only loose files, stays; the loose files of a folder whose items
+    // (at any depth) leave the Work items box. Nothing is deleted or moved: the view filters. A folder with no work item, or only loose files, stays; the loose files of a folder whose items
     // are all hidden go with them.
     var hideOn = !!WB.hideDone
-    function itHidden(it) { return hideOn && it.status === 'done' && it.id !== WB.selectedId }
+    // Boss TG 8804 ("hiding means hiding"): no exception -- not for the item that is open, not for a favourite.
+    function itHidden(it) { return hideOn && it.status === 'done' }
     var hideMemo = {}
     function hideInfo(path) {
       if (hideMemo[path]) return hideMemo[path]
@@ -1915,7 +1915,9 @@
       mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
-    var favs = items.filter(function (it) { return it.pinned_at != null })
+    var favsAll = items.filter(function (it) { return it.pinned_at != null })
+    // #552 follow-up: a finalized favourite is hidden too while the switch is on (it comes back when it is off).
+    var favs = favsAll.filter(function (it) { return !(WB.hideDone && it.status === 'done') })
     var favShut = isShut(FAV_KEY)
     // The project folder is the root of the tree (Boss, TG 2399, 2626): everything under it is shown the way the
     // Explorer shows it: the work items box as a real folder, and every other folder and file of the project.

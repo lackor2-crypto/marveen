@@ -6712,7 +6712,7 @@ window._i18n.en = {
   "workbench.root.hint": "The project is the root: every work item and folder lives under it. Drop a folder or work item here to move it to the root.",
   "workbench.fav.empty": "No favorites yet: click the star next to a work item.",
   "workbench.hide_done.label": "Hide finalized work",
-  "workbench.hide_done.hint": "Finalized work items, and folders that hold only such items, leave the list. Nothing is deleted; the open work item stays visible.",
+  "workbench.hide_done.hint": "Finalized work items, and folders that hold only such items, leave the list, the Favourites too. Nothing is deleted: switch it off and everything is back.",
   "workbench.hide_done.count": "{n} hidden",
   "workbench.fr.live_off": "Live view",
   "workbench.fr.live_on": "Editor view",
