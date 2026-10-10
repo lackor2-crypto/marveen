@@ -4160,6 +4160,7 @@
         if (s.structure_locked) o.structure_locked = true
         if (s.cellStyles) o.cellStyles = s.cellStyles
         if (s.colWidths) o.colWidths = s.colWidths
+        if (s.merges) o.merges = s.merges
         if (s.rowHeights) o.rowHeights = s.rowHeights
         return o
       })

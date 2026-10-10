@@ -94,6 +94,7 @@ function mount(host, sheets, opts) {
       cellData: cellData,
       rowData: rowData,
       columnData: columnData,
+      mergeData: formatKept ? (sh.merges || []).map(function (m) { return { startRow: m[0], startColumn: m[1], endRow: m[2], endColumn: m[3] } }) : [],
       rowCount: Math.max(100, nRows + 50),
       defaultColumnWidth: DEF_COL_W,
       defaultRowHeight: DEF_ROW_H,
@@ -205,6 +206,18 @@ function mount(host, sheets, opts) {
           })
         })
       }
+      // Merged ranges (section B): the editor's own list, as it stands now. The grid reaches to
+      // their far corner so the saved sheet has those rows and columns.
+      var merges = []
+      if (formatKept) {
+        ;(s.mergeData || []).forEach(function (m) {
+          if (!m || m.endRow < m.startRow || m.endColumn < m.startColumn) return
+          if (m.startRow === m.endRow && m.startColumn === m.endColumn) return
+          merges.push([m.startRow, m.startColumn, m.endRow, m.endColumn])
+          if (m.endRow > maxR) maxR = m.endRow
+          if (m.endColumn + 1 > maxC) maxC = m.endColumn + 1
+        })
+      }
       var rect = []
       for (var r2 = 0; r2 <= maxR; r2++) {
         var row = []
@@ -231,6 +244,8 @@ function mount(host, sheets, opts) {
       if (from >= 0) { one.rowsFrom = tagOf(s.rowData, rect.length); one.colsFrom = tagOf(s.columnData, rect[0] ? rect[0].length : 0) }
       if (formatKept) {
         if (fmt.length) one.fmt = fmt
+        // Always sent when the format is kept: an empty list means "nothing is merged now".
+        one.merges = merges
         // Sizes only where they differ from what the file had at that index.
         var sizes = function (data, was, def, n) {
           var o = {}
@@ -266,4 +281,4 @@ function mount(host, sheets, opts) {
   }
 }
 
-window.MarveenUniver = { mount: mount, version: '1.0.3-rows' }
+window.MarveenUniver = { mount: mount, version: '1.0.3-border' }

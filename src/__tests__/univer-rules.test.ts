@@ -153,8 +153,11 @@ describe('betoltes es nyelv', () => {
 describe('#526 section A: the formatting a save keeps', () => {
   const KEPT = ['set-range-bold', 'set-range-italic', 'set-range-underline', 'set-range-stroke', 'set-range-font-family',
     'set-range-fontsize', 'set-range-font-increase', 'set-range-font-decrease', 'set-range-text-color', 'reset-text-color',
-    'set-background-color', 'reset-background-color', 'set-horizontal-text-align', 'set-vertical-text-align', 'set-text-wrap', 'set-style']
-  const STILL = ['set-border', 'set-border-basic', 'add-worksheet-merge', 'set-range-subscript', 'set-text-rotation', 'set-shrink-to-fit',
+    'set-background-color', 'reset-background-color', 'set-horizontal-text-align', 'set-vertical-text-align', 'set-text-wrap', 'set-style',
+    // section B
+    'set-border', 'set-border-basic', 'set-border-color', 'set-border-style', 'set-border-position', 'add-worksheet-merge',
+    'add-worksheet-merge-all', 'add-worksheet-merge-vertical', 'add-worksheet-merge-horizontal', 'remove-worksheet-merge']
+  const STILL = ['paste-besides-border', 'set-range-subscript', 'set-text-rotation', 'set-shrink-to-fit',
     'numfmt.set.percent', 'paste-format', 'clear-selection-format', 'set-once-format-painter', 'set-worksheet-hidden', 'set-tab-color',
     'add-range-protection', 'hide-row-confirm']
 
@@ -174,14 +177,29 @@ describe('#526 section A: the formatting a save keeps', () => {
     const on = hiddenMenuConfig(false, true)
     const off = hiddenMenuConfig(false, false)
     for (const id of FORMAT_KEPT_MENU_IDS) { expect(on[id], id).toBeUndefined(); expect(off[id], id).toEqual({ hidden: true }) }
-    for (const id of ['sheet.command.set-border-basic', 'sheet.command.add-worksheet-merge', 'sheet.operation.open.numfmt.panel']) expect(on[id]).toEqual({ hidden: true })
+    for (const id of ['sheet.command.paste-besides-border', 'sheet.operation.open.numfmt.panel']) expect(on[id]).toEqual({ hidden: true })
+    for (const id of ['sheet.command.set-border-basic', 'sheet.command.add-worksheet-merge', 'sheet.command.remove-worksheet-merge']) {
+      expect(on[id], id).toBeUndefined()
+      expect(off[id], id).toEqual({ hidden: true })
+    }
   })
 
   it('a cell format goes to Univer and back unchanged', () => {
     const cs = { b: true, i: true, u: true, s: true, fs: 14, ff: 'Arial', fc: '#FF0000', bg: '#FFFF00', ha: 'c' as const, va: 'm' as const, wr: true }
     expect(univerToStyle(styleToUniver(cs))).toEqual(cs)
     expect(styleToUniver({})).toEqual({})
-    expect(univerToStyle({ bd: { t: { s: 1 } }, n: { pattern: '0%' } })).toEqual({})
+    expect(univerToStyle({ n: { pattern: '0%' } })).toEqual({})
+  })
+
+  it('borders go to Univer and back; black is the colour of a line without one', () => {
+    const bd = { t: { s: 'thin' as const }, b: { s: 'double' as const, c: '#FF0000' }, l: { s: 'thick' as const } }
+    const u = styleToUniver({ bd }) as { bd: Record<string, { s: number; cl: { rgb: string } }> }
+    expect(u.bd.t).toEqual({ s: 1, cl: { rgb: '#000000' } })
+    expect(u.bd.b).toEqual({ s: 7, cl: { rgb: '#FF0000' } })
+    expect(u.bd.l.s).toBe(13)
+    expect(u.bd.r).toBeUndefined()
+    expect(univerToStyle(u)).toEqual({ bd })
+    expect(univerToStyle({ bd: { t: { s: 0 } } })).toEqual({})
   })
 
   it('colours of any shape Univer holds come out as #RRGGBB', () => {
