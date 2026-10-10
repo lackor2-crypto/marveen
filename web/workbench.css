@@ -1837,3 +1837,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @media (hover: none) { .wb-dp-free-move { opacity: 1; width: 28px; height: 28px; line-height: 28px; } }
 .wb-dp-free-dragging { opacity: .75; outline: 2px dashed var(--accent, #2563eb); outline-offset: 2px; z-index: 3; }
 .wb-dp-tbl.wb-dp-free { margin-right: 0; }
+
+/* #549 (owner, 2026-10-10: "no big buttons ... use the smaller buttons from now on"): inside the workbench the
+   compact button IS small. The app-wide .btn-compact (10px 20px, 14px) stays for the other pages; here every
+   action row (draft PDF, finalize, show/hide translation, translate, save translation, ...) gets the small size.
+   On a phone the button stays tall enough for a finger. */
+.wb-root .btn-compact { padding: 5px 12px; font-size: 13px; gap: 4px; }
+@media (max-width: 700px) { .wb-root .btn-compact { padding: 10px 12px; } }
