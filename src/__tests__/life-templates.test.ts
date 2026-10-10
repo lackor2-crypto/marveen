@@ -64,6 +64,27 @@ describe('a sablonok', () => {
     }
   })
 
+  // #560 (owner decision, 2026-10-10): one "Tudasbazis" and one "Tovabbi anyagok" per project / company, at its own
+  // level; the Development branch holds only the repositories (the same-named pair under it stayed empty everywhere).
+  it('#560: a Fejlesztes alatt csak a tarolok vannak, a Tudasbazis es a Tovabbi anyagok egy szinttel feljebb all', () => {
+    const { listLifeTemplates } = { listLifeTemplates: () => ['family-multi-country', 'multi-country'].map((id) => findLifeTemplate(id)!).filter(Boolean) }
+    let devSeen = 0
+    for (const t of listLifeTemplates()) {
+      const rels = planLifeTree(t.build('hu'), 'hu').map((n) => n.rel)
+      for (const r of rels.filter((x) => x.endsWith('/Fejlesztés'))) {
+        devSeen++
+        expect(rels, r).toContain(`${r}/GIT_REPOS`)
+        expect(rels, r).not.toContain(`${r}/Tudásbázis`)
+        expect(rels, r).not.toContain(`${r}/További anyagok`)
+      }
+    }
+    const cfg = { persons: [], companies: [{ id: 'c', name: 'Teszt Kft', categories: ['development', 'knowledgeBase'] }] } as unknown as Parameters<typeof planLifeTree>[0]
+    const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
+    const dev = rels.find((x) => x.endsWith('/Fejlesztés'))
+    if (dev) { devSeen++; expect(rels).not.toContain(`${dev}/Tudásbázis`); expect(rels).toContain(`${dev}/GIT_REPOS`) }
+    expect(devSeen).toBeGreaterThan(0)
+  })
+
   it('a tobb-orszagos sablonban a MEDIA is orszagra bomlik, tipus-szint nelkul (#464 B)', () => {
     const cfg = findLifeTemplate('multi-country')!.build('hu')
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
