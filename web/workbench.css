@@ -104,7 +104,9 @@
 .wb-item-active { border-color: var(--accent, #2563eb); font-weight: 600; }
 .wb-item-title { word-break: break-word; }
 .wb-item-meta { font-size: 0.8rem; opacity: 0.7; white-space: nowrap; flex: 0 0 auto; margin-left: auto; }
-.wb-item-title { flex: 1 1 auto; min-width: 0; }
+/* #551: a name never runs out -- it keeps at least 8 characters, the meta wraps under it. */
+.wb-item { flex-wrap: wrap; }
+.wb-item-title { flex: 1 1 8ch; min-width: min(100%, 8ch); }
 .wb-item-edit { padding: 0 8px; }
 .wb-folder-del { font-size: 1.05rem; }
 .wb-folder-trash { font-size: 1.3rem; line-height: 1; opacity: .85; }
@@ -113,14 +115,14 @@
    celpont (min. 36px), a munkadarab-gomb kitolti a maradekot. */
 .wb-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
 @media (max-width: 700px) { .wb-item-row { flex-wrap: wrap; } }
-.wb-depth-1 { margin-left: 18px; }
-.wb-depth-2 { margin-left: 36px; }
-.wb-depth-3 { margin-left: 54px; }
-.wb-depth-4 { margin-left: 72px; }
-.wb-depth-5 { margin-left: 90px; }
-.wb-depth-6 { margin-left: 108px; }
-.wb-depth-7 { margin-left: 126px; }
-.wb-depth-8 { margin-left: 144px; }
+.wb-depth-1 { margin-left: min(18px, 4%); }
+.wb-depth-2 { margin-left: min(36px, 8%); }
+.wb-depth-3 { margin-left: min(54px, 12%); }
+.wb-depth-4 { margin-left: min(72px, 16%); }
+.wb-depth-5 { margin-left: min(90px, 20%); }
+.wb-depth-6 { margin-left: min(108px, 24%); }
+.wb-depth-7 { margin-left: min(126px, 28%); }
+.wb-depth-8 { margin-left: min(144px, 32%); }
 .wb-folder-row { list-style: none; margin-top: 2px; margin-bottom: 0; }
 .wb-folder-toggle { background: none; border: 0; padding: 4px 2px; font: inherit; font-weight: 600; cursor: pointer; text-align: left; color: inherit; }
 .wb-folder-del { background: none; border: 0; padding: 2px 4px; cursor: pointer; opacity: .55; }
@@ -129,7 +131,7 @@
 .wb-folder-toggle:hover { color: var(--accent, #2563eb); }
 .wb-folder-new { display: flex; gap: 8px; align-items: center; }
 .wb-folder-new .wb-input { flex: 1; min-width: 0; }
-.wb-item-row .wb-item { flex: 1 1 auto; min-width: 0; }
+.wb-item-row .wb-item { flex: 1 1 auto; min-width: min(100%, 9rem); }
 .wb-item-pin {
   flex: 0 0 auto;
   min-width: 36px;
@@ -1614,8 +1616,8 @@
 .wb-fr-rail { flex-basis: 58px; }
 .wb-fr-rb { padding: 8px 2px; font-size: 0.66rem; }
 .wb-fr-panel { flex-basis: 320px; padding: 10px; }
-.wb-fr-panel .wb-item-row { flex-wrap: nowrap; align-items: center; gap: 4px; }
-.wb-fr-panel .wb-item-row .wb-item { order: 0; flex: 1 1 auto; min-width: 0; flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; font-size: 0.8rem; line-height: 1.25; }
+.wb-fr-panel .wb-item-row { flex-wrap: wrap; align-items: center; gap: 4px; }
+.wb-fr-panel .wb-item-row .wb-item { order: 0; flex: 1 1 auto; min-width: min(100%, 9rem); flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; font-size: 0.8rem; line-height: 1.25; }
 .wb-fr-panel .wb-item-title { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
 .wb-fr-panel .wb-item-meta { font-size: 0.7rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
