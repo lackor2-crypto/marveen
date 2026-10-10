@@ -1884,3 +1884,14 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-univer-el header span:has(> span > [data-u-command="univer.command.redo"]) { display: none; }
 /* A group wider than the grid (a phone) wraps inside itself too. */
 .wb-univer-el header [data-u-comp="ribbon-toolbar"] > div { display: flex; flex-wrap: wrap; flex-shrink: 1; row-gap: 4px; align-items: center; }
+
+/* ---- #534: the translation next to the original is one continuous page, like the original ---- */
+.wb-tw-page { box-sizing: border-box; min-height: 320px; padding: 28px 30px 40px; background: #fff; color: #1b1b1f; border-radius: 2px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16); font-size: 15px; line-height: 1.6; outline: none; }
+.wb-tw-page .wb-tw-h { margin: 18px 0 6px; }
+.wb-tw-page > .wb-tw-h:first-child { margin-top: 0; }
+.wb-tw-page .wb-tw-block { margin: 0 0 8px; min-height: 1.6em; }
+.wb-tw-page .wb-tw-todo { color: #6b6b73; }
+.wb-tw-page .wb-tw-island { margin: 6px 0; }
+.wb-tw-page .wb-doc-low { margin: 8px 0 0; font-size: 13px; }
+/* the manual view holds the very same page */
+.wb-outline-page { margin: 8px 0 16px; }

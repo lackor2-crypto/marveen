@@ -8306,7 +8306,14 @@
       return '<div class="wb-outline wb-outline-empty"><p class="wb-hint">' + esc(t('workbench.outline.empty_hint')) + '</p>'
         + '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p></div>'
     }
-    var secs = (o.sections || []).map(function (sec) {
+    // #534 (Boss TG 8849): the manual view of a document is the SAME continuous page as the simple view (one editing
+    // host, no per-chapter boxes, no "+ paragraph" links); the chapter status and the translation bars sit on it.
+    var onePage = !!(d.item && d.item.type === 'document')
+    var secs = onePage ? '<div class="wb-outline-page">' + (function () {
+      // The manual view always showed the chapter status and the translation bars: the page draws them here, too.
+      WB.dpForceCheck = true
+      try { return docPageHtml() } finally { WB.dpForceCheck = false }
+    })() + '</div>' : (o.sections || []).map(function (sec) {
       var blocks = (sec.blocks || []).map(function (b) {
         return '<div class="wb-outline-block wb-outline-kind-' + escA(b.kind) + '">'
           + '<div class="wb-outline-text">' + outlineBlockBodyHtml(b) + '</div>'
@@ -8342,7 +8349,7 @@
       + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
       + langHeadHtml(o, ro)
       + secs
-      + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
+      + (ro || onePage ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + annexHtml(o, ro)
       + glossaryHtml(o, ro)
       + outlineCheckHtml(o.check, o, ro)
@@ -12529,8 +12536,13 @@
       + item('dp-del', t('workbench.dp.del')) + '</div>'
   }
 
+  /** #534: a language version is written as a plain continuous page: no "+" / handle gutter, no "new chapter" button
+   *  (its chapters are the original's, and the translation page next to the original has none either). */
+  function dpIsVariant() { return !!(WB.detail && WB.detail.outline && WB.detail.outline.variant) }
+
   function dpGutterHtml(bid, sid, idx, count, ro) {
     if (ro) return '<div class="wb-dp-gutter"></div>'
+    if (dpIsVariant()) return ''
     return '<div class="wb-dp-gutter" contenteditable="false">'
       + '<button type="button" class="wb-dp-gbtn wb-dp-plus" data-wb-act="dp-add" data-wb-block="' + escA(bid || '') + '" data-wb-sec="' + escA(sid) + '" data-wb-idx="' + idx + '"'
       + ' title="' + escA(t('workbench.dp.add')) + '" aria-label="' + escA(t('workbench.dp.add')) + '" aria-haspopup="menu">+</button>'
@@ -12661,6 +12673,7 @@
   /** Boss TG 3073: the page is a plain document by default; status chips, the delete cross and the
    *  translation / back-translation panels belong to the "check view", switched on by a button. */
   function dpCheckView() {
+    if (WB.dpForceCheck) return true
     if (WB.dpCheck === undefined) {
       try { WB.dpCheck = localStorage.getItem('marveen.workbench.dpCheck') === '1' } catch (e) { WB.dpCheck = false }
     }
@@ -12699,8 +12712,14 @@
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + dpPfmtAttrs(b.pfmt).cls + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : ''), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr + dpPfmtAttrs(b.pfmt).attr,
           dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
+        // The check view keeps what the old per-chapter list gave: the missing-data marks and the "simpler / more formal" asks.
+        + (chk && b.missing && b.missing.length ? '<p class="wb-dp-extra" contenteditable="false">' + b.missing.map(function (m) { return '<mark class="wb-outline-missing">' + esc(m) + '</mark>' }).join(' ') + '</p>' : '')
         + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra" contenteditable="false">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
-        + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '') + '</div>'
+        + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '')
+        + (chk && !ro && REWRITABLE[b.kind] ? '<p class="wb-dp-extra wb-outline-tools" contenteditable="false">'
+          + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_simpler_hint')) + '">' + esc(t('workbench.outline.rewrite_simpler')) + '</button> '
+          + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_formal_hint')) + '">' + esc(t('workbench.outline.rewrite_formal')) + '</button></p>' : '')
+        + '</div>'
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
     else if (!blocks.length) rows += dpGhostHtml(sec.id, 0, 'paragraph', 0, ro)
@@ -12733,7 +12752,7 @@
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
     return '<div class="wb-dp-wrap">' + (ro ? '' : dpToolbarHtml()) + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
-        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button> '
+        + (dpIsVariant() ? '' : '<button type="button" class="btn-secondary btn-compact" data-wb-act="dp-add-section">' + esc(t('workbench.dp.add_section')) + '</button> ')
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
       + '</div>'
   }
@@ -12765,20 +12784,111 @@
     var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
     return '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + '>' + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
   }
+  /** #534 (Boss TG 8849): the translation is ONE continuous page, the way the original is -- a heading line per chapter
+   *  (the chapter border is the heading), the paragraphs under it, all in one editing host: select across chapters, delete,
+   *  press Enter for a new paragraph. A picture / table stays a whole unit. What the page holds is read back (twCollect)
+   *  before every redraw and before the save, so the save writes exactly what is on the screen. */
+  function twPageHtml(o, ro) {
+    var tw = twState()
+    var ed = ro ? '' : ' contenteditable="true"'
+    var shownIds = []
+    var parts = (o.sections || []).map(function (sec) {
+      var pv = tw.prev[twKey(sec.id)]
+      var cur = pv && pv.sig === twSig(sec)
+      if (pv) shownIds.push(sec.id)
+      if (!pv) {
+        return '<div class="wb-tw-h wb-dp-h1 wb-tw-todo" contenteditable="false">' + esc(sec.title) + '</div>'
+          + '<p class="wb-muted wb-tw-todo" contenteditable="false">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
+      }
+      var out = cur ? '' : '<p class="wb-doc-low wb-tw-todo" contenteditable="false">&#9888; ' + esc(t('workbench.tw.stale')) + '</p>'
+      out += '<div class="wb-tw-h wb-dp-h1" data-tw="title" data-tw-sec="' + escA(sec.id) + '"' + ed + '>' + esc(pv.title) + '</div>'
+      pv.blocks.forEach(function (b) {
+        if (b.kind === 'image') {
+          out += '<div class="wb-tw-island" contenteditable="false" data-tw="island" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="image" data-tw-text="' + escA(b.text) + '">' + twBlockHtml(b) + '</div>'
+          return
+        }
+        var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
+        var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
+        // A table keeps its size / alignment line (the text of the block after the lines) through an edit of the lines.
+        out += '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr
+          + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + ed + '>'
+          + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
+      })
+      return out
+    }).join('')
+    return '<div class="wb-tw-page" id="wbTwPage" role="textbox" aria-multiline="true" aria-label="' + escA(t('workbench.tw.panel_label')) + '"' + ed + ' data-tw-shown="' + escA(WB.selectedId + ':' + tw.lang + '|' + shownIds.join(',')) + '" spellcheck="true">' + parts + '</div>'
+  }
+  /** Reads the translation page back into tw.prev: the edited titles and paragraphs, in the order they stand on the page.
+   *  The chapter border is the heading: a paragraph belongs to the heading above it; a chapter whose heading was deleted
+   *  is no longer translated (its text stays with the chapter above). */
+  function twCollect() {
+    var host = document.getElementById('wbTwPage')
+    if (!host || !WB.detail || !WB.detail.outline) return
+    var tw = twState()
+    var o = WB.detail.outline
+    // Only what the page was drawn from may be read back: a preview that arrived after the draw, or a page drawn for
+    // another language / document, is not on the page yet and must not be taken for "deleted".
+    var shown = String(host.getAttribute('data-tw-shown') || '')
+    var bar = shown.indexOf('|')
+    if (bar < 0 || shown.slice(0, bar) !== WB.selectedId + ':' + tw.lang) return
+    var shownIds = shown.slice(bar + 1).split(',')
+    var seen = {}
+    var order = []
+    var cur = null
+    var firstSec = null
+    ;(o.sections || []).forEach(function (sec) { if (!firstSec && shownIds.indexOf(sec.id) >= 0 && tw.prev[twKey(sec.id)]) firstSec = sec.id })
+    var textOf = function (el) { return String(el.innerText != null ? el.innerText : el.textContent || '').replace(/ /g, ' ').replace(/\r/g, '').replace(/\n+$/, '').replace(/^\n+/, '') }
+    var group = function (sid) {
+      if (!seen[sid]) { seen[sid] = { title: '', blocks: [] }; order.push(sid) }
+      return seen[sid]
+    }
+    var kids = host.children
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i]
+      if (el.classList.contains('wb-tw-todo')) continue
+      var role = el.getAttribute('data-tw') || ''
+      var sid = el.getAttribute('data-tw-sec') || ''
+      if (role === 'title' && sid && !seen[sid]) {
+        cur = group(sid)
+        cur.title = textOf(el).replace(/\s*\n\s*/g, ' ').trim()
+        continue
+      }
+      if (!cur) { if (!firstSec) continue; cur = group(firstSec) }
+      if (role === 'island') { cur.blocks.push({ kind: el.getAttribute('data-tw-kind') || 'image', text: el.getAttribute('data-tw-text') || '' }); continue }
+      var txt = textOf(el).trim()
+      if (!txt) continue
+      cur.blocks.push({ kind: role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph'), text: txt })
+    }
+    ;(o.sections || []).forEach(function (sec) {
+      var key = twKey(sec.id)
+      var pv = tw.prev[key]
+      if (!pv || shownIds.indexOf(sec.id) < 0) return
+      var g = seen[sec.id]
+      if (!g) { delete tw.prev[key]; return }
+      var oldBlocks = pv.blocks || []
+      pv.title = g.title || pv.title
+      pv.blocks = g.blocks.map(function (b, i) {
+        // The same text as before keeps what the preview carried (claims, text format); an edited paragraph is plain text.
+        var same = oldBlocks.filter(function (x) { return x.kind === b.kind && (x.kind === 'image' ? x.text === b.text : (x.kind === 'table' ? dpTableParts(x.text).text : x.text) === b.text) })[0]
+        if (same) return same
+        var prevAt = oldBlocks[i]
+        if (b.kind === 'table' && prevAt && prevAt.kind === 'table') {
+          var tp = dpTableParts(prevAt.text)
+          return { kind: 'table', text: dpTableText(b.text, tp.width, tp.align), claims: [] }
+        }
+        return { kind: b.kind, text: b.text, claims: [] }
+      })
+    })
+  }
   function twPanelInnerHtml(o, ro) {
     var tw = twState()
     var secs = o.sections || []
     var have = 0, stale = 0
-    var rows = secs.map(function (sec) {
+    secs.forEach(function (sec) {
       var pv = tw.prev[twKey(sec.id)]
-      var cur = pv && pv.sig === twSig(sec)
-      if (pv) { have++; if (!cur) stale++ }
-      var body
-      if (!pv) body = '<p class="wb-muted">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
-      else body = (cur ? '' : '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.stale')) + '</p>')
-        + pv.blocks.map(twBlockHtml).join('')
-      return '<section class="wb-tw-sec"><h4>' + esc(pv ? pv.title : sec.title) + '</h4>' + body + '</section>'
-    }).join('')
+      if (pv) { have++; if (pv.sig !== twSig(sec)) stale++ }
+    })
+    var rows = twPageHtml(o, ro)
     var langs = DOC_LANGS.map(function (c) { return '<option value="' + escA(c) + '"' + (c === tw.lang ? ' selected' : '') + '>' + esc(docLangName(c)) + '</option>' }).join('')
     var head = '<div class="wb-tw-head"><label class="wb-label" for="wbTwLang">' + esc(t('workbench.tw.lang')) + '</label> '
       + '<select id="wbTwLang" data-wb-tw-lang="1"' + (tw.busy ? ' disabled' : '') + '>' + langs + '</select> '
@@ -12806,7 +12916,10 @@
   function twRefresh() {
     var el = document.getElementById('wbTwPanel')
     var o = WB.detail && WB.detail.outline
-    if (el && o) el.innerHTML = twPanelInnerHtml(o, archived())
+    if (el && o) {
+      twCollect() // what was typed on the page is kept across the redraw
+      el.innerHTML = twPanelInnerHtml(o, archived())
+    }
   }
   /** Translates the sections that have no current translation yet, one by one; the panel fills in as they arrive. */
   function twRun() {
@@ -12845,6 +12958,7 @@
     var id = WB.selectedId
     var o = WB.detail && WB.detail.outline
     if (tw.busy || !id || !o || archived()) return
+    twCollect() // the save writes what is on the page, edits included
     var lang = tw.lang
     var list = []
     ;(o.sections || []).forEach(function (sec) {
@@ -12867,6 +12981,60 @@
       twRefresh()
     })
   }
+
+  // ---- the translation page: Enter / paste (#534) ----------------------------------------------------
+  // A browser splits a div by CLONING it, heading attributes and all; a paragraph made with Enter is built by hand instead:
+  // the text after the caret moves to a fresh paragraph of the same chapter.
+  function twSplitAtCaret() {
+    var sel = window.getSelection()
+    if (!sel || !sel.rangeCount) return false
+    var r = sel.getRangeAt(0)
+    if (!r.collapsed) r.deleteContents()
+    var node = r.startContainer
+    var el = node.nodeType === 1 ? node : node.parentNode
+    el = el && typeof el.closest === 'function' ? el.closest('[data-tw]') : null
+    if (!el || el.getAttribute('data-tw') === 'island') return false
+    var tail = document.createRange()
+    tail.setStart(r.startContainer, r.startOffset)
+    tail.setEnd(el, el.childNodes.length)
+    var frag = tail.extractContents()
+    var title = el.getAttribute('data-tw') === 'title'
+    var nb = document.createElement('div')
+    nb.className = 'wb-tw-block wb-outline-kind-paragraph'
+    nb.setAttribute('data-tw', 'block')
+    nb.setAttribute('data-tw-sec', el.getAttribute('data-tw-sec') || '')
+    nb.setAttribute('data-tw-kind', title ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph'))
+    nb.setAttribute('contenteditable', 'true')
+    nb.appendChild(frag)
+    if (!nb.textContent) nb.appendChild(document.createElement('br'))
+    if (!el.textContent) el.appendChild(document.createElement('br'))
+    el.parentNode.insertBefore(nb, el.nextSibling)
+    var nr = document.createRange()
+    nr.setStart(nb, 0)
+    nr.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(nr)
+    return true
+  }
+  document.addEventListener('beforeinput', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    if (!e.target.closest('#wbTwPage')) return
+    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
+      e.preventDefault()
+      twSplitAtCaret()
+    }
+  })
+  document.addEventListener('paste', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function' || !e.target.closest('#wbTwPage') || !e.clipboardData) return
+    var txt = e.clipboardData.getData('text/plain')
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    var lines = String(txt).replace(/\r\n?/g, '\n').split('\n')
+    lines.forEach(function (ln, i) {
+      if (i > 0) twSplitAtCaret()
+      if (ln) document.execCommand('insertText', false, ln)
+    })
+  })
 
   /** A lap alatti kiegeszitok: nyelvi valtozatok, mellekletek, szoszedet (ezek nem a lap reszei). */
   function docExtrasHtml() {
