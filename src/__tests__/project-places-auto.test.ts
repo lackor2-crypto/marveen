@@ -66,7 +66,19 @@ describe('the places of a project are found by the system', () => {
     const rels = v.map((x) => x.rel).sort()
     expect(rels).toEqual(['Család/Nyugdíj', 'Projektek/Ügy/Munkadarabok/Beadvány'])
     expect(v.find((x) => x.rel === 'Család/Nyugdíj')!.reasons[0]!.kind).toBe('attachment')
-    expect(v.find((x) => x.rel.endsWith('Beadvány'))!.reasons[0]).toEqual({ kind: 'item', name: 'Beadvány' })
+    expect(v.find((x) => x.rel.endsWith('Beadvány'))!.reasons[0]).toEqual({ kind: 'item', name: 'Beadvány', item_id: itemId })
+  })
+
+  it('item_counts says which work item put a place on the list; a document or a hand-added place belongs to none', async () => {
+    put('Család/Hatóság/a.pdf'); mkdirSync(abs('Család/Kézi'), { recursive: true })
+    await addProjectDoc(project.id, 'Család/Hatóság/a.pdf', { role: 'source' }, 't')
+    addProjectPlace(project.id, 'Család/Kézi', 't')
+    mkdirSync(abs('Projektek/Ügy/Munkadarabok/Beadvány'), { recursive: true })
+    getDbForTest().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run('Munkadarabok/Beadvány', itemId)
+    const v = projectPlacesView(project.id)
+    expect(v.find((x) => x.rel === 'Család/Hatóság')!.item_counts).toEqual({})
+    expect(v.find((x) => x.rel === 'Család/Kézi')!.item_counts).toEqual({})
+    expect(v.find((x) => x.rel.endsWith('Beadvány'))!.item_counts).toEqual({ [itemId]: 1 })
   })
 
   it('an item without a recorded folder: the folder of its materials is its place', async () => {
@@ -75,7 +87,7 @@ describe('the places of a project are found by the system', () => {
     attachAsset(it, 'szamla.txt', Buffer.from('x'), {})
     const v = projectPlacesView(project.id)
     expect(v.length).toBe(1)
-    expect(v[0]!.reasons[0]).toEqual({ kind: 'item', name: 'Beadvány' })
+    expect(v[0]!.reasons[0]).toEqual({ kind: 'item', name: 'Beadvány', item_id: itemId })
   })
 
   it('a work item whose folder is stored as another project\'s own tree path is that folder, not base + path', async () => {

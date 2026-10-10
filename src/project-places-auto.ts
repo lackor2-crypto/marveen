@@ -20,7 +20,8 @@ import { listAnnexes } from './workbench-docannex.js'
 import { ensureAssetTables } from './workbench-assets.js'
 
 export type PlaceReasonKind = 'source' | 'reference' | 'related' | 'official' | 'attachment' | 'item' | 'annex'
-export interface PlaceReason { kind: PlaceReasonKind; name: string }
+/** `item_id` is set when the reason is a work item's (its folder, material, annex or a submission's attachment). */
+export interface PlaceReason { kind: PlaceReasonKind; name: string; item_id?: string }
 export interface ProjectPlaceView {
   rel: string
   /** The folder is there now (measured). */
@@ -36,6 +37,9 @@ export interface ProjectPlaceView {
   /** Why it is on the list (at most REASONS_SHOWN); `more` is how many are not listed. */
   reasons: PlaceReason[]
   more: number
+  /** How many of the reasons belong to each work item (#539: the item view lists only its own places). A
+   *  document linked to the project or a place added by hand belongs to no item and is not counted here. */
+  item_counts: Record<string, number>
 }
 
 const REASONS_SHOWN = 5
@@ -51,21 +55,21 @@ function treeReachable(): boolean {
 
 export function projectPlacesView(projectId: string): ProjectPlaceView[] {
   const found = new Map<string, { reasons: PlaceReason[]; keys: Set<string> }>()
-  const add = (folder: string, kind: PlaceReasonKind, name: string, key: string): void => {
+  const add = (folder: string, kind: PlaceReasonKind, name: string, key: string, itemId?: string): void => {
     const rel = clean(folder)
     if (!rel) return // the root of the tree is not a "place of a matter"
     let e = found.get(rel)
     if (!e) { e = { reasons: [], keys: new Set() }; found.set(rel, e) }
     if (e.keys.has(key)) return
     e.keys.add(key)
-    e.reasons.push({ kind, name })
+    e.reasons.push(itemId ? { kind, name, item_id: itemId } : { kind, name })
   }
 
   // (a) the documents linked to the project, any role, and (c) the filed official copies (role 'official').
   // (b) the Life-tree documents the project's submissions attach.
   const pd = listProjectDocs(projectId)
   for (const d of pd.docs) add(dirOf(d.life_rel), d.role, d.name, 'doc:' + d.id)
-  for (const a of pd.attachments) add(dirOf(a.life_rel), 'attachment', a.name, 'att:' + a.item_id + ':' + a.life_rel)
+  for (const a of pd.attachments) add(dirOf(a.life_rel), 'attachment', a.name, 'att:' + a.item_id + ':' + a.life_rel, a.item_id)
 
   // (d) the folders of the project's work items, and (uploaded) annexes that live elsewhere in the tree.
   ensureAssetTables()
@@ -85,13 +89,13 @@ export function projectPlacesView(projectId: string): ProjectPlaceView[] {
     const items = getDb().prepare('SELECT id, title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string; folder: string | null }[]
     for (const it of items) {
       const f = clean(it.folder || '')
-      if (f) add(inTree(f), 'item', it.title, 'item:' + it.id)
+      if (f) add(inTree(f), 'item', it.title, 'item:' + it.id, it.id)
       // An item whose folder was never recorded still has its materials somewhere: those folders are its places.
       const mats = getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(it.id) as { path: string }[]
-      for (const m of mats) add(dirOf(inTree(m.path)), 'item', it.title, 'item:' + it.id)
+      for (const m of mats) add(dirOf(inTree(m.path)), 'item', it.title, 'item:' + it.id, it.id)
       for (const a of listAnnexes(it.id)) {
         if (a.linked) continue
-        add(dirOf(inTree(a.path)), 'annex', baseName(a.path), 'annex:' + it.id + ':' + a.path)
+        add(dirOf(inTree(a.path)), 'annex', baseName(a.path), 'annex:' + it.id + ':' + a.path, it.id)
       }
     }
   }
@@ -105,7 +109,9 @@ export function projectPlacesView(projectId: string): ProjectPlaceView[] {
     const abs = resolveLifePath(rel)
     if (abs) { try { exists = statSync(abs).isDirectory() } catch { exists = false } }
     const reasons = e ? e.reasons : []
-    out.push({ rel, exists, reachable, manual: manual.has(rel), auto: !!e, count: reasons.length, reasons: reasons.slice(0, REASONS_SHOWN), more: Math.max(0, reasons.length - REASONS_SHOWN) })
+    const itemCounts: Record<string, number> = {}
+    for (const r of reasons) if (r.item_id) itemCounts[r.item_id] = (itemCounts[r.item_id] || 0) + 1
+    out.push({ rel, exists, reachable, manual: manual.has(rel), auto: !!e, count: reasons.length, reasons: reasons.slice(0, REASONS_SHOWN), more: Math.max(0, reasons.length - REASONS_SHOWN), item_counts: itemCounts })
   }
   // The most documents first (the picker opens at the first one that is there), then the ones added by hand.
   return out.sort((x, y) => y.count - x.count || Number(y.manual) - Number(x.manual) || x.rel.localeCompare(y.rel))
