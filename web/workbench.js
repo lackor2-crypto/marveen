@@ -11759,6 +11759,8 @@
       card: ev.card_seq != null ? '#' + ev.card_seq : '',
       title: ev.card_title || '',
       what: ev.approval_description || '',
+      // #530: a document event names the role it was linked in, or who it was sent to.
+      detail: ev.kind === 'doc_linked' ? t('workbench.pd.role.' + (ev.detail || 'related')) : (ev.detail || ''),
     })
   }
 

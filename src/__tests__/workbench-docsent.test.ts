@@ -9,7 +9,10 @@ import { createWorkItem, createWorkItemVersion, getWorkItem, type WorkItemRow } 
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import { contentHash } from '../workbench-docfinal.js'
 import { fileOfficialCopy, listSent, recordSent, removeSent } from '../workbench-docsent.js'
-import { listProjectDocs, updateProjectDoc, linkedUsesUnder } from '../workbench-doc-links.js'
+import { listProjectDocs, updateProjectDoc, linkedUsesUnder, addProjectDoc, linkLifeFileAsAnnex } from '../workbench-doc-links.js'
+import { buildProjectTimeline } from '../workbench-timeline.js'
+import { resolveProjectFile } from '../workbench-docmodel-world.js'
+import { getProject } from '../projects.js'
 
 describe('sent', () => {
   let depot = ''
@@ -142,5 +145,28 @@ describe('sent', () => {
     const r = await fileOfficialCopy(item, a.id, OUT, 'owner')
     expect(r.ok === false && r.code).toBe('final_file_missing')
     expect(readdirSync(abs(OUT))).toEqual([])
+  })
+  it('the project timeline tells the story: a document linked, an annex attached, sent, the official copy filed', async () => {
+    // A project with none of this has no document events, and no error either.
+    expect(buildProjectTimeline(pid).events.filter((e) => /^(doc_|annex_)/.test(e.kind))).toEqual([])
+    expect(buildProjectTimeline(pid).errors).toEqual([])
+    writeFileSync(abs('Család/Anna/Hatóságok/Jobcenter/határozat.pdf'), 'D')
+    await addProjectDoc(pid, 'Család/Anna/Hatóságok/Jobcenter/határozat.pdf', { role: 'source' }, 'owner')
+    const project = getProject(pid)!
+    await linkLifeFileAsAnnex(item.id, 'Család/Anna/Hatóságok/Jobcenter/határozat.pdf', {}, (p) => resolveProjectFile(project, p), 'owner')
+    item = getWorkItem(item.id) as WorkItemRow
+    finalise()
+    const s = recordSent(item, good, 'owner')
+    if (!s.ok) throw new Error('sent')
+    await fileOfficialCopy(item, s.id, OUT, 'owner')
+    const tl = buildProjectTimeline(pid)
+    expect(tl.errors).toEqual([])
+    const docs = tl.events.filter((e) => /^(doc_|annex_)/.test(e.kind)).map((e) => [e.kind, e.item_title, e.file_name, e.detail ?? null])
+    expect(docs.sort()).toEqual([
+      ['annex_linked', 'Fellebbezés', 'határozat.pdf', null],
+      ['doc_filed', 'Fellebbezés', 'Fellebbezés – 2026-10-08.pdf', 'Jobcenter Berlin Mitte'],
+      ['doc_linked', null, 'határozat.pdf', 'source'],
+      ['doc_sent', 'Fellebbezés', null, 'Jobcenter Berlin Mitte (2026-10-08)'],
+    ])
   })
 })

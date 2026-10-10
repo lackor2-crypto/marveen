@@ -30,10 +30,15 @@ export const TIMELINE_KINDS = [
   'approval_rejected',
   'card_created',
   'card_done',
+  // #530 (the owner's specification, chapter 59): what happened to the project's documents.
+  'doc_linked',
+  'annex_linked',
+  'doc_sent',
+  'doc_filed',
 ] as const
 export type TimelineKind = typeof TIMELINE_KINDS[number]
 
-export const TIMELINE_SOURCES = ['items', 'versions', 'files', 'approvals', 'cards'] as const
+export const TIMELINE_SOURCES = ['items', 'versions', 'files', 'approvals', 'cards', 'documents'] as const
 export type TimelineSource = typeof TIMELINE_SOURCES[number]
 
 export interface TimelineEvent {
@@ -55,6 +60,8 @@ export interface TimelineEvent {
   /** Jovahagyas (approval_*). */
   approval_id: string | null
   approval_description: string | null
+  /** #530: the recipient of a sending (doc_sent / doc_filed), or the role a document was linked in (doc_linked). */
+  detail?: string | null
 }
 
 export interface TimelineResult {
@@ -180,6 +187,30 @@ export function buildProjectTimeline(
 
   // -- kartyak: letrejott / lezarva --------------------------------------------
   const cardInfo = new Map<string, { seq: number; title: string }>()
+  // -- iratok (#530): kapcsolas, mellekletkent csatolas, elkuldes, hivatalos peldany ------------
+  // A tablak csak akkor leteznek, ha a funkciot mar hasznaltak: a hianyuk "nincs ilyen esemeny".
+  attempt('documents', () => {
+    const has = (name: string): boolean => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)
+    const base = (rel: string | null): string => { const r = String(rel || ''); return r.slice(r.lastIndexOf('/') + 1) }
+    if (has('project_documents')) {
+      const rows = db.prepare("SELECT life_rel, role, created_at FROM project_documents WHERE project_id = ? AND role != 'official'").all(projectId) as { life_rel: string; role: string; created_at: number }[]
+      for (const r of rows) { const ev = blank('doc_linked', r.created_at); ev.file_name = base(r.life_rel); ev.detail = r.role; events.push(ev) }
+    }
+    const hasLifeRel = has('wb_doc_annexes') && (db.prepare('PRAGMA table_info(wb_doc_annexes)').all() as { name: string }[]).some((c) => c.name === 'life_rel')
+    if (hasLifeRel) {
+      const rows = db.prepare("SELECT a.work_item_id, a.life_rel, a.title, a.created_at FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id WHERE w.project_id = ? AND a.path LIKE 'doc:%'").all(projectId) as { work_item_id: string; life_rel: string | null; title: string; created_at: number }[]
+      for (const r of rows) { const ev = blank('annex_linked', r.created_at); ev.item_id = r.work_item_id; ev.item_title = titles.get(r.work_item_id) || null; ev.file_name = base(r.life_rel) || r.title; events.push(ev) }
+    }
+    if (has('wb_doc_sent')) {
+      const rows = db.prepare('SELECT s.work_item_id, s.recipient, s.sent_date, s.filed_rel, s.created_at FROM wb_doc_sent s JOIN work_items w ON w.id = s.work_item_id WHERE w.project_id = ?').all(projectId) as { work_item_id: string; recipient: string; sent_date: string; filed_rel: string | null; created_at: number }[]
+      for (const r of rows) {
+        const ev = blank('doc_sent', r.created_at); ev.item_id = r.work_item_id; ev.item_title = titles.get(r.work_item_id) || null; ev.detail = `${r.recipient} (${r.sent_date})`; events.push(ev)
+        // The filing has no time of its own: it is shown right after the sending it belongs to.
+        if (r.filed_rel) { const f = blank('doc_filed', r.created_at + 1); f.item_id = r.work_item_id; f.item_title = titles.get(r.work_item_id) || null; f.file_name = base(r.filed_rel); f.detail = r.recipient; events.push(f) }
+      }
+    }
+  })
+
   attempt('cards', () => {
     if (!tableExists('kanban_cards')) return
     const cards = db.prepare('SELECT rowid AS seq, id, title, created_at FROM kanban_cards WHERE project = ?')
