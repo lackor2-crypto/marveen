@@ -11043,6 +11043,14 @@
     return inner ? '<div class="wb-fr-pop wb-fr-pop-docs" id="wbPdPop">' + inner + '</div>' : ''
   }
 
+  // #530 (Boss TG 2857 "A"): with a work item open the Iratok panel shows THAT item's documents (its attachments and the
+  // files of its own folder); the whole project's documents are one switch away. No item open -> the whole project.
+  function pdScopeNow() {
+    if (WB.pdScope === 'project') return 'project'
+    var sid = WB.selectedId
+    return sid && (WB.items || []).some(function (i) { return i.id === sid }) ? 'item' : 'project'
+  }
+
   function projectDocsPanelHtml() {
     if (!WB.pdOpen) return ''
     var body = ''
@@ -11053,20 +11061,37 @@
       var roles = p.roles || ['source', 'reference', 'related']
       var docs = p.docs || []
       var att = p.attachments || []
+      var scopeItem = pdScopeNow() === 'item'
+      var allDocsN = docs.length
+      var allAttN = att.length
+      var allFilesN = ((p.item_files && p.item_files.files) || []).length
+      var scopeFiles = (p.item_files && p.item_files.files) || []
+      if (scopeItem) {
+        att = att.filter(function (a) { return a.item_id === WB.selectedId })
+        scopeFiles = scopeFiles.filter(function (f) { return f.item_id === WB.selectedId })
+        docs = []
+      }
+      var selItem = (WB.items || []).filter(function (i) { return i.id === WB.selectedId })[0]
+      // The scope switch sits first: it decides what the rest of the panel lists.
+      var scopeBar = (WB.selectedId && selItem ? '<div class="wb-pd-scope"><label class="wb-pd-access-label">'
+        + '<input type="checkbox" data-wb-pd-scope="1"' + (scopeItem ? '' : ' checked') + '> ' + esc(t('workbench.pd.scope_all')) + '</label> '
+        + '<span class="wb-hint">' + esc(scopeItem
+          ? t('workbench.pd.scope_item_hint', { item: selItem.title, n: allDocsN + allAttN + allFilesN })
+          : t('workbench.pd.scope_all_hint')) + '</span></div>' : '')
       // The map first (specification, chapter 60): how many of each, at a glance.
       // #530 (Boss TG 8535): one switch for the project -- lifts the READING limits of its assistant. Off by default.
       var unl = p.ai_access === 'read_all'
-      body = '<div class="wb-pd-access' + (unl ? ' wb-pd-access-on' : '') + '"><label class="wb-pd-access-label" title="' + escA(t('workbench.pd.access_hint')) + '">'
+      body = scopeBar + '<div class="wb-pd-access' + (unl ? ' wb-pd-access-on' : '') + '"><label class="wb-pd-access-label" title="' + escA(t('workbench.pd.access_hint')) + '">'
         + '<input type="checkbox" data-wb-pd-access="1"' + (unl ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
         + esc(t('workbench.pd.access')) + '</label>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.access_explain')) + '</p></div>'
-      body += '<p class="wb-pd-map">' + roles.map(function (k) {
+      body += '<p class="wb-pd-map">' + (scopeItem ? '' : roles.map(function (k) {
         return '<span class="wb-pill">' + esc(t('workbench.pd.role.' + k)) + ': ' + docs.filter(function (d) { return d.role === k }).length + '</span>'
-      }).join(' ') + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
-        + ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span>'
-        + ' <span class="wb-pill">' + esc(t('workbench.pd.group.files')) + ': ' + (((p.item_files && p.item_files.files) || []).length) + '</span>'
+      }).join(' ')) + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
+        + (scopeItem ? '' : ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span>')
+        + ' <span class="wb-pill">' + esc(t('workbench.pd.group.files')) + ': ' + scopeFiles.length + '</span>'
         + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: p.ai_access === 'read_all' ? docs.length : docs.filter(function (d) { return d.ai }).length, total: docs.length })) + '</span></p>'
-      body += roles.map(function (k) {
+      if (!scopeItem) body += roles.map(function (k) {
         var mine = docs.filter(function (d) { return d.role === k })
         return '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.' + k)) + ' (' + mine.length + ')</h3>'
           + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.' + k)) + '</p>'
@@ -11074,7 +11099,7 @@
       }).join('')
       // #530 (Boss TG 2845): the files that lie in the work items' folders are the project's documents too -- found
       // by the system from the disk, read only (a file is changed in its own work item, not here).
-      var ifiles = (p.item_files && p.item_files.files) || []
+      var ifiles = scopeFiles
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.files')) + ' (' + ifiles.length + (p.item_files && p.item_files.truncated ? '+' : '') + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.files')) + '</p>'
         + (ifiles.length ? '<ul class="wb-pd-list wb-pd-files">' + ifiles.map(function (f) {
@@ -11085,7 +11110,7 @@
             + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(f.rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.files_none')) + '</p>')
       var official = docs.filter(function (d) { return d.role === 'official' })
-      body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.official')) + ' (' + official.length + ')</h3>'
+      if (!scopeItem) body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.official')) + ' (' + official.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.official')) + '</p>'
         + (official.length ? '<ul class="wb-pd-list">' + official.map(function (d) {
           return '<li class="wb-pd-row"><strong>✓ ' + esc(d.name) + '</strong> ' + pdWhere(d) + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '')
@@ -14436,7 +14461,7 @@
     WB.project = projectName ? { id: projectId, name: projectName } : null
     WB.items = null
     WB.detail = null
-    WB.selectedId = null
+    WB.selectedId = null; WB.pdScope = null
     WB.formOpen = false
     WB.intakeAsk = null; WB.intakeDraft = ''; WB.intakeName = ''
     WB.error = null
@@ -16743,6 +16768,12 @@
   // #530: the role of a project document is changed in place, with its select.
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || typeof e.target.getAttribute !== 'function') return
+    if (e.target.getAttribute('data-wb-pd-scope')) {
+      // #539: the switch only changes what the panel lists; nothing is stored on the server.
+      WB.pdScope = e.target.checked ? 'project' : 'item'
+      render()
+      return
+    }
     if (e.target.getAttribute('data-wb-pd-access')) {
       var acPid = WB.projectId
       var acBox = e.target
