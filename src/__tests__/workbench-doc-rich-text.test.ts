@@ -148,3 +148,27 @@ describe('paragraph format in the model and the render', () => {
     expect(x).toMatch(/<text:h text:style-name="[^"]+" text:outline-level="1">Cím<\/text:h>/)
   })
 })
+
+describe('#534: a section with only the placeholder title is untitled in the export', () => {
+  it('the PDF / Word source carries no heading for it, a title the owner wrote stays', () => {
+    initDatabase(':memory:')
+    const p = createProject({ name: 'Iroda' })
+    if (!p.ok) throw new Error('project')
+    const w = createWorkItem({ project_id: p.project.id, title: 'Beadvany', type: 'document', container_folder: '' })
+    if (!w.ok) throw new Error('item')
+    for (const [title, text] of [['Új fejezet', 'Első rész.'], ['New section', 'Második rész.'], ['Tényállás', 'Harmadik rész.']] as const) {
+      const s = addSection(w.item.id, title)
+      if (!s.ok) throw new Error('section')
+      addBlock(w.item.id, s.section.id, { text, author: 'owner' })
+    }
+    const out = documentOutline(w.item.id)
+    expect(out.sections.map((s) => s.untitled)).toEqual([true, true, false])
+    for (const target of ['pdf', 'docx'] as const) {
+      const xml = buildFodt(toRenderOutline(out), { title: 'Beadvany', author: null, draft: false, lang: 'hu', target })
+      expect(xml).not.toContain('Új fejezet')
+      expect(xml).not.toContain('New section')
+      expect(xml).toContain('Tényállás')
+      expect(xml).toContain('Első rész.')
+    }
+  })
+})

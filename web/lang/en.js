@@ -8002,6 +8002,8 @@ window._i18n.en = {
   "workbench.dp.page_label": "The document page",
   "workbench.dp.hint": "Click the text and type. The + beside a line inserts, the handle reorders.",
   "workbench.dp.outline_title": "Chapters",
+  "workbench.dp.outline_toggle": "Outline",
+  "workbench.dp.outline_toggle_title": "Shows or hides the list of headings beside the page, like the navigation pane in Word.",
   "workbench.dp.outline_go": "Jump to the chapter",
   "workbench.dp.add_section": "New section",
   "workbench.dp.undo": "Undo",

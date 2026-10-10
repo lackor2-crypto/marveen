@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
-import { MISSING_MARK_RE, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
+import { MISSING_MARK_RE, isPlaceholderSectionTitle, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
 import { isBlockAlign, richMatches, richRuns, type ParaFmt, type RichRun } from './workbench-docrich.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
@@ -349,7 +349,8 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   let pictures = 0
   const st: StyleCtx = { extra: extraStyles, names: new Map() }
   for (const s of outline.sections) {
-    body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(s.title)}</text:h>`)
+    // #534: a section the program titled with its own placeholder has no heading in the document.
+    if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(s.title)}</text:h>`)
     const sec: string[] = []
     for (const b of s.blocks) {
       if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))

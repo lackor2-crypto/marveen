@@ -8076,6 +8076,8 @@ window._i18n.hu = {
   "workbench.dp.page_label": "A dokumentum lapja",
   "workbench.dp.hint": "Kattints a szövegre és írj. A sor melletti + beszúr, a fogantyú átrendez.",
   "workbench.dp.outline_title": "Fejezetek",
+  "workbench.dp.outline_toggle": "Vázlat",
+  "workbench.dp.outline_toggle_title": "A fejezetcímeket mutatja vagy elrejti oldalt, mint a Wordben a navigációs panel.",
   "workbench.dp.outline_go": "Ugrás a fejezetre",
   "workbench.dp.add_section": "Új fejezet",
   "workbench.dp.undo": "Visszavonás",
