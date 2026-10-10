@@ -8085,6 +8085,7 @@ window._i18n.hu = {
   "workbench.dp.step.remove_section": "fejezet törlése",
   "workbench.dp.step.add_block": "új sor, táblázat vagy kép",
   "workbench.dp.step.edit_block": "szerkesztés",
+  "workbench.dp.step.edit_page": "szerkesztés",
   "workbench.dp.step.format_block": "formázás",
   "workbench.dp.step.move_block": "sor áthelyezése",
   "workbench.dp.step.remove_block": "sor törlése",

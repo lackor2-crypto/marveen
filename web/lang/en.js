@@ -8011,6 +8011,7 @@ window._i18n.en = {
   "workbench.dp.step.remove_section": "section deleted",
   "workbench.dp.step.add_block": "new line, table or picture",
   "workbench.dp.step.edit_block": "edit",
+  "workbench.dp.step.edit_page": "edit",
   "workbench.dp.step.format_block": "formatting",
   "workbench.dp.step.move_block": "line moved",
   "workbench.dp.step.remove_block": "line deleted",

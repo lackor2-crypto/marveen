@@ -446,6 +446,106 @@ export function removeBlock(itemId: string, id: string): ModelResult<{ removed: 
   return { ok: true, removed: b.id }
 }
 
+/** One block of a page save: an existing id (maybe with new content) or a new block. */
+export interface PageBlockIn { id?: unknown; kind?: unknown; text?: unknown; rich?: unknown; align?: unknown; pfmt?: unknown }
+export interface PageSectionIn { id?: unknown; title?: unknown; blocks?: unknown }
+export interface PageIds { sections: { id: string; blocks: string[] }[] }
+
+class PageError extends Error {
+  constructor(readonly code: ModelError, readonly detail: string) { super(detail) }
+}
+
+/**
+ * #534 (b): the whole page in ONE call, ids kept.  The page is one continuous editable surface, so the
+ * owner's typing is saved as the page's order: a listed existing id is updated / moved, a block without a
+ * known id is created, and what the client KNEW (`known`) but no longer lists is removed.  What the client
+ * did not know (the agent added it meanwhile) is never removed -- it stays at the end of its section.
+ * All or nothing: one bad block rolls the whole page back.
+ */
+export function replacePage(itemId: string, rawSections: unknown, rawKnown: unknown, author: 'agent' | 'owner'): ModelResult<{ ids: PageIds }> {
+  ensureDocModelTables()
+  if (!Array.isArray(rawSections)) return { ok: false, code: 'bad_input', detail: 'sections must be a list' }
+  if (rawSections.length > SECTIONS_MAX) return { ok: false, code: 'too_many', detail: `a document has at most ${SECTIONS_MAX} sections` }
+  let blockTotal = 0
+  for (const s of rawSections as PageSectionIn[]) {
+    if (!s || typeof s !== 'object' || !Array.isArray(s.blocks)) return { ok: false, code: 'bad_input', detail: 'every section needs a blocks list' }
+    blockTotal += s.blocks.length
+  }
+  if (blockTotal > BLOCKS_MAX) return { ok: false, code: 'too_many', detail: `a document has at most ${BLOCKS_MAX} blocks` }
+  const known = new Set<string>(Array.isArray(rawKnown) ? (rawKnown as unknown[]).filter((x): x is string => typeof x === 'string') : [])
+  const db = getDb()
+  const ids: PageIds = { sections: [] }
+  const fail = (code: ModelError, detail: string): never => { throw new PageError(code, detail) }
+  try {
+    db.transaction(() => {
+      const have = new Set(listSections(itemId).map((s) => s.id))
+      const blockHome = new Map<string, string>()
+      for (const r of db.prepare('SELECT id, section_id FROM wb_doc_blocks WHERE work_item_id = ?').all(itemId) as { id: string; section_id: string }[]) blockHome.set(r.id, r.section_id)
+      const sectionIds: string[] = []
+      const usedSections = new Set<string>()
+      // 1. the sections, in the page's order
+      ;(rawSections as PageSectionIn[]).forEach((sIn, i) => {
+        const wantId = typeof sIn.id === 'string' && have.has(sIn.id) && !usedSections.has(sIn.id) ? sIn.id : ''
+        if (wantId) {
+          usedSections.add(wantId)
+          const r = updateSection(itemId, wantId, { title: String(sIn.title ?? '').trim() ? sIn.title : undefined, position: i })
+          if (!r.ok) fail(r.code, r.detail)
+          sectionIds.push(wantId)
+        } else {
+          const r = addSection(itemId, sIn.title, { position: i })
+          if (!r.ok) return fail(r.code, r.detail)
+          usedSections.add(r.section.id)
+          sectionIds.push(r.section.id)
+        }
+      })
+      // 2. the blocks, section by section, in the page's order
+      const listed = new Set<string>()
+      ;(rawSections as PageSectionIn[]).forEach((sIn, i) => {
+        const sid = sectionIds[i]
+        const outIds: string[] = []
+        ;(sIn.blocks as PageBlockIn[]).forEach((bIn, j) => {
+          const bid = bIn && typeof bIn.id === 'string' && blockHome.has(bIn.id) && !listed.has(bIn.id) ? bIn.id : ''
+          const content: Record<string, unknown> = {}
+          for (const k of ['kind', 'text', 'rich', 'align', 'pfmt'] as const) if (bIn && (bIn as Record<string, unknown>)[k] !== undefined) content[k] = (bIn as Record<string, unknown>)[k]
+          if (bid) {
+            listed.add(bid)
+            const cur = getBlock(itemId, bid) as BlockRow
+            const same = (!('text' in content) || String(content.text) === cur.text)
+              && (!('rich' in content) || (String(content.rich || '') === (cur.rich || '')))
+              && (!('align' in content) || String(content.align || '') === (cur.align || ''))
+              && (!('pfmt' in content) || pfmtToStored(sanitizePfmt(content.pfmt)) === pfmtToStored(parsePfmt(cur.pfmt ?? null)))
+              && (!('kind' in content) || String(content.kind || cur.kind) === cur.kind)
+            const r = updateBlock(itemId, bid, same ? { section: sid, position: j, author } : { ...content, section: sid, position: j, author })
+            if (!r.ok) return fail(r.code, r.detail)
+            outIds.push(bid)
+          } else {
+            const r = addBlock(itemId, sid, { ...content, position: j, author })
+            if (!r.ok) return fail(r.code, r.detail)
+            listed.add(r.block.id)
+            outIds.push(r.block.id)
+          }
+        })
+        ids.sections.push({ id: sid, blocks: outIds })
+      })
+      // 3. what the page knew and no longer lists goes; what it never knew stays
+      for (const r of db.prepare('SELECT id FROM wb_doc_blocks WHERE work_item_id = ?').all(itemId) as { id: string }[]) {
+        if (!listed.has(r.id) && known.has(r.id)) { dropBlockRows(r.id) }
+      }
+      for (const sid of have) {
+        if (usedSections.has(sid) || !known.has(sid)) continue
+        const left = (db.prepare('SELECT COUNT(*) AS n FROM wb_doc_blocks WHERE section_id = ?').get(sid) as { n: number }).n
+        if (!left) db.prepare('DELETE FROM wb_doc_sections WHERE id = ?').run(sid)
+      }
+      reorder('wb_doc_sections', 'work_item_id', itemId)
+      for (const sid of sectionIds) reorder('wb_doc_blocks', 'section_id', sid)
+    })()
+  } catch (e) {
+    if (e instanceof PageError) return { ok: false, code: e.code, detail: e.detail }
+    throw e
+  }
+  return { ok: true, ids }
+}
+
 // ---------------------------------------------------------------------------
 // Allitasok es forrasok
 // ---------------------------------------------------------------------------
