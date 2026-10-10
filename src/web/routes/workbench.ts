@@ -3118,7 +3118,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
 
   // Saved signature pictures anywhere in the Life tree, for the document's "insert signature" picker.
   if (path === '/api/workbench/signatures' && method === 'GET') {
-    json(res, { ok: true, ...listSignatures(lang) })
+    // Asynchronous on purpose (2026-10-10): the synchronous tree walk froze the whole dashboard for minutes.
+    json(res, { ok: true, ...(await listSignatures(lang, { fresh: url.searchParams.get('fresh') === '1' })) })
     return true
   }
 

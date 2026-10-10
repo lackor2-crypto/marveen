@@ -13193,16 +13193,29 @@
       close()
       dpCall('POST', '/blocks', { section: sid, text: rel + '#w=30&a=l', kind: 'image', position: pos }).then(function (o) { if (o) render() })
     })
-    api('GET', '/api/workbench/signatures').then(function (r) {
-      var box = ov.querySelector('.wb-sign-list')
-      var list = r.ok && r.data && r.data.signatures || []
-      if (!list.length) { box.innerHTML = '<p>' + esc(t('workbench.sign.empty')) + '</p>'; return }
-      box.innerHTML = list.map(function (f) {
-        return '<button type="button" class="wb-sign-item" data-wb-sign-rel="' + escA(f.rel) + '">'
-          + '<img alt="" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(f.rel) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '">'
-          + '<span class="wb-sign-name">' + esc(f.name) + '</span><span class="wb-sign-folder">' + esc(f.folder) + '</span></button>'
-      }).join('')
-    })
+    // 2026-10-10: the search is cut short on a big / slow tree. An empty list then means "I did not get to the end",
+    // not "there is none" -- say which, and offer to search again.
+    var loadSigns = function (fresh) {
+      var box0 = ov.querySelector('.wb-sign-list')
+      if (box0) box0.innerHTML = '<p>' + esc(t('workbench.sign.loading')) + '</p>'
+      api('GET', '/api/workbench/signatures' + (fresh ? '?fresh=1' : '')).then(function (r) {
+        var box = ov.querySelector('.wb-sign-list')
+        if (!box) return
+        if (!r.ok) { box.innerHTML = '<p>' + esc(r.message || t('workbench.sign.failed')) + '</p>'; return }
+        var list = (r.data && r.data.signatures) || []
+        var part = !!(r.data && r.data.truncated)
+        var again = '<p class="wb-hint">' + esc(t(list.length ? 'workbench.sign.partial' : 'workbench.sign.partial_empty'))
+          + ' <button type="button" class="btn-secondary btn-compact" data-wb-sign-again>' + esc(t('workbench.sign.again')) + '</button></p>'
+        if (!list.length) { box.innerHTML = part ? again : '<p>' + esc(t('workbench.sign.empty')) + '</p>'; return }
+        box.innerHTML = list.map(function (f) {
+          return '<button type="button" class="wb-sign-item" data-wb-sign-rel="' + escA(f.rel) + '">'
+            + '<img alt="" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(f.rel) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '">'
+            + '<span class="wb-sign-name">' + esc(f.name) + '</span><span class="wb-sign-folder">' + esc(f.folder) + '</span></button>'
+        }).join('') + (part ? again : '')
+      })
+    }
+    ov.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-wb-sign-again]')) loadSigns(true) })
+    loadSigns(false)
   }
 
   function dpInsertSection(sid) {
