@@ -62,7 +62,7 @@ describe('#552 finalize / reopen: the server', () => {
     for (const action of ['finalize', 'reopen']) {
       const d = await call('POST', `/api/workbench/items/${w.id}/approval`, { action }, 'agent')
       expect(d.status).toBe(403)
-      expect(d.body.error).toBe('approval_owner_only')
+      expect(d.body.error).toBe('finalize_login_needed')
     }
     expect(getWorkItem(w.id)!.status).toBe('draft')
   })
