@@ -15903,6 +15903,9 @@
     if (!WB.open || WB.dragItem || WB.dragFolder || !e.target || !e.target.closest || !e.dataTransfer) return
     var row = e.target.closest('[data-wb-drag-file]')
     if (!row) return
+    // #537: only the project box's own file rows may be moved by dropping them on a folder row. A row of the item's
+    // assets or of the shared Kozos anyagok folder (and a tile) is draggable onto the PAGE only; it must never move.
+    if (row.getAttribute('data-wb-ctx-file') === null) return
     WB.dragFile = row.getAttribute('data-wb-drag-file')
     try { e.dataTransfer.setData('text/x-wb-file', WB.dragFile); e.dataTransfer.effectAllowed = 'copyMove' } catch (_e) { /* nem baj */ }
   })

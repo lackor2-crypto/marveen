@@ -112,9 +112,23 @@ describe('#492 a work item file in the Workbench list: copy only', () => {
     expect(calls(h, 'move')).toEqual([])
   })
 
+  // #537: a row draggable onto the PAGE only (shared Kozos anyagok, assets) carries no context-menu marker; dropping
+  // it on a folder row must neither move nor copy it.
+  it('a page-only row (shared folder) dropped on a folder row does nothing', async () => {
+    const { h } = await open(true)
+    const row = { getAttribute: (a: string) => (a === 'data-wb-drag-file' ? 'Projektek/Iroda/Közös anyagok/logo.png' : null) }
+    const dt = { setData() {}, effectAllowed: '', dropEffect: '' }
+    h.fire('dragstart', { target: { closest: (s: string) => (s === '[data-wb-drag-file]' ? row : null) }, dataTransfer: dt })
+    const zone = { getAttribute: (a: string) => (a === 'data-wb-drop-folder' ? TARGET : null) }
+    h.fire('drop', { target: { closest: (s: string) => (s === '[data-wb-drop-folder]' ? zone : null) }, dataTransfer: dt, preventDefault() {} })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(calls(h, 'move')).toEqual([])
+    expect(calls(h, 'copy')).toEqual([])
+  })
+
   it('dragging the item\'s file onto a folder row asks and copies it', async () => {
     const { h, asked } = await open(true)
-    const row = { getAttribute: (a: string) => (a === 'data-wb-drag-file' ? ITEM_FILE : null) }
+    const row = { getAttribute: (a: string) => (a === 'data-wb-drag-file' || a === 'data-wb-ctx-file' ? ITEM_FILE : null) }
     const dt = { setData() {}, effectAllowed: '', dropEffect: '' }
     h.fire('dragstart', { target: { closest: (s: string) => (s === '[data-wb-drag-file]' ? row : null) }, dataTransfer: dt })
     const zone = { getAttribute: (a: string) => (a === 'data-wb-drop-folder' ? TARGET : null) }
