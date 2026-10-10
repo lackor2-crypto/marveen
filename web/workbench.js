@@ -4210,6 +4210,9 @@
         formatting: !!(WB.table.data && WB.table.data.format === 'xlsx' && WB.table.data.formatting),
         styleTable: (WB.table.data && WB.table.data.styleTable) || {},
         onChange: function () { if (WB.table) WB.table.dirty = true },
+        // #533: the grid's undo / redo stack changed: the top bar's two buttons follow it (a moment later,
+        // when Univer has put the step on its stack).
+        onHistory: function () { setTimeout(tableStepsRefresh, 30) },
         onBlocked: function (what) {
           window.showToast(t(what === 'sheet' ? 'workbench.table.univer_sheet_locked'
             : what === 'sheetcopy' ? 'workbench.table.univer_sheet_copy_locked'
@@ -4218,6 +4221,7 @@
         },
       })
       WB.table.uvStarting = false
+      render()
     }).catch(function () {
       if (!WB.table || WB.table.itemId !== itemId) return
       WB.table.uvFailed = true
@@ -5250,7 +5254,7 @@
       + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
       + previewVersionPickerHtml() + '</div>'
     // TABLAZAT (#406, 15. pont): nyitva a racs -> az van a helyen.
-    if (tableOpen()) return '<div class="wb-preview">' + head + tableHtml() + '</div>'
+    if (tableOpen()) return '<div class="wb-preview">' + head + manualStepsHtml(WB.detail && WB.detail.item) + tableHtml() + '</div>'
     // DOKUMENTUM-SZERKESZTES (#444): nyitva a szerkeszto -> az van a helyen.
     if (docEditOpen()) return '<div class="wb-preview">' + head + docEditHtml() + '</div>'
     if (pdfEditOpen()) return '<div class="wb-preview">' + head + pdfEditHtml() + '</div>'
@@ -8206,6 +8210,8 @@
         + '</div>'
     }).join('')
     return '<div class="wb-outline"><h3>' + esc(t('workbench.outline.title')) + '</h3>'
+      // #533: ugyanaz a ket gomb, mint az Egyszeru nezet felso savjaban ("Mentve", majd vissza / elore).
+      + manualStepsHtml(d.item)
       + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
       + langHeadHtml(o, ro)
       + secs
@@ -13305,6 +13311,202 @@
     return !!(WB.canvas && WB.canvas.exists && WB.canvas.canvas) && !archived()
   }
 
+  // ---- VISSZAVONAS / UJRA: A DOKUMENTUM-LAP ES A TABLAZAT (#533, Boss 2026-10-10) ----------------------
+  //
+  // A ket kis gomb az Egyszeru nezet felso savjaban a "Mentve" UTAN jobbra all; a Manualis nezetben a
+  // vazlat / a racs fejlecen ugyanezek. A dokumentum (es a birosagi beadvany, ugyanaz a lap) lepes-
+  // tortenete a SZERVEREN van (a vazlat tablainak pillanatkepei, lasd src/workbench-dochistory.ts): egy
+  // lepes = egy felhasznaloi muvelet, es a lap magatol-mentese, valamint az oldal ujratoltese utan is
+  // visszavonhato. A tablazat lepesei a racsban (Univer) elnek; mentes utan a visszavonas az ELOZO
+  // MENTETT valtozatra lep (a verzio-visszavonas ugyanazzal az ujra-gombbal).
+
+  /** Is the document's own page (the editable draft) what this work item shows? */
+  function docPageOpen(it) {
+    if (!it || it.type !== 'document' || frIsTable(it)) return false
+    var o = WB.detail && WB.detail.outline
+    return !!o || !(it.source_path && WB.preview)
+  }
+
+  function docHistory() {
+    var o = WB.detail && WB.detail.outline
+    return (o && o.history) || { can_undo: false, can_redo: false, undo: null, redo: null }
+  }
+
+  /** The human name of a step ("edit_block" -> "szerkesztes"); empty when the server sent a word we do not know. */
+  function docStepWhat(label) {
+    var key = 'workbench.dp.step.' + String(label || '')
+    var txt = t(key)
+    return txt === key ? '' : txt
+  }
+
+  /** What the table's two buttons do right now: the grid's own steps, else the saved versions. */
+  function tableHistory() {
+    var tb = WB.table
+    var none = { undo: null, redo: null, undoNo: null, redoNo: null }
+    if (!tb || tb.loading || tb.error || !tableEditable() || tb.busy || WB.versionBusy) return none
+    var st = tb.uv && typeof tb.uv.historyStatus === 'function' ? tb.uv.historyStatus() : { undos: 0, redos: 0 }
+    var out = { undo: null, redo: null, undoNo: null, redoNo: null }
+    if (st.undos) out.undo = 'grid'
+    else if (!tb.dirty && undoTarget()) { out.undo = 'version'; out.undoNo = undoTarget().version_no }
+    var back = WB.tblRedoFrom
+    if (st.redos) out.redo = 'grid'
+    else if (!tb.dirty && back && back.itemId === tb.itemId && versionsSorted().some(function (v) { return v.id === back.id })) { out.redo = 'version'; out.redoNo = back.no }
+    return out
+  }
+
+  /** The tooltip of a table button: what it does now (the grid's step, or the saved version), and what the history is. */
+  function tableStepTitle(h, dir) {
+    var what = dir === 'undo' ? h.undo : h.redo
+    var n = dir === 'undo' ? h.undoNo : h.redoNo
+    var head = what === 'grid' ? t('workbench.tbl.' + dir + '_grid')
+      : what === 'version' ? t('workbench.tbl.' + dir + '_version', { n: n })
+      : t('workbench.tbl.' + dir + '_none')
+    return head + ' (' + (dir === 'undo' ? 'Ctrl+Z' : 'Ctrl+Y') + '). ' + t('workbench.tbl.history_hint')
+  }
+
+  /** The two buttons. `cls` is the look: the frame's top bar button, or the compact button of the manual view. */
+  function stepButtonsHtml(kind, cls, withLabels) {
+    var u, r
+    if (kind === 'doc') {
+      var h = docHistory()
+      var idle = !archived() && !WB.docStepBusy
+      var uw = h.undo ? docStepWhat(h.undo) : ''
+      var rw = h.redo ? docStepWhat(h.redo) : ''
+      u = { on: idle && h.can_undo, title: (h.can_undo ? t('workbench.dp.undo_what', { what: uw }) : t('workbench.dp.undo_none')) + ' (Ctrl+Z). ' + t('workbench.dp.history_hint'), label: t('workbench.dp.undo') }
+      r = { on: idle && h.can_redo, title: (h.can_redo ? t('workbench.dp.redo_what', { what: rw }) : t('workbench.dp.redo_none')) + ' (Ctrl+Y). ' + t('workbench.dp.history_hint'), label: t('workbench.dp.redo') }
+    } else {
+      var th = tableHistory()
+      u = { on: !!th.undo, title: tableStepTitle(th, 'undo'), label: t('workbench.dp.undo') }
+      r = { on: !!th.redo, title: tableStepTitle(th, 'redo'), label: t('workbench.dp.redo') }
+    }
+    var mk = function (act, glyph, x) {
+      return '<button type="button" class="' + cls + '" data-wb-act="' + kind + '-' + act + '" data-wb-step="1"' + (x.on ? '' : ' disabled')
+        + ' title="' + escA(x.title) + '" aria-label="' + escA(x.label) + '">' + glyph + (withLabels ? ' ' + esc(x.label) : '') + '</button>'
+    }
+    return mk('undo', '↶', u) + mk('redo', '↷', r)
+  }
+
+  /** The buttons that belong to the open work item (documents / court filings, and tables), or ''. */
+  function stepsForItem(it, cls, withLabels) {
+    if (!it || archived()) return ''
+    if (docPageOpen(it)) return stepButtonsHtml('doc', cls, withLabels)
+    if (frIsTable(it) && tableOpen()) return stepButtonsHtml('tbl', cls, withLabels)
+    return ''
+  }
+
+  /** Manualis nezet: a "Mentve" jelzes es a ket gomb egy kis savban a vazlat / a racs folott. */
+  function manualStepsHtml(it) {
+    if (isSimple()) return ''
+    var btns = stepsForItem(it, 'btn-secondary btn-compact', true)
+    if (!btns) return ''
+    var st = savedState()
+    return '<div class="wb-steps-bar"><span class="wb-sh-saved wb-sh-saved-' + st + '" role="status">' + esc(t('workbench.sh.saved.' + st)) + '</span>' + btns + '</div>'
+  }
+
+  /** Wait for what the page has not sent yet (the field the cursor is in, a save on its way), so a step undoes it. */
+  function dpFlush() {
+    var jobs = []
+    var a = document.activeElement
+    if (a && typeof a.getAttribute === 'function' && a.getAttribute('data-wb-dp') && a.isConnected) {
+      dpKeepDraft(a)
+      jobs.push(dpSave(a))
+    }
+    var fl = WB.dpInflight || {}
+    Object.keys(fl).forEach(function (k) { jobs.push(fl[k]) })
+    return Promise.all(jobs)
+  }
+
+  function docStep(dir) {
+    var id = WB.selectedId
+    if (!id || archived() || WB.docStepBusy || !docPageOpen(WB.detail && WB.detail.item)) return
+    WB.docStepBusy = true
+    var finish = function () { WB.docStepBusy = false }
+    dpFlush().then(function () {
+      if (WB.selectedId !== id || !WB.detail) { finish(); return null }
+      var h = docHistory()
+      if (!(dir === 'undo' ? h.can_undo : h.can_redo)) {
+        finish()
+        render()
+        window.showToast(t(dir === 'undo' ? 'workbench.dp.undo_none' : 'workbench.dp.redo_none'))
+        return null
+      }
+      return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/' + dir, {}).then(function (r) {
+        finish()
+        if (WB.selectedId !== id || !WB.detail) return
+        if (r.data && r.data.outline) WB.detail.outline = r.data.outline
+        if (!r.ok) { render(); window.showToast(r.message); return }
+        // The page now shows the restored state: no unsaved text of the old state may come back over it.
+        WB.docDrafts = {}
+        WB.docDraftRich = {}
+        WB.docNew = null
+        WB.docMenu = null
+        // The field the cursor is in still shows the old words: the redraw would take them back as a draft.
+        // It is left without saving (the page is what the server says now) and the cursor returns to its end.
+        var cur = document.activeElement
+        if (cur && typeof cur.getAttribute === 'function' && cur.getAttribute('data-wb-dp') && cur.id) {
+          WB.docFocus = { id: cur.id, end: true }
+          WB.rendering = true
+          try { cur.blur() } catch (_e) { /* nem baj */ }
+          WB.rendering = false
+        }
+        window.showToast(t(dir === 'undo' ? 'workbench.dp.undone' : 'workbench.dp.redone', { what: docStepWhat(r.data.label) }))
+        render()
+      })
+    }).catch(function () { finish() })
+  }
+
+  /** The table: the grid's own undo / redo; with nothing of that left (and nothing unsaved), the saved versions. */
+  function tableStep(dir) {
+    var tb = WB.table
+    if (!tb || !WB.selectedId) return
+    var h = tableHistory()
+    var what = dir === 'undo' ? h.undo : h.redo
+    if (what === 'grid') {
+      var ok = false
+      try { ok = dir === 'undo' ? tb.uv.undo() : tb.uv.redo() } catch (_e) { ok = false }
+      if (ok) { tb.dirty = true; if (dir === 'undo') WB.tblRedoFrom = null; tableStepsRefresh() }
+      return
+    }
+    if (what !== 'version') { window.showToast(t(dir === 'undo' ? 'workbench.tbl.undo_none' : 'workbench.tbl.redo_none')); return }
+    var cur = currentVersion()
+    var target = dir === 'undo' ? undoTarget() : { id: WB.tblRedoFrom.id, version_no: WB.tblRedoFrom.no }
+    if (!target) return
+    var itemId = WB.selectedId
+    WB.versionBusy = true
+    render()
+    api('POST', versionsUrl('/' + encodeURIComponent(target.id) + '/restore'), {}).then(function (r) {
+      WB.versionBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      // The ways back / forth: after going back, "redo" is the version we left.
+      WB.tblRedoFrom = dir === 'undo' && cur ? { itemId: itemId, id: cur.id, no: cur.version_no } : null
+      if (WB.compare) WB.compare = null
+      tableDrop()
+      applyVersions(r.data)
+      window.showToast(t(dir === 'undo' ? 'workbench.tbl.undone_version' : 'workbench.tbl.redone_version', {
+        to: target.version_no, n: r.data && r.data.version ? r.data.version.version_no : '',
+      }))
+    })
+  }
+
+  /** The grid changed (or a step ran): the two buttons and the "Mentve" word follow, without a redraw of the page. */
+  function tableStepsRefresh() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var h = tableHistory()
+    var btns = document.querySelectorAll('[data-wb-act="tbl-undo"], [data-wb-act="tbl-redo"]')
+    for (var i = 0; i < btns.length; i++) {
+      var undo = btns[i].getAttribute('data-wb-act') === 'tbl-undo'
+      btns[i].disabled = !(undo ? h.undo : h.redo)
+      btns[i].title = tableStepTitle(h, undo ? 'undo' : 'redo')
+    }
+    // The grid keeps its edits to itself: the word must not stay "Mentve" while there is something unsaved.
+    var st = savedState()
+    var words = document.querySelectorAll('.wb-fr-top .wb-sh-saved, .wb-steps-bar .wb-sh-saved')
+    for (var j = 0; j < words.length; j++) {
+      words[j].className = 'wb-sh-saved wb-sh-saved-' + st
+      words[j].textContent = t('workbench.sh.saved.' + st)
+    }
+  }
+
   /** Fent: Fajl menu, Meretezes menu, visszavonas/ujra, Mentve, nev, chat-kapcsolo, nezet-valaszto, Export. */
   function frTopHtml() {
     var it = WB.detail ? WB.detail.item : null
@@ -13329,6 +13531,8 @@
           + '<button type="button" class="wb-fr-tbtn" data-wb-act="canvas-redo"' + (busy || !h.can_redo ? ' disabled' : '') + ' title="' + escA(t('workbench.canvas.redo') + ' (Ctrl+Y)') + '" aria-label="' + escA(t('workbench.canvas.redo')) + '">↷</button>'
         : '')
       + '<span class="wb-sh-saved wb-sh-saved-' + st + '" role="status">' + esc(t('workbench.sh.saved.' + st)) + '</span>'
+      // #533: dokumentum / birosagi beadvany / tablazat: a ket gomb a "Mentve" UTAN jobbra.
+      + stepsForItem(it, 'wb-fr-tbtn', false)
       + '<span class="wb-fr-name">' + (it ? workSeqHtml(it) + esc(it.title) : '') + '</span>'
       + '<button type="button" class="wb-fr-tbtn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
       + (sizeOn ? '<button type="button" class="wb-fr-tbtn' + (WB.frLive ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-live" aria-pressed="' + !!WB.frLive + '" title="' + escA(t('workbench.fr.live_title')) + '">&#128065; ' + esc(t(WB.frLive ? 'workbench.fr.live_on' : 'workbench.fr.live_off')) + '</button>' : '')
@@ -15089,6 +15293,8 @@
     else if (a === 'vt-ov-save') vtSaveOverlay(act.getAttribute('data-wb-id'))
     else if (a === 'vt-ov-del') vtOps([{ op: 'removeOverlay', id: act.getAttribute('data-wb-id') }])
     else if (a === 'vt-volume') vtSaveVolume()
+    else if (a === 'doc-undo' || a === 'doc-redo') docStep(a === 'doc-undo' ? 'undo' : 'redo')
+    else if (a === 'tbl-undo' || a === 'tbl-redo') tableStep(a === 'tbl-undo' ? 'undo' : 'redo')
     else if (a === 'canvas-undo') canvasStep('undo')
     else if (a === 'canvas-redo') canvasStep('redo')
     else if (a === 'canvas-version') canvasSaveVersion()
@@ -15781,6 +15987,29 @@
     if (typeof e.preventDefault === 'function') e.preventDefault()
     canvasStep(k === 'y' || e.shiftKey ? 'redo' : 'undo')
   })
+
+  // #533: Ctrl+Z / Ctrl+Y (Cmd+Shift+Z is ujra) a dokumentum-lapon. A lap sajat mezoiben (a begepelt, meg el nem
+  // mentett szoveg is) a lap lepese hat: elobb elmentjuk, amit a kurzor melletti mezo tartalmaz, es az az egy
+  // lepes vonodik vissza -- nem betunkent. Mas beviteli mezoben (chat, kereso) a bongeszo sajat visszavonasa marad.
+  document.addEventListener('keydown', function (e) {
+    if (e.defaultPrevented || !WB.open || e.isComposing || !(e.ctrlKey || e.metaKey) || e.altKey) return
+    var k = String(e.key || '').toLowerCase()
+    if (k !== 'z' && k !== 'y') return
+    var it = WB.detail && WB.detail.item
+    if (!WB.selectedId || !it || archived() || !docPageOpen(it)) return
+    var tg = e.target
+    var inPage = !!(tg && typeof tg.closest === 'function' && tg.closest('[data-wb-dp]'))
+    var tag = tg && tg.tagName ? String(tg.tagName).toUpperCase() : ''
+    if (!inPage && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable))) return
+    if (!document.querySelector('.wb-dp-page')) return
+    e.preventDefault()
+    docStep(k === 'y' || e.shiftKey ? 'redo' : 'undo')
+  })
+
+  // A gomb nem veheti el a fokuszt a lap mezojetol: a begepelt szoveg a lepeshez tartozik (dpFlush menti).
+  document.addEventListener('mousedown', function (e) {
+    if (e.target && typeof e.target.closest === 'function' && e.target.closest('[data-wb-step]')) e.preventDefault()
+  }, true)
 
   // A bevitel erteket allapotban tartjuk: a chat-sav ujrarajzolasa (streameles
   // kozben soronkent) kulonben eltorolne a felig beirt mondatot.

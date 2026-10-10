@@ -54,6 +54,7 @@ import {
   hasDocModel, documentOutline, documentCheck, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
 } from '../../workbench-docmodel.js'
+import { beginDocStep, docHistoryState, docStepLabel, redoDocStep, undoDocStep } from '../../workbench-dochistory.js'
 import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { trailToText } from '../../workbench-doctrail-text.js'
@@ -1366,6 +1367,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Az állítás nem szerepel szó szerint a bekezdésben.',
     en: 'The claim is not a verbatim part of the block.',
   },
+  outline_nothing_to_undo: {
+    hu: 'Nincs mit visszavonni: ezen a lapon még nem történt változás.',
+    en: 'There is nothing to undo: nothing has changed on this page yet.',
+  },
+  outline_nothing_to_redo: {
+    hu: 'Nincs mit újra elvégezni: nincs visszavont lépés.',
+    en: 'There is nothing to redo: no step has been undone.',
+  },
+  outline_undo_failed: {
+    hu: 'A lépést nem tudtam visszaállítani, a lap érintetlen maradt.',
+    en: 'I could not restore that step; the page is untouched.',
+  },
   outline_rewrite_stale: {
     hu: 'Ez a bekezdés megváltozott, amióta a javaslat készült, ezért a javaslat már nem illik rá. Vesd el, és kérj újat.',
     en: 'This block changed since the proposal was made, so the proposal no longer fits it. Dismiss it and ask for a new one.',
@@ -1900,6 +1913,8 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
 
 /** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
 type OutlineOut = ReturnType<typeof documentOutline> & {
+  /** #533: can the page's last step be undone / redone, and what it is. */
+  history: ReturnType<typeof docHistoryState>
   /** #530: linked documents that are not at their place and are being looked for in the background. */
   linked_searching: number
   /** #530, phase 3: when, to whom and how the final was sent, and where its official copy is filed. */
@@ -1946,6 +1961,8 @@ function outlineOut(itemId: string): OutlineOut | null {
   const linkedSearching = tendLinkedAnnexes(itemId, resolve)
   return {
     ...documentOutline(itemId),
+    // #533: the page's undo / redo buttons.
+    history: docHistoryState(itemId),
     linked_searching: linkedSearching,
     sent: listSent(itemId),
     sent_methods: SENT_METHODS,
@@ -1969,9 +1986,9 @@ function langOut(item: { id: string; project_id: string }): { variant: ReturnTyp
 }
 
 /** A vazlat valasza akkor is, ha meg nincs fejezet (ures vazlat + ellenorzes). */
-function outlineOrEmpty(itemId: string): NonNullable<ReturnType<typeof outlineOut>> | { sections: never[]; check: ReturnType<typeof documentCheck> } {
+function outlineOrEmpty(itemId: string): NonNullable<ReturnType<typeof outlineOut>> | { sections: never[]; check: ReturnType<typeof documentCheck>; history: ReturnType<typeof docHistoryState> } {
   const item = getWorkItem(itemId)
-  return outlineOut(itemId) ?? { sections: [], check: documentCheck(itemId, item ? resolverFor(item) : undefined) }
+  return outlineOut(itemId) ?? { sections: [], check: documentCheck(itemId, item ? resolverFor(item) : undefined), history: docHistoryState(itemId) }
 }
 
 /** Egy PDF-keszitesi hiba kodja a felhasznalonak (a LibreOffice-hiany kulon mondat). */
@@ -3626,6 +3643,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id) })
       return true
     }
+    // #533: undo / redo on the page. The history is the server's (snapshots of the outline tables), so it
+    // works after the page saved itself, and it undoes the whole step the owner did.
+    if (segs.length === 3 && (segs[2] === 'undo' || segs[2] === 'redo') && method === 'POST') {
+      const r = segs[2] === 'undo' ? undoDocStep(item.id) : redoDocStep(item.id)
+      if (!r.ok) {
+        const code = r.code === 'restore_failed' ? 'outline_undo_failed' : 'outline_' + r.code
+        json(res, { error: code, message: msg(code, lang), detail: r.detail ?? null, outline: outlineOrEmpty(item.id) }, r.code === 'restore_failed' ? 500 : 409)
+        return true
+      }
+      scheduleOutlineMirror(item.id)
+      json(res, { ok: true, label: r.label, outline: outlineOrEmpty(item.id) })
+      return true
+    }
     const body = method === 'DELETE' ? {} : await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {
@@ -3636,6 +3666,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     const sub = segs[2] || ''
     const id = segs[3] || ''
+    // #533: the snapshot BEFORE an owner operation on the page; its end is closed by the response's own history.
+    const stepLabel = docStepLabel(method, segs, body)
+    if (stepLabel) beginDocStep(item.id, stepLabel)
     // NYELVI VALTOZAT (K-1.27): kulon munkadarab, fejezetenkent osszekotve; a forditast az agent vegzi.
     if (sub === 'variants' && segs.length === 3 && method === 'POST') {
       const r = createVariant(item, body['lang'], actor(ctx))
