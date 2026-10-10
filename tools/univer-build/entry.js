@@ -6,12 +6,20 @@ import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import enUS from '@univerjs/preset-sheets-core/locales/en-US'
 import huHU from './hu-HU.json'
 import '@univerjs/preset-sheets-core/lib/index.css'
+import './widgets.css'
 
-import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell, styleToUniver, univerToStyle, cellStyleOf, isDatePattern, isoToSerial } from './rules.mjs'
+import { blockedKind, hiddenMenuConfig, deepMerge, cellFromText, cellPattern, textFromCell, styleToUniver, univerToStyle, cellStyleOf, isDatePattern, isoToSerial, freezeCount, freezeConfig, freezeCounts, FREEZE_MAX_ROWS, FREEZE_MAX_COLS } from './rules.mjs'
 
 var CONTENT_MUTATION_RE = /^sheet\.mutation\.(set-range-values|set\.numfmt|remove\.numfmt|move-range|insert-|remove-|set-worksheet-name|set-worksheet-order|add-worksheet|reorder|move-rows|move-columns|move-cols)/
 // The commands after which the undo / redo stack has changed (kanban #533: the top bar's two buttons follow it).
 var HISTORY_COMMAND_RE = /^univer\.command\.(undo|redo)$/
+// #557: a freeze changed, or another sheet came to the front: the two freeze boxes show the sheet's own state.
+var FREEZE_COMMAND_RE = /^sheet\.(command\.(set-selection-frozen|set-row-frozen|set-col-frozen|set-frozen|cancel-frozen|set-first-row-frozen|set-first-col-frozen)|operation\.set-worksheet-active)$/
+// Univer's own toolbar button for freezing (the dropdown the two boxes replace) and the list of the border panel.
+var FREEZE_TRIGGER_SEL = '[data-u-command="sheet.toolbar.sheet-frozen"]'
+var BORDER_PANEL_SEL = 'div[class*="univer-grid-cols-5"]'
+var BORDER_PANEL_ICONS = 15
+var BORDER_NONE_AT = 4
 
 function mount(host, sheets, opts) {
   opts = opts || {}
@@ -30,6 +38,9 @@ function mount(host, sheets, opts) {
   var onBlocked = typeof opts.onBlocked === 'function' ? opts.onBlocked : function () {}
   // #533: called after a command that changed the grid's undo / redo stack.
   var onHistory = typeof opts.onHistory === 'function' ? opts.onHistory : function () {}
+  // #557: the words of the two controls this build adds (the page hands them over: HU + EN live in web/lang).
+  var texts = opts.texts || {}
+  var T = function (k, d) { return typeof texts[k] === 'string' && texts[k] ? texts[k] : d }
   var locales = { huHU: deepMerge(enUS, huHU), enUS: enUS }
   var made = createUniver({
     locale: opts.lang === 'en' ? 'enUS' : 'huHU',
@@ -37,6 +48,7 @@ function mount(host, sheets, opts) {
     presets: [UniverSheetsCorePreset({ container: host, footer: opts.footer !== false, menu: hiddenMenuConfig(sheetsLocked, formatKept) })],
   })
   var api = made.univerAPI
+  host.classList.add('mv-uv-host')
   var sheetData = {}
   var order = []
   // Per opened sheet: what the file had, to tell later what the editor changed.
@@ -122,6 +134,7 @@ function mount(host, sheets, opts) {
       var id = String(ev && ev.id || '')
       if (CONTENT_MUTATION_RE.test(id)) { dirty = true; onChange() }
       if (CONTENT_MUTATION_RE.test(id) || HISTORY_COMMAND_RE.test(id)) onHistory()
+      if (FREEZE_COMMAND_RE.test(id)) host.querySelectorAll('[data-mv-freeze]').forEach(function (b) { freezeShow(b) })
     }))
   }
   if (E && E.BeforeCommandExecute) {
@@ -141,6 +154,113 @@ function mount(host, sheets, opts) {
   if (readonly) {
     try { wb.setEditable(false) } catch (e) { /* older API */ }
   }
+
+  // #557 (owner TG 8786): freezing is two typed values -- how many rows, how many columns -- and 0 / 0 lifts
+  // it. The boxes sit where Univer's "Freeze" dropdown was (that one is hidden by widgets.css).
+  function activeSheet() {
+    try { return api.getActiveWorkbook().getActiveSheet() } catch (e) { return null }
+  }
+  function freezeMax(ws) {
+    var mr = FREEZE_MAX_ROWS
+    var mc = FREEZE_MAX_COLS
+    try { mr = Math.min(mr, ws.getMaxRows() - 1) } catch (e) { /* keep the cap */ }
+    try { mc = Math.min(mc, ws.getMaxColumns() - 1) } catch (e) { /* keep the cap */ }
+    return { rows: mr, cols: mc }
+  }
+  // `force`: after "Set" the boxes show what the sheet really holds, also a number typed beyond the limit.
+  function freezeShow(box, force) {
+    var ws = activeSheet()
+    var f = ws ? freezeCounts(ws.getFreeze()) : { rows: 0, cols: 0 }
+    var ins = box.querySelectorAll('input')
+    // Otherwise do not overwrite what the user is typing in this very moment.
+    if (force || host.ownerDocument.activeElement !== ins[0]) ins[0].value = String(f.rows)
+    if (force || host.ownerDocument.activeElement !== ins[1]) ins[1].value = String(f.cols)
+  }
+  function freezeApply(box) {
+    var ws = activeSheet()
+    if (!ws) return
+    var ins = box.querySelectorAll('input')
+    var mx = freezeMax(ws)
+    var cfg = freezeConfig(freezeCount(ins[0].value, mx.rows), freezeCount(ins[1].value, mx.cols))
+    try { ws.setFreeze(cfg) } catch (e) { /* the boxes below show what the sheet really holds */ }
+    freezeShow(box, true)
+  }
+  function freezeBox() {
+    var d = host.ownerDocument
+    var box = d.createElement('span')
+    box.className = 'mv-uv-freeze'
+    box.setAttribute('data-mv-freeze', '1')
+    box.title = T('freezeHint', '0 and 0: lift the freeze')
+    var mk = function (tag, text) { var e = d.createElement(tag); if (text != null) e.textContent = text; return e }
+    var num = function (label) {
+      var i = d.createElement('input')
+      i.type = 'number'; i.min = '0'; i.step = '1'; i.value = '0'; i.setAttribute('inputmode', 'numeric'); i.setAttribute('aria-label', label)
+      return i
+    }
+    var rowsIn = num(T('freezeRows', 'rows'))
+    var colsIn = num(T('freezeCols', 'columns'))
+    var btn = mk('button', T('freezeApply', 'Set'))
+    btn.type = 'button'
+    box.appendChild(mk('b', T('freezeTitle', 'Freeze')))
+    box.appendChild(rowsIn)
+    box.appendChild(mk('span', T('freezeRows', 'rows')))
+    box.appendChild(colsIn)
+    box.appendChild(mk('span', T('freezeCols', 'columns')))
+    box.appendChild(btn)
+    btn.addEventListener('click', function () { freezeApply(box) })
+    // Keys typed here are the box's, not the grid's (Univer would start editing the active cell).
+    ;['keydown', 'keyup', 'keypress', 'beforeinput', 'paste', 'copy', 'cut'].forEach(function (n) {
+      box.addEventListener(n, function (ev) {
+        ev.stopPropagation()
+        if (n === 'keydown' && ev.key === 'Enter') { ev.preventDefault(); freezeApply(box) }
+      })
+    })
+    return box
+  }
+  // The border panel is a list of 15 icons without a word on them: "no border" is the fifth one. A plain word
+  // button under the icons does what that icon does (owner TG 8821: a border once set must be able to go).
+  function borderNoneButton(grid) {
+    var b = host.ownerDocument.createElement('button')
+    b.type = 'button'
+    b.className = 'mv-uv-noborder'
+    b.setAttribute('data-mv-noborder', '1')
+    b.textContent = T('noBorder', 'No border')
+    b.addEventListener('mousedown', function (ev) { ev.stopPropagation() })
+    b.addEventListener('click', function (ev) {
+      ev.stopPropagation()
+      var icon = grid.children[BORDER_NONE_AT]
+      if (icon) icon.click()
+    })
+    return b
+  }
+  function placeWidgets() {
+    var d = host.ownerDocument
+    host.querySelectorAll(FREEZE_TRIGGER_SEL).forEach(function (trigger) {
+      var prev = trigger.previousElementSibling
+      if (prev && prev.getAttribute && prev.getAttribute('data-mv-freeze')) return
+      var box = freezeBox()
+      trigger.parentNode.insertBefore(box, trigger)
+      freezeShow(box, true)
+    })
+    d.querySelectorAll(BORDER_PANEL_SEL).forEach(function (grid) {
+      if (grid.children.length !== BORDER_PANEL_ICONS || !host.ownerDocument.body.contains(grid)) return
+      var next = grid.nextElementSibling
+      if (next && next.getAttribute && next.getAttribute('data-mv-noborder')) return
+      grid.parentNode.insertBefore(borderNoneButton(grid), grid.nextSibling)
+    })
+  }
+  var placeQueued = false
+  var watcher = null
+  if (typeof MutationObserver === 'function') {
+    watcher = new MutationObserver(function () {
+      if (placeQueued) return
+      placeQueued = true
+      var run = function () { placeQueued = false; try { placeWidgets() } catch (e) { /* the grid works without them */ } }
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 16)
+    })
+    watcher.observe(host.ownerDocument.body, { childList: true, subtree: true })
+  }
+  try { placeWidgets() } catch (e) { /* the grid works without them */ }
 
   function read() {
     var fwb = api.getActiveWorkbook()
@@ -305,13 +425,16 @@ function mount(host, sheets, opts) {
     undo: function () { return step('undo') },
     redo: function () { return step('redo') },
     historyStatus: status,
+    // #557: the freeze of the sheet in front, as the two boxes hold it ({rows, cols}).
+    getFreeze: function () { var ws = activeSheet(); return ws ? freezeCounts(ws.getFreeze()) : { rows: 0, cols: 0 } },
     isDirty: function () { return dirty },
     clearDirty: function () { dirty = false },
     dispose: function () {
+      if (watcher) { try { watcher.disconnect() } catch (e) { /* ignore */ } }
       disposables.forEach(function (d) { try { d && d.dispose && d.dispose() } catch (e) { /* ignore */ } })
       try { made.univer.dispose() } catch (e) { /* ignore */ }
     },
   }
 }
 
-window.MarveenUniver = { mount: mount, version: '1.0.3-numfmt' }
+window.MarveenUniver = { mount: mount, version: '1.0.3-reset' }

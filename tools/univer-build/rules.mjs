@@ -51,12 +51,16 @@ export var FORMAT_RE = new RegExp('^(?:sheet\\.(?:command\\.(?:'
 // Section B adds the borders and the merging of cells (the border commands, add/remove merge).
 // Section C adds the number formats (the panel, percent, currency, more / fewer decimals): the
 // pattern lives in the cell style (`n`), travels as `nf` and is written as a numFmt.
+// The two colour "Reset" buttons (#557, owner TG 8817) are part of this: a colour that was set can be taken
+// back. The text colour one is `reset-range-text-color` (it calls set-text-color with the grid's default
+// underneath); `reset-text-color` is the command without a button. Univer's default text colour is not a
+// choice (univerToStyle drops it), so a reset cell goes into the file without a colour of its own.
 // Everything else in FORMAT_RE (painter, rotation, hiding, protection, tab
 // colour, sub/superscript, paste-besides-border) stays blocked. `set-style` is the one command the
 // allowed buttons call underneath; every blocked outer command is cancelled before it gets there.
 export var FORMAT_KEPT_RE = new RegExp('^sheet\\.command\\.(?:set-style|set-(?:bold|italic|underline|stroke|font-family|font-size|text-color)'
   + '|set-range-(?:bold|italic|underline|stroke'
-  + '|font-family|fontsize|font-increase|font-decrease|text-color)|reset-(?:text-color|background-color)'
+  + '|font-family|fontsize|font-increase|font-decrease|text-color)|reset-(?:text-color|range-text-color|background-color)'
   + '|set-background-color|set-(?:horizontal|vertical)-text-align|set-text-wrap'
   + '|set-border(?:-[a-z]+)?|add-worksheet-merge(?:-[a-z]+)?|remove-worksheet-merge'
   + '|numfmt\\.set\\.(?:numfmt|percent|currency)|numfmt\\.(?:add|subtract)\\.decimal\\.command)$|^sheet\\.operation\\.open\\.numfmt\\.panel$')
@@ -86,6 +90,7 @@ export var HIDDEN_MENU_IDS = [
   'sheet.command.set-range-font-increase', 'sheet.command.set-range-font-decrease',
   'sheet.command.set-range-bold', 'sheet.command.set-range-italic', 'sheet.command.set-range-underline',
   'sheet.command.set-range-stroke', 'sheet.command.set-range-text-color', 'sheet.command.reset-text-color',
+  'sheet.command.reset-range-text-color',
   'sheet.command.set-background-color', 'sheet.command.reset-background-color', 'sheet.command.set-border-basic',
   // Kezdolap: layout group
   'sheet.command.set-horizontal-text-align', 'sheet.command.set-vertical-text-align', 'sheet.command.set-text-wrap',
@@ -117,6 +122,7 @@ export var FORMAT_KEPT_MENU_IDS = [
   'sheet.command.set-range-font-increase', 'sheet.command.set-range-font-decrease',
   'sheet.command.set-range-bold', 'sheet.command.set-range-italic', 'sheet.command.set-range-underline',
   'sheet.command.set-range-stroke', 'sheet.command.set-range-text-color', 'sheet.command.reset-text-color',
+  'sheet.command.reset-range-text-color',
   'sheet.command.set-background-color', 'sheet.command.reset-background-color',
   'sheet.command.set-horizontal-text-align', 'sheet.command.set-vertical-text-align', 'sheet.command.set-text-wrap',
   // section B: borders and merging
@@ -136,6 +142,33 @@ export function hiddenMenuConfig(sheetsLocked, formatKept) {
   })
   if (sheetsLocked) SHEET_MENU_IDS.forEach(function (id) { out[id] = { hidden: true } })
   return out
+}
+
+// Freezing (#557, owner TG 8786): instead of the six fixed items of Univer's "Freeze" dropdown the grid
+// shows two typed values -- up to which row and up to which column -- and 0 / 0 lifts the freeze.
+// The view only: a freeze is not a cell format and no save carries it.
+export var FREEZE_MAX_ROWS = 1000
+export var FREEZE_MAX_COLS = 200
+
+/** The number typed into a freeze box: a whole number from 0 to `max`; anything else is 0. */
+export function freezeCount(raw, max) {
+  var n = Math.floor(Number(String(raw == null ? '' : raw).trim().replace(',', '.')))
+  if (!isFinite(n) || n < 0) return 0
+  return Math.min(n, Math.max(0, Number(max) || 0))
+}
+
+/** The values the two boxes hold, as the freeze Univer sets (-1 = nothing frozen on that side). */
+export function freezeConfig(rows, cols) {
+  var r = rows > 0 ? Math.floor(rows) : 0
+  var c = cols > 0 ? Math.floor(cols) : 0
+  return { startRow: r > 0 ? r : -1, startColumn: c > 0 ? c : -1, ySplit: r, xSplit: c }
+}
+
+/** How many rows / columns a Univer freeze holds (what the boxes show). */
+export function freezeCounts(f) {
+  var r = f && typeof f.ySplit === 'number' && f.ySplit > 0 ? Math.floor(f.ySplit) : 0
+  var c = f && typeof f.xSplit === 'number' && f.xSplit > 0 ? Math.floor(f.xSplit) : 0
+  return { rows: r, cols: c }
 }
 
 // Deep merge: Univer's own mergeLocales drops untranslated keys below the second level

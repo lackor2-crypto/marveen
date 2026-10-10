@@ -4334,6 +4334,12 @@
         // #526 part 3: an .xlsx with a usable stylesheet keeps font, colours, alignment, wrap and sizes.
         formatting: !!(WB.table.data && WB.table.data.format === 'xlsx' && WB.table.data.formatting),
         styleTable: (WB.table.data && WB.table.data.styleTable) || {},
+        // #557: the words of the freeze boxes and of the "no border" button (the grid draws them itself).
+        texts: {
+          freezeTitle: t('workbench.table.univer_freeze_title'), freezeRows: t('workbench.table.univer_freeze_rows'),
+          freezeCols: t('workbench.table.univer_freeze_cols'), freezeApply: t('workbench.table.univer_freeze_apply'),
+          freezeHint: t('workbench.table.univer_freeze_hint'), noBorder: t('workbench.table.univer_no_border'),
+        },
         onChange: function () { if (WB.table) WB.table.dirty = true },
         // #533: the grid's undo / redo stack changed: the top bar's two buttons follow it (a moment later,
         // when Univer has put the step on its stack).
@@ -4498,6 +4504,7 @@
       hints.push(t(uv ? 'workbench.table.univer_hint_save' : 'workbench.table.hint_save'))
       hints.push(t(d.format === 'csv' ? 'workbench.table.hint_csv' : uv ? 'workbench.table.univer_hint_xlsx' : 'workbench.table.hint_xlsx'))
       hints.push(t(uv ? 'workbench.table.univer_hint_formula' : 'workbench.table.hint_formula'))
+      if (uv && d.format === 'xlsx') hints.push(t('workbench.table.univer_hint_view'))
       if (d.format === 'xlsx') hints.push(t('workbench.table.hint_dates'))
     }
     return '<div class="wb-table">'
