@@ -141,10 +141,10 @@ export const LEGACY_KIND_DRIVE = 'drive'
  * a lemezen ez pillanatszeru es nem duplazza a helyet. A `drive` es a `fotok`
  * IS a listan van: ezek a TAROLOK ala valok, nem az Intezo gyokerebe.
  */
-// A SORREND SZAMIT. A `rendszer` all elol, mert a celja (`RENDSZER/MARVIN`)
-// kis-nagybetuben azonos a sajat nevevel: Windowson eloszor ideiglenes nevre
-// kell tenni. Ha addigra mar bekerult volna melle a `GIT` vagy a `MUNKA`, azt
-// az ideiglenes atnevezes MAGAVAL VINNE. Uresen viszont nem visz semmit.
+// A `rendszer` entry is the dangerous one: its name is the system root's own
+// name (`Rendszer`) in a different case. On a case-insensitive disk (Windows,
+// macOS, an F: drive seen from WSL) the two are ONE folder, and `migrateFlatDepotDirs`
+// recognises that and leaves it alone (#513).
 const LEGACY_FLAT_DIRS: Array<{ from: string; to: string }> = [
   { from: 'rendszer',  to: DEPOT_SYSTEM },
   { from: 'projektek', to: DEPOT_PROJECTS },
@@ -174,32 +174,87 @@ export function migrateFlatDepotDirs(): Array<{ from: string; to: string }> {
     const dst = join(root, ...to.split('/'))
     try {
       if (!existsSync(src) || !statSync(src).isDirectory()) continue
-      // A `RENDSZER` es `RENDSZER/MARVIN` nevek Windowson kis-nagybetu-azonosak
-      // a regi `rendszer`-rel: ilyenkor a `renameSync` onmagara mutatna.
       if (dst === src) continue
       if (existsSync(dst)) continue
+
+      // CASE-INSENSITIVE ALIAS (#513). On Windows, macOS and a Windows drive
+      // seen from WSL, `rendszer` and `Rendszer` are the SAME folder. Then `src`
+      // is not a legacy flat folder at all but the system root of the CURRENT
+      // tree -- and "moving" it to `Rendszer/Tárolók/GOOGLE_PHOTOS` puts the
+      // whole tree (the backups included) inside itself. That is what happened
+      // on the live disk once the skeleton stopped creating GOOGLE_PHOTOS
+      // (so `existsSync(dst)` above no longer saved it). Whenever the first
+      // segment of the target is the source folder itself, there is nothing to
+      // migrate: leave it exactly as it is.
+      const top = to.split('/')[0]
+      if (from.toLowerCase() === top.toLowerCase() && isSameDirectory(src, join(root, top))) continue
+
       const entries = readdirSync(src).filter((f) => !f.startsWith('.'))
       if (!entries.length) { try { rmdirSync(src) } catch { /* maradhat */ } continue }
 
-      // KIS-NAGYBETU CSAPDA. Windowson (es macOS-en) a `rendszer` es a
-      // `RENDSZER` UGYANAZ a mappa. A `rendszer -> RENDSZER/MARVIN` koltoztetes
-      // igy azt jelentene, hogy a mappat sajat magaba mozgatjuk (EINVAL), es a
-      // Boss adatbazisa meg naploi ott ragadnanak. Ezert ilyenkor eloszor egy
-      // ideiglenes nevre tesszuk at, es csak onnan a helyere.
-      const top = to.split('/')[0]
-      let source = src
-      if (top.toLowerCase() === from.toLowerCase() && top !== from) {
-        const tmp = join(root, `${from}.koltozes`)
-        if (existsSync(tmp)) continue
-        renameSync(src, tmp)
-        source = tmp
-      }
       mkdirSync(dirname(dst), { recursive: true })
-      renameSync(source, dst)
+      renameSync(src, dst)
       moved.push({ from, to })
     } catch { /* marad a regi helyen, es ott lathato is */ }
   }
   return moved
+}
+
+/**
+ * Are two paths the same directory? Compared by device and inode, not by name,
+ * so a case-insensitive alias (or a symlink) is recognised. When the disk gives
+ * no usable inode (0), the answer is "yes": the callers use this to refuse a
+ * move, and refusing is the side that cannot lose data. A path that is not
+ * there is not the same as anything.
+ */
+function isSameDirectory(a: string, b: string): boolean {
+  try {
+    const x = statSync(a)
+    const y = statSync(b)
+    if (x.dev !== y.dev) return false
+    return x.ino === y.ino || (x.ino === 0 && y.ino === 0)
+  } catch { return false }
+}
+
+/**
+ * Put back what the old `rendszer` migration buried (#513).
+ *
+ * Before the fix in `migrateFlatDepotDirs`, a case-insensitive disk had its
+ * whole `Rendszer` tree moved INTO `Rendszer/Tárolók/GOOGLE_PHOTOS`, so the
+ * backups sat at `GOOGLE_PHOTOS/Marveen/Mentések` while `Rendszer/Marveen/Mentések`
+ * was an empty second copy. This takes the entries of the buried Backups and
+ * Work folders back to where they belong.
+ *
+ * Only `rename`, one entry at a time, never over an existing name: a name that
+ * is already at the destination stays where it is (two places, nothing lost).
+ * Emptied buried folders are removed with `rmdir`, which refuses a folder that
+ * still holds anything. Does nothing when there is nothing buried, and a failure
+ * is swallowed -- the files then simply stay where they are, visible.
+ */
+export function restoreBuriedSystemFolders(): string[] {
+  const root = depotRoot()
+  if (!root) return []
+  const restored: string[] = []
+  const prefix = `${DEPOT_SYSTEM_ROOT}/`
+  for (const dest of [DEPOT_BACKUPS, DEPOT_WORK]) {
+    if (!dest.startsWith(prefix)) continue
+    const buried = join(root, ...DEPOT_SYSTEM.split('/'), ...dest.slice(prefix.length).split('/'))
+    const target = join(root, ...dest.split('/'))
+    try {
+      if (!existsSync(buried) || !statSync(buried).isDirectory()) continue
+      if (isSameDirectory(buried, target)) continue
+      const names = readdirSync(buried)
+      if (names.length) mkdirSync(target, { recursive: true })
+      for (const name of names) {
+        const to = join(target, name)
+        if (existsSync(to)) continue
+        try { renameSync(join(buried, name), to); restored.push(`${dest}/${name}`) } catch { /* stays buried, visible */ }
+      }
+      try { rmdirSync(buried) } catch { /* not empty: left */ }
+      try { rmdirSync(dirname(buried)) } catch { /* holds something else: left */ }
+    } catch { /* left where it is */ }
+  }
+  return restored
 }
 
 /**
@@ -444,6 +499,7 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
   // uresen letrehozva is "letezo cel" lenne az almappaknak).
   migrateLegacyAccountDirs()
   migrateFlatDepotDirs()
+  restoreBuriedSystemFolders()
 
   const created: string[] = []
   // ONLY the backups folder is made up front (Boss, 2026-10-09, TG 8228: "A
