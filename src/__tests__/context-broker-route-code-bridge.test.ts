@@ -61,7 +61,17 @@ describe('POST /api/context-broker -- code-bridge role holders', () => {
     })
     expect(out.status).toBe(200)
     expect(out.body.ok).toBe(true)
-    expect(out.body.config.roles.implementer).toBe('vscode:tozsde')
+    expect(out.body.config.roles.implementer).toEqual(['vscode:tozsde'])
+  })
+
+  it('lets two holders share a role; unticking one leaves the other (#541)', async () => {
+    upsertCodeSession({ project: 'tozsde', workspacePath: WS, sessionId: 'sess-1', title: null, host: 'WINPC' })
+    upsertCodeSession({ project: 'blog', workspacePath: WS, sessionId: 'sess-2', title: null, host: 'WINPC' })
+    await call('POST', '/api/context-broker', { role: 'implementer', agent: 'vscode:tozsde', enabled: true })
+    const both = await call('POST', '/api/context-broker', { role: 'implementer', agent: 'vscode:blog', enabled: true })
+    expect(both.body.config.roles.implementer).toEqual(['vscode:tozsde', 'vscode:blog'])
+    const one = await call('POST', '/api/context-broker', { role: 'implementer', agent: 'vscode:tozsde', enabled: false })
+    expect(one.body.config.roles.implementer).toEqual(['vscode:blog'])
   })
 
   it('still refuses a made-up fleet agent name with no role attached', async () => {

@@ -3178,7 +3178,7 @@ window._i18n.en = {
   'agents.ctx.cli': 'CLI safety net: {set} configured, fires around {fires} (shared, all agents)',
   'agents.ctx.cli_drift': 'NOTE: this agent is still running with {running} (compacts around {fires}) -- that was the value when it started. The new one takes effect when the agent is next restarted.',
   'agents.ctx.cli_tip': 'Claude Code\'s own built-in safety net, not something Marveen does, and not per-agent -- one shared value in .env (AUTOCOMPACT_TOKENS). Measured: it fires at roughly 69% of the configured number, not at 100%, which is why two numbers are shown. This is the bluntest of the four: it cuts in at any time, even mid-work. Hence the high setting -- it should be a safety net, not the normal path.',
-  'agents.ctx.roles_tip': 'Who does what in the pipeline. You assign it; the model behind the card does not decide. Each role is held by one agent at a time -- ticking it elsewhere clears it here. Any role left unassigned is decided per task by the context-generating agent.',
+  'agents.ctx.roles_tip': 'Who does what in the pipeline. You assign it; the model behind the card does not decide. Any number of agents can hold a role, and one agent can hold several roles: ticking a box takes nothing away from anyone, and unticking removes only that agent. Only the agent that hands out the work (the context generator) is always exactly one. Any role left unassigned is decided per task by the context-generating agent.',
   'agents.ctx.role_planner': 'planner',
   'agents.ctx.role_planner_tip': 'Does the thinking: plans, decisions, contested questions. Does not code; hands back the plan.',
   'agents.ctx.role_implementer': 'implementer',

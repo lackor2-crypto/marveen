@@ -473,9 +473,12 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
           return true
         }
         const current = readBrokerConfig()
-        const holder = body?.enabled === false ? null : (target ?? null)
+        // #541: a role has any number of holders. Ticking adds `agent`; unticking (enabled:false) removes only that
+        // agent. Without a name the whole role is cleared (the pre-#541 call).
+        const holder = raw || null
+        const on = body?.enabled !== false && !clearing
         const savedRoles = writeBrokerConfig(current.designated, {
-          roles: assignRole(current.roles, roleId as BrokerRoleId, holder),
+          roles: assignRole(current.roles, roleId as BrokerRoleId, holder, on),
         })
         logger.info({ role: roleId, agent: holder }, 'Broker role assignment updated')
         json(res, { ok: true, config: savedRoles, ...resolveEffectiveBroker() })

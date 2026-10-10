@@ -1847,7 +1847,7 @@ window._i18n.hu = {
   'agents.ctx.cli': 'CLI vészfék: {set} beállítva, kb. {fires} körül indul (közös, minden ágensre)',
   'agents.ctx.cli_drift': 'FIGYELEM: ez az ágens még {running} értékkel fut (kb. {fires} körül tömörít), mert indításkor az volt érvényben. Az új érték csak az ágens újraindítása után lép életbe.',
   'agents.ctx.cli_tip': 'Ez magának a Claude Code-nak a beépített vészfékje, nem a Marvinból jön, és nem ágensenként állítható -- egy közös érték a .env-ben (AUTOCOMPACT_TOKENS). Mérve: nem a beállított számnál indul, hanem kb. annak 69 százalékánál. Ezért látszik itt két szám. Ez a legdurvább a négy közül: bármikor közbevág, akkor is, ha az ágens épp dolgozik. Ezért állítjuk magasra, hogy csak tényleg vész esetén lépjen közbe.',
-  'agents.ctx.roles_tip': 'Ki mit csinál a láncban. Te jelölöd ki, nem a mögötte lévő modell dönti el: bármelyik kártyára tehető bármelyik szerep. Egy szerep egyszerre egy ágensnél lehet -- ha máshol jelölöd be, innen eltűnik. Amelyik szerep sehol nincs bejelölve, azt a kontextus-készítő ágens dönti el feladatonként.',
+  'agents.ctx.roles_tip': 'Ki mit csinál a láncban. Te jelölöd ki, nem a mögötte lévő modell dönti el: bármelyik kártyára tehető bármelyik szerep. Egy szerepet több ágens is viselhet, és egy ágens több szerepet is: a pipa bejelölése nem vesz el senkitől semmit, a kivétele csak ezt az ágenst veszi ki. Egyedül a munkát kiadó (kontextus-készítő) ágens lehet mindig csak egy. Amelyik szerep sehol nincs bejelölve, azt a kontextus-készítő ágens dönti el feladatonként.',
   'agents.ctx.role_planner': 'tervező',
   'agents.ctx.role_planner_tip': 'Ő gondolkodik: terv, döntés, vitás kérdés. Nem kódol, a tervet adja vissza.',
   'agents.ctx.role_implementer': 'megvalósító',

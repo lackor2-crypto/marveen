@@ -88,4 +88,40 @@ describe('broker-role.py SessionStart hook (#451)', () => {
     expect(out).toContain('Atadas elott')
     expect(out).toContain('30 percnel tovabb ne varj')
   })
+
+  describe('several holders per role (#541)', () => {
+    const cfgPath = () => path.join(root, 'store', 'context-broker.json')
+    const ok = { designated: 'boss-bot', effective: 'boss-bot', reason: 'designated' }
+    afterAll(() => {
+      fs.writeFileSync(cfgPath(), JSON.stringify({ designated: 'boss-bot' }))
+    })
+
+    it('gives an agent its own role even when another agent holds the same one', async () => {
+      fs.writeFileSync(cfgPath(), JSON.stringify({
+        designated: 'boss-bot',
+        roles: { implementer: ['other', 'worker'] },
+      }))
+      reply = { status: 200, body: ok }
+      const out = await run('worker')
+      expect(out).toContain('A kartyadon ez a szereped: megvalosito.')
+    })
+
+    it('reads the old one-name-per-role file shape', async () => {
+      fs.writeFileSync(cfgPath(), JSON.stringify({
+        designated: 'boss-bot',
+        roles: { checker: 'worker' },
+      }))
+      reply = { status: 200, body: ok }
+      expect(await run('worker')).toContain('A kartyadon ez a szereped: ellenorzo.')
+    })
+
+    it('says nothing about a role this agent does not hold', async () => {
+      fs.writeFileSync(cfgPath(), JSON.stringify({
+        designated: 'boss-bot',
+        roles: { implementer: ['other', 'third'] },
+      }))
+      reply = { status: 200, body: ok }
+      expect(await run('worker')).not.toContain('A kartyadon ez a szereped')
+    })
+  })
 })

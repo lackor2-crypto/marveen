@@ -77,15 +77,25 @@ ROLE_LABELS = {
 
 
 def _roles(cfg):
-    """The role -> agent map as the owner ticked it on the cards."""
+    """The role -> [agents] map as the owner ticked it on the cards.
+
+    A role can have any number of holders (#541). The stored value is a list;
+    a file written before that holds one name per role, and reads as a
+    one-element list. A role nobody holds is left out of the map.
+    """
     raw = cfg.get("roles")
     if not isinstance(raw, dict):
         return {}
     out = {}
     for role in ROLE_LABELS:
         v = raw.get(role)
-        if isinstance(v, str) and v.strip():
-            out[role] = v.strip()
+        items = v if isinstance(v, list) else [v]
+        names = []
+        for x in items:
+            if isinstance(x, str) and x.strip() and x.strip() not in names:
+                names.append(x.strip())
+        if names:
+            out[role] = names
     return out
 
 
@@ -108,8 +118,9 @@ def _roster(me, roles):
     """
     root = _project_root()
     holders = {}
-    for role, agent in roles.items():
-        holders.setdefault(agent, []).append(ROLE_LABELS[role])
+    for role, agents in roles.items():
+        for agent in agents:
+            holders.setdefault(agent, []).append(ROLE_LABELS[role])
 
     def row(name, model):
         return "  - %-16s [%s]  (%s)" % (name, ", ".join(holders.get(name, [])) or "-", model)
@@ -306,7 +317,7 @@ def main():
 
     # My own ticked roles, whether or not a generator is designated -- the two
     # settings are independent, and a role means the same thing either way.
-    mine = [ROLE_LABELS[r] for r in ("planner", "implementer", "checker") if roles.get(r) == me]
+    mine = [ROLE_LABELS[r] for r in ("planner", "implementer", "checker") if me in roles.get(r, [])]
     if mine:
         parts.append(ROLE_NOTE.format(roles=", ".join(mine)))
 
