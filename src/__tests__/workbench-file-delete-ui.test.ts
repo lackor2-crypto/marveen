@@ -112,6 +112,7 @@ async function openTrash(opts: { confirm?: boolean; fileTrash?: unknown[] } = {}
     if (/\/api\/workbench\/file-trash\/restore/.test(url)) {
       return { status: 200, body: { ok: true, restored: [{ name: 'ajanlat.docx', rel: BOX + '/ajanlat.docx', renamed: false }], failed: [], file_trash: [], work_folders: WF } }
     }
+    if (/\/api\/workbench\/file-trash\/purge/.test(url)) return { status: 200, body: { ok: true, purged: ['Régi.docx'], file_trash: [], kuka_rel: 'Kuka' } }
     if (/\/api\/workbench\/file-trash/.test(url)) return { status: 200, body: { ok: true, files: opts.fileTrash || [], kuka_rel: 'Kuka' } }
     if (/\/api\/workbench\/files-delete/.test(url)) {
       return { status: 200, body: { ok: true, deleted: ['ajanlat.docx'], skipped: [], trash: ['t1'], file_trash: [{ id: 't1', name: 'ajanlat.docx', orig_rel: BOX + '/ajanlat.docx', folder: BOX, deleted_at: 1 }], work_folders: WF } }
@@ -172,5 +173,25 @@ describe('#529 selection bar delete + one trash', () => {
     h.click({ 'data-wb-act': 'file-restore', 'data-wb-id': 'old1' })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => isRestore(c))).toBe(true))
     expect(JSON.parse(String(h.fetchCalls.find((c) => isRestore(c))!.init!.body))).toEqual({ project_id: 'p1', ids: ['old1'] })
+  })
+
+  // #548: every file row has "Delete permanently" next to Restore; it names the file and only forgets the row.
+  it('a file row has Delete permanently; the question names the file, "Cancel" sends nothing, "yes" posts the id', async () => {
+    const h = await openTrash({ fileTrash: [{ id: 'old1', name: 'Régi.docx', orig_rel: BOX + '/Régi.docx', folder: BOX, deleted_at: 1 }] })
+    await vi.waitFor(() => expect(h.html()).toContain('(1)'))
+    h.click({ 'data-wb-act': 'trash-toggle' })
+    expect(h.html()).toContain('data-wb-act="file-restore" data-wb-id="old1"')
+    expect(h.html()).toContain('data-wb-act="file-purge-ask" data-wb-id="old1"')
+    h.click({ 'data-wb-act': 'file-purge-ask', 'data-wb-id': 'old1' })
+    expect(h.html()).toContain('workbench.trash.file_purge_warn')
+    expect(h.html()).toContain('Régi.docx')
+    h.click({ 'data-wb-act': 'warn-cancel' })
+    expect(h.html()).not.toContain('workbench.trash.file_purge_warn')
+    expect(h.fetchCalls.some((c) => /file-trash\/purge/.test(c.url))).toBe(false)
+    h.click({ 'data-wb-act': 'file-purge-ask', 'data-wb-id': 'old1' })
+    h.click({ 'data-wb-act': 'file-purge', 'data-wb-id': 'old1' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => /file-trash\/purge/.test(c.url))).toBe(true))
+    expect(JSON.parse(String(h.fetchCalls.find((c) => /file-trash\/purge/.test(c.url))!.init!.body))).toEqual({ project_id: 'p1', ids: ['old1'] })
+    await vi.waitFor(() => expect(h.html()).not.toContain('data-wb-id="old1"'))
   })
 })

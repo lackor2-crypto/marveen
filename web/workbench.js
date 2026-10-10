@@ -571,7 +571,13 @@
             + '<div class="wb-trash-card-meta" title="' + escA(f.folder) + '">' + esc(t('workbench.trash.file_meta', { folder: baseOf(f.folder), when: when(f.deleted_at) })) + '</div>'
             + '<div class="wb-trash-card-actions">'
             + '<button type="button" class="wb-item-del" data-wb-act="file-restore" data-wb-id="' + escA(f.id) + '"' + fro + '>' + esc(t('workbench.trash.restore')) + '</button>'
+            // #548: forget the row; the file stays in the Life tree's Kuka (warn box names the file).
+            + '<button type="button" class="wb-item-del wb-mini-danger" data-wb-act="file-purge-ask" data-wb-id="' + escA(f.id) + '"'
+            + ' title="' + escA(t('workbench.trash.file_purge_title')) + '"' + fro + '>' + esc(t('workbench.trash.purge')) + '</button>'
             + '</div></li>'
+            + (WB.warn && WB.warn.kind === 'file-purge' && WB.warn.id === f.id
+              ? '<li>' + warnBoxHtml(t('workbench.trash.file_purge_warn', { name: f.name }), 'file-purge', t('workbench.trash.purge'), f.id) + '</li>'
+              : '')
         }).join('') + '</ul>'
     }
     // What was deleted elsewhere (in the Explorer) is only in the Kuka: one click there.
@@ -1683,6 +1689,23 @@
       if (renamed.length) msg += ' ' + t('workbench.file.restored_renamed', { names: renamed.join(', ') })
       if ((d.failed || []).length) msg += ' ' + d.failed[0].message
       window.showToast(msg)
+    })
+  }
+
+  /** #548: "Delete permanently" on a deleted file's row: the row leaves the Workbench trash, the file stays in the Kuka. */
+  function purgeFileRow(id) {
+    if (!id || WB.fileBusy || archived()) return
+    var pid = WB.projectId
+    WB.fileBusy = true
+    WB.warn = null
+    render()
+    return api('POST', '/api/workbench/file-trash/purge', { project_id: pid, ids: [id] }).then(function (r) {
+      WB.fileBusy = false
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); loadFileTrash(pid); return }
+      if (r.data && Array.isArray(r.data.file_trash)) WB.fileTrash = r.data.file_trash
+      window.showToast(t('workbench.trash.file_purged'))
+      render()
     })
   }
 
@@ -14895,6 +14918,10 @@
       if (wbox && typeof wbox.scrollIntoView === 'function') wbox.scrollIntoView({ block: 'nearest' })
     }
     else if (a === 'item-purge') purgeItem(act.getAttribute('data-wb-id'))
+    else if (a === 'file-purge-ask') {
+      WB.warn = { kind: 'file-purge', id: act.getAttribute('data-wb-id') }; render()
+    }
+    else if (a === 'file-purge') purgeFileRow(act.getAttribute('data-wb-id'))
     else if (a === 'last-version-trash') { WB.warn = null; setTrashed(act.getAttribute('data-wb-id'), true) }
     else if (a === 'warn-cancel') { WB.warn = null; render() }
     else if (a === 'goto-approvals') { if (typeof window.switchPage === 'function') window.switchPage('approvals') }

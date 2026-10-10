@@ -59,7 +59,7 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
-import { kukaRel, listFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
+import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
 import { previewSectionTranslation, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
@@ -3015,6 +3015,25 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return failDetail(res, code === 'file_trash_failed' ? 500 : 409, code, lang, failed[0].detail)
     }
     json(res, { ok: true, restored, failed: failed.map((f) => ({ id: f.id, message: f.message })), file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    return true
+  }
+
+  // #548: forget deleted files in the Workbench trash (permanent delete of the ROW). The file stays in the Life tree's Kuka.
+  if (path === '/api/workbench/file-trash/purge' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const ids = Array.isArray(body['ids']) ? [...new Set(body['ids'].map((x) => String(x ?? '')).filter(Boolean))].slice(0, 500) : []
+    if (!ids.length) return fail(res, 400, 'file_trash_missing', lang)
+    const purged: string[] = []
+    for (const id of ids) {
+      const r = purgeFileTrash(project.id, id)
+      if (r.ok) purged.push(r.name)
+    }
+    if (!purged.length) return fail(res, 409, 'file_trash_missing', lang)
+    json(res, { ok: true, purged, file_trash: listFileTrash(project.id), kuka_rel: kukaRel() })
     return true
   }
 

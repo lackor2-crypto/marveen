@@ -154,6 +154,26 @@ export function restoreFileTrash(projectId: string, id: string): RestoreFileResu
   return { ok: true, rel: newRel, name: basename(target), renamed: target !== origAbs }
 }
 
+export type PurgeFileResult = { ok: true; name: string } | { ok: false; code: 'file_trash_missing' }
+
+/**
+ * #548 (Boss TG 8665 / 8671): "Delete permanently" on a file row of the Workbench trash. It only makes the
+ * Workbench forget the entry: the row (original place and the references that were taken off) goes. The file
+ * itself is the Life tree's own, lying in its Kuka -- it is neither deleted nor moved here, and can still be put
+ * back from the Kuka in the Explorer. Only a Kuka empty there removes it.
+ */
+export function purgeFileTrash(projectId: string, id: string): PurgeFileResult {
+  try {
+    ensureTable()
+    const row = getDb().prepare('SELECT id, name FROM wb_file_trash WHERE id = ? AND project_id = ?').get(id, projectId) as { id: string; name: string } | undefined
+    if (!row) return { ok: false, code: 'file_trash_missing' }
+    getDb().prepare('DELETE FROM wb_file_trash WHERE id = ?').run(row.id)
+    return { ok: true, name: row.name }
+  } catch {
+    return { ok: false, code: 'file_trash_missing' }
+  }
+}
+
 function safeRefs(json: string): FileTrashRefs {
   try {
     const r = JSON.parse(json || '{}')
