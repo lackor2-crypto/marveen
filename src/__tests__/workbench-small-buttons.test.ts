@@ -12,9 +12,10 @@ describe('small buttons in the workbench (#549)', () => {
     expect(css).toContain('.wb-root .btn-compact { padding: 5px 12px; font-size: 13px; gap: 4px; }')
     expect(css).toContain('@media (max-width: 700px) { .wb-root .btn-compact { padding: 10px 12px; } }')
   })
-  it('the five buttons the owner named are compact buttons (so the rule reaches them)', () => {
+  // ("Finalize" was the fifth; the owner moved it to the frame's top bar, TG 8765 -- there it is a top bar button.)
+  it('the buttons the owner named are compact buttons (so the rule reaches them)', () => {
     const line = (needle: string): string => src.split('\n').find((l) => l.includes(needle)) || ''
-    for (const k of ["t('workbench.sh.doc.draft_pdf')) + '</a> '", "data-wb-act=\"sh-final\"", "data-wb-act=\"tw-toggle\"", "data-wb-act=\"tw-run\"", "data-wb-act=\"tw-save\""]) {
+    for (const k of ["t('workbench.sh.doc.draft_pdf')) + '</a> '", "data-wb-act=\"tw-toggle\"", "data-wb-act=\"tw-run\"", "data-wb-act=\"tw-save\""]) {
       const l = line(k)
       expect(l, k).not.toBe('')
       // the anchor's class sits on the line before its label
