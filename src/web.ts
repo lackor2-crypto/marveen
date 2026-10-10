@@ -115,6 +115,7 @@ import { pruneEmptyStorageDirs } from './depot.js'
 import { tryHandleLife } from './web/routes/life.js'
 import { tryHandleStorages } from './web/routes/storages.js'
 import { tryHandleMega } from './web/routes/mega.js'
+import { tryHandleCloudUpload } from './web/routes/cloud-upload.js'
 import { tryHandleBackupRules } from './web/routes/backup-rules.js'
 import { tryHandleDriveSync } from './web/routes/drive-sync.js'
 import { tryHandlePhotosPicker } from './web/routes/photos-picker.js'
@@ -324,6 +325,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleLife(routeCtx)) return
       if (await tryHandleStorages(routeCtx)) return
       if (await tryHandleMega(routeCtx)) return
+      if (await tryHandleCloudUpload(routeCtx)) return
       if (await tryHandleBackupRules(routeCtx)) return
       if (await tryHandleBackupRestore(routeCtx)) return
       if (await tryHandleBackup(routeCtx)) return

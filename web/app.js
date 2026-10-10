@@ -38579,6 +38579,269 @@ async function _gphotosUploadOpen() {
   })
 }
 
+// ===========================================================================
+// "FELTOLTES FELHOBE" (#525): egy gomb az Intezoben, alatta harom cel.
+//
+// Boss, TG 8424: ne kulon "Feltoltes a Google Fotokba" gomb legyen, hanem egy
+// kozos, es alatta valaszthato a Google Fotok, a Google Drive es a MEGA.
+// Boss, TG 8500 ("525B"): a felhobeli mappat MINDEN feltoltesnel o valasztja ki.
+//
+// A Fotok a sajat, mar meglevo ablakat nyitja. A Drive es a MEGA kozos ablakot
+// kap: fiok, mappa (bongeszheto), ELONEZET, es csak utana a FELTOLTES. Semmit
+// nem ir felul: ami azon a neven mar ott van, az marad es megszamoljuk.
+// ===========================================================================
+function _cloudUpChoose() {
+  const paths = _gphotosPickedPaths()
+  if (!paths.length) { showToast(t('cloudup.pick_first')); return }
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay active'
+  overlay.id = 'cloudUpChooseOverlay'
+  const row = (id, title, help) => '<button type="button" class="btn-secondary cloudup-choice" id="' + id + '">'
+    + '<b>' + escapeHtml(title) + '</b><span>' + escapeHtml(help) + '</span></button>'
+  overlay.innerHTML = '<div class="modal-content" style="max-width:520px;padding:18px">'
+    + '<h3 style="margin:0 0 4px">' + escapeHtml(t('cloudup.choose_title')) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 10px">' + escapeHtml(t('cloudup.choose_help')) + '</p>'
+    + row('cloudUpPickPhotos', t('cloudup.to_photos'), t('cloudup.to_photos_help'))
+    + row('cloudUpPickDrive', t('cloudup.to_drive'), t('cloudup.to_drive_help'))
+    + row('cloudUpPickMega', t('cloudup.to_mega'), t('cloudup.to_mega_help'))
+    + '<div style="text-align:right;margin-top:10px"><button class="btn-secondary" id="cloudUpChooseClose">' + escapeHtml(t('intezo.dups.close')) + '</button></div>'
+    + '</div>'
+  document.body.appendChild(overlay)
+  const close = () => overlay.remove()
+  overlay.querySelector('#cloudUpChooseClose').addEventListener('click', close)
+  overlay.querySelector('#cloudUpPickPhotos').addEventListener('click', () => { close(); _gphotosUploadOpen() })
+  overlay.querySelector('#cloudUpPickDrive').addEventListener('click', () => { close(); _cloudUpOpen('drive') })
+  overlay.querySelector('#cloudUpPickMega').addEventListener('click', () => { close(); _cloudUpOpen('mega') })
+}
+
+async function _cloudUpOpen(kind) {
+  const paths = _gphotosPickedPaths()
+  if (!paths.length) { showToast(t('cloudup.pick_first')); return }
+  let targets
+  try {
+    const r = await fetch('/api/cloud-upload/targets')
+    if (!r.ok) throw new Error('http')
+    targets = await r.json()
+  } catch (e) { showToast(t('cloudup.targets_failed')); return }
+  const info = (targets && targets[kind]) || { accounts: [] }
+  const accounts = info.accounts || []
+  const service = t(kind === 'drive' ? 'cloudup.to_drive' : 'cloudup.to_mega')
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay active'
+  overlay.id = 'cloudUpOverlay'
+  const what = paths.length === 1 ? paths[0].split('/').join(' › ') : t('gphotos.up.n_picked', { n: String(paths.length) })
+  overlay.innerHTML = '<div class="modal-content" style="max-width:620px;padding:18px">'
+    + '<h3 style="margin:0 0 4px">' + escapeHtml(t('cloudup.title', { service })) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 10px">' + escapeHtml(t('cloudup.help')) + '</p>'
+    + '<p style="margin:0 0 8px;font-size:13px"><b>' + escapeHtml(t('gphotos.up.what')) + '</b> <span id="cloudUpWhat"></span></p>'
+    + '<p style="margin:0 0 8px;font-size:13px"><label><b>' + escapeHtml(t('cloudup.account')) + '</b> '
+    + '<select id="cloudUpAccount" class="input" style="width:auto"></select></label></p>'
+    + '<p style="margin:0 0 4px;font-size:13px"><b>' + escapeHtml(t('cloudup.folder')) + '</b> <span id="cloudUpHere"></span></p>'
+    + '<div id="cloudUpFolders" class="cloudup-folders" role="group" aria-label="' + escapeHtml(t('cloudup.folder')) + '"></div>'
+    + '<div id="cloudUpBody" style="font-size:13px;margin:8px 0"></div>'
+    + '<div style="text-align:right;margin-top:10px">'
+    + '<button class="btn-secondary" id="cloudUpClose">' + escapeHtml(t('intezo.dups.close')) + '</button> '
+    + '<button class="btn-secondary" id="cloudUpPlan">' + escapeHtml(t('gphotos.up.preview')) + '</button> '
+    + '<button class="btn-primary" id="cloudUpRun" disabled>' + escapeHtml(t('gphotos.up.run')) + '</button>'
+    + '</div></div>'
+  document.body.appendChild(overlay)
+  overlay.querySelector('#cloudUpWhat').textContent = what
+  const sel = overlay.querySelector('#cloudUpAccount')
+  const here = overlay.querySelector('#cloudUpHere')
+  const list = overlay.querySelector('#cloudUpFolders')
+  const body = overlay.querySelector('#cloudUpBody')
+  const planBtn = overlay.querySelector('#cloudUpPlan')
+  const runBtn = overlay.querySelector('#cloudUpRun')
+  const closeBtn = overlay.querySelector('#cloudUpClose')
+  let timer = null
+  const close = () => { if (timer) clearInterval(timer); overlay.remove() }
+  closeBtn.addEventListener('click', close)
+  const say = (lines, warn) => {
+    body.innerHTML = ''
+    body.classList.toggle('modal-note', !!warn)
+    for (const l of lines) {
+      if (!l) continue
+      const p = document.createElement('p')
+      p.style.cssText = 'margin:0 0 6px'
+      p.textContent = l
+      body.appendChild(p)
+    }
+  }
+  const goTo = (label, page) => {
+    const go = document.createElement('button')
+    go.className = 'btn-secondary btn-compact'
+    go.textContent = label
+    go.addEventListener('click', () => { close(); location.hash = '#' + page })
+    body.appendChild(go)
+  }
+  // FRISS TELEPITES: nincs bekotott fiok (vagy a MEGA-hoz kello segedprogram). Mondat es ut, nem ures lista.
+  if (!accounts.length || (kind === 'mega' && info.rclone === false)) {
+    planBtn.disabled = true
+    list.hidden = true
+    here.textContent = '—'
+    if (kind === 'drive') { say([t('gphotos.up.no_accounts')], true); goTo(t('gphotos.up.open_accounts'), 'accounts') }
+    else { say([t(accounts.length ? 'cloudup.mega_no_rclone' : 'cloudup.mega_no_accounts')], true); goTo(t('cloudup.open_mega'), 'megadepot') }
+    return
+  }
+  for (const a of accounts) {
+    const o = document.createElement('option')
+    o.value = a
+    o.textContent = a
+    if (a === info.default) o.selected = true
+    sel.appendChild(o)
+  }
+
+  // A valasztott felhobeli mappa: a gyokertol idaig vezeto lanc. Drive-nal azonosito + nev, MEGA-nal a nev maga az ut.
+  let trail = []
+  let planId = ''
+  let busy = false
+  const folderArg = () => kind === 'drive' ? (trail.length ? trail[trail.length - 1].id : 'root') : trail.map((x) => x.name).join('/')
+  const folderLabel = () => [t(kind === 'drive' ? 'cloudup.root_drive' : 'cloudup.root_mega')].concat(trail.map((x) => x.name)).join(' › ')
+  const reset = () => { planId = ''; runBtn.disabled = true; say([]) }
+
+  const loadFolders = async () => {
+    here.textContent = folderLabel()
+    list.innerHTML = ''
+    const note = document.createElement('p')
+    note.className = 'cloudup-folders-note'
+    note.textContent = t('cloudup.folders_loading')
+    list.appendChild(note)
+    const mine = folderArg()
+    let res, d
+    try {
+      res = await fetch(kind === 'drive'
+        ? '/api/drive/list?folderId=' + encodeURIComponent(mine) + '&account=' + encodeURIComponent(sel.value)
+        : '/api/mega/list?name=' + encodeURIComponent(sel.value) + '&path=' + encodeURIComponent(mine))
+      d = await res.json()
+    } catch (e) { res = null }
+    if (mine !== folderArg()) return // kozben tovabblepett
+    list.innerHTML = ''
+    if (trail.length) {
+      const up = document.createElement('button')
+      up.type = 'button'
+      up.className = 'cloudup-folder cloudup-folder-up'
+      up.textContent = '↑ ' + t('cloudup.folder_up')
+      up.addEventListener('click', () => { if (busy) return; trail.pop(); reset(); loadFolders() })
+      list.appendChild(up)
+    }
+    // "NEM LATTAM ODA" kulon mondat: a hibas lekerdezes nem ures mappa.
+    if (!res || !res.ok) {
+      const p = document.createElement('p')
+      p.className = 'cloudup-folders-note modal-note'
+      p.textContent = t('cloudup.folders_failed') + (d && (d.detail || d.error) ? ' (' + String(d.detail || d.error).slice(0, 200) + ')' : '')
+      list.appendChild(p)
+      planBtn.disabled = true
+      return
+    }
+    planBtn.disabled = busy
+    const subs = (kind === 'drive' ? (d.files || []).filter((f) => f.isFolder).map((f) => ({ id: f.id, name: f.name }))
+      : (d.items || []).filter((f) => f.isDir).map((f) => ({ id: '', name: f.name })))
+    if (!subs.length) {
+      const p = document.createElement('p')
+      p.className = 'cloudup-folders-note'
+      p.textContent = t('cloudup.folders_none')
+      list.appendChild(p)
+    }
+    for (const f of subs) {
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'cloudup-folder'
+      b.textContent = '📁 ' + f.name
+      b.addEventListener('click', () => { if (busy) return; trail.push(f); reset(); loadFolders() })
+      list.appendChild(b)
+    }
+  }
+  sel.addEventListener('change', () => { trail = []; reset(); loadFolders() })
+  loadFolders()
+
+  planBtn.addEventListener('click', async () => {
+    reset()
+    say([t('gphotos.up.planning')])
+    let res, d
+    try {
+      res = await fetch('/api/cloud-upload/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, account: sel.value, folder: folderArg(), folderLabel: folderLabel(), paths }) })
+      d = await res.json()
+    } catch (e) { say([t('gphotos.up.plan_failed')], true); return }
+    if (!res.ok) {
+      // A szolgaltatas SAJAT mondata megy ki: az okot nem talalgatjuk.
+      const detail = d && d.detail ? String(d.detail) : ''
+      say([d && d.code === 'target_unreadable' ? t('cloudup.target_unreadable') : d && d.code === 'no_token' ? t('cloudup.no_token', { account: sel.value }) : t('gphotos.up.plan_failed'), detail], true)
+      if (d && d.code === 'no_token') goTo(t('gphotos.up.open_accounts'), 'accounts')
+      return
+    }
+    const lines = []
+    lines.push(d.files ? t('cloudup.plan_files', { n: String(d.files), mb: _gphotosMb(d.bytes), folder: folderLabel() }) : t('cloudup.plan_nothing'))
+    if (d.exists) lines.push(t('cloudup.plan_exists', { n: String(d.exists) }))
+    if (d.clash) lines.push(t('cloudup.plan_clash', { n: String(d.clash) }))
+    if (d.badName) lines.push(t('cloudup.plan_bad_name', { n: String(d.badName) }))
+    if (d.unreadableCount) lines.push(t('gphotos.up.plan_unreadable', { n: String(d.unreadableCount) }))
+    if (d.truncated) lines.push(t('gphotos.up.plan_truncated'))
+    if (d.files && d.sample && d.sample.length) lines.push(t('cloudup.plan_sample', { list: d.sample.join(', ') + (d.files > d.sample.length ? ' …' : '') }))
+    say(lines)
+    planId = d.files ? d.planId : ''
+    runBtn.disabled = !planId
+  })
+
+  const showJob = (job) => {
+    if (!job) return
+    if (job.running) { say([t('gphotos.up.running', { done: String(job.done), total: String(job.total) }), job.current ? job.current.split('/').join(' › ') : '']); return }
+    const lines = []
+    if (job.error) lines.push(t('gphotos.up.job_error', { err: job.error }))
+    const r = job.result
+    if (r) {
+      lines.push(t('cloudup.done', { n: String(r.uploaded), folder: job.folderLabel || '' }))
+      if (r.skipped) lines.push(t('cloudup.plan_exists', { n: String(r.skipped) }))
+      if (r.failed && r.failed.length) lines.push(t('gphotos.up.done_failed', { n: String(r.failed.length), first: r.failed[0].rel.split('/').pop() + ': ' + r.failed[0].detail }))
+      if (r.stopped) lines.push(t('cloudup.stopped', { msg: r.stopped }))
+      if (r.remaining) lines.push(t('gphotos.up.remaining', { n: String(r.remaining) }))
+    }
+    say(lines, !!(job.error || (r && (r.stopped || (r.failed && r.failed.length)))))
+  }
+
+  runBtn.addEventListener('click', async () => {
+    if (!planId) return
+    runBtn.disabled = true
+    planBtn.disabled = true
+    sel.disabled = true
+    busy = true
+    const unlock = () => { busy = false; planBtn.disabled = false; sel.disabled = false }
+    let res, d
+    try {
+      res = await fetch('/api/cloud-upload/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ planId }) })
+      d = await res.json()
+    } catch (e) { say([t('gphotos.up.run_failed')], true); unlock(); return }
+    planId = ''
+    if (!res.ok) {
+      const map = { busy: t('gphotos.up.err_busy'), no_plan: t('gphotos.up.err_no_plan'), nothing_to_send: t('cloudup.plan_nothing') }
+      say([map[d && d.code] || t('gphotos.up.run_failed')], true)
+      unlock()
+      return
+    }
+    closeBtn.textContent = t('gphotos.up.hide')
+    const stop = document.createElement('button')
+    stop.className = 'btn-secondary'
+    stop.id = 'cloudUpStop'
+    stop.textContent = t('gphotos.up.stop')
+    stop.addEventListener('click', async () => { stop.disabled = true; try { await fetch('/api/cloud-upload/stop', { method: 'POST' }) } catch (e) { stop.disabled = false } })
+    runBtn.replaceWith(stop)
+    showJob(d.job)
+    timer = setInterval(async () => {
+      try {
+        const s = await (await fetch('/api/cloud-upload/status')).json()
+        showJob(s.job)
+        if (s.job && !s.job.running) {
+          clearInterval(timer); timer = null
+          closeBtn.textContent = t('intezo.dups.close')
+          stop.replaceWith(runBtn)
+          runBtn.disabled = true
+          unlock()
+        }
+      } catch (e) { /* a kovetkezo kor ujra megprobalja */ }
+    }, 1500)
+  })
+}
+
 // A Fotok oldal utoljara valasztott celmappaja fiokonkent (a szerver is megjegyzi; ez csak a mostani lap emlekezete).
 var _photosLastDest = {}
 
@@ -39651,7 +39914,7 @@ async function loadIntezoPage() {
   }
   bind('intezoRefreshBtn', 'click', () => _intezoOpen(_intezoPath))
   bind('intezoDupBtn', 'click', () => _dupToggle())
-  bind('intezoGphotosBtn', 'click', () => _gphotosUploadOpen())
+  bind('intezoGphotosBtn', 'click', () => _cloudUpChoose())
   void _dupRefreshStatus()
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())

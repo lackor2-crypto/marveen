@@ -21,7 +21,7 @@ import type { RouteContext } from './types.js'
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const UPLOAD_MAX_BYTES = 15 * 1024 * 1024
 
-function getAccessToken(account?: string): Promise<string> {
+export function getAccessToken(account?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [join(PROJECT_ROOT, 'scripts', 'google-auth.py'), 'token']
     if (account) args.push(account)
