@@ -12820,7 +12820,7 @@
         var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
         var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
         // A table keeps its size / alignment line (the text of the block after the lines) through an edit of the lines.
-        out += '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr
+        out += '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
           + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + ed + '>'
           + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
       })
@@ -12852,9 +12852,19 @@
       if (!seen[sid]) { seen[sid] = { title: '', blocks: [] }; order.push(sid) }
       return seen[sid]
     }
-    var kids = host.children
+    // #534: what stands directly in the host is read too: the browser puts text typed after "select all + delete" there
+    // as a bare text node, not in a block.
+    var kids = host.childNodes
+    var bare = function (txt) {
+      txt = String(txt || '').replace(/ /g, ' ').trim()
+      if (!txt) return
+      if (!cur) { if (!firstSec) return; cur = group(firstSec) }
+      cur.blocks.push({ kind: 'paragraph', text: txt })
+    }
     for (var i = 0; i < kids.length; i++) {
       var el = kids[i]
+      if (el.nodeType === 3) { bare(el.nodeValue); continue }
+      if (el.nodeType !== 1) continue
       if (el.classList.contains('wb-tw-todo')) continue
       var role = el.getAttribute('data-tw') || ''
       var sid = el.getAttribute('data-tw-sec') || ''
@@ -12867,18 +12877,37 @@
       if (role === 'island') { cur.blocks.push({ kind: el.getAttribute('data-tw-kind') || 'image', text: el.getAttribute('data-tw-text') || '' }); continue }
       var txt = textOf(el).trim()
       if (!txt) continue
-      cur.blocks.push({ kind: role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph'), text: txt })
+      var kind = role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph')
+      var nb = { kind: kind, text: txt }
+      if (kind !== 'table') {
+        // The paragraph's own look is read off the element, not guessed from a position: what stands on the page is what is saved.
+        var fm = dpFmtOf(el)
+        if (fm.rich && fm.plain === txt) nb.rich = fm.rich
+        var al = el.getAttribute('data-wb-align') || ''
+        if (DP_ALIGNS.indexOf(al) >= 0) nb.align = al
+        var pf = dpPfmtOf(el)
+        if (Object.keys(pf).length) nb.pfmt = pf
+      }
+      cur.blocks.push(nb)
     }
+    var shownOnes = (o.sections || []).filter(function (sec) { return shownIds.indexOf(sec.id) >= 0 && tw.prev[twKey(sec.id)] })
+    // A page emptied altogether (select all + delete) is taken for an accident, not for "forget every translation":
+    // the translations stay, the next redraw puts them back, and the page says so. The browser's own undo works until then.
+    if (tw.note === t('workbench.tw.emptied_kept')) tw.note = ''
+    var anyText = order.some(function (sid2) { return seen[sid2].title || seen[sid2].blocks.length })
+    if (!anyText && shownOnes.length) { tw.note = t('workbench.tw.emptied_kept'); return }
+    var dropped = 0
     ;(o.sections || []).forEach(function (sec) {
       var key = twKey(sec.id)
       var pv = tw.prev[key]
       if (!pv || shownIds.indexOf(sec.id) < 0) return
       var g = seen[sec.id]
-      if (!g) { delete tw.prev[key]; return }
+      // A chapter whose heading was deleted is no longer translated: counted, and the page says how many (twPanelInnerHtml).
+      if (!g) { delete tw.prev[key]; dropped++; return }
       var oldBlocks = pv.blocks || []
       pv.title = g.title || pv.title
       pv.blocks = g.blocks.map(function (b, i) {
-        // The same text as before keeps what the preview carried (claims, text format); an edited paragraph is plain text.
+        // The same text as before keeps what the preview carried (claims, text format); an edited paragraph keeps its look.
         var same = oldBlocks.filter(function (x) { return x.kind === b.kind && (x.kind === 'image' ? x.text === b.text : (x.kind === 'table' ? dpTableParts(x.text).text : x.text) === b.text) })[0]
         if (same) return same
         var prevAt = oldBlocks[i]
@@ -12886,9 +12915,14 @@
           var tp = dpTableParts(prevAt.text)
           return { kind: 'table', text: dpTableText(b.text, tp.width, tp.align), claims: [] }
         }
-        return { kind: b.kind, text: b.text, claims: [] }
+        var nb2 = { kind: b.kind, text: b.text, claims: [] }
+        if (b.rich) nb2.rich = b.rich
+        if (b.align) nb2.align = b.align
+        if (b.pfmt) nb2.pfmt = b.pfmt
+        return nb2
       })
     })
+    if (dropped) tw.dropped = (tw.dropped || 0) + dropped
   }
   function twPanelInnerHtml(o, ro) {
     var tw = twState()
@@ -12906,8 +12940,9 @@
       + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="tw-save"' + (tw.busy || !have ? ' disabled' : '') + ' title="' + escA(t('workbench.tw.save_hint')) + '">' + esc(t('workbench.tw.save')) + '</button>')
       + '</div>'
     var note = tw.note ? '<p class="wb-hint wb-tw-note">' + esc(tw.note) + '</p>' : ''
+    var droppedHint = tw.dropped ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.dropped', { n: tw.dropped })) + '</p>' : ''
     var failed = tw.failed.length ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.failed', { n: tw.failed.length })) + '</p>' : ''
-    return head + note + failed + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
+    return head + note + droppedHint + failed + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
   }
   /** The Draft tab: just the page, or the page with the translation next to it. */
   /** The "show/hide translation" button. It sits in the action row beside "Finalize" (Boss TG 2839: the page starts as high as possible). */
@@ -12941,7 +12976,7 @@
     if (sel) { tw.lang = sel.value; writePref('wb.tw.lang', tw.lang) }
     var todo = (o.sections || []).filter(function (sec) { var pv = tw.prev[twKey(sec.id)]; return !pv || pv.sig !== twSig(sec) })
     if (!todo.length) todo = (o.sections || []).slice()
-    tw.busy = true; tw.note = ''; tw.failed = []
+    tw.busy = true; tw.note = ''; tw.failed = []; tw.dropped = 0
     twRefresh()
     var lang = tw.lang
     var next = function (i) {
@@ -13010,10 +13045,12 @@
     var frag = tail.extractContents()
     var title = el.getAttribute('data-tw') === 'title'
     var nb = document.createElement('div')
-    nb.className = 'wb-tw-block wb-outline-kind-paragraph'
+    // A new paragraph wears the look of the one it was split from (alignment, paragraph format); one made from a heading is a plain paragraph.
+    nb.className = title ? 'wb-tw-block wb-outline-kind-paragraph' : el.className
     nb.setAttribute('data-tw', 'block')
     nb.setAttribute('data-tw-sec', el.getAttribute('data-tw-sec') || '')
     nb.setAttribute('data-tw-kind', title ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph'))
+    if (!title) ['data-wb-align', 'data-wb-pfmt', 'style'].forEach(function (a) { if (el.hasAttribute(a)) nb.setAttribute(a, el.getAttribute(a)) })
     nb.setAttribute('contenteditable', 'true')
     nb.appendChild(frag)
     if (!nb.textContent) nb.appendChild(document.createElement('br'))
@@ -13026,12 +13063,40 @@
     sel.addRange(nr)
     return true
   }
+  /** A new line INSIDE the block (a table's rows, a list's items, Shift+Enter): a line break, not a new block. */
+  function twLineBreakAtCaret() {
+    var sel = window.getSelection()
+    if (!sel || !sel.rangeCount) return false
+    var r = sel.getRangeAt(0)
+    var node = r.startContainer
+    var el = node.nodeType === 1 ? node : node.parentNode
+    el = el && typeof el.closest === 'function' ? el.closest('[data-tw="block"],[data-tw="title"]') : null
+    if (!el || el.getAttribute('data-tw') === 'title') return false
+    if (!r.collapsed) r.deleteContents()
+    var br = document.createElement('br')
+    r.insertNode(br)
+    // A break at the very end shows no new line until something follows it: the second one is the caret's place (a trailing break is not content).
+    if (!br.nextSibling) el.appendChild(document.createElement('br'))
+    var nr = document.createRange()
+    nr.setStartAfter(br)
+    nr.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(nr)
+    return true
+  }
   document.addEventListener('beforeinput', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     if (!e.target.closest('#wbTwPage')) return
     if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
       e.preventDefault()
-      twSplitAtCaret()
+      var sel = window.getSelection()
+      var n = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null
+      var host = n ? (n.nodeType === 1 ? n : n.parentNode) : null
+      host = host && typeof host.closest === 'function' ? host.closest('[data-tw="block"]') : null
+      var multi = host && /^(table|list)$/.test(host.getAttribute('data-tw-kind') || '')
+      // Enter in a table / list adds a row / item inside the block; Shift+Enter is a line break in any block;
+      // Enter in a plain paragraph starts a new paragraph.
+      if (e.inputType === 'insertLineBreak' || multi) { if (!twLineBreakAtCaret()) twSplitAtCaret() } else twSplitAtCaret()
     }
   })
   document.addEventListener('paste', function (e) {
@@ -13728,6 +13793,7 @@
       return '<div class="wb-sh-doc-body">' + previewHtml() + '</div>'
     }
     var ro = archived()
+    twCollect() // #534: any redraw (another tab, a changed original) first reads back what stands on the translation page
     var tab = WB.shDocTab
     var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview'], ['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps']]
     var head = '<div class="wb-sh-doc-tabs" role="tablist">' + tabs.map(function (x) {

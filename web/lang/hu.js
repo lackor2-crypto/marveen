@@ -8153,6 +8153,8 @@ window._i18n.hu = {
   "workbench.tw.working_sec": "Fordítom ezt a fejezetet…",
   "workbench.tw.not_yet": "Még nincs lefordítva. Nyomd meg a Fordítás gombot.",
   "workbench.tw.stale": "Az eredeti azóta megváltozott, ez a fordítás régi. Nyomd meg a Fordítást.",
+  "workbench.tw.dropped": "{n} fejezet fordítása törölve lett, mert a címsora hiányzott az oldalról. Nyomd meg a Fordítást, ha újra kell.",
+  "workbench.tw.emptied_kept": "Az üres oldalt nem mentem el: a fordítások megmaradtak. A beírás előtti állapot visszajött.",
   "workbench.tw.stale_n": "{n} fejezet fordítása régi: nyomd meg a Fordítást, mielőtt elmented.",
   "workbench.tw.save": "Fordítás mentése",
   "workbench.tw.save_hint": "A látott fordítást elmenti a nyelvi változatba (külön munkadarab, ugyanabban a mappában). Ami régi, azt nem menti.",

@@ -28,7 +28,7 @@ import {
   type BlockKind, type CheckItem, type ModelResult, type SectionRow, type SourceRow,
 } from './workbench-docmodel.js'
 import { normalizeForMatch } from './workbench-docread.js'
-import { parsePfmt, richUniform } from './workbench-docrich.js'
+import { isBlockAlign, parsePfmt, richMatches, richToPlain, sanitizePfmt, sanitizeRich, richUniform } from './workbench-docrich.js'
 import { createWorkItem, getWorkItem, type WorkItemRow } from './workbench.js'
 import { assignWorkItemFolder } from './workbench-assets.js'
 import { projectFileTarget } from './project-files.js'
@@ -306,6 +306,11 @@ export interface TranslatedBlockInput {
   text?: unknown
   /** Az eredeti allitasai a forditasban: melyik eredeti allitas (id) melyik szo szerinti resz lett. */
   claims?: unknown
+  /** #534: the look the block has ON THE SCREEN (read back from the page the owner edited); it wins over the look
+   *  inherited from the source block at the same place, which is only the fallback when the caller gave none. */
+  rich?: unknown
+  align?: unknown
+  pfmt?: unknown
 }
 
 export interface TranslateOutcome {
@@ -339,6 +344,21 @@ export function carriedLook(sb: { text: string; rich?: string | null; align?: st
   return look
 }
 
+/** The look a translated block is saved with: the one it came with (#534, what the owner edited on the page) when it
+ *  has any, else what the source block at the same place wears (#558). */
+export function lookOfBlock(sb: { text: string; rich?: string | null; align?: string | null; pfmt?: string | null } | null, b: { rich?: unknown; align?: unknown; pfmt?: unknown }, text: string): { rich?: string; align?: string; pfmt?: NonNullable<ReturnType<typeof parsePfmt>> } {
+  const own: { rich?: string; align?: string; pfmt?: NonNullable<ReturnType<typeof parsePfmt>> } = {}
+  if (isBlockAlign(b.align)) own.align = b.align
+  const pf = b.pfmt && typeof b.pfmt === 'object' ? sanitizePfmt(b.pfmt) : null
+  if (pf) own.pfmt = pf
+  if (typeof b.rich === 'string' && b.rich) {
+    const r = sanitizeRich(b.rich)
+    if (r && richToPlain(r).replace(/\r\n/g, '\n').trim() === text && richMatches(r, text)) own.rich = r
+  }
+  if (Object.keys(own).length) return own
+  return sb ? carriedLook(sb, text) : {}
+}
+
 export function translationAlreadySaved(variantId: string, input: { source_section?: unknown; title?: unknown; blocks?: unknown }): boolean {
   ensureDocLangTables()
   const v = variantOf(variantId)
@@ -351,7 +371,7 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
   const cur = db.prepare('SELECT title FROM wb_doc_sections WHERE id = ?').get(link.section_id) as { title: string } | undefined
   if (!cur || cur.title !== String(input.title ?? '').trim()) return false
   const have = db.prepare('SELECT kind, text, rich, align, pfmt FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(link.section_id) as { kind: string; text: string; rich: string | null; align: string | null; pfmt: string | null }[]
-  const raw = Array.isArray(input.blocks) ? input.blocks as { kind?: unknown; text?: unknown }[] : []
+  const raw = Array.isArray(input.blocks) ? input.blocks as TranslatedBlockInput[] : []
   if (have.length !== raw.length) return false
   // #558: "the same" includes the look the block inherits from the source: a variant saved before the look was
   // carried (or whose source was reformatted since) is written again, so it gets it.
@@ -362,8 +382,8 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
     const text = String(b.text ?? '').replace(/\r\n/g, '\n').trim()
     if (have[i]!.kind !== kind || have[i]!.text !== text) return false
     const sb = paired && srcList[i]!.kind === kind ? srcList[i]! : null
-    if (!sb) return true
-    const look = carriedLook(sb, text)
+    const look = lookOfBlock(sb, b, text)
+    if (!sb && !Object.keys(look).length) return true
     return (have[i]!.align ?? '') === (look.align ?? '') && JSON.stringify(parsePfmt(have[i]!.pfmt)) === JSON.stringify(look.pfmt ?? null)
       && (have[i]!.rich ?? '') === (look.rich ?? '')
   })
@@ -387,7 +407,7 @@ export function translateSection(variantId: string, input: { source_section?: un
   // Egy csak cimbol allo eredeti fejezet forditasa maga a cim: blokk nelkul is mentheto.
   const srcBlocks = (getDb().prepare('SELECT COUNT(*) AS n FROM wb_doc_blocks WHERE section_id = ?').get(src.id) as { n: number }).n
   if (!raw.length && srcBlocks > 0) return { ok: false, code: 'bad_input', detail: 'blocks: the translated blocks of the section, in order ({kind, text, claims: [{source_claim, text}]}); blocks: [] only when the original section has no blocks' }
-  const blocks: { kind: BlockKind; text: string; claims: { source_claim: string; text: string }[] }[] = []
+  const blocks: { kind: BlockKind; text: string; claims: { source_claim: string; text: string }[]; own: { rich?: unknown; align?: unknown; pfmt?: unknown } }[] = []
   for (const b of raw) {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
     if (!BLOCK_KINDS.includes(kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
@@ -395,7 +415,7 @@ export function translateSection(variantId: string, input: { source_section?: un
     if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `each block text must be 1 to ${BLOCK_TEXT_MAX} characters` }
     const cl = (Array.isArray(b.claims) ? b.claims as { source_claim?: unknown; text?: unknown }[] : [])
       .map((c) => ({ source_claim: String(c.source_claim ?? ''), text: String(c.text ?? '').trim() }))
-    blocks.push({ kind: kind as BlockKind, text, claims: cl })
+    blocks.push({ kind: kind as BlockKind, text, claims: cl, own: { rich: b.rich, align: b.align, pfmt: b.pfmt } })
   }
   const db = getDb()
   const srcClaims = db.prepare(`SELECT c.id, c.text, c.created_by FROM wb_doc_claims c JOIN wb_doc_blocks b ON b.id = c.block_id
@@ -422,7 +442,7 @@ export function translateSection(variantId: string, input: { source_section?: un
     for (let bi = 0; bi < blocks.length; bi++) {
       const b = blocks[bi]!
       const sb = paired && srcList[bi]!.kind === b.kind ? srcList[bi]! : null
-      const look = sb ? carriedLook(sb, b.text) : {}
+      const look = lookOfBlock(sb, b.own, b.text)
       const nb = addBlock(variantId, secId, { kind: b.kind, text: b.text, ...look, author: 'agent' })
       if (!nb.ok) { box.failed = { code: nb.code === 'too_many' ? 'too_many' : 'bad_input', detail: nb.detail }; throw new Error('rollback') }
       const norm = normalizeForMatch(b.text)

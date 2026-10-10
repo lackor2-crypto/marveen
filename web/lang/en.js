@@ -8079,6 +8079,8 @@ window._i18n.en = {
   "workbench.tw.working_sec": "Translating this section…",
   "workbench.tw.not_yet": "Not translated yet. Press Translate.",
   "workbench.tw.stale": "The original has changed since, so this translation is old. Press Translate.",
+  "workbench.tw.dropped": "The translation of {n} section(s) was removed because its heading was missing from the page. Press Translate to make it again.",
+  "workbench.tw.emptied_kept": "An empty page is not kept: the translations stayed. The state before the deletion is back.",
   "workbench.tw.stale_n": "{n} section(s) have an old translation: press Translate before you save.",
   "workbench.tw.save": "Save translation",
   "workbench.tw.save_hint": "Saves the translation you see into the language version (a separate work item in the same folder). Old sections are not saved.",
