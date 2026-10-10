@@ -99,6 +99,11 @@ describe('the draft page wiring', () => {
     expect(js).toContain('/outline/translate-preview')
     expect(js).toContain('/outline/translation-save')
   })
+  it('turning the side-by-side view on closes the tool panel, so the two columns are not squeezed to a few words a line', () => {
+    const at = js.indexOf("a === 'tw-toggle'")
+    const handler = js.slice(at, js.indexOf('render()', at))
+    expect(handler).toContain("if (twS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }")
+  })
   it('every text the panel shows exists in Hungarian and in English', () => {
     expect(new Set(keys).size).toBeGreaterThanOrEqual(8)
     for (const f of ['hu', 'en']) {
