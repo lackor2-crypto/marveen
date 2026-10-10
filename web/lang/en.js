@@ -7989,7 +7989,7 @@ window._i18n.en = {
   "workbench.dp.fmt_pick": "Click into the text you want to format first.",
   "workbench.tw.show": "Translate alongside",
   "workbench.tw.hide": "Hide translation",
-  "workbench.tw.toggle_hint": "Shows its translation next to the page, section by section. The original (left) stays editable.",
+  "workbench.tw.toggle_hint": "Shows its translation next to the page, section by section. The original (left) stays editable. The tool panel on the far left closes to make room for the two columns; any button on the left rail opens it again.",
   "workbench.tw.panel_label": "Translation",
   "workbench.tw.lang": "Language:",
   "workbench.tw.run": "Translate",

@@ -8063,7 +8063,7 @@ window._i18n.hu = {
   "workbench.dp.fmt_pick": "Előbb kattints a szövegbe, amit formázni szeretnél.",
   "workbench.tw.show": "Fordítás mellé",
   "workbench.tw.hide": "Fordítás elrejtése",
-  "workbench.tw.toggle_hint": "Az oldal mellett, jobbra megmutatja a fordítását fejezetenként. Az eredeti (bal oldal) szerkeszthető marad.",
+  "workbench.tw.toggle_hint": "Az oldal mellett, jobbra megmutatja a fordítását fejezetenként. Az eredeti (bal oldal) szerkeszthető marad. A bal szélső eszköz-panel ehhez becsukódik, hogy a két oszlopnak legyen helye; a bal sáv bármelyik gombjával visszanyitod.",
   "workbench.tw.panel_label": "Fordítás",
   "workbench.tw.lang": "Nyelv:",
   "workbench.tw.run": "Fordítás",

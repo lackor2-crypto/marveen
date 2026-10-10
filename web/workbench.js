@@ -14734,7 +14734,12 @@
     else if (a === 'sh-more') { WB.shMore = !WB.shMore; render(); if (WB.shMore) scrollTechIntoView() }
     else if (a === 'sh-recent-view') { WB.recentMode = act.getAttribute('data-wb-mode') === 'list' ? 'list' : 'grid'; saveRecentMode(WB.recentMode); render() }
     else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
-    else if (a === 'tw-toggle') { var twS = twState(); twS.on = !twS.on; writePref('wb.tw.on', twS.on ? '1' : ''); render() }
+    else if (a === 'tw-toggle') {
+      var twS = twState(); twS.on = !twS.on; writePref('wb.tw.on', twS.on ? '1' : '')
+      // Two pages side by side need the room the tool panel takes: close it, as a click on its open rail tab would (#527).
+      if (twS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }
+      render()
+    }
     else if (a === 'tw-run') twRun()
     else if (a === 'tw-save') twSave()
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
