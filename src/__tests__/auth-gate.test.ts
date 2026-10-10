@@ -104,7 +104,9 @@ describe('session cookie lane', () => {
     expect(r).toEqual({ kind: 'session', user: 'alice' })
   })
 
-  it('bearer takes precedence over a present session cookie', () => {
+  // #556 (owner report): a logged-in BROWSER sends the dashboard token with its session cookie. The session names the
+  // caller -- as a nameless token caller the owner was refused every "owner only" action ("Finalize").
+  it('a valid bearer WITH a valid session cookie is that logged-in user', () => {
     const u = createDashboardUser('bob', '$scrypt$ln=16,r=8,p=1$c2FsdA==$a2V5')
     const cookie = createSession({ userId: u.id, username: u.username })
     const r = resolveAuth(
@@ -114,7 +116,21 @@ describe('session cookie lane', () => {
       'GET',
       TOKEN,
     )
-    expect(r).toEqual({ kind: 'token' })
+    expect(r).toEqual({ kind: 'session', user: 'bob' })
+  })
+
+  it('a valid bearer with a garbage or foreign cookie stays the token lane (agents, scripts, a logged-out browser)', () => {
+    for (const cookie of [`${SESSION_COOKIE_NAME}=deadbeef`, 'other=1', '']) {
+      const r = resolveAuth(mkReq({ authorization: `Bearer ${TOKEN}`, cookie }), mkUrl('/api/memories'), '/api/memories', 'GET', TOKEN)
+      expect(r).toEqual({ kind: 'token' })
+    }
+  })
+
+  it('a WRONG bearer with a valid session cookie is still the session (the bearer lane does not swallow it)', () => {
+    const u = createDashboardUser('carol', '$scrypt$ln=16,r=8,p=1$c2FsdA==$a2V5')
+    const cookie = createSession({ userId: u.id, username: u.username })
+    const r = resolveAuth(mkReq({ authorization: 'Bearer nope', cookie: `${SESSION_COOKIE_NAME}=${cookie}` }), mkUrl('/api/memories'), '/api/memories', 'GET', TOKEN)
+    expect(r).toEqual({ kind: 'session', user: 'carol' })
   })
 
   it('rejects an unknown/garbage cookie value -> none', () => {

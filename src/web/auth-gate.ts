@@ -112,8 +112,19 @@ export function resolveAuth(
   method: string,
   dashboardToken: string,
 ): AuthResult {
-  // 1. Bearer header -- unchanged, highest precedence.
-  if (checkBearerToken(req.headers.authorization, dashboardToken)) return { kind: 'token' }
+  // 1. Bearer header -- highest precedence. A logged-in BROWSER sends the dashboard token too (the page attaches it
+  //    to every API call when it has one stored), together with its session cookie: then the session says WHO is
+  //    there. Without this the owner, logged in by name and password, was answered as a nameless token caller and
+  //    every "owner only" action refused them (#556, owner report: "Finalize" answered approval_owner_only).
+  //    A caller with the token and no valid session cookie (an agent, a script) stays { kind: 'token' }.
+  if (checkBearerToken(req.headers.authorization, dashboardToken)) {
+    const withToken = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]
+    if (withToken) {
+      const session = resolveSession(withToken)
+      if (session) return { kind: 'session', user: session.username }
+    }
+    return { kind: 'token' }
+  }
 
   // 2. Bearer device key. Runs only after the dashboard token failed to match,
   //    so the token lane stays byte-identical; resolveDeviceKey's prefix check

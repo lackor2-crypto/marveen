@@ -255,6 +255,11 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a projekt archiválva van, ezért csak olvasható. Ha dolgozni akarsz benne, előbb állítsd vissza a Projektek oldalon.',
     en: 'This project is archived, so it is read-only. To work in it, restore it first on the Projects page.',
   },
+  // #556: what to DO, not only who may -- a dashboard opened with the access link alone has no named login yet.
+  finalize_login_needed: {
+    hu: 'A véglegesítéshez névvel és jelszóval belépve kell lenned. Ha még nincs ilyen belépésed, a lap tetején a „Belépés beállítása” gombbal készíthetsz egyet; utána lépj be vele, és nyomd meg újra.',
+    en: 'To finalize you need to be signed in with a name and a password. If you have no such sign-in yet, create one with the "Set up sign-in" button at the top of the page; then sign in with it and press this again.',
+  },
   approval_owner_only: {
     hu: 'Elfogadni vagy visszadobni csak a tulajdonos tud, bejelentkezve a felületen.',
     en: 'Only the owner can approve or send back, signed in on the dashboard.',
@@ -4140,7 +4145,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       r = decideWorkItemApproval(item.id, action === 'approve' ? 'approved' : 'rejected', { by: who || 'dashboard', reason: body['reason'] })
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'approval_owner_only', lang)
+      if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
       r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id)
     } else return fail(res, 400, 'approval_bad_action', lang)
     if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)
