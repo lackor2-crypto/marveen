@@ -46,6 +46,9 @@ describe('ensureOneCardOneFixSection', () => {
     // Point 6 (2026-09-23): one project = one card, enforced at creation.
     expect(out).toContain('EGY PROJEKT = EGY KARTYA')
     expect(out).toContain('same_project')
+    // Point 7 (#538, 2026-10-10): a card that reached waiting is frozen -- new work is a NEW card.
+    expect(out).toContain('A VARAKOZOBA KERULT KARTYAT NEM BOVITJUK')
+    expect(out).toContain('amig a kartya NINCS a varakozoban')
     expect(out).toContain('Sajat tartalom.')
     // Host-agnostic: the generated block names no owner and no agent literal.
     expect(out).not.toContain('Boss')
@@ -99,6 +102,10 @@ describe('ensureOneCardOneFixSection', () => {
     expect(skillText).toContain('name: one-card-one-fix')
     // The waiting-card clause ships in the seed skill for fresh installs too.
     expect(skillText).toContain('waiting, ezt már nem csinálom meg')
+    // #538: the frozen-waiting-card rule ships in the seed skill too.
+    expect(skillText).toContain('A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK')
+    const creation = readFileSync(join(PROJECT_ROOT, 'seed-skills', 'kanban-card-creation', 'SKILL.md'), 'utf-8')
+    expect(creation).toContain('A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK')
   })
 
   it('the main-agent CLAUDE.md template carries the rule (fresh clone)', () => {
@@ -106,6 +113,8 @@ describe('ensureOneCardOneFixSection', () => {
     expect(text).toContain('EGY HIBA = EGY KÁRTYA')
     // The fresh-clone template also carries the waiting-card clause (point 5).
     expect(text).toContain('waiting, ezt már nem csinálom meg')
+    // #538: and the frozen-waiting-card rule (point 7).
+    expect(text).toContain('A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK')
   })
 })
 
