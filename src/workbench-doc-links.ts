@@ -21,6 +21,8 @@
 //
 // Nothing here moves, copies or deletes a file.
 
+import { randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
@@ -91,8 +93,10 @@ export function linkedUsesUnder(rel: string): LinkedUse[] {
   ensureLifeDocTables()
   ensureWorkbenchTables()
   const rows = linkedAnnexRows()
-  if (!rows.length) return []
   const out: LinkedUse[] = []
+  // Phase 2: a document a project holds in a role (source, reference, related) is in use too.
+  for (const d of projectDocRowsUnder(key)) out.push({ file: d.rel, project: d.project, item: '', label: d.role })
+  if (!rows.length) return out
   const numberOf = new Map<string, Map<string, string>>()
   for (const a of rows) {
     const doc = documentById(a.path.slice(LINKED_PREFIX.length))
@@ -102,6 +106,169 @@ export function linkedUsesUnder(rel: string): LinkedUse[] {
     let labels = numberOf.get(a.work_item_id)
     if (!labels) { labels = new Map(listAnnexes(a.work_item_id).map((v) => [v.id, v.label])); numberOf.set(a.work_item_id, labels) }
     out.push({ file: doc.rel, project: w.project || '', item: w.item, label: labels.get(a.id) || '' })
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 2: A DOCUMENT'S ROLE IN A PROJECT (specification, chapters 10, 15, 28, 41, 42, 60)
+// ---------------------------------------------------------------------------
+//
+// "Mely dokumentumokbol dolgozunk?" -- a project gathers the documents it works FROM
+// (source), the ones it only refers to (reference), and the ones that merely belong to
+// the matter (related), without copying any of them. An ATTACHMENT is not kept here: that
+// is the annex list of a submission (above), and this view only shows it, read from there.
+// Removing a row removes the link, never the file.
+
+export const PROJECT_DOC_ROLES = ['source', 'reference', 'related'] as const
+export type ProjectDocRole = typeof PROJECT_DOC_ROLES[number]
+export const isProjectDocRole = (v: unknown): v is ProjectDocRole => typeof v === 'string' && (PROJECT_DOC_ROLES as readonly string[]).includes(v)
+export const PROJECT_DOCS_MAX = 500
+export const PROJECT_DOC_NOTE_MAX = 300
+
+let pdTablesDb: unknown = null
+export function ensureProjectDocTables(): void {
+  const db = getDb()
+  if (pdTablesDb === db) return
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_documents (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      life_rel TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      created_by TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_project_documents_one ON project_documents(project_id, document_id);
+    CREATE INDEX IF NOT EXISTS idx_project_documents_doc ON project_documents(document_id);
+  `)
+  pdTablesDb = db
+}
+
+interface PdRow { id: string; project_id: string; document_id: string; role: string; life_rel: string; note: string; created_at: number; created_by: string | null }
+
+export interface ProjectDocView {
+  id: string
+  role: ProjectDocRole
+  note: string
+  /** The file's name and place as they are now; the last known ones when it cannot be found. */
+  name: string
+  life_rel: string
+  /** false = not at its place (moved outside Marveen, or the disk is not there) -- never "deleted". */
+  exists: boolean
+  created_at: number
+}
+
+export interface ProjectAttachmentView { item_id: string; item: string; label: string; title: string; name: string; life_rel: string; exists: boolean }
+
+export type PdResult<T> = ({ ok: true } & T) | { ok: false; code: 'bad_input' | 'bad_role' | 'file_missing' | 'duplicate' | 'too_many' | 'not_found'; detail: string }
+
+const baseOf = (rel: string): string => rel.slice(rel.lastIndexOf('/') + 1)
+
+function docNow(docId: string, lastRel: string): { rel: string; exists: boolean } {
+  const doc = documentById(docId)
+  const rel = doc ? doc.rel : lastRel
+  const abs = resolveLifePath(rel)
+  let exists = false
+  if (abs) { try { exists = statSync(abs).isFile() } catch { exists = false } }
+  return { rel, exists }
+}
+
+/** The documents the project holds in a role, and (read from the annex lists) the ones its submissions attach. */
+export function listProjectDocs(projectId: string): { docs: ProjectDocView[]; attachments: ProjectAttachmentView[]; searching: number } {
+  ensureProjectDocTables()
+  ensureWorkbenchTables()
+  const db = getDb()
+  let searching = 0
+  const lookFor = (docId: string): void => {
+    searching++
+    if (looking.has(docId)) return
+    looking.add(docId)
+    void relocateDocument(docId)
+      .catch((err) => logger.warn({ err: String(err?.message || err), docId }, '[doc-links] looking for a project document failed'))
+      .finally(() => { setTimeout(() => looking.delete(docId), 10 * 60_000).unref() })
+  }
+  const rows = db.prepare('SELECT * FROM project_documents WHERE project_id = ? ORDER BY role, created_at, id').all(projectId) as PdRow[]
+  const docs = rows.map((r) => {
+    const now = docNow(r.document_id, r.life_rel)
+    if (now.exists && now.rel !== r.life_rel) db.prepare('UPDATE project_documents SET life_rel = ? WHERE id = ?').run(now.rel, r.id)
+    if (!now.exists) lookFor(r.document_id)
+    return { id: r.id, role: (isProjectDocRole(r.role) ? r.role : 'related') as ProjectDocRole, note: r.note, name: baseOf(now.rel), life_rel: now.rel, exists: now.exists, created_at: r.created_at }
+  })
+  const attachments: ProjectAttachmentView[] = []
+  const items = db.prepare('SELECT id, title FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string }[]
+  for (const it of items) {
+    for (const a of listAnnexes(it.id)) {
+      if (!a.linked) continue
+      const now = docNow(a.path.slice(LINKED_PREFIX.length), a.life_rel || '')
+      attachments.push({ item_id: it.id, item: it.title, label: a.label, title: a.title, name: baseOf(now.rel), life_rel: now.rel, exists: now.exists })
+    }
+  }
+  return { docs, attachments, searching }
+}
+
+/** Put a Life-tree file into the project in a role. No copy is made; one document has one role in one project. */
+export async function addProjectDoc(projectId: string, lifeRel: string, input: { role?: unknown; note?: unknown }, by: string | null): Promise<PdResult<{ id: string }>> {
+  ensureProjectDocTables()
+  const role = input.role === undefined || input.role === null || input.role === '' ? 'source' : input.role
+  if (!isProjectDocRole(role)) return { ok: false, code: 'bad_role', detail: `role must be one of ${PROJECT_DOC_ROLES.join(', ')}` }
+  const note = String(input.note ?? '').trim()
+  if (note.length > PROJECT_DOC_NOTE_MAX) return { ok: false, code: 'bad_input', detail: `the note is at most ${PROJECT_DOC_NOTE_MAX} characters` }
+  const rel = norm(lifeRel)
+  if (!rel || rel.split('/').includes('..')) return { ok: false, code: 'bad_input', detail: 'rel (a file of the Life tree) is required' }
+  const abs = resolveLifePath(rel)
+  if (!abs) return { ok: false, code: 'file_missing', detail: 'this place is not inside the Life tree' }
+  try { if (!(await stat(abs)).isFile()) return { ok: false, code: 'bad_input', detail: 'a folder cannot be added, only a file' } } catch { return { ok: false, code: 'file_missing', detail: 'there is no such file' } }
+  const docId = await ensureDocumentId(rel)
+  if (!docId) return { ok: false, code: 'file_missing', detail: 'there is no such file' }
+  const db = getDb()
+  if (db.prepare('SELECT 1 FROM project_documents WHERE project_id = ? AND document_id = ?').get(projectId, docId)) return { ok: false, code: 'duplicate', detail: 'this document is already in the project' }
+  const n = (db.prepare('SELECT COUNT(*) AS n FROM project_documents WHERE project_id = ?').get(projectId) as { n: number }).n
+  if (n >= PROJECT_DOCS_MAX) return { ok: false, code: 'too_many', detail: `a project holds at most ${PROJECT_DOCS_MAX} documents` }
+  const id = randomUUID().slice(0, 12)
+  db.prepare('INSERT INTO project_documents (id, project_id, document_id, role, life_rel, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, projectId, docId, role, rel, note, Math.floor(Date.now() / 1000), by)
+  void hashDocument(docId).catch((err) => logger.warn({ err: String(err?.message || err), docId }, '[doc-links] hashing a project document failed'))
+  return { ok: true, id }
+}
+
+export function updateProjectDoc(projectId: string, id: string, patch: { role?: unknown; note?: unknown }): PdResult<object> {
+  ensureProjectDocTables()
+  const db = getDb()
+  const row = db.prepare('SELECT * FROM project_documents WHERE id = ? AND project_id = ?').get(String(id || ''), projectId) as PdRow | undefined
+  if (!row) return { ok: false, code: 'not_found', detail: 'no such document in this project' }
+  let role = row.role
+  let note = row.note
+  if (patch.role !== undefined && patch.role !== null) {
+    if (!isProjectDocRole(patch.role)) return { ok: false, code: 'bad_role', detail: `role must be one of ${PROJECT_DOC_ROLES.join(', ')}` }
+    role = patch.role
+  }
+  if (patch.note !== undefined && patch.note !== null) {
+    note = String(patch.note).trim()
+    if (note.length > PROJECT_DOC_NOTE_MAX) return { ok: false, code: 'bad_input', detail: `the note is at most ${PROJECT_DOC_NOTE_MAX} characters` }
+  }
+  db.prepare('UPDATE project_documents SET role = ?, note = ? WHERE id = ?').run(role, note, row.id)
+  return { ok: true }
+}
+
+/** "Eltavolitas a projektbol": the link goes, the document stays where it is. */
+export function removeProjectDoc(projectId: string, id: string): PdResult<object> {
+  ensureProjectDocTables()
+  const r = getDb().prepare('DELETE FROM project_documents WHERE id = ? AND project_id = ?').run(String(id || ''), projectId)
+  return r.changes ? { ok: true } : { ok: false, code: 'not_found', detail: 'no such document in this project' }
+}
+
+/** The project documents at `key` or below it, for "where is this file used?". */
+function projectDocRowsUnder(key: string): Array<{ rel: string; project: string; role: string }> {
+  ensureProjectDocTables()
+  const rows = getDb().prepare('SELECT d.document_id, d.life_rel, d.role, p.name AS project FROM project_documents d LEFT JOIN projects p ON p.id = d.project_id').all() as Array<{ document_id: string; life_rel: string; role: string; project: string | null }>
+  const out: Array<{ rel: string; project: string; role: string }> = []
+  for (const r of rows) {
+    const doc = documentById(r.document_id)
+    const rel = doc ? doc.rel : r.life_rel
+    if (rel === key || rel.startsWith(key + '/')) out.push({ rel, project: r.project || '', role: r.role })
   }
   return out
 }

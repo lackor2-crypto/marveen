@@ -13179,3 +13179,9 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .wb-lifepick-up { opacity: .85; }
 .wb-lifepick-note { margin: 6px 10px; font-size: 13px; }
 .wb-annex-linked { overflow-wrap: anywhere; }
+
+/* #530, phase 2: the project's documents by role. */
+.wb-pd-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.wb-pd-row { padding: 6px 0; border-bottom: 1px solid var(--border, #3336); overflow-wrap: anywhere; }
+.wb-pd-map .wb-pill { margin: 0 4px 4px 0; white-space: nowrap; display: inline-block; }
+.wb-pd-role select { max-width: 100%; }

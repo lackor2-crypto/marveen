@@ -64,7 +64,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
-import { linkLifeFileAsAnnex, tendLinkedAnnexes } from '../../workbench-doc-links.js'
+import { addProjectDoc, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, tendLinkedAnnexes, updateProjectDoc, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
@@ -146,6 +146,12 @@ function uiLang(url: URL): 'hu' | 'en' {
 
 const MESSAGES: Record<string, { hu: string; en: string }> = {
   drop_missing: { hu: 'A fájl nincs meg a helyén (talán áthelyezték vagy törölték). Frissítsd a Feltöltések listát, és húzd rá újra.', en: 'The file is not where it was (it may have been moved or deleted). Refresh the Uploads list and drop it again.' },
+  pdoc_file_missing: { hu: 'Ez a fájl nincs meg az Életfában. Lehet, hogy közben áthelyezted: keresd meg újra.', en: 'This file is not in the Life tree. It may have been moved meanwhile: find it again.' },
+  pdoc_duplicate: { hu: 'Ez az irat már szerepel ebben a projektben. Ha más szerepben kell, a listában állítsd át a szerepét.', en: 'This document is already in this project. If it needs another role, change its role in the list.' },
+  pdoc_bad_role: { hu: 'Ilyen szerep nincs. Válassz a három közül: forrás, hivatkozás, kapcsolódó.', en: 'There is no such role. Choose one of the three: source, reference, related.' },
+  pdoc_bad_input: { hu: 'Ezt így nem tudom hozzáadni: fájlt válassz (mappát nem), és a megjegyzés legfeljebb 300 karakter lehet.', en: 'This cannot be added like this: choose a file (not a folder), and the note can be at most 300 characters.' },
+  pdoc_too_many: { hu: 'Ebben a projektben már 500 irat van, többet nem tudok hozzáadni. Vegyél le azokból, amik már nem kellenek.', en: 'This project already holds 500 documents; no more can be added. Remove the ones that are no longer needed.' },
+  pdoc_not_found: { hu: 'Ez az irat már nincs a projekt listáján. Frissítsd az oldalt.', en: 'This document is no longer on the project\'s list. Refresh the page.' },
   court_fix_linked: { hu: 'Ez a melléklet az Életfából van kapcsolva, nem másolat. Kereshető másolatot most csak a munkadarabhoz feltöltött mellékletből tudok készíteni: töltsd fel a fájlt a „Feltöltés a gépről…” gombbal, és azon készítsd el.', en: 'This annex is linked from the Life tree, it is not a copy. A searchable copy can only be made from an annex uploaded to the work item for now: upload the file with "Upload from the computer…" and make it from that.' },
   drop_not_in_project: { hu: 'Mellékletnek csak a projekt mappájában lévő fájl tehető. Előbb töltsd fel a fájlt a munkadarabhoz, aztán húzd a lapra.', en: 'Only a file in the project folder can be an annex. Upload the file to the work item first, then drop it on the page.' },
   drop_embed_unsupported: { hu: 'Ezt a fájltípust nem lehet a lapba építeni, csak mellékletnek tenni (beépíthető: kép, Excel/CSV táblázat, Word/ODT/szöveg).', en: 'This file type cannot be built into the page, only attached as an annex (built in can be: picture, Excel/CSV table, Word/ODT/text).' },
@@ -2199,6 +2205,46 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       last_week: ensured,
     })
     return true
+  }
+
+  // A PROJEKT IRATAI SZEREPPEL (#530, 2. fazis): forras / hivatkozas / kapcsolodo. Az irat az
+  // Eletfaban marad, a projekt csak hivatkozik ra; az eltavolitas a kapcsolatot szunteti meg.
+  if (path === '/api/workbench/project-docs' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    json(res, { ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES })
+    return true
+  }
+  if (path === '/api/workbench/project-docs' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = typeof body['project'] === 'string' ? body['project'].trim() : ''
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = await addProjectDoc(project.id, String(body['rel'] ?? ''), { role: body['role'], note: body['note'] }, actor(ctx))
+    if (!r.ok) return failDetail(res, r.code === 'file_missing' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
+    json(res, { ok: true, id: r.id, ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES }, 201)
+    return true
+  }
+  {
+    const m = /^\/api\/workbench\/project-docs\/([A-Za-z0-9-]{1,40})$/.exec(path)
+    if (m && (method === 'PATCH' || method === 'DELETE')) {
+      let body: Record<string, unknown> = {}
+      if (method === 'PATCH') { try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) } }
+      const pid = (url.searchParams.get('project') || (typeof body['project'] === 'string' ? body['project'] : '') || '').trim()
+      if (!pid) return fail(res, 400, 'project_required', lang)
+      const project = getProject(pid)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+      const r = method === 'DELETE' ? removeProjectDoc(project.id, m[1] as string) : updateProjectDoc(project.id, m[1] as string, { role: body['role'], note: body['note'] })
+      if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
+      json(res, { ok: true, ...listProjectDocs(project.id), roles: PROJECT_DOC_ROLES })
+      return true
+    }
   }
 
   // DONTESNAPLO (#406, 10. pont): amiben a projektben megallapodtak.
