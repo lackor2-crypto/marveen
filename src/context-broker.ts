@@ -62,8 +62,8 @@ export interface BrokerConfig {
    */
   handBackAfterSeconds: number
   /**
-   * Who does what in the pipeline. Each role is held by at most one agent, and
-   * an agent may hold several.
+   * Who does what in the pipeline. Each role may be held by any number of agents
+   * (#541, Boss TG 8610), and an agent may hold several roles. Only the generator designation is exclusive.
    *
    * Deliberately NOT derived from the model. The owner ticks a box on a card,
    * and whatever runs behind that card -- Claude, GPT, Gemma, something added
@@ -80,16 +80,28 @@ export interface BrokerConfig {
 /** The roles an agent can be given on its card. */
 export const BROKER_ROLE_IDS = ['planner', 'implementer', 'checker'] as const
 export type BrokerRoleId = typeof BROKER_ROLE_IDS[number]
-export type BrokerRoles = Record<BrokerRoleId, string | null>
+/** Every holder of each role. A role can be held by any number of agents, and an agent can hold several roles
+ *  (#541, Boss TG 8610); only the generator designation stays exclusive. Empty list = nobody (fresh install). */
+export type BrokerRoles = Record<BrokerRoleId, string[]>
 
-export const EMPTY_ROLES: BrokerRoles = { planner: null, implementer: null, checker: null }
+export function emptyRoles(): BrokerRoles { return { planner: [], implementer: [], checker: [] } }
 
+/** A shared empty value for callers that only read it; every mutation path copies first. */
+export const EMPTY_ROLES: BrokerRoles = emptyRoles()
+
+/** Reads the stored shape: the current list, or the old single name per role (name -> one-element list,
+ *  null / missing -> empty list), so a file written before #541 loads without loss. */
 function normalizeRoles(raw: unknown): BrokerRoles {
   const o = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {}
-  const out: BrokerRoles = { ...EMPTY_ROLES }
+  const out = emptyRoles()
   for (const id of BROKER_ROLE_IDS) {
     const v = o[id]
-    out[id] = (typeof v === 'string' && v.trim()) ? v.trim() : null
+    const list = Array.isArray(v) ? v : [v]
+    for (const x of list) {
+      if (typeof x !== 'string') continue
+      const name = x.trim()
+      if (name && !out[id].includes(name)) out[id].push(name)
+    }
   }
   return out
 }
@@ -97,18 +109,22 @@ function normalizeRoles(raw: unknown): BrokerRoles {
 /**
  * Give `agent` a role, or take it away. Returns a NEW map.
  *
- * Assigning is exclusive by construction: whoever held the role loses it in the
- * same value, so two cards can never both show themselves as the planner. This
- * is the same shape as the generator designation, and for the same reason --
- * the UI must not have to clear the other boxes itself.
+ * Roles are NOT exclusive (#541): ticking a role adds the agent next to the current holders, and unticking removes
+ * only that agent. `agent: null` clears the whole role (the old "nobody" call). The generator designation is the one
+ * exclusive thing, and it lives outside this map.
  */
-export function assignRole(roles: BrokerRoles, role: BrokerRoleId, agent: string | null): BrokerRoles {
-  return { ...normalizeRoles(roles), [role]: (agent && agent.trim()) ? agent.trim() : null }
+export function assignRole(roles: BrokerRoles, role: BrokerRoleId, agent: string | null, on = true): BrokerRoles {
+  const next = normalizeRoles(roles)
+  const name = (agent && agent.trim()) ? agent.trim() : null
+  if (!name) next[role] = []
+  else if (on) { if (!next[role].includes(name)) next[role].push(name) }
+  else next[role] = next[role].filter((h) => h !== name)
+  return next
 }
 
 /** Every role `agent` currently holds, in a stable order. */
 export function rolesOf(roles: BrokerRoles, agent: string): BrokerRoleId[] {
-  return BROKER_ROLE_IDS.filter((id) => roles[id] === agent)
+  return BROKER_ROLE_IDS.filter((id) => (roles[id] || []).includes(agent))
 }
 
 /**
@@ -143,10 +159,10 @@ export function planRoleClear(roles: BrokerRoles, dispatcher: string | null): Ro
   const assigned: string[] = []
   const rolesByAgent: Record<string, BrokerRoleId[]> = {}
   for (const id of BROKER_ROLE_IDS) {
-    const holder = norm[id]
-    if (!holder) continue
-    if (!seen.has(holder)) { seen.add(holder); assigned.push(holder) }
-    ;(rolesByAgent[holder] ??= []).push(id)
+    for (const holder of norm[id]) {
+      if (!seen.has(holder)) { seen.add(holder); assigned.push(holder) }
+      ;(rolesByAgent[holder] ??= []).push(id)
+    }
   }
   return { assigned, toClear: assigned.filter((a) => a !== self), rolesByAgent }
 }
@@ -156,7 +172,7 @@ export const DEFAULT_BROKER_CONFIG: BrokerConfig = {
   updatedAt: null,
   cleanStart: false,
   handBackAfterSeconds: 0,
-  roles: { planner: null, implementer: null, checker: null },
+  roles: emptyRoles(),
 }
 
 export function normalizeBrokerConfig(raw: unknown): BrokerConfig {

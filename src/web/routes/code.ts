@@ -754,7 +754,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // kontextus-keszito donti el feladatonkent); ha van, de ezen a kartyan
     // nincs, akkor ez a vegrehajto SZANDEKOSAN nem kap olyan munkat.
     const roleCfg = readBrokerConfig().roles
-    const anyAssigned = BROKER_ROLE_IDS.some((id) => Boolean(roleCfg[id]))
+    const anyAssigned = BROKER_ROLE_IDS.some((id) => roleCfg[id].length > 0)
     // Kontextus-meret (Boss, 2026-08-23: "kiiratni hogy jelenleg mennyi a
     // token amit hasznlal"). A regisztralt beszelgetes SAJAT merese megy ki --
     // ha nem latunk ra (regi worker, meg nincs assistant-valasz), akkor `null`,
@@ -849,7 +849,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // a tartalmuk ugyanugy megnyithato.
       closedTabs: (tabsByWorkspace.get(workspaceKey(p.workspacePath))?.closedTabs ?? []).map((tb) => tabRow(tb, markSessionId)),
       roleHolder: `vscode:${p.project}`,
-      roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
+      roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id].includes(`vscode:${p.project}`)),
       contextTokens: tokensBySession.get(markSessionId) ?? tokensBySession.get(p.sessionId) ?? null,
       // A modell NEM fix: azt mutatjuk, amivel a beszelgetes eppen valaszolt
       // (Boss, 2026-08-23: "ne fix legyen hanem dinamikus attol fuggoen hogy

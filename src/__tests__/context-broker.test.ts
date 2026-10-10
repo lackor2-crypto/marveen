@@ -50,23 +50,36 @@ describe('roles on the cards', () => {
   // szamitson." These tests exist to keep that true -- nothing below consults a
   // model name, and nothing may start to.
   it('starts with nobody holding a role, which is a working state', () => {
-    expect(DEFAULT_BROKER_CONFIG.roles).toEqual({ planner: null, implementer: null, checker: null })
+    expect(DEFAULT_BROKER_CONFIG.roles).toEqual({ planner: [], implementer: [], checker: [] })
     expect(rolesOf(DEFAULT_BROKER_CONFIG.roles, 'anyone')).toEqual([])
   })
 
   it('gives a role to an agent', () => {
     const roles = assignRole(EMPTY_ROLES, 'planner', 'gemma')
-    expect(roles.planner).toBe('gemma')
+    expect(roles.planner).toEqual(['gemma'])
     expect(rolesOf(roles, 'gemma')).toEqual(['planner'])
   })
 
-  it('moves a role rather than duplicating it: ticking it elsewhere unticks it here', () => {
-    // Exclusivity has to hold in the DATA, not in the UI clearing checkboxes --
-    // a second browser tab would not know to clear anything.
-    const first = assignRole(EMPTY_ROLES, 'planner', 'gemma')
-    const second = assignRole(first, 'planner', 'ling')
-    expect(second.planner).toBe('ling')
-    expect(rolesOf(second, 'gemma')).toEqual([])
+  it('lets several agents hold the same role: ticking it elsewhere does not take it from anyone', () => {
+    // #541: the role is not exclusive. Two implementers work side by side.
+    const first = assignRole(EMPTY_ROLES, 'implementer', 'gemma')
+    const second = assignRole(first, 'implementer', 'ling')
+    expect(second.implementer).toEqual(['gemma', 'ling'])
+    expect(rolesOf(second, 'gemma')).toEqual(['implementer'])
+    expect(rolesOf(second, 'ling')).toEqual(['implementer'])
+  })
+
+  it('does not list the same holder twice', () => {
+    let roles = assignRole(EMPTY_ROLES, 'checker', 'ling')
+    roles = assignRole(roles, 'checker', 'ling')
+    expect(roles.checker).toEqual(['ling'])
+  })
+
+  it('unticking removes only that holder', () => {
+    let roles = assignRole(EMPTY_ROLES, 'implementer', 'a')
+    roles = assignRole(roles, 'implementer', 'b')
+    roles = assignRole(roles, 'implementer', 'a', false)
+    expect(roles.implementer).toEqual(['b'])
   })
 
   it('lets one agent hold several roles', () => {
@@ -77,7 +90,7 @@ describe('roles on the cards', () => {
 
   it('clears a role with null, back to "the generator decides per task"', () => {
     const roles = assignRole(assignRole(EMPTY_ROLES, 'checker', 'ling'), 'checker', null)
-    expect(roles.checker).toBeNull()
+    expect(roles.checker).toEqual([])
   })
 
   it('accepts any agent id, whatever model is behind the card', () => {
@@ -85,7 +98,7 @@ describe('roles on the cards', () => {
     // Claude card the checker. A rule that ranked models would break this, and
     // would need editing every time a provider is added.
     for (const agent of ['gemma', 'gypsy', 'nemotronultra', 'lackor2-bot']) {
-      expect(assignRole(EMPTY_ROLES, 'planner', agent).planner).toBe(agent)
+      expect(assignRole(EMPTY_ROLES, 'planner', agent).planner).toEqual([agent])
     }
   })
 
@@ -94,9 +107,19 @@ describe('roles on the cards', () => {
     expect(cfg.roles).toEqual(EMPTY_ROLES)
   })
 
+  it('reads the old on-disk shape (one name per role) losslessly as a one-element list', () => {
+    const cfg = normalizeBrokerConfig({ roles: { planner: 'gemma', implementer: null, checker: '' } })
+    expect(cfg.roles).toEqual({ planner: ['gemma'], implementer: [], checker: [] })
+  })
+
+  it('reads the new on-disk shape (a list per role)', () => {
+    const cfg = normalizeBrokerConfig({ roles: { implementer: ['a', 'b', 'a'] } })
+    expect(cfg.roles.implementer).toEqual(['a', 'b'])
+  })
+
   it('ignores junk in the roles map instead of storing it', () => {
     const cfg = normalizeBrokerConfig({ roles: { planner: 42, implementer: '  ', checker: 'ok', bogus: 'x' } })
-    expect(cfg.roles).toEqual({ planner: null, implementer: null, checker: 'ok' })
+    expect(cfg.roles).toEqual({ planner: [], implementer: [], checker: ['ok'] })
     expect('bogus' in cfg.roles).toBe(false)
   })
 })
@@ -221,7 +244,7 @@ describe('resolveBroker', () => {
 
 describe('planRoleClear (kartya #275)', () => {
   it('clears every role holder EXCEPT the dispatcher', () => {
-    const roles = { planner: 'lackor2', implementer: 'usalackor', checker: 'gypsy' }
+    const roles = { planner: ['lackor2'], implementer: ['usalackor'], checker: ['gypsy'] }
     const plan = planRoleClear(roles, 'lackor2')
     expect(plan.assigned).toEqual(['lackor2', 'usalackor', 'gypsy'])
     expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
@@ -231,18 +254,25 @@ describe('planRoleClear (kartya #275)', () => {
   it('never clears the dispatcher even when it holds the checker role too', () => {
     // The "ELLENORZO ha NEM a kiado" rule: a dispatcher that is also the checker
     // is still spared -- the dispatcher exclusion wins over any role it holds.
-    const roles = { planner: 'usalackor', implementer: 'gypsy', checker: 'lackor2' }
+    const roles = { planner: ['usalackor'], implementer: ['gypsy'], checker: ['lackor2'] }
     const plan = planRoleClear(roles, 'lackor2')
     expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
     expect(plan.toClear).not.toContain('lackor2')
   })
 
   it('deduplicates an agent holding several roles, clearing it once', () => {
-    const roles = { planner: 'usalackor', implementer: 'usalackor', checker: 'gypsy' }
+    const roles = { planner: ['usalackor'], implementer: ['usalackor'], checker: ['gypsy'] }
     const plan = planRoleClear(roles, 'lackor2')
     expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
     expect(plan.rolesByAgent.usalackor).toEqual(['planner', 'implementer'])
     expect(plan.rolesByAgent.gypsy).toEqual(['checker'])
+  })
+
+  it('clears every holder of a role shared by several agents, each once, dispatcher excluded', () => {
+    const roles = { planner: ['lackor2'], implementer: ['usalackor', 'gypsy'], checker: ['gypsy', 'lackor2'] }
+    const plan = planRoleClear(roles, 'lackor2')
+    expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
+    expect(plan.rolesByAgent.gypsy).toEqual(['implementer', 'checker'])
   })
 
   it('fresh install: no roles assigned means clear nobody (assigned is empty)', () => {
@@ -253,13 +283,13 @@ describe('planRoleClear (kartya #275)', () => {
   })
 
   it('with no dispatcher named, clears all holders (owner-initiated full sweep)', () => {
-    const roles = { planner: 'a', implementer: 'b', checker: null }
+    const roles = { planner: ['a'], implementer: ['b'], checker: [] }
     expect(planRoleClear(roles, null).toClear).toEqual(['a', 'b'])
     expect(planRoleClear(roles, '   ').toClear).toEqual(['a', 'b'])
   })
 
   it('is deterministic in planner/implementer/checker order regardless of input', () => {
-    const roles = { checker: 'c', planner: 'a', implementer: 'b' }
+    const roles = { checker: ['c'], planner: ['a'], implementer: ['b'] }
     expect(planRoleClear(roles, null).assigned).toEqual(['a', 'b', 'c'])
   })
 })

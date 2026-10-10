@@ -501,7 +501,7 @@ async function main(): Promise<void> {
       const roles = { ...cfg.roles }
       let touched = false
       for (const key of Object.keys(roles) as (keyof typeof roles)[]) {
-        if (roles[key] === from) { roles[key] = to; touched = true }
+        if (roles[key].includes(from)) { roles[key] = roles[key].map((h) => (h === from ? to : h)); touched = true }
       }
       if (touched) writeBrokerConfig(cfg.designated, { roles })
     })

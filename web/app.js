@@ -6072,15 +6072,16 @@ function cliRowHtml(name) {
 // Boss, 2026-08-14: "a kartyan van jelolonegyzet amin ki lehet jelolni hogy ki
 // legyen kicsoda. az hogy a kartya alatt milyen model van az ne szamitson."
 //
-// So eligibility is never inferred from the model. Each role is held by at most
-// one agent -- the backend stores one name per role, so ticking a box here takes
-// it away from whoever had it, and the re-render is what makes that visible.
+// So eligibility is never inferred from the model. A role can be held by any
+// number of agents (#541, Boss TG 8610): ticking a box adds this agent, unticking
+// removes only this agent, and nobody else's box changes. Only the generator
+// (who hands out the work) is exactly one.
 // Unassigned is the normal state: the generator then decides per task.
 function roleRowHtml(name) {
   const roles = brokerState.config?.roles || {}
   const boxes = ['planner', 'implementer', 'checker'].map((id) => `
         <label class="ctx-role" title="${escapeAttr(t(`agents.ctx.role_${id}_tip`))}">
-          <input type="checkbox" class="ctx-role-toggle" data-role="${id}"${roles[id] === name ? ' checked' : ''}>
+          <input type="checkbox" class="ctx-role-toggle" data-role="${id}"${[].concat(roles[id] || []).includes(name) ? ' checked' : ''}>
           <span>${escapeHtml(t(`agents.ctx.role_${id}`))}</span>
         </label>`).join('')
   return `
@@ -6210,14 +6211,14 @@ function wireContextControls(card, name) {
   })
 }
 
-// Give this agent a role, or take it away. `enabled:false` clears the role
-// entirely rather than handing it to nobody-in-particular, so unticking the last
-// box returns the pipeline to "the generator decides per task".
+// Give this agent a role, or take it away. `enabled:false` removes only THIS
+// agent from the role; unticking the last holder leaves the role empty, which
+// returns the pipeline to "the generator decides per task".
 async function saveBrokerRole(name, role, checked) {
   try {
     const res = await fetch('/api/context-broker', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, agent: checked ? name : null, enabled: checked }),
+      body: JSON.stringify({ role, agent: name, enabled: checked }),
     })
     const data = await res.json().catch(() => ({}))
     if (data.ok) {
