@@ -27,3 +27,15 @@ describe('the attachments place in the Simple view', () => {
     expect(css).toMatch(/@media \(max-width: 900px\) \{ \.wb-fr-center \{ overflow: visible; \} \.wb-fr-scroll \{ flex: none; overflow: visible; max-height: none; \} \}/)
   })
 })
+
+describe('the translation toggle (Boss TG 2839)', () => {
+  it('sits in the action row beside "Finalize", not in a row of its own above the page', () => {
+    const i = js.indexOf('function docTabsHtml()')
+    const fn = js.slice(i, js.indexOf('/** A jobb oldal: az eredmeny a munkatipus szerint.', i))
+    const finalIx = fn.indexOf("data-wb-act=\"sh-final\"")
+    const toggleIx = fn.indexOf('twToggleHtml(o)')
+    expect(finalIx).toBeGreaterThan(0)
+    expect(toggleIx).toBeGreaterThan(finalIx)
+    expect(js).not.toContain('<p class="wb-tw-toggle">')
+  })
+})

@@ -78,6 +78,14 @@ describe('the places of a project are found by the system', () => {
     expect(v[0]!.reasons[0]).toEqual({ kind: 'item', name: 'Beadvány' })
   })
 
+  it('a work item whose folder is stored as another project\'s own tree path is that folder, not base + path', async () => {
+    mkdirSync(abs('Projektek/Iroda/Munkadarabok/Terv'), { recursive: true })
+    const { getDb } = await import('../db.js')
+    getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run('Projektek/Iroda/Munkadarabok/Terv', itemId)
+    const v = projectPlacesView(project.id)
+    expect(v.map((x) => [x.rel, x.exists])).toEqual([['Projektek/Iroda/Munkadarabok/Terv', true]])
+  })
+
   it('computed on every call: a moved folder is followed, not remembered', async () => {
     put('Család/Régi/a.pdf')
     await addProjectDoc(project.id, 'Család/Régi/a.pdf', { role: 'source' }, 't')

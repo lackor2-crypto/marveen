@@ -12453,13 +12453,17 @@
     return head + note + failed + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
   }
   /** The Draft tab: just the page, or the page with the translation next to it. */
+  /** The "show/hide translation" button. It sits in the action row beside "Finalize" (Boss TG 2839: the page starts as high as possible). */
+  function twToggleHtml(o) {
+    if (!twAvailable(o)) return ''
+    var tw = twState()
+    return '<button type="button" class="btn-secondary btn-compact wb-tw-toggle' + (tw.on ? ' is-on' : '') + '" data-wb-act="tw-toggle" aria-pressed="' + (tw.on ? 'true' : 'false') + '" title="' + escA(t('workbench.tw.toggle_hint')) + '">'
+      + esc(t(tw.on ? 'workbench.tw.hide' : 'workbench.tw.show')) + '</button>'
+  }
   function twWrapHtml(o, ro) {
     var tw = twState()
-    if (!twAvailable(o)) return docPageHtml()
-    var toggle = '<p class="wb-tw-toggle"><button type="button" class="btn-secondary btn-compact' + (tw.on ? ' is-on' : '') + '" data-wb-act="tw-toggle" aria-pressed="' + (tw.on ? 'true' : 'false') + '" title="' + escA(t('workbench.tw.toggle_hint')) + '">'
-      + esc(t(tw.on ? 'workbench.tw.hide' : 'workbench.tw.show')) + '</button></p>'
-    if (!tw.on) return toggle + docPageHtml()
-    return toggle + '<div class="wb-tw-cols"><div class="wb-tw-left">' + docPageHtml() + '</div>'
+    if (!twAvailable(o) || !tw.on) return docPageHtml()
+    return '<div class="wb-tw-cols"><div class="wb-tw-left">' + docPageHtml() + '</div>'
       + '<aside class="wb-tw-right" id="wbTwPanel" aria-label="' + escA(t('workbench.tw.panel_label')) + '">' + twPanelInnerHtml(o, ro) + '</aside></div>'
   }
   function twRefresh() {
@@ -13021,6 +13025,7 @@
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
       + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>')
+      + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o))
       + '</p>' + (o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : '')
     // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
     var body = tab === 'preview' ? ((o && o.sections && o.sections.length) ? docPageHtml(true) : previewHtml())

@@ -72,12 +72,20 @@ export function projectPlacesView(projectId: string): ProjectPlaceView[] {
   const project = getProject(projectId)
   const base = clean(project?.folder_path || '')
   // A stored path is either project-relative or already a path of the Life tree: both are accepted.
-  const inTree = (p: string): string => { const c = clean(p); return c === base || c.startsWith(base + '/') ? c : base + '/' + c }
+  // A folder that was moved to another project's tree is stored as that tree's own path ("Család/..."): when the
+  // project-relative reading is not a folder but the path itself is one, the path is the place.
+  const isDir = (rel: string): boolean => { const a = resolveLifePath(rel); if (!a) return false; try { return statSync(a).isDirectory() } catch { return false } }
+  const inTree = (p: string): string => {
+    const c = clean(p)
+    if (c === base || c.startsWith(base + '/')) return c
+    const joined = base + '/' + c
+    return !isDir(joined) && isDir(c) ? c : joined
+  }
   if (base) {
     const items = getDb().prepare('SELECT id, title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string; folder: string | null }[]
     for (const it of items) {
       const f = clean(it.folder || '')
-      if (f) add(base + '/' + f, 'item', it.title, 'item:' + it.id)
+      if (f) add(inTree(f), 'item', it.title, 'item:' + it.id)
       // An item whose folder was never recorded still has its materials somewhere: those folders are its places.
       const mats = getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(it.id) as { path: string }[]
       for (const m of mats) add(dirOf(inTree(m.path)), 'item', it.title, 'item:' + it.id)
