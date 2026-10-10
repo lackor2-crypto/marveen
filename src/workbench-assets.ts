@@ -499,7 +499,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
 }
 
 /** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */
-export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unknown): { ok: true; folder: string; created: boolean } | { ok: false; code: WorkFolderError | 'folder_name'; message?: string } {
+export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unknown, opts?: { own?: boolean }): { ok: true; folder: string; created: boolean } | { ok: false; code: WorkFolderError | 'folder_name'; message?: string } {
   // An explicit write: a project still without a folder (fresh install, seeded project) gets one now.
   ensureProjectHasFolder(project)
   let parentRel: string
@@ -522,9 +522,26 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
       parentRel = re.sub
     }
   }
-  const r = makeProjectFolder(project, parentRel, name)
+  // #540: a NEW work item's own folder never lands in a folder that is already in use. A folder of the same name
+  // that belongs to another work item, or holds anything, is left alone and the new one gets a free name next to
+  // it ("Name (2)"); an empty folder nobody owns (made by hand just before) is taken as it is.
+  let wanted = name
+  if (opts?.own) {
+    const pt = projectFileTarget(project, parentRel)
+    const seg = String(name ?? '').trim()
+    if (pt.ok && seg && !seg.includes('/') && !seg.includes('\\') && workFolderInUse(project, pt.dirAbs, `${parentRel}/${seg}`, seg)) wanted = freeFileName(pt.dirAbs, seg)
+  }
+  const r = makeProjectFolder(project, parentRel, wanted)
   if (!r.ok) return r
   return { ok: true, folder: r.sub, created: r.created }
+}
+
+/** #540: is the folder `rel` (named `seg` in `parentAbs`) already somebody's -- a work item's own folder, or not empty? */
+function workFolderInUse(project: ProjectRow, parentAbs: string, rel: string, seg: string): boolean {
+  const abs = join(parentAbs, seg)
+  if (!existsSync(abs)) return false
+  if (getDb().prepare('SELECT 1 FROM work_items WHERE project_id = ? AND folder = ?').get(project.id, rel)) return true
+  try { return readdirSync(abs).length > 0 } catch { return true }
 }
 
 export type DeleteFolderResult =

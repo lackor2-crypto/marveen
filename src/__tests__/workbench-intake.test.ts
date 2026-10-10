@@ -220,9 +220,13 @@ describe('belepo: md / jegyzet kerese (Boss, TG 7276)', () => {
       expect(r.body.versions[0].source_path).toBe(r.body.file.rel)
       expect(existsSync(join(depot, r.body.file.rel))).toBe(true)
       expect(r.body.file.rel).toContain('Jegyzetek/')
-      // Ugyanaz a nev masodszor: uj fajl, nem feluliras.
+      // Ugyanaz a nev masodszor: uj fajl, nem feluliras. #540: a masodik munkadarab SAJAT, szamozott mappat kap az
+      // elso MELLETT (nem annak a mappajaba kerul), ezert a fajl neve maradhat, az utja mas.
       const r2 = await call('POST', '/api/workbench/intake?lang=hu', { project_id: pid, folder, text: 'még egy md fájl' })
-      expect(r2.body.file.name).not.toBe('Új jegyzet.md')
+      expect(r2.body.file.rel).not.toBe(r.body.file.rel)
+      expect(r2.body.file.rel).toContain('Jegyzetek/Új jegyzet (2)/')
+      expect(existsSync(join(depot, r.body.file.rel))).toBe(true)
+      expect(existsSync(join(depot, r2.body.file.rel))).toBe(true)
     })
 
     it('projektmappa nelkul is letrejon a jegyzet: a projekt az elso irasra mappat kap (TG 2895), nem hibazik', async () => {
