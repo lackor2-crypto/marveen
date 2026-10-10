@@ -1918,6 +1918,9 @@
     var favsAll = items.filter(function (it) { return it.pinned_at != null })
     // #552 follow-up: a finalized favourite is hidden too while the switch is on (it comes back when it is off).
     var favs = favsAll.filter(function (it) { return !(WB.hideDone && it.status === 'done') })
+    // #563 (Boss TG 8941): among the favourites the live work stands on top, the finalized (greyed) ones under it; each
+    // group keeps the order it had. Only here -- the folder tree keeps its own order.
+    favs = favs.filter(function (it) { return it.status !== 'done' }).concat(favs.filter(function (it) { return it.status === 'done' }))
     var favShut = isShut(FAV_KEY)
     // The project folder is the root of the tree (Boss, TG 2399, 2626): everything under it is shown the way the
     // Explorer shows it: the work items box as a real folder, and every other folder and file of the project.
@@ -17397,9 +17400,9 @@
   }
   document.addEventListener('selectionchange', function () { if (WB.open) dpFmtSync() })
 
-  function dpSetAlign(el, a) {
+  function dpSetAlign(el, a, force) {
     var cur = el.getAttribute('data-wb-align') || ''
-    var next = cur === a ? '' : a
+    var next = force !== undefined ? force : (cur === a ? '' : a)
     DP_ALIGNS.forEach(function (x) { el.classList.remove('wb-dp-al-' + x) })
     if (next) { el.classList.add('wb-dp-al-' + next); el.setAttribute('data-wb-align', next) } else el.removeAttribute('data-wb-align')
     dpMarkDirty()
@@ -17491,6 +17494,12 @@
       host = host && host.nodeType === 3 ? host.parentNode : host
       var f = host && typeof host.closest === 'function' ? host.closest('[data-wb-dp]') : null
       if (f && f.id && /^(block|new)$/.test(f.getAttribute('data-wb-dp') || '')) { WB.dpRange = { id: f.id, range: r.cloneRange() }; WB.dpFmtLast = f.id }
+      else if (!r.collapsed && host && typeof host.closest === 'function' && host.closest('.wb-dp-page[contenteditable="true"]')) {
+        // #562 (Boss TG 8935): a selection over SEVERAL paragraphs is one selection -- it used to be forgotten here, so a
+        // font size picked from the list landed on whatever single paragraph had been selected before.
+        var many = dpRangeFields(r)
+        if (many.length > 1) { WB.dpRange = { id: many[many.length - 1].id || '', range: r.cloneRange(), multi: true }; if (many[many.length - 1].id) WB.dpFmtLast = many[many.length - 1].id }
+      }
       // The paragraph the cursor is in is marked (the page is one editing host: :focus-within would mark all).
       var rootEl = dpRoot()
       if (rootEl) {
@@ -17503,9 +17512,40 @@
     } catch (_e) { /* nem baj */ }
   })
 
+  /** The writable paragraphs a range touches (the page is one editing host, a paragraph is a field in it). */
+  function dpRangeFields(range) {
+    var root = dpRoot()
+    if (!root || !range) return []
+    var out = []
+    var all = root.querySelectorAll('.wb-dp-edit[data-wb-dp="block"], .wb-dp-edit[data-wb-dp="new"]')
+    for (var i = 0; i < all.length; i++) {
+      var n = all[i]
+      if (n.classList.contains('wb-outline-kind-table')) continue
+      try {
+        if (!range.intersectsNode(n)) continue
+        // A range that only ENDS at the very start of a paragraph (a triple click does that) has nothing selected in it.
+        var probe = document.createRange()
+        probe.selectNodeContents(n)
+        if (range.compareBoundaryPoints(Range.START_TO_END, probe) <= 0 || range.compareBoundaryPoints(Range.END_TO_START, probe) >= 0) continue
+        out.push(n)
+      } catch (_e) { /* a detached node: not part of it */ }
+    }
+    return out
+  }
+
+  /** The paragraphs a paragraph-level command applies to: all the selected ones, else the one the cursor is in. */
+  function dpFmtEls(el) {
+    var r = WB.dpRange
+    if (r && r.multi) {
+      var many = dpRangeFields(r.range)
+      if (many.length > 1) return many
+    }
+    return [el]
+  }
+
   function dpRestoreRange(el) {
     var r = WB.dpRange
-    if (!r || r.id !== el.id) return false
+    if (!r || (!r.multi && r.id !== el.id)) return false
     try {
       dpFocusRoot()
       var s = window.getSelection()
@@ -17581,7 +17621,7 @@
     else if (kind === 'font') document.execCommand('fontName', false, DP_MARK_FONT)
     else if (kind === 'size') document.execCommand('fontSize', false, '7')
     document.execCommand('styleWithCSS', false, false)
-    dpStripMarks(el, kind)
+    dpStripMarks(dpRoot() || el, kind) // the selection may run over several paragraphs
   }
 
   /** "Clear formatting": bold / italic / underline / strike / font / size / colour / highlight, all of it. */
@@ -17614,7 +17654,7 @@
       if (kind === 'font') document.execCommand('fontName', false, value)
       else if (kind === 'size') {
         document.execCommand('fontSize', false, '7')
-        var big = el.querySelectorAll('span[style*="xxx-large"], font[size="7"]')
+        var big = (dpRoot() || el).querySelectorAll('span[style*="xxx-large"], font[size="7"]') // every selected paragraph
         for (var i = 0; i < big.length; i++) { big[i].removeAttribute('size'); big[i].style.fontSize = value + 'pt' }
       } else if (kind === 'fore') document.execCommand('foreColor', false, value)
       else if (kind === 'hilite') { if (!document.execCommand('hiliteColor', false, value)) document.execCommand('backColor', false, value) }
@@ -17642,15 +17682,16 @@
     var k = sel.getAttribute('data-wb-fmtsel')
     var v = sel.value
     if (v === '') return
+    var els = dpFmtEls(el) // #562: line spacing / space after reach every selected paragraph
     if (v === '__reset') {
       if (k === 'font' || k === 'size') dpApplyInline(el, k, '')
-      else if (k === 'spaceafter') dpSetPfmt(el, { sa: null })
+      else if (k === 'spaceafter') els.forEach(function (x) { dpSetPfmt(x, { sa: null }) })
       dpFmtSync()
       return
     }
     if (k === 'font' || k === 'size') dpApplyInline(el, k, v)
-    else if (k === 'linesp') dpSetPfmt(el, { ls: Number(v) })
-    else if (k === 'spaceafter') dpSetPfmt(el, { sa: Number(v) })
+    else if (k === 'linesp') els.forEach(function (x) { dpSetPfmt(x, { ls: Number(v) }) })
+    else if (k === 'spaceafter') els.forEach(function (x) { dpSetPfmt(x, { sa: Number(v) }) })
     else if (k === 'heading') dpSetPfmt(el, { h: Number(v) || null })
     dpFmtSync()
   })
@@ -17691,13 +17732,20 @@
     if (f.indexOf('clrpick-') === 0) { var pk = f.slice(8); dpClrSet(pk, btn.getAttribute('data-wb-clr')); dpClrPopClose(); dpApplyInline(el, pk, dpClrNow(pk)); return }
     if (f.indexOf('clr-') === 0) { dpClrPopClose(); dpApplyInline(el, f.slice(4), dpClrNow(f.slice(4))); return }
     if (dpCurrent() !== el) { dpFocusRoot(); if (!dpRestoreRange(el)) dpPlaceCaret(el, null) }
-    if (f.indexOf('align-') === 0) dpSetAlign(el, f.slice(6))
-    else if (f === 'list') dpToggleList(el)
-    else if (f === 'numlist') dpToggleNumList(el)
+    var pels = dpFmtEls(el) // #562: a paragraph-level button reaches every selected paragraph
+    if (f.indexOf('align-') === 0) {
+      // One outcome for the whole selection (the first paragraph decides on / off), not a toggle per paragraph.
+      var an = (pels[0].getAttribute('data-wb-align') || '') === f.slice(6) ? '' : f.slice(6)
+      pels.forEach(function (x) { dpSetAlign(x, f.slice(6), an) })
+    }
+    else if (f === 'list') pels.forEach(function (x) { dpToggleList(x) })
+    else if (f === 'numlist') pels.forEach(function (x) { dpToggleNumList(x) })
     else if (f === 'indent-more' || f === 'indent-less') {
-      var ci = Number(dpPfmtOf(el).ind) || 0
-      var ni = f === 'indent-more' ? Math.min(8, ci + 1) : Math.max(0, ci - 1)
-      dpSetPfmt(el, { ind: ni || null })
+      pels.forEach(function (x) {
+        var ci = Number(dpPfmtOf(x).ind) || 0
+        var ni = f === 'indent-more' ? Math.min(8, ci + 1) : Math.max(0, ci - 1)
+        dpSetPfmt(x, { ind: ni || null })
+      })
     }
     else {
       try {

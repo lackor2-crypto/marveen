@@ -17,7 +17,7 @@ describe('formatting can be switched off (#532)', () => {
   it('font, size and space-after have a "default" entry that is handled', () => {
     expect((src.match(/\['__reset', t\('workbench\.dp\.fmt_reset'\)\]/g) || []).length).toBe(3)
     expect(src).toMatch(/v === '__reset'/)
-    expect(src).toMatch(/dpSetPfmt\(el, \{ sa: null \}\)/)
+    expect(src).toMatch(/dpSetPfmt\(x, \{ sa: null \}\)/)
   })
 
   it('"clear formatting" strips colour, highlight, font and size too, not only bold/italic', () => {
