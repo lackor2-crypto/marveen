@@ -1809,3 +1809,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @container (max-width: 640px) {
   .wb-univer-el footer > section > section { display: none; }
 }
+
+/* #521: a picture or a table placed freely on the page -- the move handle, and the element while it is dragged. */
+.wb-dp-free-move { position: absolute; right: -6px; top: -6px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 3px; background: var(--accent, #2563eb); color: #fff; font-size: 13px; cursor: move; touch-action: none; opacity: 0; transition: opacity .12s; z-index: 2; user-select: none; }
+.wb-dp-tbl:hover .wb-dp-free-move, .wb-dp-tbl:focus-within .wb-dp-free-move, .wb-dp-img-box:hover .wb-dp-free-move, .wb-dp-img-box:focus-within .wb-dp-free-move, .wb-dp-free-move:focus-visible { opacity: 1; }
+@media (hover: none) { .wb-dp-free-move { opacity: 1; width: 28px; height: 28px; line-height: 28px; } }
+.wb-dp-free-dragging { opacity: .75; outline: 2px dashed var(--accent, #2563eb); outline-offset: 2px; z-index: 3; }
+.wb-dp-tbl.wb-dp-free { margin-right: 0; }

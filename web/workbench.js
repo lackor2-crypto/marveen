@@ -12203,15 +12203,29 @@
   }
 
   /** A table block's text: `<a | b lines>\n#w=<10..100>&a=<l|c|r>` (the server's tableBlockParts). */
-  function dpTableParts(text) {
-    var m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?\s*$/.exec(String(text || ''))
-    if (!m) return { text: String(text || ''), width: null, align: 'c' }
-    return { text: m[1], width: Math.max(10, Math.min(100, Number(m[2]))), align: m[3] || 'c' }
+  /**
+   * #521: the free place of a picture / table (the server's freePlace): `&x=<0..90>&y=<0..150>` after the size --
+   * the distance from the left edge of the text and the empty space above, both in percent of the text WIDTH.
+   */
+  function dpFree(rawX, rawY, width) {
+    if (rawX === undefined || rawY === undefined) return { x: null, y: null }
+    return { x: Math.max(0, Math.min(90, 100 - width, Number(rawX))), y: Math.max(0, Math.min(150, Number(rawY))) }
   }
 
-  function dpTableText(body, width, align) {
-    if (width == null || (width >= 100 && (align || 'c') === 'c')) return body
-    return body + '\n#w=' + Math.round(width) + '&a=' + (align || 'c')
+  function dpFreeSuffix(x, y) { return (x == null || y == null) ? '' : '&x=' + Math.round(x) + '&y=' + Math.round(y) }
+
+  function dpTableParts(text) {
+    var m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?\s*$/.exec(String(text || ''))
+    if (!m) return { text: String(text || ''), width: null, align: 'c', x: null, y: null }
+    var w = Math.max(10, Math.min(100, Number(m[2])))
+    var f = dpFree(m[4], m[5], w)
+    return { text: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y }
+  }
+
+  function dpTableText(body, width, align, x, y) {
+    var free = dpFreeSuffix(x, y)
+    if (!free && (width == null || (width >= 100 && (align || 'c') === 'c'))) return body
+    return body + '\n#w=' + Math.round(width == null ? 100 : width) + '&a=' + (align || 'c') + free
   }
 
   /** What the field shows when a block is edited: for a table the lines only, the size/alignment line stays hidden. */
@@ -12220,12 +12234,12 @@
   /** The row of a table block narrower than the page and aligned left/right floats, so the text runs beside it (#508). */
   function dpTableRowClass(b) {
     var p = dpTableParts(b.text)
-    return (p.width && p.width < 100 && p.align !== 'c') ? ' wb-dp-row-float wb-dp-row-float-' + p.align : ''
+    return (p.x == null && p.width && p.width < 100 && p.align !== 'c') ? ' wb-dp-row-float wb-dp-row-float-' + p.align : ''
   }
 
   function dpTableRowStyle(b) {
     var p = dpTableParts(b.text)
-    return (p.width && p.width < 100 && p.align !== 'c') ? ' style="width:' + p.width + '%"' : ''
+    return (p.x == null && p.width && p.width < 100 && p.align !== 'c') ? ' style="width:' + p.width + '%"' : ''
   }
 
   function dpTableHtml(b, sid, ro) {
@@ -12234,14 +12248,18 @@
     var body = lines.map(function (ln, r) {
       return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
     }).join('')
-    var floated = pic.width && pic.width < 100 && pic.align !== 'c'
-    var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-tbl-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
-    return '<div class="wb-dp-block wb-dp-tbl wb-dp-tbl-' + pic.align + '" data-wb-tbl-block="' + escA(b.id) + '"'
-      + (!floated && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
+    var freeT = pic.x != null
+    var floated = !freeT && pic.width && pic.width < 100 && pic.align !== 'c'
+    var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-tbl-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
+    return '<div class="wb-dp-block wb-dp-tbl ' + (freeT ? 'wb-dp-free' : 'wb-dp-tbl-' + pic.align) + '" data-wb-tbl-block="' + escA(b.id) + '"'
+      // #521: a free place -- a left indent and an empty space above, in percent of the text width (CSS margins in percent are of the width too).
+      + (freeT ? ' style="width:' + (pic.width || 100) + '%;margin-left:' + pic.x + '%;margin-top:' + pic.y + '%"'
+        : !floated && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
       + (ro ? '' : ' role="button" tabindex="0" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '"')
       + '><table>' + body + '</table>'
       + (ro ? '' : '<span class="wb-dp-tbl-move" draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_move')) + '" aria-label="' + escA(t('workbench.dp.tbl_move')) + '">&#10021;</span>'
         + '<span class="wb-dp-img-size" data-wb-tbl-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.tbl_resize')) + '" aria-label="' + escA(t('workbench.dp.tbl_resize')) + '"></span>'
+        + dpFreeHandleHtml(b.id)
         + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.tbl_left') + al('c', 'workbench.dp.tbl_center') + al('r', 'workbench.dp.tbl_right') + '</span>')
       + '</div>'
   }
@@ -12259,9 +12277,33 @@
     if (!b) return
     var cur = dpTableParts(b.text)
     var w = width == null ? (cur.width || 100) : width
-    var text = dpTableText(cur.text, w, align || cur.align)
+    var keepT = !align && cur.x != null
+    var text = dpTableText(cur.text, w, align || cur.align, keepT ? Math.min(cur.x, 100 - w) : null, keepT ? cur.y : null)
     if (text === b.text) return
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
+  }
+
+  /** #521: put a picture / table at a free place of the page (x, y in percent of the text width). */
+  function dpFreeSave(bid, x, y) {
+    var b = dpImageBlock(bid)
+    if (!b) return
+    var text
+    if (b.kind === 'image') { var ci = dpImageParts(b.text); var wi = ci.width || 100; text = dpImageText(ci.path, wi, ci.align, Math.max(0, Math.min(x, 100 - wi)), Math.max(0, Math.min(150, y))) }
+    else { var ct = dpTableParts(b.text); var wt = ct.width || 100; text = dpTableText(ct.text, wt, ct.align, Math.max(0, Math.min(x, 100 - wt)), Math.max(0, Math.min(150, y))) }
+    if (text === b.text) return
+    dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
+  }
+
+  /** Where a block stands now, as a free place: its own, or the one its left / centre / right alignment amounts to. */
+  function dpFreeNow(b) {
+    var p = b.kind === 'image' ? dpImageParts(b.text) : dpTableParts(b.text)
+    var w = p.width || 100
+    if (p.x != null) return { x: p.x, y: p.y, w: w }
+    return { x: p.align === 'l' ? 0 : p.align === 'r' ? 100 - w : Math.round((100 - w) / 2), y: 0, w: w }
+  }
+
+  function dpFreeHandleHtml(bid) {
+    return '<span class="wb-dp-free-move" data-wb-free-move="' + escA(bid) + '" role="button" tabindex="0" title="' + escA(t('workbench.dp.free_move')) + '" aria-label="' + escA(t('workbench.dp.free_move')) + '">&#10021;</span>'
   }
 
   function dpTblEdit(bid) {
@@ -12298,12 +12340,13 @@
         // A picture block (TG 2901): the picture itself, moved/removed with the handle like any block.
         // #508 (TG 2920): resizable (corner handle) and movable (drag the picture; left / centre / right).
         var pic = dpImageParts(b.text)
-        var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
+        var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
         rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-          + '<figure class="wb-dp-block wb-dp-img wb-dp-img-' + pic.align + '" data-wb-img-block="' + escA(b.id) + '">'
-          + '<span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%"' : '') + '>'
+          + '<figure class="wb-dp-block wb-dp-img ' + (pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null ? ' style="margin-top:' + pic.y + '%"' : '') + '>'
+          + '<span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
           + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
           + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
+            + dpFreeHandleHtml(b.id)
             + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right') + '</span>')
           + '</span></figure></div>'
         return
@@ -12484,12 +12527,14 @@
 
   /** A picture block's text: `<path>#w=<10..100>&a=<l|c|r>` (the server's imageBlockParts). */
   function dpImageParts(text) {
-    var m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?$/.exec(String(text || ''))
-    if (!m) return { path: String(text || ''), width: null, align: 'c' }
-    return { path: m[1], width: Math.max(10, Math.min(100, Number(m[2]))), align: m[3] || 'c' }
+    var m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?$/.exec(String(text || ''))
+    if (!m) return { path: String(text || ''), width: null, align: 'c', x: null, y: null }
+    var w = Math.max(10, Math.min(100, Number(m[2])))
+    var f = dpFree(m[4], m[5], w)
+    return { path: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y }
   }
 
-  function dpImageText(path, width, align) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') }
+  function dpImageText(path, width, align, x, y) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') + dpFreeSuffix(x, y) }
 
   function dpImageBlock(bid) {
     var secs = (WB.detail && WB.detail.outline && WB.detail.outline.sections) || []
@@ -12501,7 +12546,10 @@
     var b = dpImageBlock(bid)
     if (!b) return
     var cur = dpImageParts(b.text)
-    var text = dpImageText(cur.path, width == null ? (cur.width || 100) : width, align || cur.align)
+    var iw = width == null ? (cur.width || 100) : width
+    // #521: resizing keeps the free place (cut so that it still fits); a left / centre / right click puts it back into the text.
+    var keepI = !align && cur.x != null
+    var text = dpImageText(cur.path, iw, align || cur.align, keepI ? Math.min(cur.x, 100 - iw) : null, keepI ? cur.y : null)
     if (text === b.text) return
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
   }
@@ -15869,7 +15917,7 @@
 
   document.addEventListener('click', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
-    if (e.target.closest('[data-wb-tbl-resize], .wb-dp-tbl-move')) return
+    if (e.target.closest('[data-wb-tbl-resize], .wb-dp-tbl-move, [data-wb-free-move]')) return
     var act = e.target.closest('[data-wb-act]')
     var a = act ? act.getAttribute('data-wb-act') : ''
     if (WB.docMenu && (!a || a.indexOf('dp-') !== 0) && !e.target.closest('.wb-dp-menu')) { WB.docMenu = null; if (!a) render() }
@@ -16235,6 +16283,75 @@
     dpTblEdit(tb.getAttribute('data-wb-block'))
   })
 
+  // #521 (Boss, TG 8337: "csak a keskeny savban, jobbra-balra ... a sarkokba huzni nem lehet"; TG 8451: "kepek,
+  // tablazat, barmi"): the free-move handle takes a picture or a table anywhere on the page. While dragging the
+  // element follows the pointer; on release its place is saved as a left indent and a space above (percent of the
+  // text width) -- in the text flow, so the PDF and the Word file show it exactly there.
+  function dpFreeTarget(hd) {
+    var tbl = hd.closest('.wb-dp-tbl')
+    var box = hd.closest('.wb-dp-img-box')
+    var el = tbl || box
+    if (!el) return null
+    // The width the percentages are of: the INNER width of what the element's margins and width are measured against
+    // (CSS percent margins are of the containing block's content width). Measured 2026-10-10: the row is 280 px wide
+    // with its gutter, its text column 233 -- taking the outer one made a drag of 84 px come out 30 instead of 36 percent.
+    // A floated table's row is narrowed to the table's own width, so there the measure is the row's parent.
+    var row = el.closest('.wb-dp-row')
+    var ref = tbl ? (row && row.classList.contains('wb-dp-row-float') && row.parentElement ? row.parentElement : tbl.parentElement) : hd.closest('.wb-dp-img')
+    var inner = ref ? ref.clientWidth : el.clientWidth
+    try { var cs = window.getComputedStyle(ref); inner -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) } catch (_e) { /* the outer width is the fallback */ }
+    return { el: el, full: Math.max(1, inner) }
+  }
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var hd = e.target.closest('[data-wb-free-move]')
+    if (!hd || archived()) return
+    var bid = hd.getAttribute('data-wb-free-move')
+    var b = dpImageBlock(bid)
+    var tg = dpFreeTarget(hd)
+    if (!b || !tg) return
+    e.preventDefault()
+    e.stopPropagation()
+    var start = dpFreeNow(b)
+    var sx = e.clientX
+    var sy = e.clientY
+    var x = start.x
+    var y = start.y
+    try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
+    tg.el.classList.add('wb-dp-free-dragging')
+    function move(ev) {
+      x = Math.max(0, Math.min(100 - start.w, Math.round(start.x + (ev.clientX - sx) / tg.full * 100)))
+      y = Math.max(0, Math.min(150, Math.round(start.y + (ev.clientY - sy) / tg.full * 100)))
+      // Shown where it will land (the clamped place), not where the pointer is.
+      tg.el.style.transform = 'translate(' + ((x - start.x) / 100 * tg.full) + 'px,' + ((y - start.y) / 100 * tg.full) + 'px)'
+    }
+    function up() {
+      hd.removeEventListener('pointermove', move)
+      hd.removeEventListener('pointerup', up)
+      hd.removeEventListener('pointercancel', up)
+      tg.el.classList.remove('wb-dp-free-dragging')
+      tg.el.style.transform = ''
+      // A plain click on the handle (no movement) changes nothing: it must not turn a centred table into a "free" one.
+      if (x !== start.x || y !== start.y) dpFreeSave(bid, x, y)
+    }
+    hd.addEventListener('pointermove', move)
+    hd.addEventListener('pointerup', up)
+    hd.addEventListener('pointercancel', up)
+  })
+  // The same from the keyboard: the arrows move it by 2 percent (Shift: 10).
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.getAttribute !== 'function' || archived()) return
+    var bid = e.target.getAttribute('data-wb-free-move')
+    if (!bid) return
+    var d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]
+    if (!d) return
+    var b = dpImageBlock(bid)
+    if (!b) return
+    e.preventDefault()
+    var now = dpFreeNow(b)
+    var step = e.shiftKey ? 10 : 2
+    dpFreeSave(bid, Math.max(0, Math.min(100 - now.w, now.x + d[0] * step)), Math.max(0, Math.min(150, now.y + d[1] * step)))
+  })
   // #508 (TG 2920): the picture's corner handle sets its width as a share of the page's text width (5% steps).
   document.addEventListener('pointerdown', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return

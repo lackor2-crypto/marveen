@@ -76,9 +76,9 @@ describe('fileToBlocks', () => {
 
 describe('picture size and alignment', () => {
   it('parses the suffix and keeps old blocks as they were', () => {
-    expect(imageBlockParts('P/a.png')).toEqual({ path: 'P/a.png', width: null, align: 'c' })
-    expect(imageBlockParts('P/a.png#w=40&a=r')).toEqual({ path: 'P/a.png', width: 40, align: 'r' })
-    expect(imageBlockParts('P/a.png#w=5')).toEqual({ path: 'P/a.png', width: 10, align: 'c' })
+    expect(imageBlockParts('P/a.png')).toEqual({ path: 'P/a.png', width: null, align: 'c', x: null, y: null })
+    expect(imageBlockParts('P/a.png#w=40&a=r')).toEqual({ path: 'P/a.png', width: 40, align: 'r', x: null, y: null })
+    expect(imageBlockParts('P/a.png#w=5')).toEqual({ path: 'P/a.png', width: 10, align: 'c', x: null, y: null })
     expect(imageBlockPathOk('P/a.png#w=40&a=l')).toBe(true)
     expect(imageBlockPathOk('P/a.mp4#w=40&a=l')).toBe(false)
   })

@@ -6788,6 +6788,7 @@ window._i18n.hu = {
   "workbench.dp.drop_empty_table": "A táblázat üres volt, ezért üres táblát tettem a lapra.",
   "workbench.dp.drop_truncated": "A fájl nagyon hosszú: az elejét építettem be, a teljes tartalom a fájlban marad.",
   "workbench.dp.tbl_edit": "Kattints a táblázat szerkesztéséhez (soronként: cella | cella)",
+  "workbench.dp.free_move": "Fogd meg, és vidd bárhová a lapon (a nyíl billentyűkkel is mozgatható). A Balra / Középre / Jobbra gomb visszateszi a szövegbe.",
   "workbench.dp.tbl_move": "Húzd a táblázatot, és máshová kerül a lapon",
   "workbench.dp.tbl_resize": "Táblázat mérete: húzd a sarkot (vagy nyilakkal 5%-onként)",
   "workbench.dp.tbl_left": "Balra, a szöveg körbefolyja",
