@@ -8141,7 +8141,9 @@
       // egy masik felulet mutatja a tartalmat -- torolve semmi nincs.
       var canvasFirst = surfaceOf(it) === 'canvas'
       inner = '<div class="wb-editor-head"><h3>' + workSeqHtml(it) + esc(it.title) + '</h3>'
-        + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span></div>'
+        + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
+        // #556: Finalize / Reopen in the head of the item, for every kind (it used to sit only at the very bottom).
+        + finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'
         + versionBarHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
@@ -10975,15 +10977,16 @@
   /** #556 (Boss TG 8751): "Finalize" where the owner looks for it -- in the frame's top bar, for every kind of work
    *  item, not only inside the "more" panel. A drafted document keeps its own Finalize (checks + PDF) on its page;
    *  a finalized item shows the fact and the way back. */
-  function finalizeTopHtml(it) {
+  function finalizeTopHtml(it, cls) {
+    cls = cls || 'wb-fr-tbtn'
     if (!it || archived()) return ''
     var busy = WB.approvalBusy ? ' disabled' : ''
     if (it.status === 'done') {
       return '<span class="wb-fr-final-done" role="status">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
-        + '<button type="button" class="wb-fr-tbtn" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
+        + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
     if (it.type === 'document' && !it.source_path) return ''
-    return '<button type="button" class="wb-fr-tbtn wb-fr-final" data-wb-act="item-finalize"' + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
+    return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
   }
 
   function approvalBoxHtml() {

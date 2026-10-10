@@ -32,5 +32,7 @@ describe('frame bars', () => {
     expect(f).toContain("it.status === 'done'")
     expect(f).toContain("if (it.type === 'document' && !it.source_path) return ''")
     expect(f).toContain('archived()')
+    // the Manual view: in the head of the item (measured: it was only at the very bottom, after scrolling)
+    expect(fn('editorPanelHtml')).toContain("finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'")
   })
 })
