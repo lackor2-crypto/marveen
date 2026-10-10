@@ -64,6 +64,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
+import { linkLifeFileAsAnnex, tendLinkedAnnexes } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
@@ -145,6 +146,7 @@ function uiLang(url: URL): 'hu' | 'en' {
 
 const MESSAGES: Record<string, { hu: string; en: string }> = {
   drop_missing: { hu: 'A fájl nincs meg a helyén (talán áthelyezték vagy törölték). Frissítsd a Feltöltések listát, és húzd rá újra.', en: 'The file is not where it was (it may have been moved or deleted). Refresh the Uploads list and drop it again.' },
+  court_fix_linked: { hu: 'Ez a melléklet az Életfából van kapcsolva, nem másolat. Kereshető másolatot most csak a munkadarabhoz feltöltött mellékletből tudok készíteni: töltsd fel a fájlt a „Feltöltés a gépről…” gombbal, és azon készítsd el.', en: 'This annex is linked from the Life tree, it is not a copy. A searchable copy can only be made from an annex uploaded to the work item for now: upload the file with "Upload from the computer…" and make it from that.' },
   drop_not_in_project: { hu: 'Mellékletnek csak a projekt mappájában lévő fájl tehető. Előbb töltsd fel a fájlt a munkadarabhoz, aztán húzd a lapra.', en: 'Only a file in the project folder can be an annex. Upload the file to the work item first, then drop it on the page.' },
   drop_embed_unsupported: { hu: 'Ezt a fájltípust nem lehet a lapba építeni, csak mellékletnek tenni (beépíthető: kép, Excel/CSV táblázat, Word/ODT/szöveg).', en: 'This file type cannot be built into the page, only attached as an annex (built in can be: picture, Excel/CSV table, Word/ODT/text).' },
   drop_too_big: { hu: 'A fájl túl nagy ahhoz, hogy a lapba építsem (legfeljebb 20 MB). Tedd mellékletnek.', en: 'The file is too big to build into the page (20 MB at most). Attach it as an annex instead.' },
@@ -1852,6 +1854,8 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
 
 /** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
 type OutlineOut = ReturnType<typeof documentOutline> & {
+  /** #530: linked documents that are not at their place and are being looked for in the background. */
+  linked_searching: number
   check: ReturnType<typeof documentCheck>
   consistency: ReturnType<typeof consistencyIssues>
   annexes: ReturnType<typeof listAnnexes>
@@ -1874,8 +1878,11 @@ function outlineOut(itemId: string): OutlineOut | null {
   if (!hasDocModel(itemId)) return null
   const item = getWorkItem(itemId)
   const resolve = item ? resolverFor(item) : undefined
+  // #530: a linked document that is not at its place is looked for in the background; the page says so.
+  const linkedSearching = tendLinkedAnnexes(itemId, resolve)
   return {
     ...documentOutline(itemId),
+    linked_searching: linkedSearching,
     check: documentCheck(itemId, resolve),
     consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
@@ -3209,6 +3216,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (segs.length === 3 && segs[2] === 'fix' && method === 'POST') {
       const a = listAnnexes(item.id).find((x) => x.id === String(body['annex_id'] ?? ''))
       if (!a) return fail(res, 404, 'court_annex_not_found', lang)
+      // #530: a searchable copy would have to be written next to the ORIGINAL in the Life tree; not done for a linked document yet.
+      if (a.linked) return fail(res, 400, 'court_fix_linked', lang)
       if (!/\.pdf$/i.test(a.path)) return fail(res, 400, 'court_fix_not_pdf', lang)
       if (!searchableCopyAvailable()) return fail(res, 424, 'searchable_not_installed', lang)
       const resolve = (p: string) => resolveProjectFile(owner, p)
@@ -3481,9 +3490,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!abs || !existsSync(abs)) return fail(res, 404, 'drop_missing', lang)
       if (body['mode'] === 'annex') {
         const base = String(owner.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-        if (!base || !rel.startsWith(base + '/')) return fail(res, 400, 'drop_not_in_project', lang)
         const resolve = resolverFor(item)
         if (!resolve) return fail(res, 404, 'project_not_found', lang)
+        // #530: a file that lives elsewhere in the Life tree is LINKED, not refused and not copied.
+        if (!base || !rel.startsWith(base + '/')) return done(await linkLifeFileAsAnnex(item.id, rel, { title: body['title'] }, resolve, actor(ctx)), true)
         return done(addAnnex(item.id, { path: rel.slice(base.length + 1), title: body['title'] }, resolve, actor(ctx)), true)
       }
       const kind = embedKind(rel)
@@ -3512,6 +3522,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'blocks' && segs.length === 4 && method === 'PATCH') return done(updateBlock(item.id, id, { text: body['text'], rich: body['rich'], align: body['align'], kind: body['kind'], section: body['section'], position: body['position'], author: 'owner' }))
     if (sub === 'blocks' && segs.length === 4 && method === 'DELETE') return done(removeBlock(item.id, id))
     // MELLEKLETJEGYZEK (K-1.18): a szovegbeli hivatkozasok a listahoz igazodnak.
+    // #530: a document of the Life tree becomes an annex WITHOUT a copy.  POST .../outline/annexes/link {rel, title?, position?}
+    if (sub === 'annexes' && segs.length === 4 && segs[3] === 'link' && method === 'POST') {
+      const resolve = resolverFor(item)
+      if (!resolve) return fail(res, 404, 'project_not_found', lang)
+      return done(await linkLifeFileAsAnnex(item.id, String(body['rel'] ?? ''), { title: body['title'], position: body['position'] }, resolve, actor(ctx)), true)
+    }
     if (sub === 'annexes' && segs.length === 3 && method === 'POST') {
       const resolve = resolverFor(item)
       if (!resolve) return fail(res, 404, 'project_not_found', lang)

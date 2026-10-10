@@ -41,6 +41,7 @@ import { json, readBody } from '../http-helpers.js'
 import { dupStatus, startDupIndex, stopDupIndex, duplicatesIn, matchCloudFiles } from '../../life-dup-index.js'
 import { logger } from '../../logger.js'
 import { openWithDefaultApp, openableWithDefaultApp, fileManagerKind } from '../../open-in-file-manager.js'
+import { linkedUsesUnder } from '../../workbench-doc-links.js'
 import {
   ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig, mediaTargets,
   inboxCount, safeLifeName, newLifeId, lifeName, trashRelPath, lifeConfigExists, inboxDir,
@@ -1031,6 +1032,16 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     send(res, 200, { ok: true, archived: r.archived, message: on
       ? T(lang, 'Archiválva: a helyén marad, szürkén, a lista végén.', 'Archived: it stays in its place, grey, at the end of the list.')
       : T(lang, 'Visszakerült a helyére.', 'Back in its usual place.') })
+    return true
+  }
+
+  // #530: before something goes to the Bin -- is it (or a file below it) used by a project as a
+  // linked annex? Read only. The page asks, and says where, before the owner confirms.
+  if (path === '/api/life/linked-uses' && method === 'POST') {
+    const body = await readJson(req)
+    const rels = Array.isArray(body?.rels) ? body.rels.filter((x: unknown) => typeof x === 'string').slice(0, 500) : []
+    const uses = rels.flatMap((r: string) => linkedUsesUnder(r))
+    send(res, 200, { uses: uses.slice(0, 50), total: uses.length })
     return true
   }
 

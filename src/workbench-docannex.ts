@@ -56,6 +56,11 @@ export function ensureAnnexTables(): void {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_annexes_item ON wb_doc_annexes(work_item_id, position)')
+  // #530: a LINKED annex is a document of the Life tree, not a copy in the project folder. Its
+  // `path` is `doc:<document id>`; `life_rel` is where the file was when it was last seen (shown
+  // to the owner, and the only thing left to show when the file cannot be found).
+  const cols = new Set((db.prepare('PRAGMA table_info(wb_doc_annexes)').all() as { name: string }[]).map((c) => c.name))
+  if (!cols.has('life_rel')) db.exec('ALTER TABLE wb_doc_annexes ADD COLUMN life_rel TEXT')
   tablesDb = db
 }
 
@@ -237,7 +242,12 @@ export function setDocSettings(itemId: string, patch: { annex_scheme?: unknown; 
 // A lista
 // ---------------------------------------------------------------------------
 
-export interface AnnexRow { id: string; work_item_id: string; position: number; path: string; title: string; created_at: number; created_by: string | null }
+export interface AnnexRow { id: string; work_item_id: string; position: number; path: string; title: string; created_at: number; created_by: string | null; life_rel?: string | null }
+
+/** `doc:<id>`: the annex is a linked document of the Life tree (#530), not a file of the project folder. */
+export const LINKED_PREFIX = 'doc:'
+export const isLinkedPath = (p: string): boolean => String(p || '').startsWith(LINKED_PREFIX)
+const baseName = (p: string): string => String(p || '').slice(String(p || '').lastIndexOf('/') + 1)
 
 function listAnnexRows(itemId: string): AnnexRow[] {
   ensureAnnexTables()
@@ -253,6 +263,15 @@ export interface AnnexView extends AnnexRow {
   /** null: nem neztuk meg (nincs feloldo). */
   exists: boolean | null
   refs: number
+  /** The file's name as it is now (a linked document may have been renamed); the last known one when it cannot be found. */
+  name: string
+  /** #530: a document of the Life tree, referred to and not copied. */
+  linked: boolean
+}
+
+/** The file name an annex row stands for when the file itself was not looked at. */
+function rowName(a: AnnexRow): string {
+  return isLinkedPath(a.path) ? baseName(a.life_rel || '') : baseName(a.path)
 }
 
 function allTexts(itemId: string): string[] {
@@ -264,11 +283,16 @@ export function listAnnexes(itemId: string, resolve?: FileResolver): AnnexView[]
   const s = docSettings(itemId)
   const counts = new Map<number, number>()
   for (const t of allTexts(itemId)) for (const n of annexRefs(t, s)) counts.set(n, (counts.get(n) || 0) + 1)
-  return listAnnexRows(itemId).map((a, i) => ({
-    ...a, number: i + 1, label: annexLabel(s, i + 1),
-    exists: resolve ? !!resolve(a.path) : null,
-    refs: counts.get(i + 1) || 0,
-  }))
+  return listAnnexRows(itemId).map((a, i) => {
+    const f = resolve ? resolve(a.path) : null
+    return {
+      ...a, number: i + 1, label: annexLabel(s, i + 1),
+      exists: resolve ? !!f : null,
+      refs: counts.get(i + 1) || 0,
+      name: f ? f.name : rowName(a),
+      linked: isLinkedPath(a.path),
+    }
+  })
 }
 
 /** Uj sorrend alkalmazasa; a szovegbeli hivatkozasok a regi sorszambol az ujra irodnak at. */
@@ -292,6 +316,8 @@ export function addAnnex(itemId: string, input: { path?: unknown; title?: unknow
   ensureAnnexTables()
   const path = String(input.path ?? '').replace(/\\/g, '/').replace(/^\/+/, '').trim()
   if (!path) return { ok: false, code: 'bad_input', detail: 'path (a file of the project folder) is required' }
+  // A linked document is added by linkAnnex only: a caller cannot name one by typing its id as a path.
+  if (isLinkedPath(path)) return { ok: false, code: 'bad_input', detail: 'path must be a file of the project folder' }
   const f = resolve(path)
   if (!f) return { ok: false, code: 'file_missing', detail: 'there is no such file in the project folder' }
   const title = String(input.title ?? '').trim() || f.name.replace(/\.[^.]+$/, '')
@@ -335,6 +361,51 @@ export function updateAnnex(itemId: string, id: string, patch: { title?: unknown
 }
 
 /**
+ * #530: a document of the Life tree becomes an annex WITHOUT a copy. The caller has already
+ * given the file its stable id (`docId`, life-doc-ids.ts) and knows where it is now (`lifeRel`).
+ * The same document can be an annex of any number of documents and projects -- each list has
+ * its own number for it -- but only once in one list.
+ */
+export function linkAnnex(itemId: string, input: { docId: string; lifeRel: string; title?: unknown; position?: unknown }, resolve: FileResolver, by: string | null): AnnexResult<{ annex: AnnexView; rewritten: number }> {
+  ensureAnnexTables()
+  const docId = String(input.docId || '').trim()
+  if (!/^DOC-[A-Z0-9]{4,40}$/.test(docId)) return { ok: false, code: 'bad_input', detail: 'docId must be a document id' }
+  const path = LINKED_PREFIX + docId
+  const f = resolve(path)
+  if (!f) return { ok: false, code: 'file_missing', detail: 'the document is not where its record says' }
+  const title = String(input.title ?? '').trim() || f.name.replace(/\.[^.]+$/, '')
+  if (title.length > ANNEX_TITLE_MAX) return { ok: false, code: 'bad_input', detail: `the title is at most ${ANNEX_TITLE_MAX} characters` }
+  const rows = listAnnexRows(itemId)
+  if (rows.length >= ANNEXES_MAX) return { ok: false, code: 'too_many', detail: `a document has at most ${ANNEXES_MAX} annexes` }
+  if (rows.some((r) => r.path === path)) return { ok: false, code: 'duplicate', detail: 'this file is already an annex of this document' }
+  const id = randomUUID().slice(0, 12)
+  getDb().prepare('INSERT INTO wb_doc_annexes (id, work_item_id, position, path, title, created_at, created_by, life_rel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, itemId, rows.length, path, title, now(), by, String(input.lifeRel || ''))
+  const row = getDb().prepare('SELECT * FROM wb_doc_annexes WHERE id = ?').get(id) as AnnexRow
+  let rewritten = 0
+  const want = Number(input.position)
+  if (input.position !== undefined && input.position !== null && input.position !== '' && Number.isFinite(want) && Math.floor(want) < rows.length) {
+    const next: AnnexRow[] = rows.slice()
+    next.splice(Math.max(0, Math.floor(want)), 0, row)
+    rewritten = applyOrder(itemId, rows, next)
+  }
+  const view = listAnnexes(itemId, resolve).find((a) => a.id === id) as AnnexView
+  return { ok: true, annex: view, rewritten }
+}
+
+/** The linked annexes of every document, for "where is this file used?" and for following a moved file. */
+export function linkedAnnexRows(): AnnexRow[] {
+  ensureAnnexTables()
+  return getDb().prepare(`SELECT * FROM wb_doc_annexes WHERE path LIKE 'doc:%'`).all() as AnnexRow[]
+}
+
+/** Where the linked file was last seen: kept current, so the list can say it even when the file is gone. */
+export function rememberLinkedRel(annexId: string, lifeRel: string): void {
+  ensureAnnexTables()
+  getDb().prepare('UPDATE wb_doc_annexes SET life_rel = ? WHERE id = ? AND (life_rel IS NULL OR life_rel != ?)').run(lifeRel, annexId, lifeRel)
+}
+
+/**
  * A melleklet fajljanak csereje (pl. a kereshető masolatra, K-1.37): a sorszam,
  * a cim es a szovegbeli hivatkozasok maradnak.
  */
@@ -343,9 +414,9 @@ export function setAnnexPath(itemId: string, id: string, rawPath: string, resolv
   const a = rows.find((r) => r.id === String(id || ''))
   if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }
   const path = String(rawPath ?? '').replace(/\\/g, '/').replace(/^\/+/, '').trim()
-  if (!path || !resolve(path)) return { ok: false, code: 'file_missing', detail: 'there is no such file in the project folder' }
+  if (!path || isLinkedPath(path) || !resolve(path)) return { ok: false, code: 'file_missing', detail: 'there is no such file in the project folder' }
   if (rows.some((r) => r.id !== a.id && r.path === path)) return { ok: false, code: 'duplicate', detail: 'this file is already an annex of this document' }
-  getDb().prepare('UPDATE wb_doc_annexes SET path = ? WHERE id = ?').run(path, a.id)
+  getDb().prepare('UPDATE wb_doc_annexes SET path = ?, life_rel = NULL WHERE id = ?').run(path, a.id)
   return { ok: true, annex: getDb().prepare('SELECT * FROM wb_doc_annexes WHERE id = ?').get(a.id) as AnnexRow }
 }
 
@@ -397,7 +468,7 @@ export function annexCheck(itemId: string, resolve?: FileResolver): AnnexCheck {
   const dangling = [...referenced].filter((n) => n > list.length).sort((a, b) => a - b).map((n) => annexLabel(s, n))
   const unreferenced = list.filter((a) => a.refs === 0).map((a) => a.label)
   const missing = list.filter((a) => a.exists === false).map((a) => a.label)
-  const unsupported = list.filter((a) => !annexPdfKind(a.path)).map((a) => a.label)
-  const ok = list.filter((a) => a.refs > 0 && a.exists !== false && annexPdfKind(a.path)).length
+  const unsupported = list.filter((a) => !annexPdfKind(a.name)).map((a) => a.label)
+  const ok = list.filter((a) => a.refs > 0 && a.exists !== false && annexPdfKind(a.name)).length
   return { total: list.length, ok, dangling, unreferenced, missing_files: missing, unsupported }
 }

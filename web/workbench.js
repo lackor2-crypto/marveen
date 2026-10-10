@@ -8312,7 +8312,7 @@
     var list = o.annexes || []
     var st = o.settings || {}
     var rows = list.map(function (a, i) {
-      var warn = (a.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.annex.missing_file')) + '</span>' : '')
+      var warn = (a.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t(a.linked ? (o.linked_searching ? 'workbench.annex.linked_searching' : 'workbench.annex.linked_missing') : 'workbench.annex.missing_file')) + '</span>' : '')
         + (a.refs ? ' <span class="wb-muted">' + esc(t('workbench.annex.refs', { n: a.refs })) + '</span>'
           : ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.annex.unreferenced')) + '</span>')
       var tools = ro ? '' : ' <span class="wb-outline-tools">'
@@ -8320,8 +8320,13 @@
         + (i < list.length - 1 ? '<button type="button" class="wb-linklike" data-wb-act="outline-annex-move" data-wb-annex="' + escA(a.id) + '" data-wb-pos="' + (i + 1) + '" title="' + escA(t('workbench.annex.down')) + '" aria-label="' + escA(t('workbench.annex.down')) + '">↓</button> ' : '')
         + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-rename" data-wb-annex="' + escA(a.id) + '">' + esc(t('workbench.annex.rename')) + '</button> '
         + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-remove" data-wb-annex="' + escA(a.id) + '">' + esc(t('workbench.annex.remove')) + '</button></span>'
+      // #530: a linked annex is a document of the Life tree, not a copy -- say where it really is.
+      var where = a.linked
+        ? ' <span class="wb-muted wb-annex-linked" title="' + escA(t('workbench.annex.linked_hint')) + '">(🔗 ' + esc(t('workbench.annex.linked_at', { path: String(a.life_rel || a.name || '').split('/').join(' › ') })) + ')</span>'
+          + (a.life_rel ? ' <button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(a.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>' : '')
+        : ' <span class="wb-muted">(' + esc(a.path) + ')</span>'
       return '<li class="wb-annex"><strong>' + esc(a.label) + '</strong> – ' + esc(a.title)
-        + ' <span class="wb-muted">(' + esc(a.path) + ')</span>' + warn + tools + '</li>'
+        + where + warn + tools + '</li>'
     }).join('')
     var add = ''
     var settings = ''
@@ -8333,6 +8338,8 @@
       var browse = '<label class="wb-btn wb-annex-browse" title="' + escA(t('workbench.annex.browse_hint')) + '">📁 '
         + esc(WB.annexUploading ? t('workbench.annex.browse_busy') : t('workbench.annex.browse'))
         + '<input type="file" hidden multiple data-wb-annex-browse="1"' + (WB.annexUploading ? ' disabled' : '') + '></label>'
+      // #530 (Boss TG 8500): a document that already lives in the Life tree is LINKED, not copied.
+      browse += ' <button type="button" class="wb-btn wb-annex-link" data-wb-act="outline-annex-link" title="' + escA(t('workbench.annex.link_hint')) + '">🔗 ' + esc(t('workbench.annex.link')) + '</button>'
       add = mats.length
         ? '<p class="wb-annex-add"><select id="wbAnnexPick" aria-label="' + escA(t('workbench.annex.pick')) + '"><option value="">' + esc(t('workbench.annex.pick')) + '</option>'
           + mats.map(function (m) { return '<option value="' + escA(m.project_path) + '">' + esc(m.name) + '</option>' }).join('') + '</select>'
@@ -8579,6 +8586,62 @@
     })
   }
 
+  /**
+   * #530: pick ONE FILE of the Life tree (the Explorer's tree), nothing else. Only chooses: it
+   * creates and changes nothing. `done(rel)` gets the file's path in the tree.
+   */
+  function pickLifeFile(done) {
+    if (!document.body || typeof document.createElement !== 'function') return
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbLifeFilePick'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
+      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.annex.link_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.annex.link_help')) + '</p>'
+      + '<p style="margin:0 0 6px;font-size:13px"><b>' + esc(t('workbench.annex.link_here')) + '</b> <span id="wbLifeFilePickHere"></span></p>'
+      + '<div id="wbLifeFilePickList" class="wb-lifepick-list"></div>'
+      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button></div>'
+      + '</div>'
+    document.body.appendChild(overlay)
+    var list = overlay.querySelector('#wbLifeFilePickList')
+    var here = overlay.querySelector('#wbLifeFilePickHere')
+    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    overlay.querySelector('#wbLifeFilePickClose').addEventListener('click', close)
+    var row = function (text, cls, fn) {
+      var b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'wb-lifepick-row' + (cls ? ' ' + cls : '')
+      b.textContent = text
+      b.addEventListener('click', fn)
+      list.appendChild(b)
+    }
+    var note = function (text, warn) {
+      var p = document.createElement('p')
+      p.className = 'wb-lifepick-note' + (warn ? ' modal-note' : '')
+      p.textContent = text
+      list.appendChild(p)
+    }
+    var open = function (rel) {
+      list.innerHTML = ''
+      note(t('workbench.annex.link_loading'))
+      api('GET', '/api/life/list?path=' + encodeURIComponent(rel) + '&content=0').then(function (r) {
+        if (!overlay.parentNode) return
+        list.innerHTML = ''
+        // "Could not look" is its own sentence: a failed listing is not an empty folder.
+        if (!r.ok || !r.data) { note(r.message || t('workbench.annex.link_failed'), true); if (rel) row('↑ ' + t('workbench.annex.link_up'), 'wb-lifepick-up', function () { open(rel.split('/').slice(0, -1).join('/')) }); return }
+        var d = r.data
+        here.textContent = (d.breadcrumb || []).map(function (c) { return c.displayName || c.name }).join(' › ') || d.display || ''
+        if (d.parent !== null && d.parent !== undefined) row('↑ ' + t('workbench.annex.link_up'), 'wb-lifepick-up', function () { open(d.parent) })
+        ;(d.folders || []).forEach(function (f) { row('📁 ' + (f.displayName || f.name), '', function () { open(f.rel) }) })
+        ;(d.files || []).forEach(function (f) { row('📄 ' + f.name, 'wb-lifepick-file', function () { close(); done(f.rel) }) })
+        if (!(d.folders || []).length && !(d.files || []).length) note(t('workbench.annex.link_empty'))
+        if (d.truncated) note(t('workbench.annex.link_truncated'))
+      })
+    }
+    // Start where the documents are, not in the project's own folder: what is there is already "in the project".
+    open('')
+  }
+
   function outlineCall(method, sub, body) {
     var id = WB.selectedId
     if (!id || archived()) return
@@ -8685,6 +8748,14 @@
       var ttl = document.getElementById('wbAnnexTitle')
       if (!pick || !pick.value) { window.showToast(t('workbench.annex.pick_first')); return }
       outlineCall('POST', '/annexes', { path: pick.value, title: ttl && ttl.value ? ttl.value.trim() : '' })
+    } else if (a === 'outline-annex-link') {
+      pickLifeFile(function (rel) { outlineCall('POST', '/annexes/link', { rel: rel }) })
+    } else if (a === 'outline-annex-origin') {
+      // "Eredeti hely megnyitasa": the Explorer, at the folder the document really lives in.
+      var orel = act.getAttribute('data-wb-rel') || ''
+      var odir = orel.split('/').slice(0, -1).join('/')
+      location.hash = '#intezo'
+      setTimeout(function () { if (typeof window._intezoOpen === 'function') window._intezoOpen(odir) }, 350)
     } else if (a === 'outline-annex-move') {
       outlineCall('PATCH', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')), { position: Number(act.getAttribute('data-wb-pos')) })
     } else if (a === 'outline-annex-rename') {
@@ -8692,7 +8763,8 @@
       var nt2 = window.prompt(t('workbench.annex.rename_prompt'), ax ? ax.title : '')
       if (nt2 && nt2.trim()) outlineCall('PATCH', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')), { title: nt2.trim() })
     } else if (a === 'outline-annex-remove') {
-      if (window.confirm(t('workbench.annex.remove_confirm'))) outlineCall('DELETE', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')))
+      var rmA = ((WB.detail && WB.detail.outline && WB.detail.outline.annexes) || []).filter(function (x) { return x.id === act.getAttribute('data-wb-annex') })[0]
+      if (window.confirm(t(rmA && rmA.linked ? 'workbench.annex.remove_confirm_linked' : 'workbench.annex.remove_confirm'))) outlineCall('DELETE', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')))
     } else if (a === 'outline-review') {
       // A link maga nyitja meg a PDF-et uj lapon; a szerver akkor rogziti az
       // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
