@@ -71,4 +71,15 @@ describe('work item folder files', () => {
     for (const n of ['marveen-item.json', 'marveen-brand.json', 'x.deck.json', 'X.CANVAS.JSON', 'a.timeline.json']) expect(isItemInternalFile(n)).toBe(true)
     for (const n of ['adatok.json', 'beadvany.docx', 'deck.pdf', 'marveen.docx']) expect(isItemInternalFile(n)).toBe(false)
   })
+
+  it('#539: two work items sharing one folder both own its files (opening either finds them)', () => {
+    const base = 'Projektek/Ügy/Munkadarabok/Beadvány'
+    const w2 = createWorkItem({ project_id: project.id, title: 'Másik', type: 'document' })
+    if (!w2.ok) throw new Error('item2')
+    getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run('Munkadarabok/Beadvány', w2.item.id)
+    put(base + '/kozos.docx')
+    const r = projectItemFiles(project.id)
+    expect(r.files.length).toBe(1)
+    expect([...r.files[0].item_ids].sort()).toEqual([itemId, w2.item.id].sort())
+  })
 })
