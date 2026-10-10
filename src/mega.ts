@@ -560,6 +560,28 @@ export async function megaUpload(name: string, rawDir: unknown, rawFileName: unk
 }
 
 /**
+ * A file that is ALREADY on this machine goes up from where it is (#525): no
+ * copy into a temporary file, so a large file does not pass through memory or
+ * fill the disk a second time. Same checks as `megaUpload`: the folder must be
+ * there, the name must be free -- nothing is ever overwritten. The time allowed
+ * grows with the size (a slow line at 100 kB/s still gets through).
+ */
+export async function megaUploadFile(name: string, rawDir: unknown, rawFileName: unknown, absPath: string, bytes = 0, run?: Runner): Promise<MegaOpResult> {
+  const c = ctxFor(name)
+  if ('error' in c) return { ok: false, error: c.error }
+  const dir = normalizeMegaPath(rawDir)
+  if (dir === null) return { ok: false, error: 'bad_path' }
+  const fileName = normalizeMegaName(rawFileName)
+  if (fileName === null) return { ok: false, error: 'bad_name' }
+  const go = run ?? makeRunner(MEGA_UPLOAD_TIMEOUT_MS + Math.ceil(Math.max(0, bytes) / 100_000) * 1000)
+  const dest = joinMega(dir, fileName)
+  const pre = (await ensureDir(c, dir, go)) || (await ensureFree(c, dest, go))
+  if (pre) return pre
+  const r = await go(c.bin, ['copyto', absPath, `${c.remote}:${dest}`, '--transfers', String(MEGA_TRANSFERS), '--config', rcloneConfigPath()])
+  return r.code === 0 ? { ok: true, path: dest } : failFrom(r)
+}
+
+/**
  * A letoltes parancsa (`rclone cat`), amit a route folyamkent kuld tovabb.
  * Itt csak az argumentum all ossze -- a futtatas a route dolga, mert a
  * kimenetet nem szabad memoriaba gyujteni.
