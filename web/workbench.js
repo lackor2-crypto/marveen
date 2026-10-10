@@ -422,9 +422,32 @@
     setTrashed(id, true)
   }
 
+  /** #547: the work item to show after `goneId` left the list -- the next one in the order the owner was looking
+   *  at, else the one before it; null only when nothing is left. */
+  function neighbourItemId(before, goneId, now) {
+    var left = {}
+    ;(now || []).forEach(function (x) { left[x.id] = true })
+    var at = -1
+    ;(before || []).forEach(function (x, i) { if (x.id === goneId) at = i })
+    if (at < 0) return (now && now[0] && now[0].id) || null
+    for (var i = at + 1; i < before.length; i++) if (left[before[i].id]) return before[i].id
+    for (var k = at - 1; k >= 0; k--) if (left[before[k].id]) return before[k].id
+    return (now && now[0] && now[0].id) || null
+  }
+
+  /** #547 (owner, 2026-10-10: "why does it leave the workbench because I delete a document here?"): the open work
+   *  item is gone -- stay in the editor on its neighbour. The start page only when the project has no item left. */
+  function stayAfterRemoval(before, goneId) {
+    var next = neighbourItemId(before, goneId, WB.items)
+    if (next) { selectItem(next); return }
+    WB.selectedId = null
+    WB.detail = null
+  }
+
   function setTrashed(id, deleted) {
     if (WB.trashBusy || archived()) return
     var pid = WB.projectId
+    var before = (WB.items || []).slice()
     WB.trashBusy = true
     WB.warn = null
     render()
@@ -435,7 +458,7 @@
       if (!r.ok) { window.showToast(r.message); render(); return }
       if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
       if (r.data && Array.isArray(r.data.deleted)) WB.deleted = r.data.deleted
-      if (deleted && WB.selectedId === id) { WB.selectedId = null; WB.detail = null }
+      if (deleted && WB.selectedId === id) stayAfterRemoval(before, id)
       // Open the trash right away, so the owner sees where the item went: the
       // collapsed link alone got confused with the file-tree Trash (#443).
       if (deleted) WB.trashOpen = true
@@ -1991,6 +2014,7 @@
     if (WB.folderBusy || archived() || !folder) return
     if (!force && !window.confirm(t('workbench.folder.delete_confirm', { name: baseOf(folder) }))) return
     var pid = WB.projectId
+    var before = (WB.items || []).slice()
     WB.folderBusy = true
     api('DELETE', '/api/workbench/folders', { project_id: pid, folder: folder, trash: true, force: !!force }).then(function (r) {
       WB.folderBusy = false
@@ -2004,7 +2028,8 @@
       if (r.data && r.data.items) WB.items = r.data.items
       if (WB.pickFolder === folder || String(WB.pickFolder || '').indexOf(folder + '/') === 0) WB.pickFolder = ''
       window.showToast(t(r.data && r.data.trashed ? 'workbench.folder.trashed' : 'workbench.folder.deleted'))
-      if (WB.selectedId && !(WB.items || []).some(function (x) { return x.id === WB.selectedId })) { WB.selectedId = null; WB.detail = null }
+      // #547: the open item went with the folder -> its neighbour opens; an empty folder changes nothing on the right.
+      if (WB.selectedId && !(WB.items || []).some(function (x) { return x.id === WB.selectedId })) stayAfterRemoval(before, WB.selectedId)
       load(pid)
       render()
     })
