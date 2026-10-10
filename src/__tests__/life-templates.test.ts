@@ -9,7 +9,7 @@
 //     lesz belole, hanem eltunt mappa. Ezert vizsgaljuk kulon a ket veszelyes
 //     esetet: a mar letezo celt es a kis-nagybetu-utkozest.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, symlinkSync, lstatSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -25,7 +25,8 @@ vi.mock('../config.js', async () => {
 const { LIFE_TEMPLATES, findLifeTemplate, listLifeTemplates } = await import('../life-templates.js')
 const { planLifeTree, PERSON_CATEGORIES, lifeConfigExists, saveLifeConfig } = await import('../life-tree.js')
 const {
-  migrateFlatDepotDirs, DEPOT_SYSTEM, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_DRIVE, DEPOT_PHOTOS,
+  migrateFlatDepotDirs, DEPOT_SYSTEM, DEPOT_SYSTEM_ROOT, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_DRIVE, DEPOT_PHOTOS,
+  DEPOT_BACKUPS, restoreBuriedSystemFolders, ensureDepotSkeleton,
 } = await import('../depot.js')
 
 describe('a sablonok', () => {
@@ -185,6 +186,82 @@ describe('migrateFlatDepotDirs -- a lapos depo a Rendszer ala kerul', () => {
     mkdirSync(join(depot, 'mentesek'), { recursive: true })
     migrateFlatDepotDirs()
     expect(existsSync(join(depot, 'mentesek'))).toBe(false)
+  })
+
+  it('the `rendszer` alias of the CURRENT system root is left alone (#513)', () => {
+    // On a case-insensitive disk (a Windows drive seen from WSL) `rendszer` and
+    // `Rendszer` are one folder. The migration used to move that whole tree to
+    // `Rendszer/Tárolók/GOOGLE_PHOTOS` -- the backups with it -- once the
+    // skeleton stopped pre-creating GOOGLE_PHOTOS. A symlink stands in for the
+    // alias here: same device, same inode, two names.
+    mkdirSync(join(depot, DEPOT_BACKUPS), { recursive: true })
+    writeFileSync(join(depot, DEPOT_BACKUPS, 'mentes.mbk'), 'mentes', 'utf8')
+    symlinkSync(join(depot, DEPOT_SYSTEM_ROOT), join(depot, 'rendszer'))
+
+    const moved = migrateFlatDepotDirs()
+
+    expect(moved).toEqual([])
+    expect(existsSync(join(depot, DEPOT_SYSTEM))).toBe(false)
+    expect(lstatSync(join(depot, 'rendszer')).isSymbolicLink()).toBe(true)
+    expect(readFileSync(join(depot, DEPOT_BACKUPS, 'mentes.mbk'), 'utf8')).toBe('mentes')
+  })
+
+  it('a real legacy `rendszer` next to a different system root is still migrated', () => {
+    // The skip is about being the SAME directory, not about the name: on a
+    // case-sensitive disk the two are different folders and the old one moves.
+    mkdirSync(join(depot, DEPOT_SYSTEM_ROOT, 'Marveen'), { recursive: true })
+    mkdirSync(join(depot, 'rendszer'), { recursive: true })
+    writeFileSync(join(depot, 'rendszer', 'regi.db'), 'regi', 'utf8')
+    const moved = migrateFlatDepotDirs()
+    expect(moved.map((m) => m.from)).toContain('rendszer')
+    expect(readFileSync(join(depot, DEPOT_SYSTEM, 'regi.db'), 'utf8')).toBe('regi')
+  })
+})
+
+describe('restoreBuriedSystemFolders -- the backups come back from GOOGLE_PHOTOS (#513)', () => {
+  beforeEach(() => {
+    for (const n of ['rendszer', 'Rendszer']) rmSync(join(depot, n), { recursive: true, force: true })
+  })
+
+  it('moves the buried backups (and the Old folder) back, and takes the empty shell away', () => {
+    const buried = join(depot, DEPOT_SYSTEM, 'Marveen', DEPOT_BACKUPS.split('/').pop()!)
+    mkdirSync(join(buried, 'Régi'), { recursive: true })
+    writeFileSync(join(buried, 'a.mbk'), 'A', 'utf8')
+    writeFileSync(join(buried, 'Régi', 'b.mbk'), 'B', 'utf8')
+    mkdirSync(join(depot, DEPOT_BACKUPS), { recursive: true }) // the empty second copy
+
+    const restored = restoreBuriedSystemFolders()
+
+    expect(restored.length).toBe(2)
+    expect(readFileSync(join(depot, DEPOT_BACKUPS, 'a.mbk'), 'utf8')).toBe('A')
+    expect(readFileSync(join(depot, DEPOT_BACKUPS, 'Régi', 'b.mbk'), 'utf8')).toBe('B')
+    expect(existsSync(join(depot, DEPOT_SYSTEM, 'Marveen'))).toBe(false)
+    // idempotent
+    expect(restoreBuriedSystemFolders()).toEqual([])
+  })
+
+  it('never overwrites a name that is already in place', () => {
+    const buried = join(depot, DEPOT_SYSTEM, 'Marveen', DEPOT_BACKUPS.split('/').pop()!)
+    mkdirSync(buried, { recursive: true })
+    writeFileSync(join(buried, 'a.mbk'), 'BURIED', 'utf8')
+    writeFileSync(join(buried, 'b.mbk'), 'B', 'utf8')
+    mkdirSync(join(depot, DEPOT_BACKUPS), { recursive: true })
+    writeFileSync(join(depot, DEPOT_BACKUPS, 'a.mbk'), 'IN PLACE', 'utf8')
+
+    restoreBuriedSystemFolders()
+
+    expect(readFileSync(join(depot, DEPOT_BACKUPS, 'a.mbk'), 'utf8')).toBe('IN PLACE')
+    expect(readFileSync(join(buried, 'a.mbk'), 'utf8')).toBe('BURIED')
+    expect(readFileSync(join(depot, DEPOT_BACKUPS, 'b.mbk'), 'utf8')).toBe('B')
+  })
+
+  it('does nothing when nothing is buried, and the skeleton runs it at start-up', () => {
+    expect(restoreBuriedSystemFolders()).toEqual([])
+    const buried = join(depot, DEPOT_SYSTEM, 'Marveen', DEPOT_BACKUPS.split('/').pop()!)
+    mkdirSync(buried, { recursive: true })
+    writeFileSync(join(buried, 'c.mbk'), 'C', 'utf8')
+    ensureDepotSkeleton()
+    expect(readFileSync(join(depot, DEPOT_BACKUPS, 'c.mbk'), 'utf8')).toBe('C')
   })
 })
 
