@@ -13037,7 +13037,7 @@
   // ---- the translation page: Enter / paste (#534) ----------------------------------------------------
   // A browser splits a div by CLONING it, heading attributes and all; a paragraph made with Enter is built by hand instead:
   // the text after the caret moves to a fresh paragraph of the same chapter.
-  function twSplitAtCaret() {
+  function twSplitAtCaret(plain) {
     var sel = window.getSelection()
     if (!sel || !sel.rangeCount) return false
     var r = sel.getRangeAt(0)
@@ -13053,11 +13053,11 @@
     var title = el.getAttribute('data-tw') === 'title'
     var nb = document.createElement('div')
     // A new paragraph wears the look of the one it was split from (alignment, paragraph format); one made from a heading is a plain paragraph.
-    nb.className = title ? 'wb-tw-block wb-outline-kind-paragraph' : el.className
+    nb.className = title || plain ? 'wb-tw-block wb-outline-kind-paragraph' : el.className
     nb.setAttribute('data-tw', 'block')
     nb.setAttribute('data-tw-sec', el.getAttribute('data-tw-sec') || '')
-    nb.setAttribute('data-tw-kind', title ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph'))
-    if (!title) ['data-wb-align', 'data-wb-pfmt', 'style'].forEach(function (a) { if (el.hasAttribute(a)) nb.setAttribute(a, el.getAttribute(a)) })
+    nb.setAttribute('data-tw-kind', title || plain ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph'))
+    if (!title && !plain) ['data-wb-align', 'data-wb-pfmt', 'style'].forEach(function (a) { if (el.hasAttribute(a)) nb.setAttribute(a, el.getAttribute(a)) })
     nb.setAttribute('contenteditable', 'true')
     nb.appendChild(frag)
     if (!nb.textContent) nb.appendChild(document.createElement('br'))
@@ -13091,6 +13091,33 @@
     sel.addRange(nr)
     return true
   }
+  /** Enter on the EMPTY last item of a list leaves the list for a plain paragraph (as in Word); false when the caret is elsewhere. */
+  function twExitListAtCaret(host) {
+    var sel = window.getSelection()
+    if (!host || !sel || !sel.rangeCount || host.getAttribute('data-tw-kind') !== 'list') return false
+    var r = sel.getRangeAt(0)
+    if (!r.collapsed || !host.contains(r.startContainer)) return false
+    var post = document.createRange()
+    post.setStart(r.startContainer, r.startOffset)
+    post.setEnd(host, host.childNodes.length)
+    var pd = document.createElement('div')
+    pd.appendChild(post.cloneContents())
+    if (pd.textContent.replace(/\u200b/g, '') !== '' || pd.querySelector('img')) return false
+    var pre = document.createRange()
+    pre.setStart(host, 0)
+    pre.setEnd(r.startContainer, r.startOffset)
+    var hd = document.createElement('div')
+    hd.appendChild(pre.cloneContents())
+    var html = hd.innerHTML.replace(/\u200b/g, '')
+    if (html !== '' && !/<br\s*\/?>\s*$/i.test(html)) return false
+    while (host.lastChild && (host.lastChild.nodeName === 'BR' || (host.lastChild.nodeType === 3 && !host.lastChild.nodeValue.replace(/\u200b/g, '')))) host.removeChild(host.lastChild)
+    var end = document.createRange()
+    end.selectNodeContents(host)
+    end.collapse(false)
+    sel.removeAllRanges()
+    sel.addRange(end)
+    return twSplitAtCaret(true)
+  }
   document.addEventListener('beforeinput', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     if (!e.target.closest('#wbTwPage')) return
@@ -13103,6 +13130,7 @@
       var multi = host && /^(table|list)$/.test(host.getAttribute('data-tw-kind') || '')
       // Enter in a table / list adds a row / item inside the block; Shift+Enter is a line break in any block;
       // Enter in a plain paragraph starts a new paragraph.
+      if (e.inputType === 'insertParagraph' && twExitListAtCaret(host)) return
       if (e.inputType === 'insertLineBreak' || multi) { if (!twLineBreakAtCaret()) twSplitAtCaret() } else twSplitAtCaret()
     }
   })
