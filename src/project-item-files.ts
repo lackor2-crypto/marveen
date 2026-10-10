@@ -16,6 +16,8 @@ export interface ProjectItemFile {
   name: string
   item_id: string
   item: string
+  /** EVERY work item whose folder holds the file (items may share one folder; `item_id` is the first of them). */
+  item_ids: string[]
   /** The sub-folder inside the item folder ('' = directly in it), e.g. the uploaded annexes. */
   sub: string
   size: number
@@ -36,7 +38,7 @@ const MAX_DEPTH = 2
 export function projectItemFiles(projectId: string): { files: ProjectItemFile[]; truncated: boolean } {
   const pd = listProjectDocs(projectId)
   const linked = new Set<string>([...pd.docs.map((d) => d.life_rel), ...pd.attachments.map((a) => a.life_rel)])
-  const seen = new Set<string>()
+  const seen = new Map<string, ProjectItemFile>()
   const files: ProjectItemFile[] = []
   let truncated = false
   for (const f of projectItemFolders(projectId)) {
@@ -52,10 +54,15 @@ export function projectItemFiles(projectId: string): { files: ProjectItemFile[];
         let st
         try { st = statSync(abs) } catch { continue }
         if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(abs, rel, depth + 1); continue }
-        if (!st.isFile() || linked.has(rel) || seen.has(rel)) continue
+        if (!st.isFile() || linked.has(rel)) continue
+        // Two work items may share one folder (or one folder lie inside the other): the file is listed once, and
+        // names every item that holds it, so opening ANY of them finds it.
+        const had = seen.get(rel)
+        if (had) { if (!had.item_ids.includes(f.item_id)) had.item_ids.push(f.item_id); continue }
         if (files.length >= MAX_FILES) { truncated = true; return }
-        seen.add(rel)
-        files.push({ rel, name: n, item_id: f.item_id, item: f.title, sub: dirRel === f.rel ? '' : dirRel.slice(f.rel.length + 1), size: st.size, mtime: Math.floor(st.mtimeMs / 1000) })
+        const row: ProjectItemFile = { rel, name: n, item_id: f.item_id, item: f.title, item_ids: [f.item_id], sub: dirRel === f.rel ? '' : dirRel.slice(f.rel.length + 1), size: st.size, mtime: Math.floor(st.mtimeMs / 1000) }
+        seen.set(rel, row)
+        files.push(row)
       }
     }
     walk(root, f.rel, 0)

@@ -11060,6 +11060,7 @@
     else {
       var roles = p.roles || ['source', 'reference', 'related']
       var docs = p.docs || []
+      var projDocs = docs // the project's real documents: the AI count below is about these, whichever scope is shown
       var att = p.attachments || []
       var scopeItem = pdScopeNow() === 'item'
       var allDocsN = docs.length
@@ -11068,7 +11069,7 @@
       var scopeFiles = (p.item_files && p.item_files.files) || []
       if (scopeItem) {
         att = att.filter(function (a) { return a.item_id === WB.selectedId })
-        scopeFiles = scopeFiles.filter(function (f) { return f.item_id === WB.selectedId })
+        scopeFiles = scopeFiles.filter(function (f) { return (f.item_ids || [f.item_id]).indexOf(WB.selectedId) >= 0 })
         docs = []
       }
       var selItem = (WB.items || []).filter(function (i) { return i.id === WB.selectedId })[0]
@@ -11090,7 +11091,7 @@
       }).join(' ')) + ' <span class="wb-pill">' + esc(t('workbench.pd.attached')) + ': ' + att.length + '</span>'
         + (scopeItem ? '' : ' <span class="wb-pill">' + esc(t('workbench.pd.official')) + ': ' + docs.filter(function (d) { return d.role === 'official' }).length + '</span>')
         + ' <span class="wb-pill">' + esc(t('workbench.pd.group.files')) + ': ' + scopeFiles.length + '</span>'
-        + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: p.ai_access === 'read_all' ? docs.length : docs.filter(function (d) { return d.ai }).length, total: docs.length })) + '</span></p>'
+        + ' <span class="wb-pill" title="' + escA(t('workbench.pd.ai_hint')) + '">🤖 ' + esc(t('workbench.pd.ai_count', { n: p.ai_access === 'read_all' ? projDocs.length : projDocs.filter(function (d) { return d.ai }).length, total: projDocs.length })) + '</span></p>'
       if (!scopeItem) body += roles.map(function (k) {
         var mine = docs.filter(function (d) { return d.role === k })
         return '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.' + k)) + ' (' + mine.length + ')</h3>'
