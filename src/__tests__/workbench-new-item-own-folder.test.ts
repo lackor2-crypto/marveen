@@ -54,7 +54,7 @@ describe('#540: a new work item never lands under an existing one', () => {
     const fa = settled((a.body.item as Item).id)
     const fb = settled((b.body.item as Item).id)
     expect(fb).toBe(fa + ' (2)')
-    const t = await callWorkbench('/api/workbench/tables', 'POST', { project_id: pid, title: 'Ajanlat' })
+    const t = await callWorkbench('/api/workbench/items/new-table', 'POST', { project_id: pid, title: 'Ajanlat' })
     expect(t.status).toBe(201)
     expect(String(t.body.folder)).toBe(fa + ' (3)')
   })

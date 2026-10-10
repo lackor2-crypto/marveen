@@ -3073,7 +3073,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let intakeOwn: string | null = null
     {
       const mf = makeWorkFolder(project, intakeFolder ?? '', folderNameFromTitle(title), { own: true })
-      if (mf.ok) { intakeFolder = mf.folder; if (mf.created) intakeOwn = mf.folder }
+      // #540: `own` never hands back a folder already in use, so what came back is this item's own folder either way.
+      if (mf.ok) { intakeFolder = mf.folder; intakeOwn = mf.folder }
     }
     const noteDir = intakeRoot ? '' : (intakeFolder ?? '')
     if (kind === 'note' && projectFileTarget(project, noteDir).ok) {
