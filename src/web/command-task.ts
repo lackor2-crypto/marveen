@@ -21,7 +21,13 @@ export interface CommandHealth {
   alerted: boolean
   lastStatus: "ok" | "fail" | "unknown"
   lastRun: number
+  /** #546: why the last run failed (exit code + the first words of its error output). Kept so the Schedules list
+   *  can say WHAT went wrong; dropped again at the next successful run. */
+  lastDetail?: string
 }
+
+/** The cause is shown to the owner on a card: one short line is enough. */
+export const COMMAND_DETAIL_MAX = 300
 type HealthMap = Record<string, CommandHealth>
 
 let healthMap: HealthMap | null = null
@@ -47,6 +53,7 @@ export function evaluateCommandResult(
   success: boolean,
   failThreshold: number,
   now: number,
+  detail?: string,
 ): { next: CommandHealth; action: CommandAction } {
   const wasAlerted = prev?.alerted ?? false
   const fails = success ? 0 : (prev?.fails ?? 0) + 1
@@ -58,7 +65,10 @@ export function evaluateCommandResult(
     action = "alert"; alerted = true
   }
   return {
-    next: { fails, alerted, lastStatus: success ? "ok" : "fail", lastRun: now },
+    next: {
+      fails, alerted, lastStatus: success ? "ok" : "fail", lastRun: now,
+      ...(!success && detail ? { lastDetail: String(detail).replace(/\s+/g, " ").trim().slice(0, COMMAND_DETAIL_MAX) } : {}),
+    },
     action,
   }
 }
@@ -86,7 +96,7 @@ export function runCommandTask(task: ScheduledTask, now: number): void {
   // A hivo nem var ra -- se a cron-tick, se a "Futtatas most" gomb.
   runCommand(task.command, timeoutMs, ({ ok, detail }) => {
     const map = load()
-    const { next, action } = evaluateCommandResult(map[task.name], ok, failThreshold, now)
+    const { next, action } = evaluateCommandResult(map[task.name], ok, failThreshold, now, detail)
     map[task.name] = next
     persist()
     try { appendTaskRun(task.name, task.agent || "system") } catch { /* non-fatal */ }

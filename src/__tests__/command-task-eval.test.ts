@@ -61,4 +61,13 @@ describe('evaluateCommandResult', () => {
     }
     expect(actions).toEqual(['none', 'none', 'alert'])
   })
+  it('#546: a failed run keeps WHY it failed (one short line), a successful run drops it again', () => {
+    const failed = evaluateCommandResult(undefined, false, 2, T, 'exit 2:   rclone: command\n not found   ')
+    expect(failed.next.lastDetail).toBe('exit 2: rclone: command not found')
+    const long = evaluateCommandResult(undefined, false, 2, T, 'x'.repeat(900))
+    expect(long.next.lastDetail?.length).toBe(300)
+    const ok = evaluateCommandResult(failed.next, true, 2, T)
+    expect(ok.next.lastDetail).toBeUndefined()
+    expect(ok.next.lastStatus).toBe('ok')
+  })
 })

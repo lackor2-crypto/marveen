@@ -16,8 +16,8 @@ describe('schedule problems (#546)', () => {
   it('only a last run that failed is a problem; fails/lastRun are carried, missing numbers get safe values', () => {
     const m = scheduleProblems(HEALTH)
     expect([...m.keys()].sort()).toEqual(['backup-nightly', 'sync-b'])
-    expect(m.get('backup-nightly')).toEqual({ code: 'command_fail', fails: 3, lastRun: 1760000000000 })
-    expect(m.get('sync-b')).toEqual({ code: 'command_fail', fails: 1, lastRun: 0 })
+    expect(m.get('backup-nightly')).toEqual({ code: 'command_fail', fails: 3, lastRun: 1760000000000, detail: '' })
+    expect(m.get('sync-b')).toEqual({ code: 'command_fail', fails: 1, lastRun: 0, detail: '' })
   })
 
   it('an unreadable health file means nothing is known: no problems, no crash', () => {
@@ -57,5 +57,9 @@ describe('schedule problem UI wiring (#546)', () => {
       expect(hu).toContain(`'tasks.problem.${k}'`)
       expect(en).toContain(`'tasks.problem.${k}'`)
     }
+  })
+  it('#546: the recorded cause travels with the problem', () => {
+    const m = scheduleProblems({ a: { lastStatus: 'fail', fails: 2, lastRun: 5, lastDetail: 'exit 1: no such folder' } })
+    expect(m.get('a')).toEqual({ code: 'command_fail', fails: 2, lastRun: 5, detail: 'exit 1: no such folder' })
   })
 })

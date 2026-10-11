@@ -10767,7 +10767,18 @@ function scheduleProblemHtml(task) {
     when = d.toLocaleDateString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { month: 'short', day: 'numeric' }) + ' '
       + d.toLocaleTimeString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { hour: '2-digit', minute: '2-digit' })
   }
-  return '<div class="schedule-problem" role="alert">' + escapeHtml(t(when ? 'tasks.problem.command_fail' : 'tasks.problem.command_fail_nowhen', { n: pr.fails || 1, when })) + '</div>'
+  // The owner asked for three things on the card (TG 8652): WHICH one is faulty, WHAT is wrong, and WHAT to do.
+  // A paused schedule never runs by itself, so its mark would stay for ever: it says so, in a calmer colour -- what the
+  // owner switched off himself must not look like a breakdown.
+  const paused = task.enabled === false
+  const cause = pr.detail ? t('tasks.problem.cause', { detail: pr.detail }) : t('tasks.problem.cause_unknown')
+  return '<div class="schedule-problem' + (paused ? ' schedule-problem-paused' : '') + '" role="alert">'
+    + '<div>' + escapeHtml(t(when ? 'tasks.problem.command_fail' : 'tasks.problem.command_fail_nowhen', { n: pr.fails || 1, when })) + '</div>'
+    + '<div class="schedule-problem-cause">' + escapeHtml(cause) + '</div>'
+    + '<div class="schedule-problem-todo">' + escapeHtml(t(paused ? 'tasks.problem.todo_paused' : 'tasks.problem.todo'))
+    // A paused schedule cannot be run by hand (the server answers "disabled"): there the step that helps is resuming it.
+    + ' <button type="button" class="btn-compact schedule-problem-run" ' + (paused ? 'data-problem-resume="1">' + escapeHtml(t('tasks.problem.resume_btn')) : 'data-problem-run="1">' + escapeHtml(t('tasks.btn.run_now'))) + '</button></div>'
+    + '</div>'
 }
 
 let _scheduleOnlyBad = false
@@ -10778,6 +10789,8 @@ async function jumpToSchedule(name) {
   _scheduleFocusName = String(name || '')
   _scheduleOnlyBad = false
   switchPage('tasks')
+  // The address must say where we are: a reload or the Back button would otherwise take the owner to the Overview again.
+  try { if (location.hash !== '#tasks') history.pushState(null, '', '#tasks') } catch (_e) { /* a convenience only */ }
   let el = null
   for (let i = 0; i < 25 && !el; i++) {
     el = Array.from(document.querySelectorAll('#scheduleList .schedule-row')).find(r => r.dataset.scheduleName === _scheduleFocusName) || null
@@ -10794,7 +10807,7 @@ async function jumpToSchedule(name) {
 
 function makeScheduleRow(task) {
     const row = document.createElement('div')
-    row.className = 'schedule-row' + (task.problem ? ' schedule-row-bad' : '')
+    row.className = 'schedule-row' + (task.problem ? ' schedule-row-bad' + (task.enabled === false ? ' schedule-row-bad-paused' : '') : '')
     row.dataset.scheduleName = task.name
     const agent = scheduleAgentDisplay(task.agent)
 
@@ -10850,6 +10863,12 @@ function makeScheduleRow(task) {
         loadSchedules()
       } catch { showToast(t('tasks.toast.run_error')) }
     })
+
+    // #546: the "Run now" beside the fault sentence is the row's own run button (one code path).
+    const problemRun = row.querySelector('[data-problem-run]')
+    if (problemRun) problemRun.addEventListener('click', (e) => { e.stopPropagation(); row.querySelector('[data-action="run"]').click() })
+    const problemResume = row.querySelector('[data-problem-resume]')
+    if (problemResume) problemResume.addEventListener('click', (e) => { e.stopPropagation(); row.querySelector('[data-action="toggle"]').click() })
 
     row.querySelector('[data-action="toggle"]').addEventListener('click', async (e) => {
       e.stopPropagation()
