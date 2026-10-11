@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
-import { MISSING_MARK_RE, isPlaceholderSectionTitle, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
+import { MISSING_MARK_RE, isBlankLine, isPlaceholderSectionTitle, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
 import { isBlockAlign, richMatches, richRuns, type ParaFmt, type RichRun } from './workbench-docrich.js'
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
@@ -368,6 +368,9 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
         const note = footnoteXml(b.text, notes + 1, o.draft)
         if (attachFootnote(sec, note)) notes++
         else sec.push(...paragraphs(b.text, 'Note', o.draft, st))
+      } else if (isBlankLine(b.text)) {
+        // #565: an empty line of the owner is an empty paragraph -- it holds its line in the PDF and in Word as on the page.
+        sec.push(...paragraphs(' ', 'Body', o.draft, st, null, b.align, b.pfmt).map((p) => p.replace(/> <\/text:p>$/, '></text:p>')))
       } else sec.push(...paragraphs(b.text, 'Body', o.draft, st, b.rich, b.align, b.pfmt))
     }
     body.push(...sec)

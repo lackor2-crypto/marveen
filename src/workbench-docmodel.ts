@@ -101,6 +101,18 @@ export const BLOCK_TEXT_MAX = 20_000
 export const SECTION_TITLE_MAX = 200
 
 /**
+ * #565 (Boss TG 8971: "ures sorokat nem tur meg a lapon"): an EMPTY LINE the owner put on the page with Enter is a
+ * paragraph of its own and must stay where it is -- on the page, in the preview, in the PDF and the Word file. A block's
+ * text is never empty in the model (every reader relies on that), so an empty line is stored as this one invisible
+ * character (a zero-width space: `trim()` keeps it). Nothing prints for it; it only holds the line.
+ */
+export const BLANK_LINE = '\u200B'
+export function isBlankLine(text: unknown): boolean {
+  const t = String(text ?? '')
+  return t.length > 0 && t.replace(/\u200B/g, '').trim() === ''
+}
+
+/**
  * #534 (Boss TG 8882): a new document is an EMPTY page -- the chapter is the owner's decision (a real Heading 1), not the
  * program's. The section behind the first paragraphs still needs a stored title (the translation pairing, the court
  * checks and the exports rely on it), so the program writes one of these placeholders; a section whose title is EXACTLY

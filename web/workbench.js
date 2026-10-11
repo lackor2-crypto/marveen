@@ -12592,7 +12592,11 @@
   }
 
   /** What the field shows when a block is edited: for a table the lines only, the size/alignment line stays hidden. */
-  function dpBlockShown(b) { return b.kind === 'table' ? dpTableParts(b.text).text : b.text }
+  // #565: an empty line the owner made is stored as one invisible character (the server's BLANK_LINE); on the page it is
+  // simply an empty line.
+  var DP_BLANK = '\u200B'
+  function dpIsBlank(text) { var s = String(text == null ? '' : text); return s.length > 0 && s.replace(/\u200B/g, '').trim() === '' }
+  function dpBlockShown(b) { return b.kind === 'table' ? dpTableParts(b.text).text : dpIsBlank(b.text) ? '' : b.text }
 
   /** The row of a table block narrower than the page and aligned left/right floats, so the text runs beside it (#508). */
   function dpTableRowClass(b) {
@@ -13590,7 +13594,14 @@
       } else {
         var fm = dpFmtOf(n)
         if (fm.rich) text = fm.plain
-        if (!text) continue
+        text = String(text || '').replace(/\u200B/g, '')
+        if (!text) {
+          // #565 (Boss TG 8971): an empty line made with Enter is the owner's and STAYS (it used to be dropped here, so
+          // everything under it slid up). The line the program only offers (data-wb-dp="new") is not saved while empty.
+          if (k !== 'block') continue
+          text = DP_BLANK
+          fm = { rich: '', plain: DP_BLANK }
+        }
         var align = n.getAttribute('data-wb-align') || ''
         var pf = dpPfmtOf(n)
         var kindAttr = n.getAttribute('data-wb-kind') || ''
