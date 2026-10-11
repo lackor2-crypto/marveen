@@ -26,6 +26,7 @@ import { renameSharedCredentialsIfSafe, fleetTokenBootPass } from './web/claude-
 import { startWebServer } from './web.js'
 import { logger } from './logger.js'
 import { startWakeDetect } from './wake-detect.js'
+import { SAMPLER_POLL_MS, watcherPolls } from './web/event-loop-watch.js'
 import { startGitSync } from './git-sync.js'
 import { startGoogleLiveCheck } from './web/google-live-check.js'
 import { startMainInboxReceipt, stopMainInboxReceipt } from './web/main-inbox-receipt.js'
@@ -527,7 +528,8 @@ async function main(): Promise<void> {
   // kell indulnia: mindketto feliratkozik ra, hogy alvas utan potolja a
   // kimaradt kort. Nelkule minden reggel sarga sorral indul a nap, holott
   // semmi nem romlott el -- csak a gep aludt (merve 2026-08-26).
-  startWakeDetect()
+  // #554: the stall watcher's thread tells a sleeping machine from our own stuck event loop.
+  startWakeDetect({ polls: watcherPolls, pollMs: SAMPLER_POLL_MS })
 
   gitSyncInterval = startGitSync()
 

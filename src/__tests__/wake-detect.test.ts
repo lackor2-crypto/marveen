@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { onWake, fireWake, lastWakeAt, msSinceWake, resetWakeDetectForTest } from '../wake-detect.js'
+import { onWake, fireWake, lastWakeAt, msSinceWake, resetWakeDetectForTest, classifyGap, lastGapCause } from '../wake-detect.js'
 
 describe('ebredes-erzekelo', () => {
   const MOST = Date.parse('2026-08-26T07:00:00Z')
@@ -63,5 +63,37 @@ describe('ebredes-erzekelo', () => {
     // turelmi ido vegtelenne valna.
     fireWake(1000, MOST)
     expect(msSinceWake(MOST - 60 * 60 * 1000)).toBe(0)
+  })
+
+  // #554 (mert eset, 2026-10-10 16:41-16:49): a vezerlopult 469 masodpercig nem valaszolt, a gep kozben ebren
+  // volt, a naplo megis azt irta: "a gep aludt, aludtPerc: 8". A hiba igy alvasnak alcazva tunt el.
+  describe('alvas vagy sajat megakadas (#554)', () => {
+    const NYOLC_PERC = 8 * 60 * 1000
+
+    it('ha a figyelo szal a kihagyas alatt vegig szamolt, a gep ebren volt: megakadas', () => {
+      expect(classifyGap(NYOLC_PERC, 469, 1000)).toBe('stall')
+    })
+
+    it('ha a figyelo szal is allt, a gep aludt', () => {
+      expect(classifyGap(NYOLC_PERC, 2, 1000)).toBe('sleep')
+      expect(classifyGap(8 * 60 * 60 * 1000, 40, 1000)).toBe('sleep')
+    })
+
+    it('figyelo szal nelkul NEM allitunk megakadast -- nem lattunk oda, marad az alvas', () => {
+      expect(classifyGap(NYOLC_PERC, null, 1000)).toBe('sleep')
+      expect(classifyGap(NYOLC_PERC, 469, 0)).toBe('sleep')
+    })
+
+    it('megakadas utan is lefut a potlas, es az ok lekerdezheto', () => {
+      expect(lastGapCause()).toBeNull()
+      const kapott: number[] = []
+      onWake(ms => kapott.push(ms))
+      fireWake(NYOLC_PERC, MOST + NYOLC_PERC, 'stall')
+      expect(kapott).toEqual([NYOLC_PERC])
+      expect(lastGapCause()).toBe('stall')
+      expect(lastWakeAt()).toBe(MOST + NYOLC_PERC)
+      fireWake(NYOLC_PERC, MOST + 2 * NYOLC_PERC)
+      expect(lastGapCause()).toBe('sleep')
+    })
   })
 })

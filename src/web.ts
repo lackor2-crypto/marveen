@@ -44,7 +44,7 @@ import { startContextRestartGateRunner } from './web/context-restart-gate-runner
 import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
-import { recentStalls, startEventLoopWatch, trackRequest } from './web/event-loop-watch.js'
+import { recentStalls, recentStallSamples, startEventLoopWatch, trackRequest } from './web/event-loop-watch.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { startTelegramReplyMetaPatcher } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
@@ -272,8 +272,9 @@ export function startWebServer(port = 3420): http.Server {
     // server for its LAN IP and builds the QR from that. Auth is already
     // enforced by the /api/* gate above.
     // #490: the requests that were running while the event loop stalled (worst first).
+    // #554: and where the main thread was, for the stalls no request explains (newest first).
     if (path === '/api/perf/stalls' && method === 'GET') {
-      return json(res, { stalls: recentStalls() })
+      return json(res, { stalls: recentStalls(), samples: recentStallSamples() })
     }
 
     if (path === '/api/network-info' && method === 'GET') {
