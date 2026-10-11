@@ -23,4 +23,13 @@ describe('small buttons in the workbench (#549)', () => {
       expect(src.slice(Math.max(0, at - 260), at + l.length), k).toContain('btn-compact')
     }
   })
+  it('the rest of the document view is small too: edit / PDF edit / to Word / back, and the editors\' save + cancel (#549 point 2)', () => {
+    for (const k of ['data-wb-act="doc-edit"', 'data-wb-act="pdf-edit"', 'data-wb-act="pdf-to-docx"', 'data-wb-act="doc-edit-close"',
+      'data-de-act="save"', 'data-de-act="cancel"', 'data-pe-act="save"', 'data-pe-act="cancel"']) {
+      const at = src.indexOf(k)
+      expect(at, k).toBeGreaterThan(0)
+      // the button's class attribute sits right before its data attribute
+      expect(src.slice(Math.max(0, at - 60), at), k).toMatch(/class="btn-(primary|secondary) btn-compact"/)
+    }
+  })
 })
