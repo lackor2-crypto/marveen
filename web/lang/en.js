@@ -5893,6 +5893,7 @@ window._i18n.en = {
   "workbench.trash.items_head": "Work items ({n})",
   "workbench.trash.files_head": "Files ({n})",
   "workbench.trash.file_meta": "From: {folder} · deleted: {when}",
+  "workbench.trash.own_file_gone": "The file of this work item ({name}) was deleted, so there is nothing to show now. It is in the Trash: Restore puts it back and the work item opens again.",
   "workbench.trash.kuka_hint": "What you deleted in the Explorer rather than here is only in the Life tree Trash.",
   "workbench.trash.file_purge_title": "Leaves the Workbench trash. The file stays in the Life tree Trash and can still be restored from there.",
   "workbench.trash.file_purge_warn": "Remove “{name}” from the Workbench trash for good? It cannot be restored from here any more. It stays in the Life tree Trash, where you can still put it back in the Explorer; nothing is deleted from the Life tree.",
