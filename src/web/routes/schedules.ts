@@ -18,6 +18,7 @@ import {
   listScheduledTasks, writeScheduledTask, markDefaultTaskRemoved,
 } from '../scheduled-tasks-io.js'
 import { runScheduledTaskNow } from '../schedule-runner.js'
+import { scheduleProblems } from '../command-task-problems.js'
 import type { RouteContext } from './types.js'
 
 // Resolve a URL-supplied schedule name to an on-disk dir, blocking path
@@ -137,7 +138,9 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
   }
 
   if (path === '/api/schedules' && method === 'GET') {
-    json(res, listScheduledTasks())
+    // #546: each task carries its problem (or null) from the SAME source the Overview self-check reads.
+    const problems = scheduleProblems()
+    json(res, listScheduledTasks().map((t) => ({ ...t, problem: problems.get(t.name) ?? null })))
     return true
   }
 

@@ -80,6 +80,7 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
+import { COMMAND_HEALTH_FILE, scheduleProblems } from './command-task-problems.js'
 import { integrationStates } from './setup-wizard-values.js'
 import type { SetupItemState } from './setup-wizard-registry.js'
 import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
@@ -878,7 +879,7 @@ function claudeAuthRow(): HealthRow {
 /** A napi git-lehuzas allapota, ahogy a `syncAllRepos` hagyja maga utan. */
 export const GIT_SYNC_FILE = 'git-sync.json'
 /** A gepi (parancs-tipusu) kartyak eredmenye. */
-export const COMMAND_HEALTH_FILE = 'command-task-health.json'
+export { COMMAND_HEALTH_FILE }
 /** Ennyi nap utan a napi lehuzas mar nem "kesik", hanem all. */
 export const GIT_PULL_STALE_DAYS = 3
 
@@ -1064,16 +1065,15 @@ export function gitPullRows(
  * amiben a hiba latszana. Az egyetlen nyoma egy szam a store-ban.
  */
 export function commandTaskRows(
-  health: Record<string, { lastStatus?: string }> | null =
-    olvasJson<Record<string, { lastStatus?: string }>>(join(STORE_DIR, COMMAND_HEALTH_FILE)),
+  health: Record<string, { lastStatus?: string; fails?: number; lastRun?: number }> | null =
+    olvasJson<Record<string, { lastStatus?: string; fails?: number; lastRun?: number }>>(join(STORE_DIR, COMMAND_HEALTH_FILE)),
 ): HealthRow[] {
-  if (!health) return []
-  const bukott = Object.keys(health)
-    .filter((k) => health[k] && health[k].lastStatus === 'fail')
-    .map(tisztaNev)
-    .filter(Boolean)
-  if (bukott.length === 0) return []
-  return [{ id: 'command_task_fail', status: 'warn', params: { n: bukott.length, names: bukott.join(', ') } }]
+  // #546: the same source the Schedules list marks its rows from.
+  const bukott = [...scheduleProblems(health).keys()]
+  const nevek = bukott.map(tisztaNev).filter(Boolean)
+  if (nevek.length === 0) return []
+  // `first` is the RAW task name of the first faulty schedule: the row's click jumps to it (the display name is sanitised).
+  return [{ id: 'command_task_fail', status: 'warn', params: { n: nevek.length, names: nevek.join(', '), first: bukott[0] } }]
 }
 
 /**
