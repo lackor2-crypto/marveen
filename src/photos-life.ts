@@ -343,7 +343,8 @@ export async function downloadPickedToLife(
   const batchRel = chk.ok ? chk.rel : ''
   const index = loadLifeIndex()
   // Only a row whose file is really there counts as "already here" (#524).
-  const known = new Set(index.filter((p) => p.account === account && lifeRowFilePresent(p)).map((p) => p.id))
+  const picked = new Set(items.map((i) => (typeof i?.id === 'string' ? i.id : '')))
+  const known = new Set(index.filter((p) => p.account === account && picked.has(p.id) && lifeRowFilePresent(p)).map((p) => p.id))
   // A row that points at a file that is gone is replaced by the new one, never kept beside it.
   const put = (entry: LifePhoto): void => {
     for (let i = index.length - 1; i >= 0; i--) if (index[i].account === entry.account && index[i].id === entry.id) index.splice(i, 1)

@@ -1247,10 +1247,37 @@ export function buildDownloadReview(items: any[], deps: ReviewDeps): ReviewRow[]
   return rows
 }
 
-export function reviewDepsFor(account: string): ReviewDeps {
+/**
+ * The ids of this account's rows in the OLD index whose file is really on the disk (depot or old
+ * folder). A row whose file is gone -- a restored backup, the depot not filled again -- is not
+ * "already here" (#524), the same rule as for the Life-tree rows. A depot that is set up but
+ * cannot be opened concludes nothing: its rows stay, as in the disk check. `only` narrows the
+ * check to the ids that matter (the picked items), so no file is looked at needlessly.
+ */
+export function oldIndexIdsPresent(account: string, only?: Set<string>): Set<string> {
+  const depot = depotRoot()
+  let unreachable = false
+  if (depot) { try { unreachable = !statSync(depot).isDirectory() } catch { unreachable = true } }
+  const out = new Set<string>()
+  for (const p of loadIndex()) {
+    if (p.account !== account || (only && !only.has(p.id))) continue
+    if (unreachable) { out.add(p.id); continue }
+    for (const dir of photoDirsFor(photoFileOwner(p))) {
+      try { if (statSync(join(dir, p.file)).isFile()) { out.add(p.id); break } } catch { /* not in this folder */ }
+    }
+  }
+  return out
+}
+
+function pickedIds(items: any[]): Set<string> {
+  return new Set(items.map((i) => (typeof i?.id === 'string' ? i.id : '')).filter(Boolean))
+}
+
+/** `only`: the ids of the picked items -- a row nobody asks about is not looked at. */
+export function reviewDepsFor(account: string, only?: Set<string>): ReviewDeps {
   return {
-    lifeIds: new Map(loadLifeIndex().filter((p) => p.account === account && lifeRowFilePresent(p)).map((p) => [p.id, p.lifeRel] as [string, string])),
-    oldIds: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
+    lifeIds: new Map(loadLifeIndex().filter((p) => p.account === account && (!only || only.has(p.id)) && lifeRowFilePresent(p)).map((p) => [p.id, p.lifeRel] as [string, string])),
+    oldIds: oldIndexIdsPresent(account, only),
     placeFor: (it) => uploadedPlaceFor(account, it),
     remembered: (id) => rememberedPhotoPlace(account, id),
     unchangedThere: (place) => {
@@ -1622,7 +1649,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       }
       json(res, {
         done: false,
-        review: { sessionId, items: buildDownloadReview(kept.items, reviewDepsFor(account)), partial: kept.partial, lastDest: lastLifeDest(account) },
+        review: { sessionId, items: buildDownloadReview(kept.items, reviewDepsFor(account, pickedIds(kept.items))), partial: kept.partial, lastDest: lastLifeDest(account) },
       })
     } catch (err: any) {
       logger.warn({ err: err.message }, '[photos] session lekerdezes elhasalt')
@@ -1689,7 +1716,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
       const token = await getAccessToken(account)
       // Asked again from Google: the list is the same, the links are fresh.
       const picked = await fetchPickedMediaItems(sessionId, token)
-      const rows = buildDownloadReview(picked.items, reviewDepsFor(account))
+      const rows = buildDownloadReview(picked.items, reviewDepsFor(account, pickedIds(picked.items)))
       const chk = checkReviewPlaces(rows, places)
       if (!chk.ok) { json(res, { error: 'egy kepnek nincs hasznalhato helye', code: chk.code, file: chk.file }, 409); return true }
       const chosen: Record<string, string> = {}
@@ -1698,7 +1725,7 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
         const r: DownloadResult & { dest?: string; places?: Record<string, number> } = await queuePhotoDownload(() => downloadPickedToLife(picked.items, account, token, '', {
           isAllowedUrl: isAllowedPhotosUrl,
           fetchBytes: async (u, t) => { const fr = await fetch(u, { headers: { Authorization: `Bearer ${t}` } }); return { ok: fr.ok, body: fr.body } },
-          knownElsewhere: new Set(loadIndex().filter((p) => p.account === account).map((p) => p.id)),
+          knownElsewhere: oldIndexIdsPresent(account, pickedIds(picked.items)),
           placeFor: (it) => uploadedPlaceFor(account, it),
           destFor: (it) => chosen[it.id] || null,
           breathe: async () => { await breathe() },

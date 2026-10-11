@@ -410,3 +410,45 @@ describe('an index row whose file is gone is not "already here" (#524)', () => {
     expect(loadLifeIndex()).toHaveLength(1)
   })
 })
+
+// #524: the same rule for the OLD photo store. Its index is carried by a backup too; a row whose
+// file is gone (the depot not filled again on the new machine) is not "already here" either --
+// but a depot that cannot be opened right now says nothing, as in the disk check.
+describe('an old-index row whose file is gone is not "already here" (#524)', () => {
+  const seedOld = (file = 'regi.jpg') => {
+    mkdirSync(join(store, 'store', 'photos'), { recursive: true })
+    writeFileSync(join(store, 'store', 'photos', 'index.json'), JSON.stringify([{
+      id: 'o1', account: 'acc', file, mimeType: 'image/jpeg', createdTime: '', width: 1, height: 1,
+      isVideo: false, bytes: 5, savedAt: '2026-08-01T00:00:00Z',
+    }]))
+  }
+
+  it('the file is nowhere: the list does not say "already", and the download is not skipped', async () => {
+    seedOld()
+    const { buildDownloadReview, reviewDepsFor, oldIndexIdsPresent } = await import('../web/routes/photos-picker.js')
+    expect(buildDownloadReview([item('o1', 'regi.jpg')], reviewDepsFor('acc', new Set(['o1'])))[0]).toMatchObject({ already: false })
+    expect([...oldIndexIdsPresent('acc')]).toEqual([])
+    bytesOf = { o1: 'foto!' }
+    const r = await downloadPickedToLife([item('o1', 'regi.jpg')], 'acc', 'tok', DEST, { ...deps(), knownElsewhere: oldIndexIdsPresent('acc') })
+    expect(r).toMatchObject({ saved: 1, already: 0 })
+  })
+
+  it('regression guard: the file is in the old folder, so it is still "already here"', async () => {
+    seedOld()
+    const { legacyPhotoDir, buildDownloadReview, reviewDepsFor, oldIndexIdsPresent } = await import('../web/routes/photos-picker.js')
+    mkdirSync(legacyPhotoDir('acc'), { recursive: true })
+    writeFileSync(join(legacyPhotoDir('acc'), 'regi.jpg'), 'regi!')
+    expect(buildDownloadReview([item('o1', 'regi.jpg')], reviewDepsFor('acc'))[0]).toMatchObject({ already: true })
+    expect([...oldIndexIdsPresent('acc')]).toEqual(['o1'])
+    const r = await downloadPickedToLife([item('o1', 'regi.jpg')], 'acc', 'tok', DEST, { ...deps(), knownElsewhere: oldIndexIdsPresent('acc') })
+    expect(r).toMatchObject({ saved: 0, already: 1 })
+    expect(asked).toEqual([])
+  })
+
+  it('a depot that is set up but cannot be opened concludes nothing: the row stays "already here"', async () => {
+    seedOld()
+    process.env['MARVEEN_DEPOT'] = join(depot, 'nincs-csatolva')
+    const { oldIndexIdsPresent } = await import('../web/routes/photos-picker.js')
+    expect([...oldIndexIdsPresent('acc')]).toEqual(['o1'])
+  })
+})
