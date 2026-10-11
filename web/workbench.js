@@ -17573,6 +17573,50 @@
     dpMarkDirty()
   }
 
+  /**
+   * #562: a list button over several selected paragraphs has ONE outcome for all of them (as the alignment buttons do):
+   * when every paragraph already is that kind of list the list comes off, otherwise every paragraph becomes one. A toggle
+   * per paragraph turned a half-listed selection into the opposite half-listed selection.
+   */
+  function dpToggleListOver(els, numbered) {
+    var listable = els.filter(function (x) {
+      var bid = x.getAttribute('data-wb-block')
+      var b = bid ? findBlock(bid) : null
+      if (numbered && !dpText(x).trim()) return false // an empty line has nothing to number
+      return !(b && b.kind !== 'paragraph' && b.kind !== 'list')
+    })
+    var isOn = function (x) {
+      return numbered ? dpFieldNumbered(x) : (x.getAttribute('data-wb-kind') || (findBlock(x.getAttribute('data-wb-block') || '') || {}).kind || 'paragraph') === 'list'
+    }
+    var turnOn = !listable.every(isOn)
+    var todo = listable.filter(function (x) { return isOn(x) !== turnOn })
+    if (!(numbered && turnOn)) {
+      todo.forEach(function (x) { if (numbered) dpToggleNumList(x); else dpToggleList(x) })
+      return
+    }
+    // A numbered list is ONE list block (the PDF / Word number a block's lines 1, 2, 3): paragraphs that follow each other
+    // become the lines of one list, so the page shows -- and the PDF prints -- 1, 2, 3 and not 1, 1, 1.
+    var runs = []
+    todo.forEach(function (x) {
+      var last = runs.length ? runs[runs.length - 1] : null
+      if (last && dpNeighbour(last[last.length - 1], 1) === x) last.push(x)
+      else runs.push([x])
+    })
+    runs.forEach(function (run) {
+      if (run.length < 2) { dpToggleNumList(run[0]); return }
+      var strip = function (l) { return l.replace(/^\s*(?:[-*\u2022\u2013]|\d+[.)])\s+/, '') }
+      var lines = []
+      run.forEach(function (x) { dpText(x).split('\n').forEach(function (l) { if (l.trim()) lines.push(strip(l)) }) })
+      var first = run[0]
+      first.setAttribute('data-wb-kind', 'list')
+      first.classList.add('wb-outline-kind-list', 'wb-dp-numbered')
+      first.classList.remove('wb-outline-kind-paragraph')
+      first.textContent = lines.map(function (l, i) { return (i + 1) + '. ' + l }).join('\n')
+      run.slice(1).forEach(function (x) { dpDropRow(x) })
+      dpMarkDirty()
+    })
+  }
+
   /** Paragraph format of the field: merge `patch` (null / '' removes a key), show it at once, save it for a stored block. */
   function dpSetPfmt(el, patch) {
     var p = dpPfmtOf(el)
@@ -17903,8 +17947,7 @@
       var an = (pels[0].getAttribute('data-wb-align') || '') === f.slice(6) ? '' : f.slice(6)
       pels.forEach(function (x) { dpSetAlign(x, f.slice(6), an) })
     }
-    else if (f === 'list') pels.forEach(function (x) { dpToggleList(x) })
-    else if (f === 'numlist') pels.forEach(function (x) { dpToggleNumList(x) })
+    else if (f === 'list' || f === 'numlist') dpToggleListOver(pels, f === 'numlist')
     else if (f === 'indent-more' || f === 'indent-less') {
       pels.forEach(function (x) {
         var ci = Number(dpPfmtOf(x).ind) || 0
