@@ -1559,6 +1559,15 @@
 
   function dirOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? '' : String(path).slice(0, i) }
   function baseOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? String(path) : String(path).slice(i + 1) }
+  /** Show a Life-tree folder in the Explorer page. The Explorer is app.js's; when it is not there, say so -- a click
+   *  that only changed the address bar and did nothing else looked like a dead button (#542). */
+  function openInIntezo(folderRel) {
+    location.hash = '#intezo'
+    setTimeout(function () {
+      if (typeof window._intezoOpen === 'function') { window._intezoOpen(folderRel); return }
+      window.showToast(t('workbench.annex.origin_unavailable'))
+    }, 350)
+  }
 
   /** Where an item sits in the tree: inside its own folder (always shown as a folder row), else the folder it was filed in. */
   function itemPlaces(items, folders, box) {
@@ -9061,8 +9070,7 @@
       // "Eredeti hely megnyitasa": the Explorer, at the folder the document really lives in.
       var orel = act.getAttribute('data-wb-rel') || ''
       var odir = orel.split('/').slice(0, -1).join('/')
-      location.hash = '#intezo'
-      setTimeout(function () { if (typeof window._intezoOpen === 'function') window._intezoOpen(odir) }, 350)
+      openInIntezo(odir)
     } else if (a === 'outline-annex-move') {
       outlineCall('PATCH', '/annexes/' + encodeURIComponent(act.getAttribute('data-wb-annex')), { position: Number(act.getAttribute('data-wb-pos')) })
     } else if (a === 'outline-annex-rename') {
@@ -11310,10 +11318,16 @@
       + (d.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t(WB.pdocs && WB.pdocs.searching ? 'workbench.annex.linked_searching' : 'workbench.annex.linked_missing')) + '</span>' : '')
   }
 
+  /** The "open" link of a document row. data-wb-open-rel is what the click handler reads to open it in the machine's own
+   *  program (#529); the href is the browser fallback (new tab, or a download from another device). */
+  function pdOpenLink(rel) {
+    return '<a class="wb-linklike" data-wb-open-rel="' + escA(rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a>'
+  }
+
   function pdRowHtml(d, roles) {
     var ro = archived()
     var tools = '<span class="wb-outline-tools">'
-      + (d.exists !== false ? '<a class="wb-linklike" data-wb-open-rel="' + escA(d.life_rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
+      + (d.exists !== false ? pdOpenLink(d.life_rel) + ' ' : '')
       + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>'
       + (ro ? '' : ' <label class="wb-pd-role">' + esc(t('workbench.pd.role')) + ' <select data-wb-pd-role="' + escA(d.id) + '">'
         + roles.map(function (k) { return '<option value="' + escA(k) + '"' + (k === d.role ? ' selected' : '') + '>' + esc(t('workbench.pd.role.' + k)) + '</option>' }).join('')
@@ -11396,7 +11410,7 @@
           return '<li class="wb-pd-row"><strong>📄 ' + esc(f.name) + '</strong> <span class="wb-muted">' + esc(t('workbench.pd.file_of', { item: f.item })) + (f.sub ? ' › ' + esc(f.sub) : '') + '</span>'
             + ' <span class="wb-pill wb-pd-place-auto">' + esc(t('workbench.pd.places_auto')) + '</span>'
             + ' <span class="wb-muted">' + esc(new Date(f.mtime * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { dateStyle: 'short', timeStyle: 'short' })) + '</span>'
-            + ' <span class="wb-outline-tools"><a class="wb-linklike" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> '
+            + ' <span class="wb-outline-tools">' + pdOpenLink(f.rel) + ' '
             + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(f.rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.files_none')) + '</p>')
       var official = docs.filter(function (d) { return d.role === 'official' })
@@ -11404,14 +11418,14 @@
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.official')) + '</p>'
         + (official.length ? '<ul class="wb-pd-list">' + official.map(function (d) {
           return '<li class="wb-pd-row"><strong>✓ ' + esc(d.name) + '</strong> ' + pdWhere(d) + (d.note ? ' <span class="wb-muted">– ' + esc(d.note) + '</span>' : '')
-            + ' <span class="wb-outline-tools">' + (d.exists !== false ? '<a class="wb-linklike" data-wb-open-rel="' + escA(d.life_rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(d.life_rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.pd.open_file')) + '</a> ' : '')
+            + ' <span class="wb-outline-tools">' + (d.exists !== false ? pdOpenLink(d.life_rel) + ' ' : '')
             + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_official')) + '</p>')
       body += '<h3 class="wb-search-group">' + esc(t('workbench.pd.group.attached')) + ' (' + att.length + ')</h3>'
         + '<p class="wb-hint">' + esc(t('workbench.pd.group_hint.attached')) + '</p>'
         + (att.length ? '<ul class="wb-pd-list">' + att.map(function (a) {
           return '<li class="wb-pd-row"><strong>📎 ' + esc(a.label) + ' – ' + esc(a.title) + '</strong> <span class="wb-muted">(' + esc(a.item) + ')</span> ' + pdWhere(a)
-            + ' <span class="wb-outline-tools"><button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(a.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
+            + ' <span class="wb-outline-tools">' + (a.exists !== false ? pdOpenLink(a.life_rel) + ' ' : '') + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(a.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button></span></li>'
         }).join('') + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.pd.none_attached')) + '</p>')
     }
     if (p && !WB.pdError) {
@@ -15781,8 +15795,7 @@
     else if (a === 'file-restore') restoreFiles([act.getAttribute('data-wb-id')])
     else if (a === 'kuka-open') {
       var kr = WB.kukaRel || ''
-      location.hash = '#intezo'
-      setTimeout(function () { if (typeof window._intezoOpen === 'function') window._intezoOpen(kr) }, 350)
+      openInIntezo(kr)
     }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
@@ -16004,8 +16017,7 @@
     }
     else if (a === 'pd-place-open') {
       var plRel = act.getAttribute('data-wb-rel') || ''
-      location.hash = '#intezo'
-      setTimeout(function () { if (typeof window._intezoOpen === 'function') window._intezoOpen(plRel) }, 350)
+      openInIntezo(plRel)
     }
     else if (a === 'pd-rel-add') {
       var relEl = document.getElementById('wbPdRel')
