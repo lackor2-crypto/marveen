@@ -195,3 +195,60 @@ describe('#529 selection bar delete + one trash', () => {
     await vi.waitFor(() => expect(h.html()).not.toContain('data-wb-id="old1"'))
   })
 })
+
+// #535 (measured on the live page, 2026-10-11): a file of the project OUTSIDE the work-item box -- the project folder
+// itself, a linked Git repo -- has a tick box, but ticking it brought up no bar: the selection only knew the box.
+describe('#535 selection bar for the files outside the work-item box', () => {
+  const OUT = 'Projektek/X/Anyagok'
+  const WF_OUT = {
+    ...WF,
+    outside: {
+      folders: [OUT], lazy: {}, linked: {},
+      files: { [OUT]: ['foto.png', 'szerzodes.docx', 'jegyzet.txt'].map((n) => ({ rel: OUT + '/' + n, name: n, size: 2048 })) },
+    },
+  }
+  async function openOut() {
+    const h = workbenchHarness({ confirm: true })
+    h.respond(() => ({ status: 200, body: { ...itemsBody([ITEM]), work_folders: WF_OUT } }))
+    h.win.MarvinWorkbench.open('p1', PROJECT.name)
+    await vi.waitFor(() => expect(h.html()).toMatch(/wb-file-row/))
+    if (!h.html().includes('data-wb-rel="' + OUT + '/foto.png"')) {
+      h.click({ 'data-wb-act': 'folder-fold', 'data-wb-folder': OUT })
+      await vi.waitFor(() => expect(h.html()).toContain('data-wb-rel="' + OUT + '/foto.png"'))
+    }
+    return h
+  }
+  const bar = (h: Awaited<ReturnType<typeof openOut>>) => { const m = h.html().match(/<div class="wb-sel-bar"[\s\S]*?<\/div>/); return m ? m[0] : '' }
+
+  it('ticking documents there brings up the bar with Delete, and NO presentation button or name box', async () => {
+    const h = await openOut()
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/szerzodes.docx' })
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/jegyzet.txt' })
+    expect(bar(h)).toContain('wb-sel-delete')
+    expect(bar(h)).not.toContain('sel-deck-ask')
+    expect(bar(h)).not.toContain('wbSelDeckName')
+    // the ticks survive the render (they used to be dropped)
+    expect(h.html()).toMatch(new RegExp('data-wb-rel="' + OUT + '/szerzodes\\.docx" checked'))
+  })
+
+  it('with a picture among them the presentation button appears; its name is asked only behind that button', async () => {
+    const h = await openOut()
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/szerzodes.docx' })
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/foto.png' })
+    expect(bar(h)).toContain('sel-deck-ask')
+    expect(bar(h)).not.toContain('wbSelDeckName')
+    h.click({ 'data-wb-act': 'sel-deck-ask' })
+    expect(bar(h)).toContain('wbSelDeckName')
+  })
+
+  it('Delete selected sends exactly the ticked files of that folder', async () => {
+    const h = await openOut()
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/szerzodes.docx' })
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/jegyzet.txt' })
+    h.click({ 'data-wb-act': 'file-delete', 'data-wb-rel': '*' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => isDelete(c))).toBe(true))
+    const sent = JSON.parse(String(h.fetchCalls.find((c) => isDelete(c))!.init!.body))
+    expect(sent.rels.sort()).toEqual([OUT + '/jegyzet.txt', OUT + '/szerzodes.docx'])
+  })
+})
+

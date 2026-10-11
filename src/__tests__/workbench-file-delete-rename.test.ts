@@ -179,3 +179,30 @@ describe('deleteLooseFiles: any plain file of the project folder (Boss 2723)', (
     expect(existsSync(join(dir, 'kivul.json'))).toBe(true)
   })
 })
+
+// #535 (found in the browser on a fresh project, 2026-10-11): a project with files in its folder but no work item
+// yet has no work-items box, and "Delete selected" answered "the chosen folder is gone" for a folder that was there.
+describe('#535 a project without a work-items box: its own files are deletable', () => {
+  it('a file in the project folder goes to the Kuka; the box is not needed for that', () => {
+    mkdirSync(join(root(), 'Anyagok'), { recursive: true })
+    writeFileSync(join(root(), 'Anyagok', 'jegyzet.txt'), 'x')
+    expect(listWorkFolders(proj()).box).toBeNull()
+    const r = deleteLooseFiles(proj(), ['Projektek/Robotok/Anyagok/jegyzet.txt'])
+    expect(r).toMatchObject({ ok: true, deleted: ['jegyzet.txt'], skipped: [] })
+    expect(existsSync(join(root(), 'Anyagok', 'jegyzet.txt'))).toBe(false)
+  })
+
+  it('a path outside the project folder is still refused, box or no box', () => {
+    mkdirSync(join(dir, 'Projektek', 'Masik'), { recursive: true })
+    writeFileSync(join(dir, 'Projektek', 'Masik', 'idegen.txt'), 'x')
+    const r = deleteLooseFiles(proj(), ['Projektek/Masik/idegen.txt'])
+    expect(r).toMatchObject({ ok: true, deleted: [], skipped: [{ name: 'idegen.txt', reason: 'not_loose' }] })
+    expect(existsSync(join(dir, 'Projektek', 'Masik', 'idegen.txt'))).toBe(true)
+  })
+
+  it('a project whose folder is gone has nothing to delete from: that is still "no box"', () => {
+    rmSync(root(), { recursive: true, force: true })
+    expect(deleteLooseFiles(proj(), ['Projektek/Robotok/Anyagok/jegyzet.txt'])).toMatchObject({ ok: false, code: 'no_box' })
+  })
+})
+

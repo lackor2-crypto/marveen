@@ -979,7 +979,9 @@ export type DeleteFilesResult =
 export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
   if (!want.length) return { ok: false, code: 'no_files' }
-  if (!findWorkItemsBox(project)) return { ok: false, code: 'no_box' }
+  // #535: a project that has no work item yet has no work-items box either, but its own folder may hold files, and
+  // those are deletable (Boss 2723, below). Only a project whose folder is gone has nothing to delete from.
+  if (!findWorkItemsBox(project) && !projectFileTarget(project, '').ok) return { ok: false, code: 'no_box' }
   const wf = listWorkFolders(project, { outside: false })
   const loose = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.add(f.rel)
