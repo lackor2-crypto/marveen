@@ -2276,6 +2276,11 @@
     var wf = WB.workFolders || { files: {} }
     var have = {}
     Object.keys(wf.files || {}).forEach(function (k) { (wf.files[k] || []).forEach(function (f) { have[f.rel] = f }) })
+    // #535: the files of the project OUTSIDE the work-item box (the project folder itself, a linked Git repo, a folder
+    // opened later) have a tick box too. Knowing only the box, the tick was thrown away on the next render and the
+    // bar never came up for them.
+    var outFiles = mergedOutside(WB.workFolders).files || {}
+    Object.keys(outFiles).forEach(function (k) { (outFiles[k] || []).forEach(function (f) { if (!have[f.rel]) have[f.rel] = f }) })
     var imgs = []
     var other = 0
     Object.keys(WB.fileSel || {}).forEach(function (rel) {
