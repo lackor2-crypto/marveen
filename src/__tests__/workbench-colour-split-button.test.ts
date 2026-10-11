@@ -57,3 +57,24 @@ describe('"none" in an empty field leaves no marker behind (#532, the black bar)
     expect(body.indexOf('cs.isCollapsed')).toBeLessThan(body.indexOf("execCommand('foreColor'"))
   })
 })
+
+describe('the colour buttons keep working where it used to go wrong (#544, found while re-measuring)', () => {
+  it('the remembered selection follows the first paragraph\'s id change (else "select words first" with words selected)', () => {
+    // The first line typed on an empty page is a "new" field (wbDpNew) that is saved and renamed wbDpB_<id> a moment
+    // later. dpRestoreRange compares ids, so a selection made before the rename failed on every click after it.
+    const rename = "if (WB.dpFmtLast && WB.dpFmtLast === was) WB.dpFmtLast = el.id"
+    const follow = "if (WB.dpRange && WB.dpRange.id === was) WB.dpRange.id = el.id"
+    expect(src).toContain(follow)
+    expect(src.indexOf(follow)).toBeGreaterThan(src.indexOf(rename))
+    expect(src.indexOf(follow) - src.indexOf(rename)).toBeLessThan(500)
+  })
+
+  it('an opened choice is pulled back inside the window (a phone: the group wraps to the right edge)', () => {
+    expect(src).toMatch(/function dpClrPopFit\(grp\) \{/)
+    expect(src).toContain("grp.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); dpClrPopFit(grp)")
+    const at = src.indexOf('function dpClrPopFit(grp) {')
+    const body = src.slice(at, at + 700)
+    expect(body).toContain("pop.style.left = ''") // reset first: a stale shift must not stay from the last opening
+    expect(body).toContain('documentElement.clientWidth')
+  })
+})

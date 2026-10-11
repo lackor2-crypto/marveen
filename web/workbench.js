@@ -13442,6 +13442,15 @@
       if (ar) ar.setAttribute('aria-expanded', 'false')
     }
   }
+  /** Keep an opened colour choice inside the window: a group that wrapped to the right edge (a phone) opens leftwards. */
+  function dpClrPopFit(grp) {
+    var pop = grp && grp.querySelector ? grp.querySelector('.wb-dp-clrpop') : null
+    if (!pop || typeof pop.getBoundingClientRect !== 'function') return
+    pop.style.left = ''
+    var r = pop.getBoundingClientRect()
+    var room = (document.documentElement.clientWidth || window.innerWidth || 0) - 4
+    if (r.right > room) pop.style.left = -Math.min(r.right - room, Math.max(0, r.left - 4)) + 'px'
+  }
   function dpColorHtml(kind, label, glyph, noneBtn) {
     var now = dpClrNow(kind)
     var k = kind === 'fore' ? 'color' : 'hilite'
@@ -13663,6 +13672,9 @@
       el.removeAttribute('data-wb-saved')
       el.id = 'wbDpB_' + bid
       if (WB.dpFmtLast && WB.dpFmtLast === was) WB.dpFmtLast = el.id
+      // #544: the remembered selection follows the rename too -- else a colour / style button pressed after the first
+      // paragraph got its id said "select words first" with the words selected (and said it again on every click).
+      if (WB.dpRange && WB.dpRange.id === was) WB.dpRange.id = el.id
       // The gutter of a paragraph made on the page (no id yet) gets its handle now.
       var gut = row && row.querySelector('.wb-dp-gutter')
       if (gut && !gut.querySelector('.wb-dp-handle')) {
@@ -17766,7 +17778,7 @@
       var grp = btn.closest('.wb-dp-clrgrp')
       var was = !!grp && grp.classList.contains('is-open')
       dpClrPopClose()
-      if (grp && !was) { grp.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true') }
+      if (grp && !was) { grp.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); dpClrPopFit(grp) }
       return
     }
     var el = dpFmtTarget()
