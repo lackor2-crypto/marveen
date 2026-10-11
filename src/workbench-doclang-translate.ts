@@ -16,7 +16,7 @@
  */
 import { getDb } from './db.js'
 import { logger } from './logger.js'
-import { isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
+import { isBlankLine, isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
 import { LANG_NAMES, carriedLook, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
@@ -206,6 +206,8 @@ export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?:
       .map((c) => ({ source_claim: String(c.source_claim ?? ''), text: String(c.text ?? '') }))
     // A picture block is a file path, not words: it is never translated.
     if (s.kind === 'image') return { kind: s.kind, text: s.text, claims: [] }
+    // #565: an empty line has no words either -- it goes over as it is, whatever the model wrote for it.
+    if (isBlankLine(s.text)) return { kind: s.kind, text: s.text, claims: [] }
     const text = String(b.text ?? '').trim()
     // A table keeps the original's size/alignment (#508): the model never saw that line, it goes back on here.
     if (s.kind === 'table') {
