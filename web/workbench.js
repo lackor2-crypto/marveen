@@ -535,6 +535,23 @@
     })
   }
 
+  /** #536: the deleted file (still in the Kuka) that was the OWN file of the open work item, if any. */
+  function trashedOwnFile() {
+    var id = WB.selectedId
+    if (!id) return null
+    var list = WB.fileTrash || []
+    for (var i = 0; i < list.length; i++) if ((list[i].items || []).indexOf(id) >= 0) return list[i]
+    return null
+  }
+
+  /** #536: the note + Restore shown in place of a work item whose own file sits in the trash. */
+  function ownFileGoneHtml(gone) {
+    return '<div class="wb-warn-box wb-own-file-gone" role="status"><p>' + esc(t('workbench.trash.own_file_gone', { name: gone.name })) + '</p>'
+      + (archived() ? '' : '<div class="wb-warn-acts"><button type="button" class="wb-btn" data-wb-act="file-restore" data-wb-id="' + escA(gone.id) + '"'
+        + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.trash.restore')) + '</button></div>')
+      + '</div>'
+  }
+
   /** #529 (Boss TG 8585: "Eltűnt a lomtár"): ONE trash at the bottom of the list, always there (empty too), holding the
    *  deleted work items AND the files deleted here (those lie in the Life tree's Kuka meanwhile), each with Restore. */
   function trashHtml() {
@@ -1286,6 +1303,15 @@
     })
   }
 
+  /** #536: a deleted / restored file was the own file of the open work item: its preview and detail are re-read,
+   *  so the screen shows the real state (the Restore note, or the document again) without re-selecting it. */
+  function reloadIfOwnFile(entries) {
+    var id = WB.selectedId
+    if (!id) return
+    var hit = (entries || []).some(function (e) { return e && (e.items || []).indexOf(id) >= 0 })
+    if (hit) loadDetail(id)
+  }
+
   // ---- panelek --------------------------------------------------------------
 
   /** Archivalt projektben nem keletkezik uj munkadarab -- a meglevok latszanak. */
@@ -1659,6 +1685,8 @@
       if ((d.deleted || []).length) WB.trashOpen = true
       render()
       refreshDetailAssets()
+      var delIds = Array.isArray(d.trash) ? d.trash : []
+      reloadIfOwnFile((d.file_trash || []).filter(function (e) { return delIds.indexOf(e.id) >= 0 }))
       var sk = d.skipped || []
       var msg = t('workbench.file.deleted', { n: (d.deleted || []).length })
       if (sk.length) msg += ' ' + t('workbench.file.delete_skipped', { n: sk.length })
@@ -1672,6 +1700,7 @@
     ids = (ids || []).filter(Boolean)
     if (!ids.length || WB.fileBusy || archived()) return
     var pid = WB.projectId
+    var wasTrashed = (WB.fileTrash || []).filter(function (e) { return ids.indexOf(e.id) >= 0 })
     WB.fileBusy = true
     render()
     return api('POST', '/api/workbench/file-trash/restore', { project_id: pid, ids: ids }).then(function (r) {
@@ -1684,6 +1713,7 @@
       if (Array.isArray(d.file_trash)) WB.fileTrash = d.file_trash
       render()
       refreshDetailAssets()
+      reloadIfOwnFile(wasTrashed)
       var done = d.restored || []
       var msg = t('workbench.file.restored', { n: done.length })
       var renamed = done.filter(function (x) { return x.renamed }).map(function (x) { return x.name })
@@ -5417,6 +5447,11 @@
     if (!p.available) {
       // A "nem latok oda" fajtak hangosak, a "meg nincs semmi" baratsagos.
       var loud = p.reason && p.reason !== 'no_source' && p.reason !== 'unsupported'
+      // #536: the item's OWN file was deleted here -- say so and offer the way back, instead of an empty shell.
+      var gone = p.reason === 'no_source' ? trashedOwnFile() : null
+      if (gone) {
+        return '<div class="wb-preview">' + head + ownFileGoneHtml(gone) + '</div>'
+      }
       return '<div class="wb-preview">' + head
         + '<p class="' + (loud ? 'wb-preview-bad' : 'wb-muted') + '">' + esc(p.message || t('workbench.preview.none')) + '</p>'
         + (p.reason === 'unsupported' && p.rel
@@ -13949,6 +13984,11 @@
       }
       docAutoOpen()
       return '<div class="wb-sh-doc-body">' + previewHtml() + '</div>'
+    }
+    // #536: the file of this document was deleted (it sits in the trash): say so, instead of an empty drafting editor.
+    if (!o && WB.detail && WB.detail.item && !WB.detail.item.source_path) {
+      var goneOwn = trashedOwnFile()
+      if (goneOwn) return '<div class="wb-sh-doc-body">' + ownFileGoneHtml(goneOwn) + '</div>'
     }
     var ro = archived()
     twCollect() // #534: any redraw (another tab, a changed original) first reads back what stands on the translation page

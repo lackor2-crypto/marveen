@@ -5967,6 +5967,7 @@ window._i18n.hu = {
   "workbench.trash.items_head": "Munkadarabok ({n})",
   "workbench.trash.files_head": "Fájlok ({n})",
   "workbench.trash.file_meta": "Innen: {folder} · törölve: {when}",
+  "workbench.trash.own_file_gone": "Ennek a munkadarabnak a fájlját ({name}) törölted, ezért most nincs mit mutatni. A fájl a Lomtárban van: a Visszaállítással visszakerül, és a munkadarab újra megnyílik.",
   "workbench.trash.kuka_hint": "Amit nem itt, hanem az Intézőben töröltél, az csak az Életfa Kukájában van.",
   "workbench.trash.file_purge_title": "Kikerül a Munkapad lomtárából. A fájl az Életfa Kukájában marad, onnan még visszaállítható.",
   "workbench.trash.file_purge_warn": "Véglegesen kiveszed a(z) „{name}” fájlt a Munkapad lomtárából? A fájlt innen már nem lehet visszaállítani. Az Életfa Kukájában megmarad, onnan az Intézőben még visszateheted; az Életfából nem törlődik.",

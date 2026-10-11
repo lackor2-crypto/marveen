@@ -31,7 +31,8 @@ export type FileTrashRefs = {
   snapshotOff: string[]
 }
 
-export type FileTrashEntry = { id: string; name: string; orig_rel: string; folder: string; deleted_at: number }
+/** `items`: the work items whose OWN file this was (their source pointed at it) -- they show a Restore note, not an empty shell. */
+export type FileTrashEntry = { id: string; name: string; orig_rel: string; folder: string; deleted_at: number; items: string[] }
 
 function ensureTable(): void {
   getDb().exec(`CREATE TABLE IF NOT EXISTS wb_file_trash (
@@ -96,7 +97,7 @@ export function listFileTrash(projectId: string): FileTrashEntry[] {
       try { getDb().prepare('DELETE FROM wb_file_trash WHERE id = ?').run(r.id) } catch { /* listed again next time, then dropped */ }
       continue
     }
-    out.push({ id: r.id, name: r.name, orig_rel: r.orig_rel, folder: dirname(r.orig_rel), deleted_at: r.deleted_at })
+    out.push({ id: r.id, name: r.name, orig_rel: r.orig_rel, folder: dirname(r.orig_rel), deleted_at: r.deleted_at, items: safeRefs(r.refs_json).items })
   }
   return out
 }

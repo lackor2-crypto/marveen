@@ -79,6 +79,18 @@ describe('Workbench file trash (#529)', () => {
     expect(getWorkItem(it.item.id)?.source_path).toBe(rel)
   })
 
+  it('#536: an entry names the work items whose OWN file it was; a loose file names none', () => {
+    const a = group('Forras')
+    const own = loose(a, 'sajat.docx')
+    const free = loose(a, 'szabad.docx')
+    const it = createWorkItem({ project_id: pid, title: 'Sajat', type: 'document', container_folder: a, source_path: own })
+    if (!it.ok) throw new Error('item')
+    deleted([own, free])
+    const list = listFileTrash(pid)
+    expect(list.find((e) => e.name === 'sajat.docx')?.items).toEqual([it.item.id])
+    expect(list.find((e) => e.name === 'szabad.docx')?.items).toEqual([])
+  })
+
   it('a name taken meanwhile is never overwritten: the restored file gets a free name', () => {
     const a = group('Forras')
     const rel = loose(a, 'jegyzet.txt', 'OLD')
