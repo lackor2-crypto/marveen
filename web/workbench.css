@@ -1808,6 +1808,17 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-img-al.is-on, .wb-dp-img-al:hover { background: rgba(255,255,255,.25); }
 .wb-dp-img-box:hover .wb-dp-img-size, .wb-dp-img-box:hover .wb-dp-img-tools, .wb-dp-img-box:focus-within .wb-dp-img-size, .wb-dp-img-box:focus-within .wb-dp-img-tools { opacity: 1; }
 @media (hover: none) { .wb-dp-img-size, .wb-dp-img-tools { opacity: 1; } }
+/* #566: a picture "free, over the text" -- a zero-height anchor row; the picture is placed from it (x across, y below,
+   percent of the text width = the row's width without its 48 px / 44 px gutter) and the text runs under it. */
+.wb-dp-row-over { --wb-gut: 48px; height: 0; }
+.wb-dp-row-over > .wb-dp-img { position: absolute; left: var(--wb-gut); top: 0; z-index: 2; margin: calc((100% - var(--wb-gut)) * var(--wb-oy) / 100) 0 0 calc((100% - var(--wb-gut)) * var(--wb-ox) / 100); width: calc((100% - var(--wb-gut)) * var(--wb-ow) / 100); }
+/* the toolbar sits ABOVE a small picture, so it never covers the picture the owner has to grab */
+.wb-dp-img-over .wb-dp-img-tools { top: -34px; }
+.wb-dp-row-over img[data-wb-over-img] { cursor: grab; touch-action: none; -webkit-user-drag: none; user-select: none; }
+@media (max-width: 600px) { .wb-dp-row-over { --wb-gut: 44px; } }
+.wb-dp-imgctx { position: fixed; z-index: 10000; min-width: 220px; background: var(--card-bg, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; display: flex; flex-direction: column; }
+.wb-dp-imgctx button { background: none; border: 0; text-align: left; padding: 8px 10px; border-radius: 6px; cursor: pointer; font: inherit; color: inherit; }
+.wb-dp-imgctx button:hover, .wb-dp-imgctx button:focus-visible { background: rgba(37,99,235,.12); }
 .wb-dp-dropmenu { position: fixed; z-index: 10000; min-width: 220px; max-width: 320px; background: var(--card-bg, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .wb-dp-dropmenu-name { font-weight: 600; font-size: 13px; padding: 4px 8px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-dp-dropmenu button { text-align: left; background: none; border: 0; padding: 8px; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; }
