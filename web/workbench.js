@@ -3618,12 +3618,12 @@
       return (!archived() && !docCurrent()) ? '<p class="wb-hint">' + esc(t('workbench.docedit.old_version')) + '</p>' : ''
     }
     if (isDoc) {
-      return '<p class="wb-docedit-actions"><button type="button" class="btn-primary" data-wb-act="doc-edit">' + esc(t('workbench.docedit.open')) + '</button></p>'
+      return '<p class="wb-docedit-actions"><button type="button" class="btn-primary btn-compact" data-wb-act="doc-edit">' + esc(t('workbench.docedit.open')) + '</button></p>'
         + '<p class="wb-hint">' + esc(t('workbench.docedit.open_hint')) + '</p>'
     }
     var busy = WB.pdfToDocxBusy === WB.selectedId
-    return '<p class="wb-docedit-actions"><button type="button" class="btn-primary" data-wb-act="pdf-edit">' + esc(t('workbench.pdfedit.open')) + '</button> '
-      + '<button type="button" class="btn-secondary" data-wb-act="pdf-to-docx"' + (busy ? ' disabled' : '') + '>'
+    return '<p class="wb-docedit-actions"><button type="button" class="btn-primary btn-compact" data-wb-act="pdf-edit">' + esc(t('workbench.pdfedit.open')) + '</button> '
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="pdf-to-docx"' + (busy ? ' disabled' : '') + '>'
       + esc(busy ? t('workbench.pdfedit.to_docx_busy') : t('workbench.pdfedit.to_docx')) + '</button></p>'
       + '<p class="wb-hint">' + esc(t('workbench.pdfedit.open_hint')) + '</p>'
   }
@@ -3700,7 +3700,7 @@
     if (st.error) {
       return '<p class="wb-preview-bad">' + esc(st.error) + '</p>'
         + (st.detail ? '<p class="wb-hint">' + esc(st.detail) + '</p>' : '')
-        + '<p><button type="button" class="btn-secondary" data-wb-act="doc-edit-close">' + esc(t('workbench.docedit.back')) + '</button></p>'
+        + '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="doc-edit-close">' + esc(t('workbench.docedit.back')) + '</button></p>'
     }
     return '<div class="wb-docedit-slot" data-wb-docedit="1"></div>'
   }
@@ -3772,8 +3772,8 @@
     paper.appendChild(page)
     var foot = document.createElement('div')
     foot.className = 'wb-docedit-foot'
-    foot.innerHTML = '<button type="button" class="btn-primary" data-de-act="save">' + esc(t('workbench.docedit.save')) + '</button> '
-      + '<button type="button" class="btn-secondary" data-de-act="cancel">' + esc(t('common.cancel')) + '</button>'
+    foot.innerHTML = '<button type="button" class="btn-primary btn-compact" data-de-act="save">' + esc(t('workbench.docedit.save')) + '</button> '
+      + '<button type="button" class="btn-secondary btn-compact" data-de-act="cancel">' + esc(t('common.cancel')) + '</button>'
       + '<span class="wb-docedit-status" data-de-status></span>'
       + '<p class="wb-hint">' + esc(t('workbench.docedit.hint', { ext: '.' + st.ext })) + '</p>'
     host.appendChild(style)
@@ -3995,8 +3995,8 @@
     pages.className = 'wb-pdfedit-pages'
     var foot = document.createElement('div')
     foot.className = 'wb-docedit-foot'
-    foot.innerHTML = '<button type="button" class="btn-primary" data-pe-act="save">' + esc(t('workbench.pdfedit.save')) + '</button> '
-      + '<button type="button" class="btn-secondary" data-pe-act="cancel">' + esc(t('common.cancel')) + '</button>'
+    foot.innerHTML = '<button type="button" class="btn-primary btn-compact" data-pe-act="save">' + esc(t('workbench.pdfedit.save')) + '</button> '
+      + '<button type="button" class="btn-secondary btn-compact" data-pe-act="cancel">' + esc(t('common.cancel')) + '</button>'
       + '<span class="wb-docedit-status" data-pe-status></span>'
       + '<p class="wb-hint">' + esc(t('workbench.pdfedit.hint')) + '</p>'
     host.appendChild(bar)
