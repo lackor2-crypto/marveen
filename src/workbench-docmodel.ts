@@ -58,12 +58,20 @@ export function imageBlockPathOk(text: string): boolean {
  * as a suffix after the path: `<path>#w=<10..100>&a=<l|c|r>` (width in percent of the text width, alignment).
  * No suffix: the old behaviour (natural size up to the text width, centred).
  */
-export function imageBlockParts(text: string): { path: string; width: number | null; align: 'l' | 'c' | 'r'; x: number | null; y: number | null } {
+export function imageBlockParts(text: string): { path: string; width: number | null; align: 'l' | 'c' | 'r'; x: number | null; y: number | null; over: boolean } {
   const t = String(text || '')
-  const m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?$/.exec(t)
-  if (!m) return { path: t, width: null, align: 'c', x: null, y: null }
+  const m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3}(?:\.\d)?)&y=(\d{1,3}(?:\.\d)?))?(&o=1)?$/.exec(t)
+  if (!m) return { path: t, width: null, align: 'c', x: null, y: null, over: false }
   const width = Math.max(10, Math.min(100, Number(m[2])))
-  return { path: m[1] as string, width, align: (m[3] as 'l' | 'c' | 'r') || 'c', ...freePlace(m[4], m[5], width) }
+  const align = (m[3] as 'l' | 'c' | 'r') || 'c'
+  // #566: `&o=1` -- the picture lies OVER the text: it takes no room and pushes nothing; x / y are the offset from the
+  // paragraph it is anchored at (the block's own place in the text), in percent of the text width.
+  if (m[6]) {
+    const x = m[4] === undefined ? 0 : Math.max(0, Math.min(OVER_X_MAX, 100 - width, Number(m[4])))
+    const y = m[5] === undefined ? 0 : Math.max(0, Math.min(OVER_Y_MAX, Number(m[5])))
+    return { path: m[1] as string, width, align, x, y, over: true }
+  }
+  return { path: m[1] as string, width, align, ...freePlace(m[4], m[5], width), over: false }
 }
 
 /**
@@ -74,6 +82,9 @@ export function imageBlockParts(text: string): { path: string; width: number | n
  * `x` is cut so that the element still fits beside it. No `&x=`: the old left / centre / right behaviour.
  */
 export const FREE_X_MAX = 90
+/** #566: the range of a picture that lies over the text (x across the text width, y below its anchor paragraph). */
+export const OVER_X_MAX = 100
+export const OVER_Y_MAX = 300
 export const FREE_Y_MAX = 150
 function freePlace(rawX: string | undefined, rawY: string | undefined, width: number): { x: number | null; y: number | null } {
   if (rawX === undefined || rawY === undefined) return { x: null, y: null }

@@ -12655,7 +12655,7 @@
     var b = dpImageBlock(bid)
     if (!b) return
     var text
-    if (b.kind === 'image') { var ci = dpImageParts(b.text); var wi = ci.width || 100; text = dpImageText(ci.path, wi, ci.align, Math.max(0, Math.min(x, 100 - wi)), Math.max(0, Math.min(150, y))) }
+    if (b.kind === 'image') { var ci = dpImageParts(b.text); var wi = ci.width || 100; text = dpImageText(ci.path, wi, ci.align, Math.max(0, Math.min(x, 100 - wi)), Math.max(0, Math.min(ci.over ? 300 : 150, y)), ci.over) }
     else { var ct = dpTableParts(b.text); var wt = ct.width || 100; text = dpTableText(ct.text, wt, ct.align, Math.max(0, Math.min(x, 100 - wt)), Math.max(0, Math.min(150, y))) }
     if (text === b.text) return
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
@@ -12667,6 +12667,12 @@
     var w = p.width || 100
     if (p.x != null) return { x: p.x, y: p.y, w: w }
     return { x: p.align === 'l' ? 0 : p.align === 'r' ? 100 - w : Math.round((100 - w) / 2), y: 0, w: w }
+  }
+
+  /** #566: the small button that switches a picture between "the text runs round it" and "free, over the text". */
+  function dpImgModeBtn(bid, mode, on) {
+    var tip = t(mode === 'over' ? 'workbench.dp.img_mode_over' : 'workbench.dp.img_mode_wrap')
+    return '<button type="button" class="wb-dp-img-al wb-dp-img-mode' + (on ? ' is-on' : '') + '" data-wb-act="dp-img-mode" data-wb-block="' + escA(bid) + '" data-wb-mode="' + mode + '" title="' + escA(tip) + '" aria-label="' + escA(tip) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + (mode === 'over' ? '&#9635;' : '&#9636;') + '</button>'
   }
 
   function dpFreeHandleHtml(bid, pic) {
@@ -12745,14 +12751,18 @@
         // #562 (Boss TG 8919): a picture put left or right and narrower than the page takes only its own place -- the row
         // floats and the text runs round it, as in Word (the table did this already). Centred / free-placed: its own line.
         var picFloat = dpPicFloats(pic)
+        // #566 (Boss TG 8982): a picture put "free, over the text" takes no room: its row is a zero-height anchor at its place in
+        // the text, the picture is placed from it (x across, y below, percent of the text width) and the text runs under it.
+        var picOver = !!pic.over
         rows += dpTailBefore(sec.id, si, i, blocks, nw, ro)
-          + '<div class="wb-dp-row' + (picFloat ? ' wb-dp-row-float wb-dp-row-float-' + pic.align : '') + '"' + (picFloat ? ' style="width:' + (pic.align === 'r' ? pic.width + '%' : 'calc(' + pic.width + '% + 48px)') + '"' : '') + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-          + '<figure contenteditable="false" class="wb-dp-block wb-dp-img ' + (pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
-          + '<span class="wb-dp-img-box"' + (picFloat ? ' style="width:100%"' : pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
-          + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
+          + '<div class="wb-dp-row' + (picFloat ? ' wb-dp-row-float wb-dp-row-float-' + pic.align : '') + (picOver ? ' wb-dp-row-over' : '') + '"' + (picFloat ? ' style="width:' + (pic.align === 'r' ? pic.width + '%' : 'calc(' + pic.width + '% + 48px)') + '"' : picOver ? ' style="--wb-ox:' + pic.x + ';--wb-oy:' + pic.y + ';--wb-ow:' + (pic.width || 100) + '"' : '') + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
+          + '<figure contenteditable="false" class="wb-dp-block wb-dp-img ' + (picOver ? 'wb-dp-img-l wb-dp-img-over' : pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null && !picOver ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
+          + '<span class="wb-dp-img-box"' + (picFloat || picOver ? ' style="width:100%"' : pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
+          + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : picOver ? ' draggable="false" data-wb-over-img="' + escA(b.id) + '" title="' + escA(t('workbench.dp.img_over_move')) + '"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
           + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
             + dpFreeHandleHtml(b.id, true)
-            + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right') + '</span>')
+            + '<span class="wb-dp-img-tools">' + (picOver ? '' : al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right'))
+              + dpImgModeBtn(b.id, 'wrap', !picOver) + dpImgModeBtn(b.id, 'over', picOver) + '</span>')
           + '</span></figure></div>'
           + dpTailAfter(sec.id, i, blocks, nw, ro)
         return
@@ -13232,16 +13242,19 @@
 
   /** A picture block's text: `<path>#w=<10..100>&a=<l|c|r>` (the server's imageBlockParts). */
   function dpImageParts(text) {
-    var m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?$/.exec(String(text || ''))
-    if (!m) return { path: String(text || ''), width: null, align: 'c', x: null, y: null }
+    var m = /^([\s\S]*)#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3}(?:\.\d)?)&y=(\d{1,3}(?:\.\d)?))?(&o=1)?$/.exec(String(text || ''))
+    if (!m) return { path: String(text || ''), width: null, align: 'c', x: null, y: null, over: false }
     var w = Math.max(10, Math.min(100, Number(m[2])))
+    // #566 (the server's imageBlockParts): `&o=1` -- lies over the text, x / y from the anchor paragraph (x 0..100, y 0..300).
+    if (m[6]) return { path: m[1], width: w, align: m[3] || 'c', over: true,
+      x: m[4] === undefined ? 0 : Math.max(0, Math.min(100, 100 - w, Number(m[4]))), y: m[5] === undefined ? 0 : Math.max(0, Math.min(300, Number(m[5]))) }
     var f = dpFree(m[4], m[5], w)
-    return { path: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y }
+    return { path: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y, over: false }
   }
 
   /** #562: a picture put on the page starts small, on the left, with the text running beside it (the owner sizes it after). */
   var DP_NEW_PICTURE = '#w=40&a=l'
-  function dpImageText(path, width, align, x, y) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') + dpFreeSuffix(x, y) }
+  function dpImageText(path, width, align, x, y, over) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') + (over && x != null && y != null ? '&x=' + Math.round(x * 10) / 10 + '&y=' + Math.round(y * 10) / 10 + '&o=1' : dpFreeSuffix(x, y)) }
 
   function dpImageBlock(bid) {
     var secs = (WB.detail && WB.detail.outline && WB.detail.outline.sections) || []
@@ -13256,7 +13269,7 @@
     var iw = width == null ? (cur.width || 100) : width
     // #521: resizing keeps the free place (cut so that it still fits); a left / centre / right click puts it back into the text.
     var keepI = !align && cur.x != null
-    var text = dpImageText(cur.path, iw, align || cur.align, keepI ? Math.min(cur.x, 100 - iw) : null, keepI ? cur.y : null)
+    var text = dpImageText(cur.path, iw, align || cur.align, keepI ? Math.min(cur.x, 100 - iw) : null, keepI ? cur.y : null, keepI && cur.over)
     if (text === b.text) return
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
   }
@@ -13821,7 +13834,9 @@
       if (!pick) return
       var rel = pick.getAttribute('data-wb-sign-rel')
       close()
-      dpCall('POST', '/blocks', { section: sid, text: rel + '#w=30&a=l', kind: 'image', position: pos }).then(function (o) { if (o) render() })
+      // #566: a signature arrives FREE, over the text, anchored at the paragraph the cursor stood in (to the right of it), so it
+      // can be put exactly on the line without pushing anything.
+      dpCall('POST', '/blocks', { section: sid, text: rel + '#w=30&a=l&x=60&y=0&o=1', kind: 'image', position: Math.max(0, pos - 1) }).then(function (o) { if (o) render() })
     })
     // 2026-10-10: the search is cut short on a big / slow tree. An empty list then means "I did not get to the end",
     // not "there is none" -- say which, and offer to search again.
@@ -17153,6 +17168,7 @@
     else if (a === 'dp-handle') dpMenuOpen('handle', bid, sid)
     else if (a === 'dp-tbl-edit') dpTblEdit(bid)
     else if (a === 'dp-img-align') dpImageSave(bid, null, act.getAttribute('data-wb-align'))
+    else if (a === 'dp-img-mode') dpImageMode(bid, act.getAttribute('data-wb-mode'))
     else if (a === 'dp-tbl-align') dpTableAlign(bid, act.getAttribute('data-wb-align'))
     else if (a === 'dp-ins') dpInsert(sid, bid, act.getAttribute('data-wb-kind'))
     else if (a === 'dp-ins-section') dpInsertSection(sid)
@@ -17905,6 +17921,148 @@
     hd.addEventListener('pointercancel', up)
   }
 
+  /**
+   * #566: where a picture's top-left corner stands, as a place in the text: the paragraph it lies over (the picture's block
+   * is moved right before it) and the offset from that paragraph, in percent of the text width.
+   */
+  function dpOverPlace(bid, box, wPct) {
+    var page = box.closest('.wb-dp-page') || dpRoot()
+    if (!page) return null
+    var pr = page.getBoundingClientRect()
+    var left = pr.left
+    var full = page.clientWidth
+    try { var cs = window.getComputedStyle(page); left += (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0); full -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) } catch (_e) { /* the page box */ }
+    full = Math.max(1, full)
+    var br = box.getBoundingClientRect()
+    var rows = Array.prototype.slice.call(page.querySelectorAll('[data-wb-row]')).filter(function (r) {
+      return r.getAttribute('data-wb-row') !== bid && r.getBoundingClientRect().height > 0
+    })
+    if (!rows.length) return null
+    var anchor = rows[0]
+    rows.forEach(function (r) { if (r.getBoundingClientRect().top <= br.top + 0.5) anchor = r })
+    var sid = anchor.getAttribute('data-wb-sec')
+    var sec = findSection(sid)
+    if (!sec) return null
+    var list = (sec.blocks || []).filter(function (x) { return x.id !== bid })
+    var rid = anchor.getAttribute('data-wb-row')
+    var pos = -1
+    list.forEach(function (x, k) { if (x.id === rid) pos = k })
+    if (pos < 0) return null
+    var top = anchor.getBoundingClientRect().top
+    return { sid: sid, pos: pos, x: Math.max(0, Math.min(100 - wPct, Math.round((br.left - left) / full * 1000) / 10)), y: Math.max(0, Math.min(300, Math.round((br.top - top) / full * 1000) / 10)), full: full }
+  }
+
+  /** #566: switch a picture between the two modes; it stays where it stands on the page. */
+  function dpImageMode(bid, mode) {
+    var b = dpImageBlock(bid)
+    if (!b || b.kind !== 'image') return
+    var cur = dpImageParts(b.text)
+    if (mode === 'over' ? cur.over : !cur.over) return
+    var fig = document.querySelector('[data-wb-img-block="' + bid + '"]')
+    var box = fig ? fig.querySelector('.wb-dp-img-box') : null
+    if (mode === 'wrap') {
+      var w = cur.width && cur.width < 100 ? cur.width : 40
+      var side = (cur.x || 0) + w / 2 < 50 ? 'l' : 'r'
+      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: dpImageText(cur.path, w, side, null, null) }).then(function (o) { if (o) render() })
+      return
+    }
+    var page = box ? box.closest('.wb-dp-page') : null
+    var w2 = cur.width
+    if (!w2 && box && page && page.clientWidth) w2 = Math.max(10, Math.min(100, Math.round(box.getBoundingClientRect().width / page.clientWidth * 100)))
+    w2 = w2 || 40
+    var at = box ? dpOverPlace(bid, box, w2) : null
+    var body = { text: dpImageText(cur.path, w2, cur.align, at ? at.x : 0, at ? at.y : 0, true) }
+    if (at) { body.section = at.sid; body.position = at.pos }
+    dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), body).then(function (o) { if (o) render() })
+  }
+
+  /** #566: drag a picture that lies over the text; let go and it is anchored to the paragraph it lies over. */
+  function dpOverDragStart(e, hd, bid, b, fig) {
+    var box = fig.querySelector('.wb-dp-img-box')
+    if (!box) return
+    var cur = dpImageParts(b.text)
+    var sx = e.clientX
+    var sy = e.clientY
+    var moved = false
+    try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
+    fig.classList.add('wb-dp-free-dragging')
+    function move(ev) {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 4) moved = true
+      fig.style.transform = 'translate(' + (ev.clientX - sx) + 'px,' + (ev.clientY - sy) + 'px)'
+    }
+    function up() {
+      hd.removeEventListener('pointermove', move)
+      hd.removeEventListener('pointerup', up)
+      hd.removeEventListener('pointercancel', up)
+      fig.classList.remove('wb-dp-free-dragging')
+      var at = moved ? dpOverPlace(bid, box, cur.width || 100) : null
+      fig.style.transform = ''
+      if (!at) return
+      var text = dpImageText(cur.path, cur.width || 100, cur.align, at.x, at.y, true)
+      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text, section: at.sid, position: at.pos }).then(function (o) { if (o) render() })
+    }
+    hd.addEventListener('pointermove', move)
+    hd.addEventListener('pointerup', up)
+    hd.addEventListener('pointercancel', up)
+  }
+
+  // #566: a picture that lies over the text is dragged by the picture itself (not only by its corner handle).
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function' || archived()) return
+    var im = e.target.closest('[data-wb-over-img]')
+    if (!im || (e.button != null && e.button !== 0)) return
+    var bid = im.getAttribute('data-wb-over-img')
+    var b = dpImageBlock(bid)
+    var fig = im.closest('.wb-dp-img')
+    if (!b || !fig) return
+    e.preventDefault()
+    dpOverDragStart(e, im, bid, b, fig)
+  })
+
+  // #566: right click on a picture -- the two modes, the current one ticked.
+  function dpImgCtxClose() { var m = document.getElementById('wbDpImgCtx'); if (m) m.remove() }
+  document.addEventListener('contextmenu', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function' || archived()) return
+    var fig = e.target.closest('[data-wb-img-block]')
+    if (!fig) return
+    var bid = fig.getAttribute('data-wb-img-block')
+    var b = dpImageBlock(bid)
+    if (!b || b.kind !== 'image') return
+    e.preventDefault()
+    dpImgCtxClose()
+    var over = dpImageParts(b.text).over
+    var m = document.createElement('div')
+    m.id = 'wbDpImgCtx'
+    m.className = 'wb-dp-imgctx'
+    m.setAttribute('role', 'menu')
+    var item = function (mode, on, key) {
+      return '<button type="button" role="menuitemradio" aria-checked="' + (on ? 'true' : 'false') + '" data-wb-ctx-mode="' + mode + '">' + (on ? '&#10003; ' : '') + esc(t(key)) + '</button>'
+    }
+    m.innerHTML = item('wrap', !over, 'workbench.dp.img_mode_wrap') + item('over', over, 'workbench.dp.img_mode_over')
+    m.style.left = Math.max(4, Math.min(window.innerWidth - 240, e.clientX)) + 'px'
+    m.style.top = Math.max(4, Math.min(window.innerHeight - 90, e.clientY)) + 'px'
+    document.body.appendChild(m)
+    m.addEventListener('click', function (ev) {
+      var it = ev.target.closest('[data-wb-ctx-mode]')
+      if (!it) return
+      dpImgCtxClose()
+      dpImageMode(bid, it.getAttribute('data-wb-ctx-mode'))
+    })
+    var off = function (ev) {
+      if (ev.type === 'keydown' && ev.key !== 'Escape') return
+      if (ev.type === 'pointerdown' && m.contains(ev.target)) return
+      dpImgCtxClose()
+      document.removeEventListener('pointerdown', off, true)
+      document.removeEventListener('keydown', off, true)
+      window.removeEventListener('scroll', off, true)
+    }
+    setTimeout(function () {
+      document.addEventListener('pointerdown', off, true)
+      document.addEventListener('keydown', off, true)
+      window.addEventListener('scroll', off, true)
+    }, 0)
+  })
+
   document.addEventListener('pointerdown', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     var hd = e.target.closest('[data-wb-free-move]')
@@ -17918,7 +18076,12 @@
     // #562 (Boss TG 8919: "ha huzom a kepet, akkor a szoveg korbeirja a kepet"): a PICTURE is not parked at a free spot (that
     // took it out of the text and gave it a band of its own) -- it is dropped beside the paragraph it is let go over, on
     // the side of the sheet it is let go on, and the text runs round it. A table keeps the free placing of #521.
-    if (b.kind === 'image') { dpPicDragStart(e, hd, bid, b, tg); return }
+    if (b.kind === 'image') {
+      var ofig = dpImageParts(b.text).over ? hd.closest('.wb-dp-img') : null
+      if (ofig) dpOverDragStart(e, hd, bid, b, ofig)
+      else dpPicDragStart(e, hd, bid, b, tg)
+      return
+    }
     var start = dpFreeNow(b)
     var sx = e.clientX
     var sy = e.clientY
@@ -17958,6 +18121,11 @@
     if (b.kind === 'image') {
       // #562: a picture stays in the text -- left / right puts it on that side, up / down moves it one paragraph.
       var pc = dpImageParts(b.text)
+      if (pc.over) {
+        var ost = e.shiftKey ? 10 : 2
+        dpFreeSave(bid, Math.max(0, Math.min(100 - (pc.width || 100), pc.x + d[0] * ost)), Math.max(0, Math.min(300, pc.y + d[1] * ost)))
+        return
+      }
       var pw = pc.width && pc.width < 100 ? pc.width : 40
       if (d[0]) { dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: dpImageText(pc.path, pw, d[0] < 0 ? 'l' : 'r', null, null) }).then(function (o) { if (o) render() }); return }
       var hrow = e.target.closest('[data-wb-row]')
@@ -17987,9 +18155,11 @@
     // #562: a floating picture's row is as wide as the picture, so the share is measured against the sheet's text width.
     var frow = hd.closest('.wb-dp-row')
     var floated = !!(frow && frow.classList.contains('wb-dp-row-float'))
+    // #566: a picture over the text has the text width as its measure too (its figure is as wide as the picture).
+    var over = !!(frow && frow.classList.contains('wb-dp-row-over'))
     var sheet = hd.closest('.wb-dp-page')
     var full = fig.clientWidth || 1
-    if (floated && sheet && typeof window.getComputedStyle === 'function') {
+    if ((floated || over) && sheet && typeof window.getComputedStyle === 'function') {
       var scs = window.getComputedStyle(sheet)
       full = Math.max(1, sheet.clientWidth - (parseFloat(scs.paddingLeft) || 0) - (parseFloat(scs.paddingRight) || 0))
     }
@@ -18006,6 +18176,7 @@
       if (centre) dx = dx * 2
       pct = Math.max(10, Math.min(100, Math.round((startW + dx) / full * 20) * 5))
       if (floated) frow.style.width = right ? pct + '%' : 'calc(' + pct + '% + 48px)'
+      else if (over) frow.style.setProperty('--wb-ow', String(pct))
       else box.style.width = pct + '%'
       hd.setAttribute('aria-valuenow', String(pct))
     }

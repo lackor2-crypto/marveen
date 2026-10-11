@@ -100,12 +100,17 @@ function imageBlock(b: { text: string; img?: RenderImage | null }, n: number, dr
   h = Math.max(0.5, h * k)
   let style = pic.align === 'l' ? 'ImagePL' : pic.align === 'r' ? 'ImagePR' : 'ImageP'
   // #521: placed freely -- a left indent and an empty space above, in the text flow (so a page break carries it).
-  if (pic.x !== null && pic.y !== null) {
+  if (pic.x !== null && pic.y !== null && !pic.over) {
     style = `ImageFree${n}`
     extraStyles.push(`<style:style style:name="${style}" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="start" fo:margin-left="${(IMG_MAX_W_CM * pic.x / 100).toFixed(2)}cm" fo:margin-top="${(0.15 + IMG_MAX_W_CM * pic.y / 100).toFixed(2)}cm" fo:margin-bottom="0.3cm"/></style:style>`)
   }
+  // #566: lying OVER the text -- a frame anchored at the paragraph, run-through, at x / y from it; takes no room, pushes nothing.
+  if (pic.over && pic.x !== null && pic.y !== null) {
+    extraStyles.push(`<style:style style:name="ImgOver${n}" style:family="graphic" style:parent-style-name="Frame"><style:graphic-properties style:wrap="run-through" style:run-through="foreground" style:horizontal-pos="from-left" style:horizontal-rel="paragraph" style:vertical-pos="from-top" style:vertical-rel="paragraph" fo:margin-left="0cm" fo:margin-right="0cm" fo:margin-top="0cm" fo:margin-bottom="0cm" fo:padding="0cm" fo:border="none" draw:stroke="none" draw:fill="none"/></style:style>`)
+    return [`<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgOver${n}" draw:name="Picture ${n}" text:anchor-type="paragraph" svg:x="${(IMG_MAX_W_CM * pic.x / 100).toFixed(2)}cm" svg:y="${(IMG_MAX_W_CM * pic.y / 100).toFixed(2)}cm" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
+  }
   // #562: left / right and narrower than the page -- the text runs beside the picture, as on the page (and as a table does).
-  if (pic.x === null && pic.width !== null && pic.width < 100 && pic.align !== 'c') {
+  if (pic.x === null && !pic.over && pic.width !== null && pic.width < 100 && pic.align !== 'c') {
     const right = pic.align === 'r'
     extraStyles.push(`<style:style style:name="ImgWrap${n}" style:family="graphic" style:parent-style-name="Frame"><style:graphic-properties style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:run-through="foreground" style:horizontal-pos="${right ? 'right' : 'left'}" style:horizontal-rel="paragraph" style:vertical-pos="top" style:vertical-rel="paragraph" fo:margin-left="${right ? '0.4cm' : '0cm'}" fo:margin-right="${right ? '0cm' : '0.4cm'}" fo:margin-top="0cm" fo:margin-bottom="0.2cm" fo:padding="0cm" fo:border="none" draw:stroke="none" draw:fill="none"/></style:style>`)
     return [`<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgWrap${n}" draw:name="Picture ${n}" text:anchor-type="paragraph" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:z-index="1"><draw:image draw:mime-type="${xmlEscape(img.mime)}"><office:binary-data>${img.data.toString('base64')}</office:binary-data></draw:image></draw:frame></text:p>`]
