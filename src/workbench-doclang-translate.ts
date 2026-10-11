@@ -18,7 +18,7 @@ import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { isBlankLine, isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
-import { LANG_NAMES, carriedLook, createVariant, listGlossary, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
+import { LANG_NAMES, carriedLook, createVariant, listGlossary, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
@@ -42,6 +42,8 @@ export interface TranslateJobState {
   /** Az eredeti allitasai, amelyek a forditasba nem kerultek at a forrasukkal. */
   claims_not_carried: number
   glossary_issues: number
+  /** #558: a formazott bekezdesek, amelyek forditasa sima szovegkent mentodott (a fordito nem tartotta meg a kiemeleseket). */
+  format_lost: number
   /** A szolgaltato-szintu leallas (nincs szolgaltato, kifogyott keret): emberi mondat. */
   error: { code: string; message: string } | null
   started_at: number
@@ -234,7 +236,7 @@ export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?:
 
 /** `rich` / `align` / `pfmt`: the look the block inherits from the source block at the same place (#558), so the
  *  side-by-side column shows the translation the way it will be saved. */
-export interface SectionPreview { source_section: string; title: string; /** #558: formatted blocks whose formatted translation was not usable (kept as plain text) */ format_fallback?: number; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string; align?: string; pfmt?: unknown }[] }
+export interface SectionPreview { source_section: string; title: string; /** #558: formatted blocks whose formatted translation was not usable (kept as plain text) */ format_fallback?: number; /** #558: formatted source paragraphs that stay plain text in this translation */ format_lost?: number; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string; align?: string; pfmt?: unknown; /** #558: the source paragraph is formatted, this translation is plain text */ format_lost?: boolean }[] }
 
 export type PreviewResult =
   | { ok: true; preview: SectionPreview }
@@ -260,8 +262,13 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
       const rows = listBlocks(source.id).filter((b: BlockRow) => b.section_id === sec.id)
       const paired = rows.length === parsed.blocks.length
       // The formatted translation the model gave (when usable) wins over the one-piece format carried by position.
-      const shown = parsed.blocks.map((b, i) => (paired && rows[i]!.kind === b.kind ? { ...b, ...carriedLook(rows[i]!, b.text), ...(b.rich ? { rich: b.rich } : {}) } : b))
-      return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: shown, format_fallback: parsed.format_fallback } }
+      const shown = parsed.blocks.map((b, i): SectionPreview['blocks'][number] => {
+        const sb = paired && rows[i]!.kind === b.kind ? rows[i]! : null
+        const one = sb ? { ...b, ...carriedLook(sb, b.text), ...(b.rich ? { rich: b.rich } : {}) } : b
+        // #558: a formatted paragraph that came back plain is marked, so the page can say which one it is.
+        return lostFormat(sb, one.rich) ? { ...one, format_lost: true } : one
+      })
+      return { ok: true, preview: { source_section: sec.id, title: parsed.title, blocks: shown, format_fallback: parsed.format_fallback, format_lost: shown.filter((b) => b.format_lost).length } }
     }
     detail = parsed.detail
   }
@@ -269,7 +276,7 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
 }
 
 export type SaveTranslationResult =
-  | { ok: true; variant: WorkItemRow; existing: boolean; saved: number; unchanged: number; failed: { source_section: string; detail: string }[]; claims_not_carried: number }
+  | { ok: true; variant: WorkItemRow; existing: boolean; saved: number; unchanged: number; failed: { source_section: string; detail: string }[]; claims_not_carried: number; format_lost: number }
   | { ok: false; code: string; detail: string }
 
 /** Saves the translated sections shown in the side-by-side view into the language version (made on first save). */
@@ -282,6 +289,7 @@ export function saveShownTranslation(source: WorkItemRow, lang: unknown, section
   let saved = 0
   let unchanged = 0
   let notCarried = 0
+  let formatLost = 0
   for (const sec of list) {
     // #527 (Boss TG 2849): the same translation is already in the variant: nothing to write, and the caller says so.
     if (v.existing && translationAlreadySaved(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks })) { unchanged++; continue }
@@ -289,8 +297,9 @@ export function saveShownTranslation(source: WorkItemRow, lang: unknown, section
     if (!r.ok) { failed.push({ source_section: String(sec.source_section ?? ''), detail: r.detail }); continue }
     saved++
     notCarried += r.result.claims_not_carried.length
+    formatLost += r.result.format_lost
   }
-  return { ok: true, variant: v.item, existing: v.existing, saved, unchanged, failed, claims_not_carried: notCarried }
+  return { ok: true, variant: v.item, existing: v.existing, saved, unchanged, failed, claims_not_carried: notCarried, format_lost: formatLost }
 }
 
 /**
@@ -335,14 +344,14 @@ export function startVariantTranslation(variantId: string, opts: { lang: Lang; b
       const message = whyNoAIProvider(opts.lang)
       jobs.set(variantId, {
         variant_id: variantId, lang: v.lang, running: false, total: pending.length, done: 0, current: null,
-        failed: [], claims_not_carried: 0, glossary_issues: 0, error: { code: 'no_provider', message }, started_at: now(), finished_at: now(),
+        failed: [], claims_not_carried: 0, glossary_issues: 0, format_lost: 0, error: { code: 'no_provider', message }, started_at: now(), finished_at: now(),
       })
       return { ok: false, code: 'no_provider', message }
     }
   }
   const job: TranslateJobState = {
     variant_id: variantId, lang: v.lang, running: true, total: pending.length, done: 0, current: null,
-    failed: [], claims_not_carried: 0, glossary_issues: 0, error: null, started_at: now(), finished_at: null,
+    failed: [], claims_not_carried: 0, glossary_issues: 0, format_lost: 0, error: null, started_at: now(), finished_at: null,
   }
   jobs.set(variantId, job)
   const p = runJob(job, variantId, pending, opts)
@@ -382,6 +391,7 @@ async function runJob(job: TranslateJobState, variantId: string, pending: { id: 
       job.done++
       job.claims_not_carried += t.result.claims_not_carried.length
       job.glossary_issues += t.result.glossary_issues.length
+      job.format_lost += t.result.format_lost
     }
     if (!saved) job.failed.push({ source_section: s.id, title, detail })
   }

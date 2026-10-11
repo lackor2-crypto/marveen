@@ -8451,6 +8451,7 @@
     }
     if (j.claims_not_carried) out += '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.job_claims', { n: j.claims_not_carried })) + '</p>'
     if (j.glossary_issues) out += '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.job_glossary', { n: j.glossary_issues })) + '</p>'
+    if (j.format_lost) out += '<p class="wb-doc-low">⚠ ' + esc(t('workbench.doclang.job_format_lost', { n: j.format_lost })) + '</p>'
     return out
   }
 
@@ -12968,7 +12969,7 @@
         var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
         // A table keeps its size / alignment line (the text of the block after the lines) through an edit of the lines.
         out += '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
-          + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + ed + '>'
+          + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + (b.format_lost ? ' data-tw-fmtlost="1" title="' + escA(t('workbench.tw.format_lost_mark')) + '"' : '') + ed + '>'
           + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
       })
       return out
@@ -13056,7 +13057,15 @@
       pv.blocks = g.blocks.map(function (b, i) {
         // The same text as before keeps what the preview carried (claims, text format); an edited paragraph keeps its look.
         var same = oldBlocks.filter(function (x) { return x.kind === b.kind && (x.kind === 'image' ? x.text === b.text : (x.kind === 'table' ? dpTableParts(x.text).text : x.text) === b.text) })[0]
-        if (same) return same
+        if (same) {
+          // What the owner gave the paragraph on the page by hand (a bold word, a colour, an alignment) is saved too: it wins over the preview's look (#558).
+          if (!b.rich && !b.align && !b.pfmt) return same
+          var kept = Object.assign({}, same)
+          if (b.rich) { kept.rich = b.rich; delete kept.format_lost }
+          if (b.align) kept.align = b.align
+          if (b.pfmt) kept.pfmt = b.pfmt
+          return kept
+        }
         var prevAt = oldBlocks[i]
         if (b.kind === 'table' && prevAt && prevAt.kind === 'table') {
           var tp = dpTableParts(prevAt.text)
@@ -13089,7 +13098,11 @@
     var note = tw.note ? '<p class="wb-hint wb-tw-note">' + esc(tw.note) + '</p>' : ''
     var droppedHint = tw.dropped ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.dropped', { n: tw.dropped })) + '</p>' : ''
     var failed = tw.failed.length ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.failed', { n: tw.failed.length })) + '</p>' : ''
-    return head + note + droppedHint + failed + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
+    // #558: a formatted paragraph the translator gave back as plain text is marked on the page and counted here (a paragraph edited since is no longer one).
+    var lost = 0
+    secs.forEach(function (sec) { var pv = tw.prev[twKey(sec.id)]; if (pv) (pv.blocks || []).forEach(function (b) { if (b.format_lost) lost++ }) })
+    var lostHint = lost ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.format_lost', { n: lost })) + '</p>' : ''
+    return head + note + droppedHint + failed + lostHint + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
   }
   /** The Draft tab: just the page, or the page with the translation next to it. */
   /** The "show/hide translation" button. It sits in the action row beside "Finalize" (Boss TG 2839: the page starts as high as possible). */
