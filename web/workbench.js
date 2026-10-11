@@ -14094,7 +14094,9 @@
     var itemTech = it
       ? '<div class="wb-sh-tech-item">'
         + versionBarHtml()
-        + (it.type === 'document' ? '' : outlineHtml())
+        // #531: a document with its own page editor draws its chapters in the page; a document bound to a table / PDF file has
+        // no page, so its outline (add a chapter) must be reachable here like in the Manual view.
+        + (it.type === 'document' && !it.source_path ? '' : outlineHtml())
         + simpleItemPartsHtml(it)
         + deadlinesBoxHtml()
         + todosBoxHtml()

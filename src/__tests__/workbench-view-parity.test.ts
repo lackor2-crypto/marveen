@@ -63,4 +63,9 @@ describe('Simple view knows what the Manual view knows (#531)', () => {
     expect(inline).toContain("it.type === 'document'")
     expect(fn('simpleResultHtml')).toContain('partsHtml()')
   })
+
+  it('a document bound to a table / PDF file has no page editor, so its outline (add a chapter) is drawn in the Simple view', () => {
+    // measured in Chromium on a document with source_path .xlsx / .pdf: "outline-add-section" was Manual-only
+    expect(tech).toContain("it.type === 'document' && !it.source_path ? '' : outlineHtml()")
+  })
 })
