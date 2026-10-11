@@ -10756,9 +10756,46 @@ function scheduleAgentDisplay(agentName) {
     || { name: agentName || mainAgentId(), avatar: '/api/marveen/avatar', label: agentName || mainAgentId() }
 }
 
+// #546: the faulty-schedule mark. `task.problem` comes from the server's ONE source (the same one the Overview
+// self-check reads), so the red mark and the self-check count can never disagree.
+function scheduleProblemHtml(task) {
+  const pr = task && task.problem
+  if (!pr) return ''
+  let when = ''
+  if (pr.lastRun) {
+    const d = new Date(pr.lastRun)
+    when = d.toLocaleDateString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { month: 'short', day: 'numeric' }) + ' '
+      + d.toLocaleTimeString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { hour: '2-digit', minute: '2-digit' })
+  }
+  return '<div class="schedule-problem" role="alert">' + escapeHtml(t(when ? 'tasks.problem.command_fail' : 'tasks.problem.command_fail_nowhen', { n: pr.fails || 1, when })) + '</div>'
+}
+
+let _scheduleOnlyBad = false
+let _scheduleFocusName = ''
+
+// #546: Overview self-check row -> Schedules page, scrolled to the faulty row.
+async function jumpToSchedule(name) {
+  _scheduleFocusName = String(name || '')
+  _scheduleOnlyBad = false
+  switchPage('tasks')
+  let el = null
+  for (let i = 0; i < 25 && !el; i++) {
+    el = Array.from(document.querySelectorAll('#scheduleList .schedule-row')).find(r => r.dataset.scheduleName === _scheduleFocusName) || null
+    if (!el) await new Promise(r => setTimeout(r, 200))
+  }
+  _scheduleFocusName = ''
+  if (!el) { showToast(t('tasks.problem.jump_not_found', { name: String(name || '?') }), 9000, true); return }
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.remove('conn-row-flash')
+  void el.offsetWidth
+  el.classList.add('conn-row-flash')
+  setTimeout(() => el.classList.remove('conn-row-flash'), 2600)
+}
+
 function makeScheduleRow(task) {
     const row = document.createElement('div')
-    row.className = 'schedule-row'
+    row.className = 'schedule-row' + (task.problem ? ' schedule-row-bad' : '')
+    row.dataset.scheduleName = task.name
     const agent = scheduleAgentDisplay(task.agent)
 
     row.innerHTML = `
@@ -10777,6 +10814,7 @@ function makeScheduleRow(task) {
           <span>${describeCron(task.schedule)}</span>
           <span class="schedule-agent-name">${task.type === 'command' ? t('tasks.badge.command_who') : escapeHtml(agent.label || agent.name)}</span>
         </div>
+        ${scheduleProblemHtml(task)}
         ${_prjAssignRowHtml('schedule', task.name, (_prjScheduleMap[task.name] || [])[0] || '')}
       </div>
       <div class="schedule-actions">
@@ -10840,9 +10878,25 @@ function makeScheduleRow(task) {
     return row
 }
 
-function renderScheduleList(tasks) {
+function renderScheduleList(allTasks) {
   scheduleList.innerHTML = ''
-  scheduleEmpty.hidden = tasks.length > 0
+  // #546: with faulty schedules a bar on top says how many, and "only the faulty" narrows the list to them.
+  const badCount = allTasks.filter(x => x.problem).length
+  if (!badCount) _scheduleOnlyBad = false
+  const tasks = _scheduleOnlyBad ? allTasks.filter(x => x.problem) : allTasks
+  scheduleEmpty.hidden = allTasks.length > 0
+  if (badCount) {
+    const bar = document.createElement('div')
+    bar.className = 'schedule-problem-bar'
+    bar.innerHTML = '<span>' + escapeHtml(t('tasks.problem.bar', { n: badCount })) + '</span>'
+      + '<label class="schedule-problem-filter"><input type="checkbox" id="scheduleOnlyBad"' + (_scheduleOnlyBad ? ' checked' : '') + '> '
+      + escapeHtml(t('tasks.problem.only_bad')) + '</label>'
+    scheduleList.appendChild(bar)
+    bar.querySelector('#scheduleOnlyBad').addEventListener('change', (e) => {
+      _scheduleOnlyBad = !!e.target.checked
+      renderScheduleList(allTasks)
+    })
+  }
   const groups = new Map()
   for (const task of tasks) {
     const c = cronCadence(task.schedule)
@@ -22224,6 +22278,9 @@ async function renderOverviewConnections() {
               // oldalra ahol meg kel tennem a bejelentkezest").
               : h.id.startsWith('backup_')
                 ? 'openBackupSettings()'
+              : h.id === 'command_task_fail' && h.params && h.params.first
+                // #546: one click to the Schedules page, scrolled to the faulty row.
+                ? `jumpToSchedule(${JSON.stringify(String(h.params.first)).replace(/"/g, '&quot;').replace(/'/g, '&#39;')})`
               : h.id === 'drive_sync_backup_brake'
                 ? "switchPage('drive')"
                 // A megtelt Drive NEM bejelentkezesi hiba: a teendo a helyfelszabaditas,
@@ -28088,7 +28145,7 @@ async function renderWindowLayoutPanel(host) {
   }
 
   const fmt = (unixSeconds) => unixSeconds
-    ? new Date(unixSeconds * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU')
+    ? new Date(unixSeconds * 1000).toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU')
     : t('winlayout.never')
   const newest = data.layouts?.[0] ?? null
 
@@ -28194,7 +28251,7 @@ async function renderWindowsSettingsPanel(host) {
   }
 
   const fmt = (unixSeconds) => unixSeconds
-    ? new Date(unixSeconds * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU')
+    ? new Date(unixSeconds * 1000).toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU')
     : t('winlayout.never')
   const savedIds = new Set((data.files || []).map(f => f.id))
   // The undo button only exists once there is something to undo TO -- i.e. after
@@ -41010,7 +41067,7 @@ function _intezoCountText(e) {
 function _intezoDateText(e) {
   const d = e && e.mtime ? new Date(e.mtime) : null
   if (!d || isNaN(d.getTime())) return ''
-  return d.toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU',
+  return d.toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU',
     { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
@@ -42971,7 +43028,7 @@ async function _intezoInfo(rel, quiet) {
   if (!info.isDir) rows.push([t('intezo.info_size'), info.sizeHuman || '—'])
   // A datumformatum is a felulet nyelvet koveti, nem a telepitesét.
   rows.push([t('intezo.info_mtime'), info.mtime
-    ? new Date(info.mtime).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU') : '—'])
+    ? new Date(info.mtime).toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU') : '—'])
   rows.push([t('intezo.info_physical'),
     t(info.physical && info.physical.physical ? 'intezo.info_has' : 'intezo.info_hasnt')])
   if (info.physicalLocationHuman) rows.push([t('intezo.info_physloc'), info.physicalLocationHuman])

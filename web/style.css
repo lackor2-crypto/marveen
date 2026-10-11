@@ -13200,3 +13200,13 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .wb-pd-access-on { border-color: var(--accent, #4a7); }
 .wb-pd-access-label { font-weight: 600; display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
 .wb-pd-access .wb-hint { margin: 6px 0 0; }
+
+/* #546: a faulty schedule stays marked (red edge + one sentence) until its next run succeeds. */
+.schedule-row-bad { border-left: 4px solid var(--danger, #d64545); }
+.schedule-problem { margin-top: 6px; color: var(--danger, #d64545); font-size: 0.9em; font-weight: 600; }
+.schedule-problem-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px 14px; margin-bottom: 10px; border-radius: var(--radius);
+  border: 1px solid var(--danger, #d64545); color: var(--danger, #d64545); font-weight: 600;
+}
+.schedule-problem-filter { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 500; color: var(--text); }
