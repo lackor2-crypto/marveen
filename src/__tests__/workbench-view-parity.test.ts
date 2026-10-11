@@ -68,4 +68,13 @@ describe('Simple view knows what the Manual view knows (#531)', () => {
     // measured in Chromium on a document with source_path .xlsx / .pdf: "outline-add-section" was Manual-only
     expect(tech).toContain("it.type === 'document' && !it.source_path ? '' : outlineHtml()")
   })
+
+  it('the project start view (no work item open) has the assistant chat too, as the Manual view does', () => {
+    // measured in Chromium: chat-send / chat-account / chat-setup / chat-side / dict were Manual-only with no work item open
+    const start = fn('simpleHtml')
+    expect(start).toContain('frChatHtml()')
+    const head = fn('simpleHeadHtml')
+    expect(head).toContain('data-wb-act="fr-chat"')
+    expect(head).toMatch(/if \(!it\) \{[^}]*fr-chat/s)
+  })
 })
