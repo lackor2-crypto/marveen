@@ -47,6 +47,9 @@ const SLEEP_GAP_MS = 5 * 60 * 1000
 
 type WakeHandler = (aludtMs: number) => void
 
+/** Mi okozta a kihagyast: a gep aludt, vagy a folyamat maga akadt meg (#554). */
+export type GapCause = 'sleep' | 'stall'
+
 const handlers: WakeHandler[] = []
 
 /** Mikor indult ez a folyamat. Ez maga is „ebredes": indulas utan ugyanugy
@@ -54,6 +57,7 @@ const handlers: WakeHandler[] = []
 const PROCESS_START = Date.now()
 
 let utolsoEbredes = PROCESS_START
+let utolsoOk: GapCause | null = null
 let timer: NodeJS.Timeout | null = null
 
 /**
@@ -64,6 +68,11 @@ let timer: NodeJS.Timeout | null = null
  */
 export function lastWakeAt(): number {
   return utolsoEbredes
+}
+
+/** Mi volt az utolso kihagyas oka; null, amig ebben a folyamatban nem volt kihagyas. */
+export function lastGapCause(): GapCause | null {
+  return utolsoOk
 }
 
 /** Hany ms telt el az utolso ebredes ota. */
@@ -86,6 +95,7 @@ export function onWake(cb: WakeHandler): void {
 export function resetWakeDetectForTest(now: number = Date.now()): void {
   handlers.length = 0
   utolsoEbredes = now
+  utolsoOk = null
 }
 
 /**
@@ -94,9 +104,16 @@ export function resetWakeDetectForTest(now: number = Date.now()): void {
  * Kulon fuggveny, hogy a logika (mi tortenik ebredeskor) tesztelheto legyen
  * anelkul, hogy barmelyik teszt valoban varna ot percet.
  */
-export function fireWake(aludtMs: number, now: number = Date.now()): void {
+export function fireWake(aludtMs: number, now: number = Date.now(), ok: GapCause = 'sleep'): void {
   utolsoEbredes = now
-  logger.info({ aludtPerc: Math.round(aludtMs / 60000) }, '[wake] a gep aludt -- a kimaradt ellenorzesek potlasa indul')
+  utolsoOk = ok
+  if (ok === 'stall') {
+    // #554: 8 perc csend, mikozben a gep vegig ebren volt. Ez NEM alvas, hanem a sajat megakadasunk -- a naplo
+    // mondja ki, kulonben a hiba "a gep aludt" neven tunik el. A potlas ugyanugy kell: a korok ugyanugy kimaradtak.
+    logger.warn({ akadtPerc: Math.round(aludtMs / 60000) }, '[wake] a folyamat SAJAT MAGA akadt meg, a gep ebren volt -- a kimaradt ellenorzesek potlasa indul')
+  } else {
+    logger.info({ aludtPerc: Math.round(aludtMs / 60000) }, '[wake] a gep aludt -- a kimaradt ellenorzesek potlasa indul')
+  }
   for (const cb of handlers) {
     try { cb(aludtMs) } catch (err) {
       logger.warn({ err }, '[wake] egy ebredes-kezelo elszallt -- a tobbi ettol meg fut')
@@ -105,18 +122,39 @@ export function fireWake(aludtMs: number, now: number = Date.now()): void {
 }
 
 /**
+ * Alvas volt, vagy mi magunk akadtunk meg?
+ *
+ * A fo szal oraja a ket esetben UGYANAZT mutatja: sokaig nem ketyegett. A kulonbseget csak egy MASIK szal latja:
+ * a megakadas-figyelo szala a fo szal megakadasa alatt tovabb szamol, alvas alatt viszont o is all. Ha a kihagyas
+ * idejenek legalabb a felet vegigszamolta, a gep ebren volt. Ha nincs ilyen szal (nem indult el), nem tudjuk --
+ * akkor marad a regi olvasat (alvas), mert az a gyakoribb, es a potlas mindket esetben ugyanaz.
+ */
+export function classifyGap(gapMs: number, watcherPollsDuringGap: number | null, pollMs: number): GapCause {
+  if (watcherPollsDuringGap === null || !(pollMs > 0)) return 'sleep'
+  return watcherPollsDuringGap * pollMs >= gapMs / 2 ? 'stall' : 'sleep'
+}
+
+/**
  * Elinditja a szivverest.
  *
  * Az `unref()` fontos: ez a timer SOSE tarthatja eletben a folyamatot. Egy
  * percenkenti ver miatt nem szabad, hogy a leallitas beragadjon.
+ *
+ * Az `awake` (nem kotelezo) a megakadas-figyelo szal szamlaloja: lasd classifyGap.
  */
-export function startWakeDetect(): NodeJS.Timeout {
+export function startWakeDetect(awake?: { polls: () => number | null; pollMs: number }): NodeJS.Timeout {
   let elozo = Date.now()
+  let elozoPolls = awake ? awake.polls() : null
   timer = setInterval(() => {
     const most = Date.now()
     const res = most - elozo
     elozo = most
-    if (res > SLEEP_GAP_MS) fireWake(res, most)
+    const polls = awake ? awake.polls() : null
+    // A figyelo szal a vezerlopulttal egyutt, KESOBB indul, mint ez az ora: ha az elozo korben meg nem volt, a
+    // szamlaloja nullarol indult -- igy az indulas utani megakadas (a #554 mert esete) is latszik.
+    const kozben = polls !== null ? polls - (elozoPolls ?? 0) : null
+    elozoPolls = polls
+    if (res > SLEEP_GAP_MS) fireWake(res, most, classifyGap(res, kozben, awake ? awake.pollMs : 0))
   }, TICK_MS)
   if (typeof timer.unref === 'function') timer.unref()
   logger.info({ tickSec: TICK_MS / 1000, alvasHatarPerc: SLEEP_GAP_MS / 60000 }, '[wake] ebredes-erzekelo beallitva')
