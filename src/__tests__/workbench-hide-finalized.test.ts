@@ -1,6 +1,8 @@
 // #552 -- finalized work: the owner's own Finalize / Reopen, and the switch that hides finalized work items
 // (and the folders that hold only such items) from the work items box.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
@@ -156,5 +158,48 @@ describe('#552 hide finalized work: the tree', () => {
       await vi.waitFor(() => expect(off.html()).toContain('data-wb-item="m2"'))
       expect(listOf(off.html())).toContain('data-wb-item="m1"')
     } finally { m1.pinned_at = null; m2.pinned_at = null }
+  })
+
+  // #563 (Boss TG 8941): among the favourites the live work stands on top, the finalized (greyed) ones under it; each
+  // group keeps its order, and the folder tree keeps its own order.
+  describe('#563 finalized favourites go under the live ones', () => {
+    const pins = ['d1', 'm1', 'm2', 'top'] // array order: done, done, live, done -> the greyed one used to be first
+    const listOf = (html: string) => { const t = tree(html); return t.slice(0, t.indexOf('</ul>')) }
+    const idsOf = (html: string) => Array.from(listOf(html).matchAll(/data-wb-item="([^"]+)"/g)).map((m) => m[1])
+    const setPins = (on: boolean) => pins.forEach((id, i) => { (items.find((x) => x.id === id) as { pinned_at: number | null }).pinned_at = on ? i + 1 : null })
+
+    it('the live favourite stands on top, the finalized ones follow in their old order; the tree keeps its order', async () => {
+      const plain = open()
+      await vi.waitFor(() => expect(plain.html()).toContain('data-wb-item="m2"'))
+      const treeOnly = idsOf(plain.html())
+      setPins(true)
+      try {
+        const h = open()
+        await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="m2"'))
+        const ids = idsOf(h.html())
+        expect(ids.slice(0, 4)).toEqual(['m2', 'd1', 'm1', 'top'])
+        expect(ids.slice(4)).toEqual(treeOnly) // the folder tree is not reordered by the favourites
+      } finally { setPins(false) }
+    })
+
+    it('with the hide switch on the finalized favourites are gone and the live one stays on top', async () => {
+      setPins(true)
+      try {
+        const h = open({ 'wb.hide.done': '1' })
+        await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="m2"'))
+        const ids = idsOf(h.html())
+        expect(ids.filter((x) => pins.includes(x) && x !== 'm2')).toEqual([])
+        expect(ids[0]).toBe('m2')
+        expect(listOf(h.html())).toContain('wb-fav-row')
+        expect(h.html()).toContain('workbench.hide_done.count:{"n":5}')
+      } finally { setPins(false) }
+    })
+
+    it('a phone width changes nothing: the rows keep DOM order, no CSS order rule is set on a list row itself', () => {
+      const css = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.css'), 'utf-8')
+      // `.wb-item-row .wb-item { order }` only places the buttons INSIDE one row; a rule on the row would reshuffle the list.
+      const rowRules = css.split('\n').filter((l) => /\border\s*:/.test(l) && /(wb-item-row|wb-fav-row|wb-folder-row)\s*(,|\{)/.test(l))
+      expect(rowRules).toEqual([])
+    })
   })
 })
