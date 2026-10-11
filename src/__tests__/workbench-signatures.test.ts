@@ -12,6 +12,19 @@ vi.mock('../config.js', async () => {
   return { ...actual, STORE_DIR: store }
 })
 
+// The disk lists a folder in whatever order it likes; the walk's fairness is about ORDER, so make it one fixed order
+// (alphabetical: "Archívum" before "Család", the bad case).
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  return {
+    ...actual,
+    readdir: (async (...a: Parameters<typeof actual.readdir>) => {
+      const list = await (actual.readdir as (...x: unknown[]) => Promise<Array<{ name: string }>>)(...a)
+      return [...list].sort((x, y) => String(x.name).localeCompare(String(y.name)))
+    }) as typeof actual.readdir,
+  }
+})
+
 const { explorerRoot } = await import('../life-explorer.js')
 const { listSignatures, forgetSignatures } = await import('../workbench-signatures.js')
 
@@ -68,6 +81,19 @@ describe('the walk never blocks and is not repeated (2026-10-10 freeze)', () => 
     const full = await listSignatures('hu', { fresh: true })
     expect(full.truncated).toBe(false)
     expect(full.signatures).toHaveLength(1)
+  })
+
+  it('a wide archive listed first does not starve the identity folder when the folder budget runs out', async () => {
+    rmSync(join(root, 'Emberek'), { recursive: true, force: true }) // the shared fixture's folders would use up the budget
+    // Archívum: 3 folders with 5 sub-folders each (15 folders on the level where the identity folder also is).
+    for (const a of ['a1', 'a2', 'a3']) for (let i = 0; i < 5; i++) mkdirSync(join(root, 'Archívum', a, 'm' + i), { recursive: true })
+    mkdirSync(join(root, 'Család', 'Laszlo', 'Identitás'), { recursive: true })
+    writeFileSync(join(root, 'Család', 'Laszlo', 'Identitás', 'laszlo alairas.png'), 'x')
+    writeFileSync(join(root, 'Archívum', 'a1', 'm0', 'regi alairas.png'), 'x')
+    // 8 folders: root, Archívum, Család, a1, a2, a3, Laszlo -- then the 8th must be Identitás, not one of the 15.
+    const r = await listSignatures('hu', { fresh: true, maxFolders: 8 })
+    expect(r.signatures.map((s) => s.rel)).toEqual(['Család/Laszlo/Identitás/laszlo alairas.png'])
+    expect(r.truncated).toBe(true) // and it still says the tree was not seen to the end
   })
 
   it('the module reads folders asynchronously and never calls the synchronous tree search', async () => {
