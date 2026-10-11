@@ -14071,13 +14071,31 @@
    *  lista), a kijelolt munkadarab belso reszeivel egyutt. Ide kerul a chat es
    *  a jobb oldali eredmeny KIVETELEVEL minden: azok az egyszeru nezet
    *  fo teruleten allnak, ketszer nem rajzoljuk ki (azonos azonositok). */
+  /** #531: does the Simple frame itself draw the parts list (text / image parts) under the result? Only the generic
+   *  result column does (simpleResultHtml); a document page, a deck, a video, a table and a canvas draw their own. */
+  function frDrawsPartsInline(it) {
+    if (!it || it.type === 'document') return false
+    if (WB.compare && WB.compare.itemId === WB.selectedId) return false
+    if (isDeckItem() || frIsVideo(it) || frIsTable(it)) return false
+    if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) return false
+    return true
+  }
+
+  /** #531: the parts of the work item (add a text, add a picture) exist in the Manual view for every kind; the Simple view
+   *  shows them in the frame (generic result) or, for the kinds with their own editor, under the technical details. */
+  function simpleItemPartsHtml(it) {
+    if (partsAreTechnical(it)) return partsTechHtml()
+    if (it.type === 'note' && it.source_path) return ''
+    return frDrawsPartsInline(it) ? '' : partsHtml()
+  }
+
   function simpleTechHtml() {
     var it = WB.selectedId && WB.detail ? WB.detail.item : null
     var itemTech = it
       ? '<div class="wb-sh-tech-item">'
         + versionBarHtml()
         + (it.type === 'document' ? '' : outlineHtml())
-        + (partsAreTechnical(it) ? partsTechHtml() : '')
+        + simpleItemPartsHtml(it)
         + deadlinesBoxHtml()
         + todosBoxHtml()
         + approvalBoxHtml()
