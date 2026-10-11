@@ -8067,6 +8067,8 @@ window._i18n.en = {
   "workbench.dp.fmt_color": "Text colour",
   "workbench.dp.fmt_hilite": "Highlight (background colour)",
   "workbench.dp.fmt_linesp": "Line spacing",
+  "workbench.dp.fmt_linesp_opt": "Line spacing: {v}",
+  "workbench.dp.fmt_spaceafter_opt": "After paragraph: {v} pt",
   "workbench.dp.fmt_spaceafter": "Space after the paragraph",
   "workbench.dp.fmt_indent_more": "Increase indent",
   "workbench.dp.fmt_indent_less": "Decrease indent",

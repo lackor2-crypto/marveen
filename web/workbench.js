@@ -13459,8 +13459,10 @@
       + dpColorHtml('fore', t('workbench.dp.fmt_color'), 'A', btn('nocolor', t('workbench.dp.fmt_nocolor'), '&#8856; ' + esc(t('workbench.dp.fmt_nocolor_short'))))
       + dpColorHtml('hilite', t('workbench.dp.fmt_hilite'), '&#9608;', btn('nohilite', t('workbench.dp.fmt_nohilite'), '&#8856; ' + esc(t('workbench.dp.fmt_nohilite_short'))))
       + '<span class="wb-dp-tbsep"></span>'
-      + dpSelectHtml('linesp', t('workbench.dp.fmt_linesp'), DP_LINESP.map(function (v) { return [String(v), String(v).replace('.', ',')] }))
-      + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SPACEAFTER.map(function (v) { return [String(v), v + ' pt'] })))
+      // #564 (Boss TG 8958): a chosen value alone ("24 pt", "2") does not say WHICH of the two lists it is -- the owner took the
+      // space after the paragraph for the line spacing. Every option names what it sets.
+      + dpSelectHtml('linesp', t('workbench.dp.fmt_linesp'), DP_LINESP.map(function (v) { return [String(v), t('workbench.dp.fmt_linesp_opt', { v: String(v).replace('.', window._lang === 'en' ? '.' : ',') })] }))
+      + dpSelectHtml('spaceafter', t('workbench.dp.fmt_spaceafter'), [['__reset', t('workbench.dp.fmt_reset')]].concat(DP_SPACEAFTER.map(function (v) { return [String(v), t('workbench.dp.fmt_spaceafter_opt', { v: v })] })))
       + dpSelectHtml('heading', t('workbench.dp.fmt_heading'), [['0', t('workbench.dp.fmt_head_normal')], ['1', t('workbench.dp.fmt_head1')], ['2', t('workbench.dp.fmt_head2')], ['3', t('workbench.dp.fmt_head3')]])
       + '</div>'
   }
@@ -13565,8 +13567,19 @@
       if (n.getAttribute('data-wb-split') === '1' && text && !(b && b.kind === 'table')) {
         // A paragraph turned into Heading 1: it is the title of a new chapter; what follows it on the page belongs there.
         structural = true
-        begin('', text.replace(/\s*\n\s*/g, ' ').trim().slice(0, 200), n)
+        // #564 (Boss TG 8952): a title holds 200 characters. A longer paragraph made Heading 1 used to be CUT there and the
+        // rest was lost; now the title ends at the last whole word that fits and the rest stays, as the first paragraph under it.
+        var hFull = text.replace(/\s*\n\s*/g, ' ').trim()
+        var hRest = ''
+        if (hFull.length > 200) {
+          var hCut = hFull.lastIndexOf(' ', 200)
+          if (hCut < 80) hCut = 200
+          hRest = hFull.slice(hCut).trim()
+          hFull = hFull.slice(0, hCut).trim()
+        }
+        begin('', hFull, n)
         focusSi = secs.length - 1
+        if (hRest) { cur.blocks.push({ text: hRest, rich: '', align: '', pfmt: {}, kind: 'paragraph' }); els.push({ el: null, si: secs.length - 1, bi: cur.blocks.length - 1 }) }
         continue
       }
       if (b && b.kind === 'table') {
@@ -17534,6 +17547,17 @@
     return out
   }
 
+  /** What the Style box applies to: the selected paragraphs AND the chapter titles inside the selection (else `el`). */
+  function dpHeadingEls(el) {
+    var r = WB.dpRange
+    var root = dpRoot()
+    if (!r || !r.multi || !root) return [el]
+    var out = dpRangeFields(r.range).filter(function (n) { return !!String(n.textContent || '').trim() })
+    var titles = root.querySelectorAll('.wb-dp-edit[data-wb-dp="sec"]')
+    for (var i = 0; i < titles.length; i++) { try { if (r.range.intersectsNode(titles[i])) out.push(titles[i]) } catch (_e) { /* detached */ } }
+    return out.length > 1 ? out : [el]
+  }
+
   /** The paragraphs a paragraph-level command applies to: all the selected ones, else the one the cursor is in. */
   function dpFmtEls(el) {
     var r = WB.dpRange
@@ -17673,7 +17697,8 @@
     if (archived()) return
     // #534 (c): the Style box on a chapter title: "Normal" joins the chapter to the one above (the title is Heading 1).
     var curTitle = sel && sel.getAttribute('data-wb-fmtsel') === 'heading' ? dpCurrent() : null
-    if (curTitle && curTitle.getAttribute('data-wb-dp') === 'sec') {
+    // (A selection over several paragraphs goes the common way below: every selected paragraph and title gets the style.)
+    if (curTitle && curTitle.getAttribute('data-wb-dp') === 'sec' && !(WB.dpRange && WB.dpRange.multi && dpHeadingEls(curTitle).length > 1)) {
       if (sel.value !== '') dpSetPfmt(curTitle, { h: Number(sel.value) || null })
       return
     }
@@ -17693,7 +17718,8 @@
     if (k === 'font' || k === 'size') dpApplyInline(el, k, v)
     else if (k === 'linesp') els.forEach(function (x) { dpSetPfmt(x, { ls: Number(v) }) })
     else if (k === 'spaceafter') els.forEach(function (x) { dpSetPfmt(x, { sa: Number(v) }) })
-    else if (k === 'heading') dpSetPfmt(el, { h: Number(v) || null })
+    // #564 (Boss TG 8950): the Style reaches every selected paragraph -- and every title in the selection -- like Word.
+    else if (k === 'heading') dpHeadingEls(el).forEach(function (x) { dpSetPfmt(x, { h: Number(v) || null }) })
     dpFmtSync()
   })
 

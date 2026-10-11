@@ -8141,6 +8141,8 @@ window._i18n.hu = {
   "workbench.dp.fmt_color": "Betűszín",
   "workbench.dp.fmt_hilite": "Kiemelés (háttérszín)",
   "workbench.dp.fmt_linesp": "Sortávolság",
+  "workbench.dp.fmt_linesp_opt": "Sortávolság: {v}",
+  "workbench.dp.fmt_spaceafter_opt": "Bekezdés után: {v} pt",
   "workbench.dp.fmt_spaceafter": "Térköz a bekezdés után",
   "workbench.dp.fmt_indent_more": "Behúzás növelése",
   "workbench.dp.fmt_indent_less": "Behúzás csökkentése",
