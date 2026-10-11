@@ -22,8 +22,9 @@ import { sendTelegramMessage } from './telegram.js'
 import { resolveOwnerChatId } from '../owner-chat.js'
 import { CODE_BOT_TOKEN, TELEGRAM_BOT_TOKEN, APP_LANG } from '../config.js'
 import { logger } from '../logger.js'
-import { formatDuration, type CodeTask } from './code-bridge-store.js'
-import { getApproval, getKanbanCard, listApprovalVerifications } from '../db.js'
+import { formatDuration, formatLimitReset, type CodeTask, type CodeBridgeLimit } from './code-bridge-store.js'
+import { getApproval, getKanbanCard, listApprovalVerifications, createAgentMessage } from '../db.js'
+import { ol } from '../owner-lang.js'
 import { approvalCardId } from '../kanban-related.js'
 import { deliverCodeTaskToWorkbench } from '../workbench-agent/code-bridge-delivery.js'
 import { codeBridgeLimitDetail } from '../workbench-agent/code-bridge-turn.js'
@@ -250,5 +251,39 @@ export async function notifyCodeTaskPartial(task: CodeTask, text: string): Promi
   } catch (err) {
     logger.warn({ err, task: task.id }, 'code-bridge: partial notify failed')
     return false
+  }
+}
+
+/** #550: the run stopped on the executor's limit and went back to the queue. Whoever sent it hears about it
+ *  once -- an agent as an inter-agent message, anyone else on the Telegram chat the answer would have gone to --
+ *  and is told it starts by itself, so it is neither waited on blindly nor handed to someone else. Fire and
+ *  forget like the completion ping. */
+export async function notifyCodeTaskDeferred(task: CodeTask, limit: CodeBridgeLimit): Promise<void> {
+  // The Workbench account picker learns from the sentence exactly as it does from a finished run (#434).
+  try { if (limit.sentence) noteLimitAnswer(limit.sentence) } catch { /* the notice goes out regardless */ }
+  const id = task.id.slice(0, 8)
+  const until = formatLimitReset(limit.resetsAt)
+  const text = limit.estimated
+    ? ol(
+      `A(z) ${id} feladat (${task.project}) nem futott le: a VS Code végrehajtó kerete kimerült, a visszaállás idejét nem közölte. Visszaraktam a sorba, kb. ${until} után próbálom újra, és magától elindul. Ne várj rá addig.`,
+      `Task ${id} (${task.project}) did not run: the VS Code executor is out of quota and did not say when it comes back. I put it back in the queue and will try again after about ${until}; it starts by itself. Do not wait for it until then.`,
+    )
+    : ol(
+      `A(z) ${id} feladat (${task.project}) nem futott le: a VS Code végrehajtó kerete kimerült, ${until}-kor áll vissza. Visszaraktam a sorba, a visszaálláskor magától elindul. Ne várj rá addig.`,
+      `Task ${id} (${task.project}) did not run: the VS Code executor is out of quota until ${until}. I put it back in the queue; it starts by itself then. Do not wait for it until then.`,
+    )
+  try {
+    if (task.origin === 'agent' && task.requestedBy) {
+      createAgentMessage('system', task.requestedBy, text, 'code-bridge-limit')
+      return
+    }
+    if (task.origin === 'workbench') return
+    const token = tokenForTask(task)
+    if (!token) return
+    const chatId = task.chatId ?? resolveOwnerChatId()
+    if (!chatId) return
+    await sendTelegramMessage(token, chatId, text)
+  } catch (err) {
+    logger.warn({ err, task: task.id }, 'code-bridge: limit-deferred notify failed')
   }
 }

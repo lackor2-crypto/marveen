@@ -225,7 +225,7 @@ describe('a mondat ember-olvashato es ketnyelvu', () => {
   const EN = read('web/lang/en.js')
   const KEYS = [
     'cb.err.card_busy', 'cb.warn.card_forced', 'cb.warn.card_active_msg',
-    'cb.warn.card_landed', 'cb.warn.card_uncheckable',
+    'cb.warn.card_landed', 'cb.warn.card_uncheckable', 'cb.warn.executor_limit', 'cb.warn.executor_limit_est',
     'cb.confirm.card_force', 'cb.status.card_busy_cancelled',
   ]
 

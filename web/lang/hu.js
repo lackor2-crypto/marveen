@@ -5080,6 +5080,8 @@ window._i18n.hu = {
   'cb.warn.card_active_msg': 'Elküldtem, de figyelem: a(z) {card} kártyán MÁR dolgozik valaki ({who} -- {what}). Nézzétek meg, mielőtt két ügynök ugyanazt csinálja meg.',
   'cb.warn.card_forced': 'Elküldtem, pedig a(z) {card} kártyán már fut a(z) {task} feladat -- te kérted, hogy mégis menjen.',
   'cb.warn.card_landed': 'Figyelem: a(z) {card} kártyára már landolt munka a fő ágon ({commit} -- {subject}). Ha ez folytatás vagy javítás, minden rendben; ha nem tudtál róla, nézd meg, mielőtt kétszer csináljátok meg.',
+  'cb.warn.executor_limit': 'Figyelem: a(z) {project} projekt végrehajtójának (VS Code) a kerete kimerült, {until}-ig nem tud dolgozni. A feladat sorban áll, és a visszaálláskor magától elindul; ne várj rá addig, és ne add ki mástól ugyanezt.',
+  'cb.warn.executor_limit_est': 'Figyelem: a(z) {project} projekt végrehajtójának (VS Code) a kerete kimerült, a visszaállás idejét nem közölte; kb. {until} után próbálom újra. A feladat sorban áll, és magától elindul.',
   'cb.warn.card_uncheckable': 'Nem tudtam megnézni, dolgozik-e már valaki ezen a kártyán: {detail}. Elküldtem, de ezt nem ellenőriztem.',
   'cb.warn.project_not_pinned': 'Nincs a(z) "{project}" projektre kitűzött VS Code ablak, ezért a(z) "{session}" beszélgetésnek adtam ki. Nem akadály: az utasítás elejére fűzött előhang megmondja neki, hol a munka, és bármelyik session dolgozhat a megadott úton.',
   'cb.err.browse_unknown':      'Ez a tallózási kérés már nem él. Nyisd meg újra a tallózót.',

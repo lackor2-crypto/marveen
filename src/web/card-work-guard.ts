@@ -364,6 +364,14 @@ const NOTICE_TEXT: Record<string, { hu: string; en: string }> = {
     hu: 'ne adj át senkinek, és ne várj: kezdj neki azonnal magad.',
     en: 'do not hand it to anyone and do not wait: start the work yourself, right now.',
   },
+  'cb.warn.executor_limit': {
+    hu: 'Figyelem: a(z) {project} projekt végrehajtójának (VS Code) a kerete kimerült, {until}-ig nem tud dolgozni. A feladat sorban áll, és a visszaálláskor magától elindul; ne várj rá addig, és ne add ki mástól ugyanezt.',
+    en: 'Heads up: the executor (VS Code) of project {project} is out of quota until {until}. The task is queued and starts by itself when it comes back; do not wait for it until then, and do not hand the same work to someone else.',
+  },
+  'cb.warn.executor_limit_est': {
+    hu: 'Figyelem: a(z) {project} projekt végrehajtójának (VS Code) a kerete kimerült, a visszaállás idejét nem közölte; kb. {until} után próbálom újra. A feladat sorban áll, és magától elindul.',
+    en: 'Heads up: the executor (VS Code) of project {project} is out of quota and did not say when it comes back; I will try again after about {until}. The task is queued and starts by itself.',
+  },
   'cb.warn.card_uncheckable': {
     hu: 'Nem tudtam megnézni, dolgozik-e már valaki ezen a kártyán: {detail}. Elküldtem, de ezt nem ellenőriztem.',
     en: 'I could not check whether someone is already working on this card: {detail}. It was sent, but this was not verified.',
