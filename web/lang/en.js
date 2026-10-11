@@ -5006,6 +5006,8 @@ window._i18n.en = {
   'cb.warn.card_active_msg': 'Sent, but heads up: someone is ALREADY working on card {card} ({who} -- {what}). Check before two agents do the same work twice.',
   'cb.warn.card_forced': 'Sent, even though task {task} is already running on card {card} -- you asked for it anyway.',
   'cb.warn.card_landed': 'Heads up: work for card {card} has already landed on the main branch ({commit} -- {subject}). If this is a follow-up or a fix, all good; if you did not know about it, check before it gets done twice.',
+  'cb.warn.executor_limit': 'Heads up: the executor (VS Code) of project {project} is out of quota until {until}. The task is queued and starts by itself when it comes back; do not wait for it until then, and do not hand the same work to someone else.',
+  'cb.warn.executor_limit_est': 'Heads up: the executor (VS Code) of project {project} is out of quota and did not say when it comes back; I will try again after about {until}. The task is queued and starts by itself.',
   'cb.warn.card_uncheckable': 'I could not check whether someone is already working on this card: {detail}. It was sent, but this was not verified.',
   'cb.warn.project_not_pinned': 'No VS Code window is pinned to project "{project}", so I dispatched it to the "{session}" session. Not a blocker: the preface prepended to the task tells it where the work lives, and any session can work on the given path.',
   'cb.err.browse_unknown':      'This browse request is no longer active. Open the browser again.',

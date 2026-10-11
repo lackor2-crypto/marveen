@@ -43,6 +43,7 @@ import {
   recordCodeWorkerSeen, getCodeWorkerVersion, codeBridgeHealth, codeTaskCountsByProject, WORKER_STALE_MS, listCodeTabs,
   requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation, findRunningTaskByRunSession,
   requestFolderBrowse, takeFolderBrowseRequests, recordFolderBrowseResult, getFolderBrowse,
+  activeCodeBridgeLimit, sessionSide,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
 } from '../code-bridge-store.js'
 import { readCodeConversation, statCodeConversation, locateLocalTranscript } from '../code-conversation.js'
@@ -50,7 +51,7 @@ import { displayName } from '../code-folder-browse.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
-import { notifyCodeTaskFinished, notifyCodeTaskPartial } from '../code-bridge-notify.js'
+import { notifyCodeTaskFinished, notifyCodeTaskPartial, notifyCodeTaskDeferred } from '../code-bridge-notify.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { readBrokerConfig } from '../context-broker-store.js'
 import { BROKER_ROLE_IDS } from '../../context-broker.js'
@@ -837,6 +838,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       return {
       ...p,
       currentSource,
+      // #550: the executor's limit (the login of this project's VS Code side), null when it can work.
+      limit: ((l) => (l ? { resetsAt: l.resetsAt, estimated: l.estimated, since: l.notedAt } : null))(activeCodeBridgeLimit(sessionSide(p.workspacePath))),
       running: taskCounts[p.project]?.running ?? 0,
       queued: taskCounts[p.project]?.queued ?? 0,
       currentRunning: run ? run.running : false,
@@ -1469,7 +1472,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // presence table matches what recordCodeWorkerSeen's own contract says.
       const resHost = (body.host ?? '').trim() || null
       if (resHost) recordCodeWorkerSeen(resHost, 'result')
-      const { task: updated, outcome } = completeCodeTaskDetailed(task.id, {
+      const { task: updated, outcome, limit: heldBy } = completeCodeTaskDetailed(task.id, {
         ok: body.ok !== false && !body.error,
         result: body.result ?? null,
         error: body.error ?? null,
@@ -1478,6 +1481,14 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         numTurns: typeof body.numTurns === 'number' ? body.numTurns : null,
       }, Date.now(), resHost)
       if (!updated) { json(res, { error: 'task not found' }, 404); return true }
+      // #550: the run stopped on the executor's limit: the task went back to the queue and starts by itself
+      // when the limit lifts. The sender hears about it once; nobody is told it "finished".
+      if (outcome === 'limit-requeued' && heldBy) {
+        logger.warn({ task: updated.id, project: updated.project, resetsAt: heldBy.resetsAt, estimated: heldBy.estimated }, 'code-bridge: task sent back to the queue, executor limit')
+        void notifyCodeTaskDeferred(updated, heldBy)
+        json(res, { ...updated, limitHold: { resetsAt: heldBy.resetsAt, estimated: heldBy.estimated } })
+        return true
+      }
       let finished = updated
       if (outcome !== 'accepted') {
         // A result for a task that was cancelled, already finished, or handed to

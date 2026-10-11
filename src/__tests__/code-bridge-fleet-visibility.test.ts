@@ -22,7 +22,7 @@ import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask, heartbeatCodeTask,
   recordCodeWorkerSeen, codeBridgeActivity, codeBridgeDisplayState, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
-  completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage, QUOTA_BLOCK_FALLBACK_MS,
+  completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage, QUOTA_BLOCK_FALLBACK_MS, LIMIT_RETRY_MS,
   LIVE_SESSION_STALE_MS, getCodeSession,
 } from '../web/code-bridge-store.js'
 
@@ -237,12 +237,15 @@ describe('codeBridgeActivity: kvota-blokk (keret-kimerules)', () => {
     expect(codeBridgeActivity(resetAt + 60_000).quotaBlocked).toBe(false)
   })
 
-  it('idopont nelkuli uzenetnel a blokk legfeljebb ot oraig all (nem vegtelen)', () => {
+  it('idopont nelkuli uzenetnel a blokk legfeljebb a ujraprobalasi ablakig all (nem vegtelen)', () => {
+    // #550: a limit-mondatra leallt futas mar nem 'error' sor, hanem visszakerul a sorba, es a kapu a
+    // visszaallasi idopontig tartja. Ha a mondat nem nevez idopontot, a kapu rovid ujraprobalasi ablakot
+    // (LIMIT_RETRY_MS) ad, aztan a kovetkezo feladat maga probalja ki -- ugyanez a blokk a kijelzon.
     upsertCodeSession(WS)
     const t0 = Date.now()
     failLatestWithLimit('usage limit reached')
-    expect(codeBridgeActivity(t0 + QUOTA_BLOCK_FALLBACK_MS - 60_000).quotaBlocked).toBe(true)
-    expect(codeBridgeActivity(t0 + QUOTA_BLOCK_FALLBACK_MS + 60_000).quotaBlocked).toBe(false)
+    expect(codeBridgeActivity(t0 + LIMIT_RETRY_MS - 60_000).quotaBlocked).toBe(true)
+    expect(codeBridgeActivity(t0 + LIMIT_RETRY_MS + 60_000).quotaBlocked).toBe(false)
   })
 
   it('a lejarat a HIBA idejehez horgonyzott, nem a mostanihoz', () => {

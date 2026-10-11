@@ -256,6 +256,18 @@ function ensureTables(): void {
   } catch (err) {
     if (!/duplicate column/i.test(String((err as Error)?.message ?? ''))) throw err
   }
+  // #550: the executor's login ran out. One row per executor SIDE (the WSL VS Code and the Windows one each
+  // have their own login): while `resets_at` is in the future, a queued task of that side is not handed out.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS code_bridge_limits (
+      side TEXT PRIMARY KEY,
+      resets_at INTEGER NOT NULL,
+      noted_at INTEGER NOT NULL,
+      estimated INTEGER NOT NULL DEFAULT 0,
+      task_id TEXT,
+      sentence TEXT
+    )
+  `)
   ensured = true
 }
 
@@ -1022,6 +1034,17 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
     warning = cardWorkNotice('cb.warn.card_uncheckable', { detail: verdict.detail })
   }
 
+  // #550: tell the sender when the executor's login is exhausted and when it comes back; the task still
+  // queues and starts on its own then.
+  const heldBy = activeCodeBridgeLimit(sessionSide(resolved.session.workspacePath))
+  if (heldBy) {
+    const limitNotice = cardWorkNotice(heldBy.estimated ? 'cb.warn.executor_limit_est' : 'cb.warn.executor_limit', {
+      project: resolved.session.project,
+      until: formatLimitReset(heldBy.resetsAt),
+    })
+    warning = warning ? { ...warning, message: `${warning.message} ${limitNotice.message}` } : limitNotice
+  }
+
   const id = randomUUID()
   const now = Date.now()
   getDb()
@@ -1288,6 +1311,9 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       if (isBusy.get(task.project)) continue
       const session = getCodeSession(task.project)
       if (!session) continue
+      // #550: the executor's login is exhausted -- the task keeps its place in the queue and goes out when the
+      // limit lifts. (A Workbench chat task is not held: its chat continues on another account by itself.)
+      if (task.origin !== 'workbench' && activeCodeBridgeLimit(sessionSide(session.workspacePath), now)) continue
 
       // Kartya 2741d289 (#252): TEMA-ALAPU ujrahasznalas. Boss dontese
       // (2026-09-11, uzenet 821) szerint a "ugyanaz a tema"-t a KANBAN KARTYA
@@ -1476,11 +1502,103 @@ export interface CompleteInput {
  * so a result for a CANCELLED or already-finished task is normal traffic, not a
  * fault -- but it must not overwrite the outcome the owner already saw.
  */
-export type LateResultOutcome = 'accepted' | 'cancelled' | 'already-final' | 'foreign-host'
+export type LateResultOutcome = 'accepted' | 'cancelled' | 'already-final' | 'foreign-host' | 'limit-requeued'
+
+// ---- #550: the executor's limit ------------------------------------------
+
+/** How long a limit whose sentence names no reset moment holds the queue. Short on purpose: the next
+ *  task then tests the limit itself, and a still-exhausted login simply sends it back (one cheap round). */
+export const LIMIT_RETRY_MS = 30 * 60 * 1000
+/** A named reset further out than this is a misread, not a limit (the weekly window is the longest). */
+const LIMIT_MAX_HOLD_MS = 8 * 24 * 3600 * 1000
+/** A long answer that merely quotes a limit sentence is not a limit. */
+const LIMIT_SENTENCE_MAX_CHARS = 400
+
+export interface CodeBridgeLimit {
+  side: CodeSessionSide
+  /** When the hold ends (epoch ms): the sentence's own reset moment, or `noted + LIMIT_RETRY_MS`. */
+  resetsAt: number
+  notedAt: number
+  /** True when the sentence named no reset moment and `resetsAt` is only the retry time. */
+  estimated: boolean
+  taskId: string | null
+  sentence: string | null
+}
+
+/** The limit sentence of a finished run, or null. Looks at the error and at the result text: the CLI reports
+ *  its limit as either (kanban #434). */
+export function codeTaskLimitSentence(input: { ok?: boolean; result?: string | null; error?: string | null }): string | null {
+  for (const raw of [input.error, input.result]) {
+    const text = (raw ?? '').trim()
+    if (text && text.length <= LIMIT_SENTENCE_MAX_CHARS && isCodeUsageLimitMessage(text)) return text
+  }
+  return null
+}
+
+export function codeTaskSide(task: Pick<CodeTask, 'project' | 'workspacePath'>): CodeSessionSide {
+  return sessionSide(task.workspacePath ?? getCodeSession(task.project)?.workspacePath)
+}
+
+export function noteCodeBridgeLimit(side: CodeSessionSide, sentence: string, taskId: string | null, now = Date.now()): CodeBridgeLimit {
+  ensureTables()
+  const named = parseUsageLimitResetAt(sentence, now, APP_TZ)
+  const estimated = !(named !== null && named > now && named - now <= LIMIT_MAX_HOLD_MS)
+  const resetsAt = estimated ? now + LIMIT_RETRY_MS : (named as number)
+  getDb()
+    .prepare(
+      `INSERT INTO code_bridge_limits (side, resets_at, noted_at, estimated, task_id, sentence) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(side) DO UPDATE SET resets_at = excluded.resets_at, noted_at = excluded.noted_at,
+         estimated = excluded.estimated, task_id = excluded.task_id, sentence = excluded.sentence`,
+    )
+    .run(side, resetsAt, now, estimated ? 1 : 0, taskId, sentence.slice(0, LIMIT_SENTENCE_MAX_CHARS))
+  logger.warn({ side, resetsAt, estimated, task: taskId }, 'code-bridge: executor limit noted, queued tasks of this side wait')
+  return { side, resetsAt, notedAt: now, estimated, taskId, sentence }
+}
+
+function rowToLimit(r: Record<string, unknown>): CodeBridgeLimit {
+  return {
+    side: String(r['side']) === 'windows' ? 'windows' : 'wsl',
+    resetsAt: Number(r['resets_at']),
+    notedAt: Number(r['noted_at']),
+    estimated: Number(r['estimated']) === 1,
+    taskId: r['task_id'] == null ? null : String(r['task_id']),
+    sentence: r['sentence'] == null ? null : String(r['sentence']),
+  }
+}
+
+/** The limit holding this side's queue right now, or null. An expired row is not a limit (and is never read
+ *  as one), so a limit lifts by itself. */
+export function activeCodeBridgeLimit(side: CodeSessionSide, now = Date.now()): CodeBridgeLimit | null {
+  ensureTables()
+  try {
+    const r = getDb().prepare(`SELECT * FROM code_bridge_limits WHERE side = ? AND resets_at > ?`).get(side, now) as Record<string, unknown> | undefined
+    return r ? rowToLimit(r) : null
+  } catch { return null }
+}
+
+export function listActiveCodeBridgeLimits(now = Date.now()): CodeBridgeLimit[] {
+  ensureTables()
+  try {
+    return (getDb().prepare(`SELECT * FROM code_bridge_limits WHERE resets_at > ? ORDER BY side`).all(now) as Record<string, unknown>[]).map(rowToLimit)
+  } catch { return [] }
+}
+
+/** The reset moment as a short local time ("16:20", or "Oct 12, 04:20" when it is not today). */
+export function formatLimitReset(resetsAt: number, now = Date.now()): string {
+  try {
+    const sameDay = new Date(resetsAt).toLocaleDateString('en-CA', { timeZone: APP_TZ || undefined }) === new Date(now).toLocaleDateString('en-CA', { timeZone: APP_TZ || undefined })
+    return new Date(resetsAt).toLocaleString(sameDay ? 'hu-HU' : 'en-GB', {
+      timeZone: APP_TZ || undefined, hour: '2-digit', minute: '2-digit', hour12: false,
+      ...(sameDay ? {} : { day: '2-digit', month: '2-digit' }),
+    })
+  } catch { return new Date(resetsAt).toISOString() }
+}
 
 export interface CompleteOutcome {
   task: CodeTask | null
   outcome: LateResultOutcome
+  /** Set with 'limit-requeued': the executor's limit that sent the task back to the queue. */
+  limit?: CodeBridgeLimit
 }
 
 /**
@@ -1529,6 +1647,25 @@ export function completeCodeTaskDetailed(
     existing.host !== reportingHost
   ) {
     return { task: existing, outcome: 'foreign-host' }
+  }
+
+  // #550: the run stopped on the executor's own limit sentence. That is not a failure of the task: it goes back
+  // to the queue and is handed out again once the limit lifts (the Workbench chat continues on another account
+  // by itself, so its tasks keep the old path).
+  if (existing.origin !== 'workbench' && existing.status === 'running') {
+    const limitText = codeTaskLimitSentence(input)
+    if (limitText) {
+      const limit = noteCodeBridgeLimit(codeTaskSide(existing), limitText, id, now)
+      getDb()
+        .prepare(
+          `UPDATE code_tasks
+             SET status = 'queued', host = NULL, lease_expires_at = NULL, run_session_id = NULL, error = NULL,
+                 result = NULL, summary = NULL, finished_at = NULL, attempts = MAX(attempts - 1, 0)
+           WHERE id = ?`,
+        )
+        .run(id)
+      return { task: getCodeTask(id), outcome: 'limit-requeued', limit }
+    }
   }
 
   getDb()
@@ -2724,6 +2861,13 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
       // csak a kezi elozmeny-torles tunteti el. Lasd `quotaBlockExpiresAt`.
       quotaBlocked = !recovered && now < quotaBlockExpiresAt(msg, blockedAt)
     }
+  }
+  // #550: a limit-requeued task is no longer an 'error' row, so the stored limit keeps the card honest too.
+  // Same release as above: a fresh, MEASURED live activity after the limit was noted lifts it.
+  if (!quotaBlocked) {
+    quotaBlocked = listActiveCodeBridgeLimits(now).some(
+      (l) => !liveCands.some((c) => c.lastActivity != null && c.lastActivity > l.notedAt),
+    )
   }
   // FRISS AKTIVITAS: van-e legalabb egy elo beszelgetes, aminek a MERT
   // `lastActivity`-je (vagy annak hianyaban a fajl `mtime`-ja) a frissesegi
