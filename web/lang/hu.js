@@ -7780,6 +7780,7 @@ window._i18n.hu = {
   "workbench.annex.linked_at": "Életfa: {path}",
   "workbench.annex.linked_hint": "Ez a melléklet nem másolat: az Életfában lévő eredeti iratra mutat.",
   "workbench.annex.origin": "eredeti hely",
+  "workbench.annex.origin_unavailable": "Az Intéző most nem érhető el ezen az oldalon, ezért nem tudom megnyitni a mappát. Frissítsd az oldalt (F5), és próbáld újra.",
   "workbench.annex.linked_missing": "az irat nincs a helyén (nem töröltem, csak nem találom: lehet, hogy áthelyezted, vagy a meghajtó nincs csatlakoztatva)",
   "workbench.annex.linked_searching": "az irat nincs a helyén, keresem az Életfában… (frissíts egy perc múlva)",
   "workbench.annex.remove_confirm_linked": "Leveszed a mellékletek közül? Ez csak a kapcsolatot szünteti meg: az eredeti irat a helyén marad az Életfában, és a többi beadványban, ahol csatoltad, ott is marad. A rá mutató hivatkozások helyére „Hiányzó adat” jelölés kerül, és a többi melléklet eggyel feljebb lép.",
