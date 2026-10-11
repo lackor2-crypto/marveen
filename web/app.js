@@ -19493,6 +19493,11 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
     return t('overview.ratelimit.in_mins', { m })
   }
   const fmtResetAt = (ms) => ms ? t('overview.ratelimit.resets', { time: new Date(ms).toLocaleString(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) }) : ''
+  // hh:mm, with the weekday when it is not within the next day (so "16:20" never leaves "today or tomorrow?" open).
+  const fmtResetClock = (ms) => {
+    const far = ms - Date.now() > 20 * 3600_000
+    return new Date(ms).toLocaleString(locale, far ? { weekday: 'short', hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
+  }
   const tierOf = (pct) => pct >= 95 ? 'critical' : (pct >= 90 ? 'caution' : 'normal')
 
   const row = (labelKey, win) => {
@@ -19526,7 +19531,7 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
       return `<div class="overview-ratelimit-row">
         <div class="overview-ratelimit-row-head">
           <span>${label}</span>
-          <span class="overview-ratelimit-nodata">${escapeHtml(t('overview.ratelimit.no_data'))}</span>
+          <span class="overview-ratelimit-nodata">${escapeHtml(t(resetsAt && resetsAt > Date.now() ? 'overview.ratelimit.no_data' : 'overview.ratelimit.no_data_reset'))}</span>
         </div>
         <div class="overview-ratelimit-track"></div>
       </div>`
@@ -19547,9 +19552,11 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
       </div>`
     }
     const p = Math.max(0, Math.min(100, Math.round(pct)))
+    // #545: the clock time AND the time left stand on the row (Boss, 2026-10-10: the 5-hour row lost the reset); a
+    // reset that cannot be read says so instead of leaving the row bare.
     const resetSuffix = resetsAt
-      ? ` · <span title="${escapeHtml(fmtResetAt(resetsAt))}">${escapeHtml(fmtResetIn(resetsAt))}</span>`
-      : ''
+      ? ` · <span title="${escapeHtml(fmtResetAt(resetsAt))}">${escapeHtml(fmtResetIn(resetsAt))} · ${escapeHtml(fmtResetClock(resetsAt))}</span>`
+      : ` · <span class="overview-ratelimit-nodata">${escapeHtml(t('overview.ratelimit.reset_unknown'))}</span>`
     return `<div class="overview-ratelimit-row">
       <div class="overview-ratelimit-row-head">
         <span>${label}</span>

@@ -4575,6 +4575,8 @@ window._i18n.en = {
   'overview.ratelimit.in_mins':      'in {m}m',
   'overview.ratelimit.stale':        'no fresh data',
   'overview.ratelimit.no_data':      'no data',
+  'overview.ratelimit.no_data_reset': 'no data, the reset time cannot be read either',
+  'overview.ratelimit.reset_unknown': 'reset: cannot see when',
   'overview.ratelimit.measured_mins':  '· measured {m} min ago',
   'overview.ratelimit.measured_hours': '· measured {h} h ago',
   'overview.ratelimit.note_caution': 'Your usage is above 90% — only take on smaller tasks for now.',

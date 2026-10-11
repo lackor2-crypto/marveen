@@ -41,6 +41,8 @@ import {
 } from '../opportunities.js'
 import { connectorCatalogCounts } from './connectors.js'
 import { parseUsageLimitResetAt } from '../../usage-limit-reset.js'
+import { currentAvailability } from '../agent-availability-watch.js'
+import { fillFiveHourFromAvailability } from '../quota-reset-fill.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -830,6 +832,11 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       }),
     ]
 
+    // #545: a spent 5-hour window keeps its reset time on the row (the watcher knows it even when the usage reading
+    // came back without one).
+    const availabilityById = new Map(currentAvailability().map((a) => [a.agent, a]))
+    const claudeAccountsOut = claudeAccounts.map((acc) => fillFiveHourFromAvailability(acc, availabilityById.get(acc.id)).account)
+
     // Same file and the same staleness threshold the quota monitor uses, so the
     // strip and the alert can never disagree about what the fleet has left.
     const maxAgeSec = Number(process.env.QUOTA_MAX_AGE_SEC) || DEFAULT_MAX_AGE_SEC
@@ -848,7 +855,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       team: agentsForTeam,
       activity: activity.slice(0, 8),
       rateLimit,
-      claudeAccounts,
+      claudeAccounts: claudeAccountsOut,
       openrouterCredits,
       upstreamSync: readUpstreamSyncStatus(),
       quota,

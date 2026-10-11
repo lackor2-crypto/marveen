@@ -29,8 +29,10 @@ describe('usage-limit widget: account rows', () => {
     // The old renderer started with `if (acc.fiveHourPct === null) return ''`,
     // which is exactly how an account disappeared when its session went quiet.
     expect(APP).not.toMatch(/if \(acc\.fiveHourPct === null\) return ''/)
-    expect(APP).toContain("t('overview.ratelimit.no_data')")
-    for (const lang of [HU, EN]) expect(lang).toContain("'overview.ratelimit.no_data'")
+    // #545: with no number the row still says whether the reset time is known; both sentences exist in HU and EN.
+    expect(APP).toContain("'overview.ratelimit.no_data'")
+    expect(APP).toContain("'overview.ratelimit.no_data_reset'")
+    for (const lang of [HU, EN]) for (const k of ['no_data', 'no_data_reset']) expect(lang).toContain(`'overview.ratelimit.${k}'`)
   })
 
   it('which rows to draw follows the configured accounts, not the data', () => {
@@ -40,11 +42,11 @@ describe('usage-limit widget: account rows', () => {
 })
 
 describe('usage-limit widget: reading the rows', () => {
-  it('resets are shown as time REMAINING, with the clock time only as a tooltip', () => {
-    // "visszaall 4:30" made Boss work out whether that meant tonight or the day
-    // after; what the row has to answer is how long the wait is.
+  it('resets show the time REMAINING first and the clock time beside it (weekday when it is far), full text as tooltip', () => {
+    // "visszaall 4:30" alone made Boss work out whether that meant tonight or the day after, so the wait comes first;
+    // #545 (Boss 2026-10-10): the clock time must stand on the row too, not only in a tooltip.
     expect(APP).toContain('const fmtResetIn = (ms) =>')
-    expect(APP).toMatch(/title="\$\{escapeHtml\(fmtResetAt\(resetsAt\)\)\}">\$\{escapeHtml\(fmtResetIn\(resetsAt\)\)\}/)
+    expect(APP).toMatch(/title="\$\{escapeHtml\(fmtResetAt\(resetsAt\)\)\}">\$\{escapeHtml\(fmtResetIn\(resetsAt\)\)\} · \$\{escapeHtml\(fmtResetClock\(resetsAt\)\)\}/)
     for (const lang of [HU, EN]) {
       for (const key of ['in_days_hours', 'in_days', 'in_hours_mins', 'in_hours', 'in_mins', 'resets_now']) {
         expect(lang).toContain(`'overview.ratelimit.${key}'`)
