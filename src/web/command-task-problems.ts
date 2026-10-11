@@ -14,9 +14,11 @@ export interface ScheduleProblem {
   fails: number
   /** Epoch ms of the last run, 0 when unknown. */
   lastRun: number
+  /** Why it failed (exit code + the start of the error output); '' when that run did not record it. */
+  detail: string
 }
 
-type Health = Record<string, { lastStatus?: string; fails?: number; lastRun?: number }>
+type Health = Record<string, { lastStatus?: string; fails?: number; lastRun?: number; lastDetail?: string }>
 
 function readHealth(path: string): Health | null {
   try { return JSON.parse(readFileSync(path, 'utf-8')) as Health } catch { return null }
@@ -29,7 +31,7 @@ export function scheduleProblems(health: Health | null = readHealth(join(STORE_D
   for (const name of Object.keys(health)) {
     const h = health[name]
     if (!h || h.lastStatus !== 'fail') continue
-    out.set(name, { code: 'command_fail', fails: Math.max(1, Number(h.fails) || 1), lastRun: Number(h.lastRun) || 0 })
+    out.set(name, { code: 'command_fail', fails: Math.max(1, Number(h.fails) || 1), lastRun: Number(h.lastRun) || 0, detail: typeof h.lastDetail === 'string' ? h.lastDetail : '' })
   }
   return out
 }

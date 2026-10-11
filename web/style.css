@@ -13204,6 +13204,11 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 /* #546: a faulty schedule stays marked (red edge + one sentence) until its next run succeeds. */
 .schedule-row-bad { border-left: 4px solid var(--danger, #d64545); }
 .schedule-problem { margin-top: 6px; color: var(--danger, #d64545); font-size: 0.9em; font-weight: 600; }
+.schedule-problem-cause, .schedule-problem-todo { font-weight: 500; margin-top: 2px; overflow-wrap: anywhere; }
+.schedule-problem-run { margin-left: 4px; }
+/* #546: a schedule the owner paused himself is not a breakdown -- amber, not red. */
+.schedule-row-bad-paused { border-left-color: var(--warning, #c98a1a); }
+.schedule-problem-paused { color: var(--warning, #a8730f); }
 .schedule-problem-bar {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
   padding: 10px 14px; margin-bottom: 10px; border-radius: var(--radius);
