@@ -4650,6 +4650,8 @@ window._i18n.hu = {
   'overview.ratelimit.in_mins':      '{m} perc múlva',
   'overview.ratelimit.stale':        'nincs friss adat',
   'overview.ratelimit.no_data':      'nincs adat',
+  'overview.ratelimit.no_data_reset': 'nincs adat, a visszaállás ideje sem mérhető',
+  'overview.ratelimit.reset_unknown': 'visszaállás: nem látom, mikor',
   'overview.ratelimit.measured_mins':  '· {m} perce mérve',
   'overview.ratelimit.measured_hours': '· {h} órája mérve',
   'overview.ratelimit.note_caution': 'A felhasznált kereted 90% fölött van — csak kisebb feladatokba érdemes belefogni.',
