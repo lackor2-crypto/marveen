@@ -12433,6 +12433,10 @@
       out += '<button type="button" class="btn-secondary" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '"'
         + ' aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
     }
+    // #531: the assistant chat is part of the project start view too (Manual has it with no work item open as well).
+    if (!it) {
+      out += '<button type="button" class="btn-secondary wb-sh-chat-btn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
+    }
     out += '<button type="button" class="btn-secondary wb-sh-docs" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
       + viewSwitchHtml()
       + '<button type="button" class="btn-secondary wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '"'
@@ -15049,7 +15053,9 @@
   function simpleHtml() {
     var hasItem = !!WB.selectedId
     if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
-    return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + (WB.shMore ? simpleTechHtml() : '')
+    return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-start' + (WB.frChat ? ' wb-sh-start-chat' : '') + '">'
+      + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + frChatHtml() + '</div>'
+      + (WB.shMore ? simpleTechHtml() : '')
   }
 
   /** Puts the slide strip back where it was, and only moves it when the open slide would be

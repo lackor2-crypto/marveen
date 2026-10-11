@@ -1937,3 +1937,12 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
   .wb-dp-wrap.has-outline .wb-dp-ol-go { flex: 1 1 100%; }
   .wb-dp-wrap.has-outline > .wb-dp-page { grid-column: 2; }
 }
+
+/* #531: the assistant chat beside the project start view (Simple view, no work item open); stacked on a phone. */
+.wb-sh-start-chat { display: flex; gap: 16px; align-items: flex-start; }
+.wb-sh-start-chat > .wb-sh-main { flex: 1 1 auto; min-width: 0; }
+.wb-sh-start-chat > .wb-fr-chat { flex: 0 0 340px; border: 1px solid var(--border); border-radius: 8px; height: 560px; max-height: 80vh; }
+@media (max-width: 900px) {
+  .wb-sh-start-chat { display: block; }
+  .wb-sh-start-chat > .wb-fr-chat { height: auto; max-height: none; margin-top: 12px; }
+}
