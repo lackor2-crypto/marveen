@@ -105,9 +105,12 @@
 /* #555: a name is at most three lines (the full name is the row's tooltip); it never grows a row taller than that. */
 .wb-item-title { word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .wb-item-meta { font-size: 0.8rem; opacity: 0.7; white-space: nowrap; flex: 0 0 auto; margin-left: auto; }
-/* #551: a name never runs out -- it keeps at least 8 characters, the meta wraps under it. */
+/* #551: a name never runs out -- it keeps at least 8 characters, the meta wraps under it.
+ * #555: the basis is the name itself (auto), not 8ch. With 8ch a name that did not fit beside the type was squeezed
+ * to 8 characters and ran down three narrow lines (measured at 390px: a 63px column, a short name two lines tall);
+ * with auto the type line drops UNDER the name and the name uses the whole width, at most three lines. */
 .wb-item { flex-wrap: wrap; }
-.wb-item-title { flex: 1 1 8ch; min-width: min(100%, 8ch); }
+.wb-item-title { flex: 1 1 auto; min-width: min(100%, 8ch); }
 .wb-item-edit { padding: 0 8px; }
 .wb-folder-del { font-size: 1.05rem; }
 .wb-folder-trash { font-size: 1.3rem; line-height: 1; opacity: .85; }
