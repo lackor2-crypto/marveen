@@ -28145,7 +28145,7 @@ async function renderWindowLayoutPanel(host) {
   }
 
   const fmt = (unixSeconds) => unixSeconds
-    ? new Date(unixSeconds * 1000).toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU')
+    ? new Date(unixSeconds * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU')
     : t('winlayout.never')
   const newest = data.layouts?.[0] ?? null
 
@@ -28251,7 +28251,7 @@ async function renderWindowsSettingsPanel(host) {
   }
 
   const fmt = (unixSeconds) => unixSeconds
-    ? new Date(unixSeconds * 1000).toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU')
+    ? new Date(unixSeconds * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU')
     : t('winlayout.never')
   const savedIds = new Set((data.files || []).map(f => f.id))
   // The undo button only exists once there is something to undo TO -- i.e. after
@@ -41067,7 +41067,7 @@ function _intezoCountText(e) {
 function _intezoDateText(e) {
   const d = e && e.mtime ? new Date(e.mtime) : null
   if (!d || isNaN(d.getTime())) return ''
-  return d.toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU',
+  return d.toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU',
     { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
@@ -43028,7 +43028,7 @@ async function _intezoInfo(rel, quiet) {
   if (!info.isDir) rows.push([t('intezo.info_size'), info.sizeHuman || '—'])
   // A datumformatum is a felulet nyelvet koveti, nem a telepitesét.
   rows.push([t('intezo.info_mtime'), info.mtime
-    ? new Date(info.mtime).toLocaleString(window.window._lang === 'en' ? 'en-GB' : 'hu-HU') : '—'])
+    ? new Date(info.mtime).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU') : '—'])
   rows.push([t('intezo.info_physical'),
     t(info.physical && info.physical.physical ? 'intezo.info_has' : 'intezo.info_hasnt')])
   if (info.physicalLocationHuman) rows.push([t('intezo.info_physloc'), info.physicalLocationHuman])
