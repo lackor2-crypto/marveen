@@ -31,6 +31,16 @@ export interface AgentAvailability {
 export interface AvailabilityWindow {
   usedPct: number | null
   resetsAt: number | null
+  /** The 7-day window. #569 (the owner's rule: "only the 5-hour window counts in the decision -- the weekly number is a
+   *  display, not a limit"): a weekly reading holds an agent back only when it is really SPENT (100%). At 95-99% the
+   *  agent still works, and reading it as blocked marked a working agent unavailable for the rest of the week. */
+  weekly?: boolean
+}
+
+/** The percentage from which a window stops the agent: the "no real work" end for the 5-hour window, spent for the weekly. */
+const WEEKLY_BLOCK_PCT = 100
+function blockPct(w: AvailabilityWindow): number {
+  return w.weekly ? WEEKLY_BLOCK_PCT : CRITICAL_THRESHOLD_PCT
 }
 
 export interface AvailabilityTransition {
@@ -60,7 +70,7 @@ export const MIN_NOTIFY_GAP_MS = 10 * 60_000
 export function blockingResetsAt(windows: AvailabilityWindow[], now: number): number | null {
   let latest: number | null = null
   for (const w of windows) {
-    if (w.usedPct === null || w.usedPct < CRITICAL_THRESHOLD_PCT) continue
+    if (w.usedPct === null || w.usedPct < blockPct(w)) continue
     if (w.resetsAt === null || w.resetsAt <= now) continue
     if (latest === null || w.resetsAt > latest) latest = w.resetsAt
   }
@@ -78,7 +88,8 @@ export function measureAvailability(
   // A window whose reset time has passed no longer counts, however fresh the
   // snapshot that recorded it: waiting for the snapshot to go stale would delay
   // the "you are back" edge by up to half an hour after the actual reset.
-  const live = windows.filter((w) => w.usedPct !== null && (w.resetsAt === null || w.resetsAt > now))
+  // #569: a weekly window that is not spent yet takes no part in the decision (it is shown, it does not block).
+  const live = windows.filter((w) => w.usedPct !== null && (w.resetsAt === null || w.resetsAt > now) && !(w.weekly && (w.usedPct as number) < WEEKLY_BLOCK_PCT))
   // The other direction of the same rule: a spent window whose reset is still
   // ahead stays spent however OLD the snapshot is. An exhausted agent stops
   // writing snapshots, so trusting only fresh ones reported it "available" --

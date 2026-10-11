@@ -68,9 +68,11 @@ function logEdge(t: AvailabilityTransition, note: string): void {
 export function measureFleet(prev: Record<string, AgentAvailability>, now: number): AgentAvailability[] {
   return listBrokerCandidateNames().map((agent) => {
     const snap = readRateLimitSnapshot(agent)
-    const windows = [snap?.fiveHour, snap?.sevenDay]
-      .filter((w): w is NonNullable<typeof w> => !!w)
-      .map((w) => ({ usedPct: w.usedPct, resetsAt: w.resetsAt }))
+    const windows = [
+      snap?.fiveHour ? { usedPct: snap.fiveHour.usedPct, resetsAt: snap.fiveHour.resetsAt } : null,
+      // #569: the weekly window is marked as such -- it blocks only when spent, not from 95%.
+      snap?.sevenDay ? { usedPct: snap.sevenDay.usedPct, resetsAt: snap.sevenDay.resetsAt, weekly: true } : null,
+    ].filter((w): w is NonNullable<typeof w> => !!w)
     return measureAvailability(readBrokerCandidate(agent), windows, now, prev[agent])
   })
 }
