@@ -11,7 +11,7 @@ import { createWorkItem, type WorkItemRow } from '../workbench.js'
 import { addSection, addBlock, documentOutline, listBlocks } from '../workbench-docmodel.js'
 import { createVariant, listVariants, variantInfo } from '../workbench-doclang.js'
 import {
-  previewSectionTranslation, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, startVariantTranslation, waitForTranslationForTest, usableRich, type TranslateCaller,
+  previewSectionTranslation, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, startVariantTranslation, translateJobState, waitForTranslationForTest, usableRich, type TranslateCaller,
 } from '../workbench-doclang-translate.js'
 
 describe('side-by-side translation of a draft', () => {
@@ -177,6 +177,48 @@ describe('side-by-side translation of a draft', () => {
     }
     expect(usableRich('Sima <b>kiemelt</b> vege.', 'Schlicht <b>betont</b> Ende.', 'Schlicht betont Ende.')).toBe('Schlicht <b>betont</b> Ende.')
     expect(usableRich('Sima <b>kiemelt</b> vege.', '<script>x</script>Schlicht', 'Schlicht')).toBe('')
+  })
+
+  it('#558 fix: a formatted paragraph that comes back plain is marked and counted -- in the preview, in the save and in the whole-document job', async () => {
+    mixedSrc()
+    // the model keeps the tags: nothing is lost
+    setTranslateCallerForTest(answering('Schlicht <b>betont</b> Ende.'))
+    const kept = await previewSectionTranslation(src, secId, 'de', 'hu')
+    if (!kept.ok) throw new Error(kept.message)
+    expect(kept.preview.format_lost).toBe(0)
+    expect(kept.preview.blocks.some((b) => b.format_lost)).toBe(false)
+    // the model drops the tags: the paragraph is marked, the plain one beside it is not
+    setTranslateCallerForTest(answering('Schlicht betont Ende.'))
+    const r = await previewSectionTranslation(src, secId, 'de', 'hu')
+    if (!r.ok) throw new Error(r.message)
+    expect(r.preview.format_lost).toBe(1)
+    expect(r.preview.blocks.map((b) => b.format_lost ?? false)).toEqual([false, true])
+    const saved = saveShownTranslation(src, 'de', [{ source_section: secId, title: r.preview.title, blocks: r.preview.blocks }], 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    expect(saved.format_lost).toBe(1)
+    // the owner formatted it by hand on the page (the block comes back with a rich value): not lost any more
+    const again = saveShownTranslation(src, 'de', [{ source_section: secId, title: 'Sachverhalt 2', blocks: r.preview.blocks.map((b, i) => (i === 1 ? { ...b, rich: 'Schlicht <b>betont</b> Ende.' } : b)) }], 'owner')
+    if (!again.ok) throw new Error(again.detail)
+    expect(again.format_lost).toBe(0)
+    // the whole-document job reports it too
+    const v = createVariant(src, 'en', 'owner')
+    if (!v.ok) throw new Error(v.detail)
+    setTranslateCallerForTest(answering('Schlicht betont Ende.'))
+    startVariantTranslation(v.item.id, { lang: 'hu', by: 'owner' })
+    await waitForTranslationForTest(v.item.id)
+    expect(translateJobState(v.item.id)).toMatchObject({ done: 1, format_lost: 1 })
+  })
+
+  it('#558 fix: the translation page says which paragraphs lost their format and the hand-made format of an unchanged paragraph is kept', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain("t('workbench.tw.format_lost'")
+    expect(js).toContain("t('workbench.doclang.job_format_lost'")
+    expect(js).toContain('data-tw-fmtlost')
+    expect(js).toContain('delete kept.format_lost')
+    for (const lang of ['hu', 'en']) {
+      const l = readFileSync(join(__dirname, '..', '..', 'web', 'lang', `${lang}.js`), 'utf8')
+      for (const k of ['workbench.tw.format_lost', 'workbench.tw.format_lost_mark', 'workbench.doclang.job_format_lost']) expect(l).toContain(`"${k}"`)
+    }
   })
 
   it('#558 B/E: the instruction names the formatted text and the block count, and a second attempt is told what was wrong', async () => {

@@ -23,7 +23,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import {
-  addBlock, addSection, ensureDocModelTables, listBlocks, listSections, removeBlock, updateSection,
+  addBlock, addSection, ensureDocModelTables, isBlankLine, listBlocks, listSections, removeBlock, updateSection,
   BLOCK_KINDS, BLOCK_TEXT_MAX, SECTION_TITLE_MAX,
   type BlockKind, type CheckItem, type ModelResult, type SectionRow, type SourceRow,
 } from './workbench-docmodel.js'
@@ -320,6 +320,8 @@ export interface TranslateOutcome {
   /** Az eredeti fejezet allitasai, amelyek NEM kerultek at (nem adtad meg, vagy a szoveguk nincs a forditasban). */
   claims_not_carried: { id: string; text: string; reason: string }[]
   glossary_issues: { term: string; translation: string }[]
+  /** #558: paragraphs of the original that carry text formatting (bold, colour, ...) whose translation was saved as plain text. */
+  format_lost: number
 }
 
 function sectionText(sectionId: string): string {
@@ -342,6 +344,15 @@ export function carriedLook(sb: { text: string; rich?: string | null; align?: st
   const rich = sb.rich && sb.text === text ? sb.rich : richUniform(sb.rich, text)
   if (rich) look.rich = rich
   return look
+}
+
+/**
+ * #558: the source block wears text formatting (a paragraph with a "rich" value) but its translation has none: the
+ * translator did not keep the format tags and the block is not formatted as one piece, so the paragraph is plain text.
+ * A picture, a table and an empty line carry no words to format. The page says it, instead of a silent downgrade.
+ */
+export function lostFormat(sb: { kind: string; text: string; rich?: string | null } | null | undefined, translatedRich: unknown): boolean {
+  return !!(sb && sb.rich && sb.kind !== 'image' && sb.kind !== 'table' && !isBlankLine(sb.text) && !translatedRich)
 }
 
 /** The look a translated block is saved with: the one it came with (#534, what the owner edited on the page) when it
@@ -439,10 +450,12 @@ export function translateSection(variantId: string, input: { source_section?: un
     const paired = srcList.length === blocks.length
     const notCarried: TranslateOutcome['claims_not_carried'] = []
     const pendingInference: { newClaim: string; basedOn: string[] }[] = []
+    let formatLost = 0
     for (let bi = 0; bi < blocks.length; bi++) {
       const b = blocks[bi]!
       const sb = paired && srcList[bi]!.kind === b.kind ? srcList[bi]! : null
       const look = lookOfBlock(sb, b.own, b.text)
+      if (sb && lostFormat(sb, look.rich)) formatLost++
       const nb = addBlock(variantId, secId, { kind: b.kind, text: b.text, ...look, author: 'agent' })
       if (!nb.ok) { box.failed = { code: nb.code === 'too_many' ? 'too_many' : 'bad_input', detail: nb.detail }; throw new Error('rollback') }
       const norm = normalizeForMatch(b.text)
@@ -473,6 +486,8 @@ export function translateSection(variantId: string, input: { source_section?: un
       const mapped = p.basedOn.map((id) => carried.get(id) ?? (db.prepare('SELECT 1 FROM wb_doc_claims WHERE id = ? AND work_item_id = ?').get(id, variantId) ? id : null)).filter((x): x is string => !!x)
       db.prepare('UPDATE wb_doc_sources SET based_on = ? WHERE claim_id = ? AND kind = \'inference\'').run(JSON.stringify(mapped), p.newClaim)
     }
+    // No pairing (the page's paragraph count changed): the formatted source paragraphs not matched by a formatted translation.
+    if (!paired) formatLost = Math.max(0, srcList.filter((x) => lostFormat(x, null)).length - blocks.filter((x) => typeof x.own.rich === 'string' && x.own.rich).length)
     for (const c of srcClaims) {
       if (!carried.has(c.id) && !notCarried.some((n) => n.id === c.id)) notCarried.push({ id: c.id, text: c.text, reason: 'not given in claims' })
     }
@@ -486,6 +501,7 @@ export function translateSection(variantId: string, input: { source_section?: un
       claims_carried: carried.size,
       claims_not_carried: notCarried.filter((n) => srcClaimIds.has(n.id) || n.text === ''),
       glossary_issues: variantItem ? glossaryIssues(variantItem.project_id, v.lang, sectionText(src.id), sectionText(secId)) : [],
+      format_lost: formatLost,
     }
   })
   try { run() } catch (e) {

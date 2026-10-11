@@ -1918,6 +1918,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-tw-page > .wb-tw-h:first-child { margin-top: 0; }
 .wb-tw-page .wb-tw-block { margin: 0 0 8px; min-height: 1.6em; }
 .wb-tw-page .wb-tw-todo { color: #6b6b73; }
+/* #558: a formatted paragraph the translator gave back as plain text */
+.wb-tw-page .wb-tw-block[data-tw-fmtlost] { border-left: 3px solid #d9822b; padding-left: 8px; }
 .wb-tw-page .wb-tw-island { margin: 6px 0; }
 .wb-tw-page .wb-doc-low { margin: 8px 0 0; font-size: 13px; }
 /* the manual view holds the very same page */
