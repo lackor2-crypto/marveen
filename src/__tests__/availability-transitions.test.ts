@@ -102,6 +102,27 @@ describe('measureAvailability with a spent window whose reset is still ahead', (
   })
 })
 
+describe('#569: the weekly window blocks only when it is spent', () => {
+  const FIVE = NOW + 3 * 3600_000
+  const WEEK = NOW + 5 * 24 * 3600_000
+  it('weekly 96% with a healthy 5-hour window: the agent is available (it was read as blocked for five days)', () => {
+    const m = measureAvailability(cand({ usedPct: 29 }), [{ usedPct: 29, resetsAt: FIVE }, { usedPct: 96, resetsAt: WEEK, weekly: true }], NOW)
+    expect(m).toMatchObject({ available: true, reason: 'ok', resetsAt: null })
+  })
+  it('weekly 100%: unavailable until the weekly reset', () => {
+    const m = measureAvailability(cand({ usedPct: 10 }), [{ usedPct: 10, resetsAt: FIVE }, { usedPct: 100, resetsAt: WEEK, weekly: true }], NOW)
+    expect(m).toMatchObject({ available: false, reason: 'quota', resetsAt: WEEK })
+  })
+  it('the 5-hour window keeps its own threshold: 96% there is still the "no real work" end', () => {
+    const m = measureAvailability(cand({ usedPct: 96 }), [{ usedPct: 96, resetsAt: FIVE }, { usedPct: 40, resetsAt: WEEK, weekly: true }], NOW)
+    expect(m).toMatchObject({ available: false, reason: 'quota', resetsAt: FIVE })
+  })
+  it('blockingResetsAt ignores a weekly window under 100% and takes a spent one', () => {
+    expect(blockingResetsAt([{ usedPct: 99, resetsAt: WEEK, weekly: true }], NOW)).toBeNull()
+    expect(blockingResetsAt([{ usedPct: 100, resetsAt: WEEK, weekly: true }, { usedPct: 96, resetsAt: FIVE }], NOW)).toBe(WEEK)
+  })
+})
+
 describe('blockingResetsAt', () => {
   it('latest future reset among critical windows; ignores past and low ones', () => {
     expect(blockingResetsAt([
