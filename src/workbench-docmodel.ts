@@ -919,9 +919,11 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   // headings (its title is only the placeholder) has no status control on the page any more, so it cannot hold the
   // finalizing back: only the titled sections are counted, and a document without any is ready on this point.
   const titled = sections.filter((s) => !isPlaceholderSectionTitle(s.title))
-  const notDone = titled.filter((s) => s.status !== 'done')
+  // #568: the chapter status is information, not a gate. Only a chapter the owner EXPLICITLY marked 'in_progress'
+  // holds the finalizing back; a never-touched 'todo' chapter does not (a court filing follows the same rule).
+  const notDone = titled.filter((s) => s.status === 'in_progress')
   const items: CheckItem[] = [
-    { key: 'sections_done', ok: sections.length > 0 && notDone.length === 0, count: titled.length - notDone.length, total: titled.length, detail: notDone.map((s) => s.title) },
+    { key: 'sections_done', ok: sections.length > 0 && notDone.length === 0, count: notDone.length, total: titled.length, detail: notDone.map((s) => s.title) },
     { key: 'missing_data', ok: missing.length === 0, count: missing.length, detail: missing },
     { key: 'unverified_references', ok: officialBad.length === 0, count: officialBad.length, total: official.length, detail: officialBad.map((s) => s.citation || '') },
     {
