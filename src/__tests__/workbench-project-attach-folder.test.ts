@@ -40,6 +40,12 @@ describe('project-mount endpoint', () => {
     const r = await callWorkbench('/api/workbench/project-mount', 'POST', { project: pid, rel: 'Hatosagok/Nincs' })
     expect(r.status).toBe(404)
   })
+  it('the project\'s own folder (or one inside it) is refused with its own sentence, not the generic failure (#589)', async () => {
+    const r = await callWorkbench('/api/workbench/project-mount', 'POST', { project: pid, rel: 'Projektek/Nemet' })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('pmount_nested')
+    expect(String(r.body.message)).not.toBe('A mappát nem sikerült csatolni.')
+  })
 })
 
 describe('project panel (source contract)', () => {
