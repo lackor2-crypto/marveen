@@ -1895,7 +1895,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @media (max-width: 700px) { .wb-root .btn-compact { padding: 10px 12px; } }
 
 /* #552: the "hide finalized work" switch above the work items tree. */
-.wb-root .wb-hide-done { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 6px; cursor: pointer; }
+.wb-root .wb-hide-done { display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
 .wb-root .wb-hide-done input { margin: 0; }
 .wb-root .wb-item-done .wb-item { opacity: 0.7; }
 /* #556: the "finalized" word in the frame's top bar. */
@@ -1965,3 +1965,17 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 
 /* TG 3142: arrow that folds the chat settings / folder / account rows. */
 .wb-chat-fold-btn { font-size: 0.8rem; padding: 0 6px; line-height: 1.3; }
+
+/* #580 (Boss, TG 3151): the project tree header sits higher: the Open / Attach buttons ride at the top edge of the
+   panel, the "hide finalized work" switch hugs them, and the Favorites row follows right after it. */
+.wb-panel-items { padding-top: 6px; gap: 2px; }
+.wb-panel-items .wb-panel-head { align-items: flex-start; }
+.wb-panel-items .wb-head-btns { margin-top: -2px; }
+.wb-panel-items .wb-panel-head .wb-root-title { line-height: 1.1; }
+
+/* #580 (Boss, TG 3155): attach, dictate and send sit side by side in ONE row under the chat input, never wrapped
+   onto separate lines; the buttons shrink their padding instead. */
+.wb-chat-btns { flex-wrap: nowrap; align-items: stretch; gap: 6px; }
+.wb-chat-btns > * { flex: 0 0 auto; white-space: nowrap; }
+.wb-chat-btns .btn-secondary, .wb-chat-btns .btn-primary { padding-left: 10px; padding-right: 10px; }
+.wb-chat-btns .wb-chat-attach { display: inline-flex; align-items: center; }
