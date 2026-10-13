@@ -15520,7 +15520,7 @@
     var chat = document.querySelector('.wb-fr-chat')
     if (!chat) return
     w = Math.round(Math.min(chatWidthMax(), Math.max(CHAT_WIDTH_MIN, w)))
-    chat.style.flex = '0 0 ' + w + 'px'
+    chat.style.setProperty('--wb-chat-w', w + 'px') // a variable, not an inline flex: the narrow (column) layout must be able to override it
     WB.chatWidth = w
     if (save) { try { window.localStorage && window.localStorage.setItem(CHAT_WIDTH_KEY, String(w)) } catch (_e) { /* only this session */ } }
   }
@@ -15529,7 +15529,7 @@
     if (WB.chatWidth === undefined) WB.chatWidth = loadChatWidth()
     var hint = escA(t('workbench.chat.width_hint'))
     return '<div class="wb-fr-chatsplit" id="wbChatWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
-      + '<aside class="wb-fr-chat"' + (WB.chatWidth > 0 ? ' style="flex:0 0 ' + WB.chatWidth + 'px"' : '') + '>' + chatBarHtml() + '</aside>'
+      + '<aside class="wb-fr-chat"' + (WB.chatWidth > 0 ? ' style="--wb-chat-w:' + WB.chatWidth + 'px"' : '') + '>' + chatBarHtml() + '</aside>'
   }
   document.addEventListener('pointerdown', function (e) {
     var h = e.target && e.target.closest ? e.target.closest('#wbChatWidthSplit') : null
@@ -15557,7 +15557,7 @@
     WB.chatWidth = 0
     try { window.localStorage && window.localStorage.removeItem(CHAT_WIDTH_KEY) } catch (_e) { /* fine */ }
     var chat = document.querySelector('.wb-fr-chat')
-    if (chat) chat.style.flex = ''
+    if (chat) chat.style.removeProperty('--wb-chat-w')
   })
 
   function frameHtml() {

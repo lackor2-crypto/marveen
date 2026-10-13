@@ -13,4 +13,11 @@ describe('chat width handle', () => {
     expect(js).toMatch(/applyChatWidth\(w0 - \(ev\.clientX - x0\), true\)/)
     expect(css).toMatch(/\.wb-fr-chatsplit \{[^}]*cursor: col-resize/)
   })
+  it('keeps the width in a CSS variable, never as an inline flex (the narrow column layout would read it as a height)', () => {
+    expect(js).not.toMatch(/chat\.style\.flex\s*=\s*'0 0 '/)
+    expect(js).not.toContain("style=\"flex:0 0 ' + WB.chatWidth")
+    expect(js).toContain("--wb-chat-w")
+    expect(css).toMatch(/\.wb-fr-chat \{ flex-basis: var\(--wb-chat-w, 340px\); max-width: calc\(100% - 360px\); \}/)
+    expect(css).toMatch(/@media \(max-width: 900px\) \{ \.wb-fr-chat \{ flex-basis: auto; max-width: none; \} \}/)
+  })
 })
