@@ -1939,6 +1939,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-outline ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .wb-dp-ol-row { display: inline-flex; flex-wrap: nowrap; gap: 6px; align-items: center; max-width: 100%; }
 .wb-dp-ol-go { text-align: left; overflow-wrap: anywhere; }
+.wb-dp-ol-l2 { margin-left: 14px; }
+.wb-dp-ol-l3 { margin-left: 28px; }
 @container (min-width: 1040px) {
   .wb-dp-wrap.has-outline { display: grid; grid-template-columns: 210px minmax(0, 794px); column-gap: 16px; justify-content: center; align-items: start; }
   .wb-dp-wrap.has-outline > .wb-dp-toolbar, .wb-dp-wrap.has-outline > .wb-dp-foot { grid-column: 1 / -1; }

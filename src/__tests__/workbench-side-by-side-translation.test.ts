@@ -406,6 +406,25 @@ describe('the draft page wiring', () => {
     }
   })
 
+  it('#589: the Headings panel lists every Heading 1 / 2 / 3 paragraph, not only the chapter titles (Boss TG 3229)', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const from = js.indexOf('function dpOutlineItems(secs)')
+    const fn = js.slice(from, js.indexOf('function dpOutlineHtml', from))
+    // eslint-disable-next-line no-new-func
+    const items = new Function(fn + '; return dpOutlineItems')() as (s: unknown[]) => { level: number; text: string }[]
+    const secs = [
+      { id: 's1', title: 'Elso', untitled: false, blocks: [
+        { id: 'b1', kind: 'paragraph', text: 'sima szoveg', pfmt: {} },
+        { id: 'b2', kind: 'paragraph', text: 'Masodik cim\nmasodik sor', pfmt: { h: 2 } },
+        { id: 'b3', kind: 'paragraph', text: 'Harmadik cim', pfmt: { h: 3 } },
+        { id: 'b4', kind: 'paragraph', text: '   ', pfmt: { h: 2 } },
+      ] },
+      { id: 's2', title: '', untitled: true, blocks: [{ id: 'b5', kind: 'paragraph', text: 'Cim cim nelkuli fejezetben', pfmt: { h: 2 } }] },
+    ]
+    expect(items(secs).map((i) => [i.level, i.text])).toEqual([[1, 'Elso'], [2, 'Masodik cim'], [3, 'Harmadik cim'], [2, 'Cim cim nelkuli fejezetben']])
+    expect(js).toContain("document.getElementById(bid ? 'wbDpB_' + bid : 'wbDpS_' + sid)")
+  })
+
   it('#534 fix: nothing typed on the translation page is thrown away by a redraw, a bare text node or an emptied page', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     // a full redraw of the Draft tab reads the page first
