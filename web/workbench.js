@@ -2491,6 +2491,7 @@
 
   function itemsPanelHtml(compact) {
     var body
+    var hideSw = ''
     if (WB.items === null) {
       body = '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
     } else if (WB.error) {
@@ -2501,24 +2502,36 @@
       var rows = folderTreeRows()
       // #502: no work item yet, but the project folder holds folders or files (a linked Git repo, the default folders):
       // the tree still shows them, the "no work item yet" hint stands above it.
-      body = (WB.items.length ? '' : emptyHintHtml()) + hideSwitchHtml() + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
+      hideSw = hideSwitchHtml()
+      body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
-    body += trashHtml()
-    body += rescueHtml()
+    var foot = trashHtml() + rescueHtml()
+    var newBtn = ''
+    var rest = ''
+    // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
+    if (compact) {
+      newBtn = archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
+    } else if (archived()) {
+      rest = '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
+    } else {
+      rest = folderStepHtml() + (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
+        + templatesHtml()
+        + uploadZoneHtml()
+    }
+    // Boss TG 3169: three separate blocks: (1) the buttons + the hide switch, (2) the folder tree, (3) trash / rescue / new work.
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
+      + '<div class="wb-blk wb-blk-top">'
       + '<div class="wb-panel-head">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>')
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
       + '<span class="wb-head-btns">'
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button>'
       + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</span></div>'
-      + body
-      // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
-      + (compact ? (archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')) : archived()
-        ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
-        : folderStepHtml() + (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
-          + templatesHtml()
-          + uploadZoneHtml())
+      + hideSw
+      + '</div>'
+      + '<div class="wb-blk wb-blk-tree">' + body + '</div>'
+      + '<div class="wb-blk wb-blk-foot">' + foot + newBtn + '</div>'
+      + rest
       + '</section>'
   }
 
@@ -14820,9 +14833,21 @@
     }
   }
 
+  /** Boss TG 3169: the Projects tab shows WHERE the user is as a path (Projects > project name), not only "Projects". */
+  function frPanelTitleHtml() {
+    var tab = frTabNow()
+    var label = t('workbench.fr.tab.' + tab)
+    if (tab === 'projects' && WB.project && WB.project.name) {
+      return '<h3 class="wb-fr-ptitle wb-fr-path" title="' + escA(label + ' \u203a ' + WB.project.name) + '">'
+        + '<span class="wb-fr-path-root">' + esc(label) + '</span><span class="wb-fr-path-sep">\u203a</span>'
+        + '<span class="wb-fr-path-leaf">' + esc(WB.project.name) + '</span></h3>'
+    }
+    return '<h3 class="wb-fr-ptitle">' + esc(label) + '</h3>'
+  }
+
   function frPanelHtml() {
     if (!WB.frTab) return ''
-    return '<aside class="wb-fr-panel"><h3 class="wb-fr-ptitle">' + esc(t('workbench.fr.tab.' + frTabNow())) + '</h3>' + frPanelBodyHtml() + '</aside>'
+    return '<aside class="wb-fr-panel">' + frPanelTitleHtml() + frPanelBodyHtml() + '</aside>'
   }
 
   /** A dia-/kartya-export gombjai (PPTX, PDF) -- az Export-doboz tetejen, a deck-nek. */
