@@ -1,0 +1,120 @@
+// TG 3125 + 3127: a context md file next to every work item, named after it and following its rename;
+// the item's JSON files carry the item's name too.
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { initDatabase } from '../db.js'
+import { createProject, updateProject, getProject } from '../projects.js'
+import { getWorkItem, createWorkItemVersion } from '../workbench.js'
+import { renameWorkItem, assignWorkItemFolder } from '../workbench-assets.js'
+import { sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext } from '../workbench-item-context.js'
+import { callWorkbench } from './helpers/workbench-route-call.js'
+import { TOOLS } from '../workbench-agent/tools.js'
+import { SYSTEM_PROMPT } from '../workbench-agent/context.js'
+
+let dir = ''
+let pid = ''
+let itemId = ''
+beforeEach(async () => {
+  initDatabase(':memory:')
+  dir = mkdtempSync(join(tmpdir(), 'wb-ctx-'))
+  process.env['MARVEEN_DEPOT'] = dir
+  const p = createProject({ name: 'Nemet' })
+  if (!p.ok) throw new Error('projekt')
+  pid = p.project.id
+  if (!updateProject(pid, { folder_path: 'Projektek/Nemet' }).ok) throw new Error('projektmappa')
+  mkdirSync(join(dir, 'Projektek', 'Nemet'), { recursive: true })
+  const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'document', title: 'Wohngeld hianypotlas' })
+  itemId = c.body.item.id as string
+})
+afterEach(() => { rmSync(dir, { recursive: true, force: true }); delete process.env['MARVEEN_DEPOT'] })
+
+const item = () => getWorkItem(itemId)!
+const where = () => readItemContext(item())!
+
+describe('context file next to the work item', () => {
+  it('the sweep makes it, named after the item, in the item folder', async () => {
+    const r = await sweepItemContexts()
+    expect(r.created).toBeGreaterThanOrEqual(1)
+    const ctx = where()
+    expect(ctx.rel.endsWith('/' + contextFileName('Wohngeld hianypotlas'))).toBe(true)
+    expect(existsSync(join(dir, ...ctx.rel.split('/')))).toBe(true)
+    expect(ctx.text).toContain('marveen:files:begin')
+  })
+  it('a renamed item renames the file, and a second sweep changes nothing', async () => {
+    await sweepItemContexts()
+    const before = where().rel
+    renameWorkItem(item(), 'Wohngeld ujra')
+    const r = await sweepItemContexts()
+    expect(r.renamed).toBe(1)
+    const after = where().rel
+    expect(after).not.toBe(before)
+    expect(after.endsWith(contextFileName('Wohngeld ujra'))).toBe(true)
+    expect(existsSync(join(dir, ...before.split('/')))).toBe(false)
+    expect((await sweepItemContexts()).renamed).toBe(0)
+  })
+  it('adopts a context file the chat already wrote by hand instead of making a second one', async () => {
+    const sub = 'Munkadarabok/Wohngeld 2026'
+    const folder = `Projektek/Nemet/${sub}`
+    mkdirSync(join(dir, ...folder.split('/')), { recursive: true })
+    const rel = `${folder}/${contextFileName('Wohngeld hianypotlas')}`
+    writeFileSync(join(dir, ...rel.split('/')), '# kezi kontextus\nfontos tartalom\n')
+    assignWorkItemFolder(itemId, sub)
+    await sweepItemContexts()
+    expect(where().rel).toBe(rel)
+    expect(readFileSync(join(dir, ...rel.split('/')), 'utf8')).toContain('fontos tartalom')
+  })
+  it('append goes under the section, rewrite keeps the machine block', async () => {
+    await sweepItemContexts()
+    const a = appendItemContext(item(), getProject(pid)!, 'decisions', 'Hatarido: 2026-11-01')
+    expect(a.ok).toBe(true)
+    expect(where().text).toMatch(/## (Döntések|Decisions)\s+Hatarido: 2026-11-01/)
+    const w = rewriteItemContext(item(), getProject(pid)!, '# Uj\n\nrendezett')
+    expect(w.ok).toBe(true)
+    const t = where().text
+    expect(t).toContain('rendezett')
+    expect(t).toContain('marveen:files:begin')
+  })
+})
+
+describe('JSON files carry the item name', () => {
+  it('a legacy timestamp-named canvas file is renamed with the item name and the version follows', async () => {
+    await sweepItemContexts()
+    const folder = where().rel.split('/').slice(0, -1).join('/')
+    const legacy = `${folder}/20261007-153333.canvas.json`
+    writeFileSync(join(dir, ...legacy.split('/')), '{}')
+    createWorkItemVersion(itemId, { source_path: legacy })
+    await sweepItemContexts()
+    const v = getWorkItem(itemId)!.source_path || ''
+    expect(v.endsWith('wohngeld-hianypotlas 20261007-153333.canvas.json')).toBe(true)
+    expect(existsSync(join(dir, ...v.split('/')))).toBe(true)
+    expect(existsSync(join(dir, ...legacy.split('/')))).toBe(false)
+  })
+  it('a rename of the item renames the JSON file too', async () => {
+    await sweepItemContexts()
+    const folder = where().rel.split('/').slice(0, -1).join('/')
+    const f = `${folder}/wohngeld-hianypotlas 20261007-153333.canvas.json`
+    writeFileSync(join(dir, ...f.split('/')), '{}')
+    createWorkItemVersion(itemId, { source_path: f })
+    await sweepItemContexts()
+    renameWorkItem(item(), 'Wohngeld ujra')
+    await sweepItemContexts()
+    const v = getWorkItem(itemId)!.source_path || ''
+    expect(v.endsWith('wohngeld-ujra 20261007-153333.canvas.json')).toBe(true)
+  })
+  it('new names get the prefix; one that has it is left alone', () => {
+    expect(nameWithItemStem('Wohngeld hianypotlas', '20261007.canvas.json')).toBe('wohngeld-hianypotlas 20261007.canvas.json')
+    expect(nameWithItemStem('Wohngeld hianypotlas', 'wohngeld-hianypotlas.canvas.json')).toBe('wohngeld-hianypotlas.canvas.json')
+  })
+})
+
+describe('the agent is bound to keep the file', () => {
+  it('has the tools and the hard rule', () => {
+    const names = TOOLS.map((t) => t.name)
+    expect(names).toContain('context.append')
+    expect(names).toContain('context.rewrite')
+    expect(SYSTEM_PROMPT).toContain('CONTEXT FILE')
+    expect(SYSTEM_PROMPT).toContain('without being asked')
+  })
+})

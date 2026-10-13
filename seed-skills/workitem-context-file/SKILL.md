@@ -1,0 +1,26 @@
+---
+name: workitem-context-file
+description: Every Workbench work item has a context md file next to it ("Kontextus - <item name>.md"); the agent keeps it current by itself. Use when working on a work item, renaming one, or touching its JSON file names.
+scope: global
+---
+# Work item context file
+
+## Mikor használd
+- Bármely munkadarabon dolgozol (chat, feltöltés, bekötött mappa, döntés, határidő).
+- Munkadarabot nevezel át, vagy a canvas/deck JSON fájl nevéhez nyúlsz.
+
+## Eljárás
+1. Minden munkadarab MELLETT (ugyanabban a mappában, nem fölötte/alatta) ott van a `Kontextus - <munkadarab neve>.md` (angol telepítésen `Context - ...`). A rendszer létrehozza (`src/workbench-item-context.ts`, percenként/kétpercenként fut, íráskor azonnal), átnevezi a munkadarabbal együtt és a hivatkozásokat követi.
+2. A fájl neve MINDIG a munkadarab neve. A `.canvas.json` / `.deck.json` fájlok neve is a munkadarab nevével indul (a dátum maradhat), átnevezéskor követik.
+3. Az ágens KÉRÉS NÉLKÜL bővíti: új információ (feltöltés, elolvasott fájl, a projekt alá csatolt tudásanyag-mappa tartalma, döntés, határidő, nyitott kérdés) -> `context.append` (section: task / info / decisions / open / log). Rendetlen fájlnál `context.rewrite`. A `marveen:files` közötti Anyagok blokkot a rendszer vezeti, nem szerkeszted.
+4. Munkadarab megnyitásakor ismerd fel a feladatot a körülötte lévő fájlokból, és töltsd ki a Feladat szakaszt, ha üres.
+5. Titkot (jelszó, token) soha nem írsz bele.
+
+## Buktatók
+- A fájl a munkadarab MAPPÁJÁBAN él; mappa nélküli munkadarabnál a megjelenítési mappában. Ne a projekt gyökerébe tedd.
+- Átnevezéskor nincs felülírás: ha a cél név foglalt, a régi marad és a következő kör próbálja újra.
+- Meglévő, kézzel írt `Kontextus - ...md` fájlt örökbe fogad, nem csinál másodikat.
+
+## Ellenőrzés
+- `npx vitest run src/__tests__/workbench-item-context.test.ts`
+- Élesben: a munkadarab melletti mappában ott a fájl, a nevében a munkadarab neve.

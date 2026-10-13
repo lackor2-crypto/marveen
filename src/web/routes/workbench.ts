@@ -34,6 +34,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
+import { kickItemContextSweep } from '../../workbench-item-context.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -2118,6 +2119,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (!path.startsWith('/api/workbench/')) return false
   const lang = uiLang(url)
   ensureWorkbenchTables()
+  if (method !== 'GET' && path.startsWith('/api/workbench/items')) kickItemContextSweep()
 
   // MI ALL RENDELKEZESRE EZEN A GEPEN (spec 1-2), es ami nem, azzal MI A
   // TEENDO. Friss telepitesen a valasz tobbnyire "nincs meg" -- es az NEM

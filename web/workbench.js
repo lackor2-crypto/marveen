@@ -1928,7 +1928,9 @@
     function isShut(key) {
       var v = WB.collapsedFolder[key]
       if (v !== undefined) return !!v
-      if (key === ROOT_KEY || key === FAV_KEY || key === box) return false
+      // Boss TG 3131: an empty Favorites folder starts CLOSED, one with something in it starts open (`favs` is set below, before any call).
+      if (key === FAV_KEY) return !(favs && favs.length)
+      if (key === ROOT_KEY || key === box) return false
       if (window.wbFoldersOpen === true) return false // test seam only
       return !(selPlace != null && (selPlace === key || String(selPlace).indexOf(key + '/') === 0))
     }
