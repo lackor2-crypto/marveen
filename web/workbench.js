@@ -388,31 +388,54 @@
   }
 
   /** Loads the folder tree and the item list again, for a change made outside the page (an agent's command, a link
-   *  made in another view). Only these two are replaced; the open item, the editor and the ticks stay as they are. */
-  function refreshTree() {
+   *  made in another view, an upload). Only these two are replaced; the open item, the editor and the ticks stay as
+   *  they are. `quiet`: draw only when the server's lists differ from what is shown (the timer below). */
+  function refreshTree(quiet) {
     var pid = WB.projectId
     if (!pid || !WB.open) return Promise.resolve()
     return api('GET', '/api/workbench/items?project=' + encodeURIComponent(pid)).then(function (r) {
       if (WB.projectId !== pid || !r.ok || !r.data) return
-      WB.workFolders = r.data.work_folders || null
-      WB.items = r.data.items || WB.items
+      var wf = r.data.work_folders || null
+      var items = r.data.items || WB.items
+      if (quiet) {
+        try { if (JSON.stringify(wf) === JSON.stringify(WB.workFolders) && JSON.stringify(items) === JSON.stringify(WB.items)) return } catch (e) { /* draw */ }
+      }
+      WB.workFolders = wf
+      WB.items = items
       announceFolderMoves(r.data.folder_moves, r.data.work_folders)
       render()
     })
   }
 
-  // The owner comes back to this page (another tab, a link made in the life tree view): show the current tree.
-  // Not more often than every 15 s, and never while a file action runs.
+  // The tree follows the disk by itself (owner, 2026-10-13: "an upload, or anything else changes: refresh every 20
+  // seconds or so"): while the page is open and visible, the lists are asked for again every 20 s, and when the owner
+  // comes back to the tab. Nothing is drawn if nothing changed, and nothing is asked while a file action or an
+  // agent answer is running or a field is being typed in.
+  var TREE_POLL_MS = 20000
   var treeSeenAt = 0
+  var treeBusy = false
+  function treeQuietNow() {
+    if (!WB.open || !WB.projectId || WB.fileBusy || WB.chatStreaming || treeBusy) return false
+    if (typeof document === 'undefined' || document.visibilityState === 'hidden') return false
+    var a = document.activeElement
+    if (a && a.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !/^wbChatInput$/.test(String(a.id || ''))) return false
+    if (a && a.isContentEditable) return false
+    return true
+  }
+  function treeAutoRefresh(minGap) {
+    if (!treeQuietNow()) return
+    var now = Date.now()
+    if (now - treeSeenAt < minGap) return
+    treeSeenAt = now
+    treeBusy = true
+    refreshTree(true).then(function () { treeBusy = false }, function () { treeBusy = false })
+  }
   if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState !== 'visible' || !WB.open || !WB.projectId || WB.fileBusy) return
-      var now = Date.now()
-      if (now - treeSeenAt < 15000) return
-      treeSeenAt = now
-      refreshTree()
+      if (document.visibilityState === 'visible') treeAutoRefresh(5000)
     })
   }
+  if (typeof setInterval === 'function') setInterval(function () { treeAutoRefresh(TREE_POLL_MS - 1000) }, TREE_POLL_MS)
 
   // ---- kituzes (#406, 21bcb1f4) ---------------------------------------------
   //

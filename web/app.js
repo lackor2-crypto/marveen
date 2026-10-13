@@ -40000,6 +40000,7 @@ async function loadIntezoPage() {
   bind('intezoDupBtn', 'click', () => _dupToggle())
   bind('intezoGphotosBtn', 'click', () => _cloudUpChoose())
   void _dupRefreshStatus()
+  _intezoAutoStart()
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
   bind('intezoRestoreBtn', 'click', () => _intezoRestore())
@@ -40999,6 +41000,36 @@ async function _intezoOpen(rel) {
   _intezoCachePut(uj, full)
   draw(full)
 }
+
+// The Explorer follows the disk by itself (owner, 2026-10-13): every 20 s, while the page is shown and the tab is
+// visible, the open folder is asked for again, and drawn only if it differs from what is on screen. Nothing is
+// asked while a menu is open, a field is being typed in, or a search result is shown.
+const INTEZO_AUTO_MS = 20000
+let _intezoAutoTimer = null
+let _intezoAutoBusy = false
+async function _intezoAutoTick() {
+  const page = document.getElementById('intezoPage')
+  if (!page || page.hidden || document.hidden || _intezoAutoBusy || _intezoMenuEl) return
+  const a = document.activeElement
+  if (a && ((a.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) || a.isContentEditable)) return
+  const L = _intezoListing
+  if (!L || L.searching || L.message) return
+  const at = _intezoPath
+  _intezoAutoBusy = true
+  try {
+    const friss = await _intezoGet(_intezoListUrl(at) + '&fresh=1')
+    if (at !== _intezoPath || !friss || friss.message || _intezoMenuEl) return
+    if (JSON.stringify(friss) === JSON.stringify(_intezoListing)) return
+    _intezoTreeKids = new Map(); _intezoTreeErr = new Map(); _intezoCacheClear()
+    _intezoCachePut(at, friss)
+    _intezoListing = friss
+    _intezoRender()
+  } catch (e) { /* the next round tries again */ } finally { _intezoAutoBusy = false }
+}
+function _intezoAutoStart() {
+  if (!_intezoAutoTimer) _intezoAutoTimer = setInterval(() => { void _intezoAutoTick() }, INTEZO_AUTO_MS)
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void _intezoAutoTick() })
 
 function _intezoUp() {
   if (!_intezoListing || _intezoListing.parent === null || _intezoListing.parent === undefined) return
