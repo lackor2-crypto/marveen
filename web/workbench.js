@@ -13825,15 +13825,9 @@
         structural = true
         // #564 (Boss TG 8952): a title holds 200 characters. A longer paragraph made Heading 1 used to be CUT there and the
         // rest was lost; now the title ends at the last whole word that fits and the rest stays, as the first paragraph under it.
-        var hFull = text.replace(/\s*\n\s*/g, ' ').trim()
-        var hRest = ''
-        if (hFull.length > 200) {
-          var hCut = hFull.lastIndexOf(' ', 200)
-          if (hCut < 80) hCut = 200
-          hRest = hFull.slice(hCut).trim()
-          hFull = hFull.slice(0, hCut).trim()
-        }
-        begin('', hFull, n)
+        var hSplit = dpSplitTitle(text)
+        var hRest = hSplit.rest
+        begin('', hSplit.title, n)
         focusSi = secs.length - 1
         if (hRest) { cur.blocks.push({ text: hRest, rich: '', align: '', pfmt: {}, kind: 'paragraph' }); els.push({ el: null, si: secs.length - 1, bi: cur.blocks.length - 1 }) }
         continue
@@ -17966,6 +17960,19 @@
     return out
   }
 
+  /** A paragraph made Heading 1: the title (at most 200 characters, ending at the last whole word that fits) and the rest. */
+  function dpSplitTitle(text) {
+    var full = String(text || '').replace(/\s*\n\s*/g, ' ').trim()
+    var rest = ''
+    if (full.length > 200) {
+      var cut = full.lastIndexOf(' ', 200)
+      if (cut < 80) cut = 200
+      rest = full.slice(cut).trim()
+      full = full.slice(0, cut).trim()
+    }
+    return { title: full, rest: rest }
+  }
+
   /** What the Style box applies to: the selected paragraphs AND the chapter titles inside the selection (else `el`). */
   function dpHeadingEls(el) {
     var r = WB.dpRange
@@ -19005,5 +19012,6 @@
     // A kepszerkeszto tiszta (DOM nelkuli) lepesei -- a tesztek ezeket merik.
     _img: { floodKey: imgFloodKey, clampCrop: imgClampCrop, aspectCrop: imgAspectCrop, outSize: imgOutSize, rotSize: imgRotSize },
     _post: { crop: postCrop, maxBytes: POST_MAX_BYTES },
+    _dp: { splitTitle: dpSplitTitle },
   }
 })()
