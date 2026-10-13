@@ -1719,7 +1719,7 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 /* #476: Open button next to the work items heading */
 .wb-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .wb-panel-head .wb-panel-title { margin: 0; }
-.wb-head-open { flex: 0 0 auto; }
+.wb-head-open, .wb-head-attach { flex: 0 0 auto; }
 /* Simple view: the frame fits the window; no page scroll until the technical details are opened (TG 2469). */
 main.projects-active.wb-sh-locked { overflow-y: hidden; }
 .wb-root-row .wb-folder-toggle { font-size: 1.05rem; }

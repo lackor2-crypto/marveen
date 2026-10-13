@@ -2481,7 +2481,6 @@
   /** #552: the "hide finalized work" switch above the tree, with the number of hidden work items beside it. */
   function hideSwitchHtml() {
     var h = WB.hideSwitch || {}
-    if (!h.on && !h.done) return ''
     return '<label class="wb-hide-done btn-compact" title="' + escA(t('workbench.hide_done.hint')) + '">'
       + '<input type="checkbox" data-wb-act="hide-done"' + (h.on ? ' checked' : '') + '> '
       + esc(t('workbench.hide_done.label'))
@@ -2508,7 +2507,8 @@
       + '<div class="wb-panel-head">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>')
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
-      + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button></div>'
+      + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button>'
+      + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</div>'
       + body
       // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
       + (compact ? (archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')) : archived()
@@ -8993,12 +8993,12 @@
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeFilePick'
     overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
+      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.attach ? 'workbench.attach.pick_title' : opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.attach ? 'workbench.attach.pick_help' : opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
       + '<p style="margin:0 0 6px;font-size:13px"><b>' + esc(t('workbench.annex.link_here')) + '</b> <span id="wbLifeFilePickHere"></span></p>'
       + '<div id="wbLifeFilePickList" class="wb-lifepick-list"></div>'
       + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button>'
-      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t(opts && opts.place ? 'workbench.pd.places_pick_here' : 'workbench.sent.pick_here')) + '</button>' : '') + '</div>'
+      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t(opts && opts.attach ? 'workbench.attach.pick_here' : opts && opts.place ? 'workbench.pd.places_pick_here' : 'workbench.sent.pick_here')) + '</button>' : '') + '</div>'
       + '</div>'
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeFilePickList')
@@ -16144,6 +16144,16 @@
         return
       }
       pickLifeFile(function (rel) { api('POST', '/api/workbench/project-docs', { project: pdPid, rel: rel, role: pdRole }).then(function (r) { if (WB.projectId === pdPid) pdApply(r) }) })
+    }
+    else if (a === 'attach-folder') {
+      var atPid = WB.projectId
+      pickLifeFile(function (folder) {
+        api('POST', '/api/workbench/project-mount', { project: atPid, rel: folder }).then(function (r) {
+          if (!r.ok) { window.showToast(r.message); return }
+          window.showToast(t('workbench.attach.done', { name: (r.data && r.data.name) || '' }))
+          if (WB.projectId === atPid) load(atPid)
+        })
+      }, { folder: true, attach: true })
     }
     else if (a === 'pd-place-add') {
       var plPid = WB.projectId
