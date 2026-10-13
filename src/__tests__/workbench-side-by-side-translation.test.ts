@@ -394,6 +394,18 @@ describe('the draft page wiring', () => {
     expect(sec).not.toContain('outline-sec-status')
   })
 
+  it('the Headings button never looks dead: with no titled chapter the panel says so and points to the Style list', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const from = js.indexOf('function dpOutlineHtml(secs, ro)')
+    const fn = js.slice(from, js.indexOf('function docPageHtml', from))
+    expect(fn).not.toContain("if (!secs.length) return ''")
+    expect(fn).toContain('workbench.dp.outline_empty')
+    for (const lang of ['hu', 'en']) {
+      const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
+      expect(dict).toContain('"workbench.dp.outline_empty"')
+    }
+  })
+
   it('#534 fix: nothing typed on the translation page is thrown away by a redraw, a bare text node or an emptied page', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     // a full redraw of the Draft tab reads the page first

@@ -13034,7 +13034,11 @@
   function dpOutlineHtml(secs, ro) {
     if (!dpOutlineOn()) return ''
     secs = secs.filter(function (sec) { return !sec.untitled })
-    if (!secs.length) return ''
+    // The button must never look dead: with no titled chapter yet (a page of the placeholder "Új fejezet" only) the panel
+    // says so and where a heading comes from, instead of drawing nothing.
+    if (!secs.length) {
+      return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><p class="wb-hint wb-dp-ol-empty">' + esc(t('workbench.dp.outline_empty')) + '</p></nav>'
+    }
     var chk = dpCheckView()
     var rows = secs.map(function (sec) {
       var status = !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
