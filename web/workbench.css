@@ -2051,3 +2051,5 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @media (max-width: 900px) {
   .wb-db-models, .wb-db-cols { grid-template-columns: minmax(0, 1fr); }
 }
+.wb-db .wb-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.wb-db .wb-actions > button { width: auto; }
