@@ -27,6 +27,7 @@
  * `_steps`), es mindkettonek `work_item_id` oszlopa -- igy a munkadarab vegleges
  * torlese (`purgeWorkItem`) magatol viszi oket is.
  */
+import { nameWithItemStem } from './workbench-item-context.js'
 import { readFileSync, statSync } from 'node:fs'
 import { getDb } from './db.js'
 import { getProject } from './projects.js'
@@ -334,7 +335,7 @@ export function createDraftStore<D, P>(kind: DraftKind<D, P>): DraftStore<D> {
   ): DraftSaveResult {
     const project = getProject(item.project_id)
     if (!project) return { ok: false, code: 'project_not_found', detail: null }
-    const wanted = kind.baseName(opts.name) || kind.fileName(item.title)
+    const wanted = nameWithItemStem(item.title, kind.baseName(opts.name) || kind.fileName(item.title)) // TG 3127
     const name = kind.isFile(wanted) ? wanted : `${wanted.replace(/\.json$/i, '')}${kind.ext}`
     const data = Buffer.from(JSON.stringify(doc, null, 2), 'utf-8')
     // Boss TG 2545 + TG 2929 (rule): the saved file lives next to the item (its own folder, else the folder it is

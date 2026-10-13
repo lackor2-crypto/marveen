@@ -7079,6 +7079,8 @@ window._i18n.en = {
   "workbench.tool.project.listFiles": "Listing files",
   "workbench.tool.project.listKanban": "Listing cards",
   "workbench.tool.project.listWorkItems": "Listing work items",
+  "workbench.tool.context.append": "Adding information to the context file",
+  "workbench.tool.context.rewrite": "Tidying the context file",
   "workbench.tool.workItem.writeText": "Writing the text of the note",
   "workbench.tool.workItem.addPart": "Adding a part to the work item",
   "workbench.tool.workItem.compareVersions": "Comparing versions",

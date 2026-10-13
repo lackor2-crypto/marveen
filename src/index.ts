@@ -36,6 +36,7 @@ import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/cha
 import { startStoreWatcher, stopStoreWatcher, isBenignWatchError } from './store-watcher.js'
 import { startWorkbenchSnapshots, stopWorkbenchSnapshots } from './workbench-snapshot.js'
 import { startWorkbenchRelocate, stopWorkbenchRelocate } from './workbench-relocate.js'
+import { startItemContexts, stopItemContexts } from './workbench-item-context.js'
 import { startLifeFolderIds, stopLifeFolderIds } from './life-folder-ids.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
 import {
@@ -420,6 +421,7 @@ const shutdown = (): void => {
     try { stopStoreWatcher() } catch (err) { logger.warn({ err }, 'stopStoreWatcher threw during shutdown') }
     try { stopWorkbenchSnapshots() } catch (err) { logger.warn({ err }, 'stopWorkbenchSnapshots threw during shutdown') }
     try { stopWorkbenchRelocate() } catch (err) { logger.warn({ err }, 'stopWorkbenchRelocate threw during shutdown') }
+    try { stopItemContexts() } catch (err) { logger.warn({ err }, 'stopItemContexts threw during shutdown') }
     try { stopLifeFolderIds() } catch (err) { logger.warn({ err }, 'stopLifeFolderIds threw during shutdown') }
     try { stopMainInboxReceipt() } catch (err) { logger.warn({ err }, 'stopMainInboxReceipt threw during shutdown') }
     if (gitSyncInterval) clearInterval(gitSyncInterval)
@@ -648,6 +650,7 @@ async function main(): Promise<void> {
   // #481: react to a work item's file being moved in the file manager -- re-home a cross-project move,
   // warn on a drop into a non-project folder, flag a copy that appears in two projects.
   startWorkbenchRelocate()
+  startItemContexts()
 
   // #510: folders a registry knows by path (link target, backup rule, project folder, Drive backup pair) get a
   // hidden id, so a rename done outside Marveen (Windows Explorer) is found again and the registries follow.

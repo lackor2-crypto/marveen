@@ -143,6 +143,18 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'context.append',
+    description: 'Add text to the CONTEXT FILE of a work item (the md file next to it). Use it by yourself, without being asked, whenever you learn something about the task: facts from files you read, decisions, deadlines, open questions, what happened. Keep entries short and factual; never write secrets.',
+    input: 'id: the work item id (optional, defaults to the open one); section: task, info, decisions, open or log; text: what to add (markdown)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'context.rewrite',
+    description: 'Replace the whole human-written part of a work item\'s context file with a tidied version (keep every fact; the system-kept Materials block is preserved automatically). Use it only to reorganise a file that got long or messy.',
+    input: 'id: the work item id (optional, defaults to the open one); text: the whole new markdown',
+    destructive: false, reversible: false, external_effect: false, autonomyCategory: null,
+  },
+  {
     name: 'workItem.writeText',
     description: 'Write the text of a note work item that has its own md/txt file (a note, "an md file"). The text REPLACES the content of that file as a NEW VERSION (the old one stays); the owner sees it at once in the preview next to the chat. Use this instead of file.write when the owner asks for an md or text file inside the open work item: file.write would make a separate loose file that the work item does not show.',
     input: 'id: the work item id (optional, defaults to the open one); text: the whole new content of the file',

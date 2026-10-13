@@ -32,6 +32,7 @@
  * nem torlodik es nem irodik ra vakon semmire: ARVA lesz, a felulet megmutatja,
  * es a tulajdonos donti el, verzio legyen-e belole, vagy eldobja.
  */
+import { nameWithItemStem } from './workbench-item-context.js'
 import { readFileSync, statSync } from 'node:fs'
 import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
@@ -274,7 +275,7 @@ export function saveCanvas(
 ): CanvasSaveResult {
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'project_not_found', detail: null }
-  const wanted = canvasBaseName(opts.name) || canvasFileName(item.title)
+  const wanted = nameWithItemStem(item.title, canvasBaseName(opts.name) || canvasFileName(item.title)) // TG 3127: the file name carries the item's name
   const name = isCanvasFile(wanted) ? wanted : `${wanted.replace(/\.json$/i, '')}${'.canvas.json'}`
   const data = Buffer.from(JSON.stringify(doc, null, 2), 'utf-8')
   // Boss TG 2545 + TG 2929 (rule): the saved file lives next to the item (its own folder, else the folder it is

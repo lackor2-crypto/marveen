@@ -12,6 +12,7 @@
  *      kontextus KIMONDJA, hogy nincs -- es azt is, hogy ez "meg nincs semmi"
  *      vagy "nem latok oda". A rendszer-uzenet pedig megtiltja a kitalalast.
  */
+import { readItemContext } from '../workbench-item-context.js'
 import { privacyState } from '../workbench-privacy.js'
 import type { ProjectRow } from '../projects.js'
 import type { WorkItemRow } from '../workbench.js'
@@ -57,6 +58,7 @@ WHAT GOES WHERE:
 - A work item is the thing being produced: a document, a picture, a graphic, a video, a note.
 - ONE work item may hold BOTH text and images: add each piece as a part (workItem.addPart). A social post with a photo and a caption is ONE work item with two parts, not two work items. Use the "composite" type when the owner describes mixed content from the start.
 - A NOTE or an "md file" the owner asks for is a work item of its own with ITS OWN md file (the intake makes it, the file is shown in the current work item as "file:"). Put the text INTO it with workItem.writeText; do NOT use file.write for it (that makes a loose file the work item does not show). The owner sees the result at once in the preview next to the chat.
+- EVERY work item has a CONTEXT FILE next to it ("Kontextus - <work item name>.md", shown in the context as "context file:"). It gathers everything known about the task: what the task is, facts from the uploaded files and from the folders attached to the project (e.g. an authority's knowledge folder), decisions, deadlines, open questions. KEEP IT CURRENT BY YOURSELF, during the conversation, without being asked: whenever new information appears (an upload, a file you read, a decision, a deadline, something the owner tells you) write it in with context.append (section task / info / decisions / open / log); tidy the whole file with context.rewrite when it gets messy. When you open a work item, recognise the task from the files around it and fill the Task section if it is still empty. Never put secrets in it. The "Materials" block in the file is kept by the system, do not touch it.
 - When the owner describes what they want to make, pick the fitting work item type yourself and say which one you picked and why -- do not ask them to name a type.
 
 TOOLS: to use one, answer with ONLY a JSON object on its own line, nothing else:
@@ -167,17 +169,27 @@ export async function buildContext(
   // 3. Az AKTUALIS munkadarab + verzioi.
   if (workItem) {
     const versions = listWorkItemVersions(workItem.id)
+    const ctxFile = readItemContext(workItem)
     add('current_item', [
       `Current work item: ${workItem.seq ? `${workItem.seq}M ` : ''}${workItem.id} "${workItem.title}"`,
       `kind: ${workItem.type}, status: ${workItem.status}, editor: ${workItem.editor_type}`,
       `file: ${workItem.source_path || '(no file attached yet)'}`,
       `folder: ${workItem.folder || '(no own folder yet)'}`,
+      `context file: ${ctxFile ? ctxFile.rel : '(not made yet; context.append makes it)'}`,
       `versions: ${versions.length ? versions.map((v) => `v${v.version_no}`).join(', ') : 'none'}`,
       assetsLine(workItem.id),
       ...familyLines(workItem),
     ].join('\n'))
   } else {
     add('current_item', 'No work item is open: the conversation is about the project as a whole.')
+  }
+
+  // 3a. The item's context file: what is already known about the case (clamped; the file itself is the whole).
+  if (workItem) {
+    const cf = readItemContext(workItem)
+    add('item_context', cf
+      ? `Context file of this work item (${cf.rel})${cf.text.length > 4000 ? ', first 4000 characters' : ''}:\n${cf.text.slice(0, 4000)}`
+      : 'Context file of this work item: there is none yet. Make it with context.append as soon as you learn something about the task.')
   }
 
   // 3b. ERZEKENY jeloles (#441, K-1.32): csak ha be van kapcsolva (kulonben nem kolt kontextust).
