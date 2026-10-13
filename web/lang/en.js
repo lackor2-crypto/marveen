@@ -6279,6 +6279,7 @@ window._i18n.en = {
   "workbench.pd.close.open_items_ok": "Every work item is done ({total}).",
   "workbench.pd.close.open_items_open": "{n} work items are not done yet ({total} in all).",
   "workbench.pd.close.open_items_unknown": "The work items could not be counted.",
+  "workbench.chat.split_hint": "Drag up or down: how much you see of the answers and of the agent's work (double-click: reset)",
   "workbench.attach.label": "Attach folder from Explorer",
   "workbench.attach.hint": "Attaches a folder of the Explorer under this project. It is not copied or moved: the original stays where it is, but you see it here, can use its material, and the project chat sees and reaches it too.",
   "workbench.attach.pick_title": "Which folder do you attach to the project?",

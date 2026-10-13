@@ -2508,9 +2508,10 @@
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
       + '<div class="wb-panel-head">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>')
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
+      + '<span class="wb-head-btns">'
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button>'
-      + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</div>'
+      + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</span></div>'
       + body
       // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
       + (compact ? (archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')) : archived()
@@ -10444,9 +10445,73 @@
       groups.push('<div class="wb-chat-tools-group">' + tools.map(toolLineHtml).join('') + '</div>')
     }
     if (!total) return ''
-    return '<div class="wb-chat-tools-head">' + esc(t('workbench.chat.tools_title', { n: total })) + '</div>'
-      + '<div class="wb-chat-tools" id="wbChatTools">' + groups.join('') + '</div>'
+    return chatSplitHandleHtml() + '<div class="wb-chat-tools-head">' + esc(t('workbench.chat.tools_title', { n: total })) + '</div>'
+      + '<div class="wb-chat-tools" id="wbChatTools"' + chatPaneStyle('tools') + '>' + groups.join('') + '</div>'
   }
+
+  // Boss TG 3137: the line between the answers (top) and what the agent does (bottom) can be dragged;
+  // the two heights are remembered in this browser (a convenience: it works without storage too).
+  var CHAT_SPLIT_KEY = 'marveen.workbench.chatSplit'
+  var CHAT_SPLIT_MIN = { log: 60, tools: 40 }
+  function loadChatSplit() {
+    try {
+      var v = JSON.parse((window.localStorage && window.localStorage.getItem(CHAT_SPLIT_KEY)) || 'null')
+      if (v && typeof v.log === 'number' && typeof v.tools === 'number') return { log: v.log, tools: v.tools }
+    } catch (_e) { /* no storage: the default sizes */ }
+    return null
+  }
+  function chatPaneStyle(which) {
+    if (WB.chatSplit === undefined) WB.chatSplit = loadChatSplit()
+    var h = WB.chatSplit && WB.chatSplit[which]
+    if (!(h > 0)) return ''
+    return ' style="height:' + Math.round(h) + 'px;max-height:none;min-height:0"'
+  }
+  function chatSplitHandleHtml() {
+    return '<div class="wb-chat-split" id="wbChatSplit" role="separator" aria-orientation="horizontal" tabindex="0"'
+      + ' title="' + escA(t('workbench.chat.split_hint')) + '" aria-label="' + escA(t('workbench.chat.split_hint')) + '"><span></span></div>'
+  }
+  function applyChatSplit(logH, toolsH, save) {
+    var log = document.getElementById('wbChatLog')
+    var tools = document.getElementById('wbChatTools')
+    if (!log || !tools) return
+    log.style.height = logH + 'px'; log.style.maxHeight = 'none'; log.style.minHeight = '0'
+    tools.style.height = toolsH + 'px'; tools.style.maxHeight = 'none'
+    WB.chatSplit = { log: logH, tools: toolsH }
+    if (save) { try { window.localStorage && window.localStorage.setItem(CHAT_SPLIT_KEY, JSON.stringify(WB.chatSplit)) } catch (_e) { /* only this session */ } }
+  }
+  function moveChatSplit(startLog, startTools, dy, save) {
+    var total = startLog + startTools
+    var lh = Math.max(CHAT_SPLIT_MIN.log, Math.min(total - CHAT_SPLIT_MIN.tools, startLog + dy))
+    applyChatSplit(lh, total - lh, save)
+  }
+  document.addEventListener('pointerdown', function (e) {
+    var h = e.target && e.target.closest ? e.target.closest('#wbChatSplit') : null
+    if (!h) return
+    var log = document.getElementById('wbChatLog'); var tools = document.getElementById('wbChatTools')
+    if (!log || !tools) return
+    e.preventDefault()
+    var y0 = e.clientY; var l0 = log.getBoundingClientRect().height; var t0 = tools.getBoundingClientRect().height
+    function mv(ev) { moveChatSplit(l0, t0, ev.clientY - y0, false) }
+    function up(ev) {
+      document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up)
+      moveChatSplit(l0, t0, ev.clientY - y0, true)
+    }
+    document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up)
+  })
+  document.addEventListener('keydown', function (e) {
+    var h = e.target && e.target.id === 'wbChatSplit'
+    if (!h || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+    var log = document.getElementById('wbChatLog'); var tools = document.getElementById('wbChatTools')
+    if (!log || !tools) return
+    e.preventDefault()
+    moveChatSplit(log.getBoundingClientRect().height, tools.getBoundingClientRect().height, e.key === 'ArrowDown' ? 24 : -24, true)
+  })
+  document.addEventListener('dblclick', function (e) {
+    if (!(e.target && e.target.closest && e.target.closest('#wbChatSplit'))) return
+    WB.chatSplit = null
+    try { window.localStorage && window.localStorage.removeItem(CHAT_SPLIT_KEY) } catch (_e) { /* fine */ }
+    renderChat()
+  })
 
   /** A fiokvalaszto (kanban #426): MINDEN bejelentkezett fiok, elo zold/piros
    *  jelzessel; a felhasznalo elore valaszthat, mielott ir es kuld. Az elso
@@ -10501,7 +10566,7 @@
       + chatSideHtml()
       + chatAccountHtml()
       + (WB.chatSetupOpen ? chatSetupHtml() : '')
-      + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
+      + '<div class="wb-chat-log" id="wbChatLog"' + chatPaneStyle('log') + '>' + chatLogHtml() + '</div>'
       + chatToolsHtml()
       + chatActivityHtml()
       + chatAttachedHtml()

@@ -6353,6 +6353,7 @@ window._i18n.hu = {
   "workbench.pd.close.open_items_ok": "Minden munkadarab kész ({total}).",
   "workbench.pd.close.open_items_open": "{n} munkadarab még nincs kész (összesen {total}).",
   "workbench.pd.close.open_items_unknown": "A munkadarabokat nem tudtam megszámolni.",
+  "workbench.chat.split_hint": "Húzd fel vagy le: mennyit látsz a válaszokból és mennyit az ágens munkájából (dupla kattintás: alaphelyzet)",
   "workbench.attach.label": "Mappa csatolása Intézőből",
   "workbench.attach.hint": "Az Intéző egyik mappáját idecsatolja a projekt alá. Nem másolja át és nem mozgatja: az eredeti a helyén marad, de itt is látod, használhatod az anyagát, és a projekt chatje is látja és eléri.",
   "workbench.attach.pick_title": "Melyik mappát csatolod a projekthez?",
