@@ -15200,8 +15200,9 @@
   }
   document.addEventListener('pointerdown', function (e) {
     var h = e.target && e.target.closest ? e.target.closest('#wbChatWidthSplit') : null
+    if (!h) return
     var chat = document.querySelector('.wb-fr-chat')
-    if (!h || !chat) return
+    if (!chat) return
     e.preventDefault()
     var x0 = e.clientX; var w0 = chat.getBoundingClientRect().width
     function mv(ev) { applyChatWidth(w0 - (ev.clientX - x0), false) }
