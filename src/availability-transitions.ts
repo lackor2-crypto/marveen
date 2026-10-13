@@ -38,7 +38,7 @@ export interface AvailabilityWindow {
 }
 
 /** The percentage from which a window stops the agent: the "no real work" end for the 5-hour window, spent for the weekly. */
-const WEEKLY_BLOCK_PCT = 100
+export const WEEKLY_BLOCK_PCT = 100
 function blockPct(w: AvailabilityWindow): number {
   return w.weekly ? WEEKLY_BLOCK_PCT : CRITICAL_THRESHOLD_PCT
 }

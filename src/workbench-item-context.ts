@@ -345,9 +345,14 @@ export function appendItemContext(item: WorkItemRow, project: ProjectRow, sectio
   } else {
     const start = m.index + m[0].length
     const after = body.slice(start)
+    // The machine block (its own "## " heading inside) ends a section too: text put after BLOCK_BEGIN would be wiped by the next inventory refresh.
     const nx = /^## /m.exec(after)
-    const end = nx ? start + nx.index : body.length
-    const sectionBody = body.slice(start, end).replace(/\s+$/, '')
+    const bx = after.indexOf(BLOCK_BEGIN)
+    const cuts = [nx ? nx.index : -1, bx].filter((n) => n >= 0)
+    const end = cuts.length ? start + Math.min(...cuts) : body.length
+    let sectionBody = body.slice(start, end).replace(/\s+$/, '')
+    // The first real text replaces the template's "not recognised yet" placeholder.
+    if (section === 'task') sectionBody = sectionBody.replace(/\n?\((?:még nincs felismerve, az AI kitölti|not recognised yet, the AI fills this in)\)/, '').replace(/\s+$/, '')
     const tail = body.slice(end)
     next = body.slice(0, start) + sectionBody + '\n' + add + '\n' + (tail ? '\n' + tail : '')
   }

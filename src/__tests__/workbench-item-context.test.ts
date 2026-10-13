@@ -78,6 +78,19 @@ describe('context file next to the work item', () => {
   })
 })
 
+describe('appending to the Task section', () => {
+  it('lands before the machine block, replaces the placeholder and survives a refresh', async () => {
+    await sweepItemContexts()
+    const a = appendItemContext(item(), getProject(pid)!, 'task', 'Wohngeld Hiánypótlás')
+    expect(a.ok).toBe(true)
+    const t = where().text
+    expect(t.indexOf('Wohngeld Hiánypótlás')).toBeLessThan(t.indexOf('marveen:files:begin'))
+    expect(t).not.toMatch(/még nincs felismerve|not recognised yet/)
+    await sweepItemContexts()
+    expect(where().text).toContain('Wohngeld Hiánypótlás')
+  })
+})
+
 describe('JSON files carry the item name', () => {
   it('a legacy timestamp-named canvas file is renamed with the item name and the version follows', async () => {
     await sweepItemContexts()

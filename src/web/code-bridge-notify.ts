@@ -258,9 +258,17 @@ export async function notifyCodeTaskPartial(task: CodeTask, text: string): Promi
  *  once -- an agent as an inter-agent message, anyone else on the Telegram chat the answer would have gone to --
  *  and is told it starts by itself, so it is neither waited on blindly nor handed to someone else. Fire and
  *  forget like the completion ping. */
+const deferredNotified = new Set<string>()
+const DEFERRED_NOTIFIED_MAX = 500
+export function resetDeferredNotified(): void { deferredNotified.clear() }
+
 export async function notifyCodeTaskDeferred(task: CodeTask, limit: CodeBridgeLimit): Promise<void> {
   // The Workbench account picker learns from the sentence exactly as it does from a finished run (#434).
   try { if (limit.sentence) noteLimitAnswer(limit.sentence) } catch { /* the notice goes out regardless */ }
+  // "Once": the 30-minute probe (#585) puts the same task back every time the limit holds, which must not repeat the message.
+  if (deferredNotified.has(task.id)) return
+  if (deferredNotified.size >= DEFERRED_NOTIFIED_MAX) deferredNotified.delete(deferredNotified.values().next().value as string)
+  deferredNotified.add(task.id)
   const id = task.id.slice(0, 8)
   const until = formatLimitReset(limit.resetsAt)
   const text = limit.estimated

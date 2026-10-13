@@ -18,7 +18,7 @@ import { listAgentNames } from './agent-config.js'
 import { agentSessionName, sessionExistsOnHost } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
-import { blockingResetsAt } from '../availability-transitions.js'
+import { blockingResetsAt, WEEKLY_BLOCK_PCT } from '../availability-transitions.js'
 import {
   normalizeBrokerConfig,
   resolveBroker,
@@ -86,8 +86,14 @@ export function readBrokerCandidate(agent: string): BrokerCandidate {
   // a window that rolled over minutes ago -- exactly the "still exhausted"
   // belief that kept a recovered agent idle.
   const now = Date.now()
-  const known = [snap?.fiveHour, snap?.sevenDay].filter((w): w is NonNullable<typeof w> => !!w)
+  // #569: only the 5-hour window counts while the weekly one is not spent -- it is marked weekly, so it blocks (and
+  // raises the percentage) only at 100%, the same rule the availability watch applies.
+  const known = [
+    snap?.fiveHour ? { ...snap.fiveHour, weekly: false } : null,
+    snap?.sevenDay ? { ...snap.sevenDay, weekly: true } : null,
+  ].filter((w): w is NonNullable<typeof w> => !!w)
   const windows = known
+    .filter((w) => !(w.weekly && (w.usedPct ?? 0) < WEEKLY_BLOCK_PCT))
     .map((w) => (w.resetsAt == null || w.resetsAt > now ? w.usedPct : null))
     .filter((p): p is number => p !== null)
   // The fuller window decides: an agent whose weekly window is spent cannot
@@ -100,7 +106,7 @@ export function readBrokerCandidate(agent: string): BrokerCandidate {
     usageAt: snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null,
     // The mirror image of the expired window above: a spent window whose reset
     // is still ahead stays spent even once the snapshot goes stale.
-    blockedUntil: blockingResetsAt(known.map((w) => ({ usedPct: w.usedPct, resetsAt: w.resetsAt })), now),
+    blockedUntil: blockingResetsAt(known.map((w) => ({ usedPct: w.usedPct, resetsAt: w.resetsAt, weekly: w.weekly })), now),
   }
 }
 
