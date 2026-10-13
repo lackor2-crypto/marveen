@@ -10,7 +10,9 @@
  * csendben nem tunik el, es nem mutat rossz mellekletre.
  *
  * Az ellenorzes (K-1.22 "Mellekletek: 4 / 4"): minden hivatkozott melleklet
- * letezik, minden mellekletre van hivatkozas, minden melleklet fajlja megvan.
+ * letezik, minden melleklet fajlja megvan. Hogy a szoveg kulon is hivatkozik-e
+ * egy mellekletre, az csak tajekoztatas (#590): a dokumentum vegen allo
+ * mellekletjegyzek maga a hivatkozas, ezert nem akadalyozza a veglegesitest.
  */
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
@@ -469,6 +471,9 @@ export function annexCheck(itemId: string, resolve?: FileResolver): AnnexCheck {
   const unreferenced = list.filter((a) => a.refs === 0).map((a) => a.label)
   const missing = list.filter((a) => a.exists === false).map((a) => a.label)
   const unsupported = list.filter((a) => !annexPdfKind(a.name)).map((a) => a.label)
-  const ok = list.filter((a) => a.refs > 0 && a.exists !== false && annexPdfKind(a.name)).length
+  // #590: the annex list printed at the end of the document IS the reference to every annex on it, so a body text that
+  // never mentions "K1" is not a fault -- it only decides what the owner sees as information, never what holds the
+  // finalizing back (the owner should not have to write the references by hand).
+  const ok = list.filter((a) => a.exists !== false && annexPdfKind(a.name)).length
   return { total: list.length, ok, dangling, unreferenced, missing_files: missing, unsupported }
 }

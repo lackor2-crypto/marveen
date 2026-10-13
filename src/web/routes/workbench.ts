@@ -64,7 +64,8 @@ import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
 import { previewSectionTranslation, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
-import { docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
+import { pageBreaksFor } from '../../workbench-docpages.js'
+import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
@@ -1519,6 +1520,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   docx_timeout: {
     hu: 'A Word-fájl elkészítése túl sokáig tartott, ezért leállítottam. Próbáld újra.',
     en: 'Making the Word file took too long, so it was stopped. Try again.',
+  },
+  pagebreaks_failed: {
+    hu: 'Az oldaltörések mérése nem sikerült (a PDF szövegét nem tudtam kiolvasni). A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
+    en: 'Measuring the page breaks failed (the PDF text could not be read). The exact error is in the details; no cause is guessed in its place.',
   },
   docx_failed: {
     hu: 'A Word-fájl elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
@@ -3624,6 +3629,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(draftFileName(item, lang))}`,
       })
       res.end(r.pdf)
+      return true
+    }
+    // OLDALTORESEK (#590): hol kezdodik a piszkozat PDF kovetkezo oldala a dokumentum fejezetei / blokkjai szerint --
+    // a valodi PDF szovegebol merve. OLVASAS, archivalt projektben is.
+    if (segs.length === 3 && segs[2] === 'pagebreaks' && method === 'GET') {
+      if (!hasDocModel(item.id)) return fail(res, 404, 'outline_empty', lang)
+      const r = await pageBreaksFor(item, lang)
+      if (!r.ok) {
+        // The converter's own failure keeps the draft PDF's wording; a missing / failing poppler gets its own, with the real message.
+        if (r.code === 'pdftotext_failed') return failDetail(res, 501, 'pagebreaks_failed', lang, r.detail)
+        return docPdfFail(res, r.code, lang, r.detail)
+      }
+      json(res, { hash: contentHash(item), pages: r.pages, marks: r.marks })
       return true
     }
     // SZERKESZTHETO DOCX (K-1.26): ugyanabbol a modellbol, barmikor -- OLVASAS, archivalt projektben is.

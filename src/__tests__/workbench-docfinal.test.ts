@@ -478,8 +478,17 @@ describe('a felulet: piszkozat, atnezes, veglegesites', () => {
     expect(html).toContain('href="/api/workbench/items/w1/outline/docx?lang=hu" download')
     expect(html).toContain('workbench.outline.docx')
     expect(html).toContain(`data-wb-act="outline-review" href="/api/workbench/items/w1/outline/pdf?lang=hu&review=${HASH}"`)
-    expect(html).toContain('<input type="checkbox" data-wb-act="outline-accept" disabled>')
-    expect(html).toContain('data-wb-act="outline-finalize" disabled')
+    // #590: a grey control says which step is still open (title + the "next step" line), it never sits there mute.
+    expect(html).toMatch(/<input type="checkbox" data-wb-act="outline-accept" disabled title="⟦workbench\.outline\.next_review⟧">/)
+    expect(html).toMatch(/data-wb-act="outline-finalize" disabled title="⟦workbench\.outline\.next_review⟧"/)
+    expect(html).toContain('workbench.outline.next_label')
+  })
+
+  it('#590: the next step follows the state -- check, review, tick, make', async () => {
+    const blocked = (await open(outline({ check: { ready: false, items: [{ key: 'missing_data', ok: false, count: 1 }] } }))).html()
+    expect(blocked).toContain('class="wb-outline-next" role="status"><strong>⟦workbench.outline.next_label⟧</strong> ⟦workbench.outline.next_check⟧')
+    const reviewed = (await open(outline({ reviewed: true }))).html()
+    expect(reviewed).toContain('⟦workbench.outline.next_accept⟧</p>')
   })
 
   it('nem kesz dokumentumnal az atnezes gomb sem aktiv', async () => {

@@ -13,13 +13,13 @@ describe('the place of a block in its text', () => {
   it('the old forms read exactly as before: no place', () => {
     expect(imageBlockParts('a/b.png')).toEqual({ path: 'a/b.png', width: null, align: 'c', x: null, y: null, over: false })
     expect(imageBlockParts('a/b.png#w=50&a=l')).toEqual({ path: 'a/b.png', width: 50, align: 'l', x: null, y: null, over: false })
-    expect(tableBlockParts('a | b\n1 | 2')).toEqual({ text: 'a | b\n1 | 2', width: null, align: 'c', x: null, y: null })
-    expect(tableBlockParts('a | b\n1 | 2\n#w=40&a=r')).toEqual({ text: 'a | b\n1 | 2', width: 40, align: 'r', x: null, y: null })
+    expect(tableBlockParts('a | b\n1 | 2')).toEqual({ text: 'a | b\n1 | 2', width: null, align: 'c', x: null, y: null, over: false })
+    expect(tableBlockParts('a | b\n1 | 2\n#w=40&a=r')).toEqual({ text: 'a | b\n1 | 2', width: 40, align: 'r', x: null, y: null, over: false })
   })
 
   it('a free place is read; x is cut so that the element still fits, y has an upper limit', () => {
     expect(imageBlockParts('k.png#w=30&a=l&x=35&y=20')).toEqual({ path: 'k.png', width: 30, align: 'l', x: 35, y: 20, over: false })
-    expect(tableBlockParts('a | b\n#w=40&a=l&x=55&y=12')).toEqual({ text: 'a | b', width: 40, align: 'l', x: 55, y: 12 })
+    expect(tableBlockParts('a | b\n#w=40&a=l&x=55&y=12')).toEqual({ text: 'a | b', width: 40, align: 'l', x: 55, y: 12, over: false })
     expect(imageBlockParts('k.png#w=60&a=l&x=80&y=0').x).toBe(40) // 60 wide: at most 40 from the left
     expect(tableBlockParts('a\n#w=10&a=l&x=99&y=999')).toMatchObject({ x: FREE_X_MAX, y: FREE_Y_MAX })
     expect(tableBlockParts('a\n#w=100&a=c&x=30&y=10')).toMatchObject({ width: 100, x: 0, y: 10 })

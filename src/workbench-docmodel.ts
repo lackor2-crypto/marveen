@@ -95,13 +95,21 @@ function freePlace(rawX: string | undefined, rawY: string | undefined, width: nu
  * A table block can carry a width and an alignment like a picture does (#508, Boss TG 2995/2998): its text then ends
  * with one extra line `#w=<10..100>&a=<l|c|r>`. A table narrower than the page and aligned left or right lets the text
  * run beside it. No such line: the old behaviour (the whole text width).
+ * #590 (Boss, TG 9007: "az Excelnel is ugyanazt, mint a fotonal"): a table takes the picture's second mode too --
+ * `&x=..&y=..&o=1` after the size: it lies OVER the text, takes no room, x / y from the paragraph it is anchored at.
  */
-export function tableBlockParts(text: string): { text: string; width: number | null; align: 'l' | 'c' | 'r'; x: number | null; y: number | null } {
+export function tableBlockParts(text: string): { text: string; width: number | null; align: 'l' | 'c' | 'r'; x: number | null; y: number | null; over: boolean } {
   const t = String(text || '')
-  const m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?\s*$/.exec(t)
-  if (!m) return { text: t, width: null, align: 'c', x: null, y: null }
+  const m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3}(?:\.\d)?)&y=(\d{1,3}(?:\.\d)?))?(&o=1)?\s*$/.exec(t)
+  if (!m) return { text: t, width: null, align: 'c', x: null, y: null, over: false }
   const width = Math.max(10, Math.min(100, Number(m[2])))
-  return { text: m[1] as string, width, align: (m[3] as 'l' | 'c' | 'r') || 'c', ...freePlace(m[4], m[5], width) }
+  const align = (m[3] as 'l' | 'c' | 'r') || 'c'
+  if (m[6]) {
+    const x = m[4] === undefined ? 0 : Math.max(0, Math.min(OVER_X_MAX, 100 - width, Number(m[4])))
+    const y = m[5] === undefined ? 0 : Math.max(0, Math.min(OVER_Y_MAX, Number(m[5])))
+    return { text: m[1] as string, width, align, x, y, over: true }
+  }
+  return { text: m[1] as string, width, align, ...freePlace(m[4], m[5], width), over: false }
 }
 
 export const SOURCE_KINDS = ['document', 'owner', 'official', 'inference'] as const
@@ -939,7 +947,6 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const ax = annexCheck(itemId, resolve)
   if (ax.total || ax.dangling.length) {
     items.push({ key: 'annexes', ok: ax.ok === ax.total && !ax.dangling.length, count: ax.ok, total: ax.total })
-    if (ax.unreferenced.length) items.push({ key: 'annex_unreferenced', ok: false, count: ax.unreferenced.length, detail: ax.unreferenced })
     if (ax.dangling.length) items.push({ key: 'annex_dangling', ok: false, count: ax.dangling.length, detail: ax.dangling })
     if (ax.missing_files.length) items.push({ key: 'annex_missing_file', ok: false, count: ax.missing_files.length, detail: ax.missing_files })
     if (ax.unsupported.length) items.push({ key: 'annex_unsupported', ok: false, count: ax.unsupported.length, detail: ax.unsupported })
