@@ -1151,6 +1151,28 @@ export function followDepotFolderMove(oldRel: string, newRel: string): number {
       if (sp !== a.path) upd('UPDATE work_item_assets SET path = ? WHERE id = ?', a.id, sp)
     }
     for (const id of ids) moveDraftDocPaths(id, oldPrefix, newPrefix)
+    // The context file row (work_item_context) keeps a Depot path too: without it the sweep takes the item for "file gone".
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_item_context'").get()) {
+      for (const c of db.prepare('SELECT item_id, rel FROM work_item_context').all() as { item_id: string; rel: string }[]) {
+        const sp = swap(c.rel)
+        if (sp !== c.rel) upd('UPDATE work_item_context SET rel = ? WHERE item_id = ?', c.item_id, sp)
+      }
+    }
+    // The columns a work item keeps PROJECT-relative (its own folder, its group) and the document model's file paths follow a
+    // rename INSIDE the project folder. (A rename of the project folder itself changes nothing here: those paths are relative.)
+    for (const pr of db.prepare('SELECT id, folder_path FROM projects WHERE folder_path IS NOT NULL').all() as { id: string; folder_path: string }[]) {
+      const base = String(pr.folder_path).replace(/\/+$/, '')
+      if (!base || !oldRel.startsWith(base + '/') || !newRel.startsWith(base + '/')) continue
+      const relOld = oldRel.slice(base.length + 1)
+      const relNew = newRel.slice(base.length + 1)
+      const swapRel = (p: string | null): string | null => (p === relOld ? relNew : p && p.startsWith(relOld + '/') ? relNew + p.slice(relOld.length) : p)
+      for (const it of db.prepare('SELECT id, folder, container_folder FROM work_items WHERE project_id = ?').all(pr.id) as { id: string; folder: string | null; container_folder: string | null }[]) {
+        const f = swapRel(it.folder), cf = swapRel(it.container_folder)
+        if (f !== it.folder || cf !== it.container_folder) { db.prepare('UPDATE work_items SET folder = ?, container_folder = ? WHERE id = ?').run(f, cf, it.id); changed++ }
+        const row = getWorkItem(it.id)
+        if (row) moveDocModelPaths(row, pr.id, `${relOld}/`, `${relNew}/`, swap)
+      }
+    }
   })()
   for (const id of ids) moveVersionFilePaths(id, oldPrefix, newPrefix)
   return changed
