@@ -39,6 +39,9 @@ import {
   type BrowseEntry, type BrowseResult,
 } from './code-folder-browse.js'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { locateLocalTranscript, readTranscriptTailMeta } from './code-conversation.js'
 import { getDb, getKanbanCard, listKanbanCards, moveKanbanCard, addKanbanComment, type KanbanCard } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
@@ -268,6 +271,13 @@ function ensureTables(): void {
       sentence TEXT
     )
   `)
+  // The login (account e-mail) the note was made under: a note belongs to ONE login, so the moment the side
+  // runs under another one, the note is void (Boss, TG 3203).
+  try {
+    db.exec(`ALTER TABLE code_bridge_limits ADD COLUMN account TEXT`)
+  } catch (err) {
+    if (!/duplicate column/i.test(String((err as Error)?.message ?? ''))) throw err
+  }
   ensured = true
 }
 
@@ -1548,6 +1558,42 @@ export function codeTaskSide(task: Pick<CodeTask, 'project' | 'workspacePath'>):
   return sessionSide(task.workspacePath ?? getCodeSession(task.project)?.workspacePath)
 }
 
+// ---- the login an executor side runs under -------------------------------
+
+/** The Windows worker reports its login with every claim; the WSL side is read from this machine's own
+ *  Claude config (the WSL `claude` the worker starts through wsl.exe uses it). */
+const workerLogins = new Map<CodeSessionSide, string>()
+let loginReader: (side: CodeSessionSide) => string | null = defaultLoginReader
+
+export function noteWorkerLogin(side: CodeSessionSide, email: unknown): void {
+  const v = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  if (v && v.length <= 200) workerLogins.set(side, v)
+}
+
+function defaultLoginReader(side: CodeSessionSide): string | null {
+  if (side === 'windows') return workerLogins.get('windows') ?? null
+  try {
+    const j = JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8')) as { oauthAccount?: { emailAddress?: unknown } }
+    const e = j.oauthAccount?.emailAddress
+    return typeof e === 'string' && e.trim() ? e.trim().toLowerCase() : null
+  } catch { return null }
+}
+
+/** Test seam. */
+export function setCodeBridgeLoginReaderForTests(fn: ((side: CodeSessionSide) => string | null) | null): void {
+  loginReader = fn ?? defaultLoginReader
+  workerLogins.clear()
+}
+
+function currentLogin(side: CodeSessionSide): string | null {
+  try { return loginReader(side) } catch { return null }
+}
+
+/** A note with no recorded login, or a login we cannot read now, is NOT voided: "not seen" is not "changed". */
+function limitLoginChanged(noted: unknown, now: string | null): boolean {
+  return typeof noted === 'string' && noted !== '' && now !== null && noted !== now
+}
+
 export function noteCodeBridgeLimit(side: CodeSessionSide, sentence: string, taskId: string | null, now = Date.now()): CodeBridgeLimit {
   ensureTables()
   const named = parseUsageLimitResetAt(sentence, now, APP_TZ)
@@ -1555,11 +1601,11 @@ export function noteCodeBridgeLimit(side: CodeSessionSide, sentence: string, tas
   const resetsAt = estimated ? now + LIMIT_RETRY_MS : (named as number)
   getDb()
     .prepare(
-      `INSERT INTO code_bridge_limits (side, resets_at, noted_at, estimated, task_id, sentence) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO code_bridge_limits (side, resets_at, noted_at, estimated, task_id, sentence, account) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(side) DO UPDATE SET resets_at = excluded.resets_at, noted_at = excluded.noted_at,
-         estimated = excluded.estimated, task_id = excluded.task_id, sentence = excluded.sentence`,
+         estimated = excluded.estimated, task_id = excluded.task_id, sentence = excluded.sentence, account = excluded.account`,
     )
-    .run(side, resetsAt, now, estimated ? 1 : 0, taskId, sentence.slice(0, LIMIT_SENTENCE_MAX_CHARS))
+    .run(side, resetsAt, now, estimated ? 1 : 0, taskId, sentence.slice(0, LIMIT_SENTENCE_MAX_CHARS), currentLogin(side))
   logger.warn({ side, resetsAt, estimated, task: taskId }, 'code-bridge: executor limit noted, queued tasks of this side wait')
   return { side, resetsAt, notedAt: now, estimated, taskId, sentence }
 }
@@ -1581,12 +1627,19 @@ export function activeCodeBridgeLimit(side: CodeSessionSide, now = Date.now()): 
   ensureTables()
   try {
     const r = getDb().prepare(`SELECT * FROM code_bridge_limits WHERE side = ? AND resets_at > ?`).get(side, now) as Record<string, unknown> | undefined
-    return r ? rowToLimit(r) : null
+    if (!r) return null
+    if (limitLoginChanged(r['account'], currentLogin(side))) {
+      getDb().prepare(`DELETE FROM code_bridge_limits WHERE side = ?`).run(side)
+      logger.warn({ side, was: r['account'] }, 'code-bridge: the executor login changed, the old limit note is void')
+      return null
+    }
+    return rowToLimit(r)
   } catch { return null }
 }
 
 export function listActiveCodeBridgeLimits(now = Date.now()): CodeBridgeLimit[] {
   ensureTables()
+  for (const side of ['wsl', 'windows'] as const) activeCodeBridgeLimit(side, now) // voids notes of a replaced login
   try {
     return (getDb().prepare(`SELECT * FROM code_bridge_limits WHERE resets_at > ? ORDER BY side`).all(now) as Record<string, unknown>[]).map(rowToLimit)
   } catch { return [] }

@@ -74,13 +74,27 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-10-08.1'
+$script:WorkerVersion = '2026-10-13.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
 $script:StateDir = Join-Path $env:LOCALAPPDATA 'marvin-code-worker'
 if (-not (Test-Path $script:StateDir)) { New-Item -ItemType Directory -Force -Path $script:StateDir | Out-Null }
 $script:LogFile = Join-Path $script:StateDir 'worker.log'
+
+# The login `claude.exe` runs under (the e-mail in %USERPROFILE%\.claude.json), sent with every claim: the
+# bridge keeps a "limit reached" note per login and drops it the moment the login is another one (Boss, 2026-10-13:
+# a note of the previous account kept the queue waiting after a re-login). Empty = not readable, never a guess.
+function Get-ClaudeLogin {
+  try {
+    $f = Join-Path $env:USERPROFILE '.claude.json'
+    if (-not (Test-Path $f)) { return '' }
+    $j = Get-Content -Raw -Encoding UTF8 $f | ConvertFrom-Json
+    $e = [string]$j.oauthAccount.emailAddress
+    if ($e) { return $e.Trim() }
+  } catch { }
+  return ''
+}
 
 function Write-Log {
   param([string]$Message, [string]$Level = 'INFO')
@@ -419,7 +433,7 @@ function Test-WorkWaiting {
   }
   $claim = $null
   try {
-    $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId; workerVersion = $script:WorkerVersion }
+    $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId; workerVersion = $script:WorkerVersion; account = (Get-ClaudeLogin) }
   } catch { return }
   if ($claim -and $claim.browseRequests) { Invoke-BrowseRequests -Requested $claim.browseRequests }
   if ($claim -and $claim.task) {
@@ -1574,7 +1588,7 @@ function Start-WorkerLoop {
         $claim = $script:PendingTask
         $script:PendingTask = $null
       } else {
-        $claimBody = @{ host = $script:HostId; workerVersion = $script:WorkerVersion }
+        $claimBody = @{ host = $script:HostId; workerVersion = $script:WorkerVersion; account = (Get-ClaudeLogin) }
         if ($script:IsChatLane) { $claimBody['lane'] = 'chat' }
         $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body $claimBody
       }

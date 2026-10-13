@@ -31,7 +31,7 @@ import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
   dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
-  claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
+  claimNextCodeTask, noteWorkerLogin, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   recordCodeTaskEndedSession, recordCodeTaskDispatchWorkspace,
   clearFinishedCodeTasks,
   pruneUnreportedCodeSessions,
@@ -1279,9 +1279,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // Claim is a POST: it mutates (running + lease + attempt count).
   if (path === '/api/code/tasks/claim' && method === 'POST') {
     if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
-    const body = await parseJsonBody<{ host?: string; workerVersion?: string; lane?: string }>(ctx)
+    const body = await parseJsonBody<{ host?: string; workerVersion?: string; lane?: string; account?: string }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
     const host = (body.host ?? '').trim() || 'unknown-worker'
+    // The Windows login the worker runs `claude.exe` under: a limit note of an earlier login is void.
+    noteWorkerLogin('windows', body.account)
     // #433: only the literal 'chat' selects the chat lane; anything else is the main lane.
     const lane = body.lane === 'chat' ? 'chat' as const : undefined
     // #425: a claim MOST viszi a worker sajat verziojat, es igy azonnal frissul
