@@ -395,6 +395,9 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
 
 /** Enqueue one task for a Telegram sender and phrase the receipt. Shared by
  *  `/code` and by a plain sentence / voice note (see replyForInbound). */
+/** Marker for "accepted, say nothing" (an empty string is falsy, so it cannot be mistaken for an unknown command's null). */
+const SILENT_ACK = ''
+
 function enqueueFromTelegram(project: string, tab: string | null, prompt: string, chatId: string, from: string): string {
   const out = enqueueCodeTask({
     project,
@@ -411,11 +414,11 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
     // The dashboard's translated sentence, not the raw English `error` (#416).
     return `⚠️ ${uiString(out.errorKey, out.errorParams, out.error)}${cand}`
   }
-  // Ha ful volt cimezve, a visszaigazolas MONDJA IS KI, melyikbe ment --
-  // kulonben a tulaj csak akkor venne eszre a rossz fulet, amikor a valasz
-  // mar egy masik beszelgetesben all.
-  const into = out.task.targetSessionId ? ` -> ${tabTitle(out.task.targetSessionId)}` : ''
-  return `⏳ ${ol('Atadva', 'Handed over')}: ${out.task.project}${into} (${shortId(out.task.id)})` + queueNote(out.task.id)
+  // Boss (TG 3172/3176): the bot must NOT answer a handed-over message with "Atadva: <project> (id) / N waiting
+  // ahead" -- it read like the message went to Marvin, and he wants no hand-over talk at all. A message that was
+  // accepted draws no reply here; the VS Code Claude's own answer comes back through the notify path. Errors
+  // (no worker, unknown project, bad tab) are still spoken above: those the owner must hear.
+  return SILENT_ACK
 }
 
 /** Boss (TG 2409): a question sent while the project was busy got only "Handed over" and then silence.
@@ -502,13 +505,15 @@ export function replyForInbound(
   const cmd = parseCommand(text)
   if (cmd) {
     const answer = handleCodeCommand(cmd, chatId, from)
+    if (answer === SILENT_ACK) return null
     if (answer) return answer
     return isPrivate ? help() : null
   }
   // A plain sentence in the bot's own chat is a task (defaultProjectForPlainText).
   // In a group it stays silent: Marvin's bot reads the same lines.
   if (!isPrivate || !text.trim()) return null
-  return plainTextTask(text.trim(), chatId, from)
+  const plain = plainTextTask(text.trim(), chatId, from)
+  return plain === SILENT_ACK ? null : plain
 }
 
 // ---- transport ----------------------------------------------------------

@@ -640,8 +640,8 @@ describe('telegram command surface', () => {
     it('a plain message goes to the single PINNED project as a task', () => {
       seedThree()
       upsertCodeSession({ ...TRADING, pinned: true })
-      const r = replyForInbound('javitsd a kerekitest', '1', 'owner', true)!
-      expect(r).toMatch(/Atadva: tradingbot/)
+      // Boss (TG 3172/3176): an accepted message draws NO "Atadva" receipt.
+      expect(replyForInbound('javitsd a kerekitest', '1', 'owner', true)).toBeNull()
       const tasks = listCodeTasks({})
       expect(tasks).toHaveLength(1)
       expect(tasks[0]!.project).toBe('tradingbot')
@@ -650,21 +650,18 @@ describe('telegram command surface', () => {
 
     it('a plain message with one project and no pin goes to that project', () => {
       upsertCodeSession(MARVIN)
-      expect(replyForInbound('nezd at', '1', 'owner', true)).toMatch(/Atadva: marvin/)
+      expect(replyForInbound('nezd at', '1', 'owner', true)).toBeNull()
+      expect(listCodeTasks({})).toHaveLength(1)
     })
 
-    // Boss (TG 2409): "dolgozol?" got only "Atadva" while a long task was running ahead of it.
-    it('the receipt says a task is running ahead, and how many wait', () => {
+    // Boss (TG 3172/3176): no receipt and no queue talk, however many tasks are ahead.
+    it('never answers an accepted message with a receipt or queue note', () => {
       upsertCodeSession(MARVIN)
-      const first = replyForInbound('elso feladat', '1', 'owner', true)!
-      expect(first).toMatch(/Atadva: marvin/)
-      expect(first).not.toMatch(/fut egy feladat|varakozik/)
+      expect(replyForInbound('elso feladat', '1', 'owner', true)).toBeNull()
       claimNextCodeTask('test-host')
-      const second = replyForInbound('dolgozol?', '1', 'owner', true)!
-      expect(second).toMatch(/Atadva: marvin/)
-      expect(second).toMatch(/fut egy feladat/)
-      const third = replyForInbound('harmadik', '1', 'owner', true)!
-      expect(third).toMatch(/Elotted meg 1 varakozik/)
+      expect(replyForInbound('dolgozol?', '1', 'owner', true)).toBeNull()
+      expect(replyForInbound('harmadik', '1', 'owner', true)).toBeNull()
+      expect(listCodeTasks({})).toHaveLength(3)
     })
 
     it('ambiguous (several projects, no single pin): asks with the list, enqueues nothing', () => {
