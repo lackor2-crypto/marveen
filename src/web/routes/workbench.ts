@@ -129,6 +129,8 @@ import {
 import { setOverride, getEffectiveSettingValue } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
+import { addMount, listMounts } from '../../life-mounts.js'
+import { safeLifeName } from '../../life-tree.js'
 import { embedKind, fileToBlocks } from '../../workbench-docembed.js'
 import { listSignatures } from '../../workbench-signatures.js'
 import { createReadStream, statSync, rmdirSync, existsSync } from 'node:fs'
@@ -163,6 +165,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_git_repo: { hu: 'Ide nem tudom elhelyezni: ez a mappa egy fejlesztői projekt része. Válassz egy iratmappát.', en: 'It cannot be filed here: this folder is part of a developer project. Choose a document folder.' },
   sent_final_file_missing: { hu: 'A végleges PDF nincs meg a munkadarab mappájában, ezért nincs mit elhelyezni. Véglegesítsd újra a beadványt.', en: 'The final PDF is not in the work item folder, so there is nothing to file. Finalise the submission again.' },
   sent_copy_failed: { hu: 'Nem sikerült a példányt a kiválasztott mappába tenni. A lemez válasza a részleteknél.', en: 'The copy could not be put into the chosen folder. The disk\'s answer is in the details.' },
+  pmount_no_folder: { hu: 'Ennek a projektnek még nincs saját mappája, ezért nincs hová csatolni. Előbb a projekt beállításainál adj neki mappát.', en: 'This project has no folder of its own yet, so there is nowhere to attach to. Give it a folder in the project settings first.' },
+  pmount_not_found: { hu: 'Ez a mappa nincs meg az Életfában. Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree. Choose another one, or refresh the page.' },
+  pmount_exists: { hu: 'Ebben a projektben már van ilyen nevű mappa vagy csatolás. Nevezd át azt, vagy válassz másik mappát.', en: 'This project already has a folder or attachment with that name. Rename it, or choose another folder.' },
+  pmount_failed: { hu: 'A mappát nem sikerült csatolni.', en: 'The folder could not be attached.' },
   pplace_not_found: { hu: 'Ez a mappa nincs meg az Életfában (vagy már nincs a projekt helyei között). Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree (or is no longer among the project\'s places). Choose another one, or refresh the page.' },
   pplace_duplicate: { hu: 'Ez a hely már hozzá van kapcsolva a projekthez.', en: 'This place is already linked to the project.' },
   pplace_bad_input: { hu: 'Mappát válassz az Életfából.', en: 'Choose a folder of the Life tree.' },
@@ -2349,6 +2355,32 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   }
 
   // #530 (a leiras 50. pontja): a projekthez tartozo eletfa-helyek. Csak mutato; semmit nem mozgat.
+  // The owner attaches a folder of the Life tree UNDER the project: nothing is copied, the folder just shows (and the
+  // project's chat reads it) in the project's own tree -- the same "bekotes" the Explorer makes (TG 3120).
+  if (path === '/api/workbench/project-mount' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = String(typeof body['project'] === 'string' ? body['project'] : '').trim()
+    const target = String(typeof body['rel'] === 'string' ? body['rel'] : '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const home = String(project.folder_path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    if (!home) return fail(res, 400, 'pmount_no_folder', lang)
+    const abs = target && !target.split('/').includes('..') ? resolveLifePath(target) : null
+    let isDir = false
+    if (abs) { try { isDir = statSync(abs).isDirectory() } catch { isDir = false } }
+    if (!isDir) return fail(res, 404, 'pmount_not_found', lang)
+    const name = safeLifeName(target.slice(target.lastIndexOf('/') + 1)) || 'Mappa'
+    const rel = home + '/' + name
+    const abs2 = resolveLifePath(rel)
+    if (listMounts().some((m) => m.rel === rel) || (abs2 && existsSync(abs2))) return fail(res, 409, 'pmount_exists', lang)
+    const r = addMount({ rel, target, kind: 'local', label: target })
+    if (!r.ok) return fail(res, 400, 'pmount_failed', lang)
+    json(res, { ok: true, rel, name }, 201)
+    return true
+  }
+
   if (path === '/api/workbench/project-places' && (method === 'POST' || method === 'DELETE')) {
     let body: Record<string, unknown> = {}
     if (method === 'POST') { try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) } }
