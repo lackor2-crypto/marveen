@@ -1720,6 +1720,12 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .wb-panel-head .wb-panel-title { margin: 0; }
 .wb-head-open, .wb-head-attach { flex: 0 0 auto; }
+/* TG 3133: the two header buttons are small and always stand side by side (never one under the other). */
+.wb-head-btns { display: inline-flex; flex-wrap: nowrap; gap: 4px; flex: 0 0 auto; }
+.wb-head-btns .wb-btn { font-size: 0.72rem; padding: 2px 6px; white-space: nowrap; }
+.wb-panel-items .wb-panel-head { flex-wrap: nowrap; }
+.wb-panel-items .wb-panel-head .wb-root-title { overflow: hidden; }
+.wb-panel-items .wb-root-title .wb-folder-toggle { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Simple view: the frame fits the window; no page scroll until the technical details are opened (TG 2469). */
 main.projects-active.wb-sh-locked { overflow-y: hidden; }
 .wb-root-row .wb-folder-toggle { font-size: 1.05rem; }
@@ -1951,3 +1957,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
   .wb-sh-start-chat { display: block; }
   .wb-sh-start-chat > .wb-fr-chat { height: auto; max-height: none; margin-top: 12px; }
 }
+
+/* TG 3137: draggable line between the answers and the agent's activity in the project chat. */
+.wb-chat-split { height: 12px; margin: 2px 0; cursor: row-resize; touch-action: none; display: flex; align-items: center; justify-content: center; }
+.wb-chat-split > span { display: block; width: 48px; height: 4px; border-radius: 2px; background: var(--border, #c7ccd1); }
+.wb-chat-split:hover > span, .wb-chat-split:focus-visible > span { background: var(--accent, #2563eb); }
