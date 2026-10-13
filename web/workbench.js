@@ -8443,9 +8443,8 @@
     // host, no per-chapter boxes, no "+ paragraph" links); the chapter status and the translation bars sit on it.
     var onePage = !!(d.item && d.item.type === 'document')
     var secs = onePage ? '<div class="wb-outline-page">' + (function () {
-      // The manual view always showed the chapter status and the translation bars: the page draws them here, too.
-      WB.dpForceCheck = true
-      try { return docPageHtml() } finally { WB.dpForceCheck = false }
+      // Boss TG 3245: the manual and the simple view draw the SAME page -- one "check view" switch decides for both.
+      return docPageHtml()
     })() + '</div>' : (o.sections || []).map(function (sec) {
       var blocks = (sec.blocks || []).map(function (b) {
         return '<div class="wb-outline-block wb-outline-kind-' + escA(b.kind) + '">'
@@ -12975,9 +12974,9 @@
   /** Boss TG 3073: the page is a plain document by default; status chips, the delete cross and the
    *  translation / back-translation panels belong to the "check view", switched on by a button. */
   function dpCheckView() {
-    if (WB.dpForceCheck) return true
     if (WB.dpCheck === undefined) {
-      try { WB.dpCheck = localStorage.getItem('marveen.workbench.dpCheck') === '1' } catch (e) { WB.dpCheck = false }
+      // On unless the user switched it off: both views show the chapter status, the translation bars and the asks.
+      try { WB.dpCheck = localStorage.getItem('marveen.workbench.dpCheck') !== '0' } catch (e) { WB.dpCheck = true }
     }
     return !!WB.dpCheck
   }
