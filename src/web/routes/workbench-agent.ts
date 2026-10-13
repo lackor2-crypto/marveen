@@ -123,9 +123,10 @@ function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; f
     ? `SENSITIVE: the owner marked this ${privacy.project ? 'project' : 'work item'} sensitive. Do not put personal data (names of the people in the case, case numbers, addresses, account numbers, e-mail, phone, date of birth) into any web search or web fetch, and do not send its files to any outside service (image editing, image generation, online text recognition); text recognition runs only on this machine.`
     : null
   // No file yet: whatever file the agent makes for the item must be attached, or the preview stays empty.
-  const attachHint = item.source_path
+  // A document item has its own page (no file to attach), and the context file ("Kontextus - ....md", the case notes) is never an item's file.
+  const attachHint = item.source_path || item.type === 'document'
     ? null
-    : `This work item has no file yet. If you create a text, md or other file for it, put it in the work item folder${item.folder ? ` (${item.folder})` : ' (or the project folder)'} and then attach it so the owner sees it in the preview next to the chat: curl -s -X POST -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" -H "Content-Type: application/json" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/versions" -d '{"source_path":"<path inside the project folder>"}'. Never leave such a file only on disk.`
+    : `This work item has no file yet. If you create a text, md or other file for it, put it in the work item folder${item.folder ? ` (${item.folder})` : ' (or the project folder)'} and then attach it so the owner sees it in the preview next to the chat: curl -s -X POST -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" -H "Content-Type: application/json" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/versions" -d '{"source_path":"<path inside the project folder>"}'. Never leave such a file only on disk. Exception: never attach the work item's context file ("Kontextus - ....md" / "Context - ....md"); that is the case notes, not the item's file.`
   const hints = [privacyHint, attachHint, documentsHint, item.type === 'document' ? docTools : null, item.type === 'document' ? langTools : null].filter(Boolean).join('\n')
   return { title: item.title, type: item.type, file: item.source_path ?? null, folder: item.folder ?? null, materials, documentsHint: hints || null, family: familyLines(item) }
 }
