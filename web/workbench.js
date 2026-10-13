@@ -2522,9 +2522,10 @@
     }
     // Boss TG 3169: three separate blocks, folder tree first (TG 3201): (1) the folder tree, (2) the buttons + the hide switch, (3) trash / rescue / new work.
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
-      + '<div class="wb-blk wb-blk-tree">' + body + '</div>'
+      // Boss TG 3235: the project's name is a header of its own, on its own background, on TOP of the folder tree.
+      + '<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>') + '</div>' + body + '</div>'
       + '<div class="wb-blk wb-blk-top">'
-      + '<div class="wb-panel-head">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>')
+      + '<div class="wb-panel-head">'
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
       + '<span class="wb-head-btns">'
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
@@ -14851,15 +14852,11 @@
     }
   }
 
-  /** Boss TG 3169: the Projects tab shows WHERE the user is as a path (Projects > project name), not only "Projects". */
+  /** The panel title: the tab name (the project's own name is the header of the folder tree, Boss TG 3235). */
   function frPanelTitleHtml() {
     var tab = frTabNow()
     var label = t('workbench.fr.tab.' + tab)
-    if (tab === 'projects' && WB.project && WB.project.name) {
-      return '<h3 class="wb-fr-ptitle wb-fr-path" title="' + escA(label + ' \u203a ' + WB.project.name) + '">'
-        + '<span class="wb-fr-path-root">' + esc(label) + '</span><span class="wb-fr-path-sep">\u203a</span>'
-        + '<span class="wb-fr-path-leaf">' + esc(WB.project.name) + '</span></h3>'
-    }
+    // Boss TG 3235: the project name stands on top of the folder tree, so the panel title is just the tab name.
     return '<h3 class="wb-fr-ptitle">' + esc(label) + '</h3>'
   }
 
