@@ -53,6 +53,21 @@ describe('#550 the executor limit', () => {
     expect(claimed?.status).toBe('running')
   })
 
+  it('a long named limit is probed every LIMIT_RETRY_MS, and a successful probe clears the note', () => {
+    const id = queue()
+    claimNextCodeTask('H')
+    const at = Date.UTC(2026, 9, 10, 11, 0, 0)
+    completeCodeTaskDetailed(id, { ok: false, error: "You've hit your weekly limit · resets Oct 15, 8pm (Europe/Budapest)" }, at, 'H')
+    expect(claimNextCodeTask('H', at + 1000)).toBeNull()
+    const probe = claimNextCodeTask('H', at + LIMIT_RETRY_MS + 1)
+    expect(probe?.id).toBe(id)
+    const id2 = queue()
+    expect(claimNextCodeTask('H2', at + LIMIT_RETRY_MS + 2)).toBeNull()
+    completeCodeTaskDetailed(id, { ok: true, result: 'ok' }, at + LIMIT_RETRY_MS + 3, 'H')
+    expect(activeCodeBridgeLimit('wsl', at + LIMIT_RETRY_MS + 4)).toBeNull()
+    expect(claimNextCodeTask('H', at + LIMIT_RETRY_MS + 5)?.id).toBe(id2)
+  })
+
   it('a sentence without a reset moment holds for the short retry window only', () => {
     const id = queue()
     claimNextCodeTask('H')

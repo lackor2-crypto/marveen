@@ -1313,7 +1313,16 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       if (!session) continue
       // #550: the executor's login is exhausted -- the task keeps its place in the queue and goes out when the
       // limit lifts. (A Workbench chat task is not held: its chat continues on another account by itself.)
-      if (task.origin !== 'workbench' && activeCodeBridgeLimit(sessionSide(session.workspacePath), now)) continue
+      if (task.origin !== 'workbench') {
+        const held = activeCodeBridgeLimit(sessionSide(session.workspacePath), now)
+        // A noted limit is a memory of one failed run, not a measurement of the login: every LIMIT_RETRY_MS one
+        // task goes out as the probe (noted_at is bumped so the next one waits). A probe that hits the limit
+        // again refreshes the note; one that succeeds clears it (completeCodeTaskDetailed).
+        if (held) {
+          if (now - held.notedAt < LIMIT_RETRY_MS) continue
+          db.prepare(`UPDATE code_bridge_limits SET noted_at = ? WHERE side = ?`).run(now, held.side)
+        }
+      }
 
       // Kartya 2741d289 (#252): TEMA-ALAPU ujrahasznalas. Boss dontese
       // (2026-09-11, uzenet 821) szerint a "ugyanaz a tema"-t a KANBAN KARTYA
@@ -1686,6 +1695,11 @@ export function completeCodeTaskDetailed(
       now,
       id,
     )
+  // A successful run proves the login works: a note left over from an earlier failed run must not keep
+  // holding the queue (measured 2026-10-13: an Oct 11 note held tasks until Oct 15 although the login worked).
+  if (input.ok && existing.origin !== 'workbench') {
+    try { getDb().prepare(`DELETE FROM code_bridge_limits WHERE side = ?`).run(codeTaskSide(existing)) } catch { /* best effort */ }
+  }
   return { task: getCodeTask(id), outcome: 'accepted' }
 }
 
