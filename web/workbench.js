@@ -13034,21 +13034,37 @@
     }
     return !!WB.dpOutline
   }
+  /** The outline's entries: every titled chapter, and every paragraph the Style box made Heading 1 / 2 / 3 (#589 follow-up,
+   *  Boss TG 3229: three headings made, the Headings button listed one -- only chapter titles were counted). */
+  function dpOutlineItems(secs) {
+    var items = []
+    ;(secs || []).forEach(function (sec) {
+      if (!sec.untitled) items.push({ sec: sec, blk: null, level: 1, text: sec.title })
+      ;(sec.blocks || []).forEach(function (b) {
+        var h = b && b.pfmt ? Number(b.pfmt.h) : 0
+        var first = String((b && b.text) || '').split('\n').filter(function (l) { return l.trim() })[0] || ''
+        if (b && b.kind === 'paragraph' && (h === 1 || h === 2 || h === 3) && first) items.push({ sec: sec, blk: b, level: h, text: first.trim() })
+      })
+    })
+    return items
+  }
   function dpOutlineHtml(secs, ro) {
     if (!dpOutlineOn()) return ''
-    secs = secs.filter(function (sec) { return !sec.untitled })
-    // The button must never look dead: with no titled chapter yet (a page of the placeholder "Új fejezet" only) the panel
+    var items = dpOutlineItems(secs)
+    // The button must never look dead: with no heading yet (a page of the placeholder "Új fejezet" only) the panel
     // says so and where a heading comes from, instead of drawing nothing.
-    if (!secs.length) {
+    if (!items.length) {
       return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><p class="wb-hint wb-dp-ol-empty">' + esc(t('workbench.dp.outline_empty')) + '</p></nav>'
     }
     var chk = dpCheckView()
-    var rows = secs.map(function (sec) {
-      var status = !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
+    var rows = items.map(function (it) {
+      var sec = it.sec
+      var isSec = !it.blk
+      var status = !isSec || !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
         : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
           + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
-      return '<li class="wb-dp-ol-row"><button type="button" class="wb-linklike wb-dp-ol-go" data-wb-act="dp-outline-go" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.outline_go')) + '">' + esc(sec.title) + '</button>'
-        + status + (sec.problems ? ' <span class="wb-doc-low" title="' + escA(t('workbench.outline.problems', { n: sec.problems })) + '">&#9888; ' + sec.problems + '</span>' : '') + '</li>'
+      return '<li class="wb-dp-ol-row wb-dp-ol-l' + it.level + '"><button type="button" class="wb-linklike wb-dp-ol-go" data-wb-act="dp-outline-go" data-wb-sec="' + escA(sec.id) + '"' + (isSec ? '' : ' data-wb-block="' + escA(it.blk.id) + '"') + ' title="' + escA(t('workbench.dp.outline_go')) + '">' + esc(it.text) + '</button>'
+        + status + (isSec && sec.problems ? ' <span class="wb-doc-low" title="' + escA(t('workbench.outline.problems', { n: sec.problems })) + '">&#9888; ' + sec.problems + '</span>' : '') + '</li>'
     }).join('')
     return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><ol>' + rows + '</ol></nav>'
   }
@@ -17859,7 +17875,7 @@
     else if (a === 'dp-del') dpDeleteBlock(bid)
     else if (a === 'dp-add-section') dpAddSection()
     else if (a === 'dp-outline-go') {
-      var gt = document.getElementById('wbDpS_' + sid)
+      var gt = document.getElementById(bid ? 'wbDpB_' + bid : 'wbDpS_' + sid)
       if (gt) { try { gt.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch (_e) { gt.scrollIntoView() } dpFocusRoot(); dpPlaceCaret(gt, 0) }
     }
     else if (a === 'dp-outline-toggle') {
