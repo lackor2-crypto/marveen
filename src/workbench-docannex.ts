@@ -469,6 +469,8 @@ export function annexCheck(itemId: string, resolve?: FileResolver): AnnexCheck {
   const unreferenced = list.filter((a) => a.refs === 0).map((a) => a.label)
   const missing = list.filter((a) => a.exists === false).map((a) => a.label)
   const unsupported = list.filter((a) => !annexPdfKind(a.name)).map((a) => a.label)
-  const ok = list.filter((a) => a.refs > 0 && a.exists !== false && annexPdfKind(a.name)).length
+  // #590: the annex list at the end of the PDF is itself the reference to every annex, so "the text does not cite it" is
+  // information, never a reason to hold the finalizing back: an annex counts as fine when its file is there and can go into a PDF.
+  const ok = list.filter((a) => a.exists !== false && annexPdfKind(a.name)).length
   return { total: list.length, ok, dangling, unreferenced, missing_files: missing, unsupported }
 }

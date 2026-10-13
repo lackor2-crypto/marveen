@@ -487,6 +487,8 @@ describe('a felulet: piszkozat, atnezes, veglegesites', () => {
     const html = h.html()
     expect(html).not.toContain('data-wb-act="outline-review"')
     expect(html).toContain('workbench.outline.finalize_blocked')
+    expect(html).toContain('workbench.outline.next_blocked') // #590: the grey button says what is left
+    expect(html).toContain('data-wb-act="outline-finalize" disabled title=')
   })
 
   it('atnezes utan pipa -> a gomb elesedik, es a veglegesites a latott ujjlenyomattal megy', async () => {

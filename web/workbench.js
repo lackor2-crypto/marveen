@@ -8405,6 +8405,22 @@
       + '<ul>' + open.concat(acked).map(function (i) { return consistencyIssueHtml(i, ro) }).join('') + '</ul>'
   }
 
+  function outlineCheckText(i) {
+    var key = i.key === 'consistency' && i.ok ? (i.total ? 'consistency_acked' : 'consistency_ok') : i.key
+    return i.key === 'sections_done'
+      ? t('workbench.outline.check.sections_in_progress', { names: (i.detail || []).slice(0, 8).join(', ') })
+      : t('workbench.outline.check.' + key, { n: i.count, total: i.total === undefined ? '' : i.total })
+  }
+
+  /** #590: the one sentence that says which step of the finalizing is next, so the grey button never stands there unexplained. */
+  function finalizeNextStep(check, ready, reviewed, accepted) {
+    if (!ready) {
+      var todo = ((check && check.items) || []).filter(function (i) { return !i.ok && i.key !== 'inference_as_fact' && i.key !== 'owner_written' })
+      return t('workbench.outline.next_blocked', { items: todo.slice(0, 3).map(outlineCheckText).join('; ') })
+    }
+    return t(!reviewed ? 'workbench.outline.next_review' : !accepted ? 'workbench.outline.next_accept' : 'workbench.outline.next_done')
+  }
+
   function outlineCheckHtml(check, o, ro) {
     if (!check) return ''
     return '<div class="wb-outline-check"><h4>' + esc(t('workbench.outline.check_title')) + '</h4><ul>'
@@ -8413,10 +8429,7 @@
         if (info && !i.count) return ''
         // #534: a document without headings has no chapters to finish -- "0 / 0" would only be noise.
         if (i.key === 'sections_done' && i.ok) return ''
-        var key = i.key === 'consistency' && i.ok ? (i.total ? 'consistency_acked' : 'consistency_ok') : i.key
-        var txt = i.key === 'sections_done'
-          ? t('workbench.outline.check.sections_in_progress', { names: (i.detail || []).slice(0, 8).join(', ') })
-          : t('workbench.outline.check.' + key, { n: i.count, total: i.total === undefined ? '' : i.total })
+        var txt = outlineCheckText(i)
         var detail = i.key === 'consistency' ? consistencyDetailHtml(o, ro)
           : i.key === 'sections_done' ? ''
           : !i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : ''
@@ -8794,10 +8807,11 @@
         : '<button type="button" class="btn-secondary btn-compact" disabled>' + esc(t('workbench.outline.review_open')) + '</button>'
       fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>'
         + '<p class="wb-hint">' + esc(t(ready ? 'workbench.outline.finalize_steps' : 'workbench.outline.finalize_blocked')) + '</p>'
+        + '<p class="wb-outline-next ' + (accepted ? 'wb-ok' : 'wb-doc-low') + '">' + esc(finalizeNextStep(o.check, ready, reviewed, accepted)) + '</p>'
         + '<p>' + reviewBtn + (reviewed ? ' <span class="wb-ok">✓ ' + esc(t('workbench.outline.reviewed')) + '</span>' : '') + '</p>'
         + '<p><label class="wb-outline-accept"><input type="checkbox" data-wb-act="outline-accept"' + (ready && reviewed ? '' : ' disabled') + (accepted ? ' checked' : '') + '> '
         + esc(t('workbench.outline.accept')) + '</label></p>'
-        + '<p><button type="button" class="wb-btn" data-wb-act="outline-finalize"' + (accepted && !WB.docFinalizing ? '' : ' disabled') + '>'
+        + '<p><button type="button" class="wb-btn" data-wb-act="outline-finalize"' + (accepted && !WB.docFinalizing ? '' : ' disabled title="' + escA(finalizeNextStep(o.check, ready, reviewed, accepted)) + '"') + '>'
         + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
         + '</div>'
     }
@@ -9121,7 +9135,7 @@
       if (nx !== null && nx.trim() && (!b || nx.trim() !== shown)) {
         // A table keeps its size/alignment (#508): the field showed the lines only.
         var tp = b && b.kind === 'table' ? dpTableParts(b.text) : null
-        outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: tp ? dpTableText(nx.trim(), tp.width, tp.align) : nx.trim() })
+        outlineCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: tp ? dpTableText(nx.trim(), tp.width, tp.align, tp.x, tp.y, tp.over) : nx.trim() })
       }
     } else if (a === 'outline-rewrite-ask') {
       var rb = findBlock(bid)
@@ -12796,15 +12810,18 @@
   function dpFreeSuffix(x, y) { return (x == null || y == null) ? '' : '&x=' + Math.round(x) + '&y=' + Math.round(y) }
 
   function dpTableParts(text) {
-    var m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3})&y=(\d{1,3}))?\s*$/.exec(String(text || ''))
-    if (!m) return { text: String(text || ''), width: null, align: 'c', x: null, y: null }
+    var m = /^([\s\S]*?)\n#w=(\d{1,3})(?:&a=([lcr]))?(?:&x=(\d{1,3}(?:\.\d)?)&y=(\d{1,3}(?:\.\d)?))?(&o=1)?\s*$/.exec(String(text || ''))
+    if (!m) return { text: String(text || ''), width: null, align: 'c', x: null, y: null, over: false }
     var w = Math.max(10, Math.min(100, Number(m[2])))
+    // #590 (the server's tableBlockParts): `&o=1` -- lies over the text like a picture (#566), x / y from the anchor paragraph.
+    if (m[6]) return { text: m[1], width: w, align: m[3] || 'c', over: true,
+      x: m[4] === undefined ? 0 : Math.max(0, Math.min(100, 100 - w, Number(m[4]))), y: m[5] === undefined ? 0 : Math.max(0, Math.min(300, Number(m[5]))) }
     var f = dpFree(m[4], m[5], w)
-    return { text: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y }
+    return { text: m[1], width: w, align: m[3] || 'c', x: f.x, y: f.y, over: false }
   }
 
-  function dpTableText(body, width, align, x, y) {
-    var free = dpFreeSuffix(x, y)
+  function dpTableText(body, width, align, x, y, over) {
+    var free = over && x != null && y != null ? '&x=' + Math.round(x * 10) / 10 + '&y=' + Math.round(y * 10) / 10 + '&o=1' : dpFreeSuffix(x, y)
     if (!free && (width == null || (width >= 100 && (align || 'c') === 'c'))) return body
     return body + '\n#w=' + Math.round(width == null ? 100 : width) + '&a=' + (align || 'c') + free
   }
@@ -12819,11 +12836,13 @@
   /** The row of a table block narrower than the page and aligned left/right floats, so the text runs beside it (#508). */
   function dpTableRowClass(b) {
     var p = dpTableParts(b.text)
+    if (p.over) return ' wb-dp-row-over'
     return (p.x == null && p.width && p.width < 100 && p.align !== 'c') ? ' wb-dp-row-float wb-dp-row-float-' + p.align : ''
   }
 
   function dpTableRowStyle(b) {
     var p = dpTableParts(b.text)
+    if (p.over) return ' style="--wb-ox:' + p.x + ';--wb-oy:' + p.y + ';--wb-ow:' + (p.width || 100) + '"'
     return (p.x == null && p.width && p.width < 100 && p.align !== 'c') ? ' style="width:' + p.width + '%"' : ''
   }
 
@@ -12833,19 +12852,20 @@
     var body = lines.map(function (ln, r) {
       return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
     }).join('')
-    var freeT = pic.x != null
-    var floated = !freeT && pic.width && pic.width < 100 && pic.align !== 'c'
+    var freeT = pic.x != null && !pic.over
+    var floated = !freeT && !pic.over && pic.width && pic.width < 100 && pic.align !== 'c'
     var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-tbl-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
-    return '<div class="wb-dp-block wb-dp-tbl ' + (freeT ? 'wb-dp-free' : 'wb-dp-tbl-' + pic.align) + '" contenteditable="false" data-wb-tbl-block="' + escA(b.id) + '"'
+    return '<div class="wb-dp-block wb-dp-tbl ' + (pic.over ? 'wb-dp-tbl-over' : freeT ? 'wb-dp-free' : 'wb-dp-tbl-' + pic.align) + '" contenteditable="false" data-wb-tbl-block="' + escA(b.id) + '"'
       // #521: a free place -- a left indent and an empty space above, in percent of the text width (CSS margins in percent are of the width too).
       + (freeT ? ' style="width:' + (pic.width || 100) + '%;margin-left:' + pic.x + '%;margin-top:' + pic.y + '%"'
-        : !floated && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
+        : !floated && !pic.over && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
       + (ro ? '' : ' role="button" tabindex="0" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '"')
       + '><table>' + body + '</table>'
       + (ro ? '' : '<span class="wb-dp-tbl-move" draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_move')) + '" aria-label="' + escA(t('workbench.dp.tbl_move')) + '">&#10021;</span>'
         + '<span class="wb-dp-img-size" data-wb-tbl-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.tbl_resize')) + '" aria-label="' + escA(t('workbench.dp.tbl_resize')) + '"></span>'
         + dpFreeHandleHtml(b.id)
-        + '<span class="wb-dp-img-tools">' + al('l', 'workbench.dp.tbl_left') + al('c', 'workbench.dp.tbl_center') + al('r', 'workbench.dp.tbl_right') + '</span>')
+        + '<span class="wb-dp-img-tools">' + (pic.over ? '' : al('l', 'workbench.dp.tbl_left') + al('c', 'workbench.dp.tbl_center') + al('r', 'workbench.dp.tbl_right'))
+          + dpImgModeBtn(b.id, 'wrap', !pic.over) + dpImgModeBtn(b.id, 'over', !!pic.over) + '</span>')
       + '</div>'
   }
 
@@ -12863,7 +12883,7 @@
     var cur = dpTableParts(b.text)
     var w = width == null ? (cur.width || 100) : width
     var keepT = !align && cur.x != null
-    var text = dpTableText(cur.text, w, align || cur.align, keepT ? Math.min(cur.x, 100 - w) : null, keepT ? cur.y : null)
+    var text = dpTableText(cur.text, w, align || cur.align, keepT ? Math.min(cur.x, 100 - w) : null, keepT ? cur.y : null, cur.over && keepT)
     if (text === b.text) return
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
   }
@@ -12874,7 +12894,7 @@
     if (!b) return
     var text
     if (b.kind === 'image') { var ci = dpImageParts(b.text); var wi = ci.width || 100; text = dpImageText(ci.path, wi, ci.align, Math.max(0, Math.min(x, 100 - wi)), Math.max(0, Math.min(ci.over ? 300 : 150, y)), ci.over) }
-    else { var ct = dpTableParts(b.text); var wt = ct.width || 100; text = dpTableText(ct.text, wt, ct.align, Math.max(0, Math.min(x, 100 - wt)), Math.max(0, Math.min(150, y))) }
+    else { var ct = dpTableParts(b.text); var wt = ct.width || 100; text = dpTableText(ct.text, wt, ct.align, Math.max(0, Math.min(x, 100 - wt)), Math.max(0, Math.min(ct.over ? 300 : 150, y)), ct.over) }
     if (text === b.text) return
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text }).then(function (o) { if (o) render() })
   }
@@ -13083,7 +13103,7 @@
     } else body = secs.map(function (s, i) { return dpSectionHtml(o, s, i, ro) }).join('')
     var outlineHtml = dpOutlineHtml(secs, ro)
     return '<div class="wb-dp-wrap' + (outlineHtml ? ' has-outline' : '') + '">' + (ro ? '' : dpToolbarHtml()) + outlineHtml + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
-      + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
+      + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + ' ' + esc(t('workbench.dp.pagebreak_hint')) + '</span> '
         + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
       + '</div>'
   }
@@ -13245,7 +13265,7 @@
         var prevAt = oldBlocks[i]
         if (b.kind === 'table' && prevAt && prevAt.kind === 'table') {
           var tp = dpTableParts(prevAt.text)
-          return { kind: 'table', text: dpTableText(b.text, tp.width, tp.align), claims: [] }
+          return { kind: 'table', text: dpTableText(b.text, tp.width, tp.align, tp.x, tp.y, tp.over), claims: [] }
         }
         var nb2 = { kind: b.kind, text: b.text, claims: [] }
         if (b.rich) nb2.rich = b.rich
@@ -13856,7 +13876,7 @@
         var tp = dpTableParts(b.text)
         if (!text) continue
         if (text === tp.text) entry = { id: bid }
-        else entry = { id: bid, text: dpTableText(text, tp.width, tp.align) }
+        else entry = { id: bid, text: dpTableText(text, tp.width, tp.align, tp.x, tp.y, tp.over) }
       } else {
         var fm = dpFmtOf(n)
         if (fm.rich) text = fm.plain
@@ -18706,15 +18726,17 @@
   /** #566: switch a picture between the two modes; it stays where it stands on the page. */
   function dpImageMode(bid, mode) {
     var b = dpImageBlock(bid)
-    if (!b || b.kind !== 'image') return
-    var cur = dpImageParts(b.text)
+    if (!b || (b.kind !== 'image' && b.kind !== 'table')) return
+    var isTbl = b.kind === 'table'
+    var cur = isTbl ? dpTableParts(b.text) : dpImageParts(b.text)
     if (mode === 'over' ? cur.over : !cur.over) return
-    var fig = document.querySelector('[data-wb-img-block="' + bid + '"]')
-    var box = fig ? fig.querySelector('.wb-dp-img-box') : null
+    var fig = document.querySelector(isTbl ? '[data-wb-tbl-block="' + bid + '"]' : '[data-wb-img-block="' + bid + '"]')
+    var box = fig ? (isTbl ? fig : fig.querySelector('.wb-dp-img-box')) : null
+    var mk = function (w, al, x, y, ov) { return isTbl ? dpTableText(cur.text, w, al, x, y, ov) : dpImageText(cur.path, w, al, x, y, ov) }
     if (mode === 'wrap') {
       var w = cur.width && cur.width < 100 ? cur.width : 40
       var side = (cur.x || 0) + w / 2 < 50 ? 'l' : 'r'
-      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: dpImageText(cur.path, w, side, null, null) }).then(function (o) { if (o) render() })
+      dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: mk(w, side, null, null) }).then(function (o) { if (o) render() })
       return
     }
     var page = box ? box.closest('.wb-dp-page') : null
@@ -18722,16 +18744,17 @@
     if (!w2 && box && page && page.clientWidth) w2 = Math.max(10, Math.min(100, Math.round(box.getBoundingClientRect().width / page.clientWidth * 100)))
     w2 = w2 || 40
     var at = box ? dpOverPlace(bid, box, w2) : null
-    var body = { text: dpImageText(cur.path, w2, cur.align, at ? at.x : 0, at ? at.y : 0, true) }
+    var body = { text: mk(w2, cur.align, at ? at.x : 0, at ? at.y : 0, true) }
     if (at) { body.section = at.sid; body.position = at.pos }
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), body).then(function (o) { if (o) render() })
   }
 
   /** #566: drag a picture that lies over the text; let go and it is anchored to the paragraph it lies over. */
   function dpOverDragStart(e, hd, bid, b, fig) {
-    var box = fig.querySelector('.wb-dp-img-box')
+    var isTbl = b.kind === 'table'
+    var box = isTbl ? fig : fig.querySelector('.wb-dp-img-box')
     if (!box) return
-    var cur = dpImageParts(b.text)
+    var cur = isTbl ? dpTableParts(b.text) : dpImageParts(b.text)
     var sx = e.clientX
     var sy = e.clientY
     var moved = false
@@ -18749,7 +18772,7 @@
       var at = moved ? dpOverPlace(bid, box, cur.width || 100) : null
       fig.style.transform = ''
       if (!at) return
-      var text = dpImageText(cur.path, cur.width || 100, cur.align, at.x, at.y, true)
+      var text = isTbl ? dpTableText(cur.text, cur.width || 100, cur.align, at.x, at.y, true) : dpImageText(cur.path, cur.width || 100, cur.align, at.x, at.y, true)
       dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text, section: at.sid, position: at.pos }).then(function (o) { if (o) render() })
     }
     hd.addEventListener('pointermove', move)
@@ -18832,6 +18855,11 @@
       if (ofig) dpOverDragStart(e, hd, bid, b, ofig)
       else dpPicDragStart(e, hd, bid, b, tg)
       return
+    }
+    // #590: a table lying over the text is dragged like a picture lying over it.
+    if (dpTableParts(b.text).over) {
+      var tfig = hd.closest('.wb-dp-tbl')
+      if (tfig) { dpOverDragStart(e, hd, bid, b, tfig); return }
     }
     var start = dpFreeNow(b)
     var sx = e.clientX
