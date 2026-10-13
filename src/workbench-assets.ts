@@ -1115,6 +1115,48 @@ function rewriteFolderRefs(project: ProjectRow, oldRel: string, newRel: string, 
 }
 
 /**
+ * A folder of the Depot was renamed or moved from OUTSIDE the Workbench (the Intezo / Eletfa rename, which
+ * only knew mounts, backup rules, projects and the ledger). Every Depot-relative path a work item keeps under
+ * it follows, in every project: the item's source file, its versions, parts and attached files (the
+ * "present" flag of the attachments), the deck / drawing drafts and the saved version files. Before this, the
+ * request PDF of a work item went "missing" the moment its folder got another name in the Eletfa.
+ * `oldRel`/`newRel` are Depot-relative folder paths without a trailing slash. Returns the rows changed.
+ */
+export function followDepotFolderMove(oldRel: string, newRel: string): number {
+  if (!oldRel || !newRel || oldRel === newRel) return 0
+  ensureAssetTables()
+  const db = getDb()
+  const oldPrefix = oldRel + '/'
+  const newPrefix = newRel + '/'
+  const swap = (p: string | null): string | null => (p === oldRel ? newRel : p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
+  let changed = 0
+  const ids: string[] = []
+  db.transaction(() => {
+    const upd = (sql: string, id: string, v: string | null): void => { db.prepare(sql).run(v, id); changed++ }
+    for (const it of db.prepare('SELECT id, source_path FROM work_items').all() as { id: string; source_path: string | null }[]) {
+      ids.push(it.id)
+      const sp = swap(it.source_path)
+      if (sp !== it.source_path) upd('UPDATE work_items SET source_path = ? WHERE id = ?', it.id, sp)
+    }
+    for (const v of db.prepare('SELECT id, source_path FROM work_item_versions').all() as { id: string; source_path: string | null }[]) {
+      const sp = swap(v.source_path)
+      if (sp !== v.source_path) upd('UPDATE work_item_versions SET source_path = ? WHERE id = ?', v.id, sp)
+    }
+    for (const r of db.prepare('SELECT id, asset_path FROM work_item_parts').all() as { id: string; asset_path: string | null }[]) {
+      const sp = swap(r.asset_path)
+      if (sp !== r.asset_path) upd('UPDATE work_item_parts SET asset_path = ? WHERE id = ?', r.id, sp)
+    }
+    for (const a of db.prepare('SELECT id, path FROM work_item_assets').all() as { id: string; path: string }[]) {
+      const sp = swap(a.path)
+      if (sp !== a.path) upd('UPDATE work_item_assets SET path = ? WHERE id = ?', a.id, sp)
+    }
+    for (const id of ids) moveDraftDocPaths(id, oldPrefix, newPrefix)
+  })()
+  for (const id of ids) moveVersionFilePaths(id, oldPrefix, newPrefix)
+  return changed
+}
+
+/**
  * #481: a work item's folder now physically sits in ANOTHER project (the owner moved it in the file
  * manager). Re-homes the item: project_id + folder + container_folder, and EVERY path the registry keeps for
  * it (source_path, versions, parts, assets, doc model, drafts) moves from the old project's depot prefix to

@@ -26,11 +26,12 @@ import { moveLifeLedgerPrefix } from './life-tree-ledger.js'
 import { movePhysical } from './life-documents.js'
 import { moveDisplayLabels } from './life-labels.js'
 import { moveArchivedPrefix } from './life-archived.js'
+import { followDepotFolderMove } from './workbench-assets.js'
 import { safeLifeName } from './life-tree.js'
 
 const norm = (rel: string): string => String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 
-export interface FollowCounts { mounts: number; mountTargets: number; backupRules: number; projects: number; ledger: number; documents: number }
+export interface FollowCounts { mounts: number; mountTargets: number; backupRules: number; projects: number; ledger: number; documents: number; workItems: number }
 
 /**
  * The registries `renameLife` does NOT move itself. Call it after a rename
@@ -39,7 +40,7 @@ export interface FollowCounts { mounts: number; mountTargets: number; backupRule
 export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   const from = norm(fromRel)
   const to = norm(toRel)
-  const out: FollowCounts = { mounts: 0, mountTargets: 0, backupRules: 0, projects: 0, ledger: 0, documents: 0 }
+  const out: FollowCounts = { mounts: 0, mountTargets: 0, backupRules: 0, projects: 0, ledger: 0, documents: 0, workItems: 0 }
   if (!from || !to || from === to) return out
   const step = (name: keyof FollowCounts, fn: () => number): void => {
     try { out[name] = fn() } catch (err: any) {
@@ -63,6 +64,9 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   step('projects', () => moveProjectFoldersPrefix(from, to) + moveProjectPlacesPrefix(from, to))
   // The documents' stable ids (life-doc-ids.ts): a file keeps its id under its new name / place.
   step('documents', () => moveDocumentsPrefix(from, to))
+  // Work items keep Depot paths too (source file, attached files, versions): they follow, otherwise the
+  // request PDF of an item goes "missing" after a rename in the Eletfa.
+  step('workItems', () => followDepotFolderMove(from, to))
   const root = depotRoot()
   if (root) step('ledger', () => moveLifeLedgerPrefix(root, from, to))
   // A git link is a Windows junction INSIDE the renamed folder: it moved with
