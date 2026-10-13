@@ -1972,3 +1972,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-panel-items .wb-panel-head { align-items: flex-start; }
 .wb-panel-items .wb-head-btns { margin-top: -2px; }
 .wb-panel-items .wb-panel-head .wb-root-title { line-height: 1.1; }
+
+/* #580 (Boss, TG 3155): attach, dictate and send sit side by side in ONE row under the chat input, never wrapped
+   onto separate lines; the buttons shrink their padding instead. */
+.wb-chat-btns { flex-wrap: nowrap; align-items: stretch; gap: 6px; }
+.wb-chat-btns > * { flex: 0 0 auto; white-space: nowrap; }
+.wb-chat-btns .btn-secondary, .wb-chat-btns .btn-primary { padding-left: 10px; padding-right: 10px; }
+.wb-chat-btns .wb-chat-attach { display: inline-flex; align-items: center; }

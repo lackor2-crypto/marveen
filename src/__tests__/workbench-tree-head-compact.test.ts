@@ -16,4 +16,7 @@ describe('workbench tree header compact (#580)', () => {
     expect(css).toMatch(/\.wb-panel-items \.wb-panel-head \{ align-items: flex-start; \}/)
     expect(css).toMatch(/\.wb-panel-items \.wb-head-btns \{ margin-top: -2px; \}/)
   })
+  it('the chat attach / dictate / send buttons stay in one row (TG 3155)', () => {
+    expect(css).toMatch(/\.wb-chat-btns \{ flex-wrap: nowrap;/)
+  })
 })
