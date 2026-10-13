@@ -10553,19 +10553,29 @@
     return (WB.chatSide !== undefined && WB.chatSide !== null) ? WB.chatSide : ((WB.chatStatus && WB.chatStatus.side) || '')
   }
 
+  var CHAT_HEAD_KEY = 'marveen.workbench.chatHeadShut'
+  function chatHeadShut() {
+    if (WB.chatHeadShut === undefined) {
+      try { WB.chatHeadShut = (window.localStorage && window.localStorage.getItem(CHAT_HEAD_KEY)) === '1' } catch (_e) { WB.chatHeadShut = false }
+    }
+    return !!WB.chatHeadShut
+  }
+
   function chatInnerHtml() {
     var streaming = WB.chatStreaming
     var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000
+    var shut = chatHeadShut()
     return '<div class="wb-chat-head">'
       // Settings sits right next to the title as a small button, the status
       // gets its own line below -- no extra rows (Boss, TG 1841).
+      // TG 3142: the arrow folds the settings, folder and account rows away to leave room for the conversation.
+      + '<button type="button" class="wb-mini-btn wb-chat-fold-btn" data-wb-act="chat-head-fold" aria-expanded="' + !shut + '"'
+      + ' title="' + escA(t(shut ? 'workbench.chat.head_open' : 'workbench.chat.head_shut')) + '" aria-label="' + escA(t(shut ? 'workbench.chat.head_open' : 'workbench.chat.head_shut')) + '">' + (shut ? '\u25b8' : '\u25be') + '</button>'
       + '<label class="wb-chat-label" for="wbChatInput">' + esc(t('workbench.chat.title')) + '</label>'
-      + '<button type="button" class="wb-mini-btn wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>'
+      + (shut ? '' : '<button type="button" class="wb-mini-btn wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>')
       + '<div class="wb-chat-statusline">' + chatStatusHtml() + '</div>'
       + '</div>'
-      + chatSideHtml()
-      + chatAccountHtml()
-      + (WB.chatSetupOpen ? chatSetupHtml() : '')
+      + (shut ? '' : chatSideHtml() + chatAccountHtml() + (WB.chatSetupOpen ? chatSetupHtml() : ''))
       + '<div class="wb-chat-log" id="wbChatLog"' + chatPaneStyle('log') + '>' + chatLogHtml() + '</div>'
       + chatToolsHtml()
       + chatActivityHtml()
@@ -16383,6 +16393,11 @@
     else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))
     else if (a === 'chat-continue') continueChat()
     else if (a === 'chat-edit-queued') editQueuedChat(Number(act.getAttribute('data-wb-turn')))
+    else if (a === 'chat-head-fold') {
+      WB.chatHeadShut = !chatHeadShut()
+      try { window.localStorage && window.localStorage.setItem(CHAT_HEAD_KEY, WB.chatHeadShut ? '1' : '0') } catch (_e) { /* only this session */ }
+      renderChat()
+    }
     else if (a === 'chat-setup') { if (WB.chatSetupOpen) { WB.chatSetupOpen = false; renderChat() } else openChatSetup() }
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
     else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }
