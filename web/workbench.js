@@ -10583,7 +10583,7 @@
       + (shut ? '' : '<button type="button" class="wb-mini-btn wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>')
       + '<div class="wb-chat-statusline">' + chatStatusHtml() + '</div>'
       + '</div>'
-      + (shut ? '' : chatSideHtml() + chatAccountHtml() + (WB.chatSetupOpen ? chatSetupHtml() : ''))
+      + (shut ? '' : '<div class="wb-chat-fold-box">' + chatSideHtml() + chatAccountHtml() + (WB.chatSetupOpen ? chatSetupHtml() : '') + '</div>')
       + '<div class="wb-chat-log" id="wbChatLog"' + chatPaneStyle('log') + '>' + chatLogHtml() + '</div>'
       + chatToolsHtml()
       + chatActivityHtml()

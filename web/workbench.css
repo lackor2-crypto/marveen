@@ -1979,3 +1979,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-chat-btns > * { flex: 0 0 auto; white-space: nowrap; }
 .wb-chat-btns .btn-secondary, .wb-chat-btns .btn-primary { padding-left: 10px; padding-right: 10px; }
 .wb-chat-btns .wb-chat-attach { display: inline-flex; align-items: center; }
+
+/* Boss TG 3158: the folded-open chat settings / folder / account rows sit in their own tinted box so they read as a
+   separate panel laid over the top of the chat. */
+.wb-chat-fold-box { background: var(--surface-2, rgba(127, 127, 127, 0.14)); border: 1px solid var(--border, #ddd);
+  border-left: 3px solid var(--accent, #3b82f6); border-radius: 8px; padding: 8px 10px 2px; margin-bottom: 8px; }
+.wb-chat-fold-box .wb-chat-setup { margin-bottom: 8px; }
