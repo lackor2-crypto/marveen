@@ -34,7 +34,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
-import { kickItemContextSweep } from '../../workbench-item-context.js'
+import { isContextFileName, kickItemContextSweep } from '../../workbench-item-context.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -79,7 +79,7 @@ import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../.
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
 import { realpathSync, readFileSync } from 'node:fs'
-import { dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
+import { basename as basenamePath, dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName, isPresentationFile } from '../../workbench-upload.js'
@@ -211,6 +211,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   project_required: {
     hu: 'Nincs megadva, melyik projekt Munkapadját nyitod meg.',
     en: 'It is not given which project\'s Workbench you are opening.',
+  },
+  context_not_attachable: {
+    hu: 'A "Kontextus - ....md" fájl a munkadarab jegyzete, nem maga a munkadarab: nem lehet a munkadarab fájljának megjelölni. A jegyzet a munkadarab mellett marad, a munkadarab saját fájlja ettől független.',
+    en: 'The "Context - ....md" file is the work item\'s notes, not the work item itself: it cannot be set as the item\'s file. The notes stay beside the item; the item\'s own file is separate.',
   },
   version_not_found: {
     hu: 'Ez a verzió nincs meg. Lehet, hogy közben törölted a munkadarabot, vagy egy régi lapot néztél -- frissítsd az oldalt.',
@@ -4225,6 +4229,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         return true
       }
     }
+    // The item's own context file (the case notes, #590 follow-up) is never the item's FILE: the chat agent once attached it,
+    // and the tree then showed the notes as the open document.
+    if (typeof body['source_path'] === 'string' && isContextFileName(basenamePath(body['source_path'].trim()))) return fail(res, 400, 'context_not_attachable', lang)
     const r = createWorkItemVersion(item.id, {
       prompt: body['prompt'],
       // A `source_path` csak akkor valtozik, ha a hivo KIMONDJA -- kulonben marad.

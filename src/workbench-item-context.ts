@@ -242,9 +242,28 @@ function followItemJsonNames(item: WorkItemRow, oldStem: string): number {
   return n
 }
 
+/**
+ * #590 follow-up (Boss TG 3241): the chat agent once ATTACHED the context file as the work item's file, so the tree and the
+ * header showed "Kontextus - ...md" as the open document. The context file is the notes, never the item's file: put the
+ * item back on its last real file (or none), and clear the pointer from the versions that carry it. Idempotent; no file moves.
+ */
+export function healContextAsSource(item: WorkItemRow): WorkItemRow {
+  const isCtx = (p: string | null | undefined): boolean => !!p && isContextFileName(basename(p))
+  const db = getDb()
+  const versions = listWorkItemVersions(item.id)
+  const dirty = versions.filter((v) => isCtx(v.source_path))
+  for (const v of dirty) db.prepare('UPDATE work_item_versions SET source_path = NULL WHERE id = ?').run(v.id)
+  if (!isCtx(item.source_path)) return item
+  const real = versions.filter((v) => v.source_path && !isCtx(v.source_path)).sort((a, b) => b.created_at - a.created_at)[0]
+  db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(real ? real.source_path : null, item.id)
+  logger.info({ item: item.id, to: real ? real.source_path : null }, '[item-context] the context file was the item file: put back')
+  return { ...item, source_path: real ? real.source_path : null }
+}
+
 /** One item: context file, JSON names, materials list. */
 export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { created: boolean; renamed: boolean; json: number } {
   ensureTable()
+  item = healContextAsSource(item)
   const before = readRow(item.id)
   const oldStem = before?.stem || ''
   const json = followItemJsonNames(item, oldStem)

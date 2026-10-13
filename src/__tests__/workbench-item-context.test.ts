@@ -131,3 +131,38 @@ describe('the agent is bound to keep the file', () => {
     expect(SYSTEM_PROMPT).toContain('without being asked')
   })
 })
+
+// #590 follow-up (Boss TG 3241): the context file is the item's notes, never the item's FILE.
+describe('the context file is never the work item file', () => {
+  it('attaching it as the item file is refused with a human sentence', async () => {
+    await sweepItemContexts()
+    const rel = where().rel
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/versions`, 'POST', { source_path: rel })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('context_not_attachable')
+    expect(item().source_path).toBeNull()
+  })
+  it('an item the chat already pointed at its context file is put back by the sweep (and its versions cleaned)', async () => {
+    await sweepItemContexts()
+    const rel = where().rel
+    createWorkItemVersion(itemId, { source_path: rel })
+    createWorkItemVersion(itemId, { source_path: rel })
+    expect(item().source_path).toBe(rel)
+    await sweepItemContexts()
+    expect(item().source_path).toBeNull()
+    const { listWorkItemVersions } = await import('../workbench.js')
+    expect(listWorkItemVersions(itemId).some((v) => v.source_path === rel)).toBe(false)
+    // idempotent
+    await sweepItemContexts()
+    expect(item().source_path).toBeNull()
+  })
+  it('an item with a real earlier file goes back to that file, not to nothing', async () => {
+    await sweepItemContexts()
+    const rel = where().rel
+    const real = rel.replace(/[^/]+$/, 'kerelem.docx')
+    createWorkItemVersion(itemId, { source_path: real })
+    createWorkItemVersion(itemId, { source_path: rel })
+    await sweepItemContexts()
+    expect(item().source_path).toBe(real)
+  })
+})
