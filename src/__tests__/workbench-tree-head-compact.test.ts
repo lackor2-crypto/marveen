@@ -19,4 +19,10 @@ describe('workbench tree header compact (#580)', () => {
   it('the chat attach / dictate / send buttons stay in one row (TG 3155)', () => {
     expect(css).toMatch(/\.wb-chat-btns \{ flex-wrap: nowrap;/)
   })
+  it('the chat input row is a column in every layout (TG 3164)', () => {
+    expect(css).toMatch(/\.wb-chat-row \{ flex-direction: column; align-items: stretch; \}/)
+  })
+  it('the send button is not full width inside the chat button row', () => {
+    expect(css).toMatch(/\.wb-chat-btns \.btn-primary, \.wb-chat-btns \.btn-secondary \{ width: auto;/)
+  })
 })

@@ -1985,3 +1985,12 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-chat-fold-box { background: var(--surface-2, rgba(127, 127, 127, 0.14)); border: 1px solid var(--border, #ddd);
   border-left: 3px solid var(--accent, #3b82f6); border-radius: 8px; padding: 8px 10px 2px; margin-bottom: 8px; }
 .wb-chat-fold-box .wb-chat-setup { margin-bottom: 8px; }
+
+/* The chat column is narrow in EVERY layout (the fixed-frame Simple view too): the input takes the full width and the
+   attach / dictate / send row sits under it. Without this the row layout squeezed the input to ~80px and pushed the
+   attach button out of the panel (Boss, TG 3164). */
+.wb-chat-row { flex-direction: column; align-items: stretch; }
+.wb-chat-row > .wb-chat-btns { align-self: stretch; justify-content: flex-end; }
+/* The global .btn-primary is full width; inside the button row it must only take what is left after attach / dictate. */
+.wb-chat-btns .btn-primary, .wb-chat-btns .btn-secondary { width: auto; margin: 0; }
+.wb-chat-btns .btn-primary { flex: 1 1 auto; }
