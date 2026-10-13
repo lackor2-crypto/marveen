@@ -2518,8 +2518,9 @@
         + templatesHtml()
         + uploadZoneHtml()
     }
-    // Boss TG 3169: three separate blocks: (1) the buttons + the hide switch, (2) the folder tree, (3) trash / rescue / new work.
+    // Boss TG 3169: three separate blocks, folder tree first (TG 3201): (1) the folder tree, (2) the buttons + the hide switch, (3) trash / rescue / new work.
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
+      + '<div class="wb-blk wb-blk-tree">' + body + '</div>'
       + '<div class="wb-blk wb-blk-top">'
       + '<div class="wb-panel-head">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>')
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
@@ -2529,7 +2530,6 @@
       + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</span></div>'
       + hideSw
       + '</div>'
-      + '<div class="wb-blk wb-blk-tree">' + body + '</div>'
       + '<div class="wb-blk wb-blk-foot">' + foot + newBtn + '</div>'
       + rest
       + '</section>'
