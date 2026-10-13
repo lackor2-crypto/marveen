@@ -2017,3 +2017,37 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-chatsplit > span { display: block; width: 4px; height: 48px; border-radius: 2px; background: var(--border, #c7ccd1); }
 .wb-fr-chatsplit:hover > span, .wb-fr-chatsplit:focus-visible > span { background: var(--accent, #2563eb); }
 @media (max-width: 900px) { .wb-fr-chatsplit { display: none; } }
+
+/* ---- Vitaztatas: a panel that covers the work piece while its toolbar button is on ---- */
+.wb-fr-center-db { overflow: auto; background: var(--bg-card); }
+.wb-db { padding: 14px 18px 28px; display: flex; flex-direction: column; gap: 12px; max-width: 1500px; width: 100%; box-sizing: border-box; margin: 0 auto; }
+.wb-db-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-db-head h2 { margin: 0 auto 0 0; font-size: 1.25rem; }
+.wb-db-sub { margin: -6px 0 0; font-size: 0.85rem; }
+.wb-db-steps { margin: 0; padding-left: 20px; font-size: 0.9rem; line-height: 1.5; }
+.wb-db-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+.wb-db-field > span:first-child { font-weight: 600; }
+.wb-db-models { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.wb-db-files, .wb-db-attach { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-db-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.82rem; background: var(--bg); }
+.wb-db-chip-x { border: 0; background: transparent; cursor: pointer; font-size: 1rem; line-height: 1; color: inherit; padding: 0 2px; }
+.wb-db-upload { cursor: pointer; }
+.wb-db-docpick { width: auto; max-width: 260px; }
+.wb-db-question { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-db-round h3, .wb-db-result h3 { margin: 4px 0 6px; font-size: 1rem; }
+.wb-db-note { margin: 0 0 6px; font-size: 0.88rem; white-space: pre-wrap; }
+.wb-db-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.wb-db-col { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg); min-width: 0; }
+.wb-db-colhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.9rem; }
+.wb-db-text { line-height: 1.55; overflow-wrap: anywhere; font-size: 0.93rem; }
+.wb-db-text code { background: rgba(127, 127, 127, 0.18); padding: 0 3px; border-radius: 3px; }
+.wb-db-busy { font-weight: 600; margin: 8px 0; }
+.wb-db-result { border: 2px solid var(--accent, #2563eb); border-radius: 10px; padding: 12px 14px; background: var(--bg); }
+.wb-db-badge { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+.wb-db-badge-yes { background: rgba(22, 163, 74, 0.15); color: #15803d; }
+.wb-db-badge-no { background: rgba(217, 119, 6, 0.15); color: #b45309; }
+.wb-db-past { margin: 0; padding: 8px 12px 8px 28px; border: 1px solid var(--border); border-radius: 8px; max-height: 220px; overflow: auto; font-size: 0.88rem; }
+.wb-db-past li { margin: 3px 0; }
+@media (max-width: 900px) {
+  .wb-db-models, .wb-db-cols { grid-template-columns: minmax(0, 1fr); }
+}

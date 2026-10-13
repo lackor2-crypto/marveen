@@ -136,6 +136,7 @@ import { tryHandlePersistentWindows } from './web/routes/persistent-windows.js'
 import { tryHandleWindowsSettings } from './web/routes/windows-settings.js'
 import { startWindowLayoutSyncTask } from './persistent-windows-sync.js'
 import { tryHandleDebate } from './web/routes/debate.js'
+import { tryHandleDebateRun } from './web/routes/debate-run.js'
 import { tryHandleOpenRouterOverview } from './web/routes/openrouter-overview.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
 import { tryHandleProjects } from './web/routes/projects.js'
@@ -342,6 +343,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleCosts(routeCtx)) return
       if (await tryHandlePersistentWindows(routeCtx)) return
       if (await tryHandleWindowsSettings(routeCtx)) return
+      if (await tryHandleDebateRun(routeCtx)) return
       if (await tryHandleDebate(routeCtx)) return
       if (await tryHandleOpenRouterOverview(routeCtx)) return
       if (await tryHandleIdeas(routeCtx)) return
