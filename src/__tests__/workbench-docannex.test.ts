@@ -129,6 +129,18 @@ describe('a mellekletjegyzek a dokumentumban', () => {
     expect(text()).toBe('Lásd K2, ⚠ Hiányzó adat: a hivatkozott melléklet nincs a jegyzékben (K2) és K1.')
   })
 
+  it('#590: a melleklet, amire a szoveg nem hivatkozik, nem akasztja meg a veglegesitest', () => {
+    annex('Iratok/szerzodes.pdf', 'Szerződés')
+    annex('Iratok/szamla.pdf', 'Számla')
+    const s = addSection(itemId, 'Tényállás', { status: 'done' })
+    if (!s.ok) throw new Error('fejezet')
+    addBlock(itemId, s.section.id, { text: 'Nincs itt hivatkozás.', author: 'agent' })
+    const chk = documentCheck(itemId, resolve)
+    expect(chk.items.find((i) => i.key === 'annexes')).toMatchObject({ ok: true, count: 2, total: 2 })
+    expect(chk.items.some((i) => i.key === 'annex_unreferenced')).toBe(false)
+    expect(chk.items.filter((i) => !i.ok).map((i) => i.key)).not.toContain('annexes')
+  })
+
   it('ellenorzes: hivatkozas nelkuli melleklet, nem letezo mellekletre mutato hivatkozas, eltunt fajl', () => {
     annex('Iratok/szerzodes.pdf', 'Szerződés')
     annex('Iratok/szamla.pdf', 'Számla')
@@ -137,11 +149,13 @@ describe('a mellekletjegyzek a dokumentumban', () => {
     addBlock(itemId, s.section.id, { text: 'Lásd K1 és K5.', author: 'agent' })
     rmSync(join(projDir(), 'Iratok', 'szerzodes.pdf'))
     const ax = annexCheck(itemId, resolve)
-    expect(ax).toEqual({ total: 2, ok: 0, dangling: ['K5'], unreferenced: ['K2'], missing_files: ['K1'], unsupported: [] })
+    expect(ax).toEqual({ total: 2, ok: 1, dangling: ['K5'], unreferenced: ['K2'], missing_files: ['K1'], unsupported: [] })
     const chk = documentCheck(itemId, resolve)
     expect(chk.ready).toBe(false)
     const keys = chk.items.map((i) => i.key)
-    expect(keys).toEqual(expect.arrayContaining(['annexes', 'annex_unreferenced', 'annex_dangling', 'annex_missing_file']))
+    expect(keys).toEqual(expect.arrayContaining(['annexes', 'annex_dangling', 'annex_missing_file']))
+    // #590: an annex the body text never mentions is listed at the end of the document -- that is its reference, no fault.
+    expect(keys).not.toContain('annex_unreferenced')
     // Melleklet es hivatkozas nelkul nincs ilyen sor (nem zaj).
     const other = createWorkItem({ project_id: pid, title: 'Másik', type: 'document' })
     if (!other.ok) throw new Error('masik')

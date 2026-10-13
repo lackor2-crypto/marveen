@@ -300,11 +300,14 @@ function tableBlock(text: string, n: number, draft: boolean, extraStyles: string
   const wCm = parts.width && (parts.width < 100 || freeAsked) ? Math.max(1.5, IMG_MAX_W_CM * parts.width / 100) : null
   // #521: placed freely -- the table stays in the text flow with a left indent and an empty space above it (no text
   // beside it), so it is where the editor shows it, a page break carries it, and it cannot run into the footer.
-  const free = parts.x !== null && parts.y !== null
-  const wrap = wCm !== null && parts.align !== 'c' && !free
+  const over = parts.over && parts.x !== null && parts.y !== null
+  const free = parts.x !== null && parts.y !== null && !over
+  const wrap = wCm !== null && parts.align !== 'c' && !free && !over
   const styleName = wCm === null ? 'Tbl' : `TblW${n}`
   if (wCm !== null) {
-    extraStyles.push(free
+    extraStyles.push(over
+      ? `<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="left" fo:margin-left="0cm" fo:margin-bottom="0cm"/></style:style>`
+      : free
       ? `<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="left" fo:margin-left="${(IMG_MAX_W_CM * (parts.x as number) / 100).toFixed(2)}cm" fo:margin-bottom="0.3cm"/></style:style>`
       : `<style:style style:name="${styleName}" style:family="table"><style:table-properties style:width="${wCm.toFixed(2)}cm" table:align="${wrap ? 'left' : 'center'}" fo:margin-bottom="${wrap ? '0cm' : '0.3cm'}"/></style:style>`)
   }
@@ -313,6 +316,12 @@ function tableBlock(text: string, n: number, draft: boolean, extraStyles: string
     + `<table:table-header-rows>${row(rows[0] as string[], true)}</table:table-header-rows>`
     + rows.slice(1).map((r) => row(r, false)).join('')
     + '</table:table>'
+  // #590: lying OVER the text -- a frame anchored at the paragraph, run-through, at x / y from it; takes no room, pushes nothing
+  // (the same as a picture, #566).
+  if (over) {
+    extraStyles.push(`<style:style style:name="TblOver${n}" style:family="graphic" style:parent-style-name="Frame"><style:graphic-properties style:wrap="run-through" style:run-through="foreground" style:horizontal-pos="from-left" style:horizontal-rel="paragraph" style:vertical-pos="from-top" style:vertical-rel="paragraph" fo:margin-left="0cm" fo:margin-right="0cm" fo:margin-top="0cm" fo:margin-bottom="0cm" fo:padding="0cm" fo:border="none" draw:stroke="none" draw:fill="none" draw:auto-grow-height="true" fo:min-height="0.3cm"/></style:style>`)
+    return [`<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="TblOver${n}" draw:name="TableFrame ${n}" text:anchor-type="paragraph" svg:x="${(IMG_MAX_W_CM * (parts.x as number) / 100).toFixed(2)}cm" svg:y="${(IMG_MAX_W_CM * (parts.y as number) / 100).toFixed(2)}cm" svg:width="${wCm!.toFixed(2)}cm" draw:z-index="1"><draw:text-box fo:min-height="0.3cm">${table}</draw:text-box></draw:frame></text:p>`]
+  }
   if (free && (parts.y as number) > 0) {
     // The empty space above is its own (1pt) paragraph, not the table's top margin: measured 2026-10-10, the Word
     // export drops a table's top margin, while an empty paragraph's space survives in both the PDF and the .docx.

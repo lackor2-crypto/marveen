@@ -1823,9 +1823,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* #566: a picture "free, over the text" -- a zero-height anchor row; the picture is placed from it (x across, y below,
    percent of the text width = the row's width without its 48 px / 44 px gutter) and the text runs under it. */
 .wb-dp-row-over { --wb-gut: 48px; height: 0; }
-.wb-dp-row-over > .wb-dp-img { position: absolute; left: var(--wb-gut); top: 0; z-index: 2; margin: calc((100% - var(--wb-gut)) * var(--wb-oy) / 100) 0 0 calc((100% - var(--wb-gut)) * var(--wb-ox) / 100); width: calc((100% - var(--wb-gut)) * var(--wb-ow) / 100); }
+.wb-dp-row-over > .wb-dp-img, .wb-dp-row-over > .wb-dp-tbl { position: absolute; left: var(--wb-gut); top: 0; z-index: 2; margin: calc((100% - var(--wb-gut)) * var(--wb-oy) / 100) 0 0 calc((100% - var(--wb-gut)) * var(--wb-ox) / 100); width: calc((100% - var(--wb-gut)) * var(--wb-ow) / 100); }
 /* the toolbar sits ABOVE a small picture, so it never covers the picture the owner has to grab */
-.wb-dp-img-over .wb-dp-img-tools { top: -34px; }
+.wb-dp-img-over .wb-dp-img-tools, .wb-dp-tbl-over .wb-dp-img-tools { top: -34px; }
 .wb-dp-row-over img[data-wb-over-img] { cursor: grab; touch-action: none; -webkit-user-drag: none; user-select: none; }
 @media (max-width: 600px) { .wb-dp-row-over { --wb-gut: 44px; } }
 .wb-dp-imgctx { position: fixed; z-index: 10000; min-width: 220px; background: var(--card-bg, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; display: flex; flex-direction: column; }
@@ -2064,3 +2064,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-chat { flex-basis: var(--wb-chat-w, 340px); max-width: calc(100% - 360px); }
 .wb-sh-start-chat > .wb-fr-chat { flex-basis: var(--wb-chat-w, 340px); }
 @media (max-width: 900px) { .wb-fr-chat { flex-basis: auto; max-width: none; } }
+
+/* #590: where the next page of the PDF begins -- a dashed line across the sheet; text under it lands on the next page. */
+.wb-dp-pagebreak { clear: both; position: relative; height: 0; margin: 10px 0; border-top: 2px dashed #d9534f; user-select: none; pointer-events: none; }
+.wb-dp-pagebreak > span { position: absolute; right: 0; top: -11px; padding: 0 6px; background: var(--card-bg, #fff); color: #b02a25; font-size: .72rem; font-weight: 600; line-height: 1.2; }
+.wb-dp-pagebreak.is-inside { border-top-style: dotted; }
+.wb-dp-tb.is-busy { opacity: .6; cursor: progress; }
