@@ -12928,9 +12928,22 @@
 
   function dpTblEdit(bid) {
     WB.dpTblEdit = bid
+    WB.dpTblEditAt = Date.now()
     render()
+    dpTblFocus(bid)
+    // A real mouse click: the grid cell the pointer pressed is gone after the redraw, and the browser's own focus handling of
+    // that click still runs AFTER this handler -- it took the cursor away and the grid came straight back (a synthetic click
+    // never showed it). Take the cursor again right after, so the lines stay open for typing.
+    setTimeout(function () { dpTblFocus(bid) }, 0)
+    setTimeout(function () { dpTblFocus(bid) }, 150)
+  }
+  function dpTblFocus(bid) {
+    if (WB.dpTblEdit !== bid) return
     var el = document.getElementById('wbDpB_' + bid)
-    if (el) { try { el.focus() } catch (_e) { /* nem baj */ } }
+    var cur = dpCurrent()
+    if (!el || (cur && cur.id === el.id)) return
+    dpFocusRoot()
+    dpPlaceCaret(el, null)
   }
 
   /** #562: does this picture float (the text runs beside it)? Left or right, narrower than the page, not placed freely. */
@@ -18043,6 +18056,8 @@
     if (!WB.dpTblEdit) return
     var cur = dpCurrent()
     if (cur && cur.getAttribute('data-wb-block') === WB.dpTblEdit) return
+    // Just opened and the cursor is nowhere yet (the click's own focus handling is still settling): not a leave.
+    if (!cur && Date.now() - (WB.dpTblEditAt || 0) < 400) return
     var bid = WB.dpTblEdit
     dpFlush().then(function () {
       if (WB.dpTblEdit === bid) { WB.dpTblEdit = null; render() }

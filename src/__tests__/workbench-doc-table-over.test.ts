@@ -59,3 +59,12 @@ describe('the editor', () => {
     expect((js.match(/tp\.width, tp\.align, tp\.x, tp\.y, tp\.over/g) || []).length).toBe(3)
   })
 })
+
+describe('#590: a real mouse click opens the table for editing and keeps it open', () => {
+  it('takes the cursor again after the click\'s own focus handling, and a just-opened table is not "left" while the cursor is nowhere', () => {
+    expect(js).toContain('function dpTblFocus(bid)')
+    expect(js).toContain('setTimeout(function () { dpTblFocus(bid) }, 0)')
+    expect(js).toContain('setTimeout(function () { dpTblFocus(bid) }, 150)')
+    expect(js).toContain('if (!cur && Date.now() - (WB.dpTblEditAt || 0) < 400) return')
+  })
+})
