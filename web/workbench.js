@@ -387,6 +387,33 @@
     })
   }
 
+  /** Loads the folder tree and the item list again, for a change made outside the page (an agent's command, a link
+   *  made in another view). Only these two are replaced; the open item, the editor and the ticks stay as they are. */
+  function refreshTree() {
+    var pid = WB.projectId
+    if (!pid || !WB.open) return Promise.resolve()
+    return api('GET', '/api/workbench/items?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (WB.projectId !== pid || !r.ok || !r.data) return
+      WB.workFolders = r.data.work_folders || null
+      WB.items = r.data.items || WB.items
+      announceFolderMoves(r.data.folder_moves, r.data.work_folders)
+      render()
+    })
+  }
+
+  // The owner comes back to this page (another tab, a link made in the life tree view): show the current tree.
+  // Not more often than every 15 s, and never while a file action runs.
+  var treeSeenAt = 0
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState !== 'visible' || !WB.open || !WB.projectId || WB.fileBusy) return
+      var now = Date.now()
+      if (now - treeSeenAt < 15000) return
+      treeSeenAt = now
+      refreshTree()
+    })
+  }
+
   // ---- kituzes (#406, 21bcb1f4) ---------------------------------------------
   //
   // A sorrendet a szerver adja vissza (friss lista), a felulet nem rendez maga.
@@ -10651,6 +10678,10 @@
     if (valtozott && WB.projectId) {
       load(WB.projectId)
       if (WB.selectedId) loadDetail(WB.selectedId)
+    } else if ((turn.tools || []).some(function (x) { return x.status === 'ok' })) {
+      // The agent ran commands (a folder link, a move, a file written): the tree on the left must show the
+      // new state without F5 (owner, 2026-10-13). The commands are not work-item tools, so ask the server.
+      refreshTree()
     }
     refreshSelectedAfterTurn()
     // A keret allapota a fordulo utan mar mas: ujramerjuk, nem emlekezetbol irjuk.
