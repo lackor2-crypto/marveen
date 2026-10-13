@@ -30,6 +30,11 @@ describe('chat splitter', () => {
     expect(js).toContain("chatPaneStyle('tools')")
     expect(css).toContain('.wb-chat-split')
   })
+  it('the lower strip keeps the dragged height and the upper one flexes (fixed-frame Simple view, TG 3148)', () => {
+    expect(js).toContain("tools.style.flex = '0 0 auto'")
+    expect(js).toContain("log.style.flex = '1 1 auto'")
+    expect(js).toContain('A fixed-height frame squeezes the upper strip')
+  })
   it('the hint is in both languages', () => {
     expect(hu).toContain('"workbench.chat.split_hint"')
     expect(en).toContain('"workbench.chat.split_hint"')
