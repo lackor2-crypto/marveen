@@ -26,6 +26,8 @@ interface Harness {
   /** Fajlvalaszto / legordulo: a VALODI `change`-figyelot szolaltatja meg.
    *  A `value` a legordulonel szamit (verzio-valaszto), a fajlvalasztonal ures. */
   change: (id: string, files: unknown[], value?: string) => void
+  /** Gepeles egy szovegmezoben: a VALODI `input`-figyelot szolaltatja meg. */
+  input: (id: string, value: string) => void
   fetchCalls: { url: string; init?: RequestInit }[]
   toasts: string[]
   inputs: Record<string, { value: string; focus: () => void }>
@@ -102,6 +104,7 @@ function harness(): Harness {
   const clickHandlers: Handler[] = []
   const submitHandlers: Handler[] = []
   const changeHandlers: Handler[] = []
+  const inputHandlers: Handler[] = []
   const downHandlers: Handler[] = []
   const moveHandlers: Handler[] = []
   const upHandlers: Handler[] = []
@@ -124,6 +127,7 @@ function harness(): Harness {
       if (type === 'click') clickHandlers.push(fn)
       if (type === 'submit') submitHandlers.push(fn)
       if (type === 'change') changeHandlers.push(fn)
+      if (type === 'input') inputHandlers.push(fn)
       if (type === 'pointerdown') downHandlers.push(fn)
       if (type === 'pointermove') moveHandlers.push(fn)
       if (type === 'pointerup') upHandlers.push(fn)
@@ -204,6 +208,10 @@ function harness(): Harness {
     change(id, files, value = '') {
       const e = { target: { id, files, value }, preventDefault() {} }
       for (const h of changeHandlers) h(e)
+    },
+    input(id, value) {
+      const e = { target: { id, value }, preventDefault() {} }
+      for (const h of inputHandlers) h(e)
     },
   }
 }
@@ -2964,5 +2972,124 @@ describe('a szerkeszto panel sorrendje (jelenlegi munka)', () => {
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     // the export button no longer lives in the version bar at the top
     expect(SRC.slice(SRC.indexOf('function versionBarHtml()'), SRC.indexOf('function exportBarHtml()'))).not.toContain('export-open')
+  })
+})
+
+describe('Vitaztatas gomb a Munkapadon (Boss: ket modell vitazik, a projekthez kotve)', () => {
+  const MODELS = { defaults: ['openai/gpt-5.5', 'deepseek/deepseek-v4'], catalog: [{ id: 'openai/gpt-5.5', name: 'GPT 5.5', free: false }], has_key: true, catalog_error: false }
+  const ROUND1 = { session: 's1', round: 1, responses: [
+    { model: 'openai/gpt-5.5', ok: true, text: 'A valasz **A**' },
+    { model: 'deepseek/deepseek-v4', ok: true, text: 'B valasz' },
+  ] }
+
+  function route(url: string, init?: RequestInit): { status: number; body: unknown } {
+    if (url.includes('/api/debate/models')) return { status: 200, body: MODELS }
+    if (url.includes('/api/debate/sessions?')) return { status: 200, body: { sessions: [] } }
+    if (url.includes('/api/debate/run')) return { status: 200, body: JSON.parse(String(init?.body)).session ? { ...ROUND1, round: 2 } : ROUND1 }
+    if (url.includes('/conclude')) return { status: 200, body: { consensus: true, summary: 'Az eredmeny' } }
+    return { status: 200, body: itemsBody([]) }
+  }
+
+  async function opened(simple: boolean) {
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    if (simple) {
+      h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-sh-start'))
+    }
+  }
+
+  const post = (needle: string) => h.fetchCalls.filter(c => c.url.includes(needle) && c.init?.method === 'POST')
+
+  it('az Asszisztens es az Iratok KOZOTT all a gomb (egyszeru nezet, nincs megnyitott munka)', async () => {
+    await opened(true)
+    const html = h.rootEl.innerHTML
+    const at = (needle: string) => html.indexOf(needle)
+    expect(at('data-wb-act="fr-chat"')).toBeGreaterThan(0)
+    expect(at('data-wb-act="db-open"')).toBeGreaterThan(at('data-wb-act="fr-chat"'))
+    expect(at('data-wb-act="db-open"')).toBeLessThan(at('data-wb-act="pd-open"'))
+  })
+
+  it('a keret felso savjaban is ott van (megnyitott munkadarabnal): a chat es az iratok kozott', () => {
+    const start = SRC.indexOf('function frTopHtml()')
+    const body = SRC.slice(start, SRC.indexOf('function frMenuHtml()', start))
+    const order = ["data-wb-act=\"fr-chat\"", "dbButtonHtml('wb-fr-tbtn wb-fr-docs')", "data-wb-act=\"pd-open\""]
+    const idx = order.map(k => body.indexOf(k))
+    expect(idx.every(i => i > 0)).toBe(true)
+    expect([...idx].sort((a, b) => a - b)).toEqual(idx)
+  })
+
+  it('megnyomva a kozepen vitaszoveg-mezo es ket modell-mezo jon, az alapertelmezett modellekkel', async () => {
+    await opened(true)
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('id="wbDbModelA"')
+    expect(html).toContain('value="openai/gpt-5.5"')
+    expect(html).toContain('value="deepseek/deepseek-v4"')
+    expect(html).toContain('type="file"')
+    // a start-kepernyo (kerdes + legutobbi munkak) helyett van itt
+    expect(html).not.toContain('wb-sh-intake')
+    // masodszor megnyomva eltunik, visszajon a munkapad
+    h.click({ 'data-wb-act': 'db-open' })
+    expect(h.rootEl.innerHTML).not.toContain('id="wbDbQ"')
+    expect(h.rootEl.innerHTML).toContain('wb-sh-intake')
+  })
+
+  it('kerdes nelkul nem indul, es mondja miert (nincs hivas a szerver fele)', async () => {
+    await opened(true)
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbDbQ"'))
+    h.click({ 'data-wb-act': 'db-start' })
+    expect(h.rootEl.innerHTML).toContain('workbench.db.err_question')
+    expect(post('/api/debate/run')).toHaveLength(0)
+  })
+
+  it('vegigmegy a feluletrol: kerdes -> 1. kor ket oszlopban -> irany -> lezaras -> eredmeny', async () => {
+    await opened(true)
+    h.click({ 'data-wb-act': 'db-open' })
+    // the default models arrive from the server a moment after the panel opens
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+    h.input('wbDbQ', 'Jo a valaszlevel?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-db-cols'))
+    const sent = JSON.parse(String(post('/api/debate/run')[0].init!.body))
+    expect(sent).toMatchObject({ project: 'p1', question: 'Jo a valaszlevel?', models: ['openai/gpt-5.5', 'deepseek/deepseek-v4'] })
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('<strong>A</strong>')
+    expect(html).toContain('B valasz')
+    expect(html).toContain('data-wb-act="db-conclude"')
+    // a kovetkezo kor ugyanabba a vitaba megy, az iranyaval
+    h.input('wbDbSteer', 'A hatarido erdekel')
+    h.click({ 'data-wb-act': 'db-next' })
+    await vi.waitFor(() => expect(post('/api/debate/run')).toHaveLength(2))
+    expect(JSON.parse(String(post('/api/debate/run')[1].init!.body))).toEqual({ session: 's1', steer: 'A hatarido erdekel' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A hatarido erdekel'))
+    h.click({ 'data-wb-act': 'db-conclude' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Az eredmeny'))
+    expect(h.rootEl.innerHTML).toContain('workbench.db.consensus_yes')
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-copy-result"')
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="db-next"')
+  })
+
+  it('a hibas valasz nem tunik el: a szerver uzenete latszik a panelen', async () => {
+    h.respond((url) => url.includes('/api/debate/run') ? { status: 409, body: { error: 'no_key', message: 'Nincs OpenRouter-kulcs' } } : route(url))
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    // the default models arrive from the server a moment after the panel opens
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+    h.input('wbDbQ', 'Kerdes')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Nincs OpenRouter-kulcs'))
+    expect(h.rootEl.innerHTML).toContain('id="wbDbQ"')
+  })
+
+  it('klasszikus nezetben is van gomb es panel', async () => {
+    await opened(false)
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-open"')
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbDbQ"'))
   })
 })

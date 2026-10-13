@@ -1283,6 +1283,8 @@
   function selectItem(id) {
     if (!id) return
     WB.selectedId = id
+    // Clicking a work piece shows it: the debate panel steps aside (its state stays for the next opening).
+    WB.dbOpen = false
     WB.frZoom = FR_ZOOM_DEFAULT
     WB.panel = 'editor'
     // Mas munkadarab: a felig nyitott resz-szerkesztes nem szivaroghat at.
@@ -12590,7 +12592,8 @@
     if (!it) {
       out += '<button type="button" class="btn-secondary wb-sh-chat-btn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
     }
-    out += '<button type="button" class="btn-secondary wb-sh-docs" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
+    out += dbButtonHtml('btn-secondary wb-sh-docs')
+      + '<button type="button" class="btn-secondary wb-sh-docs" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
       + viewSwitchHtml()
       + '<button type="button" class="btn-secondary wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '"'
       + ' aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
@@ -14554,6 +14557,7 @@
       + '<span class="wb-fr-name">' + (it ? workSeqHtml(it) + esc(it.title) : '') + '</span>'
       + '<button type="button" class="wb-fr-tbtn' + (WB.frChat ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-chat" aria-pressed="' + !!WB.frChat + '" title="' + escA(t('workbench.fr.chat_toggle')) + '">💬 ' + esc(t('workbench.fr.chat')) + '</button>'
       + (sizeOn ? '<button type="button" class="wb-fr-tbtn' + (WB.frLive ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-live" aria-pressed="' + !!WB.frLive + '" title="' + escA(t('workbench.fr.live_title')) + '">&#128065; ' + esc(t(WB.frLive ? 'workbench.fr.live_on' : 'workbench.fr.live_off')) + '</button>' : '')
+      + dbButtonHtml('wb-fr-tbtn wb-fr-docs')
       + '<button type="button" class="wb-fr-tbtn wb-fr-docs' + (WB.pdOpen ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
       + finalizeTopHtml(it)
       + viewSwitchHtml()
@@ -15121,8 +15125,339 @@
     })
   }
 
+  // ---- Vitaztatas (debate) ----------------------------------------------------
+  // Two models answer the same question side by side, round after round; the owner steers between the rounds and
+  // closes the debate when it is enough. The SERVER runs it (src/debate-run.ts, routes/debate-run.ts) and files it
+  // under this project in the shared debate log, so it also shows on the Marvin "Vitaztatas" page, filterable by project.
+
+  function dbState() {
+    if (!WB.db) {
+      WB.db = { models: null, a: '', b: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
+        busy: '', error: '', summary: null, consensus: null, concluded: false, past: null, pastOpen: false, loadingState: false }
+    }
+    return WB.db
+  }
+
+  function dbReset() {
+    var keep = WB.db
+    WB.db = null
+    var s = dbState()
+    // The model choice is kept: the next debate usually uses the same pair.
+    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b }
+  }
+
+  /** Reply text -> safe HTML: escaped first, then only headings, **bold**, `code` and line breaks are recognised. */
+  function dbTextHtml(text) {
+    return esc(String(text || '')).split('\n').map(function (ln) {
+      var h = /^\s{0,3}#{1,4}\s+(.*)$/.exec(ln)
+      if (h) ln = '<strong>' + h[1] + '</strong>'
+      return ln.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>')
+    }).join('<br>')
+  }
+
+  function dbModelShort(id) { return String(id || '').replace(/^[^/]+\//, '') }
+
+  /** The whole debate as plain text, for the copy button. */
+  function dbTranscript() {
+    var s = dbState()
+    var out = [t('workbench.db.q_shown') + ': ' + s.q]
+    s.rounds.forEach(function (r) {
+      out.push('', '=== ' + t('workbench.db.round_head', { n: r.round }) + ' ===')
+      if (r.round > 1 && r.prompt) out.push(t('workbench.db.round_note') + ': ' + r.prompt)
+      r.responses.forEach(function (x) { out.push('', '--- ' + x.model + ' ---', x.ok ? (x.text || '') : t('workbench.db.model_failed', { error: x.error || '' })) })
+    })
+    if (s.summary) out.push('', '=== ' + t('workbench.db.result_title') + ' ===', s.summary)
+    return out.join('\n')
+  }
+
+  function dbCopy(text) {
+    var done = function () { window.showToast(t('workbench.db.copied')) }
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, function () { dbCopyFallback(text, done) }); return }
+    dbCopyFallback(text, done)
+  }
+  function dbCopyFallback(text, done) {
+    var ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'; ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy'); done() } catch (_e) { window.showToast(t('workbench.db.copy_failed')) }
+    document.body.removeChild(ta)
+  }
+
+  function dbLoadModels() {
+    var s = dbState()
+    // A missing key or a failed catalog is asked again at the next opening: the key may have been added meanwhile.
+    if (s.models && s.models.has_key && !s.models.catalog_error) return
+    api('GET', '/api/debate/models').then(function (r) {
+      var st = dbState()
+      st.models = r.ok ? r.data : { defaults: [], catalog: [], has_key: true, catalog_error: true }
+      if (!st.a && st.models.defaults[0]) st.a = st.models.defaults[0]
+      if (!st.b && st.models.defaults[1]) st.b = st.models.defaults[1]
+      render()
+    })
+  }
+
+  function dbLoadPast() {
+    if (!WB.projectId) return
+    api('GET', '/api/debate/sessions?project=' + encodeURIComponent(WB.projectId)).then(function (r) {
+      dbState().past = r.ok && r.data && r.data.sessions ? r.data.sessions : []
+      render()
+    })
+  }
+
+  function dbOpenPanel() {
+    WB.dbOpen = !WB.dbOpen
+    if (WB.dbOpen) {
+      dbLoadModels()
+      if (dbState().past === null) dbLoadPast()
+      if (!WB.pdocs) loadProjectDocs()
+    }
+    render()
+  }
+
+  function dbResume(id) {
+    var s = dbState()
+    s.loadingState = true; s.pastOpen = false; s.error = ''
+    render()
+    api('GET', '/api/debate/sessions/' + encodeURIComponent(id) + '/state').then(function (r) {
+      var st = dbState()
+      st.loadingState = false
+      if (!r.ok) { st.error = r.message; render(); return }
+      var d = r.data
+      st.session = d.id; st.q = d.question; st.a = d.models[0] || ''; st.b = d.models[1] || ''
+      st.files = (d.attachments || []).map(function (a) { return { name: a.name, chars: a.chars, text: '', kept: true } })
+      st.rounds = d.rounds; st.concluded = !!d.concluded; st.summary = d.summary; st.consensus = d.consensus
+      st.steer = ''
+      render()
+    })
+  }
+
+  /** Reads a file the owner picked and turns it into text on the server (pdf / docx / text). */
+  function dbAttachFile(file) {
+    var s = dbState()
+    if (!file) return
+    if (file.size > 15 * 1024 * 1024) { window.showToast(t('workbench.db.file_too_big')); return }
+    s.reading++; s.error = ''
+    render()
+    var fr = new FileReader()
+    fr.onload = function () {
+      var b64 = String(fr.result || '').split(',')[1] || ''
+      api('POST', '/api/debate/attachment', { name: file.name, data_base64: b64 }).then(dbAttached)
+    }
+    fr.onerror = function () { dbState().reading--; window.showToast(t('workbench.db.file_unreadable')); render() }
+    fr.readAsDataURL(file)
+  }
+
+  function dbAttachDoc(rel) {
+    if (!rel) return
+    dbState().reading++
+    render()
+    api('POST', '/api/debate/attachment', { rel: rel }).then(dbAttached)
+  }
+
+  function dbAttachItem() {
+    if (!WB.selectedId) return
+    dbState().reading++
+    render()
+    api('POST', '/api/debate/attachment', { item: WB.selectedId }).then(dbAttached)
+  }
+
+  function dbAttached(r) {
+    var s = dbState()
+    s.reading = Math.max(0, s.reading - 1)
+    if (!r.ok) { s.error = r.message; window.showToast(r.message) } else s.files.push(r.data)
+    render()
+  }
+
+  function dbRun(steer) {
+    var s = dbState()
+    if (s.busy) return
+    var body = s.session ? { session: s.session, steer: steer || '' } : { project: WB.projectId, question: s.q, models: [s.a.trim(), s.b.trim()], attachments: s.files }
+    if (!s.session) {
+      if (!s.q.trim()) { s.error = t('workbench.db.err_question'); render(); return }
+      if (!s.a.trim() || !s.b.trim() || s.a.trim() === s.b.trim()) { s.error = t('workbench.db.err_models'); render(); return }
+    }
+    s.busy = 'run'; s.error = ''
+    render()
+    api('POST', '/api/debate/run', body).then(function (r) {
+      var st = dbState()
+      st.busy = ''
+      if (!r.ok) { st.error = r.message; render(); return }
+      var d = r.data
+      st.session = d.session
+      st.rounds.push({ round: d.round, prompt: d.round === 1 ? st.q : (steer || ''), responses: d.responses })
+      st.steer = ''
+      st.past = null
+      render()
+      dbLoadPast()
+    })
+  }
+
+  function dbConclude() {
+    var s = dbState()
+    if (s.busy || !s.session) return
+    s.busy = 'conclude'; s.error = ''
+    render()
+    api('POST', '/api/debate/sessions/' + encodeURIComponent(s.session) + '/conclude', {}).then(function (r) {
+      var st = dbState()
+      st.busy = ''
+      if (!r.ok) { st.error = r.message; render(); return }
+      st.concluded = true; st.summary = r.data.summary; st.consensus = r.data.consensus
+      st.past = null
+      render()
+      dbLoadPast()
+    })
+  }
+
+  /** The toolbar button, between the assistant and the documents. `cls` is the surrounding toolbar's button class. */
+  function dbButtonHtml(cls) {
+    return '<button type="button" class="' + cls + (WB.dbOpen && cls.indexOf('wb-fr-tbtn') >= 0 ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="db-open" aria-pressed="' + !!WB.dbOpen + '" title="' + escA(t('workbench.db.open_hint')) + '">🔀 ' + esc(t('workbench.db.open')) + '</button>'
+  }
+
+  function dbModelInput(id, label, value) {
+    return '<label class="wb-db-field"><span>' + esc(label) + '</span>'
+      + '<input type="text" class="wb-input" id="' + id + '" list="wbDbModelList" autocomplete="off" spellcheck="false"'
+      + ' placeholder="' + escA(t('workbench.db.model_ph')) + '" value="' + escA(value) + '"></label>'
+  }
+
+  function dbSetupHtml(s) {
+    var m = s.models
+    var out = '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.step1')) + '</li><li>' + esc(t('workbench.db.step2')) + '</li>'
+      + '<li>' + esc(t('workbench.db.step3')) + '</li><li>' + esc(t('workbench.db.step4')) + '</li></ol>'
+    if (m && m.has_key === false) out += '<p class="wb-error">' + esc(t('workbench.db.no_key')) + '</p>'
+    out += '<label class="wb-db-field"><span>' + esc(t('workbench.db.q_label')) + '</span>'
+      + '<textarea class="wb-input" id="wbDbQ" rows="5" maxlength="20000" placeholder="' + escA(t('workbench.db.q_ph')) + '">' + esc(s.q) + '</textarea></label>'
+    // Supporting material
+    out += '<div class="wb-db-field"><span>' + esc(t('workbench.db.files_label')) + '</span><div class="wb-db-files">'
+    s.files.forEach(function (f, i) {
+      out += '<span class="wb-db-chip" title="' + escA(f.truncated ? t('workbench.db.file_truncated') : '') + '">📎 ' + esc(f.name)
+        + (f.truncated ? ' ⚠' : '') + ' <button type="button" class="wb-db-chip-x" data-wb-act="db-file-del" data-wb-i="' + i + '" aria-label="' + escA(t('workbench.db.file_remove')) + '">×</button></span>'
+    })
+    if (s.reading) out += '<span class="wb-muted">' + esc(t('workbench.db.file_reading')) + '</span>'
+    out += '</div><div class="wb-db-attach">'
+      + '<label class="btn-secondary btn-compact wb-db-upload">' + esc(t('workbench.db.attach_file'))
+      + '<input type="file" id="wbDbFile" hidden accept=".pdf,.docx,.txt,.md,.csv,.json,.html,.rtf"></label>'
+    var docs = WB.pdocs && WB.pdocs.docs ? WB.pdocs.docs.filter(function (d) { return d.life_rel && d.exists !== false }) : []
+    if (docs.length) {
+      out += '<select class="wb-input wb-db-docpick" id="wbDbDocPick" aria-label="' + escA(t('workbench.db.attach_doc')) + '"><option value="">' + esc(t('workbench.db.attach_doc')) + '</option>'
+        + docs.map(function (d) { return '<option value="' + escA(d.life_rel) + '">' + esc(d.name) + '</option>' }).join('') + '</select>'
+    }
+    if (WB.selectedId) out += '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-attach-item">' + esc(t('workbench.db.attach_item')) + '</button>'
+    out += '</div></div>'
+    // The two models, like two documents side by side
+    out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t('workbench.db.model_a'), s.a) + dbModelInput('wbDbModelB', t('workbench.db.model_b'), s.b) + '</div>'
+    out += '<datalist id="wbDbModelList">' + ((m && m.catalog) || []).map(function (c) { return '<option value="' + escA(c.id) + '">' + esc(c.name) + '</option>' }).join('') + '</datalist>'
+    if (m && m.catalog_error) out += '<p class="wb-muted">' + esc(t('workbench.db.catalog_error')) + '</p>'
+    out += '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-start"' + (s.busy || s.reading ? ' disabled' : '') + '>' + esc(t('workbench.db.start')) + '</button></div>'
+    return out
+  }
+
+  function dbRoundHtml(s, r) {
+    var cols = [s.a, s.b].map(function (model) {
+      var x = null
+      r.responses.forEach(function (y) { if (y.model === model) x = y })
+      var body = !x ? '<p class="wb-muted">–</p>'
+        : x.ok ? '<div class="wb-db-text">' + dbTextHtml(x.text) + '</div>'
+        : '<p class="wb-error">' + esc(t('workbench.db.model_failed', { error: x.error || '' })) + '</p>'
+      return '<div class="wb-db-col"><div class="wb-db-colhead"><strong>' + esc(dbModelShort(model)) + '</strong>'
+        + (x && x.ok ? ' <button type="button" class="wb-linklike" data-wb-act="db-copy" data-wb-round="' + r.round + '" data-wb-model="' + escA(model) + '">' + esc(t('workbench.db.copy')) + '</button>' : '')
+        + '</div>' + body + '</div>'
+    }).join('')
+    return '<section class="wb-db-round"><h3>' + esc(t('workbench.db.round_head', { n: r.round })) + '</h3>'
+      + (r.round > 1 && r.prompt ? '<p class="wb-db-note"><em>' + esc(t('workbench.db.round_note')) + ':</em> ' + esc(r.prompt) + '</p>' : '')
+      + '<div class="wb-db-cols">' + cols + '</div></section>'
+  }
+
+  function dbSessionHtml(s) {
+    var out = '<div class="wb-db-question"><strong>' + esc(t('workbench.db.q_shown')) + ':</strong> ' + esc(s.q)
+      + (s.files.length ? '<div class="wb-db-files">' + s.files.map(function (f) { return '<span class="wb-db-chip">📎 ' + esc(f.name) + '</span>' }).join('') + '</div>' : '')
+      + '</div>'
+    s.rounds.forEach(function (r) { out += dbRoundHtml(s, r) })
+    if (s.busy) {
+      out += '<p class="wb-db-busy" role="status">' + esc(t(s.busy === 'conclude' ? 'workbench.db.concluding' : 'workbench.db.running', { n: s.rounds.length + 1 })) + '</p>'
+    } else if (s.concluded) {
+      out += '<section class="wb-db-result"><h3>' + esc(t('workbench.db.result_title')) + ' <span class="wb-db-badge wb-db-badge-' + (s.consensus ? 'yes' : 'no') + '">'
+        + esc(t(s.consensus ? 'workbench.db.consensus_yes' : 'workbench.db.consensus_no')) + '</span></h3>'
+        + '<div class="wb-db-text">' + dbTextHtml(s.summary) + '</div>'
+        + '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-copy-result">' + esc(t('workbench.db.copy_result')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="db-copy-all">' + esc(t('workbench.db.copy_all')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="db-new">' + esc(t('workbench.db.new_btn')) + '</button></div></section>'
+    } else {
+      out += '<label class="wb-db-field"><span>' + esc(t('workbench.db.steer_label')) + '</span>'
+        + '<textarea class="wb-input" id="wbDbSteer" rows="3" maxlength="20000" placeholder="' + escA(t('workbench.db.steer_ph')) + '">' + esc(s.steer) + '</textarea></label>'
+        + '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-next">' + esc(t('workbench.db.next')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="db-conclude">' + esc(t('workbench.db.conclude')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="db-copy-all">' + esc(t('workbench.db.copy_all')) + '</button></div>'
+    }
+    return out
+  }
+
+  function dbPastHtml(s) {
+    if (!s.pastOpen) return ''
+    var list = s.past || []
+    if (!list.length) return '<div class="wb-db-past"><p class="wb-muted">' + esc(t('workbench.db.past_none')) + '</p></div>'
+    return '<ul class="wb-db-past">' + list.map(function (p) {
+      return '<li><button type="button" class="wb-linklike" data-wb-act="db-resume" data-wb-id="' + escA(p.id) + '">' + esc(p.questionPreview || p.id) + '</button>'
+        + ' <span class="wb-muted">' + esc(t('workbench.db.past_meta', { n: p.rounds, when: when(p.lastAt) })) + (p.concluded ? ' · ' + esc(t('workbench.db.closed')) : '') + '</span></li>'
+    }).join('') + '</ul>'
+  }
+
+  /** The debate panel: takes the middle of the page while the Vitaztatas button is on. */
+  function dbPanelHtml() {
+    var s = dbState()
+    var head = '<div class="wb-db-head"><h2>' + esc(t('workbench.db.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-past">' + esc(t('workbench.db.past_btn', { n: s.past ? s.past.length : 0 })) + '</button>'
+      + (s.session || s.q ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-new">' + esc(t('workbench.db.new_btn')) + '</button>' : '')
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-open" aria-label="' + escA(t('workbench.db.close')) + '">' + esc(t('workbench.db.close')) + '</button></div>'
+      + '<p class="wb-muted wb-db-sub">' + esc(t('workbench.db.sub')) + '</p>'
+    var body = s.loadingState ? '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>' : s.session ? dbSessionHtml(s) : dbSetupHtml(s)
+    return '<div class="wb-db">' + head + dbPastHtml(s) + (s.error ? '<p class="wb-error" role="alert">' + esc(s.error) + '</p>' : '') + body + '</div>'
+  }
+
+  function dbAct(a, act) {
+    var s = dbState()
+    if (a === 'db-open') dbOpenPanel()
+    else if (a === 'db-past') { s.pastOpen = !s.pastOpen; if (s.past === null) dbLoadPast(); render() }
+    else if (a === 'db-new') { dbReset(); render() }
+    else if (a === 'db-start') dbRun('')
+    else if (a === 'db-next') dbRun(s.steer)
+    else if (a === 'db-conclude') dbConclude()
+    else if (a === 'db-resume') dbResume(act.getAttribute('data-wb-id'))
+    else if (a === 'db-attach-item') dbAttachItem()
+    else if (a === 'db-file-del') { s.files.splice(Number(act.getAttribute('data-wb-i')), 1); render() }
+    else if (a === 'db-copy-all') dbCopy(dbTranscript())
+    else if (a === 'db-copy-result') dbCopy(s.summary || '')
+    else if (a === 'db-copy') {
+      var rn = Number(act.getAttribute('data-wb-round')); var md = act.getAttribute('data-wb-model')
+      s.rounds.forEach(function (r) { if (r.round === rn) r.responses.forEach(function (x) { if (x.model === md) dbCopy(x.text || '') }) })
+    }
+  }
+
+  document.addEventListener('input', function (e) {
+    if (!WB.open || !WB.db || !e.target) return
+    var s = WB.db
+    if (e.target.id === 'wbDbQ') s.q = e.target.value
+    else if (e.target.id === 'wbDbSteer') s.steer = e.target.value
+    else if (e.target.id === 'wbDbModelA') s.a = e.target.value
+    else if (e.target.id === 'wbDbModelB') s.b = e.target.value
+  })
+  document.addEventListener('change', function (e) {
+    if (!WB.open || !e.target) return
+    if (e.target.id === 'wbDbFile') {
+      var f = e.target.files && e.target.files[0]
+      try { e.target.value = '' } catch (_e) { /* old browser: harmless */ }
+      dbAttachFile(f)
+    } else if (e.target.id === 'wbDbDocPick') {
+      var rel = e.target.value
+      if (rel) dbAttachDoc(rel)
+    }
+  })
+
   function frCenterHtml() {
     var it = WB.detail ? WB.detail.item : null
+    // The Vitaztatas button covers the work piece; pressing it again brings the work piece back.
+    if (WB.dbOpen) { WB.frShowBar = false; return '<div class="wb-fr-center wb-fr-center-db">' + dbPanelHtml() + '</div>' }
     var page = ''
     var scrolling = ''
     var strip = ''
@@ -15283,7 +15618,7 @@
     var hasItem = !!WB.selectedId
     if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
     return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-start' + (WB.frChat ? ' wb-sh-start-chat' : '') + '">'
-      + '<div class="wb-sh-main">' + simpleIntakeHtml() + simpleRecentHtml() + '</div>' + frChatHtml() + '</div>'
+      + '<div class="wb-sh-main">' + (WB.dbOpen ? dbPanelHtml() : simpleIntakeHtml() + simpleRecentHtml()) + '</div>' + frChatHtml() + '</div>'
       + (WB.shMore ? simpleTechHtml() : '')
   }
 
@@ -15473,7 +15808,7 @@
     // A tablazat egy cellajaban all a kurzor: az ujrarajzolas utan ugyanoda
     // tesszuk vissza (a chat streamelese kozben is lehessen gepelni).
     var active = document.activeElement
-    var keepCell = active && /^wb(Cell_|Img|TextEdit$|PartText$|PartNewText$|ChatInput$|BrandName\d+$|BrandNotes$|BrandMinW$)/.test(String(active.id || '')) ? active.id : null
+    var keepCell = active && /^wb(Cell_|Img|TextEdit$|PartText$|PartNewText$|ChatInput$|DbQ$|DbSteer$|DbModel[AB]$|BrandName\d+$|BrandNotes$|BrandMinW$)/.test(String(active.id || '')) ? active.id : null
     var caret = keepCell && typeof active.selectionStart === 'number' ? active.selectionStart : null
     // Az uj szoveges resz mezojet semmi mas nem tarolja: az ujrarajzolas (pl.
     // mentes kozben, diktalas indulasakor) kulonben kitorolne a begepelt szoveget.
@@ -15510,6 +15845,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="wk-open" aria-pressed="' + !!WB.wkOpen + '">' + esc(t('workbench.wk.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="tl-open" aria-pressed="' + !!WB.tlOpen + '">' + esc(t('workbench.tl.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
+      + dbButtonHtml('btn-secondary')
       + '<button type="button" class="btn-secondary" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '">' + esc(t('workbench.pd.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="brand-open" aria-pressed="' + !!WB.brandOpen + '">' + esc(t('workbench.brand.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="td-open" aria-pressed="' + !!WB.tdOpen + '">' + esc(t('workbench.td.open')) + '</button>'
@@ -15523,6 +15859,7 @@
       + weeklyPanelHtml()
       + decisionsPanelHtml()
       + projectDocsPanelHtml()
+      + (WB.dbOpen ? dbPanelHtml() : '')
       + brandPanelHtml()
       + todosPanelHtml()
       + handoffPanelHtml()
@@ -15921,6 +16258,8 @@
     WB.decOpen = false
     WB.decisions = null
     WB.pdOpen = false
+    WB.dbOpen = false
+    WB.db = null
     WB.pdocs = null
     WB.pdError = null
     WB.decError = null
@@ -16052,6 +16391,7 @@
     // A Fajl / Meretezes menu bezarul, ha masra kattintasz (a menu sorai maguk is bezarjak).
     if (WB.frMenu && a !== 'fr-menu') WB.frMenu = null
     if (a === 'fr-menu') { var m = act.getAttribute('data-wb-m'); WB.frMenu = WB.frMenu === m ? null : m; render() }
+    else if (a.indexOf('db-') === 0) dbAct(a, act)
     else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); WB.frTab = WB.frTab === tb ? null : tb; writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
     else if (a === 'fr-live') { WB.frLive = !WB.frLive; render() }
     else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
