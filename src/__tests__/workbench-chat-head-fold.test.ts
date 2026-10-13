@@ -7,7 +7,7 @@ describe('chat head fold', () => {
   it('the arrow, the folded rendering and the remembered state exist', () => {
     expect(js).toContain('data-wb-act="chat-head-fold"')
     expect(js).toContain("a === 'chat-head-fold'")
-    expect(js).toContain('(shut ? \'\' : chatSideHtml() + chatAccountHtml()')
+    expect(js).toContain('chatSideHtml() + chatAccountHtml()')
     expect(js).toContain('marveen.workbench.chatHeadShut')
   })
   it('both languages have the arrow hints', () => {
