@@ -15168,10 +15168,63 @@
       + '</div>'
   }
 
+  // Chat width (Boss TG 3193): the line between the middle area and the chat drags sideways; the width is kept
+  // per browser. Same pattern as the up/down split above (double-click resets).
+  var CHAT_WIDTH_KEY = 'marveen.workbench.chatWidth'
+  var CHAT_WIDTH_MIN = 240
+  function loadChatWidth() {
+    try {
+      var v = parseInt((window.localStorage && window.localStorage.getItem(CHAT_WIDTH_KEY)) || '', 10)
+      if (v >= CHAT_WIDTH_MIN) return v
+    } catch (_e) { /* no storage: the default width */ }
+    return 0
+  }
+  function chatWidthMax() {
+    var body = document.querySelector('.wb-fr-body')
+    return Math.max(CHAT_WIDTH_MIN, (body ? body.getBoundingClientRect().width : 1200) - 360)
+  }
+  function applyChatWidth(w, save) {
+    var chat = document.querySelector('.wb-fr-chat')
+    if (!chat) return
+    w = Math.round(Math.min(chatWidthMax(), Math.max(CHAT_WIDTH_MIN, w)))
+    chat.style.flex = '0 0 ' + w + 'px'
+    WB.chatWidth = w
+    if (save) { try { window.localStorage && window.localStorage.setItem(CHAT_WIDTH_KEY, String(w)) } catch (_e) { /* only this session */ } }
+  }
   function frChatHtml() {
     if (!WB.frChat) return ''
-    return '<aside class="wb-fr-chat">' + chatBarHtml() + '</aside>'
+    if (WB.chatWidth === undefined) WB.chatWidth = loadChatWidth()
+    var hint = escA(t('workbench.chat.width_hint'))
+    return '<div class="wb-fr-chatsplit" id="wbChatWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
+      + '<aside class="wb-fr-chat"' + (WB.chatWidth > 0 ? ' style="flex:0 0 ' + WB.chatWidth + 'px"' : '') + '>' + chatBarHtml() + '</aside>'
   }
+  document.addEventListener('pointerdown', function (e) {
+    var h = e.target && e.target.closest ? e.target.closest('#wbChatWidthSplit') : null
+    var chat = document.querySelector('.wb-fr-chat')
+    if (!h || !chat) return
+    e.preventDefault()
+    var x0 = e.clientX; var w0 = chat.getBoundingClientRect().width
+    function mv(ev) { applyChatWidth(w0 - (ev.clientX - x0), false) }
+    function up(ev) {
+      document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up)
+      applyChatWidth(w0 - (ev.clientX - x0), true)
+    }
+    document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up)
+  })
+  document.addEventListener('keydown', function (e) {
+    if (!(e.target && e.target.id === 'wbChatWidthSplit') || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+    var chat = document.querySelector('.wb-fr-chat')
+    if (!chat) return
+    e.preventDefault()
+    applyChatWidth(chat.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? 24 : -24), true)
+  })
+  document.addEventListener('dblclick', function (e) {
+    if (!(e.target && e.target.closest && e.target.closest('#wbChatWidthSplit'))) return
+    WB.chatWidth = 0
+    try { window.localStorage && window.localStorage.removeItem(CHAT_WIDTH_KEY) } catch (_e) { /* fine */ }
+    var chat = document.querySelector('.wb-fr-chat')
+    if (chat) chat.style.flex = ''
+  })
 
   function frameHtml() {
     var top = frTopHtml()

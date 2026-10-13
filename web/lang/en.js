@@ -6279,6 +6279,7 @@ window._i18n.en = {
   "workbench.pd.close.open_items_ok": "Every work item is done ({total}).",
   "workbench.pd.close.open_items_open": "{n} work items are not done yet ({total} in all).",
   "workbench.pd.close.open_items_unknown": "The work items could not be counted.",
+  "workbench.chat.width_hint": "Drag left or right: the width of the chat (double-click: reset)",
   "workbench.chat.split_hint": "Drag up or down: how much you see of the answers and of the agent's work (double-click: reset)",
   "workbench.chat.head_shut": "Hide settings, folder and account",
   "workbench.chat.head_open": "Show settings, folder and account",

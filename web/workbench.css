@@ -2011,3 +2011,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-panel-items .wb-blk-top .wb-panel-head { flex-wrap: wrap; }
 .wb-panel-items .wb-blk-top .wb-head-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0; }
 .wb-panel-items .wb-blk-top .wb-root-title, .wb-panel-items .wb-blk-top .wb-root-title .wb-folder-toggle { font-size: 0.95rem; font-weight: 700; }
+
+/* Chat width handle: the line between the middle area and the chat (Boss TG 3193). */
+.wb-fr-chatsplit { flex: 0 0 10px; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; margin: 0 -3px; z-index: 2; }
+.wb-fr-chatsplit > span { display: block; width: 4px; height: 48px; border-radius: 2px; background: var(--border, #c7ccd1); }
+.wb-fr-chatsplit:hover > span, .wb-fr-chatsplit:focus-visible > span { background: var(--accent, #2563eb); }
+@media (max-width: 900px) { .wb-fr-chatsplit { display: none; } }
