@@ -2053,3 +2053,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 }
 .wb-db .wb-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .wb-db .wb-actions > button { width: auto; }
+
+/* The dragged chat width is a variable (set by workbench.js): the stack layout on a narrow window ignores it, and the chat can
+   never squeeze the middle area out in a window narrower than the one the width was chosen in. */
+.wb-fr-chat { flex-basis: var(--wb-chat-w, 340px); max-width: calc(100% - 360px); }
+.wb-sh-start-chat > .wb-fr-chat { flex-basis: var(--wb-chat-w, 340px); }
+@media (max-width: 900px) { .wb-fr-chat { flex-basis: auto; max-width: none; } }
