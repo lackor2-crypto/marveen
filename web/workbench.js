@@ -10452,7 +10452,7 @@
   // Boss TG 3137: the line between the answers (top) and what the agent does (bottom) can be dragged;
   // the two heights are remembered in this browser (a convenience: it works without storage too).
   var CHAT_SPLIT_KEY = 'marveen.workbench.chatSplit'
-  var CHAT_SPLIT_MIN = { log: 60, tools: 40 }
+  var CHAT_SPLIT_MIN = { log: 40, tools: 40 }
   function loadChatSplit() {
     try {
       var v = JSON.parse((window.localStorage && window.localStorage.getItem(CHAT_SPLIT_KEY)) || 'null')
@@ -10460,11 +10460,15 @@
     } catch (_e) { /* no storage: the default sizes */ }
     return null
   }
+  // The lower strip keeps the dragged height; the upper one takes the rest (flex), so the line also moves in the
+  // fixed-frame (Simple) layout where the whole chat has a set height (Boss TG 3148).
   function chatPaneStyle(which) {
     if (WB.chatSplit === undefined) WB.chatSplit = loadChatSplit()
     var h = WB.chatSplit && WB.chatSplit[which]
     if (!(h > 0)) return ''
-    return ' style="height:' + Math.round(h) + 'px;max-height:none;min-height:0"'
+    return which === 'tools'
+      ? ' style="height:' + Math.round(h) + 'px;max-height:none;min-height:' + CHAT_SPLIT_MIN.tools + 'px;flex:0 0 auto"'
+      : ' style="height:' + Math.round(h) + 'px;max-height:none;min-height:' + CHAT_SPLIT_MIN.log + 'px;flex:1 1 auto"'
   }
   function chatSplitHandleHtml() {
     return '<div class="wb-chat-split" id="wbChatSplit" role="separator" aria-orientation="horizontal" tabindex="0"'
@@ -10474,15 +10478,19 @@
     var log = document.getElementById('wbChatLog')
     var tools = document.getElementById('wbChatTools')
     if (!log || !tools) return
-    log.style.height = logH + 'px'; log.style.maxHeight = 'none'; log.style.minHeight = '0'
-    tools.style.height = toolsH + 'px'; tools.style.maxHeight = 'none'
+    function put() {
+      log.style.height = logH + 'px'; log.style.maxHeight = 'none'; log.style.minHeight = CHAT_SPLIT_MIN.log + 'px'; log.style.flex = '1 1 auto'
+      tools.style.height = toolsH + 'px'; tools.style.maxHeight = 'none'; tools.style.minHeight = CHAT_SPLIT_MIN.tools + 'px'; tools.style.flex = '0 0 auto'
+    }
+    put()
+    // A fixed-height frame squeezes the upper strip: give the missing room back from the lower one.
+    var real = log.getBoundingClientRect().height
+    if (real < CHAT_SPLIT_MIN.log - 0.5) { toolsH = Math.max(CHAT_SPLIT_MIN.tools, toolsH - (CHAT_SPLIT_MIN.log - real)); put() }
     WB.chatSplit = { log: logH, tools: toolsH }
     if (save) { try { window.localStorage && window.localStorage.setItem(CHAT_SPLIT_KEY, JSON.stringify(WB.chatSplit)) } catch (_e) { /* only this session */ } }
   }
   function moveChatSplit(startLog, startTools, dy, save) {
-    var total = startLog + startTools
-    var lh = Math.max(CHAT_SPLIT_MIN.log, Math.min(total - CHAT_SPLIT_MIN.tools, startLog + dy))
-    applyChatSplit(lh, total - lh, save)
+    applyChatSplit(Math.max(CHAT_SPLIT_MIN.log, startLog + dy), Math.max(CHAT_SPLIT_MIN.tools, startTools - dy), save)
   }
   document.addEventListener('pointerdown', function (e) {
     var h = e.target && e.target.closest ? e.target.closest('#wbChatSplit') : null
