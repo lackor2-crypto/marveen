@@ -1994,3 +1994,20 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* The global .btn-primary is full width; inside the button row it must only take what is left after attach / dictate. */
 .wb-chat-btns .btn-primary, .wb-chat-btns .btn-secondary { width: auto; margin: 0; }
 .wb-chat-btns .btn-primary { flex: 1 1 auto; }
+
+/* Boss TG 3169: the project tree panel is three separate blocks (buttons + hide switch / folder tree / trash + new work),
+   each on its own tinted, bordered background, with a clear gap between them. */
+.wb-panel-items { gap: 10px; }
+.wb-panel-items .wb-blk { background: var(--surface-2, rgba(127, 127, 127, 0.1)); border: 1px solid var(--border, #ddd);
+  border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.wb-panel-items .wb-blk-top { display: flex; flex-direction: column; gap: 4px; }
+.wb-panel-items .wb-blk-foot { display: flex; flex-direction: column; gap: 8px; }
+.wb-panel-items .wb-blk-tree:empty, .wb-panel-items .wb-blk-foot:empty { display: none; }
+/* The path title: "Projects > project name"; a long project name is cut with an ellipsis, the whole path is the tooltip. */
+.wb-fr-path { display: flex; min-width: 0; white-space: nowrap; }
+.wb-fr-path-root, .wb-fr-path-sep { flex: 0 0 auto; }
+.wb-fr-path-leaf { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wb-fr-path-sep { margin: 0 0.35em; }
+.wb-panel-items .wb-blk-top .wb-panel-head { flex-wrap: wrap; }
+.wb-panel-items .wb-blk-top .wb-head-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0; }
+.wb-panel-items .wb-blk-top .wb-root-title, .wb-panel-items .wb-blk-top .wb-root-title .wb-folder-toggle { font-size: 0.95rem; font-weight: 700; }

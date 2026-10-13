@@ -64,7 +64,8 @@ describe('#501 Layers clicks during a save wait their turn (TG 2612)', () => {
 describe('#501 the rail Projects tab keeps a New work item button (TG 2619)', () => {
   const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
   it('compact items panel renders the new button or form', () => {
-    expect(js).toContain('(compact ? (archived() ?')
+    expect(js).toContain('if (compact) {')
+    expect(js).toContain('newBtn = archived() ?')
     expect(js).toContain('TG 2619')
   })
 })
