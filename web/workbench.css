@@ -2004,6 +2004,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
   border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
 .wb-panel-items .wb-blk-top { display: flex; flex-direction: column; gap: 4px; }
 .wb-panel-items .wb-blk-foot { display: flex; flex-direction: column; gap: 8px; }
+.wb-panel-items .wb-blk-title { margin: -8px -10px 8px; padding: 8px 10px; border-radius: 7px 7px 0 0; border-bottom: 1px solid var(--border, #ddd);
+  background: var(--accent-soft, rgba(37, 99, 235, 0.14)); }
+.wb-panel-items .wb-blk-title .wb-root-title, .wb-panel-items .wb-blk-title .wb-root-title .wb-folder-toggle { font-size: 0.95rem; font-weight: 700; }
 .wb-panel-items .wb-blk-tree:empty, .wb-panel-items .wb-blk-foot:empty { display: none; }
 /* The path title: "Projects > project name"; a long project name is cut with an ellipsis, the whole path is the tooltip. */
 .wb-fr-path { display: flex; min-width: 0; white-space: nowrap; }
