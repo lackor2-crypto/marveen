@@ -7,13 +7,14 @@ import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask,
   completeCodeTaskDetailed, getCodeTask, activeCodeBridgeLimit, listActiveCodeBridgeLimits,
-  codeTaskLimitSentence, LIMIT_RETRY_MS, codeBridgeActivity,
+  codeTaskLimitSentence, LIMIT_RETRY_MS, codeBridgeActivity, setCodeBridgeLoginReaderForTests, noteWorkerLogin,
 } from '../web/code-bridge-store.js'
 
 const WS = { project: 'marvin', workspacePath: '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' }
 const SENTENCE = "You've hit your session limit · resets 4:20pm (Europe/Budapest)"
 
 beforeEach(() => {
+  setCodeBridgeLoginReaderForTests(null)
   initDatabase(':memory:')
   resetCodeBridgeTablesForTests()
   upsertCodeSession(WS)
@@ -66,6 +67,32 @@ describe('#550 the executor limit', () => {
     completeCodeTaskDetailed(id, { ok: true, result: 'ok' }, at + LIMIT_RETRY_MS + 3, 'H')
     expect(activeCodeBridgeLimit('wsl', at + LIMIT_RETRY_MS + 4)).toBeNull()
     expect(claimNextCodeTask('H', at + LIMIT_RETRY_MS + 5)?.id).toBe(id2)
+  })
+
+  it('a note belongs to ONE login: when the side runs under another login, the note is void at once', () => {
+    let login = 'usalackor@gmail.com'
+    setCodeBridgeLoginReaderForTests(() => login)
+    const id = queue()
+    claimNextCodeTask('H')
+    const at = Date.now()
+    completeCodeTaskDetailed(id, { ok: false, error: SENTENCE }, at, 'H')
+    expect(activeCodeBridgeLimit('wsl', at + 1000)).not.toBeNull()
+    expect(claimNextCodeTask('H', at + 1000)).toBeNull()
+    login = 'lackor3@gmail.com'
+    expect(activeCodeBridgeLimit('wsl', at + 2000)).toBeNull()
+    expect(claimNextCodeTask('H', at + 3000)?.id).toBe(id)
+  })
+
+  it('an unreadable login is not a change, and the Windows worker reports its own', () => {
+    setCodeBridgeLoginReaderForTests(() => null)
+    const id = queue()
+    claimNextCodeTask('H')
+    const at = Date.now()
+    completeCodeTaskDetailed(id, { ok: false, error: SENTENCE }, at, 'H')
+    expect(activeCodeBridgeLimit('wsl', at + 1000)).not.toBeNull()
+    setCodeBridgeLoginReaderForTests(null)
+    noteWorkerLogin('windows', ' A@B.hu ')
+    expect(activeCodeBridgeLimit('windows', at)).toBeNull()
   })
 
   it('a sentence without a reset moment holds for the short retry window only', () => {
