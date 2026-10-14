@@ -83,6 +83,8 @@ describe('GET /api/debate/models', () => {
       modes: [
         { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null },
         { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
+        { id: 'assumptions', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
+        { id: 'premortem', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
       ],
       default_mode: 'peer', strengths: ['mild', 'medium', 'hard'],
     })

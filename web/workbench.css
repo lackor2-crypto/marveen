@@ -2076,6 +2076,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-db-obj-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 3px; }
 .wb-db-kind, .wb-db-verdict { font-size: 0.74rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(127, 127, 127, 0.16); }
 .wb-db-kind-legal { background: rgba(220, 38, 38, 0.14); color: #b91c1c; }
+.wb-db-kind-assumption { background: rgba(124, 58, 237, 0.14); color: #6d28d9; }
+.wb-db-kind-risk { background: rgba(217, 119, 6, 0.15); color: #b45309; }
 .wb-db-verdict-accept { background: rgba(22, 163, 74, 0.15); color: #15803d; }
 .wb-db-verdict-partial { background: rgba(217, 119, 6, 0.15); color: #b45309; }
 .wb-db-verdict-reject { background: rgba(220, 38, 38, 0.14); color: #b91c1c; }

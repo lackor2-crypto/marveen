@@ -34,6 +34,8 @@ export interface DebateModeDef {
   instructions: Partial<Record<DebateRoleId, string>>
   /** Extra sentence for the closing write-up of this mode. */
   conclusionNote?: string
+  /** The critic's strength sentences when the mode's task is not the general review (assumption check, pre-mortem). */
+  strengthNotes?: Record<Strength, string>
   /** Built in (in code) or made by the owner. */
   builtin?: boolean
   /** Owner-made modes carry their own name and explanation; the built-in ones have them in the page's language files. */
@@ -96,6 +98,71 @@ export function isStrength(v: unknown): v is Strength {
 
 const CRITIC_CONCLUSION_NOTE = 'This debate was a review: the first model was the critic (numbered objections), the second the defender. List the objections that stand, the ones the defender rightly rejected, and the rewrites worth taking over. Say honestly where they did not agree.'
 
+// Phase 5: two ready analysis modes. They are critic / defender modes (numbered, quoted items, the same board, the
+// same parsers); only the critic's task and the words of the defender differ.
+
+const ASSUMPTION_CRITIC_INSTRUCTIONS = [
+  'You are the ASSUMPTION CHECKER in a structured review that the owner started. The owner submits a finished text (in the question and the supporting material).',
+  'Your job is NOT to polish the wording. List what the text takes for granted: every assumption its claims, figures or conclusions rest on that the text neither states nor supports, and say what happens to the conclusion if it is false.',
+  'Write numbered items K1, K2, ... Each one has exactly this form:',
+  'K<n> [assumption|accuracy|missing|legal]',
+  'QUOTE: "<the exact words of the text that rely on the assumption>"',
+  'OBJECTION: <the assumption in one plain sentence; whether the text or the material supports it; what changes in the conclusion if it is false>',
+  'Kinds: assumption = relied on but neither stated nor supported; accuracy = stated as fact but wrong or contradicted by the material; missing = a premise the argument needs and the text lacks; legal = an assumed legal or formal fact that may not hold.',
+  'Every item MUST quote the text. An assumption you cannot tie to a quote is invented: do not write it. Skip assumptions that are safe to take for granted (common knowledge, stated in the text, or shown by the material).',
+  'If the text states and supports everything it relies on, say so: your whole reply is the single line NO OBJECTIONS, then one sentence on what you checked. Do not pad.',
+  COMMON,
+].join('\n')
+
+const ASSUMPTION_DEFENDER_INSTRUCTIONS = [
+  'You are the DEFENDER in a structured assumption check that the owner started. A checker lists numbered assumptions (K1, K2, ...) that the owner\'s text relies on without saying or supporting them.',
+  'Answer EVERY item, in order, in exactly this form:',
+  'K<n>: ACCEPT | PARTIAL | REJECT',
+  'REASON: <ACCEPT = the assumption really is unsupported or doubtful; REJECT = the text or the material does support it (say where) or the conclusion does not depend on it; PARTIAL = it holds only in part>',
+  'REWRITE: <only for ACCEPT or PARTIAL: the sentence that states the assumption openly, or the support, check or caveat that closes the gap, ready to paste>',
+  'Do not defend a gap: accepting a justified item is the correct answer. Hold your position when the item is wrong.',
+  COMMON,
+].join('\n')
+
+const ASSUMPTION_CONCLUSION_NOTE = 'This debate was an assumption check: the first model listed what the text takes for granted, the second answered. List the assumptions that stand (with what each puts at risk if false) and the sentences that would state or support them, then those the defender rightly rejected. Say honestly where they did not agree.'
+
+const ASSUMPTION_STRENGTH_NOTES: Record<Strength, string> = {
+  mild: 'Strength: MILD. List only the assumptions the main conclusion or the owner\'s position clearly depends on.',
+  medium: 'Strength: MEDIUM. List the assumptions that carry a claim, figure or conclusion of importance, also the ones behind supporting arguments.',
+  hard: 'Strength: HARD. List every unstated or unsupported assumption, however small, but never one that is not tied to a quote: do not invent any.',
+}
+
+const PREMORTEM_CRITIC_INSTRUCTIONS = [
+  'You are the PRE-MORTEM ANALYST in a structured review that the owner started. The owner submits a text, a plan or a filing (in the question and the supporting material).',
+  'Imagine that it has FAILED: the other side rejected it, the plan did not work, the filing was thrown out. Your job is to find the most plausible distinct reasons it failed, so that the owner can fix them now.',
+  'Write numbered failure causes K1, K2, ... Each one has exactly this form:',
+  'K<n> [risk|missing|accuracy|legal]',
+  'QUOTE: "<the exact words of the text the failure would come through; for a missing part, the place where it belongs>"',
+  'OBJECTION: <how it fails, what would trigger it, and how likely and how serious it is, in a few words>',
+  'Kinds: risk = a way the text or plan can fail in practice; missing = something that should be there and is not; accuracy = an error that would be exposed; legal = a legal or formal ground for failing.',
+  'Every cause MUST quote the text or name the place. A failure story you cannot tie to the text is speculation: do not write it. List distinct causes, most serious first, and do not repeat one in other words.',
+  'If you honestly cannot imagine a plausible failure, say so: your whole reply is the single line NO OBJECTIONS, then one sentence on what you tried. Do not pad.',
+  COMMON,
+].join('\n')
+
+const PREMORTEM_DEFENDER_INSTRUCTIONS = [
+  'You are the DEFENDER in a structured pre-mortem that the owner started. An analyst lists numbered ways the owner\'s text or plan could fail (K1, K2, ...).',
+  'Answer EVERY failure cause, in order, in exactly this form:',
+  'K<n>: ACCEPT | PARTIAL | REJECT',
+  'REASON: <ACCEPT = the risk is real and not yet handled; REJECT = the text already covers it (say where) or it is not plausible; PARTIAL = real, but only in part or less serious than said>',
+  'REWRITE: <only for ACCEPT or PARTIAL: the passage, safeguard or fallback to add or change so that this failure no longer happens, ready to paste>',
+  'Do not defend a real weakness: accepting a justified risk is the correct answer. Hold your position when the risk is not real.',
+  COMMON,
+].join('\n')
+
+const PREMORTEM_CONCLUSION_NOTE = 'This debate was a pre-mortem: the first model imagined the text or plan had failed and listed the causes, the second answered. List the failure causes that stand, most serious first (the order is a judgement, not a measurement), the safeguards worth adding, and the causes the defender rightly rejected. Say honestly where they did not agree.'
+
+const PREMORTEM_STRENGTH_NOTES: Record<Strength, string> = {
+  mild: 'Strength: MILD. List only the few failure causes that are both likely and serious.',
+  medium: 'Strength: MEDIUM. List the plausible failure causes of real weight, also the less likely ones whose damage would be serious.',
+  hard: 'Strength: HARD. List every distinct way it could plausibly fail, but never one that is not tied to the text: do not invent any.',
+}
+
 export const DEFAULT_MODE_ID = 'peer'
 export const DEFAULT_CRITIC_MAX_ROUNDS = 6
 
@@ -107,6 +174,30 @@ export const BUILTIN_MODES: Record<string, DebateModeDef> = {
     sequential: true,
     instructions: { critic: CRITIC_INSTRUCTIONS, defender: DEFENDER_INSTRUCTIONS },
     conclusionNote: CRITIC_CONCLUSION_NOTE,
+    builtin: true,
+    strength: DEFAULT_STRENGTH,
+    swapRoles: false,
+    maxRounds: DEFAULT_CRITIC_MAX_ROUNDS,
+  },
+  assumptions: {
+    id: 'assumptions',
+    roles: ['critic', 'defender'],
+    sequential: true,
+    instructions: { critic: ASSUMPTION_CRITIC_INSTRUCTIONS, defender: ASSUMPTION_DEFENDER_INSTRUCTIONS },
+    conclusionNote: ASSUMPTION_CONCLUSION_NOTE,
+    strengthNotes: ASSUMPTION_STRENGTH_NOTES,
+    builtin: true,
+    strength: DEFAULT_STRENGTH,
+    swapRoles: false,
+    maxRounds: DEFAULT_CRITIC_MAX_ROUNDS,
+  },
+  premortem: {
+    id: 'premortem',
+    roles: ['critic', 'defender'],
+    sequential: true,
+    instructions: { critic: PREMORTEM_CRITIC_INSTRUCTIONS, defender: PREMORTEM_DEFENDER_INSTRUCTIONS },
+    conclusionNote: PREMORTEM_CONCLUSION_NOTE,
+    strengthNotes: PREMORTEM_STRENGTH_NOTES,
     builtin: true,
     strength: DEFAULT_STRENGTH,
     swapRoles: false,
@@ -189,7 +280,9 @@ export function modeSystemPrompt(mode: DebateModeDef, role: DebateRoleId, streng
   if (role === 'peer') return null
   const base = mode.instructions[role]
   if (!base) return null
-  return role === 'critic' ? `${base}\n${strengthNote(strength ?? mode.strength ?? DEFAULT_STRENGTH)}` : base
+  if (role !== 'critic') return base
+  const s = strength ?? mode.strength ?? DEFAULT_STRENGTH
+  return `${base}\n${mode.strengthNotes?.[s] ?? strengthNote(s)}`
 }
 
 export interface ModePromptInput {
@@ -249,7 +342,7 @@ export function buildModeRoundPrompt(role: DebateRoleId, a: ModePromptInput): st
 // Reading the replies (forgiving)
 // ---------------------------------------------------------------------------
 
-export type ObjectionKind = 'accuracy' | 'wording' | 'missing' | 'legal'
+export type ObjectionKind = 'accuracy' | 'wording' | 'missing' | 'legal' | 'assumption' | 'risk'
 export type ReplyVerdict = 'accept' | 'partial' | 'reject'
 
 export interface ParsedObjection { id: string; kind: ObjectionKind | null; quote: string; text: string }
@@ -282,6 +375,8 @@ const KIND_WORDS: [ObjectionKind, RegExp][] = [
   ['wording', /szohasznalat|wording|phrasing|megfogalmaz/],
   ['missing', /hianyz|missing|omission/],
   ['legal', /jogi|legal|formai/],
+  ['assumption', /felteves|assumption/],
+  ['risk', /kockazat|\brisk/],
 ]
 const VERDICT_WORDS: [ReplyVerdict, RegExp][] = [
   ['partial', /^(partial|reszben)/],
@@ -467,6 +562,8 @@ export function sanitizeStoredMode(raw: unknown, newId: () => string): StoredMod
 /** The runnable mode for a stored one: an empty critic / defender text falls back to the built-in text. */
 export function modeFromStored(s: StoredMode): DebateModeDef {
   const critic = s.base === 'critic'
+  // A copy of a built-in analysis mode (the editor offers them as samples) keeps that mode's own strength sentences.
+  const sample = critic && s.instructions.critic ? Object.values(BUILTIN_MODES).find(b => b.strengthNotes && b.instructions.critic === s.instructions.critic) : undefined
   return {
     id: s.id,
     roles: critic ? ['critic', 'defender'] : ['peer', 'peer'],
@@ -475,6 +572,7 @@ export function modeFromStored(s: StoredMode): DebateModeDef {
       ? { critic: s.instructions.critic || CRITIC_INSTRUCTIONS, defender: s.instructions.defender || DEFENDER_INSTRUCTIONS }
       : (s.instructions.peer ? { peer: s.instructions.peer } : {}),
     conclusionNote: s.conclusionNote || (critic ? CRITIC_CONCLUSION_NOTE : undefined),
+    ...(sample?.strengthNotes ? { strengthNotes: sample.strengthNotes } : {}),
     builtin: false,
     name: s.name,
     description: s.description,
