@@ -289,8 +289,8 @@ interface LoadedSession { state: DebateSessionState; mode: DebateModeDef }
  * Rebuilds a session from the log, with the mode it runs in. An owner-made mode is read from the copy the debate
  * wrote into its `context` line, so editing or deleting the mode does not change a debate that is already going.
  */
-function loadSession(id: string): LoadedSession | null {
-  const lines = readLines().filter(l => l.session === id)
+function loadSession(id: string, all?: LogLine[]): LoadedSession | null {
+  const lines = (all ?? readLines()).filter(l => l.session === id)
   const roundLines = lines.filter(l => l.type === 'round')
   if (!roundLines.length) return null
   const ctx = [...lines].reverse().find(l => l.type === 'context') as
@@ -347,6 +347,24 @@ function readOrderCheck(v: unknown): OrderCheck | null {
 /** Rebuilds a session from the log, or null when it has no rounds. */
 export function loadDebateSession(id: string): DebateSessionState | null {
   return loadSession(id)?.state ?? null
+}
+
+/** Every debate in the log with at least one round, newest first: the analysis reads them all from ONE pass over the file. */
+export function loadAllDebateSessions(): DebateSessionState[] {
+  const lines = readLines()
+  const bySession = new Map<string, LogLine[]>()
+  for (const l of lines) {
+    if (typeof l.session !== 'string') continue
+    const list = bySession.get(l.session)
+    if (list) list.push(l)
+    else bySession.set(l.session, [l])
+  }
+  const out: { state: DebateSessionState; at: number }[] = []
+  for (const [id, own] of bySession) {
+    const st = loadSession(id, own)?.state
+    if (st) out.push({ state: st, at: Math.max(0, ...own.map(l => Number(l.ts) || 0)) })
+  }
+  return out.sort((a, b) => b.at - a.at).map(x => x.state)
 }
 
 // ---------------------------------------------------------------------------

@@ -87,6 +87,8 @@ const STORE_SETTINGS = [
   'workbench-canvas-platforms.json',
   // #597: the debate modes the owner made in the mode editor.
   'debate-modes.json',
+  // #597: the debate set-ups the owner saved under a name (mode, models, judge).
+  'debate-templates.json',
 ] as const
 const STORE_SETTINGS_DIRS = ['folder-icons'] as const
 const STORE_DEPOT_CONFIG = [

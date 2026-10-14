@@ -2112,6 +2112,13 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-db-edform .btn-compact { margin-top: 6px; }
 .wb-db .wb-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .wb-db .wb-actions > button { width: auto; }
+.wb-db-tpl { margin-bottom: 10px; }
+.wb-db-tpl .wb-input { flex: 1 1 200px; min-width: 0; }
+.wb-db-export { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.wb-db-tablewrap { overflow-x: auto; margin: 10px 0; }
+.wb-db-stats { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.wb-db-stats th, .wb-db-stats td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.wb-db-stats th { font-weight: 600; white-space: nowrap; }
 
 /* The dragged chat width is a variable (set by workbench.js): the stack layout on a narrow window ignores it, and the chat can
    never squeeze the middle area out in a window narrower than the one the width was chosen in. */
