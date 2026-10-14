@@ -207,6 +207,25 @@ def limit_banner_key(text):
     return "%s|%s" % (kind, when)
 
 
+def sweep_working(sd, wpath):
+    """Delete the parked placeholder messages of a finished turn (best effort, never raises)."""
+    try:
+        parked = json.load(open(wpath))
+    except Exception:
+        return
+    tok = token(sd)
+    if tok:
+        for p in parked:
+            try:
+                api(tok, "deleteMessage", {"chat_id": p["chat_id"], "message_id": p["message_id"]})
+            except Exception:
+                pass
+    try:
+        os.remove(wpath)
+    except Exception:
+        pass
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -226,6 +245,9 @@ def main():
             os.remove(m)
         except Exception:
             pass
+
+    # #600: "Dolgozom rajta" messages parked by the reply hook stay visible while the turn works; the turn ends here.
+    sweep_working(sd, os.path.join(pdir, f"{sid}.working"))
 
     path = os.path.join(pdir, f"{sid}.json")
     try:
