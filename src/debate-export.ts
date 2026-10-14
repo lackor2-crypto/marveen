@@ -19,6 +19,7 @@ const MODE_NAMES: Record<string, [string, string]> = {
   critic: ['Kötekedő és védő', 'Critic and defender'],
   assumptions: ['Feltevés-ellenőrzés', 'Assumption check'],
   premortem: ['Pre-mortem (mi mehet félre)', 'Pre-mortem (what could go wrong)'],
+  triad: ['Háromoldalú (két kötekedő, egy védő)', 'Three-sided (two critics, one defender)'],
 }
 const KINDS: Record<string, [string, string]> = {
   accuracy: ['pontosság', 'accuracy'], wording: ['szóhasználat', 'wording'], missing: ['hiányzó rész', 'missing part'],
@@ -54,7 +55,8 @@ function modeName(s: DebateSessionState, l: ReportLang): string {
 
 function boardParagraphs(item: BoardItem, l: ReportLang): string[] {
   const kind = pick(KINDS, item.kind, l)
-  const out = [`${item.id}${kind ? ` [${kind}]` : ''} – ${pick(STATUSES, item.status, l)}`]
+  const by = item.by === 'critic2' ? tr(l, ' – a 2. kötekedő (ellenfél szemszöge) szerint', ' – by critic 2 (opposing side’s view)') : ''
+  const out = [`${item.id}${kind ? ` [${kind}]` : ''} – ${pick(STATUSES, item.status, l)}${by}`]
   if (item.quote) out.push(`${tr(l, 'Idézet', 'Quote')}: „${item.quote}”`)
   if (item.text) out.push(`${tr(l, 'Kifogás', 'Objection')}: ${item.text}`)
   const last = item.steps[item.steps.length - 1]
@@ -80,13 +82,16 @@ export function buildReport(s: DebateSessionState, l: ReportLang, opts: { full?:
   const settings = [`${tr(l, 'Mód', 'Mode')}: ${modeName(s, l)}`]
   // A critic / defender debate: its answers carry roles (a peer debate's do not).
   const roleMode = s.rounds.some(r => r.responses.some(x => !!x.role))
+  const triad = roleMode && s.models.length === 3
   s.models.forEach((m, i) => {
-    const role = roleMode ? (i === 0 ? tr(l, ' (kötekedő)', ' (critic)') : tr(l, ' (védő)', ' (defender)')) : ''
+    const role = !roleMode ? ''
+      : triad ? [tr(l, ' (1. kötekedő: szerkesztői szemszög)', ' (critic 1: editor’s view)'), tr(l, ' (2. kötekedő: ellenfél szemszöge)', ' (critic 2: opposing side’s view)'), tr(l, ' (védő)', ' (defender)')][i] ?? ''
+      : (i === 0 ? tr(l, ' (kötekedő)', ' (critic)') : tr(l, ' (védő)', ' (defender)'))
     settings.push(`${tr(l, `${i + 1}. modell`, `Model ${i + 1}`)}: ${m}${role}`)
   })
   if (roleMode) {
     settings.push(`${tr(l, 'Kötekedés erőssége', 'Critic strength')}: ${pick(STRENGTH_NAMES, s.strength, l)}`)
-    settings.push(`${tr(l, 'Szerepcsere a 2. körben', 'Role swap in round 2')}: ${s.swapRoles ? tr(l, 'igen', 'yes') : tr(l, 'nem', 'no')}`)
+    if (!triad) settings.push(`${tr(l, 'Szerepcsere a 2. körben', 'Role swap in round 2')}: ${s.swapRoles ? tr(l, 'igen', 'yes') : tr(l, 'nem', 'no')}`)
   }
   if (s.judge) settings.push(`${tr(l, 'Bíró modell', 'Judge model')}: ${s.judge}`)
   settings.push(`${tr(l, 'Körök száma', 'Rounds')}: ${s.rounds.length}`)
@@ -124,7 +129,7 @@ export function buildReport(s: DebateSessionState, l: ReportLang, opts: { full?:
       const paras: string[] = []
       if (r.round > 1 && r.prompt.trim()) paras.push(`${tr(l, 'Megjegyzésed a körhöz', 'Your note for the round')}: ${r.prompt.trim()}`)
       for (const x of r.responses) {
-        const role = x.role === 'critic' ? tr(l, ' (kötekedő)', ' (critic)') : x.role === 'defender' ? tr(l, ' (védő)', ' (defender)') : ''
+        const role = x.role === 'critic' ? tr(l, ' (kötekedő)', ' (critic)') : x.role === 'critic2' ? tr(l, ' (2. kötekedő)', ' (critic 2)') : x.role === 'defender' ? tr(l, ' (védő)', ' (defender)') : ''
         paras.push(`${modelShort(x.model)}${role}`)
         if (x.ok) paras.push(...paragraphsOf(x.text))
         else paras.push(tr(l, `Ez a modell nem válaszolt: ${x.error ?? ''}`, `This model did not answer: ${x.error ?? ''}`))

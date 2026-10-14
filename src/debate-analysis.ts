@@ -14,10 +14,15 @@ export interface AnalysisRow {
   mode: string
   /** The name of an owner-made mode; null for a built-in one (the page names those). */
   modeName: string | null
-  /** A critic / defender mode: `first` is the critic, `second` the defender. In a peer mode the pair is in alphabetical order. */
+  /**
+   * A critic / defender mode: `first` is the critic, `second` the defender. A three-sided mode: `first` and `second` are the
+   * two critics, `third` the defender. In a peer mode the pair is in alphabetical order.
+   */
   roleMode: boolean
   first: string
   second: string
+  /** The third model of a three-sided debate; empty otherwise. */
+  third: string
   debates: number
   concluded: number
   /** Closed debates that ended in agreement. */
@@ -26,6 +31,8 @@ export interface AnalysisRow {
   /** Role modes: all objections raised, and how they stand now. `accepted` counts the partly accepted ones too. */
   objections: number
   accepted: number
+  /** Three-sided debates: how many of the objections came first from the second critic (the proof it adds something). */
+  fromSecond: number
   rejected: number
   withdrawn: number
   open: number
@@ -51,13 +58,13 @@ export function analyzeDebates(sessions: readonly DebateSessionState[], project?
   for (const s of sessions) {
     if (project === 'none' ? s.project : project ? s.project !== project : false) continue
     const roleMode = isRoleSession(s)
-    const pair = roleMode ? [s.models[0] ?? '', s.models[1] ?? ''] : [...s.models].sort()
+    const pair = roleMode ? s.models.slice(0, 3) : [...s.models].sort()
     const key = `${s.mode}\u0000${pair.join('\u0000')}`
     let row = rows.get(key)
     if (!row) {
       row = {
-        mode: s.mode, modeName: s.modeName, roleMode, first: pair[0] ?? '', second: pair[1] ?? '',
-        debates: 0, concluded: 0, agreed: 0, rounds: 0, objections: 0, accepted: 0, rejected: 0, withdrawn: 0, open: 0,
+        mode: s.mode, modeName: s.modeName, roleMode, first: pair[0] ?? '', second: pair[1] ?? '', third: pair[2] ?? '',
+        debates: 0, concluded: 0, agreed: 0, rounds: 0, objections: 0, accepted: 0, fromSecond: 0, rejected: 0, withdrawn: 0, open: 0,
         acceptRate: null, tokensIn: 0, tokensOut: 0, enoughData: false,
       }
       rows.set(key, row)
@@ -69,6 +76,7 @@ export function analyzeDebates(sessions: readonly DebateSessionState[], project?
     if (sum) {
       row.objections += sum.total
       row.accepted += sum.accepted + sum.partial
+      row.fromSecond += s.board.filter(i => i.by === 'critic2').length
       row.rejected += sum.rejected
       row.withdrawn += sum.withdrawn
       row.open += sum.open

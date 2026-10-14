@@ -2071,6 +2071,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-db-role { font-size: 0.74rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
 .wb-db-role-critic { background: rgba(217, 119, 6, 0.15); color: #b45309; }
 .wb-db-role-defender { background: rgba(37, 99, 235, 0.14); color: #1d4ed8; }
+.wb-db-role-critic2 { background: rgba(147, 51, 234, 0.14); color: #7e22ce; }
+.wb-db-cols-3, .wb-db-models-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .wb-db-cols-3, .wb-db-models-3 { grid-template-columns: minmax(0, 1fr); } }
 .wb-db-obj { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .wb-db-obj > li { border-left: 3px solid var(--border); padding-left: 10px; }
 .wb-db-obj-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 3px; }
@@ -2115,6 +2118,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-db-tpl { margin-bottom: 10px; }
 .wb-db-tpl .wb-input { flex: 1 1 200px; min-width: 0; }
 .wb-db-export { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.wb-db-share { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .wb-db-tablewrap { overflow-x: auto; margin: 10px 0; }
 .wb-db-stats { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .wb-db-stats th, .wb-db-stats td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }

@@ -81,10 +81,12 @@ describe('GET /api/debate/models', () => {
       has_key: true, catalog_error: false,
       // a beepitett modok (#597): az alap az Egyenrangu, a Kotekedo-vedo az elso modell a kotekedo
       modes: [
-        { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null },
-        { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
-        { id: 'assumptions', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
-        { id: 'premortem', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
+        { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null, models: 2 },
+        { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6, models: 2 },
+        { id: 'assumptions', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6, models: 2 },
+        { id: 'premortem', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6, models: 2 },
+        // a haromoldalu mod harom modellt kér (#597, 7. fazis)
+        { id: 'triad', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6, models: 3 },
       ],
       default_mode: 'peer', strengths: ['mild', 'medium', 'hard'],
     })

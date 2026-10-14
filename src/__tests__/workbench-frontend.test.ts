@@ -3527,3 +3527,231 @@ describe('Vitaztatas: sablonok, jelentes, elemzes (#597, 6. fazis)', () => {
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Elemzes hiba'))
   })
 })
+
+describe('Vitaztatas: modok megosztasa fajllal (#597, 7. fazis)', () => {
+  const MODES = {
+    builtin: [{ id: 'peer', base: 'peer', instructions: {}, conclusionNote: '', strength: 'medium', swapRoles: false, maxRounds: null }],
+    custom: [{ id: 'm-abcdef12', name: 'Szigoru', description: 'leiras', base: 'critic', instructions: {}, conclusionNote: '', strength: 'hard', swapRoles: false, maxRounds: 3 }],
+    defaults: { critic: 'C', defender: 'D', conclusionNote: 'N' }, strengths: ['mild', 'medium', 'hard'], limits: { name: 60, text: 6000, modes: 30, max_rounds: 12 },
+  }
+  const PREVIEW = { dry_run: true, imported: [{ id: null, name: 'Szigoru (2)', description: 'idegen leiras', base: 'critic' }], renamed: [{ from: 'Szigoru', to: 'Szigoru (2)' }], skipped: [{ name: 'Hibas', reason: 'name_missing' }] }
+  let extra: (url: string, init?: RequestInit) => { status: number; body: unknown } | null = () => null
+  const FILE_TEXT = '{"format":"marveen-debate-modes","version":1,"modes":[{"name":"Szigoru"}]}'
+
+  function route(url: string, init?: RequestInit): { status: number; body: unknown } {
+    const x = extra(url, init)
+    if (x) return x
+    if (url.includes('/api/debate/models')) return { status: 200, body: { defaults: [], catalog: [], has_key: true, catalog_error: false, modes: [], default_mode: 'peer', strengths: [] } }
+    if (url.includes('/api/debate/sessions?')) return { status: 200, body: { sessions: [] } }
+    if (url.includes('/api/debate/templates')) return { status: 200, body: { templates: [] } }
+    if (url.includes('/api/debate/modes')) return { status: 200, body: MODES }
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: detailBody([]) }
+    return { status: 200, body: itemsBody([MIXED]) }
+  }
+  const post = (needle: string) => h.fetchCalls.filter(c => c.url.includes(needle) && c.init?.method === 'POST')
+  const bodyOf = (needle: string, n = 0) => JSON.parse(String(post(needle)[n].init!.body))
+
+  beforeEach(() => {
+    extra = () => null
+    ;(globalThis as any).FileReader = class { result = ''; onload: (() => void) | null = null; onerror: (() => void) | null = null; readAsText(f: { text: string }) { this.result = f.text; setTimeout(() => this.onload && this.onload(), 0) } }
+  })
+  afterEach(() => { delete (globalThis as any).FileReader })
+
+  async function editor() {
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-modes"'))
+    h.click({ 'data-wb-act': 'db-modes' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wbDbModesFile'))
+  }
+
+  it('a mod-szerkesztoben ott a megosztas: beolvasas gomb, osszes exportalasa, modonkent Exportalas', async () => {
+    await editor()
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.db.share.help')
+    expect(html).toMatch(/data-wb-act="db-share-export" data-wb-id=""(?! disabled)/)
+    expect(html).toContain('data-wb-act="db-share-export" data-wb-id="m-abcdef12"')
+  })
+
+  it('ures telepitesen (nincs sajat mod) az "osszes exportalasa" le van tiltva', async () => {
+    extra = (url) => url.endsWith('/api/debate/modes?lang=hu') || (url.includes('/api/debate/modes') && !url.includes('import') && !url.includes('export')) ? { status: 200, body: { ...MODES, custom: [] } } : null
+    await editor()
+    expect(h.rootEl.innerHTML).toMatch(/data-wb-act="db-share-export" data-wb-id="" disabled/)
+  })
+
+  it('export: a szervertol kert fajl letoltodik (modonkent az azonositoval szurve)', async () => {
+    extra = (url) => url.includes('/modes/export') ? { status: 200, body: { name: 'm.json', count: 1, file: { format: 'marveen-debate-modes', version: 1, modes: [] } } } : null
+    await editor()
+    h.click({ 'data-wb-act': 'db-share-export', 'data-wb-id': 'm-abcdef12' })
+    await vi.waitFor(() => expect(h.fetchCalls.some(c => c.url.includes('/modes/export?ids=m-abcdef12'))).toBe(true))
+  })
+
+  it('beolvasas: eloszor csak elonezet (dry_run), figyelmeztetessel; csak a jovahagyas utan megy az igazi kerees; utana a lista frissul', async () => {
+    extra = (url, init) => url.includes('/modes/import') && init?.method === 'POST' ? { status: 200, body: JSON.parse(String(init.body)).dry_run ? PREVIEW : { ...PREVIEW, dry_run: false, imported: [{ id: 'm-11111111', name: 'Szigoru (2)', description: '', base: 'critic' }] } } : null
+    await editor()
+    h.changeEl({ id: 'wbDbModesFile', files: [{ size: 80, text: FILE_TEXT }], value: '' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-share-go"'))
+    expect(bodyOf('/modes/import')).toEqual({ content: FILE_TEXT, dry_run: true })
+    let html = h.rootEl.innerHTML
+    expect(html).toContain('idegen leiras')
+    expect(html).toContain('workbench.db.share.warn')
+    expect(html).toContain('workbench.db.share.renamed')
+    expect(html).toContain('workbench.db.share.skip.name_missing')
+    expect(post('/modes/import')).toHaveLength(1)
+    const before = h.fetchCalls.filter(c => c.url.includes('/api/debate/modes?') && c.init?.method === 'GET').length
+    h.click({ 'data-wb-act': 'db-share-go' })
+    await vi.waitFor(() => expect(post('/modes/import')).toHaveLength(2))
+    expect(bodyOf('/modes/import', 1)).toEqual({ content: FILE_TEXT })
+    await vi.waitFor(() => expect(h.fetchCalls.filter(c => c.url.includes('/api/debate/modes?') && c.init?.method === 'GET').length).toBeGreaterThan(before))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toContain('data-wb-act="db-share-go"'))
+    expect(h.toasts.some(m => m.includes('workbench.db.share.done'))).toBe(true)
+  })
+
+  it('beolvasas megsem: semmi nem megy ki; hibas fajl: a szerver uzenete kiirva, nincs elonezet', async () => {
+    extra = (url, init) => url.includes('/modes/import') && init?.method === 'POST' ? { status: 400, body: { error: 'not_a_mode_file', message: 'Ez nem vita-mod fajl' } } : null
+    await editor()
+    h.changeEl({ id: 'wbDbModesFile', files: [{ size: 5, text: '{"a":1}' }], value: '' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Ez nem vita-mod fajl'))
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="db-share-go"')
+    extra = (url, init) => url.includes('/modes/import') && init?.method === 'POST' ? { status: 200, body: PREVIEW } : null
+    h.changeEl({ id: 'wbDbModesFile', files: [{ size: 5, text: FILE_TEXT }], value: '' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-share-cancel"'))
+    h.click({ 'data-wb-act': 'db-share-cancel' })
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="db-share-go"')
+    expect(post('/modes/import').every(c => JSON.parse(String(c.init!.body)).dry_run === true)).toBe(true)
+  })
+
+  it('tul nagy fajlt el sem kuld', async () => {
+    await editor()
+    h.changeEl({ id: 'wbDbModesFile', files: [{ size: 5 * 1024 * 1024, text: 'x' }], value: '' })
+    expect(h.rootEl.innerHTML).toContain('workbench.db.share.too_big')
+    expect(post('/modes/import')).toHaveLength(0)
+  })
+})
+
+describe('Vitaztatas: haromoldalu mod (#597, 7. fazis)', () => {
+  const A = 'openai/gpt-5.5'
+  const B = 'deepseek/deepseek-v4'
+  const C = 'google/gemini-3-pro'
+  const MODELS = {
+    defaults: [A, B], catalog: [{ id: A, name: 'GPT', free: false }, { id: B, name: 'DS', free: false }, { id: C, name: 'Gem', free: false }], has_key: true, catalog_error: false,
+    modes: [
+      { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null, models: 2 },
+      { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6, models: 2 },
+      { id: 'triad', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6, models: 3 },
+    ],
+    default_mode: 'peer', strengths: ['mild', 'medium', 'hard'],
+  }
+  const BOARD = [
+    { id: 'K1', num: 1, kind: 'accuracy', quote: '30 nap', text: 'x', raisedIn: 1, by: null, lastRaisedIn: 1, steps: [], status: 'accepted', rewrite: '15 nap' },
+    { id: 'K2', num: 2, kind: 'legal', quote: 'hatarido', text: 'y', raisedIn: 1, by: 'critic2', lastRaisedIn: 1, steps: [], status: 'rejected', rewrite: '' },
+  ]
+  const ROUND = { session: 's3', round: 1, responses: [
+    { model: A, ok: true, role: 'critic', text: 'K1 ...', objections: [{ id: 'K1', kind: 'accuracy', quote: '30 nap', text: 'x' }] },
+    { model: B, ok: true, role: 'critic2', text: 'K2 ...', objections: [{ id: 'K2', kind: 'legal', quote: 'hatarido', text: 'y' }] },
+    { model: C, ok: true, role: 'defender', text: 'K1: ACCEPT' },
+  ], board: BOARD, boardSummary: { total: 2, accepted: 1, partial: 0, rejected: 1, withdrawn: 0, open: 0 }, advice: { stop: false } }
+  let extra: (url: string, init?: RequestInit) => { status: number; body: unknown } | null = () => null
+
+  function route(url: string, init?: RequestInit): { status: number; body: unknown } {
+    const x = extra(url, init)
+    if (x) return x
+    if (url.includes('/api/debate/models')) return { status: 200, body: MODELS }
+    if (url.includes('/api/debate/sessions?')) return { status: 200, body: { sessions: [] } }
+    if (url.includes('/api/debate/templates')) return { status: 200, body: { templates: [] } }
+    if (url.includes('/api/debate/estimate')) return { status: 200, body: { round: 1, next: { calls: [], usd: 0, unpriced: [], webSearch: [], free: true }, conclude: null } }
+    if (url.includes('/api/debate/run')) return { status: 200, body: ROUND }
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: detailBody([]) }
+    return { status: 200, body: itemsBody([MIXED]) }
+  }
+  const post = (needle: string) => h.fetchCalls.filter(c => c.url.includes(needle) && c.init?.method === 'POST')
+  const bodyOf = (needle: string, n = 0) => JSON.parse(String(post(needle)[n].init!.body))
+
+  async function panel() {
+    extra = () => null
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    // the model list arrives after the panel opens: the two default models are chosen once it has
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain(`<option value="${B}" selected>`))
+  }
+
+  it('a haromoldalu mod harom modell-mezot ker (szerepekkel), nincs szerepcsere-kapcsolo; mas modnal ketto van', async () => {
+    await panel()
+    expect(h.rootEl.innerHTML).not.toContain('id="wbDbModelC"')
+    h.change('wbDbMode', [], 'triad')
+    let html = h.rootEl.innerHTML
+    expect(html).toContain('id="wbDbModelC"')
+    expect(html).toContain('workbench.db.model_a_triad')
+    expect(html).toContain('workbench.db.model_c_triad')
+    expect(html).toContain('id="wbDbStrength"')
+    expect(html).not.toContain('id="wbDbSwap"')
+    h.change('wbDbMode', [], 'critic')
+    html = h.rootEl.innerHTML
+    expect(html).not.toContain('id="wbDbModelC"')
+    expect(html).toContain('id="wbDbSwap"')
+  })
+
+  it('indulas: harom kulonbozo modell kell; hianyzo vagy ismetlodo modellel hibauzenet es nem megy ki semmi; helyesen mindharom megy a szerverre, szerepcsere nelkul', async () => {
+    await panel()
+    h.change('wbDbMode', [], 'triad')
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    expect(h.rootEl.innerHTML).toContain('workbench.db.err_models3')
+    expect(post('/api/debate/run')).toHaveLength(0)
+    h.input('wbDbModelC', A)
+    h.click({ 'data-wb-act': 'db-start' })
+    expect(post('/api/debate/run')).toHaveLength(0)
+    h.input('wbDbModelC', C)
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(post('/api/debate/run')).toHaveLength(1))
+    const sent = bodyOf('/api/debate/run')
+    expect(sent).toMatchObject({ mode: 'triad', models: [A, B, C], strength: 'medium' })
+    expect(sent.swapRoles).toBeUndefined()
+  })
+
+  it('a kor harom oszlopban jelenik meg a szerepcimkekkel, a tablan a 2. kotekedo jelolesevel', async () => {
+    await panel()
+    h.change('wbDbMode', [], 'triad')
+    h.input('wbDbQ', 'q')
+    h.input('wbDbModelC', C)
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-db-cols-3'))
+    const html = h.rootEl.innerHTML
+    expect((html.match(/class="wb-db-col"/g) || []).length).toBe(3)
+    expect(html).toContain('wb-db-role-critic2')
+    expect(html).toContain('workbench.db.role.critic2')
+    expect(html).toContain('workbench.db.board.by_critic2')
+    expect((html.match(/workbench\.db\.board\.by_critic2/g) || []).length).toBe(1) // csak a K2-nel
+  })
+
+  it('a becslesi kerdes harom modellel megy ki; ketto-modellesnel a regi alak', async () => {
+    await panel()
+    h.change('wbDbMode', [], 'triad')
+    h.input('wbDbQ', 'q')
+    h.input('wbDbModelC', C)
+    await vi.waitFor(() => expect(post('/api/debate/estimate')).toHaveLength(1), { timeout: 4000 })
+    expect(bodyOf('/api/debate/estimate')).toMatchObject({ mode: 'triad', models: [A, B, C] })
+  })
+
+  it('sablon: a haromoldalu beallitas harom modellel mentodik, es visszatoltve a harmadik mezo is kitoltodik', async () => {
+    const tpl = { id: 't-aaaaaaaa', name: 'Harmas', mode: 'triad', strength: 'hard', swapRoles: null, models: [A, B, C], judge: '', modeMissing: false }
+    extra = (url, init) => url.includes('/api/debate/templates') && !init?.method ? null : null
+    h.respond((url, init) => {
+      if (url.includes('/api/debate/templates') && init?.method === 'GET') return { status: 200, body: { templates: [tpl] } }
+      return route(url, init)
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<option value="t-aaaaaaaa">'))
+    h.change('wbDbTplPick', [], 't-aaaaaaaa')
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('id="wbDbModelC"')
+    expect(html).toContain(`<option value="${C}" selected>`)
+    expect(html).toContain('<option value="hard" selected>')
+  })
+})

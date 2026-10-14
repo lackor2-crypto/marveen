@@ -30,7 +30,7 @@ import {
   DebateKeyMissingError, DebateBusyError, DebateInputError,
   MAX_ATTACHMENT_CHARS,
 } from '../../debate-run.js'
-import { BUILTIN_MODES, DEFAULT_MODE_ID, DEFAULT_STRENGTH, STRENGTHS } from '../../debate-modes.js'
+import { BUILTIN_MODES, DEFAULT_MODE_ID, DEFAULT_STRENGTH, STRENGTHS, modelCountOf } from '../../debate-modes.js'
 import { loadCustomModes } from '../../debate-mode-store.js'
 import { applicableChanges, previewForItem, applyChanges } from '../../debate-apply.js'
 import { fetchAllOpenRouterModels, openRouterModelsWithin } from '../openrouter-models.js'
@@ -94,6 +94,7 @@ function errorFor(res: RouteContext['res'], l: string, err: unknown, status?: nu
       nothing_to_apply: ['Ebből a vitából nincs mit beírni: a védő nem fogadott el olyan kifogást, amelyhez idézet és új megfogalmazás tartozna.', 'There is nothing to write from this debate: the defender accepted no objection that has both a quote and a new wording.'],
       question_missing: ['Írd be a kérdést vagy a feladatot.', 'Type the question or the task.'],
       two_models_required: ['Válassz ki két különböző modellt.', 'Pick two different models.'],
+      three_models_required: ['Ehhez a módhoz három különböző modell kell: két kötekedő és egy védő.', 'This mode needs three different models: two critics and a defender.'],
       summary_failed: [`Az összefoglalót nem sikerült megírni (${detail}). A vita nyitva maradt, próbáld újra.`, `The summary could not be written (${detail}). The debate stays open, try again.`],
     }
     const m = msg[code] ?? [err.code, err.code]
@@ -125,7 +126,7 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
       defaults, catalog, has_key: hasKey, catalog_error: catalogError,
       modes: [...Object.values(BUILTIN_MODES), ...loadCustomModes()].map(m => ({
         id: m.id, builtin: m.builtin === true, roles: m.roles, name: m.builtin ? null : (m.name ?? m.id), description: m.builtin ? null : (m.description ?? ''),
-        strength: m.strength ?? DEFAULT_STRENGTH, swap_roles: m.swapRoles === true, max_rounds: m.maxRounds ?? null,
+        strength: m.strength ?? DEFAULT_STRENGTH, swap_roles: m.swapRoles === true, max_rounds: m.maxRounds ?? null, models: modelCountOf(m),
       })),
       default_mode: DEFAULT_MODE_ID, strengths: STRENGTHS,
     })
