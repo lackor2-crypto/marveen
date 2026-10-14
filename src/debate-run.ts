@@ -18,9 +18,16 @@ import { getSecret } from './web/vault.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
 import {
-  findMode, resolveMode, hasRoleInstructions, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse,
-  DEFAULT_MODE_ID, type DebateModeDef, type DebateRoleId, type ParsedObjection, type ParsedReply,
+  isRoleMode, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse, rolesForRound, effectiveStrength, effectiveSwap,
+  familyWarnings, modeFromStored, isStrength, DEFAULT_MODE_ID, BUILTIN_MODES,
+  type DebateModeDef, type DebateRoleId, type FamilyWarning, type ParsedObjection, type ParsedReply, type Strength, type StoredMode,
 } from './debate-modes.js'
+import { loadStoredModes, lookupMode } from './debate-mode-store.js'
+import {
+  buildObjectionBoard, stopAdvice, maxObjectionNumber, boardForPrompt, summarizeBoard,
+  type BoardItem, type BoardSummary, type StopAdvice,
+} from './debate-board.js'
+import { CONCLUDE_OUT_TOKENS, CHARS_PER_TOKEN, DEFAULT_OUT_TOKENS, estimateCalls, type Estimate, type EstimateCall, type ModelPrice } from './debate-estimate.js'
 
 export const DEBATE_LOG_PATH = join(STORE_DIR, 'debate-log.jsonl')
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -62,6 +69,14 @@ export interface DebateSessionState {
   project: string | null
   /** Id of the debate mode (debate-modes.ts); debates from before the modes read as the default. */
   mode: string
+  /** The name of an owner-made mode (the built-in ones are named by the page's language files). */
+  modeName: string | null
+  /** The most rounds the mode allows, or null. */
+  maxRounds: number | null
+  strength: Strength
+  swapRoles: boolean
+  /** The third model that writes the closing summary; null = the first model does. */
+  judge: string | null
   models: string[]
   question: string
   attachments: DebateAttachment[]
@@ -69,6 +84,12 @@ export interface DebateSessionState {
   concluded: boolean
   consensus: boolean | null
   summary: string | null
+  /** Which model wrote the summary (null while the debate is open, or when the owner wrote it). */
+  summaryBy: string | null
+  /** Role modes only: the objection board over all rounds, its counts, and whether another round is worth it. */
+  board: BoardItem[]
+  boardSummary: BoardSummary | null
+  advice: StopAdvice
 }
 
 // ---------------------------------------------------------------------------
@@ -148,18 +169,24 @@ export function buildRoundPrompt(a: RoundPromptInput): string {
 }
 
 /** The closing synthesis prompt: what both sides ended up with, as a neutral write-up the owner can copy. */
-export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' | 'attachments' | 'rounds'> & { mode?: string }): string {
+export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' | 'attachments' | 'rounds'> & { mode?: string; modeDef?: DebateModeDef; outsider?: boolean }): string {
   const last = state.rounds[state.rounds.length - 1]
-  const mode = resolveMode(state.mode)
+  const mode = state.modeDef ?? resolveStateMode(state.mode)
   const positions = (last?.responses ?? []).filter(r => r.ok && r.text)
     .map(r => `### ${r.model}${r.role && r.role !== 'peer' ? ` (${r.role})` : ''}\n${r.text}`).join('\n\n')
   const notes = state.rounds.filter(r => r.round > 1 && r.prompt.trim()).map(r => `Round ${r.round}: ${r.prompt.trim()}`).join('\n')
+  const review = isRoleMode(mode)
+  const board = review ? boardForPrompt(buildObjectionBoard(state.rounds)) : ''
   return [
     `You are the neutral secretary of a debate between two models. Question:\n${state.question}${materialBlock(state.attachments)}`,
+    state.outsider ? 'You were not one of the two models: decide on the arguments, not on who wrote them, and do not side with whoever sounded more sure.' : '',
     notes ? `The owner steered the debate with these notes:\n${notes}` : '',
     mode.conclusionNote ?? '',
     `The final positions (round ${last?.round ?? 1}):\n${positions || '(none)'}`,
-    'Write the result for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no". Then: what both sides agree on, what they still disagree about, and your recommended answer. Reply in the language of the question.',
+    board ? `The objection board (all rounds, newest state of every objection):\n${board}` : '',
+    review && board
+      ? 'Write the review report for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no" (yes = no objection is still disputed). Then three short sections: "Changes to make" (the objections that stand, each by its number, with the wording to use), "Objections that fell" (rejected with a sound argument, or given up by the critic: one line each with the reason), "Still disputed" (what is left, and your recommendation). Work only from the board above; do not add objections of your own. Reply in the language of the question.'
+      : 'Write the result for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no". Then: what both sides agree on, what they still disagree about, and your recommended answer. Reply in the language of the question.',
   ].filter(Boolean).join('\n\n')
 }
 
@@ -207,13 +234,24 @@ function trimLogIfNeeded(): void {
   }
 }
 
-/** Rebuilds a session from the log, or null when it has no rounds. */
-export function loadDebateSession(id: string): DebateSessionState | null {
+/** A mode id from the log -> the mode; one that is gone (a deleted owner-made mode) reads as the default. */
+function resolveStateMode(id: unknown): DebateModeDef {
+  return lookupMode(id) ?? BUILTIN_MODES[DEFAULT_MODE_ID]
+}
+
+interface LoadedSession { state: DebateSessionState; mode: DebateModeDef }
+
+/**
+ * Rebuilds a session from the log, with the mode it runs in. An owner-made mode is read from the copy the debate
+ * wrote into its `context` line, so editing or deleting the mode does not change a debate that is already going.
+ */
+function loadSession(id: string): LoadedSession | null {
   const lines = readLines().filter(l => l.session === id)
   const roundLines = lines.filter(l => l.type === 'round')
   if (!roundLines.length) return null
   const ctx = [...lines].reverse().find(l => l.type === 'context') as
-    { models?: string[]; question?: string; files?: DebateAttachment[]; project?: string; mode?: string } | undefined
+    { models?: string[]; question?: string; files?: DebateAttachment[]; project?: string; mode?: string; modeDef?: StoredMode;
+      strength?: string; swapRoles?: boolean; judge?: string } | undefined
   const byRound = new Map<number, DebateRoundView>()
   for (const l of roundLines) {
     const n = Number(l.round) || 1
@@ -232,14 +270,29 @@ export function loadDebateSession(id: string): DebateSessionState | null {
   const conclude = lines.find(l => l.type === 'conclude')
   const models = ctx?.models?.length ? ctx.models : [...new Set(roundLines.map(l => String(l.model ?? '')))]
   const project = (roundLines.find(l => l.project)?.project as string | undefined) ?? ctx?.project ?? null
-  return {
-    id, project: project || null, mode: findMode(ctx?.mode)?.id ?? DEFAULT_MODE_ID, models,
+  const snapshot = ctx?.modeDef && typeof ctx.modeDef === 'object' ? modeFromStored(ctx.modeDef) : null
+  const mode = snapshot && snapshot.id === ctx?.mode ? snapshot : resolveStateMode(ctx?.mode)
+  const board = isRoleMode(mode) ? buildObjectionBoard(rounds) : []
+  const state: DebateSessionState = {
+    id, project: project || null, mode: mode.id, modeName: mode.builtin ? null : (mode.name ?? null), maxRounds: mode.maxRounds ?? null,
+    strength: effectiveStrength(mode, ctx?.strength), swapRoles: effectiveSwap(mode, ctx?.swapRoles),
+    judge: typeof ctx?.judge === 'string' && ctx.judge.trim() ? ctx.judge.trim() : null,
+    models,
     question: ctx?.question ?? rounds[0]?.prompt ?? '',
     attachments: Array.isArray(ctx?.files) ? ctx!.files! : [],
     rounds, concluded: !!conclude,
     consensus: conclude ? conclude.consensus === true : null,
     summary: conclude ? String(conclude.summary ?? '') : null,
+    summaryBy: conclude && typeof conclude.by === 'string' ? conclude.by : null,
+    board, boardSummary: board.length ? summarizeBoard(board) : null,
+    advice: stopAdvice(mode, rounds),
   }
+  return { state, mode }
+}
+
+/** Rebuilds a session from the log, or null when it has no rounds. */
+export function loadDebateSession(id: string): DebateSessionState | null {
+  return loadSession(id)?.state ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -331,15 +384,38 @@ export interface RunRoundInput {
   models?: string[]
   attachments?: unknown
   steer?: string
-  /** Debate mode id (debate-modes.ts), first round only; a later round keeps the mode the debate started with. */
+  /** First round only; a later round keeps what the debate started with: the mode, its strength, the role swap, the judge. */
   mode?: string
+  strength?: string
+  swapRoles?: boolean
+  judge?: string
 }
 
-export interface RunRoundResult { session: string; round: number; responses: DebateResponse[] }
+export interface RunRoundResult {
+  session: string
+  round: number
+  responses: DebateResponse[]
+  /** Role modes: the board and the advice after this round. */
+  board?: BoardItem[]
+  boardSummary?: BoardSummary | null
+  advice?: StopAdvice
+  /** Two of the chosen models come from the same maker (they tend to agree for the wrong reason). */
+  warnings?: FamilyWarning[]
+}
 
 function cleanModels(list: unknown): string[] {
   if (!Array.isArray(list)) return []
   return [...new Set(list.map(m => String(m ?? '').trim()).filter(Boolean))]
+}
+
+function cleanJudge(v: unknown): string | null {
+  const j = String(v ?? '').trim().slice(0, 200)
+  return j || null
+}
+
+/** The previous round's text of a role (the roles can swap models, so it is looked up by role, not by model). */
+function textOfRole(prev: DebateRoundView | null, role: DebateRoleId): string | null {
+  return prev?.responses.find(x => x.role === role && x.ok && x.text)?.text ?? null
 }
 
 /**
@@ -347,12 +423,14 @@ function cleanModels(list: unknown): string[] {
  * (optionally with the owner's note). A round where every model failed is not logged -- the owner just retries it.
  */
 export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResult> {
-  const prior = input.session ? loadDebateSession(input.session) : null
-  if (input.session && !prior) throw new DebateInputError('session_not_found')
+  const loaded = input.session ? loadSession(input.session) : null
+  if (input.session && !loaded) throw new DebateInputError('session_not_found')
+  const prior = loaded?.state ?? null
   if (prior?.concluded) throw new DebateInputError('session_concluded')
-  const chosen = prior ? resolveMode(prior.mode) : findMode(input.mode)
+  const chosen = loaded ? loaded.mode : lookupMode(input.mode)
   if (!chosen) throw new DebateInputError('mode_unknown')
   const mode: DebateModeDef = chosen
+  if (prior && mode.maxRounds && prior.rounds.length >= mode.maxRounds) throw new DebateInputError('round_limit')
 
   const models = prior ? prior.models : cleanModels(input.models)
   const question = (prior ? prior.question : String(input.question ?? '')).trim().slice(0, MAX_QUESTION_CHARS)
@@ -360,6 +438,9 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
   if (models.length !== 2) throw new DebateInputError('two_models_required')
   const attachments = prior ? prior.attachments : clampAttachments(input.attachments)
   const steer = String(input.steer ?? '').trim().slice(0, MAX_QUESTION_CHARS)
+  const strength = prior ? prior.strength : effectiveStrength(mode, input.strength)
+  const swap = prior ? prior.swapRoles : effectiveSwap(mode, input.swapRoles)
+  const judge = prior ? prior.judge : cleanJudge(input.judge)
 
   const session = prior ? prior.id : randomUUID()
   if (running.has(session)) throw new DebateBusyError()
@@ -372,25 +453,30 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
       const r = prev?.responses.find(x => x.model === model && x.ok && x.text)
       return r?.text ?? null
     }
-    const roleMode = hasRoleInstructions(mode)
+    const roleMode = isRoleMode(mode)
+    const roles = rolesForRound(mode, round, swap)
+    const swapped = roleMode && roles[0] !== mode.roles[0]
+    const usedUpTo = maxObjectionNumber(prior?.rounds ?? [])
     const head = questionHead(question, attachments)
-    const callAs = async (i: number, otherNow: string | null): Promise<DebateResponse> => {
-      const role = mode.roles[i]
+    const peerSystem = [SYSTEM_PROMPT, mode.instructions.peer].filter(Boolean).join('\n')
+    const callAs = async (i: number, criticNow: string | null): Promise<DebateResponse> => {
+      const role = roles[i]
       if (!roleMode) {
-        return callModel(models[i], SYSTEM_PROMPT, buildRoundPrompt({ question, attachments, round, own: textOf(models[i]), other: textOf(models[1 - i]), steer }), key)
+        return callModel(models[i], peerSystem, buildRoundPrompt({ question, attachments, round, own: textOf(models[i]), other: textOf(models[1 - i]), steer }), key)
       }
-      const r = await callModel(models[i], modeSystemPrompt(mode, role) ?? SYSTEM_PROMPT, buildModeRoundPrompt(role, {
-        head, round, ownPrev: textOf(models[i]), otherPrev: textOf(models[1 - i]), otherNow, steer,
+      const r = await callModel(models[i], modeSystemPrompt(mode, role, strength) ?? SYSTEM_PROMPT, buildModeRoundPrompt(role, {
+        head, round, criticPrev: textOfRole(prev, 'critic'), defenderPrev: textOfRole(prev, 'defender'), criticNow, steer, swapped, usedUpTo,
       }), key)
       return { ...r, role, ...readResponse(role, r.text) }
     }
     let responses: DebateResponse[]
     if (mode.sequential) {
-      // The second model answers the first one's answer of THIS round (critic -> defender). If the first model
-      // failed, or found nothing to object to, there is nothing to answer: the second call is skipped.
-      const first = await callAs(0, null)
+      // The model that plays the first role goes first; the other answers its answer of THIS round (critic -> defender).
+      // If the first failed, or found nothing to object to, there is nothing to answer: the second call is skipped.
+      const firstIdx = roles[0] === mode.roles[0] ? 0 : 1
+      const first = await callAs(firstIdx, null)
       responses = [first]
-      if (first.ok && first.text && !isNoObjections(first.text)) responses.push(await callAs(1, first.text))
+      if (first.ok && first.text && !isNoObjections(first.text)) responses.push(await callAs(1 - firstIdx, first.text))
     } else {
       responses = await Promise.all(models.map((_m, i) => callAs(i, null)))
     }
@@ -399,7 +485,11 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
     const ts = Math.floor(Date.now() / 1000)
     const project = input.project || prior?.project || null
     if (!prior) {
-      appendLine({ ts, session, type: 'context', models, question, files: attachments, mode: mode.id, ...(project ? { project } : {}) })
+      const stored = mode.builtin ? null : loadStoredModes().find(m => m.id === mode.id) ?? null
+      appendLine({
+        ts, session, type: 'context', models, question, files: attachments, mode: mode.id, ...(project ? { project } : {}),
+        ...(roleMode ? { strength, swapRoles: swap } : {}), ...(judge ? { judge } : {}), ...(stored ? { modeDef: stored } : {}),
+      })
     }
     for (const r of responses) {
       appendLine({
@@ -412,21 +502,30 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
       recordTokenUsage(session, ts, r)
     }
     trimLogIfNeeded()
-    return { session, round, responses }
+    const rounds = [...(prior?.rounds ?? []), { round, prompt: round === 1 ? question : steer, responses }]
+    const board = roleMode ? buildObjectionBoard(rounds) : []
+    const warnings = familyWarnings([...models, ...(judge ? [judge] : [])])
+    return {
+      session, round, responses,
+      ...(roleMode ? { board, boardSummary: board.length ? summarizeBoard(board) : null, advice: stopAdvice(mode, rounds) } : {}),
+      ...(warnings.length ? { warnings } : {}),
+    }
   } finally {
     running.delete(session)
   }
 }
 
-export interface ConcludeResult { consensus: boolean; summary: string }
+export interface ConcludeResult { consensus: boolean; summary: string; by?: string }
 
 /**
- * Closes the debate. With a `summary` from the owner it is written as given; without one the first model
- * writes the neutral summary of the last round. Nothing is logged when that call fails, so the debate stays open.
+ * Closes the debate. With a `summary` from the owner it is written as given; without one a model writes the neutral
+ * summary of the last round: the `judge` the owner picked (a third model that took no part), else the one the
+ * debate was started with, else the first model. Nothing is logged when that call fails, so the debate stays open.
  */
-export async function concludeDebate(id: string, owner?: { summary?: string; consensus?: boolean }): Promise<ConcludeResult> {
-  const state = loadDebateSession(id)
-  if (!state) throw new DebateInputError('session_not_found')
+export async function concludeDebate(id: string, owner?: { summary?: string; consensus?: boolean; judge?: string }): Promise<ConcludeResult> {
+  const loaded = loadSession(id)
+  if (!loaded) throw new DebateInputError('session_not_found')
+  const { state, mode } = loaded
   if (state.concluded) throw new DebateInputError('session_concluded')
   if (running.has(id)) throw new DebateBusyError()
 
@@ -436,17 +535,106 @@ export async function concludeDebate(id: string, owner?: { summary?: string; con
     result = { consensus: owner?.consensus === true, summary: given }
   } else {
     const key = apiKey()
+    const writer = cleanJudge(owner?.judge) ?? state.judge ?? state.models[0]
     running.add(id)
     try {
-      const r = await callModel(state.models[0], SYSTEM_PROMPT, buildConcludePrompt(state), key)
+      const outsider = !state.models.includes(writer)
+      const r = await callModel(writer, SYSTEM_PROMPT, buildConcludePrompt({ ...state, modeDef: mode, outsider }), key)
       if (!r.ok || !r.text) throw new DebateInputError(`summary_failed:${r.error ?? 'empty'}`)
-      result = parseConclusion(r.text)
+      result = { ...parseConclusion(r.text), by: writer }
       recordTokenUsage(id, Math.floor(Date.now() / 1000), r)
     } finally {
       running.delete(id)
     }
   }
-  appendLine({ ts: Math.floor(Date.now() / 1000), session: id, type: 'conclude', consensus: result.consensus, summary: result.summary })
+  appendLine({
+    ts: Math.floor(Date.now() / 1000), session: id, type: 'conclude', consensus: result.consensus, summary: result.summary,
+    ...(result.by ? { by: result.by } : {}),
+  })
   trimLogIfNeeded()
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Cost estimate of the next round (shown before the owner presses the button)
+// ---------------------------------------------------------------------------
+
+export interface EstimateInput {
+  session?: string
+  question?: string
+  models?: string[]
+  attachments?: unknown
+  steer?: string
+  mode?: string
+  strength?: string
+  swapRoles?: boolean
+  judge?: string
+}
+
+export interface RoundEstimate {
+  round: number
+  next: Estimate
+  /** What the closing summary would cost, from what the debate has so far. */
+  conclude: Estimate | null
+}
+
+function avgOut(prior: DebateSessionState | null, model: string): number | null {
+  const outs = (prior?.rounds ?? []).flatMap(r => r.responses).filter(x => x.model === model && typeof x.tokensOut === 'number' && x.tokensOut > 0).map(x => x.tokensOut as number)
+  return outs.length ? outs.reduce((a, b) => a + b, 0) / outs.length : null
+}
+
+/**
+ * The expected cost of the next round (and of closing the debate), from the text that will be sent and the list
+ * prices. Throws the same input errors as `runDebateRound` for a debate that cannot run (no session, no mode).
+ */
+export function estimateNextRound(input: EstimateInput, prices: ReadonlyMap<string, ModelPrice>): RoundEstimate {
+  const loaded = input.session ? loadSession(input.session) : null
+  if (input.session && !loaded) throw new DebateInputError('session_not_found')
+  const prior = loaded?.state ?? null
+  const chosen = loaded ? loaded.mode : lookupMode(input.mode)
+  if (!chosen) throw new DebateInputError('mode_unknown')
+  const mode: DebateModeDef = chosen
+  const models = prior ? prior.models : cleanModels(input.models)
+  if (models.length !== 2) throw new DebateInputError('two_models_required')
+  const question = (prior ? prior.question : String(input.question ?? '')).trim().slice(0, MAX_QUESTION_CHARS)
+  const attachments = prior ? prior.attachments : clampAttachments(input.attachments)
+  const steer = String(input.steer ?? '').trim().slice(0, MAX_QUESTION_CHARS)
+  const strength = prior ? prior.strength : effectiveStrength(mode, input.strength)
+  const swap = prior ? prior.swapRoles : effectiveSwap(mode, input.swapRoles)
+  // The judge may be picked (or changed) at closing time, so the estimate takes the one the panel shows now.
+  const judge = cleanJudge(input.judge) ?? (prior ? prior.judge : null)
+  const round = prior ? prior.rounds[prior.rounds.length - 1].round + 1 : 1
+  const prev = prior ? prior.rounds[prior.rounds.length - 1] : null
+  const textOf = (model: string): string | null => prev?.responses.find(x => x.model === model && x.ok && x.text)?.text ?? null
+  const roles = rolesForRound(mode, round, swap)
+  const roleMode = isRoleMode(mode)
+  const head = questionHead(question, attachments)
+  const peerSystem = [SYSTEM_PROMPT, mode.instructions.peer].filter(Boolean).join('\n')
+  const usedUpTo = maxObjectionNumber(prior?.rounds ?? [])
+  const swapped = roleMode && roles[0] !== mode.roles[0]
+
+  const calls: EstimateCall[] = models.map((m, i) => {
+    const seenOut = avgOut(prior, m)
+    if (!roleMode) {
+      return { model: m, seenOut, chars: peerSystem.length + buildRoundPrompt({ question, attachments, round, own: textOf(m), other: textOf(models[1 - i]), steer }).length }
+    }
+    const role = roles[i]
+    // The defender reads the critic's answer of the same round: counted at the size the critic is expected to write.
+    const criticOut = avgOut(prior, models[roles[0] === mode.roles[0] ? 0 : 1]) ?? DEFAULT_OUT_TOKENS
+    const system = modeSystemPrompt(mode, role, strength) ?? SYSTEM_PROMPT
+    const user = buildModeRoundPrompt(role, {
+      head, round, criticPrev: textOfRole(prev, 'critic'), defenderPrev: textOfRole(prev, 'defender'),
+      criticNow: role === 'defender' ? 'x'.repeat(Math.round(criticOut * CHARS_PER_TOKEN)) : null, steer, swapped, usedUpTo,
+    })
+    return { model: m, seenOut, chars: system.length + user.length }
+  })
+  const next = estimateCalls(calls, prices)
+
+  let conclude: Estimate | null = null
+  if (prior) {
+    const writer = judge ?? models[0]
+    const chars = SYSTEM_PROMPT.length + buildConcludePrompt({ ...prior, modeDef: mode, outsider: !models.includes(writer) }).length
+    conclude = estimateCalls([{ model: writer, chars, seenOut: CONCLUDE_OUT_TOKENS }], prices)
+  }
+  return { round, next, conclude }
 }

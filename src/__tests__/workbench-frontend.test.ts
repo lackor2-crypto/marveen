@@ -26,6 +26,7 @@ interface Harness {
   /** Fajlvalaszto / legordulo: a VALODI `change`-figyelot szolaltatja meg.
    *  A `value` a legordulonel szamit (verzio-valaszto), a fajlvalasztonal ures. */
   change: (id: string, files: unknown[], value?: string) => void
+  changeEl: (target: Record<string, unknown>) => void
   /** Gepeles egy szovegmezoben: a VALODI `input`-figyelot szolaltatja meg. */
   input: (id: string, value: string) => void
   fetchCalls: { url: string; init?: RequestInit }[]
@@ -208,6 +209,9 @@ function harness(): Harness {
     change(id, files, value = '') {
       const e = { target: { id, files, value }, preventDefault() {} }
       for (const h of changeHandlers) h(e)
+    },
+    changeEl(target) {
+      for (const h of changeHandlers) h({ target, preventDefault() {} })
     },
     input(id, value) {
       const e = { target: { id, value }, preventDefault() {} }
@@ -3091,5 +3095,230 @@ describe('Vitaztatas gomb a Munkapadon (Boss: ket modell vitazik, a projekthez k
     expect(h.rootEl.innerHTML).toContain('data-wb-act="db-open"')
     h.click({ 'data-wb-act': 'db-open' })
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbDbQ"'))
+  })
+})
+
+describe('Vitaztatas: modok, tabla, bíró, koltsegbecsles, Alkalmaz (#597, 2-4. fazis)', () => {
+  const MODELS = {
+    defaults: ['openai/gpt-5.5', 'deepseek/deepseek-v4'], catalog: [], has_key: true, catalog_error: false,
+    modes: [
+      { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null },
+      { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
+      { id: 'm-abcdef12', builtin: false, roles: ['critic', 'defender'], name: 'Szigoru atnezes', description: 'Sajat leiras', strength: 'hard', swap_roles: true, max_rounds: 2 },
+    ],
+    default_mode: 'peer', strengths: ['mild', 'medium', 'hard'],
+  }
+  const BOARD = [
+    { id: 'K1', num: 1, kind: 'accuracy', quote: '30 nap', text: 'x', raisedIn: 1, lastRaisedIn: 1, steps: [], status: 'accepted', rewrite: '15 nap' },
+    { id: 'K2', num: 2, kind: 'wording', quote: 'kerjuk', text: 'y', raisedIn: 1, lastRaisedIn: 1, steps: [], status: 'rejected', rewrite: '' },
+  ]
+  const ROUND = (extra: Record<string, unknown> = {}) => ({ session: 's1', round: 1, responses: [
+    { model: 'openai/gpt-5.5', ok: true, role: 'critic', text: 'K1 ...', objections: [{ id: 'K1', kind: 'accuracy', quote: '30 nap', text: 'x' }] },
+    { model: 'deepseek/deepseek-v4', ok: true, role: 'defender', text: 'K1: ACCEPT' },
+  ], board: BOARD, boardSummary: { total: 2, accepted: 1, partial: 0, rejected: 1, withdrawn: 0, open: 0 }, advice: { stop: false }, ...extra })
+  const EST = { round: 1, next: { calls: [], usd: 0.0412, unpriced: [], webSearch: [], free: false }, conclude: null, prices_known: true }
+  let routeExtra: (url: string, init?: RequestInit) => { status: number; body: unknown } | null = () => null
+
+  function route(url: string, init?: RequestInit): { status: number; body: unknown } {
+    const extra = routeExtra(url, init)
+    if (extra) return extra
+    if (url.includes('/api/debate/models')) return { status: 200, body: MODELS }
+    if (url.includes('/api/debate/sessions?')) return { status: 200, body: { sessions: [] } }
+    if (url.includes('/api/debate/estimate')) return { status: 200, body: EST }
+    if (url.includes('/api/debate/run')) return { status: 200, body: ROUND() }
+    if (url.includes('/conclude')) return { status: 200, body: { consensus: false, summary: 'Az eredmeny', by: 'google/gemini-3' } }
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: detailBody([]) }
+    return { status: 200, body: itemsBody([MIXED]) }
+  }
+
+  const post = (needle: string) => h.fetchCalls.filter(c => c.url.includes(needle) && c.init?.method === 'POST')
+  const bodyOf = (needle: string, n = 0) => JSON.parse(String(post(needle)[n].init!.body))
+
+  async function panel() {
+    routeExtra = () => null
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+  }
+
+  it('a modvalaszto a sajat modot is felkinalja a nevevel; az Egyenrangunal nincs erosseg es szerepcsere, a kotekedo modoknal van, a mod alapjaival', async () => {
+    await panel()
+    let html = h.rootEl.innerHTML
+    expect(html).toContain('Szigoru atnezes')
+    expect(html).not.toContain('id="wbDbStrength"')
+    expect(html).toContain('data-wb-act="db-modes"')
+    h.change('wbDbMode', [], 'm-abcdef12')
+    html = h.rootEl.innerHTML
+    expect(html).toContain('id="wbDbStrength"')
+    expect(html).toContain('<option value="hard" selected>')
+    expect(html).toContain('id="wbDbSwap" checked')
+    expect(html).toContain('Sajat leiras')
+    h.change('wbDbMode', [], 'critic')
+    html = h.rootEl.innerHTML
+    expect(html).toContain('<option value="medium" selected>')
+    expect(html).not.toContain('id="wbDbSwap" checked')
+  })
+
+  it('a vita indulasakor a valasztott mod, erosseg, szerepcsere es biro megy a szerverre; Egyenrangunal csak a mod', async () => {
+    await panel()
+    h.change('wbDbMode', [], 'critic')
+    h.change('wbDbStrength', [], 'hard')
+    h.changeEl({ id: 'wbDbSwap', checked: true })
+    h.input('wbDbJudge', ' google/gemini-3 ')
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(post('/api/debate/run')).toHaveLength(1))
+    expect(bodyOf('/api/debate/run')).toMatchObject({ mode: 'critic', strength: 'hard', swapRoles: true, judge: 'google/gemini-3' })
+    h.click({ 'data-wb-act': 'db-new' })
+    h.change('wbDbMode', [], 'peer')
+    h.input('wbDbQ', 'Masik')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(post('/api/debate/run')).toHaveLength(2))
+    const peer = bodyOf('/api/debate/run', 1)
+    expect(peer.mode).toBe('peer')
+    expect(peer.strength).toBeUndefined()
+    expect(peer.swapRoles).toBeUndefined()
+  })
+
+  it('a koltsegbecsles kozben gepelve is kerul a helyere (nem kell ujrarajzolni), az osszeg szepen formazva', async () => {
+    await panel()
+    const est = { value: '', focus() {}, innerHTML: '' }
+    h.inputs['wbDbEst'] = est as never
+    h.input('wbDbQ', 'Jo a level?')
+    await vi.waitFor(() => expect(post('/api/debate/estimate')).toHaveLength(1), { timeout: 4000 })
+    expect(bodyOf('/api/debate/estimate')).toMatchObject({ question: 'Jo a level?', models: ['openai/gpt-5.5', 'deepseek/deepseek-v4'], mode: 'peer' })
+    await vi.waitFor(() => expect(est.innerHTML).toContain('workbench.db.est_round'))
+    expect(est.innerHTML).toContain('"n":1')
+    expect(est.innerHTML).toContain('0,04')
+  })
+
+  it('azonos kiadotol szarmazo modellek: a figyelmeztetes gepeles kozben jelenik meg a helyen', async () => {
+    await panel()
+    const warn = { value: '', focus() {}, innerHTML: '' }
+    h.inputs['wbDbWarn'] = warn as never
+    h.input('wbDbModelB', 'openai/gpt-5.5-mini')
+    expect(warn.innerHTML).toContain('workbench.db.family_warn')
+    expect(warn.innerHTML).toContain('"family":"openai"')
+    h.input('wbDbModelB', 'deepseek/deepseek-v4')
+    expect(warn.innerHTML).toBe('')
+    h.input('wbDbJudge', 'openai/gpt-5.5-judge')
+    expect(warn.innerHTML).toContain('workbench.db.family_warn')
+  })
+
+  it('az 1. kor utan ott a kifogas-tabla, es a lezaras a bironak megadott modellel megy', async () => {
+    await panel()
+    h.change('wbDbMode', [], 'critic')
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-db-blist'))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.db.board.status.accepted')
+    expect(html).toContain('workbench.db.board.status.rejected')
+    expect(html).toContain('15 nap')
+    expect(html).not.toContain('wb-db-advice')
+    h.input('wbDbJudge', 'google/gemini-3')
+    h.click({ 'data-wb-act': 'db-conclude' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Az eredmeny'))
+    expect(bodyOf('/conclude')).toEqual({ judge: 'google/gemini-3' })
+    expect(h.rootEl.innerHTML).toContain('workbench.db.written_by')
+  })
+
+  it('a tanacs megjelenik; a lezaras kiemelt gomb, de a kovetkezo kor megmarad; a mod korhatarat elerve a kovetkezo kor gomb tiltott', async () => {
+    routeExtra = () => null
+    h.respond((url, init) => url.includes('/api/debate/run')
+      ? { status: 200, body: ROUND({ advice: { stop: true, reason: 'stalled' } }) }
+      : route(url, init))
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+    h.change('wbDbMode', [], 'm-abcdef12') // korhatar: 2
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-db-advice'))
+    expect(h.rootEl.innerHTML).toContain('workbench.db.advice.stalled')
+    // a lezaras az elso (kiemelt) gomb, a kovetkezo kor masodlagos, de nem tiltott
+    expect(h.rootEl.innerHTML).toMatch(/class="btn-secondary" data-wb-act="db-next"/)
+    expect(h.rootEl.innerHTML).toMatch(/class="btn-primary" data-wb-act="db-conclude"/)
+    h.click({ 'data-wb-act': 'db-next' })
+    await vi.waitFor(() => expect(post('/api/debate/run')).toHaveLength(2))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('disabled title='))
+    expect(h.rootEl.innerHTML).toMatch(/data-wb-act="db-next" disabled title="/)
+  })
+
+  it('a mod-szerkeszto: megnyilik, uj mod lepesrol lepesre; menteskor a valtozatlan beepitett szoveg ures marad, a sajat szoveg megy; utana a modlista frissul', async () => {
+    const saved: unknown[] = []
+    routeExtra = (url, init) => {
+      if (url.includes('/api/debate/modes') && init?.method === 'POST') { saved.push(JSON.parse(String(init.body))); return { status: 200, body: { mode: { id: 'm-12345678' } } } }
+      if (url.includes('/api/debate/modes')) return { status: 200, body: {
+        builtin: [{ id: 'peer', base: 'peer', instructions: {}, conclusionNote: '', strength: 'medium', swapRoles: false, maxRounds: null }, { id: 'critic', base: 'critic', instructions: {}, conclusionNote: 'NOTE', strength: 'medium', swapRoles: false, maxRounds: 6 }],
+        custom: [], defaults: { critic: 'CRITIC DEFAULT', defender: 'DEFENDER DEFAULT', conclusionNote: 'NOTE' }, strengths: ['mild', 'medium', 'hard'], limits: { name: 60, text: 6000, modes: 30, max_rounds: 12 } } }
+      return null
+    }
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-modes"'))
+    h.click({ 'data-wb-act': 'db-modes' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-ed-new"'))
+    expect(h.rootEl.innerHTML).toContain('workbench.db.ed.step1')
+    expect(h.rootEl.innerHTML).toContain('workbench.db.ed.none')
+    h.click({ 'data-wb-act': 'db-ed-new' })
+    expect(h.rootEl.innerHTML).toContain('CRITIC DEFAULT')
+    h.input('wbDbEdName', 'Sajat mod')
+    h.input('wbDbEdDefender', 'EGYEDI VEDO')
+    h.input('wbDbEdMax', '3')
+    h.click({ 'data-wb-act': 'db-ed-save' })
+    await vi.waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0]).toMatchObject({ name: 'Sajat mod', base: 'critic', instructions: { critic: '', defender: 'EGYEDI VEDO' }, conclusionNote: '', maxRounds: 3, strength: 'medium' })
+    // vissza a vitahoz: a modlista ujra letoltodik, hogy az uj mod ott legyen a valasztoban
+    const modelCalls = () => h.fetchCalls.filter(c => c.url.includes('/api/debate/models')).length
+    const before = modelCalls()
+    h.click({ 'data-wb-act': 'db-modes-back' })
+    await vi.waitFor(() => expect(modelCalls()).toBe(before + 1))
+    expect(h.rootEl.innerHTML).toContain('id="wbDbQ"')
+  })
+
+  it('az Alkalmaz csak lezaras UTAN jelenik meg; elonezet, bepipalas, beiras: a szerver a bepipaltakat kapja', async () => {
+    routeExtra = (url, init) => {
+      if (url.includes('/apply-preview')) return { status: 200, body: { item: { id: 'w1', title: 'Level' }, changes: [
+        { id: 'K1', kind: 'accuracy', status: 'accepted', action: 'replace', state: 'ready', blockId: 'b1', sectionTitle: 'Tenyallas', ctxBefore: 'A hatarido ', old: '30 nap', new: '15 nap', ctxAfter: ' van.' },
+        { id: 'K4', kind: 'wording', status: 'partial', action: 'replace', state: 'not_found', blockId: null, sectionTitle: '', ctxBefore: '', old: '', new: 'valami', ctxAfter: '' },
+      ] } }
+      if (url.includes('/apply') && init?.method === 'POST') return { status: 200, body: { applied: ['K1'], skipped: [{ id: 'K4', reason: 'not_ticked' }], history: {}, changes: [] } }
+      return null
+    }
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    // a munkadarab megnyitva
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.fetchCalls.some(c => c.url.includes('/api/workbench/items/w1'))).toBe(true))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.parts.title'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+    h.change('wbDbMode', [], 'critic')
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-db-blist'))
+    expect(h.rootEl.innerHTML).not.toContain('db-apply-open')
+    h.click({ 'data-wb-act': 'db-conclude' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('db-apply-open'))
+    h.click({ 'data-wb-act': 'db-apply-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-ap="K1"'))
+    expect(bodyOf('/apply-preview')).toEqual({ item: 'w1' })
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('<del>30 nap</del><ins>15 nap</ins>')
+    expect(html).toMatch(/data-wb-ap="K1" checked>/)
+    expect(html).toMatch(/data-wb-ap="K4" disabled>/) // nincs meg a szovegben: nem pipalhato
+    expect(html).toContain('workbench.db.apply.state.not_found')
+    expect(post('/sessions/s1/apply?')).toHaveLength(0) // csak az elonezet ment ki, beiras meg nem
+    h.click({ 'data-wb-act': 'db-apply-go' })
+    await vi.waitFor(() => expect(post('/sessions/s1/apply?')).toHaveLength(1))
+    expect(bodyOf('/sessions/s1/apply?')).toEqual({ item: 'w1', ids: ['K1'] })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.db.apply.done'))
   })
 })

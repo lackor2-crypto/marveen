@@ -205,7 +205,7 @@ describe('lezaras', () => {
     const out = await runDebateRound({ project: 'p1', question: 'q', models: [A, B] })
     replies = { [A]: ['CONSENSUS: yes\nEgyetertettek a hataridoben.'] }
     const res = await concludeDebate(out.session)
-    expect(res).toEqual({ consensus: true, summary: 'Egyetertettek a hataridoben.' })
+    expect(res).toMatchObject({ consensus: true, summary: 'Egyetertettek a hataridoben.' })
     expect(logLines().pop()).toMatchObject({ type: 'conclude', session: out.session, consensus: true, summary: 'Egyetertettek a hataridoben.' })
     expect(loadDebateSession(out.session)).toMatchObject({ concluded: true, consensus: true, summary: 'Egyetertettek a hataridoben.' })
     await expect(runDebateRound({ session: out.session })).rejects.toMatchObject({ code: 'session_concluded' })
@@ -336,6 +336,200 @@ describe('Kotekedo-vedo mod (#597)', () => {
     const p = buildConcludePrompt({ question: 'q', attachments: [], rounds: [{ round: 1, prompt: 'q', responses: [{ model: A, ok: true, text: 'x' }] }] })
     expect(p).toContain(`### ${A}\nx`)
     expect(p).not.toContain('This debate was a review')
+  })
+})
+
+describe('Kotekedo-vedo mod: 2-4. fazis (#597)', () => {
+  const C = 'openai/gpt-5.5-judge-not-used'
+  const OBJ1 = 'K1 [accuracy]\nQUOTE: "30 nap"\nOBJECTION: 15 nap a helyes.'
+  const REP1 = 'K1: REJECT\nREASON: szerintem 30'
+  const rejectedAgain = 'K1 [accuracy]\nQUOTE: "30 nap"\nOBJECTION: meg mindig 15.'
+
+  it('a tabla es a tanacs a futtatas eredmenyeben ES a betoltott allapotban is ott van; peer modban nincs', async () => {
+    replies = { [A]: [OBJ1], [B]: ['K1: ACCEPT\nREASON: igaz\nREWRITE: 15 nap'] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(out.board).toMatchObject([{ id: 'K1', status: 'accepted', rewrite: '15 nap' }])
+    expect(out.boardSummary).toMatchObject({ total: 1, accepted: 1 })
+    expect(out.advice).toEqual({ stop: true, reason: 'all_settled' })
+    const st = loadDebateSession(out.session)!
+    expect(st.board).toHaveLength(1)
+    expect(st.advice).toEqual({ stop: true, reason: 'all_settled' })
+    const peer = await runDebateRound({ question: 'q', models: [A, B] })
+    expect(peer.board).toBeUndefined()
+    expect(peer.advice).toBeUndefined()
+  })
+
+  it('korbenforgas: ugyanaz a kifogas, ugyanaz az elutasitas masodszor is -> a tanacs: allj meg (de a kor megengedett)', async () => {
+    replies = { [A]: [OBJ1, rejectedAgain], [B]: [REP1] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(r1.advice).toEqual({ stop: false })
+    const r2 = await runDebateRound({ session: r1.session })
+    expect(r2.advice).toEqual({ stop: true, reason: 'stalled' })
+    const r3 = await runDebateRound({ session: r1.session })
+    expect(r3.round).toBe(3)
+  })
+
+  it('a kotekedo az eddigi legnagyobb szam utan szamoz tovabb (K2-tol)', async () => {
+    replies = { [A]: [OBJ1], [B]: [REP1] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    sent = []
+    await runDebateRound({ session: r1.session })
+    expect(sent[0].user).toContain('starting at K2')
+  })
+
+  it('a kor-hatar: a beepitett mod 6 kort enged, utana round_limit hiba es semmi nem megy ki', async () => {
+    replies = { [A]: [OBJ1], [B]: [REP1] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    for (let i = 2; i <= 6; i++) await runDebateRound({ session: r1.session })
+    expect(loadDebateSession(r1.session)!.rounds).toHaveLength(6)
+    expect(loadDebateSession(r1.session)!.advice).toMatchObject({ stop: true })
+    sent = []
+    await expect(runDebateRound({ session: r1.session })).rejects.toMatchObject({ code: 'round_limit' })
+    expect(sent).toHaveLength(0)
+  })
+
+  it('szerepcsere: a 2. korben a masodik modell a kotekedo (o kezd), az elso a vedo; a szerepek a naploban; a tabla a szerep szerint olvas', async () => {
+    replies = { [A]: [OBJ1, 'K1: ACCEPT\nREASON: most mar igen\nREWRITE: 15 nap'], [B]: [REP1, 'K2 [wording]\nQUOTE: "kerjuk"\nOBJECTION: hang'] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', swapRoles: true })
+    expect(loadDebateSession(r1.session)).toMatchObject({ swapRoles: true, strength: 'medium' })
+    expect(logLines()[0]).toMatchObject({ type: 'context', swapRoles: true, strength: 'medium' })
+    sent = []
+    const r2 = await runDebateRound({ session: r1.session })
+    expect(sent.map(s => s.model)).toEqual([B, A])
+    expect(sent[0].system).toContain('CRITIC')
+    expect(sent[0].user).toContain('The roles are swapped in this round')
+    expect(sent[0].user).toContain(`(written by the other model):\n${OBJ1}`)
+    expect(sent[0].user).toContain(`Your answers in the previous round:\n${REP1}`)
+    expect(sent[0].user).toContain('starting at K2')
+    expect(sent[1].system).toContain('DEFENDER')
+    expect(sent[1].user).toContain('before, you wrote the objections')
+    expect(r2.responses.map(r => [r.model, r.role])).toEqual([[B, 'critic'], [A, 'defender']])
+    // a 3. kor: vissza az eredeti kiosztashoz
+    sent = []
+    await runDebateRound({ session: r1.session })
+    expect(sent.map(s => s.model)).toEqual([A, B])
+  })
+
+  it('szerepcsere nelkul (alap) a 2. korben sem cserelnek', async () => {
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    sent = []
+    await runDebateRound({ session: r1.session })
+    expect(sent.map(s => s.model)).toEqual([A, B])
+  })
+
+  it('erosseg: a vitahoz valasztott a kotekedo promptjaba kerul, a naploba kerul, es a tovabbi korok megtartjak', async () => {
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', strength: 'hard' })
+    expect(sent[0].system).toContain('Strength: HARD')
+    expect(sent[1].system).not.toContain('Strength:')
+    expect(loadDebateSession(r1.session)!.strength).toBe('hard')
+    sent = []
+    await runDebateRound({ session: r1.session, strength: 'mild' })
+    expect(sent[0].system).toContain('Strength: HARD') // a 2. kor nem irhatja felul
+  })
+
+  it('a biro: a harmadik modell zar, "nem resztvevo" jelzessel; a naplo megnevezi, ki irta; kulon valasztott bironal is', async () => {
+    replies = { [A]: [OBJ1], [B]: [REP1] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', judge: C })
+    expect(loadDebateSession(r1.session)!.judge).toBe(C)
+    sent = []
+    replies = { [C]: ['CONSENSUS: no\nA hatarido vitatott.'] }
+    const res = await concludeDebate(r1.session)
+    expect(sent.map(s => s.model)).toEqual([C])
+    expect(sent[0].user).toContain('You were not one of the two models')
+    expect(sent[0].user).toContain('The objection board')
+    expect(sent[0].user).toContain('K1 [accuracy] -- status: rejected')
+    expect(sent[0].user).toContain('"Changes to make"')
+    expect(res).toMatchObject({ consensus: false, by: C })
+    expect(logLines().pop()).toMatchObject({ type: 'conclude', by: C })
+    expect(loadDebateSession(r1.session)).toMatchObject({ concluded: true, summaryBy: C })
+  })
+
+  it('a lezarasnal megadott biro felulirja a vitahoz valasztottat; bironelkul az elso modell ir (a mostani mukodes), nem kulso jelzessel', async () => {
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', judge: C })
+    sent = []
+    await concludeDebate(r1.session, { judge: B })
+    expect(sent.map(s => s.model)).toEqual([B])
+    expect(sent[0].user).not.toContain('You were not one of the two models')
+    const r2 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    sent = []
+    await concludeDebate(r2.session)
+    expect(sent.map(s => s.model)).toEqual([A])
+  })
+
+  it('azonos kiadotol szarmazo modellek: figyelmeztetes az eredmenyben (a bironal is)', async () => {
+    const same = await runDebateRound({ question: 'q', models: [A, 'openai/gpt-5.5-mini'] })
+    expect(same.warnings).toEqual([{ a: A, b: 'openai/gpt-5.5-mini', family: 'openai' }])
+    const judged = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', judge: 'deepseek/other' })
+    expect(judged.warnings).toEqual([{ a: B, b: 'deepseek/other', family: 'deepseek' }])
+    const fine = await runDebateRound({ question: 'q', models: [A, B] })
+    expect(fine.warnings).toBeUndefined()
+  })
+
+  it('sajat mod: a masolata a vita context-soraban van, ezert a mod szerkesztese/torlese nem valtoztat egy folyo vitat', async () => {
+    const { saveStoredMode, deleteStoredMode } = await import('../debate-mode-store.js')
+    const saved = saveStoredMode({ name: 'Szigoru', base: 'critic', strength: 'hard', maxRounds: 2, instructions: { critic: 'SAJAT KOTEKEDO SZOVEG' } })
+    if (!saved.ok) throw new Error('mod')
+    const id = saved.mode.id
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: id })
+    expect(sent[0].system).toContain('SAJAT KOTEKEDO SZOVEG')
+    expect(sent[0].system).toContain('Strength: HARD') // a mod erossege az alap
+    expect(logLines()[0]).toMatchObject({ type: 'context', mode: id, modeDef: { name: 'Szigoru' } })
+    expect(loadDebateSession(r1.session)).toMatchObject({ mode: id, modeName: 'Szigoru', maxRounds: 2 })
+    // a mod kozben atirva, majd torolve: a folyo vita a sajat masolatat hasznalja
+    saveStoredMode({ ...saved.mode, id, instructions: { critic: 'MASIK SZOVEG' }, maxRounds: 5 })
+    deleteStoredMode(id)
+    sent = []
+    await runDebateRound({ session: r1.session })
+    expect(sent[0].system).toContain('SAJAT KOTEKEDO SZOVEG')
+    expect(sent[0].system).not.toContain('MASIK SZOVEG')
+    // a 2 korhatar a masolatbol jon
+    await expect(runDebateRound({ session: r1.session })).rejects.toMatchObject({ code: 'round_limit' })
+    // uj vita a torolt modbol nem indulhat
+    await expect(runDebateRound({ question: 'q', models: [A, B], mode: id })).rejects.toMatchObject({ code: 'mode_unknown' })
+  })
+
+  it('egyenrangu sajat mod: a szoveg kiegeszitese az eredeti vita-promptnak, a kor-hivasok egyszerre', async () => {
+    const { saveStoredMode } = await import('../debate-mode-store.js')
+    const saved = saveStoredMode({ name: 'Nyugodt', base: 'peer', instructions: { peer: 'Legyetek tomorek.' } })
+    if (!saved.ok) throw new Error('mod')
+    await runDebateRound({ question: 'q', models: [A, B], mode: saved.mode.id })
+    expect(sent.every(s => s.system.includes('two-model debate') && s.system.endsWith('Legyetek tomorek.'))).toBe(true)
+  })
+})
+
+describe('koltsegbecsles a futtato oldalon (#597)', () => {
+  const prices = new Map([[A, { promptPrice: 2, completionPrice: 10 }], [B, { promptPrice: 0, completionPrice: 0 }]])
+
+  it('1. kor: mindket modell hivasa; a lezaras becslese meg nincs (nincs mit lezarni)', async () => {
+    const { estimateNextRound } = await import('../debate-run.js')
+    const e = estimateNextRound({ question: 'k'.repeat(3500), models: [A, B] }, prices)
+    expect(e.round).toBe(1)
+    expect(e.next.calls.map(c => c.model)).toEqual([A, B])
+    expect(e.next.calls[0].tokensIn).toBeGreaterThan(1000)
+    expect(e.next.calls[0].usd).toBeGreaterThan(0)
+    expect(e.next.calls[1].usd).toBe(0)
+    expect(e.conclude).toBeNull()
+  })
+
+  it('a kovetkezo kor becslese a mar latott kimenetbol szamol, a lezarase a biro modellel; semmit nem hiv ki', async () => {
+    const { estimateNextRound } = await import('../debate-run.js')
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', judge: 'deepseek/other' })
+    const before = sent.length
+    const e = estimateNextRound({ session: r1.session }, prices)
+    expect(sent.length).toBe(before)
+    expect(e.round).toBe(2)
+    // a stub minden valasza 5 kimeno token: a becsles azt hasznalja, nem az alapot
+    expect(e.next.calls[0].tokensOut).toBe(5)
+    expect(e.conclude!.calls[0].model).toBe('deepseek/other')
+    expect(e.conclude!.calls[0].usd).toBeNull() // az ar ismeretlen -> nem nulla
+    expect(e.conclude!.unpriced).toEqual(['deepseek/other'])
+  })
+
+  it('hibak ugyanazok, mint a futtatasnal', async () => {
+    const { estimateNextRound } = await import('../debate-run.js')
+    expect(() => estimateNextRound({ session: 'nincs' }, prices)).toThrow(DebateInputError)
+    expect(() => estimateNextRound({ question: 'q', models: [A], mode: 'critic' }, prices)).toThrow(/two_models_required/)
+    expect(() => estimateNextRound({ question: 'q', models: [A, B], mode: 'nincs' }, prices)).toThrow(/mode_unknown/)
   })
 })
 

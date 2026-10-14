@@ -32,7 +32,7 @@ vi.mock('../workbench-docmodel.js', () => ({
     { title: 'Fejezet 1', untitled: true, blocks: [{ text: 'Cim nelkuli resz.' }] },
   ] }),
 }))
-vi.mock('../web/openrouter-models.js', () => ({ fetchAllOpenRouterModels: () => h.catalog() }))
+vi.mock('../web/openrouter-models.js', () => ({ fetchAllOpenRouterModels: () => h.catalog(), openRouterModelsWithin: () => h.catalog() }))
 vi.mock('../debate-run.js', async (orig) => ({
   ...(await orig<typeof import('../debate-run.js')>()),
   runDebateRound: (...a: unknown[]) => h.run(...a),
@@ -81,10 +81,10 @@ describe('GET /api/debate/models', () => {
       has_key: true, catalog_error: false,
       // a beepitett modok (#597): az alap az Egyenrangu, a Kotekedo-vedo az elso modell a kotekedo
       modes: [
-        { id: 'peer', builtin: true, roles: ['peer', 'peer'] },
-        { id: 'critic', builtin: true, roles: ['critic', 'defender'] },
+        { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null },
+        { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
       ],
-      default_mode: 'peer',
+      default_mode: 'peer', strengths: ['mild', 'medium', 'hard'],
     })
   })
 
