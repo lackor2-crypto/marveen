@@ -10,7 +10,9 @@ describe('chat width handle', () => {
   it('renders a vertical separator before the chat and restores the saved width', () => {
     expect(js).toMatch(/id="wbChatWidthSplit" role="separator" aria-orientation="vertical"/)
     expect(js).toContain("CHAT_WIDTH_KEY = 'marveen.workbench.chatWidth'")
-    expect(js).toMatch(/applyChatWidth\(w0 - \(ev\.clientX - x0\), true\)/)
+    expect(js).toMatch(/applyChatWidth\(w0 \+ dir \* \(ev\.clientX - x0\), true\)/)
+    // #595: the manual split view has the same divider, the chat on its left
+    expect(js).toMatch(/wb-split-divider/)
     expect(css).toMatch(/\.wb-fr-chatsplit \{[^}]*cursor: col-resize/)
   })
   it('keeps the width in a CSS variable, never as an inline flex (the narrow column layout would read it as a height)', () => {

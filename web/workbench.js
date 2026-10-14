@@ -8274,7 +8274,6 @@
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         // #556: Finalize / Reopen in the head of the item, for every kind (it used to sit only at the very bottom).
         + finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'
-        + versionBarHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
           ? compareHtml()
@@ -8286,6 +8285,7 @@
             + deckHtml()
             + (partsAreTechnical(it) ? partsTechHtml() : partsHtml())
             + postPreviewHtml())
+        + versionBarHtml()
         + deadlinesBoxHtml()
         + todosBoxHtml()
         + exportBarHtml()
@@ -8475,12 +8475,15 @@
           + '<button type="button" class="wb-linklike" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '">' + esc(t('workbench.outline.delete')) + '</button></p>')
         + '</div>'
     }).join('')
-    return '<div class="wb-outline"><h3>' + esc(t('workbench.outline.title')) + '</h3>'
+    // #595 (Boss TG 3255): the document page gets the room first; undo/redo, the legend and the language versions sit under it.
+    var helpers = '<div class="wb-outline-helpers">'
       // #533: ugyanaz a ket gomb, mint az Egyszeru nezet felso savjaban ("Mentve", majd vissza / elore).
       + manualStepsHtml(d.item)
       + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
-      + langHeadHtml(o, ro)
+      + langHeadHtml(o, ro) + '</div>'
+    return '<div class="wb-outline">' + (onePage ? '' : '<h3>' + esc(t('workbench.outline.title')) + '</h3>' + helpers)
       + secs
+      + (onePage ? helpers : '')
       + (ro || onePage ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + annexHtml(o, ro)
       + glossaryHtml(o, ro)
@@ -12462,8 +12465,11 @@
         + editorPanelHtml() + contextPanelHtml() + '</div>'
         + '<div class="wb-grid-below">' + itemsPanelHtml() + '</div>'
     }
-    return '<div class="wb-split">'
+    if (WB.chatWidth === undefined) WB.chatWidth = loadChatWidth()
+    var hint = escA(t('workbench.chat.width_hint'))
+    return '<div class="wb-split"' + (WB.chatWidth > 0 ? ' style="--wb-chat-w:' + WB.chatWidth + 'px"' : '') + '>'
       + '<div class="wb-split-chat">' + chatBarHtml() + '</div>'
+      + '<div class="wb-fr-chatsplit wb-split-divider" id="wbChatWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
       + '<div class="wb-split-work">' + editorPanelHtml() + '</div>'
       + '</div>'
       + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>'
@@ -15712,11 +15718,20 @@
     return 0
   }
   function chatWidthMax() {
-    var body = document.querySelector('.wb-fr-body')
+    var body = document.querySelector('.wb-fr-body, .wb-split')
     return Math.max(CHAT_WIDTH_MIN, (body ? body.getBoundingClientRect().width : 1200) - 360)
   }
+  // The element that carries --wb-chat-w: the chat itself in the frame (Simple) view, the grid in the manual split.
+  function chatWidthTarget() {
+    return document.querySelector('.wb-fr-chat') || document.querySelector('.wb-split')
+  }
+  function chatWidthPane() {
+    return document.querySelector('.wb-fr-chat') || document.querySelector('.wb-split-chat')
+  }
+  // The chat is on the right in the frame (Simple) view -- dragging left widens it -- and on the left in the manual split.
+  function chatWidthDir() { return document.querySelector('.wb-fr-chat') ? -1 : 1 }
   function applyChatWidth(w, save) {
-    var chat = document.querySelector('.wb-fr-chat')
+    var chat = chatWidthTarget()
     if (!chat) return
     w = Math.round(Math.min(chatWidthMax(), Math.max(CHAT_WIDTH_MIN, w)))
     chat.style.setProperty('--wb-chat-w', w + 'px') // a variable, not an inline flex: the narrow (column) layout must be able to override it
@@ -15733,30 +15748,30 @@
   document.addEventListener('pointerdown', function (e) {
     var h = e.target && e.target.closest ? e.target.closest('#wbChatWidthSplit') : null
     if (!h) return
-    var chat = document.querySelector('.wb-fr-chat')
+    var chat = chatWidthPane()
     if (!chat) return
     e.preventDefault()
     var x0 = e.clientX; var w0 = chat.getBoundingClientRect().width
-    function mv(ev) { applyChatWidth(w0 - (ev.clientX - x0), false) }
+    var dir = chatWidthDir()
+    function mv(ev) { applyChatWidth(w0 + dir * (ev.clientX - x0), false) }
     function up(ev) {
       document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up)
-      applyChatWidth(w0 - (ev.clientX - x0), true)
+      applyChatWidth(w0 + dir * (ev.clientX - x0), true)
     }
     document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up)
   })
   document.addEventListener('keydown', function (e) {
     if (!(e.target && e.target.id === 'wbChatWidthSplit') || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
-    var chat = document.querySelector('.wb-fr-chat')
+    var chat = chatWidthPane()
     if (!chat) return
     e.preventDefault()
-    applyChatWidth(chat.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? 24 : -24), true)
+    applyChatWidth(chat.getBoundingClientRect().width + chatWidthDir() * (e.key === 'ArrowLeft' ? -24 : 24), true)
   })
   document.addEventListener('dblclick', function (e) {
     if (!(e.target && e.target.closest && e.target.closest('#wbChatWidthSplit'))) return
     WB.chatWidth = 0
     try { window.localStorage && window.localStorage.removeItem(CHAT_WIDTH_KEY) } catch (_e) { /* fine */ }
-    var chat = document.querySelector('.wb-fr-chat')
-    if (chat) chat.style.removeProperty('--wb-chat-w')
+    var tgt = chatWidthTarget(); if (tgt) tgt.style.removeProperty('--wb-chat-w')
   })
 
   function frameHtml() {
