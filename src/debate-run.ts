@@ -601,7 +601,8 @@ export function estimateNextRound(input: EstimateInput, prices: ReadonlyMap<stri
   const steer = String(input.steer ?? '').trim().slice(0, MAX_QUESTION_CHARS)
   const strength = prior ? prior.strength : effectiveStrength(mode, input.strength)
   const swap = prior ? prior.swapRoles : effectiveSwap(mode, input.swapRoles)
-  const judge = prior ? prior.judge : cleanJudge(input.judge)
+  // The judge may be picked (or changed) at closing time, so the estimate takes the one the panel shows now.
+  const judge = cleanJudge(input.judge) ?? (prior ? prior.judge : null)
   const round = prior ? prior.rounds[prior.rounds.length - 1].round + 1 : 1
   const prev = prior ? prior.rounds[prior.rounds.length - 1] : null
   const textOf = (model: string): string | null => prev?.responses.find(x => x.model === model && x.ok && x.text)?.text ?? null
