@@ -24,7 +24,7 @@ import {
   enqueueCodeTask, listCodeSessions, listCodeTasks, latestCodeTaskForProject,
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
   listCodeTabs, codeTaskQueueAhead,
-  isExcludedProject, openTopicCardForProject, markTopicPending, resolveTopicCheck,
+  isExcludedProject, openTopicCardForProject, previousChatForProject, markTopicPending, resolveTopicCheck,
   type OpenTopicCard,
 } from './code-bridge-store.js'
 import { classifyTopic, type TopicVerdict } from './code-topic-classifier.js'
@@ -409,7 +409,7 @@ export async function routeByTopic(
   try { verdict = await classify(card, message) } catch { verdict = 'related' }
   try {
     const applied = resolveTopicCheck(taskId, verdict, card)
-    if (applied && verdict === 'unrelated') {
+    if (applied && verdict === 'unrelated' && !card.chatSessionId) {
       const n = card.seq != null ? `#${card.seq}` : card.title
       await notify(chatId, ol(
         `Megjegyeztem. Ez nem a nyitott munkahoz (${n}) tartozik, ezert csak akkor indul, ha az kesz, es akkor uj chatben.`,
@@ -444,7 +444,7 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
     return `⚠️ ${uiString(out.errorKey, out.errorParams, out.error)}${cand}`
   }
   // #598: a plain message while the project still has open card work is analysed first (see routeByTopic).
-  const open = openTopicCardForProject(out.task.project, out.task.id)
+  const open = openTopicCardForProject(out.task.project, out.task.id) ?? previousChatForProject(out.task.project, out.task.id)
   if (open && !out.task.cardRef && !out.task.targetSessionId) {
     markTopicPending(out.task.id)
     void routeByTopic(out.task.id, prompt, chatId, open)

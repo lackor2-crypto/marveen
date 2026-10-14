@@ -20,7 +20,7 @@ import {
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
   recordCodeTaskDispatchWorkspace, codeTaskQueueAhead, recordCodeWorkerSeen,
   LEASE_MS, MAX_ATTEMPTS, PROMPT_MAX_CHARS, ORPHAN_GRACE_MS,
-  openTopicCardForProject, markTopicPending,
+  openTopicCardForProject, previousChatForProject, markTopicPending,
 } from '../web/code-bridge-store.js'
 import { parseTopicVerdict } from '../web/code-topic-classifier.js'
 import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
@@ -530,6 +530,52 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
       await pendingTask()
       const c = claimNextCodeTask('w', Date.now() + 6 * 60 * 1000)!
       expect(c.cardRef).toBe('cafe1234')
+    })
+
+    // #602: no open card, but the project just had a finished Telegram chat.
+    function finishedTelegramChat(): string {
+      seedThree()
+      createKanbanCard({ id: 'cafe1234', title: 'Kesz munka', status: 'waiting' })
+      const o = enqueueCodeTask({ project: 'marvin', prompt: 'javasolj fazisokat', origin: 'telegram', sessionId: MARVIN.sessionId })
+      const t = claimNextCodeTask('w')!
+      completeCodeTask(t.id, { ok: true, result: 'A) a tovabbi fazisok' })
+      return ('task' in o ? o.task : t).id
+    }
+
+    it('#602: kartya nelkul, de friss elozo chat van -> jelolt, a related ugyanabban a sessionben folytatodik', async () => {
+      finishedTelegramChat()
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'Jo, csinald meg mindet', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      expect(openTopicCardForProject('marvin', id)).toBe(null)
+      const prev = previousChatForProject('marvin', id)!
+      expect(prev.chatSessionId).toBeTruthy()
+      markTopicPending(id)
+      expect(claimNextCodeTask('w')).toBe(null)
+      expect(await routeByTopic(id, 'Jo', 'c1', prev, async () => 'related', async () => {})).toBe('related')
+      const c = claimNextCodeTask('w')!
+      expect(c.id).toBe(id)
+      expect(c.sessionId).toBe(prev.chatSessionId)
+      expect(c.startFresh).toBe(false)
+    })
+
+    it('#602: unrelated -> friss chat, nincs ertesites', async () => {
+      finishedTelegramChat()
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'egeszen mas', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      const prev = previousChatForProject('marvin', id)!
+      markTopicPending(id)
+      const sent: string[] = []
+      await routeByTopic(id, 'x', 'c1', prev, async () => 'unrelated', async (_c, t) => { sent.push(t) })
+      expect(sent.length).toBe(0)
+      const c = claimNextCodeTask('w')!
+      expect(c.startFresh).toBe(true)
+    })
+
+    it('#602: 6 oran tuli elozo chat nem jelolt', () => {
+      finishedTelegramChat()
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'x', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      expect(previousChatForProject('marvin', id, Date.now() + 7 * 3600 * 1000)).toBe(null)
     })
 
     it('az osztalyozo valasz-parsere tolerans, de szigoru', () => {
