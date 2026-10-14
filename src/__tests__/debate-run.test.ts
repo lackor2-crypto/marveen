@@ -19,7 +19,7 @@ vi.mock('../db.js', () => ({ getDb: () => ({ prepare: () => ({ run: (...a: unkno
 vi.mock('../settings-store.js', () => ({ getEffectiveSettingValue: () => 20 }))
 
 const {
-  parseModelSpec, clampAttachments, buildRoundPrompt, buildConcludePrompt, parseConclusion,
+  parseModelSpec, clampAttachments, buildRoundPrompt, buildConcludePrompt, parseConclusion, compareReadings,
   runDebateRound, concludeDebate, loadDebateSession, DEBATE_LOG_PATH,
   DebateInputError, DebateKeyMissingError, MAX_ATTACHMENT_CHARS, MAX_ATTACHMENTS, MAX_ATTACHMENTS_TOTAL_CHARS,
 } = await import('../debate-run.js')
@@ -113,6 +113,9 @@ describe('tiszta segedek', () => {
     expect(parseConclusion('CONSENSUS: yes\nEgyetertettek.')).toEqual({ consensus: true, summary: 'Egyetertettek.' })
     expect(parseConclusion('consensus: NO\n\nNem.')).toEqual({ consensus: false, summary: 'Nem.' })
     expect(parseConclusion('Csak szoveg')).toEqual({ consensus: false, summary: 'Csak szoveg' })
+    // attekintes: a STANDING sor a jelzo utan, nyelvfuggetlenul; a szamok egyediek es nagybetusek
+    expect(parseConclusion('CONSENSUS: no\nSTANDING: k1, K 3, K1\nValtoztatas: K1')).toEqual({ consensus: false, summary: 'Valtoztatas: K1', standing: ['K1', 'K3'] })
+    expect(parseConclusion('CONSENSUS: yes\nSTANDING: none\nMinden rendben.')).toEqual({ consensus: true, summary: 'Minden rendben.', standing: [] })
   })
 })
 
@@ -434,7 +437,7 @@ describe('Kotekedo-vedo mod: 2-4. fazis (#597)', () => {
     sent = []
     replies = { [C]: ['CONSENSUS: no\nA hatarido vitatott.'] }
     const res = await concludeDebate(r1.session)
-    expect(sent.map(s => s.model)).toEqual([C])
+    expect(sent.map(s => s.model)).toEqual([C, C]) // ket olvasat: elore es forditott sorrendben
     expect(sent[0].user).toContain('You were not one of the two models')
     expect(sent[0].user).toContain('The objection board')
     expect(sent[0].user).toContain('K1 [accuracy] -- status: rejected')
@@ -448,12 +451,12 @@ describe('Kotekedo-vedo mod: 2-4. fazis (#597)', () => {
     const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic', judge: C })
     sent = []
     await concludeDebate(r1.session, { judge: B })
-    expect(sent.map(s => s.model)).toEqual([B])
+    expect(sent.map(s => s.model)).toEqual([B, B])
     expect(sent[0].user).not.toContain('You were not one of the two models')
     const r2 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
     sent = []
     await concludeDebate(r2.session)
-    expect(sent.map(s => s.model)).toEqual([A])
+    expect(sent.map(s => s.model)).toEqual([A, A])
   })
 
   it('azonos kiadotol szarmazo modellek: figyelmeztetes az eredmenyben (a bironal is)', async () => {
@@ -530,6 +533,105 @@ describe('koltsegbecsles a futtato oldalon (#597)', () => {
     expect(() => estimateNextRound({ session: 'nincs' }, prices)).toThrow(DebateInputError)
     expect(() => estimateNextRound({ question: 'q', models: [A], mode: 'critic' }, prices)).toThrow(/two_models_required/)
     expect(() => estimateNextRound({ question: 'q', models: [A, B], mode: 'nincs' }, prices)).toThrow(/mode_unknown/)
+  })
+})
+
+describe('lezaras: ket olvasat, sorrend-torzitas ellen (#597, 5. fazis)', () => {
+  it('az olvasatok osszevetese: a jelzo es (ha mindketto megnevezte) a megallo kifogasok szamitanak; hianyzo STANDING sor csak a jelzore szamit', () => {
+    expect(compareReadings({ consensus: true }, { consensus: true })).toMatchObject({ agree: true })
+    expect(compareReadings({ consensus: true }, { consensus: false })).toMatchObject({ agree: false })
+    expect(compareReadings({ consensus: false, standing: ['K1'] }, { consensus: false })).toMatchObject({ agree: true })
+    expect(compareReadings({ consensus: false, standing: ['K1', 'K2'] }, { consensus: false, standing: ['K2', 'K3'] }))
+      .toEqual({ agree: false, consensus: [false, false], onlyFirst: ['K1'], onlySecond: ['K3'] })
+  })
+
+  const OBJ = 'K1 [accuracy]\nQUOTE: "30 nap"\nOBJECTION: 15 nap a helyes.\n\nK2 [missing]\nQUOTE: "kerjuk"\nOBJECTION: hianyzik az indok.'
+  const REP = 'K1: REJECT\nREASON: szerintem 30 nap\n\nK2: ACCEPT\nREASON: tenyleg hianyzik, mert nincs megindokolva\nREWRITE: kerjuk, mert ...'
+
+  it('ugyanaz a vita ket sorrendben megy ki: az allaspontok es a kifogas-tabla megfordul, a szabalyok ugyanazok', async () => {
+    replies = { [A]: [OBJ], [B]: [REP] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    sent = []
+    replies = { [A]: ['CONSENSUS: no\nSTANDING: K2\nvitas marad'] }
+    await concludeDebate(out.session)
+    expect(sent).toHaveLength(2)
+    const [fwd, rev] = [sent[0].user, sent[1].user]
+    expect(fwd.indexOf(`### ${A} (critic)`)).toBeLessThan(fwd.indexOf(`### ${B} (defender)`))
+    expect(rev.indexOf(`### ${B} (defender)`)).toBeLessThan(rev.indexOf(`### ${A} (critic)`))
+    expect(fwd.indexOf('K1 [accuracy] -- status')).toBeLessThan(fwd.indexOf('K2 [missing] -- status'))
+    expect(rev.indexOf('K2 [missing] -- status')).toBeLessThan(rev.indexOf('K1 [accuracy] -- status'))
+    for (const u of [fwd, rev]) {
+      expect(u).toContain('How sure an argument sounds is not evidence')
+      expect(u).toContain('"STANDING: K<n>, K<n>"')
+    }
+  })
+
+  it('egyezo olvasat: a vizsgalat "egyezik", a naploba kerul, es ujratoltve is ott van; az osszefoglalo a STANDING sor nelkul', async () => {
+    replies = { [A]: [OBJ], [B]: [REP] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    replies = { [A]: ['CONSENSUS: no\nSTANDING: K2, K1\nA K2 all.'] }
+    const res = await concludeDebate(out.session)
+    expect(res.summary).toBe('A K2 all.')
+    expect(res.consensus).toBe(false)
+    expect(res.orderCheck).toEqual({ agree: true, consensus: [false, false], onlyFirst: [], onlySecond: [] })
+    expect(logLines().pop()).toMatchObject({ type: 'conclude', order_check: { agree: true } })
+    expect(loadDebateSession(out.session)!.orderCheck).toMatchObject({ agree: true })
+  })
+
+  it('a ket olvasat mas konszenzust ad -> a konszenzus "nem", a vizsgalat megmondja, az elso olvasat az iras', async () => {
+    const out = await runDebateRound({ question: 'q', models: [A, B] })
+    replies = { [A]: ['CONSENSUS: yes\nEgyetertettek.', 'CONSENSUS: no\nMegsem.'] }
+    const res = await concludeDebate(out.session)
+    expect(res.consensus).toBe(false)
+    expect(res.summary).toBe('Egyetertettek.')
+    expect(res.orderCheck).toMatchObject({ agree: false, consensus: [true, false] })
+    expect(loadDebateSession(out.session)).toMatchObject({ consensus: false, orderCheck: { agree: false } })
+  })
+
+  it('attekintesnel az is elteres, ha mas kifogasok allnak meg a ket olvasatban', async () => {
+    replies = { [A]: [OBJ], [B]: [REP] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    replies = { [A]: ['CONSENSUS: yes\nSTANDING: K1\nx', 'CONSENSUS: yes\nSTANDING: K1, K2\ny'] }
+    const res = await concludeDebate(out.session)
+    expect(res.consensus).toBe(false)
+    expect(res.orderCheck).toMatchObject({ agree: false, onlyFirst: [], onlySecond: ['K2'] })
+  })
+
+  it('ha a masodik olvasat hibazik, a lezaras megvan, csak a vizsgalat marad ki', async () => {
+    const out = await runDebateRound({ question: 'q', models: [A, B] })
+    replies = { [A]: ['CONSENSUS: yes\nRendben.', { status: 500, error: 'boom' }] }
+    const res = await concludeDebate(out.session)
+    expect(res).toMatchObject({ consensus: true, summary: 'Rendben.' })
+    expect(res.orderCheck).toBeUndefined()
+    expect(loadDebateSession(out.session)).toMatchObject({ concluded: true, orderCheck: null })
+  })
+
+  it('a koltsegbecsles ket olvasatot szamol a lezarasra', async () => {
+    const { estimateNextRound } = await import('../debate-run.js')
+    const out = await runDebateRound({ question: 'q', models: [A, B] })
+    const e = estimateNextRound({ session: out.session }, new Map([[A, { promptPrice: 1, completionPrice: 2 }]]))
+    expect(e.conclude!.calls).toHaveLength(2)
+    expect(e.conclude!.calls[0]).toEqual(e.conclude!.calls[1])
+  })
+})
+
+describe('gyanus egyetertes (konformitas) a futo vitaban (#597, 5. fazis)', () => {
+  const OBJ = 'K1 [accuracy]\nQUOTE: "30 nap"\nOBJECTION: 15 nap a helyes.\n\nK2 [missing]\nQUOTE: "kerjuk"\nOBJECTION: hianyzik az indok.'
+
+  it('a vedo minden kifogast indoklas nelkul elfogad -> a kor eredmenyeben es az allapotban is jelzes', async () => {
+    replies = { [A]: [OBJ], [B]: ['K1: ACCEPT\nREASON: igaz\n\nK2: ACCEPT\nREASON: ok'] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(r1.conformity).toEqual({ suspicious: true, round: 1, count: 2 })
+    expect(loadDebateSession(r1.session)!.conformity).toEqual({ suspicious: true, round: 1, count: 2 })
+  })
+
+  it('indokolt elfogadas, vagy egy elutasitas -> nincs jelzes; az Egyenrangu modban nincs is mezo', async () => {
+    replies = { [A]: [OBJ], [B]: ['K1: ACCEPT\nREASON: a hatarido tenyleg 15 nap, ahogy az idezett torveny irja\n\nK2: REJECT\nREASON: ok'] }
+    const r1 = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(r1.conformity).toEqual({ suspicious: false })
+    const peer = await runDebateRound({ question: 'q', models: [A, B] })
+    expect(peer.conformity).toBeUndefined()
+    expect(loadDebateSession(peer.session)!.conformity).toEqual({ suspicious: false })
   })
 })
 

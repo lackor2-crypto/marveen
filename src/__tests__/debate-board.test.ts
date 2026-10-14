@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { BUILTIN_MODES, parseObjections, parseReplies } from '../debate-modes.js'
 import {
-  buildObjectionBoard, summarizeBoard, maxObjectionNumber, stopAdvice, roundsLeft, boardForPrompt, type BoardRound,
+  buildObjectionBoard, summarizeBoard, maxObjectionNumber, stopAdvice, roundsLeft, boardForPrompt, conformityWarning, MIN_REASON_CHARS, type BoardRound,
 } from '../debate-board.js'
 
 const critic = (text: string) => ({ role: 'critic' as const, ok: true, ...(text.startsWith('NO') ? { noObjections: true } : { objections: parseObjections(text) }) })
@@ -123,5 +123,31 @@ describe('az adaptiv leallas', () => {
     expect(roundsLeft(mode, 1)).toBe(1)
     expect(roundsLeft(mode, 5)).toBe(0)
     expect(roundsLeft(BUILTIN_MODES.peer, 5)).toBeNull()
+  })
+})
+
+describe('gyanus egyetertes (conformity)', () => {
+  const bare = (id: string, v = 'ACCEPT', reason = 'ok') => `${id}: ${v}\nREASON: ${reason}`
+  const long = 'a hatarido tenyleg 15 nap, ahogy a torveny irja'
+
+  it('legalabb ket kifogas, mind elfogadva, mind indoklas nelkul (rovid) -> gyanus, a kor szamaval', () => {
+    const r = round(2, [obj('K1'), obj('K2')].join('\n\n'), [bare('K1'), bare('K2', 'ACCEPT', 'igaz')].join('\n\n'))
+    expect(conformityWarning([r])).toEqual({ suspicious: true, round: 2, count: 2 })
+  })
+
+  it('egyetlen elfogadott kifogas meg nem minta; egy elutasitas vagy egy indokolt valasz feloldja', () => {
+    expect(conformityWarning([round(1, obj('K1'), bare('K1'))])).toEqual({ suspicious: false })
+    expect(conformityWarning([round(1, [obj('K1'), obj('K2')].join('\n\n'), [bare('K1'), bare('K2', 'REJECT')].join('\n\n'))])).toEqual({ suspicious: false })
+    expect(conformityWarning([round(1, [obj('K1'), obj('K2')].join('\n\n'), [bare('K1'), bare('K2', 'ACCEPT', long)].join('\n\n'))])).toEqual({ suspicious: false })
+    expect(long.length).toBeGreaterThanOrEqual(MIN_REASON_CHARS)
+  })
+
+  it('a legutobbi kort nezi, amelyben a vedo valaszolt; kifogas nelkuli kor, vagy ures lista nem gyanus', () => {
+    const early = round(1, [obj('K1'), obj('K2')].join('\n\n'), [bare('K1'), bare('K2')].join('\n\n'))
+    const calm = round(2, [obj('K1'), obj('K2')].join('\n\n'), [bare('K1', 'REJECT', long), bare('K2', 'PARTIAL', long)].join('\n\n'))
+    expect(conformityWarning([early, calm])).toEqual({ suspicious: false })
+    expect(conformityWarning([calm, early])).toEqual({ suspicious: false })
+    expect(conformityWarning([{ round: 1, responses: [{ role: 'critic', ok: true, noObjections: true }] }])).toEqual({ suspicious: false })
+    expect(conformityWarning([])).toEqual({ suspicious: false })
   })
 })
