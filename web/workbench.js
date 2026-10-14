@@ -16243,6 +16243,90 @@
       + '<button type="button" class="btn-secondary" data-wb-act="db-ed-cancel">' + esc(t('workbench.db.ed.cancel')) + '</button></div></div>'
   }
 
+  // ---- Sharing modes between installs: the owner's modes as a file, a file as new modes ----
+  function dbShareHtml(ed) {
+    var imp = ed.imp
+    var out = '<section class="wb-db-share"><h4>' + esc(t('workbench.db.share.title')) + '</h4><p class="wb-muted">' + esc(t('workbench.db.share.help')) + '</p>'
+    if (imp && imp.preview) {
+      var pv = imp.preview
+      out += '<p><strong>' + esc(t('workbench.db.share.preview_head', { n: pv.imported.length })) + '</strong></p>'
+      if (pv.imported.length) {
+        out += '<ul class="wb-db-modelist">' + pv.imported.map(function (m) {
+          return '<li><div><strong>' + esc(m.name) + '</strong> <span class="wb-db-chip">' + esc(t(m.base === 'critic' ? 'workbench.db.ed.kind_critic' : 'workbench.db.ed.kind_peer')) + '</span>'
+            + (m.description ? '<br><span class="wb-muted">' + esc(m.description) + '</span>' : '') + '</div></li>'
+        }).join('') + '</ul>'
+        out += '<p class="wb-db-warn" role="note">⚠ ' + esc(t('workbench.db.share.warn')) + '</p>'
+      }
+      ;(pv.renamed || []).forEach(function (r) { out += '<p class="wb-muted">' + esc(t('workbench.db.share.renamed', { from: r.from, to: r.to })) + '</p>' })
+      ;(pv.skipped || []).forEach(function (k) { out += '<p class="wb-muted">' + esc(t('workbench.db.share.skipped', { name: k.name || '–', why: dbTOr('workbench.db.share.skip.' + k.reason, k.reason) })) + '</p>' })
+      out += '<div class="wb-actions">' + (pv.imported.length ? '<button type="button" class="btn-primary" data-wb-act="db-share-go"' + (imp.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.share.go', { n: pv.imported.length })) + '</button>' : '')
+        + '<button type="button" class="btn-secondary" data-wb-act="db-share-cancel">' + esc(t('workbench.db.share.cancel')) + '</button></div>'
+    } else {
+      out += '<div class="wb-actions"><label class="btn-secondary btn-compact wb-db-upload">' + esc(t('workbench.db.share.import'))
+        + '<input type="file" id="wbDbModesFile" hidden accept=".json,application/json"></label>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-share-export" data-wb-id=""' + (ed.data && ed.data.custom && ed.data.custom.length ? '' : ' disabled') + '>' + esc(t('workbench.db.share.export_all')) + '</button></div>'
+      if (imp && imp.busy) out += '<p class="wb-muted" role="status">' + esc(t('workbench.db.share.reading')) + '</p>'
+    }
+    if (imp && imp.error) out += '<p class="wb-error" role="alert">' + esc(imp.error) + '</p>'
+    return out + '</section>'
+  }
+
+  function dbShareExport(id) {
+    var ed = dbState().ed
+    if (!ed) return
+    api('GET', '/api/debate/modes/export' + (id ? '?ids=' + encodeURIComponent(id) : '')).then(function (r) {
+      var cur = dbState().ed
+      if (!cur) return
+      if (!r.ok) { cur.error = r.message; render(); return }
+      var saved = false
+      try {
+        var blob = typeof Blob === 'function' ? new Blob([JSON.stringify(r.data.file, null, 2)], { type: 'application/json;charset=utf-8' }) : null
+        saved = downloadBlob(blob, r.data.name)
+      } catch (_e) { saved = false }
+      window.showToast(saved ? t('workbench.db.share.exported', { name: r.data.name }) : t('workbench.db.ex.no_download'))
+    })
+  }
+
+  /** A file the owner picked: read, then asked of the server as a DRY RUN -- nothing is imported before the owner confirms. */
+  function dbShareChoose(file) {
+    var ed = dbState().ed
+    if (!ed || !file) return
+    if (file.size > 1024 * 1024) { ed.imp = { busy: false, error: t('workbench.db.share.too_big') }; render(); return }
+    ed.imp = { busy: true, error: '', content: '', preview: null }
+    ed.error = ''
+    render()
+    var fr = new FileReader()
+    fr.onload = function () {
+      var text = String(fr.result || '')
+      api('POST', '/api/debate/modes/import', { content: text, dry_run: true }).then(function (r) {
+        var cur = dbState().ed
+        if (!cur || !cur.imp) return
+        cur.imp.busy = false
+        if (!r.ok) { cur.imp = { busy: false, error: r.message }; render(); return }
+        cur.imp.content = text; cur.imp.preview = r.data
+        render()
+      })
+    }
+    fr.onerror = function () { var cur = dbState().ed; if (cur) { cur.imp = { busy: false, error: t('workbench.db.file_unreadable') }; render() } }
+    fr.readAsText(file)
+  }
+
+  function dbShareGo() {
+    var ed = dbState().ed
+    if (!ed || !ed.imp || ed.imp.busy || !ed.imp.preview) return
+    ed.imp.busy = true
+    render()
+    api('POST', '/api/debate/modes/import', { content: ed.imp.content }).then(function (r) {
+      var cur = dbState().ed
+      if (!cur) return
+      if (!r.ok) { cur.imp = { busy: false, error: r.message }; render(); return }
+      window.showToast(t('workbench.db.share.done', { n: r.data.imported.length }))
+      cur.imp = null
+      api('GET', '/api/debate/modes').then(function (r2) { if (r2.ok && dbState().ed) dbState().ed.data = r2.data; render() })
+      render()
+    })
+  }
+
   function dbModesHtml(s) {
     var ed = s.ed
     var head = '<div class="wb-db-edhead"><h3>' + esc(t('workbench.db.ed.title')) + '</h3><button type="button" class="btn-secondary btn-compact" data-wb-act="db-modes-back">' + esc(t('workbench.db.ed.back')) + '</button></div>'
@@ -16251,7 +16335,8 @@
     var err = ed.error ? '<p class="wb-error" role="alert">' + esc(ed.error) + '</p>' : ''
     if (ed.form) return head + err + dbEdFormHtml(ed)
     var out = head + err + '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.ed.step1')) + '</li><li>' + esc(t('workbench.db.ed.step2')) + '</li><li>' + esc(t('workbench.db.ed.step3')) + '</li><li>' + esc(t('workbench.db.ed.step4')) + '</li></ol>'
-    out += '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-ed-new">' + esc(t('workbench.db.ed.new')) + '</button></div><ul class="wb-db-modelist">'
+    out += '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-ed-new">' + esc(t('workbench.db.ed.new')) + '</button></div>'
+      + dbShareHtml(ed) + '<ul class="wb-db-modelist">'
     ed.data.builtin.forEach(function (m) {
       out += '<li><div><strong>' + esc(dbModeName(m.id)) + '</strong> <span class="wb-db-chip">' + esc(t('workbench.db.ed.builtin')) + '</span><br><span class="wb-muted">' + esc(dbModeDesc(m.id)) + '</span></div>'
         + '<div class="wb-actions"><button type="button" class="btn-secondary btn-compact" data-wb-act="db-ed-copy" data-wb-id="' + escA(m.id) + '">' + esc(t('workbench.db.ed.copy')) + '</button></div></li>'
@@ -16262,6 +16347,7 @@
         + (m.description ? '<br><span class="wb-muted">' + esc(m.description) + '</span>' : '') + '</div>'
         + '<div class="wb-actions"><button type="button" class="btn-secondary btn-compact" data-wb-act="db-ed-edit" data-wb-id="' + escA(m.id) + '">' + esc(t('workbench.db.ed.edit')) + '</button>'
         + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-ed-copy" data-wb-id="' + escA(m.id) + '">' + esc(t('workbench.db.ed.copy')) + '</button>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-share-export" data-wb-id="' + escA(m.id) + '"' + (ed.imp && ed.imp.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.share.export_one')) + '</button>'
         + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-ed-del" data-wb-id="' + escA(m.id) + '">' + esc(t('workbench.db.ed.delete')) + '</button></div></li>'
     })
     return out + '</ul>'
@@ -16312,6 +16398,9 @@
     else if (a === 'db-export-doc') dbExportDocument()
     else if (a === 'db-ed-new' && s.ed) { s.ed.form = dbEdBlank(s.ed); s.ed.error = ''; render() }
     else if (a === 'db-ed-cancel' && s.ed) { s.ed.form = null; s.ed.error = ''; render() }
+    else if (a === 'db-share-export') dbShareExport(act.getAttribute('data-wb-id') || '')
+    else if (a === 'db-share-go') dbShareGo()
+    else if (a === 'db-share-cancel') { if (s.ed) { s.ed.imp = null; render() } }
     else if (a === 'db-ed-save') dbEdSave()
     else if ((a === 'db-ed-edit' || a === 'db-ed-copy') && s.ed && s.ed.data) {
       var mid = act.getAttribute('data-wb-id')
@@ -16386,6 +16475,10 @@
         render()
       } else if (e.target.id === 'wbDbEdStrength') { ef.strength = e.target.value; render() }
       else ef.swapRoles = !!e.target.checked
+    } else if (e.target.id === 'wbDbModesFile') {
+      var mf = e.target.files && e.target.files[0]
+      try { e.target.value = '' } catch (_e) { /* old browser: harmless */ }
+      dbShareChoose(mf)
     } else if (e.target.id === 'wbDbFile') {
       var f = e.target.files && e.target.files[0]
       try { e.target.value = '' } catch (_e) { /* old browser: harmless */ }

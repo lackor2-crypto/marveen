@@ -2115,6 +2115,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-db-tpl { margin-bottom: 10px; }
 .wb-db-tpl .wb-input { flex: 1 1 200px; min-width: 0; }
 .wb-db-export { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.wb-db-share { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .wb-db-tablewrap { overflow-x: auto; margin: 10px 0; }
 .wb-db-stats { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .wb-db-stats th, .wb-db-stats td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }

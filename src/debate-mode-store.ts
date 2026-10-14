@@ -16,7 +16,7 @@ import {
 
 export const DEBATE_MODES_PATH = join(STORE_DIR, 'debate-modes.json')
 
-function newModeId(): string {
+export function newModeId(): string {
   return `m-${randomBytes(4).toString('hex')}`
 }
 
@@ -71,6 +71,12 @@ export function saveStoredMode(raw: unknown): SaveModeResult {
   else list.push(r.mode)
   writeStoredModes(list)
   return { ok: true, mode: r.mode }
+}
+
+/** Adds modes that are already checked (an import: new ids, free names, room for them) in one write. */
+export function appendStoredModes(modes: StoredMode[]): void {
+  if (!modes.length) return
+  writeStoredModes([...loadStoredModes(), ...modes])
 }
 
 /** Deletes a mode; false when there was none. Debates started with it keep their copy of it. */
