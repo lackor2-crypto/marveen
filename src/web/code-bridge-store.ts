@@ -1232,7 +1232,40 @@ const OPEN_WORK_STATUSES = new Set(['planned', 'in_progress', 'testing'])
 /** #598: a classifier that never answers must not strand a message; after this the task is claimable again. */
 const TOPIC_PENDING_MAX_MS = 5 * 60 * 1000
 
-export interface OpenTopicCard { ref: string; seq: number | null; title: string; description: string | null }
+/** What a plain Telegram message is compared with: the project's open card, or (#602) its latest finished chat. */
+export interface OpenTopicCard {
+  ref: string
+  seq: number | null
+  title: string
+  description: string | null
+  /** #602: set when the anchor is a previous chat (not a card): the session a related message continues in. */
+  chatSessionId?: string
+}
+
+/** #602: without an open card, a short follow-up ("Jo, a javaslataid elfogadva") still belongs to the chat the project
+ *  just had. Only a Telegram task that FINISHED within this window counts. */
+const PREVIOUS_CHAT_WINDOW_MS = 6 * 60 * 60 * 1000
+
+export function previousChatForProject(project: string, excludeTaskId: string, now = Date.now()): OpenTopicCard | null {
+  ensureTables()
+  const row = getDb()
+    .prepare(
+      `SELECT id, prompt, result, summary, session_id, run_session_id FROM code_tasks
+        WHERE project = ? AND id != ? AND origin = 'telegram' AND status = 'done' AND finished_at >= ?
+        ORDER BY finished_at DESC LIMIT 1`,
+    )
+    .get(project, excludeTaskId, now - PREVIOUS_CHAT_WINDOW_MS) as
+    { id: string; prompt: string; result: string | null; summary: string | null; session_id: string | null; run_session_id: string | null } | undefined
+  const sessionId = row?.run_session_id || row?.session_id
+  if (!row || !sessionId) return null
+  return {
+    ref: row.id,
+    seq: null,
+    title: row.prompt.slice(0, 600),
+    description: (row.result || row.summary || '').slice(0, 1500),
+    chatSessionId: sessionId,
+  }
+}
 
 /** #598: the project's open card (same rule the claim uses), with the text the classifier needs. */
 export function openTopicCardForProject(project: string, excludeTaskId: string): OpenTopicCard | null {
@@ -1254,9 +1287,17 @@ export function markTopicPending(taskId: string, now = Date.now()): void {
 export function resolveTopicCheck(taskId: string, verdict: 'related' | 'unrelated', card: OpenTopicCard): boolean {
   ensureTables()
   const db = getDb()
-  const res = verdict === 'related'
-    ? db.prepare(`UPDATE code_tasks SET topic_state = NULL, card_ref = ? WHERE id = ? AND topic_state = 'pending'`).run(card.ref, taskId)
-    : db.prepare(`UPDATE code_tasks SET topic_state = 'held', hold_card = ? WHERE id = ? AND topic_state = 'pending'`).run(card.ref, taskId)
+  let res
+  if (card.chatSessionId) {
+    // #602: the anchor is a previous chat. Related -> continue in that very session; unrelated -> a normal fresh chat.
+    res = verdict === 'related'
+      ? db.prepare(`UPDATE code_tasks SET topic_state = NULL, target_session_id = ? WHERE id = ? AND topic_state = 'pending' AND (target_session_id IS NULL OR target_session_id = '')`).run(card.chatSessionId, taskId)
+      : db.prepare(`UPDATE code_tasks SET topic_state = 'fresh' WHERE id = ? AND topic_state = 'pending'`).run(taskId)
+  } else {
+    res = verdict === 'related'
+      ? db.prepare(`UPDATE code_tasks SET topic_state = NULL, card_ref = ? WHERE id = ? AND topic_state = 'pending'`).run(card.ref, taskId)
+      : db.prepare(`UPDATE code_tasks SET topic_state = 'held', hold_card = ? WHERE id = ? AND topic_state = 'pending'`).run(card.ref, taskId)
+  }
   return res.changes > 0
 }
 
