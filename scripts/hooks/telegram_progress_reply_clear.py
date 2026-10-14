@@ -9,8 +9,8 @@ the whole (possibly very long) turn even though the user already got an answer.
 Clearing on the reply tool makes the placeholder disappear exactly when the
 answer appears — matching the user's mental model.
 
-Fires after the Telegram `reply` tool. Deletes any pending placeholder(s) for
-the replied chat_id in this session. The Stop hook + watchdog remain as
+Fires after the Telegram `reply` tool. Parks any pending placeholder(s) for
+the replied chat_id in this session (the message stays until the turn ends, #600). The Stop hook + watchdog remain as
 backstops for turns that end without a reply, or true crashes.
 
 Silent on stdout. Honors TELEGRAM_STATE_DIR (per-agent token) like the others.
@@ -42,7 +42,8 @@ def token(sd):
 
 
 def api(tok, method, payload):
-    url = f"https://api.telegram.org/bot{tok}/{method}"
+    base = os.environ.get("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip("/")
+    url = f"{base}/bot{tok}/{method}"
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=8) as r:
@@ -74,13 +75,20 @@ def main():
         (drop if str(p.get("chat_id")) == chat_id else keep).append(p)
     if not drop:
         return
-    tok = token(sd)
-    if tok:
-        for p in drop:
-            try:
-                api(tok, "deleteMessage", {"chat_id": p["chat_id"], "message_id": p["message_id"]})
-            except Exception:
-                pass
+    # #600 (Boss TG 3286): the reply answers ONE thing, the turn may still be working on another (a message that
+    # arrived mid-turn). The "Dolgozom rajta" message therefore STAYS in the chat; only its bookkeeping record
+    # leaves the pending list (the Stop hook's "no reply sent" signal) and is parked in <sid>.working, where the
+    # Stop hook (turn end) and the watchdog (crash backstop) delete the message.
+    try:
+        wpath = os.path.join(sd, "progress", f"{sid}.working")
+        try:
+            parked = json.load(open(wpath))
+        except Exception:
+            parked = []
+        parked.extend(drop)
+        json.dump(parked, open(wpath, "w"))
+    except Exception:
+        pass
     try:
         if keep:
             json.dump(keep, open(path, "w"))

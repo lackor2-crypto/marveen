@@ -439,6 +439,20 @@ def handle_dir(progress_dir):
                 os.remove(m)
         except Exception:
             pass
+    # #600: parked "Dolgozom rajta" messages whose Stop hook never ran (crash): delete them after an hour.
+    for m in glob.glob(os.path.join(progress_dir, "*.working")):
+        try:
+            if now - os.path.getmtime(m) <= 3600:
+                continue
+            wtok = token(state_dir)
+            for p in json.load(open(m)):
+                try:
+                    api(wtok, "deleteMessage", {"chat_id": p["chat_id"], "message_id": p["message_id"]})
+                except Exception:
+                    pass
+            os.remove(m)
+        except Exception:
+            pass
     tok = None
     up_sec = wedged_up_sec()
     max_age = stale_sec()
