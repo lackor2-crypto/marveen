@@ -8374,6 +8374,7 @@ window._i18n.hu = {
   "workbench.dp.fmt_numlist": "Számozott lista",
   "workbench.dp.fmt_select_text": "Előbb jelöld ki a szavakat, amelyekre a formázást alkalmazni szeretnéd.",
   "workbench.dp.fmt_pick": "Előbb kattints a szövegbe, amit formázni szeretnél.",
+  "workbench.dp.fmt_title": "A fejezetcím nem formázható itt (a stílusa a Stílus listából állítható). Kattints egy bekezdésbe.",
   "workbench.tw.show": "Fordítás mellé",
   "workbench.tw.hide": "Fordítás elrejtése",
   "workbench.tw.toggle_hint": "Az oldal mellett, jobbra megmutatja a fordítását fejezetenként. Az eredeti (bal oldal) szerkeszthető marad. A bal szélső eszköz-panel ehhez becsukódik, hogy a két oszlopnak legyen helye; a bal sáv bármelyik gombjával visszanyitod.",

@@ -13672,11 +13672,20 @@
     return { rich: rich, plain: plain }
   }
 
+  /** #599: the cursor is in a chapter title (plain text: no alignment / inline format of its own). */
+  function dpOnTitle() {
+    var a = dpCurrent()
+    return !!a && a.getAttribute('data-wb-dp') === 'sec'
+  }
+
   /** The block / new-line field the toolbar acts on: the focused one, else the last one the cursor was in. */
   function dpFmtTarget() {
     var a = dpCurrent()
     var ok = function (n) { return n && typeof n.getAttribute === 'function' && n.isConnected && /^(block|new)$/.test(n.getAttribute('data-wb-dp') || '') && !n.classList.contains('wb-outline-kind-table') }
     if (ok(a)) return a
+    // #599 (Boss TG 3283): the cursor is in something else of the page (a chapter title): never fall back to the last
+    // paragraph -- the format used to land on the line BELOW the title.
+    if (a) return null
     var last = WB.dpFmtLast ? document.getElementById(WB.dpFmtLast) : null
     return ok(last) ? last : null
   }
@@ -19172,7 +19181,7 @@
       return
     }
     var el = dpFmtTarget()
-    if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
+    if (!el) { window.showToast(t(dpOnTitle() ? 'workbench.dp.fmt_title' : 'workbench.dp.fmt_pick')); return }
     if (clr) { dpClrSet(clr.getAttribute('data-wb-fmtcolor'), clr.value); dpClrPopClose(); dpApplyInline(el, clr.getAttribute('data-wb-fmtcolor'), clr.value); return }
     var k = sel.getAttribute('data-wb-fmtsel')
     var v = sel.value
@@ -19209,7 +19218,7 @@
       return
     }
     var el = dpFmtTarget()
-    if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
+    if (!el) { window.showToast(t(dpOnTitle() ? 'workbench.dp.fmt_title' : 'workbench.dp.fmt_pick')); return }
     if (f === 'clear') { dpClearFormat(el); return }
     // #534: "Insert signature" lives on the toolbar (it was in the "+" menu): the picture goes after the paragraph the cursor is in.
     if (f === 'sign') {
