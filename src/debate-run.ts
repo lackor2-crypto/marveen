@@ -18,7 +18,7 @@ import { getSecret } from './web/vault.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
 import {
-  isRoleMode, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse, rolesForRound, effectiveStrength, effectiveSwap,
+  isRoleMode, isCriticRole, modelCountOf, TRIAD_ROLES, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse, rolesForRound, effectiveStrength, effectiveSwap,
   familyWarnings, modeFromStored, isStrength, DEFAULT_MODE_ID, BUILTIN_MODES,
   type DebateModeDef, type DebateRoleId, type FamilyWarning, type ParsedObjection, type ParsedReply, type Strength, type StoredMode,
 } from './debate-modes.js'
@@ -182,14 +182,15 @@ export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' |
   const mode = state.modeDef ?? resolveStateMode(state.mode)
   const answered = (last?.responses ?? []).filter(r => r.ok && r.text)
   const positions = (state.reverse ? [...answered].reverse() : answered)
-    .map(r => `### ${r.model}${r.role && r.role !== 'peer' ? ` (${r.role})` : ''}\n${r.text}`).join('\n\n')
+    .map(r => `### ${r.model}${r.role && r.role !== 'peer' ? ` (${r.role === 'critic2' ? 'second critic' : r.role})` : ''}\n${r.text}`).join('\n\n')
+  const sides = modelCountOf(mode)
   const notes = state.rounds.filter(r => r.round > 1 && r.prompt.trim()).map(r => `Round ${r.round}: ${r.prompt.trim()}`).join('\n')
   const review = isRoleMode(mode)
   const items = buildObjectionBoard(state.rounds)
   const board = review ? boardForPrompt(state.reverse ? items.reverse() : items) : ''
   return [
-    `You are the neutral secretary of a debate between two models. Question:\n${state.question}${materialBlock(state.attachments)}`,
-    state.outsider ? 'You were not one of the two models: decide on the arguments, not on who wrote them, and do not side with whoever sounded more sure.' : '',
+    `You are the neutral secretary of a debate between ${sides === 3 ? 'three' : 'two'} models. Question:\n${state.question}${materialBlock(state.attachments)}`,
+    state.outsider ? `You were not one of the ${sides === 3 ? 'three' : 'two'} models: decide on the arguments, not on who wrote them, and do not side with whoever sounded more sure.` : '',
     'How sure an argument sounds is not evidence: weigh the reasons, the quotes and the material, not the tone. The order the positions are listed in means nothing.',
     notes ? `The owner steered the debate with these notes:\n${notes}` : '',
     mode.conclusionNote ?? '',
@@ -507,7 +508,7 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
   const models = prior ? prior.models : cleanModels(input.models)
   const question = (prior ? prior.question : String(input.question ?? '')).trim().slice(0, MAX_QUESTION_CHARS)
   if (!question) throw new DebateInputError('question_missing')
-  if (models.length !== 2) throw new DebateInputError('two_models_required')
+  if (models.length !== modelCountOf(mode)) throw new DebateInputError(mode.triad ? 'three_models_required' : 'two_models_required')
   const attachments = prior ? prior.attachments : clampAttachments(input.attachments)
   const steer = String(input.steer ?? '').trim().slice(0, MAX_QUESTION_CHARS)
   const strength = prior ? prior.strength : effectiveStrength(mode, input.strength)
@@ -526,31 +527,44 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
       return r?.text ?? null
     }
     const roleMode = isRoleMode(mode)
-    const roles = rolesForRound(mode, round, swap)
-    const swapped = roleMode && roles[0] !== mode.roles[0]
+    const roles: readonly DebateRoleId[] = mode.triad ? TRIAD_ROLES : rolesForRound(mode, round, swap)
+    const swapped = roleMode && !mode.triad && roles[0] !== mode.roles[0]
     const usedUpTo = maxObjectionNumber(prior?.rounds ?? [])
     const head = questionHead(question, attachments)
     const peerSystem = [SYSTEM_PROMPT, mode.instructions.peer].filter(Boolean).join('\n')
-    const callAs = async (i: number, criticNow: string | null): Promise<DebateResponse> => {
+    // `extra`: the defender gets the critics' text of THIS round (`criticNow`); the second critic of a three-sided
+    // debate gets the first critic's (`otherCritic`) and numbers its objections after that one's.
+    const callAs = async (i: number, extra: { criticNow?: string | null; otherCritic?: string | null; usedUpTo?: number } = {}): Promise<DebateResponse> => {
       const role = roles[i]
       if (!roleMode) {
         return callModel(models[i], peerSystem, buildRoundPrompt({ question, attachments, round, own: textOf(models[i]), other: textOf(models[1 - i]), steer }), key)
       }
       const r = await callModel(models[i], modeSystemPrompt(mode, role, strength) ?? SYSTEM_PROMPT, buildModeRoundPrompt(role, {
-        head, round, criticPrev: textOfRole(prev, 'critic'), defenderPrev: textOfRole(prev, 'defender'), criticNow, steer, swapped, usedUpTo,
+        head, round, criticPrev: textOfRole(prev, role === 'critic2' ? 'critic2' : 'critic'), defenderPrev: textOfRole(prev, 'defender'),
+        criticNow: extra.criticNow ?? null, otherCritic: extra.otherCritic ?? null, steer, swapped, usedUpTo: extra.usedUpTo ?? usedUpTo,
       }), key)
       return { ...r, role, ...readResponse(role, r.text) }
     }
     let responses: DebateResponse[]
-    if (mode.sequential) {
+    if (mode.triad) {
+      // Critic 1 -> critic 2 (sees critic 1's objections, numbers after them) -> the defender answers both.
+      // The defender is skipped when neither critic found anything to object to.
+      const first = await callAs(0)
+      const firstText = first.ok && first.text && !isNoObjections(first.text) ? first.text : null
+      const after = Math.max(usedUpTo, maxObjectionNumber([{ round, responses: [{ ok: true, objections: first.objections }] }]))
+      const second = await callAs(1, { otherCritic: firstText, usedUpTo: after })
+      responses = [first, second]
+      const texts = [first, second].filter(x => x.ok && x.text && !isNoObjections(x.text)).map(x => x.text as string)
+      if (texts.length) responses.push(await callAs(2, { criticNow: texts.join('\n\n') }))
+    } else if (mode.sequential) {
       // The model that plays the first role goes first; the other answers its answer of THIS round (critic -> defender).
       // If the first failed, or found nothing to object to, there is nothing to answer: the second call is skipped.
       const firstIdx = roles[0] === mode.roles[0] ? 0 : 1
-      const first = await callAs(firstIdx, null)
+      const first = await callAs(firstIdx)
       responses = [first]
-      if (first.ok && first.text && !isNoObjections(first.text)) responses.push(await callAs(1 - firstIdx, first.text))
+      if (first.ok && first.text && !isNoObjections(first.text)) responses.push(await callAs(1 - firstIdx, { criticNow: first.text }))
     } else {
-      responses = await Promise.all(models.map((_m, i) => callAs(i, null)))
+      responses = await Promise.all(models.map((_m, i) => callAs(i)))
     }
     if (!responses.some(r => r.ok)) return { session, round, responses }
 
@@ -680,7 +694,7 @@ export function estimateNextRound(input: EstimateInput, prices: ReadonlyMap<stri
   if (!chosen) throw new DebateInputError('mode_unknown')
   const mode: DebateModeDef = chosen
   const models = prior ? prior.models : cleanModels(input.models)
-  if (models.length !== 2) throw new DebateInputError('two_models_required')
+  if (models.length !== modelCountOf(mode)) throw new DebateInputError(mode.triad ? 'three_models_required' : 'two_models_required')
   const question = (prior ? prior.question : String(input.question ?? '')).trim().slice(0, MAX_QUESTION_CHARS)
   const attachments = prior ? prior.attachments : clampAttachments(input.attachments)
   const steer = String(input.steer ?? '').trim().slice(0, MAX_QUESTION_CHARS)
@@ -691,12 +705,14 @@ export function estimateNextRound(input: EstimateInput, prices: ReadonlyMap<stri
   const round = prior ? prior.rounds[prior.rounds.length - 1].round + 1 : 1
   const prev = prior ? prior.rounds[prior.rounds.length - 1] : null
   const textOf = (model: string): string | null => prev?.responses.find(x => x.model === model && x.ok && x.text)?.text ?? null
-  const roles = rolesForRound(mode, round, swap)
+  const roles: readonly DebateRoleId[] = mode.triad ? TRIAD_ROLES : rolesForRound(mode, round, swap)
   const roleMode = isRoleMode(mode)
   const head = questionHead(question, attachments)
   const peerSystem = [SYSTEM_PROMPT, mode.instructions.peer].filter(Boolean).join('\n')
   const usedUpTo = maxObjectionNumber(prior?.rounds ?? [])
-  const swapped = roleMode && roles[0] !== mode.roles[0]
+  const swapped = roleMode && !mode.triad && roles[0] !== mode.roles[0]
+  // What a model is expected to write, in characters: from its earlier answers, else a typical answer.
+  const outChars = (model: string): number => Math.round((avgOut(prior, model) ?? DEFAULT_OUT_TOKENS) * CHARS_PER_TOKEN)
 
   const calls: EstimateCall[] = models.map((m, i) => {
     const seenOut = avgOut(prior, m)
@@ -704,12 +720,19 @@ export function estimateNextRound(input: EstimateInput, prices: ReadonlyMap<stri
       return { model: m, seenOut, chars: peerSystem.length + buildRoundPrompt({ question, attachments, round, own: textOf(m), other: textOf(models[1 - i]), steer }).length }
     }
     const role = roles[i]
-    // The defender reads the critic's answer of the same round: counted at the size the critic is expected to write.
-    const criticOut = avgOut(prior, models[roles[0] === mode.roles[0] ? 0 : 1]) ?? DEFAULT_OUT_TOKENS
     const system = modeSystemPrompt(mode, role, strength) ?? SYSTEM_PROMPT
+    // Later callers read what the earlier ones write in THIS round: counted at the size they are expected to write.
+    let criticNow: string | null = null
+    let otherCritic: string | null = null
+    if (mode.triad) {
+      if (role === 'critic2') otherCritic = 'x'.repeat(outChars(models[0]))
+      if (role === 'defender') criticNow = 'x'.repeat(outChars(models[0]) + outChars(models[1]))
+    } else if (role === 'defender') {
+      criticNow = 'x'.repeat(outChars(models[roles[0] === mode.roles[0] ? 0 : 1]))
+    }
     const user = buildModeRoundPrompt(role, {
-      head, round, criticPrev: textOfRole(prev, 'critic'), defenderPrev: textOfRole(prev, 'defender'),
-      criticNow: role === 'defender' ? 'x'.repeat(Math.round(criticOut * CHARS_PER_TOKEN)) : null, steer, swapped, usedUpTo,
+      head, round, criticPrev: textOfRole(prev, role === 'critic2' ? 'critic2' : 'critic'), defenderPrev: textOfRole(prev, 'defender'),
+      criticNow, otherCritic, steer, swapped, usedUpTo,
     })
     return { model: m, seenOut, chars: system.length + user.length }
   })

@@ -15299,7 +15299,7 @@
 
   function dbState() {
     if (!WB.db) {
-      WB.db = { models: null, mode: 'peer', strength: '', swap: null, judge: '', a: '', b: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
+      WB.db = { models: null, mode: 'peer', strength: '', swap: null, judge: '', a: '', b: '', c: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
         busy: '', error: '', summary: null, consensus: null, concluded: false, past: null, pastOpen: false, loadingState: false,
         modeName: null, maxRounds: null, summaryBy: null, board: [], boardSummary: null, advice: null, conformity: null, orderCheck: null, warnings: [], est: null, view: 'debate', ed: null, ap: null,
         tpl: { list: null, name: '', sel: '', busy: false, error: '' }, stats: null, ex: { full: false, busy: '' } }
@@ -15312,7 +15312,7 @@
     WB.db = null
     var s = dbState()
     // The model choice is kept: the next debate usually uses the same pair.
-    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b; s.mode = keep.mode; s.strength = keep.strength; s.swap = keep.swap; s.judge = keep.judge; s.tpl.list = keep.tpl.list }
+    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b; s.c = keep.c; s.mode = keep.mode; s.strength = keep.strength; s.swap = keep.swap; s.judge = keep.judge; s.tpl.list = keep.tpl.list }
   }
 
   /** Reply text -> safe HTML: escaped first, then only headings, **bold**, `code` and line breaks are recognised. */
@@ -15399,7 +15399,7 @@
       st.loadingState = false
       if (!r.ok) { st.error = r.message; render(); return }
       var d = r.data
-      st.session = d.id; st.q = d.question; st.a = d.models[0] || ''; st.b = d.models[1] || ''; st.mode = d.mode || 'peer'
+      st.session = d.id; st.q = d.question; st.a = d.models[0] || ''; st.b = d.models[1] || ''; st.c = d.models[2] || ''; st.mode = d.mode || 'peer'
       st.files = (d.attachments || []).map(function (a) { return { name: a.name, chars: a.chars, text: '', kept: true } })
       st.rounds = d.rounds; st.concluded = !!d.concluded; st.summary = d.summary; st.consensus = d.consensus
       st.strength = d.strength || ''; st.swap = !!d.swapRoles; st.judge = d.judge || ''; st.modeName = d.modeName || null
@@ -15454,12 +15454,12 @@
     var s = dbState()
     if (s.busy) return
     var body = s.session ? { session: s.session, steer: steer || '' } : {
-      project: WB.projectId, question: s.q, models: [s.a.trim(), s.b.trim()], attachments: s.files, mode: s.mode,
-      strength: dbIsCritic(s.mode) ? dbStrength(s) : undefined, swapRoles: dbIsCritic(s.mode) ? dbSwap(s) : undefined, judge: s.judge.trim() || undefined
+      project: WB.projectId, question: s.q, models: dbDebaterIds(s), attachments: s.files, mode: s.mode,
+      strength: dbIsCritic(s.mode) ? dbStrength(s) : undefined, swapRoles: dbIsCritic(s.mode) && !dbIsTriad(s.mode) ? dbSwap(s) : undefined, judge: s.judge.trim() || undefined
     }
     if (!s.session) {
       if (!s.q.trim()) { s.error = t('workbench.db.err_question'); render(); return }
-      if (!s.a.trim() || !s.b.trim() || s.a.trim() === s.b.trim()) { s.error = t('workbench.db.err_models'); render(); return }
+      if (!dbModelsOk(s)) { s.error = t(dbIsTriad(s.mode) ? 'workbench.db.err_models3' : 'workbench.db.err_models'); render(); return }
     }
     s.busy = 'run'; s.error = ''
     render()
@@ -15514,7 +15514,7 @@
   function dbModeMeta(id) {
     var list = (dbState().models && dbState().models.modes) || []
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]
-    return { id: id, builtin: true, roles: (id === 'critic' || id === 'assumptions' || id === 'premortem') ? ['critic', 'defender'] : ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null }
+    return { id: id, builtin: true, roles: (id === 'critic' || id === 'assumptions' || id === 'premortem' || id === 'triad') ? ['critic', 'defender'] : ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null, models: id === 'triad' ? 3 : 2 }
   }
 
   function dbModeName(id) {
@@ -15531,13 +15531,25 @@
 
   /** The mode list: what the server offers, or the built-in ones while it has not answered. */
   function dbModeIds(s) {
-    var list = s.models && s.models.modes && s.models.modes.length ? s.models.modes.map(function (m) { return m.id }) : ['peer', 'critic', 'assumptions', 'premortem']
+    var list = s.models && s.models.modes && s.models.modes.length ? s.models.modes.map(function (m) { return m.id }) : ['peer', 'critic', 'assumptions', 'premortem', 'triad']
     if (list.indexOf(s.mode) < 0) list = list.concat([s.mode])
     return list
   }
 
   /** A mode with a critic and a defender (the built-in "critic" mode, or an owner-made one of that kind). */
   function dbIsCritic(mode) { return dbModeMeta(mode).roles[0] !== 'peer' }
+
+  /** The three-sided mode: two critics (two points of view) and one defender, so THREE models. */
+  function dbIsTriad(mode) { return dbModeMeta(mode).models === 3 }
+
+  /** The model ids of the debaters as the panel holds them: two, or three in the three-sided mode. */
+  function dbDebaterIds(s) { return dbIsTriad(s.mode) ? [s.a.trim(), s.b.trim(), s.c.trim()] : [s.a.trim(), s.b.trim()] }
+
+  /** Every debater is chosen and no model is picked twice. */
+  function dbModelsOk(s) {
+    var ids = dbDebaterIds(s)
+    return ids.every(Boolean) && ids.every(function (m, i) { return ids.indexOf(m) === i })
+  }
 
   /** The strength and the role swap this debate uses: what the owner picked, else the mode's own. */
   function dbStrength(s) { return s.strength || dbModeMeta(s.mode).strength || 'medium' }
@@ -15562,7 +15574,7 @@
 
   /** The models in use right now: the two debaters and the judge, as the panel shows them. */
   function dbWarnInner(s) {
-    return dbFamilyWarnings([s.a, s.b, s.judge]).map(function (w) {
+    return dbFamilyWarnings([s.a, s.b, s.c, s.judge]).map(function (w) {
       return '<p class="wb-db-warn" role="alert">⚠ ' + esc(t('workbench.db.family_warn', { a: w.a, b: w.b, family: w.family })) + '</p>'
     }).join('')
   }
@@ -15571,7 +15583,7 @@
   var dbEstTimer = null
 
   function dbEstKey(s) {
-    return JSON.stringify([s.session, s.rounds.length, s.q.length, s.files.map(function (f) { return (f.text || '').length + ':' + f.name }), s.a.trim(), s.b.trim(), s.mode, dbStrength(s), dbSwap(s), s.judge.trim(), s.steer.length])
+    return JSON.stringify([s.session, s.rounds.length, s.q.length, s.files.map(function (f) { return (f.text || '').length + ':' + f.name }), s.a.trim(), s.b.trim(), s.c.trim(), s.mode, dbStrength(s), dbSwap(s), s.judge.trim(), s.steer.length])
   }
 
   function dbCostText(est) {
@@ -15620,10 +15632,10 @@
     var body
     if (s.session) body = { session: s.session, steer: s.steer, judge: s.judge.trim() || undefined }
     else {
-      if (!s.q.trim() || !s.a.trim() || !s.b.trim() || s.a.trim() === s.b.trim()) { s.est = null; dbEstPaint(); return }
+      if (!s.q.trim() || !dbModelsOk(s)) { s.est = null; dbEstPaint(); return }
       body = {
-        question: s.q, models: [s.a.trim(), s.b.trim()], attachments: s.files, mode: s.mode,
-        strength: dbIsCritic(s.mode) ? dbStrength(s) : undefined, swapRoles: dbIsCritic(s.mode) ? dbSwap(s) : undefined, judge: s.judge.trim() || undefined
+        question: s.q, models: dbDebaterIds(s), attachments: s.files, mode: s.mode,
+        strength: dbIsCritic(s.mode) ? dbStrength(s) : undefined, swapRoles: dbIsCritic(s.mode) && !dbIsTriad(s.mode) ? dbSwap(s) : undefined, judge: s.judge.trim() || undefined
       }
     }
     api('POST', '/api/debate/estimate', body).then(function (r) {
@@ -15643,7 +15655,8 @@
     var rows = s.board.map(function (it) {
       return '<li class="wb-db-bitem"><div class="wb-db-obj-head"><strong>' + esc(it.id) + '</strong>'
         + (it.kind ? ' <span class="wb-db-kind wb-db-kind-' + escA(it.kind) + '">' + esc(t('workbench.db.kind.' + it.kind)) + '</span>' : '')
-        + ' <span class="wb-db-status wb-db-status-' + escA(it.status) + '">' + esc(t('workbench.db.board.status.' + it.status)) + '</span></div>'
+        + ' <span class="wb-db-status wb-db-status-' + escA(it.status) + '">' + esc(t('workbench.db.board.status.' + it.status)) + '</span>'
+        + (it.by === 'critic2' ? ' <span class="wb-db-role wb-db-role-critic2">' + esc(t('workbench.db.board.by_critic2')) + '</span>' : '') + '</div>'
         + (it.quote ? '<blockquote class="wb-db-quote">' + esc(it.quote) + '</blockquote>' : '')
         + (it.rewrite ? '<div class="wb-db-rewrite"><em>' + esc(t('workbench.db.board.col_final')) + ':</em> ' + dbTextHtml(it.rewrite) + '</div>' : '')
         + '</li>'
@@ -15687,7 +15700,7 @@
   function dbModeFacts(s) {
     if (!dbIsCritic(s.mode)) return ''
     return '<br><strong>' + esc(t('workbench.db.shown_strength')) + ':</strong> ' + esc(t('workbench.db.strength.' + dbStrength(s)))
-      + ' · <strong>' + esc(t('workbench.db.shown_swap')) + ':</strong> ' + esc(t(dbSwap(s) ? 'workbench.db.yes' : 'workbench.db.no'))
+      + (dbIsTriad(s.mode) ? '' : ' · <strong>' + esc(t('workbench.db.shown_swap')) + ':</strong> ' + esc(t(dbSwap(s) ? 'workbench.db.yes' : 'workbench.db.no')))
       + (s.judge ? ' · <strong>' + esc(t('workbench.db.shown_judge')) + ':</strong> ' + esc(dbModelShort(s.judge)) : '')
   }
 
@@ -15707,8 +15720,10 @@
       out += '<label class="wb-db-field" for="wbDbStrength"><span><strong>' + esc(t('workbench.db.strength_label')) + '</strong></span></label>'
         + '<select class="wb-input wb-db-modepick" id="wbDbStrength">' + strOpts + '</select>'
         + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.strength.' + dbStrength(s) + '.desc')) + '</p>'
-        + '<label class="wb-db-check"><input type="checkbox" id="wbDbSwap"' + (dbSwap(s) ? ' checked' : '') + '> ' + esc(t('workbench.db.swap_label')) + '</label>'
-        + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.swap_desc')) + '</p>'
+      if (!dbIsTriad(s.mode)) {
+        out += '<label class="wb-db-check"><input type="checkbox" id="wbDbSwap"' + (dbSwap(s) ? ' checked' : '') + '> ' + esc(t('workbench.db.swap_label')) + '</label>'
+          + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.swap_desc')) + '</p>'
+      }
     }
     return out + '</div>'
   }
@@ -15757,8 +15772,13 @@
     if (WB.selectedId) out += '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-attach-item">' + esc(t('workbench.db.attach_item')) + '</button>'
     out += '</div></div>'
     // The two models, like two documents side by side
-    out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t(crit ? 'workbench.db.model_a_critic' : 'workbench.db.model_a'), s.a)
-      + dbModelInput('wbDbModelB', t(crit ? 'workbench.db.model_b_defender' : 'workbench.db.model_b'), s.b) + '</div>'
+    if (dbIsTriad(s.mode)) {
+      out += '<div class="wb-db-models wb-db-models-3">' + dbModelInput('wbDbModelA', t('workbench.db.model_a_triad'), s.a)
+        + dbModelInput('wbDbModelB', t('workbench.db.model_b_triad'), s.b) + dbModelInput('wbDbModelC', t('workbench.db.model_c_triad'), s.c) + '</div>'
+    } else {
+      out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t(crit ? 'workbench.db.model_a_critic' : 'workbench.db.model_a'), s.a)
+        + dbModelInput('wbDbModelB', t(crit ? 'workbench.db.model_b_defender' : 'workbench.db.model_b'), s.b) + '</div>'
+    }
     if (m && m.catalog_error) out += '<p class="wb-muted">' + esc(t('workbench.db.catalog_error')) + '</p>'
     out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge, true) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
     out += '<div id="wbDbWarn">' + dbWarnInner(s) + '</div>'
@@ -15797,15 +15817,24 @@
   }
 
   function dbRoundHtml(s, r) {
-    var critic = null
-    r.responses.forEach(function (y) { if (y.role === 'critic') critic = y })
-    var cols = [s.a, s.b].map(function (model) {
+    var critics = r.responses.filter(function (y) { return y.role === 'critic' || y.role === 'critic2' })
+    // Nobody to answer: every critic that answered found nothing (the defender is then not called).
+    var allNone = critics.length > 0 && critics.every(function (y) { return y.noObjections })
+    var triad = dbIsTriad(s.mode) || s.c !== ''
+    var models = triad ? [s.a, s.b, s.c] : [s.a, s.b]
+    var cols = models.map(function (model, i) {
       var x = null
       r.responses.forEach(function (y) { if (y.model === model) x = y })
-      var body = !x ? (critic && critic.noObjections ? '<p class="wb-muted">' + esc(t('workbench.db.no_objections_note')) + '</p>' : '<p class="wb-muted">–</p>')
+      var body = !x ? (allNone ? '<p class="wb-muted">' + esc(t('workbench.db.no_objections_note')) + '</p>' : '<p class="wb-muted">–</p>')
         : x.ok ? dbAnswerHtml(x)
         : '<p class="wb-error">' + esc(t('workbench.db.model_failed', { error: x.error || '' })) + '</p>'
-      var role = x && x.role ? x.role : (critic ? (critic.model === model ? 'critic' : 'defender') : (dbIsCritic(s.mode) ? (model === s.a ? 'critic' : 'defender') : ''))
+      var role = ''
+      if (x && x.role) role = x.role
+      else if (triad) role = ['critic', 'critic2', 'defender'][i]
+      else {
+        var critic = critics[0]
+        role = critic ? (critic.model === model ? 'critic' : 'defender') : (dbIsCritic(s.mode) ? (model === s.a ? 'critic' : 'defender') : '')
+      }
       return '<div class="wb-db-col"><div class="wb-db-colhead"><span><strong>' + esc(dbModelShort(model)) + '</strong>'
         + (role ? ' <span class="wb-db-role wb-db-role-' + escA(role) + '">' + esc(t('workbench.db.role.' + role)) + '</span>' : '') + '</span>'
         + (x && x.ok ? ' <button type="button" class="wb-linklike" data-wb-act="db-copy" data-wb-round="' + r.round + '" data-wb-model="' + escA(model) + '">' + esc(t('workbench.db.copy')) + '</button>' : '')
@@ -15813,7 +15842,7 @@
     }).join('')
     return '<section class="wb-db-round"><h3>' + esc(t('workbench.db.round_head', { n: r.round })) + '</h3>'
       + (r.round > 1 && r.prompt ? '<p class="wb-db-note"><em>' + esc(t('workbench.db.round_note')) + ':</em> ' + esc(r.prompt) + '</p>' : '')
-      + '<div class="wb-db-cols">' + cols + '</div></section>'
+      + '<div class="wb-db-cols' + (triad ? ' wb-db-cols-3' : '') + '">' + cols + '</div></section>'
   }
 
   function dbSessionHtml(s) {
@@ -15959,7 +15988,7 @@
     s.mode = modeOk ? found.mode : 'peer'
     s.strength = modeOk && found.strength ? found.strength : ''
     s.swap = modeOk && typeof found.swapRoles === 'boolean' ? found.swapRoles : null
-    s.a = found.models[0] || ''; s.b = found.models[1] || ''; s.judge = found.judge || ''
+    s.a = found.models[0] || ''; s.b = found.models[1] || ''; s.c = found.models[2] || ''; s.judge = found.judge || ''
     tp.name = found.name
     if (!modeOk) tp.error = t('workbench.db.tpl.mode_gone')
     s.est = null
@@ -15978,7 +16007,7 @@
     render()
     api('POST', '/api/debate/templates', {
       name: name, mode: s.mode, strength: crit ? dbStrength(s) : null, swapRoles: crit ? dbSwap(s) : null,
-      models: [s.a.trim(), s.b.trim()], judge: s.judge.trim()
+      models: dbDebaterIds(s), judge: s.judge.trim()
     }).then(function (r) {
       var cur = dbState().tpl
       cur.busy = false
@@ -16091,7 +16120,11 @@
   function dbPercent(x) { return x === null || x === undefined ? '–' : Math.round(x * 100) + ' %' }
 
   function dbStatsRowHtml(r) {
-    var who = r.roleMode
+    var who = r.roleMode && r.third
+      ? '<strong>' + esc(dbModelShort(r.first)) + '</strong> <span class="wb-db-role wb-db-role-critic">' + esc(t('workbench.db.role.critic')) + '</span><br>'
+        + '<strong>' + esc(dbModelShort(r.second)) + '</strong> <span class="wb-db-role wb-db-role-critic2">' + esc(t('workbench.db.role.critic2')) + '</span><br>'
+        + '<strong>' + esc(dbModelShort(r.third)) + '</strong> <span class="wb-db-role wb-db-role-defender">' + esc(t('workbench.db.role.defender')) + '</span>'
+      : r.roleMode
       ? '<strong>' + esc(dbModelShort(r.first)) + '</strong> <span class="wb-db-role wb-db-role-critic">' + esc(t('workbench.db.role.critic')) + '</span><br>'
         + '<strong>' + esc(dbModelShort(r.second)) + '</strong> <span class="wb-db-role wb-db-role-defender">' + esc(t('workbench.db.role.defender')) + '</span>'
       : '<strong>' + esc(dbModelShort(r.first)) + '</strong><br><strong>' + esc(dbModelShort(r.second)) + '</strong>'
@@ -16099,7 +16132,7 @@
       + '<td>' + r.debates + (r.enoughData ? '' : '<br><span class="wb-db-chip">' + esc(t('workbench.db.stats.little')) + '</span>') + '</td>'
       + '<td>' + (r.concluded ? r.agreed + ' / ' + r.concluded : '–') + '</td>'
       + '<td>' + (r.roleMode ? r.objections : '–') + '</td>'
-      + '<td>' + (r.roleMode ? r.accepted + ' <span class="wb-muted">(' + dbPercent(r.acceptRate) + ')</span>' : '–') + '</td>'
+      + '<td>' + (r.roleMode ? r.accepted + ' <span class="wb-muted">(' + dbPercent(r.acceptRate) + ')</span>' + (r.third ? '<br><span class="wb-muted">' + esc(t('workbench.db.stats.from_second', { n: r.fromSecond })) + '</span>' : '') : '–') + '</td>'
       + '<td>' + Math.round((r.tokensIn + r.tokensOut) / 1000) + ' k</td></tr>'
   }
 
@@ -16432,6 +16465,7 @@
     else if (id === 'wbDbSteer') { s.steer = e.target.value; dbEstimateSoon() }
     else if (id === 'wbDbModelA') { s.a = e.target.value; dbWarnPaint(); dbEstimateSoon() }
     else if (id === 'wbDbModelB') { s.b = e.target.value; dbWarnPaint(); dbEstimateSoon() }
+    else if (id === 'wbDbModelC') { s.c = e.target.value; dbWarnPaint(); dbEstimateSoon() }
     else if (id === 'wbDbJudge') { s.judge = e.target.value; dbWarnPaint(); dbEstimateSoon() }
     else if (id === 'wbDbTplName') { s.tpl.name = e.target.value }
     else if (s.ed && s.ed.form) {

@@ -15,7 +15,15 @@
 // Everything here is pure (no I/O) so it is unit-tested without a model. The objection / reply parsers are
 // forgiving on purpose: a model that formats badly must never break the debate, the caller falls back to the text.
 
-export type DebateRoleId = 'peer' | 'critic' | 'defender'
+export type DebateRoleId = 'peer' | 'critic' | 'critic2' | 'defender'
+
+/** Both critics of a three-sided debate raise numbered objections the same way; `critic2` is the second one. */
+export function isCriticRole(role: DebateRoleId | undefined | null): boolean {
+  return role === 'critic' || role === 'critic2'
+}
+
+/** The roles of the three models of a three-sided debate, in the order the panel lists them. */
+export const TRIAD_ROLES: readonly DebateRoleId[] = ['critic', 'critic2', 'defender']
 
 export type Strength = 'mild' | 'medium' | 'hard'
 export const STRENGTHS: readonly Strength[] = ['mild', 'medium', 'hard']
@@ -27,6 +35,11 @@ export interface DebateModeDef {
   roles: [DebateRoleId, DebateRoleId]
   /** The second model answers AFTER the first and sees its answer of the same round (critic -> defender). */
   sequential: boolean
+  /**
+   * Three-sided: THREE models -- two critics with different points of view (they write one after the other, the second
+   * sees the first one's objections and does not repeat them) and one defender who answers both. No role swap.
+   */
+  triad?: boolean
   /**
    * What each role is told (system prompt). In a role mode (critic / defender) a role without an entry gets the
    * original debate prompt. For the peer role the text is an EXTRA sentence added to the original debate prompt.
@@ -163,6 +176,20 @@ const PREMORTEM_STRENGTH_NOTES: Record<Strength, string> = {
   hard: 'Strength: HARD. List every distinct way it could plausibly fail, but never one that is not tied to the text: do not invent any.',
 }
 
+// Phase 7: the three-sided review. Two critics look at the same text from different sides; one defender answers both.
+
+const TRIAD_VIEW_EDITOR = 'Your point of view: the careful EDITOR. Look at the text as someone who checks it before it is sent: facts and figures that do not add up, contradictions inside the text, unclear or imprecise wording, parts that are missing.'
+
+const TRIAD_VIEW_OPPONENT = [
+  'Your point of view: the OPPOSING SIDE. Look at the text as the other party, the authority or the court that will read it and wants to find a way to reject or turn it: legal and formal weaknesses, claims they can challenge, risks and gaps they would exploit.',
+  'Another critic with a different point of view (the editor) writes before you in every round. You are shown its objections: do not repeat them. Add what it missed from YOUR point of view. If you have something NEW to say about one of its objections, write it as your own numbered objection and refer to the other number in the text.',
+  'Your numbering continues after the other critic\'s: start at the number you are given.',
+].join('\n')
+
+const TRIAD_DEFENDER_NOTE = 'The objections come from TWO critics (one numbering, K1, K2, ... across both of them). Answer every objection by its number, whichever critic raised it.'
+
+const TRIAD_CONCLUSION_NOTE = 'This debate was a three-sided review: two critics looked at the text from different sides (the first as an editor, the second as the opposing side) and one defender answered both. List the objections that stand, the ones the defender rightly rejected, and the rewrites worth taking over. Say honestly where they did not agree.'
+
 export const DEFAULT_MODE_ID = 'peer'
 export const DEFAULT_CRITIC_MAX_ROUNDS = 6
 
@@ -203,6 +230,22 @@ export const BUILTIN_MODES: Record<string, DebateModeDef> = {
     swapRoles: false,
     maxRounds: DEFAULT_CRITIC_MAX_ROUNDS,
   },
+  triad: {
+    id: 'triad',
+    roles: ['critic', 'defender'],
+    sequential: true,
+    triad: true,
+    instructions: {
+      critic: `${CRITIC_INSTRUCTIONS}\n${TRIAD_VIEW_EDITOR}`,
+      critic2: `${CRITIC_INSTRUCTIONS}\n${TRIAD_VIEW_OPPONENT}`,
+      defender: `${DEFENDER_INSTRUCTIONS}\n${TRIAD_DEFENDER_NOTE}`,
+    },
+    conclusionNote: TRIAD_CONCLUSION_NOTE,
+    builtin: true,
+    strength: DEFAULT_STRENGTH,
+    swapRoles: false,
+    maxRounds: DEFAULT_CRITIC_MAX_ROUNDS,
+  },
 }
 
 /** The texts the mode editor offers as "restore the default" for a critic / defender mode. */
@@ -232,6 +275,11 @@ export function isRoleMode(mode: DebateModeDef): boolean {
   return mode.roles[0] !== 'peer'
 }
 
+/** How many models a debate of this mode needs. */
+export function modelCountOf(mode: DebateModeDef): number {
+  return mode.triad ? 3 : 2
+}
+
 /** The roles the first and the second model play in this round: swapped in every even round when the debate swaps. */
 export function rolesForRound(mode: DebateModeDef, round: number, swap: boolean): [DebateRoleId, DebateRoleId] {
   return swap && isRoleMode(mode) && round > 1 && round % 2 === 0 ? [mode.roles[1], mode.roles[0]] : [mode.roles[0], mode.roles[1]]
@@ -242,7 +290,7 @@ export function effectiveStrength(mode: DebateModeDef, chosen?: unknown): Streng
   return isStrength(chosen) ? chosen : (mode.strength ?? DEFAULT_STRENGTH)
 }
 export function effectiveSwap(mode: DebateModeDef, chosen?: unknown): boolean {
-  return isRoleMode(mode) && (typeof chosen === 'boolean' ? chosen : mode.swapRoles === true)
+  return isRoleMode(mode) && !mode.triad && (typeof chosen === 'boolean' ? chosen : mode.swapRoles === true)
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +328,7 @@ export function modeSystemPrompt(mode: DebateModeDef, role: DebateRoleId, streng
   if (role === 'peer') return null
   const base = mode.instructions[role]
   if (!base) return null
-  if (role !== 'critic') return base
+  if (!isCriticRole(role)) return base
   const s = strength ?? mode.strength ?? DEFAULT_STRENGTH
   return `${base}\n${mode.strengthNotes?.[s] ?? strengthNote(s)}`
 }
@@ -299,15 +347,26 @@ export interface ModePromptInput {
   swapped?: boolean
   /** The highest objection number used so far, so new objections do not reuse a number. */
   usedUpTo?: number
+  /** The second critic of a three-sided debate: what the first critic wrote in THIS round (null = it wrote nothing to show). */
+  otherCritic?: string | null
 }
 
 /** The user message one role gets for one round of a role-based mode. */
 export function buildModeRoundPrompt(role: DebateRoleId, a: ModePromptInput): string {
   const steer = a.steer.trim()
   const steerBlock = steer ? `The owner's note for this round (follow it):\n${steer}` : ''
-  if (role === 'critic') {
-    if (a.round <= 1) return [a.head, 'Round 1: review the text and write your numbered objections.'].filter(Boolean).join('\n\n')
+  if (isCriticRole(role)) {
     const next = `K${(a.usedUpTo ?? 0) + 1}`
+    const second = role === 'critic2'
+    const other = second
+      ? [
+        a.otherCritic
+          ? `The other critic (a different point of view) has already written these objections in this round:\n${a.otherCritic}`
+          : 'The other critic (a different point of view) wrote no objections in this round.',
+        `Do not repeat them. Number yours from ${next}.`,
+      ].join('\n')
+      : ''
+    if (a.round <= 1) return [a.head, 'Round 1: review the text and write your numbered objections.', other].filter(Boolean).join('\n\n')
     return [
       a.head,
       `Round ${a.round}.`,
@@ -319,6 +378,7 @@ export function buildModeRoundPrompt(role: DebateRoleId, a: ModePromptInput): st
         ? `Your answers in the previous round:\n${a.defenderPrev ?? '(you gave no answer in the previous round)'}`
         : `The defender's answers in the previous round:\n${a.defenderPrev ?? '(the defender gave no answer in the previous round)'}`,
       steerBlock,
+      other,
       `Now write your objections for this round. Restate by number (K<n>) only the ones the answers did not settle, and say why. Drop the ones you accept as settled. Add new ones with new numbers, starting at ${next}. If nothing is left, reply NO OBJECTIONS.`,
     ].filter(Boolean).join('\n\n')
   }
@@ -476,7 +536,7 @@ export function parseReplies(text: string | undefined | null): ParsedReply[] {
 export function readResponse(role: DebateRoleId | undefined, text: string | undefined | null): {
   objections?: ParsedObjection[]; replies?: ParsedReply[]; noObjections?: boolean
 } {
-  if (role === 'critic') {
+  if (isCriticRole(role)) {
     const noObjections = isNoObjections(text)
     const objections = parseObjections(text)
     return { ...(objections.length ? { objections } : {}), ...(noObjections ? { noObjections } : {}) }

@@ -645,3 +645,119 @@ describe('egy hibas sor a naploban nem vakitja meg a vitat', () => {
 })
 
 afterAll(() => { rmSync(h.dir, { recursive: true, force: true }) })
+
+describe('Haromoldalu mod: ket kotekedo, egy vedo (#597, 7. fazis)', () => {
+  const C = 'google/gemini-3-pro'
+  const OBJ_A = 'K1 [accuracy]\nQUOTE: "30 nap"\nOBJECTION: 15 nap a helyes.\n\nK2 [wording]\nQUOTE: "kerjuk"\nOBJECTION: hang.'
+  const OBJ_B = 'K3 [legal]\nQUOTE: "hatarido"\nOBJECTION: a hatosag elutasithatja.'
+  const REPLY = 'K1: ACCEPT\nREASON: igaz es indokolt\nREWRITE: 15 nap\n\nK2: REJECT\nREASON: nem\n\nK3: PARTIAL\nREASON: reszben\nREWRITE: hatarido ujra'
+
+  it('az 1. kor sorrendje: 1. kotekedo -> 2. kotekedo (latja az elsot, utana szamoz) -> a vedo mindket kotekedo szovegevel; szerepek a naploban', async () => {
+    replies = { [A]: [OBJ_A], [B]: [OBJ_B], [C]: [REPLY] }
+    const out = await runDebateRound({ question: 'Jo a level?', models: [A, B, C], mode: 'triad' })
+    expect(sent.map(s => s.model)).toEqual([A, B, C])
+    expect(sent[0].system).toContain('careful EDITOR')
+    expect(sent[1].system).toContain('OPPOSING SIDE')
+    expect(sent[2].system).toContain('DEFENDER')
+    expect(sent[2].system).toContain('TWO critics')
+    // a 2. kotekedo az elso szovegevel es a folytatolagos szamozassal indul
+    expect(sent[1].user).toContain(OBJ_A)
+    expect(sent[1].user).toContain('Number yours from K3')
+    // a vedo mindkettot latja
+    expect(sent[2].user).toContain(OBJ_A)
+    expect(sent[2].user).toContain(OBJ_B)
+    expect(out.responses.map(r => r.role)).toEqual(['critic', 'critic2', 'defender'])
+    expect(logLines().filter(l => l.type === 'round').map(l => l.role)).toEqual(['critic', 'critic2', 'defender'])
+    expect(logLines()[0]).toMatchObject({ type: 'context', mode: 'triad', models: [A, B, C] })
+    // a tabla: 3 kifogas, a K3-at a 2. kotekedo hozta
+    expect(out.board!.map(i => [i.id, i.status, i.by])).toEqual([['K1', 'accepted', null], ['K2', 'rejected', null], ['K3', 'partial', 'critic2']])
+  })
+
+  it('csak harom KULONBOZO modellel indul: kevesebbel vagy tobbel hiba, semmi nem megy ki', async () => {
+    await expect(runDebateRound({ question: 'q', models: [A, B], mode: 'triad' })).rejects.toMatchObject({ code: 'three_models_required' })
+    await expect(runDebateRound({ question: 'q', models: [A, A, B], mode: 'triad' })).rejects.toMatchObject({ code: 'three_models_required' })
+    await expect(runDebateRound({ question: 'q', models: [A, B, C, 'x/y'], mode: 'triad' })).rejects.toMatchObject({ code: 'three_models_required' })
+    // a masik modok ketto kellenek tovabbra is
+    await expect(runDebateRound({ question: 'q', models: [A, B, C], mode: 'critic' })).rejects.toMatchObject({ code: 'two_models_required' })
+    expect(sent).toHaveLength(0)
+    expect(logLines()).toEqual([])
+  })
+
+  it('a masodik kotekedo az elso nelkul is dolgozik, ha az nem talalt semmit; a vedot csak akkor hivja, ha van mire valaszolni', async () => {
+    replies = { [A]: ['NO OBJECTIONS\nEllenoriztem.'], [B]: [OBJ_B], [C]: [REPLY] }
+    await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    expect(sent.map(s => s.model)).toEqual([A, B, C])
+    expect(sent[1].user).toContain('wrote no objections in this round')
+    expect(sent[2].user).not.toContain('NO OBJECTIONS')
+    sent = []
+    rmSync(DEBATE_LOG_PATH, { force: true })
+    replies = { [A]: ['NO OBJECTIONS\nrendben'], [B]: ['NO OBJECTIONS\nrendben'] }
+    const out = await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    expect(sent.map(s => s.model)).toEqual([A, B])
+    expect(out.advice).toEqual({ stop: true, reason: 'no_objections' })
+  })
+
+  it('ha csak az egyik kotekedo talalt semmit, a tanacs NEM mondja, hogy nincs kifogas', async () => {
+    replies = { [A]: ['NO OBJECTIONS\nrendben'], [B]: [OBJ_B], [C]: [REPLY] }
+    const out = await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    expect(out.advice!.reason).not.toBe('no_objections')
+  })
+
+  it('ha az elso kotekedo hibazik, a masodik es a vedo megy tovabb; ha mindketto, a kor nincs naplozva', async () => {
+    replies = { [A]: [{ status: 500, error: 'boom' }], [B]: [OBJ_B], [C]: [REPLY] }
+    const out = await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    expect(out.responses.map(r => [r.role, r.ok])).toEqual([['critic', false], ['critic2', true], ['defender', true]])
+    rmSync(DEBATE_LOG_PATH, { force: true })
+    replies = { [A]: [{ status: 500, error: 'boom' }], [B]: [{ status: 500, error: 'boom' }], [C]: [REPLY] }
+    sent = []
+    await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    expect(logLines()).toEqual([])
+    expect(sent.map(s => s.model)).toEqual([A, B])
+  })
+
+  it('a kovetkezo kor a tarolt vitabol megy tovabb mind a harom modellel; mindketto kotekedo a SAJAT elozo kifogasait latja; a szamozas a legnagyobb utan folytatodik', async () => {
+    replies = { [A]: [OBJ_A], [B]: [OBJ_B], [C]: [REPLY] }
+    const first = await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    sent = []
+    await runDebateRound({ session: first.session })
+    expect(sent.map(s => s.model)).toEqual([A, B, C])
+    expect(sent[0].user).toContain(`Your objections in the previous round:\n${OBJ_A}`)
+    expect(sent[1].user).toContain(`Your objections in the previous round:\n${OBJ_B}`)
+    expect(sent[0].user).toContain('starting at K4')
+    expect(sent[1].user).toContain('Number yours from K4')
+    const st = loadDebateSession(first.session)!
+    expect(st.models).toEqual([A, B, C])
+    expect(st.rounds[0].responses.map(r => r.role)).toEqual(['critic', 'critic2', 'defender'])
+    expect(st.board.map(i => i.by)).toEqual([null, null, 'critic2'])
+  })
+
+  it('nincs szerepcsere: se a kapcsolo, se a mod nem cserel szerepet a 2. korben', async () => {
+    replies = { [A]: [OBJ_A], [B]: [OBJ_B], [C]: [REPLY] }
+    const first = await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad', swapRoles: true })
+    expect(loadDebateSession(first.session)!.swapRoles).toBe(false)
+    sent = []
+    await runDebateRound({ session: first.session })
+    expect(sent.map(s => s.system.includes('CRITIC') ? 'critic' : 'defender')).toEqual(['critic', 'critic', 'defender'])
+  })
+
+  it('a lezaras-prompt harom modellrol szol, es megnevezi a masodik kotekedot', async () => {
+    replies = { [A]: [OBJ_A], [B]: [OBJ_B], [C]: [REPLY] }
+    const first = await runDebateRound({ question: 'q', models: [A, B, C], mode: 'triad' })
+    sent = []
+    replies = { [A]: ['CONSENSUS: no\nSTANDING: K3\nkesz'] }
+    await concludeDebate(first.session, {})
+    expect(sent[0].user).toContain('debate between three models')
+    expect(sent[0].user).toContain('(second critic)')
+    expect(sent[0].user).toContain('two critics looked at the text from different sides')
+  })
+
+  it('koltsegbecsles: harom hivas; a masodik kotekedo az elso kimenetet is olvassa, a vedo mindkettot', async () => {
+    const { estimateNextRound } = await import('../debate-run.js')
+    const prices = new Map([[A, { promptPrice: 1, completionPrice: 1 }], [B, { promptPrice: 1, completionPrice: 1 }], [C, { promptPrice: 1, completionPrice: 1 }]])
+    const e = estimateNextRound({ question: 'k'.repeat(400), models: [A, B, C], mode: 'triad' }, prices)
+    expect(e.next.calls.map(c => c.model)).toEqual([A, B, C])
+    expect(e.next.calls[1].tokensIn).toBeGreaterThan(e.next.calls[0].tokensIn)
+    expect(e.next.calls[2].tokensIn).toBeGreaterThan(e.next.calls[1].tokensIn)
+    expect(() => estimateNextRound({ question: 'q', models: [A, B], mode: 'triad' }, prices)).toThrow(DebateInputError)
+  })
+})

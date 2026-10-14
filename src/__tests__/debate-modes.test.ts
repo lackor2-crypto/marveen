@@ -12,7 +12,7 @@ const IN = { head: 'HEAD', round: 1, criticPrev: null, defenderPrev: null, criti
 
 describe('a modok es a szerepek', () => {
   it('negy beepitett mod van; az alap az Egyenrangu, az a mostani mukodes (nincs szerep-utasitas)', () => {
-    expect(listModeIds()).toEqual(['peer', 'critic', 'assumptions', 'premortem'])
+    expect(listModeIds()).toEqual(['peer', 'critic', 'assumptions', 'premortem', 'triad'])
     expect(DEFAULT_MODE_ID).toBe('peer')
     expect(isRoleMode(BUILTIN_MODES.peer)).toBe(false)
     expect(BUILTIN_MODES.peer.sequential).toBe(false)

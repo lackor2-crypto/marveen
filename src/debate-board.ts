@@ -6,7 +6,7 @@
 // the rounds each time, so the log stays the only record and the board can never drift from it.
 
 import type { DebateModeDef, DebateRoleId, ObjectionKind, ParsedObjection, ParsedReply, ReplyVerdict } from './debate-modes.js'
-import { isRoleMode } from './debate-modes.js'
+import { isRoleMode, isCriticRole } from './debate-modes.js'
 
 export interface BoardResponse {
   role?: DebateRoleId
@@ -35,6 +35,8 @@ export interface BoardItem {
   quote: string
   text: string
   raisedIn: number
+  /** Which critic raised it first: 'critic2' = the second critic of a three-sided debate; null = the first critic (or it was only answered). */
+  by: 'critic2' | null
   lastRaisedIn: number
   steps: BoardStep[]
   status: BoardStatus
@@ -53,7 +55,7 @@ function numOf(id: string): number {
 export function buildObjectionBoard(rounds: readonly BoardRound[]): BoardItem[] {
   const items = new Map<string, BoardItem>()
   const make = (id: string, round: number): BoardItem => {
-    const it: BoardItem = { id, num: numOf(id), kind: null, quote: '', text: '', raisedIn: round, lastRaisedIn: 0, steps: [], status: 'open', rewrite: '' }
+    const it: BoardItem = { id, num: numOf(id), kind: null, quote: '', text: '', raisedIn: round, by: null, lastRaisedIn: 0, steps: [], status: 'open', rewrite: '' }
     items.set(id, it)
     return it
   }
@@ -62,10 +64,12 @@ export function buildObjectionBoard(rounds: readonly BoardRound[]): BoardItem[] 
     let seen = false
     for (const x of r.responses) {
       if (!x.ok) continue
-      if (x.role === 'critic') {
+      if (isCriticRole(x.role)) {
         seen = true
         for (const o of x.objections ?? []) {
+          const fresh = !items.has(o.id)
           const it = items.get(o.id) ?? make(o.id, r.round)
+          if (fresh && x.role === 'critic2') it.by = 'critic2'
           it.lastRaisedIn = r.round
           // The newest statement wins, but a restatement that dropped the quote keeps the one that was given.
           if (o.kind) it.kind = o.kind
@@ -134,8 +138,9 @@ export function stopAdvice(mode: DebateModeDef, rounds: readonly BoardRound[]): 
   if (!isRoleMode(mode) || !rounds.length) return { stop: false }
   const sorted = [...rounds].sort((a, b) => a.round - b.round)
   const last = sorted[sorted.length - 1]
-  const critic = last.responses.find(x => x.ok && x.role === 'critic')
-  if (critic?.noObjections) return { stop: true, reason: 'no_objections' }
+  // Every critic that answered found nothing (a three-sided debate has two of them).
+  const critics = last.responses.filter(x => x.ok && isCriticRole(x.role))
+  if (critics.length && critics.every(c => c.noObjections)) return { stop: true, reason: 'no_objections' }
 
   const board = buildObjectionBoard(sorted)
   const live = board.filter(i => i.lastRaisedIn === last.round)

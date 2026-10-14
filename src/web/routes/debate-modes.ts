@@ -46,7 +46,8 @@ export async function tryHandleDebateModes(ctx: RouteContext): Promise<boolean> 
 
   if (path === '/api/debate/modes' && method === 'GET') {
     json(res, {
-      builtin: Object.values(BUILTIN_MODES).map(m => ({
+      // The three-sided mode is not offered as a sample: the editor makes two-model modes only.
+      builtin: Object.values(BUILTIN_MODES).filter(m => !m.triad).map(m => ({
         id: m.id, base: m.roles[0] === 'peer' ? 'peer' : 'critic', instructions: m.instructions, conclusionNote: m.conclusionNote ?? '',
         strength: m.strength ?? DEFAULT_STRENGTH, swapRoles: m.swapRoles === true, maxRounds: m.maxRounds ?? null,
       })),
