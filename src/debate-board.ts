@@ -180,3 +180,29 @@ export function boardForPrompt(items: readonly BoardItem[]): string {
     ].filter(Boolean).join('\n')
   }).join('\n\n')
 }
+
+// ---------------------------------------------------------------------------
+// Suspicious agreement (conformity)
+// ---------------------------------------------------------------------------
+
+/** A reason shorter than this (trimmed) counts as no reason at all: "Agreed.", "Fair point.". */
+export const MIN_REASON_CHARS = 20
+
+export interface ConformityWarning { suspicious: boolean; round?: number; count?: number }
+
+/**
+ * Models tend to give way to a confident partner (sycophancy), so a defender that accepts EVERY objection of a round
+ * without a reason of its own is a sign to doubt, not to celebrate. Looks at the newest round that has defender
+ * answers; a single objection is not enough to call it a pattern (accepting one is normal). It is a warning only.
+ */
+export function conformityWarning(rounds: readonly BoardRound[]): ConformityWarning {
+  const sorted = [...rounds].sort((a, b) => b.round - a.round)
+  for (const r of sorted) {
+    const defender = r.responses.find(x => x.ok && x.role === 'defender' && (x.replies?.length ?? 0) > 0)
+    if (!defender) continue
+    const replies = defender.replies ?? []
+    const bare = replies.length >= 2 && replies.every(p => p.verdict === 'accept' && p.reason.trim().length < MIN_REASON_CHARS)
+    return bare ? { suspicious: true, round: r.round, count: replies.length } : { suspicious: false }
+  }
+  return { suspicious: false }
+}

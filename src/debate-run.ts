@@ -24,8 +24,8 @@ import {
 } from './debate-modes.js'
 import { loadStoredModes, lookupMode } from './debate-mode-store.js'
 import {
-  buildObjectionBoard, stopAdvice, maxObjectionNumber, boardForPrompt, summarizeBoard,
-  type BoardItem, type BoardSummary, type StopAdvice,
+  buildObjectionBoard, stopAdvice, maxObjectionNumber, boardForPrompt, summarizeBoard, conformityWarning,
+  type BoardItem, type BoardSummary, type StopAdvice, type ConformityWarning,
 } from './debate-board.js'
 import { CONCLUDE_OUT_TOKENS, CHARS_PER_TOKEN, DEFAULT_OUT_TOKENS, estimateCalls, type Estimate, type EstimateCall, type ModelPrice } from './debate-estimate.js'
 
@@ -86,10 +86,14 @@ export interface DebateSessionState {
   summary: string | null
   /** Which model wrote the summary (null while the debate is open, or when the owner wrote it). */
   summaryBy: string | null
+  /** A model-written summary only: whether the two readings (positions in both orders) agreed; null = not checked. */
+  orderCheck: OrderCheck | null
   /** Role modes only: the objection board over all rounds, its counts, and whether another round is worth it. */
   board: BoardItem[]
   boardSummary: BoardSummary | null
   advice: StopAdvice
+  /** Role modes only: the defender accepted everything without a reason of its own. */
+  conformity: ConformityWarning
 }
 
 // ---------------------------------------------------------------------------
@@ -168,33 +172,73 @@ export function buildRoundPrompt(a: RoundPromptInput): string {
   ].filter(Boolean).join('\n\n')
 }
 
-/** The closing synthesis prompt: what both sides ended up with, as a neutral write-up the owner can copy. */
-export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' | 'attachments' | 'rounds'> & { mode?: string; modeDef?: DebateModeDef; outsider?: boolean }): string {
+/**
+ * The closing synthesis prompt: what both sides ended up with, as a neutral write-up the owner can copy.
+ * `reverse` lists the positions and the objections in the opposite order: the same debate is read twice, once each
+ * way, because a model that decides tends to favour what it reads first (position bias).
+ */
+export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' | 'attachments' | 'rounds'> & { mode?: string; modeDef?: DebateModeDef; outsider?: boolean; reverse?: boolean }): string {
   const last = state.rounds[state.rounds.length - 1]
   const mode = state.modeDef ?? resolveStateMode(state.mode)
-  const positions = (last?.responses ?? []).filter(r => r.ok && r.text)
+  const answered = (last?.responses ?? []).filter(r => r.ok && r.text)
+  const positions = (state.reverse ? [...answered].reverse() : answered)
     .map(r => `### ${r.model}${r.role && r.role !== 'peer' ? ` (${r.role})` : ''}\n${r.text}`).join('\n\n')
   const notes = state.rounds.filter(r => r.round > 1 && r.prompt.trim()).map(r => `Round ${r.round}: ${r.prompt.trim()}`).join('\n')
   const review = isRoleMode(mode)
-  const board = review ? boardForPrompt(buildObjectionBoard(state.rounds)) : ''
+  const items = buildObjectionBoard(state.rounds)
+  const board = review ? boardForPrompt(state.reverse ? items.reverse() : items) : ''
   return [
     `You are the neutral secretary of a debate between two models. Question:\n${state.question}${materialBlock(state.attachments)}`,
     state.outsider ? 'You were not one of the two models: decide on the arguments, not on who wrote them, and do not side with whoever sounded more sure.' : '',
+    'How sure an argument sounds is not evidence: weigh the reasons, the quotes and the material, not the tone. The order the positions are listed in means nothing.',
     notes ? `The owner steered the debate with these notes:\n${notes}` : '',
     mode.conclusionNote ?? '',
     `The final positions (round ${last?.round ?? 1}):\n${positions || '(none)'}`,
     board ? `The objection board (all rounds, newest state of every objection):\n${board}` : '',
     review && board
-      ? 'Write the review report for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no" (yes = no objection is still disputed). Then three short sections: "Changes to make" (the objections that stand, each by its number, with the wording to use), "Objections that fell" (rejected with a sound argument, or given up by the critic: one line each with the reason), "Still disputed" (what is left, and your recommendation). Work only from the board above; do not add objections of your own. Reply in the language of the question.'
+      ? 'Write the review report for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no" (yes = no objection is still disputed). The second line must be exactly "STANDING: K<n>, K<n>" with the numbers of the objections that stand (or "STANDING: none"). Then three short sections: "Changes to make" (the objections that stand, each by its number, with the wording to use), "Objections that fell" (rejected with a sound argument, or given up by the critic: one line each with the reason), "Still disputed" (what is left, and your recommendation). Work only from the board above; do not add objections of your own. Reply in the language of the question.'
       : 'Write the result for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no". Then: what both sides agree on, what they still disagree about, and your recommended answer. Reply in the language of the question.',
   ].filter(Boolean).join('\n\n')
 }
 
-/** Splits the secretary's reply into the consensus flag and the write-up. A missing flag counts as no consensus. */
-export function parseConclusion(text: string): { consensus: boolean; summary: string } {
+/**
+ * Splits the secretary's reply into the consensus flag, the objections that stand (review reports only: the
+ * "STANDING:" line right after the flag) and the write-up. A missing flag counts as no consensus.
+ */
+export function parseConclusion(text: string): { consensus: boolean; summary: string; standing?: string[] } {
   const m = /^\s*CONSENSUS\s*:\s*(yes|no)\b[^\n]*\n?/i.exec(text)
   if (!m) return { consensus: false, summary: text.trim() }
-  return { consensus: m[1].toLowerCase() === 'yes', summary: text.slice(m[0].length).trim() }
+  const rest = text.slice(m[0].length)
+  const st = /^\s*STANDING\s*:([^\n]*)\n?/i.exec(rest)
+  const consensus = m[1].toLowerCase() === 'yes'
+  if (!st) return { consensus, summary: rest.trim() }
+  const standing = [...new Set((st[1].match(/K\s*\d+/gi) ?? []).map(k => k.replace(/\s+/g, '').toUpperCase()))]
+  return { consensus, summary: rest.slice(st[0].length).trim(), standing }
+}
+
+/** What the two readings of a closing (positions in both orders) said, side by side. */
+export interface OrderCheck {
+  /** True when both readings reached the same consensus flag and, for a review, named the same standing objections. */
+  agree: boolean
+  consensus: [boolean, boolean]
+  /** Review reports only: objections that stand in one reading and not in the other. */
+  onlyFirst: string[]
+  onlySecond: string[]
+}
+
+type Reading = { consensus: boolean; standing?: string[] }
+
+/** Compares the two readings. A reading with no STANDING line (a peer debate, or a model that left it out) is only compared on the flag. */
+export function compareReadings(first: Reading, second: Reading): OrderCheck {
+  const a = first.standing
+  const b = second.standing
+  const onlyFirst = a && b ? a.filter(k => !b.includes(k)) : []
+  const onlySecond = a && b ? b.filter(k => !a.includes(k)) : []
+  return {
+    agree: first.consensus === second.consensus && !onlyFirst.length && !onlySecond.length,
+    consensus: [first.consensus, second.consensus],
+    onlyFirst, onlySecond,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -284,10 +328,20 @@ function loadSession(id: string): LoadedSession | null {
     consensus: conclude ? conclude.consensus === true : null,
     summary: conclude ? String(conclude.summary ?? '') : null,
     summaryBy: conclude && typeof conclude.by === 'string' ? conclude.by : null,
+    orderCheck: conclude ? readOrderCheck(conclude.order_check) : null,
     board, boardSummary: board.length ? summarizeBoard(board) : null,
     advice: stopAdvice(mode, rounds),
+    conformity: isRoleMode(mode) ? conformityWarning(rounds) : { suspicious: false },
   }
   return { state, mode }
+}
+
+/** The order check as the conclude line stored it; anything that is not that shape reads as "not checked". */
+function readOrderCheck(v: unknown): OrderCheck | null {
+  const o = v as Partial<OrderCheck> | null
+  if (!o || typeof o !== 'object' || typeof o.agree !== 'boolean' || !Array.isArray(o.consensus) || o.consensus.length !== 2) return null
+  const keys = (x: unknown): string[] => Array.isArray(x) ? x.filter((k): k is string => typeof k === 'string') : []
+  return { agree: o.agree, consensus: [o.consensus[0] === true, o.consensus[1] === true], onlyFirst: keys(o.onlyFirst), onlySecond: keys(o.onlySecond) }
 }
 
 /** Rebuilds a session from the log, or null when it has no rounds. */
@@ -507,7 +561,7 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
     const warnings = familyWarnings([...models, ...(judge ? [judge] : [])])
     return {
       session, round, responses,
-      ...(roleMode ? { board, boardSummary: board.length ? summarizeBoard(board) : null, advice: stopAdvice(mode, rounds) } : {}),
+      ...(roleMode ? { board, boardSummary: board.length ? summarizeBoard(board) : null, advice: stopAdvice(mode, rounds), conformity: conformityWarning(rounds) } : {}),
       ...(warnings.length ? { warnings } : {}),
     }
   } finally {
@@ -515,12 +569,16 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
   }
 }
 
-export interface ConcludeResult { consensus: boolean; summary: string; by?: string }
+export interface ConcludeResult { consensus: boolean; summary: string; by?: string; orderCheck?: OrderCheck }
 
 /**
  * Closes the debate. With a `summary` from the owner it is written as given; without one a model writes the neutral
  * summary of the last round: the `judge` the owner picked (a third model that took no part), else the one the
  * debate was started with, else the first model. Nothing is logged when that call fails, so the debate stays open.
+ *
+ * A model decides differently depending on what it reads first, so it reads the debate TWICE, the positions (and the
+ * objections) in opposite orders. When the two readings disagree the consensus is set to "no" and the owner is told
+ * (`orderCheck`); the first reading is the write-up. A failed second reading only leaves the check out.
  */
 export async function concludeDebate(id: string, owner?: { summary?: string; consensus?: boolean; judge?: string }): Promise<ConcludeResult> {
   const loaded = loadSession(id)
@@ -539,17 +597,26 @@ export async function concludeDebate(id: string, owner?: { summary?: string; con
     running.add(id)
     try {
       const outsider = !state.models.includes(writer)
-      const r = await callModel(writer, SYSTEM_PROMPT, buildConcludePrompt({ ...state, modeDef: mode, outsider }), key)
+      const ask = (reverse: boolean) => callModel(writer, SYSTEM_PROMPT, buildConcludePrompt({ ...state, modeDef: mode, outsider, reverse }), key)
+      const [r, back] = await Promise.all([ask(false), ask(true)])
+      const at = Math.floor(Date.now() / 1000)
+      recordTokenUsage(id, at, r)
+      recordTokenUsage(id, at, back)
       if (!r.ok || !r.text) throw new DebateInputError(`summary_failed:${r.error ?? 'empty'}`)
-      result = { ...parseConclusion(r.text), by: writer }
-      recordTokenUsage(id, Math.floor(Date.now() / 1000), r)
+      const first = parseConclusion(r.text)
+      result = { consensus: first.consensus, summary: first.summary, by: writer }
+      if (back.ok && back.text) {
+        const check = compareReadings(first, parseConclusion(back.text))
+        result.orderCheck = check
+        if (!check.agree) result.consensus = false
+      }
     } finally {
       running.delete(id)
     }
   }
   appendLine({
     ts: Math.floor(Date.now() / 1000), session: id, type: 'conclude', consensus: result.consensus, summary: result.summary,
-    ...(result.by ? { by: result.by } : {}),
+    ...(result.by ? { by: result.by } : {}), ...(result.orderCheck ? { order_check: result.orderCheck } : {}),
   })
   trimLogIfNeeded()
   return result
@@ -634,7 +701,8 @@ export function estimateNextRound(input: EstimateInput, prices: ReadonlyMap<stri
   if (prior) {
     const writer = judge ?? models[0]
     const chars = SYSTEM_PROMPT.length + buildConcludePrompt({ ...prior, modeDef: mode, outsider: !models.includes(writer) }).length
-    conclude = estimateCalls([{ model: writer, chars, seenOut: CONCLUDE_OUT_TOKENS }], prices)
+    // Two readings (positions in both orders), the same size each.
+    conclude = estimateCalls([1, 2].map(() => ({ model: writer, chars, seenOut: CONCLUDE_OUT_TOKENS })), prices)
   }
   return { round, next, conclude }
 }

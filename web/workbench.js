@@ -15283,7 +15283,7 @@
     if (!WB.db) {
       WB.db = { models: null, mode: 'peer', strength: '', swap: null, judge: '', a: '', b: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
         busy: '', error: '', summary: null, consensus: null, concluded: false, past: null, pastOpen: false, loadingState: false,
-        modeName: null, maxRounds: null, summaryBy: null, board: [], boardSummary: null, advice: null, warnings: [], est: null, view: 'debate', ed: null, ap: null }
+        modeName: null, maxRounds: null, summaryBy: null, board: [], boardSummary: null, advice: null, conformity: null, orderCheck: null, warnings: [], est: null, view: 'debate', ed: null, ap: null }
     }
     return WB.db
   }
@@ -15385,6 +15385,7 @@
       st.strength = d.strength || ''; st.swap = !!d.swapRoles; st.judge = d.judge || ''; st.modeName = d.modeName || null
       st.maxRounds = d.maxRounds || null; st.summaryBy = d.summaryBy || null
       st.board = d.board || []; st.boardSummary = d.boardSummary || null; st.advice = d.advice || null; st.warnings = []
+      st.conformity = d.conformity || null; st.orderCheck = d.orderCheck || null
       st.ap = null; st.est = null; st.view = 'debate'
       st.steer = ''
       render()
@@ -15450,6 +15451,7 @@
       st.session = d.session
       st.rounds.push({ round: d.round, prompt: d.round === 1 ? st.q : (steer || ''), responses: d.responses })
       st.board = d.board || []; st.boardSummary = d.boardSummary || null; st.advice = d.advice || null; st.warnings = d.warnings || []
+      st.conformity = d.conformity || null
       if (d.round === 1) { st.maxRounds = dbModeMeta(st.mode).max_rounds || null; st.modeName = dbModeMeta(st.mode).builtin ? null : (dbModeMeta(st.mode).name || null) }
       st.steer = ''
       st.past = null
@@ -15469,7 +15471,7 @@
       var st = dbState()
       st.busy = ''
       if (!r.ok) { st.error = r.message; render(); return }
-      st.concluded = true; st.summary = r.data.summary; st.consensus = r.data.consensus; st.summaryBy = r.data.by || null
+      st.concluded = true; st.summary = r.data.summary; st.consensus = r.data.consensus; st.summaryBy = r.data.by || null; st.orderCheck = r.data.orderCheck || null
       st.est = null
       st.past = null
       render()
@@ -15634,12 +15636,32 @@
 
   function dbRoundsLeft(s) { return s.maxRounds ? s.maxRounds - s.rounds.length : null }
 
-  /** The advice: another round is worth it or not. It only advises -- except the mode's round limit, which blocks. */
+  /**
+   * The advice: another round is worth it or not. It only advises -- except the mode's round limit, which blocks.
+   * A suspicious agreement (the defender accepted everything without a reason) is shown instead of "all settled":
+   * the two would contradict each other.
+   */
   function dbAdviceHtml(s) {
+    var out = ''
+    var c = s.conformity
+    var doubt = !!(c && c.suspicious)
+    if (doubt) out += '<p class="wb-db-warn" role="status">⚠️ ' + esc(t('workbench.db.conformity', { round: c.round, count: c.count })) + '</p>'
     var a = s.advice
-    if (!a || !a.stop) return ''
+    if (!a || !a.stop || (doubt && a.reason === 'all_settled')) return out
     var txt = dbTOr('workbench.db.advice.' + a.reason, '')
-    return txt ? '<p class="wb-db-advice" role="status">💡 ' + esc(txt.replace('{n}', s.maxRounds || '')) + '</p>' : ''
+    return out + (txt ? '<p class="wb-db-advice" role="status">💡 ' + esc(txt.replace('{n}', s.maxRounds || '')) + '</p>' : '')
+  }
+
+  /** What the two readings of the closing said: a quiet line when they agree, a warning with the differences when not. */
+  function dbOrderCheckHtml(s) {
+    var o = s.orderCheck
+    if (!o) return ''
+    if (o.agree) return '<p class="wb-muted">' + esc(t('workbench.db.order.agree')) + '</p>'
+    var parts = [t('workbench.db.order.differs')]
+    if (o.consensus && o.consensus[0] !== o.consensus[1]) parts.push(t('workbench.db.order.consensus'))
+    var only = (o.onlyFirst || []).concat(o.onlySecond || [])
+    if (only.length) parts.push(t('workbench.db.order.standing', { list: only.join(', ') }))
+    return '<p class="wb-db-warn" role="status">⚠️ ' + esc(parts.join(' ')) + '</p>'
   }
 
   function dbModeFacts(s) {
@@ -15776,6 +15798,7 @@
       out += '<section class="wb-db-result"><h3>' + esc(t('workbench.db.result_title')) + ' <span class="wb-db-badge wb-db-badge-' + (s.consensus ? 'yes' : 'no') + '">'
         + esc(t(s.consensus ? 'workbench.db.consensus_yes' : 'workbench.db.consensus_no')) + '</span></h3>'
         + (s.summaryBy ? '<p class="wb-muted">' + esc(t('workbench.db.written_by', { model: dbModelShort(s.summaryBy) })) + '</p>' : '')
+        + dbOrderCheckHtml(s)
         + '<div class="wb-db-text">' + dbTextHtml(s.summary) + '</div>'
         + '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-copy-result">' + esc(t('workbench.db.copy_result')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="db-copy-all">' + esc(t('workbench.db.copy_all')) + '</button>'
