@@ -144,7 +144,7 @@ import {
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
-  deleteWorkFolder,
+  deleteWorkFolder, findWorkItemsBox,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
   folderNameFromTitle,
 } from '../../workbench-assets.js'
@@ -171,6 +171,11 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   pmount_not_found: { hu: 'Ez a mappa nincs meg az Életfában. Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree. Choose another one, or refresh the page.' },
   pmount_exists: { hu: 'Ebben a projektben már van ilyen nevű mappa vagy csatolás. Nevezd át azt, vagy válassz másik mappát.', en: 'This project already has a folder or attachment with that name. Rename it, or choose another folder.' },
   pmount_nested: { hu: 'Ezt a mappát nem lehet a projektbe csatolni: a projekt saját mappája, vagy már annak a része. Válassz egy másik mappát.', en: 'This folder cannot be attached to the project: it is the project\'s own folder or already part of it. Choose another folder.' },
+  plink_not_found: { hu: 'Ez a fájl nincs meg az Életfában. Válassz másikat, vagy frissítsd az oldalt.', en: 'This file is not in the Life tree. Choose another one, or refresh the page.' },
+  plink_folder_gone: { hu: 'Ez a mappa a projektben már nincs meg. Frissítsd az oldalt, és válassz másikat.', en: 'This folder is no longer in the project. Refresh the page and choose another one.' },
+  plink_exists: { hu: 'Ebben a mappában már van ilyen nevű fájl vagy csatolás. Nevezd át azt, vagy válassz másik fájlt.', en: 'This folder already has a file or attachment with that name. Rename it, or choose another file.' },
+  plink_box: { hu: 'A munkadarabok mappájába nem lehet fájlt belinkelni, mert ott a munkadarabok vannak. Válassz egy másik mappát.', en: 'A file cannot be linked into the work items folder, because the work items live there. Choose another folder.' },
+  plink_failed: { hu: 'A fájlt nem sikerült belinkelni.', en: 'The file could not be linked.' },
   pmount_failed: { hu: 'A mappát nem sikerült csatolni.', en: 'The folder could not be attached.' },
   pplace_not_found: { hu: 'Ez a mappa nincs meg az Életfában (vagy már nincs a projekt helyei között). Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree (or is no longer among the project\'s places). Choose another one, or refresh the page.' },
   pplace_duplicate: { hu: 'Ez a hely már hozzá van kapcsolva a projekthez.', en: 'This place is already linked to the project.' },
@@ -2390,6 +2395,37 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = addMount({ rel, target, kind: 'local', label: target })
     if (!r.ok) return fail(res, 400, r.code === 'nested' || r.code === 'same' ? 'pmount_nested' : 'pmount_failed', lang)
     json(res, { ok: true, rel, name }, 201)
+    return true
+  }
+
+  // #601: ONE file of the Life tree linked into a folder of the project (not the whole folder): nothing is copied, the file
+  // shows in that folder with a link sign and stays where it is. Taking the link off (delete) never touches the original.
+  if (path === '/api/workbench/project-file-link' && method === 'POST') {
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    const pid = String(typeof body['project'] === 'string' ? body['project'] : '').trim()
+    const target = String(typeof body['rel'] === 'string' ? body['rel'] : '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const folder = String(typeof body['folder'] === 'string' ? body['folder'] : '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (!String(project.folder_path || '').trim()) return fail(res, 400, 'pmount_no_folder', lang)
+    const abs = target && !target.split('/').includes('..') ? resolveLifePath(target) : null
+    let isFile = false
+    if (abs) { try { isFile = statSync(abs).isFile() } catch { isFile = false } }
+    if (!isFile) return fail(res, 404, 'plink_not_found', lang)
+    const where = projectFileTarget(project, folder)
+    if (!where.ok) return fail(res, 404, 'plink_folder_gone', lang)
+    const box = findWorkItemsBox(project)
+    if (box && folder && (folder === box || folder.startsWith(box + '/'))) return fail(res, 400, 'plink_box', lang)
+    const name = safeLifeName(target.slice(target.lastIndexOf('/') + 1)) || 'Fajl'
+    const rel = where.dirRel.replace(/\/+$/, '') + '/' + name
+    const abs2 = resolveLifePath(rel)
+    if (listMounts().some((m) => m.rel === rel) || (abs2 && existsSync(abs2))) return fail(res, 409, 'plink_exists', lang)
+    const r = addMount({ rel, target, kind: 'local', label: target, file: true })
+    if (!r.ok) return fail(res, 400, 'plink_failed', lang)
+    json(res, { ok: true, rel, name, work_folders: listWorkFolders(project) }, 201)
     return true
   }
 
