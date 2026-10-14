@@ -3,7 +3,7 @@
 //
 //   GET  /api/debate/models                    the models to pick from (DEBATE_MODELS + the OpenRouter catalog)
 //   POST /api/debate/attachment                {rel} | {item} | {name, data_base64} -> the file's text
-//   POST /api/debate/run                       one round (the first, or the next of {session})
+//   POST /api/debate/run                       one round (the first, or the next of {session}); {mode} picks the debate mode
 //   GET  /api/debate/sessions/:id/state        what the Workbench panel needs to resume a debate
 //   POST /api/debate/sessions/:id/conclude     close it (a model writes the summary unless the owner gives one)
 
@@ -26,6 +26,7 @@ import {
   DebateKeyMissingError, DebateBusyError, DebateInputError,
   MAX_ATTACHMENT_CHARS,
 } from '../../debate-run.js'
+import { listModeIds, BUILTIN_MODES, DEFAULT_MODE_ID } from '../../debate-modes.js'
 
 function lang(url: URL): string {
   const v = url.searchParams.get('lang')
@@ -74,6 +75,7 @@ function errorFor(res: RouteContext['res'], l: string, err: unknown): true {
     const msg: Record<string, [string, string]> = {
       session_not_found: ['Ez a vita nem található.', 'This debate was not found.'],
       session_concluded: ['Ez a vita már le van zárva.', 'This debate is already closed.'],
+      mode_unknown: ['Ez a vitáztatási mód nem létezik.', 'This debate mode does not exist.'],
       question_missing: ['Írd be a kérdést vagy a feladatot.', 'Type the question or the task.'],
       two_models_required: ['Válassz ki két különböző modellt.', 'Pick two different models.'],
       summary_failed: [`Az összefoglalót nem sikerült megírni (${detail}). A vita nyitva maradt, próbáld újra.`, `The summary could not be written (${detail}). The debate stays open, try again.`],
@@ -103,7 +105,10 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
         logger.warn({ err: String((err as Error)?.message || err) }, '[debate] model catalog fetch failed')
       }
     }
-    json(res, { defaults, catalog, has_key: hasKey, catalog_error: catalogError })
+    json(res, {
+      defaults, catalog, has_key: hasKey, catalog_error: catalogError,
+      modes: listModeIds().map(id => ({ id, builtin: true, roles: BUILTIN_MODES[id].roles })), default_mode: DEFAULT_MODE_ID,
+    })
     return true
   }
 
@@ -145,7 +150,7 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/debate/run' && method === 'POST') {
-    let body: { session?: string; project?: string; question?: string; models?: string[]; attachments?: unknown; steer?: string }
+    let body: { session?: string; project?: string; question?: string; models?: string[]; attachments?: unknown; steer?: string; mode?: string }
     try { body = JSON.parse((await readBody(req)).toString()) } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
     const project = body.project ? getProject(String(body.project))?.id ?? null : null
     try {

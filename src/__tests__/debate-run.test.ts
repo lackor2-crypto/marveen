@@ -228,6 +228,117 @@ describe('lezaras', () => {
   })
 })
 
+describe('Kotekedo-vedo mod (#597)', () => {
+  const OBJ = 'K1 [accuracy]\nQUOTE: "30 nap"\nOBJECTION: 15 nap a helyes.'
+  const REPLY = 'K1: ACCEPT\nREASON: igaz\nREWRITE: 15 nap'
+
+  it('az alap az Egyenrangu: a context sor mode=peer, a round sorokon nincs szerep, a hivasok egyszerre mennek', async () => {
+    const out = await runDebateRound({ question: 'q', models: [A, B] })
+    const lines = logLines()
+    expect(lines[0]).toMatchObject({ type: 'context', mode: 'peer' })
+    expect(lines.filter(l => l.type === 'round').every(l => !('role' in l))).toBe(true)
+    expect(loadDebateSession(out.session)!.mode).toBe('peer')
+    expect(sent.every(s => s.system.includes('two-model debate'))).toBe(true)
+  })
+
+  it('ismeretlen mod: hibaval megall, semmi nem keletkezik a naplon', async () => {
+    await expect(runDebateRound({ question: 'q', models: [A, B], mode: 'nincs-ilyen' })).rejects.toMatchObject({ code: 'mode_unknown' })
+    expect(logLines()).toEqual([])
+    expect(sent).toHaveLength(0)
+  })
+
+  it('az 1. kor: a kotekedo kap elsonek, a vedo a kotekedo ugyanazon kori kifogasait; szerep a naploban, feldolgozott kifogas a valaszban', async () => {
+    replies = { [A]: [OBJ], [B]: [REPLY] }
+    const out = await runDebateRound({ question: 'Jo a level?', models: [A, B], mode: 'critic' })
+    expect(sent.map(s => s.model)).toEqual([A, B])
+    expect(sent[0].system).toContain('CRITIC')
+    expect(sent[1].system).toContain('DEFENDER')
+    expect(sent[1].user).toContain(OBJ)
+    expect(out.responses[0]).toMatchObject({ role: 'critic', objections: [{ id: 'K1', kind: 'accuracy', quote: '30 nap' }] })
+    expect(out.responses[1]).toMatchObject({ role: 'defender', replies: [{ id: 'K1', verdict: 'accept', rewrite: '15 nap' }] })
+    const lines = logLines()
+    expect(lines[0]).toMatchObject({ type: 'context', mode: 'critic' })
+    expect(lines.filter(l => l.type === 'round').map(l => l.role)).toEqual(['critic', 'defender'])
+    // a feldolgozott resz NEM kerul a naplora (csak a nyers szoveg), betoltesnel ujra szamolodik
+    expect(lines.filter(l => l.type === 'round').every(l => !('objections' in l) && !('replies' in l))).toBe(true)
+    const st = loadDebateSession(out.session)!
+    expect(st.mode).toBe('critic')
+    expect(st.rounds[0].responses[0].objections).toHaveLength(1)
+    expect(st.rounds[0].responses[1].replies).toHaveLength(1)
+  })
+
+  it('a kovetkezo kor ugyanazt a modot folytatja, a mod nem kell ujra; a kotekedo latja a sajat kifogasait es a vedo valaszat', async () => {
+    replies = { [A]: [OBJ], [B]: [REPLY] }
+    const first = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    sent = []
+    await runDebateRound({ session: first.session, steer: 'a hatarido fele' })
+    expect(sent.map(s => s.model)).toEqual([A, B])
+    expect(sent[0].user).toContain(`Your objections in the previous round:\n${OBJ}`)
+    expect(sent[0].user).toContain(`The defender's answers in the previous round:\n${REPLY}`)
+    expect(sent[0].user).toContain('a hatarido fele')
+    expect(sent[1].user).toContain(`Your answers in the previous round:\n${REPLY}`)
+    // a masodik kor mod-valasztasa nem irhatja felul a vita modjat
+    sent = []
+    await runDebateRound({ session: first.session, mode: 'peer' })
+    expect(sent[0].system).toContain('CRITIC')
+  })
+
+  it('ha a kotekedo nem talal kifogast, a vedot nem hivja (nincs mire valaszolni); a kor igy is mentodik', async () => {
+    replies = { [A]: ['NO OBJECTIONS\nMinden adatot ellenoriztem.'] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(sent.map(s => s.model)).toEqual([A])
+    expect(out.responses).toHaveLength(1)
+    expect(out.responses[0]).toMatchObject({ role: 'critic', noObjections: true })
+    expect(logLines().filter(l => l.type === 'round')).toHaveLength(1)
+    // a kovetkezo kor a vedonek nincs elozo valasza -- ez nem hiba
+    sent = []
+    replies = {}
+    await runDebateRound({ session: out.session })
+    expect(sent.find(s => s.model === B)!.user).toContain('(you gave no answer in the previous round)')
+  })
+
+  it('ha a kotekedo hibazik, a vedot nem hivja, a kor nincs naplozva', async () => {
+    replies = { [A]: [{ status: 500, error: 'down' }] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(sent.map(s => s.model)).toEqual([A])
+    expect(out.responses.every(r => !r.ok)).toBe(true)
+    expect(logLines()).toEqual([])
+  })
+
+  it('ha a vedo hibazik, a kotekedo kifogasai megmaradnak, a hiba a naploban is ott van', async () => {
+    replies = { [A]: [OBJ], [B]: [{ status: 429, error: 'rate limited' }] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(out.responses[1]).toMatchObject({ ok: false, error: 'rate limited' })
+    expect(logLines().filter(l => l.type === 'round').map(l => l.ok)).toEqual([true, false])
+  })
+
+  it('rosszul formazott valasz nem dob hibat: a nyers szoveg megmarad, feldolgozott resz nelkul', async () => {
+    replies = { [A]: ['Szerintem a hatarido pontatlan.'], [B]: ['Igazad van.'] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    expect(out.responses.map(r => r.ok)).toEqual([true, true])
+    expect(out.responses[0].objections).toBeUndefined()
+    expect(out.responses[1].replies).toBeUndefined()
+    expect(out.responses[0].text).toBe('Szerintem a hatarido pontatlan.')
+  })
+
+  it('a lezaras-prompt megjeloli a szerepeket, es kimondja, hogy ez atnezes volt', async () => {
+    replies = { [A]: [OBJ], [B]: [REPLY] }
+    const out = await runDebateRound({ question: 'q', models: [A, B], mode: 'critic' })
+    sent = []
+    replies = { [A]: ['CONSENSUS: no\nvitas marad'] }
+    await concludeDebate(out.session)
+    expect(sent[0].user).toContain(`### ${A} (critic)`)
+    expect(sent[0].user).toContain(`### ${B} (defender)`)
+    expect(sent[0].user).toContain('This debate was a review')
+  })
+
+  it('az Egyenrangu vita lezaras-promptja valtozatlan: nincs szerep-jeloles', () => {
+    const p = buildConcludePrompt({ question: 'q', attachments: [], rounds: [{ round: 1, prompt: 'q', responses: [{ model: A, ok: true, text: 'x' }] }] })
+    expect(p).toContain(`### ${A}\nx`)
+    expect(p).not.toContain('This debate was a review')
+  })
+})
+
 describe('egy hibas sor a naploban nem vakitja meg a vitat', () => {
   it('a serult sor kimarad, a tobbi betoltodik', async () => {
     const out = await runDebateRound({ question: 'q', models: [A, B] })
