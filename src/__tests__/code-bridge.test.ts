@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   initDatabase, getDb, createApproval, createKanbanCard,
-  createOrResetApprovalVerification, resolveApprovalVerification,
+  createOrResetApprovalVerification, resolveApprovalVerification, moveKanbanCard,
 } from '../db.js'
 import {
   resetCodeBridgeTablesForTests,
@@ -20,12 +20,14 @@ import {
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
   recordCodeTaskDispatchWorkspace, codeTaskQueueAhead, recordCodeWorkerSeen,
   LEASE_MS, MAX_ATTEMPTS, PROMPT_MAX_CHARS, ORPHAN_GRACE_MS,
+  openTopicCardForProject, markTopicPending,
 } from '../web/code-bridge-store.js'
+import { parseTopicVerdict } from '../web/code-topic-classifier.js'
 import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
 import { PROJECT_ROOT } from '../config.js'
 import { Readable } from 'node:stream'
 import type http from 'node:http'
-import { queueNote, parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand, replyForInbound } from '../web/code-bridge-telegram.js'
+import { queueNote, parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand, replyForInbound, routeByTopic } from '../web/code-bridge-telegram.js'
 import { buildCompletionMessage, shortId } from '../web/code-bridge-notify.js'
 import { ol } from '../owner-lang.js'
 
@@ -477,6 +479,64 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
       enqueueCodeTask({ project: 'marvin', prompt: 'valami mas', origin: 'api' })
       const c = claimNextCodeTask('w')!
       expect(c.startFresh).toBe(true)
+    })
+
+    // Boss TG 3278 (C): the AI classifies the message first.
+    async function pendingTask(): Promise<{ id: string; card: NonNullable<ReturnType<typeof openTopicCardForProject>> }> {
+      priorRun('in_progress')
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'masik dolog', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      const card = openTopicCardForProject('marvin', id)!
+      markTopicPending(id)
+      return { id, card }
+    }
+
+    it('pending: a claim kihagyja, amig az osztalyozo nem dontott', async () => {
+      await pendingTask()
+      expect(claimNextCodeTask('w')).toBe(null)
+    })
+
+    it('related: a nyitott kartya chatjeben folytatodik', async () => {
+      const { id, card } = await pendingTask()
+      const v = await routeByTopic(id, 'folytasd', 'c1', card, async () => 'related', async () => {})
+      expect(v).toBe('related')
+      const c = claimNextCodeTask('w')!
+      expect(c.cardRef).toBe('cafe1234')
+      expect(c.startFresh).toBe(false)
+      expect(c.sessionId).toBe(MARVIN.sessionId)
+    })
+
+    it('osztalyozo hiba: biztonsagos alapertek, related', async () => {
+      const { id, card } = await pendingTask()
+      const v = await routeByTopic(id, 'x', 'c1', card, async () => { throw new Error('boom') }, async () => {})
+      expect(v).toBe('related')
+      expect(claimNextCodeTask('w')!.cardRef).toBe('cafe1234')
+    })
+
+    it('unrelated: held es Bossnak szol; a kartya kesz utan friss chatben indul', async () => {
+      const { id, card } = await pendingTask()
+      const sent: string[] = []
+      await routeByTopic(id, 'masik dolog', 'c1', card, async () => 'unrelated', async (_c, t) => { sent.push(t) })
+      expect(sent.length).toBe(1)
+      expect(claimNextCodeTask('w')).toBe(null)
+      moveKanbanCard('cafe1234', 'waiting', 0)
+      const c = claimNextCodeTask('w')!
+      expect(c.id).toBe(id)
+      expect(c.cardRef).toBe(null)
+      expect(c.startFresh).toBe(true)
+    })
+
+    it('elakadt pending: 5 perc utan a regi viselkedes (folytatas)', async () => {
+      await pendingTask()
+      const c = claimNextCodeTask('w', Date.now() + 6 * 60 * 1000)!
+      expect(c.cardRef).toBe('cafe1234')
+    })
+
+    it('az osztalyozo valasz-parsere tolerans, de szigoru', () => {
+      expect(parseTopicVerdict('{"related":true}')).toBe('related')
+      expect(parseTopicVerdict('```json\n{"related": false}\n```')).toBe('unrelated')
+      expect(parseTopicVerdict('talan')).toBe(null)
+      expect(parseTopicVerdict(null)).toBe(null)
     })
   })
 
