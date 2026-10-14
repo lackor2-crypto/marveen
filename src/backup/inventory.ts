@@ -85,6 +85,8 @@ const STORE_SETTINGS = [
   'workbench-court-profiles.json',
   // A rajz sajat platformmeret-listaja (#441, K-2.8).
   'workbench-canvas-platforms.json',
+  // #597: the debate modes the owner made in the mode editor.
+  'debate-modes.json',
 ] as const
 const STORE_SETTINGS_DIRS = ['folder-icons'] as const
 const STORE_DEPOT_CONFIG = [

@@ -8,10 +8,18 @@
 //   critic  -- model 1 attacks a finished text with numbered, quoted objections (K1, K2, ...); model 2 answers every
 //              objection (accept / partly / reject) and proposes a new wording where it yields.
 //
+// Phase 3 adds modes the owner makes in the mode editor (`StoredMode`, kept in store/debate-modes.json by
+// debate-mode-store.ts): a custom mode is one of the two shapes above with its own texts and settings, so the
+// runner never has to know whether a mode is built in or not.
+//
 // Everything here is pure (no I/O) so it is unit-tested without a model. The objection / reply parsers are
 // forgiving on purpose: a model that formats badly must never break the debate, the caller falls back to the text.
 
 export type DebateRoleId = 'peer' | 'critic' | 'defender'
+
+export type Strength = 'mild' | 'medium' | 'hard'
+export const STRENGTHS: readonly Strength[] = ['mild', 'medium', 'hard']
+export const DEFAULT_STRENGTH: Strength = 'medium'
 
 export interface DebateModeDef {
   id: string
@@ -19,10 +27,24 @@ export interface DebateModeDef {
   roles: [DebateRoleId, DebateRoleId]
   /** The second model answers AFTER the first and sees its answer of the same round (critic -> defender). */
   sequential: boolean
-  /** What each role is told (system prompt). A role without an entry gets the original debate prompt. */
+  /**
+   * What each role is told (system prompt). In a role mode (critic / defender) a role without an entry gets the
+   * original debate prompt. For the peer role the text is an EXTRA sentence added to the original debate prompt.
+   */
   instructions: Partial<Record<DebateRoleId, string>>
   /** Extra sentence for the closing write-up of this mode. */
   conclusionNote?: string
+  /** Built in (in code) or made by the owner. */
+  builtin?: boolean
+  /** Owner-made modes carry their own name and explanation; the built-in ones have them in the page's language files. */
+  name?: string
+  description?: string
+  /** How hard the critic pushes (the default of the mode; the owner can change it per debate). */
+  strength?: Strength
+  /** The two models change roles in every even round (the default of the mode; changeable per debate). */
+  swapRoles?: boolean
+  /** The most rounds one debate of this mode may have. Unset = no limit. */
+  maxRounds?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -58,57 +80,132 @@ const DEFENDER_INSTRUCTIONS = [
   COMMON,
 ].join('\n')
 
+const STRENGTH_NOTES: Record<Strength, string> = {
+  mild: 'Strength: MILD. Object only to factual or logical errors and to legal or formal defects that could really hurt the owner. Leave style and taste alone.',
+  medium: 'Strength: MEDIUM. Object to errors and defects as above, and also to material gaps and risks: something missing that a careful reader would expect.',
+  hard: 'Strength: HARD. Object to everything doubtful, also to every imprecise or ambiguous wording that could be read in two ways. The rules stay the same: every objection quotes the text, and if there truly is nothing to object to, say NO OBJECTIONS: never invent one.',
+}
+
+export function strengthNote(strength: Strength): string {
+  return STRENGTH_NOTES[strength] ?? STRENGTH_NOTES[DEFAULT_STRENGTH]
+}
+
+export function isStrength(v: unknown): v is Strength {
+  return typeof v === 'string' && (STRENGTHS as readonly string[]).includes(v)
+}
+
+const CRITIC_CONCLUSION_NOTE = 'This debate was a review: the first model was the critic (numbered objections), the second the defender. List the objections that stand, the ones the defender rightly rejected, and the rewrites worth taking over. Say honestly where they did not agree.'
+
 export const DEFAULT_MODE_ID = 'peer'
+export const DEFAULT_CRITIC_MAX_ROUNDS = 6
 
 export const BUILTIN_MODES: Record<string, DebateModeDef> = {
-  peer: { id: 'peer', roles: ['peer', 'peer'], sequential: false, instructions: {} },
+  peer: { id: 'peer', roles: ['peer', 'peer'], sequential: false, instructions: {}, builtin: true },
   critic: {
     id: 'critic',
     roles: ['critic', 'defender'],
     sequential: true,
     instructions: { critic: CRITIC_INSTRUCTIONS, defender: DEFENDER_INSTRUCTIONS },
-    conclusionNote: 'This debate was a review: the first model was the critic (numbered objections), the second the defender. List the objections that stand, the ones the defender rightly rejected, and the rewrites worth taking over. Say honestly where they did not agree.',
+    conclusionNote: CRITIC_CONCLUSION_NOTE,
+    builtin: true,
+    strength: DEFAULT_STRENGTH,
+    swapRoles: false,
+    maxRounds: DEFAULT_CRITIC_MAX_ROUNDS,
   },
 }
+
+/** The texts the mode editor offers as "restore the default" for a critic / defender mode. */
+export const DEFAULT_TEXTS = { critic: CRITIC_INSTRUCTIONS, defender: DEFENDER_INSTRUCTIONS, conclusionNote: CRITIC_CONCLUSION_NOTE } as const
 
 export function listModeIds(): string[] {
   return Object.keys(BUILTIN_MODES)
 }
 
-/** The mode for an id, or null when there is no such mode. A missing id (an old debate, an old client) is the default mode. */
-export function findMode(id: unknown): DebateModeDef | null {
+/**
+ * The mode for an id, or null when there is no such mode. A missing id (an old debate, an old client) is the default
+ * mode. `custom` is the owner-made modes (debate-mode-store.ts); a built-in id always wins over a custom one.
+ */
+export function findMode(id: unknown, custom: readonly DebateModeDef[] = []): DebateModeDef | null {
   if (id === undefined || id === null || id === '') return BUILTIN_MODES[DEFAULT_MODE_ID]
-  return Object.prototype.hasOwnProperty.call(BUILTIN_MODES, String(id)) ? BUILTIN_MODES[String(id)] : null
+  if (Object.prototype.hasOwnProperty.call(BUILTIN_MODES, String(id))) return BUILTIN_MODES[String(id)]
+  return custom.find(m => m.id === String(id)) ?? null
 }
 
 /** Like findMode, but an unknown id (a log line from a newer / removed mode) reads as the default mode. */
-export function resolveMode(id: unknown): DebateModeDef {
-  return findMode(id) ?? BUILTIN_MODES[DEFAULT_MODE_ID]
+export function resolveMode(id: unknown, custom: readonly DebateModeDef[] = []): DebateModeDef {
+  return findMode(id, custom) ?? BUILTIN_MODES[DEFAULT_MODE_ID]
 }
 
-/** True when the roles carry their own instructions; the default peer mode keeps the original debate prompts. */
-export function hasRoleInstructions(mode: DebateModeDef): boolean {
-  return mode.roles.some(r => !!mode.instructions[r])
+/** True for the modes whose models play different roles (critic / defender); the peer mode keeps the original debate prompts. */
+export function isRoleMode(mode: DebateModeDef): boolean {
+  return mode.roles[0] !== 'peer'
+}
+
+/** The roles the first and the second model play in this round: swapped in every even round when the debate swaps. */
+export function rolesForRound(mode: DebateModeDef, round: number, swap: boolean): [DebateRoleId, DebateRoleId] {
+  return swap && isRoleMode(mode) && round > 1 && round % 2 === 0 ? [mode.roles[1], mode.roles[0]] : [mode.roles[0], mode.roles[1]]
+}
+
+/** The effective settings of one debate: what the owner chose for it, else the mode's own, else the default. */
+export function effectiveStrength(mode: DebateModeDef, chosen?: unknown): Strength {
+  return isStrength(chosen) ? chosen : (mode.strength ?? DEFAULT_STRENGTH)
+}
+export function effectiveSwap(mode: DebateModeDef, chosen?: unknown): boolean {
+  return isRoleMode(mode) && (typeof chosen === 'boolean' ? chosen : mode.swapRoles === true)
+}
+
+// ---------------------------------------------------------------------------
+// Model families (the "two models from one family" warning)
+// ---------------------------------------------------------------------------
+
+/** The maker of a model id: "openai/gpt-5.5:online" -> "openai". An id without a slash is its own family. */
+export function modelFamily(spec: string): string {
+  const id = String(spec ?? '').trim().toLowerCase()
+  const head = id.includes('/') ? id.slice(0, id.indexOf('/')) : id.replace(/:.*$/, '')
+  return head.replace(/[^a-z0-9]/g, '')
+}
+
+export interface FamilyWarning { a: string; b: string; family: string }
+
+/** Every pair of the given models that comes from the same maker. Empty entries and the same model twice are not pairs here. */
+export function familyWarnings(models: readonly string[]): FamilyWarning[] {
+  const list = models.map(m => String(m ?? '').trim()).filter(Boolean)
+  const out: FamilyWarning[] = []
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const fam = modelFamily(list[i])
+      if (fam && fam === modelFamily(list[j])) out.push({ a: list[i], b: list[j], family: fam })
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
 
-export function modeSystemPrompt(mode: DebateModeDef, role: DebateRoleId): string | null {
-  return mode.instructions[role] ?? null
+/** The system prompt of a role in a role mode; the critic's gets the strength sentence. Null = the original debate prompt. */
+export function modeSystemPrompt(mode: DebateModeDef, role: DebateRoleId, strength?: Strength): string | null {
+  if (role === 'peer') return null
+  const base = mode.instructions[role]
+  if (!base) return null
+  return role === 'critic' ? `${base}\n${strengthNote(strength ?? mode.strength ?? DEFAULT_STRENGTH)}` : base
 }
 
 export interface ModePromptInput {
   /** The question and the supporting material, already rendered (same block the original prompt starts with). */
   head: string
   round: number
-  /** This model's own answer in the previous round, and the other model's answer in the previous round. */
-  ownPrev: string | null
-  otherPrev: string | null
-  /** The other model's answer in THIS round (set for the second model of a sequential mode). */
-  otherNow: string | null
+  /** What the critic wrote in the previous round, and what the defender wrote: by ROLE, not by model (the roles can swap). */
+  criticPrev: string | null
+  defenderPrev: string | null
+  /** The critic's text of THIS round (set for the defender). */
+  criticNow: string | null
   steer: string
+  /** The roles changed hands since the previous round: the model has just taken over the other side. */
+  swapped?: boolean
+  /** The highest objection number used so far, so new objections do not reuse a number. */
+  usedUpTo?: number
 }
 
 /** The user message one role gets for one round of a role-based mode. */
@@ -117,21 +214,30 @@ export function buildModeRoundPrompt(role: DebateRoleId, a: ModePromptInput): st
   const steerBlock = steer ? `The owner's note for this round (follow it):\n${steer}` : ''
   if (role === 'critic') {
     if (a.round <= 1) return [a.head, 'Round 1: review the text and write your numbered objections.'].filter(Boolean).join('\n\n')
+    const next = `K${(a.usedUpTo ?? 0) + 1}`
     return [
       a.head,
       `Round ${a.round}.`,
-      `Your objections in the previous round:\n${a.ownPrev ?? '(you wrote no objections in the previous round)'}`,
-      `The defender's answers in the previous round:\n${a.otherPrev ?? '(the defender gave no answer in the previous round)'}`,
+      a.swapped ? 'The roles are swapped in this round: before, you answered the objections as the defender; now you are the critic. Review the text again, and judge the earlier answers critically too: an objection that was given up too easily, or an answer that does not hold, may still stand.' : '',
+      a.swapped
+        ? `The objections in the previous round (written by the other model):\n${a.criticPrev ?? '(no objections were written in the previous round)'}`
+        : `Your objections in the previous round:\n${a.criticPrev ?? '(you wrote no objections in the previous round)'}`,
+      a.swapped
+        ? `Your answers in the previous round:\n${a.defenderPrev ?? '(you gave no answer in the previous round)'}`
+        : `The defender's answers in the previous round:\n${a.defenderPrev ?? '(the defender gave no answer in the previous round)'}`,
       steerBlock,
-      'Now write your objections for this round. Restate by number (K<n>) only the ones the defender\'s answer did not settle, and say why. Drop the ones you accept as settled. Add new ones with new numbers. If nothing is left, reply NO OBJECTIONS.',
+      `Now write your objections for this round. Restate by number (K<n>) only the ones the answers did not settle, and say why. Drop the ones you accept as settled. Add new ones with new numbers, starting at ${next}. If nothing is left, reply NO OBJECTIONS.`,
     ].filter(Boolean).join('\n\n')
   }
   if (role === 'defender') {
     return [
       a.head,
       a.round > 1 ? `Round ${a.round}.` : '',
-      a.round > 1 ? `Your answers in the previous round:\n${a.ownPrev ?? '(you gave no answer in the previous round)'}` : '',
-      `The critic's objections${a.round > 1 ? ` in round ${a.round}` : ''}:\n${a.otherNow ?? '(the critic gave no objections)'}`,
+      a.round > 1 && a.swapped ? 'The roles are swapped in this round: before, you wrote the objections as the critic; now you defend the text. Answer the objections on their merits, not in defence of your own earlier ones.' : '',
+      a.round > 1 ? (a.swapped
+        ? `The answers in the previous round (written by the other model):\n${a.defenderPrev ?? '(no answer was given in the previous round)'}`
+        : `Your answers in the previous round:\n${a.defenderPrev ?? '(you gave no answer in the previous round)'}`) : '',
+      `The critic's objections${a.round > 1 ? ` in round ${a.round}` : ''}:\n${a.criticNow ?? '(the critic gave no objections)'}`,
       steerBlock,
       'Answer every objection by its number.',
     ].filter(Boolean).join('\n\n')
@@ -285,4 +391,95 @@ export function readResponse(role: DebateRoleId | undefined, text: string | unde
     return replies.length ? { replies } : {}
   }
   return {}
+}
+
+// ---------------------------------------------------------------------------
+// Owner-made modes (phase 3): the stored shape, its checking, and the mode it becomes
+// ---------------------------------------------------------------------------
+
+export const MODE_NAME_MAX = 60
+export const MODE_DESCRIPTION_MAX = 800
+export const MODE_TEXT_MAX = 6000
+export const MODE_NOTE_MAX = 1500
+export const MODES_MAX = 30
+export const MAX_ROUNDS_LIMIT = 12
+
+export type ModeBase = 'peer' | 'critic'
+
+/** What store/debate-modes.json keeps for one owner-made mode. Plain data: no code, no roles to invent. */
+export interface StoredMode {
+  id: string
+  name: string
+  description: string
+  /** peer = two equal models; critic = one attacks with numbered objections, the other defends. */
+  base: ModeBase
+  /** A critic / defender text replaces the built-in one (empty = the built-in text); a peer text is an extra sentence. */
+  instructions: Partial<Record<DebateRoleId, string>>
+  conclusionNote: string
+  strength: Strength
+  swapRoles: boolean
+  /** null = no limit */
+  maxRounds: number | null
+}
+
+export type StoredModeResult = { ok: true; mode: StoredMode } | { ok: false; error: string }
+
+function text(v: unknown, max: number): string {
+  return typeof v === 'string' ? v.replace(/\r\n/g, '\n').trim().slice(0, max) : ''
+}
+
+/**
+ * Checks what the editor sent. `id` is kept when it is given (an edit); a new mode gets `newId`. An error is a short
+ * machine word (`name_missing`, `base_unknown`, `max_rounds_bad`) that the route turns into a sentence.
+ */
+export function sanitizeStoredMode(raw: unknown, newId: () => string): StoredModeResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'bad_input' }
+  const r = raw as Record<string, unknown>
+  const name = text(r.name, MODE_NAME_MAX)
+  if (!name) return { ok: false, error: 'name_missing' }
+  if (r.base !== 'peer' && r.base !== 'critic') return { ok: false, error: 'base_unknown' }
+  let maxRounds: number | null = null
+  if (r.maxRounds !== undefined && r.maxRounds !== null && r.maxRounds !== '') {
+    const n = Number(r.maxRounds)
+    if (!Number.isInteger(n) || n < 1 || n > MAX_ROUNDS_LIMIT) return { ok: false, error: 'max_rounds_bad' }
+    maxRounds = n
+  }
+  const ins = (r.instructions && typeof r.instructions === 'object' ? r.instructions : {}) as Record<string, unknown>
+  const instructions: Partial<Record<DebateRoleId, string>> = {}
+  const roles: DebateRoleId[] = r.base === 'critic' ? ['critic', 'defender'] : ['peer']
+  for (const role of roles) {
+    const t = text(ins[role], MODE_TEXT_MAX)
+    if (t) instructions[role] = t
+  }
+  const id = typeof r.id === 'string' && /^m-[a-z0-9]{6,16}$/.test(r.id) ? r.id : newId()
+  return {
+    ok: true,
+    mode: {
+      id, name, description: text(r.description, MODE_DESCRIPTION_MAX), base: r.base, instructions,
+      conclusionNote: text(r.conclusionNote, MODE_NOTE_MAX),
+      strength: isStrength(r.strength) ? r.strength : DEFAULT_STRENGTH,
+      swapRoles: r.base === 'critic' && r.swapRoles === true,
+      maxRounds,
+    },
+  }
+}
+
+/** The runnable mode for a stored one: an empty critic / defender text falls back to the built-in text. */
+export function modeFromStored(s: StoredMode): DebateModeDef {
+  const critic = s.base === 'critic'
+  return {
+    id: s.id,
+    roles: critic ? ['critic', 'defender'] : ['peer', 'peer'],
+    sequential: critic,
+    instructions: critic
+      ? { critic: s.instructions.critic || CRITIC_INSTRUCTIONS, defender: s.instructions.defender || DEFENDER_INSTRUCTIONS }
+      : (s.instructions.peer ? { peer: s.instructions.peer } : {}),
+    conclusionNote: s.conclusionNote || (critic ? CRITIC_CONCLUSION_NOTE : undefined),
+    builtin: false,
+    name: s.name,
+    description: s.description,
+    strength: s.strength,
+    swapRoles: critic && s.swapRoles,
+    ...(s.maxRounds ? { maxRounds: s.maxRounds } : {}),
+  }
 }
