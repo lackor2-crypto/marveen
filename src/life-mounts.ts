@@ -52,6 +52,8 @@ export interface LifeMount {
   note?: string
   /** Ideiglenes elhelyezes: egy feltetel teljesuleseig all itt. */
   provisional?: boolean
+  /** #601: the target is ONE FILE (a linked file), not a folder. Folder lists skip it; file lists take it. */
+  file?: boolean
 }
 
 type Store = { mounts: LifeMount[]; corrupt?: boolean }
@@ -94,7 +96,7 @@ export function listMounts(): LifeMount[] {
 function targetReachable(target: string): boolean {
   const root = depotRoot()
   if (!root) return false
-  try { return statSync(join(root, ...target.split('/'))).isDirectory() } catch { return false }
+  try { statSync(join(root, ...target.split('/'))); return true } catch { return false }
 }
 
 export type MountWithState = LifeMount & { reachable: boolean }
@@ -124,7 +126,7 @@ export interface MountResult { ok: boolean; message: string; code?: string; moun
  *   - ha ugyanoda mar van bekotes (melyik latszana?),
  *   - ha a bekotes SAJAT MAGA ALA mutat (vegtelen fa).
  */
-export function addMount(input: { rel: string; target: string; kind?: string; label?: string; note?: string; provisional?: boolean }): MountResult {
+export function addMount(input: { rel: string; target: string; kind?: string; label?: string; note?: string; provisional?: boolean; file?: boolean }): MountResult {
   const root = depotRoot()
   if (!root) return { ok: false, code: 'no_depot', message: 'Nincs beállítva a raktár, ezért nincs mit bekötni.' }
   const rel = norm(input.rel)
@@ -141,7 +143,7 @@ export function addMount(input: { rel: string; target: string; kind?: string; la
     return { ok: false, code: 'outside', message: 'A bekötés célja nincs a Marveen mappáján belül.' }
   }
   let isDir = false
-  try { isDir = statSync(absTarget).isDirectory() } catch { isDir = false }
+  try { const st = statSync(absTarget); isDir = input.file ? st.isFile() : st.isDirectory() } catch { isDir = false }
   if (!isDir) {
     return { ok: false, code: 'missing', message: `Ez a hely most nem létezik: ${target}. Előbb hozd létre vagy szinkronizáld.` }
   }
@@ -160,6 +162,7 @@ export function addMount(input: { rel: string; target: string; kind?: string; la
   const note = String(input.note || '').trim()
   if (note) mount.note = note
   if (input.provisional) mount.provisional = true
+  if (input.file) mount.file = true
   store.mounts.push(mount)
   save(store)
   logger.info({ rel, target }, '[eletfa] bekotes hozzaadva')
@@ -261,9 +264,22 @@ export function mountsInside(rel: string): LifeMount[] {
   const key = norm(rel)
   const prefix = key ? key + '/' : ''
   return load().mounts.filter((m) => {
-    if (!m.rel.startsWith(prefix)) return false
+    if (!m.rel.startsWith(prefix) || m.file) return false
     return !m.rel.slice(prefix.length).includes('/')
   })
+}
+
+/** #601: the linked FILES that show directly in this folder (the folder lists above never carry them). */
+export function fileMountsInside(rel: string): LifeMount[] {
+  const key = norm(rel)
+  const prefix = key ? key + '/' : ''
+  return load().mounts.filter((m) => m.file && m.rel.startsWith(prefix) && !m.rel.slice(prefix.length).includes('/'))
+}
+
+/** #601: is this tree path a linked file (a pointer to a file somewhere else)? */
+export function isFileMount(rel: string): boolean {
+  const key = norm(rel)
+  return load().mounts.some((m) => m.file && m.rel === key)
 }
 
 /**

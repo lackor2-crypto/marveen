@@ -1429,6 +1429,7 @@
         + ' title="' + escA(t('workbench.folder.to_deck_hint', { n: imgs })) + '">' + esc(t('workbench.folder.to_deck', { n: imgs })) + '</button>' : '')
       + '<button type="button" role="menuitem" data-wb-act="folder-rename" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.rename')) + '</button>'
       + folderMoveSelectHtml(f)
+      + '<button type="button" role="menuitem" data-wb-act="folder-link-file" data-wb-folder="' + escA(f) + '" title="' + escA(t('workbench.filelink.hint')) + '">' + esc(t('workbench.filelink.menu')) + '</button>'
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="folder-delete" data-wb-folder="' + escA(f) + '">' + esc(t('workbench.folder.delete')) + '</button>'
       + '</div>'
   }
@@ -1660,18 +1661,23 @@
 
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth, grp) {
+    WB.linkedFiles = WB.linkedFiles || {}
+    if (f.linked) WB.linkedFiles[f.rel] = true; else delete WB.linkedFiles[f.rel]
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
     return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
-      + '<span class="wb-item-title">\ud83d\udcc4 ' + esc(f.name) + '</span>'
+      + '<span class="wb-item-title">\ud83d\udcc4 ' + (f.linked ? '<span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' : '') + esc(f.name) + '</span>'
       + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
       + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="file-ctx" data-wb-rel="' + escA(f.rel) + '" aria-haspopup="menu"'
         + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>')
       + fileMenuHtml(f.rel)
       + '</li>'
   }
+
+  /** #601: is this file only a link to a file somewhere else (set while the rows are drawn)? */
+  function isLinkedFile(rel) { return !!(WB.linkedFiles && WB.linkedFiles[rel]) }
 
   /** The loose file's menu (right-click / the "..." button): open, download, make it a work item (Boss, TG 7626), move, rename, delete. */
   function fileMenuHtml(rel, extra) {
@@ -1693,8 +1699,8 @@
         }).join('')
         : '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>')
       // ONE folder list (Boss TG 2514: the second one looked like a duplicate): a work item's own file is copied (it stays with its item), any other file is moved.
-      + moveFilesSelectHtml(many ? '*' : rel, !many && isItemFile(rel) && !itemOfFile(rel))
-      + (many ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
+      + (!many && isLinkedFile(rel) ? '' : moveFilesSelectHtml(many ? '*' : rel, !many && isItemFile(rel) && !itemOfFile(rel)))
+      + (many || isLinkedFile(rel) ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="file-delete" data-wb-rel="' + escA(many ? '*' : rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t(many ? 'workbench.file.delete_many' : 'workbench.file.delete')) + '</button>'
       + '</div>'
   }
@@ -1721,7 +1727,10 @@
     if (!which || WB.fileBusy || archived()) return
     var rels = which === '*' ? Object.keys(WB.fileSel || {}) : [which]
     if (!rels.length) { window.showToast(t('workbench.files.none')); return }
-    var ask = rels.length === 1 ? t('workbench.file.delete_confirm', { name: baseOf(rels[0]) }) : t('workbench.file.delete_confirm_many', { n: rels.length })
+    var allLinked = rels.every(isLinkedFile)
+    var ask = allLinked ? t(rels.length === 1 ? 'workbench.filelink.unlink_confirm' : 'workbench.filelink.unlink_confirm_many', { name: baseOf(rels[0]), n: rels.length })
+      : rels.length === 1 ? t('workbench.file.delete_confirm', { name: baseOf(rels[0]) }) : t('workbench.file.delete_confirm_many', { n: rels.length })
+    if (!allLinked && rels.some(isLinkedFile)) ask += '\n\n' + t('workbench.filelink.mixed_note')
     var owners = itemTitlesOfFiles(rels)
     if (owners.any) ask += '\n\n' + (owners.titles.length ? t('workbench.file.delete_item_note', { items: owners.titles.join(', ') }) : t('workbench.file.delete_item_note_plain'))
     if (!window.confirm(ask)) { WB.ctx = null; render(); return }
@@ -1743,7 +1752,7 @@
       ;(d.skipped || []).forEach(function (s) { skippedNames[s.name] = true })
       Object.keys(WB.fileSel || {}).forEach(function (rel) { if (!skippedNames[baseOf(rel)]) delete WB.fileSel[rel] })
       // Open the trash, so the owner sees where the files went (Boss TG 8585: "Eltűnt a lomtár").
-      if ((d.deleted || []).length) WB.trashOpen = true
+      if ((d.trash || []).length) WB.trashOpen = true
       render()
       refreshDetailAssets()
       var delIds = Array.isArray(d.trash) ? d.trash : []
@@ -9033,8 +9042,8 @@
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeFilePick'
     overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.attach ? 'workbench.attach.pick_title' : opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.attach ? 'workbench.attach.pick_help' : opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
+      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.fileLink ? 'workbench.filelink.pick_title' : opts && opts.attach ? 'workbench.attach.pick_title' : opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.fileLink ? 'workbench.filelink.pick_help' : opts && opts.attach ? 'workbench.attach.pick_help' : opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
       + '<p style="margin:0 0 6px;font-size:13px"><b>' + esc(t('workbench.annex.link_here')) + '</b> <span id="wbLifeFilePickHere"></span></p>'
       + '<div id="wbLifeFilePickList" class="wb-lifepick-list"></div>'
       + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button>'
@@ -17171,6 +17180,22 @@
       openInIntezo(kr)
     }
     else if (a === 'folder-to-deck') folderToDeck(act.getAttribute('data-wb-folder'))
+    else if (a === 'folder-link-file') {
+      var lkPid = WB.projectId
+      var lkFolder = act.getAttribute('data-wb-folder') || ''
+      WB.ctx = null
+      render()
+      pickLifeFile(function (file) {
+        api('POST', '/api/workbench/project-file-link', { project: lkPid, folder: lkFolder, rel: file }).then(function (r) {
+          if (!r.ok) { window.showToast(r.message); return }
+          window.showToast(t('workbench.filelink.done', { name: (r.data && r.data.name) || '' }))
+          if (WB.projectId === lkPid) {
+            if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
+            load(lkPid)
+          }
+        })
+      }, { fileLink: true })
+    }
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'hide-done') { WB.hideDone = !WB.hideDone; writePref('wb.hide.done', WB.hideDone ? '1' : '0'); render() }
     else if (a === 'folder-fold') {

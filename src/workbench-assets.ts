@@ -34,7 +34,7 @@ import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { getProject, listProjects, cleanFolderRel, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel, trashLife, copyLife } from './life-explorer.js'
-import { mountsInside } from './life-mounts.js'
+import { mountsInside, fileMountsInside, isFileMount, removeMount } from './life-mounts.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -308,7 +308,7 @@ export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
  *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
-export type WorkFolderFile = { name: string; size: number; rel: string; item?: true }
+export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true }
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
@@ -397,6 +397,18 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
       ;(out.files[rel] = out.files[rel] || []).push({ name, size, rel: `${here}/${name}` })
       fileTotal++
     }
+    // #601: a linked FILE (a pointer to one file somewhere else) is listed like a file lying here, flagged `linked`.
+    try {
+      for (const m of fileMountsInside(here)) {
+        const name = m.rel.slice(m.rel.lastIndexOf('/') + 1)
+        if (fileNames.includes(name)) continue
+        const real = resolveLifePath(m.rel)
+        let size = 0
+        try { size = real ? statSync(real).size : 0 } catch { continue } // the file is gone from its place: shows nothing
+        ;(out.files[rel] = out.files[rel] || []).push({ name, size, rel: m.rel, linked: true })
+        fileTotal++
+      }
+    } catch { /* a broken mount list must not hide the rest */ }
     // A mount (e.g. Fejlesztés/GIT_REPOS -> the real repos) is an empty folder on the disk, or none at all.
     const mounts = new Map<string, string>()
     try {
@@ -1009,6 +1021,8 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
   const trash: string[] = []
   for (const rel of want) {
     const name = rel.slice(rel.lastIndexOf('/') + 1)
+    // #601: a linked file is only a pointer: "delete" takes the link off, the original stays where it is (never trashed).
+    if (isFileMount(rel)) { if (removeMount(rel).ok) deleted.push(name); else skipped.push({ name, reason: 'failed' }); continue }
     if (!loose.has(rel)) { skipped.push({ name, reason: 'not_loose' }); continue }
     const src = resolveLifePath(rel)
     if (!src || writeBlockReason(rel)) { skipped.push({ name, reason: 'failed' }); continue }
