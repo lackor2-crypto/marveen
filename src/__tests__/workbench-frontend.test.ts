@@ -3322,3 +3322,208 @@ describe('Vitaztatas: modok, tabla, bíró, koltsegbecsles, Alkalmaz (#597, 2-4.
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.db.apply.done'))
   })
 })
+
+describe('Vitaztatas: sablonok, jelentes, elemzes (#597, 6. fazis)', () => {
+  const MODELS = {
+    defaults: ['openai/gpt-5.5', 'deepseek/deepseek-v4'], catalog: [], has_key: true, catalog_error: false,
+    modes: [
+      { id: 'peer', builtin: true, roles: ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null },
+      { id: 'critic', builtin: true, roles: ['critic', 'defender'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: 6 },
+    ],
+    default_mode: 'peer', strengths: ['mild', 'medium', 'hard'],
+  }
+  const TPL = { id: 't-aaaaaaaa', name: 'Jogi atnezes', mode: 'critic', strength: 'hard', swapRoles: true, models: ['anthropic/claude-opus-4.1', 'google/gemini-3-pro'], judge: 'xai/grok-5', modeMissing: false }
+  const GONE = { id: 't-bbbbbbbb', name: 'Torolt modos', mode: 'm-deadbeef', strength: null, swapRoles: null, models: ['a/x', 'b/y'], judge: '', modeMissing: true }
+  const ROUND1 = { session: 's1', round: 1, responses: [
+    { model: 'openai/gpt-5.5', ok: true, role: 'critic', text: 'K1 ...' }, { model: 'deepseek/deepseek-v4', ok: true, role: 'defender', text: 'K1: ACCEPT' },
+  ], board: [], boardSummary: null, advice: { stop: false } }
+  let templates: unknown[] = []
+  let extra: (url: string, init?: RequestInit) => { status: number; body: unknown } | null = () => null
+
+  function route(url: string, init?: RequestInit): { status: number; body: unknown } {
+    const x = extra(url, init)
+    if (x) return x
+    if (url.includes('/api/debate/models')) return { status: 200, body: MODELS }
+    if (url.includes('/api/debate/sessions?')) return { status: 200, body: { sessions: [] } }
+    if (url.includes('/api/debate/templates') && init?.method === 'POST') {
+      const b = JSON.parse(String(init.body))
+      templates = [...templates, { ...b, id: 't-cccccccc', modeMissing: false }]
+      return { status: 200, body: { template: { id: 't-cccccccc' }, templates } }
+    }
+    if (url.includes('/api/debate/templates') && init?.method === 'DELETE') {
+      templates = templates.filter((t: any) => !url.includes(t.id))
+      return { status: 200, body: { ok: true, templates } }
+    }
+    if (url.includes('/api/debate/templates')) return { status: 200, body: { templates } }
+    if (url.includes('/api/debate/estimate')) return { status: 200, body: { round: 1, next: { calls: [], usd: 0, unpriced: [], webSearch: [], free: true }, conclude: null } }
+    if (url.includes('/api/debate/run')) return { status: 200, body: ROUND1 }
+    if (url.includes('/conclude')) return { status: 200, body: { consensus: true, summary: 'Az eredmeny', by: 'google/gemini-3' } }
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: detailBody([]) }
+    return { status: 200, body: itemsBody([MIXED]) }
+  }
+  const post = (needle: string) => h.fetchCalls.filter(c => c.url.includes(needle) && c.init?.method === 'POST')
+  const bodyOf = (needle: string, n = 0) => JSON.parse(String(post(needle)[n].init!.body))
+
+  async function panel() {
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-head'))
+    h.click({ 'data-wb-act': 'db-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('value="deepseek/deepseek-v4"'))
+  }
+
+  beforeEach(() => { templates = []; extra = () => null })
+
+  it('sablon nelkul: a valaszto letiltva "meg nincs sablon" felirattal, a mentes soha nem hianyzik; megnyitaskor a sablonlista letoltodik', async () => {
+    await panel()
+    const html = h.rootEl.innerHTML
+    expect(h.fetchCalls.some(c => c.url.includes('/api/debate/templates'))).toBe(true)
+    expect(html).toContain('id="wbDbTplPick" disabled')
+    expect(html).toContain('workbench.db.tpl.none')
+    expect(html).toContain('data-wb-act="db-tpl-save"')
+    expect(html).not.toContain('data-wb-act="db-tpl-del"')
+  })
+
+  it('sablon valasztasa kitolti a modot, erosseget, szerepcserét, a ket modellt es a birot', async () => {
+    templates = [TPL]
+    await panel()
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<option value="t-aaaaaaaa">'))
+    h.change('wbDbTplPick', [], 't-aaaaaaaa')
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('<option value="critic" selected>')
+    expect(html).toContain('<option value="hard" selected>')
+    expect(html).toContain('id="wbDbSwap" checked')
+    expect(html).toContain('value="anthropic/claude-opus-4.1"')
+    expect(html).toContain('value="google/gemini-3-pro"')
+    expect(html).toContain('value="xai/grok-5"')
+    expect(html).toContain('data-wb-act="db-tpl-del"')
+    // a vita a sablon beallitasaival indul
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(post('/api/debate/run')).toHaveLength(1))
+    expect(bodyOf('/api/debate/run')).toMatchObject({ mode: 'critic', strength: 'hard', swapRoles: true, models: ['anthropic/claude-opus-4.1', 'google/gemini-3-pro'], judge: 'xai/grok-5' })
+  })
+
+  it('torolt modra mutato sablon: az Egyenrangu mod marad, a modellek jonnek, a figyelmeztetes kiirva', async () => {
+    templates = [GONE]
+    await panel()
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<option value="t-bbbbbbbb">'))
+    h.change('wbDbTplPick', [], 't-bbbbbbbb')
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('<option value="peer" selected>')
+    expect(html).toContain('value="a/x"')
+    expect(html).toContain('workbench.db.tpl.mode_gone')
+  })
+
+  it('mentes sablonkent: nev nelkul nem megy ki; nevvel a mod, a beallitasok, a modellek es a biro mennek, utana a lista es a kijeloles frissul', async () => {
+    await panel()
+    h.change('wbDbMode', [], 'critic')
+    h.change('wbDbStrength', [], 'mild')
+    h.input('wbDbJudge', ' google/gemini-3 ')
+    h.click({ 'data-wb-act': 'db-tpl-save' })
+    expect(post('/api/debate/templates')).toHaveLength(0)
+    expect(h.rootEl.innerHTML).toContain('workbench.db.tpl.err_name')
+    h.input('wbDbTplName', 'Sajat sablon')
+    h.click({ 'data-wb-act': 'db-tpl-save' })
+    await vi.waitFor(() => expect(post('/api/debate/templates')).toHaveLength(1))
+    expect(bodyOf('/api/debate/templates')).toEqual({
+      name: 'Sajat sablon', mode: 'critic', strength: 'mild', swapRoles: false, models: ['openai/gpt-5.5', 'deepseek/deepseek-v4'], judge: 'google/gemini-3',
+    })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<option value="t-cccccccc" selected>'))
+    expect(h.toasts).toContain('⟦workbench.db.tpl.saved⟧')
+  })
+
+  it('egyenrangu modnal a sablon nem visz erosseget es szerepcserét; torles megerositessel', async () => {
+    await panel()
+    h.input('wbDbTplName', 'Egyszeru')
+    h.click({ 'data-wb-act': 'db-tpl-save' })
+    await vi.waitFor(() => expect(post('/api/debate/templates')).toHaveLength(1))
+    expect(bodyOf('/api/debate/templates')).toMatchObject({ mode: 'peer', strength: null, swapRoles: null })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-tpl-del"'))
+    h.win.confirm = () => false
+    h.click({ 'data-wb-act': 'db-tpl-del' })
+    expect(h.fetchCalls.filter(c => c.init?.method === 'DELETE')).toHaveLength(0)
+    h.win.confirm = () => true
+    h.click({ 'data-wb-act': 'db-tpl-del' })
+    await vi.waitFor(() => expect(h.fetchCalls.filter(c => c.init?.method === 'DELETE')).toHaveLength(1))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbDbTplPick" disabled'))
+  })
+
+  async function closedDebate() {
+    await panel()
+    h.change('wbDbMode', [], 'critic')
+    h.input('wbDbQ', 'Jo a level?')
+    h.click({ 'data-wb-act': 'db-start' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-conclude"'))
+  }
+
+  it('a jelentes gombjai a vitan allnak (nyitotton es lezarton is); a munkadarabkent mentes a szervert hivja, majd megnyitja az uj dokumentumot', async () => {
+    extra = (url, init) => {
+      if (url.includes('/sessions/s1/document') && init?.method === 'POST') return { status: 201, body: { item: { id: 'w1', title: 'Vitazas jelentes' } } }
+      return null
+    }
+    await closedDebate()
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-export-doc"')
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-export-file"')
+    h.click({ 'data-wb-act': 'db-conclude' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('db-copy-result'))
+    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-export-doc"')
+    h.changeEl({ id: 'wbDbExFull', checked: true })
+    h.click({ 'data-wb-act': 'db-export-doc' })
+    await vi.waitFor(() => expect(post('/sessions/s1/document')).toHaveLength(1))
+    expect(bodyOf('/sessions/s1/document')).toEqual({ full: true })
+    await vi.waitFor(() => expect(h.toasts.some(m => m.includes('workbench.db.ex.saved_doc'))).toBe(true))
+    // az uj munkadarab megnyilik (a vita panel felenek elmegy)
+    await vi.waitFor(() => expect(h.fetchCalls.some(c => c.url.includes('/api/workbench/items/w1'))).toBe(true))
+  })
+
+  it('a jelentes szerverhibaja kiirodik, a gomb ujra hasznalhato', async () => {
+    extra = (url, init) => url.includes('/document') && init?.method === 'POST' ? { status: 409, body: { error: 'no_project', message: 'Nem tartozik projekthez' } } : null
+    await closedDebate()
+    h.click({ 'data-wb-act': 'db-export-doc' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Nem tartozik projekthez'))
+    expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="db-export-doc" disabled/)
+  })
+
+  it('a fajl-letoltes a szerver jelentesét kéri a teljes menet kapcsoloval', async () => {
+    extra = (url) => url.includes('/sessions/s1/export') ? { status: 200, body: { name: 'jo-vita.md', title: 'T', markdown: '# T' } } : null
+    await closedDebate()
+    h.changeEl({ id: 'wbDbExFull', checked: true })
+    h.click({ 'data-wb-act': 'db-export-file' })
+    await vi.waitFor(() => expect(h.fetchCalls.some(c => c.url.includes('/sessions/s1/export?full=1'))).toBe(true))
+    // a böngésző nélküli próbakörnyezetben a mentés nem megy, ezt kiírja (nem némán nyel el)
+    await vi.waitFor(() => expect(h.toasts.some(m => m.includes('workbench.db.ex.no_download'))).toBe(true))
+  })
+
+  it('az Elemzes nezet: a projektre szurve toltodik, tablazat a sorokkal, "kevés adat" jeloles, osszes projektre valtas, vissza a vitahoz', async () => {
+    const ROWS = { rows: [
+      { mode: 'critic', modeName: null, roleMode: true, first: 'openai/gpt-5.5', second: 'deepseek/deepseek-v4', debates: 4, concluded: 3, agreed: 2, rounds: 8, objections: 10, accepted: 6, rejected: 2, withdrawn: 1, open: 1, acceptRate: 0.6, tokensIn: 40000, tokensOut: 12000, enoughData: true },
+      { mode: 'm-abcdef12', modeName: 'Szigoru', roleMode: true, first: 'a/x', second: 'b/y', debates: 1, concluded: 1, agreed: 0, rounds: 2, objections: 3, accepted: 1, rejected: 2, withdrawn: 0, open: 0, acceptRate: 1 / 3, tokensIn: 100, tokensOut: 100, enoughData: false },
+    ], totals: { debates: 5, concluded: 4, objections: 13, accepted: 7, tokensIn: 40100, tokensOut: 12100 }, min_debates: 3 }
+    extra = (url) => url.includes('/api/debate/analysis') ? { status: 200, body: ROWS } : null
+    await panel()
+    h.click({ 'data-wb-act': 'db-stats' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-db-stats'))
+    expect(h.fetchCalls.some(c => c.url.includes('/api/debate/analysis?project=p1'))).toBe(true)
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('gpt-5.5')
+    expect(html).toContain('Szigoru')
+    expect(html).toContain('60 %')
+    expect(html).toContain('52 k')
+    expect((html.match(/workbench\.db\.stats\.little/g) || []).length).toBe(1)
+    h.click({ 'data-wb-act': 'db-stats-scope', 'data-wb-scope': 'all' })
+    await vi.waitFor(() => expect(h.fetchCalls.some(c => /\/api\/debate\/analysis\?lang=/.test(c.url))).toBe(true))
+    h.click({ 'data-wb-act': 'db-stats-back' })
+    expect(h.rootEl.innerHTML).toContain('id="wbDbQ"')
+  })
+
+  it('az Elemzes: ures naplo es szerverhiba is szoveget mutat, nem ures kepernyot', async () => {
+    extra = (url) => url.includes('/api/debate/analysis') ? { status: 200, body: { rows: [], totals: { debates: 0, concluded: 0, objections: 0, accepted: 0, tokensIn: 0, tokensOut: 0 }, min_debates: 3 } } : null
+    await panel()
+    h.click({ 'data-wb-act': 'db-stats' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.db.stats.none'))
+    extra = (url) => url.includes('/api/debate/analysis') ? { status: 500, body: { error: 'failed', message: 'Elemzes hiba' } } : null
+    h.click({ 'data-wb-act': 'db-stats-scope', 'data-wb-scope': 'all' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Elemzes hiba'))
+  })
+})

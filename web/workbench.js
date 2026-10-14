@@ -15292,7 +15292,8 @@
     if (!WB.db) {
       WB.db = { models: null, mode: 'peer', strength: '', swap: null, judge: '', a: '', b: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
         busy: '', error: '', summary: null, consensus: null, concluded: false, past: null, pastOpen: false, loadingState: false,
-        modeName: null, maxRounds: null, summaryBy: null, board: [], boardSummary: null, advice: null, conformity: null, orderCheck: null, warnings: [], est: null, view: 'debate', ed: null, ap: null }
+        modeName: null, maxRounds: null, summaryBy: null, board: [], boardSummary: null, advice: null, conformity: null, orderCheck: null, warnings: [], est: null, view: 'debate', ed: null, ap: null,
+        tpl: { list: null, name: '', sel: '', busy: false, error: '' }, stats: null, ex: { full: false, busy: '' } }
     }
     return WB.db
   }
@@ -15302,7 +15303,7 @@
     WB.db = null
     var s = dbState()
     // The model choice is kept: the next debate usually uses the same pair.
-    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b; s.mode = keep.mode; s.strength = keep.strength; s.swap = keep.swap; s.judge = keep.judge }
+    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b; s.mode = keep.mode; s.strength = keep.strength; s.swap = keep.swap; s.judge = keep.judge; s.tpl.list = keep.tpl.list }
   }
 
   /** Reply text -> safe HTML: escaped first, then only headings, **bold**, `code` and line breaks are recognised. */
@@ -15372,6 +15373,7 @@
     WB.dbOpen = !WB.dbOpen
     if (WB.dbOpen) {
       dbLoadModels()
+      if (dbState().tpl.list === null) dbLoadTemplates()
       if (dbState().past === null) dbLoadPast()
       if (!WB.pdocs) loadProjectDocs()
       dbEstimateSoon()
@@ -15714,6 +15716,7 @@
     var out = '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.step0')) + '</li><li>' + esc(t('workbench.db.step1')) + '</li><li>' + esc(t('workbench.db.step2')) + '</li>'
       + '<li>' + esc(t('workbench.db.step3')) + '</li><li>' + esc(t(crit ? 'workbench.db.step4_critic' : 'workbench.db.step4')) + '</li></ol>'
     if (m && m.has_key === false) out += '<p class="wb-error">' + esc(t('workbench.db.no_key')) + '</p>'
+    out += dbTemplateHtml(s)
     out += dbModeHtml(s)
     out += '<label class="wb-db-field"><span>' + esc(t(crit ? 'workbench.db.q_label_critic' : 'workbench.db.q_label')) + '</span>'
       + '<textarea class="wb-input" id="wbDbQ" rows="5" maxlength="20000" placeholder="' + escA(t(crit ? 'workbench.db.q_ph_critic' : 'workbench.db.q_ph')) + '">' + esc(s.q) + '</textarea></label>'
@@ -15812,6 +15815,7 @@
         + '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-copy-result">' + esc(t('workbench.db.copy_result')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="db-copy-all">' + esc(t('workbench.db.copy_all')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="db-new">' + esc(t('workbench.db.new_btn')) + '</button></div></section>'
+      out += dbExportHtml(s)
       out += dbApplyHtml(s)
     } else {
       var left = dbRoundsLeft(s)
@@ -15825,6 +15829,7 @@
       out += '<div class="wb-actions"><button type="button" class="' + (stop ? 'btn-secondary' : 'btn-primary') + '" data-wb-act="db-next"' + (left === 0 ? ' disabled title="' + escA(t('workbench.db.round_limit_hint')) + '"' : '') + '>' + esc(t('workbench.db.next')) + '</button>'
         + '<button type="button" class="' + (stop ? 'btn-primary' : 'btn-secondary') + '" data-wb-act="db-conclude">' + esc(t('workbench.db.conclude')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="db-copy-all">' + esc(t('workbench.db.copy_all')) + '</button></div>'
+      out += dbExportHtml(s)
     }
     return out
   }
@@ -15914,6 +15919,189 @@
       }
       render()
     })
+  }
+
+  // ---- Templates: a saved set-up (mode, models, judge) under a name ----
+  function dbLoadTemplates() {
+    api('GET', '/api/debate/templates').then(function (r) {
+      dbState().tpl.list = r.ok && r.data && r.data.templates ? r.data.templates : []
+      render()
+    })
+  }
+
+  function dbTplApply(id) {
+    var s = dbState()
+    var tp = s.tpl
+    tp.sel = id; tp.error = ''
+    var found = (tp.list || []).filter(function (x) { return x.id === id })[0]
+    if (!found) { render(); return }
+    var offered = s.models && s.models.modes
+    // A mode that was deleted since (or is not offered) cannot start a debate: the default mode, the rest of the template stays.
+    var modeOk = !found.modeMissing && (!offered || offered.some(function (m) { return m.id === found.mode }))
+    s.mode = modeOk ? found.mode : 'peer'
+    s.strength = modeOk && found.strength ? found.strength : ''
+    s.swap = modeOk && typeof found.swapRoles === 'boolean' ? found.swapRoles : null
+    s.a = found.models[0] || ''; s.b = found.models[1] || ''; s.judge = found.judge || ''
+    tp.name = found.name
+    if (!modeOk) tp.error = t('workbench.db.tpl.mode_gone')
+    s.est = null
+    render()
+    dbEstimateSoon()
+  }
+
+  function dbTplSave() {
+    var s = dbState()
+    var tp = s.tpl
+    if (tp.busy) return
+    var name = tp.name.trim()
+    if (!name) { tp.error = t('workbench.db.tpl.err_name'); render(); return }
+    var crit = dbIsCritic(s.mode)
+    tp.busy = true; tp.error = ''
+    render()
+    api('POST', '/api/debate/templates', {
+      name: name, mode: s.mode, strength: crit ? dbStrength(s) : null, swapRoles: crit ? dbSwap(s) : null,
+      models: [s.a.trim(), s.b.trim()], judge: s.judge.trim()
+    }).then(function (r) {
+      var cur = dbState().tpl
+      cur.busy = false
+      if (!r.ok) { cur.error = r.message; render(); return }
+      cur.list = r.data.templates; cur.sel = r.data.template.id
+      window.showToast(t('workbench.db.tpl.saved'))
+      render()
+    })
+  }
+
+  function dbTplDelete() {
+    var tp = dbState().tpl
+    var cur = (tp.list || []).filter(function (x) { return x.id === tp.sel })[0]
+    if (!cur || tp.busy || !window.confirm(t('workbench.db.tpl.delete_confirm', { name: cur.name }))) return
+    tp.busy = true; tp.error = ''
+    api('DELETE', '/api/debate/templates/' + encodeURIComponent(cur.id)).then(function (r) {
+      var now = dbState().tpl
+      now.busy = false
+      if (!r.ok) { now.error = r.message; render(); return }
+      now.list = r.data.templates; now.sel = ''; now.name = ''
+      render()
+    })
+  }
+
+  /** The template row at the top of the set-up: pick a saved set-up, or save the one on the screen under a name. */
+  function dbTemplateHtml(s) {
+    var tp = s.tpl
+    var list = tp.list || []
+    var opts = '<option value="">' + esc(t(list.length ? 'workbench.db.tpl.pick' : 'workbench.db.tpl.none')) + '</option>' + list.map(function (x) {
+      return '<option value="' + escA(x.id) + '"' + (x.id === tp.sel ? ' selected' : '') + '>' + esc(x.name) + '</option>'
+    }).join('')
+    return '<div class="wb-db-field wb-db-tpl"><label for="wbDbTplPick"><strong>' + esc(t('workbench.db.tpl.label')) + '</strong></label>'
+      + '<div class="wb-db-modeline"><select class="wb-input wb-db-modepick" id="wbDbTplPick"' + (list.length ? '' : ' disabled') + '>' + opts + '</select>'
+      + (tp.sel ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-tpl-del"' + (tp.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.tpl.delete')) + '</button>' : '') + '</div>'
+      + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.tpl.help')) + '</p>'
+      + '<div class="wb-db-modeline"><input type="text" class="wb-input" id="wbDbTplName" maxlength="60" autocomplete="off" placeholder="' + escA(t('workbench.db.tpl.name_ph')) + '" value="' + escA(tp.name) + '">'
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-tpl-save"' + (tp.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.tpl.save')) + '</button></div>'
+      + (tp.error ? '<p class="wb-error" role="alert">' + esc(tp.error) + '</p>' : '') + '</div>'
+  }
+
+  // ---- Report: the debate as a Markdown file, or as a document of the project ----
+  function dbExportHtml(s) {
+    if (!s.session) return ''
+    return '<section class="wb-db-export"><h3>' + esc(t('workbench.db.ex.title')) + '</h3>'
+      + '<p class="wb-muted">' + esc(t('workbench.db.ex.help')) + '</p>'
+      + '<label class="wb-db-check"><input type="checkbox" id="wbDbExFull"' + (s.ex.full ? ' checked' : '') + '> ' + esc(t('workbench.db.ex.full')) + '</label>'
+      + '<div class="wb-actions"><button type="button" class="btn-secondary" data-wb-act="db-export-doc"' + (s.ex.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.ex.doc')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="db-export-file"' + (s.ex.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.ex.file')) + '</button></div>'
+      + '<p class="wb-muted">' + esc(t('workbench.db.ex.after')) + '</p></section>'
+  }
+
+  function dbExportFile() {
+    var s = dbState()
+    if (!s.session || s.ex.busy) return
+    s.ex.busy = 'file'; s.error = ''
+    render()
+    api('GET', '/api/debate/sessions/' + encodeURIComponent(s.session) + '/export?full=' + (s.ex.full ? 1 : 0)).then(function (r) {
+      var st = dbState()
+      st.ex.busy = ''
+      if (!r.ok) { st.error = r.message; render(); return }
+      var saved = false
+      try {
+        var blob = typeof Blob === 'function' ? new Blob([r.data.markdown], { type: 'text/markdown;charset=utf-8' }) : null
+        saved = downloadBlob(blob, r.data.name)
+      } catch (_e) { saved = false }
+      window.showToast(saved ? t('workbench.db.ex.downloaded', { name: r.data.name }) : t('workbench.db.ex.no_download'))
+      render()
+    })
+  }
+
+  function dbExportDocument() {
+    var s = dbState()
+    if (!s.session || s.ex.busy) return
+    s.ex.busy = 'doc'; s.error = ''
+    render()
+    api('POST', '/api/debate/sessions/' + encodeURIComponent(s.session) + '/document', { full: !!s.ex.full }).then(function (r) {
+      var st = dbState()
+      st.ex.busy = ''
+      if (!r.ok) { st.error = r.message; render(); return }
+      window.showToast(t('workbench.db.ex.saved_doc', { title: r.data.item.title }))
+      // The new document is in the project's list and open in the middle: the PDF and Word export are its own buttons.
+      refreshTree().then(function () { selectItem(r.data.item.id) })
+    })
+  }
+
+  // ---- Analysis: what the debates so far have brought, per mode and model pair ----
+  function dbStatsOpen() {
+    var s = dbState()
+    s.view = 'stats'; s.error = ''
+    s.stats = { loading: true, data: null, error: '', scope: 'project' }
+    render()
+    dbStatsLoad()
+  }
+
+  function dbStatsLoad() {
+    var st = dbState().stats
+    if (!st) return
+    var scope = st.scope
+    st.loading = true; st.error = ''
+    render()
+    api('GET', '/api/debate/analysis' + (scope === 'project' && WB.projectId ? '?project=' + encodeURIComponent(WB.projectId) : '')).then(function (r) {
+      var cur = dbState().stats
+      if (!cur || cur.scope !== scope) return
+      cur.loading = false
+      if (r.ok) cur.data = r.data; else cur.error = r.message
+      render()
+    })
+  }
+
+  function dbPercent(x) { return x === null || x === undefined ? '–' : Math.round(x * 100) + ' %' }
+
+  function dbStatsRowHtml(r) {
+    var who = r.roleMode
+      ? '<strong>' + esc(dbModelShort(r.first)) + '</strong> <span class="wb-db-role wb-db-role-critic">' + esc(t('workbench.db.role.critic')) + '</span><br>'
+        + '<strong>' + esc(dbModelShort(r.second)) + '</strong> <span class="wb-db-role wb-db-role-defender">' + esc(t('workbench.db.role.defender')) + '</span>'
+      : '<strong>' + esc(dbModelShort(r.first)) + '</strong><br><strong>' + esc(dbModelShort(r.second)) + '</strong>'
+    return '<tr><td>' + esc(r.modeName || dbTOr('workbench.db.mode.' + r.mode + '.name', r.mode)) + '</td><td>' + who + '</td>'
+      + '<td>' + r.debates + (r.enoughData ? '' : '<br><span class="wb-db-chip">' + esc(t('workbench.db.stats.little')) + '</span>') + '</td>'
+      + '<td>' + (r.concluded ? r.agreed + ' / ' + r.concluded : '–') + '</td>'
+      + '<td>' + (r.roleMode ? r.objections : '–') + '</td>'
+      + '<td>' + (r.roleMode ? r.accepted + ' <span class="wb-muted">(' + dbPercent(r.acceptRate) + ')</span>' : '–') + '</td>'
+      + '<td>' + Math.round((r.tokensIn + r.tokensOut) / 1000) + ' k</td></tr>'
+  }
+
+  function dbStatsHtml(s) {
+    var st = s.stats
+    var head = '<div class="wb-db-edhead"><h3>' + esc(t('workbench.db.stats.title')) + '</h3><button type="button" class="btn-secondary btn-compact" data-wb-act="db-stats-back">' + esc(t('workbench.db.ed.back')) + '</button></div>'
+    if (!st) return head
+    var scopeBtn = function (k) {
+      return '<button type="button" class="btn-secondary btn-compact' + (st.scope === k ? ' wb-sh-recent-on' : '') + '" aria-pressed="' + (st.scope === k) + '" data-wb-act="db-stats-scope" data-wb-scope="' + k + '">' + esc(t('workbench.db.stats.scope_' + k)) + '</button>'
+    }
+    var out = head + '<p class="wb-muted">' + esc(t('workbench.db.stats.help')) + '</p><div class="wb-actions">' + scopeBtn('project') + scopeBtn('all') + '</div>'
+    if (st.loading) return out + '<p class="wb-muted" role="status">' + esc(t('workbench.loading')) + '</p>'
+    if (st.error) return out + '<p class="wb-error" role="alert">' + esc(st.error) + '</p>'
+    var d = st.data
+    if (!d || !d.rows.length) return out + '<p class="wb-muted">' + esc(t('workbench.db.stats.none')) + '</p>'
+    out += '<div class="wb-db-tablewrap"><table class="wb-db-stats"><thead><tr>'
+      + ['mode', 'models', 'debates', 'agreed', 'objections', 'accepted', 'tokens'].map(function (k) { return '<th scope="col">' + esc(t('workbench.db.stats.col_' + k)) + '</th>' }).join('')
+      + '</tr></thead><tbody>' + d.rows.map(dbStatsRowHtml).join('') + '</tbody></table></div>'
+    out += '<p class="wb-muted">' + esc(t('workbench.db.stats.total', { debates: d.totals.debates, objections: d.totals.objections, accepted: d.totals.accepted })) + '</p>'
+    return out + '<p class="wb-muted">' + esc(t('workbench.db.stats.caution', { n: d.min_debates })) + '</p>'
   }
 
   // ---- The mode editor: the owner's own debate modes (store/debate-modes.json) ----
@@ -16076,10 +16264,11 @@
     var s = dbState()
     var head = '<div class="wb-db-head"><h2>' + esc(t('workbench.db.title')) + '</h2>'
       + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-past">' + esc(t('workbench.db.past_btn', { n: s.past ? s.past.length : 0 })) + '</button>'
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-stats">' + esc(t('workbench.db.stats_btn')) + '</button>'
       + (s.session || s.q ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-new">' + esc(t('workbench.db.new_btn')) + '</button>' : '')
       + '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-open" aria-label="' + escA(t('workbench.db.close')) + '">' + esc(t('workbench.db.close')) + '</button></div>'
       + '<p class="wb-muted wb-db-sub">' + esc(t('workbench.db.sub')) + '</p>'
-    var body = s.view === 'modes' ? dbModesHtml(s) : s.loadingState ? '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>' : s.session ? dbSessionHtml(s) : dbSetupHtml(s)
+    var body = s.view === 'modes' ? dbModesHtml(s) : s.view === 'stats' ? dbStatsHtml(s) : s.loadingState ? '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>' : s.session ? dbSessionHtml(s) : dbSetupHtml(s)
     return '<div class="wb-db">' + head + dbPastHtml(s) + (s.error ? '<p class="wb-error" role="alert">' + esc(s.error) + '</p>' : '') + body + '</div>'
   }
 
@@ -16096,6 +16285,13 @@
     else if (a === 'db-file-del') { s.files.splice(Number(act.getAttribute('data-wb-i')), 1); render(); dbEstimateSoon() }
     else if (a === 'db-modes') dbModesOpen()
     else if (a === 'db-modes-back') dbModesBack()
+    else if (a === 'db-tpl-save') dbTplSave()
+    else if (a === 'db-tpl-del') dbTplDelete()
+    else if (a === 'db-stats') dbStatsOpen()
+    else if (a === 'db-stats-back') { s.view = 'debate'; render() }
+    else if (a === 'db-stats-scope') { if (s.stats) { s.stats.scope = act.getAttribute('data-wb-scope'); dbStatsLoad() } }
+    else if (a === 'db-export-file') dbExportFile()
+    else if (a === 'db-export-doc') dbExportDocument()
     else if (a === 'db-ed-new' && s.ed) { s.ed.form = dbEdBlank(s.ed); s.ed.error = ''; render() }
     else if (a === 'db-ed-cancel' && s.ed) { s.ed.form = null; s.ed.error = ''; render() }
     else if (a === 'db-ed-save') dbEdSave()
@@ -16130,6 +16326,7 @@
     else if (id === 'wbDbModelA') { s.a = e.target.value; dbWarnPaint(); dbEstimateSoon() }
     else if (id === 'wbDbModelB') { s.b = e.target.value; dbWarnPaint(); dbEstimateSoon() }
     else if (id === 'wbDbJudge') { s.judge = e.target.value; dbWarnPaint(); dbEstimateSoon() }
+    else if (id === 'wbDbTplName') { s.tpl.name = e.target.value }
     else if (s.ed && s.ed.form) {
       var f = s.ed.form
       if (id === 'wbDbEdName') f.name = e.target.value
@@ -16146,6 +16343,10 @@
     if (e.target.id === 'wbDbMode') {
       // A new mode starts from its own strength and role swap, not from the previous mode's.
       if (WB.db && !WB.db.session) { WB.db.mode = e.target.value; WB.db.strength = ''; WB.db.swap = null; WB.db.est = null; render(); dbEstimateSoon() }
+    } else if (e.target.id === 'wbDbTplPick') {
+      if (WB.db && !WB.db.session) dbTplApply(e.target.value)
+    } else if (e.target.id === 'wbDbExFull') {
+      if (WB.db) WB.db.ex.full = !!e.target.checked
     } else if (e.target.id === 'wbDbStrength') {
       if (WB.db && !WB.db.session) { WB.db.strength = e.target.value; WB.db.est = null; render(); dbEstimateSoon() }
     } else if (e.target.id === 'wbDbSwap') {
