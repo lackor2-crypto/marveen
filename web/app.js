@@ -2992,7 +2992,7 @@ function updateSubtaskBadges(embeddedSubtaskIds) {
     // Boss (#597 miss): the count covers ALL subtasks, also the ones nested inside this card.
     const nonEmbedded = kanbanCards.filter(c => c.parent_id === id)
     if (nonEmbedded.length > 0) {
-      badge.textContent = t('kanban.card.subtask_count', { n: nonEmbedded.length })
+      badge.textContent = t('kanban.card.subtask_count', { n: nonEmbedded.length, refs: nonEmbedded.map(c => (c.seq != null ? `#${c.seq}` : '')).filter(Boolean).join(', ') })
       badge.style.display = ''
       badge.onclick = (e) => {
         e.stopPropagation()

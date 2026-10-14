@@ -1420,7 +1420,7 @@ window._i18n.en = {
   'kanban.filter.group_by':      'Group by:',
   'kanban.btn.new_card':         'New card',
   'kanban.card.no_description':  '(no description)',
-  'kanban.card.subtask_count':    '{n} subtasks',
+  'kanban.card.subtask_count':    '{n} subtasks: {refs}',
   'kanban.card.subtasks':        '{done}/{total} subtasks',
   'kanban.card.comments':        '{n} comments',
   'kanban.card.children':        '{n} subtasks',
