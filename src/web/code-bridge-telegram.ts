@@ -24,8 +24,10 @@ import {
   enqueueCodeTask, listCodeSessions, listCodeTasks, latestCodeTaskForProject,
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
   listCodeTabs, codeTaskQueueAhead,
-  isExcludedProject,
+  isExcludedProject, openTopicCardForProject, markTopicPending, resolveTopicCheck,
+  type OpenTopicCard,
 } from './code-bridge-store.js'
+import { classifyTopic, type TopicVerdict } from './code-topic-classifier.js'
 import { shortId, chunkMessage } from './code-bridge-notify.js'
 import { transcribeWithBotToken } from './routes/voice.js'
 import { ol, uiString } from '../owner-lang.js'
@@ -393,6 +395,33 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
   }
 }
 
+/** #598 (Boss TG 3278): ask the AI whether the message belongs to the open card's work. Related (or any failure)
+ *  continues that work's chat; unrelated waits until the card is finished and Boss is told so. */
+export async function routeByTopic(
+  taskId: string,
+  message: string,
+  chatId: string,
+  card: OpenTopicCard,
+  classify: (c: OpenTopicCard, m: string) => Promise<TopicVerdict> = classifyTopic,
+  notify: (chat: string, text: string) => Promise<void> = reply,
+): Promise<TopicVerdict> {
+  let verdict: TopicVerdict = 'related'
+  try { verdict = await classify(card, message) } catch { verdict = 'related' }
+  try {
+    const applied = resolveTopicCheck(taskId, verdict, card)
+    if (applied && verdict === 'unrelated') {
+      const n = card.seq != null ? `#${card.seq}` : card.title
+      await notify(chatId, ol(
+        `Megjegyeztem. Ez nem a nyitott munkahoz (${n}) tartozik, ezert csak akkor indul, ha az kesz, es akkor uj chatben.`,
+        `Noted. This is not part of the open work (${n}), so it starts only once that is finished, in a fresh chat.`,
+      ))
+    }
+  } catch (err) {
+    logger.warn({ err, taskId }, 'code-bot: topic routing failed, the pending guard will release the task')
+  }
+  return verdict
+}
+
 /** Enqueue one task for a Telegram sender and phrase the receipt. Shared by
  *  `/code` and by a plain sentence / voice note (see replyForInbound). */
 /** Marker for "accepted, say nothing" (an empty string is falsy, so it cannot be mistaken for an unknown command's null). */
@@ -413,6 +442,12 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
     const cand = out.candidates?.length ? `\n${ol('Projektek', 'Projects')}: ${out.candidates.join(', ')}` : ''
     // The dashboard's translated sentence, not the raw English `error` (#416).
     return `⚠️ ${uiString(out.errorKey, out.errorParams, out.error)}${cand}`
+  }
+  // #598: a plain message while the project still has open card work is analysed first (see routeByTopic).
+  const open = openTopicCardForProject(out.task.project, out.task.id)
+  if (open && !out.task.cardRef && !out.task.targetSessionId) {
+    markTopicPending(out.task.id)
+    void routeByTopic(out.task.id, prompt, chatId, open)
   }
   // Boss (TG 3172/3176): the bot must NOT answer a handed-over message with "Atadva: <project> (id) / N waiting
   // ahead" -- it read like the message went to Marvin, and he wants no hand-over talk at all. A message that was

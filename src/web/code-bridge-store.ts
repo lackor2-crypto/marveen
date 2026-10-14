@@ -123,6 +123,9 @@ export interface CodeTask {
    *  derul ki futas KOZBEN. `null` = a worker nem jelentette (regi worker, vagy
    *  meg nem jott heartbeat) -- NEM azt jelenti, hogy nincs ful. */
   runSessionId: string | null
+  /** #598: null | 'pending' | 'held' | 'fresh' (see ensureTables). */
+  topicState: string | null
+  holdCard: string | null
 }
 
 // A claimed task whose worker went silent (crash, reboot, network drop) must not
@@ -234,6 +237,12 @@ function ensureTables(): void {
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN start_fresh INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
   // Kartya 15e9476a (#276): a futas KOZBENI beszelgetes, a worker heartbeatjebol.
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN run_session_id TEXT') } catch { /* mar letezik */ }
+  // #598: a plain Telegram message is first classified against the project's open card.
+  //   topic_state: NULL = normal, 'pending' = classifier running (not claimable), 'held' = unrelated to the open
+  //   card, waits for hold_card to finish, 'fresh' = released, must open a fresh chat (no card inheritance).
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN topic_state TEXT') } catch { /* mar letezik */ }
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN hold_card TEXT') } catch { /* mar letezik */ }
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN topic_at INTEGER') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -862,6 +871,8 @@ function rowToTask(row: Record<string, unknown>): CodeTask {
     cardRef: (row['card_ref'] as string | null) ?? null,
     startFresh: Boolean(row['start_fresh']),
     runSessionId: (row['run_session_id'] as string | null) ?? null,
+    topicState: (row['topic_state'] as string | null) ?? null,
+    holdCard: (row['hold_card'] as string | null) ?? null,
   }
 }
 
@@ -1218,6 +1229,37 @@ export function codeTaskQueueAhead(taskId: string, now = Date.now()): CodeTaskQu
 /** #598: a card in one of these columns still has work to do; `waiting` (the agent finished) and `done` do not. */
 const OPEN_WORK_STATUSES = new Set(['planned', 'in_progress', 'testing'])
 
+/** #598: a classifier that never answers must not strand a message; after this the task is claimable again. */
+const TOPIC_PENDING_MAX_MS = 5 * 60 * 1000
+
+export interface OpenTopicCard { ref: string; seq: number | null; title: string; description: string | null }
+
+/** #598: the project's open card (same rule the claim uses), with the text the classifier needs. */
+export function openTopicCardForProject(project: string, excludeTaskId: string): OpenTopicCard | null {
+  ensureTables()
+  const ref = liveTopicSessionDeps({} as CodeSession).openCardRefForProject?.(project, excludeTaskId) ?? null
+  if (!ref) return null
+  const card = resolveCardRefToCard(ref)
+  return card ? { ref, seq: card.seq ?? null, title: card.title, description: card.description } : null
+}
+
+/** #598: park a freshly enqueued Telegram task until the classifier has decided. */
+export function markTopicPending(taskId: string, now = Date.now()): void {
+  ensureTables()
+  getDb().prepare(`UPDATE code_tasks SET topic_state = 'pending', topic_at = ? WHERE id = ? AND status = 'queued'`).run(now, taskId)
+}
+
+/** #598: apply the classifier's verdict. `related` (also the failure default) continues the open card's chat;
+ *  `unrelated` holds the task until that card's work is finished. Only acts on a still-pending task. */
+export function resolveTopicCheck(taskId: string, verdict: 'related' | 'unrelated', card: OpenTopicCard): boolean {
+  ensureTables()
+  const db = getDb()
+  const res = verdict === 'related'
+    ? db.prepare(`UPDATE code_tasks SET topic_state = NULL, card_ref = ? WHERE id = ? AND topic_state = 'pending'`).run(card.ref, taskId)
+    : db.prepare(`UPDATE code_tasks SET topic_state = 'held', hold_card = ? WHERE id = ? AND topic_state = 'pending'`).run(card.ref, taskId)
+  return res.changes > 0
+}
+
 function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
   return {
     priorSessionsForCard: (cardRef, project, excludeTaskId) => {
@@ -1337,6 +1379,18 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
     for (const row of rows) {
       const task = rowToTask(row)
       if (isBusy.get(task.project)) continue
+      // #598: an unclassified or held Telegram message does not go out yet.
+      if (task.topicState === 'pending') {
+        if (now - ((row['topic_at'] as number | null) ?? 0) < TOPIC_PENDING_MAX_MS) continue
+        // The classifier never answered: fall back to the safe default (continue the open work).
+        db.prepare(`UPDATE code_tasks SET topic_state = NULL WHERE id = ?`).run(task.id)
+        task.topicState = null
+      } else if (task.topicState === 'held') {
+        const holdCard = task.holdCard ? resolveCardRefToCard(task.holdCard) : undefined
+        if (holdCard && OPEN_WORK_STATUSES.has(holdCard.status) && !holdCard.archived_at) continue
+        db.prepare(`UPDATE code_tasks SET topic_state = 'fresh' WHERE id = ?`).run(task.id)
+        task.topicState = 'fresh'
+      }
       const session = getCodeSession(task.project)
       if (!session) continue
       // #550: the executor's login is exhausted -- the task keeps its place in the queue and goes out when the
@@ -1365,7 +1419,7 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       const topicDeps = liveTopicSessionDeps(session)
       // #598 (Boss TG 3272): a plain Telegram message ("folytasd") carries no card, so it used to open a fresh chat
       // that lost the context. While the project's last card-bound work is still open it continues THAT work.
-      const inheritedCardRef = !forcedFresh && !task.cardRef && !task.targetSessionId && task.origin === 'telegram'
+      const inheritedCardRef = !forcedFresh && !task.cardRef && !task.targetSessionId && task.origin === 'telegram' && task.topicState !== 'fresh'
         ? topicDeps.openCardRefForProject?.(task.project, task.id) ?? null
         : null
       const topicCardRef = task.cardRef || inheritedCardRef
