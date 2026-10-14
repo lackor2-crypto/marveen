@@ -76,6 +76,11 @@ export interface TopicSessionDeps {
    * beszelgetese is lehetett, es azt nem szabad tema-egyezes cimen feltamasztani.
    */
   priorSessionsForCard: (cardRef: string, project: string, excludeTaskId: string) => string[]
+  /**
+   * #598: a project's latest card-bound work whose card is still open (planned / in_progress / testing), as the
+   * card_ref to continue -- or null. Only asked for a task that names no card of its own (a plain Telegram sentence).
+   */
+  openCardRefForProject?: (project: string, excludeTaskId: string) => string | null
   /** Ment-e mar "lezarva" uzenet erre a (kartya, beszelgetes) parosra. */
   wasClosed: (cardRef: string, sessionId: string) => boolean
   sessionVisible: (sessionId: string) => SessionVisibility

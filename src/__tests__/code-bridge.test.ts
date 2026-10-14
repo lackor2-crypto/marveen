@@ -445,6 +445,41 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
     expect(fresh.startFresh).toBe(true)
   })
 
+  // #598 (Boss TG 3272): a plain Telegram "folytasd" names no card, so it used to open a fresh chat that lost the context.
+  describe('#598: kartya nelkuli Telegram uzenet a nyitott munka chatjeben folytatodik', () => {
+    function priorRun(status: 'in_progress' | 'waiting'): void {
+      seedThree()
+      createKanbanCard({ id: 'cafe1234', title: 'Nyitott munka', status })
+      enqueueCodeTask({ project: 'marvin', prompt: 'munka a cafe1234 kartyan', sessionId: MARVIN.sessionId })
+      const pc = claimNextCodeTask('w')!
+      completeCodeTask(pc.id, { ok: true, result: 'resz kesz' })
+    }
+
+    it('nyitott (in_progress) kartya: a "folytasd" ugyanabba a szalba megy, es orokli a kartyat', () => {
+      priorRun('in_progress')
+      enqueueCodeTask({ project: 'marvin', prompt: 'folytasd a munkat', origin: 'telegram' })
+      const c = claimNextCodeTask('w')!
+      expect(c.startFresh).toBe(false)
+      expect(c.sessionId).toBe(MARVIN.sessionId)
+      expect(c.cardRef).toBe('cafe1234')
+    })
+
+    it('kesz (waiting) kartya: nincs mit folytatni -> friss szal', () => {
+      priorRun('waiting')
+      enqueueCodeTask({ project: 'marvin', prompt: 'folytasd a munkat', origin: 'telegram' })
+      const c = claimNextCodeTask('w')!
+      expect(c.startFresh).toBe(true)
+      expect(c.cardRef).toBe(null)
+    })
+
+    it('nem Telegram eredetu, kartya nelkuli feladat tovabbra is friss szal', () => {
+      priorRun('in_progress')
+      enqueueCodeTask({ project: 'marvin', prompt: 'valami mas', origin: 'api' })
+      const c = claimNextCodeTask('w')!
+      expect(c.startFresh).toBe(true)
+    })
+  })
+
   it('#427: startFresh cimzett (target) fulnel NEM ertelmezett -- a cimzes eros', () => {
     seedThree()
     const out = enqueueCodeTask({ project: 'marvin', prompt: 'valami', sessionId: MARVIN.sessionId, startFresh: true })
