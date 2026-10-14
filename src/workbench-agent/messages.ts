@@ -62,6 +62,10 @@ export const MESSAGES = {
     hu: 'Átadtam a teljes értékű ügynöknek (feladat {id}). Dolgozik rajta, a válasza itt jelenik meg, amint kész. A részletes lépések a Kód-híd nézetben is látszanak.',
     en: 'Handed to the full agent (task {id}). It is working on it; the answer appears here when ready. The detailed steps are also visible in the Code Bridge view.',
   },
+  code_bridge_queued: {
+    hu: 'A feladat még sorban áll ({minutes} perce): a kód-híd egy másik feladattal van elfoglalva, és csak az után indul. Nem akadt el, a kérdésed megvan.',
+    en: 'The task is still queued ({minutes} min): the code bridge is busy with another task and will start this one after it. It is not stuck, your message is received.',
+  },
   code_bridge_running: {
     hu: 'A teljes értékű ügynök most dolgozik a feladaton.',
     en: 'The full agent is working on the task now.',

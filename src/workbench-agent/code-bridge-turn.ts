@@ -212,6 +212,9 @@ export function codeBridgeErrorDetail(task: CodeBridgeTaskView): string {
  * A normal, concluded answer (including answering a question) carries the marker;
  * so absence = "did not get to conclude", never "just chatting".
  */
+/** How long a task may sit in the queue before the chat says so. */
+const QUEUED_NOTICE_AFTER_MS = 45_000
+
 export const COMPLETION_MARKER = '[MINDEN_KESZ]'
 
 /**
@@ -239,6 +242,13 @@ export function claimsPendingWork(text: string): boolean {
   const at = text.lastIndexOf(COMPLETION_MARKER)
   const before = at >= 0 ? text.slice(0, at) : text
   return PENDING_CUES.test(before.slice(-PENDING_TAIL_CHARS))
+}
+
+/** The answer text of a finished task that did NOT carry the whole-work marker, marker removed
+ *  ('' when there is none). It is shown to the owner even though the work is continued. */
+export function incompleteAnswerText(task: CodeBridgeTaskView): string {
+  if (task.status !== 'done' || codeBridgeFullyDone(task)) return ''
+  return stripCompletionMarker((task.result ?? task.summary ?? '').trim())
 }
 
 /** True when the finished task's answer carries the whole-work-done marker (and does not itself say work is left). */
@@ -306,6 +316,7 @@ export async function* runCodeBridgeTurn(
 
   const start = deps.now()
   let lastStatus: CodeBridgeStatus | '' = ''
+  let queuedNoticeSent = false
 
   for (;;) {
     if (input.signal?.aborted) {
@@ -337,6 +348,14 @@ export async function* runCodeBridgeTurn(
       }
     }
 
+    // Boss, 2026-10-14: the chat sat 44 minutes behind another task and said
+    // nothing. After a short wait the chat says it is queued, once.
+    if (task.status === 'queued' && !queuedNoticeSent && deps.now() - start > QUEUED_NOTICE_AFTER_MS) {
+      queuedNoticeSent = true
+      const waited = Math.max(1, Math.round((deps.now() - start) / 60000))
+      yield { type: 'notice', code: 'code_bridge_queued', message: msg('code_bridge_queued', input.lang, { minutes: String(waited) }) }
+    }
+
     if (task.status === 'running') yield* toolRuns(taskId)
 
     if (task.status === 'done' || task.status === 'error' || task.status === 'cancelled') {
@@ -365,7 +384,11 @@ export async function* runCodeBridgeTurn(
         }
       }
       const quiet = !!codeBridgeContinuable(task) && !!deps.canContinueElsewhere?.()
-      yield* finishedEvents(task, input.lang, quiet ? () => { /* continued elsewhere */ } : record)
+      // The agent's own words are NEVER dropped, even when the work is continued
+      // elsewhere: an unmarked answer is often a question for the owner (Boss,
+      // 2026-10-14, TG 3391: the von Geld chat showed only "thinking" while the
+      // agent's question was swallowed). Only limit / error lines stay quiet.
+      yield* finishedEvents(task, input.lang, quiet ? (role, content) => { if (role === 'assistant') record(role, content) } : record)
       return
     }
 
@@ -468,7 +491,10 @@ function* finishedEvents(
       // no account can continue -- `record` is a no-op while continuing), and emit
       // a continue event so the route hands the work on.
       const partial = stripCompletionMarker(raw)
-      if (partial) record('assistant', partial)
+      if (partial) {
+        record('assistant', partial)
+        yield { type: 'text', text: partial }
+      }
       yield { type: 'tool', name: 'code-bridge', status: 'error' }
       yield { type: 'error', code: 'code_bridge_incomplete', message: msg('code_bridge_incomplete', lang) }
       return
