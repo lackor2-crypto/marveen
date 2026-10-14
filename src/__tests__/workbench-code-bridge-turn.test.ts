@@ -376,3 +376,32 @@ describe('a befejezes jele mellett kimondott hatralevo munka nem kesz (Boss, 202
     expect(fullyDoneForPending({ ...base, result: 'Ezzel folytatom. [MINDEN_KESZ]' } as never)).toBe(false)
   })
 })
+
+describe('runCodeBridgeTurn -- az ágens válasza nem veszhet el, a sorban állás látszik (Boss, 2026-10-14)', () => {
+  it('jel nélküli válasz (kérdés Boss-nak) akkor is a chatbe kerül, ha a munka másik fiókkal folytatódik', async () => {
+    const clock = fakeClock(1000)
+    const question = 'Melyik irat van meg? Lohnzettel, Rentenbescheid?'
+    const rec: Array<[string, string]> = []
+    const events = await collect(runCodeBridgeTurn(baseInput, {
+      enqueue: () => ({ ok: true, id: 't' }),
+      getTask: fakeTasks([{ status: 'done', result: question, summary: null, error: null }]).getTask,
+      now: clock.now, sleep: clock.sleep,
+      canContinueElsewhere: () => true,
+      record: (r, c) => { rec.push([r, c]) },
+    }))
+    expect(rec.some(([r, c]) => r === 'assistant' && c.includes('Melyik irat van meg?'))).toBe(true)
+    expect(events.some((e) => e.type === 'text' && (e as { text: string }).text.includes('Melyik irat'))).toBe(true)
+    expect(events.some((e) => e.type === 'error' && (e as { code: string }).code === 'code_bridge_incomplete')).toBe(true)
+  })
+
+  it('a sorban várakozó feladatról egyszer szól a chat', async () => {
+    const clock = fakeClock(20_000)
+    const events = await collect(runCodeBridgeTurn(baseInput, {
+      enqueue: () => ({ ok: true, id: 't' }),
+      getTask: fakeTasks([task('queued'), task('queued'), task('queued'), task('queued'), task('running'), task('done', { result: 'Kesz.' })]).getTask,
+      now: clock.now, sleep: clock.sleep,
+    }))
+    const q = events.filter((e) => e.type === 'notice' && (e as { code: string }).code === 'code_bridge_queued')
+    expect(q).toHaveLength(1)
+  })
+})

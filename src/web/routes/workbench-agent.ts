@@ -32,7 +32,7 @@ import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend, isWindowsDriveBridgePath } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
+import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
   setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
@@ -354,6 +354,12 @@ function continueOnAnotherAccount(task: CodeTask): boolean {
           ? msg('code_bridge_incomplete_fallback', turn.lang, { to })
           : msg('code_bridge_stalled_fallback', turn.lang, { to })
   const actorName = task.requestedBy || 'dashboard'
+  // Nobody watched the run: the agent's unmarked answer (often a question for the
+  // owner) goes into the chat before the continuation starts, never lost.
+  if (kind === 'incomplete' && task.chatId) {
+    const partial = incompleteAnswerText(task)
+    if (partial) addAgentMessage(task.chatId, 'assistant', partial)
+  }
   void (async () => {
     const until = Date.now() + CONTINUE_LOCK_WAIT_MS
     while (isTurnRunning(turn.key) && Date.now() < until) await new Promise((r) => setTimeout(r, 1000))
